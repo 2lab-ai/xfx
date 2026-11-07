@@ -1,0 +1,127 @@
+FAIL full p5-transcript-diffwide (fx / red)
+       row 1 FAIL, nothing the claim names covers it: fx '  finish: tool_calls' / red 'er: gateway · model: fake/model-a · <ms>'
+       row 2 FAIL, nothing the claim names covers it: fx '  tokens: 1200 in · 40 out' / red '  finish: tool_calls'
+       row 3 FAIL, nothing the claim names covers it: fx '' / red '  tokens: 1200 in · 40 out'
+       row 4 FAIL, nothing the claim names covers it: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice' / red ''
+       row 5 FAIL, nothing the claim names covers it: fx 'er: gateway · model: fake/model-a · <ms>' / red '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+       row 6 FAIL, nothing the claim names covers it: fx '  finish: stop' / red 'er: gateway · model: fake/model-a · <ms>'
+       row 7 FAIL, nothing the claim names covers it: fx '  tokens: 1200 in · 40 out' / red '  finish: stop'
+       row 8 FAIL, nothing the claim names covers it: fx '' / red '  tokens: 1200 in · 40 out'
+       row 9 FAIL, nothing the claim names covers it: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt' / red ''
+       row 10 FAIL, nothing the claim names covers it: fx '┃ edit the file' / red '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt'
+       row 11 FAIL, nothing the claim names covers it: fx '' / red '┃ edit the file'
+       row 12 FAIL, nothing the claim names covers it: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response' / red ''
+       row 13 FAIL, nothing the claim names covers it: fx '  Editing the file.' / red '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response'
+       row 14 FAIL, nothing the claim names covers it: fx '' / red '  Editing the file.'
+       row 15 FAIL, nothing the claim names covers it: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool' / red ''
+       row 16 FAIL, nothing the claim names covers it: fx '● 2 tool calls · 1 read · 1 edit' / red '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+       row 17 FAIL, nothing the claim names covers it: fx '├ Read wide.txt' / red '● 2 tool calls · 1 read · 1 edit'
+       row 18 FAIL, nothing the claim names covers it: fx '│  1    first line' / red '├ Read wide.txt'
+       row 19 FAIL, nothing the claim names covers it: fx 'ler choseongᅟfiller halfﾠfiller spec\ufff0ial' / red '│  1    first line'
+       row 20 FAIL, nothing the claim names covers it: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAIL' / red 'ler choseongᅟfiller halfﾠfiller spec\ufff0ial'
+       row 21 FAIL, nothing the claim names covers it: fx '│  5678' / red 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAIL'
+       row 22 FAIL, nothing the claim names covers it: fx '' / red '│  5678'
+       row 23 FAIL, nothing the claim names covers it: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool' / red ''
+       row 24 FAIL, nothing the claim names covers it: fx '└ Edited wide.txt +1 / -1' / red '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+       row 25 FAIL, nothing the claim names covers it: fx '' / red '└ Edited wide.txt +1 / -1'
+       row 26 FAIL, nothing the claim names covers it: fx '  │ 1 - first line' / red ''
+       row 27 FAIL, nothing the claim names covers it: fx '  │ 1 + FIRST LINE' / red '  │ 1 - first line'
+       row 28 FAIL, nothing the claim names covers it: fx 'ler choseongᅟfiller halfﾠfiller spec\ufff0ial' / red '  │ 1 + FIRST LINE'
+       row 29 FAIL, nothing the claim names covers it: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAIL' / red 'ler choseongᅟfiller halfﾠfiller spec\ufff0ial'
+       row 30 FAIL, nothing the claim names covers it: fx '  │     5678' / red 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\xad\xad\xad\xadTAIL'
+       41 rows, 11 the same
+FAIL rows p5-transcript-diffwide (fx / red)
+       fx 5 rows / red 4 rows
+ok   margin p5-transcript-diffwide red
+       no cell past column 120
+ok   inline p5-transcript-diffwide edited
+       all 41 rows the same
+ok   inline p5-transcript-diffwide closed
+       all 41 rows the same
+FAIL full p5-transcript-diffwide2 (fx / red)
+       row 2 FAIL, nothing the claim names covers it: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response' / red '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt'
+       row 3 FAIL, nothing the claim names covers it: fx '  Editing the file.' / red '┃ edit the file'
+       row 5 FAIL, nothing the claim names covers it: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool' / red '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response'
+       row 6 FAIL, nothing the claim names covers it: fx '● 2 tool calls · 1 read · 1 edit' / red '  Editing the file.'
+       row 7 FAIL, nothing the claim names covers it: fx '├ Read wide2.txt' / red ''
+       row 8 FAIL, nothing the claim names covers it: fx '│  1    first line' / red '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+       row 9 ['frame-variation-selector-anchor']: fx 'ǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' / red '● 2 tool calls · 1 read · 1 edit'
+       row 10 FAIL, nothing the claim names covers it: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAIL' / red '├ Read wide2.txt'
+       row 11 ['filler-modifier-count']: fx '│  5678' / red '│  1    first line'
+       row 12 ['frame-variation-selector-anchor']: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA' / red 'junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz'
+       row 13 FAIL, nothing the claim names covers it: fx '│  IL5678' / red 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAIL'
+       row 14 ['filler-modifier-count']: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L' / red '│  5678'
+       row 15 ['filler-modifier-count']: fx '│  5678' / red 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA'
+       row 16 ['filler-modifier-count']: fx '│  6    modﾠ🏽end' / red '│  IL5678'
+       row 17 ['filler-modifier-count']: fx '' / red 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽'
+       row 18 ['filler-modifier-count']: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool' / red '│  🏽🏽TAIL5678'
+       row 19 ['filler-modifier-count']: fx '└ Edited wide2.txt +1 / -1' / red '│  6    modﾠ🏽end'
+       row 21 FAIL, nothing the claim names covers it: fx '  │ 1 - first line' / red '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+       row 22 FAIL, nothing the claim names covers it: fx '  │ 1 + FIRST LINE' / red '└ Edited wide2.txt +1 / -1'
+       row 23 ['frame-variation-selector-anchor']: fx 'ǵseong halfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' / red ''
+       row 24 FAIL, nothing the claim names covers it: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAIL' / red '  │ 1 - first line'
+       row 25 ['filler-modifier-count']: fx '  │     5678' / red '  │ 1 + FIRST LINE'
+       row 26 ['frame-variation-selector-anchor']: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA' / red 'junǵseong halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz'
+       row 27 FAIL, nothing the claim names covers it: fx '  │     IL5678' / red 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwﾠ́ﾠ́ﾠ́ﾠ́TAIL'
+       row 28 ['filler-modifier-count']: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽🏽 L' / red 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA'
+       row 29 ['filler-modifier-count']: fx '  │     5678' / red 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽'
+       41 rows, 15 the same
+FAIL rows p5-transcript-diffwide2 (fx / red)
+       fx 10 rows / red 7 rows
+       line 2 apart (named): fx 'lfﾠ︎   x zwjﾠ\\u{200d}y jamoᅟᅠz' / red ' halfﾠ︎x zwjﾠ\\u{200d}y jamoᅟᅠz'
+       line 3 FAIL: fx '  │     5678' / red 'wwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA'
+       line 4 FAIL: fx 'wwwwwwwwwwwwwwwwwwwwwwwwᅟᅠᅟᅠTA' / red 'wwwwwwwwwwwwwwwwwwwwwwwwwwww🏽🏽'
+       line 4 FAIL: fx '  │     IL5678' / red '  │ 6   modﾠ🏽end'
+ok   margin p5-transcript-diffwide2 red
+       no cell past column 120
+ok   inline p5-transcript-diffwide2 edited
+       all 41 rows the same
+ok   inline p5-transcript-diffwide2 closed
+       all 41 rows the same
+FAIL full p5-transcript-diffwrap (fx / red)
+       row 2 FAIL, nothing the claim names covers it: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt' / red '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+       row 3 FAIL, nothing the claim names covers it: fx '┃ write the file' / red 'er: gateway · model: fake/model-a · <ms>'
+       row 4 FAIL, nothing the claim names covers it: fx '' / red '  finish: tool_calls'
+       row 5 FAIL, nothing the claim names covers it: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response' / red '  tokens: 1200 in · 40 out'
+       row 6 FAIL, nothing the claim names covers it: fx '  Writing the file.' / red ''
+       row 7 FAIL, nothing the claim names covers it: fx '' / red '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+       row 8 FAIL, nothing the claim names covers it: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool' / red 'er: gateway · model: fake/model-a · <ms>'
+       row 9 FAIL, nothing the claim names covers it: fx '● 1 tool call · 1 write' / red '  finish: stop'
+       row 10 FAIL, nothing the claim names covers it: fx '└ Wrote wrap.txt +9' / red '  tokens: 1200 in · 40 out'
+       row 12 FAIL, nothing the claim names covers it: fx 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' / red '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt'
+       row 13 FAIL, nothing the claim names covers it: fx '  │     漢TAIL' / red '┃ write the file'
+       row 14 FAIL, nothing the claim names covers it: fx 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' / red ''
+       row 15 FAIL, nothing the claim names covers it: fx '  │     😀TAIL' / red '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response'
+       row 16 FAIL, nothing the claim names covers it: fx 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\x' / red '  Writing the file.'
+       row 17 FAIL, nothing the claim names covers it: fx '  │     1b[2JEND' / red ''
+       row 18 FAIL, nothing the claim names covers it: fx 'cccccccccccccccccccccccccccccccccccc\\u{2' / red '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+       row 19 FAIL, nothing the claim names covers it: fx '  │     02e}END' / red '● 1 tool call · 1 write'
+       row 20 FAIL, nothing the claim names covers it: fx 'dddddddddddddddddddddddddddddddddddddddd' / red '└ Wrote wrap.txt +9'
+       row 21 FAIL, nothing the claim names covers it: fx 'ddddd' / red ''
+       row 22 FAIL, nothing the claim names covers it: fx '  │     ddddddddddd' / red 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+       row 23 FAIL, nothing the claim names covers it: fx 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee X' / red 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+       row 24 FAIL, nothing the claim names covers it: fx 'Y' / red 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\x'
+       row 25 FAIL, nothing the claim names covers it: fx 'ffffffffffffffffffffffffffffffffffffff́f' / red 'cccccccccccccccccccccccccccccccccccc\\u{2'
+       row 26 FAIL, nothing the claim names covers it: fx '  │     Z' / red 'dddddddddddddddddddddddddddddddddddddddd'
+       row 27 FAIL, nothing the claim names covers it: fx 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwTAIL' / red 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+       row 28 FAIL, nothing the claim names covers it: fx 'gggggggggggggggggggggggggggggggggggggggg' / red 'ffffffffffffffffffffffffffffffffffffff́f'
+       row 29 FAIL, nothing the claim names covers it: fx 'gggggggggggggggggggggggggggggggggggggggg' / red 'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwTAIL'
+       row 30 FAIL, nothing the claim names covers it: fx '  │     gggggggggggggggggggggggggg' / red 'gggggggggggggggggggggggggggggggggggggggg'
+       41 rows, 13 the same
+FAIL rows p5-transcript-diffwrap (fx / red)
+       fx 19 rows / red 9 rows
+       line 1 FAIL: fx '  │     漢TAIL' / red 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+       line 2 FAIL: fx 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' / red 'bbbbbbbbbbbbbbbbbbbbbbbbbbbb\\x'
+       line 2 FAIL: fx '  │     😀TAIL' / red 'cccccccccccccccccccccccccc\\u{2'
+       line 3 FAIL: fx 'bbbbbbbbbbbbbbbbbbbbbbbbbbbb\\x' / red 'dddddddddddddddddddddddddddddd'
+       line 3 FAIL: fx '  │     1b[2JEND' / red 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+       line 4 FAIL: fx 'cccccccccccccccccccccccccc\\u{2' / red 'ffffffffffffffffffffffffffff́f'
+       line 4 FAIL: fx '  │     02e}END' / red 'wwwwwwwwwwwwwwwwwwwwwwwwwwTAIL'
+       line 5 FAIL: fx 'dddddddddddddddddddddddddddddd' / red 'gggggggggggggggggggggggggggggg'
+ok   margin p5-transcript-diffwrap red
+       no cell past column 120
+ok   inline p5-transcript-diffwrap edited
+       all 41 rows the same
+ok   inline p5-transcript-diffwrap closed
+       all 41 rows the same
+15 claims, 9 hold, 6 fail

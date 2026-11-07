@@ -1,0 +1,39 @@
+
+== platform
+head 6ab07cea
+Darwin arm64
+GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+grep (BSD grep, GNU compatible) 2.6.0-FreeBSD
+git version 2.54.0 (Apple Git-157)
+
+== ci.yml's block run: steps that name a script (the sweep read only one-line run: steps)
+200:          ./scripts/smoke-tui.sh target/release/xfx \
+
+== scripts/smoke-tui.sh: every line with a grep command word
+10421:    in the harness, so a grep across the evidence directory tells "the sentence
+
+== BSD grep's --exclude: a file operand, standard input, a here-string
+file operand:  -> exit 1
+stdin:         1
+-> exit 0
+here-string:   1
+-> exit 0
+
+== git grep and GREP_OPTIONS
+plain:                            notes.md:1:needle here
+GREP_OPTIONS='-v --exclude=*.md': notes.md:1:needle here
+
+== smoke.sh's expect_absent at :617, under GREP_OPTIONS=--exclude=*content.err
+expect_absent "$evidence/content.err" "$FAKE_KEY" "the credential stayed out of stderr"
+FAIL   (GREP_OPTIONS=''; content.err holds the key)
+pass   (GREP_OPTIONS='--exclude=*content.err'; content.err holds the key)
+expect_contains reading content.err: 0
+
+== smoke.sh's credential walk, the verdict that does not use grep
+220:PYTHON
+331:PYTHON
+519:PYTHON
+834:python3 - "$evidence" "$FAKE_KEY" "$HOSTILE_OIDC" "$HOSTILE_MODEL" >"$evidence/leaks.txt" 2>&1 <<'PYTHON'
+847:for directory, subdirectories, files in os.walk(root):
+901:PYTHON
+902:leak_status=$?

@@ -1,0 +1,7 @@
+pairs: base 104, head 104
+pass: base 39 / 104, head 42 / 104
+verdicts that moved: 3
+  p5-transcript-diffwide/full: unresolved-defect -> normalized-identical
+  p5-transcript-diffwrap/full: unresolved-defect -> normalized-identical
+  p5-transcript-records/start: unresolved-defect -> normalized-identical
+dropped: 0

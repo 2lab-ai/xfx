@@ -1,0 +1,25 @@
+# P5 TG-REDRAW: an open tool group across a live theme switch, 256 colours.
+# One command (each product's own shell tool, in its no-questions mode)
+# that sleeps and then echoes a string, a number and a comment the shell
+# highlighter paints. The terminal reports light while the command runs
+# (the group open, its call running), the call settles and the answer
+# closes the group in the light palette, then dark again.
+fx: gateway p5-toolgroup-live-fx.json
+xfx: gateway p5-toolgroup-live-xfx.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+wait 4
+type run the command
+wait 1
+key Enter
+wait 2
+snap running-dark
+key -H 1b 5b 3f 39 39 37 3b 32 6e
+wait 1.5
+snap running-light
+wait 6
+snap light
+key -H 1b 5b 3f 39 39 37 3b 31 6e
+wait 2
+snap dark

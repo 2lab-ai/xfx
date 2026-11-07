@@ -1,0 +1,118 @@
+# Mutants of f482d340's src (round 2), each applied by mutate.py to a 'git clone --no-local' throwaway in the scratchpad (never the worktree), then
+# cargo test --locked --lib -- tui::theme tui::toolgroup tui::grid tui::transcript tui::frame tui::event_loop tui::shell tui::full_transcript, and the clone's src checked out again.
+# First two lines: the commit and the same run unmutated.
+UNMUTATED f482d340 fix(tui): TG-REDRAW r2 -- a block's undrawn rows are recoloured as they land, not by a second screen recolour
+test result: ok. 1314 passed; 0 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 7.24s
+applied A-no-redraw
+== A-no-redraw: test result: FAILED. 1304 passed; 10 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 7.55s
+   test tui::event_loop::tests::a_group_closed_and_a_switch_before_any_of_it_lands_is_drawn_in_the_new_palette ... FAILED
+   test tui::event_loop::tests::a_rewrite_queued_before_a_switch_keeps_the_rows_the_switch_drew_and_their_drawings ... FAILED
+   test tui::event_loop::tests::a_switch_then_a_narrower_screen_before_a_groups_rewrite_lands_cuts_both_drawings_there ... FAILED
+   test tui::event_loop::tests::a_theme_report_draws_a_tool_groups_rows_again_as_upstream_projects_them ... FAILED
+   test tui::event_loop::tests::a_tool_group_queued_before_a_report_lands_in_the_palette_the_report_set ... FAILED
+   test tui::event_loop::tests::a_tool_group_drawn_light_is_drawn_again_dark_and_light_as_upstream_projects_it ... FAILED
+   test tui::event_loop::tests::a_truecolor_sessions_tool_group_is_drawn_again_as_the_group_draws_it ... FAILED
+   test tui::event_loop::tests::an_open_tool_group_is_drawn_again_on_a_switch_and_settles_in_the_new_palette ... FAILED
+   test tui::grid::tests::a_row_drawn_again_is_what_a_fresh_paint_of_its_drawing_leaves ... FAILED
+   test tui::toolgroup::tests::a_theme_report_repaints_a_group_as_the_other_palette_would_draw_it ... FAILED
+error: test failed, to rerun pass `--lib`
+applied B-no-shape-guard
+== B-no-shape-guard: test result: FAILED. 1313 passed; 1 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 5.26s
+   test tui::grid::tests::a_drawing_that_is_not_the_rows_text_is_not_put_on_it ... FAILED
+error: test failed, to rerun pass `--lib`
+applied C-no-materialize
+== C-no-materialize: test result: FAILED. 1304 passed; 10 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 6.11s
+   test tui::event_loop::tests::a_group_closed_and_a_switch_before_any_of_it_lands_is_drawn_in_the_new_palette ... FAILED
+   test tui::event_loop::tests::a_rewrite_queued_before_a_switch_keeps_the_rows_the_switch_drew_and_their_drawings ... FAILED
+   test tui::event_loop::tests::a_stopped_call_and_a_notice_queued_before_a_report_land_in_the_palette_the_report_set ... FAILED
+   test tui::event_loop::tests::a_switch_then_a_narrower_screen_before_a_groups_rewrite_lands_cuts_both_drawings_there ... FAILED
+   test tui::event_loop::tests::a_stopped_call_and_a_notice_queued_light_land_in_the_dark_palette_the_report_set ... FAILED
+   test tui::event_loop::tests::a_tool_group_queued_before_a_report_lands_in_the_palette_the_report_set ... FAILED
+   test tui::event_loop::tests::a_stopped_call_queued_while_ctrl_o_is_up_lands_in_the_palette_the_report_set ... FAILED
+   test tui::transcript::tests::a_blocks_drawings_stay_with_their_rows_past_the_rows_it_froze ... FAILED
+   test tui::transcript::tests::a_rewrite_queued_behind_one_not_yet_landed_replaces_it ... FAILED
+   test tui::transcript::tests::a_row_drawn_again_lands_in_the_palette_in_force_with_its_drawings ... FAILED
+error: test failed, to rerun pass `--lib`
+applied D-colour-roles
+== D-colour-roles: test result: FAILED. 1312 passed; 2 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 6.71s
+   test tui::theme::tests::a_rows_colours_are_answered_as_the_kind_its_writer_recorded ... FAILED
+   test tui::theme::tests::a_tool_groups_rows_answer_no_colour_at_either_depth ... FAILED
+error: test failed, to rerun pass `--lib`
+applied E-stopped-redrawn
+== E-stopped-redrawn: test result: FAILED. 1308 passed; 6 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 6.03s
+   test tui::event_loop::tests::a_block_landing_behind_a_resume_in_another_palette_owes_no_recolour_of_the_old_screen ... FAILED
+   test tui::event_loop::tests::a_stopped_call_and_a_notice_queued_before_a_report_land_in_the_palette_the_report_set ... FAILED
+   test tui::event_loop::tests::a_stopped_call_and_a_notice_queued_light_land_in_the_dark_palette_the_report_set ... FAILED
+   test tui::event_loop::tests::a_stopped_call_queued_while_ctrl_o_is_up_lands_in_the_palette_the_report_set ... FAILED
+   test tui::toolgroup::tests::a_theme_report_repaints_a_group_as_the_other_palette_would_draw_it ... FAILED
+   test tui::toolgroup::tests::the_groups_header_and_calls_carry_their_drawings_in_both_modes_and_nothing_else_does ... FAILED
+error: test failed, to rerun pass `--lib`
+applied F-reused-row-drops-drawing
+== F-reused-row-drops-drawing: test result: FAILED. 1311 passed; 3 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 5.44s
+   test tui::event_loop::tests::a_rewrite_queued_before_a_switch_keeps_the_rows_the_switch_drew_and_their_drawings ... FAILED
+   test tui::event_loop::tests::a_switch_then_a_narrower_screen_before_a_groups_rewrite_lands_cuts_both_drawings_there ... FAILED
+   test tui::event_loop::tests::an_open_tool_group_is_drawn_again_on_a_switch_and_settles_in_the_new_palette ... FAILED
+error: test failed, to rerun pass `--lib`
+applied G-scroll-drops-drawing
+== G-scroll-drops-drawing: test result: FAILED. 1307 passed; 7 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 7.62s
+   test tui::event_loop::tests::a_group_closed_and_a_switch_before_any_of_it_lands_is_drawn_in_the_new_palette ... FAILED
+   test tui::event_loop::tests::a_theme_report_draws_a_tool_groups_rows_again_as_upstream_projects_them ... FAILED
+   test tui::event_loop::tests::a_tool_group_queued_before_a_report_lands_in_the_palette_the_report_set ... FAILED
+   test tui::event_loop::tests::a_tool_group_drawn_light_is_drawn_again_dark_and_light_as_upstream_projects_it ... FAILED
+   test tui::event_loop::tests::a_truecolor_sessions_tool_group_is_drawn_again_as_the_group_draws_it ... FAILED
+   test tui::event_loop::tests::an_open_tool_group_is_drawn_again_on_a_switch_and_settles_in_the_new_palette ... FAILED
+   test tui::grid::tests::a_rows_drawings_move_with_it_and_go_with_its_cells ... FAILED
+error: test failed, to rerun pass `--lib`
+applied H-drawings-uncut
+== H-drawings-uncut: test result: FAILED. 1312 passed; 2 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 5.68s
+   test tui::event_loop::tests::a_switch_then_a_narrower_screen_before_a_groups_rewrite_lands_cuts_both_drawings_there ... FAILED
+   test tui::transcript::tests::a_row_drawn_again_lands_in_the_palette_in_force_with_its_drawings ... FAILED
+error: test failed, to rerun pass `--lib`
+applied I-wrong-mode
+== I-wrong-mode: test result: FAILED. 1304 passed; 10 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 5.25s
+   test tui::event_loop::tests::a_group_closed_and_a_switch_before_any_of_it_lands_is_drawn_in_the_new_palette ... FAILED
+   test tui::event_loop::tests::a_rewrite_queued_before_a_switch_keeps_the_rows_the_switch_drew_and_their_drawings ... FAILED
+   test tui::event_loop::tests::a_switch_then_a_narrower_screen_before_a_groups_rewrite_lands_cuts_both_drawings_there ... FAILED
+   test tui::event_loop::tests::a_theme_report_draws_a_tool_groups_rows_again_as_upstream_projects_them ... FAILED
+   test tui::event_loop::tests::a_tool_group_queued_before_a_report_lands_in_the_palette_the_report_set ... FAILED
+   test tui::event_loop::tests::a_tool_group_drawn_light_is_drawn_again_dark_and_light_as_upstream_projects_it ... FAILED
+   test tui::event_loop::tests::a_truecolor_sessions_tool_group_is_drawn_again_as_the_group_draws_it ... FAILED
+   test tui::event_loop::tests::an_open_tool_group_is_drawn_again_on_a_switch_and_settles_in_the_new_palette ... FAILED
+   test tui::grid::tests::a_row_drawn_again_is_what_a_fresh_paint_of_its_drawing_leaves ... FAILED
+   test tui::toolgroup::tests::a_theme_report_repaints_a_group_as_the_other_palette_would_draw_it ... FAILED
+error: test failed, to rerun pass `--lib`
+applied R-no-recolour-at-landing
+== R-no-recolour-at-landing: test result: FAILED. 1310 passed; 4 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 5.88s
+   test tui::event_loop::tests::a_block_landing_behind_a_resume_in_another_palette_owes_no_recolour_of_the_old_screen ... FAILED
+   test tui::event_loop::tests::a_stopped_call_and_a_notice_queued_before_a_report_land_in_the_palette_the_report_set ... FAILED
+   test tui::event_loop::tests::a_stopped_call_and_a_notice_queued_light_land_in_the_dark_palette_the_report_set ... FAILED
+   test tui::event_loop::tests::a_stopped_call_queued_while_ctrl_o_is_up_lands_in_the_palette_the_report_set ... FAILED
+error: test failed, to rerun pass `--lib`
+applied S-recolour-drops-bold
+== S-recolour-drops-bold: test result: FAILED. 1313 passed; 1 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 5.53s
+   test tui::transcript::tests::a_row_painted_in_the_other_mode_is_written_as_a_report_would_leave_it ... FAILED
+error: test failed, to rerun pass `--lib`
+applied U-recolour-skips-direct
+== U-recolour-skips-direct: test result: FAILED. 1313 passed; 1 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 5.69s
+   test tui::transcript::tests::a_row_painted_in_the_other_mode_is_written_as_a_report_would_leave_it ... FAILED
+error: test failed, to rerun pass `--lib`
+applied M-no-coalesce
+== M-no-coalesce: test result: FAILED. 1313 passed; 1 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 9.44s
+   test tui::transcript::tests::a_rewrite_queued_behind_one_not_yet_landed_replaces_it ... FAILED
+error: test failed, to rerun pass `--lib`
+applied N-coalesce-any-op
+== N-coalesce-any-op: test result: FAILED. 1311 passed; 3 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 5.29s
+   test tui::shell::tests::a_replayed_tool_group_is_the_live_group_with_its_outcomes_and_counts ... FAILED
+   test tui::shell::tests::a_tool_group_spans_the_turns_steps_and_is_closed_by_its_text ... FAILED
+   test tui::shell::tests::an_amendment_is_the_same_card_live_and_resumed_and_a_prompt_in_the_full_transcript ... FAILED
+error: test failed, to rerun pass `--lib`
+applied O-memo-ignores-mode
+== O-memo-ignores-mode: test result: FAILED. 1312 passed; 2 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 4.95s
+   test tui::event_loop::tests::a_stopped_call_and_a_notice_queued_light_land_in_the_dark_palette_the_report_set ... FAILED
+   test tui::toolgroup::tests::a_calls_command_is_coloured_as_a_fresh_colouring_would_and_kept_per_mode_and_grey ... FAILED
+error: test failed, to rerun pass `--lib`
+applied P-memo-ignores-grey
+== P-memo-ignores-grey: test result: FAILED. 1312 passed; 2 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 5.69s
+   test tui::event_loop::tests::a_stopped_call_and_a_notice_queued_light_land_in_the_dark_palette_the_report_set ... FAILED
+   test tui::toolgroup::tests::a_calls_command_is_coloured_as_a_fresh_colouring_would_and_kept_per_mode_and_grey ... FAILED
+error: test failed, to rerun pass `--lib`

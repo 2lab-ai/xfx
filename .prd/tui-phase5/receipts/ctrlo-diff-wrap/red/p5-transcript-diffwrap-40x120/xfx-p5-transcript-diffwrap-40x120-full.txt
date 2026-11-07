@@ -1,0 +1,40 @@
+
+  2026-11-07 17:51:55.305 KST · Notice
+* network: provider: gateway · model: fake/model-a · 2ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-07 17:51:55.399 KST · Notice
+* network: provider: gateway · model: fake/model-a · 64ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-07 17:51:55.230 KST · Prompt
+┃ write the file
+
+  2026-11-07 17:51:55.340 KST · Response
+  Writing the file.
+
+  2026-11-07 17:51:55.340 KST · Tool
+● 1 tool call · 1 write
+└ Wrote wrap.txt +9
+
+  │ 1 + aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  │ 2 + aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  │ 3 + bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\x
+  │ 4 + cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\u{2
+  │ 5 + tab     dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+  │ 6 + eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+  │ 7 + fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff́f
+  │ 8 + wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwTAIL
+  │ 9 + gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+
+  2026-11-07 17:51:55.448 KST · Response
+  Written.
+
+  2026-11-07 17:51:55.448 KST · Usage
+  0s (↑4 ↓80)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a

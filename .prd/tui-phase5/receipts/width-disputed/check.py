@@ -190,7 +190,12 @@ for scenario, spec in SPEC.items():
     named_xfx = [t for t in only_xfx if t and not (anchored and anchored in t) and not apart("xfx", t)]
     # What may stand on one side only: fx's continuation rows, the named
     # rows, and the top rows fx's later window pushes out of xfx's view.
-    ok = sorted(named_fx) == sorted(spec["only_fx"]) and len(named_xfx) <= len(spec["only_fx"]) and matched >= spec["matched"]
+    # Those of fx's continuations the live `filler-modifier-count` now
+    # covers by their text stand apart with it: since DIFF-WRAP its fx_row
+    # takes in `  │     5678`, line 5's diff row continuation, and the
+    # alike text of line 3's (.prd/tui-phase5/receipts/ctrlo-diff-wrap/).
+    want_fx = [t for t in spec["only_fx"] if not apart("fx", t)]
+    ok = sorted(named_fx) == sorted(want_fx) and len(named_xfx) <= len(spec["only_fx"]) and matched >= spec["matched"]
     claim("full %s (fx / %s), aligned" % (scenario, side), ok,
           ["%d rows the same; only fx: %r; only %s: %r" % (matched, only_fx, side, only_xfx)])
 

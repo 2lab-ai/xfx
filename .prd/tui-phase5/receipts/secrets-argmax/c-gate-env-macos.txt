@@ -1,0 +1,50 @@
+== platform
+Darwin arm64
+GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+grep (BSD grep, GNU compatible) 2.6.0-FreeBSD
+ruby 4.0.6 (2026-07-14 revision 03b6d3f889) +PRISM [arm64-darwin25]
+
+== scripts/test-gate-env.sh at 43ae27de
+test-gate-env: this grep reads GREP_OPTIONS (grep (BSD grep, GNU compatible) 2.6.0-FreeBSD): each case below is a RED for its gate
+test-gate-env: no-stubs: with GREP_OPTIONS='-q' the gate exited 0, expected 1; its last lines:
+check-no-stubs: ok
+test-gate-env: preview-contract: with GREP_OPTIONS='-v' the gate exited 0, expected 1; its last lines:
+check-preview-contract: ok (<tmp>/xfx-gate-env.GB8MXJ/readme/.github/workflows/preview.yml)
+test-gate-env: test-preview-contract: with GREP_OPTIONS='-v' the gate exited 0, expected 1; its last lines:
+test-preview-contract: caught second-workflow              tap.yml mentions TAP_PUSH_KEY
+test-preview-contract: caught other-workflow-environment   dispatch.yml: job leak names environment "preview"
+test-preview-contract: caught other-workflow-whole-context report.yml: job report reads a secret
+test-preview-contract: caught secrets-inherit              call.yml: job call passes secrets
+test-preview-contract: caught epoch-absent                 there is no .github/preview-epoch
+test-preview-contract: caught epoch-two-lines              .github/preview-epoch is "phase4\nphase5\n"
+test-preview-contract: caught epoch-crlf                   .github/preview-epoch is "phase4\r\n"
+test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+test-gate-env: tui-preflight-cost: with GREP_OPTIONS='-v' the gate exited 0, expected 1; its last lines:
+note: line 7 of a run
+note: line 8 of a run
+note: line 9 of a run
+note: line 10 of a run
+note: line 11 of a run
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4000 filtered out
+check-tui-preflight-cost: ok
+test-gate-env: usage-clock: with GREP_OPTIONS='-v' the gate exited 0, expected 1; its last lines:
+check-usage-clock: debug: honoured (debug assertions)
+check-usage-clock: release: ignored (release)
+check-usage-clock: release, fault injection: ignored (release)
+check-usage-clock: ok
+test-gate-env: 5 problem(s), 0 case(s) passed
+-> exit 1, 120 s
+
+== scripts/test-gate-env.sh at 64f5f820
+test-gate-env: this grep reads GREP_OPTIONS (grep (BSD grep, GNU compatible) 2.6.0-FreeBSD): each case below is a RED for its gate
+test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code
+test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command
+test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break
+test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
+test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
+test-gate-env: ok (5 cases)
+-> exit 0, 118 s
+
+== the clone afterwards
+clean

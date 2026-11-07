@@ -1,0 +1,40 @@
+
+[38;5;245m  2026-11-07 18:04:22.739 KST · Prompt[39m
+[38;5;255m┃[39m [1mwrite the file[0m
+
+[38;5;245m  2026-11-07 18:04:22.862 KST · Response[39m
+  Writing the file.
+
+[38;5;245m  2026-11-07 18:04:22.862 KST · Tool[39m
+[38;5;255m●[39m [38;5;245m1 tool call · 1 write[39m
+└ Wrote wrap.txt +9
+
+[38;5;252m  │ 1 + aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa[39m
+[38;5;252m  │     漢TAIL[39m
+[38;5;252m  │ 2 + aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa[39m
+[38;5;252m  │     😀TAIL[39m
+[38;5;252m  │ 3 + bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\x
+  │     1b[2JEND[39m
+[38;5;252m  │ 4 + cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\u{2
+  │     02e}END[39m
+[38;5;252m  │ 5 + tab[39m     [38;5;252mdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+ddddd[39m
+[38;5;252m  │     ddddddddddd[39m
+[38;5;252m  │ 6 + eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee[39m [38;5;252mX
+Y[39m
+[38;5;252m  │ 7 + fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff́f
+  │     Z[39m
+[38;5;252m  │ 8 + wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwTAIL
+  │ 9 + gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+  │     gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+  │     gggggggggggggggggggggggggg[39m
+
+[38;5;245m  2026-11-07 18:04:22.955 KST · Response[39m
+  Written.
+
+[38;5;245m  2026-11-07 18:04:22.955 KST · Usage[39m
+[38;5;245m  0s (↑4 ↓80)[39m
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mfull access[38;5;245m · model-a[39m

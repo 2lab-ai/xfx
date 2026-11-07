@@ -1,0 +1,73 @@
+# Row 8 of the stopped-call pairs (the call's own line), every differing cell, at f482d340 (xfx/): row8.py scripts/fxcap 8 <fx> <xfx>...
+## xfx-p5-toolstop-retint-40x120-dark-again.ansi row 8
+   fx : '▪ Cancelled sleep 6 && echo "x" # note · What can fx do differently?'
+   xfx: '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+   cols 0-0: fx '▪' xfx '■' attrs [((('fg', 252),), (('fg', 252),))]
+   cols 50-58: fx 'fx do dif' xfx 'xfx do di' attrs [((), ())]
+   cols 60-68: fx 'erently?·' xfx 'ferently?' attrs [((), ())]
+## xfx-p5-toolstop-retint-40x120-dark.ansi row 8
+   fx : '▪ Cancelled sleep 6 && echo "x" # note · What can fx do differently?'
+   xfx: '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+   cols 0-0: fx '▪' xfx '■' attrs [((('fg', 252),), (('fg', 252),))]
+   cols 50-58: fx 'fx do dif' xfx 'xfx do di' attrs [((), ())]
+   cols 60-68: fx 'erently?·' xfx 'ferently?' attrs [((), ())]
+## xfx-p5-toolstop-retint-40x120-light.ansi row 8
+   fx : '▪ Cancelled sleep 6 && echo "x" # note · What can fx do differently?'
+   xfx: '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+   cols 0-0: fx '▪' xfx '■' attrs [((('fg', 238),), (('fg', 238),))]
+   cols 50-58: fx 'fx do dif' xfx 'xfx do di' attrs [((), ())]
+   cols 60-68: fx 'erently?·' xfx 'ferently?' attrs [((), ())]
+## xfx-p5-toolstop-retint-light-40x120-dark.ansi row 8
+   fx : '▪ Cancelled sleep 6 && echo "x" # note · What can fx do differently?'
+   xfx: '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+   cols 0-0: fx '▪' xfx '■' attrs [((('fg', 252),), (('fg', 252),))]
+   cols 50-58: fx 'fx do dif' xfx 'xfx do di' attrs [((), ())]
+   cols 60-68: fx 'erently?·' xfx 'ferently?' attrs [((), ())]
+## xfx-p5-toolstop-retint-light-40x120-light-again.ansi row 8
+   fx : '▪ Cancelled sleep 6 && echo "x" # note · What can fx do differently?'
+   xfx: '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+   cols 0-0: fx '▪' xfx '■' attrs [((('fg', 238),), (('fg', 238),))]
+   cols 50-58: fx 'fx do dif' xfx 'xfx do di' attrs [((), ())]
+   cols 60-68: fx 'erently?·' xfx 'ferently?' attrs [((), ())]
+## xfx-p5-toolstop-retint-light-40x120-light.ansi row 8
+   fx : '▪ Cancelled sleep 6 && echo "x" # note · What can fx do differently?'
+   xfx: '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+   cols 0-0: fx '▪' xfx '■' attrs [((('fg', 238),), (('fg', 238),))]
+   cols 50-58: fx 'fx do dif' xfx 'xfx do di' attrs [((), ())]
+   cols 60-68: fx 'erently?·' xfx 'ferently?' attrs [((), ())]
+## xfx-p5-toolstop-retint-tc-40x120-dark-again.ansi row 8
+   fx : '▪ Cancelled sleep 6 && echo "x" # note · What can fx do differently?'
+   xfx: '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+   cols 0-0: fx '▪' xfx '■' attrs [((('fg', 252),), (('fg', 252),))]
+   cols 50-58: fx 'fx do dif' xfx 'xfx do di' attrs [((), ())]
+   cols 60-68: fx 'erently?·' xfx 'ferently?' attrs [((), ())]
+## xfx-p5-toolstop-retint-tc-40x120-dark.ansi row 8
+   fx : '▪ Cancelled sleep 6 && echo "x" # note · What can fx do differently?'
+   xfx: '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+   cols 0-0: fx '▪' xfx '■' attrs [((('fg', 252),), (('fg', 252),))]
+   cols 50-58: fx 'fx do dif' xfx 'xfx do di' attrs [((), ())]
+   cols 60-68: fx 'erently?·' xfx 'ferently?' attrs [((), ())]
+## xfx-p5-toolstop-retint-tc-40x120-light.ansi row 8
+   fx : '▪ Cancelled sleep 6 && echo "x" # note · What can fx do differently?'
+   xfx: '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+   cols 0-0: fx '▪' xfx '■' attrs [((('fg', 238),), (('fg', 238),))]
+   cols 50-58: fx 'fx do dif' xfx 'xfx do di' attrs [((), ())]
+   cols 60-68: fx 'erently?·' xfx 'ferently?' attrs [((), ())]
+## xfx-p5-toolstop-retint-light-tc-40x120-dark.ansi row 8
+   fx : '▪ Cancelled sleep 6 && echo "x" # note · What can fx do differently?'
+   xfx: '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+   cols 0-0: fx '▪' xfx '■' attrs [((('fg', 252),), (('fg', 252),))]
+   cols 50-58: fx 'fx do dif' xfx 'xfx do di' attrs [((), ())]
+   cols 60-68: fx 'erently?·' xfx 'ferently?' attrs [((), ())]
+## xfx-p5-toolstop-retint-light-tc-40x120-light-again.ansi row 8
+   fx : '▪ Cancelled sleep 6 && echo "x" # note · What can fx do differently?'
+   xfx: '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+   cols 0-0: fx '▪' xfx '■' attrs [((('fg', 238),), (('fg', 238),))]
+   cols 50-58: fx 'fx do dif' xfx 'xfx do di' attrs [((), ())]
+   cols 60-68: fx 'erently?·' xfx 'ferently?' attrs [((), ())]
+## xfx-p5-toolstop-retint-light-tc-40x120-light.ansi row 8
+   fx : '▪ Cancelled sleep 6 && echo "x" # note · What can fx do differently?'
+   xfx: '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+   cols 0-0: fx '▪' xfx '■' attrs [((('fg', 238),), (('fg', 238),))]
+   cols 50-58: fx 'fx do dif' xfx 'xfx do di' attrs [((), ())]
+   cols 60-68: fx 'erently?·' xfx 'ferently?' attrs [((), ())]
