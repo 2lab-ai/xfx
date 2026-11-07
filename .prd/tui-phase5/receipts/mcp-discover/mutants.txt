@@ -1,3 +1,7 @@
+# The clone's HEAD: its reflog's last move, before the first mutant ran (the file below was
+# last written at 22:15:28, the mutants run one after another after the sweeps), and after them:
+#   d96603f9 HEAD@{21:16:54}: checkout: moving from f3a859c88003d8a1e977368c1d9ed9e2a09dcd06 to d96603f9
+#   git rev-parse --short=8 HEAD -> d96603f9; git status --porcelain -> 0 lines
 M1 initialize accepts a version not its own (2024-11-05) [src/mcp/era.rs] -> mcp::tests::discover::a_stdio_server_that_speaks_only_2024_11_05: KILLED
     test mcp::tests::discover::a_stdio_server_that_speaks_only_2024_11_05_is_refused_in_fxs_words ... FAILED
     test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4305 filtered out; finished in 0.10s
