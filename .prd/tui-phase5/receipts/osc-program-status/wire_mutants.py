@@ -61,6 +61,26 @@ def another_build(data):
     return data.replace(("v0.1.0-%s" % sha).encode(), b"v0.1.0-0000000")
 
 
+def no_banner(data):
+    # One wire with no banner at all, while every other wire carries the
+    # right one: a check over the union of banners would pass it.
+    return data.replace(("v0.1.0-%s" % sha).encode(), b"v0.1.0-unknown")
+
+
+def unterminated_report_after_the_clear(data):
+    return data + b"\x1b]7501;state=working:app=xfx"
+
+
+def bel_terminated_report(data):
+    at = data.find(b"\x1b]7501;state=working:app=xfx\x1b\\")
+    end = at + len(b"\x1b]7501;state=working:app=xfx")
+    return data[:end] + b"\x07" + data[end + 2 :]
+
+
+def eight_bit_introducer_after_the_clear(data):
+    return data + b"\x9d7501;state=done:app=xfx\x9c"
+
+
 MUTANTS = [
     ("the exit's restore without its clear", EXIT, drop_clear),
     ("the clear moved after ?25h", EXIT, clear_moved_after_the_cursor),
@@ -70,6 +90,10 @@ MUTANTS = [
     ("a permission's label decoding to a control", PERM, message_with_an_escape),
     ("the error report lost", EXIT, a_report_lost),
     ("a wire from another build", PERM, another_build),
+    ("one wire with no banner", PERM, no_banner),
+    ("an unterminated report after the exit's clear", EXIT, unterminated_report_after_the_clear),
+    ("a report ended by BEL", EXIT, bel_terminated_report),
+    ("an 8-bit introducer after the exit's clear", EXIT, eight_bit_introducer_after_the_clear),
 ]
 
 

@@ -1,0 +1,5 @@
+same p5-lifecycle-osc-autocompactfail-40x120 o00-answered           fx  5  prev2  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+DIFF p5-lifecycle-osc-autocompactfail-40x120 o01-failed             fx  7  prev2  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=idle:app=<program>
+build: every prev2 wire carries v0.1.0-eb90e67 and no other banner
+FAIL same p5-lifecycle-osc-autocompactfail-40x120 o01-failed: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=error:app=<program>'] / prev2 ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=idle:app=<program>']
+2 wire pairs, 1 failing claims

@@ -5,26 +5,41 @@
    FAIL same p5-lifecycle-osc-states-40x120 w09-exit: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>',
 == mutant: the clear moved after ?25h
    exit 1, 1 failing claims
-   FAIL clear xfx p5-lifecycle-osc-states-40x120 w09-exit @9503: not right after ?2004l
+   FAIL clear xfx p5-lifecycle-osc-states-40x120 w09-exit @9441: not right after ?2004l
 == mutant: a report after the exit's clear
    exit 1, 2 failing claims
-   FAIL last xfx p5-lifecycle-osc-states-40x120 w09-exit: a report after the last clear
+   FAIL last xfx p5-lifecycle-osc-states-40x120 w09-exit: an introducer after the last clear
    FAIL same p5-lifecycle-osc-states-40x120 w09-exit: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>',
 == mutant: a report inside a frame
    exit 1, 2 failing claims
-   FAIL between xfx p5-lifecycle-osc-states-40x120 w09-exit @9332: inside a frame
+   FAIL between xfx p5-lifecycle-osc-states-40x120 w09-exit @9270: inside a frame
    FAIL same p5-lifecycle-osc-states-40x120 w09-exit: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>',
 == mutant: a permission's label raw on the wire
    exit 1, 2 failing claims
-   FAIL inert xfx p5-lifecycle-osc-states-40x120 w05-permission @3025: msg is not base64: 'terminal echo hi'
+   FAIL inert xfx p5-lifecycle-osc-states-40x120 w05-permission @3027: msg is not base64: 'terminal echo hi'
    FAIL same p5-lifecycle-osc-states-40x120 w05-permission: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<prog
 == mutant: a permission's label decoding to a control
    exit 1, 2 failing claims
-   FAIL inert xfx p5-lifecycle-osc-states-40x120 w05-permission @3025: msg decodes to a control: 'a\x1bb'
+   FAIL inert xfx p5-lifecycle-osc-states-40x120 w05-permission @3027: msg decodes to a control: 'a\x1bb'
    FAIL same p5-lifecycle-osc-states-40x120 w05-permission: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<prog
 == mutant: the error report lost
    exit 1, 1 failing claims
    FAIL same p5-lifecycle-osc-states-40x120 w09-exit: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>',
 == mutant: a wire from another build
    exit 1, 1 failing claims
-   FAIL build: the xfx wires carry ['0000000', 'eb90e67'], not eb90e67
+   FAIL build p5-lifecycle-osc-states-40x120 w05-permission: the wire carries ['0000000'], not 7d8b2c1
+== mutant: one wire with no banner
+   exit 1, 1 failing claims
+   FAIL build p5-lifecycle-osc-states-40x120 w05-permission: the wire carries [], not 7d8b2c1
+== mutant: an unterminated report after the exit's clear
+   exit 1, 2 failing claims
+   FAIL intact xfx p5-lifecycle-osc-states-40x120 w09-exit @9562: an introducer with no whole report: b'\x1b]7501;state=working:app=xfx'
+   FAIL last xfx p5-lifecycle-osc-states-40x120 w09-exit: an introducer after the last clear
+== mutant: a report ended by BEL
+   exit 1, 2 failing claims
+   FAIL intact xfx p5-lifecycle-osc-states-40x120 w09-exit @402: an introducer with no whole report: b'\x1b]7501;state=working:app=xfx\x07\x1b[?2026h\x1b[?25l\x1b[3;1'
+   FAIL same p5-lifecycle-osc-states-40x120 w09-exit: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>',
+== mutant: an 8-bit introducer after the exit's clear
+   exit 1, 2 failing claims
+   FAIL intact xfx p5-lifecycle-osc-states-40x120 w09-exit @9562: an introducer with no whole report: b'\x9d7501;state=done:app=xfx\x9c'
+   FAIL last xfx p5-lifecycle-osc-states-40x120 w09-exit: an introducer after the last clear

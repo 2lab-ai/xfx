@@ -1,5 +1,7 @@
 DIFF p5-lifecycle-osc-ask-40x120        a00-quit               fx  2  red  0  (none)
 DIFF p5-lifecycle-osc-ask-40x120        a01-ask                fx  2  red  0  (none)
+DIFF p5-lifecycle-osc-autocompactfail-40x120 o00-answered           fx  5  red  0  (none)
+DIFF p5-lifecycle-osc-autocompactfail-40x120 o01-failed             fx  7  red  0  (none)
 DIFF p5-lifecycle-osc-compact-40x120    c00-noop               fx  1  red  0  (none)
 DIFF p5-lifecycle-osc-compact-40x120    c01-answered           fx  5  red  0  (none)
 DIFF p5-lifecycle-osc-compact-40x120    c02-compacted          fx  7  red  0  (none)
@@ -34,11 +36,13 @@ DIFF p5-lifecycle-osc-suspend-40x120    s02-resumed            fx  5  red  0  (n
 DIFF p5-lifecycle-osc-suspend-40x120    s03-next-turn          fx  7  red  0  (none)
 DIFF p5-lifecycle-osc-term-40x120       t00-done               fx  3  red  0  (none)
 DIFF p5-lifecycle-osc-term-40x120       t01-terminated         fx  4  red  0  (none)
-build: every banner in the red wires is v0.1.0-24a6b91
+build: every red wire carries v0.1.0-24a6b91 and no other banner
 FAIL last red p5-lifecycle-osc-ask-40x120 a00-quit: the session ended with no clear
 FAIL same p5-lifecycle-osc-ask-40x120 a00-quit: fx ['state=idle:app=<program>', 'state=clear'] / red []
 FAIL last red p5-lifecycle-osc-ask-40x120 a01-ask: the session ended with no clear
 FAIL same p5-lifecycle-osc-ask-40x120 a01-ask: fx ['state=idle:app=<program>', 'state=clear'] / red []
+FAIL same p5-lifecycle-osc-autocompactfail-40x120 o00-answered: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-autocompactfail-40x120 o01-failed: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=error:app=<program>'] / red []
 FAIL same p5-lifecycle-osc-compact-40x120 c00-noop: fx ['state=idle:app=<program>'] / red []
 FAIL same p5-lifecycle-osc-compact-40x120 c01-answered: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / red []
 FAIL same p5-lifecycle-osc-compact-40x120 c02-compacted: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / red []
@@ -78,4 +82,4 @@ FAIL same p5-lifecycle-osc-suspend-40x120 s03-next-turn: fx ['state=idle:app=<pr
 FAIL same p5-lifecycle-osc-term-40x120 t00-done: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / red []
 FAIL last red p5-lifecycle-osc-term-40x120 t01-terminated: the session ended with no clear
 FAIL same p5-lifecycle-osc-term-40x120 t01-terminated: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=clear'] / red []
-36 wire pairs, 43 failing claims
+38 wire pairs, 45 failing claims

@@ -1,5 +1,7 @@
 same p5-lifecycle-osc-ask-40x120        a00-quit               fx  2  xfx  2  state=idle:app=<program> > state=clear
 same p5-lifecycle-osc-ask-40x120        a01-ask                fx  2  xfx  2  state=idle:app=<program> > state=clear
+same p5-lifecycle-osc-autocompactfail-40x120 o00-answered           fx  5  xfx  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-autocompactfail-40x120 o01-failed             fx  7  xfx  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program>
 same p5-lifecycle-osc-compact-40x120    c00-noop               fx  1  xfx  1  state=idle:app=<program>
 same p5-lifecycle-osc-compact-40x120    c01-answered           fx  5  xfx  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
 same p5-lifecycle-osc-compact-40x120    c02-compacted          fx  7  xfx  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
@@ -34,5 +36,5 @@ same p5-lifecycle-osc-suspend-40x120    s02-resumed            fx  5  xfx  5  st
 same p5-lifecycle-osc-suspend-40x120    s03-next-turn          fx  7  xfx  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
 same p5-lifecycle-osc-term-40x120       t00-done               fx  3  xfx  3  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
 same p5-lifecycle-osc-term-40x120       t01-terminated         fx  4  xfx  4  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
-build: every banner in the xfx wires is v0.1.0-eb90e67
-36 wire pairs, 0 failing claims
+build: every xfx wire carries v0.1.0-7d8b2c1 and no other banner
+38 wire pairs, 0 failing claims

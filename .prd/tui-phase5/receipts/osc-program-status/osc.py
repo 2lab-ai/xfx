@@ -3,14 +3,19 @@ v0.0.16 against xfx, report by report.
 
 usage: python3 -I -B osc.py <receipt-dir> <side> <sha7> [<scenario>]
 
-<side> is `xfx` (the build under the receipt), `red` (the base's) or `prev`
-(the unit's first build, `picker` only); a <scenario> limits the run to it. Reads
+<side> is `xfx` (the build under the receipt), `red` (the base's), `prev`
+(the unit's first build, `743c5381`: `picker` only) or `prev2` (round 1's
+build, `eb90e677`: `autocompactfail` only); a <scenario> limits the run to
+it. Reads
 `fx/<scenario>-40x120/fx-<scenario>-40x120-<label>.wire` and the same under
-<side>/ with the `xfx-` prefix. Every report is `ESC ] 7501 ; <body> ESC \\`;
-this file's own parser reads them -- it shares nothing with the code under
-the receipt.
+<side>/ with the `xfx-` prefix. Every report is `ESC ] 7501 ; <body> ESC \\`
+with a body of printable ASCII; this file's own parser reads them -- it shares
+nothing with the code under the receipt -- and it reads them **from every
+introducer** on the wire (`ESC ] 7501` and the 8-bit `0x9d 7501`), so a
+report cut short, spelled with another terminator or carrying a raw byte is
+a failure of its own (`intact`) rather than bytes the comparison skips.
 
-Two normalizations, each named where it is applied and nothing else set
+Three normalizations, each named where it is applied and nothing else set
 aside:
 
   app-name           `app=fx` and `app=xfx` are both the program's name: the
@@ -29,16 +34,22 @@ aside:
                      run of those two spellings, in a question, compares as
                      one space. The question tool's rule, not the reporter's:
                      every other spelled control is compared as it is.
+                     It expires with the `docs/parity.md` row that records
+                     the difference (owner unit QUESTION-BREAKS).
 
 The claims, per wire label:
 
-  build    the xfx wire carries the banner of the build the side names.
+  build    each xfx wire carries the banner of the build the side names, and
+           no other.
+  intact   every introducer on the wire, on either side, begins a whole
+           report: `ESC ] 7501 ;`, printable ASCII, `ESC \\`.
   same     the reports, in order, decoded and normalized, are fx's.
   between  no report is inside a synchronized update a frame opened, on
            either side.
   clear    every `state=clear` follows `?2004l` immediately, on either side.
   last     on a wire that ends the session (an exit, a signal death), no
-           report follows the last clear, on either side.
+           introducer -- whole report or not -- follows the last clear, on
+           either side.
   inert    every `msg` is the base64 alphabet only, and decodes to UTF-8
            with no control character; the report holds no ESC but its two.
 
@@ -52,18 +63,31 @@ import os
 import re
 import sys
 
-REPORT = re.compile(rb"\x1b\]7501;(.*?)\x1b\\", re.S)
+# Where a report could begin: the 7-bit introducer, and the 8-bit one.
+INTRODUCER = re.compile(rb"\x1b\]7501|\x9d7501")
+# A whole report, anchored at an introducer: printable ASCII, then `ESC \`.
+WHOLE = re.compile(rb"\x1b\]7501;([\x20-\x7e]*)\x1b\\")
 B64 = re.compile(r"^[A-Za-z0-9+/]*={0,2}$")
 ENDS = ("w09-exit", "h02-exit", "i02-exit", "t01-terminated", "u01-hung-up", "a00-quit", "a01-ask")
 
 
 def reports(data):
-    """Each report: its offset and its body, as bytes."""
-    return [(m.start(), m.group(1)) for m in REPORT.finditer(data)]
+    """Each whole report: its offset and its body, as bytes."""
+    found = []
+    for intro in INTRODUCER.finditer(data):
+        whole = WHOLE.match(data, intro.start())
+        if whole:
+            found.append((whole.start(), whole.group(1)))
+    return found
+
+
+def broken(data):
+    """The offsets of every introducer that does not begin a whole report."""
+    return [m.start() for m in INTRODUCER.finditer(data) if not WHOLE.match(data, m.start())]
 
 
 def normalized(body):
-    """A report body as a comparable string, with the two normalizations."""
+    """A report body as a comparable string, with the three normalizations."""
     text = body.decode("utf-8", "replace")
     fields = text.split(":")
     kind = "question" if "kind=question" in fields else None
@@ -141,16 +165,21 @@ def main():
     fx = {k: v for k, v in side_wires(receipt, "fx").items() if only in (None, k[0])}
     xfx = side_wires(receipt, side)
     failures = []
-    banners = set()
     for key in sorted(fx):
         unit, label = key
         if key not in xfx:
             failures.append("%s %s: no %s wire" % (unit, label, side))
             continue
         ours, theirs = xfx[key], fx[key]
-        found = re.findall(rb"v0\.1\.0-([0-9a-f]{7})", ours)
-        banners.update(f.decode() for f in found)
+        banners = {f.decode() for f in re.findall(rb"v0\.1\.0-([0-9a-f]{7})", ours)}
+        if banners != {sha}:
+            failures.append("build %s %s: the wire carries %s, not %s" % (unit, label, sorted(banners), sha))
         for name, data in (("fx", theirs), (side, ours)):
+            for at in broken(data):
+                failures.append(
+                    "intact %s %s %s @%d: an introducer with no whole report: %r"
+                    % (name, unit, label, at, data[at : at + 48])
+                )
             for at, body in reports(data):
                 why = inert(body)
                 if why:
@@ -163,18 +192,16 @@ def main():
                 last_clear = data.rfind(b"\x1b]7501;state=clear\x1b\\")
                 if last_clear < 0:
                     failures.append("last %s %s %s: the session ended with no clear" % (name, unit, label))
-                elif REPORT.search(data, last_clear + 1):
-                    failures.append("last %s %s %s: a report after the last clear" % (name, unit, label))
+                elif INTRODUCER.search(data, last_clear + 1):
+                    failures.append("last %s %s %s: an introducer after the last clear" % (name, unit, label))
         a = [normalized(b) for _, b in reports(theirs)]
         b = [normalized(b) for _, b in reports(ours)]
         mark = "same" if a == b else "DIFF"
         print("%-4s %-34s %-22s fx %2d  %s %2d  %s" % (mark, unit, label, len(a), side, len(b), " > ".join(b) or "(none)"))
         if a != b:
             failures.append("same %s %s: fx %s / %s %s" % (unit, label, a, side, b))
-    if banners != {sha}:
-        failures.append("build: the %s wires carry %s, not %s" % (side, sorted(banners), sha))
-    else:
-        print("build: every banner in the %s wires is v0.1.0-%s" % (side, sha))
+    if not any(f.startswith("build ") for f in failures):
+        print("build: every %s wire carries v0.1.0-%s and no other banner" % (side, sha))
     for failure in failures:
         print("FAIL", failure)
     print("%d wire pairs, %d failing claims" % (len(fx), len(failures)))
