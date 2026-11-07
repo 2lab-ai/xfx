@@ -48,9 +48,11 @@ The claims (SPEC below):
            names (`hidden`). A row whose text is the same on both sides is the
            same cell by cell, styles included; one spelled differently has the
            same styles as fx's.
-  bytes    T10 (T-U6b): Ctrl-O's diff rows, each the same bytes on both sides
-           as the capture holds them (`capture-pane -e`, colours and all), and
-           printed.
+  bytes    T10 (T-U6b): Ctrl-O's diff rows -- or the ones the claim lists --
+           each the same bytes on both sides as the capture holds them
+           (`capture-pane -e`, colours and all), and printed. The width
+           scenario (T-U6c) is captured on fx and xfx only, so its claim is
+           not run against an earlier build.
   refused  T10: xfx draws no diff for an edit of a file that is not UTF-8: no
            diff row, and the call's row says it failed.
   nodiff   T10: the inline transcript draws no diff of a change, on either
@@ -416,13 +418,13 @@ def check_spelled(scenario, snap, kind, ws, name, old, new, window):
     return claim
 
 
-def check_bytes(scenario, snap):
-    claim = Claim("bytes %s %s" % (scenario, snap))
+def check_bytes(scenario, snap, only=None):
+    claim = Claim("bytes %s %s%s" % (scenario, snap, "" if only is None else " %s" % only))
     found = {}
     for side in ("fx", "xfx"):
         lines = open(path(side, scenario, snap), encoding="utf-8").read().split("\n")
         listed = diff_rows(rows_of(side, scenario, snap), "ctrl-o")
-        found[side] = [((n, s), lines[i]) for i, n, s, _ in listed]
+        found[side] = [((n, s), lines[i]) for i, n, s, _ in listed if only is None or (n, s) in only]
     if [k for k, _ in found["fx"]] != [k for k, _ in found["xfx"]] or not found["fx"]:
         claim.fail("the diff rows are fx %s / %s %s" % ([k for k, _ in found["fx"]], side_name("xfx"), [k for k, _ in found["xfx"]]))
         return claim
@@ -475,8 +477,17 @@ def check_nodiff(scenario, snap, name):
 
 def findings(scenario, snap):
     """Rows outside every claim that hand a hidden character to the terminal
-    on xfx's side."""
+    on xfx's side; and, for the width scenario, its line at the margin on both
+    sides."""
     out = []
+    if scenario == "p5-transcript-diffwide":
+        if xside != "xfx":
+            return out
+        for side in ("fx", "xfx"):
+            for _, n, s, t in diff_rows(rows_of(side, scenario, snap), "ctrl-o"):
+                if n == 3:
+                    out.append("%s %s %s line 3 (ctrl-o-width-disputed) ends %r" % (scenario, snap, side_name(side), t[-8:]))
+        return out
     for i, r in enumerate(rows_of("xfx", scenario, snap)):
         if CTRL_O.match(text(r)):
             continue
@@ -523,6 +534,10 @@ SPEC = [
     ("bytes", "p5-transcript-diffctl", "full"),
     ("bytes", "p5-transcript-diffodd", "full"),
     ("bytes", "p5-transcript-diffask", "full"),
+    # T-U6c: the width-disputed code points, written as fx writes them; the
+    # line at the margin is the ledger's cause `ctrl-o-width-disputed`
+    # (printed under the findings).
+    ("bytes", "p5-transcript-diffwide", "full", [(1, "-"), (1, "+"), (2, " ")]),
     ("refused", "p5-transcript-diffbad", "full") + BAD,
     ("nodiff", "p5-transcript-diffctl", "edited", "ctl.txt"),
     ("nodiff", "p5-transcript-diffodd", "edited", "odd.txt"),
@@ -531,7 +546,8 @@ SPEC = [
     ("inline", "p5-transcript-diffask", "applied"),
     ("inline", "p5-transcript-diffask", "closed"),
 ]
-FINDINGS = [("p5-transcript-diffodd", "full"), ("p5-transcript-diffctl", "full"), ("p5-transcript-diffask", "full")]
+FINDINGS = [("p5-transcript-diffodd", "full"), ("p5-transcript-diffctl", "full"), ("p5-transcript-diffask", "full"),
+            ("p5-transcript-diffwide", "full")]
 
 
 def run(item):
@@ -551,7 +567,7 @@ def run(item):
     if kind == "spelled":
         return check_spelled(scenario, item[2], item[3], *item[4:])
     if kind == "bytes":
-        return check_bytes(scenario, item[2])
+        return check_bytes(scenario, item[2], item[3] if len(item) > 3 else None)
     if kind == "refused":
         return check_refused(scenario, item[2], *item[3:])
     if kind == "nodiff":
@@ -562,6 +578,8 @@ def run(item):
 def main():
     claims = []
     for item in SPEC:
+        if item[1] == "p5-transcript-diffwide" and xside != "xfx":
+            continue
         try:
             claim = run(item)
         except Malformed as error:

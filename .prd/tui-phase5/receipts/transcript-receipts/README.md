@@ -17,9 +17,11 @@ and T10 of `research/tui-phase5:.prd/tui-phase5/research/transcript.md` (§2;
   - `xfx/`: `f84734dc`, the code under this receipt (T-U6b's two commits,
     `798ac1f1` and `f84734dc`, on top of T-U6's `4aca2576`);
   - `red-u6b/`: `4aca2576`, T-U6, the head T-U6b changes;
-  - `red/`: `039fb5c8`, the base.
+  - `red/`: `039fb5c8`, the base;
+  - `xfx/p5-transcript-diffwide-40x120/` only: `20046d63`, T-U6c. It changes
+    tests only, so its product code is `f84734dc`'s.
   - `publish.py` checked each xfx snap whose row 1 is the banner as it copied
-    it: `v0.1.0-f84734d`, `-4aca257` and `-039fb5c`. Every scenario has at
+    it: `v0.1.0-f84734d` (and `-20046d6` for the width scenario), `-4aca257` and `-039fb5c`. Every scenario has at
     least one such snap.
   - The submit wires carry no banner on screen, so `check.py`'s `build`
     claim finds it in the wire's own bytes, once.
@@ -150,7 +152,7 @@ spelling. That closed the security hole, and T-U6b replaces it.
 - Every T7 and T8 claim holds on both earlier builds: T-U6b changed nothing
   there.
 
-## GREEN (`green.txt`: 34 claims, 34 hold)
+## GREEN (`green.txt`: 35 claims, 35 hold)
 
 `check.py` reads every capture cell by cell, styles included. Where it
 compares two sides, it applies the ledger's normalizations first. It sets
@@ -271,6 +273,61 @@ Two mutants check this:
   same at rows 73-132, under the previous turn's summary.
 - `tall` and `tall.full` are identical on the two sides.
 
+## T-U6c: the review's follow-ups (test only)
+
+Both reviewers returned MUST none, and opus approved. Its SHOULD items are
+taken here in `20046d63`, which changes tests only: the product code is
+`f84734dc`'s.
+
+1. **Range ends.** The new test
+   `every_code_point_to_u2100_and_past_it_is_spelled_as_fx_spells_it` runs
+   every code point in `0..=0x2100` through `terminal_safe_line`, and also
+   U+FEFF, U+061C, U+3164, U+FFA0 and U+FFF0-FFF8. It checks each against
+   fx's rule, which the test writes out itself (`terminalSafeToken`,
+   `:643-667`; `isNonPrintingCodepoint`, `:703-708`). `code-mutant-c.txt`
+   has three mutants, each run on a throwaway `--no-local` clone:
+   - `0x2028..=0x202e` narrowed to `{0x2028, 0x202e}` (U+202A-D raw) passes
+     the other 73 tests and fails the new one at `U+2029`;
+   - `0x2060..=0x206f` narrowed to `0x2066..=0x2069` passes the other 73 and
+     fails the new one at `U+2060`.
+2. **The `acted_on` loop.** The check now reads each row with only the
+   palette's own SGR taken out (`DARK.dim()`, `diff()`, `reset()`), not
+   `plain()`, which strips every escape sequence. The third mutant, with ESC
+   written raw, fails it: `a row hands the terminal a character it acts on:
+   "  │ 3 + esc \u{1b}[2J …"`.
+3. **The width-disputed code points.** These are U+00AD, U+115F, U+1160,
+   U+3164, U+FFA0 and U+FFF0-FFF8.
+   - **fx at 481104fd writes them raw.** `isNonPrintingCodepoint`
+     (`text_utils.zig:703-708`) has no arm for them. fx counts them as one
+     cell or two (`runeWidth`, `display_width.zig:275-282`, unchanged from
+     c1db9191).
+   - Ctrl-O keeps them raw too, and the new test pins that.
+   - **The capture settles the width question** (`p5-transcript-diffwide`,
+     from `20046d6`'s build):
+     - The short line is the same bytes on both sides (`bytes`, rows 1-2).
+     - The line at the margin is 104 `w`s, four soft hyphens and
+       `TAIL5678`. fx's row ends `TAIL`: it counts the four hyphens and
+       cuts at 112 cells. xfx's row ends `TAI8`: xfx counts the hyphens as
+       no cells, the terminal draws each a cell wide, and so `L5678`, past
+       the margin, is written into the last cell.
+   - So on Ctrl-O a file's line can push its own tail past the margin, as
+     the review predicted.
+   - It is recorded as a ledger **`[[cause]]`** of kind `defect`,
+     `ctrl-o-width-disputed`. It approves nothing. It names the code points,
+     says they are kept raw as fx's are, and states the margin defect (xfx
+     `src/tui/frame.rs:2910-2931`, fx `display_width.zig:275-282@c1db9191`).
+     It is fixed when xfx counts them as the terminal draws them, or names
+     them. This unit changes no product behaviour, so the fix is left to
+     its owner.
+4. **`review-diff-spelling`'s selector.**
+   - Its `fx_row` now matches any review row holding a backslash: one of
+     fx's escapes, or a backslash the file holds. That covers the
+     lone-backslash case.
+   - The reason is narrowed to what the selector covers. A line whose only
+     such byte is a tab or a trailing CR leaves fx's row nothing to be told
+     by (blank cells, or nothing), so its row sweeps unresolved until a
+     scenario needs a selector for it. That fails closed, as before.
+
 ## Findings no claim covers (printed by `check.py`)
 
 **T-U1-SAFE (another worker):** Ctrl-O's read, argument and command rows
@@ -281,6 +338,9 @@ Two mutants check this:
   rows 16-17).
 - That path is left alone here, and kept open in the Ctrl-O row of
   `docs/parity.md`.
+
+**`ctrl-o-width-disputed`** (T-U6c, above): the diff row at the margin, fx
+`…TAIL`, xfx `…TAI8`.
 
 ## Files
 
@@ -295,12 +355,14 @@ Two mutants check this:
   - `mutants.txt`: 11 mutants (T7 ×3, T8 ×2, T10 ×6). Each fails with the
     FAIL line it names, the unchanged captures pass, and the run exits 0;
   - `code-mutant.txt`: the bidi code mutant;
+  - `code-mutant-c.txt`: T-U6c's three code mutants (two narrowed ranges,
+    and ESC written raw);
   - `red-test.txt`: T-U6's RED test.
 
 Commands, from the worktree (`R=.prd/tui-phase5/receipts/transcript-receipts`):
 
 ```
-python3 -I -B $R/publish.py . <scratch> $R f84734d 039fb5c 4aca257
+python3 -I -B $R/publish.py . <scratch> $R f84734d 039fb5c 4aca257 20046d6
 python3 -I -B $R/frames.py $R /private/tmp/claude-501/tr/fr
 python3 -I -B $R/check.py . $R xfx       # green.txt
 python3 -I -B $R/check.py . $R red-u6b   # red-u6b.txt
@@ -310,23 +372,21 @@ python3 -I -B $R/mutants.py . $R /private/tmp/claude-501/tr/mu
 
 ## Gates
 
-These ran on `f84734dc`, the code under this receipt; this receipt's commit
-adds only the receipt. `TMPDIR` was `/private/tmp/claude-501/tr`, and each
-suite ran alone, after the idle wait.
+These ran on `20046d63`: T-U6c's tests on `f84734dc`'s product code. This
+receipt's commit adds the receipt and the ledger only. `TMPDIR` was
+`/private/tmp/claude-501/tr`, and each suite ran alone, after the idle wait.
 
 | gate | result |
 |---|---|
 | `cargo fmt --check` | ok |
 | `cargo clippy --locked --all-targets -- -D warnings` | ok |
 | `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | ok |
-| `cargo test --locked --no-fail-fast` | 4928 passed, 0 failed, 7 ignored |
-| `cargo test --locked --features fault-injection --no-fail-fast` | 4957 passed, 0 failed, 7 ignored |
+| `cargo test --locked --no-fail-fast` | 4929 passed, 0 failed, 7 ignored |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 4958 passed, 0 failed, 7 ignored |
 | `scripts/check-xfx-identity.sh`, `check-no-stubs.sh` | ok, ok |
-| `scripts/check-no-secrets.sh`, run again once this receipt was staged whole | ok |
-| `scripts/fxcap/test-sweep.sh` (the ledger changed) | OK, both suites |
-| `check.py … xfx` (`green.txt`) | 34 claims, 34 hold |
-| `check.py … red-u6b` (`red-u6b.txt`) | 34 claims, 28 hold, 6 fail (Ctrl-O `spelled`, `bytes`) |
-| `check.py … red` (`red.txt`) | 34 claims, 28 hold, 6 fail (the same, with raw U+202E/U+200B/U+FEFF) |
+| `scripts/check-no-secrets.sh`, run once this receipt and the ledger were staged | ok |
+| `scripts/fxcap/test-sweep.sh`; the ledger loads with its sources checked | OK, both suites; ok |
+| `check.py … xfx` (`green.txt`) | 35 claims, 35 hold |
+| `check.py … red-u6b` / `… red` | 34 claims, 28 hold, 6 fail each (the width claim is xfx's only) |
 | `mutants.py` (`mutants.txt`) | 11 mutants, each failed with its line; exit 0 |
-| `code-mutant.txt` | the bidi arm dropped: 2 tests fail |
-| transcript-wrap `check.py`, `mutants-c.py` | unchanged by T-U6b (34/34; 9 mutants held) |
+| `code-mutant.txt`, `code-mutant-c.txt` | the bidi arm dropped: 2 tests fail; two narrowed ranges: each passes the other 73 tests and fails the new one; ESC raw: the `acted_on` check fails |

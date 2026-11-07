@@ -357,9 +357,9 @@ class = "unsafe-to-copy"
 pins = ["v0.0.16"]
 scenarios = ["*"]
 snaps = ["*"]
-fx_row = '^ +\d+ [ +-] .*\\(?:x[0-9a-f]{2}|u\{[0-9a-f]{4,}\})'
+fx_row = '^ +\d+ [ +-] .*\\'
 xfx_row = '^ +\d+ [ +-] .*\\(?:u\{[0-9A-F]{4,}\}|[tr\\])'
-reason = "The permission question's review of a change keeps xfx's injective spelling of a file's bytes (a control by its code point, `\\u{001B}`; a tab and a carriage return by name, `\\t`, `\\r`; a backslash doubled), where fx v0.0.16's review writes `\\x1b`, keeps a tab, drops a line's trailing carriage return and leaves a backslash single (`appendTerminalSafeLine`, `text_utils.zig:419-442@481104fd`). fx's lossy form cannot be copied safely on a decision screen: a CR-only or trailing-CR change would read identical to the person approving it. Ctrl-O, which decides nothing, writes fx's form (T-U6b). Decided by the dispatcher 2026-11-07."
+reason = "The permission question's review of a change keeps xfx's injective spelling of a file's bytes (a control by its code point, `\\u{001B}`; a tab and a carriage return by name, `\\t`, `\\r`; a backslash doubled), where fx v0.0.16's review writes `\\x1b`, keeps a tab, drops a line's trailing carriage return and leaves a backslash single (`appendTerminalSafeLine`, `text_utils.zig:419-442@481104fd`). fx's lossy form cannot be copied safely on a decision screen: a CR-only or trailing-CR change would read identical to the person approving it. Ctrl-O, which decides nothing, writes fx's form (T-U6b). What this covers is narrower than that decision: a review row whose fx side holds a backslash (one of fx's escapes, or one the file holds) and whose xfx side holds one of xfx's names. A line whose only such byte is a tab or a trailing carriage return leaves fx's row nothing to be told by (blank cells; nothing at all), so its row is not covered and sweeps unresolved until a scenario needs one and a selector is written for it (T-U6c). Decided by the dispatcher 2026-11-07."
 owner = "T-U6b"
 resolution = "fx's review shows a change of a carriage return, a tab or a backslash as a change (an injective spelling) in a later pin and xfx takes its form, or the user takes fx's lossy form for the review"
 expires = "date:2026-12-04"
@@ -386,6 +386,18 @@ source = ["src/tui/approval_view.rs:971-976", "docs/parity.md:238"]
 # .prd/tui-phase4/receipts/sweep/ has the table.
 
 # (b) units in flight, the specific rows first.
+
+[[cause]]
+id = "ctrl-o-width-disputed"
+kind = "defect"
+owner = "T-U6c finding: xfx's width of the default-ignorables a terminal draws"
+scenarios = ["*"]
+snaps = ["*"]
+fx_row = '^  │ +\d+ [ +-] .*[\u00ad\u115f\u1160\u3164\uffa0\ufff0-\ufff8]'
+xfx_row = '^  │ +\d+ [ +-] .*[\u00ad\u115f\u1160\u3164\uffa0\ufff0-\ufff8]'
+xfx = "src/tui/frame.rs:2910-2931"
+fx = "src/core/shared/display_width.zig:275-282@c1db9191"
+why = "Ctrl-O's diff rows write the soft hyphen U+00AD, the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0, and U+FFF0-FFF8 as themselves, as fx v0.0.16 does (`isNonPrintingCodepoint`, `text_utils.zig:703-708@481104fd`, has no arm for them; T-U6c pins it): on a short line the bytes are fx's. But xfx's width table counts them as no cells and `clip` cuts a row by it, where tmux 3.7b draws each a cell wide (approval_view's `default_ignorable`) and fx counts one or two (`runeWidth`, unchanged at 481104fd): a line that reaches the last column by xfx's count runs past it, and the terminal writes its tail into the last cell. `p5-transcript-diffwide` `full` row 3: 104 `w`s, four soft hyphens and `TAIL5678`: fx's row ends `TAIL`, cut at 112 cells by its count; xfx's ends `TAI8`, the `L5678` past the margin written into its last cell. Fixed when xfx counts them as the terminal draws them, or names them (a divergence from fx's bytes, then)."
 
 [[cause]]
 id = "submit-multi-card-whole"

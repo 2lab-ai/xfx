@@ -89,6 +89,11 @@ ok   bytes p5-transcript-diffask full
        3 -  '\x1b[38;5;252m  │ 3 - third line\x1b[39m'
        3 +  '\x1b[38;5;252m  │ 3 + THIRD LINE\x1b[39m'
        all 4 diff rows the same bytes on both sides
+ok   bytes p5-transcript-diffwide full [(1, '-'), (1, '+'), (2, ' ')]
+       1 -  '\x1b[38;5;252m  │ 1 - first line\x1b[39m'
+       1 +  '\x1b[38;5;252m  │ 1 + FIRST LINE\x1b[39m'
+       2    '\x1b[38;5;245m  │ 2   soft\xadhyphen hangulfiller choseongᅟfiller halfﾠfiller spec\ufff0ial\x1b[39m'
+       all 3 diff rows the same bytes on both sides
 ok   refused p5-transcript-diffbad full
        fx  edits it: 4 diff rows, its stray bytes spelled ['bad \\xff byte', 'lone \\xc3 lead']
        xfx no diff row; '└ Failed bad.txt: edit_file will not replace `bad.txt` because this session has not read it; call read_file on it first'
@@ -106,7 +111,9 @@ ok   inline p5-transcript-diffask applied
        all 41 rows the same
 ok   inline p5-transcript-diffask closed
        all 41 rows the same
-34 claims, 34 hold, 0 fail
-findings (no claim covers these rows): 2
+35 claims, 35 hold, 0 fail
+findings (no claim covers these rows): 4
        p5-transcript-diffodd full row 16 '│  3    bidi \u202e reversed': U+202E as itself
        p5-transcript-diffodd full row 17 '│  4    zero\u200bwidth \ufeff bom': U+200B, U+FEFF as itself
+       p5-transcript-diffwide full fx line 3 (ctrl-o-width-disputed) ends '\xad\xad\xad\xadTAIL'
+       p5-transcript-diffwide full xfx line 3 (ctrl-o-width-disputed) ends '\xad\xad\xad\xadTAI8'

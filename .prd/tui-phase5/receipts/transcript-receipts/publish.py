@@ -1,7 +1,7 @@
 """Copies T-U6's captures into the receipt, redacted, after checking that each
 xfx snap whose row 1 is the banner names the build it must.
 
-usage: python3 -I -B publish.py <repo> <cap-dir> <receipt-dir> <green-sha7> <red-sha7> <red-u6b-sha7>
+usage: python3 -I -B publish.py <repo> <cap-dir> <receipt-dir> <green-sha7> <red-sha7> <red-u6b-sha7> <wide-sha7>
 
 <cap-dir> holds `fx/`, `xfx/` (the build under the receipt), `red/` (the
 base's build) and `red-u6b/` (T-U6's build, which T-U6b changes), each as
@@ -19,7 +19,7 @@ import shutil
 import sys
 
 repo, cap, out = (os.path.realpath(p) for p in sys.argv[1:4])
-green_sha, red_sha, u6b_sha = sys.argv[4:7]
+green_sha, red_sha, u6b_sha, wide_sha = sys.argv[4:8]
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(repo, "scripts", "fxcap"))
 from redact import LEFTOVER, Redactor  # noqa: E402
@@ -34,8 +34,12 @@ LABEL = re.compile(r"^[a-z0-9.]+(?:-[a-z0-9.]+)*\.(?:ansi|txt|wire)$")
 for name in SIDES:
     shutil.rmtree(os.path.join(out, name), ignore_errors=True)
 n = 0
-for side, (name, prefix, sha) in SIDES.items():
-    for scenario in SCENARIOS:
+# T-U6c's width scenario, on fx and on xfx only, xfx's from T-U6c's build
+# (its code is f84734dc's: T-U6c changed tests only).
+WIDE = "p5-transcript-diffwide"
+for side, (name, prefix, side_sha) in SIDES.items():
+    for scenario in SCENARIOS + ([WIDE] if side in ("fx", "xfx") else []):
+        sha = wide_sha if (scenario == WIDE and side_sha) else side_sha
         unit = scenario + "-40x120"
         lead = "%s-%s-" % (prefix, unit)
         files = []

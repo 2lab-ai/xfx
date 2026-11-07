@@ -1,36 +1,36 @@
-== unchanged captures: exit 0  34 claims, 34 hold, 0 fail
+== unchanged captures: exit 0  35 claims, 35 hold, 0 fail
 == mutant: T7: xfx's first frame clears the composer without the card (the card a frame late, as old fx)
-   exit 1  34 claims, 32 hold, 2 fail
+   exit 1  35 claims, 33 hold, 2 fail
    FAIL xfx frame 1: the card shows [], the claim is ['second prompt'] | FAIL the cards are fx ['second prompt'] / xfx []
 == mutant: T7: xfx's first frame keeps the draft in the composer
-   exit 1  34 claims, 32 hold, 2 fail
+   exit 1  35 claims, 33 hold, 2 fail
    FAIL xfx frame 1: the composer row is '┃ multi line three' (the hint 'auto · model-a'), not an empty composer | FAIL rows differ: [('band', 38)]
 == mutant: T7: the replayed wire is not the snap it must be
-   exit 1  34 claims, 33 hold, 1 fail
+   exit 1  35 claims, 34 hold, 1 fail
    FAIL fx: the replayed wire is not the `second` snap: rows [2]
 == mutant: T8: two of xfx's tall card rows change places in scrollback
-   exit 1  34 claims, 32 hold, 2 fail
+   exit 1  35 claims, 33 hold, 2 fail
    FAIL xfx: the card's rows from row 3 are not in order, one after another | FAIL rows [28, 29] differ
 == mutant: T8: one of xfx's tall card rows is lost from scrollback
-   exit 1  34 claims, 32 hold, 2 fail
+   exit 1  35 claims, 33 hold, 2 fail
    FAIL xfx: 1 of 60 card rows not exactly once ([('┃ tall prompt body 27', 0)]) | FAIL rows [30] differ
 == mutant: T10: xfx's Ctrl-O row hands the terminal the file's ESC[2J
-   exit 1  34 claims, 32 hold, 2 fail
+   exit 1  35 claims, 33 hold, 2 fail
    FAIL xfx row 27: 'beforecleared', fx's spelling is 'before\\x1b[2Jcleared' | FAIL 1  : fx '\x1b[38;5;245m  │ 1   before\\x1b[2Jcleared\x1b[39m' / xfx '\x1b[38;5;245m  │ 1   before\x1b[2Jcleared\x1b[39m'
 == mutant: T10: xfx's Ctrl-O row drops the bidi escape and hands the terminal U+202E
-   exit 1  34 claims, 32 hold, 2 fail
+   exit 1  35 claims, 33 hold, 2 fail
    FAIL xfx row 27: 'bidi \u202e reversed', fx's spelling is 'bidi \\u{202e} reversed' | FAIL xfx row 27: the terminal was handed ['U+202E'] as itself
 == mutant: T10: xfx's tab cells carry the row's colour
-   exit 1  34 claims, 33 hold, 1 fail
+   exit 1  35 claims, 34 hold, 1 fail
    FAIL 2  : fx '\x1b[38;5;245m  │ 2   tab\x1b[39m     \x1b[38;5;245mhere\x1b[39m' / xfx '\x1b[38;5;245m  │ 2   tab     here\x1b[39m'
 == mutant: T10: xfx's Ctrl-O writes xfx's own spelling, as before T-U6b
-   exit 1  34 claims, 32 hold, 2 fail
+   exit 1  35 claims, 33 hold, 2 fail
    FAIL xfx row 27: 'before\\u{001B}[2Jcleared', fx's spelling is 'before\\x1b[2Jcleared' | FAIL 1  : fx '\x1b[38;5;245m  │ 1   before\\x1b[2Jcleared\x1b[39m' / xfx '\x1b[38;5;245m  │ 1   before\\u{001B}[2Jcleared\x1b[39m'
 == mutant: T10: xfx's review spells the C1 control in fx's lower case
-   exit 1  34 claims, 33 hold, 1 fail
+   exit 1  35 claims, 34 hold, 1 fail
    FAIL xfx row 12: 'second \\u{009b}line', xfx's spelling is 'second \\u{009B}line'
 == mutant: T10: an inline transcript draws a diff row
-   exit 1  34 claims, 32 hold, 2 fail
+   exit 1  35 claims, 33 hold, 2 fail
    FAIL xfx: diff rows [10]; 1 `└ Edited` rows | FAIL rows [10] differ
 11 mutants; every assertion held
 exit 0
