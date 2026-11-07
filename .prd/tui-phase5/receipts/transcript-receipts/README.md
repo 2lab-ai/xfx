@@ -306,10 +306,12 @@ taken here in `20046d63`, which changes tests only: the product code is
      from `20046d6`'s build):
      - The short line is the same bytes on both sides (`bytes`, rows 1-2).
      - The line at the margin is 104 `w`s, four soft hyphens and
-       `TAIL5678`. fx's row ends `TAIL`: it counts the four hyphens and
-       cuts at 112 cells. xfx's row ends `TAI8`: xfx counts the hyphens as
-       no cells, the terminal draws each a cell wide, and so `L5678`, past
-       the margin, is written into the last cell.
+       `TAIL5678`. fx's first row of it ends `TAIL`: it counts the four
+       hyphens, and reflows `5678` onto a row of its own (`  │     5678`).
+       (This README said, at first, that fx cuts the line at 112 cells; it
+       does not, see WIDTH-DISPUTED below.) xfx's row ends `TAI8`: xfx
+       counts the hyphens as no cells, the terminal draws each a cell wide,
+       and so `L5678`, past the margin, is written into the last cell.
    - So on Ctrl-O a file's line can push its own tail past the margin, as
      the review predicted.
    - It is recorded as a ledger **`[[cause]]`** of kind `defect`,
@@ -340,7 +342,12 @@ taken here in `20046d63`, which changes tests only: the product code is
   `docs/parity.md`.
 
 **`ctrl-o-width-disputed`** (T-U6c, above): the diff row at the margin, fx
-`…TAIL`, xfx `…TAI8`.
+`…TAIL`, xfx `…TAI8`. `check.py` prints the cause's name as it stood. The
+cause is closed by **WIDTH-DISPUTED** (branch `fix/p5-width-disputed`,
+`.prd/tui-phase5/receipts/width-disputed/`): xfx now counts these code points
+as fx does, and the row ends `TAIL` on both sides. What is left, fx's
+continuation row `  │     5678` that xfx clips, is the cause
+`ctrl-o-diff-row-clipped`.
 
 ## Files
 

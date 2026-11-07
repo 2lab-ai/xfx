@@ -388,16 +388,15 @@ source = ["src/tui/approval_view.rs:971-976", "docs/parity.md:238"]
 # (b) units in flight, the specific rows first.
 
 [[cause]]
-id = "ctrl-o-width-disputed"
+id = "ctrl-o-diff-row-clipped"
 kind = "defect"
-owner = "T-U6c finding: xfx's width of the default-ignorables a terminal draws"
-scenarios = ["*"]
-snaps = ["*"]
-fx_row = '^  │ +\d+ [ +-] .*[\u00ad\u115f\u1160\u3164\uffa0\ufff0-\ufff8]'
-xfx_row = '^  │ +\d+ [ +-] .*[\u00ad\u115f\u1160\u3164\uffa0\ufff0-\ufff8]'
-xfx = "src/tui/frame.rs:2910-2931"
-fx = "src/core/shared/display_width.zig:275-282@c1db9191"
-why = "Ctrl-O's diff rows write the soft hyphen U+00AD, the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0, and U+FFF0-FFF8 as themselves, as fx v0.0.16 does (`isNonPrintingCodepoint`, `text_utils.zig:703-708@481104fd`, has no arm for them; T-U6c pins it): on a short line the bytes are fx's. But xfx's width table counts them as no cells and `clip` cuts a row by it, where tmux 3.7b draws each a cell wide (approval_view's `default_ignorable`) and fx counts one or two (`runeWidth`, unchanged at 481104fd): a line that reaches the last column by xfx's count runs past it, and the terminal writes its tail into the last cell. `p5-transcript-diffwide` `full` row 3: 104 `w`s, four soft hyphens and `TAIL5678`: fx's row ends `TAIL`, cut at 112 cells by its count; xfx's ends `TAI8`, the `L5678` past the margin written into its last cell. Fixed when xfx counts them as the terminal draws them, or names them (a divergence from fx's bytes, then)."
+owner = "WIDTH-DISPUTED finding: Ctrl-O's diff rows clip where fx reflows them"
+scenarios = ["p5-transcript-diffwide"]
+snaps = ["full"]
+whole_snap = true
+xfx = "src/tui/full_transcript.rs:1958"
+fx = "src/ui/render_engine/transcript_blocks.zig:718-766@c1db9191"
+why = "fx reflows a Ctrl-O diff row longer than the screen onto continuation rows under its gutter (`  │ ` and spaces to the text column; `reflowDiffRow`, the same at 481104fd's `transcript_blocks.zig:720-768`); xfx's `diff_rows` clips it at the margin, so the rest of the line is not shown. `p5-transcript-diffwide` `full`: line 3 (104 `w`s, four soft hyphens, `TAIL5678`) is fx's `  │ 3   …TAIL` then `  │     5678`, and xfx's first row only -- byte-identical since WIDTH-DISPUTED, the `5678` row absent, so the window above it starts a row later on fx. A c1db919 behaviour too, so a KEEP gap rather than a 0.0.16 change. Fixed when xfx's Ctrl-O diff rows wrap as fx's do -- as its review already wraps one rather than cut it."
 
 [[cause]]
 id = "submit-multi-card-whole"
