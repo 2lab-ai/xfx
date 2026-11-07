@@ -1,0 +1,159 @@
+# TC-NOTATION mutants on a git clone --no-local of b8a4f952 (the code head), each from a clean checkout
+# cargo test --locked --lib --no-fail-fast; FAILED lines and the result line
+## unmutated
+test result: ok. 4265 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; 
+## A-divider-direct
+applied A-divider-direct
+test tui::theme::tests::every_builtin_grey_is_spelt_as_upstreams ... FAILED
+test tui::theme::tests::every_shade_is_upstreams_index ... FAILED
+test result: FAILED. 4263 passed; 2 failed; 7 ignored; 0 measured; 0 filtered out; 
+error: test failed, to rerun pass `--lib`
+error: 1 target failed:
+## B-245-direct
+applied B-245-direct
+test tui::approval_view::tests::the_drafts_caret_is_a_reverse_video_cell_as_upstream_paints_it ... FAILED
+test tui::approval_view::tests::the_rows_are_painted_in_the_captured_sequences ... FAILED
+test tui::effort_menu::tests::it_lists_the_default_then_the_rows_levels_with_the_one_in_use_marked ... FAILED
+test tui::event_loop::tests::a_block_landing_behind_a_resume_in_another_palette_owes_no_recolour_of_the_old_screen ... FAILED
+test tui::event_loop::tests::a_code_blocks_kind_ends_with_the_block_so_the_summary_after_it_is_a_summary ... FAILED
+test tui::event_loop::tests::a_fence_the_turn_left_open_is_a_code_block_and_ends_as_one ... FAILED
+test tui::event_loop::tests::a_group_closed_and_a_switch_before_any_of_it_lands_is_drawn_in_the_new_palette ... FAILED
+test tui::event_loop::tests::a_resumed_answers_code_block_is_recorded_and_recoloured_as_a_live_ones ... FAILED
+test tui::event_loop::tests::a_rewrite_queued_before_a_switch_keeps_the_rows_the_switch_drew_and_their_drawings ... FAILED
+test tui::event_loop::tests::a_stopped_call_and_a_notice_queued_before_a_report_land_in_the_palette_the_report_set ... FAILED
+test tui::event_loop::tests::a_stopped_call_and_a_notice_queued_light_land_in_the_dark_palette_the_report_set ... FAILED
+test tui::event_loop::tests::a_stopped_call_queued_while_ctrl_o_is_up_lands_in_the_palette_the_report_set ... FAILED
+test tui::event_loop::tests::a_switch_then_a_narrower_screen_before_a_groups_rewrite_lands_cuts_both_drawings_there ... FAILED
+test tui::event_loop::tests::a_tables_cells_keep_the_colours_they_were_drawn_in_across_a_report ... FAILED
+test tui::event_loop::tests::a_theme_report_draws_a_tool_groups_rows_again_as_upstream_projects_them ... FAILED
+test tui::event_loop::tests::a_theme_report_recolours_an_answered_questions_record_as_the_answer ... FAILED
+test tui::event_loop::tests::a_theme_report_recolours_an_answers_code_as_upstream_draws_it_again ... FAILED
+test tui::event_loop::tests::a_tool_group_queued_before_a_report_lands_in_the_palette_the_report_set ... FAILED
+test tui::event_loop::tests::a_tool_groups_rows_are_spelt_as_upstream_spells_them_across_a_switch ... FAILED
+test tui::event_loop::tests::a_tool_group_drawn_light_is_drawn_again_dark_and_light_as_upstream_projects_it ... FAILED
+test tui::event_loop::tests::an_answers_code_and_its_summary_are_spelt_as_upstream_spells_them_across_a_switch ... FAILED
+test tui::event_loop::tests::an_indented_code_block_is_a_code_block_and_ends_as_one ... FAILED
+test tui::event_loop::tests::an_open_tool_group_is_drawn_again_on_a_switch_and_settles_in_the_new_palette ... FAILED
+test tui::file_picker::tests::an_empty_list_says_why_at_the_at_column ... FAILED
+test tui::file_picker::tests::the_list_is_six_rows_at_the_at_column_with_the_mark_a_grey_bar ... FAILED
+test tui::full_transcript::tests::a_calls_row_is_the_groups_in_the_default_foreground_with_its_command_words_coloured ... FAILED
+test tui::full_transcript::tests::a_detail_row_wraps_under_its_rail_and_never_overruns_the_screen ... FAILED
+test tui::full_transcript::tests::header_rows_are_dim_and_detail_rows_open_on_a_plain_rail ... FAILED
+test tui::full_transcript::tests::the_footer_is_upstreams_four_rows_under_the_record ... FAILED
+test tui::grid::tests::a_code_blocks_comment_is_retinted_as_a_comment_and_a_summary_as_a_summary ... FAILED
+test tui::help_menu::tests::a_narrow_header_packs_a_prefix_and_an_ellipsis_and_keeps_the_active_tab ... FAILED
+test tui::help_menu::tests::an_empty_tab_says_so_and_has_nothing_to_open ... FAILED
+test tui::help_menu::tests::the_catalog_opens_with_its_header_a_blank_row_and_every_command_it_has_room_for ... FAILED
+test tui::help_menu::tests::the_header_shows_every_tab_when_they_fit ... FAILED
+test tui::mcp_args::tests::a_fresh_read_keeps_the_mark_and_says_whether_anything_changed ... FAILED
+test tui::mcp_args::tests::a_narrow_screen_cuts_the_description_first ... FAILED
+test tui::mcp_args::tests::the_mark_wraps_and_the_window_follows_it ... FAILED
+test tui::mcp_args::tests::the_rows_are_fxs_under_the_argument ... FAILED
+test tui::mcp_menu::tests::the_list_is_fxs_picker_working_servers_first_then_the_ones_that_need_attention ... FAILED
+test tui::notice::tests::each_label_is_painted_in_upstreams_style_for_its_tone_in_both_palettes ... FAILED
+test tui::model_menu::tests::the_rows_are_painted_in_upstreams_two_greys ... FAILED
+test tui::picker::tests::a_bare_slash_has_a_header_a_blank_row_and_six_commands ... FAILED
+test tui::picker::tests::a_filtered_menu_keeps_its_height_with_blank_rows ... FAILED
+test tui::picker::tests::the_marked_row_is_bright_and_the_rest_are_dim ... FAILED
+test tui::picker::tests::with_categories_off_no_row_has_one_and_the_summary_takes_the_width ... FAILED
+test tui::provider_picker::tests::a_query_that_names_no_provider_is_upstreams_dim_row_and_chooses_nothing ... FAILED
+test tui::provider_picker::tests::the_arrows_wrap_at_both_ends ... FAILED
+test tui::provider_picker::tests::the_open_column_is_every_provider_with_the_current_one_annotated ... FAILED
+test tui::provider_picker::tests::typing_filters_the_column_without_regard_to_case ... FAILED
+test tui::question::tests::a_description_takes_its_column_by_the_screens_width ... FAILED
+test tui::question::tests::an_armed_escape_takes_the_right_of_the_hint_row ... FAILED
+test tui::question::tests::an_unmarked_slot_reads_as_what_was_typed_into_it ... FAILED
+test tui::question::tests::the_document_keeps_each_question_with_its_answer_hung_under_it ... FAILED
+test tui::question::tests::the_marked_choice_is_told_apart_by_its_colour_alone ... FAILED
+test tui::question::tests::the_hint_row_is_upstreams_and_counts_a_batch_of_more_than_one ... FAILED
+test tui::question::tests::the_panel_is_painted_in_upstreams_sequences ... FAILED
+test tui::session_picker::tests::nothing_to_list_is_one_dim_row_and_enter_has_nothing_to_resume ... FAILED
+test tui::session_picker::tests::more_sessions_than_a_page_end_on_load_more_and_reaching_the_last_loads_the_next ... FAILED
+test tui::session_picker::tests::tab_shows_every_workspace_and_back_from_the_top ... FAILED
+test tui::session_picker::tests::three_sessions_are_upstreams_rows_text_and_colour ... FAILED
+test tui::settings::tests::sound_set_apart_by_a_profile_is_custom_and_starts_from_the_first_choice ... FAILED
+test tui::settings::tests::the_effort_row_is_default_and_the_models_levels_or_its_value_alone ... FAILED
+test tui::settings::tests::the_search_reads_labels_descriptions_values_and_upstreams_names ... FAILED
+test tui::settings::tests::the_bare_menu_is_upstreams_rows_less_the_settings_xfx_has_nothing_behind ... FAILED
+test tui::shell::tests::the_handoff_breaks_before_the_command_when_one_row_cannot_hold_it ... FAILED
+test tui::shell::tests::the_handoff_is_upstreams_dim_line_naming_the_xfx_command ... FAILED
+test tui::statusline::tests::a_short_screen_shows_the_marked_row_and_as_much_around_it_as_fits ... FAILED
+test tui::statusline::tests::the_picker_is_upstreams_rows_byte_for_byte ... FAILED
+test tui::theme::tests::a_code_blocks_row_answers_its_colours_as_the_highlighters ... FAILED
+test tui::theme::tests::a_code_and_stopped_rows_recolour_their_highlighter_greys_as_fx ... FAILED
+test tui::theme::tests::a_stopped_calls_line_moves_through_upstreams_token_table ... FAILED
+test tui::theme::tests::an_answered_questions_answer_is_a_document_grey_a_theme_report_reaches ... FAILED
+test tui::theme::tests::every_builtin_grey_is_spelt_as_upstreams ... FAILED
+test tui::theme::tests::every_shade_is_upstreams_index ... FAILED
+test tui::theme::tests::the_document_body_reads_against_the_background_the_session_is_on ... FAILED
+test tui::theme::tests::the_highlighters_quieter_greys_are_the_code_rows_roles_in_both_modes ... FAILED
+test tui::toolgroup::tests::a_cancelled_calls_argument_is_the_tool_grey_on_either_screen ... FAILED
+test tui::toolgroup::tests::a_failed_stopped_or_refused_mcp_call_is_named_by_its_tool_alone ... FAILED
+test tui::toolgroup::tests::a_hostile_tool_name_is_written_out_on_every_row_it_reaches ... FAILED
+test tui::toolgroup::tests::a_stopped_turn_cancels_what_was_running_and_says_so_under_the_group ... FAILED
+test tui::toolgroup::tests::a_theme_report_repaints_a_group_as_the_other_palette_would_draw_it ... FAILED
+test tui::toolgroup::tests::several_mcp_calls_are_mcp_calls_and_their_rows_stay_in_the_rows_grey ... FAILED
+test tui::toolgroup::tests::the_header_and_every_row_carry_upstreams_colours ... FAILED
+test tui::transcript::tests::a_role_that_changes_mid_line_does_not_break_the_row ... FAILED
+test tui::transcript::tests::a_row_wider_than_the_screen_closes_its_colour_where_the_painter_cuts ... FAILED
+test tui::transcript::tests::a_summary_carries_the_palette_onto_every_row_it_wraps_onto ... FAILED
+test result: FAILED. 4179 passed; 86 failed; 7 ignored; 0 measured; 0 filtered out; 
+error: test failed, to rerun pass `--lib`
+error: 1 target failed:
+## C-heading-direct
+applied C-heading-direct
+test tui::notice::tests::each_label_is_painted_in_upstreams_style_for_its_tone_in_both_palettes ... FAILED
+test tui::shell::tests::an_informational_notice_has_upstreams_bold_label ... FAILED
+test tui::theme::tests::an_outcome_notices_label_is_retinted_like_the_rest ... FAILED
+test tui::theme::tests::every_builtin_grey_is_spelt_as_upstreams ... FAILED
+test result: FAILED. 4261 passed; 4 failed; 7 ignored; 0 measured; 0 filtered out; 
+error: test failed, to rerun pass `--lib`
+error: 1 target failed:
+## D-subtitle-direct
+applied D-subtitle-direct
+test tui::copy::tests::an_ending_session_lets_a_copy_that_answers_land ... FAILED
+test tui::theme::tests::every_builtin_grey_is_spelt_as_upstreams ... FAILED
+test result: FAILED. 4263 passed; 2 failed; 7 ignored; 0 measured; 0 filtered out; 
+error: test failed, to rerun pass `--lib`
+error: 1 target failed:
+## E-background-direct
+applied E-background-direct
+test tui::file_picker::tests::a_move_wraps_and_the_window_follows_the_mark_to_its_edge ... FAILED
+test tui::file_picker::tests::the_list_is_six_rows_at_the_at_column_with_the_mark_a_grey_bar ... FAILED
+test tui::file_picker::tests::the_matched_letters_are_bold_inside_the_rows_own_style ... FAILED
+test tui::theme::tests::every_builtin_grey_is_spelt_as_upstreams ... FAILED
+test tui::theme::tests::the_file_pickers_marked_row_is_a_grey_bar_behind_the_hint_grey ... FAILED
+test result: FAILED. 4260 passed; 5 failed; 7 ignored; 0 measured; 0 filtered out; 
+error: test failed, to rerun pass `--lib`
+error: 1 target failed:
+## F-retint-takes-direct
+applied F-retint-takes-direct
+test tui::copy::tests::an_ending_session_lets_a_copy_that_answers_land ... FAILED
+test tui::theme::tests::a_direct_grey_is_nobodys_on_any_row ... FAILED
+test result: FAILED. 4263 passed; 2 failed; 7 ignored; 0 measured; 0 filtered out; 
+error: test failed, to rerun pass `--lib`
+error: 1 target failed:
+## G-recolour-takes-direct
+applied G-recolour-takes-direct
+test tui::transcript::tests::a_row_painted_in_the_other_mode_is_written_as_a_report_would_leave_it ... FAILED
+test result: FAILED. 4264 passed; 1 failed; 7 ignored; 0 measured; 0 filtered out; 
+error: test failed, to rerun pass `--lib`
+error: 1 target failed:
+## H-allowlist-direct-background
+applied H-allowlist-direct-background
+test tui::pacer::tests::a_row_may_carry_only_the_shapes_the_palette_paints_in ... FAILED
+test result: FAILED. 4264 passed; 1 failed; 7 ignored; 0 measured; 0 filtered out; 
+error: test failed, to rerun pass `--lib`
+error: 1 target failed:
+## I-wire-direct-background
+applied I-wire-direct-background
+test tui::check::tests::a_colour_out_of_range_is_refused_by_both_parsers ... FAILED
+test tui::copy::tests::an_ending_session_lets_a_copy_that_answers_land ... FAILED
+test result: FAILED. 4263 passed; 2 failed; 7 ignored; 0 measured; 0 filtered out; 
+error: test failed, to rerun pass `--lib`
+error: 1 target failed:
+# clone restored: 0 files differ from its HEAD
+
+# tui::copy::tests::an_ending_session_lets_a_copy_that_answers_land also failed in D, F and I. It touches no palette (a fake clipboard tool that sleeps, asserting the copy returned within 500 ms, src/tui/copy.rs:239-260), the unmutated run passed it, and with D applied again it passes three times alone:
+test result: ok. 1 passed (x3, D-subtitle-direct applied, run alone)
+# so it is load timing (load 20-38 during the run), not a kill; each of D, F, I is killed by its targeted case above.

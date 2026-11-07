@@ -1,0 +1,13 @@
+# RED, unit (round b): 89eb5f31's src + the two assertions that refuse a direct background (pacer.rs colour_at, check.rs wire_color)
+# cargo test --locked --lib -- tui::pacer tui::check
+test tui::check::tests::a_colour_out_of_range_is_refused_by_both_parsers ... FAILED
+test tui::pacer::tests::a_row_may_carry_only_the_shapes_the_palette_paints_in ... FAILED
+thread 'tui::check::tests::a_colour_out_of_range_is_refused_by_both_parsers' (286138742) panicked at src/tui/check.rs:3265:9:
+assertion failed: wire_color("48;2;78;78;78", 0).is_err()
+---- tui::pacer::tests::a_row_may_carry_only_the_shapes_the_palette_paints_in stdout ----
+thread 'tui::pacer::tests::a_row_may_carry_only_the_shapes_the_palette_paints_in' (286138797) panicked at src/tui/pacer.rs:1461:13:
+assertion `left == right` failed: a row was allowed to carry "\u{1b}[48;2;78;78;78m"
+  left: Some(16)
+ right: None
+    tui::pacer::tests::a_row_may_carry_only_the_shapes_the_palette_paints_in
+test result: FAILED. 82 passed; 2 failed; 0 ignored; 0 measured; 4188 filtered out; finished in 1.68s

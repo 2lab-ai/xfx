@@ -1,0 +1,40 @@
+# GREEN, minimal: ec390074's src + the five red_tc_notation_* cases + theme.rs only: paint, shade,
+# selected, subtitle and notice_heading spelt 38;5 / 48;5 at every depth, truecolor() deleted (diff: minimal.diff).
+# cargo test --locked --lib  -- the red_tc_notation_* cases pass; the nine that fail are every case that pinned the direct notation
+test tui::event_loop::tests::a_truecolor_sessions_answer_code_recolours_in_the_notation_it_was_drawn_in ... FAILED
+test tui::event_loop::tests::red_tc_notation_a_stopped_call_and_a_notice_land_in_upstreams_greys_at_every_depth ... ok
+test tui::event_loop::tests::red_tc_notation_a_truecolor_session_writes_what_a_256_colour_session_writes ... ok
+test tui::theme::tests::a_code_blocks_row_answers_its_colours_as_the_highlighters ... FAILED
+test tui::theme::tests::a_direct_colour_session_matches_and_repaints_in_the_same_notation ... FAILED
+test tui::theme::tests::a_stopped_calls_line_moves_through_upstreams_token_table ... FAILED
+test tui::theme::tests::an_outcome_notices_label_is_retinted_like_the_rest ... FAILED
+test tui::theme::tests::every_shade_is_spelled_the_same_in_both_notations ... FAILED
+test tui::theme::tests::red_tc_notation_a_direct_grey_is_nobodys_at_either_depth ... ok
+test tui::theme::tests::red_tc_notation_every_builtin_grey_is_spelt_as_upstreams_at_every_depth ... ok
+test tui::theme::tests::the_file_pickers_marked_row_is_a_grey_bar_behind_the_hint_grey ... FAILED
+test tui::theme::tests::red_tc_notation_an_indexed_cell_is_answered_alike_at_either_depth ... ok
+test tui::transcript::tests::a_row_painted_in_the_other_mode_is_written_as_a_report_would_leave_it ... FAILED
+test tui::transcript::tests::a_terminal_that_takes_direct_colour_is_given_the_same_rows ... FAILED
+assertion `left == right` failed: "\u{1b}]2;hello\u{7}\u{1b}[?2026h\u{1b}[?25l\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[1mhello\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H  Run \u{1b}[38;5;
+  left: Some("38;5;245")
+ right: Some("38;2;138;138;138")
+  left: None
+ right: Some("\u{1b}[38;2;118;118;118m")
+  left: None
+ right: Some("\u{1b}[38;2;38;38;38m")
+  left: None
+ right: Some("\u{1b}[38;2;158;158;158m")
+  left: None
+ right: Some("\u{1b}[38;2;68;68;68m")
+assertion `left == right` failed: Dark role 0 at direct colour
+  left: "\u{1b}[38;5;240m"
+ right: "\u{1b}[38;2;88;88;88m"
+assertion `left == right` failed: Dark TrueColor
+  left: "\u{1b}[48;5;239m\u{1b}[38;5;255m"
+ right: "\u{1b}[48;2;78;78;78m\u{1b}[38;2;238;238;238m"
+assertion `left == right` failed: a turn's summary in the direct notation it was drawn in
+  left: "\u{1b}[38;2;138;138;138m  5s\u{1b}[0m"
+ right: "\u{1b}[38;2;158;158;158m  5s\u{1b}[0m"
+  left: ["\u{1b}[38;5;250mabcd\u{1b}[0m", "\u{1b}[38;5;250mefgh\u{1b}[0m"]
+ right: ["\u{1b}[38;2;188;188;188mabcd\u{1b}[0m", "\u{1b}[38;2;188;188;188mefgh\u{1b}[0m"]
+test result: FAILED. 4263 passed; 9 failed; 7 ignored; 0 measured; 0 filtered out; finished in 38.18s

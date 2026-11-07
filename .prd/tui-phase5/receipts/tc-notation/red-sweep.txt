@@ -1,0 +1,71 @@
+# Base captures (ec390074, v0.1.0-ec39007), scored by the base ledger (sweep-base) and again with truecolor-grey-notation deleted (--rescore, the same captures)
+# python3 -I cmp_sweeps.py <base ledger pairs.json> <rescored pairs.json>: every pair whose causes or uncaused rows change
+change p5-inline-code-retint-light-tc/dark: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 8
+change p5-inline-code-retint-light-tc/light: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 8
+change p5-inline-code-retint-light-tc/light-again: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 8
+change p5-inline-code-retint-tc/dark: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 8
+change p5-inline-code-retint-tc/dark-again: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 8
+change p5-inline-code-retint-tc/light: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 8
+change p5-inline-code-table-light-tc/dark: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 8
+change p5-inline-code-table-light-tc/light: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 8
+change p5-inline-code-table-light-tc/light-again: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 8
+change p5-inline-code-table-tc/dark: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 8
+change p5-inline-code-table-tc/dark-again: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 8
+change p5-inline-code-table-tc/light: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 8
+change p5-toolgroup-ctrlo-tc/dark: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 12
+change p5-toolgroup-ctrlo-tc/dark-again: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 12
+change p5-toolgroup-ctrlo-tc/full-dark: unresolved-defect -> unresolved-defect; causes ['session-record', 'truecolor-grey-notation'] -> ['session-record', 'tool-schema', 'toolgroup-ctrlo-record-short']; uncaused 0 -> 42
+change p5-toolgroup-ctrlo-tc/full-dark-again: unresolved-defect -> unresolved-defect; causes ['session-record', 'truecolor-grey-notation'] -> ['session-record', 'tool-schema', 'toolgroup-ctrlo-record-short']; uncaused 0 -> 42
+change p5-toolgroup-ctrlo-tc/full-light: unresolved-defect -> unresolved-defect; causes ['session-record', 'truecolor-grey-notation'] -> ['session-record', 'tool-schema', 'toolgroup-ctrlo-record-short']; uncaused 0 -> 42
+change p5-toolgroup-ctrlo-tc/light: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 12
+change p5-toolgroup-live-tc/dark: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 12
+change p5-toolgroup-live-tc/light: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 12
+change p5-toolgroup-live-tc/running-dark: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 12
+change p5-toolgroup-live-tc/running-light: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 12
+change p5-toolgroup-retint-light-tc/dark: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 12
+change p5-toolgroup-retint-light-tc/light: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 12
+change p5-toolgroup-retint-light-tc/light-again: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 12
+change p5-toolgroup-retint-tc/dark: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 12
+change p5-toolgroup-retint-tc/dark-again: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 12
+change p5-toolgroup-retint-tc/light: unresolved-defect -> unresolved-defect; causes ['truecolor-grey-notation'] -> []; uncaused 0 -> 12
+change p5-toolstop-retint-light-tc/dark: unresolved-defect -> unresolved-defect; causes ['cancelled-marker', 'truecolor-grey-notation'] -> ['cancelled-marker']; uncaused 0 -> 10
+change p5-toolstop-retint-light-tc/light: unresolved-defect -> unresolved-defect; causes ['cancelled-marker', 'truecolor-grey-notation'] -> ['cancelled-marker']; uncaused 0 -> 10
+change p5-toolstop-retint-light-tc/light-again: unresolved-defect -> unresolved-defect; causes ['cancelled-marker', 'truecolor-grey-notation'] -> ['cancelled-marker']; uncaused 0 -> 10
+change p5-toolstop-retint-tc/dark: unresolved-defect -> unresolved-defect; causes ['cancelled-marker', 'truecolor-grey-notation'] -> ['cancelled-marker']; uncaused 0 -> 10
+change p5-toolstop-retint-tc/dark-again: unresolved-defect -> unresolved-defect; causes ['cancelled-marker', 'truecolor-grey-notation'] -> ['cancelled-marker']; uncaused 0 -> 10
+change p5-toolstop-retint-tc/light: unresolved-defect -> unresolved-defect; causes ['cancelled-marker', 'truecolor-grey-notation'] -> ['cancelled-marker']; uncaused 0 -> 10
+# summary
+drops: 0
+# -tc pairs: 34; with uncaused rows once the cause is gone: 34
+# the xfx rows left uncaused, by text (count of snaps):
+   31  ┃
+   22  full access · model-a
+   16  ┃ run the command
+   16  ● 1 tool call · 1 command
+   14    <wall> (↑4 ↓80)
+   12  auto · model-a
+    9  └ Ran echo "hi" 42 | grep hi # note
+    9    XXXXXXXXXXXXXXXXXXXXXXX KST · Notice
+    6  ┃ show me the code
+    6    <wall> (↑4 ↓40)
+    6  ┃ show me the table
+    6    <wall> (↑5 ↓40)
+    6  * network: provider: gateway · model: fake/model-a · <ms>
+    6    tokens: 1200 in · 40 out
+    6  ┃ run cmd
+    6  ● 1 tool call · 1 command · 1 cancelled
+    6  └ Cancelled sleep 6 && echo "x" # note
+    3  * session: provider: gateway · model: fake/model-a · effort: auto
+    3    mcp: none
+    3    finish: tool_calls
+    3    finish: stop
+    3    XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt
+    3    XXXXXXXXXXXXXXXXXXXXXXX KST · Tool
+    3  │ hi 42
+    3    XXXXXXXXXXXXXXXXXXXXXXX KST · Response
+    3    XXXXXXXXXXXXXXXXXXXXXXX KST · Usage
+    3  ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+    3  (blank)
+    2  └ Running sleep 5 && echo "hi" 42 # note
+    2  ~ Running (<s>) (↑4 ↓40)
+    2  └ Ran sleep 5 && echo "hi" 42 # note
