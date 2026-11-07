@@ -1,0 +1,26 @@
+# Phase 5 STOP-LATE-EVENT: a turn held mid-stream (working), stopped with
+# Ctrl-C and a second prompt typed in the same read as the stop, so the
+# prompt is in hand before the stopped turn has ended. xfx's runtime then
+# sends the stopped turn's end and the prompt's start with no wait between,
+# and the UI reads them in one drain: the prompt's working must still
+# follow a frame that shows its Thinking. Then done, and the exit clears
+# the record.
+gateway p5-lifecycle-osc-interruptnext-turns.json
+xfx: env XFX_SOUND=off
+wait 4
+type first question
+key Enter
+held
+wire s00-working
+key C-c s e c o n d Space q u e s t i o n Enter
+release
+held
+wire s01-second
+release
+wait 2
+wire s02-done
+keep
+type /quit
+key Enter
+wait 2
+wire s03-exit
