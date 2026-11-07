@@ -3,8 +3,9 @@ DIFF p5-lifecycle-osc-picker-40x120     p01-picker             fx  3  prev  5  s
 DIFF p5-lifecycle-osc-picker-40x120     p02-closed             fx  3  prev  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=idle:app=<program>
 DIFF p5-lifecycle-osc-picker-40x120     p03-exit               fx  4  prev  6  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=clear
 build: every prev wire carries v0.1.0-743c538 and no other banner
-FAIL order p5-lifecycle-osc-picker-40x120 p00-done: fx's reports follow ['title', '?2026l', '?2026l'], the first followed by ?2026h / prev's follow ['?2004h', '?2026l', '?2026l'], the first followed by title
+FAIL order p5-lifecycle-osc-picker-40x120 p00-done: a frame since the mode set before report []: [] on fx, [] on prev; the first report (titled, then a frame): (True, True) on fx, (False, False) on prev
+FAIL order p5-lifecycle-osc-picker-40x120 p00-done: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev
 FAIL same p5-lifecycle-osc-picker-40x120 p01-picker: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / prev ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=idle:app=<program>']
 FAIL same p5-lifecycle-osc-picker-40x120 p02-closed: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / prev ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=idle:app=<program>']
 FAIL same p5-lifecycle-osc-picker-40x120 p03-exit: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=clear'] / prev ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=idle:app=<program>', 'state=clear']
-4 wire pairs, 4 failing claims
+4 wire pairs, 5 failing claims

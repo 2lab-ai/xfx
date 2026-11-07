@@ -21,6 +21,8 @@ RESUMED = os.path.join("xfx", SUSPEND, "xfx-%s-s02-resumed.wire" % SUSPEND)
 CLEAR = b"\x1b]7501;state=clear\x1b\\"
 DONE = b"\x1b]7501;state=done:app=xfx\x1b\\"
 IDLE = b"\x1b]7501;state=idle:app=xfx\x1b\\"
+WORKING = b"\x1b]7501;state=working:app=xfx\x1b\\"
+WORKING_WIRE = os.path.join("xfx", UNIT, "xfx-%s-w01-working.wire" % UNIT)
 
 
 def drop_clear(data):
@@ -92,6 +94,15 @@ def launch_idle_ahead_of_its_title(data):
     return data[:title] + IDLE + data[title:at] + data[at + len(IDLE):]
 
 
+def keystroke_working_ahead_of_its_frame(data):
+    # The order rounds 1 to 3 wrote: the prompt's `working`, then the frame
+    # that shows its `Thinking`. Still right after a frame's `?2026l`, so only
+    # the claim's which-frame half can tell.
+    at = data.find(WORKING)
+    frame = data.rfind(b"\x1b[?2026h", 0, at)
+    return data[:frame] + WORKING + data[frame:at] + data[at + len(WORKING):]
+
+
 def resume_report_ahead_of_its_frame(data):
     # The order the unit's first two rounds wrote: the resume's `idle`, then
     # the frame it repaints.
@@ -115,6 +126,7 @@ MUTANTS = [
     ("an 8-bit introducer after the exit's clear", EXIT, eight_bit_introducer_after_the_clear),
     ("the launch's idle ahead of its title", START, launch_idle_ahead_of_its_title),
     ("a resume's report ahead of the frame it repaints", RESUMED, resume_report_ahead_of_its_frame),
+    ("a keystroke's working ahead of the frame that shows it", WORKING_WIRE, keystroke_working_ahead_of_its_frame),
 ]
 
 

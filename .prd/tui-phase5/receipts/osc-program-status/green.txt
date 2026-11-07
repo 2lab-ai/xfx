@@ -36,5 +36,5 @@ same p5-lifecycle-osc-suspend-40x120    s02-resumed            fx  5  xfx  5  st
 same p5-lifecycle-osc-suspend-40x120    s03-next-turn          fx  7  xfx  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
 same p5-lifecycle-osc-term-40x120       t00-done               fx  3  xfx  3  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
 same p5-lifecycle-osc-term-40x120       t01-terminated         fx  4  xfx  4  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
-build: every xfx wire carries v0.1.0-afe7bda and no other banner
+build: every xfx wire carries v0.1.0-ef52945 and no other banner
 38 wire pairs, 0 failing claims

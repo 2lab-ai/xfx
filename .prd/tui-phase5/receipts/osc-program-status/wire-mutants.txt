@@ -16,28 +16,28 @@
    FAIL same p5-lifecycle-osc-states-40x120 w09-exit: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>',
 == mutant: a permission's label raw on the wire
    exit 1, 2 failing claims
-   FAIL inert xfx p5-lifecycle-osc-states-40x120 w05-permission @2972: msg is not base64: 'terminal echo hi'
+   FAIL inert xfx p5-lifecycle-osc-states-40x120 w05-permission @2869: msg is not base64: 'terminal echo hi'
    FAIL same p5-lifecycle-osc-states-40x120 w05-permission: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<prog
 == mutant: a permission's label decoding to a control
    exit 1, 2 failing claims
-   FAIL inert xfx p5-lifecycle-osc-states-40x120 w05-permission @2972: msg decodes to a control: 'a\x1bb'
+   FAIL inert xfx p5-lifecycle-osc-states-40x120 w05-permission @2869: msg decodes to a control: 'a\x1bb'
    FAIL same p5-lifecycle-osc-states-40x120 w05-permission: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<prog
 == mutant: the error report lost
    exit 1, 1 failing claims
    FAIL same p5-lifecycle-osc-states-40x120 w09-exit: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>',
 == mutant: a wire from another build
    exit 1, 1 failing claims
-   FAIL build p5-lifecycle-osc-states-40x120 w05-permission: the wire carries ['0000000'], not afe7bda
+   FAIL build p5-lifecycle-osc-states-40x120 w05-permission: the wire carries ['0000000'], not ef52945
 == mutant: one wire with no banner
    exit 1, 1 failing claims
-   FAIL build p5-lifecycle-osc-states-40x120 w05-permission: the wire carries [], not afe7bda
+   FAIL build p5-lifecycle-osc-states-40x120 w05-permission: the wire carries [], not ef52945
 == mutant: an unterminated report after the exit's clear
    exit 1, 2 failing claims
    FAIL intact xfx p5-lifecycle-osc-states-40x120 w09-exit @9404: an introducer with no whole report: b'\x1b]7501;state=working:app=xfx'
    FAIL last xfx p5-lifecycle-osc-states-40x120 w09-exit: an introducer after the last clear
 == mutant: a report ended by BEL
    exit 1, 2 failing claims
-   FAIL intact xfx p5-lifecycle-osc-states-40x120 w09-exit @402: an introducer with no whole report: b'\x1b]7501;state=working:app=xfx\x07\x1b[?2026h\x1b[?25l\x1b[3;1'
+   FAIL intact xfx p5-lifecycle-osc-states-40x120 w09-exit @638: an introducer with no whole report: b'\x1b]7501;state=working:app=xfx\x07\x1b[?2026h\x1b[?25l\x1b[5;3'
    FAIL same p5-lifecycle-osc-states-40x120 w09-exit: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>',
 == mutant: an 8-bit introducer after the exit's clear
    exit 1, 2 failing claims
@@ -45,7 +45,10 @@
    FAIL last xfx p5-lifecycle-osc-states-40x120 w09-exit: an introducer after the last clear
 == mutant: the launch's idle ahead of its title
    exit 1, 1 failing claims
-   FAIL order p5-lifecycle-osc-states-40x120 w00-start: fx's reports follow ['title'], the first followed by ?2026h / xfx's follow ['?2004h'], the first followed by title
+   FAIL order p5-lifecycle-osc-states-40x120 w00-start: a frame since the mode set before report []: [] on fx, [] on xfx; the first report (titled, then a frame): (True, True) on fx, (False, False) on xf
 == mutant: a resume's report ahead of the frame it repaints
    exit 1, 1 failing claims
-   FAIL order p5-lifecycle-osc-suspend-40x120 s02-resumed: fx's reports follow ['title', '?2026l', '?2026l', '?2026l'], the first followed by ?2026h / xfx's follow ['title', '?2026l', '?2026l', 'title'],
+   FAIL order p5-lifecycle-osc-suspend-40x120 s02-resumed: a frame since the mode set before report [3]: [True] on fx, [False] on xfx; the first report (titled, then a frame): (True, True) on fx, (True, 
+== mutant: a keystroke's working ahead of the frame that shows it
+   exit 1, 1 failing claims
+   FAIL order p5-lifecycle-osc-states-40x120 w01-working: working [1] after a frame that showed Thinking: [True] on fx, [False] on xfx

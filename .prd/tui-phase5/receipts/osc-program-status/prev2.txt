@@ -1,7 +1,9 @@
 same p5-lifecycle-osc-autocompactfail-40x120 o00-answered           fx  5  prev2  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
 DIFF p5-lifecycle-osc-autocompactfail-40x120 o01-failed             fx  7  prev2  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=idle:app=<program>
 build: every prev2 wire carries v0.1.0-eb90e67 and no other banner
-FAIL order p5-lifecycle-osc-autocompactfail-40x120 o00-answered: fx's reports follow ['title', '?2026l', '?2026l', '?2026l', '?2026l'], the first followed by ?2026h / prev2's follow ['?2004h', '?2026l', '?2026l', '?2026l', '?2026l'], the first followed by title
-FAIL order p5-lifecycle-osc-autocompactfail-40x120 o01-failed: fx's reports follow ['title', '?2026l', '?2026l', '?2026l', '?2026l', '?2026l', '?2026l'], the first followed by ?2026h / prev2's follow ['?2004h', '?2026l', '?2026l', '?2026l', '?2026l', '?2026l', '?2026l'], the first followed by title
+FAIL order p5-lifecycle-osc-autocompactfail-40x120 o00-answered: a frame since the mode set before report []: [] on fx, [] on prev2; the first report (titled, then a frame): (True, True) on fx, (False, False) on prev2
+FAIL order p5-lifecycle-osc-autocompactfail-40x120 o00-answered: working [1, 3] after a frame that showed Thinking: [True, True] on fx, [False, False] on prev2
+FAIL order p5-lifecycle-osc-autocompactfail-40x120 o01-failed: a frame since the mode set before report []: [] on fx, [] on prev2; the first report (titled, then a frame): (True, True) on fx, (False, False) on prev2
+FAIL order p5-lifecycle-osc-autocompactfail-40x120 o01-failed: working [1, 3, 5] after a frame that showed Thinking: [True, True, True] on fx, [False, False, False] on prev2
 FAIL same p5-lifecycle-osc-autocompactfail-40x120 o01-failed: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=error:app=<program>'] / prev2 ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=idle:app=<program>']
-2 wire pairs, 3 failing claims
+2 wire pairs, 5 failing claims

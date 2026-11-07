@@ -5,8 +5,10 @@ usage: python3 -I -B osc.py <receipt-dir> <side> <sha7> [<scenario>]
 
 <side> is `xfx` (the build under the receipt), `red` (the base's), `prev`
 (the unit's first build, `743c5381`: `picker` only), `prev2` (round 1's
-build, `eb90e677`: `autocompactfail` only) or `prev3` (round 2's build,
-`7d8b2c10`, every scenario); a <scenario> limits the run to it. Reads
+build, `eb90e677`: `autocompactfail` only), `prev3` (round 2's build,
+`7d8b2c10`, every scenario), `prev4` (round 3's build, `afe7bda4`, every
+scenario) or `prev5` (this batch's first build, `b65eeedc`, every scenario);
+a <scenario> limits the run to it. Reads
 `fx/<scenario>-40x120/fx-<scenario>-40x120-<label>.wire` and the same under
 <side>/ with the `xfx-` prefix. Every report is `ESC ] 7501 ; <body> ESC \\`
 with a body of printable ASCII; this file's own parser reads them -- it shares
@@ -46,12 +48,31 @@ The claims, per wire label:
   same     the reports, in order, decoded and normalized, are fx's.
   between  no report is inside a synchronized update a frame opened, on
            either side.
-  order    what each report follows is what fx's follows, report by report:
-           the nearest of a window title (`OSC 2`), a frame's `?2026h` or
-           `?2026l`, the mode set's `?2004h`, `?2004l` or another report --
-           and the first report is followed by what fx's first is followed
-           by. So the launch's `idle` is after the title and right ahead of
-           the first frame, and a resume's report after the resume's frame.
+  order    where each report sits is where fx's does: the first report is
+           preceded, since the mode set (`?2004h`), by a window title
+           (`OSC 2`) and followed by the first frame's `?2026h` -- the
+           launch's `idle` after its title and right ahead of the first
+           frame -- and every report has a frame between it and the last
+           mode set exactly when fx's does: a resume's report after the
+           frame the resume repaints, never against the mode set. (Which
+           sequence is nearest each report is not compared: fx's timer
+           paints frames on its own cadence -- `(0s)` between a `working`
+           and an answer that comes at once -- and xfx's on its, so two
+           reports with no frame between them on one side and a clock's
+           frame between them on the other are the same order.)
+           And **which frame** a turn's `working` follows: for every
+           `working` after a settled report (`idle`, `done`, `error`) --
+           work a keystroke began -- whether a frame between the two showed
+           `Thinking` is what it is on fx. A frame's ordinal cannot be
+           compared: fx writes frames xfx does not (its cursor probe's, a
+           timer's own) and xfx writes a band in fewer, so the frame is told
+           by what it showed. A `working` written ahead of the frame that
+           shows the prompt's `Thinking`, where fx's follows it, fails here.
+           (Only `Thinking`, and only there: the activity row after a
+           question or a permission is answered is each product's own --
+           xfx's names the running tool, fx repaints the whole screen -- and
+           a compaction's progress row is on a frame only as long as its
+           request takes.)
   clear    every `state=clear` follows `?2004l` immediately, on either side.
   last     on a wire that ends the session (an exit, a signal death), no
            introducer -- whole report or not -- follows the last clear, on
@@ -148,31 +169,61 @@ def inert(body):
     return None
 
 
-# What a report is placed against: a window title, a frame's opener or
-# closer, the mode set's `?2004h` and the restore's `?2004l`, another report.
-NEIGHBOUR = re.compile(rb"\x1b\]2;[^\x07\x1b]*\x07|\x1b\[\?2026[hl]|\x1b\[\?2004[hl]|\x1b\]7501;[\x20-\x7e]*\x1b\\")
-
-
-def neighbour(token):
-    if token.startswith(b"\x1b]2;"):
-        return "title"
-    if token.startswith(b"\x1b]7501;"):
-        return "report"
-    return {b"\x1b[?2026h": "?2026h", b"\x1b[?2026l": "?2026l", b"\x1b[?2004h": "?2004h", b"\x1b[?2004l": "?2004l"}[token]
+# What a report is placed against: the mode set, a window title, a frame's
+# opener, a report.
+PLACE = re.compile(rb"\x1b\[\?2004h|\x1b\]2;[^\x07\x1b]*\x07|\x1b\[\?2026h|\x1b\]7501;[\x20-\x7e]*\x1b\\")
 
 
 def placed(data):
-    """What each report follows, and what the first is followed by."""
-    tokens = [(m.start(), m.group(0)) for m in NEIGHBOUR.finditer(data)]
-    out = []
-    first_next = None
-    for i, (at, token) in enumerate(tokens):
-        if not token.startswith(b"\x1b]7501;") or token == b"\x1b]7501;state=clear\x1b\\":
+    """For each report but a clear, whether a frame lies between it and the
+    last mode set; and for the first, whether a title lies between them and
+    whether a frame's opener is the next thing placed after it."""
+    tokens = [m.group(0) for m in PLACE.finditer(data)]
+    framed, titled, out, first = False, False, [], None
+    for i, token in enumerate(tokens):
+        if token == b"\x1b[?2004h":
+            framed, titled = False, False
+        elif token.startswith(b"\x1b]2;"):
+            titled = True
+        elif token == b"\x1b[?2026h":
+            framed = True
+        elif token != b"\x1b]7501;state=clear\x1b\\":
+            out.append(framed)
+            if first is None:
+                following = tokens[i + 1] if i + 1 < len(tokens) else b""
+                first = (titled, following == b"\x1b[?2026h")
+    return out, first
+
+
+FRAME = re.compile(rb"\x1b\[\?2026h(.*?)\x1b\[\?2026l", re.S)
+# A frame's escape sequences, set aside so a word is read as the cells show it
+# (an SGR run's final `m` is not part of the word after it).
+SEQUENCE = re.compile(rb"\x1b\[[0-9;?<>=]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+THINKING = re.compile(rb"\bThinking\b")
+SETTLED = (b"state=idle", b"state=done", b"state=error")
+
+
+def turn_starts(data):
+    """For each report but a clear: for a `working` after a settled report
+    (or none), whether a frame between the two showed `Thinking`; for any
+    other report, `None`."""
+    events = [
+        (m.start(), b"F", bool(THINKING.search(SEQUENCE.sub(b" ", m.group(1)))))
+        for m in FRAME.finditer(data)
+    ]
+    events += [(at, b"S", body) for at, body in reports(data) if body != b"state=clear"]
+    events.sort(key=lambda event: event[0])
+    out, shown, previous = [], False, None
+    for _, kind, value in events:
+        if kind == b"F":
+            shown = shown or value
             continue
-        out.append(neighbour(tokens[i - 1][1]) if i else "(start)")
-        if first_next is None:
-            first_next = neighbour(tokens[i + 1][1]) if i + 1 < len(tokens) else "(end)"
-    return out, first_next
+        starts = value.startswith(b"state=working") and (
+            previous is None or previous.split(b":")[0] in SETTLED
+        )
+        out.append(shown if starts else None)
+        shown, previous = False, value
+    return out
 
 
 def between(data, at):
@@ -229,11 +280,21 @@ def main():
                     failures.append("last %s %s %s: an introducer after the last clear" % (name, unit, label))
         a = [normalized(b) for _, b in reports(theirs)]
         b = [normalized(b) for _, b in reports(ours)]
-        (fx_after, fx_first), (our_after, our_first) = placed(theirs), placed(ours)
-        if len(fx_after) == len(our_after) and (fx_after != our_after or fx_first != our_first):
+        (fx_framed, fx_first), (our_framed, our_first) = placed(theirs), placed(ours)
+        if len(fx_framed) == len(our_framed) and (fx_framed != our_framed or fx_first != our_first):
+            at = [i for i, (x, y) in enumerate(zip(fx_framed, our_framed)) if x != y]
             failures.append(
-                "order %s %s: fx's reports follow %s, the first followed by %s / %s's follow %s, the first followed by %s"
-                % (unit, label, fx_after, fx_first, side, our_after, our_first)
+                "order %s %s: a frame since the mode set before report %s: %s on fx, %s on %s; "
+                "the first report (titled, then a frame): %s on fx, %s on %s"
+                % (unit, label, at, [fx_framed[i] for i in at], [our_framed[i] for i in at], side,
+                   fx_first, our_first, side)
+            )
+        fx_starts, our_starts = turn_starts(theirs), turn_starts(ours)
+        if len(fx_starts) == len(our_starts) and fx_starts != our_starts:
+            at = [i for i, (x, y) in enumerate(zip(fx_starts, our_starts)) if x != y]
+            failures.append(
+                "order %s %s: working %s after a frame that showed Thinking: %s on fx, %s on %s"
+                % (unit, label, at, [fx_starts[i] for i in at], [our_starts[i] for i in at], side)
             )
         mark = "same" if a == b else "DIFF"
         print("%-4s %-34s %-22s fx %2d  %s %2d  %s" % (mark, unit, label, len(a), side, len(b), " > ".join(b) or "(none)"))

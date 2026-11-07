@@ -8,7 +8,9 @@ clear of that record.
 **S**: terminal escapes, model- and tool-controlled text on the wire, the signal handlers' bytes.
 
 - **Base:** `origin/main` `24a6b912`.
-- **Code:** `afe7bda4`, the commit every `xfx/` capture's banner names (`v0.1.0-afe7bda`). History:
+- **Code:** `ef52945a`, the commit every `xfx/` capture's banner names (`v0.1.0-ef52945`). It
+  contains `origin/main` `6c93f359` (train 4: #77 tui-unsaved, #78 the batched secrets check),
+  merged in `33bc3fc2` with no conflict. History:
   - `743c5381`, the unit's first commit;
   - `940878dd`, tests, comments and scenarios. **Its message says "a failure with no turn is an
     error"; the final rule is the opposite** (`eb90e677`: work that ran no turn has no result).
@@ -26,13 +28,29 @@ clear of that record.
   - `33dffa7c`, one test's expectation of the first update's lead (the title, then the launch's
     report), no product code;
   - `afe7bda4`, the pty resume case looking for the resume's frame past the stop's restore, which
-    opens with `?2026l` itself -- a surviving mutant found it (below) -- no product code.
+    opens with `?2026l` itself -- a surviving mutant found it -- no product code;
+  - `e2a0e442`, the L-U1+U2d batch: a keystroke's report after the frame that shows it, an
+    automatic compaction's error at its settle, a report riding only a title the tick did not
+    replace, the lead check counting title writes, the `commit_tick` comment;
+  - `7133760f`, the parity row for it;
+  - `33bc3fc2`, the merge of main;
+  - `b65eeedc`, smoke-tui's settled-screen wait taking a report after the last frame as no
+    append, as a turn-end bell already was: the gate on `33bc3fc2` failed `23-question-panel` on
+    every run, the session settling on its second question with the report after the frame;
+  - `caadee7f`, a prompt's `working` held until the frame that shows its `Thinking`: the
+    captures at `b65eeedc` (`prev5/`) still had it after the keystroke's frame and ahead of the
+    `Thinking` frame wherever the runtime's turn-start landed a tick late;
+  - `ef52945a`, the parity row for it.
 
   The commits after it change this receipt only.
 - **prev builds,** each kept for what it got wrong: `743c5381` (`v0.1.0-743c538`, `prev/`,
-  `picker`), `eb90e677` (`v0.1.0-eb90e67`, `prev2/`, `autocompactfail`) and `7d8b2c10`
+  `picker`), `eb90e677` (`v0.1.0-eb90e67`, `prev2/`, `autocompactfail`), `7d8b2c10`
   (`v0.1.0-7d8b2c1`, `prev3/`, every scenario: the launch's and the resume's report placed where
-  fx's are not).
+  fx's are not) and `afe7bda4` (`v0.1.0-afe7bda`, `prev4/`, every scenario: a keystroke's `working`
+  ahead of the frame that shows the keystroke, an automatic compaction's `error` behind the frame
+  that shows its failure) and `b65eeedc` (`v0.1.0-b65eeed`, `prev5/`, every scenario: a prompt's
+  `working` after the keystroke's frame but, where the turn started a tick later, ahead of the
+  frame that shows its `Thinking`).
 - **RED build:** the base, `24a6b912` (`v0.1.0-24a6b91`), from a `--no-local` clone.
 - **fx:** the v0.0.16 reference binary, sha256 `8e6cda2e…`; every run's guard line says it was
   unchanged. The fx captures of the eleven round-1 scenarios are reused (same binary, same
@@ -48,10 +66,10 @@ Every report is `ESC ] 7501 ; state=<s> : app=fx ESC \` (`src/ui/terminal/progra
 | `app=` | `fx` (`:22`) | `xfx`: the user's identity decision, "a separate identity" (`.prd/01-spec.md:56`), held by `scripts/check-xfx-identity.sh:5`. Recorded in `docs/parity.md`. |
 | states | `idle`, `working`, `done`, `error`, `blocked:kind=permission\|question` (`:30-41`, `:143-149`) | the same |
 | activity | approval prompt, then question prompt, then `busy`, else settled (`app_worker_runtime.zig:774-784`); `busy = !cancellation_stops_turn and (stream.active or processing or queued_count > 0)` (`:762-765`), where the worker processes a prompt or a compaction and nothing else (`WorkItem`, `worker_runtime.zig:167-170`) | a permission question (either plane, or a rule change's confirmation), then the model's question, then work -- a turn running, a prompt waiting, or a manual `/compact` in hand -- unless the user stopped it, else settled (`Shell::take_program_status`). A provider switch, a `/resume` listing, a fork and a `/workspace` are runtime work in xfx and none in fx (its picker is polled, `pollSessionPicker`, `main.zig:2930`): they report nothing (`picker`) |
-| settled value | `noteTurnStarted` resets to idle (`:972`, `:985`, `:1002`); `noteTurnFinished`: completed→done, failed→error, interrupted/paused→idle (`program_status.zig:62-71`); `noteFailure` on an error-tone `error_text` (`app_worker_runtime.zig:1214-1216`), whose production senders are a failed work item's `request failed` and `worker loop crashed` (`app_process_runtime.zig:70`, `:142`, `:164`); manual `/compact`: succeeded→done, failed→error, cancelled→idle, no_op/busy→nothing, once per operation (`program_status.zig:80-96`). An automatic compaction belongs to its turn (`:79`): its error leaves the turn (`orchestrator.zig:7864-7865`) and the turn is finished `.failed` (`:5615-5618`); only a cancelled one is an interrupted turn (`:7847-7861`); one that compacted nothing ends nothing -- the turn goes on, or an overflow it could not reduce fails it (`ContextCapacityExceeded`, `:7934-7937`) | `TurnStarted` resets; `TurnEnded` **of a turn** (`tally.started`; every prompt sends `TurnStarted` first, `worker.rs:3784`): a turn an automatic compaction failed → error (`Shell::compaction_failed`, read first; one that settled `NoOp` or `Busy` ended nothing, and the turn's own result stands), stopped → idle, failed → error, answered → done; a `TurnEnded` with no turn -- a provider switch, failed or not -- has no result; manual `/compact` as fx, its every failure `error` (fx's uncertain publication is `.failed`, `compaction_activity.zig:198`), once per operation |
+| settled value | `noteTurnStarted` resets to idle (`:972`, `:985`, `:1002`); `noteTurnFinished`: completed→done, failed→error, interrupted/paused→idle (`program_status.zig:62-71`); `noteFailure` on an error-tone `error_text` (`app_worker_runtime.zig:1214-1216`), whose production senders are a failed work item's `request failed` and `worker loop crashed` (`app_process_runtime.zig:70`, `:142`, `:164`); manual `/compact`: succeeded→done, failed→error, cancelled→idle, no_op/busy→nothing, once per operation (`program_status.zig:80-96`). An automatic compaction belongs to its turn (`:79`): its error leaves the turn (`orchestrator.zig:7864-7865`) and the turn is finished `.failed` (`:5615-5618`); only a cancelled one is an interrupted turn (`:7847-7861`); one that compacted nothing ends nothing -- the turn goes on, or an overflow it could not reduce fails it (`ContextCapacityExceeded`, `:7934-7937`) | `TurnStarted` resets; `TurnEnded` **of a turn** (`tally.started`; every prompt sends `TurnStarted` first, `worker.rs:3784`): a turn an automatic compaction failed → error (noted when the compaction settles, ahead of the frame that shows `Compaction failed.`, as fx's comes in the pass that puts it on the row -- `osc/o01-failed` -- and the turn's end notes nothing: `Shell::compaction_failed`; one that settled `NoOp` or `Busy` ended nothing, and the turn's own result stands), stopped → idle, failed → error, answered → done; a `TurnEnded` with no turn -- a provider switch, failed or not -- has no result; manual `/compact` as fx, its every failure `error` (fx's uncertain publication is `.failed`, `compaction_activity.zig:198`), once per operation |
 | dedup | an unchanged report is not written again, except a new result; once a result is reported, the next `working`/`blocked` turns it back to idle (`:106-128`, `4ae9eeeb`) | the same, ported with fx's own test vectors |
 | `msg` | the permission's label (`request.view().label`) or the question; folded: each run of ≤0x20 / 0x7f-0x9f one space, invalid UTF-8 dropped, no leading/trailing space; at most 256 bytes ending `...` on a character boundary; standard base64 with padding; omitted when empty (`:23-24`, `:152-160`, `:164-204`). Nothing is spelled first by the reporter. | the same fold, bound and encoding (`program_status::one_line`, `crate::image::base64`). The label is `<tool> <argument>` (fx's `formatPermissionLabel` shape, `tool_presentation.zig:723-757`): fx's command is `shell.run <command>`, xfx's `terminal <command>`. |
-| order | between frames (`writeProgramStatus`, `transcript/runtime.zig:10416-10429`), from the worker tick inside `loopCollectFacts` (`main.zig:2983`), which runs before the loop commits its frame (`event_loop.zig:80`, `:116-117`); its titles are written when they are set -- the launch's by the bootstrap, before the loop runs (`main.zig:728`, `app_bootstrap_runtime.zig:701`), so the launch is the two `OSC 2`, then `idle`, then the first `?2026h` (`osc/w00-start`); a turn's after the tick reported `done` (`osc/w02-done`: `done`, `OSC 2`, the frame) | between frames, where fx's land (`event_loop::commit_tick`): on its own ahead of the tick's frame, a title the tick's own events asked for behind it -- the turn's end is `done`, `OSC 2`, the frame on both; **after a title the band already owed when the tick began**, riding that frame's lead between the title and its `?2026h` (`commit_primary`; `check::preflight_update` admits exactly one declared report there) -- the launch's title is the band's before the first tick (`launch_title`), so the launch is `OSC 2`, `idle`, `?2026h`, as fx's. The band stays the title's only writer (`frame.rs:824-829`). fx writes the launch title twice (both syncs), xfx once. On the other plane or a screen no band fits on the report does not ride: it goes out on its own ahead of the frame, as on any tick (`rides` in `commit_tick`); only a tick whose band owes such a title and builds no frame at all writes it on its own after the frame. |
+| order | between frames (`writeProgramStatus`, `transcript/runtime.zig:10416-10429`), from the worker tick inside `loopCollectFacts` (`main.zig:2983`), which runs before the loop commits its frame (`event_loop.zig:80`, `:116-117`); its titles are written when they are set -- the launch's by the bootstrap, before the loop runs (`main.zig:728`, `app_bootstrap_runtime.zig:701`), so the launch is the two `OSC 2`, then `idle`, then the first `?2026h` (`osc/w00-start`); a turn's after the tick reported `done` (`osc/w02-done`: `done`, `OSC 2`, the frame); and it handles the keys after it reports (`src/ui/event_loop.zig:78-117`), so what a key did is on that pass's frame and reported by the next (`osc/w02-done`: the prompt's `Thinking` frame, then `working`) | between frames, where fx's land (`event_loop::commit_tick`): on its own ahead of the tick's frame, a title the tick's own events asked for behind it -- the turn's end is `done`, `OSC 2`, the frame on both; **after a title the band already owed when the tick began** and the tick did not replace, riding that frame's lead between the title and its `?2026h` (`commit_primary`; `check::preflight_update` admits exactly one declared report there, and no title write after it) -- the launch's title is the band's before the first tick (`launch_title`), so the launch is `OSC 2`, `idle`, `?2026h`, as fx's; **after the frame a keystroke's tick commits**, when this session's own input moved the status to work or to a question (`Shell::take_status_moved_by_input`), so the prompt's `Thinking` frame comes before `working`, as fx's. A stop is not one: fx shows the stop only when the turn has (`osc/i01-after-esc`: `idle`, then `Cancelled`), and xfx's keystroke writes that line, so the stop's `idle` stays ahead of it. The band stays the title's only writer (`frame.rs:824-829`). fx writes the launch title twice (both syncs), xfx once. On the other plane or a screen no band fits on the report does not ride: it goes out on its own ahead of the frame, as on any tick; only a tick whose band owes such a title and builds no frame at all writes it on its own after the frame. |
 | clear | `ESC]7501;state=clear ESC\` (`:18`) right after `?2004l` in all four restores, normal and abnormal, with and without tmux (`app_lifecycle.zig:43-48`); the abnormal ones written by the SIGTERM/SIGHUP handler in one `write(2)` (`:59-75`, installed `:87-105`); suspend writes the normal restore (`:1157-1165`) | right after `?2004l` in all four restores (`term::RESTORE*`, `ABNORMAL_RESTORE*`); the abnormal ones are what `restore_pair` writes in one `write(2)` from the SIGTERM/SIGHUP/SIGINT handlers, the stop handler and the panic hook. A `const` assertion fails the build for a restore without it. The restores **include** it; a restore the descriptor takes only part of, or a failed handler `write(2)`, can lose it, as it can lose the rest of the restore. |
 | resume | `defer program_status.invalidate()` around its own suspend, which repaints first (`main.zig:1050-1055`): the next report is written even if unchanged, after the resume's frame (`osc/s02-resumed`: the frame, then `idle`), and a result already reported comes back idle (`program_status.zig:98-104`) | the stop owes the invalidation to the resume's tick (`Shell::owe_program_status_resume`), **only when the stop handler wrote the abnormal restore** (`plane_restored`), so a bare `SIGCONT`, or a `SIGSTOP` and its `CONT`, leaves the record as it was; that tick writes no report ahead of its frame and the one it owes after it (`commit_tick`), so the resume is the frame, then the report, as fx's. A stop before the session began leaves no record for a later continue to read (`signals::install` takes it with the resume flag). |
 | a refused write | the report is recorded as written before the write is tried (`program_status.zig:124-127`) and a failed write is only traced (`runtime.zig:10422-10428`): dropped | dropped, the same way: the report was recorded before the write, and the refusal is disposed of as any coordinate-free vector's (it counts against the frame budget; a torn one ends the session). A report riding a frame's lead shares that update's fate: dropped when it is refused; a tear in the lead is recovered, and the cleanup vector's `CAN` aborts the string |
@@ -174,6 +192,50 @@ Round 3 (`303f0b3d`), from the two reviews of `256eb7ac`:
   the launch-order difference is gone; the torn-write table's program status row covers a report
   riding a lead.
 
+L-U1+U2d (`e2a0e442`, `7133760f`; merged with main in `33bc3fc2`), from the two confirm reviews
+of `46b2c6eb` (both APPROVE) and the dispatcher's follow-up:
+
+- **A keystroke's report after the frame that shows the keystroke** (opus A; the dispatcher's
+  decision). fx's loop reports while it collects facts and handles the keys after
+  (`src/ui/event_loop.zig:78-117`), so what a key did is on that pass's frame and reported by the
+  next: `osc/w02-done` has the prompt's `Thinking` frame, then `working`, where xfx wrote `working`
+  first -- and the same for a permission or a question answered and a `/compact`. The shell now
+  notes when its own input moves the status to work or to a question
+  (`Shell::take_status_moved_by_input`, set across `consume`), and that tick writes its report after
+  its frame (`commit_tick`). **A prompt waits one step more** (`caadee7f`): fx's keystroke frame
+  already shows the prompt's `Thinking`, and xfx's band shows it once the runtime says the turn
+  started, which lands in the keystroke's tick or a later one -- so a status a keystroke moved to
+  work only through a prompt not yet started writes no report (`Keyed::NotYet`) until the tick
+  whose frame first shows the turn, and follows that frame. **A stop is not one**: fx shows a stop only when the turn has
+  (`osc/i01-after-esc`: `idle`, then `Cancelled`), and xfx's keystroke writes that `Cancelled`
+  line, so a stop's `idle` stays ahead of its frame. Tests:
+  `a_working_a_keystroke_caused_follows_the_frame_that_shows_the_keystroke`, the guard
+  `a_stop_a_keystroke_asked_for_is_reported_ahead_of_the_frame_that_shows_it`, and the pty case
+  (`Thinking` before `working`).
+- **An automatic compaction's failure is the turn's `error` at the settle.** The tightened `order`
+  showed xfx writing `Compaction failed.` and then `error`, where fx writes `error` and then the
+  row: fx's failure and the turn's end come in one pass, and xfx's runtime says them apart. The
+  result is now noted when the compaction settles, and the turn's end notes nothing
+  (`an_automatic_compaction_that_fails_inside_a_turn_is_that_turns_error`, changed).
+- **A report rides a title the band already owed only if the tick did not replace it** (opus
+  SHOULD 3, PLAUSIBLE, RED with a refused frame:
+  `a_title_its_tick_asked_for_over_one_still_owed_follows_the_report`). xfx wrote the new title,
+  the report, the frame; fx writes the report, the new title, the frame. The tick's own title
+  (`Shell::owes_title`) now keeps the report on its own, ahead.
+- **`osc.py`'s `order` compares which frame a report follows** (below), and fails round 3's wires.
+- **The lead check counts title writes** (`TerminalModel::titles`), so an `OSC 2` with the same text
+  inside the report's slice is refused (`a_lead_admits_one_declared_report_…`).
+- **The `commit_tick` comment** says what the code does: the other plane and a screen no band fits
+  on put the report ahead of the frame; only a tick that held it for a lead and built no update
+  writes it after.
+- **Main merged** (`33bc3fc2`): `origin/main` `6c93f359`, no conflict; the gate runs main's two new
+  scripts, `scripts/test-check-no-secrets.sh` and `scripts/test-gate-env.sh`.
+- **`scripts/smoke-tui.sh`** (`b65eeedc`): the gate on `33bc3fc2` failed `23-question-panel` on
+  every run, alone too (`gates.txt`): its settled-screen wait (`wire_ends_on_a_frame`) wants the
+  wire to end on a frame's close, and a session waiting on its second question now ends on the
+  report the keystroke caused, after the frame. A whole `OSC 7501` report at the end of the wire is
+  no append, as a turn-end bell already was.
+
 ## Decisions
 
 - **`app=xfx`.** The user's identity decision (`.prd/01-spec.md:56`). `osc.py` normalizes the
@@ -181,8 +243,12 @@ Round 3 (`303f0b3d`), from the two reviews of `256eb7ac`:
 - **The clear right after `?2004l`.** xfx's restores are in a different order from fx's; the
   property kept on both sides is "the clear follows `?2004l`", which `osc.py` checks on both wires.
 - **The report before the frame,** as fx's tick reports before it commits its frame -- except
-  after a title the band already owed (the launch's), which fx has already written, and after a
-  resume's repaint, which fx makes before it invalidates.
+  after a title the band already owed (the launch's), which fx has already written, after a
+  resume's repaint, which fx makes before it invalidates, and after a keystroke's frame, which fx
+  commits before the pass that reports what the key did.
+- **The keystroke rule is by what the input did, not where it came from**: work or a question.
+  A stop is the exception because xfx writes `Cancelled` at the keystroke where fx writes it with
+  the turn's end; deferring the stop's `idle` would put it behind that line, where fx's is ahead.
 - **The report rides the frame's lead rather than the title being written apart**: the band stays
   the title's only writer. Rounds 1 and 2 left the launch's order uncopied for that reason; the
   reviews held it was no allowed one, and the lead holds both.
@@ -222,10 +288,21 @@ or carrying a raw byte fails `intact` rather than being skipped. Claims, per wir
 order, decoded and normalized, are fx's), `between` (no report inside an update), `clear` (every
 clear right after `?2004l`), `last` (no introducer at all after the last clear of a session that
 ended), `inert` (every `msg` base64 decoding to at most 256 bytes of UTF-8 with no control), and,
-from round 3, `order` (what each report follows -- the nearest title, `?2026h`, `?2026l`,
-`?2004h`, `?2004l` or report -- is what fx's follows, report by report, and the first report is
-followed by what fx's first is followed by: the launch's `idle` after its title and right ahead of
-the first frame, a resume's report after the resume's frame).
+and `order`, which this batch rebuilt. It asks two things. **Where** each report sits: the first
+report is preceded, since the mode set (`?2004h`), by a window title and followed by the first
+frame's `?2026h` -- the launch's `idle` after its title, right ahead of the first frame -- and
+every report has a frame between it and the last mode set exactly when fx's does, so a resume's
+report comes after the frame the resume repaints. And **which frame** a turn's `working` follows:
+for every `working` after a settled report (`idle`, `done`, `error`) -- work a keystroke began --
+whether a frame between the two showed `Thinking` is what it is on fx. Round 3's `order` compared
+the kind of sequence nearest each report; that passed round 3's early `working` (both after a
+`?2026l`), and it failed this batch's correct wires wherever fx's timer painted a `(0s)` frame
+between two reports and xfx's did not, so it is gone. A frame's ordinal is not comparable either
+(fx writes frames xfx does not -- its cursor probe's, a timer's -- and xfx writes a band in
+fewer), so a frame is told by what it showed, and only `Thinking`, only there: the activity row
+after a question or a permission is answered is each product's own (xfx's names the running tool;
+fx repaints the whole screen), and a compaction's progress row is on a frame only as long as its
+request takes.
 
 **Three normalizations**, each named in its header: `app-name`; `command-tool-name` (`shell.run`
 / `terminal`); `question-breaks` (xfx's question tool spells a line feed and a tab before the
@@ -238,33 +315,46 @@ difference (owner unit **QUESTION-BREAKS**).
   failing claims** -- the base writes no `OSC 7501` at all (`same` fails on all 38, and `last` on
   the seven wires that end a session, which carry no clear).
 - **`743c5381`, `picker`:** `osc.py . prev 743c538 p5-lifecycle-osc-picker` (`prev.txt`): 4 wire
-  pairs, **4 failing** -- `same` on three, for the `working, idle` it wrote for the `/resume`
-  listing, and round 3's `order` on the fourth, the launch's `idle` ahead of its title (where the
-  report counts differ, `same` has already failed and `order` is not asked).
+  pairs, **5 failing** -- `same` on three, for the `working, idle` it wrote for the `/resume`
+  listing, and `order` twice on the fourth: the launch's `idle` ahead of its title, and the
+  prompt's `working` ahead of its `Thinking` (where the report counts differ, `same` has already
+  failed and `order` is not asked).
 - **`eb90e677`, `autocompactfail`:** `osc.py . prev2 eb90e67 p5-lifecycle-osc-autocompactfail`
-  (`prev2.txt`): 2 wire pairs, **3 failing** -- `same` on the one where it reported `idle` where
-  fx reports `error`, and `order` on both.
+  (`prev2.txt`): 2 wire pairs, **5 failing** -- `same` on the one where it reported `idle` where
+  fx reports `error`, and `order` twice on each: the launch's placement and the prompts' `working`.
 - **`7d8b2c10` (round 2), every scenario:** `osc.py . prev3 7d8b2c1` (`prev3.txt`): 38 wire
-  pairs, **38 failing** -- `order` on every pair, for the launch's `idle` ahead of its title
-  (after `?2004h`, followed by the title, where fx's follows the title and is followed by
-  `?2026h`), and on the two `suspend` wires past the stop for the resume's `idle` ahead of the
-  frame it repaints too. Nothing else: the reports themselves were fx's.
+  pairs, **72 failing**, all `order`: the placement on all 38 (the launch's `idle` against the mode
+  set, ahead of its title; on the two `suspend` wires past the stop, the resume's `idle` too) and
+  the prompts' `working` ahead of their `Thinking` on 34. The reports themselves were fx's.
+- **`afe7bda4` (round 3), every scenario:** `osc.py . prev4 afe7bda` (`prev4.txt`): 38 wire pairs,
+  **34 failing**, all `order`'s which-frame half: every pair with a prompt's `working` has it ahead
+  of the frame that shows its `Thinking` -- the reviews' item A. The placement holds.
+- **`b65eeedc` (this batch's first build), every scenario:** `osc.py . prev5 b65eeed`
+  (`prev5.txt`): 38 wire pairs, **14 failing**, the same half: the `working` after the keystroke's
+  frame, but ahead of the `Thinking` frame wherever the runtime's turn-start landed a tick later --
+  what `caadee7f` holds back.
 - **Round 3's tests** on round 2's code with only the `launch_title` helper they call added
   (`red3-test.txt`): the launch, the resume, the startup stop and the compaction that compacted
   nothing fail, 4 of 5; the fifth -- a title the tick's own events asked for follows the report
   -- is the regression guard for the turn's end, which already matched fx, and passes there too.
+- **This batch's tests** on round 3's code (`red4-test.txt`): the keystroke's `working`, the
+  replaced title and the automatic compaction's `error` at its settle fail, 3 of 4; the fourth --
+  a stop's `idle` ahead of the frame that shows `Cancelled` -- is the guard for the stop, which
+  already matched fx, and passes there too.
 - **Tests:** `tests/tui.rs` (unchanged since `743c5381`) against the base's code
   (`red-test.txt`): 5 of 7 fail -- `the_session_reports_its_status_…` (no launch `idle`), and
   `a_normal_exit_…`, `sigterm_…`, `sighup_…`, `sigtstp_…` (the restore with its clear never
   arrives). The two guards (`an_ask_on_a_terminal_…`, `zero_is_the_line_shell`) pass on the base
   too, as they should: the base writes no report anywhere.
 
-## GREEN (`afe7bda4`)
+## GREEN (`ef52945a`)
 
-`python3 -I -B osc.py . xfx afe7bda` (`green.txt`): **38 wire pairs, 0 failing claims**, `order`
-included; every xfx wire carries `v0.1.0-afe7bda` and no other banner. The reports are the ones
-round 2 wrote; round 3 moved where two of them sit -- the launch's after its title and right
-ahead of the first frame, the resume's after the frame it repaints.
+`python3 -I -B osc.py . xfx ef52945` (`green.txt`): **38 wire pairs, 0 failing claims**, both
+halves of `order` included; every xfx wire carries `v0.1.0-ef52945` and no other banner. The
+reports are the ones round 2 wrote; round 3 moved the launch's after its title and the resume's
+after the frame it repaints, and this batch moved every prompt's `working` after the frame that
+shows its `Thinking` and the automatic compaction's `error` ahead of the frame that shows
+`Compaction failed.`
 
 | scenario | wires | the reports (normalized), the last wire |
 |---|---|---|
@@ -326,10 +416,10 @@ ahead of the first frame, the resume's after the frame it repaints.
 
 ## Mutants
 
-**Code** (`mutants.py`, `mutants.txt`): thirty-four one-line mutants, run on a `git clone
---no-local` of `afe7bda4` in the scratchpad (never the worktree), against the unit tests this unit
-added or touched (a build, for the two restore literals; the pty cases, for what only the session's
-own loop does). **All 34 killed.**
+**Code** (`mutants.py`, `mutants.txt`): forty one-line mutants, run on a `git clone --no-local` of
+`ef52945a` in the scratchpad (never the worktree), against the unit tests this unit added or
+touched (a build, for the two restore literals; the pty cases, for what only the session's own
+loop does). **All 40 killed.**
 
 - the abnormal restore without its clear; the tmux restore with its clear moved to the end --
   **the build fails** (`const` assertion, `E0080`);
@@ -337,40 +427,47 @@ own loop does). **All 34 killed.**
   encoder/checker agreement case fail;
 - an unchanged report written again; a second result in a row not reported; a reported result
   repeated after work that ran no turn -- the ported dedup cases fail;
-- a resume that does not report again; **any continue rewriting the record**, **a refused report
-  offered again** and **an automatic compaction's failure reported idle** (round 1's rules, each
-  now a mutant); the failed compaction read after the cancel; a turn whose compaction failed not
-  `working` until it ends; the report written after the frame -- the loop's and the shell's cases
-  fail;
-- round 3's: **the launch's report ahead of its title** and **a resume's report ahead of its
-  frame** (rounds 1 and 2's orders) -- the loop's cases fail, and the second on a real terminal
-  too; the launch's title not handed to the band before the first tick -- the pty case fails; a
-  stop before the session began answering a later continue -- the signal case fails; an automatic
-  compaction that compacted nothing failing its turn -- the shell's case fails; the lead check
-  admitting a report ahead of its title, or one it was not told of -- the check's case fails;
+- a resume that does not report again; **any continue rewriting the record** and **a refused
+  report offered again** (round 1's rules); the report written after the frame; **the launch's
+  report ahead of its title** and **a resume's report ahead of its frame** (rounds 1-2's orders,
+  the second on a real terminal too); the launch's title not handed to the band before the first
+  tick (pty) -- the loop's cases fail;
+- this batch's: **a keystroke's `working` ahead of the frame that shows it** (rounds 1-3's order,
+  on a real terminal too); a prompt's `working` before any frame shows its turn; a stop's `idle`
+  held behind the frame that shows `Cancelled`; a report riding a title the tick's own events
+  replaced; **an automatic compaction's failure reported idle** (round 1's rule), the turn's end
+  reporting it again, and the turn still `working` until it ends (rounds 2-3's rule) -- the loop's
+  and the shell's cases fail;
+- a stop before the session began answering a later continue -- the signal case fails; an
+  automatic compaction that compacted nothing failing its turn -- the shell's case fails;
 - a stopped turn still `working`; a waiting prompt or a manual `/compact` not `working`; any
   runtime work `working` (`743c5381`'s rule); work with no turn given a result; a stopped turn
   reported as its failure -- the shell's cases fail;
 - the output check admitting a decoded control, a `BEL`-terminated report, a non-canonical base64
-  tail, a message past 256 decoded bytes, or a restore with no clear -- the check's and the
-  restore's cases fail.
+  tail, a message past 256 decoded bytes, a restore with no clear; the lead check admitting a
+  report ahead of its title, one it was not told of, or a title written again in the report's
+  slice -- the check's and the restore's cases fail.
 
-The same 34 on `33dffa7c` left one survivor: a resume's report ahead of its frame, on a real
-terminal. The pty case looked for the resume's frame from the start of the stop's restore, which
-opens with `?2026l` itself, so it held nothing about the order; `afe7bda4` looks past the
-restore's end, and the mutant is killed above. Earlier runs, superseded: `743c5381` (16 mutants,
-one survivor: a failure with no turn not reported -- that is now the rule), `eb90e677` (19, one
-survivor: the `!cancelling` guard, killed by `ecd4ace2`'s case) and `7d8b2c10` (26, all killed).
+Earlier runs, superseded: `743c5381` (16 mutants, one survivor: a failure with no turn not
+reported -- that is now the rule), `eb90e677` (19, one survivor: the `!cancelling` guard, killed
+by `ecd4ace2`'s case), `7d8b2c10` (26, all killed), `33dffa7c` (34, one survivor: the vacuous pty
+resume case `afe7bda4` fixed) and `afe7bda4` (34, all killed).
 
-**Checker** (`wire_mutants.py`, `wire-mutants.txt`): fourteen defects written into a copy of the
+**Checker** (`wire_mutants.py`, `wire-mutants.txt`): fifteen defects written into a copy of the
 receipt's xfx wires -- the exit's clear dropped, the clear moved after `?25h`, a report after the
 clear, a report inside a frame, a raw label, a label decoding to ESC, a report lost, another
 build's banner, **one wire with no banner while the others carry it**, **an unterminated report
-after the exit's clear**, a report ended by `BEL`, an 8-bit introducer after the clear, and round
-3's **the launch's `idle` ahead of its title** and **a resume's report ahead of the frame it
-repaints** -- and `osc.py` fails each with the claim named, and passes the unchanged copy.
+after the exit's clear**, a report ended by `BEL`, an 8-bit introducer after the clear, **the
+launch's `idle` ahead of its title**, **a resume's report ahead of the frame it repaints** and,
+from this batch, **a keystroke's `working` ahead of the frame that shows it** (still right after
+a frame's `?2026l`, so only `order`'s which-frame half can tell) -- and `osc.py` fails each with
+the claim named, and passes the unchanged copy.
 
 ## Sweep
+
+**Round 3's, not rerun in this batch** (the batch's gate list does not include it). Its figures
+are for `33dffa7c`'s build, before main's #77 was merged; this batch moved where reports sit in
+the byte stream, which the comparator does not read (`capture-pane` snaps carry no OSC).
 
 `scripts/fxcap/sweep.sh --only 'p5-lifecycle-*' --only startup --only 'quit*' --only 'composer-*'
 --jobs 3`, fx v0.0.16 against five xfx builds, each named by its banner in the run's scoreboard
@@ -396,37 +493,33 @@ neither side's cells and needed no normalization; `osc.py` compares the wires in
 
 ## Gates
 
-At `afe7bda4`, one step at a time, `TMPDIR` short; every line below is in `gates.txt`, which is
+At `ef52945a`, one step at a time, `TMPDIR` short; every line below is in `gates.txt`, which is
 assembled from the logs with local paths redacted.
 
 | gate | result |
 |---|---|
 | `cargo fmt --check` | ok |
 | `cargo clippy --locked --all-targets -- -D warnings`, without and with `fault-injection` | ok, ok |
-| `cargo test --locked --no-fail-fast` | 5193 passed, 0 failed, 7 ignored (15 binaries) |
-| `cargo test --locked --features fault-injection --no-fail-fast` | 5230 passed, 0 failed, 7 ignored -- in full |
+| `cargo test --locked --no-fail-fast` | 5203 passed, 0 failed, 7 ignored (15 binaries) |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 5240 passed, 0 failed, 7 ignored -- in full |
 | `check-xfx-identity`, `check-no-stubs`, `check-no-secrets`, `check-preview-contract`, `check-tui-preflight-cost` | ok |
+| main's `scripts/test-check-no-secrets.sh`, `scripts/test-gate-env.sh` | ok (13 cases, 3473 tracked names past `ARG_MAX`), ok (5 cases) |
 | `scripts/fxcap/test-sweep.sh` | 26 tests, OK |
-| release and faulty release builds | ok; `xfx status` of each says `build_revision=afe7bda49d07` (`gates.txt`, "revision") |
+| release and faulty release builds | ok; `xfx status` of each says `build_revision=ef52945a7702` (`gates.txt`, "revision") |
 | `scripts/smoke.sh` (release) | 47 checks, 0 failures |
 | `scripts/smoke-tui.sh` (release, `--faulty`) | 1152 checks, 0 failures |
 
-- **An earlier run of this gate, on `303f0b3d`,** failed one test, and that is why `33dffa7c`
-  exists: `the_band_is_painted_under_the_welcome_inside_one_synchronized_frame` (`tests/tui.rs`)
-  held the bytes ahead of the first `?2026h` to the title alone, and the launch's report now
-  rides there after it. The run was stopped there; `33dffa7c` changes that one expectation and
-  nothing else. The whole gate then passed on `33dffa7c`, the mutants found the pty resume case
-  vacuous, `afe7bda4` fixed that case, and the gate above is the whole gate again, on it.
-- **smoke-tui passed on its first run** this round. Round 2's one `3-restore-matrix`
-  `sigtstp-and-cont` failure (the harness's 20 s wait for raw mode after `SIGCONT`) is recorded in
-  round 2's `gates.txt` (at `256eb7ac`) with its three isolated passes; `wait_until_raw` now writes
-  the child's process state and the master's unread bytes when it gives up (`never-raw.txt`).
+- **The same gate on `33bc3fc2`** (the merge) failed smoke-tui's `23-question-panel` on every run,
+  alone three times too (`gates.txt`), and `b65eeedc` is why: the settled-screen wait wanted the
+  wire to end on a frame, and the keystroke's report now follows it. The gate then passed on
+  `b65eeedc`, the captures there (`prev5/`) showed the prompt's `working` still racing its
+  `Thinking`, `caadee7f` held it back, and the gate above is the whole gate again, on
+  `ef52945a`.
 - **The fault-injection suite** passed in full again. Round 1's one failure,
   `tui::copy::tests::an_ending_session_lets_a_copy_that_answers_land`, with its three isolated
   passes, is kept in `gates.txt`: the test uses only `Copies` and a fake tool that sleeps 0.2 s
   (`copy.rs:238-249`), with no `Shell` and no `commit_counted`, and `src/tui/copy.rs` is unchanged
   since the base.
-- **Mutants** ran on a `--no-local` clone of `afe7bda4` (above); **every `osc` scenario** was
-  captured from a debug build of `afe7bda4` (`xfx/`, every wire's banner `v0.1.0-afe7bda`,
-  `green.txt`). The sweep ran against `33dffa7c`'s debug build, whose product code is
-  `afe7bda4`'s (`git diff 33dffa7c afe7bda4 -- src scripts docs` is empty: `gates.txt`).
+- **Mutants** ran on a `--no-local` clone of `ef52945a` (above); **every `osc` scenario** was
+  captured from a debug build of `ef52945a` (`xfx/`, every wire's banner `v0.1.0-ef52945`,
+  `green.txt`).

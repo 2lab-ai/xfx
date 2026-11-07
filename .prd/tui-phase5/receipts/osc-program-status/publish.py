@@ -2,13 +2,16 @@
 receipt) and red's (the base's), after checking each xfx wire names the build
 it must and no wire holds a local path.
 
-usage: python3 -I -B publish.py <repo> <cap-dir> <receipt-dir> <green-sha7> <red-sha7> <prev-sha7> <prev2-sha7> <prev3-sha7>
+usage: python3 -I -B publish.py <repo> <cap-dir> <receipt-dir> <green-sha7> <red-sha7> <prev-sha7> <prev2-sha7> <prev3-sha7> <prev4-sha7> <prev5-sha7>
 
 <cap-dir> holds `fx/`, `xfx/` and `red/` -- and `prev/`, the first build's
 `picker` capture, and `prev2/`, the round-1 build's `autocompactfail`
 capture, the scenario each of those builds failed, and `prev3/`, round 2's
 build on every scenario, whose launch and resume reports sit where fx's do
-not -- each with one
+not, and `prev4/`, round 3's build on every scenario, whose keystroke
+reports go ahead of the frame that shows the keystroke, and `prev5/`, this
+batch's first build, whose prompt `working` can still go ahead of the frame
+that shows its `Thinking` -- each with one
 `<scenario>-40x120/` per scenario as `capture.sh` wrote it. Only `.wire`
 files are copied: no gateway log, no request body, no run log. A wire is
 bytes, not text: copied as it is, and refused if a local root appears in it.
@@ -20,12 +23,12 @@ import shutil
 import sys
 
 repo, cap, out = (os.path.realpath(p) for p in sys.argv[1:4])
-green_sha, red_sha, prev_sha, prev2_sha, prev3_sha = sys.argv[4:9]
+green_sha, red_sha, prev_sha, prev2_sha, prev3_sha, prev4_sha, prev5_sha = sys.argv[4:11]
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(repo, "scripts", "fxcap"))
 from redact import LEFTOVER  # noqa: E402
 
-SIDES = {"fx": ("fx", None), "xfx": ("xfx", green_sha), "red": ("xfx", red_sha), "prev": ("xfx", prev_sha), "prev2": ("xfx", prev2_sha), "prev3": ("xfx", prev3_sha)}
+SIDES = {"fx": ("fx", None), "xfx": ("xfx", green_sha), "red": ("xfx", red_sha), "prev": ("xfx", prev_sha), "prev2": ("xfx", prev2_sha), "prev3": ("xfx", prev3_sha), "prev4": ("xfx", prev4_sha), "prev5": ("xfx", prev5_sha)}
 BANNER = re.compile(rb"v0\.1\.0-([0-9a-f]{7})")
 n = 0
 for side, (prefix, sha) in SIDES.items():

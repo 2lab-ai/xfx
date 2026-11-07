@@ -1,11 +1,12 @@
-# P5 L-U1+U2 round 2. Every gate below ran on the tree of afe7bda49d07, the code the receipt
-# names (the commits after it add .prd/ files only), one step at a time, TMPDIR=<tmp>/osc,
-# macOS. Paths are redacted: <worktree>, <tmp>, <scratch>. Logs: <scratch>/gates2/*.log.
+# P5 L-U1+U2, the L-U1+U2d batch. Every gate below ran on the tree of ef52945a7702, the code the
+# receipt names (the commits after it add .prd/ files only), one step at a time, TMPDIR=<tmp>/osc,
+# macOS. Paths are redacted: <worktree>, <tmp>, <scratch>. Logs: <scratch>/gates4/*.log.
 
-## summary.log (gates3.sh: fmt, clippy x2, test x2, identity, stubs, secrets, contract,
+## summary.log (gates4.sh: fmt, clippy x2, test x2, identity, stubs, secrets, main's two new
+## scripts test-check-no-secrets and test-gate-env, contract,
 ## preflight-cost, fxcap test-sweep, release and faulty builds and what each binary says it
 ## was built from, smoke.sh, smoke-tui)
-head afe7bda49d0716df316485999270710087e89e46
+head ef52945a7702356768a194c82a23daa59128d6a0
 fmt exit=0
 clippy exit=0
 clippy-fi exit=0
@@ -14,6 +15,8 @@ test-fi exit=0
 identity exit=0
 stubs exit=0
 secrets exit=0
+test-check-no-secrets exit=0
+test-gate-env exit=0
 contract exit=0
 preflight-cost exit=0
 test-sweep exit=0
@@ -29,71 +32,87 @@ gates-done
 
 ## clippy
    Compiling xfx v0.1.0 (<worktree>)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.78s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.80s
 
 ## clippy-fi
    Compiling xfx v0.1.0 (<worktree>)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.73s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.39s
 
-## test: 15 test binaries, 5193 passed, 0 failed, 7 ignored
-test result: ok. 4280 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 36.13s
+## test: 15 test binaries, 5203 passed, 0 failed, 7 ignored
+test result: ok. 4289 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 38.47s
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.84s
-test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.03s
-test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.83s
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.76s
-test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.15s
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.07s
-test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.99s
-test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.43s
-test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
-test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.84s
-test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.16s
-test result: ok. 177 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.71s
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
-
-## test-fi: 15 test binaries, 5230 passed, 0 failed, 7 ignored
-test result: ok. 4303 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 51.19s
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.37s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.56s
 test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
-test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.58s
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.22s
-test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.24s
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.40s
-test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.57s
-test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.51s
-test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
-test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.86s
-test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
-test result: ok. 191 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.30s
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.10s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.71s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.13s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.03s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.62s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.96s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+test result: ok. 178 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.77s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+## test-fi: 15 test binaries, 5240 passed, 0 failed, 7 ignored
+test result: ok. 4312 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 39.16s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.03s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.03s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.73s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.18s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.03s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.86s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.86s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.59s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+test result: ok. 192 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.18s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
 
 ## identity
-check-xfx-identity: ok (12212 tracked file(s) scanned)
+check-xfx-identity: ok (12303 tracked file(s) scanned)
 
 ## stubs
 check-no-stubs: ok
 
 ## secrets
-check-no-secrets: ok (12212 tracked file(s) scanned)
+check-no-secrets: ok (12303 tracked file(s) scanned)
+
+## test-check-no-secrets
+test-check-no-secrets: ok grep-127           exit 1
+test-check-no-secrets: ok every-file         exit 1
+test-check-no-secrets: ok every-file-set     3472 of 3472 keys, each once
+test-check-no-secrets: ok nothing-tracked    exit 1
+test-check-no-secrets: ok only-a-symlink     exit 1
+test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
+
+## test-gate-env
+test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code
+test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command
+test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break
+test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
+test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
+test-gate-env: ok (5 cases)
 
 ## contract
 check-preview-contract: ok (.github/workflows/preview.yml)
 
 ## preflight-cost
-preflight 200x300 full: 61292 bytes in 1.053333ms mean, 938.583µs min, 1.032167ms median, 1.163084ms max (budget 32 ms)
-preflight 200x300 scroll: 9 bytes in 473.277µs mean, 453.958µs min, 471.458µs median, 506.125µs max (budget 32 ms)
-preflight 200x300 update: 85420 bytes in 621.597µs mean, 611.667µs min, 621.083µs median, 643.209µs max (budget 32 ms)
-replay 24x80 1000 rows: 26000 bytes in 337.186µs mean, 327.416µs min, 332.458µs median, 366.5µs max (budget 8 ms)
-replay 200x300 1000 rows: 28000 bytes in 1.203613ms mean, 1.153583ms min, 1.208583ms median, 1.2275ms max (budget 32 ms)
+preflight 200x300 full: 61292 bytes in 1.119862ms mean, 892.958µs min, 1.121917ms median, 1.438458ms max (budget 32 ms)
+preflight 200x300 scroll: 9 bytes in 520.485µs mean, 486µs min, 505.583µs median, 586.333µs max (budget 32 ms)
+preflight 200x300 update: 85420 bytes in 696.591µs mean, 649µs min, 678.333µs median, 908.792µs max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 358.802µs mean, 346.916µs min, 355.75µs median, 424.334µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 1.308997ms mean, 1.286042ms min, 1.3005ms median, 1.350042ms max (budget 32 ms)
 check-tui-preflight-cost: ok
 
 ## test-sweep
 OK
 ..........................
 ----------------------------------------------------------------------
-Ran 26 tests in 14.025s
+Ran 26 tests in 19.510s
 
 OK
 
@@ -103,25 +122,25 @@ OK
   ok    every request carried exactly the provided credential, and nothing else leaked (scanned 52 file(s), 11 request(s))
 
 47 check(s), 0 failure(s)
-evidence: <tmp>/osc-smoke-cli3
+evidence: <tmp>/osc-smoke-cli6
 
 ## build-release
    Compiling xfx v0.1.0 (<worktree>)
-    Finished `release` profile [optimized] target(s) in 13.91s
+    Finished `release` profile [optimized] target(s) in 15.40s
 
 ## build-faulty
    Compiling xfx v0.1.0 (<worktree>)
-    Finished `release` profile [optimized] target(s) in 15.63s
+    Finished `release` profile [optimized] target(s) in 17.67s
 
 ## revision: `xfx status` of each binary (target/release/xfx, then target/faulty/release/xfx)
-[status] build_revision=afe7bda49d07
-[status] build_revision=afe7bda49d07
+[status] build_revision=ef52945a7702
+[status] build_revision=ef52945a7702
 
-## smoke-tui (gates3.sh)
+## smoke-tui (gates4.sh)
 xfx smoke-tui
   binary:   <worktree>/target/release/xfx
   faulty:   <worktree>/target/faulty/release/xfx
-  evidence: <tmp>/osc-smoke5
+  evidence: <tmp>/osc-smoke9
 
   0-oracle-falsification                ok
   1-launch-and-band-ownership           ok
@@ -163,21 +182,10 @@ xfx smoke-tui
   27-live-theme-retint                  ok
 
 smoke-tui: 37 scenarios + the oracle, 1152 checks, 0 failures
-evidence: <tmp>/osc-smoke5
+evidence: <tmp>/osc-smoke9
 
-## the same gate on 303f0b3d, stopped after its test step failed (what 33dffa7c fixes)
-head 303f0b3d01a3f62efa99dee4296e710be9e1035c
-fmt exit=0
-clippy exit=0
-clippy-fi exit=0
-test exit=101
-test the_band_is_painted_under_the_welcome_inside_one_synchronized_frame ... FAILED
-thread 'the_band_is_painted_under_the_welcome_inside_one_synchronized_frame' (286693796) panicked at tests/tui.rs:2800:5:
-the window title is not the write right ahead of the first update: "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t\u{1b}]11;?\u{1b}\\\u{1b}[?996n\u{1b}[6n\u{1b}]2;xfx v0.1.0 | workspace\u{7}\u{1b}]7501;state=idle:app=xfx\u{1b}\\"
-test result: FAILED. 176 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.82s
-
-## the same gate on 33dffa7c (passed; the mutants then found the pty resume case vacuous)
-head 33dffa7c0bdca53e1f628d6dc4600bad757467e3
+## the same gate on 33bc3fc2 (the merge): smoke-tui failed one scenario, every time, which b65eeedc fixes
+head 33bc3fc2df14579f285bec9e58648aa398b12ede
 fmt exit=0
 clippy exit=0
 clippy-fi exit=0
@@ -186,6 +194,36 @@ test-fi exit=0
 identity exit=0
 stubs exit=0
 secrets exit=0
+test-check-no-secrets exit=0
+test-gate-env exit=0
+contract exit=0
+preflight-cost exit=0
+test-sweep exit=0
+build-release exit=0
+build-faulty exit=0
+revision exit=0
+smoke exit=0
+smoke-tui exit=1
+gates-done
+  23-question-panel                     FAIL
+          the scenario could not be driven (at 'question'): timed out waiting for the second question of the batch; terminal so far:
+smoke-tui: 37 scenarios + the oracle, 1138 checks, 1 failures
+23-question-panel alone, run 1: rc=1 checks=11 problems=1: the scenario could not be driven (at 'question'): timed out waiting for the second question of the batch; term
+23-question-panel alone, run 2: rc=1 checks=11 problems=1: the scenario could not be driven (at 'question'): timed out waiting for the second question of the batch; term
+23-question-panel alone, run 3: rc=1 checks=11 problems=1: the scenario could not be driven (at 'question'): timed out waiting for the second question of the batch; term
+
+## the same gate on b65eeedc (passed; its captures, prev5/, then showed the prompt's working racing its Thinking)
+head b65eeedc06902006c668a9ae4a1fad74930f3f15
+fmt exit=0
+clippy exit=0
+clippy-fi exit=0
+test exit=0
+test-fi exit=0
+identity exit=0
+stubs exit=0
+secrets exit=0
+test-check-no-secrets exit=0
+test-gate-env exit=0
 contract exit=0
 preflight-cost exit=0
 test-sweep exit=0
@@ -195,13 +233,13 @@ revision exit=0
 smoke exit=0
 smoke-tui exit=0
 gates-done
-test: 15 test binaries, 5193 passed, 0 failed, 7 ignored
-test-fi: 15 test binaries, 5230 passed, 0 failed, 7 ignored
+test: 15 test binaries, 5203 passed, 0 failed, 7 ignored
+test-fi: 15 test binaries, 5240 passed, 0 failed, 7 ignored
 smoke-tui: 37 scenarios + the oracle, 1152 checks, 0 failures
-evidence: <tmp>/osc-smoke5
+evidence: <tmp>/osc-smoke8
 
 ## the fault-injection suite
-Round 3 (afe7bda49d07): 5230 passed, 0 failed (above).
+This batch (ef52945a7702): 5240 passed, 0 failed (above).
 Round 1 (the tree of ecd4ace2: logs written 19:53-19:58, after ecd4ace2 at 19:45:38 and before
 the receipt commit 6b3a6b55 at 20:00:27) failed one test; its failing line and panic:
 test tui::copy::tests::an_ending_session_lets_a_copy_that_answers_land ... FAILED
@@ -215,12 +253,12 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4299 filtered out; f
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4299 filtered out; finished in 0.60s
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4299 filtered out; finished in 0.58s
 
-## the parity sweep (scripts/fxcap/sweep.sh --jobs 3, --only 'p5-lifecycle-*' startup 'quit*' 'composer-*')
+## the parity sweep, round 3's (not rerun in this batch; scripts/fxcap/sweep.sh --jobs 3, --only 'p5-lifecycle-*' startup 'quit*' 'composer-*')
 base 24a6b91: pass = 52 / 97 = 53.6%; unresolved 44, failed 0, timeout 0
 743c538: pass = 53 / 97 = 54.6%; unresolved 43, failed 0, timeout 0
 eb90e67: pass = 53 / 97 = 54.6%; unresolved 43, failed 0, timeout 0
 7d8b2c1: pass = 53 / 97 = 54.6%; unresolved 43, failed 0, timeout 0
-33dffa7 (this receipt's product code): pass = 51 / 97 = 52.6%; unresolved 45, failed 0, timeout 0
+33dffa7 (round 3): pass = 51 / 97 = 52.6%; unresolved 45, failed 0, timeout 0
 
 per-pair, against base (97 pairs):
   743c538: 97 shared pairs, 53 pass; gained 1, lost 0, other verdict changes 0; pairs only here 0, only in base 0

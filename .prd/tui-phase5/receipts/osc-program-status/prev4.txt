@@ -1,0 +1,74 @@
+same p5-lifecycle-osc-ask-40x120        a00-quit               fx  2  prev4  2  state=idle:app=<program> > state=clear
+same p5-lifecycle-osc-ask-40x120        a01-ask                fx  2  prev4  2  state=idle:app=<program> > state=clear
+same p5-lifecycle-osc-autocompactfail-40x120 o00-answered           fx  5  prev4  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-autocompactfail-40x120 o01-failed             fx  7  prev4  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program>
+same p5-lifecycle-osc-compact-40x120    c00-noop               fx  1  prev4  1  state=idle:app=<program>
+same p5-lifecycle-osc-compact-40x120    c01-answered           fx  5  prev4  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-compact-40x120    c02-compacted          fx  7  prev4  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-compactfail-40x120 f00-answered           fx  5  prev4  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-compactfail-40x120 f01-failed             fx  7  prev4  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program>
+same p5-lifecycle-osc-hostile-40x120    h00-permission         fx  3  prev4  3  state=idle:app=<program> > state=working:app=<program> > state=blocked:kind=permission:app=<program>:msg='<command-tool> echo \\u{202e}evil\\u{202c}\\x09done > out.txt'
+same p5-lifecycle-osc-hostile-40x120    h01-question           fx  7  prev4  7  state=idle:app=<program> > state=working:app=<program> > state=blocked:kind=permission:app=<program>:msg='<command-tool> echo \\u{202e}evil\\u{202c}\\x09done > out.txt' > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=blocked:kind=question:app=<program>:msg='Pick\\x1b]2;owned\\x07 a\\u{0085}branch\\u{202e}? now \\u{009b}31m'
+same p5-lifecycle-osc-hostile-40x120    h02-exit               fx 10  prev4 10  state=idle:app=<program> > state=working:app=<program> > state=blocked:kind=permission:app=<program>:msg='<command-tool> echo \\u{202e}evil\\u{202c}\\x09done > out.txt' > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=blocked:kind=question:app=<program>:msg='Pick\\x1b]2;owned\\x07 a\\u{0085}branch\\u{202e}? now \\u{009b}31m' > state=working:app=<program> > state=done:app=<program> > state=clear
+same p5-lifecycle-osc-hup-40x120        u00-done               fx  3  prev4  3  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-hup-40x120        u01-hung-up            fx  4  prev4  4  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+same p5-lifecycle-osc-interrupt-40x120  i00-working            fx  2  prev4  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-interrupt-40x120  i01-after-esc          fx  3  prev4  3  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program>
+same p5-lifecycle-osc-interrupt-40x120  i02-exit               fx  4  prev4  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=clear
+same p5-lifecycle-osc-picker-40x120     p00-done               fx  3  prev4  3  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-picker-40x120     p01-picker             fx  3  prev4  3  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-picker-40x120     p02-closed             fx  3  prev4  3  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-picker-40x120     p03-exit               fx  4  prev4  4  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+same p5-lifecycle-osc-retry-40x120      r00-retrying           fx  2  prev4  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-states-40x120     w00-start              fx  1  prev4  1  state=idle:app=<program>
+same p5-lifecycle-osc-states-40x120     w01-working            fx  2  prev4  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-states-40x120     w02-done               fx  3  prev4  3  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-states-40x120     w03-done2              fx  5  prev4  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-states-40x120     w04-error              fx  7  prev4  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program>
+same p5-lifecycle-osc-states-40x120     w05-permission         fx  9  prev4  9  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program> > state=working:app=<program> > state=blocked:kind=permission:app=<program>:msg='<command-tool> echo hi > out.txt'
+same p5-lifecycle-osc-states-40x120     w06-after-permission   fx 11  prev4 11  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program> > state=working:app=<program> > state=blocked:kind=permission:app=<program>:msg='<command-tool> echo hi > out.txt' > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-states-40x120     w07-question           fx 13  prev4 13  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program> > state=working:app=<program> > state=blocked:kind=permission:app=<program>:msg='<command-tool> echo hi > out.txt' > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=blocked:kind=question:app=<program>:msg='Which branch?'
+same p5-lifecycle-osc-states-40x120     w08-after-question     fx 15  prev4 15  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program> > state=working:app=<program> > state=blocked:kind=permission:app=<program>:msg='<command-tool> echo hi > out.txt' > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=blocked:kind=question:app=<program>:msg='Which branch?' > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-states-40x120     w09-exit               fx 16  prev4 16  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program> > state=working:app=<program> > state=blocked:kind=permission:app=<program>:msg='<command-tool> echo hi > out.txt' > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=blocked:kind=question:app=<program>:msg='Which branch?' > state=working:app=<program> > state=done:app=<program> > state=clear
+same p5-lifecycle-osc-suspend-40x120    s00-done               fx  3  prev4  3  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-suspend-40x120    s01-stopped            fx  4  prev4  4  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+same p5-lifecycle-osc-suspend-40x120    s02-resumed            fx  5  prev4  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear > state=idle:app=<program>
+same p5-lifecycle-osc-suspend-40x120    s03-next-turn          fx  7  prev4  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-term-40x120       t00-done               fx  3  prev4  3  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-term-40x120       t01-terminated         fx  4  prev4  4  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every prev4 wire carries v0.1.0-afe7bda and no other banner
+FAIL order p5-lifecycle-osc-autocompactfail-40x120 o00-answered: working [1, 3] after a frame that showed Thinking: [True, True] on fx, [False, False] on prev4
+FAIL order p5-lifecycle-osc-autocompactfail-40x120 o01-failed: working [1, 3, 5] after a frame that showed Thinking: [True, True, True] on fx, [False, False, False] on prev4
+FAIL order p5-lifecycle-osc-compact-40x120 c01-answered: working [1, 3] after a frame that showed Thinking: [True, True] on fx, [False, False] on prev4
+FAIL order p5-lifecycle-osc-compact-40x120 c02-compacted: working [1, 3] after a frame that showed Thinking: [True, True] on fx, [False, False] on prev4
+FAIL order p5-lifecycle-osc-compactfail-40x120 f00-answered: working [1, 3] after a frame that showed Thinking: [True, True] on fx, [False, False] on prev4
+FAIL order p5-lifecycle-osc-compactfail-40x120 f01-failed: working [1, 3] after a frame that showed Thinking: [True, True] on fx, [False, False] on prev4
+FAIL order p5-lifecycle-osc-hostile-40x120 h00-permission: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev4
+FAIL order p5-lifecycle-osc-hostile-40x120 h01-question: working [1, 5] after a frame that showed Thinking: [True, True] on fx, [False, False] on prev4
+FAIL order p5-lifecycle-osc-hostile-40x120 h02-exit: working [1, 5] after a frame that showed Thinking: [True, True] on fx, [False, False] on prev4
+FAIL order p5-lifecycle-osc-hup-40x120 u00-done: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev4
+FAIL order p5-lifecycle-osc-hup-40x120 u01-hung-up: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev4
+FAIL order p5-lifecycle-osc-interrupt-40x120 i00-working: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev4
+FAIL order p5-lifecycle-osc-interrupt-40x120 i01-after-esc: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev4
+FAIL order p5-lifecycle-osc-interrupt-40x120 i02-exit: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev4
+FAIL order p5-lifecycle-osc-picker-40x120 p00-done: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev4
+FAIL order p5-lifecycle-osc-picker-40x120 p01-picker: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev4
+FAIL order p5-lifecycle-osc-picker-40x120 p02-closed: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev4
+FAIL order p5-lifecycle-osc-picker-40x120 p03-exit: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev4
+FAIL order p5-lifecycle-osc-retry-40x120 r00-retrying: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev4
+FAIL order p5-lifecycle-osc-states-40x120 w01-working: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev4
+FAIL order p5-lifecycle-osc-states-40x120 w02-done: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev4
+FAIL order p5-lifecycle-osc-states-40x120 w03-done2: working [1, 3] after a frame that showed Thinking: [True, True] on fx, [False, False] on prev4
+FAIL order p5-lifecycle-osc-states-40x120 w04-error: working [1, 3, 5] after a frame that showed Thinking: [True, True, True] on fx, [False, False, False] on prev4
+FAIL order p5-lifecycle-osc-states-40x120 w05-permission: working [1, 3, 5, 7] after a frame that showed Thinking: [True, True, True, True] on fx, [False, False, False, False] on prev4
+FAIL order p5-lifecycle-osc-states-40x120 w06-after-permission: working [1, 3, 5, 7] after a frame that showed Thinking: [True, True, True, True] on fx, [False, False, False, False] on prev4
+FAIL order p5-lifecycle-osc-states-40x120 w07-question: working [1, 3, 5, 7, 11] after a frame that showed Thinking: [True, True, True, True, True] on fx, [False, False, False, False, False] on prev4
+FAIL order p5-lifecycle-osc-states-40x120 w08-after-question: working [1, 3, 5, 7, 11] after a frame that showed Thinking: [True, True, True, True, True] on fx, [False, False, False, False, False] on prev4
+FAIL order p5-lifecycle-osc-states-40x120 w09-exit: working [1, 3, 5, 7, 11] after a frame that showed Thinking: [True, True, True, True, True] on fx, [False, False, False, False, False] on prev4
+FAIL order p5-lifecycle-osc-suspend-40x120 s00-done: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev4
+FAIL order p5-lifecycle-osc-suspend-40x120 s01-stopped: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev4
+FAIL order p5-lifecycle-osc-suspend-40x120 s02-resumed: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev4
+FAIL order p5-lifecycle-osc-suspend-40x120 s03-next-turn: working [1, 4] after a frame that showed Thinking: [True, True] on fx, [False, False] on prev4
+FAIL order p5-lifecycle-osc-term-40x120 t00-done: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev4
+FAIL order p5-lifecycle-osc-term-40x120 t01-terminated: working [1] after a frame that showed Thinking: [True] on fx, [False] on prev4
+38 wire pairs, 34 failing claims
