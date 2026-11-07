@@ -1,0 +1,1 @@
+[{"tool": {"name": "shell", "input": {"request": {"action": "run", "command": "sleep 6 && echo \"x\" # note", "yield_time_ms": 30000}}}}, {"delayMs": 60, "chunks": ["Spare ", "one."]}]

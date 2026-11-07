@@ -66,10 +66,12 @@ snap commit
 home after-commit
 type stream something long please
 key Enter
-wait 1.5
+held
+wait 1
 type /provider
 key Enter
 wait 1
 snap busy
+release
 wait 8
 snap busy-after

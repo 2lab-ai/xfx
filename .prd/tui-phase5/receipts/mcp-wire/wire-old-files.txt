@@ -1,0 +1,25 @@
+# p5-mcp-wire-old: the log path only in the process environment. Each side's files after the turn:
+# neither child saw MCPSTDIO_WIRE_LOG, so neither wrote ~/p5-mcp-wire.ndjson.
+## fx v0.0.16
+=== ~/.fx/history.jsonl (146 bytes)
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/mcp-credentials/credentials-v3.lock (0 bytes)
+=== ~/.fx/mcp.json (163 bytes)
+=== ~/.fx/sessions/v2/TneNZ6eCj-D3/blobs/0c408e9abe5943437dfa8c8ac54e7fb07484078416d968b66e01f93f0f400d62 (139 bytes)
+=== ~/.fx/sessions/v2/TneNZ6eCj-D3/blobs/1914c0b385a4591215baa8aea6357434af59d3612be69dba9d2dee73927f19fc (136 bytes)
+=== ~/.fx/sessions/v2/TneNZ6eCj-D3/blobs/e6f9280e2314ca8119210c56fb0ad34b13930075286abc9fbafe995c42a0beff (296 bytes)
+=== ~/.fx/sessions/v2/TneNZ6eCj-D3/lock (0 bytes)
+=== ~/.fx/sessions/v2/TneNZ6eCj-D3/log.jsonl (8265 bytes)
+=== ~/.fx/sessions/v2/index.jsonl (511 bytes)
+=== ~/.fx/sessions/v2/index.lock (0 bytes)
+=== ~/.fx/settings.json (27 bytes)
+=== ~/.fx/settings.lock (0 bytes)
+## xfx
+=== ~/.xfx/history.jsonl (146 bytes)
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/mcp.json (163 bytes)
+=== ~/.xfx/sessions/1793933535112-fc7f736dc9f3a109/events.jsonl (4525 bytes)
+=== ~/.xfx/sessions/1793933535112-fc7f736dc9f3a109/session.json (636 bytes)
+=== ~/.xfx/settings.json (32 bytes)
+=== ~/.xfx/settings.lock (0 bytes)
+=== ~/.xfx/usage.json (41 bytes)

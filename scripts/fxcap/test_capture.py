@@ -18,6 +18,7 @@ import http.client
 import json
 import os
 import re
+import select
 import shutil
 import signal
 import socket
@@ -156,6 +157,8 @@ class Refusals(unittest.TestCase):
             ("usage missing.json\nsnap a\n", "usage takes a file in"),
             ("mcphttp sometimes\nsnap a\n", "mcphttp takes ready, methodnotfound, hang, fail or rpcerror, not sometimes"),
             ("jobctl now\nsnap a\n", "jobctl takes no argument, not now"),
+            ("held now\nsnap a\n", "held takes no argument, not now"),
+            ("release 1\nsnap a\n", "release takes no argument, not 1"),
             ("homefile ../x c.json\nsnap a\n", "homefile takes a relative path inside HOME, not ../x"),
         ):
             with self.subTest(cap=cap.split("\n")[0]):
@@ -476,6 +479,38 @@ class Verbs(unittest.TestCase):
         self.assertRegex(log, r"POST /mcp rpc=initialize id=2 session=no version=- mode=ready -> 200")
         self.assertRegex(log, r"POST /mcp rpc=server/discover id=4 session=no version=- mode=methodnotfound -> 200")
 
+    def test_held_waits_for_the_hold_and_release_lets_it_go(self):
+        # The stub's curl prints each event as it arrives: two before the hold, the rest after.
+        r = capture(
+            "gateway g.json\nwait 0.5\n"
+            "type curl -sN -d '{}' \"$FX_GATEWAY_CHAT_URL\" | grep --line-buffered -o 'delta\":\"[a-z]*\\|DONE'; echo ' rc:'$?\n"
+            "key Enter\nheld\nwait 0.5\nsnap held\nrelease\nwait 1\nsnap after\ngwlog\n",
+            {"g.json": json.dumps([{"chunks": ["aa", "bb", "cc", "dd"], "delayMs": 20, "holdAt": 2}])},
+        )
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertIn("[fakegw] hold 1 after 2 event(s)", r.stdout)
+        held = r.file("held")
+        self.assertIn('delta":"bb', held)
+        self.assertNotIn('delta":"cc', held)
+        self.assertNotIn(" rc:0", held, "the stream is still open")
+        after = r.file("after")
+        self.assertIn('delta":"dd', after)
+        self.assertIn("DONE", after)
+        self.assertIn(" rc:0", after)
+        self.assertIn("release 1", r.file("gateway", ".log"))
+
+    def test_held_fails_the_run_when_no_hold_comes(self):
+        # holdAt past the turn's events: the gateway says so, and `held` fails on it.
+        r = capture(
+            "gateway g.json\nwait 0.5\ntype curl -sN -d '{}' \"$FX_GATEWAY_CHAT_URL\" > /dev/null\nkey Enter\nheld\nsnap a\n",
+            {"g.json": json.dumps([{"chunks": ["aa"], "holdAt": 2}])},
+        )
+        self.assertEqual(r.code, 1, r.stdout + r.stderr)
+        self.assertIn("held: the fake gateway made no hold 1 in 30 s", r.stderr)
+        self.assertIn("holdAt 2 not held: this turn has 2 event(s): holdAt is 1 to 1", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-a.txt")))
+        self.assertIn("guards:", r.stdout, "the guards still ran")
+
     def test_sockets(self):
         r = capture("env P=@PORT@\nwait 1\ntype exec 3<>/dev/tcp/127.0.0.1/$P\nkey Enter\nwait 0.5\nsockets s\n")
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
@@ -525,7 +560,7 @@ class FakeGateway(unittest.TestCase):
         d = scratch()
         write(os.path.join(d, "turns.json"), json.dumps(list(turns)))
         os.makedirs(os.path.join(d, "bodies"))
-        clean = {k: "" for k in ("FAKEGW_MODELS", "FAKEGW_MODELS_DOWN_MS", "FAKEGW_MODELS_DELAY_MS", "FAKEGW_MODELS2", "FAKEGW_MODELS2_MS", "FAKEGW_CREDITS", "FAKEGW_TITLE", "FAKEGW_USAGE")}
+        clean = {k: "" for k in ("FAKEGW_MODELS", "FAKEGW_MODELS_DOWN_MS", "FAKEGW_MODELS_DELAY_MS", "FAKEGW_MODELS2", "FAKEGW_MODELS2_MS", "FAKEGW_CREDITS", "FAKEGW_TITLE", "FAKEGW_USAGE", "FAKEGW_RELEASE")}
         clean.update(env)
         s = Server(self, FAKEGW, os.path.join(d, "turns.json"), os.path.join(d, "bodies"), env=clean)
         s.bodies = os.path.join(d, "bodies")
@@ -578,6 +613,77 @@ class FakeGateway(unittest.TestCase):
         self.assertIn("completion /v4/ai/language-model -> refuse 1200ms", log)
         self.assertRegex(log, r"request POST /v4/ai/language-model at=\d+ms -> cut, refusing 1200ms")
         self.assertIn("refusing connections for 1200ms", log)
+
+    def open_completion(self, g):
+        """A completion on a socket of its own, its bytes read as they come."""
+        s = socket.create_connection(("127.0.0.1", g.port), timeout=5)
+        self.addCleanup(s.close)
+        body = json.dumps({"prompt": []}).encode()
+        s.sendall(b"POST /v4/ai/language-model HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
+                  b"Content-Length: %d\r\n\r\n" % len(body) + body)
+        return s
+
+    def read_until(self, s, needle, timeout=5):
+        got, end = b"", time.time() + timeout
+        while needle not in got:
+            left = end - time.time()
+            self.assertGreater(left, 0, got)
+            if select.select([s], [], [], left)[0]:
+                chunk = s.recv(65536)
+                self.assertTrue(chunk, b"closed before %s: %s" % (needle, got))
+                got += chunk
+        return got
+
+    def quiet(self, s, secs=0.6):
+        """Whether nothing more arrives for `secs`."""
+        return not select.select([s], [], [], secs)[0]
+
+    def test_a_held_stream_stops_after_its_events_until_a_line_lets_it_go(self):
+        release = os.path.join(scratch(), "release")
+        g = self.gw([{"chunks": ["aa", "bb", "cc"], "holdAt": 2}, {"chunks": ["next", "last"], "holdAt": 1}], FAKEGW_RELEASE=release)
+        s = self.open_completion(g)
+        got = self.read_until(s, b'"delta":"bb"')
+        self.assertTrue(self.quiet(s), "held: nothing after the second event")
+        self.assertNotIn(b'"delta":"cc"', got)
+        self.assertIn("hold 1 after 2 event(s)", g.lines())
+        write(release, "release\n")
+        rest = self.read_until(s, b"[DONE]")
+        self.assertIn(b'"delta":"cc"', rest)
+        self.assertIn(b'"type":"finish"', rest)
+        self.assertIn("release 1", g.lines())
+        # The second hold is the second line's: the one already written lets nothing go.
+        s = self.open_completion(g)
+        self.read_until(s, b'"delta":"next"')
+        self.assertTrue(self.quiet(s), "held: nothing after the first event")
+        self.assertIn("hold 2 after 1 event(s)", g.lines())
+        write(release, "release\n", "a")
+        self.assertIn(b'"delta":"last"', self.read_until(s, b"[DONE]"))
+        self.assertIn("release 2", g.lines())
+
+    def test_a_held_stream_whose_client_goes_stops_holding(self):
+        g = self.gw([{"chunks": ["aa", "bb"], "holdAt": 1}], FAKEGW_RELEASE=os.path.join(scratch(), "release"))
+        s = self.open_completion(g)
+        self.read_until(s, b'"delta":"aa"')
+        s.close()
+        end = time.time() + 5
+        while "hold 1: stream closed by client" not in g.lines():
+            self.assertLess(time.time(), end, g.lines())
+            time.sleep(0.05)
+        time.sleep(0.3)
+        self.assertNotIn("stream closed by client:", g.lines(), "nothing is written to it after the hold")
+
+    def test_a_hold_a_stream_cannot_make_is_said(self):
+        g = self.gw([{"chunks": ["aa"], "holdAt": 5}, {"chunks": ["bb"], "holdAt": 1}], FAKEGW_RELEASE=os.path.join(scratch(), "release"))
+        status, _, body = self.completion(g)
+        self.assertEqual(status, 200)
+        self.assertIn(b"[DONE]", body)
+        status, _, body = g.ask("POST", "/v1/messages", body="{}", headers={"content-type": "application/json"})
+        self.assertEqual(status, 200)
+        time.sleep(0.2)
+        log = g.lines()
+        self.assertIn("holdAt 5 not held: this turn has 2 event(s): holdAt is 1 to 1", log)
+        self.assertIn("holdAt 1 not held: the llmux wire is not paced", log)
+        self.assertNotIn("hold 1 after", log)
 
     def test_models2_swaps_the_catalog_with_the_times_logged(self):
         d = scratch()

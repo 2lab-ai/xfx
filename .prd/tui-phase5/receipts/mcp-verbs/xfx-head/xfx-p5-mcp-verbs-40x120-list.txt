@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-9034e3b [debug] · Run /help for commands
+
+Project MCP server 'proj' is defined in .mcp.json.
+  command: <bun>
+↳ <scenarios>/p5-mcp-stdio.ts
+  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts
+
+* mcp: Project MCP approval prompts dismissed for this process.
+
+* mcp: NAME     SOURCE           TRANSPORT  STATUS
+  fixture  ~/.xfx/mcp.json  stdio      ready, 1 tool
+  remote   ~/.xfx/mcp.json  http       retrying
+  proj     .mcp.json        stdio      waiting for approval
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

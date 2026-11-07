@@ -1,0 +1,40 @@
+x𝒇x v0.1.0 [debug] · Run /help for commands
+
+Project MCP server 'proj' is defined in .mcp.json.
+  command: <bun>
+↳ <scenarios>/p5-mcp-stdio.ts
+  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts
+
+* mcp: Project MCP approval prompts dismissed for this process.
+
+* usage: /mcp [list|resource|prompt|add|remove|path|reload|auth|logout|trust]
+
+* usage: /mcp [list|resource|prompt|add|remove|path|reload|auth|logout|trust]
+
+* usage: /mcp [list|resource|prompt|add|remove|path|reload|auth|logout|trust]
+
+* usage: /mcp [list|resource|prompt|add|remove|path|reload|auth|logout|trust]
+
+* usage: /mcp [list|resource|prompt|add|remove|path|reload|auth|logout|trust]
+
+* mcp: Interactive MCP authentication is unavailable here.
+
+* mcp: MCP logout is unavailable here.
+
+* mcp: Saved MCP server 'two'.
+  MCP reconnection started. Your existing MCP servers will stay active while the new configuration is checked.
+
+* mcp: Saved MCP server 'three'.
+  MCP reconnection started. Your existing MCP servers will stay active while the new configuration is checked.
+
+* mcp: Saved MCP server 'web'.
+  MCP reconnection started. Your existing MCP servers will stay active while the new configuration is checked.
+
+┃
+
+auto · model-a
+
+
+
+
+

@@ -1,0 +1,40 @@
+  skills: loading
+  mcp: none
+
+  2026-11-07 03:01:57.361 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 41ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-07 03:01:57.652 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 163ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-07 03:01:57.179 UTC · Prompt
+┃ show the file
+
+  2026-11-07 03:01:57.361 UTC · Response
+  Showing the file.
+
+  2026-11-07 03:01:57.370 UTC · Tool
+● 1 tool call · 1 command
+└ Ran cat tab.txt
+│  action: run
+│  yield_time_ms: 5000
+│ aaa
+│ b xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxZ
+│ aaaa
+│ bbbbbb   yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyZ
+│ aaaaaaaaaa
+│ b  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwZ
+
+  2026-11-07 03:01:57.652 UTC · Response
+  Shown.
+
+  2026-11-07 03:01:57.651 UTC · Usage
+  0s (↑3 ↓80)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a

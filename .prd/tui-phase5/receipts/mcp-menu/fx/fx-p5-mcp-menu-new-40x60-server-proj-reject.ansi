@@ -1,0 +1,40 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.16 · Run /help for commands[39m
+
+[38;5;255m┃[39m
+[38;5;240m────────────────────────────────────────────────────────────
+[39m  [1m[38;5;255mproj[0m
+[38;5;245m  runs      [39m<bun> <local-path>
+[38;5;245m  file      [39m.mcp.json
+[38;5;245m  status    [39mwaiting for approval
+
+  Approve       [38;5;245m/mcp approve proj[39m
+[1m[38;5;255m› Reject[0m        [38;5;245m/mcp reject proj[39m
+  Remove        [38;5;245m/mcp remove proj[39m
+
+[38;5;245m  Its tools show here once you approve it.[39m
+[38;5;240m────────────────────────────────────────────────────────────
+[38;5;245m↑↓ navigate     enter run     esc back[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-9034e3b [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;250m* mcp: usage: /mcp COMMAND[39m
+
+  [38;5;250m  list                        configured servers; never connects[39m
+  [38;5;250m  show NAME                   connect to NAME: status, version, tools[39m
+  [38;5;250m  add NAME URL                add an HTTP server[39m
+  [38;5;250m  add NAME -- CMD [ARGS...]   add a stdio server[39m
+  [38;5;250m  add slack                   add Slack's server[39m
+  [38;5;250m  remove NAME                 remove a server and its login[39m
+  [38;5;250m  login NAME                  sign in to an HTTP server[39m
+  [38;5;250m  logout NAME                 sign out and delete the login[39m
+  [38;5;250m  approve NAME | --all        approve project servers from .mcp.json[39m
+  [38;5;250m  reject NAME                 reject a project server[39m
+
+  [38;5;250mRun '/mcp COMMAND -h' for a command's flags.[39m
+
+[38;5;250m* mcp: No MCP servers configured. Add one with: /mcp add NAME URL[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp path is gone: /mcp list shows each server's file.[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp reload is gone: xfx reloads after add, remove, approve, and reject.[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp auth is now /mcp login NAME.[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp trust is now /mcp approve NAME and /mcp reject NAME.[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp resource is gone: xfx doesn't support MCP resources and prompts yet.[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp prompt is gone: xfx doesn't support MCP resources and prompts yet.[39m
+
+[38;5;252m! mcp:[38;5;250m No MCP server named nope. /mcp list shows them.[39m
+
+[38;5;252m! mcp:[38;5;250m No MCP server named nope. /mcp list shows them.[39m
+
+[38;5;252m! mcp:[38;5;250m No MCP server named nope. /mcp list shows them.[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m

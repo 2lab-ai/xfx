@@ -1,0 +1,40 @@
+* network: provider: gateway · model: fake/model-a · 92ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-07 09:57:04.164 KST · Prompt
+┃ edit the file
+
+  2026-11-07 09:57:04.607 KST · Response
+  Editing the file.
+
+  2026-11-07 09:57:04.607 KST · Tool
+● 2 tool calls · 1 read · 1 edit
+├ Read odd.txt
+│  1    first line
+│  2    tab    here
+│  3    bidi ‮ reversed
+│  4    zero​width ﻿ bom
+│  5    crlf line
+│  6    del   and literal \x1b text
+
+  2026-11-07 09:57:04.845 KST · Tool
+└ Edited odd.txt +1 / -1
+
+  │ 1 - first line
+  │ 1 + FIRST LINE
+  │ 2   tab\there
+  │ 3   bidi ‮ reversed
+  │ 4   zero​width ﻿ bom
+  │ 5   crlf line\r
+  │ 6   del \u{007F} and literal \\x1b text
+
+  2026-11-07 09:57:05.326 KST · Response
+  Edited.
+
+  2026-11-07 09:57:05.326 KST · Usage
+  1s (↑3 ↓120)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a

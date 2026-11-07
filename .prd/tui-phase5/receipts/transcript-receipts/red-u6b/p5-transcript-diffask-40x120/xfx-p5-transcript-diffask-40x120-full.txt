@@ -1,0 +1,40 @@
+  2026-11-07 10:14:02.945 KST · Notice
+* network: provider: gateway · model: fake/model-a · 1ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-07 10:14:06.995 KST · Notice
+* network: provider: gateway · model: fake/model-a · 63ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-07 10:14:02.857 KST · Prompt
+┃ edit the file
+
+  2026-11-07 10:14:02.959 KST · Response
+  Editing the file.
+
+  2026-11-07 10:14:02.959 KST · Tool
+● 2 tool calls · 1 read · 1 edit
+├ Read ctl.txt
+│  1    before [2Jcleared
+│  2    second  line
+│  3    third line
+
+  2026-11-07 10:14:02.959 KST · Tool
+└ Edited ctl.txt +1 / -1
+
+  │ 1   before\u{001B}[2Jcleared
+  │ 2   second \u{009B}line
+  │ 3 - third line
+  │ 3 + THIRD LINE
+
+  2026-11-07 10:14:07.030 KST · Response
+  Edited.
+
+  2026-11-07 10:14:07.030 KST · Usage
+  4s (↑3 ↓120)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+ask · model-a

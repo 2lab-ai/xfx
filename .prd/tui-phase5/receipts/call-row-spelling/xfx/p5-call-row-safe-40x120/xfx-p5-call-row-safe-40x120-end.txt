@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-696700b [debug] · Run /help for commands
+
+┃ look
+
+  Looking.
+
+● 3 tool calls · 1 read · 1 list · 1 command · 1 failed
+├ Ran printf '%s' 'A\u{202e}B\u{2066}CD\x1b[2JE F\x09G\u{009b}H' >/dev/null
+├ Matched n\u{202e}o\u{2066}p\u{061c}q\x1b7r\x09s\u{009b}t\x0du*.md
+└ Failed m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq\x09r\u{009b}s\x0dt.txt: Path not found: m\u{202e}n\u{2066}o\u{061c}p\x1b[…
+
+  Done.
+
+  0s (↑1 ↓80)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

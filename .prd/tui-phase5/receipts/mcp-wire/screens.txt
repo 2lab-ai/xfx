@@ -1,0 +1,36 @@
+p5-mcp-turn-40x120-turn: rows differing (trailing spaces trimmed): [1, 5]
+   1 fx : 𝒇x v0.0.16 · Run /help for commands
+   1 xfx: x𝒇x v0.1.0-d5425d9 [debug] · Run /help for commands
+   5 fx : ● 3 tool calls · 2 MCP calls · 1 read
+   5 xfx: ● 3 tool calls · 2 commands · 1 read
+p5-mcp-direct-40x120-turn: rows differing (trailing spaces trimmed): [1, 5]
+   1 fx : 𝒇x v0.0.16 · Run /help for commands
+   1 xfx: x𝒇x v0.1.0-d5425d9 [debug] · Run /help for commands
+   5 fx : ● 1 tool call · 1 MCP call
+   5 xfx: ● 1 tool call · 1 command
+p5-mcp-known-40x120-turn: rows differing (trailing spaces trimmed): [1, 5]
+   1 fx : 𝒇x v0.0.16 · Run /help for commands
+   1 xfx: x𝒇x v0.1.0-d5425d9 [debug] · Run /help for commands
+   5 fx : ● 1 tool call · 1 MCP call
+   5 xfx: ● 1 tool call · 1 command
+p5-mcp-unavailable-40x120-turn: rows differing (trailing spaces trimmed): [1, 3, 5, 6, 7, 8, 10, 12, 14, 16]
+   1 fx : 𝒇x v0.0.16 · Run /help for commands
+   1 xfx: x𝒇x v0.1.0-d5425d9 [debug] · Run /help for commands
+   3 fx : ┃ look for a weather forecast tool
+   3 xfx: * mcp: MCP startup: 1 server needs attention, 1 failed. Use /mcp list for details.
+   5 fx : ● 1 tool call · 1 read
+   5 xfx: ┃ look for a weather forecast tool
+   6 fx : └ Searched capabilities weather forecast
+   6 xfx: 
+   7 fx : 
+   7 xfx: ● 1 tool call · 1 read
+   8 fx :   none.
+   8 xfx: └ Searched capabilities weather forecast
+  10 fx :   2s (↑8 ↓80)
+  10 xfx:   none.
+  12 fx : ┃
+  12 xfx:   0s (↑8 ↓80)
+  14 fx : full access · model-a
+  14 xfx: ┃
+  16 fx : 
+  16 xfx: full access · model-a

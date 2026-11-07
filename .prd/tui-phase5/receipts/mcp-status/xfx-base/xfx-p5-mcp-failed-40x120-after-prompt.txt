@@ -1,0 +1,40 @@
+x𝒇x v0.1.0 [debug] · Run /help for commands
+
+* mcp: MCP startup: 1 server needs attention, 1 failed. Use /mcp list for details.
+
+┃ hello
+
+  ok.
+
+  0s (↑2 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

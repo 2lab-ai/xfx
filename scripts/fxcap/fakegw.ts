@@ -1,10 +1,11 @@
 // Loopback fake AI Gateway for side-by-side fx/xfx captures.
 // Usage: [FAKEGW_MODELS=<catalog.json>] [FAKEGW_MODELS_DOWN_MS=<ms>] [FAKEGW_MODELS_DELAY_MS=<ms>] [FAKEGW_CREDITS=<credits.json>] [FAKEGW_TITLE=<title.json>]
 //        [FAKEGW_MODELS2=<catalog.json> FAKEGW_MODELS2_MS=<ms>] [FAKEGW_USAGE=<usage.json>]
+//        [FAKEGW_RELEASE=<file>]
 //        bun fakegw.ts <port> <script.json> [bodies-dir]
 // script.json: array of turns. Each turn is
 //   {chunks?: string[], delayMs?: number, tool?: {id?, name, input}, tools?: [{id?, name, input}],
-//    status?: number, body?: string, hangMs?: number, serviceTier?: string,
+//    status?: number, body?: string, hangMs?: number, holdAt?: number, serviceTier?: string,
 //    reset?: true, refuse?: number,
 //    billing?: {gen, slug, cost, input?, output?, cacheRead?, cacheWrite?, reasoning?},
 //    deferred?: {gen, slug, cost, input?, output?, cacheRead?, cacheWrite?, reasoning?, notYet?}}
@@ -55,9 +56,17 @@
 // answers 404 `not found`, which is the answer a capture of the error notice needs.
 // `tools` is several tool calls in one step, and `chunks` beside a tool or tools is text the
 // step says before its calls. `status` answers with that HTTP status (and `body`); `hangMs` holds
-// the stream open that long before its last event (for interrupt captures). `serviceTier` is the
-// tier the finish event confirms in `providerMetadata.gateway.serviceTier` (fx's
-// `parseSseServiceTier`, gateway/client.zig:3451-3463); absent, nothing is confirmed.
+// the stream open that long before its last event (for interrupt captures). `holdAt: <n>` holds
+// the Gateway stream after its first n events -- a billed turn's response-metadata first, then
+// one per chunk, one per tool call, the finish last; n from 1 to one less than their count --
+// until it is let go: the gateway logs `hold <k> after <n> event(s)` (k counts the holds since
+// it started), and the stream goes on once the file FAKEGW_RELEASE names has k lines (capture.sh's
+// `held` waits for that log line, its `release` writes a line), or the client goes, or
+// HOLD_CAP_MS pass. A snap taken while the stream is held reads the same n events on both
+// binaries, whatever the machine's load: a point in the stream, not a moment on the clock. Only
+// the Gateway wire is paced; on the llmux and Codex wires `holdAt` is logged as not held.
+// `serviceTier` is the tier the finish event confirms in `providerMetadata.gateway.serviceTier`
+// (fx's `parseSseServiceTier`, gateway/client.zig:3451-3463); absent, nothing is confirmed.
 // Every POST to a language-model path consumes the next turn, except two side calls that are
 // answered apart and consume nothing: fx's permission classifier gets a `permission_decision`
 // tool call that clears the action (the shape fx's own e2e harness answers with,
@@ -271,6 +280,7 @@ async function answer(req: Request, asked: number): Promise<Response> {
       const turn = script.shift();
       log(`llmux ${url.pathname} -> ${turn ? describe(turn) : "EMPTY"}`);
       if (!turn) return new Response("unexpected request", { status: 500 });
+      unheld(turn, "the llmux wire is not paced");
       if (turn.reset || turn.refuse) return cutNow(req, asked, turn.refuse ?? 0);
       if (turn.status) return new Response(turn.body ?? `fake status ${turn.status}`, { status: turn.status });
       return anthropic(turn);
@@ -286,6 +296,7 @@ async function answer(req: Request, asked: number): Promise<Response> {
       const turn = script.shift();
       log(`codex ${url.pathname} -> ${turn ? describe(turn) : "EMPTY"}`);
       if (!turn) return new Response("unexpected request", { status: 500 });
+      unheld(turn, "the Codex wire is not paced");
       if (turn.reset || turn.refuse) return cutNow(req, asked, turn.refuse ?? 0);
       if (turn.status) return new Response(turn.body ?? `fake status ${turn.status}`, { status: turn.status });
       return responses(responsesEvents(turn));
@@ -381,9 +392,48 @@ async function answer(req: Request, asked: number): Promise<Response> {
     if (turn.serviceTier) {
       done.providerMetadata = { ...(done.providerMetadata ?? {}), gateway: { ...(done.providerMetadata?.gateway ?? {}), serviceTier: turn.serviceTier } };
     }
-    if (turn.reset) return resetStream(events, turn.delayMs ?? 0);
+    if (turn.reset) {
+      unheld(turn, "a reset turn is cut, not held");
+      return resetStream(events, turn.delayMs ?? 0);
+    }
     events.push(done);
-    return sse(events, turn.delayMs ?? 0, turn.hangMs ?? 0);
+    if (turn.holdAt !== undefined && !(Number.isInteger(turn.holdAt) && turn.holdAt >= 1 && turn.holdAt < events.length)) {
+      unheld(turn, `this turn has ${events.length} event(s): holdAt is 1 to ${events.length - 1}`);
+      return sse(events, turn.delayMs ?? 0, turn.hangMs ?? 0);
+    }
+    return sse(events, turn.delayMs ?? 0, turn.hangMs ?? 0, turn.holdAt);
+}
+
+// A turn whose `holdAt` this stream does not honour: said in the log, so the `held` that waits
+// for it fails on a line that names why.
+function unheld(turn: any, why: string) {
+  if (turn.holdAt !== undefined) log(`holdAt ${turn.holdAt} not held: ${why}`);
+}
+
+// The held streams so far, and how long one waits at most to be let go.
+let holds = 0;
+const HOLD_CAP_MS = 120000;
+
+// Holds a stream after its first `after` events (the turn's `holdAt`) until the file
+// FAKEGW_RELEASE names has as many lines as there have been holds, the client goes, or
+// HOLD_CAP_MS pass -- each said in the log.
+async function hold(after: number, gone: () => boolean) {
+  const k = ++holds;
+  const file = process.env.FAKEGW_RELEASE;
+  log(`hold ${k} after ${after} event(s)`);
+  const until = Date.now() + HOLD_CAP_MS;
+  for (;;) {
+    if (gone()) return log(`hold ${k}: stream closed by client`);
+    if (file && (await released(file)) >= k) return log(`release ${k}`);
+    if (Date.now() >= until) return log(`hold ${k} not released in ${HOLD_CAP_MS}ms; going on`);
+    await Bun.sleep(20);
+  }
+}
+
+async function released(path: string) {
+  const file = Bun.file(path);
+  if (!(await file.exists())) return 0;
+  return ((await file.text()).match(/\n/g) ?? []).length;
 }
 
 function describe(turn: any) {
@@ -468,13 +518,22 @@ function responses(events: object[]) {
   return new Response(events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 }
 
-function sse(events: object[], delayMs: number, hangMs: number) {
+function sse(events: object[], delayMs: number, hangMs: number, holdAt?: number) {
   const enc = new TextEncoder();
+  let gone = false;
   return new Response(
     new ReadableStream({
+      cancel() {
+        gone = true;
+      },
       async start(ctl) {
         try {
           for (let i = 0; i < events.length; i++) {
+            if (i === holdAt) {
+              await hold(i, () => gone);
+              // A client that went while the stream was held gets nothing more; hold's line says so.
+              if (gone) return;
+            }
             if (i === events.length - 1 && hangMs) await Bun.sleep(hangMs);
             ctl.enqueue(enc.encode(`data: ${JSON.stringify(events[i])}\n\n`));
             if (delayMs) await Bun.sleep(delayMs);

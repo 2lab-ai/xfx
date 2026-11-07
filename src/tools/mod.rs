@@ -54,7 +54,6 @@ pub const ADVERTISED_TOOLS: &[&str] = &[
     "capability_search",
     "skill",
     "mcp_select_tool",
-    "mcp_features",
     "ask_user_question",
 ];
 
@@ -75,7 +74,6 @@ static BUILTIN_TOOLS: &[ToolSpec] = &[
     mcp::CAPABILITY_SEARCH,
     skill::SKILL,
     mcp::MCP_SELECT_TOOL,
-    mcp::MCP_FEATURES,
     question::ASK_USER_QUESTION,
 ];
 
@@ -179,8 +177,7 @@ pub fn prepare_rule_action(
         ToolInput::AskUserQuestion(_)
         | ToolInput::CapabilitySearch(_)
         | ToolInput::Skill(_)
-        | ToolInput::McpSelectTool(_)
-        | ToolInput::McpFeatures(_) => {
+        | ToolInput::McpSelectTool(_) => {
             let plan = crate::permission::ToolCallPlan {
                 tool: spec.name(),
                 targets: targets_of(spec.name(), arguments, context),
@@ -252,7 +249,7 @@ impl Registry {
     /// refuses at every target -- and every one in full access, which
     /// consults no table (`appendBuiltinTool`, `vercel-labs/fx@c1db9191
     /// src/core/tooling/tool_projection.zig:563-566`) -- and, where no MCP
-    /// client runs (`mcp` false), none of the three MCP meta-tools.
+    /// client runs (`mcp` false), neither of the two MCP meta-tools.
     ///
     /// Leaving a tool out is not what keeps it from running -- a call to it
     /// anyway is still judged, and the same table refuses it -- it is what
@@ -374,7 +371,6 @@ pub const JUDGED_BY_NAME: &[&str] = &[
     "capability_search",
     "skill",
     "mcp_select_tool",
-    "mcp_features",
     "ask_user_question",
 ];
 
@@ -414,7 +410,7 @@ fn run_judged_by_name(spec: &ToolSpec, call: &ToolCall, context: &ToolContext) -
 
 /// The argument upstream's question shows after a [`JUDGED_BY_NAME`] tool
 /// (`label_arg_kind`, `vercel-labs/fx@c1db9191 src/builtins/tools.zig`:
-/// `.query`, `.name`, `.action`, and `.none` for `ask_user_question`;
+/// `.query`, `.name`, and `.none` for `ask_user_question`;
 /// `labelValueForKind`, `src/core/tooling/tool_dispatch.zig:597-614`), or
 /// nothing when the call has none.
 fn label_of(tool: &str, input: &Value) -> String {
@@ -422,7 +418,6 @@ fn label_of(tool: &str, input: &Value) -> String {
         "capability_search" => "query",
         "skill" => "name",
         "mcp_select_tool" => "name",
-        "mcp_features" => "action",
         _ => return String::new(),
     };
     input
@@ -612,7 +607,6 @@ mod tests {
                 "capability_search",
                 "skill",
                 "mcp_select_tool",
-                "mcp_features",
                 "ask_user_question"
             ]
         );
@@ -629,7 +623,6 @@ mod tests {
                 "capability_search",
                 "skill",
                 "mcp_select_tool",
-                "mcp_features",
                 "ask_user_question"
             ]
         );
@@ -707,7 +700,6 @@ mod tests {
             let input = match name {
                 "capability_search" => json!({ "query": "anything" }),
                 "mcp_select_tool" => json!({ "name": "mcp_some_tool" }),
-                "mcp_features" => json!({ "server": "s", "action": "prompt_list" }),
                 "skill" => json!({ "location": "/skills/some-skill" }),
                 _ => {
                     json!({ "questions": [{ "question": "q", "options": [{ "label": "a" }, { "label": "b" }] }] })
@@ -853,7 +845,7 @@ mod tests {
     #[test]
     fn an_mcp_meta_tool_is_left_out_by_a_deny_on_its_name_and_where_no_mcp_client_runs() {
         use crate::permission::{PermissionMode, RuleAction::*};
-        // Upstream projects its three MCP meta-tools as it projects every
+        // Upstream projects its two MCP meta-tools as it projects every
         // builtin, so a deny on a meta-tool's own name -- a category of its
         // own (`permissionNameForTool`, `permissions.zig:1455-1464`) -- takes
         // it out (`tool_projection.zig:563-566`), and full access puts it back.
@@ -865,11 +857,11 @@ mod tests {
             // An ask is not a refusal.
             assert!(offered(PermissionMode::Ask, &[(name, "*", Ask)]).contains(name));
         }
-        // `mcp_*` covers the two named so and nothing else.
+        // `mcp_*` covers the one named so and nothing else.
         let globbed = offered(PermissionMode::Ask, &[("mcp_*", "*", Deny)]);
-        assert!(!globbed.contains(&"mcp_select_tool") && !globbed.contains(&"mcp_features"));
+        assert!(!globbed.contains(&"mcp_select_tool"));
         assert!(globbed.contains(&"capability_search"));
-        // No MCP client: none of the three, whatever the table says.
+        // No MCP client: neither of the two, whatever the table says.
         let none = offered_with(PermissionMode::Yolo, &[], false);
         assert!(mcp::META_TOOLS.iter().all(|name| !none.contains(name)));
         assert_eq!(none.len(), ADVERTISED_TOOLS.len() - mcp::META_TOOLS.len());
@@ -903,7 +895,6 @@ mod tests {
             ("capability_search", PermissionKind::ReadOnly),
             ("skill", PermissionKind::ReadOnly),
             ("mcp_select_tool", PermissionKind::ReadOnly),
-            ("mcp_features", PermissionKind::ReadOnly),
             ("ask_user_question", PermissionKind::Interaction),
         ];
         let actual: Vec<(&str, PermissionKind)> = Registry::builtin()

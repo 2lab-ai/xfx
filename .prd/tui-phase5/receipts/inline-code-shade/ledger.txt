@@ -1,0 +1,142 @@
+# T-U3b: the ledger entry inline-code-shade, proven on captures against the c1db919 pin.
+#
+# One sweep of the 12 scenarios the entry names, fx c1db9191 (sha256 7b76319a...) against this branch's
+# xfx at 40x120:
+#   scripts/fxcap/sweep.sh --fx <fx c1db919> --pin-sha 7b76319a871163ada64d74539ebee592e0e216041cd28465127457500a9be969 \
+#     --xfx <xfx> --out <out> --only answered --only copy --only links --only rename --only reset --only reset-wire \
+#     --only resume --only resume-launch --only resume-wire --only table-wrap --only usage --only usage-session
+# classified twice over the same captures: with T-U3's entry (fx_row only; h1-reset listed), then
+# with this round's (fx_row and xfx_row; h1-reset dropped), by sweep.sh --rescore.
+# h1-reset is out because its gateway file (h1-reset-turns.json) has no backtick: no code span.
+
+## scoreboard (summary.md), before -> after
+| total | ran | identical | normalized-identical | approved-divergence | approved-divergence-cascade | replaced-in-next-pin | unresolved-defect | failed | timeout |
+|---|---|---|---|---|---|---|---|---|---|
+| 68 | 68 | 1 | 22 | 0 | 0 | 0 | 45 | 0 | 0 |
+| 68 | 68 | 1 | 22 | 0 | 0 | 44 | 1 | 0 | 0 |
+
+## every pair: verdict before -> after, and the entries its rows matched after
+# python3 -I verdicts.py <before>/pairs.json <after>/pairs.json
+answered/answered                unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+copy/copy                        unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+copy/copy-empty                  normalized-identical   -> normalized-identical   
+copy/copy-fail                   unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+copy/copy-now                    normalized-identical   -> normalized-identical   
+copy/turn1                       unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+links/answered                   unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+links/full                       unresolved-defect      -> unresolved-defect      inline-code-shade
+links/resumed                    unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+links/resumed.full               unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+links/second                     unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+links/second.full                unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+rename/quit                      normalized-identical   -> normalized-identical   
+rename/relaunched                identical              -> identical              
+rename/rename-empty              normalized-identical   -> normalized-identical   
+rename/rename-title              normalized-identical   -> normalized-identical   
+rename/too-long                  normalized-identical   -> normalized-identical   
+reset/clear                      normalized-identical   -> normalized-identical   
+reset/clear.full                 unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+reset/new                        normalized-identical   -> normalized-identical   
+reset/new.full                   unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+reset/reset                      normalized-identical   -> normalized-identical   
+reset/reset.full                 unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+reset/turn1                      unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+reset/turn2                      normalized-identical   -> normalized-identical   
+reset/turn3                      normalized-identical   -> normalized-identical   
+reset/turn3.full                 unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+reset-wire/clear                 normalized-identical   -> normalized-identical   
+reset-wire/clear.full            unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+resume/continued                 unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+resume/esc                       normalized-identical   -> normalized-identical   
+resume/list-after-resume         unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+resume/list3                     normalized-identical   -> normalized-identical   
+resume/list3-down                normalized-identical   -> normalized-identical   
+resume/list3-down2               normalized-identical   -> normalized-identical   
+resume/list3-down3-clamp         normalized-identical   -> normalized-identical   
+resume/list3-up                  normalized-identical   -> normalized-identical   
+resume/query-beta                normalized-identical   -> normalized-identical   
+resume/quit                      unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+resume/resumed                   unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+resume/resumed.full              unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+resume/tab-all                   normalized-identical   -> normalized-identical   
+resume-launch/continued          unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+resume-launch/quit               unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+resume-launch/resumed            unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+resume-launch/resumed.full       unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+resume-wire/resumed              unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+resume-wire/resumed.full         unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+table-wrap/answered              unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+table-wrap/answered.full         unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+usage/answered                   unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+usage/arg                        unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+usage/btab                       unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+usage/cost-open                  unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+usage/cost-typed                 unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+usage/down                       unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+usage/empty                      normalized-identical   -> normalized-identical   
+usage/esc                        unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+usage/left                       unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+usage/open                       unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+usage/right1                     unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+usage/tab                        unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+usage/typed                      normalized-identical   -> normalized-identical   
+usage-session/session            unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+usage-session/session-down       unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+usage-session/session-expand     unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+usage-session/session-r          unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+usage-session/wrap-30            unresolved-defect      -> replaced-in-next-pin   inline-code-shade
+# before: {'unresolved-defect': 45, 'normalized-identical': 22, 'identical': 1}
+# after:  {'replaced-in-next-pin': 44, 'normalized-identical': 22, 'unresolved-defect': 1, 'identical': 1}
+
+## the one pair still unresolved after: links/full (Ctrl-O), its causes
+links/full causes: session-record, full-transcript-shift ; rows no cause covers: 0
+
+## every differing row with the word code, after
+# python3 -I coderows.py <after>/pairs.json
+answered/answered row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+copy/turn1 row 11 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+copy/copy row 11 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+copy/copy-fail row 11 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+links/answered row 11 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+links/full row 19 [text-differs] pair=unresolved-defect matched=inline-code-shade
+links/full row 20 [text-differs] pair=unresolved-defect matched=inline-code-shade
+links/second row 11 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+links/second.full row 11 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+links/resumed row 11 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+links/resumed.full row 17 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+reset/turn1 row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+reset/clear.full row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+reset/new.full row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+reset/reset.full row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+reset/turn3.full row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+reset-wire/clear.full row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+resume/resumed row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+resume/resumed.full row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+resume/list-after-resume row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+resume/continued row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+resume/quit row 6 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+resume-launch/quit row 6 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+resume-launch/resumed row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+resume-launch/resumed.full row 8 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+resume-launch/continued row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+resume-wire/resumed row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+resume-wire/resumed.full row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+table-wrap/answered row 21 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+table-wrap/answered.full row 21 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+usage/answered row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+usage/open row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+usage/right1 row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+usage/left row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+usage/down row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+usage/tab row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+usage/btab row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+usage/esc row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+usage/cost-typed row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+usage/cost-open row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+usage/arg row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+usage-session/session row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+usage-session/session-expand row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+usage-session/session-down row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+usage-session/session-r row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+usage-session/wrap-30 row 7 [colour-only] pair=replaced-in-next-pin matched=inline-code-shade
+# rows with `code`: {'colour-only, covered': 44, 'text-differs, covered': 2}

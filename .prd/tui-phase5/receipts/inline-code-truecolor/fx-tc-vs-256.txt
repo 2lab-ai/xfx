@@ -1,0 +1,15 @@
+# fx v0.0.16 under COLORTERM=truecolor (fx/, this unit) against fx v0.0.16 with no COLORTERM (../inline-code-shade/fx/, T-U3), same scenario otherwise
+# python3 -I ../../../tui-phase4/receipts/m1/cells.py fx/fx-<sc>-tc-40x120-<snap>.ansi ../inline-code-shade/fx/fx-<sc>-40x120-<snap>.ansi; and the whole files with cmp
+p5-inline-code-retint dark-again.ansi: 0 rows differ in their cells (row 1 not compared); bytes after row 1 identical
+p5-inline-code-retint dark.ansi: 0 rows differ in their cells (row 1 not compared); bytes after row 1 identical
+p5-inline-code-retint light.ansi: 0 rows differ in their cells (row 1 not compared); bytes after row 1 identical
+p5-inline-code-retint-light dark.ansi: 0 rows differ in their cells (row 1 not compared); bytes after row 1 identical
+p5-inline-code-retint-light light-again.ansi: 0 rows differ in their cells (row 1 not compared); bytes after row 1 identical
+p5-inline-code-retint-light light.ansi: 0 rows differ in their cells (row 1 not compared); bytes after row 1 identical
+p5-inline-code-table dark-again.ansi: 0 rows differ in their cells (row 1 not compared); bytes after row 1 identical
+p5-inline-code-table dark.ansi: 0 rows differ in their cells (row 1 not compared); bytes after row 1 identical
+p5-inline-code-table light.ansi: 0 rows differ in their cells (row 1 not compared); bytes after row 1 identical
+p5-inline-code-table-light dark.ansi: 0 rows differ in their cells (row 1 not compared); bytes after row 1 identical
+p5-inline-code-table-light light-again.ansi: 0 rows differ in their cells (row 1 not compared); bytes after row 1 identical
+p5-inline-code-table-light light.ansi: 0 rows differ in their cells (row 1 not compared); bytes after row 1 identical
+# whole files: 12 of 12 .ansi files identical (cmp fx/fx-<sc>-tc-40x120-<snap>.ansi ../inline-code-shade/fx/fx-<sc>-40x120-<snap>.ansi)

@@ -1,0 +1,22 @@
+=== ~/.fx/history.jsonl (2878 bytes)
+{"schema_version":1,"timestamp_ms":1793943339579,"workspace_root":"<scratch>/work","text":"/mcp"}
+{"schema_version":1,"timestamp_ms":1793943342956,"workspace_root":"<scratch>/work","text":"/mcp help"}
+{"schema_version":1,"timestamp_ms":1793943344504,"workspace_root":"<scratch>/work","text":"/mcp list"}
+{"schema_version":1,"timestamp_ms":1793943346355,"workspace_root":"<scratch>/work","text":"/mcp path"}
+{"schema_version":1,"timestamp_ms":1793943347383,"workspace_root":"<scratch>/work","text":"/mcp reload"}
+{"schema_version":1,"timestamp_ms":1793943349409,"workspace_root":"<scratch>/work","text":"/mcp auth nope"}
+{"schema_version":1,"timestamp_ms":1793943350430,"workspace_root":"<scratch>/work","text":"/mcp trust"}
+{"schema_version":1,"timestamp_ms":1793943351467,"workspace_root":"<scratch>/work","text":"/mcp resource list nope"}
+{"schema_version":1,"timestamp_ms":1793943352533,"workspace_root":"<scratch>/work","text":"/mcp prompt"}
+{"schema_version":1,"timestamp_ms":1793943353653,"workspace_root":"<scratch>/work","text":"/mcp show nope"}
+{"schema_version":1,"timestamp_ms":1793943355705,"workspace_root":"<scratch>/work","text":"/mcp login nope"}
+{"schema_version":1,"timestamp_ms":1793943356732,"workspace_root":"<scratch>/work","text":"/mcp logout nope"}
+{"schema_version":1,"timestamp_ms":1793943357829,"workspace_root":"<scratch>/work","text":"/mcp remove nope"}
+{"schema_version":1,"timestamp_ms":1793943358895,"workspace_root":"<scratch>/work","text":"/mcp approve"}
+{"schema_version":1,"timestamp_ms":1793943359966,"workspace_root":"<scratch>/work","text":"/mcp reject nope"}
+{"schema_version":1,"timestamp_ms":1793943361052,"workspace_root":"<scratch>/work","text":"/mcp add"}
+{"schema_version":1,"timestamp_ms":1793943362144,"workspace_root":"<scratch>/work","text":"/mcp add -h"}
+{"schema_version":1,"timestamp_ms":1793943363241,"workspace_root":"<scratch>/work","text":"/mcp list --connect"}
+{"schema_version":1,"timestamp_ms":1793943364318,"workspace_root":"<scratch>/work","text":"/mcp bogus"}
+
+=== ~/.fx/history.lock (0 bytes)

@@ -1,0 +1,41 @@
+=== ~/.fx/history.jsonl (1647 bytes)
+{"schema_version":1,"timestamp_ms":1793932564016,"workspace_root":"<scratch>/work","text":"/mcp add two -- <bun> <scenarios>/p5-mcp-stdio.ts"}
+{"schema_version":1,"timestamp_ms":1793932567037,"workspace_root":"<scratch>/work","text":"/mcp add --env K=v --env Z=1 three -- <bun> <scenarios>/p5-mcp-stdio.ts --flag"}
+{"schema_version":1,"timestamp_ms":1793932570052,"workspace_root":"<scratch>/work","text":"/mcp add --header X-Team=core web http://127.0.0.1:9/web"}
+{"schema_version":1,"timestamp_ms":1793932573075,"workspace_root":"<scratch>/work","text":"/mcp add --project p2 -- <bun> <scenarios>/p5-mcp-stdio.ts"}
+{"schema_version":1,"timestamp_ms":1793932576141,"workspace_root":"<scratch>/work","text":"/mcp list"}
+{"schema_version":1,"timestamp_ms":1793932580485,"workspace_root":"<scratch>/work","text":"/mcp remove --project p2"}
+{"schema_version":1,"timestamp_ms":1793932583504,"workspace_root":"<scratch>/work","text":"/mcp remove old"}
+{"schema_version":1,"timestamp_ms":1793932586523,"workspace_root":"<scratch>/work","text":"/mcp remove three"}
+{"schema_version":1,"timestamp_ms":1793932589545,"workspace_root":"<scratch>/work","text":"/mcp remove web"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/mcp-credentials/credentials-v3.lock (0 bytes)
+=== ~/.fx/mcp.json (413 bytes)
+{
+  "theme": "dark",
+  "mcp": {
+    "two": {
+      "command": "<bun>",
+      "args": [
+        "<scenarios>/p5-mcp-stdio.ts"
+      ]
+    }
+  },
+  "n": 1.50,
+  "e": -0.5E+10,
+  "s": "café / \u001f 😀 tab\t",
+  "empty": {},
+  "list": [],
+  "nested": [
+    [
+      1,
+      {
+        "a": null,
+        "b": false
+      }
+    ]
+  ]
+}
+
+=== ~/.fx/mcp.lock (0 bytes)

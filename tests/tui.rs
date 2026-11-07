@@ -6956,8 +6956,11 @@ fn ctrl_o_shows_what_a_tool_read_on_the_other_plane_and_gives_the_band_back_with
         Reply::Sse(content_only(&["the read is done"])),
     ]);
     pty.resize(24, 80);
-    let mut session =
-        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    // The header reads the local zone (v0.0.16's c9bc4876): UTC, whatever
+    // this machine's is.
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("TZ", "UTC");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
     session.wait_for(READY);
     session.type_bytes(b"read the notes\r");
     session.wait_for("the read is done");
@@ -7002,6 +7005,78 @@ fn ctrl_o_shows_what_a_tool_read_on_the_other_plane_and_gives_the_band_back_with
     let settled = session.settled_text();
     assert_eq!(settled.matches(ENTERS_ALTERNATE).count(), 1, "{settled:?}");
     assert_eq!(settled.matches(LEAVES_ALTERNATE).count(), 1, "{settled:?}");
+    drop(gateway);
+}
+
+/// A version-1 zone file (RFC 8536 3) of one type, `name` at `offset_s`.
+fn zone_file(name: &[u8], offset_s: i32) -> Vec<u8> {
+    let mut file = b"TZif\0".to_vec();
+    file.extend([0; 15]);
+    for count in [0, 0, 0, 0, 1, name.len() + 1] {
+        file.extend(u32::try_from(count).expect("a count").to_be_bytes());
+    }
+    file.extend(offset_s.to_be_bytes());
+    file.extend([0, 0]);
+    file.extend(name);
+    file.push(0);
+    file
+}
+
+#[test]
+fn ctrl_o_reads_its_headers_in_the_local_zone_and_never_prints_a_zone_files_escapes() {
+    // v0.0.16 (c9bc4876): an entry's header is read in the zone `TZ` names,
+    // and its abbreviation is shown only when it is a plain token
+    // (`local_time.zig:102-124@481104fd`). `TZ` may name any file; this
+    // one's abbreviation is an OSC that would retitle the terminal. The
+    // header shows the offset instead, and the name's bytes nowhere.
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    std::fs::write(sandbox.workspace.join("notes.txt"), "a line\n").expect("write the fixture");
+    let zone = sandbox.workspace.join("hostile-zone");
+    std::fs::write(&zone, zone_file(b"\x1b]2;XQZ\x07", 5 * 3600 + 30 * 60))
+        .expect("write the zone file");
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "call-0",
+                "read_file",
+                serde_json::json!({ "path": "notes.txt" }),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["the read is done"])),
+    ]);
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("TZ", &zone);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"read the notes\r");
+    session.wait_for("the read is done");
+    session.type_bytes(&[0x0f]);
+    let text = session.wait_until("one complete frame of the full transcript", |text| {
+        last_hidden_frame(text)
+            .is_some_and(|frame| frame.contains(FULL_FOOTER) && frame.contains("Read notes.txt"))
+    });
+    let frame = last_hidden_frame(&text).expect("the wait returns on a complete frame");
+    assert!(
+        frame.contains(" +0530 \u{b7} Tool"),
+        "the call's header: {frame:?}"
+    );
+    assert!(
+        !text.contains("XQZ"),
+        "the zone's name reached the terminal: {text:?}"
+    );
+
+    session.type_bytes(&[0x1b]);
+    session.wait_until("the band back on the primary plane", |text| {
+        text.rfind(LEAVES_ALTERNATE)
+            .is_some_and(|leave| text[leave..].contains(FRAME_END))
+    });
+    session.type_bytes(&[0x15, 0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert!(!session.settled_text().contains("XQZ"));
     drop(gateway);
 }
 

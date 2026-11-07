@@ -1,0 +1,40 @@
+  tokens: 1200 in · 40 out
+
+  2026-11-07 09:57:18.182 KST · Notice
+* network: provider: gateway · model: fake/model-a · 15ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-07 09:57:18.320 KST · Notice
+* network: provider: gateway · model: fake/model-a · 138ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-07 09:57:18.139 KST · Prompt
+┃ edit the file
+
+  2026-11-07 09:57:18.162 KST · Response
+  Editing the file.
+
+  2026-11-07 09:57:18.162 KST · Tool
+● 2 tool calls · 1 read · 1 edit
+├ Read bad.txt
+│  binary or non-utf8 file omitted (34 bytes)
+
+  2026-11-07 09:57:18.182 KST · Tool
+└ Edited bad.txt +1 / -1
+
+  │ 1 - first line
+  │ 1 + FIRST LINE
+  │ 2   bad \xff byte
+  │ 3   lone \xc3 lead
+
+  2026-11-07 09:57:18.320 KST · Response
+  Edited.
+
+  2026-11-07 09:57:18.312 KST · Usage
+  0s (↑3 ↓120)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a

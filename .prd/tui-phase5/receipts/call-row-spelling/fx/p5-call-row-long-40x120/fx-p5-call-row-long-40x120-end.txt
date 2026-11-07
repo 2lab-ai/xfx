@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ run it
+
+  Running it.
+
+● 1 tool call · 1 command
+└ Ran echo shown
+
+  Done.
+
+  0s (↑2 ↓80)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

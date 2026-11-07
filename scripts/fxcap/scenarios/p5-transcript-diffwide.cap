@@ -1,0 +1,25 @@
+# Phase 5 transcript (T-U6c): an edit of a file whose lines hold the
+# default-ignorable code points fx v0.0.16 writes as themselves and tmux 3.7b
+# draws a cell wide (a soft hyphen, the Hangul fillers, U+FFF0), one line
+# short and one that reaches the screen's last column by xfx's count and
+# past it by the terminal's; read first on both sides, then Ctrl-O over the
+# change.
+gateway p5-transcript-diffwide-turns.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+work p5-transcript-diffwidews
+keep
+wait 4
+type edit the file
+wait 1
+key Enter
+wait 5
+snap edited
+key C-o
+wait 2
+snap full
+key C-o
+wait 1
+snap closed
+gwlog

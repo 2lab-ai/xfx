@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-f84734d [debug] · Run /help for commands
+
+┃ edit the file
+
+  Editing the file.
+
+● 1 tool call · 1 read
+└ Read ctl.txt
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+      1   before\u{001B}[2Jcleared
+      2   second \u{009B}line
+      3 - third line
+      3 + THIRD LINE
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  Permission needed · Review change                                                                      Edit · +1  -1
+
+  ctl.txt  ·  Apply this change?
+
+  ❯ 1  Apply once
+    2  Apply + allow future edits to this file for this session
+    3  Don't apply
+  2 = allow every future edit_file to `ctl.txt` for the rest of this session, whatever its contents, and in every later
+  `xfx ask --resume-id 1794015897323-2131263542288868` of this saved session
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel
+
+
+
+
+
+
+
+
+
+
+
+
+

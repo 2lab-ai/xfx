@@ -1,7 +1,11 @@
 # Phase 5 transcript research: a submitted prompt on a full screen
-# (70611a91): an answer taller than the screen, then a short prompt snapped
-# 0.15 s after Enter and the terminal bytes kept (`wire`) to find the frame
-# that clears the composer; then a pasted 60-line prompt taller than the
+# (70611a91): an answer taller than the screen, then a short prompt and the
+# terminal bytes kept (`wire`) to find the frame that clears the composer,
+# snapped while the fake gateway holds its answer after the first chunk
+# (`holdAt` 1, `held`/`release`, as #75 holds the others): the snap keeps its
+# name, `submit-0.15`, from when it was taken 0.15 s after Enter, which read a
+# different chunk on each binary (`~ Generating (<s>) (↑4 ↓4)` against
+# `~ Thinking (<s>) (↑4 ↓0)`); then a pasted 60-line prompt taller than the
 # 40-row screen, whose every line must reach native scrollback (433464dd).
 gateway p5-transcript-submit-turns.json
 fx: env FX_AUTO_UPGRADE=0
@@ -15,8 +19,10 @@ type second prompt
 wait 0.5
 wire before-submit
 key Enter
-wait 0.15
+held
+wait 1
 snap submit-0.15
+release
 wait 3
 snap second
 wire after-submit

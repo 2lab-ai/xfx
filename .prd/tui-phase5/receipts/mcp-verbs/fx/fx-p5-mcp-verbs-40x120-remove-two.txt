@@ -1,0 +1,40 @@
+    --project  write ./.mcp.json instead of ~/.fx/mcp.json
+
+! mcp: /mcp add has no --transport flag.
+  usage: /mcp add [--project] [--header K=V]... NAME URL
+         /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...]
+         /mcp add [--project] slack
+    --project  write ./.mcp.json instead of ~/.fx/mcp.json
+
+* mcp: Added web2 to ~/.fx/mcp.json.
+
+! mcp: 'bad.name' can't be a server name: use letters, digits, '-' and '_'.
+  usage: /mcp add [--project] [--header K=V]... NAME URL
+         /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...]
+         /mcp add [--project] slack
+    --project  write ./.mcp.json instead of ~/.fx/mcp.json
+
+* mcp: Approved proj, which runs: <bun> <local-path>
+  scenarios/p5-mcp-stdio.ts
+
+! mcp: /mcp trust is now /mcp approve NAME and /mcp reject NAME.
+
+* mcp: NAME     SOURCE          TRANSPORT  STATUS
+  fixture  ~/.fx/mcp.json  stdio      ready, 1 tool
+  remote   ~/.fx/mcp.json  http       connecting
+  two      ~/.fx/mcp.json  stdio      ready, 1 tool
+  web2     ~/.fx/mcp.json  http       connecting
+  proj     .mcp.json       stdio      ready, 1 tool
+
+* mcp: Rejected proj. fx won't start it in this project.
+
+* mcp: Removed two from ~/.fx/mcp.json.
+
+┃
+
+auto · model-a
+
+
+
+
+

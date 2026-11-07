@@ -8277,8 +8277,9 @@ mod tests {
         // The picker's resume does not wait on a writer lock, and a sibling
         // test that forks a command in the instant this one closed the log
         // can hold the lock's descriptor until its child execs: a held lock
-        // here is that, not this test's subject, so it is asked again.
-        let deadline = Instant::now() + Duration::from_secs(5);
+        // here is that, not this test's subject, so it is asked again -- for
+        // as long as a start may take, since that start is what holds it.
+        let deadline = Instant::now() + crate::process::START_PATIENCE;
         let replay = loop {
             match state.resume_by_id(id.as_str(), &CancelToken::new()) {
                 Ok(replay) => break replay,
@@ -8287,7 +8288,10 @@ mod tests {
                 {
                     std::thread::sleep(Duration::from_millis(20));
                 }
-                Err(failure) => panic!("not resumed: {failure:?}"),
+                Err(failure) => panic!(
+                    "not resumed: {failure:?} (a held lock is asked again for {:?})",
+                    crate::process::START_PATIENCE
+                ),
             }
         };
         let picked = on_a_runtime(async {

@@ -1,0 +1,22 @@
+# RED: `streaming` on its base harness, scenario and binary (fd3f5f02, banner v0.1.0-fd3f5f0),
+# the pair run one after the other by scripts/fxcap/capture.sh at 40x120, `mid` row 5's out count.
+# Load: 1-minute average when the run ended; ten spinning processes beside the machine's own work
+# from run 1 on (the first line ran before them).
+#
+# CI, PR #74 (head 9f6a7a80, base 75e23557), the artifact's report.md and */summary.md:
+#   head          fx 59  xfx 63   load 10.9-14.0
+#   head-retry-1  fx 63  xfx 61   load 11.4-11.8
+#   head-retry-2  fx 63  xfx 61   load 12.3-14.1
+#   head-retry-3  fx 61  xfx 59   load 11.8-12.8
+#   base          identical (one run)
+#
+# Here, 2026-11-07:
+run 0  load  7.6   fx ↓59  xfx ↓61  DIFF
+run 1  load  8.6   fx ↓59  xfx ↓61  DIFF
+run 2  load 10.2   fx ↓61  xfx ↓59  DIFF
+run 3  load 13.6   fx ↓61  xfx ↓59  DIFF
+run 4  load 13.3   fx ↓61  xfx ↓59  DIFF
+run 5  load 13.0   fx ↓61  xfx ↓59  DIFF
+run 6  load 12.8   fx ↓55  xfx ↓59  DIFF
+# 0 of 7 the same. The count is 3 + 2k for MARKER-HEAD and k words received, so each pair is
+# the two binaries one to three chunks apart at the moment of the snap.

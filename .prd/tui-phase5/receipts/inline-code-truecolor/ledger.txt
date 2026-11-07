@@ -1,0 +1,58 @@
+# The ledger's causes for this unit's scenarios (T-U3-TCc), on one sweep against the v0.0.16 pin, 40x120:
+#   scripts/fxcap/sweep.sh --fx <fx v0.0.16> --pin-sha 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2 \
+#     --xfx <xfx at c7a3dd15, banner v0.1.0-c7a3dd1> --jobs 2 --only 'p5-inline-code-*-tc' --only 'p5-toolgroup-retint*' \
+#     --only 'p5-toolstop-retint*' --out <out>
+# truecolor-grey-notation (TC-NOTATION) was a [[divergence]] (user-decision) at 9461bf70 and a cause from T-U3-TCb on;
+# toolgroup-retint-256 (TG-REDRAW) covers the two 256-colour clash cells of a tool group's row; cancelled-marker (T-U4)
+# is the existing cause for fx's `▪` against xfx's `■`. Causes approve nothing: every pair below that differs is
+# unresolved, and each of its differing rows is attributed to one of them.
+# Per pair: verdict, its causes, and the rows that differ.
+
+| total | ran | identical | normalized-identical | approved-divergence | approved-divergence-cascade | replaced-in-next-pin | unresolved-defect | failed | timeout |
+|---|---|---|---|---|---|---|---|---|---|
+| 36 | 36 | 0 | 2 | 0 | 0 | 0 | 34 | 0 | 0 |
+
+| cause | kind | snaps | only | what | owner |
+|---|---|---|---|---|---|
+| truecolor-grey-notation | b | 24 | 18 | … | `TC-NOTATION builtin greys spelt 38;5 at every depth` |
+| cancelled-marker | b | 12 | 2 | … | `T-U4 cancelled marker` |
+| toolgroup-retint-256 | b | 8 | 4 | … | `TG-REDRAW tool rows drawn again on a theme switch` |
+
+(no row without a cause)
+
+p5-inline-code-retint-light-tc   light        unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the code'), (20, '  <wall> (↑4 ↓40)'), (22, '┃'), (24, 'auto · model-a')]
+p5-inline-code-retint-light-tc   dark         unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the code'), (20, '  <wall> (↑4 ↓40)'), (22, '┃'), (24, 'auto · model-a')]
+p5-inline-code-retint-light-tc   light-again  unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the code'), (20, '  <wall> (↑4 ↓40)'), (22, '┃'), (24, 'auto · model-a')]
+p5-inline-code-retint-tc         dark         unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the code'), (20, '  <wall> (↑4 ↓40)'), (22, '┃'), (24, 'auto · model-a')]
+p5-inline-code-retint-tc         light        unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the code'), (20, '  <wall> (↑4 ↓40)'), (22, '┃'), (24, 'auto · model-a')]
+p5-inline-code-retint-tc         dark-again   unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the code'), (20, '  <wall> (↑4 ↓40)'), (22, '┃'), (24, 'auto · model-a')]
+p5-inline-code-table-light-tc    light        unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the table'), (17, '  <wall> (↑5 ↓40)'), (19, '┃'), (21, 'auto · model-a')]
+p5-inline-code-table-light-tc    dark         unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the table'), (17, '  <wall> (↑5 ↓40)'), (19, '┃'), (21, 'auto · model-a')]
+p5-inline-code-table-light-tc    light-again  unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the table'), (17, '  <wall> (↑5 ↓40)'), (19, '┃'), (21, 'auto · model-a')]
+p5-inline-code-table-tc          dark         unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the table'), (17, '  <wall> (↑5 ↓40)'), (19, '┃'), (21, 'auto · model-a')]
+p5-inline-code-table-tc          light        unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the table'), (17, '  <wall> (↑5 ↓40)'), (19, '┃'), (21, 'auto · model-a')]
+p5-inline-code-table-tc          dark-again   unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the table'), (17, '  <wall> (↑5 ↓40)'), (19, '┃'), (21, 'auto · model-a')]
+p5-toolgroup-retint              dark         normalized-identical  -                                                  []
+p5-toolgroup-retint              light        unresolved-defect     toolgroup-retint-256                               [(6, '└ Ran echo "hi" 42 | grep hi # note')]
+p5-toolgroup-retint              dark-again   unresolved-defect     toolgroup-retint-256                               [(6, '└ Ran echo "hi" 42 | grep hi # note')]
+p5-toolgroup-retint-light        light        normalized-identical  -                                                  []
+p5-toolgroup-retint-light        dark         unresolved-defect     toolgroup-retint-256                               [(6, '└ Ran echo "hi" 42 | grep hi # note')]
+p5-toolgroup-retint-light        light-again  unresolved-defect     toolgroup-retint-256                               [(6, '└ Ran echo "hi" 42 | grep hi # note')]
+p5-toolgroup-retint-light-tc     light        unresolved-defect     truecolor-grey-notation                            [(3, '┃ run the command'), (5, '● 1 tool call · 1 command'), (6, '└ Ran echo "hi" 42 | grep hi # note'), (10, '  <wall> (↑4 ↓80)'), (12, '┃'), (14, 'full access · model-a')]
+p5-toolgroup-retint-light-tc     dark         unresolved-defect     truecolor-grey-notation                            [(3, '┃ run the command'), (5, '● 1 tool call · 1 command'), (6, '└ Ran echo "hi" 42 | grep hi # note'), (10, '  <wall> (↑4 ↓80)'), (12, '┃'), (14, 'full access · model-a')]
+p5-toolgroup-retint-light-tc     light-again  unresolved-defect     truecolor-grey-notation                            [(3, '┃ run the command'), (5, '● 1 tool call · 1 command'), (6, '└ Ran echo "hi" 42 | grep hi # note'), (10, '  <wall> (↑4 ↓80)'), (12, '┃'), (14, 'full access · model-a')]
+p5-toolgroup-retint-tc           dark         unresolved-defect     truecolor-grey-notation                            [(3, '┃ run the command'), (5, '● 1 tool call · 1 command'), (6, '└ Ran echo "hi" 42 | grep hi # note'), (10, '  <wall> (↑4 ↓80)'), (12, '┃'), (14, 'full access · model-a')]
+p5-toolgroup-retint-tc           light        unresolved-defect     truecolor-grey-notation                            [(3, '┃ run the command'), (5, '● 1 tool call · 1 command'), (6, '└ Ran echo "hi" 42 | grep hi # note'), (10, '  <wall> (↑4 ↓80)'), (12, '┃'), (14, 'full access · model-a')]
+p5-toolgroup-retint-tc           dark-again   unresolved-defect     truecolor-grey-notation                            [(3, '┃ run the command'), (5, '● 1 tool call · 1 command'), (6, '└ Ran echo "hi" 42 | grep hi # note'), (10, '  <wall> (↑4 ↓80)'), (12, '┃'), (14, 'full access · model-a')]
+p5-toolstop-retint               dark         unresolved-defect     cancelled-marker                                   [(8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?')]
+p5-toolstop-retint               light        unresolved-defect     toolgroup-retint-256,cancelled-marker              [(6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?')]
+p5-toolstop-retint               dark-again   unresolved-defect     toolgroup-retint-256,cancelled-marker              [(6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?')]
+p5-toolstop-retint-light         light        unresolved-defect     cancelled-marker                                   [(8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?')]
+p5-toolstop-retint-light         dark         unresolved-defect     toolgroup-retint-256,cancelled-marker              [(6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?')]
+p5-toolstop-retint-light         light-again  unresolved-defect     toolgroup-retint-256,cancelled-marker              [(6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?')]
+p5-toolstop-retint-light-tc      light        unresolved-defect     truecolor-grey-notation,cancelled-marker           [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+p5-toolstop-retint-light-tc      dark         unresolved-defect     truecolor-grey-notation,cancelled-marker           [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+p5-toolstop-retint-light-tc      light-again  unresolved-defect     truecolor-grey-notation,cancelled-marker           [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+p5-toolstop-retint-tc            dark         unresolved-defect     truecolor-grey-notation,cancelled-marker           [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+p5-toolstop-retint-tc            light        unresolved-defect     truecolor-grey-notation,cancelled-marker           [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+p5-toolstop-retint-tc            dark-again   unresolved-defect     truecolor-grey-notation,cancelled-marker           [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]

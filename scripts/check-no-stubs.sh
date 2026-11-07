@@ -22,6 +22,13 @@
 #      prints it beside the name it aliases -- so without this direction a name
 #      the parser accepts could be documented nowhere, or a name nobody answers
 #      could be advertised as an alias.
+#   7. Every upstream alias a deferred `command` row names in its notes
+#      (`Alias: \`update\``) is deferred with that row: not advertised, and not
+#      a surface of any other row. An `Alias:` on any other command row is
+#      refused, because an alias xfx answered would be a parser promise (a clap
+#      alias) that this text-level check cannot read -- `tests/parity.rs` runs
+#      every such name through the built binary instead, and refuses an
+#      `Alias:` on a row of any other kind.
 #
 # The check is text-level on purpose: it must run without building, so a broken
 # build cannot hide a broken promise. `tests/parity.rs` runs the same
@@ -206,6 +213,37 @@ parity_notes_slash_claims() {
 	' "$1"
 }
 
+# The upstream aliases named in the notes of every `command` row, as
+# `row<TAB>status<TAB>alias` lines: the text `Alias: ` (or `Aliases: `) and
+# then backticked names separated by `, `. The notes are rejoined from every
+# field after the status cell, because `-F' *\\| *'` also splits on the `\|`
+# a usage string escapes. A marker followed by no backticked name prints one
+# line with an empty alias, so a malformed marker is a failure rather than a
+# check with nothing to check.
+parity_command_aliases() {
+	awk -F' *\\| *' '
+		NF < 6 || $3 != "command" { next }
+		$2 !~ /^`.*`$/ { next }
+		{
+			row = $2
+			gsub(/`/, "", row)
+			notes = $5
+			for (i = 6; i < NF; i++) notes = notes "|" $i
+			if (!match(notes, /Alias(es)?: /)) next
+			rest = substr(notes, RSTART + RLENGTH)
+			found = 0
+			while (match(rest, /^`[^`]+`/)) {
+				print row "\t" $4 "\t" substr(rest, 2, RLENGTH - 2)
+				found = 1
+				rest = substr(rest, RLENGTH + 1)
+				if (substr(rest, 1, 2) != ", ") break
+				rest = substr(rest, 3)
+			}
+			if (!found) print row "\t" $4 "\t"
+		}
+	' "$1"
+}
+
 # All surface names of one kind and status, one per line.
 parity_names() {
 	grep -E "^\| \`[^\`]+\` \| $1 \| $2 \|" "$parity" 2>/dev/null |
@@ -289,10 +327,27 @@ if ! grep -q 'pub const ADVERTISED_COMMANDS: &\[&str\] = &\[' "$cli_source"; the
 elif ! grep -q 'pub const ADVERTISED_ENTRYPOINTS: &\[&str\] = &\[' "$cli_source"; then
 	fail "$cli_source no longer declares ADVERTISED_ENTRYPOINTS; the command inventory is unverifiable"
 else
-	check_inventory "$cli_source" "$(
+	advertised_commands="$(
 		inventory_from "$cli_source" ADVERTISED_COMMANDS
 		inventory_from "$cli_source" ADVERTISED_ENTRYPOINTS
-	)" command
+	)"
+	check_inventory "$cli_source" "$advertised_commands" command
+
+	# --- 2d. the upstream aliases of commands -------------------------------
+	#
+	# An alias of a deferred command is a name upstream answers and xfx must
+	# not: it has no surface cell, so `check_inventory` cannot see it, and it is
+	# reconciled here instead, against the same advertised inventory.
+	while IFS="$(printf '\t')" read -r row status alias; do
+		[ -n "$row" ] || continue
+		if [ -z "$alias" ]; then
+			fail "the \`$row\` row in $parity has an \`Alias:\` that names no backticked command"
+		elif [ "$status" != "deferred" ]; then
+			fail "the \`$row\` row in $parity names the alias \`$alias\` but says '$status'; only a deferred command's alias can be reconciled here"
+		elif grep -qxF -- "$alias" <<<"$advertised_commands"; then
+			fail "command \`$alias\` is documented as an alias of the deferred \`$row\` but $cli_source advertises it"
+		fi
+	done <<<"$(parity_command_aliases "$parity")"
 fi
 
 # The tool registry declares its inventory in the same reconcilable form as the
@@ -365,16 +420,20 @@ fi
 while IFS= read -r name; do
 	[ -n "$name" ] || continue
 	fail "surface \`$name\` has more than one row in $parity"
-done <<<"$(awk -F' *\\| *' '
-	NF < 6 { next }
-	$2 !~ /^`.*`$/ { next }
-	{
-		name = $2
-		gsub(/`/, "", name)
-		seen[name]++
-	}
-	END { for (name in seen) if (seen[name] > 1) print name }
-' "$parity" | sort)"
+done <<<"$({
+	awk -F' *\\| *' '
+		NF < 6 { next }
+		$2 !~ /^`.*`$/ { next }
+		{
+			name = $2
+			gsub(/`/, "", name)
+			print name
+		}
+	' "$parity"
+	# A command alias is a surface name too: one that is also a row, or the
+	# alias of two rows, is a name with two answers.
+	parity_command_aliases "$parity" | cut -f3
+} | sort | uniq -d)"
 
 # --- 3. every parity row carries a recognized kind and status ----------------
 

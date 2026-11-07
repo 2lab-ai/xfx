@@ -1,0 +1,150 @@
+# RED: xfx at PR #67's head 02b4619b (banner v0.1.0-02b4619) against fx v0.0.16, COLORTERM=truecolor, 40x120
+# python3 -I notation.py scripts/fxcap fx/fx-<pair> <dir>/xfx-<pair> <dir>/xfx-<drawn snap of the same run>
+== p5-inline-code-retint-tc dark
+ramp: 0 rows differ (row 1 not compared)
+notation: 17 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 4 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 2 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-inline-code-retint-tc light
+ramp row 5: fx '  Run zig build test before you push.'
+ramp row 5: xfx '  Run zig build test before you push.'
+ramp row 8: fx '  # build and test'
+ramp row 8: xfx '  # build and test'
+ramp row 9: fx '  zig build test --summary all'
+ramp row 9: xfx '  zig build test --summary all'
+ramp row 13: fx '  // the answer'
+ramp row 13: xfx '  // the answer'
+ramp row 14: fx '  const n = 42;'
+ramp row 14: xfx '  const n = 42;'
+ramp row 15: fx '  const s = "hi";'
+ramp row 15: xfx '  const s = "hi";'
+ramp row 18: fx '  Done with everything.'
+ramp row 18: xfx '  Done with everything.'
+ramp: 7 rows differ (row 1 not compared)
+colour: 22 fx (('fg', 235),) xfx (('fg', 255),) same-text
+colour: 13 fx (('fg', 238),) xfx (('fg', 252),) same-text
+colour: 15 fx (('fg', 241),) xfx (('fg', 250),) same-text
+colour: 24 fx (('fg', 243),) xfx (('fg', 245),) same-text
+notation: 2 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 4 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 8 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-inline-code-retint-tc dark-again
+ramp: 0 rows differ (row 1 not compared)
+notation: 17 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 4 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 2 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-inline-code-retint-light-tc light
+ramp: 0 rows differ (row 1 not compared)
+notation: 2 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 4 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 8 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-inline-code-retint-light-tc dark
+ramp row 5: fx '  Run zig build test before you push.'
+ramp row 5: xfx '  Run zig build test before you push.'
+ramp row 8: fx '  # build and test'
+ramp row 8: xfx '  # build and test'
+ramp row 9: fx '  zig build test --summary all'
+ramp row 9: xfx '  zig build test --summary all'
+ramp row 13: fx '  // the answer'
+ramp row 13: xfx '  // the answer'
+ramp row 14: fx '  const n = 42;'
+ramp row 14: xfx '  const n = 42;'
+ramp row 15: fx '  const s = "hi";'
+ramp row 15: xfx '  const s = "hi";'
+ramp row 18: fx '  Done with everything.'
+ramp row 18: xfx '  Done with everything.'
+ramp: 7 rows differ (row 1 not compared)
+colour: 24 fx (('fg', 245),) xfx (('fg', 243),) same-text
+colour: 15 fx (('fg', 250),) xfx (('fg', 241),) same-text
+colour: 13 fx (('fg', 252),) xfx (('fg', 238),) same-text
+colour: 22 fx (('fg', 255),) xfx (('fg', 235),) same-text
+notation: 17 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 4 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 2 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-inline-code-retint-light-tc light-again
+ramp: 0 rows differ (row 1 not compared)
+notation: 2 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 4 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 8 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-inline-code-table-tc dark
+ramp: 0 rows differ (row 1 not compared)
+notation: 17 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 4 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 2 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-inline-code-table-tc light
+ramp row 5: fx '  Run zig build first.'
+ramp row 5: xfx '  Run zig build first.'
+ramp row 15: fx '  Done with everything.'
+ramp row 15: xfx '  Done with everything.'
+ramp: 2 rows differ (row 1 not compared)
+colour: 18 fx (('fg', 235),) xfx (('fg', 255),) same-text
+notation: 2 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 4 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 8 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-inline-code-table-tc dark-again
+ramp: 0 rows differ (row 1 not compared)
+notation: 17 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 4 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 2 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-inline-code-table-light-tc light
+ramp: 0 rows differ (row 1 not compared)
+notation: 2 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 4 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 8 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-inline-code-table-light-tc dark
+ramp row 5: fx '  Run zig build first.'
+ramp row 5: xfx '  Run zig build first.'
+ramp row 15: fx '  Done with everything.'
+ramp row 15: xfx '  Done with everything.'
+ramp: 2 rows differ (row 1 not compared)
+colour: 18 fx (('fg', 255),) xfx (('fg', 235),) same-text
+notation: 17 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 4 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 2 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-inline-code-table-light-tc light-again
+ramp: 0 rows differ (row 1 not compared)
+notation: 2 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 4 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 8 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0

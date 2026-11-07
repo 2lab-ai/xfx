@@ -10,13 +10,15 @@ wait 4
 type stream please
 wait 1
 key Enter
-wait 3
+held
+wait 1
 snap mid
 key Escape
 wait 0.3
 key Escape
 wait 2
 snap esc
+release
 type next
 wait 0.5
 key Enter

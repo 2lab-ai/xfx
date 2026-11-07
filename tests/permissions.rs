@@ -3602,6 +3602,14 @@ fn terminal_kills_a_command_that_outruns_its_timeout() {
 /// shown is the signal the command died of (`signal 15`,
 /// `fx-resume-tools-40x120-live-ctrl-o`), while the model is told only that
 /// the call was aborted.
+///
+/// The stop comes once the command has written `began`, which it does after
+/// the state its case is about -- `started` on its stdout, or its `trap` set
+/// -- and not on a clock. It used to come 300 ms after the call was made, and
+/// on a loaded machine that can be before the shell has run its first word:
+/// the second command then dies of the `SIGTERM` it was to ignore,
+/// `<signal>15</signal>` within a few milliseconds, and fails both of its
+/// checks. So the grace and the bound are measured from the stop.
 #[test]
 fn a_stopped_command_is_asked_to_stop_and_the_screen_is_shown_how_it_ended() {
     let stop_after = |command: &str| {
@@ -3610,36 +3618,73 @@ fn a_stopped_command_is_asked_to_stop_and_the_screen_is_shown_how_it_ended() {
         let context = ToolContext::new(AccessScope::primary_only(tree.root()).expect("root"))
             .with_permissions(session(PermissionMode::Yolo))
             .with_cancel(cancel.clone());
-        let watcher = cancel.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(300));
-            watcher.cancel();
-        });
-        let started = Instant::now();
+        // The command runs in the tree's root, so `began` lands there.
+        let stopper = stop_once_written(cancel, tree.root().join("began"));
         let result = call(
             &context,
             "terminal",
             json!({ "action": "exec", "command": command }),
         );
-        (result, started.elapsed())
+        let returned = Instant::now();
+        let stopped = stopper.join().expect("the stopper");
+        let stopped_at = stopped.unwrap_or_else(|waited| {
+            panic!(
+                "the command never wrote `began` in {waited:?}, so nothing was stopped: {result:?}"
+            )
+        });
+        (result, returned.saturating_duration_since(stopped_at))
     };
-    let (result, took) = stop_after("echo started; sleep 30");
+    let (result, took) = stop_after("echo started; echo began > began; sleep 30");
     assert_eq!(result.output, "aborted by user");
     let presented = result.presented.as_deref().expect("the screen's account");
     assert!(presented.contains("<signal>15</signal>"), "{presented}");
     assert!(presented.contains("started"), "{presented}");
+    // The line above is also met by the `<command>` line, which spells the
+    // command; this one is met only by what the command wrote.
+    assert!(presented.contains("<stdout>\nstarted\n"), "{presented}");
     assert!(took < Duration::from_secs(5), "{took:?}");
 
     // One that will not stop when asked is killed once the grace is over.
-    let (result, took) = stop_after("trap '' TERM; sleep 30 & wait");
+    let (result, took) = stop_after("trap '' TERM; echo began > began; sleep 30 & wait");
     assert_eq!(result.output, "aborted by user");
     let presented = result.presented.as_deref().expect("the screen's account");
     assert!(
         presented.contains("<signal>9</signal>") || presented.contains("<exit_code>"),
         "{presented}"
     );
-    assert!(took >= Duration::from_millis(900), "no grace: {took:?}");
+    // From the stop, as the old 900 ms from the call was 600 ms past a stop
+    // 300 ms into it; the grace is 700 ms (`TERMINATION_GRACE`).
+    assert!(took >= Duration::from_millis(600), "no grace: {took:?}");
     assert!(took < Duration::from_secs(5), "{took:?}");
+}
+
+/// How long a test waits for a command to say it has reached the point its
+/// stop is about. A fresh shell on a loaded runner can take seconds to start,
+/// and a wait that ends is a failure with a name rather than a hang.
+const START_PATIENCE: Duration = Duration::from_secs(60);
+
+/// Cancels `cancel` once `marker` exists, from another thread, and answers
+/// when it did -- or, if the marker never came within [`START_PATIENCE`], how
+/// long it waited. It cancels either way: a stopper that gave up silently
+/// would leave the command to run out its own time and blame the delay on
+/// the tool.
+fn stop_once_written(
+    cancel: CancelToken,
+    marker: PathBuf,
+) -> std::thread::JoinHandle<Result<Instant, Duration>> {
+    std::thread::spawn(move || {
+        let started = Instant::now();
+        while !marker.exists() && started.elapsed() < START_PATIENCE {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let reached = marker.exists();
+        cancel.cancel();
+        if reached {
+            Ok(Instant::now())
+        } else {
+            Err(started.elapsed())
+        }
+    })
 }
 
 #[test]
@@ -4098,7 +4143,6 @@ fn the_registry_advertises_the_read_tools_then_the_mutating_tools_then_the_inter
             "capability_search",
             "skill",
             "mcp_select_tool",
-            "mcp_features",
             "ask_user_question",
         ]
     );

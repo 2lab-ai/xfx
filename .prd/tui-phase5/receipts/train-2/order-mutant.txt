@@ -1,0 +1,8 @@
+test tui::toolgroup::tests::an_mcp_reason_with_nothing_left_once_spelled_is_no_reason ... FAILED
+---- tui::toolgroup::tests::an_mcp_reason_with_nothing_left_once_spelled_is_no_reason stdout ----
+thread 'tui::toolgroup::tests::an_mcp_reason_with_nothing_left_once_spelled_is_no_reason' (275735679) panicked at src/tui/toolgroup.rs:1797:9:
+assertion `left == right` failed
+  left: "└ Failed mcp_web_echo: "
+ right: "└ Failed mcp_web_echo"
+    tui::toolgroup::tests::an_mcp_reason_with_nothing_left_once_spelled_is_no_reason
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4252 filtered out; finished in 0.01s

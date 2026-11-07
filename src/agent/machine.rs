@@ -360,7 +360,7 @@ pub struct TurnMachine {
     /// Empty when there is none.
     static_context: String,
     /// The configured MCP servers as they stood when the turn began
-    /// ([`crate::mcp::catalog::render_servers`]), or empty where no MCP client
+    /// ([`crate::mcp::catalog::servers_block`]), or empty where no MCP client
     /// runs. A system message of its own after the project's, as upstream
     /// sends it (`cap/fx-mcp-fixture-40x120-bodies/001-completion.json`,
     /// `prompt[3]`), and like the project's never rewritten within a turn.
@@ -583,7 +583,7 @@ impl TurnMachine {
         let mcp_servers = request
             .tools
             .mcp()
-            .map(|link| crate::mcp::catalog::render_servers(&link.runtime.views()))
+            .map(|link| crate::mcp::catalog::servers_block(&link.runtime))
             .unwrap_or_default();
         let history = request.history.clone();
         let user = user_message(&request, None);
@@ -1147,11 +1147,14 @@ impl TurnMachine {
             announced.push(call.id.clone());
         }
         for call in &completion.tool_calls {
-            // A server's own tool is known once this turn has selected it,
-            // and only then: its schema went out with the request
-            // ([`Registry::advertisement_for`]).
+            // A server's own tool is known once this turn has selected it --
+            // its schema went out with the request
+            // ([`Registry::advertisement_for`]) -- or, called without that, once
+            // it resolves to a live tool and is selected now; either way the
+            // call is judged as every MCP call is
+            // ([`crate::tools::mcp::select_unselected`]).
             if registry.spec(&call.name).is_none()
-                && !crate::tools::mcp::is_selected(&self.request.tools, &call.name)
+                && !crate::tools::mcp::select_unselected(&self.request.tools, &call.name)
             {
                 return Err(TurnError::ToolCallUnsupported {
                     tool: call.name.clone(),

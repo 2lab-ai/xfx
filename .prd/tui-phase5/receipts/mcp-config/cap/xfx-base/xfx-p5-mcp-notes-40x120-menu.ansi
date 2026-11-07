@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-d5425d9 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;252m! mcp:[38;5;250m MCP configuration could not be reloaded. Your existing MCP servers are still active. Check the configuration and[39m
+  [38;5;250mrun /mcp list for details before trying again.[39m
+
+[38;5;255m┃[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m[38;5;255mMCP 0[0m  [1m[38;5;255m[Servers][0m  [38;5;245mTools[39m  [38;5;245mResources[39m  [38;5;245mPrompts[39m
+
+[38;5;245m  No MCP servers configured.[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245m↑↓ move  tab section  enter inspect  s add Slack  a add  r reload  c help  esc close[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

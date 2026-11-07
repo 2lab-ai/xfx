@@ -1,0 +1,29 @@
+# T-U3-TCb. RED at unit level: the new test against 6c41c2ac's src/tui/theme.rs (the test added, the code not yet changed):
+#   cargo test --locked --lib -- tui::theme::tests::a_truecolor_tool_rows_indexed_greys_are_the_highlighters_both_ways
+test tui::theme::tests::a_truecolor_tool_rows_indexed_greys_are_the_highlighters_both_ways ... FAILED
+thread 'tui::theme::tests::a_truecolor_tool_rows_indexed_greys_are_the_highlighters_both_ways' panicked at src/tui/theme.rs:1318:13:
+  left: Some("\u{1b}[38;5;245m")
+ right: Some("\u{1b}[38;5;250m")
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3999 filtered out; finished in 0.00s
+
+# Mutants of src/tui/theme.rs at 3afa6fa0, each applied to a saved copy and the file restored after (sha256 7ed26d0619d3b7fa before and after):
+#   cargo test --locked --lib -- tui::theme tui::event_loop::tests::a_truecolor tui::event_loop::tests::a_theme_report tui::event_loop::tests::a_tables_cells tui::event_loop::tests::a_code_block
+# D: the truecolor tool-row arm removed (an indexed cell answered by the 256-colour roles, STATUSLINE first)
+# E: the arm without COMMENT ([COMMAND, NOTICE])
+# Unmutated: 28 passed, 0 failed.
+== mutant D
+test tui::theme::tests::a_truecolor_tool_rows_indexed_greys_are_the_highlighters_both_ways ... FAILED
+thread 'tui::theme::tests::a_truecolor_tool_rows_indexed_greys_are_the_highlighters_both_ways' panicked at src/tui/theme.rs:1331:13:
+assertion `left == right` failed: ToolGroup: a light string was taken for the statusline
+  left: Some("\u{1b}[38;5;245m")
+ right: Some("\u{1b}[38;5;250m")
+test result: FAILED. 27 passed; 1 failed; 0 ignored; 0 measured; 3972 filtered out; finished in 0.03s
+error: test failed, to rerun pass `--lib`
+== mutant E
+test tui::theme::tests::a_truecolor_tool_rows_indexed_greys_are_the_highlighters_both_ways ... FAILED
+thread 'tui::theme::tests::a_truecolor_tool_rows_indexed_greys_are_the_highlighters_both_ways' panicked at src/tui/theme.rs:1345:13:
+assertion `left == right` failed: ToolGroup: a dark comment was taken for the statusline
+  left: None
+ right: Some("\u{1b}[38;5;243m")
+test result: FAILED. 27 passed; 1 failed; 0 ignored; 0 measured; 3972 filtered out; finished in 0.03s
+error: test failed, to rerun pass `--lib`

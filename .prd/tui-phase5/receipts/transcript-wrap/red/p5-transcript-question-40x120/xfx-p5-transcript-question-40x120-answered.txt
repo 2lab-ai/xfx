@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-d314549 [debug] · Run /help for commands
+
+┃ pick a storage engine
+
+  1) Which of the two storage engines should the nightly import job write its staging tables into before it runs the
+     checks?
+     Postgres with the write-ahead log kept on the fast local disk
+
+  Got it.
+
+  3s (↑6 ↓80)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

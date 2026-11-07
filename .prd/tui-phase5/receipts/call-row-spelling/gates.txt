@@ -1,0 +1,28 @@
+# The gate list at a177d863 (the code of 696700bb; this receipt adds only .prd/ files), each step one at a
+# time with TMPDIR=<tmp>: fmt --check; clippy --all-targets -D warnings, without and with fault-injection;
+# cargo test --no-fail-fast, without and with fault-injection; check-xfx-identity, check-no-stubs,
+# check-no-secrets; fxcap's test-sweep; release and faulty release builds; smoke.sh and smoke-tui.sh
+# (--faulty) on them.
+head a177d863
+fmt exit=0
+clippy exit=0
+clippy-faults exit=0
+test exit=0
+test-faults exit=0
+identity exit=0
+stubs exit=0
+secrets exit=0
+test-sweep exit=0
+test passed 4953 failed 0 ignored 7
+test-faults passed 4982 failed 0 ignored 7
+done
+head a177d863 (release, smoke)
+release exit=0
+faulty exit=0
+smoke exit=0
+smoke-tui exit=0
+47 check(s), 0 failure(s)
+evidence: <tmp>/ev3/smoke
+smoke-tui: 37 scenarios + the oracle, 1111 checks, 0 failures
+evidence: <tmp>/ev3/tui
+done2

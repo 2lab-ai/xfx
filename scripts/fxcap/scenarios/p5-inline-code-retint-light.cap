@@ -1,0 +1,22 @@
+# P5 U3 (fx 5e32bce2), from the other side: the same answer drawn on a light
+# screen first, then a report of dark and one of light again. The launch is
+# light through COLORFGBG (white background), which both products read once
+# the OSC 11 query goes unanswered, as it does here; neither pin (FX_THEME,
+# XFX_THEME) is set, because a pin locks live updates out. So the light-drawn
+# comment (243), keyword (238), string (241) and inline code (235) are what the
+# dark report recolours.
+gateway p5-inline-code-retint-turns.json
+fx: env FX_AUTO_UPGRADE=0
+env COLORFGBG='0;15'
+wait 4
+type show me the code
+wait 1
+key Enter
+wait 8
+snap light
+key -H 1b 5b 3f 39 39 37 3b 31 6e
+wait 2
+snap dark
+key -H 1b 5b 3f 39 39 37 3b 32 6e
+wait 2
+snap light-again

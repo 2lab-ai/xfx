@@ -242,6 +242,22 @@ class CiSweep(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertFalse(os.path.exists(os.path.join(out, "base-retry-2")), "no run past the first that passes")
 
+    def test_a_nondeterminism_cause_past_its_date_buys_no_retry(self):
+        # The case above with the `tick` cause expired: it covers nothing, so
+        # the varying base is run once, fails, and the pair is one neither
+        # build passes -- not a regression it would take a retry to see.
+        self.write(self.ledger, LEDGER.replace('fix = "wait on content"', 'fix = "wait on content"\nexpires = "date:2000-01-01"') % self.sha)
+        self.write(self.core, "basevary\n")
+        self.write(os.path.join(self.scen, "basevary.cap"), "snap a\n")
+        self.commit("basevary")
+        base = self.git("rev-parse", "HEAD").strip()
+        r, out = self.run_ci("--base", base, "--base-xfx", self.bins["base"])
+        pair = self.result(out)["pairs"][0]
+        self.assertEqual(pair.get("base_runs"), 1, pair)
+        self.assertNotEqual(pair["base"], "identical", pair)
+        self.assertFalse(pair["regression"], pair)
+        self.assertFalse(os.path.exists(os.path.join(out, "base-retry-1")), "an expired cause bought a retry")
+
     def test_no_failing_pair_runs_no_base(self):
         self.write(self.core, "same\nuses\n")
         r, out = self.run_ci("--base", self.base, "--base-xfx", self.bins["base"])
@@ -697,6 +713,26 @@ class CiFetch(unittest.TestCase):
         pin = next(p for p in led["pins"] if p["name"] == "v0.0.16")
         self.assertIn("\nFX_SHA256=%s\n" % pin["sha256"], text)
         self.assertIn(pin["note"].split("whose sha256 is ")[1][:64], text)
+
+
+class TokenCounts(unittest.TestCase):
+    def test_no_nondeterminism_cause_of_the_repos_ledger_covers_a_token_count(self):
+        # A snap mid-stream is taken while fakegw holds the stream (a turn's `holdAt`, capture.sh's
+        # `held`), so its out count is the same on both binaries: neither it nor a settled turn's
+        # summary is a row known to vary, and a pair that differs in one fails on its first run
+        # with no re-run to pass it (PR #74: `streaming` mid, fx/xfx 59/63 ... 61/59).
+        led = test_sweep.ledgermod.load(test_sweep.LEDGER, test_sweep.REPO)
+        causes = [c for c in led["causes"] if "nondeterminism" in c["kind"]]
+        for scenario, label, fx, xfx in (
+            ("streaming", "mid", "~ Generating (<s>) (↑4 ↓59)", "~ Generating (<s>) (↑4 ↓63)"),
+            ("streaming", "end", "  <wall> (↑4 ↓40)", "  <wall> (↑4 ↓41)"),
+            ("notice-midstream", "version", "~ Generating (<s>) (↑8 ↓87)", "~ Generating (<s>) (↑8 ↓85)"),
+            ("credits-busy", "during", "~ Generating (<s>) (↑6 ↓21)", "~ Generating (<s>) (↑6 ↓23)"),
+            ("h1-reset", "after", "  <wall> (↑4 ↓45)", "  <wall> (↑4 ↓44)"),
+        ):
+            pair = {"scenario": scenario, "label": label, "rows": [{"row": 5, "fx": fx, "xfx": xfx}]}
+            with self.subTest(scenario=scenario, label=label):
+                self.assertFalse(ci_sweep.varies(pair, causes))
 
 
 class ReceiptNames(unittest.TestCase):

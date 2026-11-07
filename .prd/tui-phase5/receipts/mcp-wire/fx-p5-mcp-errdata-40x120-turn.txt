@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ call the refusing tool three times
+
+● 3 tool calls · 3 MCP calls · 3 failed
+├ Failed mcp_errs_echo: MCP protocol error -32603: fixture refuses
+├ Failed mcp_errs_echo: MCP protocol error -32603: fixture refuses
+└ Failed mcp_errs_echo: MCP protocol error -32603: fixture refuses
+
+  refused.
+
+  0s (↑9 ↓160)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

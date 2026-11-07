@@ -1,0 +1,40 @@
+* mcp: usage: /mcp COMMAND
+
+    list                        configured servers; never connects
+    show NAME                   connect to NAME: status, version, tools
+    add NAME URL                add an HTTP server
+    add NAME -- CMD [ARGS...]   add a stdio server
+    add slack                   add Slack's server
+    remove NAME                 remove a server and its login
+    login NAME                  sign in to an HTTP server
+    logout NAME                 sign out and delete the login
+    approve NAME | --all        approve project servers from .mcp.json
+    reject NAME                 reject a project server
+
+  Run '/mcp COMMAND -h' for a command's flags.
+
+* mcp: No MCP servers configured. Add one with: /mcp add NAME URL
+
+! mcp: /mcp path is gone: /mcp list shows each server's file.
+
+! mcp: /mcp reload is gone: fx reloads after add, remove, approve, and reject.
+
+! mcp: /mcp auth is now /mcp login NAME.
+
+! mcp: /mcp trust is now /mcp approve NAME and /mcp reject NAME.
+
+! mcp: /mcp resource is gone: fx doesn't support MCP resources and prompts yet.
+
+! mcp: /mcp prompt is gone: fx doesn't support MCP resources and prompts yet.
+
+! mcp: No MCP server named nope. /mcp list shows them.
+
+! mcp: No MCP server named nope. /mcp list shows them.
+
+! mcp: No MCP server named nope. /mcp list shows them.
+
+! mcp: No MCP server named nope in ~/.fx/mcp.json or .mcp.json.
+
+┃
+
+auto · model-a

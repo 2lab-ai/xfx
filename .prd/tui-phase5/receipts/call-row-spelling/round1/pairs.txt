@@ -1,0 +1,747 @@
+# Each snap pair, classified by scripts/fxcap/sweep.sh --rescore with the ledger as committed.
+# A character a terminal would act on or that reorders text is shown here as <U+XXXX>; the
+# captures under fx/, red/ and xfx/ hold it as the screen did. Each differing row is listed with the
+# ledger entries whose selectors match its pair (`-`: none); the `rows no cause or divergence
+# explains` line is the classification's own, side by side.
+
+== xfx base (151dde9) against fx v0.0.16, 40x120
+p5-call-row-safe   end    unresolved-defect    causes=-
+    rows no cause or divergence explains: xfx 8, xfx 9, xfx 10
+    fx   8 call-row-raw-argument  ├ Ran printf '%s' 'A\u{202e}B\u{2066}C<U+061C>D\x1b[2JE F\x09G\u{009b}H' >/dev/null
+    xfx  8 call-row-raw-argument  ├ Ran printf '%s' 'A<U+202E>B<U+2066>C<U+061C>D [2JE F G H' >/dev/null
+    fx   9 call-row-raw-argument  ├ Matched n<U+202E>o<U+2066>p<U+061C>q7rs<U+009B>t
+    xfx  9 call-row-raw-argument  ├ Matched n<U+202E>o<U+2066>p<U+061C>q 7r s t u*.md
+    fx  10 call-row-raw-argument  └ Failed m<U+202E>n<U+2066>o<U+061C>p[2Jqr<U+009B>s   )
+    xfx 10 call-row-raw-argument  └ Failed m<U+202E>n<U+2066>o<U+061C>p [2Jq r s t.txt: Path not found: m<U+202E>n<U+2066>o<U+061C>p [2Jq r s t.txt
+p5-call-row-safe   full   unresolved-defect    causes=call-row-page-edge,tool-schema
+    rows no cause or divergence explains: xfx 18, xfx 22, xfx 28
+    fx   1 -                        tokens: 1200 in · 40 out
+    xfx  1 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    fx   2 -                      
+    xfx  2 -                        finish: tool_calls
+    fx   3 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    xfx  3 -                        tokens: 1200 in · 40 out
+    fx   4 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    xfx  4 -                      
+    fx   5 -                        finish: stop
+    xfx  5 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    fx   6 -                        tokens: 1200 in · 40 out
+    xfx  6 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    fx   7 -                      
+    xfx  7 -                        finish: stop
+    fx   8 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    xfx  8 -                        tokens: 1200 in · 40 out
+    fx   9 -                      ┃ look
+    xfx  9 -                      
+    fx  10 -                      
+    xfx 10 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    fx  11 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    xfx 11 -                      ┃ look
+    fx  12 -                        Looking.
+    xfx 12 -                      
+    fx  13 -                      
+    xfx 13 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    fx  14 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx 14 -                        Looking.
+    fx  15 -                      ● 3 tool calls · 1 read · 1 list · 1 command · 1 failed
+    xfx 15 -                      
+    fx  16 call-row-raw-argument  ├ Ran printf '%s' 'A\u{202e}B\u{2066}C<U+061C>D\x1b[2JE F\x09G\u{009b}H' >/dev/null
+    xfx 16 call-row-raw-argument    XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  17 -                      │  action: run
+    xfx 17 -                      ● 3 tool calls · 1 read · 1 list · 1 command · 1 failed
+    fx  18 call-row-raw-argument  │  command: printf '%s' 'A\u{202e}B\u{2066}C<U+061C>D\x1b[2JE\x0dF    G\u{009b}H' >/dev/null
+    xfx 18 call-row-raw-argument  ├ Ran printf '%s' 'A<U+202E>B<U+2066>C<U+061C>D [2JE F G H' >/dev/null
+    fx  19 call-row-raw-argument  │  yield_time_ms: 5000
+    xfx 19 call-row-raw-argument  │  command: printf '%s' 'A\u{202e}B\u{2066}C\u{061c}D\x1b[2JE\x0dF    G\u{009b}H' >/dev/null
+    fx  22 call-row-raw-argument  ├ Matched n<U+202E>o<U+2066>p<U+061C>q7rs<U+009B>t
+    xfx 22 call-row-raw-argument  ├ Matched n<U+202E>o<U+2066>p<U+061C>q 7r s t u*.md
+    fx  23 call-row-raw-argument  │  pattern: n\u{202e}o\u{2066}p<U+061C>q\x1b7r    s\u{009b}t\x0du*.md
+    xfx 23 call-row-raw-argument  │  pattern: n\u{202e}o\u{2066}p\u{061c}q\x1b7r    s\u{009b}t\x0du*.md
+    fx  24 call-row-raw-argument  │  [glob] no matches for n\u{202e}o\u{2066}p<U+061C>q\x1b7r    s\u{009b}t\x0du*.md
+    xfx 24 call-row-raw-argument  │  [glob] no matches for n\u{202e}o\u{2066}p\u{061c}q\x1b7r    s\u{009b}t\x0du*.md
+    fx  28 call-row-raw-argument  └ Failed m<U+202E>n<U+2066>o<U+061C>p[2Jqr<U+009B>s
+    xfx 28 call-row-raw-argument  └ Failed m<U+202E>n<U+2066>o<U+061C>p [2Jq r s t.txt: Path not found: m<U+202E>n<U+2066>o<U+061C>p [2Jq r s t.txt
+    fx  29 call-row-raw-argument  │  path: m\u{202e}n\u{2066}o<U+061C>p\x1b[2Jq    r\u{009b}s\x0dt.txt
+    xfx 29 call-row-raw-argument  │  path: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq    r\u{009b}s\x0dt.txt
+    fx  30 call-row-raw-argument  │  Path not found: m\u{202e}n\u{2066}o<U+061C>p\x1b[2Jq    r\u{009b}s\x0dt.txt
+    xfx 30 call-row-raw-argument  │  Path not found: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq    r\u{009b}s\x0dt.txt
+p5-transcript-safe end    unresolved-defect    causes=-
+    rows no cause or divergence explains: fx 8, xfx 8
+    fx   8 -                      ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
+    xfx  8 -                      ├ Ran printf '%s\n' 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G' >/dev/null; cat safe.txt #
+p5-transcript-safe end.full unresolved-defect    causes=-
+    rows no cause or divergence explains: fx 8, xfx 8
+    fx   8 -                      ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
+    xfx  8 -                      ├ Ran printf '%s\n' 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G' >/dev/null; cat safe.txt #
+p5-transcript-safe full   unresolved-defect    causes=session-record,safe-page-edge,tool-schema
+    rows no cause or divergence explains: fx 20, xfx 22
+    fx   1 -                      
+    xfx  1 -                        +5 more)
+    fx   2 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    xfx  2 -                        mcp: none
+    fx   3 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    xfx  3 -                      
+    fx   4 -                        finish: tool_calls
+    xfx  4 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    fx   5 -                        tokens: 1200 in · 40 out
+    xfx  5 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    fx   6 -                      
+    xfx  6 -                        finish: tool_calls
+    fx   7 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    xfx  7 -                        tokens: 1200 in · 40 out
+    fx   8 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    xfx  8 -                      
+    fx   9 -                        finish: stop
+    xfx  9 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    fx  10 -                        tokens: 1200 in · 40 out
+    xfx 10 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    fx  11 -                      
+    xfx 11 -                        finish: stop
+    fx  12 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    xfx 12 -                        tokens: 1200 in · 40 out
+    fx  13 -                      ┃ show the file
+    xfx 13 -                      
+    fx  14 -                      
+    xfx 14 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    fx  15 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    xfx 15 -                      ┃ show the file
+    fx  16 -                        Showing the file.
+    xfx 16 -                      
+    fx  17 -                      
+    xfx 17 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    fx  18 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx 18 -                        Showing the file.
+    fx  19 -                      ● 2 tool calls · 1 read · 1 command
+    xfx 19 -                      
+    fx  20 -                      ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
+    xfx 20 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  21 -                      │  action: run
+    xfx 21 -                      ● 2 tool calls · 1 read · 1 command
+    fx  22 -                      │  command: printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G' >/dev/null; cat safe.txt # \x0d
+    xfx 22 -                      ├ Ran printf '%s\n' 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G' >/dev/null; cat safe.txt #
+    fx  23 -                      │  yield_time_ms: 5000
+    xfx 23 -                      │  command: printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G' >/dev/null; cat safe.txt # \x0d
+    fx  24 ctrl-o-command-marks   │ a<U+202E>b<U+200B>c<U+FEFF>de\u{009b}f        g
+    xfx 24 ctrl-o-command-marks   │ a\u{202e}b\u{200b}c\u{feff}de\u{009b}f        g
+p5-transcript-safe full-pgup unresolved-defect    causes=session-record,tool-schema,safe-page-edge
+    rows no cause or divergence explains: fx 29, xfx 27
+    fx   5 -                        system prompt: ready · 6249 bytes
+    xfx  5 -                        tools: 13 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,
+    fx   6 -                        tools: 14 advertised (read_file, glob_files, grep_files, edit_file, write_file, shell, subagent, capability_search, +6
+    xfx  6 -                        +5 more)
+    fx   7 -                        more)
+    xfx  7 -                        mcp: none
+    fx   8 -                        skills: loading
+    xfx  8 -                      
+    fx   9 -                        mcp: none
+    xfx  9 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    fx  10 -                      
+    xfx 10 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    fx  11 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    xfx 11 -                        finish: tool_calls
+    fx  12 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    xfx 12 -                        tokens: 1200 in · 40 out
+    fx  13 -                        finish: tool_calls
+    xfx 13 -                      
+    fx  14 -                        tokens: 1200 in · 40 out
+    xfx 14 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    fx  15 -                      
+    xfx 15 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    fx  16 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    xfx 16 -                        finish: stop
+    fx  17 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    xfx 17 -                        tokens: 1200 in · 40 out
+    fx  18 -                        finish: stop
+    xfx 18 -                      
+    fx  19 -                        tokens: 1200 in · 40 out
+    xfx 19 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    fx  20 -                      
+    xfx 20 -                      ┃ show the file
+    fx  21 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    xfx 21 -                      
+    fx  22 -                      ┃ show the file
+    xfx 22 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    fx  23 -                      
+    xfx 23 -                        Showing the file.
+    fx  24 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    xfx 24 -                      
+    fx  25 -                        Showing the file.
+    xfx 25 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  26 -                      
+    xfx 26 -                      ● 2 tool calls · 1 read · 1 command
+    fx  27 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx 27 -                      ├ Ran printf '%s\n' 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G' >/dev/null; cat safe.txt #
+    fx  28 -                      ● 2 tool calls · 1 read · 1 command
+    xfx 28 -                      │  command: printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G' >/dev/null; cat safe.txt # \x0d
+    fx  29 ctrl-o-command-marks   ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
+    xfx 29 ctrl-o-command-marks   │ a\u{202e}b\u{200b}c\u{feff}de\u{009b}f        g
+    fx  30 -                      │  action: run
+    xfx 30 -                      │ X
+    fx  31 -                      │  command: printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G' >/dev/null; cat safe.txt # \x0d
+    xfx 31 -                      
+    fx  32 -                      │  yield_time_ms: 5000
+    xfx 32 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  33 ctrl-o-command-marks   │ a<U+202E>b<U+200B>c<U+FEFF>de\u{009b}f        g
+    xfx 33 ctrl-o-command-marks   └ Read safe.txt
+    fx  34 -                      │ X
+    xfx 34 -                      │  1    a\u{202e}b\u{200b}c\u{feff}d\x1b[2Je\u{009b}f    g\x0d
+    fx  35 -                      
+    xfx 35 -                      │  2    over\x0dX
+    fx  36 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx 36 -                      
+
+== xfx base (151dde9) against fx v0.0.16, 40x60
+p5-call-row-safe   end    unresolved-defect    causes=-
+    rows no cause or divergence explains: xfx 8, xfx 9, xfx 10
+    fx   8 call-row-raw-argument  ├ Ran printf '%s' 'A\u{202e}B\u{2066}C<U+061C>D\x1b[2JE F\x09G\u{0…
+    xfx  8 call-row-raw-argument  ├ Ran printf '%s' 'A<U+202E>B<U+2066>C<U+061C>D [2JE F G H' >/dev/null
+    fx   9 call-row-raw-argument  ├ Matched n<U+202E>o<U+2066>p<U+061C>q7rs<U+009B>t
+    xfx  9 call-row-raw-argument  ├ Matched n<U+202E>o<U+2066>p<U+061C>q 7r s t u*.md
+    fx  10 call-row-raw-argument  └ Failed m<U+202E>n<U+2066>o<U+061C>p[2Jqr<U+009B>s   )
+    xfx 10 call-row-raw-argument  └ Failed m<U+202E>n<U+2066>o<U+061C>p [2Jq r s t.txt: Path not found: m<U+202E>n<U+2066>o<U+061C>p [2Jq r s…
+p5-call-row-safe   full   unresolved-defect    causes=call-row-page-edge,tool-schema
+    rows no cause or divergence explains: xfx 11, xfx 17, xfx 25, xfx 26
+    fx   1 -                      
+    xfx  1 -                        tokens: 1200 in · 40 out
+    fx   2 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    xfx  2 -                      
+    fx   3 -                      ┃ look
+    xfx  3 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    fx   4 -                      
+    xfx  4 -                      ┃ look
+    fx   5 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    xfx  5 -                      
+    fx   6 -                        Looking.
+    xfx  6 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    fx   7 -                      
+    xfx  7 -                        Looking.
+    fx   8 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx  8 -                      
+    fx   9 -                      ● 3 tool calls · 1 read · 1 list · 1 command · 1 failed
+    xfx  9 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  10 call-row-raw-argument  ├ Ran printf '%s' 'A\u{202e}B\u{2066}C<U+061C>D\x1b[2JE
+    xfx 10 call-row-raw-argument  ● 3 tool calls · 1 read · 1 list · 1 command · 1 failed
+    fx  11 call-row-raw-argument  │ F\x09G\u{009b}H' >/dev/null
+    xfx 11 call-row-raw-argument  ├ Ran printf '%s' 'A<U+202E>B<U+2066>C<U+061C>D [2JE F G H' >/dev/null
+    fx  12 call-row-raw-argument  │  action: run
+    xfx 12 call-row-raw-argument  │  command: printf '%s'
+    fx  13 call-row-raw-argument  │  command: printf '%s' 'A\u{202e}B\u{2066}C<U+061C>D\x1b[2JE\x0dF
+    xfx 13 call-row-raw-argument  │  'A\u{202e}B\u{2066}C\u{061c}D\x1b[2JE\x0dF
+    fx  14 call-row-raw-argument  │    G\u{009b}H' >/dev/null
+    xfx 14 call-row-raw-argument  │  G\u{009b}H' >/dev/null
+    fx  15 -                      │  yield_time_ms: 5000
+    xfx 15 -                      
+    fx  16 -                      
+    xfx 16 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  17 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx 17 -                      ├ Matched n<U+202E>o<U+2066>p<U+061C>q 7r s t u*.md
+    fx  18 call-row-raw-argument  ├ Matched n<U+202E>o<U+2066>p<U+061C>q7rs<U+009B>t
+    xfx 18 call-row-raw-argument  │  pattern: n\u{202e}o\u{2066}p\u{061c}q\x1b7r
+    fx  19 call-row-raw-argument  │  pattern: n\u{202e}o\u{2066}p<U+061C>q\x1b7r
+    xfx 19 call-row-raw-argument  │  s\u{009b}t\x0du*.md
+    fx  20 call-row-raw-argument  │  s\u{009b}t\x0du*.md
+    xfx 20 call-row-raw-argument  │  [glob] no matches for n\u{202e}o\u{2066}p\u{061c}q\x1b7r
+    fx  21 call-row-raw-argument  │  [glob] no matches for n\u{202e}o\u{2066}p<U+061C>q\x1b7r    s\u{
+    xfx 21 call-row-raw-argument  │     s\u{009b}t\x0du*.md
+    fx  22 call-row-raw-argument  │  009b}t\x0du*.md
+    xfx 22 call-row-raw-argument  
+    fx  24 -                      
+    xfx 24 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  25 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx 25 -                      └ Failed m<U+202E>n<U+2066>o<U+061C>p [2Jq r s t.txt: Path not found: m<U+202E>n<U+2066>o<U+061C>p [2Jq r s
+    fx  26 call-row-raw-argument  └ Failed m<U+202E>n<U+2066>o<U+061C>p[2Jqr<U+009B>s
+    xfx 26 call-row-raw-argument    t.txt
+    fx  27 call-row-raw-argument  │  path: m\u{202e}n\u{2066}o<U+061C>p\x1b[2Jq
+    xfx 27 call-row-raw-argument  │  path: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq
+    fx  29 call-row-raw-argument  │  Path not found: m\u{202e}n\u{2066}o<U+061C>p\x1b[2Jq    r\u{009b
+    xfx 29 call-row-raw-argument  │  Path not found: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq    r
+    fx  30 call-row-raw-argument  │  }s\x0dt.txt
+    xfx 30 call-row-raw-argument  │  \u{009b}s\x0dt.txt
+p5-transcript-safe end    unresolved-defect    causes=-
+    rows no cause or divergence explains: fx 8, xfx 8
+    fx   8 -                      ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u…
+    xfx  8 -                      ├ Ran printf '%s\n' 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G' >/dev/null; cat safe.tx…
+p5-transcript-safe end.full unresolved-defect    causes=-
+    rows no cause or divergence explains: fx 8, xfx 8
+    fx   8 -                      ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u…
+    xfx  8 -                      ├ Ran printf '%s\n' 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G' >/dev/null; cat safe.tx…
+p5-transcript-safe full   unresolved-defect    causes=safe-page-edge,tool-schema
+    rows no cause or divergence explains: xfx 3, fx 15, fx 16, fx 17, xfx 18, xfx 19
+    fx   1 -                      
+    xfx  1 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    fx   2 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    xfx  2 -                        finish: tool_calls
+    fx   3 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    xfx  3 -                        tokens: 1200 in · 40 out
+    fx   4 -                        finish: stop
+    xfx  4 -                      
+    fx   5 -                        tokens: 1200 in · 40 out
+    xfx  5 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    fx   6 -                      
+    xfx  6 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    fx   7 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    xfx  7 -                        finish: stop
+    fx   8 -                      ┃ show the file
+    xfx  8 -                        tokens: 1200 in · 40 out
+    fx  10 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    xfx 10 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    fx  11 -                        Showing the file.
+    xfx 11 -                      ┃ show the file
+    fx  13 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx 13 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    fx  14 -                      ● 2 tool calls · 1 read · 1 command
+    xfx 14 -                        Showing the file.
+    fx  15 -                      ├ Ran printf '%s\n'
+    xfx 15 -                      
+    fx  16 -                      │ 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G'
+    xfx 16 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  17 -                      │ >/dev/null; cat safe.txt #
+    xfx 17 -                      ● 2 tool calls · 1 read · 1 command
+    fx  18 -                      │  action: run
+    xfx 18 -                      ├ Ran printf '%s\n' 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G' >/dev/null; cat safe.txt
+    fx  19 -                      │  command: printf '%s\n'
+    xfx 19 -                      │ #
+    fx  20 -                      │  'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G'
+    xfx 20 -                      │  command: printf '%s\n'
+    fx  21 -                      │  >/dev/null; cat safe.txt # \x0d
+    xfx 21 -                      │  'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G'
+    fx  22 -                      │  yield_time_ms: 5000
+    xfx 22 -                      │  >/dev/null; cat safe.txt # \x0d
+    fx  23 ctrl-o-command-marks   │ a<U+202E>b<U+200B>c<U+FEFF>de\u{009b}f        g
+    xfx 23 ctrl-o-command-marks   │ a\u{202e}b\u{200b}c\u{feff}de\u{009b}f        g
+p5-transcript-safe full-pgup unresolved-defect    causes=session-record,safe-page-edge,tool-schema
+    rows no cause or divergence explains: fx 31, fx 32, xfx 29, xfx 30
+    fx   6 -                        system prompt: ready · 6249 bytes
+    xfx  6 -                        tools: 13 advertised (list_files, glob_files, grep_files,
+    fx   7 -                        tools: 14 advertised (read_file, glob_files, grep_files,
+    xfx  7 -                        read_file, write_file, edit_file, create_folder, terminal,
+    fx   8 -                        edit_file, write_file, shell, subagent, capability_search,
+    xfx  8 -                        +5 more)
+    fx   9 -                        +6 more)
+    xfx  9 -                        mcp: none
+    fx  10 -                        skills: loading
+    xfx 10 -                      
+    fx  11 -                        mcp: none
+    xfx 11 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    fx  12 -                      
+    xfx 12 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    fx  13 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    xfx 13 -                        finish: tool_calls
+    fx  14 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    xfx 14 -                        tokens: 1200 in · 40 out
+    fx  15 -                        finish: tool_calls
+    xfx 15 -                      
+    fx  16 -                        tokens: 1200 in · 40 out
+    xfx 16 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    fx  17 -                      
+    xfx 17 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    fx  18 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    xfx 18 -                        finish: stop
+    fx  19 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    xfx 19 -                        tokens: 1200 in · 40 out
+    fx  20 -                        finish: stop
+    xfx 20 -                      
+    fx  21 -                        tokens: 1200 in · 40 out
+    xfx 21 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    fx  22 -                      
+    xfx 22 -                      ┃ show the file
+    fx  23 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    xfx 23 -                      
+    fx  24 -                      ┃ show the file
+    xfx 24 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    fx  25 -                      
+    xfx 25 -                        Showing the file.
+    fx  26 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    xfx 26 -                      
+    fx  27 -                        Showing the file.
+    xfx 27 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  28 -                      
+    xfx 28 -                      ● 2 tool calls · 1 read · 1 command
+    fx  29 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx 29 -                      ├ Ran printf '%s\n' 'A<U+202E>B<U+200B>C<U+FEFF>D [2JE F G' >/dev/null; cat safe.txt
+    fx  30 -                      ● 2 tool calls · 1 read · 1 command
+    xfx 30 -                      │ #
+    fx  31 -                      ├ Ran printf '%s\n'
+    xfx 31 -                      │  command: printf '%s\n'
+    fx  32 -                      │ 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G'
+    xfx 32 -                      │  'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G'
+    fx  33 -                      │ >/dev/null; cat safe.txt #
+    xfx 33 -                      │  >/dev/null; cat safe.txt # \x0d
+    fx  34 ctrl-o-command-marks   │  action: run
+    xfx 34 ctrl-o-command-marks   │ a\u{202e}b\u{200b}c\u{feff}de\u{009b}f        g
+    fx  35 -                      │  command: printf '%s\n'
+    xfx 35 -                      │ X
+    fx  36 -                      │  'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G'
+    xfx 36 -                      
+
+== xfx fix (29e8f8d) against fx v0.0.16, 40x120
+p5-call-row-safe   end    approved-divergence  causes=-
+    rows no cause or divergence explains: none
+    fx   8 call-row-raw-argument  ├ Ran printf '%s' 'A\u{202e}B\u{2066}C<U+061C>D\x1b[2JE F\x09G\u{009b}H' >/dev/null
+    xfx  8 call-row-raw-argument  ├ Ran printf '%s' 'A\u{202e}B\u{2066}C\u{061c}D\x1b[2JE F\x09G\u{009b}H' >/dev/null
+    fx   9 call-row-raw-argument  ├ Matched n<U+202E>o<U+2066>p<U+061C>q7rs<U+009B>t
+    xfx  9 call-row-raw-argument  ├ Matched n\u{202e}o\u{2066}p\u{061c}q\x1b7r\x09s\u{009b}t\x0du*.md
+    fx  10 call-row-raw-argument  └ Failed m<U+202E>n<U+2066>o<U+061C>p[2Jqr<U+009B>s   )
+    xfx 10 call-row-raw-argument  └ Failed m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq\x09r\u{009b}s\x0dt.txt: Path not found: m\u{202e}n\u{2066}o\u{061c}p\x1b[…
+p5-call-row-safe   full   unresolved-defect    causes=call-row-page-edge,tool-schema
+    rows no cause or divergence explains: none
+    fx   1 -                        tokens: 1200 in · 40 out
+    xfx  1 -                        finish: tool_calls
+    fx   2 -                      
+    xfx  2 -                        tokens: 1200 in · 40 out
+    fx   3 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    xfx  3 -                      
+    fx   4 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    xfx  4 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    fx   5 -                        finish: stop
+    xfx  5 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    fx   6 -                        tokens: 1200 in · 40 out
+    xfx  6 -                        finish: stop
+    fx   7 -                      
+    xfx  7 -                        tokens: 1200 in · 40 out
+    fx   8 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    xfx  8 -                      
+    fx   9 -                      ┃ look
+    xfx  9 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    fx  10 -                      
+    xfx 10 -                      ┃ look
+    fx  11 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    xfx 11 -                      
+    fx  12 -                        Looking.
+    xfx 12 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    fx  13 -                      
+    xfx 13 -                        Looking.
+    fx  14 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx 14 -                      
+    fx  15 -                      ● 3 tool calls · 1 read · 1 list · 1 command · 1 failed
+    xfx 15 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  16 call-row-raw-argument  ├ Ran printf '%s' 'A\u{202e}B\u{2066}C<U+061C>D\x1b[2JE F\x09G\u{009b}H' >/dev/null
+    xfx 16 call-row-raw-argument  ● 3 tool calls · 1 read · 1 list · 1 command · 1 failed
+    fx  17 call-row-raw-argument  │  action: run
+    xfx 17 call-row-raw-argument  ├ Ran printf '%s' 'A\u{202e}B\u{2066}C\u{061c}D\x1b[2JE F\x09G\u{009b}H' >/dev/null
+    fx  18 call-row-raw-argument  │  command: printf '%s' 'A\u{202e}B\u{2066}C<U+061C>D\x1b[2JE\x0dF    G\u{009b}H' >/dev/null
+    xfx 18 call-row-raw-argument  │  command: printf '%s' 'A\u{202e}B\u{2066}C\u{061c}D\x1b[2JE\x0dF    G\u{009b}H' >/dev/null
+    fx  19 -                      │  yield_time_ms: 5000
+    xfx 19 -                      
+    fx  20 -                      
+    xfx 20 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  21 call-row-raw-argument    XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx 21 call-row-raw-argument  ├ Matched n\u{202e}o\u{2066}p\u{061c}q\x1b7r\x09s\u{009b}t\x0du*.md
+    fx  22 call-row-raw-argument  ├ Matched n<U+202E>o<U+2066>p<U+061C>q7rs<U+009B>t
+    xfx 22 call-row-raw-argument  │  pattern: n\u{202e}o\u{2066}p\u{061c}q\x1b7r    s\u{009b}t\x0du*.md
+    fx  23 call-row-raw-argument  │  pattern: n\u{202e}o\u{2066}p<U+061C>q\x1b7r    s\u{009b}t\x0du*.md
+    xfx 23 call-row-raw-argument  │  [glob] no matches for n\u{202e}o\u{2066}p\u{061c}q\x1b7r    s\u{009b}t\x0du*.md
+    fx  24 call-row-raw-argument  │  [glob] no matches for n\u{202e}o\u{2066}p<U+061C>q\x1b7r    s\u{009b}t\x0du*.md
+    xfx 24 call-row-raw-argument  
+    fx  26 -                      
+    xfx 26 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  27 call-row-raw-argument    XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx 27 call-row-raw-argument  └ Failed m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq\x09r\u{009b}s\x0dt.txt: Path not found:
+    fx  28 call-row-raw-argument  └ Failed m<U+202E>n<U+2066>o<U+061C>p[2Jqr<U+009B>s
+    xfx 28 call-row-raw-argument    m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq r\u{009b}s t.txt
+    fx  29 call-row-raw-argument  │  path: m\u{202e}n\u{2066}o<U+061C>p\x1b[2Jq    r\u{009b}s\x0dt.txt
+    xfx 29 call-row-raw-argument  │  path: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq    r\u{009b}s\x0dt.txt
+    fx  30 call-row-raw-argument  │  Path not found: m\u{202e}n\u{2066}o<U+061C>p\x1b[2Jq    r\u{009b}s\x0dt.txt
+    xfx 30 call-row-raw-argument  │  Path not found: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq    r\u{009b}s\x0dt.txt
+p5-transcript-safe end    normalized-identical causes=-
+    rows no cause or divergence explains: none
+p5-transcript-safe end.full normalized-identical causes=-
+    rows no cause or divergence explains: none
+p5-transcript-safe full   unresolved-defect    causes=session-record,safe-page-edge,tool-schema
+    rows no cause or divergence explains: none
+    fx   1 -                      
+    xfx  1 -                        +5 more)
+    fx   2 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    xfx  2 -                        mcp: none
+    fx   3 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    xfx  3 -                      
+    fx   4 -                        finish: tool_calls
+    xfx  4 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    fx   5 -                        tokens: 1200 in · 40 out
+    xfx  5 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    fx   6 -                      
+    xfx  6 -                        finish: tool_calls
+    fx   7 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    xfx  7 -                        tokens: 1200 in · 40 out
+    fx   8 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    xfx  8 -                      
+    fx   9 -                        finish: stop
+    xfx  9 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    fx  10 -                        tokens: 1200 in · 40 out
+    xfx 10 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    fx  11 -                      
+    xfx 11 -                        finish: stop
+    fx  12 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    xfx 12 -                        tokens: 1200 in · 40 out
+    fx  13 -                      ┃ show the file
+    xfx 13 -                      
+    fx  14 -                      
+    xfx 14 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    fx  15 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    xfx 15 -                      ┃ show the file
+    fx  16 -                        Showing the file.
+    xfx 16 -                      
+    fx  17 -                      
+    xfx 17 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    fx  18 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx 18 -                        Showing the file.
+    fx  19 -                      ● 2 tool calls · 1 read · 1 command
+    xfx 19 -                      
+    fx  20 -                      ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
+    xfx 20 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  21 -                      │  action: run
+    xfx 21 -                      ● 2 tool calls · 1 read · 1 command
+    fx  22 -                      │  command: printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G' >/dev/null; cat safe.txt # \x0d
+    xfx 22 -                      ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
+    fx  23 -                      │  yield_time_ms: 5000
+    xfx 23 -                      │  command: printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G' >/dev/null; cat safe.txt # \x0d
+    fx  24 ctrl-o-command-marks   │ a<U+202E>b<U+200B>c<U+FEFF>de\u{009b}f        g
+    xfx 24 ctrl-o-command-marks   │ a\u{202e}b\u{200b}c\u{feff}de\u{009b}f        g
+p5-transcript-safe full-pgup unresolved-defect    causes=session-record,tool-schema,safe-page-edge
+    rows no cause or divergence explains: none
+    fx   5 -                        system prompt: ready · 6249 bytes
+    xfx  5 -                        tools: 13 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,
+    fx   6 -                        tools: 14 advertised (read_file, glob_files, grep_files, edit_file, write_file, shell, subagent, capability_search, +6
+    xfx  6 -                        +5 more)
+    fx   7 -                        more)
+    xfx  7 -                        mcp: none
+    fx   8 -                        skills: loading
+    xfx  8 -                      
+    fx   9 -                        mcp: none
+    xfx  9 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    fx  10 -                      
+    xfx 10 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    fx  11 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    xfx 11 -                        finish: tool_calls
+    fx  12 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    xfx 12 -                        tokens: 1200 in · 40 out
+    fx  13 -                        finish: tool_calls
+    xfx 13 -                      
+    fx  14 -                        tokens: 1200 in · 40 out
+    xfx 14 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    fx  15 -                      
+    xfx 15 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    fx  16 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    xfx 16 -                        finish: stop
+    fx  17 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    xfx 17 -                        tokens: 1200 in · 40 out
+    fx  18 -                        finish: stop
+    xfx 18 -                      
+    fx  19 -                        tokens: 1200 in · 40 out
+    xfx 19 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    fx  20 -                      
+    xfx 20 -                      ┃ show the file
+    fx  21 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    xfx 21 -                      
+    fx  22 -                      ┃ show the file
+    xfx 22 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    fx  23 -                      
+    xfx 23 -                        Showing the file.
+    fx  24 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    xfx 24 -                      
+    fx  25 -                        Showing the file.
+    xfx 25 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  26 -                      
+    xfx 26 -                      ● 2 tool calls · 1 read · 1 command
+    fx  27 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx 27 -                      ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
+    fx  28 -                      ● 2 tool calls · 1 read · 1 command
+    xfx 28 -                      │  command: printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G' >/dev/null; cat safe.txt # \x0d
+    fx  29 ctrl-o-command-marks   ├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G' >/dev/null; cat safe.txt #
+    xfx 29 ctrl-o-command-marks   │ a\u{202e}b\u{200b}c\u{feff}de\u{009b}f        g
+    fx  30 -                      │  action: run
+    xfx 30 -                      │ X
+    fx  31 -                      │  command: printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G' >/dev/null; cat safe.txt # \x0d
+    xfx 31 -                      
+    fx  32 -                      │  yield_time_ms: 5000
+    xfx 32 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  33 ctrl-o-command-marks   │ a<U+202E>b<U+200B>c<U+FEFF>de\u{009b}f        g
+    xfx 33 ctrl-o-command-marks   └ Read safe.txt
+    fx  34 -                      │ X
+    xfx 34 -                      │  1    a\u{202e}b\u{200b}c\u{feff}d\x1b[2Je\u{009b}f    g\x0d
+    fx  35 -                      
+    xfx 35 -                      │  2    over\x0dX
+    fx  36 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx 36 -                      
+
+== xfx fix (29e8f8d) against fx v0.0.16, 40x60
+p5-call-row-safe   end    approved-divergence  causes=-
+    rows no cause or divergence explains: none
+    fx   8 call-row-raw-argument  ├ Ran printf '%s' 'A\u{202e}B\u{2066}C<U+061C>D\x1b[2JE F\x09G\u{0…
+    xfx  8 call-row-raw-argument  ├ Ran printf '%s' 'A\u{202e}B\u{2066}C\u{061c}D\x1b[2JE F\x…
+    fx   9 call-row-raw-argument  ├ Matched n<U+202E>o<U+2066>p<U+061C>q7rs<U+009B>t
+    xfx  9 call-row-raw-argument  ├ Matched n\u{202e}o\u{2066}p\u{061c}q\x1b7r\x09s\u{009b}t\…
+    fx  10 call-row-raw-argument  └ Failed m<U+202E>n<U+2066>o<U+061C>p[2Jqr<U+009B>s   )
+    xfx 10 call-row-raw-argument  └ Failed m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq\x09r\u{009b}s…
+p5-call-row-safe   full   unresolved-defect    causes=call-row-page-edge,tool-schema
+    rows no cause or divergence explains: none
+    fx   2 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    xfx  2 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    fx   3 -                      ┃ look
+    xfx  3 -                        Looking.
+    fx   5 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    xfx  5 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx   6 -                        Looking.
+    xfx  6 -                      ● 3 tool calls · 1 read · 1 list · 1 command · 1 failed
+    fx   7 call-row-raw-argument  
+    xfx  7 call-row-raw-argument  ├ Ran printf '%s' 'A\u{202e}B\u{2066}C\u{061c}D\x1b[2JE
+    fx   8 call-row-raw-argument    XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx  8 call-row-raw-argument  │ F\x09G\u{009b}H' >/dev/null
+    fx   9 call-row-raw-argument  ● 3 tool calls · 1 read · 1 list · 1 command · 1 failed
+    xfx  9 call-row-raw-argument  │  command: printf '%s'
+    fx  10 call-row-raw-argument  ├ Ran printf '%s' 'A\u{202e}B\u{2066}C<U+061C>D\x1b[2JE
+    xfx 10 call-row-raw-argument  │  'A\u{202e}B\u{2066}C\u{061c}D\x1b[2JE\x0dF
+    fx  11 call-row-raw-argument  │ F\x09G\u{009b}H' >/dev/null
+    xfx 11 call-row-raw-argument  │  G\u{009b}H' >/dev/null
+    fx  12 -                      │  action: run
+    xfx 12 -                      
+    fx  13 call-row-raw-argument  │  command: printf '%s' 'A\u{202e}B\u{2066}C<U+061C>D\x1b[2JE\x0dF
+    xfx 13 call-row-raw-argument    XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  14 call-row-raw-argument  │    G\u{009b}H' >/dev/null
+    xfx 14 call-row-raw-argument  ├ Matched
+    fx  15 call-row-raw-argument  │  yield_time_ms: 5000
+    xfx 15 call-row-raw-argument  │ n\u{202e}o\u{2066}p\u{061c}q\x1b7r\x09s\u{009b}t\x0du*.md
+    fx  16 call-row-raw-argument  
+    xfx 16 call-row-raw-argument  │  pattern: n\u{202e}o\u{2066}p\u{061c}q\x1b7r
+    fx  17 call-row-raw-argument    XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx 17 call-row-raw-argument  │  s\u{009b}t\x0du*.md
+    fx  18 call-row-raw-argument  ├ Matched n<U+202E>o<U+2066>p<U+061C>q7rs<U+009B>t
+    xfx 18 call-row-raw-argument  │  [glob] no matches for n\u{202e}o\u{2066}p\u{061c}q\x1b7r
+    fx  19 call-row-raw-argument  │  pattern: n\u{202e}o\u{2066}p<U+061C>q\x1b7r
+    xfx 19 call-row-raw-argument  │     s\u{009b}t\x0du*.md
+    fx  20 call-row-raw-argument  │  s\u{009b}t\x0du*.md
+    xfx 20 call-row-raw-argument  
+    fx  21 call-row-raw-argument  │  [glob] no matches for n\u{202e}o\u{2066}p<U+061C>q\x1b7r    s\u{
+    xfx 21 call-row-raw-argument  
+    fx  22 call-row-raw-argument  │  009b}t\x0du*.md
+    xfx 22 call-row-raw-argument    XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  23 call-row-raw-argument  
+    xfx 23 call-row-raw-argument  └ Failed
+    fx  24 call-row-raw-argument  
+    xfx 24 call-row-raw-argument    m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq\x09r\u{009b}s\x0dt.tx
+    fx  25 call-row-raw-argument    XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx 25 call-row-raw-argument    t: Path not found: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq
+    fx  26 call-row-raw-argument  └ Failed m<U+202E>n<U+2066>o<U+061C>p[2Jqr<U+009B>s
+    xfx 26 call-row-raw-argument    r\u{009b}s t.txt
+    fx  27 call-row-raw-argument  │  path: m\u{202e}n\u{2066}o<U+061C>p\x1b[2Jq
+    xfx 27 call-row-raw-argument  │  path: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq
+    fx  29 call-row-raw-argument  │  Path not found: m\u{202e}n\u{2066}o<U+061C>p\x1b[2Jq    r\u{009b
+    xfx 29 call-row-raw-argument  │  Path not found: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq    r
+    fx  30 call-row-raw-argument  │  }s\x0dt.txt
+    xfx 30 call-row-raw-argument  │  \u{009b}s\x0dt.txt
+p5-transcript-safe end    normalized-identical causes=-
+    rows no cause or divergence explains: none
+p5-transcript-safe end.full normalized-identical causes=-
+    rows no cause or divergence explains: none
+p5-transcript-safe full   unresolved-defect    causes=safe-page-edge,tool-schema
+    rows no cause or divergence explains: none
+    fx   1 -                      
+    xfx  1 -                        finish: tool_calls
+    fx   2 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    xfx  2 -                        tokens: 1200 in · 40 out
+    fx   3 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    xfx  3 -                      
+    fx   4 -                        finish: stop
+    xfx  4 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    fx   5 -                        tokens: 1200 in · 40 out
+    xfx  5 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    fx   6 -                      
+    xfx  6 -                        finish: stop
+    fx   7 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    xfx  7 -                        tokens: 1200 in · 40 out
+    fx   8 -                      ┃ show the file
+    xfx  8 -                      
+    fx   9 -                      
+    xfx  9 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    fx  10 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    xfx 10 -                      ┃ show the file
+    fx  11 -                        Showing the file.
+    xfx 11 -                      
+    fx  12 -                      
+    xfx 12 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    fx  13 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx 13 -                        Showing the file.
+    fx  14 -                      ● 2 tool calls · 1 read · 1 command
+    xfx 14 -                      
+    fx  15 -                      ├ Ran printf '%s\n'
+    xfx 15 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  16 -                      │ 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G'
+    xfx 16 -                      ● 2 tool calls · 1 read · 1 command
+    fx  17 -                      │ >/dev/null; cat safe.txt #
+    xfx 17 -                      ├ Ran printf '%s\n'
+    fx  18 -                      │  action: run
+    xfx 18 -                      │ 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G'
+    fx  19 -                      │  command: printf '%s\n'
+    xfx 19 -                      │ >/dev/null; cat safe.txt #
+    fx  20 -                      │  'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G'
+    xfx 20 -                      │  command: printf '%s\n'
+    fx  21 -                      │  >/dev/null; cat safe.txt # \x0d
+    xfx 21 -                      │  'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G'
+    fx  22 -                      │  yield_time_ms: 5000
+    xfx 22 -                      │  >/dev/null; cat safe.txt # \x0d
+    fx  23 ctrl-o-command-marks   │ a<U+202E>b<U+200B>c<U+FEFF>de\u{009b}f        g
+    xfx 23 ctrl-o-command-marks   │ a\u{202e}b\u{200b}c\u{feff}de\u{009b}f        g
+p5-transcript-safe full-pgup unresolved-defect    causes=session-record,tool-schema,safe-page-edge
+    rows no cause or divergence explains: none
+    fx   6 -                        system prompt: ready · 6249 bytes
+    xfx  6 -                        tools: 13 advertised (list_files, glob_files, grep_files,
+    fx   7 -                        tools: 14 advertised (read_file, glob_files, grep_files,
+    xfx  7 -                        read_file, write_file, edit_file, create_folder, terminal,
+    fx   8 -                        edit_file, write_file, shell, subagent, capability_search,
+    xfx  8 -                        +5 more)
+    fx   9 -                        +6 more)
+    xfx  9 -                        mcp: none
+    fx  10 -                        skills: loading
+    xfx 10 -                      
+    fx  11 -                        mcp: none
+    xfx 11 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    fx  12 -                      
+    xfx 12 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    fx  13 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    xfx 13 -                        finish: tool_calls
+    fx  14 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    xfx 14 -                        tokens: 1200 in · 40 out
+    fx  15 -                        finish: tool_calls
+    xfx 15 -                      
+    fx  16 -                        tokens: 1200 in · 40 out
+    xfx 16 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    fx  17 -                      
+    xfx 17 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    fx  18 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Notice
+    xfx 18 -                        finish: stop
+    fx  19 -                      * network: provider: gateway · model: fake/model-a · <ms>
+    xfx 19 -                        tokens: 1200 in · 40 out
+    fx  20 -                        finish: stop
+    xfx 20 -                      
+    fx  21 -                        tokens: 1200 in · 40 out
+    xfx 21 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    fx  22 -                      
+    xfx 22 -                      ┃ show the file
+    fx  23 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Prompt
+    xfx 23 -                      
+    fx  24 -                      ┃ show the file
+    xfx 24 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    fx  25 -                      
+    xfx 25 -                        Showing the file.
+    fx  26 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Response
+    xfx 26 -                      
+    fx  27 -                        Showing the file.
+    xfx 27 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    fx  28 -                      
+    xfx 28 -                      ● 2 tool calls · 1 read · 1 command
+    fx  29 -                        XXXXXXXXXXXXXXXXXXXXXXX UTC · Tool
+    xfx 29 -                      ├ Ran printf '%s\n'
+    fx  30 -                      ● 2 tool calls · 1 read · 1 command
+    xfx 30 -                      │ 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G'
+    fx  31 -                      ├ Ran printf '%s\n'
+    xfx 31 -                      │ >/dev/null; cat safe.txt #
+    fx  32 -                      │ 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G'
+    xfx 32 -                      │  command: printf '%s\n'
+    fx  33 -                      │ >/dev/null; cat safe.txt #
+    xfx 33 -                      │  'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G'
+    fx  34 -                      │  action: run
+    xfx 34 -                      │  >/dev/null; cat safe.txt # \x0d
+    fx  35 ctrl-o-command-marks   │  command: printf '%s\n'
+    xfx 35 ctrl-o-command-marks   │ a\u{202e}b\u{200b}c\u{feff}de\u{009b}f        g
+    fx  36 -                      │  'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G'
+    xfx 36 -                      │ X

@@ -1,0 +1,1 @@
+[{"chunks": ["Showing the file.\n"], "tools": [{"name": "shell", "input": {"request": {"action": "run", "command": "cat tab.txt", "yield_time_ms": 5000}}}]}, {"delayMs": 60, "chunks": ["Shown."]}, {"delayMs": 60, "chunks": ["Spare."]}]

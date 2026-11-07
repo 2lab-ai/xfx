@@ -1,0 +1,32 @@
+# Phase 5 T-U1+U2 review round (opus 2): a question's resolution in Ctrl-O
+# after the screen narrows. One question whose text and chosen label are wider
+# than 60 columns, answered with `1` at 120 columns; then the window narrows
+# to 60 and Ctrl-O opens over the record the resolution was written into at
+# 120. fx keeps the rows it composed and lets its row walker wrap a row wider
+# than the screen (`ProjectionRowWalker`, full_transcript_screen.zig:3968-4040
+# @481104fd); the question is whether xfx cuts them.
+gateway p5-transcript-question-turns.json
+fx: env FX_AUTO_UPGRADE=0
+env TZ=UTC
+wait 4
+type pick a storage engine
+key Enter
+wait 3
+snap asked
+key 1
+wait 3
+snap answered
+key C-o
+wait 1.5
+snap full-120
+key C-o
+wait 1
+resize 40x60
+wait 1.5
+snap narrow
+key C-o
+wait 1.5
+snap full-60
+key C-o
+wait 1
+gwlog

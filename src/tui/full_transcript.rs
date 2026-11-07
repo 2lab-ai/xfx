@@ -4,7 +4,8 @@
 //!
 //! The inline transcript is the conversation as it is read; this is the same
 //! conversation as it was **recorded**: every entry under a dim timestamp
-//! header (`full_transcript_metadata.zig:27-60`), and under each tool call what
+//! header in the local time zone (`full_transcript_metadata.zig:28-38@481104fd`,
+//! [`stamp`]), and under each tool call what
 //! it was called with and what it returned -- a command's output, a file's
 //! lines, the change it was asked to make -- which the inline group never shows
 //! (`tool_group_projection.zig:1150-1158`; upstream's e2e
@@ -12,7 +13,7 @@
 //! Ctrl-O").
 //!
 //! ```text
-//!   2026-10-06 14:43:50.639 UTC · Tool
+//!   2026-10-06 23:43:50.639 KST · Tool
 //! ├ Exited 3 echo boom; echo err >&2; exit 3
 //! │ boom
 //! │ err
@@ -53,7 +54,13 @@
 //! `restore_primary`), so the primary document is exactly as it was when the
 //! screen closes. Rows above a footer of four: a blank row, `┃ full detail ·
 //! …`, a blank row and the hint row (`paint_plan.zig:993-1048`). It opens at
-//! the tail, follows it while it is there, and holds still while it is not.
+//! the tail and follows it while it is there. While it is not, it keeps the
+//! entry it shows, and how far into it, across a page that rebuilds or a
+//! width that changes ([`position`], v0.0.16's 026a8f4e and b1a53b01).
+//!
+//! A tool group's header and each call's row wrap under their tree rail
+//! rather than being cut at the screen's edge ([`tool_status`], v0.0.16's
+//! 427d481f).
 //!
 //! # What differs from upstream's screen, and why
 //!
@@ -85,7 +92,6 @@ use crate::markdown;
 use crate::permission::ApprovalDiff;
 use crate::session::{SessionEvent, TurnStep};
 use crate::tools::{Activity, LineChanges, Outcome, Registry, Shown};
-use crate::trace::civil;
 
 use super::approval_view::{Line as ReviewLine, Review};
 use super::blocks;
@@ -98,9 +104,21 @@ use super::toolgroup::ToolGroup;
 use super::transcript::{ellipsized, Gutter, Landed, Role, Transcript};
 use super::wrap;
 
+mod position;
+mod tool_status;
+
+use position::{ItemRow, Reading, RECORD};
+
 /// The footer's one line of text (`paint_plan.zig:1003`).
 pub(crate) const FOOTER: &str =
     "full detail \u{b7} ctrl+o close \u{b7} pgup/pgdn scroll \u{b7} esc close";
+
+/// The welcome line's id on a page ([`FullTranscript::measure`]): after the
+/// records' [`RECORD`] and before every entry's.
+const WELCOME: usize = 1;
+
+/// The document's first entry's id on a page.
+const FIRST_ENTRY: usize = 2;
 
 /// How many rows an arrow key moves the screen
 /// (`transcript/runtime.zig:6876`, `full_transcript_wheel_rows`).
@@ -139,24 +157,17 @@ impl Kind {
     }
 }
 
-/// `YYYY-MM-DD HH:MM:SS.mmm UTC`, or nothing for a moment upstream will not
-/// print either (`formatHeader`, `full_transcript_metadata.zig:27-60`: zero,
-/// negative, or past the year 9999).
+/// `YYYY-MM-DD HH:MM:SS.mmm <zone>`, read in the local zone in effect at that
+/// moment -- `KST`, or `+0545` for a zone without a plain abbreviation
+/// ([`crate::local_time`], v0.0.16's c9bc4876) -- or nothing for a moment
+/// upstream will not print either (`formatHeader`,
+/// `full_transcript_metadata.zig:28-38@481104fd`: zero, negative, or past the
+/// year 9999).
 pub(crate) fn stamp(at_ms: i64) -> Option<String> {
-    const LAST: i64 = 253_402_300_799_999;
-    if at_ms <= 0 || at_ms > LAST {
+    if at_ms <= 0 {
         return None;
     }
-    let seconds = at_ms.div_euclid(1000);
-    let millis = at_ms.rem_euclid(1000);
-    let (year, month, day) = civil(seconds.div_euclid(86_400));
-    let of_day = seconds.rem_euclid(86_400);
-    Some(format!(
-        "{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02}.{millis:03} UTC",
-        of_day / 3600,
-        of_day % 3600 / 60,
-        of_day % 60
-    ))
+    crate::local_time::local(at_ms).map(|reading| reading.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +232,7 @@ fn mcp_record(servers: &[crate::mcp::runtime::ServerView]) -> String {
                 Connection::Disconnected => "disconnected",
                 Connection::Disabled => "disabled",
                 Connection::Connecting => "connecting",
+                Connection::Retrying => "retrying",
                 Connection::Ready => "ready",
                 Connection::Failed => "failed",
             };
@@ -395,40 +407,107 @@ pub(crate) enum Detail {
 pub(crate) struct Argument {
     pub(crate) name: String,
     pub(crate) value: String,
-    /// Whether the value was a JSON string: the only kind upstream leaves out
-    /// when the call's own row already shows it (`argumentVisibleInToolHeading`,
-    /// `:6505-6510`).
+    /// Whether the value was a JSON string the heading could show as the model
+    /// wrote it: the only kind upstream leaves out when the call's own row
+    /// already shows it (`argumentVisibleInToolHeading`,
+    /// `full_transcript_screen.zig:6594-6619@481104fd`), which looks for the
+    /// value as written in a heading fx spelled -- so one holding anything
+    /// the heading spells, a control or a mark, is never found there -- and
+    /// in its status phrase, whose command is its first 120 bytes: judged here,
+    /// on the raw call, before anything is spelled (`super::toolgroup::status`).
     pub(crate) text: bool,
 }
 
 impl Detail {
-    /// The same detail with every control a terminal would obey made a space
-    /// (`super::bridge::inert`): all of it is the model's or a tool's.
+    /// The same detail with nothing left in it that a terminal would act on
+    /// or that would hide or reorder the text around it: all of it is the
+    /// model's or a tool's.
+    ///
+    /// An argument, a result and a command's output are spelled as fx v0.0.16
+    /// spells them on this screen ([`detail_spelled`]); a change's sides are
+    /// still made inert (`super::bridge::inert`), the diff rows' own spelling
+    /// being theirs. Idempotent: what it writes is printable ASCII.
     pub(crate) fn made_inert(self) -> Self {
-        let inert = |text: String| bridge::inert(&text).into_owned();
+        let spelled = |text: String| detail_spelled(&text, FOUR_CELLS);
         match self {
             Detail::Arguments(arguments) => Detail::Arguments(
                 arguments
                     .into_iter()
                     .map(|argument| Argument {
-                        name: inert(argument.name),
-                        value: inert(argument.value),
+                        name: spelled(argument.name),
+                        value: spelled(argument.value),
                         text: argument.text,
                     })
                     .collect(),
             ),
             Detail::Command { output, status } => Detail::Command {
-                output: inert(output),
-                status: status.map(inert),
+                // The tab is the row's to draw to its stop (`railed`).
+                output: detail_spelled(&output, "\t"),
+                status: status.map(spelled),
             },
-            Detail::Result(text) => Detail::Result(inert(text)),
-            Detail::Change(change) => Detail::Change(ApprovalDiff {
-                before: inert(change.before),
-                after: inert(change.after),
-                ..change
-            }),
+            Detail::Result(text) => Detail::Result(spelled(text)),
+            Detail::Change(change) => {
+                let inert = |text: String| bridge::inert(&text).into_owned();
+                Detail::Change(ApprovalDiff {
+                    before: inert(change.before),
+                    after: inert(change.after),
+                    ..change
+                })
+            }
         }
     }
+}
+
+/// What fx writes for a tab in a call's argument or result: four spaces,
+/// wherever it stands (`TerminalSafeIndentedWriter.append`,
+/// `full_transcript_screen.zig:5171-5172@481104fd`).
+const FOUR_CELLS: &str = "    ";
+
+/// `text` as fx v0.0.16 writes a call's detail on this screen
+/// (`TerminalSafeIndentedWriter`, `full_transcript_screen.zig:5147-5194@481104fd`,
+/// for an argument, `appendFullSemanticArguments`, `:6681-6695`, and a
+/// result, `appendStoredResultContent`, `:5196-5229`, and `:6856-6864`):
+///
+/// * a line feed ends the line, and stays (`:5167-5170`);
+/// * a tab is `tab` -- [`FOUR_CELLS`] there; a command's output keeps its
+///   own for the row to draw (`wrapLiteralCommandOutput`,
+///   `assistant_wrap.zig:524-546@481104fd`);
+/// * everything else is fx's `terminalSafeToken`
+///   (`text_utils.zig:643-667@481104fd`), which is
+///   [`crate::tools::question::terminal_safe`]: every other C0 control and
+///   `DEL` `\xNN` -- a carriage return too, at a line's end or not -- and the
+///   C1 controls, the zero-width and directional marks, the separators, the
+///   embeddings, overrides and isolates and the byte-order mark `\u{NNNN}`;
+/// * and the Arabic letter mark (`U+061C`), which fx writes as itself, is
+///   `\u{061c}` too: it reorders the text around it as the marks fx names do
+///   (`approval_view`'s `reorders`; `scripts/fxcap/parity-ledger.toml`,
+///   `ctrl-o-command-marks`).
+///
+/// A command's output reaches this after [`command_stream`] has done what
+/// fx's decoder does with its escapes and carriage returns; what is left of
+/// either is spelled here. fx names the marks in an argument and a result,
+/// not in a command's output (`command_output_content.zig:171-173@481104fd`);
+/// here they are named in all three -- copying the raw ones is not safe
+/// (`ctrl-o-command-marks`).
+fn detail_spelled(text: &str, tab: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for (index, line) in text.split('\n').enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        for (index, piece) in line.split('\t').enumerate() {
+            if index > 0 {
+                out.push_str(tab);
+            }
+            let spelled = crate::tools::question::terminal_safe(piece);
+            if spelled.contains('\u{061c}') {
+                out.push_str(&spelled.replace('\u{061c}', "\\u{061c}"));
+            } else {
+                out.push_str(&spelled);
+            }
+        }
+    }
+    out
 }
 
 /// The details one journal record carries, by the call they belong to.
@@ -536,12 +615,26 @@ fn arguments(tool: &str, input: &Value) -> Vec<Argument> {
         .collect();
     names.sort_by_key(|name| declared.iter().position(|declared| declared == name));
     names.extend(map.keys().filter(|name| !declared.contains(&name.as_str())));
+    let status = Registry::builtin()
+        .spec(tool)
+        .and_then(|spec| super::toolgroup::status(&spec.shown(input)));
     names
         .into_iter()
         .map(|name| {
             let value = &map[name];
             let (value, text) = match value {
-                Value::String(text) => (text.clone(), true),
+                // Shown by the heading only as written, never once it spelled
+                // a control or a mark (`super::toolgroup::spelled`), and only
+                // where fx's status phrase holds it as written
+                // (`super::toolgroup::status`, made from the raw call).
+                Value::String(text) => (
+                    text.clone(),
+                    crate::tools::question::terminal_safe(text).len() == text.len()
+                        && !text.contains('\u{061c}')
+                        && status
+                            .as_deref()
+                            .is_none_or(|status| status.contains(text.as_str())),
+                ),
                 other => (other.to_string(), false),
             };
             Argument {
@@ -568,9 +661,12 @@ fn result(tool: &str, output: &str) -> Detail {
 
 /// A command's output out of the frame `terminal` reports it in
 /// (`crate::tools::terminal`'s `Outcome::into_result`): the streams with the
-/// tool's escaping undone, stdout before stderr, and the status when it was
+/// tool's escaping undone, each read as fx's decoder reads it
+/// ([`command_stream`]), stdout before stderr, and the status when it was
 /// not a clean exit -- upstream's `exit code N` and `signal N` rows
-/// (`appendCommandProcessPresentation`, `:6765-6795`).
+/// (`appendCommandProcessPresentation`, `:6765-6795`). Its tabs are kept, as
+/// fx keeps them (`Decoder.consumeByte`, `command_output_content.zig:
+/// 119-122@481104fd`), for the row to draw to the screen's stops.
 ///
 /// `None` for anything not in that frame -- a refusal, a timeout, a
 /// cancellation -- which is then shown as the text it is.
@@ -597,10 +693,202 @@ fn command_result(output: &str) -> Option<(String, Option<String>)> {
     let (stderr, _) = rest.split_once("</stderr>")?;
     let mut text = String::new();
     for stream in [stdout, stderr] {
-        text.push_str(&unframed(stream));
+        text.push_str(&command_stream(&unframed(stream)));
     }
     let text = text.strip_suffix('\n').unwrap_or(&text).to_string();
-    Some((wrap::expand_tabs(&text).into_owned(), status))
+    Some((text, status))
+}
+
+/// The most of one escape sequence fx's decoder keeps to write back when the
+/// sequence never ends (`Decoder.escape_bytes`, `command_output_content.zig:
+/// 57@481104fd`).
+const ESCAPE_KEPT_BYTES: usize = 64;
+
+/// One of a command's streams as fx v0.0.16's decoder makes it presentable
+/// (`Decoder`, `command_output_content.zig:52-282@481104fd`), before a byte of
+/// it is measured or bounded:
+///
+/// * an escape sequence is dropped whole -- a CSI to its final byte, an OSC
+///   to its `BEL` or `ESC \`, `ESC` and one byte in `@`..`_` (`:196-253`);
+///   one a control interrupts, or the stream ends inside, is written back
+///   instead, its controls as `\xNN` and `...` after it when it ran past
+///   [`ESCAPE_KEPT_BYTES`] (`flushIncompleteEscape`, `:264-275`); an `ESC`
+///   before anything else is written back and the byte after it read again
+///   (`:212-219`);
+/// * a carriage return before a line feed ends the line with it, one before
+///   anything else starts the line again (`replaceLine`, `:86-95`), and one
+///   that ends the stream is dropped (`finish`, `:68-72`);
+/// * a tab and printable ASCII are themselves, any other C0 control or `DEL`
+///   is `\xNN`, a C1 control `\u{00NN}` (`:113-176`), and everything else is
+///   itself -- [`detail_spelled`] names what fx leaves there.
+///
+/// fx works on bytes and names each one outside valid UTF-8 `\xNN`; a stream
+/// here is already text (`terminal` decodes its bytes lossily), and an escape
+/// kept past its last whole character is cut on that character rather than
+/// inside it.
+fn command_stream(raw: &str) -> String {
+    // fx's `EscapeState` (`:29-35`).
+    #[derive(PartialEq)]
+    enum EscapeState {
+        None,
+        Escape,
+        Csi,
+        Osc,
+        OscEscape,
+    }
+    struct Decoder {
+        out: String,
+        line_start: usize,
+        pending_cr: bool,
+        state: EscapeState,
+        kept: String,
+        overflow: bool,
+    }
+    impl Decoder {
+        fn byte_escape(&mut self, character: char) {
+            use std::fmt::Write as _;
+            let _ = write!(self.out, "\\x{:02x}", u32::from(character));
+        }
+        /// `recordEscapeByte` (`:255-262`): the sequence's first
+        /// [`ESCAPE_KEPT_BYTES`], then nothing -- once it has overflowed, a
+        /// shorter character after it is not kept either. A character is kept
+        /// whole or not at all, where fx keeps bytes: one that would straddle
+        /// the 64th byte ends what is kept one character early.
+        fn keep(&mut self, character: char) {
+            if self.overflow {
+                return;
+            }
+            if self.kept.len() + character.len_utf8() <= ESCAPE_KEPT_BYTES {
+                self.kept.push(character);
+            } else {
+                self.overflow = true;
+            }
+        }
+        fn reset(&mut self) {
+            self.state = EscapeState::None;
+            self.kept.clear();
+            self.overflow = false;
+        }
+        fn flush_incomplete(&mut self) {
+            let kept = std::mem::take(&mut self.kept);
+            for character in kept.chars() {
+                if character < ' ' || character == '\u{7f}' {
+                    self.byte_escape(character);
+                } else {
+                    self.out.push(character);
+                }
+            }
+            if self.overflow {
+                self.out.push_str("...");
+            }
+            self.reset();
+        }
+        /// `consumeEscapeByte`: whether `character` was the sequence's.
+        fn escape(&mut self, character: char) -> bool {
+            match self.state {
+                EscapeState::None => false,
+                EscapeState::Escape => match character {
+                    '[' => {
+                        self.keep(character);
+                        self.state = EscapeState::Csi;
+                        true
+                    }
+                    ']' => {
+                        self.keep(character);
+                        self.state = EscapeState::Osc;
+                        true
+                    }
+                    '\u{40}'..='\u{5f}' => {
+                        self.reset();
+                        true
+                    }
+                    _ => {
+                        self.flush_incomplete();
+                        false
+                    }
+                },
+                EscapeState::Csi => {
+                    self.keep(character);
+                    if ('\u{40}'..='\u{7e}').contains(&character) {
+                        self.reset();
+                    } else if character < ' ' || character == '\u{7f}' {
+                        self.flush_incomplete();
+                    }
+                    true
+                }
+                EscapeState::Osc => {
+                    self.keep(character);
+                    if character == '\u{7}' {
+                        self.reset();
+                    } else if character == '\u{1b}' {
+                        self.state = EscapeState::OscEscape;
+                    }
+                    true
+                }
+                EscapeState::OscEscape => {
+                    self.keep(character);
+                    if character == '\\' {
+                        self.reset();
+                    } else if character != '\u{1b}' {
+                        self.state = EscapeState::Osc;
+                    }
+                    true
+                }
+            }
+        }
+        /// `consumeByte`, a character at a time.
+        fn consume(&mut self, character: char) {
+            if self.escape(character) {
+                return;
+            }
+            if self.pending_cr {
+                self.pending_cr = false;
+                if character == '\n' {
+                    self.out.push('\n');
+                    self.line_start = self.out.len();
+                    return;
+                }
+                self.out.truncate(self.line_start);
+            }
+            match character {
+                '\u{1b}' => {
+                    self.state = EscapeState::Escape;
+                    self.kept.clear();
+                    self.overflow = false;
+                    self.keep(character);
+                }
+                '\r' => self.pending_cr = true,
+                '\n' => {
+                    self.out.push('\n');
+                    self.line_start = self.out.len();
+                }
+                '\t' | ' '..='\u{7e}' => self.out.push(character),
+                '\u{80}'..='\u{9f}' => {
+                    use std::fmt::Write as _;
+                    let _ = write!(self.out, "\\u{{{:04x}}}", u32::from(character));
+                }
+                _ if character < ' ' || character == '\u{7f}' => self.byte_escape(character),
+                _ => self.out.push(character),
+            }
+        }
+    }
+    let mut decoder = Decoder {
+        out: String::with_capacity(raw.len()),
+        line_start: 0,
+        pending_cr: false,
+        state: EscapeState::None,
+        kept: String::new(),
+        overflow: false,
+    };
+    for character in raw.chars() {
+        decoder.consume(character);
+    }
+    // `finish`.
+    decoder.pending_cr = false;
+    if decoder.state != EscapeState::None {
+        decoder.flush_incomplete();
+    }
+    decoder.out
 }
 
 /// `terminal`'s escaping undone (`framed`: `&`, `<`, `>`).
@@ -850,31 +1138,76 @@ pub(crate) struct FullTranscript {
 
 /// The screen, while it is up.
 struct View {
-    /// How many rows above the tail the screen shows: `0` follows it.
-    scroll: Cell<usize>,
-    /// The width and the number of rows the last screen was laid out from, so
-    /// that rows added under a screen that is not at the tail can be stepped
-    /// over rather than scrolled into it.
-    laid: Cell<Option<(u16, usize)>>,
+    /// Where the reader is ([`position`]).
+    reading: Cell<Reading>,
+    /// The page the screen was last drawn from: what it was laid out for, and
+    /// where each entry starts on it.
+    page: RefCell<Option<Page>>,
+}
+
+/// One page as it was measured.
+struct Page {
+    cols: u16,
+    /// [`FullTranscript::revision`] when it was laid out: any change to the
+    /// record moves it on, so a different one is a rebuilt page.
+    revision: u64,
+    items: Vec<ItemRow>,
+}
+
+/// The page the screen shows now, and the first of its rows on screen.
+struct Selected {
+    offset: usize,
+    total: usize,
+    items: Vec<ItemRow>,
 }
 
 impl View {
-    /// How far above the tail the screen is, once the rows added under it
-    /// since it was last laid out have been stepped over.
+    fn at_tail() -> Self {
+        Self {
+            reading: Cell::new(Reading::default()),
+            page: RefCell::new(None),
+        }
+    }
+
+    /// Where the screen stands on the page as it is now, `viewport` rows at a
+    /// time.
     ///
-    /// Rows added under a screen that is not at the tail move the tail away
-    /// from what the screen shows; stepping over them keeps it still, as
-    /// upstream's bookmark does. A screen at the tail follows it. Asked by the
-    /// paint and by a keystroke alike, so a key pressed between a change and
-    /// the frame that would show it moves from where the reader really is.
-    fn settled(&self, cols: u16, total: usize) -> usize {
-        if let Some((laid_cols, laid_total)) = self.laid.get() {
-            if laid_cols == cols && total > laid_total && self.scroll.get() > 0 {
-                self.scroll.set(self.scroll.get() + (total - laid_total));
+    /// A page that rebuilt since the last one -- anything recorded, or a
+    /// width it was not laid out at -- has the reading position pinned to the
+    /// entry it showed on the last page first, and found on this one
+    /// (upstream pins it on each page it installs, `presentationForRebuiltPage`,
+    /// `transcript/runtime.zig:11584-11590@481104fd`, and selects on the page
+    /// it measures, `selectProjectionViewportOffset`, `:11647-11660`). A
+    /// screen at the tail follows it; rows added under a screen that is not
+    /// leave it where it is. Asked by the paint and by a keystroke alike, so a
+    /// key pressed between a change and the frame that would show it moves
+    /// from where the reader really is.
+    fn select(
+        &self,
+        record: &FullTranscript,
+        cols: u16,
+        viewport: usize,
+        palette: Palette,
+    ) -> Selected {
+        let (total, items) = record.measure(cols, palette);
+        let mut reading = self.reading.get();
+        if let Some(page) = self.page.borrow().as_ref() {
+            if page.cols != cols || page.revision != record.revision {
+                reading = reading.pin_reading_position(&page.items);
             }
         }
-        self.laid.set(Some((cols, total)));
-        self.scroll.get()
+        let (reading, offset) = reading.select_visual_offset(total, viewport, &items);
+        self.reading.set(reading);
+        *self.page.borrow_mut() = Some(Page {
+            cols,
+            revision: record.revision,
+            items: items.clone(),
+        });
+        Selected {
+            offset,
+            total,
+            items,
+        }
     }
 }
 
@@ -1198,10 +1531,7 @@ impl FullTranscript {
 
     /// Opens the screen at the tail.
     pub(crate) fn open(&mut self) {
-        self.view = Some(View {
-            scroll: Cell::new(0),
-            laid: Cell::new(None),
-        });
+        self.view = Some(View::at_tail());
     }
 
     pub(crate) fn close(&mut self) {
@@ -1220,24 +1550,23 @@ impl FullTranscript {
         let Some(view) = &self.view else {
             return Reply::Unbound;
         };
-        // How far one key moves the screen, up (toward the head) or down.
+        // How far one key moves the screen, up (toward the head) or down
+        // (upstream's `scroll`, then the selection its next frame makes).
         let moved = |up: bool, rows_moved: Option<usize>| {
             let page = Layout::of(rows).viewport.max(1);
-            let total = self.total(cols, palette);
-            let furthest = total.saturating_sub(page);
-            let scroll = view.settled(cols, total).min(furthest);
+            let now = view.select(self, cols, page, palette);
             let step = rows_moved.unwrap_or(page);
-            let moved = if up {
-                scroll.saturating_add(step)
+            let (reading, offset) = view
+                .reading
+                .get()
+                .scroll(up, step)
+                .select_visual_offset(now.total, page, &now.items);
+            view.reading.set(reading);
+            if offset == now.offset {
+                Reply::Held
             } else {
-                scroll.saturating_sub(step)
+                Reply::Moved
             }
-            .min(furthest);
-            if moved == view.scroll.get() {
-                return Reply::Held;
-            }
-            view.scroll.set(moved);
-            Reply::Moved
         };
         match action {
             Action::ToggleTranscript | Action::Escape | Action::Cancel => Reply::Close,
@@ -1254,14 +1583,17 @@ impl FullTranscript {
     /// `cols`. `status` is the hint row as the band would paint it.
     pub(crate) fn rows(&self, cols: u16, rows: u16, palette: Palette, status: &str) -> Vec<String> {
         let layout = Layout::of(rows);
-        let total = self.total(cols, palette);
-        let scroll = self
-            .view
-            .as_ref()
-            .map_or(0, |view| view.settled(cols, total));
-        let shown = total.min(layout.viewport);
-        let furthest = total - shown;
-        let start = furthest - scroll.min(furthest);
+        let (start, total) = match &self.view {
+            Some(view) => {
+                let selected = view.select(self, cols, layout.viewport, palette);
+                (selected.offset, selected.total)
+            }
+            None => {
+                let total = self.measure(cols, palette).0;
+                (total.saturating_sub(layout.viewport), total)
+            }
+        };
+        let shown = total.saturating_sub(start).min(layout.viewport);
         let mut screen = self.window(start, shown, cols, palette);
         screen.resize(layout.viewport, String::new());
         let reset = palette.reset();
@@ -1305,21 +1637,42 @@ impl FullTranscript {
         (u16::try_from(row).unwrap_or(rows).clamp(1, rows.max(1)), 0)
     }
 
-    /// How many rows the whole record lays out as at this width.
-    fn total(&self, cols: u16, palette: Palette) -> usize {
-        let welcome = if self.welcome { 1 } else { 0 };
-        let mut total = welcome;
-        for entry in self.shown() {
+    /// How many rows the whole record lays out as at this width, and where
+    /// each entry starts among them.
+    ///
+    /// The welcome line is entry [`WELCOME`], a record [`RECORD`] and the
+    /// document's `i`th entry `i + FIRST_ENTRY`, so the ids rise in the order
+    /// they are shown, as upstream's do. An entry starts at its header, below
+    /// the blank row that parts it from the one above; one that lays out as
+    /// nothing starts where the next one's blank row is, as upstream marks a
+    /// hidden entry before the separator it skips
+    /// (`renderEntriesForFullPresentationInterruptible`,
+    /// `transcript_blocks.zig:2084-2096@481104fd`).
+    fn measure(&self, cols: u16, palette: Palette) -> (usize, Vec<ItemRow>) {
+        let mut items = Vec::with_capacity(1 + self.records.len() + self.entries.len());
+        let mut total = 0;
+        if self.welcome {
+            items.push(ItemRow {
+                id: WELCOME,
+                row: 0,
+            });
+            total = 1;
+        }
+        let ids = std::iter::repeat_n(RECORD, self.records.len())
+            .chain((0..self.entries.len()).map(|index| index + FIRST_ENTRY));
+        for (id, entry) in ids.zip(self.shown()) {
             let rows = self.laid_out(entry, cols, palette);
             if rows.is_empty() {
+                items.push(ItemRow { id, row: total });
                 continue;
             }
             if total > 0 {
                 total += 1;
             }
+            items.push(ItemRow { id, row: total });
             total += rows.len();
         }
-        total
+        (total, items)
     }
 
     /// `count` rows of the record from row `start`, laid out at `cols`.
@@ -1418,8 +1771,13 @@ impl FullTranscript {
             Body::Tool(call) => (Some(Kind::Tool), self.tool_rows(call, cols, palette)),
             // Upstream heads only the entries it has a kind for
             // (`metadataKind`, `full_transcript_screen.zig:5867-5895`), and a
-            // question's resolution is not one of them.
-            Body::Block(rows) => (None, rows.iter().map(|row| ellipsized(row, cols)).collect()),
+            // question's resolution is not one of them. Its rows are the ones
+            // written at the width of the moment; one wider than this screen
+            // runs on to the next row, as upstream's row walker lets it.
+            Body::Block(rows) => (
+                None,
+                rows.iter().flat_map(|row| run_on(row, cols)).collect(),
+            ),
         }
     }
 
@@ -1519,21 +1877,33 @@ impl FullTranscript {
         }
         let block = group.expanded(palette);
         let mut rows = Vec::new();
+        // Each row wrapped under its rail rather than cut at the edge
+        // (`materializeExpandedOverride`, `tool_group_projection.zig:
+        // 1061-1092@481104fd`).
         if position == 0 {
             if let Some(header) = block.first() {
-                rows.push(ellipsized(header, cols));
+                rows.extend(tool_status::expanded_rows(header, cols));
             }
         }
-        let heading = block
-            .get(1 + position)
-            .map(|row| ellipsized(row, cols))
-            .unwrap_or_default();
+        let heading = block.get(1 + position).cloned().unwrap_or_default();
+        // An argument the heading already shows has no row of its own -- but
+        // only one in the heading's first line, all the heading shows of a
+        // status, and only while the heading fits one row: a short value
+        // turns up inside a long command by chance, and a wrapped heading
+        // must not hide more than a clipped one did
+        // (`argumentVisibleInToolHeading`, `full_transcript_screen.zig:
+        // 6594-6619@481104fd`, 78424464).
         let plain_heading = unpainted(&heading);
-        rows.push(heading);
+        let first_line = plain_heading.split(['\n', '\r']).next().unwrap_or_default();
+        // Measured as the screen measures it (`tool_status`'s measure).
+        let heading_fits = wrap::width(&heading) <= cols;
+        rows.extend(tool_status::expanded_rows(&heading, cols));
         if call.change.is_none() {
             for argument in &call.arguments {
-                let shown_already =
-                    argument.text && plain_heading.contains(argument.value.as_str());
+                let shown_already = argument.text
+                    && !argument.value.is_empty()
+                    && heading_fits
+                    && first_line.contains(argument.value.as_str());
                 let exec = call.shown.presentation.activity == Activity::Command
                     && argument.name == "action"
                     && argument.value == "exec";
@@ -1696,7 +2066,7 @@ fn unpainted(text: &str) -> String {
 /// (`renderCommandOutputRecordWithPrimaryGutter`).
 ///
 /// Wrapped by upstream's assistant wrap in its literal form
-/// ([`super::prose::literal`]), as both of upstream's are: no word is left
+/// ([`super::prose::literal_drawn`]), as both of upstream's are: no word is left
 /// alone on a line's last row, and no markdown is read into the text.
 fn railed(text: &str, gutter: &str, cols: u16, palette: Palette) -> Vec<String> {
     let rail = 1 + wrap::width(gutter);
@@ -1710,8 +2080,13 @@ fn railed(text: &str, gutter: &str, cols: u16, palette: Palette) -> Vec<String> 
             rows.push(clip(&format!("\u{2502}{dim}{gutter}{reset}"), cols).to_string());
             continue;
         }
-        for row in super::prose::literal(line, width, rail) {
-            let piece = line[row.start..row.end].trim_end_matches([' ', '\n']);
+        // A command's tab, as the spaces the wrap measured it to where it met
+        // it -- a stop of the screen, the rail and the gutter included -- and
+        // as many where the reflow moved it down with its word
+        // (`wrapLiteralCommandOutput`, `assistant_wrap.zig:524-546@481104fd`;
+        // [`super::prose::literal_drawn`]).
+        for piece in super::prose::literal_drawn(line, width, rail) {
+            let piece = piece.trim_end_matches([' ', '\n']);
             let piece = clip(piece, width);
             rows.push(format!("\u{2502}{dim}{gutter}{piece}{reset}"));
         }
@@ -1752,10 +2127,71 @@ fn literal(text: &str, cols: u16, palette: Palette) -> Vec<String> {
     rows
 }
 
+/// A row written at another width, laid out at `cols` as upstream's row walker
+/// lays out a static row (`ProjectionRowWalker.appendWithSoftWrapPrefix`,
+/// `full_transcript_screen.zig:3968-4039@481104fd`): every character where it
+/// is, and one whose cells would pass the last column on the next row, as a
+/// terminal wraps it -- no indent, mid-word. The walker writes the row as one
+/// stream, so what it has switched on is still on past the wrap; here each
+/// row is a row of its own, so a row that runs on is closed and the next
+/// reopens it (`super::pacer::SgrState`, the frame's own model of a row's
+/// colours). A row that fits is the row as it is.
+fn run_on(row: &str, cols: u16) -> Vec<String> {
+    if wrap::width(row) <= cols || cols == 0 {
+        return vec![row.to_string()];
+    }
+    let reset = "\u{1b}[0m";
+    let mut rows = Vec::new();
+    let mut pen = super::pacer::SgrState::default();
+    let mut piece = String::new();
+    let mut used = 0u16;
+    let mut rest = row;
+    while !rest.is_empty() {
+        if let Some(len) = super::pacer::escape_at(rest) {
+            pen.observe(&rest[..len]);
+            piece.push_str(&rest[..len]);
+            rest = &rest[len..];
+            continue;
+        }
+        let Some(cluster) = wrap::first_cluster(rest) else {
+            break;
+        };
+        rest = &rest[cluster.len()..];
+        let width = wrap::cluster_width(cluster);
+        if width > 0 && used + width > cols && used > 0 {
+            piece.push_str(reset);
+            rows.push(std::mem::take(&mut piece));
+            piece.push_str(&pen.reopen());
+            used = 0;
+        }
+        piece.push_str(cluster);
+        used += width;
+    }
+    rows.push(piece);
+    rows
+}
+
 /// A change as upstream's transcript shows one under its call
-/// (`appendDiffRenderLine`, `diff.zig:1063-1084`): `  │ N ± text`, the changed
-/// lines in the diff grey and the rest in the dim one -- monochrome, as
-/// upstream's markers are until a theme is pinned (`render.zig:93-105`).
+/// (`appendDiffRenderLine`, `diff.zig:1250-1276@481104fd`): `  │ N ± text`,
+/// the changed lines in the diff grey and the rest in the dim one --
+/// monochrome, as upstream's markers are until a theme is pinned
+/// (`render.zig:93-105`).
+///
+/// **A line's text is a file's, and it is written as fx v0.0.16 writes it**
+/// (9db199e4): read back from the permission boundary's spelling
+/// ([`unspelled`]) and spelled again with fx's own forms
+/// ([`terminal_safe_line`], `appendTerminalSafeLine`,
+/// `text_utils.zig:419-442@481104fd`, from `diff.zig:1273@481104fd`), so the
+/// row is fx's byte for byte and nothing in it is a byte a terminal acts on.
+/// A tab is fx's too: fx hands the terminal the tab, which moves to the next
+/// stop over cells it leaves unwritten; this screen places rows cell by cell,
+/// so it writes those cells, unstyled, as the terminal leaves them
+/// ([`drawn_tabs`]).
+///
+/// The review keeps xfx's own spelling (`approval_view::tamed` over
+/// `bounded_diff_side`): it is the screen a change is decided on, and fx's
+/// forms there would show a change of a carriage return as no change at all
+/// (`scripts/fxcap/parity-ledger.toml`, `review-diff-spelling`).
 fn diff_rows(diff: &ApprovalDiff, cols: u16, palette: Palette) -> Vec<String> {
     let review = Review::of_diff(diff);
     let width = review
@@ -1772,19 +2208,22 @@ fn diff_rows(diff: &ApprovalDiff, cols: u16, palette: Palette) -> Vec<String> {
         .to_string()
         .len();
     let reset = palette.reset();
+    // `  │ `, the number, a space, the sign, a space.
+    let start = 4 + width + 3;
     review
         .lines
         .iter()
         .map(|line| {
+            let file = |text: &str| terminal_safe_line(&unspelled(text));
             let (style, number, sign, text) = match line {
                 ReviewLine::Context(number, text) => {
-                    (palette.dim(), number.to_string(), ' ', text.clone())
+                    (palette.dim(), number.to_string(), ' ', file(text))
                 }
                 ReviewLine::Added(number, text) => {
-                    (palette.diff(), number.to_string(), '+', text.clone())
+                    (palette.diff(), number.to_string(), '+', file(text))
                 }
                 ReviewLine::Removed(number, text) => {
-                    (palette.diff(), number.to_string(), '-', text.clone())
+                    (palette.diff(), number.to_string(), '-', file(text))
                 }
                 ReviewLine::Elided(count) => (
                     palette.dim(),
@@ -1796,10 +2235,135 @@ fn diff_rows(diff: &ApprovalDiff, cols: u16, palette: Palette) -> Vec<String> {
                     (palette.dim(), String::new(), ' ', (*text).to_string())
                 }
             };
+            let text = drawn_tabs(&text, start, style, reset);
             let row = format!("  \u{2502} {number:>width$} {sign} {text}");
             format!("{style}{}{reset}", clip(&row, cols))
         })
         .collect()
+}
+
+/// A line of a change as the permission boundary spelled it
+/// (`crate::permission::bounded_diff_side`), read back to the file's own text:
+/// `\\` a backslash, `\t` a tab, `\r` a carriage return, `\u{…}` the code point
+/// it names. The boundary spends a backslash on every name and doubles the
+/// file's own, so each backslash here begins one of those; a backslash that
+/// begins none of them (text that did not come from the boundary: a log
+/// written by hand) is kept as it is.
+///
+/// What this returns is never written as it is: [`terminal_safe_line`] spells
+/// every byte of it a terminal would act on.
+fn unspelled(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(at) = rest.find('\\') {
+        out.push_str(&rest[..at]);
+        rest = &rest[at..];
+        let after = &rest[1..];
+        let (character, len) = if after.starts_with('\\') {
+            (Some('\\'), 2)
+        } else if after.starts_with('t') {
+            (Some('\t'), 2)
+        } else if after.starts_with('r') {
+            (Some('\r'), 2)
+        } else {
+            match after
+                .strip_prefix("u{")
+                .and_then(|digits| digits.split_once('}'))
+                .filter(|(hex, _)| {
+                    (1..=6).contains(&hex.len()) && hex.bytes().all(|b| b.is_ascii_hexdigit())
+                })
+                .and_then(|(hex, _)| {
+                    u32::from_str_radix(hex, 16)
+                        .ok()
+                        .map(|code| (code, hex.len()))
+                })
+                .and_then(|(code, digits)| char::from_u32(code).map(|c| (c, digits)))
+            {
+                Some((character, digits)) => (Some(character), 1 + 2 + digits + 1),
+                None => (None, 1),
+            }
+        };
+        match character {
+            Some(character) => out.push(character),
+            None => out.push('\\'),
+        }
+        rest = &rest[len..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// One line of a file, ready to draw, as fx v0.0.16 writes one
+/// (`appendTerminalSafeLine`, `src/core/shared/text_utils.zig:419-442@481104fd`):
+///
+/// * a carriage return that ends the line is dropped (`:429`);
+/// * a tab stays (`:432-436`);
+/// * every other C0 control and `DEL` is `\xNN`, two lower-case hex digits
+///   (`terminalSafeToken`, `:645-646`; `writeByteEscape`, `:675-686`);
+/// * a C1 control, a zero-width or directional mark, a line or paragraph
+///   separator, an embedding, an override, an isolate, an invisible operator
+///   and the byte-order mark are `\u{NNNN}`, at least four lower-case hex
+///   digits (`isNonPrintingCodepoint`, `:703-708`; `writeCodepointEscape`,
+///   `:688-701`) -- and so is the Arabic letter mark (`U+061C`), which fx
+///   writes as itself: it reorders the text around it as the marks fx names
+///   do (`approval_view`'s `reorders`), so it is named here too
+///   (`scripts/fxcap/parity-ledger.toml`, `ctrl-o-arabic-letter-mark`);
+/// * everything else is itself (`:666`).
+///
+/// fx also writes `\xNN` for each byte outside a valid UTF-8 sequence
+/// (`:652-662`); a line here is a `str`, so it has none -- a file that is not
+/// UTF-8 is never edited (`crate::tools::mutate`), and a write's review of one
+/// says so in words ([`crate::permission::non_text_summary`]).
+fn terminal_safe_line(line: &str) -> String {
+    use std::fmt::Write as _;
+    let line = line.strip_suffix('\r').unwrap_or(line);
+    let mut out = String::with_capacity(line.len());
+    for character in line.chars() {
+        let code = u32::from(character);
+        if character == '\t' {
+            out.push('\t');
+        } else if code < 0x20 || code == 0x7f {
+            let _ = write!(out, "\\x{code:02x}");
+        } else if fx_names(code) || character == '\u{061c}' {
+            let _ = write!(out, "\\u{{{code:04x}}}");
+        } else {
+            out.push(character);
+        }
+    }
+    out
+}
+
+/// fx's `isNonPrintingCodepoint` (`text_utils.zig:703-708@481104fd`).
+fn fx_names(code: u32) -> bool {
+    (0x80..=0x9f).contains(&code)
+        || (0x200b..=0x200f).contains(&code)
+        || (0x2028..=0x202e).contains(&code)
+        || (0x2060..=0x206f).contains(&code)
+        || code == 0xfeff
+}
+
+/// `text` with each tab drawn as the terminal draws the one fx writes: blank,
+/// unstyled cells up to the next stop, a multiple of eight columns from the
+/// screen's left edge, the text starting at column `start`. The row's style
+/// is put back after them.
+fn drawn_tabs(text: &str, start: usize, style: &str, reset: &str) -> String {
+    if !text.contains('\t') {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut column = start;
+    for (index, piece) in text.split('\t').enumerate() {
+        if index > 0 {
+            let blank = 8 - column % 8;
+            out.push_str(reset);
+            out.push_str(&" ".repeat(blank));
+            out.push_str(style);
+            column += blank;
+        }
+        out.push_str(piece);
+        column += usize::from(wrap::width(piece));
+    }
+    out
 }
 
 /// Everything `transcript` has queued, laid out as the rows a terminal would
@@ -2042,8 +2606,9 @@ mod tests {
     }
 
     #[test]
-    fn a_header_is_upstreams_utc_stamp_and_the_entrys_kind() {
-        // `full_transcript_metadata.zig:63-72`, the same instant.
+    fn a_header_is_upstreams_local_stamp_and_the_entrys_kind() {
+        // `full_transcript_metadata.zig:40-52@481104fd`, the same instant: a
+        // test build reads its zone from `local_time`'s test zone, UTC.
         assert_eq!(
             stamp(1_704_164_645_006).as_deref(),
             Some("2024-01-02 03:04:05.006 UTC")
@@ -2062,6 +2627,27 @@ mod tests {
         assert_eq!(stamp(0), None);
         assert_eq!(stamp(-1), None);
         assert_eq!(stamp(253_402_300_800_000), None);
+        // West of UTC, the day before; and a zone with no plain name.
+        let est = crate::local_time::Zone {
+            offset_s: -5 * 3600,
+            name: b"EST",
+        };
+        crate::local_time::with_test_zone(Some(est), || {
+            assert_eq!(
+                stamp(1_704_164_645_006).as_deref(),
+                Some("2024-01-01 22:04:05.006 EST")
+            );
+        });
+        let unnamed = crate::local_time::Zone {
+            offset_s: 5 * 3600 + 45 * 60,
+            name: b"\x1b]0;x\x07",
+        };
+        crate::local_time::with_test_zone(Some(unnamed), || {
+            assert_eq!(
+                stamp(1_704_164_645_006).as_deref(),
+                Some("2024-01-02 08:49:05.006 +0545")
+            );
+        });
     }
 
     #[test]
@@ -2442,6 +3028,226 @@ mod tests {
             !plain.iter().any(|row| row.contains("content:")),
             "the arguments were listed beside the diff that covers them: {plain:?}"
         );
+    }
+
+    #[test]
+    fn a_changes_rows_write_a_files_bytes_as_fx_does_and_hand_the_terminal_none() {
+        // fx v0.0.16's 9db199e4: a diff row's text goes through
+        // `appendTerminalSafeLine` (`text_utils.zig:419-442@481104fd`, from
+        // `diff.zig:1273`). The permission boundary spelled the sides its own
+        // way (`bounded_diff_side`); the row is fx's.
+        let diff = ApprovalDiff::of(
+            "a\n",
+            "bidi \u{202e} x\nzero\u{200b}width \u{feff} bom\nesc \u{1b}[2J c1 \u{9b}\ntab\there\ncrlf\r\nlit \\x1b\n",
+        );
+        let rows = diff_rows(&diff, 120, DARK);
+        // Written out rather than read from `fx_names`, so a change there
+        // cannot pass itself.
+        let acted_on = |c: char| {
+            c.is_control()
+                || matches!(c, '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}' | '\u{61c}')
+        };
+        // Only the palette's own colours are taken out, so a raw ESC -- and
+        // the sequence it begins -- is still there to be seen (`plain` would
+        // strip it with every other sequence).
+        for row in &rows {
+            let bare = [DARK.dim(), DARK.diff(), DARK.reset()]
+                .iter()
+                .fold(row.clone(), |row, sgr| row.replace(sgr, ""));
+            assert!(
+                !bare.chars().any(acted_on),
+                "a row hands the terminal a character it acts on: {bare:?}"
+            );
+        }
+        assert_eq!(
+            rows,
+            [
+                "\u{1b}[38;5;252m  \u{2502} 1 - a\u{1b}[0m",
+                "\u{1b}[38;5;252m  \u{2502} 1 + bidi \\u{202e} x\u{1b}[0m",
+                "\u{1b}[38;5;252m  \u{2502} 2 + zero\\u{200b}width \\u{feff} bom\u{1b}[0m",
+                "\u{1b}[38;5;252m  \u{2502} 3 + esc \\x1b[2J c1 \\u{009b}\u{1b}[0m",
+                // The tab's cells, unstyled, up to column 16, as a terminal
+                // leaves the cells fx's tab moves over.
+                "\u{1b}[38;5;252m  \u{2502} 4 + tab\u{1b}[0m     \u{1b}[38;5;252mhere\u{1b}[0m",
+                "\u{1b}[38;5;252m  \u{2502} 5 + crlf\u{1b}[0m",
+                "\u{1b}[38;5;252m  \u{2502} 6 + lit \\x1b\u{1b}[0m",
+            ]
+        );
+        // The review keeps xfx's own spelling: it is the screen a change is
+        // decided on (parity-ledger.toml `review-diff-spelling`).
+        let reviewed: Vec<String> = Review::of_diff(&diff)
+            .rows(120, &super::super::approval_view::Styles::PLAIN)
+            .into_iter()
+            .map(|(row, _)| row.trim_start().to_string())
+            .collect();
+        assert_eq!(reviewed[1], "1 + bidi \\u{202E} x");
+        assert_eq!(reviewed[5], "5 + crlf\\r");
+        assert_eq!(reviewed[6], "6 + lit \\\\x1b");
+    }
+
+    #[test]
+    fn a_files_line_is_spelled_as_fxs_append_terminal_safe_line_spells_it() {
+        // (the file's line, the row's text, fx's line at 481104fd in
+        // src/core/shared/text_utils.zig)
+        let table: &[(&str, &str, &str)] = &[
+            (
+                "before\u{1b}[2Jcleared",
+                "before\\x1b[2Jcleared",
+                "ESC, a CSI: terminalSafeToken :645-646, writeByteEscape :675-686",
+            ),
+            (
+                "\u{1b}]0;title\u{7}",
+                "\\x1b]0;title\\x07",
+                "an OSC and its BEL: :645-646",
+            ),
+            (
+                "second \u{9b}line",
+                "second \\u{009b}line",
+                "C1 CSI U+009B: isNonPrintingCodepoint :704, writeCodepointEscape :688-701",
+            ),
+            ("osc \u{9d}x", "osc \\u{009d}x", "C1 OSC U+009D: :704"),
+            ("del \u{7f}", "del \\x7f", "DEL: :645"),
+            (
+                "tab\there",
+                "tab\there",
+                "a tab stays: appendTerminalSafeLine :432-436",
+            ),
+            ("crlf line\r", "crlf line", "a trailing CR is dropped: :429"),
+            ("two\r\r", "two\\x0d", "only one: :429, then :645"),
+            ("mid\rline", "mid\\x0dline", "a CR inside the line: :645"),
+            ("bidi \u{202e} x", "bidi \\u{202e} x", "U+202E: :706"),
+            (
+                "isolate \u{2066}x\u{2069}",
+                "isolate \\u{2066}x\\u{2069}",
+                "an isolate: :707",
+            ),
+            (
+                "mark \u{200e}\u{200f}",
+                "mark \\u{200e}\\u{200f}",
+                "LRM, RLM: :705",
+            ),
+            ("zero\u{200b}width", "zero\\u{200b}width", "U+200B: :705"),
+            ("line\u{2028}sep", "line\\u{2028}sep", "U+2028: :706"),
+            ("\u{feff}bom", "\\u{feff}bom", "U+FEFF: :708"),
+            (
+                "é 한 😀 ⋯ \u{202e}",
+                "é 한 😀 ⋯ \\u{202e}",
+                "printables stay: :666",
+            ),
+            (
+                "literal \\x1b",
+                "literal \\x1b",
+                "a backslash is itself: :648-649",
+            ),
+            // xfx's one addition: fx writes U+061C as itself (:703-708 has no
+            // arm for it); it reorders as the marks above do.
+            (
+                "alm \u{61c}x",
+                "alm \\u{061c}x",
+                "U+061C: xfx names it (ctrl-o-arabic-letter-mark)",
+            ),
+        ];
+        // A byte outside a valid UTF-8 sequence (:652-662) cannot be here:
+        // the line is a `str`.
+        for (line, row, why) in table {
+            assert_eq!(terminal_safe_line(line), *row, "{why}");
+        }
+    }
+
+    #[test]
+    fn every_code_point_to_u2100_and_past_it_is_spelled_as_fx_spells_it() {
+        // fx's rule for one character of a line, written out here rather
+        // than read from `terminal_safe_line` or `fx_names`, so a narrowed
+        // range cannot pass itself (`terminalSafeToken`,
+        // `text_utils.zig:643-667@481104fd`; `isNonPrintingCodepoint`,
+        // `:703-708`): C0 and DEL `\xNN`; C1, U+200B-200F, U+2028-202E,
+        // U+2060-206F and U+FEFF `\u{NNNN}`; a tab itself; and xfx's one
+        // addition, U+061C.
+        let fx = |c: char| -> String {
+            let code = u32::from(c);
+            if c == '\t' {
+                "\t".to_string()
+            } else if code < 0x20 || code == 0x7f {
+                format!("\\x{code:02x}")
+            } else if (0x80..=0x9f).contains(&code)
+                || (0x200b..=0x200f).contains(&code)
+                || (0x2028..=0x202e).contains(&code)
+                || (0x2060..=0x206f).contains(&code)
+                || code == 0xfeff
+                || code == 0x061c
+            {
+                format!("\\u{{{code:04x}}}")
+            } else {
+                c.to_string()
+            }
+        };
+        // Every code point to U+2100, then the byte-order mark and the
+        // default-ignorable ones fx writes as themselves and tmux 3.7b draws
+        // a cell wide (`approval_view`'s `default_ignorable`): those stay
+        // raw here too, as fx's, and the painter counts them as fx does
+        // (`super::super::wrap`'s `counted_as_upstream`, WIDTH-DISPUTED).
+        let points = (0u32..=0x2100)
+            .chain([0xfeff, 0x061c, 0x3164, 0xffa0])
+            .chain(0xfff0..=0xfff8);
+        let mut checked = 0;
+        for code in points {
+            let Some(c) = char::from_u32(code) else {
+                continue;
+            };
+            // Between two letters, so a carriage return is not the one
+            // that ends the line (that one is dropped, `:429`).
+            let line = format!("a{c}b");
+            assert_eq!(
+                terminal_safe_line(&line),
+                format!("a{}b", fx(c)),
+                "U+{code:04X}"
+            );
+            checked += 1;
+        }
+        assert_eq!(checked, 0x2101 + 2 + 2 + 9);
+    }
+
+    #[test]
+    fn the_boundarys_spelling_reads_back_to_the_files_text() {
+        // `bounded_diff_side` is injective; `unspelled` is its inverse on a
+        // line, over every scalar up to U+00FF and the marks fx names.
+        let mut samples: Vec<String> = (0u32..=0xff)
+            .filter_map(char::from_u32)
+            .filter(|c| *c != '\n')
+            .map(|c| format!("a{c}b"))
+            .collect();
+        samples.extend(
+            [
+                "\u{202e}",
+                "\u{200b}",
+                "\u{feff}",
+                "\u{61c}",
+                "\\",
+                "\\\\",
+                "\\t",
+                "\\u{001B}",
+                "x\\",
+            ]
+            .iter()
+            .map(|s| (*s).to_string()),
+        );
+        for raw in samples {
+            let spelled = crate::permission::bounded_diff_side(&raw);
+            assert_eq!(unspelled(&spelled), raw, "{spelled:?}");
+        }
+        // What the boundary never writes is kept as it is, and spelled
+        // safely after it.
+        for (odd, kept) in [
+            ("\\q", "\\q"),
+            ("\\u{D800}", "\\u{D800}"),
+            ("\\u{zz}", "\\u{zz}"),
+            ("\\u{+41}", "\\u{+41}"),
+            ("\\u{", "\\u{"),
+            ("end\\", "end\\"),
+        ] {
+            assert_eq!(unspelled(odd), kept);
+            assert_eq!(terminal_safe_line(&unspelled(odd)), kept);
+        }
     }
 
     #[test]
@@ -3044,6 +3850,47 @@ mod tests {
     }
 
     #[test]
+    fn a_resolution_wider_than_a_narrowed_screen_runs_on_to_the_next_row() {
+        // fx v0.0.16 keeps the rows it composed at the width of the moment
+        // and walks a row wider than the screen onto the next one, cell by
+        // cell and in its colours, as a terminal wraps it
+        // (`ProjectionRowWalker.appendWithSoftWrapPrefix`,
+        // `full_transcript_screen.zig:3968-4039@481104fd`):
+        // `p5-transcript-question` at 60 columns, `  1) Which of the two
+        // storage engines should the nightly imp` / `ort job write …`.
+        let question = "  1) Which of the two storage engines should the nightly import job write its staging tables into before it runs the";
+        let mut record = record();
+        record.prompt("pick a storage engine");
+        record.block(&[
+            question.to_string(),
+            "     checks?".to_string(),
+            format!("{}     Postgres{} with the log", DARK.dim(), DARK.reset()),
+        ]);
+        let rows = record_at(&record, 60);
+        assert_eq!(
+            &rows[3..7],
+            [
+                &question[..60],
+                &question[60..],
+                "     checks?",
+                "     Postgres with the log",
+            ]
+        );
+        assert!(!rows.concat().contains('\u{2026}'));
+        // A colour in force where a row runs on is in force on the next.
+        let painted = record.rows(20, 40, DARK, "");
+        let at = plain(&painted)
+            .iter()
+            .position(|row| row == "     Postgres with t")
+            .expect("the resolution's third row");
+        assert!(painted[at].starts_with(DARK.dim()), "{:?}", painted[at]);
+        assert_eq!(plain(&painted)[at + 1], "he log");
+        for row in &painted {
+            assert!(wrap::width(row) <= 20, "{row:?}");
+        }
+    }
+
+    #[test]
     fn details_that_arrive_before_the_calls_row_wait_for_it_and_die_with_the_turn() {
         let mut record = record();
         record.observe(&UiEvent::ToolDetail {
@@ -3071,7 +3918,7 @@ mod tests {
         }
         record.open();
         // 30 notices of two rows plus a blank between: 89 rows, 36 shown.
-        assert_eq!(record.total(120, DARK), 89);
+        assert_eq!(record.measure(120, DARK).0, 89);
         let top = |record: &FullTranscript| screen(record)[0].clone();
         let at_tail = top(&record);
         assert_eq!(screen(&record)[35], "* n: 29");
@@ -3079,10 +3926,13 @@ mod tests {
         assert_eq!(record.key(Action::PageUp, 120, 40, DARK), Reply::Moved);
         assert_eq!(screen(&record)[35], screen(&record)[35]);
         let page_up = screen(&record);
-        // A page is the 36 rows the screen shows.
-        assert_eq!(record.view.as_ref().unwrap().scroll.get(), 36);
+        // A page is the 36 rows the screen shows: from row 53, the tail's
+        // first, to row 17.
+        let offset =
+            |record: &FullTranscript| record.view.as_ref().unwrap().reading.get().scroll_rows;
+        assert_eq!(offset(&record), 89 - 36 - 36);
         assert_eq!(record.key(Action::Up, 120, 40, DARK), Reply::Moved);
-        assert_eq!(record.view.as_ref().unwrap().scroll.get(), 39);
+        assert_eq!(offset(&record), 89 - 36 - 36 - 3);
         assert_eq!(record.key(Action::Down, 120, 40, DARK), Reply::Moved);
         assert_eq!(screen(&record), page_up);
         assert_eq!(record.key(Action::PageUp, 120, 40, DARK), Reply::Moved);
@@ -3235,17 +4085,301 @@ mod tests {
         let Detail::Arguments(arguments) = detail else {
             panic!("not arguments");
         };
-        assert!(!arguments[0].name.contains('\u{1b}'));
-        assert!(!arguments[0].value.chars().any(char::is_control));
+        // Spelled, not blanked: fx's `\xNN` (`terminalSafeToken`,
+        // `text_utils.zig:643-667@481104fd`).
+        assert_eq!(arguments[0].name, "p\\x1b[2J");
+        assert_eq!(arguments[0].value, "v\\x1b]0;x\\x07");
+        // A command's output that never went through `command_stream` (made
+        // here by hand) is spelled the same; its line break and tab stay.
         let Detail::Command { output, status } = Detail::Command {
-            output: "a\u{1b}[31mb\nc".into(),
+            output: "a\u{1b}[31mb\nc\td\u{202e}".into(),
             status: Some("s\u{7}".into()),
         }
         .made_inert() else {
             panic!("not a command");
         };
-        assert_eq!(output, "a [31mb\nc");
-        assert_eq!(status.as_deref(), Some("s "));
+        assert_eq!(output, "a\\x1b[31mb\nc\td\\u{202e}");
+        assert_eq!(status.as_deref(), Some("s\\x07"));
+        // And it is idempotent: what it writes is printable ASCII.
+        let again = Detail::Command {
+            output: output.clone(),
+            status: status.clone(),
+        }
+        .made_inert();
+        assert_eq!(again, Detail::Command { output, status });
+    }
+
+    #[test]
+    fn a_commands_stream_is_read_as_fxs_decoder_reads_it() {
+        // `command_output_content.zig:52-282@481104fd`, one case per branch.
+        for (raw, shown) in [
+            // Sequences dropped whole: CSI, OSC to BEL and to ST, ESC + Fe.
+            ("a\u{1b}[2Jb\u{1b}[31mc", "abc"),
+            ("a\u{1b}]0;title\u{7}b\u{1b}]8;;x\u{1b}\\c", "abc"),
+            ("a\u{1b}Mb\u{1b}7c", "ab\\x1b7c"),
+            // A sequence a control interrupts, or the stream ends inside, is
+            // written back, its controls `\xNN`; a line feed inside a CSI is
+            // the sequence's, not a line's end.
+            ("a\u{1b}[2\u{7}b", "a\\x1b[2\\x07b"),
+            ("a\u{1b}[2\nb", "a\\x1b[2\\x0ab"),
+            ("a\u{1b}[12", "a\\x1b[12"),
+            ("a\u{1b}", "a\\x1b"),
+            // `ESC ESC [`: the first written back, the second a sequence.
+            ("a\u{1b}\u{1b}[1mb", "a\\x1bb"),
+            // Carriage returns: CRLF a line's end, a bare one the line again,
+            // the stream's last one dropped.
+            ("one\r\ntwo", "one\ntwo"),
+            ("over\rX\nnext", "X\nnext"),
+            ("a\rb\rc", "c"),
+            ("done\r", "done"),
+            ("x\r\u{1b}[2Ky", "y"),
+            // Tabs and printable ASCII themselves, other controls `\xNN`, C1
+            // `\u{00NN}`, the rest itself (the marks are `detail_spelled`'s).
+            ("a\tb\u{7}c\u{7f}d", "a\tb\\x07c\\x7fd"),
+            ("e\u{9b}f\u{85}", "e\\u{009b}f\\u{0085}"),
+            ("\u{202e}\u{e9}", "\u{202e}\u{e9}"),
+        ] {
+            assert_eq!(command_stream(raw), shown, "{raw:?}");
+        }
+        // A sequence that runs past what fx keeps of it ends `...`.
+        let long = format!("\u{1b}[{}", "1;".repeat(40));
+        let kept = command_stream(&long);
+        assert!(kept.ends_with("..."), "{kept:?}");
+        assert_eq!(
+            kept.len(),
+            "\\x1b".len() + ESCAPE_KEPT_BYTES - 1 + "...".len()
+        );
+        // At the 64th byte: `ESC ]` and 61 bytes are 63, `é` would be the 64th
+        // and 65th, so it ends what is kept -- and the `b` after it, which
+        // would fit, is not kept either, as fx keeps nothing past its 64th
+        // byte (`recordEscapeByte`, `:255-262`). fx keeps `é`'s first byte;
+        // a character here is kept whole or not at all.
+        let osc = format!("\u{1b}]{}\u{e9}b", "a".repeat(61));
+        assert_eq!(command_stream(&osc), format!("\\x1b]{}...", "a".repeat(61)));
+        // Each stream is its own: stdout's carriage return does not reach
+        // into stderr.
+        let framed = "<command>x</command>\n<cwd>.</cwd>\n<exit_code>0</exit_code>\n<stdout>\nout\r</stdout>\n<stderr>\nerr\n</stderr>\n";
+        assert_eq!(
+            result("terminal", framed),
+            Detail::Command {
+                output: "outerr".into(),
+                status: None,
+            }
+        );
+    }
+
+    // -- T-U1-SAFE: what a terminal would act on, in a call's detail rows ----
+
+    /// `p5-transcript-safe`'s step: a command whose own text carries a
+    /// right-to-left override, a zero-width space, a byte-order mark, an
+    /// `ESC[2J`, the C1 `U+009B`, a tab, the Arabic letter mark, a
+    /// right-to-left isolate and -- after a comment -- a trailing carriage
+    /// return, printing a file that holds the same and ends its line on CRLF,
+    /// then a line a bare carriage return rewrites; then a read of that file.
+    /// Each detail as the bridge hands it over (`made_inert`).
+    fn unsafe_detail_record() -> FullTranscript {
+        let command_text =
+            ": 'A\u{202e}B\u{200b}C\u{feff}D\u{1b}[2JE\u{9b}F\tG\u{61c}H\u{2067}I'; cat safe.txt # \r";
+        let file = "a\u{202e}b\u{200b}c\u{feff}d\u{1b}[2Je\u{9b}f\tg\u{61c}h\u{2067}i\r\nover\rX\n";
+        let mut record = record();
+        let detail = |record: &mut FullTranscript, id: &str, detail: Detail| {
+            record.observe(&UiEvent::ToolDetail {
+                call_id: id.into(),
+                detail: detail.made_inert(),
+            });
+        };
+        let input = json!({"action": "exec", "command": command_text});
+        record.tool_started("c", &command(command_text));
+        detail(
+            &mut record,
+            "c",
+            Detail::Arguments(arguments("terminal", &input)),
+        );
+        // `crate::tools::terminal`'s frame, as `p5-transcript-safe`'s
+        // gateway log has it.
+        let framed = format!(
+            "<command>x</command>\n<cwd>.</cwd>\n<exit_code>0</exit_code>\n<stdout>\n{file}</stdout>\n<stderr>\n</stderr>\n"
+        );
+        detail(&mut record, "c", result("terminal", &framed));
+        record.tool_finished("c", true, "", Outcome::Exited(0), None);
+        let input = json!({"path": "safe.txt"});
+        record.tool_started("r", &read("safe.txt"));
+        detail(
+            &mut record,
+            "r",
+            Detail::Arguments(arguments("read_file", &input)),
+        );
+        let read = "<path>safe.txt</path>\n<content>\n1\ta\u{202e}b\u{200b}c\u{feff}d\u{1b}[2Je\u{9b}f\tg\u{61c}h\u{2067}i\r\n2\tover\rX\n</content>";
+        detail(&mut record, "r", result("read_file", read));
+        record.tool_finished("r", true, "", Outcome::Finished, None);
+        record
+    }
+
+    /// A character no detail row may hand the terminal as itself: a control
+    /// other than the escape (which [`only_colours`] reads), or a mark fx
+    /// names (`isNonPrintingCodepoint`, `text_utils.zig:703-708@481104fd`) or
+    /// this screen does (`U+061C`).
+    fn obeyed_or_hidden(character: char) -> bool {
+        let code = u32::from(character);
+        (code < 0x20 && character != '\u{1b}')
+            || code == 0x7f
+            || (0x80..=0x9f).contains(&code)
+            || (0x200b..=0x200f).contains(&code)
+            || (0x2028..=0x202e).contains(&code)
+            || (0x2060..=0x206f).contains(&code)
+            || code == 0xfeff
+            || code == 0x061c
+    }
+
+    /// Whether every escape in `row` is a colour (`ESC[…m`), the only ones
+    /// this screen writes.
+    fn only_colours(row: &str) -> bool {
+        let mut rest = row;
+        while let Some(at) = rest.find('\u{1b}') {
+            rest = &rest[at..];
+            match super::super::pacer::escape_at(rest) {
+                Some(len) if rest[..len].starts_with("\u{1b}[") && rest[..len].ends_with('m') => {
+                    rest = &rest[len..];
+                }
+                _ => return false,
+            }
+        }
+        true
+    }
+
+    #[test]
+    fn an_argument_row_is_spelled_as_fxs_terminal_safe_writer_spells_it() {
+        // `p5-transcript-safe`, fx v0.0.16's Ctrl-O: `appendFullSemanticArguments`
+        // writes `name: value` through `TerminalSafeIndentedWriter`
+        // (`full_transcript_screen.zig:6681-6695@481104fd`, `:5147-5194`): a tab
+        // four spaces, every other control `\xNN` -- the trailing carriage
+        // return too -- and the marks `\u{NNNN}` (`terminalSafeToken`,
+        // `text_utils.zig:643-667@481104fd`), the isolate among them; the
+        // Arabic letter mark, which fx writes as itself, is named too
+        // (`ctrl-o-command-marks`).
+        let rows = screen(&unsafe_detail_record());
+        let row = "\u{2502}  command: : 'A\\u{202e}B\\u{200b}C\\u{feff}D\\x1b[2JE\\u{009b}F    G\\u{061c}H\\u{2067}I'; cat safe.txt # \\x0d";
+        assert!(rows.iter().any(|shown| shown == row), "{rows:#?}");
+    }
+
+    #[test]
+    fn a_read_row_is_spelled_as_fxs_terminal_safe_writer_spells_it() {
+        // The same writer for a tool's result (`appendStoredResultContent`,
+        // `:5196-5229@481104fd`, and the inline result, `:6856-6864`): each
+        // line's carriage return `\x0d`, the bare one too.
+        let rows = screen(&unsafe_detail_record());
+        for row in [
+            "\u{2502}  1    a\\u{202e}b\\u{200b}c\\u{feff}d\\x1b[2Je\\u{009b}f    g\\u{061c}h\\u{2067}i\\x0d",
+            "\u{2502}  2    over\\x0dX",
+        ] {
+            assert!(
+                rows.iter().any(|shown| shown == row),
+                "{row:?} in {rows:#?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_command_row_is_decoded_as_fxs_command_output_is_and_names_the_marks() {
+        // fx's command output goes through its `Decoder`
+        // (`command_output_content.zig:52-282@481104fd`) instead: an escape
+        // sequence is dropped, a bare carriage return starts the line again,
+        // CRLF ends it, the C1 control is `\u{009b}`, and the tab is kept to
+        // the next eight-column stop of the screen (`wrapLiteralCommandOutput`,
+        // `assistant_wrap.zig:524-546@481104fd`). fx leaves the marks as they
+        // are (`:171-173`); here they are named as on every other detail row
+        // (`scripts/fxcap/parity-ledger.toml`, `ctrl-o-command-marks`).
+        let rows = screen(&unsafe_detail_record());
+        let at = rows
+            .iter()
+            .position(|row| row.starts_with("\u{2502} a"))
+            .unwrap_or_else(|| panic!("the output's first row in {rows:#?}"));
+        assert_eq!(
+            rows[at..at + 2],
+            [
+                "\u{2502} a\\u{202e}b\\u{200b}c\\u{feff}de\\u{009b}f        g\\u{061c}h\\u{2067}i",
+                "\u{2502} X",
+            ]
+        );
+    }
+
+    #[test]
+    fn no_detail_row_hands_the_terminal_a_control_or_a_mark_at_any_width() {
+        let record = unsafe_detail_record();
+        for cols in [10u16, 24, 80, 120] {
+            // Every row the record lays out at this width, not one page of it.
+            let (total, _) = record.measure(cols, DARK);
+            let rows = record.window(0, total, cols, DARK);
+            assert_eq!(rows.len(), total, "{cols}");
+            if cols == 10 {
+                assert!(total > Layout::of(40).viewport, "{total} rows fit one page");
+            }
+            for row in &rows {
+                assert!(wrap::width(row) <= cols, "{cols}: {row:?}");
+            }
+            // The detail rows: the rail, then the detail's grey (`railed`,
+            // `literal`). Not the calls' own rows, whose wrapped rows stand
+            // under the rail too (`tool_status`'s `│ `, which the whole layout
+            // shows at 10 columns): those are CALLROW-SAFE's
+            // (`toolgroup`'s `no_calls_row_hands_the_terminal_a_control_or_a_mark_at_any_width`).
+            let detail = format!("\u{2502}{}", DARK.dim());
+            let details: Vec<&String> =
+                rows.iter().filter(|row| row.starts_with(&detail)).collect();
+            assert!(details.len() >= 5, "{cols}: {details:?}");
+            for row in details {
+                assert!(!row.chars().any(obeyed_or_hidden), "{cols}: {row:?}");
+                assert!(only_colours(row), "{cols}: {row:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_spelled_token_may_be_cut_and_every_piece_of_it_is_inert_ascii() {
+        // No spelling is kept whole. A command's C1 control is spelled by
+        // `command_stream` before the result is bounded, so the bound can cut
+        // `\u{009b}` to `\u{`; what is left is three printable characters.
+        let raw = format!("{}\u{9b}", "a".repeat(RESULT_BYTES - 3));
+        let framed = format!(
+            "<command>x</command>\n<cwd>.</cwd>\n<exit_code>0</exit_code>\n<stdout>\n{raw}\n</stdout>\n<stderr>\n</stderr>\n"
+        );
+        let Detail::Command { output, .. } = result("terminal", &framed).made_inert() else {
+            panic!("not a command");
+        };
+        let (kept, more) = output.split_once('\n').expect("the bound's line");
+        assert_eq!(kept.len(), RESULT_BYTES);
+        assert!(kept.ends_with("a\\u{"), "{:?}", &kept[kept.len() - 8..]);
+        assert!(kept.chars().all(|c| c.is_ascii_graphic()));
+        assert_eq!(more, "\u{2026} 5 more bytes are in the session's log");
+        // A result is bounded first and spelled after, so its cut falls on
+        // the file's own characters: an `ESC` cut from its `[2J` is `\x1b`.
+        let raw = format!("{}\u{1b}[2J", "a".repeat(RESULT_BYTES - 1));
+        let Detail::Result(text) = result("read_file", &raw).made_inert() else {
+            panic!("not a result");
+        };
+        let (kept, _) = text.split_once('\n').expect("the bound's line");
+        assert!(kept.ends_with("a\\x1b"), "{:?}", &kept[kept.len() - 8..]);
+        assert!(!text.contains('\u{1b}'));
+        // And a row can break inside a spelling: each piece is ASCII, and
+        // the rows read back to it.
+        for (rows, width) in [
+            (railed("\\u{202e}", " ", 6, DARK), 6),
+            (literal("\\u{202e}", 7, DARK), 7),
+        ] {
+            let rows = plain(&rows);
+            assert!(rows.len() > 1, "{rows:?}");
+            let joined: String = rows
+                .iter()
+                .map(|row| row.trim_start_matches('\u{2502}').trim_start())
+                .collect();
+            assert_eq!(joined, "\\u{202e}", "{rows:?}");
+            for row in &rows {
+                assert!(wrap::width(row) <= width, "{row:?}");
+                assert!(row
+                    .chars()
+                    .skip(1)
+                    .all(|c| c.is_ascii_graphic() || c == ' '));
+            }
+        }
     }
 
     #[test]
@@ -3259,6 +4393,42 @@ mod tests {
         assert_eq!(
             plain(&railed("a\n\nb", " ", 40, DARK)),
             ["\u{2502} a", "\u{2502} ", "\u{2502} b"]
+        );
+    }
+
+    #[test]
+    fn a_command_lines_tab_loses_no_character_when_its_word_moves_down() {
+        // T-U1-SAFE review (gpt6, MUST 1): a tab measured where it stood, then
+        // moved down with its word by the reflow (`reflowAtWordBreak`,
+        // `assistant_wrap.zig:729-775@481104fd`), must not be drawn wider
+        // where it lands and cut a character off the row's end.
+        for line in [
+            "aaa b\t1234567890123",
+            "aaaa bbbbbb\t123456789012",
+            "aaaaaaaaaa b\t12345678901234567890",
+            "aa b\tc\td 12345678901234567 e\tf",
+        ] {
+            let sent: String = line.chars().filter(|c| !c.is_whitespace()).collect();
+            for cols in 8u16..=48 {
+                let rows = plain(&railed(line, " ", cols, DARK));
+                let kept: String = rows
+                    .iter()
+                    .flat_map(|row| row.chars().skip(1))
+                    .filter(|c| !c.is_whitespace())
+                    .collect();
+                assert_eq!(kept, sent, "{line:?} at {cols}: {rows:#?}");
+                for row in &rows {
+                    assert!(wrap::width(row) <= cols, "{line:?} at {cols}: {row:?}");
+                }
+            }
+        }
+        // fx's own row for the review's case: fx's wrap writes a tab as the
+        // spaces to its stop where it meets it (`assistant_wrap.zig:163-174`),
+        // so the word it moves down keeps that one space
+        // (`p5-transcript-safetab`).
+        assert_eq!(
+            plain(&railed("aaa b\t1234567890123", " ", 20, DARK)),
+            ["\u{2502} aaa", "\u{2502} b 1234567890123"]
         );
     }
 
@@ -3322,7 +4492,9 @@ mod tests {
                 detail: Detail::Arguments(vec![Argument {
                     name: "path".into(),
                     value: "a    b".into(),
-                    text: true,
+                    // The heading spells the tab `\x09`, so it never shows the
+                    // value as written.
+                    text: false,
                 }]),
             }
         );
@@ -3430,5 +4602,569 @@ mod tests {
                 assert!(wrap::width(&row) <= cols, "{cols}: {row:?}");
             }
         }
+    }
+
+    // -- v0.0.16: tool rows wrap (427d481f, 6f071dea, 78424464) -------------
+
+    /// The whole screen with no colour, `cols` wide and 40 rows high.
+    fn screen_at(record: &FullTranscript, cols: u16) -> Vec<String> {
+        plain(&record.rows(cols, 40, DARK, ""))
+    }
+
+    /// The record's rows on that screen, without the footer under them (whose
+    /// own text is cut with an ellipsis on a narrow screen).
+    fn record_at(record: &FullTranscript, cols: u16) -> Vec<String> {
+        let mut rows = screen_at(record, cols);
+        rows.truncate(Layout::of(40).viewport);
+        rows
+    }
+
+    fn with_arguments(record: &mut FullTranscript, id: &str, tool: &str, input: &Value) {
+        record.observe(&UiEvent::ToolDetail {
+            call_id: id.into(),
+            detail: Detail::Arguments(arguments(tool, input)),
+        });
+    }
+
+    #[test]
+    fn a_long_heading_wraps_under_its_rail_instead_of_being_cut() {
+        // `full projection wraps a long tool status instead of clipping it`
+        // (`full_transcript_screen.zig:969-995@481104fd`).
+        let mut record = record();
+        record.tool_started(
+            "c",
+            &command("printf a deliberately long query that reaches FULL_STATUS_TAIL"),
+        );
+        let rows = record_at(&record, 24);
+        let at = rows
+            .iter()
+            .position(|row| row.starts_with("\u{2514} Running printf a"))
+            .expect("the heading");
+        assert!(rows[at + 1].starts_with("  "), "{rows:?}");
+        assert!(rows.concat().contains("FULL_STATUS_TAIL"), "{rows:?}");
+        assert!(!rows.concat().contains('\u{2026}'), "{rows:?}");
+        for row in record.rows(24, 40, DARK, "") {
+            assert!(wrap::width(&row) <= 24, "{row:?}");
+        }
+    }
+
+    #[test]
+    fn a_groups_rows_wrap_under_their_tree_rail_and_keep_the_commands_colours() {
+        // `expanded rows wrap under their tree rail and keep command styling`
+        // (`tool_group_projection.zig:2053-2131@481104fd`), at 24 columns.
+        let first = "printf 'alpha beta gamma delta epsilon zeta eta theta'";
+        let last = "printf 'iota kappa lambda mu nu xi omicron pi rho'";
+        let mut record = record();
+        for (id, text) in [("c1", first), ("c2", last)] {
+            record.tool_started(id, &command(text));
+            record.tool_finished(id, true, "", Outcome::Exited(0), None);
+        }
+        let painted = record.rows(24, 40, DARK, "");
+        let rows = record_at(&record, 24);
+        assert!(!rows.concat().contains('\u{2026}'));
+        let header = rows
+            .iter()
+            .position(|row| row.starts_with('\u{25cf}'))
+            .expect("the header");
+        let first_child = rows
+            .iter()
+            .position(|row| row.starts_with('\u{251c}'))
+            .expect("the first call");
+        let last_child = rows
+            .iter()
+            .position(|row| row.starts_with('\u{2514}'))
+            .expect("the last call");
+        // The header itself is wider than 24 columns and wraps before the
+        // first call, under two blanks.
+        assert!(first_child > header + 1, "{rows:?}");
+        assert!(rows[header + 1].starts_with("  "), "{rows:?}");
+        assert!(last_child > first_child + 1, "{rows:?}");
+
+        let geometry = super::super::layout::solve(40, 120, 1).expect("a band");
+        let mut grid = super::super::grid::Grid::blank(40, 24);
+        for (index, row) in painted.iter().enumerate() {
+            grid.place_row(u16::try_from(index + 1).expect("line"), row, &geometry);
+        }
+        let colour =
+            |line: usize, column: u16| match grid.cell(u16::try_from(line + 1).unwrap(), column) {
+                Some(super::super::grid::Cell::Lead { sgr, .. }) => sgr.color().expect("a colour"),
+                other => panic!("row {line}, column {column}: {other:?}"),
+            };
+        let last_content = |line: usize| colour(line, wrap::width(&rows[line]));
+        // Each call is an entry of its own, under its own header: the first
+        // call's rows end at the blank row before the second's.
+        let first_end = first_child
+            + rows[first_child..]
+                .iter()
+                .position(String::is_empty)
+                .expect("the blank row after the first call");
+        assert!(first_end > first_child + 1, "{rows:?}");
+        // A call that is not the last continues under an unstyled rail, and
+        // its quoted argument keeps the string's colour across every wrap.
+        for (line, row) in rows
+            .iter()
+            .enumerate()
+            .take(first_end)
+            .skip(first_child + 1)
+        {
+            assert!(row.starts_with("\u{2502} "), "{row:?}");
+            assert_eq!(colour(line, 1), super::super::check::Color::Default);
+            let before = last_content(line - 1);
+            assert_ne!(before, super::super::check::Color::Default, "row {line}");
+            assert_eq!(colour(line, 3), before, "row {line}");
+        }
+        // The last call indents past its glyph.
+        let end = rows[last_child..]
+            .iter()
+            .position(String::is_empty)
+            .map_or(rows.len(), |blank| last_child + blank);
+        assert!(end > last_child + 1, "{rows:?}");
+        for row in &rows[last_child + 1..end] {
+            assert!(row.starts_with("  ") && !row.starts_with("   "), "{row:?}");
+        }
+        // Nothing is hidden: each call's rows hold its whole command.
+        let joined = |from: usize, to: usize| -> String {
+            rows[from..to]
+                .iter()
+                .map(|row| row.chars().skip(2).collect::<String>())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        assert_eq!(joined(first_child, first_end), format!("Ran {first}"));
+        assert_eq!(joined(last_child, end), format!("Ran {last}"));
+    }
+
+    #[test]
+    fn a_groups_header_wraps_instead_of_being_cut() {
+        // `expanded group headers wrap instead of clipping`
+        // (`tool_group_projection.zig:2133-2162@481104fd`), at 16 columns.
+        let mut record = record();
+        record.tool_started("r", &read("a.zig"));
+        record.tool_finished("r", true, "", Outcome::Finished, None);
+        record.tool_started("c", &command("zig build"));
+        record.tool_finished("c", true, "", Outcome::Exited(1), None);
+        let rows = record_at(&record, 16);
+        let header = rows
+            .iter()
+            .position(|row| row.starts_with('\u{25cf}'))
+            .expect("the header");
+        let first_child = rows
+            .iter()
+            .position(|row| row.starts_with('\u{251c}'))
+            .expect("the first call");
+        assert!(first_child > header + 1, "{rows:?}");
+        assert!(
+            rows[header..first_child].concat().contains("failed"),
+            "{rows:?}"
+        );
+        assert!(!rows.concat().contains('\u{2026}'));
+    }
+
+    #[test]
+    fn arguments_beside_a_heading_wider_than_the_screen_keep_their_rows() {
+        // `full projection keeps semantic arguments beside a wrapped tool
+        // heading` (`full_transcript_screen.zig:1046-1087@481104fd`): a
+        // heading wider than the screen never hides an argument.
+        let text = "printf a deliberately long command with FULL_ARGUMENT_TAIL";
+        let input = json!({"action": "exec", "command": text, "profile": "clean"});
+        let mut record = record();
+        with_arguments(&mut record, "c", "terminal", &input);
+        record.tool_started("c", &command(text));
+        record.tool_finished("c", true, "", Outcome::Exited(0), None);
+        let rows = record_at(&record, 24).concat();
+        assert!(rows.contains("FULL_ARGUMENT_TAIL"));
+        assert!(!rows.contains('\u{2026}'));
+        assert!(rows.contains("command: printf"), "{rows}");
+        assert!(!rows.contains("action: exec"));
+        assert!(rows.contains("profile: clean"));
+        assert!(!rows.contains("{\"command\""));
+
+        // The same call at a width its heading fits: the command is the
+        // heading's, and has no row of its own.
+        let rows = screen_at(&record, 120);
+        assert!(rows
+            .iter()
+            .any(|row| row == &format!("\u{2514} Ran {text}")));
+        assert!(!rows.concat().contains("command: printf"), "{rows:?}");
+    }
+
+    #[test]
+    fn a_short_argument_a_long_heading_contains_by_chance_keeps_its_row() {
+        // `full projection keeps short session input that a long heading
+        // contains by chance` (`full_transcript_screen.zig:1089-1128@481104fd`,
+        // a terminal session's `chars: y` inside `python3`). xfx's terminal
+        // has no sessions; the rule is the same for any short text value.
+        let launch = "cd . && python3 - <<'PYEOF' import pathlib led = pathlib.Path(\"docs/workflows/ledger.md\"); s = led.read_text() old = \"Fixed in draft\" assert old in s";
+        let input = json!({"action": "exec", "command": launch, "chars": "y"});
+        let mut record = record();
+        with_arguments(&mut record, "c", "terminal", &input);
+        record.tool_started("c", &command(launch));
+        record.tool_finished("c", true, "", Outcome::Exited(0), None);
+        let rows = screen_at(&record, 80).concat();
+        assert!(rows.contains("Ran cd . && python3"), "{rows}");
+        assert!(rows.contains("chars: y"), "{rows}");
+        // The rule's other half: an empty value is never "shown already".
+        let input = json!({"action": "exec", "command": "ls", "note": ""});
+        let mut record = self::record();
+        with_arguments(&mut record, "c", "terminal", &input);
+        record.tool_started("c", &command("ls"));
+        record.tool_finished("c", true, "", Outcome::Exited(0), None);
+        assert!(
+            screen_at(&record, 80)
+                .iter()
+                .any(|row| row == "\u{2502}  note:"),
+            "{:?}",
+            screen_at(&record, 80)
+        );
+    }
+
+    #[test]
+    fn tool_rows_fit_the_narrowest_screens() {
+        // A prefix wider than the room is left off, and a wide character a
+        // row cannot hold is a `?` (`transcript_blocks.zig:922-923,941@481104fd`).
+        let mut record = record();
+        record.tool_started("c", &command("echo \u{65e5}\u{672c} wide words"));
+        record.tool_started("d", &command("ls"));
+        for cols in 1u16..=6 {
+            let rows = record.rows(cols, 40, DARK, "");
+            for row in &rows {
+                assert!(wrap::width(row) <= cols, "{cols}: {row:?}");
+            }
+        }
+        assert!(screen_at(&record, 1).concat().contains('?'));
+    }
+
+    // -- v0.0.16: the reading position holds (026a8f4e, b1a53b01) ----------
+
+    /// `p5-transcript-anchormid`'s record: the session's, a prompt, five reads
+    /// of twelve lines each and a command whose `Running` heading is wider
+    /// than 120 columns and whose `Ran` one is not.
+    fn reading_session(prompt: &str) -> FullTranscript {
+        let mut record = record();
+        record.welcome();
+        record.full_detail(Notice::neutral(
+            "session",
+            "provider: gateway \u{b7} model: fake/model-a\nmcp: none",
+        ));
+        record.prompt(prompt);
+        for name in ["a", "b", "c", "d", "e"] {
+            let id = format!("r{name}");
+            record.tool_started(&id, &read(&format!("{name}.txt")));
+            let lines: String = (1..=12)
+                .map(|n| format!("{name} line {n} of the {name} file\n"))
+                .collect();
+            record.observe(&UiEvent::ToolDetail {
+                call_id: id.clone(),
+                detail: Detail::Result(lines),
+            });
+            record.tool_finished(&id, true, "", Outcome::Finished, None);
+        }
+        let words: Vec<String> = (0..24).map(|n| format!("w{n:02}")).collect();
+        let long = format!("sleep 9; echo  {} zz", words.join(" "));
+        with_arguments(
+            &mut record,
+            "c",
+            "terminal",
+            &json!({"action": "exec", "command": long}),
+        );
+        record.tool_started("c", &command(&long));
+        record
+    }
+
+    /// What arrives while the reader is a page up: the command settles (its
+    /// heading loses a row), a `* network:` record lands above every entry,
+    /// and the answer lands below.
+    fn settle_under(record: &mut FullTranscript) {
+        record.full_detail(Notice::neutral(
+            "network",
+            "provider: gateway \u{b7} model: fake/model-a \u{b7} 14ms\nfinish: tool_calls\ntokens: 1200 in \u{b7} 40 out",
+        ));
+        record.tool_finished("c", true, "", Outcome::Exited(0), None);
+        record.answer("Done reading.");
+        record.turn_over();
+    }
+
+    #[test]
+    fn the_reading_position_holds_when_the_page_rebuilds_above_and_below_it() {
+        // fx v0.0.16 `p5-transcript-anchormid` `full-pgup` and
+        // `full-pgup-after`: row 1 is `│  9     a line 9 of the a file` in
+        // both; c1db919 jumped five rows to `a line 3`.
+        let mut record = reading_session("read and wait");
+        record.open();
+        let tail = screen(&record);
+        assert_eq!(record.key(Action::PageUp, 120, 40, DARK), Reply::Moved);
+        let before = screen(&record);
+        settle_under(&mut record);
+        let after = screen(&record);
+        // The hold first, so that a build without the wrap (one whose
+        // heading never changes height) is held to it too.
+        assert_eq!(after[..36], before[..36]);
+        // And it still moves from where it is.
+        assert_eq!(record.key(Action::Down, 120, 40, DARK), Reply::Moved);
+        assert_eq!(screen(&record)[0], before[3]);
+        // What the rebuild changed below the view: the `Running` heading,
+        // two rows wrapped, is a `Ran` one of one row.
+        let heading = tail
+            .iter()
+            .position(|row| row.starts_with("\u{2514} Running sleep 9;"))
+            .expect("the heading");
+        assert_eq!(tail[heading + 1], "  zz", "the heading wraps to two rows");
+    }
+
+    #[test]
+    fn a_position_inside_the_records_keeps_its_offset() {
+        // b1a53b01: the records share one id, so a reader among them keeps
+        // the row offset; a record that lands after them moves nothing above.
+        let mut record = reading_session("read and wait");
+        record.full_detail(Notice::neutral(
+            "network",
+            "first request\nfinish: tool_calls",
+        ));
+        record.open();
+        while record.key(Action::PageUp, 120, 40, DARK) == Reply::Moved {}
+        let top = screen(&record);
+        // One row into the second record: `finish: tool_calls`.
+        let at = top
+            .iter()
+            .position(|row| row == "  finish: tool_calls")
+            .expect("the second record's second row");
+        let view = record.view.as_ref().expect("open");
+        view.reading.set(Reading {
+            scroll_rows: at,
+            follow_tail: false,
+            ..Reading::default()
+        });
+        let before = screen(&record);
+        assert_eq!(before[0], "  finish: tool_calls");
+        // A third record lands after the second, the command settles and the
+        // answer lands: the reader is not sent back to the first record.
+        settle_under(&mut record);
+        let after = screen(&record);
+        assert_eq!(after[..2], before[..2], "{after:?}");
+        assert!(after[2].contains("Notice"), "{after:?}");
+    }
+
+    #[test]
+    fn a_reader_among_the_records_keeps_its_row_when_the_width_changes() {
+        // fx v0.0.16 `p5-transcript-records`: from the top, Down once puts
+        // the `* session:` record's first row at row 1; at 80 columns and
+        // back at 120 it is still row 1 (`a_width_change_is_a_rebuild` in
+        // `position`'s docs).
+        let mut record = reading_session("read and wait");
+        settle_under(&mut record);
+        record.open();
+        while record.key(Action::PageUp, 120, 40, DARK) == Reply::Moved {}
+        assert_eq!(record.key(Action::Down, 120, 40, DARK), Reply::Moved);
+        let wide = screen(&record);
+        assert!(wide[0].starts_with("* session:"), "{wide:?}");
+        let narrow = screen_at(&record, 80);
+        assert!(narrow[0].starts_with("* session:"), "{narrow:?}");
+        assert_eq!(screen(&record)[0], wide[0]);
+    }
+
+    #[test]
+    fn a_width_change_keeps_the_entry_the_reader_was_in() {
+        // A width change is a rebuild: the position is pinned on the page
+        // laid out at the old width and found on the new one
+        // (`presentationForRebuiltPage`, `transcript/runtime.zig:
+        // 11584-11590@481104fd`). At 80 columns the prompt above the view
+        // takes another row and the answer below it two more; the reader
+        // stays in the same line of the same read.
+        let mut record = reading_session(&"read and wait ".repeat(14));
+        record.answer(&"tail words ".repeat(30));
+        record.open();
+        record.key(Action::PageUp, 120, 40, DARK);
+        let wide = screen(&record);
+        let narrow = screen_at(&record, 80);
+        assert_eq!(narrow[0], wide[0]);
+        assert_eq!(screen(&record)[..36], wide[..36]);
+        // At the tail, a width change keeps the tail.
+        while record.key(Action::PageDown, 120, 40, DARK) == Reply::Moved {}
+        let narrow = screen_at(&record, 80);
+        assert!(narrow[35].trim_end().ends_with("tail words"), "{narrow:?}");
+    }
+
+    // -- CALLROW-SAFE: a call's own row, this screen's heading --------------
+
+    /// `p5-call-row-safe`'s step: a command, a glob pattern and a read path,
+    /// each with a right-to-left override, a left-to-right isolate, the
+    /// Arabic letter mark, `ESC[2J`, a bare carriage return, a tab and the C1
+    /// `U+009B`, and each call's arguments as the bridge hands them over. The
+    /// read fails; its reason quotes the path.
+    fn unsafe_heading_record() -> FullTranscript {
+        let command_text =
+            "printf '%s' 'A\u{202e}B\u{2066}C\u{061c}D\u{1b}[2JE\rF\tG\u{9b}H' >/dev/null";
+        let pattern = "n\u{202e}o\u{2066}p\u{061c}q\u{1b}7r\ts\u{9b}t\ru*.md";
+        let path = "m\u{202e}n\u{2066}o\u{061c}p\u{1b}[2Jq\tr\u{9b}s\rt.txt";
+        let mut record = record();
+        let calls = [
+            (
+                "c",
+                "terminal",
+                json!({"action": "exec", "command": command_text}),
+                command(command_text),
+            ),
+            (
+                "g",
+                "glob_files",
+                json!({ "pattern": pattern }),
+                read::GLOB_FILES.shown(&json!({ "pattern": pattern })),
+            ),
+            ("r", "read_file", json!({ "path": path }), read(path)),
+        ];
+        for (id, tool, input, shown) in &calls {
+            record.tool_started(id, shown);
+            record.observe(&UiEvent::ToolDetail {
+                call_id: (*id).into(),
+                detail: Detail::Arguments(arguments(tool, input)).made_inert(),
+            });
+        }
+        record.tool_finished("c", true, "", Outcome::Exited(0), None);
+        record.tool_finished("g", true, "", Outcome::Finished, None);
+        let reason = format!("Path not found: {path}");
+        record.tool_finished("r", false, &reason, Outcome::Finished, None);
+        record
+    }
+
+    #[test]
+    fn a_calls_heading_is_spelled_as_its_transcript_row_is_at_any_width() {
+        // fx's heading here is the status phrase its transcript row is made
+        // from (`formatExpandedChild`, `tool_group_projection.zig:788-820
+        // @481104fd`), wrapped and never cut: the command as
+        // `encodeTerminalSafe` wrote it (`p5-call-row-safe-…-full`). The
+        // pattern and the path are spelled the same way here, where fx's
+        // are raw (ledger `call-row-raw-argument`); so is the Arabic letter
+        // mark. The argument rows stay: fx finds none of the three raw values
+        // in its heading (`argumentVisibleInToolHeading`).
+        let record = unsafe_heading_record();
+        for cols in [10u16, 24, 80, 120] {
+            for row in record.rows(cols, 400, DARK, "") {
+                assert!(wrap::width(&row) <= cols, "{cols}: {row:?}");
+                assert!(!row.chars().any(obeyed_or_hidden), "{cols}: {row:?}");
+                assert!(only_colours(&row), "{cols}: {row:?}");
+            }
+        }
+        let rows = plain(&record.rows(240, 400, DARK, ""));
+        for row in [
+            r"├ Ran printf '%s' 'A\u{202e}B\u{2066}C\u{061c}D\x1b[2JE F\x09G\u{009b}H' >/dev/null",
+            r"│  command: printf '%s' 'A\u{202e}B\u{2066}C\u{061c}D\x1b[2JE\x0dF    G\u{009b}H' >/dev/null",
+            r"├ Matched n\u{202e}o\u{2066}p\u{061c}q\x1b7r\x09s\u{009b}t\x0du*.md",
+            r"│  pattern: n\u{202e}o\u{2066}p\u{061c}q\x1b7r    s\u{009b}t\x0du*.md",
+            r"└ Failed m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq\x09r\u{009b}s\x0dt.txt: Path not found: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq r\u{009b}s t.txt",
+            r"│  path: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq    r\u{009b}s\x0dt.txt",
+        ] {
+            assert!(rows.iter().any(|shown| shown == row), "{row}\n{rows:#?}");
+        }
+    }
+
+    #[test]
+    fn a_value_the_heading_had_to_spell_is_never_shown_by_it_already() {
+        // `argumentVisibleInToolHeading` (`full_transcript_screen.zig:
+        // 6594-6619@481104fd`) looks for the value as the model wrote it in
+        // the heading fx spelled: one that holds anything `encodeTerminalSafe`
+        // names -- a mark with no control beside it, here -- is never found,
+        // and keeps its row. The heading is spelled here too, so the value is
+        // judged as it was written, not as this screen spells it
+        // (`Argument::text`). The Arabic letter mark, which fx writes as
+        // itself, is named in this heading, so its value keeps its row too.
+        for (tool, input, shown, row) in [
+            (
+                "terminal",
+                json!({"action": "exec", "command": "echo A\u{202e}B"}),
+                command("echo A\u{202e}B"),
+                Some(r"│  command: echo A\u{202e}B"),
+            ),
+            (
+                "terminal",
+                json!({"action": "exec", "command": "echo A\u{061c}B"}),
+                command("echo A\u{061c}B"),
+                Some(r"│  command: echo A\u{061c}B"),
+            ),
+            (
+                "terminal",
+                json!({"action": "exec", "command": "echo plain"}),
+                command("echo plain"),
+                None,
+            ),
+            (
+                "read_file",
+                json!({"path": "a\u{2066}b.txt"}),
+                read("a\u{2066}b.txt"),
+                Some(r"│  path: a\u{2066}b.txt"),
+            ),
+            (
+                "read_file",
+                json!({"path": "plain.txt"}),
+                read("plain.txt"),
+                None,
+            ),
+        ] {
+            let mut record = record();
+            record.tool_started("c", &shown);
+            record.observe(&UiEvent::ToolDetail {
+                call_id: "c".into(),
+                detail: Detail::Arguments(arguments(tool, &input)).made_inert(),
+            });
+            record.tool_finished("c", true, "", Outcome::Exited(0), None);
+            let rows = screen_at(&record, 120);
+            let arguments: Vec<&String> = rows
+                .iter()
+                .filter(|line| line.starts_with("\u{2502}  "))
+                .collect();
+            match row {
+                Some(row) => assert_eq!(arguments, [row], "{input}"),
+                None => assert_eq!(arguments, Vec::<&String>::new(), "{input}"),
+            }
+        }
+        // fx looks in the status entry's own bytes, whose command is its
+        // first 120 spelled (`formatRunCommandActivity`,
+        // `src/core/tooling/tool_presentation.zig:393-416@481104fd`), not in
+        // the command the heading shows whole: past them the status ends
+        // `...` and holds no whole command, so the command keeps its row on a
+        // screen the heading fits, as on fx's.
+        // A command of 120 bytes is still whole there; one of 121 is not.
+        for (length, kept) in [(120, false), (121, true), (150, true)] {
+            let text = format!("echo {}", "a".repeat(length - 5));
+            let mut record = record();
+            record.tool_started("c", &command(&text));
+            with_arguments(
+                &mut record,
+                "c",
+                "terminal",
+                &json!({"action": "exec", "command": text}),
+            );
+            record.tool_finished("c", true, "", Outcome::Exited(0), None);
+            let rows = screen_at(&record, 200);
+            assert!(
+                rows.contains(&format!("\u{2514} Ran {text}")),
+                "{length}: {rows:#?}"
+            );
+            let row = format!("\u{2502}  command: {text}");
+            assert_eq!(rows.contains(&row), kept, "{length}: {rows:#?}");
+        }
+    }
+
+    #[test]
+    fn a_command_read_only_in_part_hides_no_argument_fxs_status_would_show() {
+        // CALLROW-SAFEc: fx's 120-byte status phrase marks nothing of a
+        // command it stopped reading at 14 400 bytes (`formatRunCommandDetailBounded`,
+        // `src/core/tooling/tool_presentation.zig:441-445@481104fd`, the
+        // marker only the encoder's): `ls`, 14 400 line breaks and `x` is the
+        // status `ls`, which holds no `.`, so `cwd: .` keeps its row on fx. The
+        // row here ends `...` (`call-row-source-cut`), and a status that ended
+        // so too would find the `.` in it.
+        let text = format!("ls{}x", "\n".repeat(14_400));
+        let input = json!({"action": "exec", "command": text, "cwd": "."});
+        let mut record = record();
+        record.tool_started("c", &command(&text));
+        with_arguments(&mut record, "c", "terminal", &input);
+        record.tool_finished("c", true, "", Outcome::Exited(0), None);
+        // The whole record: the `command:` row is 14 400 rows of its own.
+        let rows = plain(&record.rows(120, 20_000, DARK, ""));
+        assert!(
+            rows.contains(&"\u{2514} Ran ls...".to_string()),
+            "{rows:#?}"
+        );
+        assert!(rows.contains(&"\u{2502}  cwd: .".to_string()), "{rows:#?}");
     }
 }

@@ -1,0 +1,40 @@
+[1m[38;5;235mx𝒇x[0m[38;5;247m v0.1.0-02b4619 [38;5;235m[debug][38;5;247m · Run /help for commands[39m
+
+[38;5;247m  2026-11-07 01:12:54.212 UTC · Notice[39m
+[38;5;241m* session: provider: gateway · model: fake/model-a · effort: auto[39m
+  [38;5;241mtools: 13 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,[39m
+  [38;5;241m+5 more)[39m
+  [38;5;241mmcp: none[39m
+
+[38;5;247m  2026-11-07 01:13:00.666 UTC · Notice[39m
+[38;5;241m* network: provider: gateway · model: fake/model-a · 1364ms[39m
+  [38;5;241mfinish: stop[39m
+  [38;5;241mtokens: 1200 in · 40 out[39m
+
+[38;5;247m  2026-11-07 01:12:59.242 UTC · Prompt[39m
+[38;5;235m┃[39m [1mshow me the list[0m
+
+[38;5;247m  2026-11-07 01:12:59.490 UTC · Response[39m
+  Run [38;5;235mzig build test[39m before you push, and read [38;5;235msrc/ui/render.zig[39m first.
+
+  Steps:
+
+  [2m1.[0m Step 1 runs [38;5;235mcmd-1 --flag[39m on the tree
+  [2m2.[0m Step 2 runs [38;5;235mcmd-2 --flag[39m on the tree
+  [2m3.[0m Step 3 runs [38;5;235mcmd-3 --flag[39m on the tree
+  [2m4.[0m Step 4 runs [38;5;235mcmd-4 --flag[39m on the tree
+  [2m5.[0m Step 5 runs [38;5;235mcmd-5 --flag[39m on the tree
+  [2m6.[0m Step 6 runs [38;5;235mcmd-6 --flag[39m on the tree
+  [2m7.[0m Step 7 runs [38;5;235mcmd-7 --flag[39m on the tree
+  [2m8.[0m Step 8 runs [38;5;235mcmd-8 --flag[39m on the tree
+  [2m9.[0m Step 9 runs [38;5;235mcmd-9 --flag[39m on the tree
+  [2m10.[0m Step 10 runs [38;5;235mcmd-10 --flag[39m on the tree
+  [2m11.[0m Step 11 runs [38;5;235mcmd-11 --flag[39m on the tree
+  [2m12.[0m Step 12 runs [38;5;235mcmd-12 --flag[39m on the tree
+
+  A list that starts at nine:
+
+
+[38;5;235m┃[39m [38;5;241mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;238mauto[38;5;241m · model-a[39m

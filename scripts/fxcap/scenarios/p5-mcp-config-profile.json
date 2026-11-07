@@ -1,0 +1,1 @@
+{"theme":"dark","mcp":{"old":{"type":"local","command":["@BUN@","@SCENARIOS@/p5-mcp-stdio.ts"],"enabled":true,"startup_timeout_ms":30000,"operation_timeout_ms":60000,"restart_limit":1}},"n":1.50,"e":-0.5E+10,"s":"café \/ \u001f 😀 tab\t","empty":{},"list":[],"nested":[[1,{"a":null,"b":false}]]}

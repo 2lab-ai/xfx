@@ -1,0 +1,40 @@
+x𝒇x v0.1.0 [debug] · Run /help for commands
+
+Project MCP server 'proj' is defined in .mcp.json.
+  command: <bun>
+↳ <scenarios>/p5-mcp-stdio.ts
+  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts
+
+* mcp: Project MCP approval prompts dismissed for this process.
+
+* usage: /mcp [list|resource|prompt|add|remove|path|reload|auth|logout|trust]
+
+* usage: /mcp [list|resource|prompt|add|remove|path|reload|auth|logout|trust]
+
+* usage: /mcp [list|resource|prompt|add|remove|path|reload|auth|logout|trust]
+
+┃
+
+auto · model-a                                                                       proj is waiting for approval · /mcp
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

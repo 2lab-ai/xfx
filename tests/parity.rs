@@ -34,6 +34,9 @@ struct Row {
     /// Every backticked identifier in the surface column, which for a grouped
     /// row is the list of surfaces it actually covers.
     mentioned: Vec<String>,
+    /// The upstream aliases the notes name (`Alias: `name``), which are
+    /// surfaces with no cell of their own.
+    aliases: Vec<String>,
 }
 
 fn parity_path() -> PathBuf {
@@ -64,11 +67,16 @@ fn rows() -> Vec<Row> {
         }
         let mentioned = backticked(surface);
         let name = surface.trim_matches('`').to_string();
+        // The notes are every cell after the status, rejoined: a usage string
+        // escapes its `|` as `\|`, which this split cuts at too.
+        let notes = cells[4..cells.len() - 1].join("|");
+        let aliases = aliases_in(&notes);
         rows.push(Row {
             name,
             kind: kind.to_string(),
             status: status.to_string(),
             mentioned,
+            aliases,
         });
     }
     assert!(rows.len() > 40, "the ledger looks unparsed: {}", rows.len());
@@ -86,6 +94,36 @@ fn backticked(text: &str) -> Vec<String> {
         rest = &after[close + 1..];
     }
     found
+}
+
+/// The aliases a row's notes declare: the text `Alias: ` (or `Aliases: `) and
+/// then backticked names separated by `, ` -- the grammar
+/// `scripts/check-no-stubs.sh` reads. A marker that names nothing is a broken
+/// ledger, not a row without aliases.
+fn aliases_in(notes: &str) -> Vec<String> {
+    let Some(at) = ["Alias: ", "Aliases: "]
+        .iter()
+        .filter_map(|marker| notes.find(marker).map(|at| at + marker.len()))
+        .min()
+    else {
+        return Vec::new();
+    };
+    let mut aliases = Vec::new();
+    let mut rest = &notes[at..];
+    while let Some(after) = rest.strip_prefix('`') {
+        let Some(close) = after.find('`') else { break };
+        aliases.push(after[..close].to_string());
+        rest = &after[close + 1..];
+        match rest.strip_prefix(", ") {
+            Some(next) => rest = next,
+            None => break,
+        }
+    }
+    assert!(
+        !aliases.is_empty(),
+        "an `Alias:` names no backticked command: {notes}"
+    );
+    aliases
 }
 
 /// The names of every row of one kind and status.
@@ -112,6 +150,24 @@ fn deferred_identifiers(kinds: &[&str]) -> BTreeSet<String> {
     assert!(
         !found.is_empty(),
         "no deferred {kinds:?} names parsed out of the ledger"
+    );
+    found
+}
+
+/// The upstream aliases of every deferred command: names upstream answers that
+/// xfx must refuse as it refuses any name it has never heard of.
+///
+/// Empty is a parsing failure for the same reason as in
+/// [`deferred_identifiers`]: `upgrade` carries `update` (fx v0.0.16).
+fn deferred_command_aliases() -> BTreeSet<String> {
+    let found: BTreeSet<String> = rows()
+        .into_iter()
+        .filter(|row| row.kind == "command" && row.status == "deferred")
+        .flat_map(|row| row.aliases)
+        .collect();
+    assert!(
+        found.contains("update"),
+        "the ledger no longer names `update` as an alias of `upgrade`: {found:?}"
     );
     found
 }
@@ -154,9 +210,14 @@ fn every_row_carries_a_known_kind_and_status() {
 
 #[test]
 fn every_surface_has_exactly_one_row() {
+    // An alias is a surface name too: one that is also a row, or the alias of
+    // two rows, is a name with two answers.
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
     for row in rows() {
         *counts.entry(row.name).or_default() += 1;
+        for alias in row.aliases {
+            *counts.entry(alias).or_default() += 1;
+        }
     }
     let repeated: Vec<&String> = counts
         .iter()
@@ -192,12 +253,36 @@ fn the_declared_command_inventory_matches_the_real_parser() {
     );
 }
 
+/// Every name a deferred command row stands for: its own and its aliases.
+fn deferred_command_names() -> BTreeSet<String> {
+    let mut names = deferred_identifiers(&["command"]);
+    names.extend(deferred_command_aliases());
+    names
+}
+
+#[test]
+fn only_a_deferred_command_row_names_an_alias() {
+    // An alias xfx answered would be a clap alias, which neither the parser's
+    // name list nor `scripts/check-no-stubs.sh` can see; until one is
+    // reconciled against the parser, an alias is only ever a name refused.
+    for row in rows() {
+        assert!(
+            row.aliases.is_empty() || (row.kind == "command" && row.status == "deferred"),
+            "the `{}` row ({} {}) names aliases {:?}",
+            row.name,
+            row.kind,
+            row.status,
+            row.aliases
+        );
+    }
+}
+
 #[test]
 fn no_deferred_command_is_reachable_or_advertised() {
     let advertised = advertised_commands();
     let help = help_text();
     let listed = help_command_names(&help);
-    for name in deferred_identifiers(&["command"]) {
+    for name in deferred_command_names() {
         assert!(
             !advertised.contains(&name),
             "`{name}` is deferred but reachable"
@@ -205,6 +290,86 @@ fn no_deferred_command_is_reachable_or_advertised() {
         assert!(
             !listed.contains(&name),
             "`{name}` is deferred but listed in help"
+        );
+    }
+}
+
+/// What the built binary does with `args`, in an empty profile and workspace
+/// and an environment with nothing in it but `HOME` and `PATH`, so nothing it
+/// does can read or change a real profile or reach a credential.
+fn run_xfx(args: &[&str]) -> std::process::Output {
+    let root = tempfile::TempDir::new().expect("create a scratch root");
+    let home = root.path().join("home");
+    let workspace = root.path().join("workspace");
+    fs::create_dir_all(&home).expect("create home");
+    fs::create_dir_all(&workspace).expect("create workspace");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+    command
+        .args(args)
+        .current_dir(&workspace)
+        .env_clear()
+        .env("HOME", &home)
+        .env("PATH", "/usr/bin:/bin");
+    xfx::process::output(&mut command).expect("spawn xfx")
+}
+
+/// A refusal's text with the refused name taken out, and clap's `tip:`
+/// paragraph with it: clap adds one for any unknown name that is close to a
+/// real one (`teams` and `setup`), so it says which names exist, not which
+/// path the parser took.
+fn refusal_shape(stderr: &[u8], name: &str) -> String {
+    let text = String::from_utf8_lossy(stderr).replace(&format!("'{name}'"), "'<name>'");
+    let mut shape = Vec::new();
+    let mut lines = text.lines().peekable();
+    while let Some(line) = lines.next() {
+        if line.trim_start().starts_with("tip:") {
+            if lines.peek().is_some_and(|next| next.is_empty()) {
+                lines.next();
+            }
+            continue;
+        }
+        shape.push(line);
+    }
+    shape.join("\n")
+}
+
+#[test]
+fn every_deferred_command_and_alias_is_refused_like_an_unknown_name() {
+    // The parser's name list (`parser_command_names`) reads only each
+    // subcommand's own name, and `scripts/check-no-stubs.sh` reads only source
+    // text, so a clap alias -- `xfx update` quietly running some other command
+    // -- is invisible to both. Running the name is the only check that sees
+    // it: the answer must be the parser's unknown-command path, byte for byte
+    // what a name nobody ever defined gets.
+    let unknown = "xfx-no-such-command";
+    let baseline = run_xfx(&[unknown]);
+    assert_eq!(
+        baseline.status.code(),
+        Some(1),
+        "an unknown name must exit 1"
+    );
+    let expected = refusal_shape(&baseline.stderr, unknown);
+    assert!(
+        expected.contains("unrecognized subcommand '<name>'"),
+        "the unknown-command refusal has changed shape: {expected}"
+    );
+    for name in deferred_command_names() {
+        let run = run_xfx(&[&name]);
+        assert_eq!(
+            run.status.code(),
+            Some(1),
+            "`xfx {name}` must exit 1 as an unknown name does; stdout {:?}",
+            String::from_utf8_lossy(&run.stdout)
+        );
+        assert!(
+            run.stdout.is_empty(),
+            "`xfx {name}` must write nothing to stdout: {:?}",
+            String::from_utf8_lossy(&run.stdout)
+        );
+        assert_eq!(
+            refusal_shape(&run.stderr, &name),
+            expected,
+            "`xfx {name}` must be refused exactly as an unknown name is"
         );
     }
 }

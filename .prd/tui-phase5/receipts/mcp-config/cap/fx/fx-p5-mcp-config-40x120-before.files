@@ -1,0 +1,4 @@
+=== ~/.fx/mcp-credentials/credentials-v3.lock (0 bytes)
+=== ~/.fx/mcp.json (378 bytes)
+{"theme":"dark","mcp":{"old":{"type":"local","command":["<bun>","<scenarios>/p5-mcp-stdio.ts"],"enabled":true,"startup_timeout_ms":30000,"operation_timeout_ms":60000,"restart_limit":1}},"n":1.50,"e":-0.5E+10,"s":"café \/ \u001f 😀 tab\t","empty":{},"list":[],"nested":[[1,{"a":null,"b":false}]]}
+

@@ -5,6 +5,7 @@ usage: scripts/fxcap/test-sweep.sh   (python3 -I scripts/fxcap/test_sweep.py)
 """
 
 import atexit
+import datetime
 import glob
 import hashlib
 import json
@@ -167,6 +168,8 @@ class Normalize(unittest.TestCase):
             ("  2s (↑6 ↓40)", "  1s (↑6 ↓40)"),
             ("• Generating (3s) (↑4 ↓6)", "  Generating (4s) (↑4 ↓6)"),
             ("  2026-11-03 12:45:01.234 UTC · Tool", "  2026-11-03 12:46:11.004 UTC · Tool"),
+            ("  2026-11-03 21:45:01.234 KST · Prompt", "  2026-11-03 21:46:11.004 KST · Prompt"),
+            ("  2026-11-03 18:15:01.234 +0530 · Tool", "  2026-11-03 18:16:11.004 +0530 · Tool"),
             ("Pane is dead (status 0, Tue Nov  3 21:51:45 2026)", "Pane is dead (status 0, Tue Nov  3 21:52:01 2026)"),
             ("Continue session with: fx --resume 9yclcdoOjcsQ", "Continue session with: xfx --resume 1793709927101-83b1c1b7b10564ac"),
             ("* network: provider: gateway · model: fake/model-a · 444ms", "* network: provider: gateway · model: fake/model-a · 101ms"),
@@ -183,6 +186,11 @@ class Normalize(unittest.TestCase):
             ("Pane is dead (status 0, Tue Nov  3 21:51:45 2026)", "Pane is dead (status 1, Tue Nov  3 21:52:01 2026)"),
             ("Continue session with: fx --resume 9yclcdoOjcsQ", "Continue session with: xfx --resume 9yclcdoOjcsQ"),
             ("~ Generating (3s) (↑4 ↓6)", "~ Thinking (3s) (↑4 ↓6)"),
+            # The out count of a turn still streaming: a held stream makes it the same on both.
+            ("• Generating (3s) (↑4 ↓61)", "  Generating (4s) (↑4 ↓63)"),
+            # The clock is the run's; the zone after it is the product's.
+            ("  2026-11-03 21:45:01.234 KST · Tool", "  2026-11-03 12:46:11.004 UTC · Tool"),
+            ("  2026-11-03 18:15:01.234 IST · Tool", "  2026-11-03 18:16:11.004 +0530 · Tool"),
         ):
             self.assertEqual(len(compare(fx, xfx, self.led)), 1, (fx, xfx))
 
@@ -420,6 +428,30 @@ class Ledger(unittest.TestCase):
         ):
             with self.assertRaises(ledgermod.LedgerError, msg=(kind, extra)):
                 ledgermod.load(ledger_file(LEDGER_TOML, cause % (kind, extra)), REPO)
+
+    def test_a_cause_past_its_date_covers_nothing(self):
+        cause = textwrap.dedent(
+            """
+            [[cause]]
+            id = "c"
+            kind = "unit"
+            owner = "U-1"
+            scenarios = ["*"]
+            snaps = ["*"]
+            fx_row = '^fx says'
+            why = "w"
+            %s
+            """
+        )
+        led = ledgermod.load(ledger_file(LEDGER_TOML, cause % 'expires = "date:2026-01-02"'), REPO)
+        live = lambda day: [c["id"] for c in ledgermod.live_causes(led, datetime.date(2026, 1, day))]
+        self.assertEqual(live(2), ["c"])
+        self.assertEqual(live(3), [])
+        led = ledgermod.load(ledger_file(LEDGER_TOML, cause % ""), REPO)
+        self.assertEqual([c["id"] for c in ledgermod.live_causes(led)], ["c"])
+        for bad in ('expires = "pin:b"', 'expires = "2026-01-02"', 'expires = "date:2026-02-30"'):
+            with self.assertRaises(ledgermod.LedgerError, msg=bad):
+                ledgermod.load(ledger_file(LEDGER_TOML, cause % bad), REPO)
 
     def test_the_repos_ledger_loads_and_every_source_it_cites_exists(self):
         led = ledgermod.load(LEDGER, REPO)
@@ -668,6 +700,45 @@ class Sweep(unittest.TestCase):
         r2, _ = self.sweep("--rescore", out=out)
         self.assertEqual(r2.returncode, 0, r2.stderr)
         self.assertEqual(self.board(out)["totals"], t)
+
+    def test_a_cause_past_its_date_attributes_no_row_of_a_sweep(self):
+        # `ok`'s snap `b` differs (each binary names itself). A cause covering
+        # both rows, past its date, attributes neither: they come back as rows
+        # no cause covers (sweep.py's `attribute` is handed `live_causes`).
+        # The same cause with no date takes them, on a rescore of the same
+        # captures.
+        cause = textwrap.dedent(
+            """
+            [[cause]]
+            id = "says"
+            kind = "unit"
+            owner = "U-1"
+            scenarios = ["ok"]
+            snaps = ["b"]
+            fx_row = '^fx says$'
+            xfx_row = '^xfx says$'
+            why = "w"
+            %s
+            """
+        )
+        pin = '[[pin]]\nname = "fake"\nversion = "9"\nsha256 = "%s"\n' % self.sha
+
+        def pair_b(out):
+            with open(os.path.join(out, "pairs.json")) as f:
+                return next(p for p in json.load(f) if p["scenario"] == "ok" and p["label"] == "b")
+
+        self.ledger = ledger_file(pin, cause % 'expires = "date:2000-01-01"')
+        r, out = self.sweep("--fx", self.fx, "--pin-sha", self.sha, "--only", "ok")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        b = pair_b(out)
+        self.assertEqual(b["verdict"], "unresolved-defect", b)
+        self.assertEqual(b["causes"], [], b)
+        self.assertEqual(sorted(text for _, _, text in b["unattributed"]), ["fx says", "xfx says"], b)
+        self.ledger = ledger_file(pin, cause % "")
+        r, _ = self.sweep("--rescore", out=out)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        b = pair_b(out)
+        self.assertEqual((b["causes"], b["unattributed"]), (["says"], []), b)
 
     def test_the_inventory_alone(self):
         r, out = self.sweep("--fx", self.fx, "--pin-sha", self.sha, "--inventory-only")

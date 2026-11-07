@@ -1,0 +1,123 @@
+# Each unit's committed GREEN xfx captures against the train's (bca3e793's build), cell by cell after the
+# ledger's xfx normalizations, both sides through redact.py. 40x120, and 40x60 for CALLROW-SAFE's; 'missing' = a frame or wire
+# file the sweep does not snap. Each DIFF is explained in README.md (Sweep: the units' own captures).
+  same    p5-lifecycle-relhome 40x120 h00-launch
+  same    p5-lifecycle-relhome 40x120 h01-sessions.full
+  same    p5-lifecycle-relhome-image 40x120 again
+  same    p5-lifecycle-relhome-image 40x120 sent
+  same    p5-lifecycle-relhome-made 40x120 h00-launch
+  same    p5-lifecycle-relhome-made 40x120 h01-turn
+  same    p5-lifecycle-relhome-made 40x120 h02-sessions.full
+  same    p5-lifecycle-relhome-resume 40x120 r00-resume.full
+  same    p5-lifecycle-relhome-unsaved 40x120 u00-launch
+  same    p5-lifecycle-relhome-unsaved 40x120 u01-turn
+  same    p5-lifecycle-relhome-unsaved 40x120 u02-status
+  same    p5-lifecycle-relhome-unsaved 40x120 u03-resume
+  same    p5-lifecycle-relhome-unsaved 40x120 u04-fork
+  same    p5-lifecycle-relhome-unsaved 40x120 u05-rename
+  same    p5-lifecycle-relhome-unsaved 40x120 u06-new
+  same    p5-lifecycle-relhome-unsaved 40x120 u07-turn
+  same    p5-lifecycle-relhome-unsaved 40x120 u08-quit.full
+.prd/tui-phase5/receipts/tui-unsaved/green: 17 of 17 captures the same
+  same    p5-inline-code-retint-light-tc 40x120 dark
+  same    p5-inline-code-retint-light-tc 40x120 light-again
+  same    p5-inline-code-retint-light-tc 40x120 light
+  same    p5-inline-code-retint-tc 40x120 dark-again
+  same    p5-inline-code-retint-tc 40x120 dark
+  same    p5-inline-code-retint-tc 40x120 light
+  same    p5-inline-code-table-light-tc 40x120 dark
+  same    p5-inline-code-table-light-tc 40x120 light-again
+  same    p5-inline-code-table-light-tc 40x120 light
+  same    p5-inline-code-table-tc 40x120 dark-again
+  same    p5-inline-code-table-tc 40x120 dark
+  same    p5-inline-code-table-tc 40x120 light
+.prd/tui-phase5/receipts/inline-code-truecolor/xfx: 12 of 12 captures the same
+  same    p5-toolgroup-retint 40x120 dark-again
+  same    p5-toolgroup-retint 40x120 dark
+  same    p5-toolgroup-retint 40x120 light
+  same    p5-toolgroup-retint-light 40x120 dark
+  same    p5-toolgroup-retint-light 40x120 light-again
+  same    p5-toolgroup-retint-light 40x120 light
+  same    p5-toolgroup-retint-light-tc 40x120 dark
+  same    p5-toolgroup-retint-light-tc 40x120 light-again
+  same    p5-toolgroup-retint-light-tc 40x120 light
+  same    p5-toolgroup-retint-tc 40x120 dark-again
+  same    p5-toolgroup-retint-tc 40x120 dark
+  same    p5-toolgroup-retint-tc 40x120 light
+.prd/tui-phase5/receipts/inline-code-truecolor/toolgroup/xfx-c: 12 of 12 captures the same
+  same    p5-toolstop-retint 40x120 dark-again
+  same    p5-toolstop-retint 40x120 dark
+  same    p5-toolstop-retint 40x120 light
+  same    p5-toolstop-retint-light 40x120 dark
+  same    p5-toolstop-retint-light 40x120 light-again
+  same    p5-toolstop-retint-light 40x120 light
+  same    p5-toolstop-retint-light-tc 40x120 dark
+  same    p5-toolstop-retint-light-tc 40x120 light-again
+  same    p5-toolstop-retint-light-tc 40x120 light
+  same    p5-toolstop-retint-tc 40x120 dark-again
+  same    p5-toolstop-retint-tc 40x120 dark
+  same    p5-toolstop-retint-tc 40x120 light
+.prd/tui-phase5/receipts/inline-code-truecolor/toolstop/xfx: 12 of 12 captures the same
+  same    p5-transcript-diffask 40x120 applied
+  same    p5-transcript-diffask 40x120 ask
+  same    p5-transcript-diffask 40x120 closed
+  DIFF    p5-transcript-diffask 40x120 full rows [20, 21] (text differs in [20, 21] )
+  same    p5-transcript-diffbad 40x120 closed
+  same    p5-transcript-diffbad 40x120 edited
+  same    p5-transcript-diffbad 40x120 full
+  same    p5-transcript-diffctl 40x120 closed
+  same    p5-transcript-diffctl 40x120 edited
+  same    p5-transcript-diffctl 40x120 edited.full
+  DIFF    p5-transcript-diffctl 40x120 full rows [20, 21] (text differs in [20, 21] )
+  same    p5-transcript-diffodd 40x120 closed
+  same    p5-transcript-diffodd 40x120 edited
+  DIFF    p5-transcript-diffodd 40x120 full rows [16, 17, 18, 19] (text differs in [16, 17, 18, 19] )
+  same    p5-transcript-diffwide 40x120 closed
+  same    p5-transcript-diffwide 40x120 edited
+  DIFF    p5-transcript-diffwide 40x120 full rows [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] (text differs in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] )
+  same    p5-transcript-submit 40x120 filled
+  missing p5-transcript-submit 40x120 frame1
+  missing p5-transcript-submit 40x120 frame2
+  same    p5-transcript-submit 40x120 second
+  DIFF    p5-transcript-submit 40x120 submit-0.15 rows [36] (text differs in [36] )
+  same    p5-transcript-submit 40x120 tall
+  same    p5-transcript-submit 40x120 tall.full
+  missing p5-transcript-submit 40x120 wireend
+  same    p5-transcript-submit-multi 40x120 filled
+  missing p5-transcript-submit-multi 40x120 frame1
+  missing p5-transcript-submit-multi 40x120 frame2
+  same    p5-transcript-submit-multi 40x120 second
+  same    p5-transcript-submit-multi 40x120 second.full
+  DIFF    p5-transcript-submit-multi 40x120 submit-0.15 rows [36] (text differs in [36] )
+  missing p5-transcript-submit-multi 40x120 wireend
+  same    p5-transcript-tallfirst 40x120 tall
+  same    p5-transcript-tallfirst 40x120 tall.full
+.prd/tui-phase5/receipts/transcript-receipts/xfx: 22 of 34 captures the same
+  same    p5-transcript-diffwide 40x120 closed
+  same    p5-transcript-diffwide 40x120 edited
+  same    p5-transcript-diffwide 40x120 full
+  same    p5-transcript-diffwide2 40x120 closed
+  same    p5-transcript-diffwide2 40x120 edited
+  DIFF    p5-transcript-diffwide2 40x120 full rows [12] (text differs in [12] )
+.prd/tui-phase5/receipts/width-disputed/xfx: 5 of 6 captures the same
+  DIFF    p5-transcript-safe 40x120 end rows [8] (text differs in [8] )
+  DIFF    p5-transcript-safe 40x120 end.full rows [8] (text differs in [8] )
+  DIFF    p5-transcript-safe 40x120 full-pgup rows [5, 6, 27] (text differs in [5, 6, 27] )
+  DIFF    p5-transcript-safe 40x120 full rows [1, 22] (text differs in [1, 22] )
+  same    p5-transcript-safetab 40x120 end
+  DIFF    p5-transcript-safetab 40x120 full rows [2, 3] (text differs in [2, 3] )
+.prd/tui-phase5/receipts/ctrlo-safe-rows/xfx: 1 of 6 captures the same
+  same    p5-call-row-long 40x120 end
+  same    p5-call-row-safe 40x120 end
+  same    p5-call-row-safe 40x120 full
+  same    p5-call-row-safe 40x60 end
+  same    p5-call-row-safe 40x60 full
+  DIFF    p5-transcript-safe 40x120 end rows [8] (text differs in [8] )
+  DIFF    p5-transcript-safe 40x120 end.full rows [8] (text differs in [8] )
+  DIFF    p5-transcript-safe 40x120 full-pgup rows [5, 6, 27, 28, 29, 34] (text differs in [5, 6, 27, 28, 29, 34] )
+  DIFF    p5-transcript-safe 40x120 full rows [1, 22, 23, 24, 29] (text differs in [1, 22, 23, 24, 29] )
+  DIFF    p5-transcript-safe 40x60 end rows [8] (text differs in [8] )
+  DIFF    p5-transcript-safe 40x60 end.full rows [8] (text differs in [8] )
+  DIFF    p5-transcript-safe 40x60 full-pgup rows [6, 8, 29, 30, 31, 32, 33, 34, 35, 36] (text differs in [6, 8, 29, 30, 31, 32, 33, 34, 35, 36] )
+  DIFF    p5-transcript-safe 40x60 full rows [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] (text differs in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] )
+.prd/tui-phase5/receipts/call-row-spelling/xfx: 5 of 13 captures the same

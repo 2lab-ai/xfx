@@ -6,9 +6,9 @@
 //! (`vercel-labs/fx@c1db9191 src/core/mcp/`): stdio servers and streamable
 //! HTTP servers without OAuth, upstream's legacy `initialize` handshake as its
 //! default, upstream's profile file and project trust, and upstream's
-//! model-facing surface -- a servers block and three meta-tools, with a
-//! server's own tools advertised only once a search or an explicit selection
-//! picks them ([`catalog`]).
+//! model-facing surface -- a servers block and two meta-tools, with a
+//! server's own tools advertised only once a search, an explicit selection
+//! or a direct call picks them ([`catalog`]).
 //!
 //! | piece | what it is |
 //! |---|---|
@@ -59,11 +59,13 @@ pub use runtime::{McpRuntime, Paths};
 #[derive(Debug, Clone, PartialEq)]
 pub enum McpError {
     Named(&'static str),
-    /// The server answered with a JSON-RPC error.
+    /// The server answered with a JSON-RPC error: its code and message, and
+    /// not its `data`, which fx v0.0.16 does not keep either
+    /// (`CallResult.failure`, `vercel-labs/fx@481104fd
+    /// src/core/mcp_host/runtime.zig:117`, `:2371`).
     Protocol {
         code: i64,
         message: String,
-        data: Option<serde_json::Value>,
     },
     /// A stopped server that could not be started again, and why.
     Restart(String),
@@ -117,6 +119,71 @@ pub fn terminal_safe(text: &str) -> String {
         }
     }
     out
+}
+
+/// [`terminal_safe`] over text the TUI's channel has already spelled once
+/// (`tui::toolgroup::flattened`: fx's `encodeTerminalSafe` set and U+061C,
+/// white space one space): each escape that pass wrote -- `\xNN` or
+/// `\u{N...}` -- is one token, passed on as it is and never cut into, and
+/// every other character is spelled and bounded as [`terminal_safe`] spells
+/// and bounds it. An MCP row's reason crosses the channel so spelled, and
+/// the characters the channel leaves as they are and this names (U+FE0F,
+/// U+00AD and the rest of [`terminal_safe_token`]'s wider set) can carry it
+/// past the bound: cut a character at a time, the bound would fall inside
+/// an escape and leave a lone `\`. Cut a token at a time, the row is what
+/// [`terminal_safe`] makes of the raw text in one pass, since both passes
+/// write the same token for every character they both spell. The one
+/// exception is text that merely looks like an escape -- a server's own
+/// `\x` and two hex digits, or `\u{`, one to six of them and `}` -- which
+/// the channel's spelling makes indistinguishable from one of its own: it is
+/// kept whole too, so where it straddles the cut (byte 253) the row ends
+/// before it, up to nine bytes earlier than one pass over the raw text, which
+/// would cut inside it. Printable either way.
+pub fn terminal_safe_respelled(text: &str) -> String {
+    const MARKER: &str = "...";
+    let max = TERMINAL_SAFE_MAX_BYTES;
+    let content_limit = max - MARKER.len();
+    let mut out = String::new();
+    let mut boundary = 0;
+    let mut buf = [0u8; 4];
+    let mut rest = text;
+    while let Some(character) = rest.chars().next() {
+        let spelled = spelled_escape(rest);
+        let token = match spelled {
+            Some(escape) => std::borrow::Cow::Borrowed(escape),
+            None => terminal_safe_token(character, &mut buf),
+        };
+        let taken = spelled.map_or(character.len_utf8(), str::len);
+        if out.len() + token.len() > max {
+            out.truncate(boundary);
+            out.push_str(MARKER);
+            return out;
+        }
+        out.push_str(&token);
+        if out.len() <= content_limit {
+            boundary = out.len();
+        }
+        rest = &rest[taken..];
+    }
+    out
+}
+
+/// The escape `text` starts with, as `crate::tools::question::terminal_safe`
+/// writes one: `\x` and two lower-case hex digits, or `\u{`, one to six of
+/// them and `}`.
+fn spelled_escape(text: &str) -> Option<&str> {
+    let hex = |b: &u8| b.is_ascii_digit() || (b'a'..=b'f').contains(b);
+    let bytes = text.as_bytes();
+    if bytes.len() >= 4 && bytes[0] == b'\\' && bytes[1] == b'x' && bytes[2..4].iter().all(hex) {
+        return Some(&text[..4]);
+    }
+    if bytes.len() >= 5 && bytes[0] == b'\\' && bytes[1] == b'u' && bytes[2] == b'{' {
+        let digits = bytes[3..].iter().take_while(|b| hex(b)).count();
+        if (1..=6).contains(&digits) && bytes.get(3 + digits) == Some(&b'}') {
+            return Some(&text[..4 + digits]);
+        }
+    }
+    None
 }
 
 /// One character's token: upstream's ([`crate::tools::question::terminal_safe`]),

@@ -1,0 +1,40 @@
+# The inline-code runs of the md scenarios' snaps, Ctrl-O's included: every run of
+# text under one 256-colour foreground whose text is one of the answer's code spans.
+# cd .prd/tui-phase5/receipts/inline-code-shade; python3 -I coderuns.py fx/fx-<snap> <side>/xfx-<snap>
+# xfx/ re-run 2026-11-07 over the captures re-taken at 02b4619b (README.md "Captures")
+== red p5-transcript-md-40x120-answered
+fx 19 runs, colours [255]; xfx 19 runs, colours [245]
+DIFF
+== red p5-transcript-md-40x120-full
+fx 19 runs, colours [255]; xfx 19 runs, colours [245]
+DIFF
+== red p5-transcript-md-40x120-full-pgup
+fx 14 runs, colours [255]; xfx 14 runs, colours [245]
+DIFF
+== red p5-transcript-md-light-40x120-answered
+fx 19 runs, colours [235]; xfx 19 runs, colours [247]
+DIFF
+== red p5-transcript-md-light-40x120-full
+fx 19 runs, colours [235]; xfx 19 runs, colours [247]
+DIFF
+== red p5-transcript-md-light-40x120-full-pgup
+fx 14 runs, colours [235]; xfx 14 runs, colours [247]
+DIFF
+== xfx p5-transcript-md-40x120-answered
+fx 19 runs, colours [255]; xfx 19 runs, colours [255]
+SAME
+== xfx p5-transcript-md-40x120-full
+fx 19 runs, colours [255]; xfx 19 runs, colours [255]
+SAME
+== xfx p5-transcript-md-40x120-full-pgup
+fx 14 runs, colours [255]; xfx 14 runs, colours [255]
+SAME
+== xfx p5-transcript-md-light-40x120-answered
+fx 19 runs, colours [235]; xfx 19 runs, colours [235]
+SAME
+== xfx p5-transcript-md-light-40x120-full
+fx 19 runs, colours [235]; xfx 19 runs, colours [235]
+SAME
+== xfx p5-transcript-md-light-40x120-full-pgup
+fx 14 runs, colours [235]; xfx 14 runs, colours [235]
+SAME

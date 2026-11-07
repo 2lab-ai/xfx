@@ -1,0 +1,43 @@
+𝒇x v0.0.16 · Run /help for commands
+fx upgrade
+fx upgrade
+
+Upgrade 𝒇x on the selected release channel
+
+Usage:
+  fx upgrade [--channel <stable|dev>] [--json]
+
+Options:
+  --channel <stable|dev>  Select and remember the release channel
+  --json                  Emit machine-readable JSON instead of text
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 0, Sat Nov  7 10:18:26 2026)

@@ -1,0 +1,1 @@
+{"mcpServers":{"errs":{"command":"/bin/sh","args":["@SCENARIOS@/p5-mcp-errdata.sh"]}}}

@@ -38,8 +38,7 @@
 
 use crate::markdown::code_highlight::{self, Variant};
 use crate::markdown::{code_highlight_languages, theme as syntax};
-use crate::output::safe_one_line;
-use crate::tools::{Activity, LineChanges, Outcome, Shown};
+use crate::tools::{mcp, Activity, LineChanges, Outcome, Shown};
 
 use super::theme::{DocumentRow, Mode, Palette};
 
@@ -48,13 +47,42 @@ use super::theme::{DocumentRow, Mode, Palette};
 /// product's name.
 const CANCELLED_FOLLOW_UP: &str = " \u{b7} What can xfx do differently?";
 
-/// How many bytes of a call's own argument, or of its refusal, a row keeps.
+/// How much of a command fx reads to make its row
+/// (`max_run_command_activity_source_bytes`, `vercel-labs/fx@481104fd
+/// src/core/tooling/tool_presentation.zig:22`).
+const COMMAND_SOURCE_BYTES: usize = 120 * 120;
+
+/// How many bytes of a command's row a call keeps, spelled: the bound fx
+/// stores a command's row at so the transcript can cut it at the live width
+/// (`max_run_command_reflow_bytes`, `:23`, less the byte
+/// `formatRunCommandDetailBounded` keeps for its own check, `:441`).
 ///
 /// Not the row's width: the row is cut at the screen's, with an ellipsis, when
-/// it is written (`super::transcript`'s `ellipsized`). This bound only keeps a
-/// four-megabyte command from being copied into every rebuild of the block, and
-/// it is wider than any screen a row is cut for.
-const TARGET_BYTES: usize = 1024;
+/// it is written (`super::transcript`'s `ellipsized`), and Ctrl-O wraps it. The
+/// bound keeps a four-megabyte command from being copied into every rebuild of
+/// the block.
+const COMMAND_TARGET_BYTES: usize = COMMAND_SOURCE_BYTES - 1;
+
+/// How many bytes of a command fx's status phrase keeps, spelled: the phrase
+/// the call's row is made from before the transcript puts the stored command
+/// in its place (`max_run_command_activity_bytes`, `tool_presentation.zig:21`;
+/// `formatRunCommandActivity`, `:393-416`), and the one Ctrl-O looks in for an
+/// argument the heading already shows ([`status`]).
+const COMMAND_STATUS_BYTES: usize = 120;
+
+/// How many bytes of any other call's argument a row keeps, spelled: fx's
+/// bound for a file change's path (`diff.max_encoded_label_bytes`,
+/// `src/core/output/diff.zig:10@481104fd`, `fileMutationDisplayPath`).
+const TARGET_BYTES: usize = 4 * 1024;
+
+/// How many bytes of a failure's reason a row keeps, spelled
+/// (`failureStatusDetail`, `src/core/agent/runtime/tool_presentation.zig:
+/// 1445-1493@481104fd`).
+const REASON_BYTES: usize = 256;
+
+/// What a row's argument or reason ends with when its bound cut it
+/// (`encodeTerminalSafe`'s marker, `text_utils.zig:358@481104fd`).
+const CUT: &str = "...";
 
 /// The kinds of work a header counts, in the order upstream breaks a tie in
 /// (`tool_group_projection.zig:140-150`: read, list, write, edit, open,
@@ -67,6 +95,15 @@ const CATEGORIES: [(Activity, &str); 5] = [
     (Activity::Edit, "edit"),
     (Activity::Command, "command"),
 ];
+
+/// What a call to one of an MCP server's own tools is counted as: a kind of
+/// its own, after every one in [`CATEGORIES`] when two counts tie
+/// (`vercel-labs/fx@481104fd src/ui/transcript/tool_group_projection.zig:
+/// 143-156`, `MCP call` at index 8, after `command`'s 5), and `MCP calls` for
+/// more than one (`:542`). Until fx v0.0.16 such a call was counted as a
+/// command (`fx-p5-mcp-turn-40x120-turn`: `2 commands` on 0.0.13, `2 MCP
+/// calls` on 0.0.16).
+const MCP_CALL: &str = "MCP call";
 
 /// The calls of one group, in the order they started.
 #[derive(Debug, Default)]
@@ -125,17 +162,58 @@ impl Call {
         )
     }
 
-    /// The argument the row names, flattened to one line.
+    /// Whether this is a call to one of an MCP server's own tools: upstream
+    /// gives every such call a kind of its own, by the `mcp_` its name always
+    /// has (`unregisteredActivityKind`, `vercel-labs/fx@481104fd
+    /// src/core/tooling/tool_dispatch.zig:576-577`). Here it is the one
+    /// presentation every such call is shown with ([`mcp::shown`]), whose
+    /// activity stays a command's for what a stop does to it
+    /// ([`ToolGroup::running_command`]).
+    fn calls_mcp(&self) -> bool {
+        self.shown.presentation == mcp::DYNAMIC
+    }
+
+    /// Whether the row is a shell command's, whose words the highlighter
+    /// colours: not an MCP call's, which upstream leaves in the row's grey
+    /// since it stopped counting one as a command (`highlightCommandPhrase`,
+    /// `tool_group_projection.zig:749@481104fd`; `fx-p5-mcp-turn-40x120-turn`
+    /// row 7, `MCP` in 252 on 0.0.13 and 245 on 0.0.16).
+    fn runs_a_command(&self) -> bool {
+        self.shown.presentation.activity == Activity::Command && !self.calls_mcp()
+    }
+
+    /// The argument the row names, spelled on one line ([`spelled`]).
     ///
     /// A file change that was refused or stopped is named by the tool's own
     /// word (`Denied file`, `Cancelled file`), as upstream's is: its row names
     /// the file it was given only once it has been given one
     /// (`tool_presentation.zig` `formatPlainAction`, `display_target`).
+    ///
+    /// An MCP call that did not run to its end -- it failed, was refused or
+    /// was stopped -- is named by its tool alone: `MCP` belongs to the verbs
+    /// upstream gives such a call while it runs and once it has (`Running
+    /// MCP`, `Ran MCP`), and to no other outcome (`dynamicMcpActionLabel`,
+    /// `vercel-labs/fx@481104fd src/core/app/app_agent_runtime.zig:1376-1381`,
+    /// the same at c1db9191; `fx-p5-mcp-live-40x120-cancel` row 17,
+    /// `Cancelled mcp_web_echo`, and `-failed`, `Failed mcp_web_echo: …`).
+    /// The name is a server's tool's, so it is spelled as every name a server
+    /// supplies is ([`crate::mcp::terminal_safe`]).
     fn target(&self) -> String {
         let default = self.shown.presentation.default_target;
         let refused = matches!(self.state, State::Denied | State::Cancelled);
+        let ran = matches!(self.state, State::Running | State::Done(_));
         match &self.shown.target {
-            Some(target) if !(refused && self.changes_a_file()) => spelled(target),
+            Some(target) if self.calls_mcp() => {
+                let named = if ran {
+                    target.as_str()
+                } else {
+                    target.strip_prefix("MCP ").unwrap_or(target)
+                };
+                crate::mcp::terminal_safe(named)
+            }
+            Some(target) if !(refused && self.changes_a_file()) => {
+                spelled(target, self.shown.presentation.activity)
+            }
             _ => default.to_string(),
         }
     }
@@ -166,9 +244,22 @@ impl Call {
     fn phrase(&self) -> String {
         let mut phrase = format!("{} {}", self.label(), self.target());
         match &self.state {
-            State::Failed(reason) if !reason.is_empty() => {
-                phrase.push_str(": ");
-                phrase.push_str(&flattened(reason));
+            // A reason with nothing left once it is spelled is no reason, as
+            // fx's is none (`failureStatusDetail`, `src/core/agent/runtime/
+            // tool_presentation.zig:1490-1493@481104fd`, and `:1283`).
+            State::Failed(reason) if self.calls_mcp() => {
+                let reason = server_spelled(reason);
+                if !reason.is_empty() {
+                    phrase.push_str(": ");
+                    phrase.push_str(&reason);
+                }
+            }
+            State::Failed(reason) => {
+                let reason = flattened(reason);
+                if !reason.is_empty() {
+                    phrase.push_str(": ");
+                    phrase.push_str(&reason);
+                }
             }
             // `formatToolStatusWithStats`: both counts, or the one that is
             // not zero, and nothing for a change of nothing. Monochrome, as
@@ -189,7 +280,7 @@ impl Call {
     /// words re-coloured by the shell highlighter inside it
     /// (`highlightCommandPhrase`, `:728`).
     fn painted(&self, base: &str, palette: Palette) -> String {
-        if self.shown.presentation.activity != Activity::Command {
+        if !self.runs_a_command() {
             return self.phrase();
         }
         format!(
@@ -450,26 +541,29 @@ impl ToolGroup {
 
 /// The header's words after its mark: the count, then each kind of work by how
 /// many calls did it, then each way the settled ones went wrong
-/// (`formatGroupHeader`, `:497-541`).
+/// (`formatGroupHeader`, `:497-541`). An MCP call is counted as [`MCP_CALL`]
+/// and as nothing else.
 fn summary(calls: &[&Call]) -> String {
     let total = calls.len();
     let mut out = format!("{total} tool call{}", if total == 1 { "" } else { "s" });
+    let mcp_calls = calls.iter().filter(|call| call.calls_mcp()).count();
     let mut counted: Vec<(usize, usize, &str)> = CATEGORIES
         .iter()
         .enumerate()
         .map(|(order, (activity, label))| {
             let count = calls
                 .iter()
-                .filter(|call| call.shown.presentation.activity == *activity)
+                .filter(|call| call.shown.presentation.activity == *activity && !call.calls_mcp())
                 .count();
             (count, order, *label)
         })
+        .chain([(mcp_calls, CATEGORIES.len(), MCP_CALL)])
         .filter(|(count, _, _)| *count > 0)
         .collect();
     // By count, most first; a tie keeps the categories' own order.
     counted.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
     for (count, _, label) in counted {
-        let plural = if label == "command" && count != 1 {
+        let plural = if matches!(label, "command" | MCP_CALL) && count != 1 {
             "s"
         } else {
             ""
@@ -519,7 +613,7 @@ fn cancelled_line(call: &Call, palette: Palette) -> String {
     // Upstream's `tool_stdout_style`: 245 on either screen, where the rows
     // above it are the statusline's 241 on a light one.
     let base = palette.tool_output();
-    let target = if call.shown.presentation.activity == Activity::Command {
+    let target = if call.runs_a_command() {
         highlighted(&call.target(), base, palette)
     } else {
         call.target()
@@ -531,37 +625,253 @@ fn cancelled_line(call: &Call, palette: Palette) -> String {
     )
 }
 
-/// A call's argument as the row shows it: as the model wrote it, spaces
-/// around it included -- upstream's `Failed   missing.txt  :`
-/// (`fx-read-failures-40x120-live`) -- with every control character a space
-/// and the length bounded, as [`safe_one_line`] bounds it.
-fn spelled(target: &str) -> String {
-    let mut out = String::new();
-    for character in target.chars() {
-        let character = if character.is_control() {
-            ' '
-        } else {
-            character
-        };
-        if out.len() + character.len_utf8() > TARGET_BYTES {
-            out.push('\u{2026}');
-            break;
+/// A call's argument as its row shows it -- the transcript's row and Ctrl-O's
+/// heading -- by fx v0.0.16's rule for that row:
+///
+/// * a command is put on one line as fx puts it
+///   (`projectRunCommandActivitySource`, `vercel-labs/fx@481104fd
+///   src/core/tooling/tool_presentation.zig:256-311`): of its first
+///   [`COMMAND_SOURCE_BYTES`], a carriage return or a line feed ends a line,
+///   the spaces and tabs that open the next go with it, and one space stands
+///   for the break once something came before it and something follows --
+///   and where fx says nothing of a command it stopped reading with more left
+///   to show, the row ends `...` (ledger `call-row-source-cut`);
+///   then [`Spelling`] writes it at [`COMMAND_TARGET_BYTES`]
+///   (`formatRunCommandDetailBounded`, `:432-447`, the row's text at
+///   `src/core/app/app_callbacks.zig:544-549`);
+/// * any other argument is [`Spelling`]'s as it is, at [`TARGET_BYTES`],
+///   as fx spells a file change's path (`fileMutationDisplayPath`,
+///   `src/core/agent/runtime/tool_presentation.zig:736-753`). fx writes a
+///   read's, a list's or a pattern's row with the argument as it came -- the
+///   marks and the C1 controls to the terminal as themselves, the other
+///   controls dropped, the row ended at its first line break
+///   (`formatToolAction`, `src/core/app/app_agent_runtime.zig:1248-1310`,
+///   and `formatToolActionValue`, `:1340-1342`; `normalizeCanonicalStatus`,
+///   `src/ui/transcript/tool_group_projection.zig:317-347`) -- which is not
+///   safe to copy (ledger `call-row-raw-argument`).
+///
+/// Spaces around an argument stay, upstream's `Failed   missing.txt  :`
+/// (`fx-read-failures-40x120-live`). Not fx's: a command's `cd . &&` and its
+/// workspace root written `.` (`stripNoopCurrentDirectoryPrefix`,
+/// `workspaceRootMatchesAt`), which this row never had.
+///
+/// Idempotent: what it writes holds no line break, nothing it would spell and
+/// nothing past its bound -- so the channel spells the argument as it crosses
+/// (`super::bridge`'s `made_inert`) and the row spells it again unchanged.
+pub(crate) fn spelled(target: &str, activity: Activity) -> String {
+    if activity != Activity::Command {
+        let mut spelling = Spelling::new(TARGET_BYTES);
+        for character in target.chars() {
+            if !spelling.push(character) {
+                break;
+            }
         }
-        out.push(character);
+        return spelling.finish();
     }
-    out
+    command_spelled(target, COMMAND_TARGET_BYTES, true)
 }
 
-/// A failure's reason as the row shows it: one line, every run of white
-/// space one space and none at either end (`encodeTerminalSafeInline`,
-/// `vercel-labs/fx@c1db9191 src/core/shared/text_utils.zig:387-407`, used for
-/// the row at `tool_presentation.zig:1265-1290`).
-fn flattened(reason: &str) -> String {
+/// fx's status phrase for a call with this argument as the model wrote it,
+/// or `None` when its status is the whole argument -- the text Ctrl-O looks in
+/// for an argument the heading already shows (`argumentVisibleInToolHeading`,
+/// `src/ui/full_transcript_screen.zig:6594-6619@481104fd`, reads the status
+/// entry's own bytes, not the command the heading puts in its place).
+///
+/// A command's is its first [`COMMAND_STATUS_BYTES`] spelled -- and, as fx's,
+/// with no `...` for a command read only in part, which the row's own spelling
+/// has (ledger `call-row-source-cut`) -- so a command past them keeps its
+/// argument row even where the heading shows it whole. A
+/// command call with no command has an empty one, which holds nothing. Any
+/// other call's status is its whole argument, which its row shows.
+///
+/// `shown` must be the **raw** call -- the tool's own decode of the model's
+/// arguments, before the channel spells them (`super::bridge`'s
+/// `spelled_shown`): a bound applied to the spelled text could fall inside an
+/// escape's spelling, where fx's, on the raw command, falls before the whole
+/// escape, and a value ending in `\` would be found where fx finds none.
+pub(crate) fn status(shown: &Shown) -> Option<String> {
+    (shown.presentation.activity == Activity::Command).then(|| {
+        shown
+            .target
+            .as_deref()
+            .map(|target| command_spelled(target, COMMAND_STATUS_BYTES, false))
+            .unwrap_or_default()
+    })
+}
+
+/// A command as [`spelled`] spells it, at `max` bytes -- and, with
+/// `mark_unread`, ended `...` where it was read only in part.
+///
+/// The status is fx's phrase (but for the unported `cd . &&` and workspace-root
+/// `.`, `docs/parity.md:238`): it says nothing of a command fx stopped reading
+/// (`tool_presentation.zig:441-445@481104fd` marks only what its encoder cuts),
+/// and a marker there would put in a `.` fx's has not and hide `cwd: .`.
+fn command_spelled(target: &str, max: usize, mark_unread: bool) -> String {
+    let mut spelling = Spelling::new(max);
+    let mut line_break = false;
+    let mut written = false;
+    for (at, character) in target.char_indices() {
+        if at >= COMMAND_SOURCE_BYTES {
+            // fx stops reading here and says nothing of what it left
+            // (`tool_presentation.zig:268`, its marker only the encoder's,
+            // `:445`): a row that hides its own tail without a word is not
+            // safe to copy, so the row is marked cut when anything it would
+            // show is left (ledger `call-row-source-cut`).
+            if target[at..]
+                .chars()
+                .any(|left| !matches!(left, ' ' | '\t' | '\r' | '\n'))
+            {
+                spelling.cut |= mark_unread;
+            }
+            break;
+        }
+        match character {
+            '\r' | '\n' => {
+                line_break = true;
+                continue;
+            }
+            ' ' | '\t' if line_break => continue,
+            _ => {}
+        }
+        if std::mem::take(&mut line_break) && written && !spelling.token(" ") {
+            break;
+        }
+        let kept = if at + character.len_utf8() > COMMAND_SOURCE_BYTES {
+            // fx reads the command's first bytes, so a character the bound
+            // splits is read in part; no part is a character, and each of its
+            // bytes is `\xNN` (`terminalSafeToken`, `text_utils.zig:652-657`).
+            // The rest of it is left unread, so the row is marked cut too.
+            let mut bytes = [0u8; 4];
+            character.encode_utf8(&mut bytes);
+            spelling.cut |= mark_unread;
+            bytes[..COMMAND_SOURCE_BYTES - at]
+                .iter()
+                .all(|byte| spelling.token(&format!("\\x{byte:02x}")))
+        } else {
+            spelling.push(character)
+        };
+        if !kept {
+            break;
+        }
+        written = true;
+    }
+    spelling.finish()
+}
+
+/// A failure's reason as the row shows it, as fx's `encodeTerminalSafeInline`
+/// writes it (`src/core/shared/text_utils.zig:397-417@481104fd`, for the row
+/// at `failureStatusDetail`, `src/core/agent/runtime/tool_presentation.zig:
+/// 1445-1493`): every run of ASCII white space -- a space, `\t` to `\r` --
+/// one space and none at either end, then [`Spelling`]'s at [`REASON_BYTES`].
+/// A reason can quote the argument, so it is spelled as the argument is.
+///
+/// Idempotent, as [`spelled`] is: the channel spells a reason as it crosses
+/// (`super::bridge`'s `made_inert`) and the row spells it again unchanged.
+pub(crate) fn flattened(reason: &str) -> String {
+    let mut spelling = Spelling::new(REASON_BYTES);
+    let mut space = false;
+    for character in reason.chars() {
+        if character == ' ' || ('\t'..='\r').contains(&character) {
+            space = !spelling.out.is_empty();
+            continue;
+        }
+        if std::mem::take(&mut space) && !spelling.token(" ") {
+            break;
+        }
+        if !spelling.push(character) {
+            break;
+        }
+    }
+    spelling.finish()
+}
+
+/// Text as fx's `encodeTerminalSafe` writes it, bounded as it bounds it
+/// (`src/core/shared/text_utils.zig:353-390@481104fd`).
+///
+/// Each character is its `terminalSafeToken` (`:643-667`) -- a C0 control or
+/// `DEL` `\xNN`, a C1 control or a mark `isNonPrintingCodepoint` names
+/// (`:703-709`) `\u{NNNN}`, anything else itself -- which is
+/// [`crate::tools::question::terminal_safe`]; and the Arabic letter mark
+/// (`U+061C`), which fx writes as itself, is `\u{061c}` too: it reorders the
+/// row around it as the marks fx names do (`approval_view`'s `reorders`, the
+/// full transcript's `detail_spelled`).
+///
+/// The bound is on what is written, never on what is read: once a token would
+/// take the text past `max` bytes, it is cut back to the last whole token that
+/// leaves room for [`CUT`], so no cut falls inside an escape.
+struct Spelling {
+    out: String,
+    max: usize,
+    /// The length of the text up to the last whole token that leaves room
+    /// for the marker.
+    kept: usize,
+    cut: bool,
+}
+
+impl Spelling {
+    fn new(max: usize) -> Self {
+        Self {
+            out: String::new(),
+            max,
+            kept: 0,
+            cut: false,
+        }
+    }
+
+    /// Writes `character`'s token, or answers `false` once it does not fit.
+    fn push(&mut self, character: char) -> bool {
+        if character == '\u{061c}' {
+            return self.token("\\u{061c}");
+        }
+        let mut bytes = [0u8; 4];
+        let token = crate::tools::question::terminal_safe(character.encode_utf8(&mut bytes));
+        self.token(&token)
+    }
+
+    /// Writes one token whole, or answers `false` once it does not fit.
+    fn token(&mut self, token: &str) -> bool {
+        if self.out.len() + token.len() > self.max {
+            self.cut = true;
+            return false;
+        }
+        self.out.push_str(token);
+        if self.out.len() + CUT.len().min(self.max) <= self.max {
+            self.kept = self.out.len();
+        }
+        true
+    }
+
+    fn finish(mut self) -> String {
+        if self.cut {
+            self.out.truncate(self.kept);
+            self.out.push_str(&CUT[..CUT.len().min(self.max)]);
+        }
+        self.out
+    }
+}
+
+/// An MCP call's failure reason as the row shows it. Its words can be the
+/// server's own (an `isError` result's text), so it is spelled as every text
+/// a server supplies is: upstream's `encodeTerminalSafeInline`
+/// (`vercel-labs/fx@481104fd src/core/shared/text_utils.zig:397-417`), ASCII
+/// white space flattened to one space and then [`crate::mcp::terminal_safe`]'s
+/// tokens -- every other control and every invisible or bidirectional code
+/// point written out rather than dropped, and the length bounded. Since fx
+/// v0.0.16 such a row carries its reason, where a command's row did not
+/// (`fx-p5-mcp-live-40x120-failed` row 25).
+///
+/// The reason has already crossed the channel spelled as [`flattened`]
+/// spells every call's (`super::bridge`'s `made_inert`), which leaves raw
+/// some of what this names (U+FE0F, U+00AD, ...): so the bound is
+/// [`crate::mcp::terminal_safe_respelled`]'s, which keeps each escape the
+/// channel wrote whole and cuts between tokens, and the row is what one pass
+/// over the server's words makes of them.
+fn server_spelled(reason: &str) -> String {
     let words: Vec<&str> = reason
-        .split(|c: char| c.is_whitespace() || c.is_control())
+        .split([' ', '\t', '\n', '\r', '\x0b', '\x0c'])
         .filter(|word| !word.is_empty())
         .collect();
-    safe_one_line(&words.join(" "), TARGET_BYTES)
+    crate::mcp::terminal_safe_respelled(&words.join(" "))
 }
 
 #[cfg(test)]
@@ -1154,10 +1464,14 @@ mod tests {
     fn a_theme_report_repaints_a_group_as_the_other_palette_would_draw_it() {
         // The 245 of a group's rows is upstream's statusline grey and goes to
         // 241 on a light screen; the summary under it is the dim grey, also
-        // 245 on dark, and goes to 247. A command's words go 252 -> 238, the
-        // mark 255 -> 235, and a cancelled call's own line keeps its argument
-        // in 245 on either screen (`tool_stdout_style`). Each cell is compared
-        // with what drawing the same group in the light palette leaves.
+        // 245 on dark, and goes to 247. A command's words go 252 -> 238 and
+        // the mark 255 -> 235. Each cell of the group's own rows is compared
+        // with what drawing the same group in the light palette leaves --
+        // upstream projects them again (`tool_group_projection.zig:558-640`).
+        // A cancelled call's own line is not projected again but rewritten
+        // through upstream's token table (`:649-664`, `store.zig:3784-3800`),
+        // so its argument, drawn 245 on either screen, is 247 after the
+        // switch where a fresh light drawing has 245 (`p5-toolstop-retint`).
         let mut group = ToolGroup::default();
         group.start(
             "1".into(),
@@ -1175,7 +1489,25 @@ mod tests {
         assert!(moved > 0, "nothing was repainted");
         let light_rows = drawn_in(&mut group, LIGHT);
         let (fresh, _) = on_a_grid(&group, &light_rows, LIGHT);
-        same_cells(&repainted, &fresh, last);
+        let stopped = (1..=last)
+            .find(|&line| repainted.kind(line) == DocumentRow::ToolStopped)
+            .expect("a cancelled call's own line");
+        same_cells(&repainted, &fresh, stopped - 1);
+        let argument = (1..=repainted.cols())
+            .find(|&column| {
+                matches!(repainted.cell(stopped, column),
+                    Some(super::super::grid::Cell::Lead { grapheme, .. }) if grapheme == "3")
+            })
+            .expect("the argument's `30`");
+        let Some(super::super::grid::Cell::Lead { sgr, .. }) = repainted.cell(stopped, argument)
+        else {
+            unreachable!()
+        };
+        assert_eq!(
+            sgr.color().ok(),
+            Some(crate::tui::check::Color::Indexed(247)),
+            "a cancelled call's argument did not move as upstream's token table moves it"
+        );
 
         // And back: a light screen reported dark again is the dark drawing.
         // (Without a quoted string or a number in the command: on light those
@@ -1205,5 +1537,542 @@ mod tests {
         let tool = "\u{1b}[38;5;245mfile";
         assert!(drawn_in(&mut group, DARK)[3].contains(tool));
         assert!(drawn_in(&mut group, LIGHT)[3].contains(tool));
+    }
+
+    /// A call of an MCP server's own tool, as the runtime shows it.
+    fn mcp_call(name: &str) -> Shown {
+        mcp::shown(name)
+    }
+
+    fn search(query: &str) -> Shown {
+        shown(&mcp::CAPABILITY_SEARCH, json!({"query": query}))
+    }
+
+    #[test]
+    fn one_mcp_call_is_counted_as_an_mcp_call() {
+        // fx v0.0.16 `fx-p5-mcp-direct-40x120-turn` rows 5-6 (0.0.13: `1
+        // command`).
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call("mcp_fixture_echo"));
+        ok(&mut group, "1");
+        assert_eq!(
+            plain(&group),
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 MCP call",
+                "\u{2514} Ran MCP mcp_fixture_echo",
+                "",
+            ]
+        );
+    }
+
+    #[test]
+    fn several_mcp_calls_are_mcp_calls_and_their_rows_stay_in_the_rows_grey() {
+        // fx v0.0.16 `fx-p5-mcp-turn-40x120-turn` rows 5-8, colours included:
+        // `MCP` is no shell word now that the call is not a command's (0.0.13:
+        // `2 commands`, and `MCP` in 252).
+        let mut group = ToolGroup::default();
+        group.start("1".into(), search("echo text through the fixture"));
+        ok(&mut group, "1");
+        group.start("2".into(), mcp_call("mcp_fixture_echo"));
+        ok(&mut group, "2");
+        group.start("3".into(), mcp_call("mcp_fixture_echo"));
+        ok(&mut group, "3");
+        assert_eq!(
+            plain(&group),
+            [
+                "\u{25cf} 3 tool calls \u{b7} 2 MCP calls \u{b7} 1 read",
+                "\u{251c} Searched capabilities echo text through the fixture",
+                "\u{251c} Ran MCP mcp_fixture_echo",
+                "\u{2514} Ran MCP mcp_fixture_echo",
+                "",
+            ]
+        );
+        let rows = group.rows(DARK);
+        assert_eq!(
+            rows[0],
+            format!(
+                "{HINT}\u{25cf}{RESET} {TEXT}3 tool calls \u{b7} 2 MCP calls \u{b7} 1 read{RESET}"
+            )
+        );
+        assert_eq!(
+            rows[2],
+            format!("{TEXT}\u{251c} Ran MCP mcp_fixture_echo{RESET}")
+        );
+        assert_eq!(
+            rows[3],
+            format!("{TEXT}\u{2514} Ran MCP mcp_fixture_echo{RESET}")
+        );
+    }
+
+    #[test]
+    fn a_running_mcp_call_is_counted_and_an_mcp_call_comes_last_in_a_tie() {
+        // fx v0.0.16 `fx-p5-mcp-live-40x120-live`: the call still held by its
+        // server is counted already, and `1 read` leads `1 MCP call`.
+        let mut group = ToolGroup::default();
+        group.start("1".into(), search("echo text through the web server"));
+        ok(&mut group, "1");
+        group.start("2".into(), mcp_call("mcp_web_echo"));
+        assert_eq!(
+            plain(&group),
+            [
+                "\u{25cf} 2 tool calls \u{b7} 1 read \u{b7} 1 MCP call",
+                "\u{251c} Searched capabilities echo text through the web server",
+                "\u{2514} Running MCP mcp_web_echo",
+                "",
+            ]
+        );
+        // After `command` too (`tool_group_projection.zig:143-156@481104fd`,
+        // index 8 against 5); a shell command keeps its own count and words.
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call("mcp_web_echo"));
+        ok(&mut group, "1");
+        group.start("2".into(), command("ls"));
+        assert!(group.finish("2", true, "", Outcome::Exited(0), None));
+        assert_eq!(
+            plain(&group)[0],
+            "\u{25cf} 2 tool calls \u{b7} 1 command \u{b7} 1 MCP call"
+        );
+        assert!(group.rows(DARK)[2].contains(&format!("{WORD}ls{FG_OFF}")));
+    }
+
+    #[test]
+    fn a_failed_stopped_or_refused_mcp_call_is_named_by_its_tool_alone() {
+        // fx v0.0.16 `fx-p5-mcp-live-40x120-cancel` rows 15-19: the held call
+        // stopped with Ctrl-C. (The line's mark is the transcript's own.)
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call("mcp_web_echo"));
+        // What a stop does to it is unchanged: it settles as a command does.
+        assert!(group.running_command());
+        assert_eq!(group.cancel_running(), ["1".to_string()]);
+        assert_eq!(
+            plain(&group),
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 MCP call \u{b7} 1 cancelled",
+                "\u{2514} Cancelled mcp_web_echo",
+                "",
+                "\u{25a0} Cancelled mcp_web_echo \u{b7} What can xfx do differently?",
+                "",
+            ]
+        );
+        // The tool's name in the tool grey, no word of it lifted.
+        let line = &group.rows(DARK)[3];
+        assert!(
+            line.contains(&format!("{RESET} {TEXT}mcp_web_echo{RESET}")),
+            "{line:?}"
+        );
+        // Refused, the same (`formatMissingSpecToolAction`,
+        // `app_agent_runtime.zig:1324-1329@481104fd`).
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call("mcp_web_echo"));
+        assert!(group.finish("1", false, "no", Outcome::Denied, None));
+        assert_eq!(plain(&group)[1], "\u{2514} Denied mcp_web_echo");
+        // Failed, with its reason after it: `fx-p5-mcp-live-40x120-failed`
+        // rows 23-25, the server answering with a JSON-RPC error. (The reason
+        // is the tool's result, what the model is told.)
+        let mut group = ToolGroup::default();
+        group.start("1".into(), search("echo text through the web server"));
+        ok(&mut group, "1");
+        group.start("2".into(), mcp_call("mcp_web_echo"));
+        let reason = "MCP protocol error -32603: fixture refuses";
+        assert!(group.finish("2", false, reason, Outcome::Finished, None));
+        assert_eq!(
+            plain(&group)[..3],
+            [
+                "\u{25cf} 2 tool calls \u{b7} 1 read \u{b7} 1 MCP call \u{b7} 1 failed",
+                "\u{251c} Searched capabilities echo text through the web server",
+                "\u{2514} Failed mcp_web_echo: MCP protocol error -32603: fixture refuses",
+            ]
+        );
+        assert_eq!(
+            group.rows(DARK)[2],
+            format!(
+                "{TEXT}\u{2514} Failed mcp_web_echo: MCP protocol error -32603: fixture refuses{RESET}"
+            )
+        );
+    }
+
+    #[test]
+    fn an_mcp_reason_spelled_by_the_channel_is_cut_as_one_pass_cuts_the_raw_one() {
+        // Train 2's seam, at every cut point: the channel's spelling
+        // ([`flattened`]) and then the MCP row's ([`server_spelled`]) give
+        // what the row's spelling gives the server's words in one pass, for
+        // a reason whose escapes, marks and wider-set characters the 256-byte
+        // bound falls among, at every length from well under to well over it.
+        fn one_pass(reason: &str) -> String {
+            let words: Vec<&str> = reason
+                .split([' ', '\t', '\n', '\r', '\x0b', '\x0c'])
+                .filter(|word| !word.is_empty())
+                .collect();
+            crate::mcp::terminal_safe(&words.join(" "))
+        }
+        let tails = [
+            "\u{fe0f}\u{fe0f}\u{1b}\u{1b}\u{1b}x",
+            "\u{ad}\\\u{202e}\u{9b}\u{7f}\u{ad}y",
+            "\u{61c}\u{feff}\u{fe0f}\t\r\n\u{200b}\u{b}\u{3164}w",
+        ];
+        for tail in tails {
+            for n in 150..300 {
+                let raw = format!("lead \\ {}{tail}{tail}", "A".repeat(n));
+                let crossed = flattened(&raw);
+                let row = server_spelled(&crossed);
+                assert_eq!(row, one_pass(&raw), "{n} {tail:?}");
+                // Spelled twice it is the same: the row's text is a fixed
+                // point of its own spelling.
+                assert_eq!(server_spelled(&row), row);
+            }
+        }
+        // Text that only looks like an escape -- a server's literal `\x1b`
+        // -- is printable characters, which the channel's bound may cut as
+        // it cuts any text, and reads the same as an escape once spelled: the
+        // row keeps what reaches it within the bound, and spells it once.
+        for n in 150..300 {
+            let raw = format!(
+                "lead {}\\x1b\\u{{202e}}\u{fe0f}\u{1b}\\x7f\\u{{9b}}z",
+                "A".repeat(n)
+            );
+            let row = server_spelled(&flattened(&raw));
+            assert!(row.len() <= crate::mcp::TERMINAL_SAFE_MAX_BYTES, "{n}");
+            assert_eq!(server_spelled(&row), row);
+        }
+        // A backslash that begins no escape is a character like any other.
+        assert_eq!(
+            crate::mcp::terminal_safe_respelled("a\\xzz\\u{}b\\"),
+            "a\\xzz\\u{}b\\"
+        );
+    }
+
+    #[test]
+    fn escape_shaped_server_text_at_the_bound_is_kept_whole_and_the_row_ends_before_it() {
+        // The one place the row is not what one pass over the server's words
+        // gives: text shaped like an escape (a literal `\x1b`) that
+        // straddles the cut, byte 253, is kept whole as the channel's own
+        // escapes are, so the row ends before it where one pass ends inside
+        // it.
+        fn one_pass(reason: &str) -> String {
+            let words: Vec<&str> = reason
+                .split([' ', '\t', '\n', '\r', '\x0b', '\x0c'])
+                .filter(|word| !word.is_empty())
+                .collect();
+            crate::mcp::terminal_safe(&words.join(" "))
+        }
+        let failed_row = |reason: &str| {
+            let mut group = ToolGroup::default();
+            group.start("1".into(), mcp_call("mcp_web_echo"));
+            assert!(group.finish("1", false, reason, Outcome::Finished, None));
+            plain(&group)[1].clone()
+        };
+        // Straight to the row: 252 `A`, a literal `\x1b`, `Z`.
+        let raw = format!("{}\\x1bZ", "A".repeat(252));
+        assert_eq!(one_pass(&raw), format!("{}\\...", "A".repeat(252)));
+        assert_eq!(
+            failed_row(&raw),
+            format!("\u{2514} Failed mcp_web_echo: {}...", "A".repeat(252))
+        );
+        // Through the channel: 244 `A`, U+00AD, a literal `\x1b`, `Z`. The
+        // channel leaves U+00AD raw (2 bytes, 251 in all, under its bound);
+        // the row names it in 8, which carries the literal across the cut.
+        let raw = format!("{}\u{ad}\\x1bZ", "A".repeat(244));
+        let crossed = flattened(&raw);
+        assert_eq!(crossed, raw);
+        assert_eq!(
+            one_pass(&raw),
+            format!("{}\\u{{00ad}}\\...", "A".repeat(244))
+        );
+        assert_eq!(
+            failed_row(&crossed),
+            format!(
+                "\u{2514} Failed mcp_web_echo: {}\\u{{00ad}}...",
+                "A".repeat(244)
+            )
+        );
+    }
+
+    #[test]
+    fn an_mcp_reason_with_nothing_left_once_spelled_is_no_reason() {
+        // The MCP arm tests the reason after spelling it, as fx's
+        // `failureStatusDetail` returns none for an empty encoding: a reason
+        // of white space alone, given to the row raw, leaves no `: `.
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call("mcp_web_echo"));
+        assert!(group.finish("1", false, "\u{b}", Outcome::Finished, None));
+        assert_eq!(plain(&group)[1], "\u{2514} Failed mcp_web_echo");
+    }
+
+    #[test]
+    fn a_servers_words_in_a_failed_mcp_calls_row_are_written_out_not_obeyed() {
+        // A reason that is a server's text: its line breaks one space, an
+        // escape and a bidirectional override spelled out, as upstream's
+        // `encodeTerminalSafeInline` does, where every other tool's reason
+        // only has its controls blanked.
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call("mcp_web_echo"));
+        let reason = "refused\r\n  by \u{1b}[31mthe\u{202e} server";
+        assert!(group.finish("1", false, reason, Outcome::Finished, None));
+        assert_eq!(
+            plain(&group)[1],
+            "\u{2514} Failed mcp_web_echo: refused by \\x1b[31mthe\\u{202e} server"
+        );
+        assert!(!group.rows(DARK)[1].contains('\u{202e}'));
+    }
+
+    /// Whether every escape in a drawn row is one of the palette's own
+    /// (a 256-colour foreground, its reset, or the full reset) and no other
+    /// control or bidirectional code point is in it: what a row must be
+    /// before any strip, for a name a server chose.
+    fn inert(row: &str) -> bool {
+        let palette_only = row.match_indices('\u{1b}').all(|(at, _)| {
+            let rest = &row[at + 1..];
+            rest.starts_with("[38;5;") || rest.starts_with("[39m") || rest.starts_with("[0m")
+        });
+        palette_only
+            && !row
+                .chars()
+                .any(|c| (c.is_control() && c != '\u{1b}') || c == '\u{202e}')
+    }
+
+    #[test]
+    fn a_hostile_tool_name_is_written_out_on_every_row_it_reaches() {
+        // A server's tool name with an escape and a bidirectional override in
+        // it, through every row an MCP call can have, the cancelled line and
+        // the full transcript's rows (`expanded`): spelled out by
+        // `crate::mcp::terminal_safe`, never sent to the terminal.
+        const NAME: &str = "mcp_evil\u{1b}[31m\u{202e}x";
+        const SPELLED: &str = "mcp_evil\\x1b[31m\\u{202e}x";
+        let check = |group: &ToolGroup, row: usize, want: String| {
+            let drawn = group.rows(DARK);
+            assert!(inert(&drawn[row]), "{:?}", drawn[row]);
+            assert_eq!(strip(&drawn[row]), want);
+            for line in group.expanded(DARK) {
+                assert!(inert(&line), "{line:?}");
+            }
+        };
+
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call(NAME));
+        check(&group, 1, format!("\u{2514} Running MCP {SPELLED}"));
+        ok(&mut group, "1");
+        check(&group, 1, format!("\u{2514} Ran MCP {SPELLED}"));
+
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call(NAME));
+        assert!(group.finish("1", false, "no", Outcome::Denied, None));
+        check(&group, 1, format!("\u{2514} Denied {SPELLED}"));
+
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call(NAME));
+        assert!(group.finish("1", false, "boom", Outcome::Finished, None));
+        check(&group, 1, format!("\u{2514} Failed {SPELLED}: boom"));
+
+        let mut group = ToolGroup::default();
+        group.start("1".into(), mcp_call(NAME));
+        assert_eq!(group.cancel_running(), ["1".to_string()]);
+        check(&group, 1, format!("\u{2514} Cancelled {SPELLED}"));
+        check(
+            &group,
+            3,
+            format!("\u{25a0} Cancelled {SPELLED} \u{b7} What can xfx do differently?"),
+        );
+    }
+
+    // -- CALLROW-SAFE: a call's own row over what a terminal would act on ----
+
+    /// `p5-call-row-safe`'s step: a command, a glob pattern and a read path,
+    /// each carrying a right-to-left override, a left-to-right isolate, the
+    /// Arabic letter mark, `ESC[2J`, a bare carriage return, a tab and the C1
+    /// `U+009B`. The read fails, and its reason quotes the path.
+    const UNSAFE_COMMAND: &str =
+        "printf '%s' 'A\u{202e}B\u{2066}C\u{061c}D\u{1b}[2JE\rF\tG\u{9b}H' >/dev/null";
+    const UNSAFE_PATTERN: &str = "n\u{202e}o\u{2066}p\u{061c}q\u{1b}7r\ts\u{9b}t\ru*.md";
+    const UNSAFE_PATH: &str = "m\u{202e}n\u{2066}o\u{061c}p\u{1b}[2Jq\tr\u{9b}s\rt.txt";
+
+    fn unsafe_calls() -> ToolGroup {
+        let mut group = ToolGroup::default();
+        group.start("c".into(), command(UNSAFE_COMMAND));
+        group.start(
+            "g".into(),
+            shown(&read::GLOB_FILES, json!({ "pattern": UNSAFE_PATTERN })),
+        );
+        group.start(
+            "r".into(),
+            shown(&read::READ_FILE, json!({ "path": UNSAFE_PATH })),
+        );
+        assert!(group.finish("c", true, "", Outcome::Exited(0), None));
+        ok(&mut group, "g");
+        let reason = format!("Path not found: {UNSAFE_PATH}");
+        assert!(group.finish("r", false, &reason, Outcome::Finished, None));
+        group
+    }
+
+    /// A character no row may hand the terminal as itself: a control other
+    /// than the escape (which [`only_colours`] reads), or a mark fx names
+    /// (`isNonPrintingCodepoint`, `text_utils.zig:703-709@481104fd`) or xfx
+    /// does (`U+061C`).
+    fn obeyed_or_hidden(character: char) -> bool {
+        let code = u32::from(character);
+        (code < 0x20 && character != '\u{1b}')
+            || code == 0x7f
+            || (0x80..=0x9f).contains(&code)
+            || (0x200b..=0x200f).contains(&code)
+            || (0x2028..=0x202e).contains(&code)
+            || (0x2060..=0x206f).contains(&code)
+            || code == 0xfeff
+            || code == 0x061c
+    }
+
+    /// Whether every escape in `row` is a colour (`ESC[…m`), the only ones
+    /// a row writes.
+    fn only_colours(row: &str) -> bool {
+        let mut rest = row;
+        while let Some(at) = rest.find('\u{1b}') {
+            rest = &rest[at..];
+            match super::super::pacer::escape_at(rest) {
+                Some(len) if rest[..len].starts_with("\u{1b}[") && rest[..len].ends_with('m') => {
+                    rest = &rest[len..];
+                }
+                _ => return false,
+            }
+        }
+        true
+    }
+
+    #[test]
+    fn a_calls_own_row_spells_its_argument_as_fx_spells_a_commands() {
+        // `p5-call-row-safe` (fx v0.0.16, `-end` and `-full`): the command
+        // through fx's projection -- the bare carriage return one space --
+        // and `encodeTerminalSafe` (`tool_presentation.zig:432-447@481104fd`,
+        // `text_utils.zig:353-390`): `ESC` and the tab `\xNN`, the marks
+        // and the C1 `\u{NNNN}`. The pattern and the path the same way
+        // without the projection, as fx spells a file change's
+        // (`fileMutationDisplayPath`, `src/core/agent/runtime/
+        // tool_presentation.zig:736-753@481104fd`); fx hands those two to
+        // the terminal as they are (ledger `call-row-raw-argument`). The
+        // Arabic letter mark is named on every row. The reason as
+        // `encodeTerminalSafeInline` spells it: white space one space, the
+        // rest the same encoding.
+        let group = unsafe_calls();
+        let expected = [
+            r"├ Ran printf '%s' 'A\u{202e}B\u{2066}C\u{061c}D\x1b[2JE F\x09G\u{009b}H' >/dev/null",
+            r"├ Matched n\u{202e}o\u{2066}p\u{061c}q\x1b7r\x09s\u{009b}t\x0du*.md",
+            r"└ Failed m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq\x09r\u{009b}s\x0dt.txt: Path not found: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq r\u{009b}s t.txt",
+        ];
+        assert_eq!(plain(&group)[1..4], expected);
+        let expanded: Vec<String> = group.expanded(DARK).iter().map(|row| strip(row)).collect();
+        assert_eq!(expanded[1..4], expected);
+    }
+
+    #[test]
+    fn no_calls_row_hands_the_terminal_a_control_or_a_mark_at_any_width() {
+        let group = unsafe_calls();
+        for cols in [10u16, 24, 40, 80, 120] {
+            for row in group.rows(DARK).iter().chain(&group.expanded(DARK)) {
+                let cut = super::super::transcript::ellipsized(row, cols);
+                assert!(super::super::wrap::width(&cut) <= cols, "{cols}: {cut:?}");
+                assert!(only_colours(&cut), "{cols}: {cut:?}");
+                assert!(
+                    !strip(&cut).chars().any(obeyed_or_hidden),
+                    "{cols}: {cut:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_commands_line_breaks_are_one_space_as_fxs_projection_makes_them() {
+        // `projectRunCommandActivitySource` (`tool_presentation.zig:256-311
+        // @481104fd`): a carriage return or a line feed ends a line, the
+        // spaces and tabs that open the next one go with it, and one space
+        // stands for the break -- once something came before it and only
+        // when something follows. Another call's argument has its breaks
+        // spelled.
+        for (command_text, row) in [
+            (
+                "echo a\n  echo b\r\n\techo c\n",
+                "Running echo a echo b echo c",
+            ),
+            ("\n\t ls", "Running ls"),
+            ("  \nls", "Running    ls"),
+            ("a\tb\r", r"Running a\x09b"),
+        ] {
+            let mut group = ToolGroup::default();
+            group.start("1".into(), command(command_text));
+            assert_eq!(
+                plain(&group)[1],
+                format!("\u{2514} {row}"),
+                "{command_text:?}"
+            );
+        }
+        let mut group = ToolGroup::default();
+        group.start(
+            "1".into(),
+            shown(&read::READ_FILE, json!({"path": "a\nb\rc"})),
+        );
+        assert_eq!(plain(&group)[1], r"└ Reading a\x0ab\x0dc");
+    }
+
+    #[test]
+    fn a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape() {
+        // `encodeTerminalSafe` bounds what it writes, not what it reads, and
+        // cuts back to the last whole token that leaves room for `...`
+        // (`text_utils.zig:353-390@481104fd`): a command at the transcript's
+        // reflow bound, 14 399 bytes (`max_run_command_reflow_bytes`,
+        // `tool_presentation.zig:21-23`, `formatRunCommandDetailBounded`
+        // `:441`), a file change's path at 4 096 (`diff.max_encoded_label_bytes`,
+        // `src/core/output/diff.zig:10`), and so every other argument here.
+        let pair = "A\u{202e}";
+        let spelled_pair = r"A\u{202e}";
+        let mut group = ToolGroup::default();
+        group.start("1".into(), command(&pair.repeat(5_000)));
+        let row = &plain(&group)[1];
+        let expected = format!("\u{2514} Running {}A...", spelled_pair.repeat(1_599));
+        assert_eq!(row.len(), expected.len());
+        assert!(*row == expected, "{}", &row[row.len() - 40..]);
+        let mut group = ToolGroup::default();
+        group.start(
+            "1".into(),
+            shown(&read::READ_FILE, json!({"path": pair.repeat(5_000)})),
+        );
+        let row = &plain(&group)[1];
+        let expected = format!("\u{2514} Reading {}A...", spelled_pair.repeat(454));
+        assert!(*row == expected, "{}", &row[row.len() - 40..]);
+    }
+
+    #[test]
+    fn a_command_read_only_in_part_says_so_where_fx_says_nothing() {
+        // fx reads a command's first 14 400 bytes and marks nothing when what
+        // it read fits (`projectRunCommandActivitySource`, `tool_presentation.
+        // zig:268@481104fd`; the marker only `encodeTerminalSafe`'s, `:445`):
+        // one that is mostly line breaks shows its head alone, its tail hidden
+        // without a word. Here the row says it was cut -- in the transcript
+        // and on Ctrl-O, where a row that hides its own tail is not safe to
+        // copy (ledger `call-row-source-cut`) -- but only when something the
+        // row would show is left.
+        let breaks = "\n".repeat(14_400);
+        for (command_text, row) in [
+            (
+                format!("echo shown{breaks}echo hidden"),
+                "Running echo shown...",
+            ),
+            (format!("echo shown{breaks} \t\r\n"), "Running echo shown"),
+            // A character the bound splits: the byte read is `\xNN`, as fx
+            // writes it, and the rest is marked -- with more after it, and
+            // when it is the command's last.
+            (
+                format!("echo shown{}\u{202e}z", "\n".repeat(14_389)),
+                r"Running echo shown \xe2...",
+            ),
+            (
+                format!("echo shown{}\u{202e}", "\n".repeat(14_389)),
+                r"Running echo shown \xe2...",
+            ),
+        ] {
+            let mut group = ToolGroup::default();
+            group.start("1".into(), command(&command_text));
+            assert_eq!(plain(&group)[1], format!("\u{2514} {row}"));
+            let expanded = strip(&group.expanded(DARK)[1]);
+            assert_eq!(expanded, format!("\u{2514} {row}"));
+            // And spelled again, as the row spells what the channel spelled.
+            let once = spelled(&command_text, Activity::Command);
+            assert_eq!(spelled(&once, Activity::Command), once);
+        }
     }
 }

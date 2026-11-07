@@ -1,0 +1,68 @@
+# No regression at 256 colours: xfx at PR #67's head 02b4619b (banner v0.1.0-02b4619) against this unit's code head 9461bf70 (v0.1.0-9461bf7), every other p5-transcript-* scenario, 40x120
+# python3 -I cellpairs.py scripts/fxcap <base>/xfx-<snap>.ansi <head>/xfx-<snap>.ansi
+SAME p5-transcript-anchor-40x120-end.ansi
+DIFF p5-transcript-anchor-40x120-full-pgup.ansi
+   12 base (('fg', 245),) head (('fg', 245),) TEXT-DIFFERS
+DIFF p5-transcript-anchor-40x120-full-pgup2-after.ansi
+   34 base (('fg', 245),) head (('fg', 245),) TEXT-DIFFERS
+   6 base (('fg', 250),) head (('fg', 250),) TEXT-DIFFERS
+   2 base (('fg', 250),) head None TEXT-DIFFERS
+DIFF p5-transcript-anchor-40x120-full-pgup2.ansi
+   34 base (('fg', 245),) head (('fg', 245),) TEXT-DIFFERS
+   6 base (('fg', 250),) head (('fg', 250),) TEXT-DIFFERS
+   2 base (('fg', 250),) head None TEXT-DIFFERS
+DIFF p5-transcript-anchor-40x120-full-running.ansi
+   18 base (('fg', 245),) head (('fg', 245),) TEXT-DIFFERS
+SAME p5-transcript-anchor-40x120-running.ansi
+SAME p5-transcript-anchormid-40x120-end.ansi
+DIFF p5-transcript-anchormid-40x120-full-pgup-after.ansi
+   8 base (('fg', 245),) head (('fg', 245),) TEXT-DIFFERS
+DIFF p5-transcript-anchormid-40x120-full-pgup.ansi
+   8 base (('fg', 245),) head (('fg', 245),) TEXT-DIFFERS
+DIFF p5-transcript-anchormid-40x120-full-running.ansi
+   14 base (('fg', 245),) head (('fg', 245),) TEXT-DIFFERS
+SAME p5-transcript-anchormid-40x120-running.ansi
+SAME p5-transcript-cancel-40x120-cmd-esc.ansi
+SAME p5-transcript-cancel-40x120-cmd-running.ansi
+SAME p5-transcript-cancel-40x120-end.full.ansi
+SAME p5-transcript-cancel-40x120-esc.ansi
+DIFF p5-transcript-cancel-40x120-full.ansi
+   44 base (('fg', 245),) head (('fg', 245),) TEXT-DIFFERS
+   1 base (('fg', 250),) head (('fg', 250),) TEXT-DIFFERS
+DIFF p5-transcript-cancel-40x120-mid.ansi
+   2 base (('fg', 245),) head (('fg', 245),) TEXT-DIFFERS
+SAME p5-transcript-cancel-40x120-next.ansi
+SAME p5-transcript-diffctl-40x120-closed.ansi
+SAME p5-transcript-diffctl-40x120-edited.ansi
+SAME p5-transcript-diffctl-40x120-edited.full.ansi
+DIFF p5-transcript-diffctl-40x120-full.ansi
+   40 base (('fg', 245),) head (('fg', 245),) TEXT-DIFFERS
+SAME p5-transcript-submit-40x120-filled.ansi
+SAME p5-transcript-submit-40x120-second.ansi
+SAME p5-transcript-submit-40x120-submit-0.15.ansi
+SAME p5-transcript-submit-40x120-tall.ansi
+SAME p5-transcript-submit-40x120-tall.full.ansi
+SAME p5-transcript-tallfirst-40x120-tall.ansi
+SAME p5-transcript-tallfirst-40x120-tall.full.ansi
+SAME p5-transcript-tools-40x120-end.ansi
+SAME p5-transcript-tools-40x120-end.full.ansi
+DIFF p5-transcript-tools-40x120-full-pgup-after.ansi
+   33 base (('fg', 245),) head (('fg', 245),) TEXT-DIFFERS
+   1 base (('fg', 250),) head (('fg', 250),) TEXT-DIFFERS
+DIFF p5-transcript-tools-40x120-full-pgup.ansi
+   33 base (('fg', 245),) head (('fg', 245),) TEXT-DIFFERS
+   1 base (('fg', 250),) head (('fg', 250),) TEXT-DIFFERS
+DIFF p5-transcript-tools-40x120-full-running.ansi
+   33 base (('fg', 245),) head (('fg', 245),) TEXT-DIFFERS
+   1 base (('fg', 250),) head (('fg', 250),) TEXT-DIFFERS
+DIFF p5-transcript-tools-40x120-full-tail-up4.ansi
+   33 base (('fg', 245),) head (('fg', 245),) TEXT-DIFFERS
+   1 base (('fg', 250),) head (('fg', 250),) TEXT-DIFFERS
+DIFF p5-transcript-tools-40x120-full-tail.ansi
+   33 base (('fg', 245),) head (('fg', 245),) TEXT-DIFFERS
+   1 base (('fg', 250),) head (('fg', 250),) TEXT-DIFFERS
+SAME p5-transcript-tools-40x120-running.ansi
+DIFF p5-transcript-tz-40x120-full.ansi
+   31 base (('fg', 245),) head (('fg', 245),) TEXT-DIFFERS
+DIFF p5-transcript-tzsys-40x120-full.ansi
+   26 base (('fg', 245),) head (('fg', 245),) TEXT-DIFFERS

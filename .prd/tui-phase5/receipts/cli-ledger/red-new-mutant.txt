@@ -1,0 +1,10 @@
+     Running tests/cli.rs (target/debug/deps/cli-d768a55c797aca95)
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.00s
+     Running tests/parity.rs (target/debug/deps/parity-980418d577d0d951)
+test every_deferred_command_and_alias_is_refused_like_an_unknown_name ... FAILED
+thread 'every_deferred_command_and_alias_is_refused_like_an_unknown_name' (264943291) panicked at tests/parity.rs:358:9:
+assertion `left == right` failed: `xfx update` must exit 1 as an unknown name does; stdout "[status] model=zai/glm-5.2\n[status] provider=gateway\n[status] build_channel=debug\n[status] build_revision=b0a78feabc6f\n[status] auth=missing\n[status] auth_refreshable=false\n[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.\n[status] permission_mode=auto\n[status] sandbox=none\n[status] workspace=<local-path>] history_turns=0\n[status] session_permission_grants=0\n[status] agent_step_limit=25\n"
+  left: Some(0)
+ right: Some(1)
+    every_deferred_command_and_alias_is_refused_like_an_unknown_name
+test result: FAILED. 25 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
