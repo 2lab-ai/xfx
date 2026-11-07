@@ -1,13 +1,10 @@
 //! `/mcp`'s menu, drawn and keyed without a runtime: rows built by hand, as
 //! `p5-mcp-menu-new` shows fx v0.0.16's (`cap/mcp/new/fx-p5-mcp-menu-new-40x120-*`).
 
-use super::super::theme::{Depth, Mode};
+use super::super::theme::Mode;
 use super::*;
 
-const PALETTE: Palette = Palette {
-    mode: Mode::Dark,
-    depth: Depth::Ansi256,
-};
+const PALETTE: Palette = Palette { mode: Mode::Dark };
 
 /// `row` with its SGR runs taken out and its trailing blanks trimmed, as a
 /// capture's `.txt` reads.

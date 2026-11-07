@@ -10,20 +10,31 @@
 gateway interrupt-words.json
 wait 2
 key C-c
+# The exit hint is snapped while it is up and once its 3 s are over, each
+# by the screen rather than by a second count against them (FLAKE-HINT4).
+until shown press ctrl+c again to exit
 wait 0.3
 snap idle-cc
+# The frame itself holds the row it is for, or the run fails: the `until
+# shown` before it was a look, and a wait came between (FLAKE-HINT4).
+expect idle-cc press ctrl+c again to exit
 wait 3.5
+until gone press ctrl+c again to exit
 snap idle-cc-expired
 type stream please
 key Enter
 wait 2.5
 snap mid
 key C-c
+until shown press ctrl+c again to exit
 wait 0.3
 snap cc-0.3
+expect cc-0.3 press ctrl+c again to exit
 wait 1.2
 snap cc-1.5
+expect cc-1.5 press ctrl+c again to exit
 wait 2
+until gone press ctrl+c again to exit
 snap cc-3.5
 type next
 key Enter

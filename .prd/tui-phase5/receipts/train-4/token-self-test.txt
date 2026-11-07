@@ -1,0 +1,18 @@
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (toolgroup-ctrlo-record-short) dropped: found
+  self-test ledger, a deleted entry (ctrl-o-diff-row-clipped) back: found
+  self-test ledger, a comment line dropped: found
+self-test a76f4e37: 5 of 5 found
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, a deleted entry (ctrl-o-diff-row-clipped) back: found
+  self-test ledger, a comment line dropped: found
+  self-test ledger, a numbers-only entry (call-row-raw-argument) with a word changed: found
+  self-test ledger, a numbers-only entry (call-row-raw-argument) with a reference dropped: found
+self-test 066a913d: 6 of 6 found
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, a deleted entry (truecolor-grey-notation) back: found
+  self-test ledger, a comment line dropped: found
+self-test e3035c92: 4 of 4 found

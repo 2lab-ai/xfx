@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-58b463c [debug] · Run /help for commands
+
+* mcp: fixture
+    status     retrying
+    transport  stdio
+    command    <bun> <repo>/scripts/fxcap/
+  scenarios/p5-mcp-discover-stdio.ts modern
+    source     ~/.xfx/mcp.json
+    error      it refused or never answered xfx's initialize request
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

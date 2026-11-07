@@ -1,0 +1,18 @@
+# The gate at d96603f9, one step after another (scratchpad tools/gate3.sh), TMPDIR=<tmp>.
+head d96603f93c92a583203f911f39fab4282f83c8c5
+dirty-before: 0
+build exit=0 19s
+fmt exit=0 2s
+clippy exit=0 9s
+clippy-fi exit=0 9s
+test exit=0 146s
+test-fi exit=0 139s
+identity exit=0 0s
+no-stubs exit=0 20s
+no-secrets exit=0 53s
+test-sweep exit=0 26s
+test-capture exit=0 153s
+dirty-after: 0
+GATEDONE
+test: passed 5210 failed 0 ignored 7
+test-fi: passed 5247 failed 0 ignored 7

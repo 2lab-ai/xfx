@@ -1,0 +1,18 @@
+# mutants.py <a git clone --no-local of the train at 3bd15c89> (GIT_DIR, GIT_INDEX_FILE, GIT_WORK_TREE unset), under the suite lock
+unmutated: exit 0; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4373 filtered out; finished in 0.72s
+A (the notice grey spelt direct (the dark 250 as 38;2); src/tui/theme.rs): CAUGHT; test tui::event_loop::tests::a_2026_servers_version_and_protocol_rows_are_spelt_as_upstream_spells_its_greys ... FAILED; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4373 filtered out; finished in 0.08s
+    thread 'tui::event_loop::tests::a_2026_servers_version_and_protocol_rows_are_spelt_as_upstream_spells_its_greys' (309747765) panicked at src/tui/event_loop.rs:13550:9:
+    assertion `left == right` failed: "\u{1b}[?2026h\u{1b}[?25l\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;2;188;188;188m* \u{1b}[0m\u{1b}[38;2;188;188;188mmcp:\u{1b}[0m\u{1b}[38;2;188;188;188m probe\u{1b}[0m\u{1
+B (the server screen's fact label spelt direct (the dim grey as 38;2); src/tui/mcp_menu.rs): CAUGHT; test tui::event_loop::tests::a_2026_servers_version_and_protocol_rows_are_spelt_as_upstream_spells_its_greys ... FAILED; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4373 filtered out; finished in 0.72s
+    thread 'tui::event_loop::tests::a_2026_servers_version_and_protocol_rows_are_spelt_as_upstream_spells_its_greys' (309756885) panicked at src/tui/event_loop.rs:13583:9:
+    assertion `left == right` failed: "\u{1b}[?2026h\u{1b}[?25l\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[24;1H\n\
+C (the menu's row drops the era's version; src/tui/mcp_menu.rs): CAUGHT; test tui::event_loop::tests::a_2026_servers_version_and_protocol_rows_are_spelt_as_upstream_spells_its_greys ... FAILED; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4373 filtered out; finished in 30.69s
+    thread 'tui::event_loop::tests::a_2026_servers_version_and_protocol_rows_are_spelt_as_upstream_spells_its_greys' (309764980) panicked at src/tui/event_loop.rs:13537:17:
+    never written: "protocol"
+D (`/mcp show` says no version; src/mcp/command.rs): CAUGHT; test tui::event_loop::tests::a_2026_servers_version_and_protocol_rows_are_spelt_as_upstream_spells_its_greys ... FAILED; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4373 filtered out; finished in 30.07s
+    thread 'tui::event_loop::tests::a_2026_servers_version_and_protocol_rows_are_spelt_as_upstream_spells_its_greys' (309788755) panicked at src/tui/event_loop.rs:13537:17:
+    never written: "2026-07-28"
+E (a theme switch leaves a notice row in its first palette; src/tui/theme.rs): CAUGHT; test tui::event_loop::tests::a_2026_servers_version_and_protocol_rows_are_spelt_as_upstream_spells_its_greys ... FAILED; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4373 filtered out; finished in 0.07s
+    thread 'tui::event_loop::tests::a_2026_servers_version_and_protocol_rows_are_spelt_as_upstream_spells_its_greys' (309815852) panicked at src/tui/event_loop.rs:13565:9:
+    assertion `left == right` failed: the version row was not drawn again in the light notice grey: "\u{1b}[?2026h\u{1b}[?25l\u{1b}[22;1H\u{1b}[38;5;235m┃\u{1b}[24;1H\u{1b}[0m\u{1b}[38;5;241mrun `xfx setu
+5 of 5 caught

@@ -383,14 +383,11 @@ pub(crate) fn key_help(cols: u16) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::super::theme::{Depth, Mode};
+    use super::super::theme::Mode;
     use super::*;
     use std::path::PathBuf;
 
-    const PALETTE: Palette = Palette {
-        mode: Mode::Dark,
-        depth: Depth::Ansi256,
-    };
+    const PALETTE: Palette = Palette { mode: Mode::Dark };
 
     fn entry(path: &str, available: bool) -> Entry {
         Entry {

@@ -1,0 +1,18 @@
+# Every `until` the three head sweeps ran (ba24235, both binaries, 29 scenarios each): the condition, how many times, and the longest it waited. No run failed (sweep-compare.txt: ran 29, failed 0, timeout 0, each).
+gone Full access  x81, longest 2.03 s
+gone Generating (  x6, longest 0.02 s
+gone No context to compact.  x12, longest 0.03 s
+gone Wait for the active work to finish  x6, longest 0.02 s
+gone press ctrl+c again to exit  x72, longest 0.05 s
+gone recovered · attempt 2  x6, longest 1.05 s
+shown Full access  x51, longest 0.11 s
+shown MCP config has 1 problem  x6, longest 0.03 s
+shown MCP config has 2 problems  x3, longest 0.04 s
+shown MCP config has 5 problems  x6, longest 0.04 s
+shown No context to compact.  x6, longest 0.09 s
+shown Running sleep 4  x6, longest 0.17 s
+shown press ctrl+c again to exit  x24, longest 0.05 s
+shown proj is waiting for approval  x12, longest 0.05 s
+shown recovered · attempt 2  x6, longest 0.88 s
+shown steered answer.  x6, longest 0.83 s
+total 309

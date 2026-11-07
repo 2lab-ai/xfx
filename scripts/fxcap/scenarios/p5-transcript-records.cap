@@ -14,7 +14,12 @@ fx: env FX_PERMISSION_MODE=yolo
 xfx: env XFX_PERMISSION_MODE=yolo
 env TZ=UTC
 work p5-transcript-ws
+# The full-access warning is up from the first frame for 4 s (capfile.py
+# TIMERS): `start` is the screen once it has come and gone, not a second
+# count against it.
+until shown Full access
 wait 4
+until gone Full access
 snap start
 type read and wait
 wait 1

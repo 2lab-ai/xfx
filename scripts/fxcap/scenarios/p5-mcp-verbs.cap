@@ -19,6 +19,12 @@ key C-u
 type /mcp show fixture
 key Enter
 wait 4
+# The status line keeps its MCP text back while a server is still
+# starting, up to 10 s (statusline.rs MCP_STARTUP_QUIET,
+# menu.zig:443@481104fd), and `remote` (127.0.0.1:9) keeps retrying, so
+# here it is the full 10 s. The snap is the text once it is up, not a
+# second count 2 s past the 10 (FLAKE-HINT4).
+until shown proj is waiting for approval
 snap show-fixture
 type /mcp show remote
 key Enter

@@ -1,0 +1,473 @@
+# compare.py <flake-r1-1's own head sweep, rescored with the train's ledger> <the train head's sweep (3bd15c89)>
+pairs: reference 236, train 526, shared 236; only the reference: 0
+reference: 236 pairs, pass 92; approved-divergence 1, identical 1, normalized-identical 91, unresolved-defect 143
+train: 236 pairs, pass 105; identical 1, normalized-identical 104, unresolved-defect 131
+p5-mcp-live full: 23 differing rows left, 0 new
+    left: fx '' / xfx '  tokens: 1200 in · 40 out'
+    left: fx '' / xfx '* network: provider: gateway · model: fake/model-a · <ms>'
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice' / xfx ''
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt' / xfx ''
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool' / xfx '  finish: tool_calls'
+    left: fx 'cause root "<local-path>' / xfx ''
+    left: fx '027/fxcap.XXXXXX<local-path>" could not be read, so an unknown' / xfx '","server":"web","description":"Echo the text back (fxcap HTTP fixture'
+    left: fx '  finish: stop' / xfx '* network: provider: gateway · model: fake/model-a · <ms>'
+    left: fx ' so an unknown number of skills may be missing; fix access to the root' / xfx '┃ use the web echo tool'
+    left: fx 'de-h4/fxsw.fw1te137/027/fxcap.XXXXXX<local-path>" could not be' / xfx '● 2 tool calls · 1 read · 1 MCP call'
+    left: fx ' the root and reload skills; 1 additional diagnostic omitted; relaunch' / xfx 'xture)","usage":["mcp","web","echo"]}],"counts":{"skills":0,"mcp_tools'
+    left: fx 'issing; fix access to the root and reload skills; inventory incomplete' / xfx '├ Searched capabilities echo text through the web server'
+    left: fx 'er of skills may be missing; fix access to the root and reload skills;' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+    left: fx '  tokens: 1200 in · 40 out' / xfx '  finish: tool_calls'
+    left: fx '  with FX_TRACE=1 to write a trace log' / xfx '│  ":1},"total_matches":{"skills":0,"mcp_tools":1}}'
+    left: fx 'ncomplete because root "<local-path>' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt'
+    left: fx '* network: provider: gateway · model: fake/model-a · <ms>' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+    left: fx '│  ":1},"total_matches":{"skills":0,"mcp_tools":1}}' / xfx '  finish: stop'
+    left: fx 'xture)","usage":["mcp","web","echo"]}],"counts":{"skills":0,"mcp_tools' / xfx '* network: provider: gateway · model: fake/model-a · <ms>'
+    left: fx '","server":"web","description":"Echo the text back (fxcap HTTP fixture' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+    left: fx '┃ use the web echo tool' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+    left: fx '├ Searched capabilities echo text through the web server' / xfx ''
+    left: fx '● 2 tool calls · 1 read · 1 MCP call' / xfx '  tokens: 1200 in · 40 out'
+p5-mcp-menu-new approve-confirm: 1 differing rows left, 0 new
+    left: fx '<<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '<<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+p5-mcp-menu-new left-back: 1 differing rows left, 0 new
+    left: fx '› remote                  connecting              profile' / xfx '› remote                  retrying                profile'
+p5-mcp-menu-new list: 1 differing rows left, 0 new
+    left: fx '  remote                  connecting              profile' / xfx '  remote                  retrying                profile'
+p5-mcp-menu-new list-after-approve: 1 differing rows left, 0 new
+    left: fx '  remote                  connecting              profile' / xfx '  remote                  retrying                profile'
+p5-mcp-menu-new list-filter: 1 differing rows left, 0 new
+    left: fx '  remote                  connecting              profile' / xfx '  remote                  retrying                profile'
+p5-mcp-menu-new list-proj: 1 differing rows left, 0 new
+    left: fx '  remote                  connecting              profile' / xfx '  remote                  retrying                profile'
+p5-mcp-menu-new list-unfilter: 1 differing rows left, 0 new
+    left: fx '  remote                  connecting              profile' / xfx '  remote                  retrying                profile'
+p5-mcp-menu-new remove-cancel: 8 differing rows left, 0 new
+    left: fx '' / xfx "  error     it refused or never answered xfx's initialize request"
+    left: fx '' / xfx '› Remove        /mcp remove remote'
+    left: fx '' / xfx '↑↓ navigate     enter run     esc back'
+    left: fx '  Loading tools…' / xfx ''
+    left: fx '  status    connecting' / xfx '  status    retrying'
+    left: fx '› Remove        /mcp remove remote' / xfx ''
+    left: fx '↑↓ navigate     enter run     esc back' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx '  Loading tools…'
+p5-mcp-menu-new remove-inplace: 8 differing rows left, 0 new
+    left: fx '' / xfx "  error     it refused or never answered xfx's initialize request"
+    left: fx '' / xfx '› Remove remote from ~/.xfx/mcp.json?   yes  no'
+    left: fx '' / xfx '↑↓ navigate     enter run     esc back'
+    left: fx '  Loading tools…' / xfx ''
+    left: fx '  status    connecting' / xfx '  status    retrying'
+    left: fx '› Remove remote from ~/.xfx/mcp.json?   yes  no' / xfx ''
+    left: fx '↑↓ navigate     enter run     esc back' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx '  Loading tools…'
+p5-mcp-menu-new remove-no: 8 differing rows left, 0 new
+    left: fx '' / xfx "  error     it refused or never answered xfx's initialize request"
+    left: fx '' / xfx '› Remove remote from ~/.xfx/mcp.json?   yes  no'
+    left: fx '' / xfx '↑↓ navigate     enter run     esc back'
+    left: fx '  Loading tools…' / xfx ''
+    left: fx '  status    connecting' / xfx '  status    retrying'
+    left: fx '› Remove remote from ~/.xfx/mcp.json?   yes  no' / xfx ''
+    left: fx '↑↓ navigate     enter run     esc back' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx '  Loading tools…'
+p5-mcp-menu-new reopened: 1 differing rows left, 0 new
+    left: fx '  remote                  connecting              profile' / xfx '  remote                  retrying                profile'
+p5-mcp-menu-new server-remote: 8 differing rows left, 0 new
+    left: fx '' / xfx "  error     it refused or never answered xfx's initialize request"
+    left: fx '' / xfx '› Remove        /mcp remove remote'
+    left: fx '' / xfx '↑↓ navigate     enter run     esc back'
+    left: fx '  Loading tools…' / xfx ''
+    left: fx '  status    connecting' / xfx '  status    retrying'
+    left: fx '› Remove        /mcp remove remote' / xfx ''
+    left: fx '↑↓ navigate     enter run     esc back' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx '  Loading tools…'
+p5-mcp-verbs add-badname: 1 differing rows left, 1 new
+    left: fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+    NEW:  fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs add-new-http: 2 differing rows left, 2 new
+    left: fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+    NEW:  fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs add-new-syntax: 2 differing rows left, 2 new
+    left: fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+    NEW:  fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs add-old-http: 2 differing rows left, 2 new
+    left: fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+    NEW:  fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs add-old-syntax: 2 differing rows left, 2 new
+    left: fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+    NEW:  fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs auth-remote: 3 differing rows left, 2 new
+    left: fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+    NEW:  fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs complete-args: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs complete-show: 3 differing rows left, 0 new
+    left: fx '       show remote   connecting' / xfx '       show remote   retrying'
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs end.full: 4 differing rows left, 2 new
+    left: fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+    left: fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+    NEW:  fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs list: 1 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs list-after: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs login-remote: 3 differing rows left, 2 new
+    left: fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+    NEW:  fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs login-stdio: 3 differing rows left, 2 new
+    left: fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+    NEW:  fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs logout-remote: 2 differing rows left, 2 new
+    left: fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+    NEW:  fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '* mcp: remote' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+p5-mcp-verbs prompt-list: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs reject: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs remove-three: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs remove-two: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs remove-web: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs remove-web2: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs resource-list: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs show-bare: 2 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  web2     ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs show-fixture: 1 differing rows left, 0 new
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+p5-mcp-verbs show-proj: 16 differing rows left, 8 new
+    left: fx '' / xfx '    next       /mcp approve proj'
+    left: fx '' / xfx '    source     .mcp.json'
+    left: fx '' / xfx '    transport  stdio'
+    left: fx '' / xfx '  p5-mcp-stdio.ts'
+    left: fx '' / xfx '* mcp: proj'
+    left: fx '' / xfx '                                   proj is waiting for approval · /mcp'
+    left: fx '' / xfx '┃'
+    left: fx '<<checkout>/scripts/fxcap/scenarios/' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    status     waiting for approval' / xfx '    status     retrying'
+    left: fx '    transport  stdio' / xfx '    transport  http'
+    left: fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '* mcp: proj' / xfx '* mcp: remote'
+    left: fx '                                   proj is waiting for approval · /mcp' / xfx '<<checkout>/scripts/fxcap/scenarios/'
+    left: fx '┃' / xfx '    status     waiting for approval'
+    NEW:  fx '<<checkout>/scripts/fxcap/scenarios/' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx ''
+    NEW:  fx '    status     waiting for approval' / xfx ''
+    NEW:  fx '    transport  stdio' / xfx '                                   proj is waiting for approval · /mcp'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx ''
+    NEW:  fx '* mcp: proj' / xfx '┃'
+    NEW:  fx '                                   proj is waiting for approval · /mcp' / xfx ''
+    NEW:  fx '┃' / xfx ''
+p5-mcp-verbs show-remote: 9 differing rows left, 0 new
+    left: fx '' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '' / xfx '    status     retrying'
+    left: fx '' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '' / xfx '                                   proj is waiting for approval · /mcp'
+    left: fx '' / xfx '┃'
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  remote   ~/.xfx/mcp.json  http       retrying'
+    left: fx '                                   proj is waiting for approval · /mcp' / xfx '    transport  http'
+    left: fx '┃' / xfx '* mcp: remote'
+p5-panels-sweep-a feedback: 1 differing rows left, 3 new
+    left: fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '' / xfx 'auto · model-a'
+    NEW:  fx 'auto · model-a' / xfx '┃'
+    NEW:  fx '┃' / xfx '✗ command: Unknown command. Try /help.'
+p5-panels-sweep-a logout: 8 differing rows left, 13 new
+    left: fx '* Opened https://xfx.sh/feedback.' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '* session: renamed to "My title"'
+    left: fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* session: renamed to "My title"' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '┃ /shell reload'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    left: fx 'auto · model-a' / xfx '┃'
+    NEW:  fx '' / xfx '┃'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* clipboard: No assistant reply to copy.' / xfx '* undo: Nothing to undo.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx '* images: no pending images' / xfx '✗ images: image file not found'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '* clipboard: No assistant reply to copy.'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '* undo: Nothing to undo.' / xfx '* images: no pending images'
+    NEW:  fx '* version: <build>' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx 'auto · model-a' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+    NEW:  fx '✗ images: image file not found' / xfx '* fast: This model does not come with a fast mode.'
+p5-toolstop-retint dark-again: 1 differing rows left, 0 new
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+p5-toolstop-retint light: 1 differing rows left, 0 new
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+p5-toolstop-retint-light dark: 1 differing rows left, 0 new
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+p5-toolstop-retint-light light-again: 1 differing rows left, 0 new
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+p5-toolstop-retint-light-tc dark: 5 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run cmd' / xfx '┃ run cmd'
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
+p5-toolstop-retint-light-tc light: 5 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run cmd' / xfx '┃ run cmd'
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
+p5-toolstop-retint-light-tc light-again: 5 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run cmd' / xfx '┃ run cmd'
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
+p5-toolstop-retint-tc dark: 5 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run cmd' / xfx '┃ run cmd'
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
+p5-toolstop-retint-tc dark-again: 5 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run cmd' / xfx '┃ run cmd'
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
+p5-toolstop-retint-tc light: 5 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run cmd' / xfx '┃ run cmd'
+    left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
+verdicts moved: 13
+    p5-mcp-live full: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new approve-confirm: approved-divergence -> normalized-identical
+    p5-mcp-menu-new left-back: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new list: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new list-after-approve: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new list-filter: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new list-proj: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new list-unfilter: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new remove-cancel: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new remove-inplace: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new remove-no: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new reopened: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new server-remote: unresolved-defect -> normalized-identical
+fx screens not the same in the two sweeps: 65
+    interrupt mid2
+    p5-mcp-live full
+    p5-mcp-live live
+    p5-mcp-menu-new approve-confirm
+    p5-mcp-menu-new approve-esc
+    p5-mcp-menu-new approved
+    p5-mcp-menu-new reject-inplace
+    p5-mcp-menu-new reject-inplace-ready
+    p5-mcp-menu-new reject-typed-x
+    p5-mcp-menu-new rejected
+    p5-mcp-menu-new server-fixture
+    p5-mcp-menu-new server-fixture-nomatch
+    p5-mcp-menu-new server-fixture-tool
+    p5-mcp-menu-new server-proj
+    p5-mcp-menu-new server-proj-ready
+    p5-mcp-menu-new server-proj-reject
+    p5-mcp-verbs add-new-http
+    p5-mcp-verbs add-new-syntax
+    p5-mcp-verbs add-old-http
+    p5-mcp-verbs add-old-syntax
+    p5-mcp-verbs approve
+    p5-mcp-verbs auth-remote
+    p5-mcp-verbs complete-args
+    p5-mcp-verbs complete-show
+    p5-mcp-verbs end.full
+    p5-mcp-verbs list-after
+    p5-mcp-verbs login-remote
+    p5-mcp-verbs login-stdio
+    p5-mcp-verbs logout-remote
+    p5-mcp-verbs prompt-list
+    p5-mcp-verbs reject
+    p5-mcp-verbs remove-three
+    p5-mcp-verbs remove-two
+    p5-mcp-verbs remove-web
+    p5-mcp-verbs remove-web2
+    p5-mcp-verbs resource-list
+    p5-mcp-verbs show-bare
+    p5-mcp-verbs show-fixture
+    p5-mcp-verbs show-proj
+    p5-mcp-verbs show-remote
+    p5-mcp-verbs trust-approve
+    p5-panels-sweep-a feedback
+    p5-panels-sweep-a logout
+    p5-panels-sweep-a quit
+    p5-panels-sweep-a workspace
+    p5-transcript-cancel cmd-running
+    p5-transcript-cancel full
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    permissions-midturn first-done
+    settings-collapse running
+xfx screens not the same in the two sweeps: 112
+    approvals after-cc-cmd-ask
+    approvals cmd2-ask
+    approvals edit-amend-typed
+    approvals edit-ask
+    approvals edit-down1
+    approvals edit-down3-wrap
+    approvals edit-tab-amend
+    approvals write-ask
+    interrupt esc1
+    interrupt-recovered rec-1.8
+    interrupt-recovered rec-2.4
+    interrupt-recovered rec-3.2
+    interrupt-recovered rec-done
+    interrupt-recovered slow-1.8
+    interrupt-recovered slow-2.8
+    interrupt-recovered slow-done
+    interrupt-steer steer-tool
+    p5-lifecycle-compactok c02-compacting
+    p5-mcp-live full
+    p5-mcp-menu-new approve-confirm
+    p5-mcp-menu-new approve-esc
+    p5-mcp-menu-new approved
+    p5-mcp-menu-new left-back
+    p5-mcp-menu-new list
+    p5-mcp-menu-new list-after-approve
+    p5-mcp-menu-new list-filter
+    p5-mcp-menu-new list-proj
+    p5-mcp-menu-new list-unfilter
+    p5-mcp-menu-new reject-inplace
+    p5-mcp-menu-new reject-inplace-ready
+    p5-mcp-menu-new reject-typed-x
+    p5-mcp-menu-new rejected
+    p5-mcp-menu-new remove-cancel
+    p5-mcp-menu-new remove-inplace
+    p5-mcp-menu-new remove-no
+    p5-mcp-menu-new reopened
+    p5-mcp-menu-new server-fixture
+    p5-mcp-menu-new server-fixture-nomatch
+    p5-mcp-menu-new server-fixture-tool
+    p5-mcp-menu-new server-proj
+    p5-mcp-menu-new server-proj-ready
+    p5-mcp-menu-new server-proj-reject
+    p5-mcp-menu-new server-remote
+    p5-mcp-turn end.full
+    p5-mcp-turn turn
+    p5-mcp-verbs add-badname
+    p5-mcp-verbs add-new-http
+    p5-mcp-verbs add-new-syntax
+    p5-mcp-verbs add-old-http
+    p5-mcp-verbs add-old-syntax
+    p5-mcp-verbs approve
+    p5-mcp-verbs auth-remote
+    p5-mcp-verbs complete-args
+    p5-mcp-verbs complete-show
+    p5-mcp-verbs end.full
+    p5-mcp-verbs list
+    p5-mcp-verbs list-after
+    p5-mcp-verbs login-remote
+    p5-mcp-verbs login-stdio
+    p5-mcp-verbs logout-remote
+    p5-mcp-verbs prompt-list
+    p5-mcp-verbs reject
+    p5-mcp-verbs remove-three
+    p5-mcp-verbs remove-two
+    p5-mcp-verbs remove-web
+    p5-mcp-verbs remove-web2
+    p5-mcp-verbs resource-list
+    p5-mcp-verbs show-bare
+    p5-mcp-verbs show-fixture
+    p5-mcp-verbs show-proj
+    p5-mcp-verbs show-remote
+    p5-mcp-verbs trust-approve
+    p5-panels-sweep-a quit
+    p5-panels-sweep-a workspace
+    p5-toolstop-retint dark-again
+    p5-toolstop-retint light
+    p5-toolstop-retint-light dark
+    p5-toolstop-retint-light light-again
+    p5-toolstop-retint-light-tc dark
+    p5-toolstop-retint-light-tc light
+    p5-toolstop-retint-light-tc light-again
+    p5-toolstop-retint-tc dark
+    p5-toolstop-retint-tc dark-again
+    p5-toolstop-retint-tc light
+    p5-transcript-cancel full
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    permissions-midturn after-refusal
+    permissions-midturn second-asks
+    permissions-midturn switched
+    settings-collapse after-esc
+    settings-collapse cmd-ask
+    settings-collapse collapse-on
+    settings-collapse group
+    settings-collapse group2
+    settings-collapse later
+    settings-collapse running
+    settings-collapse stopped
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 13
+# exit 0

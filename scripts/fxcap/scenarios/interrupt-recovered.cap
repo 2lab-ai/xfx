@@ -8,14 +8,32 @@ fx: gateway interrupt-recovered-fx.json
 xfx: gateway interrupt-recovered-xfx.json
 fx: env FX_PERMISSION_MODE=yolo
 xfx: env XFX_PERMISSION_MODE=yolo
+# The full-access warning is up from the first frame for 4 s (capfile.py
+# TIMERS): the turn starts once it has come and gone, so no snap below
+# races it.
+until shown Full access
 wait 2
+until gone Full access
 type run it
 key Enter
-wait 0.5
+# The row says the retried request got through for 1.5 s from when the
+# retry answered (retry.rs RECOVERED_VISIBLE, worker_status.zig:5
+# @481104fd), and that answer is the command: `rec-0.5` and `rec-1.4` are
+# the row up beside the running command, `rec-1.8` on the command once
+# it has gone, each by the screen rather than by a second count from Enter
+# (FLAKE-HINT4: under load a sweep took `rec-0.5` before xfx drew the
+# command and `rec-1.8` before its row went).
+until shown recovered · attempt 2
+until shown Running sleep 4
 snap rec-0.5
-wait 0.9
-snap rec-1.4
+# The frame itself holds the row it is for, or the run fails: the `until
+# shown` before it was a look, and a wait came between (FLAKE-HINT4).
+expect rec-0.5 recovered · attempt 2
+expect rec-0.5 Running sleep 4
 wait 0.4
+snap rec-1.4
+expect rec-1.4 recovered · attempt 2
+until gone recovered · attempt 2
 snap rec-1.8
 wait 0.6
 snap rec-2.4

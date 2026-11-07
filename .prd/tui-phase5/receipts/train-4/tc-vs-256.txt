@@ -1,0 +1,195 @@
+# tc_vs_256.py <the head sweep's runs> fx
+p5-inline-code-retint-light-tc dark: identical
+p5-inline-code-retint-light-tc light-again: identical
+p5-inline-code-retint-light-tc light: identical
+p5-inline-code-retint-tc dark-again: identical
+p5-inline-code-retint-tc dark: identical
+p5-inline-code-retint-tc light: identical
+p5-inline-code-table-light-tc dark: identical
+p5-inline-code-table-light-tc light-again: identical
+p5-inline-code-table-light-tc light: identical
+p5-inline-code-table-tc dark-again: identical
+p5-inline-code-table-tc dark: identical
+p5-inline-code-table-tc light: identical
+p5-mcp-discover-stdio-modern-tc show: identical
+p5-mcp-discover-stdio-modern-tc turn: identical
+p5-toolgroup-ctrlo-tc dark-again: identical
+p5-toolgroup-ctrlo-tc dark: identical
+p5-toolgroup-ctrlo-tc full-dark-again: 9 rows differ [3, 11, 12, 16, 17, 21, 24, 31, 34]; differing in their SGR sequences: none; after masking digits: none
+    row 3 -tc : '\x1b[38;5;245m  2026-11-08 03:39:36.781 KST · Notice\x1b[39m'
+    row 3 256 : '\x1b[38;5;245m  2026-11-08 03:38:34.371 KST · Notice\x1b[39m'
+    row 11 -tc : '\x1b[38;5;245m  2026-11-08 03:39:41.826 KST · Notice\x1b[39m'
+    row 11 256 : '\x1b[38;5;245m  2026-11-08 03:38:39.419 KST · Notice\x1b[39m'
+    row 12 -tc : '\x1b[38;5;250m* network: provider: gateway · model: fake/model-a · 14ms\x1b[39m'
+    row 12 256 : '\x1b[38;5;250m* network: provider: gateway · model: fake/model-a · 13ms\x1b[39m'
+    row 16 -tc : '\x1b[38;5;245m  2026-11-08 03:39:42.067 KST · Notice\x1b[39m'
+    row 16 256 : '\x1b[38;5;245m  2026-11-08 03:38:39.659 KST · Notice\x1b[39m'
+    row 17 -tc : '\x1b[38;5;250m* network: provider: gateway · model: fake/model-a · 198ms\x1b[39m'
+    row 17 256 : '\x1b[38;5;250m* network: provider: gateway · model: fake/model-a · 194ms\x1b[39m'
+    row 21 -tc : '\x1b[38;5;245m  2026-11-08 03:39:41.805 KST · Prompt\x1b[39m'
+    row 21 256 : '\x1b[38;5;245m  2026-11-08 03:38:39.397 KST · Prompt\x1b[39m'
+    row 24 -tc : '\x1b[38;5;245m  2026-11-08 03:39:41.826 KST · Tool\x1b[39m'
+    row 24 256 : '\x1b[38;5;245m  2026-11-08 03:38:39.419 KST · Tool\x1b[39m'
+    row 31 -tc : '\x1b[38;5;245m  2026-11-08 03:39:42.067 KST · Response\x1b[39m'
+    row 31 256 : '\x1b[38;5;245m  2026-11-08 03:38:39.659 KST · Response\x1b[39m'
+    row 34 -tc : '\x1b[38;5;245m  2026-11-08 03:39:42.059 KST · Usage\x1b[39m'
+    row 34 256 : '\x1b[38;5;245m  2026-11-08 03:38:39.649 KST · Usage\x1b[39m'
+p5-toolgroup-ctrlo-tc full-dark: 9 rows differ [3, 11, 12, 16, 17, 21, 24, 31, 34]; differing in their SGR sequences: none; after masking digits: none
+    row 3 -tc : '\x1b[38;5;245m  2026-11-08 03:39:36.781 KST · Notice\x1b[39m'
+    row 3 256 : '\x1b[38;5;245m  2026-11-08 03:38:34.371 KST · Notice\x1b[39m'
+    row 11 -tc : '\x1b[38;5;245m  2026-11-08 03:39:41.826 KST · Notice\x1b[39m'
+    row 11 256 : '\x1b[38;5;245m  2026-11-08 03:38:39.419 KST · Notice\x1b[39m'
+    row 12 -tc : '\x1b[38;5;250m* network: provider: gateway · model: fake/model-a · 14ms\x1b[39m'
+    row 12 256 : '\x1b[38;5;250m* network: provider: gateway · model: fake/model-a · 13ms\x1b[39m'
+    row 16 -tc : '\x1b[38;5;245m  2026-11-08 03:39:42.067 KST · Notice\x1b[39m'
+    row 16 256 : '\x1b[38;5;245m  2026-11-08 03:38:39.659 KST · Notice\x1b[39m'
+    row 17 -tc : '\x1b[38;5;250m* network: provider: gateway · model: fake/model-a · 198ms\x1b[39m'
+    row 17 256 : '\x1b[38;5;250m* network: provider: gateway · model: fake/model-a · 194ms\x1b[39m'
+    row 21 -tc : '\x1b[38;5;245m  2026-11-08 03:39:41.805 KST · Prompt\x1b[39m'
+    row 21 256 : '\x1b[38;5;245m  2026-11-08 03:38:39.397 KST · Prompt\x1b[39m'
+    row 24 -tc : '\x1b[38;5;245m  2026-11-08 03:39:41.826 KST · Tool\x1b[39m'
+    row 24 256 : '\x1b[38;5;245m  2026-11-08 03:38:39.419 KST · Tool\x1b[39m'
+    row 31 -tc : '\x1b[38;5;245m  2026-11-08 03:39:42.067 KST · Response\x1b[39m'
+    row 31 256 : '\x1b[38;5;245m  2026-11-08 03:38:39.659 KST · Response\x1b[39m'
+    row 34 -tc : '\x1b[38;5;245m  2026-11-08 03:39:42.059 KST · Usage\x1b[39m'
+    row 34 256 : '\x1b[38;5;245m  2026-11-08 03:38:39.649 KST · Usage\x1b[39m'
+p5-toolgroup-ctrlo-tc full-light: 9 rows differ [3, 11, 12, 16, 17, 21, 24, 31, 34]; differing in their SGR sequences: none; after masking digits: none
+    row 3 -tc : '\x1b[38;5;247m  2026-11-08 03:39:36.781 KST · Notice\x1b[39m'
+    row 3 256 : '\x1b[38;5;247m  2026-11-08 03:38:34.371 KST · Notice\x1b[39m'
+    row 11 -tc : '\x1b[38;5;247m  2026-11-08 03:39:41.826 KST · Notice\x1b[39m'
+    row 11 256 : '\x1b[38;5;247m  2026-11-08 03:38:39.419 KST · Notice\x1b[39m'
+    row 12 -tc : '\x1b[38;5;241m* network: provider: gateway · model: fake/model-a · 14ms\x1b[39m'
+    row 12 256 : '\x1b[38;5;241m* network: provider: gateway · model: fake/model-a · 13ms\x1b[39m'
+    row 16 -tc : '\x1b[38;5;247m  2026-11-08 03:39:42.067 KST · Notice\x1b[39m'
+    row 16 256 : '\x1b[38;5;247m  2026-11-08 03:38:39.659 KST · Notice\x1b[39m'
+    row 17 -tc : '\x1b[38;5;241m* network: provider: gateway · model: fake/model-a · 198ms\x1b[39m'
+    row 17 256 : '\x1b[38;5;241m* network: provider: gateway · model: fake/model-a · 194ms\x1b[39m'
+    row 21 -tc : '\x1b[38;5;247m  2026-11-08 03:39:41.805 KST · Prompt\x1b[39m'
+    row 21 256 : '\x1b[38;5;247m  2026-11-08 03:38:39.397 KST · Prompt\x1b[39m'
+    row 24 -tc : '\x1b[38;5;247m  2026-11-08 03:39:41.826 KST · Tool\x1b[39m'
+    row 24 256 : '\x1b[38;5;247m  2026-11-08 03:38:39.419 KST · Tool\x1b[39m'
+    row 31 -tc : '\x1b[38;5;247m  2026-11-08 03:39:42.067 KST · Response\x1b[39m'
+    row 31 256 : '\x1b[38;5;247m  2026-11-08 03:38:39.659 KST · Response\x1b[39m'
+    row 34 -tc : '\x1b[38;5;247m  2026-11-08 03:39:42.059 KST · Usage\x1b[39m'
+    row 34 256 : '\x1b[38;5;247m  2026-11-08 03:38:39.649 KST · Usage\x1b[39m'
+p5-toolgroup-ctrlo-tc light: identical
+p5-toolgroup-live-tc dark: identical
+p5-toolgroup-live-tc light: identical
+p5-toolgroup-live-tc running-dark: 1 rows differ [8]; differing in their SGR sequences: none; after masking digits: [8]
+    row 8 -tc : ' \x1b[38;5;252m Running (1s)\x1b[38;5;245m (↑4 ↓40)\x1b[39m'
+    row 8 256 : '\x1b[38;5;252m• Running (2s)\x1b[38;5;245m (↑4 ↓40)\x1b[39m'
+p5-toolgroup-live-tc running-light: 1 rows differ [8]; differing in their SGR sequences: none; after masking digits: [8]
+    row 8 -tc : '\x1b[38;5;238m• Running (3s)\x1b[38;5;247m (↑4 ↓40)\x1b[39m'
+    row 8 256 : ' \x1b[38;5;238m Running (3s)\x1b[38;5;247m (↑4 ↓40)\x1b[39m'
+p5-toolgroup-retint-light-tc dark: identical
+p5-toolgroup-retint-light-tc light-again: identical
+p5-toolgroup-retint-light-tc light: identical
+p5-toolgroup-retint-tc dark-again: identical
+p5-toolgroup-retint-tc dark: identical
+p5-toolgroup-retint-tc light: identical
+p5-toolstop-retint-light-tc dark: identical
+p5-toolstop-retint-light-tc light-again: identical
+p5-toolstop-retint-light-tc light: identical
+p5-toolstop-retint-tc dark-again: identical
+p5-toolstop-retint-tc dark: identical
+p5-toolstop-retint-tc light: identical
+# fx: 36 snaps, 31 byte-identical, 3 more identical once digits are masked
+
+# tc_vs_256.py <the head sweep's runs> xfx
+p5-inline-code-retint-light-tc dark: identical
+p5-inline-code-retint-light-tc light-again: identical
+p5-inline-code-retint-light-tc light: identical
+p5-inline-code-retint-tc dark-again: identical
+p5-inline-code-retint-tc dark: identical
+p5-inline-code-retint-tc light: identical
+p5-inline-code-table-light-tc dark: identical
+p5-inline-code-table-light-tc light-again: identical
+p5-inline-code-table-light-tc light: identical
+p5-inline-code-table-tc dark-again: identical
+p5-inline-code-table-tc dark: identical
+p5-inline-code-table-tc light: identical
+p5-mcp-discover-stdio-modern-tc show: identical
+p5-mcp-discover-stdio-modern-tc turn: identical
+p5-toolgroup-ctrlo-tc dark-again: identical
+p5-toolgroup-ctrlo-tc dark: identical
+p5-toolgroup-ctrlo-tc full-dark-again: 9 rows differ [3, 9, 10, 14, 15, 19, 22, 27, 30]; differing in their SGR sequences: none; after masking digits: none
+    row 3 -tc : '\x1b[38;5;245m  2026-11-08 03:40:18.562 KST · Notice\x1b[39m'
+    row 3 256 : '\x1b[38;5;245m  2026-11-08 03:39:11.272 KST · Notice\x1b[39m'
+    row 9 -tc : '\x1b[38;5;245m  2026-11-08 03:40:23.717 KST · Notice\x1b[39m'
+    row 9 256 : '\x1b[38;5;245m  2026-11-08 03:39:16.366 KST · Notice\x1b[39m'
+    row 10 -tc : '\x1b[38;5;250m* network: provider: gateway · model: fake/model-a · 5ms\x1b[39m'
+    row 10 256 : '\x1b[38;5;250m* network: provider: gateway · model: fake/model-a · 1ms\x1b[39m'
+    row 14 -tc : '\x1b[38;5;245m  2026-11-08 03:40:23.952 KST · Notice\x1b[39m'
+    row 14 256 : '\x1b[38;5;245m  2026-11-08 03:39:16.533 KST · Notice\x1b[39m'
+    row 15 -tc : '\x1b[38;5;250m* network: provider: gateway · model: fake/model-a · 142ms\x1b[39m'
+    row 15 256 : '\x1b[38;5;250m* network: provider: gateway · model: fake/model-a · 123ms\x1b[39m'
+    row 19 -tc : '\x1b[38;5;245m  2026-11-08 03:40:23.617 KST · Prompt\x1b[39m'
+    row 19 256 : '\x1b[38;5;245m  2026-11-08 03:39:16.300 KST · Prompt\x1b[39m'
+    row 22 -tc : '\x1b[38;5;245m  2026-11-08 03:40:23.730 KST · Tool\x1b[39m'
+    row 22 256 : '\x1b[38;5;245m  2026-11-08 03:39:16.375 KST · Tool\x1b[39m'
+    row 27 -tc : '\x1b[38;5;245m  2026-11-08 03:40:24.000 KST · Response\x1b[39m'
+    row 27 256 : '\x1b[38;5;245m  2026-11-08 03:39:16.574 KST · Response\x1b[39m'
+    row 30 -tc : '\x1b[38;5;245m  2026-11-08 03:40:24.000 KST · Usage\x1b[39m'
+    row 30 256 : '\x1b[38;5;245m  2026-11-08 03:39:16.574 KST · Usage\x1b[39m'
+p5-toolgroup-ctrlo-tc full-dark: 9 rows differ [3, 9, 10, 14, 15, 19, 22, 27, 30]; differing in their SGR sequences: none; after masking digits: none
+    row 3 -tc : '\x1b[38;5;245m  2026-11-08 03:40:18.562 KST · Notice\x1b[39m'
+    row 3 256 : '\x1b[38;5;245m  2026-11-08 03:39:11.272 KST · Notice\x1b[39m'
+    row 9 -tc : '\x1b[38;5;245m  2026-11-08 03:40:23.717 KST · Notice\x1b[39m'
+    row 9 256 : '\x1b[38;5;245m  2026-11-08 03:39:16.366 KST · Notice\x1b[39m'
+    row 10 -tc : '\x1b[38;5;250m* network: provider: gateway · model: fake/model-a · 5ms\x1b[39m'
+    row 10 256 : '\x1b[38;5;250m* network: provider: gateway · model: fake/model-a · 1ms\x1b[39m'
+    row 14 -tc : '\x1b[38;5;245m  2026-11-08 03:40:23.952 KST · Notice\x1b[39m'
+    row 14 256 : '\x1b[38;5;245m  2026-11-08 03:39:16.533 KST · Notice\x1b[39m'
+    row 15 -tc : '\x1b[38;5;250m* network: provider: gateway · model: fake/model-a · 142ms\x1b[39m'
+    row 15 256 : '\x1b[38;5;250m* network: provider: gateway · model: fake/model-a · 123ms\x1b[39m'
+    row 19 -tc : '\x1b[38;5;245m  2026-11-08 03:40:23.617 KST · Prompt\x1b[39m'
+    row 19 256 : '\x1b[38;5;245m  2026-11-08 03:39:16.300 KST · Prompt\x1b[39m'
+    row 22 -tc : '\x1b[38;5;245m  2026-11-08 03:40:23.730 KST · Tool\x1b[39m'
+    row 22 256 : '\x1b[38;5;245m  2026-11-08 03:39:16.375 KST · Tool\x1b[39m'
+    row 27 -tc : '\x1b[38;5;245m  2026-11-08 03:40:24.000 KST · Response\x1b[39m'
+    row 27 256 : '\x1b[38;5;245m  2026-11-08 03:39:16.574 KST · Response\x1b[39m'
+    row 30 -tc : '\x1b[38;5;245m  2026-11-08 03:40:24.000 KST · Usage\x1b[39m'
+    row 30 256 : '\x1b[38;5;245m  2026-11-08 03:39:16.574 KST · Usage\x1b[39m'
+p5-toolgroup-ctrlo-tc full-light: 9 rows differ [3, 9, 10, 14, 15, 19, 22, 27, 30]; differing in their SGR sequences: none; after masking digits: none
+    row 3 -tc : '\x1b[38;5;247m  2026-11-08 03:40:18.562 KST · Notice\x1b[39m'
+    row 3 256 : '\x1b[38;5;247m  2026-11-08 03:39:11.272 KST · Notice\x1b[39m'
+    row 9 -tc : '\x1b[38;5;247m  2026-11-08 03:40:23.717 KST · Notice\x1b[39m'
+    row 9 256 : '\x1b[38;5;247m  2026-11-08 03:39:16.366 KST · Notice\x1b[39m'
+    row 10 -tc : '\x1b[38;5;241m* network: provider: gateway · model: fake/model-a · 5ms\x1b[39m'
+    row 10 256 : '\x1b[38;5;241m* network: provider: gateway · model: fake/model-a · 1ms\x1b[39m'
+    row 14 -tc : '\x1b[38;5;247m  2026-11-08 03:40:23.952 KST · Notice\x1b[39m'
+    row 14 256 : '\x1b[38;5;247m  2026-11-08 03:39:16.533 KST · Notice\x1b[39m'
+    row 15 -tc : '\x1b[38;5;241m* network: provider: gateway · model: fake/model-a · 142ms\x1b[39m'
+    row 15 256 : '\x1b[38;5;241m* network: provider: gateway · model: fake/model-a · 123ms\x1b[39m'
+    row 19 -tc : '\x1b[38;5;247m  2026-11-08 03:40:23.617 KST · Prompt\x1b[39m'
+    row 19 256 : '\x1b[38;5;247m  2026-11-08 03:39:16.300 KST · Prompt\x1b[39m'
+    row 22 -tc : '\x1b[38;5;247m  2026-11-08 03:40:23.730 KST · Tool\x1b[39m'
+    row 22 256 : '\x1b[38;5;247m  2026-11-08 03:39:16.375 KST · Tool\x1b[39m'
+    row 27 -tc : '\x1b[38;5;247m  2026-11-08 03:40:24.000 KST · Response\x1b[39m'
+    row 27 256 : '\x1b[38;5;247m  2026-11-08 03:39:16.574 KST · Response\x1b[39m'
+    row 30 -tc : '\x1b[38;5;247m  2026-11-08 03:40:24.000 KST · Usage\x1b[39m'
+    row 30 256 : '\x1b[38;5;247m  2026-11-08 03:39:16.574 KST · Usage\x1b[39m'
+p5-toolgroup-ctrlo-tc light: identical
+p5-toolgroup-live-tc dark: identical
+p5-toolgroup-live-tc light: identical
+p5-toolgroup-live-tc running-dark: identical
+p5-toolgroup-live-tc running-light: identical
+p5-toolgroup-retint-light-tc dark: identical
+p5-toolgroup-retint-light-tc light-again: identical
+p5-toolgroup-retint-light-tc light: identical
+p5-toolgroup-retint-tc dark-again: identical
+p5-toolgroup-retint-tc dark: identical
+p5-toolgroup-retint-tc light: identical
+p5-toolstop-retint-light-tc dark: identical
+p5-toolstop-retint-light-tc light-again: identical
+p5-toolstop-retint-light-tc light: identical
+p5-toolstop-retint-tc dark-again: identical
+p5-toolstop-retint-tc dark: identical
+p5-toolstop-retint-tc light: identical
+# xfx: 36 snaps, 33 byte-identical, 3 more identical once digits are masked
+
+# the SGRs of p5-mcp-discover-stdio-modern-tc's captures at the head (every escape ending in m):
+fx-p5-mcp-discover-stdio-modern-tc-40x120-show.ansi: 28 SGRs, 0 direct; colours: ['38;5;245', '38;5;250', '38;5;252', '38;5;255']
+fx-p5-mcp-discover-stdio-modern-tc-40x120-turn.ansi: 44 SGRs, 0 direct; colours: ['38;5;245', '38;5;250', '38;5;252', '38;5;255']
+xfx-p5-mcp-discover-stdio-modern-tc-40x120-show.ansi: 30 SGRs, 0 direct; colours: ['38;5;245', '38;5;250', '38;5;252', '38;5;255']
+xfx-p5-mcp-discover-stdio-modern-tc-40x120-turn.ansi: 46 SGRs, 0 direct; colours: ['38;5;245', '38;5;250', '38;5;252', '38;5;255']

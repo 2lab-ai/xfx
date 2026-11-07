@@ -1,0 +1,18 @@
+# test_sweep.py at 8a995bea (an absent counts from the timer's settle on), Capfile.test_absent_says_a_ctrl_c_armed_nothing, against d40bf1a3's capfile.py (a git clone --no-local)
+F
+======================================================================
+FAIL: test_absent_says_a_ctrl_c_armed_nothing (__main__.Capfile.test_absent_says_a_ctrl_c_armed_nothing)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<path>", line 711, in test_absent_says_a_ctrl_c_armed_nothing
+    self.assertEqual(self.raced("key C-c\nabsent press ctrl+c again to exit\nwait 2.5\nsnap after\n"), both)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Lists differ: [] != [('fx', 'snap after'), ('xfx', 'snap after')]
+Second list contains 2 additional elements.
+First extra element 0:
+('fx', 'snap after')
+- []
++ [('fx', 'snap after'), ('xfx', 'snap after')]
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+FAILED (failures=1)

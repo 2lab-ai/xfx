@@ -816,12 +816,9 @@ fn styled(row: &mut String, found: &Found, range: Range<usize>, base: &str) {
 mod tests {
     use super::*;
 
-    use crate::tui::theme::{Depth, Mode};
+    use crate::tui::theme::Mode;
 
-    const DARK: Palette = Palette {
-        mode: Mode::Dark,
-        depth: Depth::Ansi256,
-    };
+    const DARK: Palette = Palette { mode: Mode::Dark };
 
     fn query(text: &str) -> Option<Query> {
         query_at(text, text.len())

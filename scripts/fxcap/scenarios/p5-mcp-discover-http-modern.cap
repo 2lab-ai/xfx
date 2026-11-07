@@ -1,0 +1,28 @@
+# p5 mcp discover: a 2026-07-28 server over streamable HTTP (mcphttp.ts `modern`). fx v0.0.16 POSTs
+# `server/discover` first with `MCP-Protocol-Version: 2026-07-28` and `Mcp-Method`
+# (src/mcp/protocol/http_headers.zig:289-307@481104fd), the server lists 2026-07-28, and
+# every request after carries the 2026 `_meta` and headers and no session; the fixture
+# insists on both. `/mcp show` says the version; one turn calls its tool; `gwlog` copies
+# the server log (its headers by name).
+mcphttp modern
+fx: homefile .fx/mcp.json p5-mcp-discover-http-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-discover-http-profile.json
+gateway p5-mcp-turns.json
+fx: env FX_PERMISSION_MODE=full-access
+xfx: env XFX_PERMISSION_MODE=yolo
+# The full-access warning is up from the first frame for 4 s (capfile.py
+# TIMERS): `/mcp show` is typed once it has come and gone, so its `/` does
+# not take the warning's row and stop its clock (train 4, as FLAKE-HINT4's
+# p5-mcp-turn).
+until shown Full access
+wait 6
+until gone Full access
+type /mcp show fixture
+key Enter
+wait 3
+snap show
+type use the fixture echo tool
+key Enter
+wait 12
+snap turn
+gwlog

@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-f3a859c [debug] · Run /help for commands
+
+* mcp: fixture
+    status     ready, 1 tool
+    version    2025-06-18
+    transport  stdio
+    command    <bun> <repo>/scripts/fxcap/
+  scenarios/p5-mcp-discover-stdio.ts silent
+    source     ~/.xfx/mcp.json
+    tools      1
+      echo  Echo text through the silent discover fixture
+
+* mcp: fixture
+    status     ready, 1 tool
+    version    2025-06-18
+    transport  stdio
+    command    <bun> <repo>/scripts/fxcap/
+  scenarios/p5-mcp-discover-stdio.ts silent
+    source     ~/.xfx/mcp.json
+    tools      1
+      echo  Echo text through the silent discover fixture
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -19,6 +19,8 @@ use crate::workspace::AccessScope;
 
 const WAIT: Duration = Duration::from_secs(60);
 
+mod discover;
+
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh")
 }
@@ -134,33 +136,36 @@ fn a_profile_server_is_started_initialized_listed_and_called() {
         result,
         json!({"content": [{"type": "text", "text": "FIXTURE_ECHO:hi"}]})
     );
-    // The wire, frame by frame, as upstream writes it
-    // (`cap/fx-mcp-wire.ndjson`): xfx asks for no client capability it does
-    // not answer.
+    // The wire, frame by frame, as fx v0.0.16 writes it (`p5-mcp-wire-new`;
+    // `discover::a_stdio_server_is_asked_server_discover_first_...` holds
+    // every byte): the probe the fixture does not know, then the legacy
+    // handshake, and xfx asks for no client capability it does not answer.
     let wire: Vec<Value> = std::fs::read_to_string(&log)
         .expect("the fixture's log")
         .lines()
         .map(|line| serde_json::from_str(line).expect("a frame"))
         .collect();
+    assert_eq!(wire[0]["method"], "server/discover");
     assert_eq!(
-        wire[0],
-        json!({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
+        wire[1],
+        json!({"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {
+            "_meta": {"progressToken": 2},
             "protocolVersion": "2025-11-25",
             "capabilities": {},
             "clientInfo": {"name": "xfx", "version": env!("CARGO_PKG_VERSION")},
         }})
     );
     assert_eq!(
-        wire[1],
-        json!({"jsonrpc": "2.0", "method": "notifications/initialized"})
-    );
-    assert_eq!(
         wire[2],
-        json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
+        json!({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
     );
     assert_eq!(
-        wire[3].to_string(),
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"_meta":{"progressToken":2},"name":"echo","arguments":{"text":"hi"}}}"#
+        wire[3],
+        json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list", "params": {"_meta": {"progressToken": 3}}})
+    );
+    assert_eq!(
+        wire[4].to_string(),
+        r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"_meta":{"progressToken":4},"name":"echo","arguments":{"text":"hi"}}}"#
     );
     runtime.shutdown();
 }
@@ -1412,6 +1417,13 @@ fn http_server(seen: Seen) -> u16 {
                     let method = frame["method"].as_str().unwrap_or_default().to_string();
                     seen.lock().unwrap().push((method.clone(), session));
                     let id = frame["id"].clone();
+                    // A 2025 server: the probe is a bare 404, as fx's legacy
+                    // remote fixture answers it.
+                    if method == "server/discover" {
+                        let _ = stream
+                            .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+                        continue;
+                    }
                     let (content_type, extra, payload) = match method.as_str() {
                         "initialize" => (
                             "application/json",
@@ -1476,6 +1488,7 @@ fn a_loopback_http_server_is_initialized_and_called_with_its_session_id() {
     assert_eq!(
         seen,
         [
+            ("server/discover".to_string(), None),
             ("initialize".to_string(), None),
             (
                 "notifications/initialized".to_string(),
@@ -1857,6 +1870,11 @@ fn an_http_server_nothing_listens_on_fails_in_fxs_words_with_upstreams_counts() 
     )
     .expect("saved");
     let runtime = home.runtime();
+    // Each try's probe is refused twice and then waits out its timer before
+    // `initialize` is refused too (`max_attempts = 2`,
+    // `src/mcp/core/http_modern.zig:21-24@481104fd`): fx's 10 s, a few ms
+    // here.
+    runtime.set_probe_timeout(Duration::from_millis(20));
     runtime.start();
     let view = settled(&runtime, "remote");
     assert_eq!(view.status(), Status::Failed, "{view:?}");
@@ -3167,6 +3185,7 @@ fn a_restart_closes_the_dead_connection_it_replaces_outside_the_servers_lock() {
             concat!(
                 "if [ -e \"$1\" ]; then exec /bin/sh \"$2\"; fi; : > \"$1\"; trap '' TERM; ",
                 "id() { printf '%s' \"$1\" | sed -n 's/^{\"jsonrpc\":\"2.0\",\"id\":\\([0-9][0-9]*\\),.*/\\1/p'; }; ",
+                "read -r line; printf '{\"jsonrpc\":\"2.0\",\"id\":%s,\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}\\n' \"$(id \"$line\")\"; ",
                 "read -r line; printf '{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"once\",\"version\":\"1\"}}}\\n' \"$(id \"$line\")\"; ",
                 "read -r line; read -r line; ",
                 "printf '{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"tools\":[{\"name\":\"echo\",\"inputSchema\":{\"type\":\"object\"}}]}}\\n' \"$(id \"$line\")\"; ",
