@@ -10018,10 +10018,24 @@ def wire_ends_on_a_frame(trial):
     `/sound`'s turn-end bell is written once the frame that ends the turn has
     been (`src/tui/check.rs`'s `Intent::Bell` -- no cell, no caret), so a wire
     that ends on a frame and then a `BEL` is a screen the session settled on.
-    Anything else after the close is still an append and still waited out.
+    **Nor is a whole program status report** (`OSC 7501`, `src/tui/check.rs`'s
+    `Intent::ProgramStatus` -- no cell, no caret): a report a keystroke caused
+    is written after the frame that shows the keystroke, as upstream's next
+    pass writes it (`event_loop.rs`'s `commit_tick`), and the session may
+    settle there. Anything else after the close is still an append and still
+    waited out.
     """
-    captured = bytes(trial.session.captured).rstrip(b"\x07")
+    captured = bytes(trial.session.captured)
+    while True:
+        trimmed = TRAILING_REPORT.sub(b"", captured.rstrip(b"\x07"))
+        if trimmed == captured:
+            break
+        captured = trimmed
     return captured.endswith(FRAME_END_BYTES) or captured.endswith(FRAME_CLOSE_BYTES)
+
+
+# A whole `OSC 7501` report at the very end of the wire.
+TRAILING_REPORT = re.compile(rb"\x1b\]7501;[\x20-\x7e]*\x1b\\\Z")
 
 
 def cells_wide(text):
