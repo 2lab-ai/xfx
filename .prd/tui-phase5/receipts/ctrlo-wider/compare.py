@@ -1,6 +1,7 @@
 """Every scalar's count: xfx before, xfx after, fx; and what the two terminals draw.
 
 usage: python3 -I compare.py <base> <head> <drawn_wider.rs at the base> <wrap.rs at the head>
+       python3 -I compare.py --packed sweeps.txt.xz <drawn_wider.rs at the base> <wrap.rs at the head>
 
 <base> and <head> are two runs of `scripts/drawn-wider/sweep.sh`, each holding
 `scalars.txt`, `xfx.txt` (`super::wrap::width` of `[` scalar `]`, less the
@@ -8,6 +9,13 @@ markers), `tmux.txt` and `ghostty.txt` (the advance tmux 3.7b and
 libghostty-vt 1.3.2 measured for the same three characters); <base> also holds
 `fx.txt`, fx v0.0.16's count of each scalar alone (`fx_rune_width.py`, read
 from fx's own source at 481104fd, not from xfx's port).
+
+`sweeps.txt.xz`, committed beside this, is the five columns of those runs in
+one file -- `hex fx xfx-base xfx-head tmux libghostty-vt` per scalar -- and
+`--packed` reads it in their place. The two runs drew every scalar the same on
+both terminals (`sweeps.sha256`: the head's `tmux.txt` and `ghostty.txt` are
+the base's bytes), so it keeps one copy of each; and it writes each column back
+out as the file it came from and checks its sha256 against `sweeps.sha256`.
 
 Prints the summary the receipt cites and exits 1 if any claim fails:
   * the base table is the base sweep, exactly;
@@ -20,7 +28,35 @@ Prints the summary the receipt cites and exits 1 if any claim fails:
 import re
 import sys
 
-base, head, base_table_rs, head_wrap_rs = sys.argv[1:5]
+packed = sys.argv[1] == "--packed"
+if packed:
+    import hashlib
+    import lzma
+    import os
+
+    source, base_table_rs, head_wrap_rs = sys.argv[2:5]
+    columns = {"fx": {}, "before": {}, "after": {}, "tmux": {}, "ghostty": {}}
+    texts = {name: [] for name in columns}
+    with lzma.open(source, "rt", encoding="ascii") as f:
+        for line in f:
+            if line.startswith("#"):
+                continue
+            code, *cells = line.split()
+            for name, cell in zip(columns, cells):
+                columns[name][int(code, 16)] = int(cell)
+                texts[name].append(f"{code} {cell}\n")
+    sums = {}
+    for line in open(os.path.join(os.path.dirname(os.path.abspath(source)), "sweeps.sha256")):
+        digest, path = line.split()
+        sums[path] = digest
+    for name, path in (("fx", "sweep-base/fx.txt"), ("before", "sweep-base/xfx.txt"), ("after", "sweep-head/xfx.txt"),
+                       ("tmux", "sweep-base/tmux.txt"), ("ghostty", "sweep-base/ghostty.txt")):
+        digest = hashlib.sha256("".join(texts[name]).encode()).hexdigest()
+        print(("ok   " if digest == sums[path] else "FAIL ") + f"the packed column {name} is {path}, sha256 {digest[:12]}")
+        if digest != sums[path]:
+            sys.exit(1)
+else:
+    base, head, base_table_rs, head_wrap_rs = sys.argv[1:5]
 
 
 def load(directory, name):
@@ -52,10 +88,15 @@ def spell(codes):
     return ", ".join(f"U+{a:04X}" + (f"-{b:04X}" if b != a else "") for a, b in ranges(codes))
 
 
-fx = load(base, "fx")
-before, after = load(base, "xfx"), load(head, "xfx")
-tmux, ghostty = load(base, "tmux"), load(base, "ghostty")
-tmux2, ghostty2 = load(head, "tmux"), load(head, "ghostty")
+if packed:
+    fx, before, after = columns["fx"], columns["before"], columns["after"]
+    tmux, ghostty = columns["tmux"], columns["ghostty"]
+    tmux2, ghostty2 = tmux, ghostty
+else:
+    fx = load(base, "fx")
+    before, after = load(base, "xfx"), load(head, "xfx")
+    tmux, ghostty = load(base, "tmux"), load(base, "ghostty")
+    tmux2, ghostty2 = load(head, "tmux"), load(head, "ghostty")
 failed = []
 
 

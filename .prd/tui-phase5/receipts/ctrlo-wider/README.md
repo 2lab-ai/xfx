@@ -5,7 +5,8 @@ themselves, 3,881 scalars a terminal was measured drawing alone wider than
 xfx counts them (`src/tui/drawn_wider.rs`), on Ctrl-O, in the inline
 transcript and in the composer, and the painter counted them that narrow: a
 row with one at the margin ran past it. The cause is deleted; what is still
-true is two `[[divergence]]`s, both unsafe-to-copy (below).
+true is three `[[divergence]]`s, all unsafe-to-copy, and the causes of what
+stays unresolved (below). Round 2 names the family in an answer too.
 
 - **Base:** `e6cde019` (origin/main, train 3).
 - **Code head:** `0b4807bc`, two commits on the base:
@@ -15,15 +16,202 @@ true is two `[[divergence]]`s, both unsafe-to-copy (below).
   - `0b4807bc` part 2: a file's or a tool's line on Ctrl-O names the 43.
 - The commits after `0b4807bc` change the scenarios, the ledger and this
   receipt only.
-- **Builds:** debug builds; `xfx/` is `0b4807bc` (banner `v0.1.0-0b4807b`),
-  `red/` is `e6cde019` (`v0.1.0-e6cde01`), each checked in its snaps' row 1.
+- **Round 2** (**Round 2**, below), on `88c2fec1`:
+  - `c7dd2c7f` RED: two shell tests; `p5-ctrlo-wider-inline-fam` with the
+    card, Ctrl-O, a resize to 140 columns and Ctrl-O again; `measure.py
+    --check`; `replay_ghostty.c` resizing where the margin's wire ends;
+  - `c5414ae0` fix: an answer's prose, code panel, table cells and
+    operational text named, in the document and on Ctrl-O, and Ctrl-O's
+    Prompt row; display only;
+  - `340589af` (a): the review still names every `FX_COUNTED` scalar but
+    the indicators;
+  - `aa4f690e` RED again (the scenario's last paragraph two rows on both
+    sides) and `p5-ctrlo-wider-ri`;
+  - `7e5c2222` tests: (g), (e), an escape in an answer, a table's cell;
+  - `8e611525` the ledger and docs/parity.md; the receipt after it.
+- **Builds:** debug builds; `red/` is `e6cde019` (`v0.1.0-e6cde01`); `xfx/`
+  is `340589af`'s code (`v0.1.0-340589a`; round 1's were `0b4807bc`'s, in
+  this directory at `88c2fec1`) -- the commits after it change tests,
+  scenarios, the ledger and this receipt; `red2/` is `88c2fec1`
+  (`v0.1.0-88c2fec`), `p5-ctrlo-wider-inline-fam` only. Each checked in its
+  snaps' row 1.
 - **fx:** the v0.0.16 reference binary, sha256 `8e6cda2e…`, checked before
   every run; every capture's guard line says it was unchanged.
 - **Terminals:** tmux 3.7b (a private server per run, capture.sh) and
   libghostty-vt 1.3.2-HEAD-+0f7cd84b8 (herdr's vendored build), the second
   reading the bytes each binary wrote (`.wire`, capture.sh `wire`) through
   `replay_ghostty.c` (grapheme clustering on, 120x40), outputs in
-  `ghostty/`.
+  `ghostty/` (round 1); round 2's `measure.py` replays each wire itself and
+  `measure.txt` holds the rows.
+
+## Round 2
+
+Both reviews of round 1 refused its one exception: an answer is written by
+the model, so "the model's own words" excuses nothing, and the loss on the
+answer was measured (round 1's `measure.txt`, at `88c2fec1`).
+Round 2 names the family in an answer, display only, and on Ctrl-O's
+Response and Prompt rows; the draft stays raw (the dispatcher's decision);
+the rest are recorded with an owner.
+
+**RED** (`c7dd2c7f`, again at `aa4f690e`):
+- `red-test-r2.txt`: the two shell tests on `88c2fec1`'s product code fail
+  -- `an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written`
+  (no named row in the document) and
+  `a_prompts_characters_a_terminal_draws_wider_are_named_on_ctrl_o` (the
+  Prompt row raw).
+- `red-r2.txt`: `measure.py --check red2` over `p5-ctrlo-wider-inline-fam`
+  captured on `88c2fec1` (`red2/`): **22 forms not whole** -- the answer at
+  the margin (U+261D on tmux, U+2E3A on libghostty-vt, `a` before U+FE0F,
+  four U+261D in front: `w T A I`), the same at 140 columns, Ctrl-O's
+  Response rows (the short line's `y a` overwritten on tmux, its `a` on
+  libghostty-vt, and each margin form) and its Prompt row, at 120 and 140.
+  The scenario's last paragraph was one row by fx's count and two named
+  at `c7dd2c7f` (21 forms), which moved every row under it and the top of
+  each Ctrl-O page; at `aa4f690e` it goes on for 20 `w` and `END`, two rows
+  by either count at either width, the loss at its first row kept.
+
+**GREEN** (`c5414ae0`; the code the captures in `xfx/` ran, `340589af`):
+`measure.py --check xfx`: **0 forms not whole** (`measure.txt`), both shell
+tests pass, and every pair of `p5-ctrlo-wider-inline-fam` but `resized` is
+approved-divergence (`pairs-r2.txt`). Per surface, on tmux 3.7b and
+libghostty-vt 1.3.2 (`measure.txt`; `-`: not captured on that build):
+
+| scenario `snap` | surface, form | fx: tmux | fx: ghostty | e6cde019: tmux | e6cde019: ghostty | 88c2fec1: tmux | 88c2fec1: ghostty | head: tmux | head: ghostty |
+|---|---|---|---|---|---|---|---|---|---|
+| diff-fam `full` | Ctrl-O file line, read row, short | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | - | - | ok | ok |
+| diff-fam `full` | Ctrl-O file line, diff row, short | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | - | - | ok | ok |
+| diff-fam `full` | Ctrl-O file line, read row, U+261D at the margin | lost U+261D | ok | lost U+261D | ok | - | - | ok | ok |
+| diff-fam `full` | Ctrl-O file line, read row, `a` U+FE0F at the margin | lost a | ok | lost a | ok | - | - | ok | ok |
+| diff-fam `full` | Ctrl-O file line, read row, four U+261D in front | lost L w w w | ok | lost L w w w | ok | - | - | ok | ok |
+| diff-fam `full` | Ctrl-O file line, diff row, four U+261D in front | lost L w w w | ok | lost L w w w | ok | - | - | ok | ok |
+| inline-fam `answer` | answer, short | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | ok | ok | ok | ok | ok | ok |
+| inline-fam `answer` | answer, U+261D at the margin | lost U+261D | ok | lost U+261D | ok | lost U+261D | ok | ok | ok |
+| inline-fam `answer` | answer, U+2E3A at the margin | ok | lost U+2E3A | ok | lost U+2E3A | ok | lost U+2E3A | ok | ok |
+| inline-fam `answer` | answer, `a` U+FE0F at the margin | lost a | ok | lost a | ok | lost a | ok | ok | ok |
+| inline-fam `answer` | answer, U+E0002 `z` at the margin | ok | ok | ok | ok | ok | ok | ok | ok |
+| inline-fam `answer` | answer, four U+261D in front | lost w T A I | ok | lost w T A I | ok | lost w T A I | ok | ok | ok |
+| inline-fam `composer` | composer, short (not checked) | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | lost y space a U+00AD U+FFA0 U+FFF0 | lost a |
+| inline-fam `prompt` | card of the sent prompt, short (not checked) | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | ok | ok | ok | ok | ok | ok |
+| inline-fam `ctrlo` | Ctrl-O Response, short | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | ok | ok |
+| inline-fam `ctrlo` | Ctrl-O Response, U+261D at the margin | lost U+261D | ok | lost U+261D | ok | lost U+261D | ok | ok | ok |
+| inline-fam `ctrlo` | Ctrl-O Response, U+2E3A at the margin | ok | lost U+2E3A | ok | lost U+2E3A | ok | lost U+2E3A | ok | ok |
+| inline-fam `ctrlo` | Ctrl-O Response, `a` U+FE0F at the margin | lost a | ok | lost a | ok | lost a | ok | ok | ok |
+| inline-fam `ctrlo` | Ctrl-O Response, U+E0002 `z` at the margin | ok | ok | ok | ok | ok | ok | ok | ok |
+| inline-fam `ctrlo` | Ctrl-O Response, four U+261D in front | lost w T A I | ok | lost w T A I | ok | lost w T A I | ok | ok | ok |
+| inline-fam `ctrlo` | Ctrl-O Prompt, short | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | ok | ok |
+| inline-fam `margin` | composer, four U+261D in front (not checked) | lost w T A I | ok | lost w T A I | ok | lost w T A I | ok | lost w T A I | ok |
+| inline-fam `margin` | composer, U+261D at the margin (not checked) | lost U+261D | ok | lost U+261D | ok | lost U+261D | ok | lost U+261D | ok |
+| inline-fam `resized` | answer, 140 columns, short | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | ok | ok | ok | ok | ok | ok |
+| inline-fam `resized` | answer, 140 columns, U+261D at the margin | ok | ok | lost U+261D | ok | lost U+261D | ok | ok | ok |
+| inline-fam `resized` | answer, 140 columns, U+2E3A at the margin | ok | ok | ok | lost U+2E3A | ok | lost U+2E3A | ok | ok |
+| inline-fam `resized` | answer, 140 columns, `a` U+FE0F at the margin | lost a | ok | lost a | ok | lost a | ok | ok | ok |
+| inline-fam `resized` | answer, 140 columns, U+E0002 `z` at the margin | ok | ok | ok | ok | ok | ok | ok | ok |
+| inline-fam `resized` | answer, 140 columns, four U+261D in front | lost w w w w | ok | lost w T A I | ok | lost w T A I | ok | ok | ok |
+| inline-fam `ctrlo-resized` | Ctrl-O Response, 140 columns, short | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | ok | ok |
+| inline-fam `ctrlo-resized` | Ctrl-O Response, 140 columns, U+261D at the margin | ok | ok | ok | ok | ok | ok | ok | ok |
+| inline-fam `ctrlo-resized` | Ctrl-O Response, 140 columns, U+2E3A at the margin | ok | ok | ok | ok | ok | ok | ok | ok |
+| inline-fam `ctrlo-resized` | Ctrl-O Response, 140 columns, `a` U+FE0F at the margin | lost a | ok | lost a | ok | lost a | ok | ok | ok |
+| inline-fam `ctrlo-resized` | Ctrl-O Response, 140 columns, U+E0002 `z` at the margin | ok | ok | ok | ok | ok | ok | ok | ok |
+| inline-fam `ctrlo-resized` | Ctrl-O Response, 140 columns, four U+261D in front | lost w w w w | ok | lost w w w w | ok | lost w w w w | ok | ok | ok |
+| inline-fam `ctrlo-resized` | Ctrl-O Prompt, short | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | lost y space a U+00AD U+FFA0 U+FFF0 | lost a | ok | ok |
+
+The composer is the user's draft (not checked, `composer-drawn-wider`): the
+head loses there what fx loses. The card of a sent prompt is written as a
+document row and reads whole on every xfx build; fx's loses `y a` to its
+anchor (`inline-band-row-anchor`). After the resize fx writes the document
+again at 140 columns and xfx leaves the rows it wrote (`resize-document-repaint`),
+so on xfx `resized` reads the 120-column rows and `ctrlo-resized` is the
+repaint.
+
+**MUST 1, the answer.** `shown_event` (`src/tui/full_transcript.rs`) names
+the 43 with `drawn_wider_named` in an event's prose, code and table cells;
+`Shell::present` records the event as it came (`FullTranscript::presented`)
+and writes the named one, and an operational mark is named as it is
+written. Ctrl-O's `answer` lays out the named event too. Display only:
+`last_reply()` (what `/copy` copies) is the session log's text, and the
+shell test puts `FAMILY_RAW` on the clipboard byte for byte; an emoji base
+with its U+FE0F stays (`☝️` in `FAMILY_NAMED`). `drawn_wider_named` passes an
+escape sequence over whole, so an OSC 8 link's target is never rewritten
+(`an_escape_sequence_in_an_answers_text_is_passed_over_whole`). The ledger's
+`answer-drawn-wider-named`.
+
+**MUST 2, Ctrl-O's Response and Prompt rows.** Captured over the answer at
+`88c2fec1` (`red2/…-ctrlo.txt`, `…-ctrlo-resized.txt`): lost, as the table
+says, on both terminals. Named: the Response rows through `shown_event`,
+the Prompt row through `drawn_wider_named` (`content`'s `Body::Prompt`);
+`/trace` still lists a prompt as typed.
+
+**(a)** `every_scalar_the_painter_counts_as_fx_does_is_still_named_in_any_context`
+(`src/tui/approval_view.rs`, `340589af`): each of the 3,812 non-indicator
+`FX_COUNTED` scalars, in eight contexts, is named by `tamed`, `named` and
+`command_text`. Mutant M21 (below) kills it.
+
+**(b)** The sweep inputs behind `compare.txt` are `sweeps.txt.xz` (one
+column each of `sweep-base/fx.txt`, `sweep-base/xfx.txt`,
+`sweep-head/xfx.txt`, and the terminals' `tmux.txt` and `ghostty.txt`,
+which both sweeps drew the same). `python3 -I compare.py --packed
+sweeps.txt.xz <drawn_wider.rs at e6cde019> <wrap.rs>` writes each column
+back out, checks its sha256 against `sweeps.sha256`, and prints
+`compare.txt` again, line for line.
+
+**(c)** `inline-band-row-anchor` is now the card of a sent prompt, worded as
+observed in fx's wire (`fx/p5-ctrlo-wider-inline-fam-40x120/…-prompt.wire`:
+the card written again in bold after Enter, `ESC[17G` after `a` U+FE0F),
+not traced through fx's presenter. The answer's row is
+`answer-drawn-wider-named`'s.
+
+**(d)** The composer: the ledger's cause `composer-drawn-wider` (decision,
+owner COMPOSER-WIDER: display-only naming with a map from the draft's
+characters to the caret's cells; a file name an `@` completion puts in the
+draft, the route a file's text could take, PLAUSIBLE). docs/parity.md's
+prose points at it.
+
+**(e)** An odd run of regional indicators: `p5-ctrlo-wider-ri` (`ri 🇿🇺🇸
+end`, and 110 `w`, Z U S, `TAIL5678`). fx counts Z U S four (Z, then the
+flag U S), xfx six ([Z U] and [S], a cluster at a time), tmux draws three
+(a lone indicator one cell there, `sweeps.txt.xz`) and libghostty-vt four.
+The head's row ends `TA` where fx's ends `TAIL`, and loses nothing; the
+base counted three and ended `TAIL5`. fx's count, one more than tmux draws,
+leaves the activity row's `)` after `end` when its first frame lands on
+`• Thinking (0s)` (`fx/p5-ctrlo-wider-ri-40x120/…-answer.wire`: the row
+written to cover 15 cells by fx's count; four of five fx runs here).
+Copying fx's pairing would mean reading a run across clusters in the
+painter, the composer and the cut alike, not cheap: the cause
+`ri-run-pairing` (defect, COMPOSER-WIDER -- the owner the dispatcher's
+item names, reversible). `an_odd_run_of_regional_indicators_counts_no_fewer_cells_than_fx`
+pins Z U S at six against four and every run of three never fewer than
+fx's.
+
+**(f)** `a_value_the_heading_had_to_spell_is_never_shown_by_it_already`
+gains `read_file` with `path` `☝x⸺.txt`: the heading holds the path raw and
+the argument row `│  path: \u{261d}x\u{2e3a}.txt` is still shown. Mutant M22
+kills it.
+
+**(g)** `a_scalar_counted_two_cells_is_cut_placed_and_measured_at_two_by_every_consumer`
+(`src/tui/wrap.rs`): U+302E, U+302F, U+16FF0, U+16FF1 and U+1F1E6, alone,
+after letters, doubled and after a space, through `frame::clip` (no cut
+keeps more cells than it was given or stops short of a cluster that fits),
+`composer_cells` (the caret after every cluster) and `picker::cells`,
+against fx's count (the port). Mutants M19 and M20 kill it.
+
+**(h) A correction to round 1's report.** It said a Ctrl-O form still lost
+`TAIL` at the head. Round 1's `measure.txt` (this file at `88c2fec1`,
+lines 10-51) has every Ctrl-O file form, both four-U+261D ones included,
+`ok` on both terminals at the head; the losses left at round 1's head were
+the inline answer's and the composer's. This round's table says the same of
+the file forms.
+
+**(i)** `origin/main` was `e6cde019` when this round ended (2026-11-08):
+train 4, with FLAKE-HINT4's `until`, had not landed, so the scenarios keep
+their fixed waits (**Waits**, below, lists the `until` lines to swap in).
+
+**Pre-existing scenarios.** Round 2's code changes a row only where its
+text holds one of the 43 (`drawn_wider_named` returns the text it was
+given otherwise, and `shown_event` the event). No scenario's input holds
+one but the five here and `p5-transcript-diffwrap2`'s U+FE0F right after a
+tab, in a file's line, which `drawn_wider_named` leaves as it is (every
+file under `scripts/fxcap/scenarios/` read, JSON escapes decoded).
+
 
 ## fx's count, read at the pin
 
@@ -152,9 +340,10 @@ count 0); U+2065 (tmux 1; fx names it, `\u{2065}`). And the 12 `UNDER`
 forms of `width-disputed/clusters.txt`: U+FE0F after a soft hyphen, U+FFA0,
 U+FFF0-FFF8 or a letter, tmux one cell more than the count.
 
-**The measurement** (`measure.py`, `measure.txt`): the rows that hold them
-on each surface, read on tmux and on libghostty-vt, under fx, the base's
-xfx and the head's -- whether the row reads as the text does:
+**The measurement, round 1** (`measure.py` and `measure.txt` at
+`88c2fec1`; round 2's is above): the rows that hold them on each surface,
+read on tmux and on libghostty-vt, under fx, the base's xfx and round 1's
+head -- whether the row reads as the text does:
 
 | form | fx: tmux | fx: libghostty-vt | `e6cde019`: tmux | `e6cde019`: libghostty-vt | head: tmux | head: libghostty-vt |
 |---|---|---|---|---|---|---|
@@ -208,19 +397,16 @@ for cell but on the answer's short row, which it wrote as the document's.
   the text is a file's or a tool's, the person reads it as the record of a
   change, and copied it does not read as the file holds it (above). The
   ledger's `ctrl-o-drawn-wider-named`.
-- **The inline transcript and the composer:** fx's bytes, measured as fx's
-  defect (docs/parity.md, the full-screen TUI row). An answer is the model's
-  own words and a draft the user's own, so neither shows text a file or a
-  tool put there, and xfx's answer rows overwrite nothing; naming would show
-  `\u{261d}` for a text-style emoji in prose and in the draft being edited.
-  The one row xfx and fx differ on, the answer's short row, is fx's
-  overwrite that xfx's document row does not copy: the ledger's
-  `inline-band-row-anchor`.
-- **Ctrl-O's answer rows** (Response) are the model's, written as fx
-  writes them, as inline.
+- **An answer** (round 2): named, in the document and on Ctrl-O's Response
+  rows, and Ctrl-O's Prompt row; display only (**Round 2**). Round 1 left
+  them raw as "the model's own words", which both reviews refused: the
+  model writes the answer, and the loss was measured.
+- **The composer:** fx's bytes, the user's own draft -- the dispatcher's
+  decision, the cause `composer-drawn-wider` (owner COMPOSER-WIDER).
 
-**What starts showing as a token, where fx shows the glyph:** in a file's or
-a tool's line on Ctrl-O, ☝ ⛹ ✌ ✍ 🏋 🏌 🕴 🕵 🖐 without their U+FE0F (with it
+**What starts showing as a token, where fx shows the glyph:** in an answer
+(round 2) and a prompt's row on Ctrl-O, and in a file's or a tool's line on
+Ctrl-O, ☝ ⛹ ✌ ✍ 🏋 🏌 🕴 🕵 🖐 without their U+FE0F (with it
 they stay), the two- and three-em dashes ⸺ ⸻, U+FE0F after a character that
 takes no emoji presentation (a letter, a space, a soft hyphen), and the tags
 U+E0002-E001F; in the review, the 417 regional-indicator pairs that are no
@@ -234,14 +420,17 @@ holds it). RED on the base's code (`red-test-2.txt`): fails on line 2.
 
 ## Scenarios (part 3)
 
-Four new p5 scenarios, each with its `-turns.json` and work directory:
+Five p5 scenarios, each with its `-turns.json` (and work directory, the two
+`diff` ones); `p5-ctrlo-wider-ri` and `inline-fam`'s last four snaps are
+round 2's:
 
 | scenario | what | snaps |
 |---|---|---|
 | `p5-ctrlo-wider-diff` | part 1's scalars in an edited file: a short line (U+0605 U+0661, `কা`, `a` U+302E, U+FF76 U+FF9E, U+1F1E6, a flag, a non-flag pair, U+E0000) and four lines that reach the 112-cell text row at its last cell by fx's count; read, edit, Ctrl-O | `edited`, `full`, `closed` |
 | `p5-ctrlo-wider-diff-fam` | part 2's in an edited file: the short line, U+261D and `a` U+FE0F at the margin, four U+261D in front | the same |
 | `p5-ctrlo-wider-inline` | part 1's in an answer (118 cells a row) and in the composer (the short line typed; 112 `w`, `a` U+302E twice, `TAIL`) | `answer`, `composer`, `margin` |
-| `p5-ctrlo-wider-inline-fam` | part 2's in an answer and in the composer (the short line; four U+261D in front, then 117 `w`, U+261D, `TAIL`) | the same |
+| `p5-ctrlo-wider-inline-fam` | part 2's in an answer (the short line; U+261D, U+2E3A, `a` U+FE0F, U+E0002 `z` at the margin, each before `TAIL5678`; four U+261D, 110 `w`, `TAIL`, 20 `w`, `END`), the short line typed and sent (its card), Ctrl-O, then the composer (four U+261D, 110 `w`, `TAIL`; 117 `w`, U+261D, `TAIL`), a resize to 140 columns and Ctrl-O again; `wire` for each | `answer`, `composer`, `prompt`, `ctrlo`, `margin`, `resized`, `ctrlo-resized` |
+| `p5-ctrlo-wider-ri` | Z U S (U+1F1FF U+1F1FA U+1F1F8) in an answer, short and before `TAIL5678` at the margin; `wire` | `answer` |
 
 **Waits.** The base has no `until` verb (capture.sh at `e6cde019` refuses
 an unknown verb, `scripts/fxcap/capture.sh:921`; it is FLAKE-HINT4's, not
@@ -252,8 +441,15 @@ build's later launch. Once `until` is on main: `until gone Full access`
 before the first `type` of the two `diff` scenarios, `until shown Edited.`
 before `snap edited`, `until shown full detail` before `snap full`,
 `until gone full detail` before `snap closed`; in the two `inline`
-scenarios `until shown TAIL5678` (`TAIL`) before `snap answer` and
-`until shown end` before `snap composer`.
+scenarios `until shown TAIL5678` (`TAIL`; `END` in `inline-fam`) before
+`snap answer` and `until shown end` before `snap composer`; in
+`inline-fam`, `until shown Spare.` before `snap prompt`, `until shown
+Response` before `snap ctrlo` and `snap ctrlo-resized`, `until gone
+Response` after each closing `C-o`, and `until shown TAIL` before `snap
+margin`; `snap resized` keeps its fixed wait (xfx's screen changes only in
+its band there, nothing a text can wait for); in `ri`,
+`until shown IL5678` before `snap answer` (`5678` on fx). Not swapped:
+**(i)**, above.
 
 **Pairs** (`pairs.txt`):
 
@@ -291,6 +487,46 @@ The four on `e6cde019` and on `0b4807bc`, swept alone (`sweep.sh --only 'p5-ctrl
   (`inline-band-row-anchor`): the answer's short row, which fx's live write
   overwrites and xfx's document row does not; every other row the same.
 
+**Pairs, round 2** (`pairs-r2.txt`; `sweep-r2-base.md`, `sweep-r2-head.md`):
+the five swept alone under `suite-lock.sh` (`--only 'p5-ctrlo-wider-*'`,
+`--jobs 2`) on `e6cde019` and on `340589af`'s code, both scored with the
+ledger at `8e611525`. Pass: 7 of 17 on the base, 8 on the head.
+
+| scenario | snap | base (e6cde019), rows differing | head (340589af's code), rows differing | head's rows covered by |
+|---|---|---|---|---|
+| p5-ctrlo-wider-diff | closed | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff | edited | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff | full | unresolved-defect (16) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | closed | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | edited | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | full | normalized-identical (0) | approved-divergence (14) | ctrl-o-drawn-wider-named |
+| p5-ctrlo-wider-inline | answer | unresolved-defect (8) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline | composer | unresolved-defect (8) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline | margin | unresolved-defect (12) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline-fam | answer | unresolved-defect (1) | approved-divergence (11) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | composer | unresolved-defect (1) | approved-divergence (11) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | ctrlo | normalized-identical (0) | approved-divergence (12) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | ctrlo-resized | normalized-identical (0) | approved-divergence (8) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | margin | unresolved-defect (2) | approved-divergence (12) | answer-drawn-wider-named, inline-band-row-anchor |
+| p5-ctrlo-wider-inline-fam | prompt | unresolved-defect (2) | approved-divergence (12) | answer-drawn-wider-named, inline-band-row-anchor |
+| p5-ctrlo-wider-inline-fam | resized | unresolved-defect (23) | unresolved-defect (23) | answer-drawn-wider-named, inline-band-row-anchor |
+| p5-ctrlo-wider-ri | answer | unresolved-defect (3) | unresolved-defect (3) | - |
+
+- `p5-ctrlo-wider-inline-fam` `ctrlo` and `ctrlo-resized` leave the pass
+  set, as `-diff-fam` `full` did in round 1: on the base xfx copies fx's
+  Ctrl-O bytes and loses the same glyphs; at the head the Response and
+  Prompt rows are named (MUST 2), every row they change taken in by
+  `answer-drawn-wider-named`. The decision, not a regression.
+- `answer`, `composer`, `prompt`, `margin`: unresolved on the base (the
+  short row's anchor, and on `prompt` and `margin` the card's), approved at
+  the head; no row moves.
+- `resized`: unresolved on both, the cause `resize-document-repaint` -- fx
+  writes the document again at 140 columns, xfx leaves its rows to the
+  terminal (`h1-resize` too, where no cause covers it).
+- `p5-ctrlo-wider-ri` `answer`: unresolved on both; at the head every row
+  is `ri-run-pairing`'s (the base under-counts the run, three cells, and
+  ends `TAIL5`).
+
 ## The ledger
 
 - `ctrl-o-drawn-wider-raw` (cause, defect): **deleted**. Part 1's scalars
@@ -298,10 +534,28 @@ The four on `e6cde019` and on `0b4807bc`, swept alone (`sweep.sh --only 'p5-ctrl
   as fx's); the family is named on Ctrl-O and fx's on the other two.
 - `ctrl-o-drawn-wider-named` (divergence, unsafe-to-copy, owner
   CTRLO-WIDER, expires 2026-12-04): `p5-ctrlo-wider-diff-fam` `full`.
+- `answer-drawn-wider-named` (divergence, unsafe-to-copy, owner
+  CTRLO-WIDER, expires 2026-12-04; round 2): `p5-ctrlo-wider-inline-fam`,
+  every snap: an answer's rows in the document and on Ctrl-O, and Ctrl-O's
+  Prompt row.
 - `inline-band-row-anchor` (divergence, unsafe-to-copy, owner CTRLO-WIDER,
-  expires 2026-12-04): `p5-ctrlo-wider-inline-fam`, the answer's short row.
+  expires 2026-12-04): round 1 the answer's short row; round 2 the card of
+  a sent prompt (`prompt`, `margin`, `resized`), worded as observed in fx's
+  wire.
+- `composer-drawn-wider` (cause, decision, owner COMPOSER-WIDER; round 2):
+  the draft stays raw; covers no unresolved row (the composer is fx's cell
+  for cell), it records the decision.
+- `ri-run-pairing` (cause, defect, owner COMPOSER-WIDER; round 2):
+  `p5-ctrlo-wider-ri` `answer`.
+- `resize-document-repaint` (cause, defect, unowned; round 2):
+  `p5-ctrlo-wider-inline-fam` `resized`.
 
 ## The sweeps
+
+**Round 2** swept the five alone, base and head (**Pairs, round 2**), and no
+full sweep: its code changes a row only where the text holds one of the 43,
+which no pre-existing scenario's input does but where `drawn_wider_named`
+leaves it as it is (**Round 2**, pre-existing scenarios). Round 1:
 
 Both full sweeps, every scenario (317, 1,704 pairs), `--jobs 2`: the base's
 binary (`sweep-base.md`) and the head's (`sweep-head.md`), both rescored with
@@ -348,6 +602,21 @@ never the worktree: all killed.
 - M9 Ctrl-O names a selector right after a tab: killed by a_character_a_terminal_draws_wider_than_it_is_counted_is_named_in_a_files_line, a_mark_right_after_a_tab_is_not_drawn_as_fxs_screen_does_not_draw_it
 - M10 a call's detail is not named (diff rows only): killed by a_character_a_terminal_draws_wider_than_it_is_counted_is_named_in_a_files_line
 - M11 a diff row is not named (a call's detail only): killed by a_character_a_terminal_draws_wider_than_it_is_counted_is_named_in_a_files_line
+
+**Round 2** (`mutants-r2.txt`): eleven more, on a `git clone --no-local` of
+`8e611525`, under `suite-lock.sh`: all killed.
+
+- M12 the presenter writes an answer's event as it came: killed by an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written
+- M13 Ctrl-O's Response rows are not named: killed by an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written
+- M14 Ctrl-O's Prompt row is not named: killed by a_prompts_characters_a_terminal_draws_wider_are_named_on_ctrl_o
+- M15 an operational mark is not named: killed by an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written
+- M16 a code panel's code is not named: killed by an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written
+- M17 a table's cells are not named: killed by an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written
+- M18 naming walks into an escape sequence: killed by an_escape_sequence_in_an_answers_text_is_passed_over_whole
+- M19 U+302E-302F out of FX_COUNTED: killed by a_scalar_counted_two_cells_is_cut_placed_and_measured_at_two_by_every_consumer
+- M20 the regional indicators out of FX_COUNTED: killed by a_scalar_counted_two_cells_is_cut_placed_and_measured_at_two_by_every_consumer, an_odd_run_of_regional_indicators_counts_no_fewer_cells_than_fx
+- M21 the review names no scalar of no cells to the table: killed by every_scalar_the_painter_counts_as_fx_does_is_still_named_in_any_context
+- M22 Ctrl-O takes a named argument for one its heading shows: killed by a_value_the_heading_had_to_spell_is_never_shown_by_it_already
 
 ## Gates (`gates.txt`)
 
@@ -404,5 +673,40 @@ Run 2 at `dcaa442c` (the receipt committed but for `gates.txt` and this table), 
 | smoke-tui | 0 | 75 |
 
 `cargo test`: 5,230 passed, 0 failed, 7 ignored (1,253 s, waiting on the lock); with fault-injection 5,267, 0, 7. `smoke.sh` 47 checks, 0 failures; `smoke-tui.sh` 37 scenarios and the oracle, 1,127 checks, 0 failures.
+
+
+**Round 2** (`gates-r2.txt`) at `8e611525`, the receipt's files uncommitted
+(46 entries, none under `src/`), CI's steps one at a time, the two full
+test suites and smoke-tui under `suite-lock.sh`:
+
+| gate | exit | s |
+|---|---|---|
+| fmt | 0 | 1 |
+| clippy | 0 | 6 |
+| clippy-fault | 0 | 7 |
+| test | 0 | 133 |
+| test-fault | 0 | 149 |
+| identity | 0 | 1 |
+| no-stubs | 0 | 7 |
+| no-secrets | 0 | 26 |
+| preview-contract | 0 | 2 |
+| preflight-cost | 0 | 81 |
+| usage-clock | 0 | 0 |
+| test-no-secrets | 0 | 95 |
+| test-gate-env | 0 | 88 |
+| test-preview-contract | 0 | 49 |
+| test-sweep | 0 | 21 |
+| test-capture | 1 | 285 |
+| release | 0 | 13 |
+| faulty | 0 | 21 |
+| smoke | 0 | 4 |
+| smoke-tui | 0 | 112 |
+
+`cargo test --locked --no-fail-fast`: 15 test binaries, 5,236 passed, 0
+failed, 7 ignored; with `--features fault-injection`, 5,273 passed, 0
+failed, 7 ignored. `smoke.sh`: 47 checks, 0 failures. `smoke-tui.sh`: 37
+scenarios and the oracle, 1,127 checks, 0 failures. `test-capture.sh`
+failed outside the lock on `test_models2_and_modelsdelay` alone (the
+harness's catalog timing, below), and passed under it: 42 tests, OK.
 
 **`test-capture.sh` failed in run 2, and fails at the base too.** In run 2 (548 s, the machine shared; run 1's took 150 s and passed) `test_models2_and_modelsdelay` and `test_a_pid_whose_executable_is_not_the_binary_…` failed; again under the lock, only `test_models2_and_modelsdelay` (`ValueError`, the second catalog not in the log). That test drives a stub binary and `fakegw.ts`, no xfx, and the harness files are the base's bytes (`git diff e6cde019 -- scripts/fxcap/{capture.sh,test_capture.py,test-capture.sh,fakegw.ts}` is empty). Alone, three times each under the lock: the base's clone FAILED, OK, FAILED; the head FAILED, FAILED, FAILED. It is the harness's own timing (`models2` 5 s from the gateway's start), which FLAKE-HINT4 r2 (`d40bf1a3`, unmerged) changes to "by order" -- not this unit's (`gates.txt`).

@@ -1,0 +1,12 @@
+# CTRLO-WIDER mutants, round 2, each on a throwaway `git clone --no-local` at 8e611525 (python3 -I mutants.py <clone> <out> M12,...,M22)
+M12 the presenter writes an answer's event as it came: killed by an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written
+M13 Ctrl-O's Response rows are not named: killed by an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written
+M14 Ctrl-O's Prompt row is not named: killed by a_prompts_characters_a_terminal_draws_wider_are_named_on_ctrl_o
+M15 an operational mark is not named: killed by an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written
+M16 a code panel's code is not named: killed by an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written
+M17 a table's cells are not named: killed by an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written
+M18 naming walks into an escape sequence: killed by an_escape_sequence_in_an_answers_text_is_passed_over_whole
+M19 U+302E-302F out of FX_COUNTED: killed by a_scalar_counted_two_cells_is_cut_placed_and_measured_at_two_by_every_consumer
+M20 the regional indicators out of FX_COUNTED: killed by a_scalar_counted_two_cells_is_cut_placed_and_measured_at_two_by_every_consumer, an_odd_run_of_regional_indicators_counts_no_fewer_cells_than_fx
+M21 the review names no scalar of no cells to the table: killed by every_scalar_the_painter_counts_as_fx_does_is_still_named_in_any_context
+M22 Ctrl-O takes a named argument for one its heading shows: killed by a_value_the_heading_had_to_spell_is_never_shown_by_it_already

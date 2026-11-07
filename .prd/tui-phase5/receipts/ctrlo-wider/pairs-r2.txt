@@ -1,0 +1,19 @@
+| scenario | snap | base (e6cde019), rows differing | head (340589af's code), rows differing | head's rows covered by |
+|---|---|---|---|---|
+| p5-ctrlo-wider-diff | closed | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff | edited | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff | full | unresolved-defect (16) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | closed | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | edited | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | full | normalized-identical (0) | approved-divergence (14) | ctrl-o-drawn-wider-named |
+| p5-ctrlo-wider-inline | answer | unresolved-defect (8) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline | composer | unresolved-defect (8) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline | margin | unresolved-defect (12) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline-fam | answer | unresolved-defect (1) | approved-divergence (11) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | composer | unresolved-defect (1) | approved-divergence (11) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | ctrlo | normalized-identical (0) | approved-divergence (12) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | ctrlo-resized | normalized-identical (0) | approved-divergence (8) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | margin | unresolved-defect (2) | approved-divergence (12) | answer-drawn-wider-named, inline-band-row-anchor |
+| p5-ctrlo-wider-inline-fam | prompt | unresolved-defect (2) | approved-divergence (12) | answer-drawn-wider-named, inline-band-row-anchor |
+| p5-ctrlo-wider-inline-fam | resized | unresolved-defect (23) | unresolved-defect (23) | answer-drawn-wider-named, inline-band-row-anchor |
+| p5-ctrlo-wider-ri | answer | unresolved-defect (3) | unresolved-defect (3) | - |

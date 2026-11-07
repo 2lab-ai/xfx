@@ -1,10 +1,11 @@
 """CTRLO-WIDER's mutants: each rule taken out, one at a time, in a throwaway
 clone, and the tests that pin it run against it.
 
-usage: python3 -I mutants.py <clone> <out.txt>
+usage: python3 -I mutants.py <clone> <out.txt> [<id>,<id>...]
 
 <clone> is a `git clone --no-local` of the xfx repository at the head this
-receipt names, never the worktree. For each mutant the file is rewritten,
+receipt names, never the worktree. The ids (`M12,M13`) pick the mutants to
+run; without them, all. For each mutant the file is rewritten,
 the named tests run (`cargo test --locked --lib -- <tests>`, CARGO_TARGET_DIR
 from the environment), the file restored from git, and one line written:
 `<id> killed|SURVIVED <failing tests>`.
@@ -17,6 +18,8 @@ clone, out_path = sys.argv[1], sys.argv[2]
 WRAP = "src/tui/wrap.rs"
 FT = "src/tui/full_transcript.rs"
 AV = "src/tui/approval_view.rs"
+SH = "src/tui/shell.rs"
+ANSWER_TEST = "tui::shell::tests::an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written"
 
 MUTANTS = [
     (
@@ -102,6 +105,85 @@ MUTANTS = [
         "    out\n}",
         ["tui::full_transcript::tests::a_character_a_terminal_draws_wider_than_it_is_counted_is_named_in_a_files_line"],
     ),
+    # Round 2: an answer's and a prompt's rows; the boundary cases; the review.
+    (
+        "M12 the presenter writes an answer's event as it came",
+        SH,
+        "        let event = full_transcript::shown_event(event);\n",
+        "",
+        [ANSWER_TEST],
+    ),
+    (
+        "M13 Ctrl-O's Response rows are not named",
+        FT,
+        "        writer.present(shown_event(event.clone()));",
+        "        writer.present(event.clone());",
+        [ANSWER_TEST],
+    ),
+    (
+        "M14 Ctrl-O's Prompt row is not named",
+        FT,
+        "                card(&drawn_wider_named(text), cols, palette),",
+        "                card(text, cols, palette),",
+        ["tui::shell::tests::a_prompts_characters_a_terminal_draws_wider_are_named_on_ctrl_o"],
+    ),
+    (
+        "M15 an operational mark is not named",
+        SH,
+        "                self.write_prose(&full_transcript::drawn_wider_named(&text));",
+        "                self.write_prose(&text);",
+        [ANSWER_TEST],
+    ),
+    (
+        "M16 a code panel's code is not named",
+        FT,
+        "            block.code = named(std::mem::take(&mut block.code));",
+        "            block.code = std::mem::take(&mut block.code);",
+        [ANSWER_TEST],
+    ),
+    (
+        "M17 a table's cells are not named",
+        FT,
+        "                    *cell = named(std::mem::take(cell));",
+        "                    *cell = std::mem::take(cell);",
+        [ANSWER_TEST],
+    ),
+    (
+        "M18 naming walks into an escape sequence",
+        FT,
+        "    let mut before: Option<char> = None;\n    let mut rest = text;\n    while !rest.is_empty() {\n        if let Some(len) = super::pacer::escape_at(rest) {",
+        "    let mut before: Option<char> = None;\n    let mut rest = text;\n    while !rest.is_empty() {\n        if let Some(len) = None::<usize> {",
+        ["tui::full_transcript::tests::an_escape_sequence_in_an_answers_text_is_passed_over_whole"],
+    ),
+    (
+        "M19 U+302E-302F out of FX_COUNTED",
+        WRAP,
+        "(0x0302e, 0x0302f)",
+        "(0x0302e, 0x0302d)",
+        ["tui::wrap::tests::a_scalar_counted_two_cells_is_cut_placed_and_measured_at_two_by_every_consumer"],
+    ),
+    (
+        "M20 the regional indicators out of FX_COUNTED",
+        WRAP,
+        "(0x1f1e6, 0x1f1ff)",
+        "(0x1f1e6, 0x1f1e5)",
+        ["tui::wrap::tests::a_scalar_counted_two_cells_is_cut_placed_and_measured_at_two_by_every_consumer",
+         "tui::wrap::tests::an_odd_run_of_regional_indicators_counts_no_fewer_cells_than_fx"],
+    ),
+    (
+        "M21 the review names no scalar of no cells to the table",
+        AV,
+        "    unicode_width::UnicodeWidthChar::width(character) == Some(0)\n        && !super::marks::is_combining_mark(character)",
+        "    let _ = character;\n    false",
+        ["tui::approval_view::tests::every_scalar_the_painter_counts_as_fx_does_is_still_named_in_any_context"],
+    ),
+    (
+        "M22 Ctrl-O takes a named argument for one its heading shows",
+        FT,
+        "                    && first_line.contains(argument.value.as_str());",
+        "                    && (first_line.contains(argument.value.as_str())\n                        || argument.value.contains(\"\\\\u{\"));",
+        ["tui::full_transcript::tests::a_value_the_heading_had_to_spell_is_never_shown_by_it_already"],
+    ),
 ]
 
 
@@ -109,8 +191,11 @@ def run(args, **kw):
     return subprocess.run(args, cwd=clone, capture_output=True, text=True, **kw)
 
 
+only = sys.argv[3].split(",") if len(sys.argv) > 3 else None
 lines = []
 for ident, path, old, new, tests in MUTANTS:
+    if only and ident.split()[0] not in only:
+        continue
     full = os.path.join(clone, path)
     text = open(full, encoding="utf-8").read()
     if text.count(old) != 1:
