@@ -224,8 +224,16 @@ round 1's `pair.py` (`PAGE_OFFSET=2`, round 1's ledger), `check.py`, and
 On the two edge mutants the sweep under this ledger stays quiet: rows 1-2
 and 35-37 are what `transcript-page-offset` names. `check.py` reads them:
 
-- rows 1-2 and 35-36 are compared through the stitch;
-- row 37, the blank row above the footer, must be blank and unstyled.
+- in anchormid's claimed `full-pgup`, the page those mutants change, rows
+  1-2 and 35-36 are compared through the stitch: the arrow window above it
+  gives each an fx partner. Not on every snap: the two exceptions in "Which
+  rows have an fx partner" above (anchormid's lone `full-end`, records'
+  windows at the top) leave xfx's top two and last two rows there without
+  one;
+- row 37, the blank row above the footer, must be blank and unstyled, on
+  every Ctrl-O snap;
+- and since round 4 (T-U6) the footer must be on row 38, so every record is
+  exactly 36 rows (`record()`).
 
 ## Round 3's assertions against changed captures (`mutants-c.txt`)
 
@@ -242,6 +250,32 @@ fails all six**; on unchanged captures both pass.
 | tools: xfx's banner gone from the one-screen record | `only fx covers 1 and only xfx 0, the claim is 0 and 0` |
 | question: a row above xfx's banner | `only fx covers 0 and only xfx 1, the claim is 0 and 0` |
 | anchormid: text in the blank row above xfx's footer, on all three screens of the held page | `malformed capture: the row above the footer is 'stray', not a blank one` |
+
+## Round 4's assertions (T-U6, `mutants-c.txt`)
+
+T-U1+U2's review left three pins open, and `mutants-c.py` printed its
+results without asserting them. Round 4 (T-U6, branch
+`feat/p5-transcript-receipts`):
+
+- `record()` fails a capture whose footer is not on row 38: a record is 36
+  rows, never a shorter or longer window;
+- `check_insert` pins the row the record is put in at (fx 20, xfx 19) and its
+  height (5), as the claim's;
+- `mutants-c.py` **asserts**: every checker passes the unchanged captures,
+  the round before passes each mutant (round 2 for round 3's six, round 3 --
+  `6eee9fb9`'s `check.py` -- for round 4's three), and this `check.py` fails
+  each with the FAIL line the mutant names. It exits 1 otherwise, and does so
+  when it is run with round 3's `check.py` in this one's place
+  (`mutants-c-meta.txt`).
+
+| round 4 mutant | this `check.py` |
+|---|---|
+| tools: xfx's footer one row up on both screens of the one-screen record | `malformed capture: the footer is on row 37, not row 38` |
+| anchor: xfx's network record lands a row higher | `xfx: a 5-row record at row 18, the claim is a 5-row record at row 19` |
+| anchor: xfx's network record gains a row | `xfx: a 6-row record at row 19, the claim is a 5-row record at row 19` |
+
+`green.txt` and `red.txt` are unchanged by round 4: `check.py` prints the
+same lines on the same captures (34 claims, 34 hold; 34 claims, 12 fail).
 
 `sweep-view.txt` is the sweep's view of every `full*` pair of the seven
 scenarios under this ledger: **0 rows no cause covers**.
@@ -298,5 +332,6 @@ the idle wait:
 | `check.py` on `fx/` against `xfx/` (`green.txt`) | 34 claims, 34 hold |
 | `check.py` on `fx/` against `red/` (`red.txt`) | 34 claims, 12 fail |
 | `mutants-c.py` (`mutants-c.txt`, round 3) | round 2's `check.py` passes 6 of 6 mutants, this one fails 6 of 6 |
+| `mutants-c.py` (`mutants-c.txt`, round 4, T-U6) | asserted: the earlier round passes 9 of 9 mutants, this `check.py` fails 9 of 9 with the named FAIL line; exit 0 (`mutants-c-meta.txt`: exit 1 with round 3's `check.py` in its place) |
 | `sweep-view.py` (`sweep-view.txt`) | 0 rows no cause covers |
 | `regressions.txt` | 23 of 23 snaps identical |

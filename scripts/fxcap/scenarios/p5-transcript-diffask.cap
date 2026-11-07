@@ -1,0 +1,26 @@
+# Phase 5 transcript (T-U6, fx v0.0.16's 9db199e4): the edit of
+# p5-transcript-diffctl (a file holding a raw ESC[2J and a C1 U+009B), asked
+# for in `ask` mode, so the change is reviewed in the permission question
+# before it is made; then applied with `1` and read again through Ctrl-O.
+gateway p5-transcript-diffask-turns.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+work p5-transcript-ws
+keep
+wait 4
+type edit the file
+wait 1
+key Enter
+wait 4
+snap ask
+key 1
+wait 4
+snap applied
+key C-o
+wait 2
+snap full
+key C-o
+wait 1
+snap closed
+gwlog

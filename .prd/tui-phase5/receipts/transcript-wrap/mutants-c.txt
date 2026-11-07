@@ -1,21 +1,45 @@
-== mutant: none
-   round 2 check.py: exit 0  3 claims, 3 hold, 0 fail
-   this check.py:    exit 0  3 claims, 3 hold, 0 fail
-== mutant: records: xfx's tool list loses its closing `)`, and a row after it and one far below are changed (the tool list must close; gpt6-b's MUST)
+== unchanged captures
+   p5-transcript-anchor       round 2  exit 0  4 claims, 4 hold, 0 fail
+   p5-transcript-anchor       round 3  exit 0  4 claims, 4 hold, 0 fail
+   p5-transcript-anchor       this     exit 0  4 claims, 4 hold, 0 fail
+   p5-transcript-anchormid    round 2  exit 0  7 claims, 7 hold, 0 fail
+   p5-transcript-anchormid    round 3  exit 0  7 claims, 7 hold, 0 fail
+   p5-transcript-anchormid    this     exit 0  7 claims, 7 hold, 0 fail
+   p5-transcript-question     round 2  exit 0  3 claims, 3 hold, 0 fail
+   p5-transcript-question     round 3  exit 0  3 claims, 3 hold, 0 fail
+   p5-transcript-question     this     exit 0  3 claims, 3 hold, 0 fail
+   p5-transcript-records      round 2  exit 0  3 claims, 3 hold, 0 fail
+   p5-transcript-records      round 3  exit 0  3 claims, 3 hold, 0 fail
+   p5-transcript-records      this     exit 0  3 claims, 3 hold, 0 fail
+   p5-transcript-tools        round 2  exit 0  6 claims, 6 hold, 0 fail
+   p5-transcript-tools        round 3  exit 0  6 claims, 6 hold, 0 fail
+   p5-transcript-tools        this     exit 0  6 claims, 6 hold, 0 fail
+== round 3 mutant: records: xfx's tool list loses its closing `)`, and a row after it and one far below are changed (the tool list must close; gpt6-b's MUST)
    round 2 check.py: exit 0  3 claims, 3 hold, 0 fail
    this check.py:    exit 1  FAIL malformed capture: xfx: the tool list from row 2 has no closing row: '  +5 more'
-== mutant: records: xfx's tool list gains a row of tool names (the rows taken out must be the claim's)
+== round 3 mutant: records: xfx's tool list gains a row of tool names (the rows taken out must be the claim's)
    round 2 check.py: exit 0  3 claims, 3 hold, 0 fail
    this check.py:    exit 1  FAIL full-records: xfx: 3 tools-list rows taken out, the claim is 2
-== mutant: records: fx gains a second `skills: loading` row (the rows taken out, and the rows compared, are the claim's)
+== round 3 mutant: records: fx gains a second `skills: loading` row (the rows taken out, and the rows compared, are the claim's)
    round 2 check.py: exit 0  3 claims, 3 hold, 0 fail
    this check.py:    exit 1  FAIL full-records: fx: 3 session-record rows taken out, the claim is 2
-== mutant: tools: xfx's banner is gone from both screens of the one-screen record (the rows only one side covers are the claim's)
+== round 3 mutant: tools: xfx's banner is gone from both screens of the one-screen record (the rows only one side covers are the claim's)
    round 2 check.py: exit 0  6 claims, 6 hold, 0 fail
    this check.py:    exit 1  FAIL only fx covers 1 and only xfx 0, the claim is 0 and 0
-== mutant: question: a row is put in above xfx's banner (the same assertion, the other way)
+== round 3 mutant: question: a row is put in above xfx's banner (the same assertion, the other way)
    round 2 check.py: exit 0  3 claims, 3 hold, 0 fail
    this check.py:    exit 1  FAIL only fx covers 0 and only xfx 1, the claim is 0 and 0
-== mutant: anchormid: text in the blank row above xfx's footer, on the three screens of the held page (that row is read, not dropped)
+== round 3 mutant: anchormid: text in the blank row above xfx's footer, on the three screens of the held page (that row is read, not dropped)
    round 2 check.py: exit 0  7 claims, 7 hold, 0 fail
    this check.py:    exit 1  FAIL malformed capture: the row above the footer is 'stray', not a blank one
+== round 4 mutant: tools: xfx's footer one row up on both screens of the one-screen record, a blank record row taken out and one put in under the hint (a record is 36 rows)
+   round 3 check.py: exit 0  6 claims, 6 hold, 0 fail
+   this check.py:    exit 1  FAIL malformed capture: the footer is on row 37, not row 38
+== round 4 mutant: anchor: the network record lands a row higher on xfx, the blank row above it moved under it (the row it is put in at is the claim's)
+   round 3 check.py: exit 0  4 claims, 4 hold, 0 fail
+   this check.py:    exit 1  FAIL xfx: a 5-row record at row 18, the claim is a 5-row record at row 19
+== round 4 mutant: anchor: xfx's network record gains a row, the last record row taken out (its height is the claim's)
+   round 3 check.py: exit 0  4 claims, 4 hold, 0 fail
+   this check.py:    exit 1  FAIL xfx: a 6-row record at row 19, the claim is a 5-row record at row 19
+9 mutants; every assertion held
+exit 0

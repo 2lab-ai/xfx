@@ -93,7 +93,7 @@ use crate::permission::ApprovalDiff;
 use crate::session::{SessionEvent, TurnStep};
 use crate::tools::{Activity, LineChanges, Outcome, Registry, Shown};
 
-use super::approval_view::{Line as ReviewLine, Review};
+use super::approval_view::{tamed, Line as ReviewLine, Review};
 use super::blocks;
 use super::bridge::{self, UiEvent};
 use super::frame::clip;
@@ -1893,6 +1893,18 @@ fn run_on(row: &str, cols: u16) -> Vec<String> {
 /// (`appendDiffRenderLine`, `diff.zig:1063-1084`): `  │ N ± text`, the changed
 /// lines in the diff grey and the rest in the dim one -- monochrome, as
 /// upstream's markers are until a theme is pinned (`render.zig:93-105`).
+///
+/// **A line's text is a file's, and it is spelled as the review spells it**
+/// ([`tamed`]) before it reaches a row. The permission boundary named its
+/// controls (`crate::permission::bounded_diff_side`), but a bidirectional
+/// override, a zero-width space or a byte-order mark is no control, and
+/// crossed it as itself: written here raw, it reordered or hid the text of
+/// the change on the screen. fx v0.0.16 escapes those too
+/// (`appendTerminalSafeLine`, `text_utils.zig:419-440@481104fd`, called at
+/// `diff.zig:1273`, 9db199e4). The spelling is xfx's review's rather than
+/// fx's (`\u{001B}`, not `\x1b`): one change reads the same on both
+/// screens, and the review's is injective (docs/parity.md, the full-screen
+/// TUI row).
 fn diff_rows(diff: &ApprovalDiff, cols: u16, palette: Palette) -> Vec<String> {
     let review = Review::of_diff(diff);
     let width = review
@@ -1915,13 +1927,13 @@ fn diff_rows(diff: &ApprovalDiff, cols: u16, palette: Palette) -> Vec<String> {
         .map(|line| {
             let (style, number, sign, text) = match line {
                 ReviewLine::Context(number, text) => {
-                    (palette.dim(), number.to_string(), ' ', text.clone())
+                    (palette.dim(), number.to_string(), ' ', tamed(text))
                 }
                 ReviewLine::Added(number, text) => {
-                    (palette.diff(), number.to_string(), '+', text.clone())
+                    (palette.diff(), number.to_string(), '+', tamed(text))
                 }
                 ReviewLine::Removed(number, text) => {
-                    (palette.diff(), number.to_string(), '-', text.clone())
+                    (palette.diff(), number.to_string(), '-', tamed(text))
                 }
                 ReviewLine::Elided(count) => (
                     palette.dim(),
@@ -2601,6 +2613,49 @@ mod tests {
             !plain.iter().any(|row| row.contains("content:")),
             "the arguments were listed beside the diff that covers them: {plain:?}"
         );
+    }
+
+    #[test]
+    fn a_changes_rows_name_what_would_reorder_or_hide_its_text_as_the_review_does() {
+        // fx v0.0.16's 9db199e4 draws a diff row's text through
+        // `appendTerminalSafeLine` (`text_utils.zig:419-440@481104fd`, from
+        // `diff.zig:1273`), which escapes a bidirectional override, a
+        // zero-width space and a byte-order mark as well as the controls
+        // (`isNonPrintingCodepoint`, `:703-708`). The permission boundary
+        // names only the controls (`bounded_diff_side`); the rest are the
+        // review's to name (`approval_view::tamed`), and this screen spells a
+        // line as that review spells it.
+        let diff = ApprovalDiff::of(
+            "a\n",
+            "bidi \u{202e} x\nzero\u{200b}width \u{feff} bom\nesc \u{1b}[2J c1 \u{9b}\n",
+        );
+        let rows = diff_rows(&diff, 120, DARK);
+        for hidden in ['\u{202e}', '\u{200b}', '\u{feff}', '\u{1b}', '\u{9b}'] {
+            assert!(
+                !plain(&rows).iter().any(|row| row.contains(hidden)),
+                "{hidden:?} reached a row: {rows:?}"
+            );
+        }
+        assert_eq!(
+            plain(&rows),
+            [
+                "  \u{2502} 1 - a",
+                "  \u{2502} 1 + bidi \\u{202E} x",
+                "  \u{2502} 2 + zero\\u{200B}width \\u{FEFF} bom",
+                "  \u{2502} 3 + esc \\u{001B}[2J c1 \\u{009B}",
+            ]
+        );
+        // The same words the review shows for each line.
+        let reviewed: Vec<String> = Review::of_diff(&diff)
+            .rows(120, &super::super::approval_view::Styles::PLAIN)
+            .into_iter()
+            .map(|(row, _)| row.trim_start().to_string())
+            .collect();
+        let shown: Vec<String> = plain(&rows)
+            .iter()
+            .map(|row| row.trim_start_matches("  \u{2502} ").to_string())
+            .collect();
+        assert_eq!(reviewed, shown);
     }
 
     #[test]

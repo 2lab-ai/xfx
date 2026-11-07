@@ -1,9 +1,14 @@
 # Phase 5 transcript research: an edit of a file whose text holds an ESC[2J
 # and a C1 U+009B (9db199e4). The inline diff, then Ctrl-O over it: c1db919
 # is expected to exit (AnsiBandOverflow); v0.0.16 shows the bytes as text.
-gateway p5-transcript-diffctl-turns.json
+# xfx's `edit_file` refuses a file it has not read in full, so its turns read
+# `ctl.txt` first (added by T-U6), and `xfx: env XFX_PERMISSION_MODE=yolo`
+# matches fx's mode.
+fx: gateway p5-transcript-diffctl-turns.json
+xfx: gateway p5-transcript-diffctl-xfx.json
 fx: env FX_AUTO_UPGRADE=0
 fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
 work p5-transcript-ws
 keep
 wait 4
