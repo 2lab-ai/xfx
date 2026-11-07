@@ -242,7 +242,7 @@ KNOWN_MODES = {"?2026", "?25", "?7", "?2004", "?1049", "?2031"}
 # The `OSC` strings xfx is allowed to write, each with the one terminator it is
 # written with (`src/tui/check.rs`'s `operating_system_command`): the window
 # title (`src/tui/frame.rs`, `BEL`), the background query it asks the terminal
-# (`src/tui/theme.rs:66`, `ST`), and a hyperlink (`src/tui/hyperlink.rs`,
+# (`src/tui/theme.rs:67`, `ST`), and a hyperlink (`src/tui/hyperlink.rs`,
 # `ST`). `OSC 52` is deliberately **not** here -- a build that started writing
 # the clipboard must fail this run rather than be shrugged at.
 KNOWN_OSC = {"2": b"\x07", "11": b"\x1b\\", "8": b"\x1b\\"}
@@ -259,7 +259,7 @@ KNOWN_WINDOW_OPS = {"22;2", "23;2"}
 
 # The keyboard-protocol sequences of `src/tui/term.rs:32-52`, spelled out:
 # `>4;2m`/`>4;0m` are modifyOtherKeys on and off, `>1u` pushes the kitty
-# keyboard flags and `<u` pops them. `?996n` (`src/tui/theme.rs:104`) is the
+# keyboard flags and `<u` pops them. `?996n` (`src/tui/theme.rs:105`) is the
 # outright "which way round are you now?" query a launch asks once, paired
 # with the `?2031` subscription above but not itself an enable/disable pair --
 # it carries no parameter, and a report with one (`?996;1n`) is a sequence
@@ -980,7 +980,7 @@ FAMILY = "\U0001F468\u200D\U0001F469\u200D\U0001F467"
 # (`ULTRA_TRUECOLOR`) -- and the reset that ends every band row.
 PALETTE_SGR = ("\x1b[38;5;250m", "\x1b[38;2;255;204;0m", "\x1b[0m", "\x1b[m")
 
-# The background query and the window title (`src/tui/theme.rs:66`,
+# The background query and the window title (`src/tui/theme.rs:67`,
 # `src/tui/frame.rs`), each in the one terminator the product spells it with
 # (`src/tui/check.rs`'s `operating_system_command`), and the exit's clear.
 PRODUCT_OSC = ("\x1b]11;?\x1b\\", "\x1b]2;\x07", "\x1b]2;xfx \u00b7 glm-5.2\x07")
@@ -1325,7 +1325,7 @@ def a_frame_is_recorded_only_when_it_is_asked_for():
 
 
 def the_theme_subscription_mode_and_query_the_product_emits_are_accepted():
-    """`?2031h`/`?2031l` (`src/tui/term.rs:56,65`) and `?996n` (`src/tui/theme.rs:104`).
+    """`?2031h`/`?2031l` (`src/tui/term.rs:56,65`) and `?996n` (`src/tui/theme.rs:105`).
 
     The subscription mode xfx's session sets so a terminal volunteers a
     background change, and the outright query it asks at launch, both move no
@@ -11264,7 +11264,7 @@ RETINT_DARK = (RETINT_DARK_BODY, RETINT_DARK_NOTICE, RETINT_DARK_DIM)
 RETINT_LIGHT = (RETINT_LIGHT_BODY, RETINT_LIGHT_NOTICE, RETINT_LIGHT_DIM)
 
 # What a terminal that took the `?2031` subscription volunteers when its
-# background changes (`src/tui/theme.rs:108-126`). Nobody typed it, so every
+# background changes (`src/tui/theme.rs:109-127`). Nobody typed it, so every
 # assertion about a draft below is also an assertion that it stayed out of the
 # composer.
 WENT_LIGHT = b"\x1b[?997;2n"

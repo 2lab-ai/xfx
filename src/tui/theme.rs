@@ -797,7 +797,7 @@ pub(crate) fn detect(env_theme: Option<&str>, osc: Option<Mode>, colorfgbg: Opti
 /// `38;5;220` where it does not.
 ///
 /// **Upstream's own rule** (`truecolorSupportedForValues`,
-/// `theme_protocol.zig:83-92`): a `COLORTERM` claim, else anything but Apple
+/// `theme_protocol.zig:84-93@481104fd`): a `COLORTERM` claim, else anything but Apple
 /// Terminal -- so a terminal that claims nothing gets the 24-bit yellow, as
 /// upstream's capture shows beside its 256-colour greys
 /// (`fx-fast-astra-40x120-uf-on`). The one thing a claim of truecolor
