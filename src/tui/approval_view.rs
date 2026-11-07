@@ -1062,7 +1062,10 @@ fn default_ignorable(code: u32) -> bool {
 /// question. The cost is Indic and Khmer text: the vowel signs xfx's table
 /// counts as none (`U+09BE`, `U+0BBE`, `U+0D3E`, `U+0B3E`, `U+0CC2`, `U+0DCF`,
 /// spacing marks that extend the cluster) are named, and so, by [`squeezed`],
-/// is every Khmer coeng and the consonant it subjoins. Measured where xfx counts none
+/// is every Khmer coeng and the consonant it subjoins. The painter counts most
+/// of these vowel signs and marks as upstream does now (`super::wrap`'s
+/// `FX_COUNTED`, CTRLO-WIDER), a cell or more; they are still named here,
+/// by the table's count, as before. Measured where the table counts none
 /// (cursor column between two
 /// markers, 2026-11-03): the halfwidth voiced sound mark `U+FF9E` is one cell
 /// in tmux 3.7b and in herdr's libghostty-vt; the Hangul tone mark `U+302E` two
@@ -1242,7 +1245,7 @@ const CLUSTER_CAP: u16 = 4;
 /// tmux, herdr's terminal and upstream all count the pair as two cells. After
 /// anything else the terminals disagree -- tmux makes a narrow character wide,
 /// libghostty-vt and upstream ignore the selector -- so it is named.
-fn agreed_presentation(base: char) -> bool {
+pub(super) fn agreed_presentation(base: char) -> bool {
     crate::markdown::display_width::is_variation_base(u32::from(base))
         && super::wrap::width(&format!("{base}\u{fe0f}")) == 2
 }

@@ -696,10 +696,12 @@ fn upstream_cells(cluster: &str) -> usize {
 /// that takes no emoji presentation, which tmux widens by a cell when the
 /// character before it draws narrower than two cells: `U+115F U+FE0F` stays
 /// two, as `U+115F` alone does, where `U+1160 U+FE0F` and `U+3164 U+FE0F`
-/// take one (clusters.txt). It is `super::drawn_wider`'s `U+FE0F`; the
-/// ledger's `ctrl-o-drawn-wider-raw`, owner CTRLO-WIDER, owns it on Ctrl-O,
-/// in the inline transcript and in the composer, and says only naming
-/// closes it.
+/// take one (clusters.txt). It is `super::drawn_wider`'s `U+FE0F`, which
+/// fx counts as this does: no count closes it. A file's or a tool's line on
+/// Ctrl-O names it (`super::full_transcript`'s `drawn_wider_named`), the
+/// review names it, and an answer and the composer write it as fx does
+/// (`scripts/fxcap/parity-ledger.toml`, `ctrl-o-drawn-wider-named`;
+/// `.prd/tui-phase5/receipts/ctrlo-wider/`).
 ///
 /// **It is more than they draw, often**, and that is upstream's count kept
 /// rather than a terminal's: `U+1160` one cell and `U+3164` two where both
