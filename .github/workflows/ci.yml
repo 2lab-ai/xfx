@@ -122,6 +122,14 @@ jobs:
       - name: No credentials in tracked files
         run: ./scripts/check-no-secrets.sh
 
+      # The secrets check hands the tracked names to `grep` in batches that
+      # fit under ARG_MAX; the tree outgrew one command line on macOS. This
+      # builds a scratch tree that does not fit on one, proves it does not,
+      # and requires the check to read all of it: a key in the first, the
+      # last and every file reported, a file it cannot read a failure.
+      - name: The secrets check reads a tree past ARG_MAX
+        run: ./scripts/test-check-no-secrets.sh
+
       - name: One product name in tracked files
         run: ./scripts/check-xfx-identity.sh
 
