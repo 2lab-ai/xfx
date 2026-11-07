@@ -12,8 +12,15 @@ wait 3
 type run cmd
 key Enter
 wait 2.5
+# A Ctrl-C while the full-access warning is up takes its row and stops its
+# 4 s clock (capfile.py TIMERS), so the warning would come back once the
+# exit hint goes: Ctrl-C is sent once the warning has gone.
+until gone Full access
 key C-c
 wait 3
+# Ctrl-C's exit hint stays 3 s (capfile.py TIMERS): the snap below is the
+# screen once it has gone, not a second count against it.
+until gone press ctrl+c again to exit
 snap dark
 key -H 1b 5b 3f 39 39 37 3b 32 6e
 wait 2

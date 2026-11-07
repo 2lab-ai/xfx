@@ -6,7 +6,12 @@ fx: gateway interrupt-cmd-fx.json
 xfx: gateway interrupt-cmd-xfx.json
 fx: env FX_PERMISSION_MODE=yolo
 xfx: env XFX_PERMISSION_MODE=yolo
+# The full-access warning is up from the first frame for 4 s (capfile.py
+# TIMERS): the turn starts once it has come and gone, so no snap below
+# races it.
+until shown Full access
 wait 2
+until gone Full access
 type run cmd
 key Enter
 wait 2.5
@@ -17,6 +22,9 @@ snap cmd-cc
 wait 1.5
 snap cmd-cc-2
 wait 4
+# Ctrl-C's exit hint stays 3 s (capfile.py TIMERS): the snap below is the
+# screen once it has gone, not a second count against it.
+until gone press ctrl+c again to exit
 snap cmd-done
 snapfull end
 gwlog

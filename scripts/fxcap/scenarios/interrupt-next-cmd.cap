@@ -9,6 +9,10 @@ wait 2
 type run cmd
 key Enter
 wait 2.5
+# A Ctrl-C while the full-access warning is up takes its row and stops its
+# 4 s clock (capfile.py TIMERS), so the warning would come back once the
+# exit hint goes: Ctrl-C is sent once the warning has gone.
+until gone Full access
 key C-c
 wait 7
 type next

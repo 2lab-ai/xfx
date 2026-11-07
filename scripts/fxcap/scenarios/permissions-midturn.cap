@@ -18,6 +18,12 @@ wait 4.5
 snap second-asks
 key C-c
 wait 3
+# At a permission question Ctrl-C is the question's own deny and arms no
+# exit hint (fx src/ui/input/runtime.zig:63@481104fd, `3 => .deny`; xfx
+# shell.rs ctrl_c_at_a_question_answers_only_the_question_it_is_about),
+# so this returns at once: it is the check's (capfile.py TIMERS), which
+# cannot see the question and counts every Ctrl-C's 3 s.
+until gone press ctrl+c again to exit
 snap after-refusal
 workls end
 home end

@@ -71,7 +71,11 @@ snap allowlist
 type /compact
 wait 0.3
 key Enter
-wait 1.5
+# /compact with nothing to compact answers "No context to compact." for
+# 1.5 s (compaction.rs TRANSIENT, compaction_activity.zig:123@481104fd):
+# the snap is that answer, taken while it is up, not 1.5 s after Enter,
+# the moment it goes (FLAKE-HINT4).
+until shown No context to compact.
 snap compact-empty
 type /trace
 wait 0.3

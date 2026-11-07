@@ -159,6 +159,10 @@ class Refusals(unittest.TestCase):
             ("jobctl now\nsnap a\n", "jobctl takes no argument, not now"),
             ("held now\nsnap a\n", "held takes no argument, not now"),
             ("release 1\nsnap a\n", "release takes no argument, not 1"),
+            ("until\nsnap a\n", "until takes an argument"),
+            ("until soon Full access\nsnap a\n", "until takes shown <text> or gone <text>, not soon Full access"),
+            ("until shown\nsnap a\n", "until takes shown <text> or gone <text>, not shown"),
+            ("until gone   \nsnap a\n", "until takes shown <text> or gone <text>, not gone   "),
             ("homefile ../x c.json\nsnap a\n", "homefile takes a relative path inside HOME, not ../x"),
         ):
             with self.subTest(cap=cap.split("\n")[0]):
@@ -508,6 +512,41 @@ class Verbs(unittest.TestCase):
         self.assertEqual(r.code, 1, r.stdout + r.stderr)
         self.assertIn("held: the fake gateway made no hold 1 in 30 s", r.stderr)
         self.assertIn("holdAt 2 not held: this turn has 2 event(s): holdAt is 1 to 1", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-a.txt")))
+        self.assertIn("guards:", r.stdout, "the guards still ran")
+
+    # A row the stub's shell puts up for a while and takes away, as a binary's
+    # timer does: `X[1]*Y`, printed a second after Enter and cleared 1.5 s
+    # later. The typed line holds `X[%s]*Y`, never the row itself; and the
+    # row has `[` and `*` in it, which a glob would not match as themselves.
+    ROW_FOR_A_WHILE = "type sleep 1; printf 'X[%s]*Y\\n' 1; sleep 1.5; clear; printf 'after-%s\\n' it\nkey Enter\n"
+
+    def test_until_waits_for_a_row_to_come_and_then_to_go(self):
+        r = capture("wait 0.5\n" + self.ROW_FOR_A_WHILE + "until shown X[1]*Y\nsnap on\nuntil gone X[1]*Y\nsnap off\n")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertIn("X[1]*Y", r.file("on").split("\n"))
+        self.assertNotIn("X[1]*Y", r.file("off"))
+        shown = re.search(r"until shown 'X\[1\]\*Y': after (\d+\.\d\d) s, (\d+\.\d\d) s since launch\n", r.stdout)
+        gone = re.search(r"until gone 'X\[1\]\*Y': after (\d+\.\d\d) s, (\d+\.\d\d) s since launch\n", r.stdout)
+        self.assertTrue(shown and gone, r.stdout)
+        # Each waited for the screen, not for a second count: the row came
+        # about a second after Enter and went about 1.5 s after that.
+        self.assertGreater(float(shown.group(1)), 0.5)
+        self.assertGreater(float(gone.group(1)), 1.0)
+        self.assertGreater(float(gone.group(2)), float(shown.group(2)))
+
+    def test_until_fails_the_run_when_the_row_never_comes(self):
+        r = capture("wait 0.5\nuntil shown never-on-this-screen\nsnap a\n")
+        self.assertEqual(r.code, 1, r.stdout + r.stderr)
+        self.assertIn("until shown 'never-on-this-screen': still not shown after 30 s; the screen's rows that are not blank:", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-a.txt")))
+        self.assertIn("guards:", r.stdout, "the guards still ran")
+
+    def test_until_fails_the_run_when_the_row_never_goes(self):
+        r = capture("wait 0.5\ntype printf 'stays-%s\\n' put\nkey Enter\nuntil shown stays-put\nuntil gone stays-put\nsnap a\n")
+        self.assertEqual(r.code, 1, r.stdout + r.stderr)
+        self.assertIn("until gone 'stays-put': still shown after 30 s; the screen's rows that are not blank:", r.stderr)
+        self.assertIn("  | stays-put", r.stderr, "the screen it last read")
         self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-a.txt")))
         self.assertIn("guards:", r.stdout, "the guards still ran")
 

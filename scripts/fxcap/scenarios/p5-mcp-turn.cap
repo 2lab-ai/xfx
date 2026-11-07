@@ -7,7 +7,12 @@ xfx: homefile .xfx/mcp.json p5-mcp-turn-profile.json
 gateway p5-mcp-turns.json
 fx: env FX_PERMISSION_MODE=full-access
 xfx: env XFX_PERMISSION_MODE=yolo
+# The full-access warning is up from the first frame for 4 s (capfile.py
+# TIMERS): `ready` is the screen once it has come and gone, not a second
+# count against it.
+until shown Full access
 wait 6
+until gone Full access
 snap ready
 type use the fixture echo tool
 key Enter
