@@ -45121,6 +45121,100 @@ mod tests {
     }
 
     #[test]
+    fn a_stopped_turn_whose_place_comes_back_before_its_end_is_read_ends_as_the_stop_said() {
+        // The runtime sends a turn's `TurnEnded` (`worker.rs`'s `run_turn`)
+        // before it gives the turn's place back (`turn_loop`), so the band can
+        // settle between the two with the stopped turn's end still in the
+        // channel -- and that end says `the turn was cancelled`. Upstream's
+        // stopped turn is finished `.interrupted` and returns, so no
+        // `request failed` follows it (`interruption.zig:219`,
+        // `orchestrator.zig:7233-7235`, `app_process_runtime.zig:157-169@481104fd`)
+        // and its result is `idle` (`program_status.zig:62-69`): one `idle`
+        // on the wire and one `■ Cancelled` line in the document, however late
+        // the end is read.
+        let mut shell = running("stream please");
+        let mut wire = vec![status_of(&mut shell)];
+        shell.apply(UiEvent::Delta("a whole line\n".to_string()));
+        shell.flush_paced();
+        shell.route_bytes(&[0x03]);
+        wire.push(status_of(&mut shell));
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("xfx: the turn was cancelled".to_string()),
+        });
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        let after = shell.released();
+        let text = after.join("\n");
+        assert_eq!(
+            (
+                wire,
+                text.contains("system"),
+                text.matches("\u{25a0} Cancelled").count()
+            ),
+            (
+                vec![
+                    Some("working".to_string()),
+                    Some("idle".to_string()),
+                    None,
+                    None
+                ],
+                false,
+                1
+            ),
+            "the reports, a `system` line, the `Cancelled` lines: {after:?}"
+        );
+    }
+
+    #[test]
+    fn a_stopped_turn_with_a_call_running_keeps_its_line_and_its_idle_through_a_late_end() {
+        // The same window with a file call still running at the stop: the
+        // turn's row and its `■ Cancelled` line wait for the turn's end
+        // (`cancel_owed`), and a settle between the place and the end must
+        // neither put the turn back to work nor take that line away.
+        let mut shell = running("read it");
+        shell.apply(tool_start(
+            "c1",
+            "read_file",
+            serde_json::json!({"path": "a.txt"}),
+        ));
+        let mut wire = vec![status_of(&mut shell)];
+        shell.route_bytes(&[0x03]);
+        wire.push(status_of(&mut shell));
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        shell.apply(tool_result("c1", "read_file", true, ""));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("xfx: the turn was cancelled".to_string()),
+        });
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        let after = shell.released();
+        let text = after.join("\n");
+        assert_eq!(
+            (
+                wire,
+                text.contains("system"),
+                text.contains("\u{25a0} Cancelled \u{b7} What can xfx")
+            ),
+            (
+                vec![
+                    Some("working".to_string()),
+                    Some("idle".to_string()),
+                    None,
+                    None
+                ],
+                false,
+                true
+            ),
+            "the reports, a `system` line, the turn's `Cancelled` line: {after:?}"
+        );
+    }
+
+    #[test]
     fn a_resume_reports_again_and_a_result_already_seen_comes_back_idle() {
         let mut shell = shell(24, 80);
         assert_eq!(status_of(&mut shell).as_deref(), Some("idle"));
@@ -45260,6 +45354,81 @@ mod tests {
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.work.give_back();
         assert_eq!(status_of(&mut shell), None);
+    }
+
+    #[test]
+    fn a_reset_before_a_failed_compactions_turn_ends_takes_that_result_with_its_conversation() {
+        // `/new` typed after an automatic compaction failed its turn and
+        // before the turn's end is read: the end is drained with the
+        // conversation it was about, and what the next conversation does is
+        // reported as upstream's is -- a prompt typed, or a manual
+        // `/compact`, is work (`app_worker_runtime.zig:762-765@481104fd`).
+        // A prompt typed before the dropped turn's end is read runs in the
+        // next conversation too, so the reset itself is what lets it go.
+        #[derive(Debug, Clone, Copy, PartialEq)]
+        enum Next {
+            PromptBeforeTheEnd,
+            PromptAfterTheFence,
+            CompactionAfterTheFence,
+        }
+        let mut found = Vec::new();
+        for next in [
+            Next::PromptBeforeTheEnd,
+            Next::PromptAfterTheFence,
+            Next::CompactionAfterTheFence,
+        ] {
+            let mut shell = shell(24, 80);
+            let _ = status_of(&mut shell);
+            shell.route_bytes(b"third question\r");
+            let _ = shell.picks_up();
+            shell.apply(UiEvent::TurnStarted);
+            assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
+            shell.apply(UiEvent::Compaction(compaction::Update::Began {
+                automatic: true,
+            }));
+            shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+                compaction::Feedback::Failed,
+            )));
+            assert_eq!(status_of(&mut shell).as_deref(), Some("error"));
+            let through = shell.work.accepted();
+            shell.route_bytes(b"/new\r");
+            let mut wire = Vec::new();
+            if next == Next::PromptBeforeTheEnd {
+                shell.route_bytes(b"next question\r");
+                wire.push(status_of(&mut shell));
+            }
+            shell.apply(UiEvent::TurnEnded {
+                failure: Some("compaction failed".into()),
+            });
+            shell.work.give_back();
+            shell.apply(UiEvent::Fresh { through });
+            shell.settle_band(Instant::now());
+            wire.push(status_of(&mut shell));
+            match next {
+                Next::PromptBeforeTheEnd => {}
+                Next::PromptAfterTheFence => shell.route_bytes(b"next question\r"),
+                Next::CompactionAfterTheFence => {
+                    shell
+                        .work
+                        .submit(TurnWork::Compact)
+                        .expect("the compaction");
+                    let _ = shell.picks_up();
+                    shell.compaction = Some(Compaction::began(false));
+                }
+            }
+            wire.push(status_of(&mut shell));
+            found.push((next, wire));
+        }
+        let working = || Some("working".to_string());
+        assert_eq!(
+            found,
+            [
+                (Next::PromptBeforeTheEnd, vec![working(), None, None]),
+                (Next::PromptAfterTheFence, vec![None, working()]),
+                (Next::CompactionAfterTheFence, vec![None, working()]),
+            ],
+            "the dropped conversation's failed compaction still holds the status"
+        );
     }
 
     #[test]

@@ -13775,60 +13775,121 @@ mod tests {
     }
 
     #[test]
-    fn a_prompt_typed_after_a_stop_is_reported_after_the_frame_that_shows_its_thinking() {
+    fn a_prompt_typed_before_a_stopped_turn_ends_is_reported_ahead_of_the_frame_that_shows_its_turn(
+    ) {
         // Upstream's stop stays requested until the worker takes the next
         // item (`takeNextWorkLocked`, `worker_runtime.zig:1512@481104fd`; the
         // stopped turn's `finishProcessing` leaves it, `:1541-1563`), and
         // while it is, nothing is busy (`cancellation_stops_turn`,
-        // `app_worker_runtime.zig:785-788`, `:762-765`). A prompt typed under
-        // it is on its keystroke's frame with its activity, which reads no
-        // cancel (`pendingPromptActivityVisible`,
-        // `app_render_runtime.zig:286-290`), and is reported `working` on the
-        // pass the worker takes it: the `Thinking` frame, then `working`, as a
-        // prompt typed at an idle session is. Here the stop keeps the status
-        // settled across the keystroke, so nothing marks the prompt as typed,
-        // and the stopped turn's end turns the waiting prompt into `working`
-        // before any frame shows its `Thinking`.
-        let mut shell = shell();
-        let mut band = Band::new();
-        let mut out = StatusScreen::default();
-        launch_title(&mut shell, &mut band);
-        status_tick(&mut shell, &mut band, &mut out);
-        shell.route_bytes(b"go\r");
-        status_tick(&mut shell, &mut band, &mut out);
-        shell.apply(UiEvent::TurnStarted);
-        status_tick(&mut shell, &mut band, &mut out);
-        shell.route_bytes(&[0x03]);
-        status_tick(&mut shell, &mut band, &mut out);
-        assert_eq!(out.reports().last().map(String::as_str), Some(IDLE));
-        // Typed before the stopped turn has said it ended.
-        shell.route_bytes(b"next\r");
-        status_tick(&mut shell, &mut band, &mut out);
-        let before = out.vectors.len();
-        shell.apply(UiEvent::TurnEnded { failure: None });
-        shell.settle_band(Instant::now());
-        status_tick(&mut shell, &mut band, &mut out);
-        assert!(
-            !out.vectors[before..]
+        // `app_worker_runtime.zig:734-735`, `:762-765`). A prompt typed under
+        // it shows nothing of its turn until the worker takes it, and that
+        // pass reports `working` and then paints the prompt and its activity
+        // (`p5-lifecycle-osc-stopnext` on fx v0.0.16, three runs: `idle`, the
+        // `Cancelled` frame, `working`, then the frame with the prompt). So
+        // here: `working` ahead of every frame that shows the prompt's
+        // `Thinking`, whether the stopped turn's end and the prompt's start
+        // land in one drain -- the runtime sends the two with no wait on this
+        // thread (`super::worker`'s `run_turn`, `turn_loop`) -- or in two.
+        for one_drain in [true, false] {
+            let mut shell = shell();
+            let mut band = Band::new();
+            let mut out = StatusScreen::default();
+            launch_title(&mut shell, &mut band);
+            status_tick(&mut shell, &mut band, &mut out);
+            shell.route_bytes(b"go\r");
+            status_tick(&mut shell, &mut band, &mut out);
+            shell.apply(UiEvent::TurnStarted);
+            status_tick(&mut shell, &mut band, &mut out);
+            shell.route_bytes(&[0x03]);
+            status_tick(&mut shell, &mut band, &mut out);
+            assert_eq!(out.reports().last().map(String::as_str), Some(IDLE));
+            // Typed before the stopped turn has said it ended.
+            shell.route_bytes(b"next\r");
+            status_tick(&mut shell, &mut band, &mut out);
+            let before = out.vectors.len();
+            shell.apply(UiEvent::TurnEnded {
+                failure: Some("xfx: the turn was cancelled".to_string()),
+            });
+            if !one_drain {
+                shell.settle_band(Instant::now());
+                status_tick(&mut shell, &mut band, &mut out);
+            }
+            shell.apply(UiEvent::TurnStarted);
+            for _ in 0..2 {
+                shell.settle_band(Instant::now());
+                status_tick(&mut shell, &mut band, &mut out);
+            }
+            let ticks = &out.vectors[before..];
+            let shown: Vec<_> = ticks
                 .iter()
-                .any(|vector| holds(vector, REPORT)),
-            "the waiting prompt's working went ahead of any frame that shows its turn: {:?}",
-            &out.vectors[before..]
-        );
-        let started = out.vectors.len();
-        shell.apply(UiEvent::TurnStarted);
-        shell.settle_band(Instant::now());
-        status_tick(&mut shell, &mut band, &mut out);
-        let tick = &out.vectors[started..];
-        let frame = tick
-            .iter()
-            .position(|vector| holds(vector, b"Thinking"))
-            .unwrap_or_else(|| panic!("the started turn painted no Thinking: {tick:?}"));
-        let report = tick
-            .iter()
-            .position(|vector| vector.as_slice() == WORKING.as_bytes())
-            .unwrap_or_else(|| panic!("no working: {tick:?}"));
-        assert!(frame < report, "{tick:?}");
+                .map(|vector| String::from_utf8_lossy(vector))
+                .collect();
+            let report = ticks
+                .iter()
+                .position(|vector| vector.as_slice() == WORKING.as_bytes());
+            let frame = ticks.iter().position(|vector| holds(vector, b"Thinking"));
+            assert!(
+                report.is_some() && frame.is_some() && report < frame,
+                "one drain {one_drain}: the prompt's working is not ahead of the frame \
+                 that shows its turn: {shown:?}"
+            );
+            assert_eq!(
+                ticks.iter().filter(|vector| holds(vector, REPORT)).count(),
+                1,
+                "one drain {one_drain}: {shown:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_prompt_queued_behind_a_running_turn_writes_nothing_new_when_its_turn_starts() {
+        // Upstream's `busy` counts a queued prompt (`queued_count`,
+        // `app_worker_runtime.zig:762-765@481104fd`), so a prompt typed while a
+        // turn runs is under that turn's `working` until its own turn starts,
+        // and the turn it starts writes nothing more -- whether the runtime's
+        // end and start land in one tick or two.
+        for same_tick in [false, true] {
+            let mut shell = shell();
+            let mut band = Band::new();
+            let mut out = StatusScreen::default();
+            status_tick(&mut shell, &mut band, &mut out);
+            shell.route_bytes(b"go\r");
+            status_tick(&mut shell, &mut band, &mut out);
+            shell.apply(UiEvent::TurnStarted);
+            shell.settle_band(Instant::now());
+            status_tick(&mut shell, &mut band, &mut out);
+            assert_eq!(out.reports(), [IDLE, WORKING], "same tick {same_tick}");
+            shell.route_bytes(b"next\r");
+            shell.settle_band(Instant::now());
+            status_tick(&mut shell, &mut band, &mut out);
+            shell.apply(UiEvent::TurnEnded { failure: None });
+            if !same_tick {
+                shell.settle_band(Instant::now());
+                status_tick(&mut shell, &mut band, &mut out);
+            }
+            let before = out.vectors.len();
+            shell.apply(UiEvent::TurnStarted);
+            for _ in 0..2 {
+                shell.settle_band(Instant::now());
+                status_tick(&mut shell, &mut band, &mut out);
+            }
+            assert!(
+                out.vectors[before..]
+                    .iter()
+                    .any(|vector| holds(vector, b"Thinking")),
+                "same tick {same_tick}: the queued prompt's turn painted no Thinking"
+            );
+            assert_eq!(
+                out.reports(),
+                [IDLE, WORKING],
+                "same tick {same_tick}: the queued prompt's turn wrote a report"
+            );
+            assert_eq!(
+                shell.take_status_moved_by_input(),
+                super::super::shell::Keyed::No,
+                "same tick {same_tick}: a hold outlived the turn it was for"
+            );
+        }
     }
 
     #[test]
