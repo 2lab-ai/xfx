@@ -199,9 +199,11 @@ pub(crate) fn tokenize_row(
     }
 }
 
-/// Writes one display unit -- a grid cell's grapheme, its suffix with it -- at
-/// zero-based `column`, `width` cells wide, on a screen `cols` wide; `more` is
-/// whether anything else is written on the row after it, a cell or an erase.
+/// Writes one display unit at zero-based `column`, `width` cells wide, on a
+/// screen `cols` wide: `grapheme` is the grid cell's, what the rule below is
+/// decided on, and `write` puts its bytes on the wire (they can be split by a
+/// sequence: [`write_cell`], [`write_row_text`]); `more` is whether anything
+/// else is written on the row after it, a cell or an erase.
 ///
 /// Upstream's frame writer, cell by cell (`src/core/terminal/engine.zig:
 /// 2548-2589@481104fd`), and the **one** spelling of it: [`Grid::diff_from`]
@@ -237,6 +239,7 @@ fn put_unit(
     width: usize,
     cols: usize,
     more: bool,
+    write: impl FnOnce(&mut Vec<u8>),
 ) {
     let mut scalars = grapheme.chars();
     scalars.next();
@@ -249,7 +252,7 @@ fn put_unit(
     if disputed && width == 2 {
         out.extend_from_slice(CLEAR_TWO.as_bytes());
     }
-    out.extend_from_slice(grapheme.as_bytes());
+    write(out);
     if guarded {
         out.extend_from_slice(AUTOWRAP_OFF.as_bytes());
     }
@@ -260,19 +263,55 @@ fn put_unit(
     }
 }
 
-/// One thing [`write_row_text`] finds in a row, in the order it writes them.
+/// Writes a grid cell's grapheme, `width` cells wide, so a terminal reads it
+/// back as that one cell; `pen` is the attributes open as it is written (the
+/// cell's own, [`reopen`]).
+///
+/// **Together when it reads back so**, which is nearly always. The one cell it
+/// does not is a one-cell glyph that [`Grid::place_row`] joined a cluster to
+/// across a sequence -- `☀` (one cell), a colour, U+FE0F: the grid keeps the
+/// glyph's one cell, and the pair written together is one cluster two cells
+/// wide (`super::wrap::width`), which a terminal draws, and `super::check`
+/// reads, as two. So that cell is written split as its row was: the longest
+/// part of it that is still its width, the pen again (a reset with nothing
+/// on, the attributes otherwise -- a sequence that changes nothing), and the
+/// rest, which a terminal joins to the cell in front of it as the grid did.
+fn write_cell(out: &mut Vec<u8>, grapheme: &str, width: usize, pen: &str) {
+    if usize::from(super::wrap::width(grapheme)) == width {
+        out.extend_from_slice(grapheme.as_bytes());
+        return;
+    }
+    let split = grapheme
+        .char_indices()
+        .map(|(at, _)| at)
+        .skip(1)
+        .filter(|&at| usize::from(super::wrap::width(&grapheme[..at])) == width)
+        .last();
+    let Some(at) = split else {
+        out.extend_from_slice(grapheme.as_bytes());
+        return;
+    };
+    out.extend_from_slice(&grapheme.as_bytes()[..at]);
+    out.extend_from_slice(if pen.is_empty() { RESET } else { pen }.as_bytes());
+    out.extend_from_slice(&grapheme.as_bytes()[at..]);
+}
+
+/// One thing [`write_row_text`] finds in a row, in the order the row has it.
 enum Piece<'a> {
-    /// A sequence the row keeps (a colour, a link), written where it stands.
-    Escape(&'a str),
-    /// A cluster that takes no cell and has no unit in front of it to join,
-    /// written where it stands: [`tokenize_row`] gives it no cell either.
-    Alone(&'a str),
-    /// A unit and the zero-width clusters that join it, as [`Grid::place_row`]
-    /// puts them in one cell.
+    /// A sequence the row keeps (a colour, a link), or a cluster that takes no
+    /// cell: written where it stands.
+    Raw(&'a str),
+    /// A cluster that takes cells, as the row has it. `grapheme` is the cell
+    /// [`Grid::place_row`] makes of it -- with the clusters that take no cell
+    /// it joins to it, which it does only for a one-cell unit -- and `end` the
+    /// index of the last piece it joined, so the unit's bytes are this piece
+    /// through that one, the sequences between them included.
     Unit {
+        cluster: &'a str,
         grapheme: Cow<'a, str>,
         column: usize,
         width: usize,
+        end: usize,
     },
 }
 
@@ -291,12 +330,17 @@ enum Piece<'a> {
 /// (`.prd/tui-phase5/receipts/engine-vs-anchor`). A document row is not a
 /// frame's and is written as it stands (`super::frame`'s `place`).
 ///
-/// Cut into units by [`tokenize_row`]'s steps, so a unit is the cell a grid
-/// holds. A zero-width cluster the row put after a sequence -- a colour opened
-/// between a glyph and its selector -- is written **with its unit**, ahead of
-/// the sequence: that is the cell the grid holds and the diff writes, and a
-/// terminal joins it to the cell in front of it either way. A row of ASCII
-/// alone has no unit with a suffix, and is written as it stands.
+/// **The row's bytes are written in the row's order**, and only the clear, the
+/// anchor and the bracket are added around a unit. The rule is decided on the
+/// cell [`tokenize_row`] and [`Grid::place_row`] make of the unit: a cluster
+/// that takes no cell, after a sequence, is that cell's when the unit is one
+/// cell wide (`☀`, a colour, U+FE0F is a selector glyph, anchored after the
+/// selector) and no cell's when it is two (`한`, a colour, U+0301: the grid
+/// keeps `한`). Moving such a cluster ahead of its sequence would make the
+/// two one cluster on the wire, which `super::check` reads as one -- `한́`,
+/// or `☀️` two cells wide -- where the grid holds another, and refuses
+/// (review round 1). A row of ASCII alone has no unit with a suffix, and is
+/// written as it stands.
 pub(crate) fn write_row_text(out: &mut Vec<u8>, text: &str, cols: u16) {
     if text.is_ascii() {
         out.extend_from_slice(text.as_bytes());
@@ -308,7 +352,7 @@ pub(crate) fn write_row_text(out: &mut Vec<u8>, text: &str, cols: u16) {
     let mut rest = text;
     while !rest.is_empty() {
         if let Some(len) = super::pacer::escape_at(rest) {
-            pieces.push(Piece::Escape(&rest[..len]));
+            pieces.push(Piece::Raw(&rest[..len]));
             rest = &rest[len..];
             continue;
         }
@@ -318,31 +362,59 @@ pub(crate) fn write_row_text(out: &mut Vec<u8>, text: &str, cols: u16) {
         rest = &rest[cluster.len()..];
         let width = usize::from(super::wrap::width(cluster));
         if width == 0 {
-            match last_unit.and_then(|at| pieces.get_mut(at)) {
-                Some(Piece::Unit { grapheme, .. }) => grapheme.to_mut().push_str(cluster),
-                _ => pieces.push(Piece::Alone(cluster)),
+            let at = pieces.len();
+            pieces.push(Piece::Raw(cluster));
+            // `place_row` joins it to the cell in front of the next free
+            // column: the unit's own when it is one cell wide, its
+            // continuation -- which takes nothing -- when it is two.
+            if let Some(Piece::Unit {
+                grapheme,
+                width: 1,
+                end,
+                ..
+            }) = last_unit.and_then(|unit| pieces.get_mut(unit))
+            {
+                grapheme.to_mut().push_str(cluster);
+                *end = at;
             }
             continue;
         }
         last_unit = Some(pieces.len());
         pieces.push(Piece::Unit {
+            cluster,
             grapheme: Cow::Borrowed(cluster),
             column,
             width,
+            end: pieces.len(),
         });
         column += width;
     }
     let cols = usize::from(cols);
-    for (at, piece) in pieces.iter().enumerate() {
+    let mut at = 0usize;
+    while let Some(piece) = pieces.get(at) {
         match piece {
-            Piece::Escape(bytes) | Piece::Alone(bytes) => out.extend_from_slice(bytes.as_bytes()),
+            Piece::Raw(bytes) => {
+                out.extend_from_slice(bytes.as_bytes());
+                at += 1;
+            }
             Piece::Unit {
                 grapheme,
                 column,
                 width,
+                end,
+                ..
             } => {
                 let more = last_unit.is_some_and(|last| at < last);
-                put_unit(out, grapheme, *column, *width, cols, more);
+                // The unit's own cluster and what it joined, as the row has
+                // them: nothing in between takes a cell.
+                let span = &pieces[at..=*end];
+                put_unit(out, grapheme, *column, *width, cols, more, |out| {
+                    for piece in span {
+                        let (Piece::Raw(bytes) | Piece::Unit { cluster: bytes, .. }) = piece;
+                        out.extend_from_slice(bytes.as_bytes());
+                    }
+                });
+                at = end + 1;
             }
         }
     }
@@ -865,7 +937,10 @@ impl Grid {
                         reopen(out, &mut open, &sgr.attributes(), sgr.link());
                         let width = usize::from(*width);
                         let more = index + width < stop || erases;
-                        put_unit(out, grapheme, index, width, margin, more);
+                        let pen = &open.attributes;
+                        put_unit(out, grapheme, index, width, margin, more, |out| {
+                            write_cell(out, grapheme, width, pen);
+                        });
                     }
                 }
             }
@@ -1969,5 +2044,69 @@ mod tests {
             let text = diffed(&before, &painted(10, &row));
             assert!(!text.contains("\u{1b}[?7"), "{row:?}: {text:?}");
         }
+    }
+
+    #[test]
+    fn a_one_cell_glyph_and_a_selector_a_colour_split_off_are_written_split() {
+        // `place_row` joins the selector onto the one-cell glyph and keeps its
+        // one cell; the pair written together reads as one cluster two cells
+        // wide. So the diff writes the glyph, the pen as it is (a reset with
+        // nothing on, the attributes otherwise), the selector, then the
+        // anchor -- a selector glyph.
+        let before = painted(10, "");
+        let after = painted(10, "\u{2600}\u{1b}[1m\u{fe0f} x");
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1H\u{2600}{RESET}\u{fe0f}\u{1b}[2G\u{1b}[1m x{RESET}")
+        );
+        // Under a colour: the colour again, which changes nothing; and the
+        // longest part that is still one cell, the rest after it.
+        let after = painted(
+            10,
+            &format!("{COLOUR}\u{2600}\u{1b}[1m\u{fe0f}\u{301}{RESET} x"),
+        );
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1H{COLOUR}\u{2600}{COLOUR}\u{fe0f}\u{301}\u{1b}[2G{RESET} x")
+        );
+        // A mark between the two keeps the pair one cell written together
+        // (`super::wrap::width`), so it is written together.
+        let after = painted(
+            10,
+            &format!("{COLOUR}\u{2600}\u{1b}[1m\u{301}\u{fe0f}{RESET} x"),
+        );
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1H{COLOUR}\u{2600}\u{301}\u{fe0f}\u{1b}[2G{RESET} x")
+        );
+        // Written together already, as one cluster: written together.
+        let after = painted(10, &format!("{SUN_EMOJI} x"));
+        assert!(diffed(&before, &after).contains(SUN_EMOJI));
+    }
+
+    #[test]
+    fn a_row_written_whole_keeps_a_split_cluster_behind_its_colour() {
+        let mut out = Vec::new();
+        write_row_text(
+            &mut out,
+            "\u{d55c}\u{1b}[39m\u{301}\u{2600}\u{1b}[1m\u{fe0f}x",
+            80,
+        );
+        assert_eq!(
+            String::from_utf8(out).expect("utf-8"),
+            "\u{d55c}\u{1b}[39m\u{301}\u{2600}\u{1b}[1m\u{fe0f}\u{1b}[4Gx"
+        );
+        // A selector a colour split off a two-cell glyph is no cell's
+        // (`place_row` drops it), so the glyph is no selector glyph: no clear
+        // and no anchor, as the diff writes none for the `⚡` the grid holds.
+        let row = "\u{26a1}\u{1b}[1m\u{fe0e}x";
+        let mut out = Vec::new();
+        write_row_text(&mut out, row, 80);
+        assert_eq!(String::from_utf8(out).expect("utf-8"), row);
+        let text = diffed(&painted(10, ""), &painted(10, row));
+        assert!(
+            !text.contains("\u{1b}[2X") && !text.contains('G'),
+            "{text:?}"
+        );
     }
 }

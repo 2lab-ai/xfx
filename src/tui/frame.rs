@@ -8222,4 +8222,55 @@ mod tests {
             "{text:?}"
         );
     }
+
+    /// A cluster a colour split off the glyph in front of it: `한` and a
+    /// U+0301 (the glyph two cells wide, so the grid drops the mark,
+    /// `super::super::grid`'s `place_row`), and `☀` and a U+FE0F (one cell,
+    /// so the grid joins the selector at one cell -- where the pair written
+    /// together is two, `wrap::width`).
+    const SPLIT_WIDE: &str = "\u{d55c}\u{1b}[39m\u{301} x";
+    const SPLIT_NARROW: &str = "\u{2600}\u{1b}[1m\u{fe0f}\u{1b}[22m x";
+
+    #[test]
+    fn a_cluster_a_colour_split_off_its_glyph_is_written_where_it_stands_on_a_surface() {
+        // The review's must-fix (round 1): moving the cluster ahead of the
+        // colour makes the bytes one cluster, which the check measures again
+        // and refuses -- the Ctrl-O screen, the approval and the question
+        // painter alike, until the frame budget ends the session.
+        let (mut band, geometry) = painted_primary();
+        let mut rows = screen_rows(geometry.rows);
+        rows[3] = SPLIT_WIDE.to_string();
+        rows[4] = SPLIT_NARROW.to_string();
+        let frame = band
+            .enter_alternate(&rows, &geometry, (7, 0))
+            .expect("a vector the check accepted");
+        let text = String::from_utf8(frame.bytes().to_vec()).expect("utf-8");
+        assert!(
+            text.contains("\u{1b}[4;1H\u{d55c}\u{1b}[39m\u{301} x"),
+            "{text:?}"
+        );
+        // The selector stays behind its colour; the grid's one-cell `☀`
+        // with it is a selector glyph, so the anchor follows the selector.
+        assert!(
+            text.contains("\u{1b}[5;1H\u{2600}\u{1b}[1m\u{fe0f}\u{1b}[2G\u{1b}[22m x"),
+            "{text:?}"
+        );
+    }
+
+    #[test]
+    fn a_selector_a_colour_split_off_a_one_cell_glyph_is_written_split_by_the_band_diff() {
+        // The grid joins the selector to the one-cell glyph and keeps the
+        // glyph's one cell; written together, the two are one cluster two
+        // cells wide, which the check refuses (the review's should-fix 3,
+        // on the base as well). The diff writes them split, as the row did.
+        let geometry = geometry();
+        let mut rows = band_rows();
+        rows[2] = SPLIT_NARROW.to_string();
+        let mut band = Band::new();
+        let mut out = Vec::new();
+        band.commit(&mut out, &rows, &geometry, (23, 2))
+            .expect("a frame the check accepted");
+        let text = String::from_utf8(out).expect("utf-8");
+        assert!(text.contains("\u{2600}\u{1b}[0m\u{fe0f}"), "{text:?}");
+    }
 }

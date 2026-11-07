@@ -689,23 +689,46 @@ pub(crate) struct TerminalModel {
 /// What a `?7h` found, and what has been written since it, for the `?7l` that
 /// may close it as the painter's bracket.
 ///
-/// The painter writes autowrap on for exactly one unit -- a wide one with a
-/// suffix that ends at the right margin -- and off again
-/// (`guard_margin_suffix`, `engine.zig:2565-2580@481104fd`): `?7h`, an optional
-/// `ECH`, the unit, `?7l`. That shape and no other gives the mode back as the
-/// `?7h` found it (when that was off or unsaid: a bracket ends with autowrap
-/// off), so a frame, which declares no mode, may carry it. Anything else inside
-/// -- a second unit, a unit short of the margin, any other sequence, a
-/// linefeed -- and the two are what they say alone: a frame that turned
-/// autowrap on and off, which is refused as a mode it did not declare.
+/// The painter writes autowrap on for exactly one unit -- a two-cell one with
+/// a suffix that ends at the right margin -- and off again
+/// (`super::grid`'s `put_unit`; `guard_margin_suffix`,
+/// `engine.zig:2565-2580@481104fd`): `?7h`, `ECH 2` exactly when the unit's
+/// suffix holds a variation selector, the unit, `?7l`. That shape and no other
+/// gives the mode back as the `?7h` found it (when that was off or unsaid: a
+/// bracket ends with autowrap off), so a frame, which declares no mode, may
+/// carry it. Anything else -- a unit one cell wide, or with no suffix, short
+/// of the margin, a second unit, a clear of another count, two clears, a
+/// selector unit with no clear or a clear before a unit with no selector, any
+/// other sequence, a linefeed -- and the two are what they say alone: a frame
+/// that turned autowrap on and off, which is refused as a mode it did not
+/// declare.
 #[derive(Debug, Clone, Copy)]
 struct Bracket {
     /// The mode before the `?7h`.
     before: Option<bool>,
     /// The units that take cells written since.
     units: u8,
-    /// Whether the last of them ended in the last column.
-    at_margin: bool,
+    /// Whether the last of them is the painter's unit -- two cells wide, with
+    /// a suffix, ending in the last column -- and whether its suffix holds a
+    /// variation selector.
+    margin_unit: bool,
+    selector: bool,
+    /// The `ECH`s in front of it, and the count of the last one.
+    clears: u8,
+    cleared: u16,
+}
+
+impl Bracket {
+    /// Whether what came after the `?7h` is the painter's bracket.
+    fn painters(&self) -> bool {
+        let clear = match (self.clears, self.cleared) {
+            (0, _) => false,
+            (1, 2) => true,
+            // Two clears, or one of another count.
+            _ => return false,
+        };
+        self.units == 1 && self.margin_unit && clear == self.selector && self.before != Some(true)
+    }
 }
 
 impl TerminalModel {
@@ -2246,8 +2269,12 @@ fn write_text(model: &mut TerminalModel, text: &str, at: usize) -> Result<(), Re
         model.record(Did::Place, row);
         let cols = model.screen_ref().cols;
         if let Some(bracket) = &mut model.bracket {
+            let mut scalars = cluster.chars();
+            scalars.next();
+            let suffix = scalars.as_str();
             bracket.units = bracket.units.saturating_add(1);
-            bracket.at_margin = column + width - 1 == cols;
+            bracket.margin_unit = width == 2 && !suffix.is_empty() && column + width - 1 == cols;
+            bracket.selector = suffix.contains(['\u{fe0e}', '\u{fe0f}']);
         }
         model.caret = Caret::Known((row, column + width));
     }
@@ -2389,6 +2416,10 @@ fn control_sequence(model: &mut TerminalModel, bytes: &[u8], at: usize) -> Resul
             }
             model.screen().erase_span(row, column, count);
             model.record(Did::Erase, row);
+            if let Some(bracket) = &mut model.bracket {
+                bracket.clears = bracket.clears.saturating_add(1);
+                bracket.cleared = count;
+            }
         }
         (b' ', b'J' | b'K') if model.link.is_some() => {
             return Err(Reject::new("an erase under an open hyperlink", at));
@@ -2571,19 +2602,18 @@ fn private_mode(
             model.bracket = Some(Bracket {
                 before: model.modes.autowrap,
                 units: 0,
-                at_margin: false,
+                margin_unit: false,
+                selector: false,
+                clears: 0,
+                cleared: 0,
             });
             model.modes.autowrap = Some(true);
         }
         "7" => {
             model.modes.autowrap = match model.bracket.take() {
-                // The painter's bracket around one unit at the margin gives the
-                // mode back as it found it.
-                Some(Bracket {
-                    before,
-                    units: 1,
-                    at_margin: true,
-                }) if before != Some(true) => before,
+                // The painter's bracket around its one unit at the margin gives
+                // the mode back as it found it.
+                Some(bracket) if bracket.painters() => bracket.before,
                 _ => Some(false),
             };
         }
@@ -4818,5 +4848,79 @@ mod tests {
             .collect();
         assert_eq!(row, [true, true, true, true, true, false], "{row:?}");
         assert!(matches!(model.caret, Caret::Known((10, 2))));
+    }
+
+    #[test]
+    fn an_autowrap_bracket_is_only_the_painters_own_shape() {
+        // `super::grid`'s `put_unit` brackets a two-cell unit with a suffix
+        // that ends at the margin, with `ECH 2` in front of it exactly when its
+        // suffix holds a selector. Any other shape is a mode change.
+        let lead = "x".repeat(78);
+        let narrow = "x".repeat(79);
+        for (row, bytes) in [
+            // One cell wide.
+            (
+                format!("{narrow}y"),
+                format!("\x1b[10;1H{narrow}\x1b[?7hy\x1b[?7l"),
+            ),
+            // Two cells, no suffix.
+            (
+                format!("{lead}\u{d55c}"),
+                format!("\x1b[10;1H{lead}\x1b[?7h\u{d55c}\x1b[?7l"),
+            ),
+            // A selector glyph with the wrong clear, two clears, or none.
+            (
+                format!("{lead}{BOLT}"),
+                format!("\x1b[10;1H{lead}\x1b[?7h\x1b[1X{BOLT}\x1b[?7l"),
+            ),
+            (
+                format!("{lead}{BOLT}"),
+                format!("\x1b[10;1H{lead}\x1b[?7h\x1b[2X\x1b[2X{BOLT}\x1b[?7l"),
+            ),
+            (
+                format!("{lead}{BOLT}"),
+                format!("\x1b[10;1H{lead}\x1b[?7h{BOLT}\x1b[?7l"),
+            ),
+            // A clear in front of a unit with no selector.
+            (
+                format!("{lead}{FAMILY}"),
+                format!("\x1b[10;1H{lead}\x1b[?7h\x1b[2X{FAMILY}\x1b[?7l"),
+            ),
+        ] {
+            let after = painted(10, &row);
+            let reject = checked(&after, &bytes).expect_err("not the painter's bracket");
+            assert_eq!(
+                reject.shape(),
+                "a terminal mode this vector did not declare",
+                "{bytes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_cluster_split_off_its_glyph_by_a_colour_is_accepted_from_the_diff_and_a_whole_row() {
+        // The three readers agree: `place_row` (the declaration), the bytes
+        // the grid diff and a row written whole put on the wire, and this
+        // decoder. A wide glyph's split-off mark is no cell's; a one-cell
+        // glyph's selector or mark is the glyph's, at one cell.
+        for row in [
+            "\u{d55c}\u{1b}[39m\u{301} x",
+            "\u{2600}\u{1b}[1m\u{fe0f}\u{1b}[22m x",
+            "\u{1b}[38;5;250m\u{2600}\u{1b}[1m\u{fe0f}\u{301}\u{1b}[0m x",
+            "\u{1b}[38;5;250m\u{2600}\u{1b}[1m\u{301}\u{fe0f}\u{1b}[0m x",
+        ] {
+            let after = painted(10, row);
+            preflight(
+                &seed(&Grid::blank(24, 80), None),
+                &framed(&after),
+                &declared_frame(&after),
+            )
+            .unwrap_or_else(|reject| panic!("the diff's frame of {row:?}: {reject}"));
+            let mut whole = b"\x1b[10;1H".to_vec();
+            super::super::grid::write_row_text(&mut whole, row, 80);
+            whole.extend_from_slice(RESET.as_bytes());
+            checked(&after, std::str::from_utf8(&whole).expect("utf-8"))
+                .unwrap_or_else(|reject| panic!("{row:?} written whole: {reject}"));
+        }
     }
 }
