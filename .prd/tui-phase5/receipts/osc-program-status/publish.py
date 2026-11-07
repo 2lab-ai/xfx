@@ -2,9 +2,10 @@
 receipt) and red's (the base's), after checking each xfx wire names the build
 it must and no wire holds a local path.
 
-usage: python3 -I -B publish.py <repo> <cap-dir> <receipt-dir> <green-sha7> <red-sha7>
+usage: python3 -I -B publish.py <repo> <cap-dir> <receipt-dir> <green-sha7> <red-sha7> <prev-sha7>
 
-<cap-dir> holds `fx/`, `xfx/` and `red/`, each with one
+<cap-dir> holds `fx/`, `xfx/` and `red/` -- and `prev/`, the first build's
+`picker` capture, the one scenario that build failed -- each with one
 `<scenario>-40x120/` per scenario as `capture.sh` wrote it. Only `.wire`
 files are copied: no gateway log, no request body, no run log. A wire is
 bytes, not text: copied as it is, and refused if a local root appears in it.
@@ -16,12 +17,12 @@ import shutil
 import sys
 
 repo, cap, out = (os.path.realpath(p) for p in sys.argv[1:4])
-green_sha, red_sha = sys.argv[4:6]
+green_sha, red_sha, prev_sha = sys.argv[4:7]
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(repo, "scripts", "fxcap"))
 from redact import LEFTOVER  # noqa: E402
 
-SIDES = {"fx": ("fx", None), "xfx": ("xfx", green_sha), "red": ("xfx", red_sha)}
+SIDES = {"fx": ("fx", None), "xfx": ("xfx", green_sha), "red": ("xfx", red_sha), "prev": ("xfx", prev_sha)}
 BANNER = re.compile(rb"v0\.1\.0-([0-9a-f]{7})")
 n = 0
 for side, (prefix, sha) in SIDES.items():

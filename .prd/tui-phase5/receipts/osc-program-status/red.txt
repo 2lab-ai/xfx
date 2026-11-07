@@ -13,6 +13,10 @@ DIFF p5-lifecycle-osc-hup-40x120        u01-hung-up            fx  4  red  0  (n
 DIFF p5-lifecycle-osc-interrupt-40x120  i00-working            fx  2  red  0  (none)
 DIFF p5-lifecycle-osc-interrupt-40x120  i01-after-esc          fx  3  red  0  (none)
 DIFF p5-lifecycle-osc-interrupt-40x120  i02-exit               fx  4  red  0  (none)
+DIFF p5-lifecycle-osc-picker-40x120     p00-done               fx  3  red  0  (none)
+DIFF p5-lifecycle-osc-picker-40x120     p01-picker             fx  3  red  0  (none)
+DIFF p5-lifecycle-osc-picker-40x120     p02-closed             fx  3  red  0  (none)
+DIFF p5-lifecycle-osc-picker-40x120     p03-exit               fx  4  red  0  (none)
 DIFF p5-lifecycle-osc-retry-40x120      r00-retrying           fx  2  red  0  (none)
 DIFF p5-lifecycle-osc-states-40x120     w00-start              fx  1  red  0  (none)
 DIFF p5-lifecycle-osc-states-40x120     w01-working            fx  2  red  0  (none)
@@ -51,6 +55,10 @@ FAIL same p5-lifecycle-osc-interrupt-40x120 i00-working: fx ['state=idle:app=<pr
 FAIL same p5-lifecycle-osc-interrupt-40x120 i01-after-esc: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=idle:app=<program>'] / red []
 FAIL last red p5-lifecycle-osc-interrupt-40x120 i02-exit: the session ended with no clear
 FAIL same p5-lifecycle-osc-interrupt-40x120 i02-exit: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=idle:app=<program>', 'state=clear'] / red []
+FAIL same p5-lifecycle-osc-picker-40x120 p00-done: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-picker-40x120 p01-picker: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-picker-40x120 p02-closed: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-picker-40x120 p03-exit: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=clear'] / red []
 FAIL same p5-lifecycle-osc-retry-40x120 r00-retrying: fx ['state=idle:app=<program>', 'state=working:app=<program>'] / red []
 FAIL same p5-lifecycle-osc-states-40x120 w00-start: fx ['state=idle:app=<program>'] / red []
 FAIL same p5-lifecycle-osc-states-40x120 w01-working: fx ['state=idle:app=<program>', 'state=working:app=<program>'] / red []
@@ -70,4 +78,4 @@ FAIL same p5-lifecycle-osc-suspend-40x120 s03-next-turn: fx ['state=idle:app=<pr
 FAIL same p5-lifecycle-osc-term-40x120 t00-done: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / red []
 FAIL last red p5-lifecycle-osc-term-40x120 t01-terminated: the session ended with no clear
 FAIL same p5-lifecycle-osc-term-40x120 t01-terminated: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=clear'] / red []
-32 wire pairs, 39 failing claims
+36 wire pairs, 43 failing claims

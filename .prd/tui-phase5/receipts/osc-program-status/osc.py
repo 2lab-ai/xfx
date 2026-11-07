@@ -1,9 +1,10 @@
 """L-U1+U2's receipt checker: the OSC 7501 program status on the wire, fx
 v0.0.16 against xfx, report by report.
 
-usage: python3 -I -B osc.py <receipt-dir> <side> <sha7>
+usage: python3 -I -B osc.py <receipt-dir> <side> <sha7> [<scenario>]
 
-<side> is `xfx` (the build under the receipt) or `red` (the base's). Reads
+<side> is `xfx` (the build under the receipt), `red` (the base's) or `prev`
+(the unit's first build, `picker` only); a <scenario> limits the run to it. Reads
 `fx/<scenario>-40x120/fx-<scenario>-40x120-<label>.wire` and the same under
 <side>/ with the `xfx-` prefix. Every report is `ESC ] 7501 ; <body> ESC \\`;
 this file's own parser reads them -- it shares nothing with the code under
@@ -136,7 +137,8 @@ def side_wires(receipt, side):
 
 def main():
     receipt, side, sha = sys.argv[1], sys.argv[2], sys.argv[3]
-    fx = side_wires(receipt, "fx")
+    only = sys.argv[4] + "-40x120" if len(sys.argv) > 4 else None
+    fx = {k: v for k, v in side_wires(receipt, "fx").items() if only in (None, k[0])}
     xfx = side_wires(receipt, side)
     failures = []
     banners = set()
