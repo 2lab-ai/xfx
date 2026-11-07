@@ -146,11 +146,10 @@ use crate::workspace::access::{self as workspace_access, WorkspaceAccess};
 
 /// Upstream's line for a cancelled turn, in this product's name and in
 /// `palette`: [`CANCELLED_MARK`] in the warning grey, `Cancelled` in the hint
-/// grey, and the question after it in the terminal's own colour
-/// (`lifecycleTerminalLine`, `transcript/runtime.zig:633-680`;
-/// `receipts/cancel-marker/fx/fx-p5-transcript-cancel-40x120-esc.ansi`, fx
-/// v0.0.16: `ESC[38;5;252m▪ESC[39m ESC[38;5;255mCancelledESC[39m · What can
-/// fx do differently?`).
+/// grey, the question after it in the terminal's own colour
+/// (`lifecycleTerminalLine`, `transcript/runtime.zig:633-680`; fx v0.0.16's
+/// `receipts/cancel-marker/fx/fx-p5-transcript-cancel-40x120-esc.ansi`:
+/// `ESC[38;5;252m▪ESC[39m ESC[38;5;255mCancelledESC[39m · What can fx …`).
 pub(crate) fn cancelled_line(palette: Palette) -> String {
     format!(
         "{}{CANCELLED_MARK}{} {}Cancelled{}{CANCELLED_FOLLOW_UP}",
@@ -21818,9 +21817,8 @@ mod tests {
 
     #[test]
     fn the_cancelled_line_is_upstreams_marker_word_and_question_in_upstreams_greys() {
-        // `receipts/cancel-marker/fx/fx-p5-transcript-cancel-40x120-esc.ansi`
-        // (fx v0.0.16): `ESC[38;5;252m▪ESC[39m ESC[38;5;255mCancelledESC[39m
-        // · What can fx do differently?` -- the
+        // fx v0.0.16's `p5-transcript-cancel` `esc` (receipts/cancel-marker):
+        // `ESC[38;5;252m▪ESC[39m ESC[38;5;255mCancelledESC[39m · …` -- the
         // marker in the warning grey, the word in the hint grey, the question
         // in the terminal's own colour. tmux re-serializes resets as `39`;
         // this crate writes `0`, the same pen.

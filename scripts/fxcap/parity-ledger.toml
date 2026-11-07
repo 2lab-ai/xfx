@@ -374,7 +374,7 @@ reason = "fx v0.0.16 spells a command's own row -- the transcript's tool row and
 owner = "CALLROW-SAFE"
 resolution = "fx spells every call's own row and names U+061C in a later pin, or the user takes fx's raw rows"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:750"]
+source = ["docs/parity.md:238", "src/tui/toolgroup.rs:769"]
 
 [[divergence]]
 id = "call-row-source-cut"
@@ -388,7 +388,7 @@ reason = "fx v0.0.16 reads a command's first 14 400 bytes to make its row and sa
 owner = "CALLROW-SAFE"
 resolution = "fx marks a command it read only in part in a later pin, or the user takes fx's unmarked row"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:798"]
+source = ["docs/parity.md:238", "src/tui/toolgroup.rs:817"]
 
 [[divergence]]
 id = "call-row-arabic-letter-mark"
@@ -402,7 +402,7 @@ reason = "CALLROW-SAFE's decision (`call-row-raw-argument`) in the one scenario 
 owner = "CALLROW-SAFE"
 resolution = "fx names U+061C on a command's row in a later pin, or the user takes fx's raw mark, as `call-row-raw-argument` resolves"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:912"]
+source = ["docs/parity.md:238", "src/tui/toolgroup.rs:931"]
 
 [[divergence]]
 id = "status-notice-h1"
@@ -485,10 +485,6 @@ source = ["src/tui/wrap.rs:622"]
 
 # (b) units in flight, the specific rows first.
 
-# Before truecolor-grey-notation: a truecolor stopped call's own line
-# (`^[▪■] Cancelled `) is a row of both, and the first cause that covers a
-# row is that row's -- so the row stays T-U4's while the marker differs, and
-# is TC-NOTATION's once T-U4 has changed it (T-U3-TCd).
 [[cause]]
 id = "ctrl-o-drawn-wider-raw"
 kind = "defect"
@@ -531,18 +527,6 @@ whole_snap = true
 xfx = ["src/tools/mutate.rs:437-442", "src/tools/read.rs:1162"]
 fx = ["src/tools/filesystem/edit_file.zig:1-275@c1db9191"]
 why = "fx v0.0.16 edits a file that is not UTF-8 and shows its stray bytes as `\\xNN` in the diff (9db199e4, `dupeValidUtf8`, `text_utils.zig:444-460@481104fd`); xfx refuses it (`edit_file cannot edit <path>: it is not UTF-8 text`), and its read before, `binary or non-utf8 file omitted`, is no read in full, so the read proof refuses first: `└ Failed bad.txt: edit_file will not replace ...` against fx's `└ Edited bad.txt +1 / -1`, a failed call's argument rows on Ctrl-O against fx's diff, and the rows under them shifted. T-U6 recorded it (docs/parity.md:158; .prd/tui-phase5/receipts/transcript-receipts/README.md, `refused`) with no ledger entry; named at train 2 so its sweep attributes every row, as subagent-tool names a deferred tool's."
-
-[[cause]]
-id = "cancelled-marker"
-kind = "unit"
-owner = "T-U4 cancelled marker"
-scenarios = ["*"]
-snaps = ["*"]
-fx_row = '^▪ Cancelled '
-xfx_row = '^■ Cancelled '
-xfx = ["src/tui/toolgroup.rs:711"]
-fx = ["src/ui/transcript/runtime.zig:618@481104fd"]
-why = "v0.0.16 marks a cancelled tool call `▪` where c1db919 and xfx mark it `■`; T-U4 owns the marker everywhere (.prd/tui-phase5/ssot.md, Wave 1)."
 
 [[cause]]
 id = "truecolor-grey-notation"
@@ -779,7 +763,7 @@ owner = "unowned (follows tool-schema)"
 scenarios = ["p5-call-row-safe"]
 snaps = ["full"]
 rows = ["1-3"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/toolgroup.rs:750"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/toolgroup.rs:769"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191"]
 why = "`transcript-page-offset` for `p5-call-row-safe`'s tail page: fx's command entry has two argument rows xfx's has not (`tool-schema`), and xfx's spelled rows (`call-row-raw-argument`) take one more row than fx's at 40x120 and fewer at 40x60, so the page starts a row or three apart and the rows at its top (the `* network:` record's last line, the prompt's header and card, the blank between) are on one side only. Every other row of the page is compared."
 
@@ -938,16 +922,6 @@ fx_row = '^auto · model-a · fix the renderer loop, it redraw'
 xfx_row = '^auto · model-a · Fix the renderer loop$'
 fix = "the fake gateway keeps an unused connection open for fx's 30 s pool TTL (fakegw.ts idleTimeout), not a scenario file"
 why = "fx's title call goes out on the connection it warmed at launch, which the fake reset after 10 s idle, so fx keeps the derived title (receipts/w9/README.md:81-131): a property of the capture harness."
-
-[[cause]]
-id = "U7-cancelled-glyph"
-kind = "unit"
-owner = "U7 cancelled glyph (input cluster I10, transcript T6), not yet a branch"
-scenarios = ["p5-mcp-live"]
-snaps = ["cancel", "end", "failed"]
-fx_row = '^▪ Cancelled '
-xfx_row = '^■ Cancelled '
-why = "fx v0.0.16 marks a cancelled call `▪` (U+25AA, c29d5bfc); xfx still writes `■` (U+25A0). The glyph's cell only: read as `■`, `cancel` and `end` are the same (.prd/tui-phase5/receipts/mcp-toolgroup/README.md)."
 
 [[cause]]
 id = "U5-transcript-local-time"

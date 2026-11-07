@@ -2305,7 +2305,7 @@ mod tests {
         // a count of 1 takes the label as written; any other takes
         // `commands`, `subagents` or `MCP calls`, and every other label stays
         // as it is (`2 read`, `3 edit`). The labels are upstream's
-        // `category_labels` (`:142-152`); `open`, `subagent` and `browser`
+        // `category_labels` (`:143-153`); `open`, `subagent` and `browser`
         // name tools xfx does not have, so only this table knows them.
         for label in [
             "read", "list", "write", "edit", "open", "command", "subagent", "browser", "MCP call",
