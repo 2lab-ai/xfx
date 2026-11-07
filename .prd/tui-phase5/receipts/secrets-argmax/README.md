@@ -7,7 +7,8 @@ tags: [xfx, phase5, ci, secrets-gate, receipt]
 # SECRETS-ARGMAX: the secrets check outgrew one command line
 
 Every number below is from a log in this folder; each is cited as
-`file: section`. Line numbers are at the code head, `f018d86d`, unless they
+`file: section`. A claim with no log here is marked *(not measured here)*
+with its source. Line numbers are at the code head, `f018d86d`, unless they
 name another commit.
 
 `scripts/check-no-secrets.sh` is the secrets gate of CI (`ci.yml`,
@@ -28,17 +29,18 @@ every tracked regular file as an operand, `./`-qualified by `scan`
 | room, before the environment | 30 545 |
 
 A unit branch with more captures (TG-REDRAW) failed that `exec` with
-"Argument list too long". The failure is closed: the check takes any status
-of 2 or more as a failure. But it fails every merge, and the pending units add
-hundreds of capture files.
+"Argument list too long", and the pending units add hundreds of capture
+files *(not measured here: the unit brief)*. The failure is closed: the
+check takes any status of 2 or more as a failure. But it fails every merge.
 
 ## The fix
 
 - **Batches** (round 1, `f244892f`):
   - `batch_bytes=65536` (`:202`) is the most bytes of names one `grep` gets.
-    Linux's limit is a quarter of the stack limit and never under 128 KiB, so
-    64 KiB leaves half of the smallest one to the environment and to `grep`'s
-    own arguments. It is a plain assignment, not read from the environment.
+    Linux's limit is a quarter of the stack limit and never under 128 KiB
+    *(not measured here: the kernel's `fs/exec.c`; the Linux log's ARG_MAX,
+    2 097 152, is 8 MiB / 4)*, so 64 KiB leaves half of the smallest one to the
+    environment and to `grep`'s own arguments. It is a plain assignment, not read from the environment.
   - `batch_bounds` (`:209-224`) prints one `start:count` per batch, in order.
     A name costs its bytes plus its NUL plus its pointer. It counts with
     `local LC_ALL=C`, so `${#name}` is bytes, not UTF-8 characters: `café` is
@@ -73,7 +75,8 @@ hundreds of capture files.
 
 Why not `xargs`: it maps every child status from 1 to 125 to 123, so "no
 match" (1) and "unreadable" (2) become the same exit. BSD's `-s` counts the
-environment and GNU's does not. It also stops at a 255. Slicing
+environment and GNU's does not. It also stops at a 255 *(not measured here:
+the BSD and GNU `xargs` manuals)*. Slicing
 `"${@:start:count}"` keeps each batch's own status, runs on bash 3.2, and
 needs no new tool.
 
@@ -134,7 +137,7 @@ root can read a mode-000 file.
 | where | the check on this repository (`f018d86d`, 12 067 names) | the base's check on it | the test |
 |---|---|---|---|
 | macOS: Darwin arm64, uid 501, `LANG=C.UTF-8`; bash 3.2.57, BSD grep 2.6.0-FreeBSD, ARG_MAX 1 048 576 | ok, 51 s | ok, 56 s | ok, 13 cases, 3 473 names, 167 s |
-| Linux: Docker `rust:1.99-bookworm`, aarch64, uid 1000, no network, `LANG=C.UTF-8`; bash 5.2.15, GNU grep 3.8, ARG_MAX 2 097 152 | ok, 3 s | ok, 1 s | ok, 13 cases, 6 959 names, 66 s |
+| Linux: Docker `rust:1.99-bookworm` (run as `docker run --rm --network none --user 1000:1000 -e LANG=C.UTF-8`; the log shows the uid and `LANG`), aarch64; bash 5.2.15, GNU grep 3.8, ARG_MAX 2 097 152 | ok, 3 s | ok, 1 s | ok, 13 cases, 6 959 names, 66 s |
 
 Sources: `platform-macos.txt` and `platform-linux.txt`, sections `platform`,
 `scripts/check-no-secrets.sh on this copy`, `the base's check ... on this
@@ -190,7 +193,7 @@ test` were not run.
 
 - `.github/workflows/ci.yml:125-131`: a step after `No credentials in tracked
   files` runs `./scripts/test-check-no-secrets.sh` on all four native rows.
-  GitHub-hosted runners are not root. `release.yml:78-79` and
+  The test fails, rather than passes, on a runner that is root. `release.yml:78-79` and
   `preview.yml:289-290` run the same `check-no-secrets.sh`, so they take the
   fix without a change.
 - The gate lists in `README.md` and `CONTRIBUTING.md`, and the scripts
