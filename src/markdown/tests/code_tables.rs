@@ -185,7 +185,7 @@ fn line_intake_buffers_partial_lines_and_preserves_standalone_carriage_returns()
     processor.push("run `zig", &mut out);
     assert_eq!(out.len(), 0);
     processor.push(" build` now\n", &mut out);
-    assert_eq!(text(&out), "run \x1b[38;5;245mzig build\x1b[39m now\n");
+    assert_eq!(text(&out), "run \x1b[38;5;255mzig build\x1b[39m now\n");
 
     out.clear();
     processor.push("left\rright\n", &mut out);
@@ -249,8 +249,8 @@ fn emphasis_pairs_by_the_delimiter_stack_and_unmatched_runs_stay_literal() {
             "\x1b[1mbold\x1b[22m then **open\n",
             "\x1b[9mgone\x1b[29m and ~~stays\n",
             "a ` b \x1b[1mbold\x1b[22m\n",
-            "\x1b[1mbold with \x1b[38;5;245mcode\x1b[39m inside\x1b[22m \x1b[3mit\x1b[23m\n",
-            "\x1b[3m\x1b[1mboth\x1b[22m\x1b[23m and \x1b[1m\x1b[38;5;245mcode\x1b[39m\x1b[22m\n",
+            "\x1b[1mbold with \x1b[38;5;255mcode\x1b[39m inside\x1b[22m \x1b[3mit\x1b[23m\n",
+            "\x1b[3m\x1b[1mboth\x1b[22m\x1b[23m and \x1b[1m\x1b[38;5;255mcode\x1b[39m\x1b[22m\n",
             "See \x1b[3mitalic\x1b[23m* plain\n",
             "text **** here \x1b[1mbold\x1b[22m and ~~~~ then \x1b[9mgone\x1b[29m and *** end\n",
             "\x1b[1ma \x1b[1mb\x1b[22m\x1b[1m c\x1b[22m and \x1b[3mx \x1b[3my\x1b[23m\x1b[3m z\x1b[23m\n",
@@ -271,16 +271,16 @@ fn emphasis_lookahead_agrees_with_links_code_spans_and_bare_urls() {
         &mut out,
     );
     let first = tu::nth_line(&out, 0).expect("first line");
-    assert!(first.ends_with(b" \x1b[1mbold\x1b[22m \x1b[38;5;245mcode\x1b[39m"));
+    assert!(first.ends_with(b" \x1b[1mbold\x1b[22m \x1b[38;5;255mcode\x1b[39m"));
     let second = tu::nth_line(&out, 1).expect("second line");
-    assert!(second.ends_with(b" *open \x1b[38;5;245mcode*\x1b[39m"));
+    assert!(second.ends_with(b" *open \x1b[38;5;255mcode*\x1b[39m"));
 
     // Emphasis around a multi backtick code span still pairs.
     out.clear();
     processor.push("See _a ``b`c`` d_ end\n", &mut out);
     assert_eq!(
         text(&out),
-        "See \x1b[3ma \x1b[38;5;245mb`c\x1b[39m d\x1b[23m end\n"
+        "See \x1b[3ma \x1b[38;5;255mb`c\x1b[39m d\x1b[23m end\n"
     );
 
     // URL punctuation is never read as markup, and a delimiter that ends a
@@ -288,13 +288,13 @@ fn emphasis_lookahead_agrees_with_links_code_spans_and_bare_urls() {
     out.clear();
     processor.push("https://example.com/`x*y` **bold** `code`\n", &mut out);
     assert!(contains(&out, ";https://example.com/`x*y`\x1b\\"));
-    assert!(text(&out).ends_with(" \x1b[1mbold\x1b[22m \x1b[38;5;245mcode\x1b[39m\n"));
+    assert!(text(&out).ends_with(" \x1b[1mbold\x1b[22m \x1b[38;5;255mcode\x1b[39m\n"));
     // A trailing delimiter is trimmed from the URL and closes the span.
     out.clear();
     processor.push("*see https://example.com/a* and `code`\n", &mut out);
     assert!(text(&out).starts_with("\x1b[3msee \x1b]8;id=fx-"));
     assert!(text(&out).ends_with(
-        ";https://example.com/a\x1b\\\x1b[38;5;75m\x1b[4mhttps://example.com/a\x1b[24m\x1b[39m\x1b]8;;\x1b\\\x1b[23m and \x1b[38;5;245mcode\x1b[39m\n"
+        ";https://example.com/a\x1b\\\x1b[38;5;75m\x1b[4mhttps://example.com/a\x1b[24m\x1b[39m\x1b]8;;\x1b\\\x1b[23m and \x1b[38;5;255mcode\x1b[39m\n"
     ));
     // Like a GFM autolink, a URL extends to the next whitespace regardless
     // of active styles, so interior punctuation belongs to the URL and the
@@ -306,7 +306,7 @@ fn emphasis_lookahead_agrees_with_links_code_spans_and_bare_urls() {
     );
     assert!(text(&out).starts_with("*\x1b]8;"));
     assert!(contains(&out, ";https://example.com/a*`some\x1b\\"));
-    assert!(text(&out).ends_with(" code\x1b[38;5;245m**bold**\x1b[39mx`\n"));
+    assert!(text(&out).ends_with(" code\x1b[38;5;255m**bold**\x1b[39mx`\n"));
     out.clear();
     processor.push("text **** https://example.com\n", &mut out);
     assert!(text(&out).starts_with("text **** \x1b]8;"));
@@ -396,7 +396,7 @@ fn header_with_inline_markdown() {
     processor.push("## Using `fx` in CI\n", &mut out);
     assert_eq!(
         text(&out),
-        "\x1b[1mUsing \x1b[38;5;245mfx\x1b[39m in CI\x1b[22m\n"
+        "\x1b[1mUsing \x1b[38;5;255mfx\x1b[39m in CI\x1b[22m\n"
     );
 }
 
@@ -406,7 +406,7 @@ fn inline_code_ignores_bold_markers_inside() {
     let mut out = Vec::new();
 
     processor.push("use `**literal**` here\n", &mut out);
-    assert_eq!(text(&out), "use \x1b[38;5;245m**literal**\x1b[39m here\n");
+    assert_eq!(text(&out), "use \x1b[38;5;255m**literal**\x1b[39m here\n");
 }
 
 #[test]
@@ -604,7 +604,7 @@ fn header_keeps_italic_and_code_inline() {
     processor.push("# *note* about `fx`\n", &mut out);
     assert_eq!(
         text(&out),
-        "\x1b[1m\x1b[4m\x1b[3mnote\x1b[23m about \x1b[38;5;245mfx\x1b[39m\x1b[24m\x1b[22m\n"
+        "\x1b[1m\x1b[4m\x1b[3mnote\x1b[23m about \x1b[38;5;255mfx\x1b[39m\x1b[24m\x1b[22m\n"
     );
 }
 

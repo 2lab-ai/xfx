@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-d314549 [debug] · Run /help for commands
+
+┃ show me the table
+
+  Run zig build first.
+
+  ┌───────┬─────────────────────────────┐
+  │ Step  │ Command                     │
+  ├───────┼─────────────────────────────┤
+  │ build │ zig build                   │
+  ├───────┼─────────────────────────────┤
+  │ test  │ zig build test and the docs │
+  └───────┴─────────────────────────────┘
+
+  Done with everything.
+
+  0s (↑5 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -12064,15 +12064,15 @@ impl Shell {
             markdown::Event::CodeBlock(block) => {
                 let theme = markdown::theme::builtin(self.palette.mode == Mode::Light);
                 let rows = blocks::code_block_row_bytes(&block, cols, &theme);
-                self.write_structure(&rows);
+                self.write_structure(&rows, DocumentRow::Code);
             }
             markdown::Event::Table(table) => {
                 let rows = blocks::table_row_bytes(&table, cols);
-                self.write_structure(&rows);
+                self.write_structure(&rows, DocumentRow::Table);
             }
             markdown::Event::ThematicRule => {
                 let rule = blocks::render_thematic_rule(cols);
-                self.write_structure(&rule);
+                self.write_structure(&rule, DocumentRow::Plain);
             }
         }
     }
@@ -12124,12 +12124,24 @@ impl Shell {
 
     /// A code panel, a table or a rule: rows already laid out at the screen's
     /// width, gutter included, and a blank row under them.
-    fn write_structure(&mut self, rows: &str) {
+    ///
+    /// The rows are recorded as `kind` ([`Transcript::queue_kind`]) and the
+    /// blank row under them as plain, in [`Self::write_block`]'s order: a code
+    /// panel's rows are the highlighter's greys, which a theme report repaints
+    /// by their own rule ([`DocumentRow::Code`]), and a table's are left as
+    /// they were drawn ([`DocumentRow::Table`]).
+    fn write_structure(&mut self, rows: &str, kind: DocumentRow) {
         self.close_prose();
         self.finish_document_line();
+        if kind != DocumentRow::Plain && self.transcript.queue_kind(kind) {
+            self.owed();
+        }
         for row in rows.trim_end_matches('\n').split('\n') {
             self.write_transcript_as(row, Role::Plain);
             self.end_transcript_line();
+        }
+        if kind != DocumentRow::Plain && self.transcript.queue_kind(DocumentRow::Plain) {
+            self.owed();
         }
         self.end_transcript_line();
     }
@@ -15154,9 +15166,10 @@ mod tests {
     /// Anything else a row carries is part of its text and is left where it
     /// is -- with two collisions to know about: a card's bold is closed by
     /// a reset spelled the same as the palette's, so that reset goes too; and
-    /// the dark dim is spelled the same as the markdown presenter's dark
-    /// inline code (`markdown::theme::FX_DARK`), so a case that streams inline
-    /// code has to read [`Fixture::take_pending`] instead.
+    /// the hint grey is spelled the same as the markdown presenter's dark
+    /// inline code (`markdown::theme::FX_DARK`, 255 since fx v0.0.16), so a
+    /// case that streams inline code has to read [`Fixture::take_pending`]
+    /// instead.
     fn unpainted(row: &str) -> String {
         row.replace(PALETTE.hint(), "")
             .replace(PALETTE.notice(), "")

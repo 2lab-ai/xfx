@@ -261,11 +261,21 @@ const RESET: &str = "\u{1b}[0m";
 /// light): the hint grey over a background of its own ([`Palette::selected`]).
 /// Band rows only, so nothing of it is in the document for a theme report to
 /// find.
-const DARK: [u8; 15] = [
-    240, 255, 250, 252, 255, 245, 245, 252, 252, 252, 245, 252, 245, 252, 255,
+///
+/// The sixteenth is the highlighter's comment grey in an answer's code block
+/// (`markdown::theme` `FX_DARK`/`FX_LIGHT` `comment_style`, `theme.zig:111`
+/// dark and `:154` light, `481104fd`): `245` and `243`. The highlighter
+/// paints it, not this table; the role is here so a theme report can find it
+/// on a row recorded as a code block's ([`DocumentRow::Code`]). It shares the
+/// dark number with [`DIM`] and the light one with nothing, and upstream does
+/// not move it as it moves a summary's `245`: a theme switch draws the block
+/// again in the new theme's palette (`transcript_blocks.zig:2023-2029`), so
+/// the comment goes to `243`, not to the summary's `247`.
+const DARK: [u8; 16] = [
+    240, 255, 250, 252, 255, 245, 245, 252, 252, 252, 245, 252, 245, 252, 255, 245,
 ];
-const LIGHT: [u8; 15] = [
-    250, 235, 241, 238, 235, 241, 247, 238, 238, 238, 245, 238, 241, 238, 237,
+const LIGHT: [u8; 16] = [
+    250, 235, 241, 238, 235, 241, 247, 238, 238, 238, 245, 238, 241, 238, 237, 243,
 ];
 
 /// Where in one of those tuples each role sits.
@@ -284,6 +294,7 @@ const COMMAND: usize = 11;
 const ANSWER: usize = 12;
 const DANGER: usize = 13;
 const SELECTED: usize = 14;
+const COMMENT: usize = 15;
 
 /// What kind of document row a theme report is repainting, **recorded with
 /// the row when it was written** (`super::transcript::Append::kinds`, kept per
@@ -309,6 +320,16 @@ pub(crate) enum DocumentRow {
     /// The answer under an answered question, in the document's record of a
     /// question batch ([`ANSWER`]).
     Answer,
+    /// A row of a code block in an answer: its frame and its highlighted
+    /// lines ([`COMMENT`], [`COMMAND`], [`NOTICE`]).
+    Code,
+    /// A row of a table in an answer, which a theme report leaves as it was
+    /// drawn: upstream keeps a table out of the switch's rewrite
+    /// (`store.zig:3758@481104fd`) and draws it again from cells styled when
+    /// the table was added (`block_render.zig:458`; `renderTableForTranscript`
+    /// takes no theme, `transcript_blocks.zig:980-984`), so a table's inline
+    /// code and links keep the shade they were drawn in.
+    Table,
 }
 
 impl Palette {
@@ -516,6 +537,14 @@ impl Palette {
     /// grey they share on dark; on light, where 241 is also the statusline's,
     /// the statusline wins, which costs a quoted string in a command its
     /// shade -- the one cell this cannot tell apart -- and nothing else.
+    ///
+    /// A code block's rows are the highlighter's greys and nothing else: its
+    /// words ([`COMMAND`]), its strings and numbers (the notice grey, as on a
+    /// tool group's row) and its comments ([`COMMENT`]) -- so on those rows a
+    /// dark `245` is a comment and goes to `243`, which is the colour upstream
+    /// draws the block in again after a switch, and a light `243` comes back.
+    ///
+    /// A table's rows answer nothing ([`DocumentRow::Table`]).
     pub(crate) fn document_retint_in(
         &self,
         row: DocumentRow,
@@ -526,6 +555,8 @@ impl Palette {
             DocumentRow::ToolGroup => &[STATUSLINE, HINT, COMMAND, NOTICE],
             DocumentRow::ToolStopped => &[WARNING, HINT, TOOL, COMMAND, NOTICE],
             DocumentRow::Answer => &[ANSWER],
+            DocumentRow::Code => &[COMMENT, COMMAND, NOTICE],
+            DocumentRow::Table => return None,
         };
         let role = roles.iter().copied().find(|&role| {
             [Mode::Dark, Mode::Light]
@@ -594,6 +625,7 @@ fn ansi256(index: u8) -> &'static str {
         238 => "\u{1b}[38;5;238m",
         240 => "\u{1b}[38;5;240m",
         241 => "\u{1b}[38;5;241m",
+        243 => "\u{1b}[38;5;243m",
         245 => "\u{1b}[38;5;245m",
         247 => "\u{1b}[38;5;247m",
         250 => "\u{1b}[38;5;250m",
@@ -608,7 +640,7 @@ fn ansi256(index: u8) -> &'static str {
 
 /// The same shade, said exactly, for a terminal that can take it.
 ///
-/// All five indices are on xterm's greyscale ramp, where index `i` in
+/// Every index here is on xterm's greyscale ramp, where index `i` in
 /// `232..=255` is the level `8 + (i - 232) * 10` on all three channels -- so
 /// these are not approximations of the sequences above, they are the same
 /// colours spelled in the notation a truecolor terminal reads without
@@ -627,6 +659,7 @@ fn truecolor(index: u8) -> &'static str {
         238 => "\u{1b}[38;2;68;68;68m",
         240 => "\u{1b}[38;2;88;88;88m",
         241 => "\u{1b}[38;2;98;98;98m",
+        243 => "\u{1b}[38;2;118;118;118m",
         245 => "\u{1b}[38;2;138;138;138m",
         247 => "\u{1b}[38;2;158;158;158m",
         250 => "\u{1b}[38;2;188;188;188m",
@@ -1260,6 +1293,150 @@ mod tests {
                 &syntax.operator_style,
             ] {
                 assert_eq!(palette.paint(COMMAND), style.as_ref(), "{mode:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_highlighters_quieter_greys_are_the_code_rows_roles_in_both_modes() {
+        // A code block's row is repainted by the roles [`DocumentRow::Code`]
+        // names, so each of them has to be the grey the highlighter painted
+        // with -- or a report would skip the cell or move it to another's.
+        for (mode, light) in [(Mode::Dark, false), (Mode::Light, true)] {
+            let palette = Palette {
+                mode,
+                depth: Depth::Ansi256,
+            };
+            let syntax = crate::markdown::theme::builtin(light).syntax;
+            assert_eq!(
+                palette.paint(COMMENT),
+                syntax.comment_style.as_ref(),
+                "{mode:?}"
+            );
+            assert_eq!(
+                palette.paint(NOTICE),
+                syntax.string_style.as_ref(),
+                "{mode:?}"
+            );
+            assert_eq!(
+                palette.paint(NOTICE),
+                syntax.number_style.as_ref(),
+                "{mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_code_blocks_row_answers_its_colours_as_the_highlighters() {
+        // fx v0.0.16 draws a code block again in the new theme on a switch
+        // (`transcript_blocks.zig:2023-2029`, `app_render_runtime.zig:509`),
+        // so its dark comment goes to the light comment grey, 243 -- not to
+        // the 247 a turn's summary, the same dark 245, goes to.
+        let light = Palette {
+            mode: Mode::Light,
+            depth: Depth::Ansi256,
+        };
+        let dark = Palette {
+            mode: Mode::Dark,
+            depth: Depth::Ansi256,
+        };
+        assert_eq!(
+            light.document_retint_in(DocumentRow::Code, Color::Indexed(245)),
+            Some("\u{1b}[38;5;243m")
+        );
+        assert_eq!(
+            dark.document_retint_in(DocumentRow::Code, Color::Indexed(243)),
+            Some("\u{1b}[38;5;245m")
+        );
+        // A keyword, and a string or a number.
+        assert_eq!(
+            light.document_retint_in(DocumentRow::Code, Color::Indexed(252)),
+            Some("\u{1b}[38;5;238m")
+        );
+        assert_eq!(
+            dark.document_retint_in(DocumentRow::Code, Color::Indexed(238)),
+            Some("\u{1b}[38;5;252m")
+        );
+        assert_eq!(
+            light.document_retint_in(DocumentRow::Code, Color::Indexed(250)),
+            Some("\u{1b}[38;5;241m")
+        );
+        assert_eq!(
+            dark.document_retint_in(DocumentRow::Code, Color::Indexed(241)),
+            Some("\u{1b}[38;5;250m")
+        );
+        // Already in the grey in force, and a grey the highlighter never paints.
+        assert_eq!(
+            light.document_retint_in(DocumentRow::Code, Color::Indexed(243)),
+            None
+        );
+        assert_eq!(
+            light.document_retint_in(DocumentRow::Code, Color::Indexed(255)),
+            None
+        );
+        // A plain row keeps the summary's rule.
+        assert_eq!(
+            light.document_retint_in(DocumentRow::Plain, Color::Indexed(245)),
+            Some("\u{1b}[38;5;247m")
+        );
+        // And at the other depth, the same greys said exactly.
+        let direct = Palette {
+            mode: Mode::Light,
+            depth: Depth::TrueColor,
+        };
+        assert_eq!(
+            direct.document_retint_in(DocumentRow::Code, Color::Rgb(138, 138, 138)),
+            Some("\u{1b}[38;2;118;118;118m")
+        );
+    }
+
+    #[test]
+    fn an_answers_inline_code_is_retinted_as_the_body_grey() {
+        // Inline code is the brightest neutral since fx v0.0.16 (`5e32bce2`):
+        // 255 dark and 235 light, the body grey's numbers, which upstream's
+        // retint table already maps to each other (`store.zig:3784-3800`).
+        // On a plain row -- prose, a list item, a heading -- the body role
+        // carries it across a switch both ways. A table cell's is not on a
+        // plain row (`a_tables_row_keeps_the_colours_it_was_drawn_in`).
+        use crate::markdown::theme::{FX_DARK, FX_LIGHT};
+        let light = Palette {
+            mode: Mode::Light,
+            depth: Depth::Ansi256,
+        };
+        let dark = Palette {
+            mode: Mode::Dark,
+            depth: Depth::Ansi256,
+        };
+        assert_eq!(FX_DARK.inline_code_open, "\u{1b}[38;5;255m");
+        assert_eq!(FX_LIGHT.inline_code_open, "\u{1b}[38;5;235m");
+        assert_eq!(
+            light.document_retint(Color::Indexed(255)),
+            Some(FX_LIGHT.inline_code_open.as_ref())
+        );
+        assert_eq!(
+            dark.document_retint(Color::Indexed(235)),
+            Some(FX_DARK.inline_code_open.as_ref())
+        );
+    }
+
+    #[test]
+    fn a_tables_row_keeps_the_colours_it_was_drawn_in() {
+        // fx v0.0.16 does not recolour a table on a theme switch: its cells
+        // were styled when the table was added (`store.zig:3758`,
+        // `block_render.zig:458`). So nothing on a table's row is a cell to
+        // repaint -- not its inline code in either mode's grey, not a link,
+        // not a grey another row kind would move.
+        for mode in [Mode::Dark, Mode::Light] {
+            let palette = Palette {
+                mode,
+                depth: Depth::Ansi256,
+            };
+            for index in [255, 235, 245, 247, 250, 241, 252, 238, 75, 25] {
+                assert_eq!(
+                    palette.document_retint_in(DocumentRow::Table, Color::Indexed(index)),
+                    None,
+                    "{mode:?} {index}"
+                );
             }
         }
     }

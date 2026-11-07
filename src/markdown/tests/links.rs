@@ -207,7 +207,7 @@ fn markdown_images_preserve_code_isolation_chunk_buffering_and_heading_underline
     processor.push("`![literal](https://example.com/literal.png)`\n", &mut out);
     assert_eq!(
         text(&out),
-        "\x1b[38;5;245m![literal](https://example.com/literal.png)\x1b[39m\n"
+        "\x1b[38;5;255m![literal](https://example.com/literal.png)\x1b[39m\n"
     );
     assert!(!contains(&out, "\x1b]8;"));
 
@@ -366,7 +366,7 @@ fn rejected_angle_candidates_suppress_nested_link_emission() {
         "<https://escaped.example>\n",
         "<a:x> <dev@bad-.example> <https://has space>\n",
         "<not-an-autolink https://unterminated.example\n",
-        "\x1b[38;5;245m<https://code.example>\x1b[39m\n",
+        "\x1b[38;5;255m<https://code.example>\x1b[39m\n",
     );
 
     processor.push(input, &mut out);
@@ -399,7 +399,7 @@ fn standalone_url_in_code_is_linked_while_excluded_boundaries_stay_literal() {
         &mut out,
     );
     let expected = format!(
-        "\x1b[38;5;245m\x1b]8;id=fx-{id_before};https://code.example\x1b\\https://code.example\x1b]8;;\x1b\\\x1b[39m wordhttps://word.example <<https://angle.example>>\n"
+        "\x1b[38;5;255m\x1b]8;id=fx-{id_before};https://code.example\x1b\\https://code.example\x1b]8;;\x1b\\\x1b[39m wordhttps://word.example <<https://angle.example>>\n"
     );
     assert_eq!(text(&out), expected);
 }
@@ -416,8 +416,8 @@ fn inline_code_urls_keep_literal_bytes_and_trailing_punctuation_outside_links() 
     );
     let expected = format!(
         concat!(
-            "See \x1b[38;5;245m\x1b]8;id=fx-{0};https://example.com/path_~*\x1b\\https://example.com/path_~*\x1b]8;;\x1b\\.\x1b[39m and ",
-            "\x1b[38;5;245m\x1b]8;id=fx-{1};https://example.com/a\\_b\x1b\\https://example.com/a\\_b\x1b]8;;\x1b\\\x1b[39m.\n",
+            "See \x1b[38;5;255m\x1b]8;id=fx-{0};https://example.com/path_~*\x1b\\https://example.com/path_~*\x1b]8;;\x1b\\.\x1b[39m and ",
+            "\x1b[38;5;255m\x1b]8;id=fx-{1};https://example.com/a\\_b\x1b\\https://example.com/a\\_b\x1b]8;;\x1b\\\x1b[39m.\n",
         ),
         id_before,
         id_before.wrapping_add(1)
@@ -441,7 +441,7 @@ fn inline_code_urls_preserve_literal_trailing_uri_punctuation() {
         let id_before = processor.next_link_id();
         processor.push(&input, &mut out);
         let expected = format!(
-            "Open \x1b[38;5;245m\x1b]8;id=fx-{id_before};{url}\x1b\\{url}\x1b]8;;\x1b\\\x1b[39m\n"
+            "Open \x1b[38;5;255m\x1b]8;id=fx-{id_before};{url}\x1b\\{url}\x1b]8;;\x1b\\\x1b[39m\n"
         );
         assert_eq!(text(&out), expected);
     }

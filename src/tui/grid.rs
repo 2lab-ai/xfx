@@ -1233,6 +1233,50 @@ mod tests {
         assert_eq!(diffed(&grid, &expected), "");
     }
 
+    #[test]
+    fn a_code_blocks_comment_is_retinted_as_a_comment_and_a_summary_as_a_summary() {
+        // A code block's comment and a turn's summary are the same dark grey,
+        // 245, and part on a light screen -- 243 and 247 -- because fx v0.0.16
+        // draws the block again in the light palette rather than mapping its
+        // bytes (`transcript_blocks.zig:2023-2029`). The writer's record of
+        // the row is what tells them apart, both ways.
+        const COMMENT_DARK: &str = "\u{1b}[38;5;245m";
+        const COMMENT_LIGHT: &str = "\u{1b}[38;5;243m";
+        let geometry = geometry();
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        grid.place_row(3, &format!("  {COMMENT_DARK}# build it{RESET}"), &geometry);
+        grid.set_kind(3, DocumentRow::Code);
+        grid.place_row(
+            4,
+            &format!("  {LABEL_DARK}zig{RESET} build {NOTICE_DARK}--summary{RESET}"),
+            &geometry,
+        );
+        grid.set_kind(4, DocumentRow::Code);
+        grid.place_row(5, &format!("{SUMMARY_DARK}  5s (3 4){RESET}"), &geometry);
+        grid.retint_document(10, &light());
+
+        let mut expected = Grid::blank(geometry.rows, geometry.cols);
+        expected.place_row(3, &format!("  {COMMENT_LIGHT}# build it{RESET}"), &geometry);
+        expected.place_row(
+            4,
+            &format!("  {LABEL_LIGHT}zig{RESET} build {NOTICE_LIGHT}--summary{RESET}"),
+            &geometry,
+        );
+        expected.place_row(5, &format!("{SUMMARY_LIGHT}  5s (3 4){RESET}"), &geometry);
+        assert_eq!(diffed(&grid, &expected), "");
+
+        grid.retint_document(10, &dark());
+        let mut back = Grid::blank(geometry.rows, geometry.cols);
+        back.place_row(3, &format!("  {COMMENT_DARK}# build it{RESET}"), &geometry);
+        back.place_row(
+            4,
+            &format!("  {LABEL_DARK}zig{RESET} build {NOTICE_DARK}--summary{RESET}"),
+            &geometry,
+        );
+        back.place_row(5, &format!("{SUMMARY_DARK}  5s (3 4){RESET}"), &geometry);
+        assert_eq!(diffed(&grid, &back), "");
+    }
+
     /// A grid holding `rows` from row 1 down, each with its writer's record.
     fn document(rows: &[(&str, DocumentRow)]) -> Grid {
         let geometry = geometry();

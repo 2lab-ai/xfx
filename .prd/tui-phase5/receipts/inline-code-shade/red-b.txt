@@ -1,0 +1,18 @@
+# RED (T-U3b, the table pairs): T-U3's head 232762e5 against fx v0.0.16
+# cd .prd/tui-phase5/receipts/inline-code-shade; python3 -I ../../../tui-phase4/receipts/m1/cells.py fx/fx-<pair> red-b/xfx-<pair>   (row 1, the banner, not compared)
+SAME p5-inline-code-table-40x120-dark-again.ansi
+SAME p5-inline-code-table-40x120-dark.ansi
+DIFF p5-inline-code-table-40x120-light.ansi
+  row 10: fx [(12, 'z', (('fg', 255),)), (13, 'i', (('fg', 255),)), (14, 'g', (('fg', 255),)), (15, ' ', ())]
+  row 10: xfx [(12, 'z', (('fg', 235),)), (13, 'i', (('fg', 235),)), (14, 'g', (('fg', 235),)), (15, ' ', ())]
+  row 12: fx [(12, 'z', (('fg', 255),)), (13, 'i', (('fg', 255),)), (14, 'g', (('fg', 255),)), (15, ' ', ())]
+  row 12: xfx [(12, 'z', (('fg', 235),)), (13, 'i', (('fg', 235),)), (14, 'g', (('fg', 235),)), (15, ' ', ())]
+  2 rows differ in their cells (row 1 not compared)
+DIFF p5-inline-code-table-light-40x120-dark.ansi
+  row 10: fx [(12, 'z', (('fg', 235),)), (13, 'i', (('fg', 235),)), (14, 'g', (('fg', 235),)), (15, ' ', ())]
+  row 10: xfx [(12, 'z', (('fg', 255),)), (13, 'i', (('fg', 255),)), (14, 'g', (('fg', 255),)), (15, ' ', ())]
+  row 12: fx [(12, 'z', (('fg', 235),)), (13, 'i', (('fg', 235),)), (14, 'g', (('fg', 235),)), (15, ' ', ())]
+  row 12: xfx [(12, 'z', (('fg', 255),)), (13, 'i', (('fg', 255),)), (14, 'g', (('fg', 255),)), (15, ' ', ())]
+  2 rows differ in their cells (row 1 not compared)
+SAME p5-inline-code-table-light-40x120-light-again.ansi
+SAME p5-inline-code-table-light-40x120-light.ansi

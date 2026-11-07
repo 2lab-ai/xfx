@@ -1,0 +1,1 @@
+[{"delayMs": 60, "chunks": ["Run `zig build test` before you push.", "\n\n```sh\n# build and test\nzig build te", "st --summary all\n```\n\n```zig\n// the a", "nswer\nconst n = 42;\nconst s = \"hi\";\n`", "``\n\nDone with `everything`.\n"]}, {"delayMs": 60, "chunks": ["Spare ", "answer."]}]

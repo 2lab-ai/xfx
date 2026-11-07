@@ -235,6 +235,20 @@ resolution = "P-status ships the /status panel against the v0.0.16 pin"
 expires = "pin:v0.0.16"
 source = [".prd/tui-phase4/ssot.md:115", ".prd/07-fx-parity-program.md:43", "docs/parity.md:113"]
 
+[[divergence]]
+id = "inline-code-shade"
+class = "replaced-in-next-pin"
+pins = ["c1db919"]
+scenarios = ["answered", "copy", "links", "rename", "reset", "reset-wire", "resume", "resume-launch", "resume-wire", "table-wrap", "usage", "usage-session"]
+snaps = ["*"]
+fx_row = '\bcode\b'
+xfx_row = '\bcode\b'
+reason = "v0.0.16 paints an answer's inline code in the theme's brightest neutral, 255 dark and 235 light, where c1db919 painted it 245 and 247 (5e32bce2, `src/core/shared/theme.zig:102,145@481104fd`). xfx paints v0.0.16's (T-U3), so against c1db919 the rows that hold a code span differ in that colour. The selector is the word every such span in these scenarios has (`code`, `inline code`, `https://example.com/code`), on both sides, so it covers any row with that word in these 12 scenarios, against c1db919 only (`.prd/tui-phase5/receipts/inline-code-shade/ledger.txt`)."
+owner = "T-U3"
+resolution = "T-U3 ships v0.0.16's inline code shade against the v0.0.16 pin"
+expires = "pin:v0.0.16"
+source = [".prd/07-fx-parity-program.md:43", "docs/parity.md:240", "src/markdown/theme.rs:49", "src/markdown/theme.rs:69"]
+
 # v0.0.16: the `/status` panel (P-status). Approved for the v0.0.16 pin only;
 # each lapses at the next pin's review, 2026-12-04 at the latest (there is no
 # later [[pin]] to name yet), and is approved again or dropped then.
