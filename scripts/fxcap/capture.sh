@@ -220,15 +220,20 @@
 #                          unknown, 404
 #   mcphttp <mode>         starts the run's HTTP MCP server (mcphttp.ts) before
 #                          launch, on a loopback port the OS picks, in <mode>
-#                          -- `ready`, `methodnotfound`, `hang`, `fail` or
-#                          `rpcerror` (mcphttp.ts says what each answers) -- and
+#                          -- `ready`, `methodnotfound`, `hang`, `fail`,
+#                          `rpcerror`, or one of the p5-mcp-discover modes
+#                          `modern`, `notimpl`, `old2024`, `malformed`,
+#                          `hostile`, `ssehold`, `sseidless`, `ssestrid`,
+#                          `ssefail`
+#                          (mcphttp.ts says what each answers) -- and
 #                          writes its port where `@MCPPORT@` is, so a
 #                          `homefile .fx/mcp.json` naming
 #                          `http://127.0.0.1:@MCPPORT@/mcp` reaches it; each
 #                          `mcphttp` line sets the mode when the script reaches
 #                          it (a held request answers in the new one). Its log
 #                          is copied by `gwlog`, as
-#                          <bin>-<scenario>-<size>-mcphttp.log.
+#                          <bin>-<scenario>-<size>-mcphttp.log, and its port
+#                          written to <bin>-<scenario>-<size>-mcphttp.port.
 #   sockets <label>        writes the binary's internet sockets (lsof -i on its
 #                          pid) to <bin>-<scenario>-<size>-<label>.sockets, and
 #                          fails the run loudly if one is connected to any
@@ -515,7 +520,7 @@ main() {
         [[ ${line#usage } == off || -f $scenarios/${line#usage } ]] || { echo "usage takes a file in $scenarios or off, not ${line#usage }" >&2; exit 2; }
         [[ -n $usage ]] || usage=${line#usage } ;;
       mcphttp\ *)
-        case ${line#mcphttp } in ready|methodnotfound|hang|fail|rpcerror) ;; *) echo "mcphttp takes ready, methodnotfound, hang, fail or rpcerror, not ${line#mcphttp }" >&2; exit 2 ;; esac
+        case ${line#mcphttp } in ready|methodnotfound|hang|fail|rpcerror|modern|notimpl|old2024|malformed|hostile|ssehold|sseidless|ssestrid|ssefail) ;; *) echo "mcphttp takes ready, methodnotfound, hang, fail, rpcerror, modern, notimpl, old2024, malformed, hostile, ssehold, sseidless, ssestrid or ssefail, not ${line#mcphttp }" >&2; exit 2 ;; esac
         [[ -n $mcpmode ]] || mcpmode=${line#mcphttp } ;;
       resize\ *)
         [[ ${line#resize } =~ ^[1-9][0-9]{0,3}x[1-9][0-9]{0,3}$ ]] || { echo "resize takes <rows>x<cols>, not ${line#resize }" >&2; exit 2; } ;;
@@ -566,6 +571,9 @@ main() {
       sleep 0.1
     done
     mcpport=$(sed -n 's/.*listening \([0-9]*\).*/\1/p' "$run/mcphttp.log" | head -1)
+    # The port, for the sweep: this run's, and only it, is the same as the
+    # other side's (sweep.py `run_rules`).
+    printf '%s\n' "$mcpport" > "$out/$which-$scenario-$size-mcphttp.port"
   fi
   # The placeholders, into every seeded file under HOME that names one and
   # every `env` value; and into every text file (`-I`: one with a NUL, a sparse

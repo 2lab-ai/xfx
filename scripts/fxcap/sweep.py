@@ -415,6 +415,31 @@ def pass_rate(c):
     return (c["identical"] + c["normalized-identical"]) / c["total"] if c["total"] else 0.0
 
 
+def run_rules(out, u, side, size, rules):
+    """`rules`, after the port this run's HTTP MCP server listened on, when
+    it had one: capture.sh starts it on a port the OS picks and writes that
+    port beside the captures (`<side>-<scenario>-<size>-mcphttp.port`). Only
+    that number, right after `127.0.0.1:` and not followed by another digit,
+    is written `<mcpport>` -- a fixed port in a profile, another run's, or
+    the same digits anywhere else are compared as they are."""
+    path = capture_path(out, u, side, "mcphttp", size, "port")
+    try:
+        port = read_text(path).strip()
+    except OSError:
+        return rules
+    if not re.fullmatch(r"[0-9]{1,5}", port):
+        return rules
+    own = {
+        "id": "mcphttp-port",
+        "pattern": re.compile(r"(?<=127\.0\.0\.1:)%s(?![0-9])" % port),
+        "replace": "<mcpport>",
+        "mask": None,
+        "attrs": None,
+        "absorb": False,
+    }
+    return [own] + rules
+
+
 def score(units, out, size, led, pin):  # noqa: C901
     rules = {side: ledgermod.rules_for(led, side) for side in ("fx", "xfx")}
     divs = ledgermod.active(led, pin["name"] if pin else None)
@@ -440,8 +465,10 @@ def score(units, out, size, led, pin):  # noqa: C901
                     a, b = cells.parse(read_text(fxp)), cells.parse(read_text(xp))
                     if banner is None and b and b[0]:
                         banner = cells.text_of(b[0])
-                    na, nb = cells.normalize(a, rules["fx"]), cells.normalize(b, rules["xfx"])
-                    readings = [cells.normalize(a, rules["fx"], absorb=way) for way in ("after", "before")]
+                    fx_rules = run_rules(out, u, "fx", size, rules["fx"])
+                    xfx_rules = run_rules(out, u, "xfx", size, rules["xfx"])
+                    na, nb = cells.normalize(a, fx_rules), cells.normalize(b, xfx_rules)
+                    readings = [cells.normalize(a, fx_rules, absorb=way) for way in ("after", "before")]
                     diff = cells.differing(na, nb, readings)
                     verdict, matched = ledgermod.classify(a == b, diff, u.name, label, divs)
                     left = None

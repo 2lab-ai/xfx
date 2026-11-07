@@ -26,11 +26,40 @@
 //             comes up on cue (`hang`, then `ready`)
 //   fail      every request 500 `fixture failing`
 //   rpcerror  every request with an id gets a JSON-RPC error, -32603 `fixture refuses`
+// The p5-mcp-discover modes, how each kind of server meets fx v0.0.16's version detection
+// (vercel-labs/fx@481104fd src/mcp/core/era.zig), which POSTs `server/discover` first:
+//   modern    a 2026-07-28 server: `server/discover` gets a complete result listing
+//             `2026-07-28` (fx's own tests/e2e/fixtures/mcp-modern-http.ts shape); no session
+//             and no `initialize` (-32601); every other request must carry the 2026 `_meta`
+//             (an integer progressToken, the version, client capabilities and info) and the
+//             `MCP-Protocol-Version: 2026-07-28` header, or it gets -32602; results say
+//             `resultType: "complete"`
+//   notimpl   `modern`, except that `server/discover` gets HTTP 404 with the JSON-RPC error
+//             -32601: a 2026 server without discovery, which fx serves at the probe's version
+//             (`classifyDiscoverHttp`, era.zig:411-415)
+//   old2024   `ready`, except that `initialize` is answered with 2024-11-05, a version fx
+//             v0.0.16 no longer speaks
+//   malformed `ready`, except that `server/discover` gets HTTP 200 and a body that is not valid
+//             JSON-RPC: its result a string of terminal escapes
+//   hostile   `ready`, except that `server/discover` gets a complete result listing only near
+//             misses (escapes around "2026-07-28", a 64 KiB string) and instructions that are
+//             terminal escapes
+//   ssehold   `modern`, except that `server/discover` is answered on an event stream that stays
+//             open after its one event: fx reads each event as it comes (`readEvents`,
+//             src/mcp/io/http.zig:643-692@481104fd) and is ready at once
+//   sseidless `ready`, except that `server/discover` is answered on an event stream with an
+//             error that has no id, which answers the POST it came on (src/mcp/server.zig:
+//             1155-1158@481104fd): a legacy answer, so `initialize` follows at once
+//   ssestrid  `modern`, except that the discover answer comes on an event stream and names
+//             its id as a string of digits, which fx reads as its own (`ownId`, wire.zig:305-313)
+//   ssefail   `modern`, except that the discover answer comes on an event stream under HTTP
+//             500: fx reads an event stream's answers whatever the status (`readEvents`,
+//             src/mcp/io/http.zig:643-692@481104fd), so it is ready at 2026-07-28
 //
 // Every request is one line on stdout, once answered: the time in ms since the server started,
-// the HTTP method and path, the JSON-RPC method and id, whether it carried a session id and which
-// protocol version header, the mode it was answered in, and the status. Header values other than
-// the version are never written.
+// the HTTP method and path, the JSON-RPC method and id, whether it carried a session id, which
+// protocol version header, which `Mcp-Method` and `Mcp-Name` headers, the mode it was answered
+// in, and the status. Header values other than those three are never written.
 const port = Number(process.argv[2] ?? 0);
 const modeFile = process.argv[3];
 if (!modeFile) {
@@ -39,7 +68,7 @@ if (!modeFile) {
 }
 const started = Date.now();
 const log = (m: string) => console.log(`[mcphttp] ${m}`);
-const modes = new Set(["ready", "methodnotfound", "hang", "fail", "rpcerror"]);
+const modes = new Set(["ready", "methodnotfound", "hang", "fail", "rpcerror", "modern", "notimpl", "old2024", "malformed", "hostile", "ssehold", "sseidless", "ssestrid", "ssefail"]);
 const versions = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const session = "fxcap-session-1";
 
@@ -52,13 +81,24 @@ const json = (frame: object, headers: Record<string, string> = {}) =>
   Response.json(frame, { headers: { ...headers, "content-type": "application/json" } });
 const result = (id: unknown, value: object) => json({ jsonrpc: "2.0", id, result: value });
 
-function ready(httpMethod: string, message: any, discover = "404"): Response {
+function ready(httpMethod: string, message: any, discover = "404", asked2024 = false): Response {
   if (httpMethod === "GET") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST, DELETE" } });
   if (httpMethod === "DELETE") return new Response(null, { status: 204 });
   const id = message?.id;
   const method = message?.method;
   if (method === "server/discover" && discover === "rpc") {
     return json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
+  }
+  if (method === "server/discover" && discover === "malformed") {
+    return json({ jsonrpc: "2.0", id, result: "\u001b]0;pwned\u0007\u001b[2J\u001b[31mDISCOVER" });
+  }
+  if (method === "server/discover" && discover === "hostile") {
+    return result(id, {
+      resultType: "complete",
+      supportedVersions: ["\u001b[31m2026-07-28", "2026-07-28\u0007", "2026-07-28 ", "x".repeat(65536)],
+      capabilities: { tools: {} },
+      instructions: "\u001b]0;pwned\u0007\u001b[2J",
+    });
   }
   if (method === "server/discover") return new Response(null, { status: 404 });
   if (id === undefined) return new Response(null, { status: 202 });
@@ -70,7 +110,7 @@ function ready(httpMethod: string, message: any, discover = "404"): Response {
           jsonrpc: "2.0",
           id,
           result: {
-            protocolVersion: versions.includes(asked) ? asked : versions[0],
+            protocolVersion: asked2024 ? "2024-11-05" : versions.includes(asked) ? asked : versions[0],
             capabilities: { tools: {} },
             serverInfo: { name: "fxcap-mcphttp", version: "1" },
           },
@@ -101,8 +141,87 @@ function ready(httpMethod: string, message: any, discover = "404"): Response {
   }
 }
 
-function answerIn(now: string, httpMethod: string, message: any): Response {
+// A 2026-07-28 server (`modern`), or one without discovery (`notimpl`): no session, every
+// request checked for the 2026 `_meta` and version header.
+function modern(httpMethod: string, message: any, version: string | null, notimpl: boolean): Response {
+  if (httpMethod !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+  const id = message?.id;
+  const method = message?.method;
+  const fail = (status: number, code: number, text: string) =>
+    Response.json({ jsonrpc: "2.0", id, error: { code, message: text } }, { status });
+  if (method === "server/discover") {
+    if (notimpl) return fail(404, -32601, "Method not found");
+    return result(id, {
+      resultType: "complete",
+      supportedVersions: ["2026-07-28"],
+      capabilities: { tools: {} },
+      _meta: { "io.modelcontextprotocol/serverInfo": { name: "fxcap-mcphttp-modern" } },
+    });
+  }
+  if (id === undefined) return new Response(null, { status: 202 });
+  if (method === "initialize") return fail(200, -32601, "Method not found");
+  const meta = message.params?._meta;
+  const modernMeta = Number.isInteger(meta?.progressToken) &&
+    meta?.["io.modelcontextprotocol/protocolVersion"] === "2026-07-28" &&
+    typeof meta?.["io.modelcontextprotocol/clientCapabilities"] === "object" &&
+    typeof meta?.["io.modelcontextprotocol/clientInfo"]?.name === "string";
+  if (!modernMeta || version !== "2026-07-28") return fail(400, -32602, "Missing modern request metadata");
+  switch (method) {
+    case "tools/list":
+      return result(id, {
+        resultType: "complete",
+        tools: [{
+          name: "echo",
+          description: "Echo the text back (fxcap HTTP fixture, 2026)",
+          inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
+        }],
+      });
+    case "tools/call":
+      return result(id, { resultType: "complete", content: [{ type: "text", text: `MCPHTTP_MODERN_ECHO: ${message.params?.arguments?.text ?? ""}` }], isError: false });
+    case "ping":
+      return result(id, { resultType: "complete" });
+    default:
+      return fail(200, -32601, "Method not found");
+  }
+}
+
+const encoder = new TextEncoder();
+const event = (frame: object) => encoder.encode(`event: message\ndata: ${JSON.stringify(frame)}\n\n`);
+const discoverResult = (id: unknown) => ({
+  jsonrpc: "2.0",
+  id,
+  result: {
+    resultType: "complete",
+    supportedVersions: ["2026-07-28"],
+    capabilities: { tools: {} },
+    _meta: { "io.modelcontextprotocol/serverInfo": { name: "fxcap-mcphttp-modern" } },
+  },
+});
+const sse = (stream: ReadableStream, status = 200) =>
+  new Response(stream, { status, headers: { "content-type": "text/event-stream" } });
+
+// The SSE discover modes: the answer as an event, the stream held open (`ssehold`) or ended.
+const sseModes = ["ssehold", "sseidless", "ssestrid", "ssefail"];
+function sseDiscover(now: string, message: any): Response | null {
+  if (!sseModes.includes(now) || message?.method !== "server/discover") return null;
+  if (now === "ssehold") {
+    return sse(new ReadableStream({ start(c) { c.enqueue(event(discoverResult(message.id))); } }));
+  }
+  const frame = now === "sseidless"
+    ? { jsonrpc: "2.0", id: null, error: { code: -32601, message: "Method not found" } }
+    : discoverResult(now === "ssestrid" ? String(message.id) : message.id);
+  return sse(new ReadableStream({ start(c) { c.enqueue(event(frame)); c.close(); } }), now === "ssefail" ? 500 : 200);
+}
+
+function answerIn(now: string, httpMethod: string, message: any, version: string | null): Response {
+  const streamed = httpMethod === "POST" ? sseDiscover(now, message) : null;
+  if (streamed) return streamed;
+  if (now === "ssehold" || now === "ssestrid" || now === "ssefail") return modern(httpMethod, message, version, false);
+  if (now === "sseidless") return ready(httpMethod, message);
   if (now === "ready") return ready(httpMethod, message);
+  if (now === "modern" || now === "notimpl") return modern(httpMethod, message, version, now === "notimpl");
+  if (now === "old2024") return ready(httpMethod, message, "404", true);
+  if (now === "malformed" || now === "hostile") return ready(httpMethod, message, now);
   if (now === "methodnotfound") return ready(httpMethod, message, "rpc");
   if (now === "rpcerror" && message?.id !== undefined) {
     return json({ jsonrpc: "2.0", id: message.id, error: { code: -32603, message: "fixture refuses" } });
@@ -130,10 +249,10 @@ const server = Bun.serve({
       await Bun.sleep(50);
       now = await mode();
     }
-    const res = answerIn(now, req.method, message);
+    const res = answerIn(now, req.method, message, req.headers.get("mcp-protocol-version"));
     const rpc = message ? `${message.method ?? (message.result !== undefined ? "(result)" : "(error)")} id=${message.id ?? "-"}` : "-";
     log(
-      `+${asked - started}ms ${req.method} ${url.pathname} rpc=${rpc} session=${req.headers.has("mcp-session-id") ? "yes" : "no"} version=${req.headers.get("mcp-protocol-version") ?? "-"} mode=${now} -> ${res.status} +${Date.now() - started}ms`,
+      `+${asked - started}ms ${req.method} ${url.pathname} rpc=${rpc} session=${req.headers.has("mcp-session-id") ? "yes" : "no"} version=${req.headers.get("mcp-protocol-version") ?? "-"} mcp-method=${req.headers.get("mcp-method") ?? "-"} mcp-name=${req.headers.get("mcp-name") ?? "-"} mode=${now} -> ${res.status} +${Date.now() - started}ms`,
     );
     return res;
   },

@@ -607,6 +607,62 @@ esac
 """
 
 
+class McpPort(unittest.TestCase):
+    """sweep.run_rules: the port capture.sh wrote for a run's own HTTP MCP
+    server, and only that port, is the same on both sides."""
+
+    def setUp(self):
+        import sweep
+
+        self.run_rules = sweep.run_rules
+        self.out = scratch()
+        cap = os.path.join(self.out, "p5-mcp-x.cap")
+        with open(cap, "w") as f:
+            f.write("snap show\n")
+        self.unit = capfile.Unit("p5-mcp-x", cap, cap)
+        self.led = ledgermod.load(LEDGER)
+
+    def port(self, side, port):
+        runs = os.path.join(self.out, "runs", "p5-mcp-x", side)
+        os.makedirs(runs, exist_ok=True)
+        with open(os.path.join(runs, "%s-p5-mcp-x-40x120-mcphttp.port" % side), "w") as f:
+            f.write("%s\n" % port)
+
+    def diff(self, fx_text, xfx_text):
+        rules = {side: ledgermod.rules_for(self.led, side) for side in ("fx", "xfx")}
+        a = cells.normalize(cells.parse(fx_text), self.run_rules(self.out, self.unit, "fx", "40x120", rules["fx"]))
+        b = cells.normalize(cells.parse(xfx_text), self.run_rules(self.out, self.unit, "xfx", "40x120", rules["xfx"]))
+        return cells.differing(a, b)
+
+    def test_each_runs_own_port_is_the_same(self):
+        self.port("fx", 51234)
+        self.port("xfx", 60001)
+        self.assertEqual(self.diff("  url http://127.0.0.1:51234/mcp\n", "  url http://127.0.0.1:60001/mcp\n"), [])
+
+    def test_a_fixed_port_another_runs_port_and_the_digits_elsewhere_are_compared(self):
+        self.port("fx", 51234)
+        self.port("xfx", 60001)
+        for fx_text, xfx_text in (
+            # A fixed port in a profile, different on the two sides.
+            ("url http://127.0.0.1:45678/mcp\n", "url http://127.0.0.1:45679/mcp\n"),
+            # The other side's port is not this side's.
+            ("url http://127.0.0.1:60001/mcp\n", "url http://127.0.0.1:51234/mcp\n"),
+            # The run's digits, but longer, on another host, or not a port.
+            ("url http://127.0.0.1:512345/mcp\n", "url http://127.0.0.1:600011/mcp\n"),
+            ("url http://127.0.0.2:51234/mcp\n", "url http://127.0.0.2:60001/mcp\n"),
+            ("pid 51234\n", "pid 60001\n"),
+        ):
+            self.assertEqual(len(self.diff(fx_text, xfx_text)), 1, (fx_text, xfx_text))
+
+    def test_with_no_port_written_nothing_is_rewritten(self):
+        self.assertEqual(len(self.diff("url http://127.0.0.1:51234/mcp\n", "url http://127.0.0.1:60001/mcp\n")), 1)
+        rules = ledgermod.rules_for(self.led, "fx")
+        self.assertIs(self.run_rules(self.out, self.unit, "fx", "40x120", rules), rules)
+
+    def test_the_ledger_has_no_port_rule_of_its_own(self):
+        self.assertNotIn("mcphttp-port", [n["id"] for n in self.led["normalizations"]])
+
+
 class Sweep(unittest.TestCase):
     """sweep.sh end to end, over a fake capture script and fake binaries."""
 

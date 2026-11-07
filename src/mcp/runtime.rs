@@ -12,10 +12,11 @@
 //!
 //! Each enabled, admitted server is connected on a thread of its own, so a
 //! slow one never holds up the others or the session: the child is started
-//! (or the endpoint opened), `initialize` is asked with upstream's legacy
-//! default -- `2025-11-25`, any of the four legacy versions accepted back
-//! (`protocol_negotiation.zig:7-19`, `:66-117`) -- `notifications/initialized`
-//! is sent, and `tools/list` is read page by page, all inside the server's
+//! (or the endpoint opened), its era is detected as fx v0.0.16 detects it
+//! ([`super::era`]: `server/discover` with `2026-07-28` first; a 2025 server
+//! gets `initialize`, `2025-11-25` asked and `2025-11-25`, `2025-06-18` or
+//! `2025-03-26` accepted back, then `notifications/initialized`), and
+//! `tools/list` is read page by page, all inside the server's
 //! `startup_timeout_ms`.
 //!
 //! A server that fails to come up is `Retrying` and is tried again by itself
@@ -65,20 +66,10 @@ use serde_json::{json, Map, Value};
 use super::config::{
     self, Admission, Choices, ServerConfig, Source, Transport as Kind, TrustAction,
 };
-use super::transport::{Exit, HttpTransport, StdioTransport, Transport};
-use super::{names::ToolNames, McpError};
+use super::era::{self, Meta};
+use super::transport::{Exit, HttpTransport, Reply, StdioTransport, Transport, WireEra};
+use super::{names::ToolNames, wire, McpError};
 use crate::gateway::CancelToken;
-
-/// The version `initialize` asks for (`connectServerLegacy(..., .v2025_11_25)`,
-/// `server_transport.zig:126-128`).
-pub const REQUESTED_VERSION: &str = "2025-11-25";
-
-/// The legacy versions a stdio server may answer with (`LegacyStdioVersion`).
-const STDIO_VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
-
-/// The legacy versions a streamable HTTP server may answer with
-/// (`legacy_streamable_http.zig:14-25`).
-const HTTP_VERSIONS: [&str; 3] = ["2025-11-25", "2025-06-18", "2025-03-26"];
 
 /// How many pages of a list are read before the list is called complete.
 const MAX_PAGES: usize = 64;
@@ -483,6 +474,10 @@ pub struct Server {
     /// src/core/mcp_host/model.zig:56-70`): carried with the server by a
     /// reload that keeps it, and not by one that starts it anew (`:101-125`).
     tools_known: AtomicBool,
+    /// The next request id, across every try: fx's request table is the
+    /// server's, not one process's, so a new process's first id follows the
+    /// last one's (`table`, `src/mcp/server.zig:264@481104fd`).
+    ids: Arc<AtomicU64>,
 }
 
 impl Server {
@@ -524,6 +519,7 @@ impl Server {
             hold: Mutex::new(None),
             entry,
             tools_known: AtomicBool::new(false),
+            ids: Arc::new(AtomicU64::new(1)),
         })
     }
 
@@ -773,6 +769,9 @@ pub struct McpRuntime {
     /// How many tries a server gets in a row, and how long it waits between
     /// them ([`Retry`]).
     retry: Mutex<Retry>,
+    /// The versions a start detects, and how long its probe waits
+    /// ([`era::Config::FX`]).
+    era: Mutex<era::Config>,
     /// Set by [`Self::shutdown`]: no reload starts a server after it.
     closed: AtomicBool,
     /// How long [`Self::shutdown`] waits for a reload under way.
@@ -838,6 +837,7 @@ impl McpRuntime {
             generation: AtomicU64::new(0),
             started: Mutex::new(None),
             retry: Mutex::new(Retry::FX),
+            era: Mutex::new(era::Config::FX),
             closed: AtomicBool::new(false),
             #[cfg(test)]
             reload_wait: Mutex::new(STOP_WAIT),
@@ -866,6 +866,20 @@ impl McpRuntime {
 
     fn retry(&self) -> Retry {
         *self.retry.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// A test's own probe wait, so a server that never answers
+    /// `server/discover` is initialized in milliseconds rather than fx's 10 s.
+    #[cfg(test)]
+    pub(crate) fn set_probe_timeout(&self, wait: Duration) {
+        self.era
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .probe_timeout = wait;
+    }
+
+    fn era_config(&self) -> era::Config {
+        *self.era.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// A test's own wait for a reload under way at the end.
@@ -998,6 +1012,15 @@ impl McpRuntime {
 
     fn servers(&self) -> Vec<Arc<Server>> {
         self.state().servers.clone()
+    }
+
+    /// How many probes server `name`'s live connection stopped waiting for
+    /// are still open ([`Transport::probes_open`]).
+    #[cfg(test)]
+    pub(crate) fn probes_open(&self, name: &str) -> usize {
+        self.server(name)
+            .and_then(|server| server.live().transport.clone())
+            .map_or(0, |transport| transport.probes_open())
     }
 
     pub fn generation(&self) -> u64 {
@@ -1355,14 +1378,18 @@ impl McpRuntime {
         let transport: Arc<dyn Transport> = match config.transport {
             Kind::Stdio => Arc::new(
                 StdioTransport::spawn(&config.command, &config.args, &config.env, None)
-                    .map_err(started)?,
+                    .map_err(started)?
+                    .with_ids(Arc::clone(&server.ids))
+                    .with_idle(config.operation_timeout()),
             ),
             Kind::Http => Arc::new(
                 HttpTransport::open(
                     &config.url,
                     &http_headers(config, &*self.environment).map_err(started)?,
                 )
-                .map_err(started)?,
+                .map_err(started)?
+                .with_ids(Arc::clone(&server.ids))
+                .with_idle(config.operation_timeout()),
             ),
             Kind::Sse => return Err(started(McpError::Named("McpTransportUnsupported"))),
         };
@@ -1425,6 +1452,11 @@ impl McpRuntime {
         Ok(())
     }
 
+    /// Detects the server's era and lists its tools: fx v0.0.16's detection
+    /// ([`era::Detector`]) driven one blocking exchange at a time. The probe
+    /// waits at most 10 s, cut to what is left of the start, as fx arms its
+    /// probe timer (`arm_probe_timer`, `startLeft`, `src/mcp/server.zig:
+    /// 2043`, `:966-971@481104fd`); `initialize` waits what is left.
     #[allow(clippy::type_complexity)]
     fn handshake(
         &self,
@@ -1433,58 +1465,88 @@ impl McpRuntime {
         left: &dyn Fn() -> Duration,
     ) -> Result<(String, Capabilities, Option<String>, Vec<McpTool>), (Step, McpError)> {
         let at = |step: Step| move |error: McpError| (step, error);
-        let initialized = transport.request(
-            "initialize",
-            json!({
-                "protocolVersion": REQUESTED_VERSION,
-                // No elicitation, sampling or roots: xfx answers none of
-                // them, so it advertises none of them.
-                "capabilities": {},
-                "clientInfo": {"name": "xfx", "version": env!("CARGO_PKG_VERSION")},
-            }),
-            left(),
-            Some(&server.cancel),
-        );
-        let initialized = initialized.map_err(at(Step::Initialize))?;
-        let version = initialized
-            .get("protocolVersion")
-            .and_then(Value::as_str)
-            .ok_or((
-                Step::Initialize,
-                McpError::Named("McpUnsupportedProtocolVersion"),
-            ))?;
-        let accepted: &[&str] = if server.config.transport == Kind::Stdio {
-            &STDIO_VERSIONS
-        } else {
-            &HTTP_VERSIONS
+        let config = self.era_config();
+        let mut detector = era::Detector::new(config);
+        // Each start is a new process, which detects before anything else
+        // (`processUp`, `detect`, `src/mcp/server.zig:824-831`, `:395-399`).
+        let _ = detector.step(era::Event::ProcessStarted);
+        let mut out = detector
+            .step(era::Event::DetectRequested)
+            .map_err(|_| (Step::Discover, McpError::Named("McpNotReady")))?;
+        let mut probe_due = (0, Instant::now());
+        // What the last discover or initialize result said (`keepInstructions`,
+        // `:1561-1572`).
+        let mut said = Said::default();
+        let (name, wire_era) = loop {
+            let mut send = None;
+            // The era is in force before `notifications/initialized` goes
+            // out, which a 2025 session's POST carries the agreed version of
+            // (`onInitializeAnswer`, `src/mcp/server.zig:1574-1593`).
+            let ready = out.effects.iter().find_map(|effect| match *effect {
+                era::Effect::Ready(version) => Some(wire_era(&config, version)),
+                _ => None,
+            });
+            if let Some(Some((_, era))) = ready {
+                transport.set_era(era);
+            }
+            for effect in &out.effects {
+                match *effect {
+                    era::Effect::SendDiscover(index) => send = Some(Outgoing::Discover(index)),
+                    era::Effect::ArmProbeTimer { probe, after } => {
+                        probe_due = (probe, Instant::now() + probe_wait(after, left()));
+                    }
+                    era::Effect::SendInitialize => send = Some(Outgoing::Initialize),
+                    era::Effect::SendInitialized => transport
+                        .notify(
+                            "notifications/initialized",
+                            Some(json!({})),
+                            Some(&server.cancel),
+                        )
+                        .map_err(at(Step::Initialized))?,
+                    era::Effect::Ready(_) => {}
+                    era::Effect::Failed(failure) => {
+                        return Err((Step::Detect, McpError::Named(failure.name())))
+                    }
+                }
+            }
+            if let Some(ready) = ready {
+                break ready.ok_or((
+                    Step::Detect,
+                    McpError::Named("McpUnsupportedProtocolVersion"),
+                ))?;
+            }
+            // The era each message goes out in: probing drops a session a
+            // fallback began, and `initialize` begins one (`send_discover`,
+            // `startSession`, `src/mcp/server.zig:2027-2034`, `:1358-1359`;
+            // `legacyEra`, `:888-891@481104fd`).
+            let event = match send {
+                Some(Outgoing::Discover(index)) => {
+                    transport.set_era(WireEra::Detecting);
+                    self.probe(server, transport, &config, index, probe_due, &mut said)?
+                }
+                Some(Outgoing::Initialize) => {
+                    transport.set_era(WireEra::Initializing);
+                    self.initialize(server, transport, &config, left, &mut said)?
+                }
+                None => return Err((Step::Detect, McpError::Named("McpInitializeFailed"))),
+            };
+            out = detector
+                .step(event)
+                .map_err(|_| (Step::Detect, McpError::Named("McpNotReady")))?;
         };
-        if !accepted.contains(&version) {
-            return Err((
-                Step::Initialize,
-                McpError::Named("McpUnsupportedProtocolVersion"),
-            ));
-        }
-        let advertised = initialized.get("capabilities").and_then(Value::as_object);
+        let advertised = said.capabilities.as_ref().and_then(Value::as_object);
         let has = |key: &str| {
             advertised.is_some_and(|map| map.get(key).is_some_and(|value| !value.is_null()))
         };
         let capabilities = Capabilities {
-            tools: has("tools"),
+            // A 2026 server is listed whatever it says: fx's catalog asks
+            // every server for its tools (`.ready`, `:2044-2053`).
+            tools: has("tools") || matches!(wire_era, WireEra::Modern(_)),
             resources: has("resources"),
             prompts: has("prompts"),
             completions: has("completions"),
         };
-        let instructions = initialized
-            .get("instructions")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        transport
-            .notify(
-                "notifications/initialized",
-                (server.config.transport != Kind::Stdio).then(|| json!({})),
-                Some(&server.cancel),
-            )
-            .map_err(at(Step::Initialized))?;
+        let instructions = said.instructions;
         let mut tools = Vec::new();
         if capabilities.tools {
             let mut cursor: Option<String> = None;
@@ -1514,7 +1576,124 @@ impl McpRuntime {
                 }
             }
         }
-        Ok((version.to_string(), capabilities, instructions, tools))
+        Ok((name.to_string(), capabilities, instructions, tools))
+    }
+
+    /// One probe, `server/discover` with `config.preferred[index]`, and the
+    /// event its answer -- or its silence -- is (`classifyDiscover`,
+    /// `classifyDiscoverHttp`, `era.zig:386-415@481104fd`).
+    ///
+    /// On stdio a line fx's decoder refuses that names the probe fails it,
+    /// which is a legacy answer (`onRefusedLine`, `src/mcp/server.zig:
+    /// 769-790`); an error without an id is one too (`:1159-1160`); any other
+    /// line answers nothing, so the probe waits on; and a process that is
+    /// gone ends the start. Over HTTP a body that holds no JSON-RPC answer
+    /// is a legacy answer whatever its status, a broken connection is sent
+    /// again once and then waits out the timer (`max_attempts = 2`,
+    /// `http_modern.zig:21-24`; `endAttempt`, `server.zig:1242-1257`), and an
+    /// answer over the size limit waits it out at once.
+    fn probe(
+        &self,
+        server: &Server,
+        transport: &Arc<dyn Transport>,
+        config: &era::Config,
+        index: u8,
+        (probe, deadline): (u32, Instant),
+        said: &mut Said,
+    ) -> Result<era::Event, (Step, McpError)> {
+        let http = server.config.transport != Kind::Stdio;
+        let version = config.preferred[usize::from(index)];
+        let mut attempts = 0u8;
+        loop {
+            let wait = deadline.saturating_duration_since(Instant::now());
+            if wait.is_zero() {
+                return Ok(era::Event::ProbeTimerFired(probe));
+            }
+            let reply = transport.detect(
+                "server/discover",
+                json!({}),
+                &Meta::Modern(version),
+                wait,
+                Some(&server.cancel),
+            );
+            let error = match reply {
+                Ok(reply) => return Ok(probe_event(config, &reply, http, said)),
+                Err(error) => error,
+            };
+            match error {
+                McpError::Named("McpRequestTimedOut") => {
+                    return Ok(era::Event::ProbeTimerFired(probe))
+                }
+                McpError::Named("Cancelled" | "McpAuthenticationRequired") => {
+                    return Err((Step::Discover, error))
+                }
+                error if !http => return Err((Step::Discover, error)),
+                McpError::Named("ResponseTooLarge") => {}
+                _ => {
+                    attempts += 1;
+                    if attempts < 2 {
+                        continue;
+                    }
+                }
+            }
+            wait_out(deadline, &server.cancel).map_err(|error| (Step::Discover, error))?;
+            return Ok(era::Event::ProbeTimerFired(probe));
+        }
+    }
+
+    /// `initialize`, and the event its answer is (`classifyInitialize`,
+    /// `era.zig:417-444@481104fd`). It waits what is left of the start; on
+    /// stdio a refused line naming it is an error the request fails with
+    /// (whose words may hint at a modern server), any other line answers
+    /// nothing, and a process that is gone ends the start; over HTTP an
+    /// initialize that ends without an answer is rejected (`onInitializeEnded`,
+    /// `src/mcp/server.zig:1598-1603`).
+    fn initialize(
+        &self,
+        server: &Server,
+        transport: &Arc<dyn Transport>,
+        config: &era::Config,
+        left: &dyn Fn() -> Duration,
+        said: &mut Said,
+    ) -> Result<era::Event, (Step, McpError)> {
+        let http = server.config.transport != Kind::Stdio;
+        let reply = transport.detect(
+            "initialize",
+            era::initialize_params(config),
+            &Meta::Legacy,
+            left(),
+            Some(&server.cancel),
+        );
+        match reply {
+            Ok(Reply {
+                frame: Some(frame),
+                refused,
+                ..
+            }) => {
+                let message = refused.map(|why| refused_message(why, &frame));
+                let body = match &message {
+                    Some(message) => Some(refused_body(message)),
+                    None => match wire::decode(&frame) {
+                        Ok(wire::Message::Response(response)) => Some(response.body),
+                        _ => None,
+                    },
+                };
+                Ok(match body {
+                    Some(body) => {
+                        said.keep(body);
+                        era::classify_initialize(config, body)
+                    }
+                    None => era::Event::InitializeError(false),
+                })
+            }
+            Ok(Reply { frame: None, .. }) => Ok(era::Event::InitializeError(false)),
+            Err(McpError::Named("McpRequestTimedOut")) => Ok(era::Event::InitializeTimedOut),
+            Err(error @ McpError::Named("Cancelled" | "McpAuthenticationRequired")) => {
+                Err((Step::Initialize, error))
+            }
+            Err(error) if !http => Err((Step::Initialize, error)),
+            Err(_) => Ok(era::Event::InitializeError(false)),
+        }
     }
 
     /// One `tools/list` entry, named for the model.
@@ -2049,12 +2228,131 @@ impl Drop for McpRuntime {
 enum Step {
     /// Starting the process, or opening the endpoint.
     Start,
-    /// `initialize`, and the version it answered with.
+    /// `server/discover`.
+    Discover,
+    /// `initialize`.
     Initialize,
+    /// Detection, which failed in one of fx's ways ([`era::Failure`]).
+    Detect,
     /// `notifications/initialized`.
     Initialized,
     /// `tools/list`.
     Tools,
+}
+
+/// What a detection step sends next.
+enum Outgoing {
+    Discover(u8),
+    Initialize,
+}
+
+/// What the last discover or initialize result said about the server: its
+/// capabilities, and what it tells the model (`keepInstructions`,
+/// `src/mcp/server.zig:1561-1572@481104fd` -- a result replaces the
+/// instructions, with none when it has none).
+#[derive(Debug, Default)]
+struct Said {
+    capabilities: Option<Value>,
+    instructions: Option<String>,
+}
+
+impl Said {
+    /// A result's capabilities and instructions, read from its raw text as
+    /// fx reads them: a result whose fields fx's decoder refuses -- one named
+    /// twice -- says neither, and instructions that are not a string are none.
+    fn keep(&mut self, body: wire::Body<'_>) {
+        let wire::Body::Result { raw, .. } = body else {
+            return;
+        };
+        let [capabilities, instructions] =
+            wire::object_fields(raw, ["capabilities", "instructions"]).unwrap_or([None, None]);
+        self.capabilities = capabilities.and_then(|raw| serde_json::from_str(raw).ok());
+        self.instructions = instructions.and_then(wire::decode_string);
+    }
+}
+
+/// The version a ready detection chose, by name, and the era requests are
+/// sent in at it.
+fn wire_era(config: &era::Config, version: era::Version) -> Option<(&'static str, WireEra)> {
+    let name = era::version_name(config, version)?;
+    match version {
+        era::Version::Legacy(_) => Some((name, WireEra::Legacy(name))),
+        era::Version::Preferred(_) => Some((name, WireEra::Modern(name))),
+        era::Version::None | era::Version::Other => None,
+    }
+}
+
+/// The event a probe's reply is (`onStdioAnswer`, `onMessage`,
+/// `src/mcp/server.zig:835-850`, `:1154-1172@481104fd`): on stdio a refused
+/// line naming the probe fails it with -32600, an error without an id while
+/// it waits is a legacy answer, and an answer is classified; over HTTP the
+/// answer, or the status without one, is.
+fn probe_event(config: &era::Config, reply: &Reply, http: bool, said: &mut Said) -> era::Event {
+    let Some(frame) = reply.frame.as_deref() else {
+        return if http {
+            era::classify_discover_http(config, reply.status, None)
+        } else {
+            era::Event::LegacyAnswer
+        };
+    };
+    if let Some(why) = reply.refused {
+        let message = refused_message(why, frame);
+        return era::classify_discover(config, refused_body(&message));
+    }
+    let response = match wire::decode(frame) {
+        Ok(wire::Message::Response(response)) => Some(response),
+        _ => None,
+    };
+    if http {
+        let body = response.map(|response| response.body);
+        if let Some(body) = body {
+            said.keep(body);
+        }
+        return era::classify_discover_http(config, reply.status, body);
+    }
+    match response {
+        Some(response) if response.id.is_some() => {
+            said.keep(response.body);
+            era::classify_discover(config, response.body)
+        }
+        // An error without an id while the probe waits (`:1159-1160`).
+        _ => era::Event::LegacyAnswer,
+    }
+}
+
+/// The message, as a JSON string, a refused line fails its request with
+/// (`onRefusedLine`, `src/mcp/server.zig:772-790@481104fd`).
+fn refused_message(why: &str, line: &str) -> String {
+    serde_json::to_string(&wire::invalid_reply(why, line)).expect("a string")
+}
+
+/// The failure a refused line is: -32600 with `message`.
+fn refused_body(message: &str) -> wire::Body<'_> {
+    wire::Body::Failure(wire::Failure {
+        code: era::code::INVALID_REQUEST,
+        message,
+        data: None,
+    })
+}
+
+/// How long a probe waits: its timer, cut to what is left of the start
+/// (`startLeft`, `src/mcp/server.zig:966-971@481104fd`).
+pub(crate) fn probe_wait(after: Duration, left: Duration) -> Duration {
+    after.min(left)
+}
+
+/// Waits until `deadline`, or until `cancel`.
+fn wait_out(deadline: Instant, cancel: &CancelToken) -> Result<(), McpError> {
+    loop {
+        if cancel.is_cancelled() {
+            return Err(McpError::Named("Cancelled"));
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Ok(());
+        }
+        std::thread::sleep(left.min(super::transport::CANCEL_POLL));
+    }
 }
 
 /// Whether another try could bring a server up after `error`. A sign-in, a
@@ -2099,25 +2397,27 @@ impl Failed {
 /// fx's for -- a spawn that failed, a page of tools that could not be read --
 /// is its error's name, as fx shows a reason it has no words for as it is.
 fn failure_words(step: Step, error: &McpError, exit: Option<Exit>, stderr: Option<&str>) -> String {
-    let unsupported = *error == McpError::Named("McpUnsupportedProtocolVersion");
+    let detected = match error {
+        McpError::Named(name) if step == Step::Detect => era::Failure::from_name(name),
+        _ => None,
+    };
     // A process that is gone is the reason, however the request it was asked
     // saw it go (`.{ "process", "its process exited" }`); its exit then says
     // how, and after any other reason it is added.
     let own = step != Step::Start
         && exit.is_some()
-        && !unsupported
+        && detected.is_none()
         && *error != McpError::Named("McpAuthenticationRequired");
     let mut words = match (step, error) {
         (_, McpError::Named("McpAuthenticationRequired")) => "it needs a login".to_string(),
         _ if own => "its process exited".to_string(),
-        (Step::Initialize, _) if unsupported => {
-            "it answered with an MCP version xfx doesn't support".to_string()
-        }
-        (Step::Initialize, _) => {
-            "it refused or never answered xfx's initialize request".to_string()
-        }
+        _ if detected.is_some() => detected
+            .map(era::Failure::words)
+            .unwrap_or_default()
+            .to_string(),
+        (Step::Initialize, _) => era::Failure::InitializeFailed.words().to_string(),
         (Step::Initialized, _) => "it never answered xfx's initialized notification".to_string(),
-        (Step::Start | Step::Tools, error) => error.to_string(),
+        (Step::Start | Step::Discover | Step::Detect | Step::Tools, error) => error.to_string(),
     };
     match exit {
         Some(Exit::Code(code)) => words.push_str(&format!(
@@ -2526,7 +2826,7 @@ mod tests {
         // `vercel-labs/fx@481104fd src/core/mcp_host/runtime.zig:2277-2308`.
         let closed = McpError::Named("McpConnectionClosed");
         type Case<'a> = (Step, McpError, Option<Exit>, Option<&'a str>, &'a str);
-        let cases: [Case; 8] = [
+        let cases: [Case; 11] = [
             (
                 Step::Initialize,
                 closed.clone(),
@@ -2549,11 +2849,32 @@ mod tests {
                 "it refused or never answered xfx's initialize request; its last stderr lines: \"still starting\"",
             ),
             (
-                Step::Initialize,
+                Step::Detect,
                 McpError::Named("McpUnsupportedProtocolVersion"),
                 Some(Exit::Code(0)),
                 None,
-                "it answered with an MCP version xfx doesn't support; its process exited with code 0",
+                "it answered with an MCP version xfx doesn't support (xfx speaks 2025-03-26 and newer); its process exited with code 0",
+            ),
+            (
+                Step::Detect,
+                McpError::Named("McpNoSharedVersion"),
+                None,
+                None,
+                "it supports no MCP version xfx speaks",
+            ),
+            (
+                Step::Detect,
+                McpError::Named("McpWentQuiet"),
+                None,
+                Some("bye\n"),
+                "it stopped answering while starting; its last stderr lines: \"bye\"",
+            ),
+            (
+                Step::Discover,
+                closed.clone(),
+                Some(Exit::Code(1)),
+                None,
+                "its process exited with code 1",
             ),
             (
                 Step::Initialized,

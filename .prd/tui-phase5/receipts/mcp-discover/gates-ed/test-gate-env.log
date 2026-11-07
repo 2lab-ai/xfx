@@ -1,0 +1,7 @@
+test-gate-env: this grep reads GREP_OPTIONS (grep (BSD grep, GNU compatible) 2.6.0-FreeBSD): each case below is a RED for its gate
+test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code
+test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command
+test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break
+test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
+test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
+test-gate-env: ok (5 cases)

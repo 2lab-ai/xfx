@@ -36,6 +36,7 @@ CAPTURE = os.path.join(HERE, "capture.sh")
 FAKEGW = os.path.join(HERE, "fakegw.ts")
 MCPHTTP = os.path.join(HERE, "mcphttp.ts")
 STDIO = os.path.join(HERE, "scenarios", "p5-mcp-stdio.ts")
+DISCOVER_STDIO = os.path.join(HERE, "scenarios", "p5-mcp-discover-stdio.ts")
 
 for _tool in ("tmux", "bun", "curl"):
     if not shutil.which(_tool):
@@ -155,7 +156,7 @@ class Refusals(unittest.TestCase):
             ("modelsdelay soon\nsnap a\n", "modelsdelay takes milliseconds, not soon"),
             ("clock yesterday\nsnap a\n", "clock takes milliseconds since the epoch, not yesterday"),
             ("usage missing.json\nsnap a\n", "usage takes a file in"),
-            ("mcphttp sometimes\nsnap a\n", "mcphttp takes ready, methodnotfound, hang, fail or rpcerror, not sometimes"),
+            ("mcphttp sometimes\nsnap a\n", "mcphttp takes ready, methodnotfound, hang, fail, rpcerror, modern, notimpl, old2024, malformed, hostile, ssehold, sseidless, ssestrid or ssefail, not sometimes"),
             ("jobctl now\nsnap a\n", "jobctl takes no argument, not now"),
             ("held now\nsnap a\n", "held takes no argument, not now"),
             ("release 1\nsnap a\n", "release takes no argument, not 1"),
@@ -476,8 +477,8 @@ class Verbs(unittest.TestCase):
         self.assertIn(" status:404 rc:0", a)
         self.assertIn('{"jsonrpc":"2.0","id":4,"error":{"code":-32601,"message":"Method not found"}} status:200', a)
         log = r.file("mcphttp", ".log")
-        self.assertRegex(log, r"POST /mcp rpc=initialize id=2 session=no version=- mode=ready -> 200")
-        self.assertRegex(log, r"POST /mcp rpc=server/discover id=4 session=no version=- mode=methodnotfound -> 200")
+        self.assertRegex(log, r"POST /mcp rpc=initialize id=2 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200")
+        self.assertRegex(log, r"POST /mcp rpc=server/discover id=4 session=no version=- mcp-method=- mcp-name=- mode=methodnotfound -> 200")
 
     def test_held_waits_for_the_hold_and_release_lets_it_go(self):
         # The stub's curl prints each event as it arrives: two before the hold, the rest after.
@@ -813,7 +814,7 @@ class McpHttp(unittest.TestCase):
         self.assertEqual(s.ask("GET", "/mcp")[0], 405)
         self.assertEqual(s.ask("DELETE", "/mcp")[0], 204)
         log = s.lines()
-        self.assertRegex(log, r"\+\d+ms POST /mcp rpc=tools/call id=5 session=yes version=2025-06-18 mode=ready -> 200 \+\d+ms")
+        self.assertRegex(log, r"\+\d+ms POST /mcp rpc=tools/call id=5 session=yes version=2025-06-18 mcp-method=- mcp-name=- mode=ready -> 200 \+\d+ms")
         self.assertNotIn("fxcap-session-1", log)
 
     def test_methodnotfound_answers_discover_with_the_rpc_error_and_then_serves(self):
@@ -830,7 +831,7 @@ class McpHttp(unittest.TestCase):
         write(self.mode, "ready\n")
         self.assertEqual(self.rpc(s, "ping", 2)[2], {"jsonrpc": "2.0", "id": 2, "result": {}})
         time.sleep(0.2)
-        self.assertRegex(s.lines(), r"rpc=ping id=1 session=no version=- mode=ready -> 200")
+        self.assertRegex(s.lines(), r"rpc=ping id=1 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200")
 
     def test_fail_and_rpcerror(self):
         s = self.server("fail")
@@ -838,6 +839,175 @@ class McpHttp(unittest.TestCase):
         write(self.mode, "rpcerror\n")
         self.assertEqual(self.rpc(s, "initialize", 2)[2]["error"], {"code": -32603, "message": "fixture refuses"})
         self.assertEqual(self.rpc(s, "notifications/initialized")[0], 202)
+
+
+    MODERN_META = {"progressToken": 2, "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                   "io.modelcontextprotocol/clientCapabilities": {}, "io.modelcontextprotocol/clientInfo": {"name": "t", "version": "1"}}
+
+    def test_modern_lists_2026_and_holds_every_request_to_its_meta_and_header(self):
+        s = self.server("modern")
+        status, h, body = self.rpc(s, "server/discover", 1, {"_meta": dict(self.MODERN_META, progressToken=1)},
+                                   {"mcp-protocol-version": "2026-07-28", "mcp-method": "server/discover"})
+        self.assertEqual((status, body["result"]["supportedVersions"], body["result"]["resultType"]), (200, ["2026-07-28"], "complete"))
+        self.assertIsNone(h.get("MCP-Session-Id") or h.get("mcp-session-id"))
+        self.assertEqual(self.rpc(s, "initialize", 2, {"protocolVersion": "2025-11-25"})[2]["error"]["code"], -32601)
+        self.assertEqual(self.rpc(s, "tools/list", 3, {"_meta": {"progressToken": 3}}, {"mcp-protocol-version": "2026-07-28"})[0::2],
+                         (400, {"jsonrpc": "2.0", "id": 3, "error": {"code": -32602, "message": "Missing modern request metadata"}}))
+        self.assertEqual(self.rpc(s, "tools/list", 4, {"_meta": self.MODERN_META})[0], 400, "no version header")
+        status, _, body = self.rpc(s, "tools/list", 5, {"_meta": self.MODERN_META}, {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/list"})
+        self.assertEqual((status, [t["name"] for t in body["result"]["tools"]]), (200, ["echo"]))
+        call = self.rpc(s, "tools/call", 6, {"_meta": self.MODERN_META, "name": "echo", "arguments": {"text": "hi"}},
+                        {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "echo"})[2]
+        self.assertEqual(call["result"]["content"][0]["text"], "MCPHTTP_MODERN_ECHO: hi")
+        self.assertRegex(s.lines(), r"rpc=tools/call id=6 session=no version=2026-07-28 mcp-method=tools/call mcp-name=echo mode=modern -> 200")
+
+    def test_notimpl_answers_discover_404_with_the_rpc_error(self):
+        s = self.server("notimpl")
+        self.assertEqual(self.rpc(s, "server/discover", 1)[0::2],
+                         (404, {"jsonrpc": "2.0", "id": 1, "error": {"code": -32601, "message": "Method not found"}}))
+        self.assertEqual(self.rpc(s, "tools/list", 2, {"_meta": self.MODERN_META}, {"mcp-protocol-version": "2026-07-28"})[2]["result"]["tools"][0]["name"], "echo")
+
+    def test_old2024_initializes_at_2024_11_05(self):
+        s = self.server("old2024")
+        self.assertEqual(self.rpc(s, "server/discover", 1)[0::2], (404, None))
+        self.assertEqual(self.rpc(s, "initialize", 2, {"protocolVersion": "2025-11-25"})[2]["result"]["protocolVersion"], "2024-11-05")
+
+    def test_malformed_and_hostile_answer_discover_and_then_serve_as_ready(self):
+        s = self.server("malformed")
+        status, _, body = self.rpc(s, "server/discover", 1)
+        self.assertEqual((status, body["jsonrpc"], body["id"]), (200, "2.0", 1))
+        self.assertIsInstance(body["result"], str)
+        self.assertIn("\x1b]0;", body["result"])
+        self.assertEqual(self.rpc(s, "initialize", 2, {"protocolVersion": "2025-11-25"})[2]["result"]["protocolVersion"], "2025-11-25")
+        write(self.mode, "hostile\n")
+        result = self.rpc(s, "server/discover", 3)[2]["result"]
+        self.assertEqual(result["resultType"], "complete")
+        self.assertNotIn("2026-07-28", [v for v in result["supportedVersions"]])
+        self.assertEqual(len(result["supportedVersions"][3]), 65536)
+        self.assertIn("\x1b", result["instructions"])
+
+
+    def test_the_sse_modes_answer_discover_on_an_event_stream(self):
+        def events(mode):
+            write(self.mode, mode + "\n")
+            msg = {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}}
+            c = http.client.HTTPConnection("127.0.0.1", s.port, timeout=5)
+            try:
+                c.request("POST", "/mcp", body=json.dumps(msg), headers={"content-type": "application/json"})
+                r = c.getresponse()
+                kind = r.getheader("content-type")
+                # The first event, read as it comes: `ssehold` never ends.
+                line = r.fp.readline()
+                while not line.startswith(b"data: "):
+                    line = r.fp.readline()
+                return r.status, kind, json.loads(line[len(b"data: "):])
+            finally:
+                c.close()
+
+        s = self.server("ssehold")
+        status, kind, frame = events("ssehold")
+        self.assertEqual((status, kind, frame["id"], frame["result"]["supportedVersions"]), (200, "text/event-stream", 1, ["2026-07-28"]))
+        self.assertEqual(events("ssestrid")[2]["id"], "1")
+        self.assertEqual(events("ssefail")[0::2][0], 500)
+        self.assertEqual(events("ssefail")[2]["id"], 1)
+        self.assertEqual(events("sseidless")[2], {"jsonrpc": "2.0", "id": None, "error": {"code": -32601, "message": "Method not found"}})
+        # Anything but discover is the mode's plain server, and a mode that is
+        # no SSE mode answers discover as before.
+        self.assertEqual(self.rpc(s, "initialize", 2, {"protocolVersion": "2025-11-25"})[2]["result"]["protocolVersion"], "2025-11-25")
+        write(self.mode, "ready\n")
+        self.assertEqual(self.rpc(s, "server/discover", 3)[0::2], (404, None))
+
+
+class McpDiscoverStdio(unittest.TestCase):
+    """scenarios/p5-mcp-discover-stdio.ts, the p5-mcp-discover scenarios' stdio server."""
+
+    def start(self, mode):
+        self.log = os.path.join(scratch(), "wire.ndjson")
+        self.p = subprocess.Popen([BUN, DISCOVER_STDIO, mode], stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=dict(os.environ, MCPSTDIO_WIRE_LOG=self.log))
+        self.addCleanup(self.stop)
+
+    def stop(self):
+        if self.p.poll() is None:
+            self.p.kill()
+            self.p.wait()
+        self.p.stdin.close()
+        self.p.stdout.close()
+
+    def send(self, msg):
+        self.p.stdin.write((json.dumps(msg) + "\n").encode())
+        self.p.stdin.flush()
+
+    def ask(self, msg):
+        self.send(msg)
+        return json.loads(self.p.stdout.readline())
+
+    META = {"progressToken": 2, "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}, "io.modelcontextprotocol/clientInfo": {"name": "t", "version": "1"}}
+
+    def test_modern_lists_2026_refuses_initialize_and_holds_requests_to_their_meta(self):
+        self.start("modern")
+        result = self.ask({"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {"_meta": dict(self.META, progressToken=1)}})["result"]
+        self.assertEqual((result["supportedVersions"], result["resultType"]), (["2026-07-28"], "complete"))
+        self.assertEqual(self.ask({"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}})["error"]["code"], -32601)
+        self.assertEqual(self.ask({"jsonrpc": "2.0", "id": 3, "method": "tools/list", "params": {"_meta": {"progressToken": 3}}})["error"],
+                         {"code": -32602, "message": "Missing modern request metadata"})
+        tools = self.ask({"jsonrpc": "2.0", "id": 4, "method": "tools/list", "params": {"_meta": self.META}})["result"]
+        self.assertEqual((tools["resultType"], tools["tools"][0]["name"]), ("complete", "echo"))
+        call = self.ask({"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"_meta": self.META, "name": "echo", "arguments": {"text": "hi"}}})
+        self.assertEqual(call["result"]["content"][0]["text"], "DISCOVER_MODERN_RESULT:hi")
+        with open(self.log) as f:
+            self.assertEqual([json.loads(line)["sequence"] for line in f], [1, 2, 3, 4, 5])
+
+    def test_silent_says_nothing_to_discover_then_initializes(self):
+        self.start("silent")
+        self.send({"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}})
+        init = self.ask({"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}})
+        self.assertEqual((init["id"], init["result"]["protocolVersion"]), (2, "2025-06-18"))
+
+    def test_old2024_refuses_discover_and_initializes_at_2024_11_05(self):
+        self.start("old2024")
+        self.assertEqual(self.ask({"jsonrpc": "2.0", "id": 1, "method": "server/discover"})["error"]["code"], -32601)
+        self.assertEqual(self.ask({"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}})["result"]["protocolVersion"], "2024-11-05")
+
+    def test_malformed_and_hostile_answers(self):
+        self.start("malformed")
+        reply = self.ask({"jsonrpc": "2.0", "id": 1, "method": "server/discover"})
+        self.assertIsInstance(reply["result"], str)
+        self.assertIn("\x1b", reply["result"])
+        self.assertEqual(self.ask({"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}})["result"]["protocolVersion"], "2025-06-18")
+        self.stop()
+        self.start("hostile")
+        result = self.ask({"jsonrpc": "2.0", "id": 1, "method": "server/discover"})["result"]
+        self.assertNotIn("2026-07-28", result["supportedVersions"])
+        self.assertIn("\x1b", result["instructions"])
+
+    def test_banner_asks_escaped_doubled_and_deep(self):
+        self.start("banner")
+        self.send({"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}})
+        self.assertEqual(self.p.stdout.readline(), b"Server started on stdio\n")
+        self.assertEqual(json.loads(self.p.stdout.readline())["result"]["supportedVersions"], ["2026-07-28"])
+        self.stop()
+        self.start("asks")
+        self.send({"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}})
+        self.assertEqual(json.loads(self.p.stdout.readline()), {"jsonrpc": "2.0", "id": "q1", "method": "ping"})
+        self.assertEqual(json.loads(self.p.stdout.readline())["error"]["code"], -32601)
+        self.send({"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}})
+        self.assertEqual(json.loads(self.p.stdout.readline()), {"jsonrpc": "2.0", "id": "q2", "method": "ping"})
+        self.assertEqual(json.loads(self.p.stdout.readline())["result"]["protocolVersion"], "2025-06-18")
+        self.stop()
+        for mode, raw in (
+            ("escaped", b'"supportedVersions":["2026\\u002d07-28","2025\\u002d11-25"]'),
+            ("doubled", b'"supportedVersions":["2026-07-28"],"supportedVersions":[]'),
+            ("deep:3", b'"supportedVersions":[[[]]]'),
+        ):
+            self.start(mode)
+            self.send({"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}})
+            self.assertIn(raw, self.p.stdout.readline(), mode)
+            self.stop()
+
+    def test_an_unknown_mode_is_refused(self):
+        p = subprocess.run([BUN, DISCOVER_STDIO, "bogus"], stdin=subprocess.DEVNULL, capture_output=True, timeout=30)
+        self.assertEqual(p.returncode, 2)
 
 
 class McpStdio(unittest.TestCase):

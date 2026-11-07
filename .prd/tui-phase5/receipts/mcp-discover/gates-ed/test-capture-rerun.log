@@ -1,0 +1,14 @@
+...............................................E.....
+======================================================================
+ERROR: test_models2_and_modelsdelay (__main__.Verbs.test_models2_and_modelsdelay)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/scripts/fxcap/test_capture.py", line 456, in test_models2_and_modelsdelay
+    self.assertLess(a.index('{"data":[{"id":"fake/one"}]}'), a.index('{"data":[{"id":"fake/two"}]}'))
+                    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: substring not found
+
+----------------------------------------------------------------------
+Ran 53 tests in 300.463s
+
+FAILED (errors=1)

@@ -1,0 +1,30 @@
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+test result: ok. 4300 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 38.14s
+     Running unittests src/main.rs (target/debug/deps/xfx-9aebef0ea693158d)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/cli.rs (target/debug/deps/cli-d768a55c797aca95)
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+     Running tests/gateway.rs (target/debug/deps/gateway-f56ff7e9e94d6c3b)
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+     Running tests/interactive.rs (target/debug/deps/interactive-f70d73351542cf43)
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.73s
+     Running tests/ledger_compat.rs (target/debug/deps/ledger_compat-289fdfb8a5e98c98)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.76s
+     Running tests/llmux.rs (target/debug/deps/llmux-949d55ae05f0352d)
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.16s
+     Running tests/mcp.rs (target/debug/deps/mcp-a1a1760fc13d208a)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.06s
+     Running tests/parity.rs (target/debug/deps/parity-980418d577d0d951)
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.77s
+     Running tests/permissions.rs (target/debug/deps/permissions-fa2e5e817ceaaeb5)
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.28s
+     Running tests/session_compat.rs (target/debug/deps/session_compat-1c169b8ef7fa34c2)
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.91s
+     Running tests/sessions.rs (target/debug/deps/sessions-6075dbd4fddb1d5f)
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.75s
+     Running tests/tool_loop.rs (target/debug/deps/tool_loop-89543537cd6c9667)
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+     Running tests/tui.rs (target/debug/deps/tui-9905dcb580b5dadb)
+test result: ok. 175 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.48s
+   Doc-tests xfx
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s

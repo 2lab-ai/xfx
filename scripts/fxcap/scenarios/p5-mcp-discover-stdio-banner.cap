@@ -1,0 +1,14 @@
+# p5 mcp discover: a 2026-07-28 stdio server that writes a line that is not JSON-RPC
+# (`Server started on stdio`) just before its discover answer (p5-mcp-discover-stdio.ts
+# `banner`). fx v0.0.16 keeps such a line aside -- it names no request -- and reads the
+# answer after it (`onRefusedLine`, `keepStray`, src/mcp/server.zig:769-776@481104fd): the
+# server is ready at 2026-07-28. `home wire` is what the server was sent.
+fx: homefile .fx/mcp.json p5-mcp-discover-stdio-banner-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-discover-stdio-banner-profile.json
+gateway p5-mcp-hello.json
+wait 6
+type /mcp show fixture
+key Enter
+wait 3
+snap show
+home wire

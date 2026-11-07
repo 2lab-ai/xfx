@@ -1,0 +1,15 @@
+# p5 mcp discover: two stdio servers whose discover answer fx's decoder reads by the raw
+# text (p5-mcp-discover-stdio.ts `escaped`, `doubled`). `escaped` lists 2026-07-28 and
+# 2025-11-25 each written with an escape: fx compares a version as written (`plainString`,
+# src/mcp/core/era.zig:370-377, :425@481104fd), so it lists none fx speaks (retrying).
+# `doubled` names `supportedVersions` twice: a field named twice says nothing
+# (`objectFields`, src/mcp/protocol/wire.zig:142-146@481104fd), so the answer is no version
+# list, a legacy answer, and `initialize` follows (ready). `/mcp list` at 8 s.
+fx: homefile .fx/mcp.json p5-mcp-discover-stdio-escaped-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-discover-stdio-escaped-profile.json
+gateway p5-mcp-hello.json
+wait 8
+type /mcp list
+key Enter
+wait 2
+snap list

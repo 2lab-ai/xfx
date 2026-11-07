@@ -1,0 +1,7 @@
+# git diff --stat d96603f9..7c2ceeea -- src tests docs
+ docs/parity.md                        |   2 +-
+ src/mcp/tests/discover.rs             | 227 ++++++++++++++++++++++++----------
+ src/mcp/transport.rs                  | 209 +++++++++++++++++++++++++------
+ src/mcp/wire.rs                       |   8 +-
+ tests/support/mcp_discover_fixture.sh |   2 +
+ 5 files changed, 341 insertions(+), 107 deletions(-)
