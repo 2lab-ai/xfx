@@ -43,8 +43,10 @@ LEDGER = ledgermod.load(os.path.join(repo, "scripts", "fxcap", "parity-ledger.to
 RULES = {"fx": ledgermod.rules_for(LEDGER, "fx"), "xfx": ledgermod.rules_for(LEDGER, "xfx")}
 ROW = re.compile(r"^  │ (\d+) ([ +-]) (.*)$")
 READ = re.compile(r"^│ +(\d+) {4}(.*)$")
-APART = [d for d in ledgermod.active(LEDGER, "v0.0.16") if d["id"] == "filler-modifier-count"]
-assert len(APART) == 1, "the ledger's filler-modifier-count is not active for v0.0.16"
+# The divergence's rows, as a selector only: by id, not `active`, so the
+# claim reads the same after the entry's `expires` date.
+APART = [d for d in LEDGER["divergences"] if d["id"] == "filler-modifier-count"]
+assert len(APART) == 1, "the ledger holds no filler-modifier-count"
 W104 = "w" * 104
 # fx v0.0.16 re-anchors the cursor after a glyph with a variation selector
 # (`ESC[nG`): on line 2 of the cluster form tmux then leaves three unstyled
