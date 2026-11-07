@@ -1,0 +1,5 @@
+# python3 -I mutants.py <git clone --no-local at 042908ae>
+C1 the end gives a copy up before it waits (kills before the answer): KILLED (an_ending_session_lets_a_copy_that_answers_land, exit 101: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4259 filtered out; finished in 0.01s | error: test failed, to rerun pass `--lib`)
+C2 the end waits for nothing: the grace is never asked: KILLED (an_ending_session_lets_a_copy_that_answers_land, exit 101: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4259 filtered out; finished in 0.02s | error: test failed, to rerun pass `--lib`)
+C3 a session's Drop gives no grace: KILLED (an_ending_session_kills_a_copy_whose_tool_never_exits_and_joins_its_thread, exit 101: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4259 filtered out; finished in 0.57s | error: test failed, to rerun pass `--lib`)
+C4 starting a copy waits for it: KILLED (a_copy_is_started_and_answered_later_rather_than_waited_for, exit 101: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4259 filtered out; finished in 60.03s | error: test failed, to rerun pass `--lib`)
