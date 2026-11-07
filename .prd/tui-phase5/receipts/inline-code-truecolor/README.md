@@ -160,8 +160,9 @@ sweep, attributed to that unit, until it lands.
 
 It selects rows by their normalized text -- the rails (`^┃`), the summary
 (`^  <wall> \(`, after `turn-wall-time`), the hint row (`^auto · model-a$`)
-and a tool group's rows (`^● `, `^[├└] `) -- so it does not reach an
-answer's row. T-U3's entry `inline-code-shade` cited `docs/parity.md:240`,
+and a tool group's rows (`^● `, `^[├└] `), and from T-U3-TCd a stopped
+call's own line (`^[▪■] Cancelled `) -- so it does not reach an answer's
+row. T-U3's entry `inline-code-shade` cited `docs/parity.md:240`,
 which a merge from `main` had moved to `:241`; corrected. `ledger.txt`:
 one sweep at T-U3-TCc's code head (`c7a3dd15`) of the four `-tc`
 inline-code scenarios, the four tool-group ones and the four stopped-call
@@ -360,8 +361,13 @@ truecolor session, moved the comment `245`->`243`->`245` (T-U3-TCb's arm).
 Now the row is answered by the table's four pairs (`HINT`, `WARNING`,
 `NOTICE`, `DIM`) at both depths, the truecolor arm is for a group's rows
 only, and all twelve stopped-call pairs differ from fx only in the marker
-(cause `cancelled-marker`) and, at 256 colours, in the group row's two
-clash cells (`└ Cancelled …`). The review's `[COMMAND, NOTICE]` for a
+(cause `cancelled-marker`), at 256 colours in the group row's clash cells
+(`└ Cancelled …`, cause `toolgroup-retint-256`), and in the six `-tc`
+pairs in the notation of xfx's own greys (cause `truecolor-grey-notation`),
+the stopped call's own line among them: its marker `38;2;208`/`68`,
+`Cancelled` `38;2;238`/`38` and its argument `38;2;138`/`158`, where fx's
+are `38;5;252`/`238`, `255`/`235` and `245`/`247` (`ledger.txt`; the
+cells, `ledger-d.txt` 2). The review's `[COMMAND, NOTICE]` for a
 truecolor stopped row would have kept the comment `245` where fx's is
 `247` (mutant I fails). Mutant H (`aad662fe`'s roles) fails three tests.
 `tui::toolgroup::tests::a_theme_report_repaints_a_group_as_the_other_palette_would_draw_it`
@@ -387,6 +393,54 @@ suites one at a time after the idle wait, `TMPDIR=/private/tmp/claude-501/ict`:
 | `cargo test --locked --no-fail-fast` | 4895 passed, 0 failed |
 | `cargo test --locked --features fault-injection --no-fail-fast` | 4924 passed, 0 failed |
 | `scripts/check-xfx-identity.sh` / `check-no-stubs.sh` / `check-no-secrets.sh` | ok / ok / ok (9914 tracked files, the receipt staged) |
+| `scripts/fxcap/test-sweep.sh` (the ledger changed) | 48 + 24 tests ok |
+
+## T-U3-TCd: the review's three SHOULDs on `8dd037eb`
+
+Wording and the ledger only; no file under `src/` changed, so no binary
+was built and no capture taken. Results: `ledger-d.txt` (with
+`ledger-body.py`, `ledger-cover.py`, `stopped-row.py`).
+
+1. **The clash class, one switch further.** The ledger's
+   `toolgroup-retint-256` `why` and `docs/parity.md:241` named the clash
+   cells by the mode they were drawn in. They now name the class this
+   README's TCc account gives: a cell holding the statusline grey of the
+   mode in force (`241` on a light screen, `245` on a dark one), however it
+   got there. So a string drawn dark is `241` once light and clashes on the
+   switch back (`p5-toolgroup-retint` and `p5-toolstop-retint`,
+   `dark-again`: fx `250`, xfx `245`), and a comment drawn light is `245`
+   once dark and clashes on the next light (`-light` `light-again`: fx
+   `243`, xfx `241`; `toolstop.txt:351-358`).
+2. **The stopped-call sentence** above now names all three causes, as the
+   sweep summary's 24/12/8 does.
+3. **Look-ahead.** `truecolor-grey-notation`'s `fx_row`/`xfx_row` did not
+   match a stopped call's own line, so row 8 of the `-tc` stopped pairs was
+   covered by `cancelled-marker` alone. That holds for all six pairs, not
+   only the three `toolstop.txt:256,283,310` show: in each, the marker,
+   `Cancelled` and the argument are direct greys (`ledger-d.txt` 2), so the
+   row still differs once T-U4 makes the marker `▪`. The patterns now take
+   `^[▪■] Cancelled `, and `cancelled-marker` stands before
+   `truecolor-grey-notation` in the file, because the first cause that covers
+   a row is that row's (`sweep.py` `attribute`): extending the pattern alone
+   would have moved those rows from `cancelled-marker` to
+   `truecolor-grey-notation`, and dropped `cancelled-marker` from six pairs
+   (measured: `ledger-d.txt` 4).
+   - **Attribution is unchanged.** The c7a3dd15 sweep rescored at both
+     ledgers gives byte-identical `pairs.json`, and the same
+     `ledger.txt` body (`ledger-d.txt` 1).
+   - **Both causes cover row 8.** Of the 268 unmatched rows, those 12 change
+     (6 pairs, both sides), each to `cancelled-marker,truecolor-grey-notation`
+     (`ledger-d.txt` 2).
+   - **Simulated T-U4.** With the marker made `▪` in the xfx captures and
+     `cancelled-marker` gone, the old patterns leave row 8 of those six
+     pairs without a cause; the new ones leave none (`ledger-d.txt` 3).
+
+Gates, `TMPDIR=/private/tmp/claude-501/tcd`:
+
+| gate | result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `scripts/check-xfx-identity.sh` / `check-no-stubs.sh` / `check-no-secrets.sh` | ok / ok / ok (9918 tracked files, the receipt staged) |
 | `scripts/fxcap/test-sweep.sh` (the ledger changed) | 48 + 24 tests ok |
 
 ## Gates (T-U3-TC, at `9461bf70`)
