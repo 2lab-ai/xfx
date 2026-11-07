@@ -374,7 +374,7 @@ source = [".prd/07-fx-parity-program.md:45", "docs/parity.md:113"]
 id = "truecolor-grey-notation"
 kind = "unit"
 owner = "TC-NOTATION builtin greys spelt 38;5 at every depth"
-scenarios = ["p5-inline-code-retint-tc", "p5-inline-code-retint-light-tc", "p5-inline-code-table-tc", "p5-inline-code-table-light-tc", "p5-toolgroup-retint-tc", "p5-toolgroup-retint-light-tc"]
+scenarios = ["p5-inline-code-retint-tc", "p5-inline-code-retint-light-tc", "p5-inline-code-table-tc", "p5-inline-code-table-light-tc", "p5-toolgroup-retint-tc", "p5-toolgroup-retint-light-tc", "p5-toolstop-retint-tc", "p5-toolstop-retint-light-tc"]
 snaps = ["*"]
 fx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] '
 xfx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] '
@@ -384,11 +384,11 @@ why = "Under COLORTERM=truecolor xfx spells its own greys -- the card's and the 
 id = "toolgroup-retint-256"
 kind = "unit"
 owner = "TG-REDRAW tool rows drawn again on a theme switch"
-scenarios = ["p5-toolgroup-retint", "p5-toolgroup-retint-light"]
-snaps = ["light", "dark", "dark-again"]
-fx_row = '^└ Ran '
-xfx_row = '^└ Ran '
-why = "At 256 colours a tool row's string (light 241) and comment (dark 245) are the statusline's grey in that mode, so xfx's recolouring of the screen gives them the statusline's next grey (245, 241) where fx gives the highlighter's (250, 243): fx projects the group again in the new theme (src/ui/transcript/tool_group_projection.zig:558-640,742-784@481104fd), from entries xfx does not keep once a group's block closes. A truecolor session has no such cell (T-U3-TCb, .prd/tui-phase5/receipts/inline-code-truecolor/)."
+scenarios = ["p5-toolgroup-retint", "p5-toolgroup-retint-light", "p5-toolstop-retint", "p5-toolstop-retint-light"]
+snaps = ["light", "dark", "dark-again", "light-again"]
+fx_row = '^└ (?:Ran|Cancelled) '
+xfx_row = '^└ (?:Ran|Cancelled) '
+why = "At 256 colours two cells of a tool group's row are the statusline's grey in the mode they were drawn in: a string drawn light (241) and a comment drawn dark (245). xfx's recolouring of the screen gives them the statusline's next grey (245, 241) where fx gives the highlighter's (250, 243): fx projects the group again in the new theme (src/ui/transcript/tool_group_projection.zig:558-640,742-784@481104fd), from entries xfx does not keep once a group's block closes. A comment drawn light (243) is no such cell and moves as fx's (T-U3-TCc); a truecolor session has none (T-U3-TCb). .prd/tui-phase5/receipts/inline-code-truecolor/."
 
 [[cause]]
 id = "cancelled-marker"
