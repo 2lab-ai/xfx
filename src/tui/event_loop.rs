@@ -70,7 +70,9 @@ use tokio::sync::mpsc::Receiver;
 use super::approval_readiness::Outcome;
 use super::bridge::{self, UiEvent};
 use super::deliver::{Counted, Emit, RawTty, Sink};
-use super::frame::{Band, Built, Collapse, Retint, BEGIN_FRAME, END_FRAME, END_FRAME_HIDDEN};
+use super::frame::{
+    Band, Built, Collapse, Recorded, Retint, BEGIN_FRAME, END_FRAME, END_FRAME_HIDDEN,
+};
 use super::render_request::Reason;
 use super::shell::{Resize, Shell};
 use super::signals::{self, Held, Wakeup};
@@ -1808,7 +1810,10 @@ fn commit_document(
             out,
             append.scroll,
             &append.rows,
-            &append.kinds,
+            Recorded {
+                kinds: &append.kinds,
+                redraws: &append.redraws,
+            },
             &after,
             room,
         ) {
@@ -5751,6 +5756,260 @@ mod tests {
             Some("38;2;138;138;138"),
             "{back:?}"
         );
+    }
+
+    /// A turn that runs one command whose words the shell highlighter paints
+    /// -- a string, a number, an operator and a comment -- and then answers,
+    /// which closes the group (`p5-toolgroup-retint`'s turn).
+    fn a_command_then_an_answer(shell: &mut Fixture) {
+        shell.apply(UiEvent::ToolStart {
+            call_id: "1".to_string(),
+            tool: "terminal".to_string(),
+            shown: crate::tools::terminal::TERMINAL.shown(&serde_json::json!({
+                "action": "exec",
+                "command": "echo \"hi\" 42 | grep hi # note",
+            })),
+        });
+        shell.apply(UiEvent::ToolResult {
+            call_id: "1".to_string(),
+            tool: "terminal".to_string(),
+            ok: true,
+            detail: String::new(),
+            outcome: crate::tools::Outcome::Exited(0),
+            changes: None,
+        });
+        shell.apply(UiEvent::Delta("Done with it.\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+    }
+
+    #[test]
+    fn a_theme_report_draws_a_tool_groups_rows_again_as_upstream_projects_them() {
+        // fx does not recolour a tool group's rows on a switch: it projects
+        // the group again in the new theme (`formatGroupBlock`,
+        // `tool_group_projection.zig:558-640@481104fd`, the command through
+        // `highlightCommandPhrase` with the theme then in force, `:742-784`).
+        // At 256 colours two of the highlighter's greys are the statusline's
+        // in one mode -- a string's light 241, a comment's dark 245 -- so a
+        // recolouring by colour gives them the statusline's other grey (245,
+        // 241) where fx's fresh projection gives the highlighter's (250, 243).
+        // Drawn dark, then light, then dark again (`p5-toolgroup-retint`).
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_command_then_an_answer(&mut shell);
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&landed, "\u{2514} Ran "), Some(245), "{landed:?}");
+        assert_eq!(fg_of(&landed, "\"hi"), Some(250), "{landed:?}");
+        assert_eq!(fg_of(&landed, "# note"), Some(245), "{landed:?}");
+
+        shell.route_bytes(WENT_LIGHT);
+        let light = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&light, "\u{2514} Ran "), Some(241), "{light:?}");
+        assert_eq!(fg_of(&light, "\"hi"), Some(241), "{light:?}");
+        assert_eq!(
+            fg_of(&light, "# note"),
+            Some(243),
+            "a comment drawn dark (245, the dark statusline's grey) was not \
+             given the light comment grey upstream projects it in: {light:?}"
+        );
+
+        shell.route_bytes(WENT_DARK);
+        let back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&back, "\u{2514} Ran "), Some(245), "{back:?}");
+        assert_eq!(
+            fg_of(&back, "\"hi"),
+            Some(250),
+            "a string on a light screen (241, the light statusline's grey) was \
+             not given the dark string grey upstream projects it in: {back:?}"
+        );
+        assert_eq!(fg_of(&back, "# note"), Some(245), "{back:?}");
+    }
+
+    #[test]
+    fn a_tool_group_drawn_light_is_drawn_again_dark_and_light_as_upstream_projects_it() {
+        // `p5-toolgroup-retint-light`: the group drawn on a light screen, then
+        // dark and light again. The string drawn light is the light
+        // statusline's 241 and the comment drawn dark the dark statusline's
+        // 245; fx gives them the highlighter's 250 and 243.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.route_bytes(WENT_LIGHT);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_command_then_an_answer(&mut shell);
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&landed, "\u{2514} Ran "), Some(241), "{landed:?}");
+        assert_eq!(fg_of(&landed, "\"hi"), Some(241), "{landed:?}");
+        assert_eq!(fg_of(&landed, "# note"), Some(243), "{landed:?}");
+
+        shell.route_bytes(WENT_DARK);
+        let dark = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&dark, "\u{2514} Ran "), Some(245), "{dark:?}");
+        assert_eq!(
+            fg_of(&dark, "\"hi"),
+            Some(250),
+            "a string drawn light was taken for the statusline: {dark:?}"
+        );
+        assert_eq!(fg_of(&dark, "# note"), Some(245), "{dark:?}");
+
+        shell.route_bytes(WENT_LIGHT);
+        let again = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&again, "\u{2514} Ran "), Some(241), "{again:?}");
+        assert_eq!(fg_of(&again, "\"hi"), Some(241), "{again:?}");
+        assert_eq!(
+            fg_of(&again, "# note"),
+            Some(243),
+            "a comment moved to the dark statusline's grey was taken for the \
+             statusline on the next switch: {again:?}"
+        );
+    }
+
+    /// The command [`a_command_then_an_answer`] runs, started and not yet
+    /// returned: the group's block open, its running call its last row.
+    fn a_command_running(shell: &mut Fixture) {
+        shell.apply(UiEvent::ToolStart {
+            call_id: "1".to_string(),
+            tool: "terminal".to_string(),
+            shown: crate::tools::terminal::TERMINAL.shown(&serde_json::json!({
+                "action": "exec",
+                "command": "echo \"hi\" 42 | grep hi # note",
+            })),
+        });
+    }
+
+    #[test]
+    fn an_open_tool_group_is_drawn_again_on_a_switch_and_settles_in_the_new_palette() {
+        // An open group's block is on the screen too, its running call the
+        // last row; upstream projects it again in the new theme as it does a
+        // closed one (`buildCompactTranscriptProjectionInterruptible`,
+        // `source_preparation.zig:1533@481104fd`, on every transcript build).
+        // Here the block's rows are drawn again by the report, and the call's
+        // result rewrites them in the palette then in force.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_command_running(&mut shell);
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&landed, "\u{2514} Running "), Some(245), "{landed:?}");
+
+        shell.route_bytes(WENT_LIGHT);
+        let light = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&light, "\u{2514} Running "), Some(241), "{light:?}");
+        assert_eq!(fg_of(&light, "# note"), Some(243), "{light:?}");
+
+        shell.route_bytes(WENT_DARK);
+        let dark = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&dark, "\"hi"), Some(250), "{dark:?}");
+
+        shell.apply(UiEvent::ToolResult {
+            call_id: "1".to_string(),
+            tool: "terminal".to_string(),
+            ok: true,
+            detail: String::new(),
+            outcome: crate::tools::Outcome::Exited(0),
+            changes: None,
+        });
+        let settled = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&settled, "\u{2514} Ran "), Some(245), "{settled:?}");
+        assert_eq!(fg_of(&settled, "\"hi"), Some(250), "{settled:?}");
+
+        shell.route_bytes(WENT_LIGHT);
+        let again = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&again, "\u{2514} Ran "), Some(241), "{again:?}");
+        assert_eq!(fg_of(&again, "# note"), Some(243), "{again:?}");
+    }
+
+    #[test]
+    fn a_tool_group_queued_before_a_report_lands_in_the_palette_the_report_set() {
+        // The recolour a report owes is paid before the appends of the same
+        // tick (`commit_document`), so a group whose block was queued in the
+        // dark palette and lands after a report to light is not on the screen
+        // for that recolour to reach. Its rows are written as the group draws
+        // them in the palette in force when they land.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_command_running(&mut shell);
+        shell.route_bytes(WENT_LIGHT);
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(
+            fg_of(&landed, "\u{2514} Running "),
+            Some(241),
+            "the group landed in the palette it was queued in: {landed:?}"
+        );
+        assert_eq!(fg_of(&landed, "\"hi"), Some(241), "{landed:?}");
+        assert_eq!(fg_of(&landed, "# note"), Some(243), "{landed:?}");
+        // And it is a row drawn again like any other: back to dark.
+        shell.route_bytes(WENT_DARK);
+        let dark = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(fg_of(&dark, "\u{2514} Running "), Some(245), "{dark:?}");
+        assert_eq!(fg_of(&dark, "\"hi"), Some(250), "{dark:?}");
+    }
+
+    #[test]
+    fn a_truecolor_sessions_tool_group_is_drawn_again_as_the_group_draws_it() {
+        // Drawn again, a group's rows are what the group draws in the new
+        // mode, whatever notation each grey is spelt in: the statusline as
+        // the palette spells it, the highlighter's words in `38;5`
+        // (`p5-toolgroup-retint-tc`). Nothing here asks which notation the
+        // palette uses, so a palette that spells its greys `38;5` at every
+        // depth draws the same rows.
+        let mut shell = shell_at(24, 80, crate::tui::theme::Depth::TrueColor);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        let statusline = |shell: &Fixture| {
+            shell
+                .palette()
+                .statusline()
+                .trim_start_matches("\u{1b}[")
+                .trim_end_matches('m')
+                .to_string()
+        };
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        a_command_then_an_answer(&mut shell);
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(
+            fg_spelt(&landed, "\u{2514} Ran "),
+            Some(statusline(&shell)),
+            "{landed:?}"
+        );
+        assert_eq!(fg_spelt(&landed, "\"hi").as_deref(), Some("38;5;250"));
+        assert_eq!(fg_spelt(&landed, "# note").as_deref(), Some("38;5;245"));
+
+        shell.route_bytes(WENT_LIGHT);
+        let light = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(
+            fg_spelt(&light, "\u{2514} Ran "),
+            Some(statusline(&shell)),
+            "{light:?}"
+        );
+        assert_eq!(fg_spelt(&light, "\"hi").as_deref(), Some("38;5;241"));
+        assert_eq!(fg_spelt(&light, "# note").as_deref(), Some("38;5;243"));
+
+        shell.route_bytes(WENT_DARK);
+        let back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert_eq!(
+            fg_spelt(&back, "\u{2514} Ran "),
+            Some(statusline(&shell)),
+            "{back:?}"
+        );
+        assert_eq!(fg_spelt(&back, "\"hi").as_deref(), Some("38;5;250"));
+        assert_eq!(fg_spelt(&back, "# note").as_deref(), Some("38;5;245"));
     }
 
     #[test]

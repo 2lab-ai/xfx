@@ -371,6 +371,16 @@ pub(crate) enum Collapse {
     Deferred,
 }
 
+/// What an append's writer said about its rows, one entry per row from its
+/// first, and an empty slice for every row plain and drawn once
+/// (`super::transcript::Append::kinds`, `::redraws`): recorded on the grid
+/// with each row as it is placed ([`Grid::record`]).
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Recorded<'a> {
+    pub(crate) kinds: &'a [super::theme::DocumentRow],
+    pub(crate) redraws: &'a [Option<super::theme::Redraw>],
+}
+
 impl Band {
     pub(crate) fn new() -> Self {
         Self {
@@ -1488,22 +1498,24 @@ impl Band {
         geometry: &'rows Geometry,
         room: u16,
     ) -> (Vec<u8>, check::Footprint, check::Script<'rows>) {
-        self.render_append_recorded(scroll, rows, &[], geometry, room)
+        self.render_append_recorded(scroll, rows, Recorded::default(), geometry, room)
     }
 
     /// [`Self::render_append`], with what each row is recorded on the target
-    /// grid as it is placed (`super::transcript::Append::kinds`; empty is every
-    /// row plain): what a later theme report repaints its cells as
+    /// grid as it is placed (`super::transcript::Append::kinds` and
+    /// `::redraws`; empty is every row plain and drawn once): what a later
+    /// theme report repaints its cells as, or draws it again from
     /// ([`Grid::retint_document`]).
     fn render_append_recorded<'rows>(
         &mut self,
         scroll: usize,
         rows: &'rows [String],
-        kinds: &[super::theme::DocumentRow],
+        recorded: Recorded<'_>,
         geometry: &'rows Geometry,
         room: u16,
     ) -> (Vec<u8>, check::Footprint, check::Script<'rows>) {
-        let kind = |index: usize| kinds.get(index).copied().unwrap_or_default();
+        let kind = |index: usize| recorded.kinds.get(index).copied().unwrap_or_default();
+        let redraw = |index: usize| recorded.redraws.get(index).cloned().flatten();
         self.buffer.clear();
         // The shadow moves with the screen, step for step, and the two are
         // written side by side rather than in two functions: an append that
@@ -1632,7 +1644,7 @@ impl Band {
                 self.target.place_row(line, row, geometry);
             }
             // A reused row is still the row this append says it is.
-            self.target.set_kind(line, kind(index));
+            self.target.record(line, kind(index), redraw(index));
         }
         // Each new row: one scroll, and the row painted on the row the scroll
         // freed -- so it is on the screen, and stays there until a later
@@ -1648,7 +1660,8 @@ impl Band {
             };
             place(&mut self.buffer, line, row, geometry);
             self.target.place_row(line, row, geometry);
-            self.target.set_kind(line, kind(settled + index));
+            self.target
+                .record(line, kind(settled + index), redraw(settled + index));
         }
         // Every row these bytes may reach, and every scroll they may make,
         // named from the counts above rather than from what was emitted.
@@ -2397,9 +2410,12 @@ impl Band {
     ///   Nothing it does can put a row into native scrollback, which is the one
     ///   thing on this surface that cannot be taken back.
     /// * It repaints **cells, never rows**: the candidate is a copy of the
-    ///   shadow with one colour slot rewritten per recognised cell
-    ///   ([`Grid::retint_document`]), so it cannot *create* a cell and
-    ///   therefore cannot reconstruct history the screen no longer has.
+    ///   shadow with one colour slot rewritten per recognised cell, or -- on
+    ///   a row its writer recorded drawings for, a tool group's -- each cell
+    ///   given the attributes the drawing in the new mode puts on it, only
+    ///   while the row still holds the drawing's text ([`Grid::retint_document`]).
+    ///   So it cannot *create* a cell and therefore cannot reconstruct
+    ///   history the screen no longer has.
     /// * It runs only where the shadow is a claim about **this** screen. A
     ///   damaged band, a shadow of another size and a plane this band is not on
     ///   are each [`Retint::Deferred`] with no bytes -- what is not knowable is
@@ -2440,7 +2456,7 @@ impl Band {
             .seed(check::PlaneKind::Primary, geometry)
             .map_err(Emit::rejected)?;
         self.target.clone_from(&self.shadow);
-        if self.target.retint_document(last, palette) == 0 {
+        if self.target.retint_document(last, palette, geometry) == 0 {
             return Ok(Retint::Settled(Commit::NoChange));
         }
         self.buffer.clear();
@@ -2598,21 +2614,22 @@ impl Band {
         rows: &[String],
         geometry: &Geometry,
     ) -> Result<(), Emit> {
-        self.append_floating(out, scroll, rows, &[], geometry, 0)
+        self.append_floating(out, scroll, rows, Recorded::default(), geometry, 0)
     }
 
     /// [`Self::append_document`] onto a band that moved `room` rows down for
     /// it: the first `room` new rows take the rows the band gave back, and
     /// only the rest scroll ([`Self::render_append`]).
     ///
-    /// `kinds` is what each row is (`super::transcript::Append::kinds`,
-    /// empty for every row plain), recorded on the grid with the row.
+    /// `recorded` is what each row is and how its writer draws it again
+    /// (`super::transcript::Append::kinds`, `::redraws`, empty for every row
+    /// plain), recorded on the grid with the row.
     pub(crate) fn append_floating(
         &mut self,
         out: &mut impl Sink,
         scroll: usize,
         rows: &[String],
-        kinds: &[super::theme::DocumentRow],
+        recorded: Recorded<'_>,
         geometry: &Geometry,
         room: u16,
     ) -> Result<(), Emit> {
@@ -2620,7 +2637,7 @@ impl Band {
             .seed(check::PlaneKind::Primary, geometry)
             .map_err(Emit::rejected)?;
         let (appended, footprint, script) =
-            self.render_append_recorded(scroll, rows, kinds, geometry, room);
+            self.render_append_recorded(scroll, rows, recorded, geometry, room);
         if appended.is_empty() {
             return Ok(());
         }
@@ -7084,7 +7101,10 @@ mod tests {
                 String::new(),
                 "  Read both.".to_string(),
             ],
-            &[ToolGroup, ToolGroup, ToolGroup, Plain, Plain],
+            Recorded {
+                kinds: &[ToolGroup, ToolGroup, ToolGroup, Plain, Plain],
+                redraws: &[],
+            },
             geometry,
             0,
         )
