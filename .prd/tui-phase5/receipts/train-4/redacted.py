@@ -9,7 +9,8 @@ Each <root>=<name> is a known root written as its name, longest first
 (the sweeps' out directories, the train's checkout); anything else under a
 local root becomes `<local-path>`. After that, a fragment of a checkout's
 path that a capture row cut short (`...ai/xfx/.worktrees/<name>/scripts/...`,
-with no local root left at its start) becomes `<checkout>/`, and the
+with no local root left at its start) becomes `<checkout>/`, as does any
+other path cut short before `scripts/fxcap/`, and the
 account's name, wherever it is left, `<user>`.
 """
 import getpass
@@ -24,6 +25,9 @@ known = dict(arg.split("=", 1) for arg in sys.argv[2:])
 redactor = redact.Redactor(known)
 text = redactor(sys.stdin.read())
 text = re.sub(r"[^\s'\"`(<]*\.worktrees/[\w.-]+/", "<checkout>/", text)
+# A checkout's path cut short anywhere else (a scratch clone's, say), up to
+# the harness directory it names.
+text = re.sub(r"[^\s'\"`(<]+/(?=scripts/fxcap/)", "<checkout>/", text)
 user = getpass.getuser()
 if len(user) > 2:
     text = text.replace(user, "<user>")

@@ -34,7 +34,8 @@ by `capture.sh` before and after every run, `FX_AUTO_UPGRADE=0`.
 - Sweep, 108 scenarios at the head: 309 of 526 pass, 0 failed, 0 timeout.
   Against `main` 246 → 287 over the 502 shared pairs, one down: a timing
   pass on `main`'s side (`h1-models2` `after`, the old fixed-clock
-  `models2`). Against each unit's own sweep: 0 dropped.
+  `models2`; `main`'s own xfx under the train's harness fails it the same
+  way). Against each unit's own sweep: 0 dropped.
 
 ## Units and merges
 
@@ -497,8 +498,13 @@ trees, the same lines) runs two freshly written shims once before launch,
 and each first exec took about 10 s on this machine today (`bash -x` of
 `main`'s `capture.sh` under the lock: gateway at 0 s, the first shim at
 1 s, the second at 11 s, tmux and the launch at 21 s). So `main` passed
-`after` only because its fixed clock ran out before launch; the pair is
-not a drop of the train's code, and the harness that took it away is
+`after` only because its fixed clock ran out before launch. **The deciding
+cell**: `main`'s own xfx (sha256 `9ad52be1…`, the binary of all three
+`main` runs) under the train's harness and scenario, under the lock:
+`before` passes, `after` is unresolved with the head's rows exactly (fx
+`Models 2 [All]` / xfx `Models 1 [All]`), its first asks again late (15.0
+and 23.9 s) and answered with the first catalog. The pair moves with the
+harness, not with the train's code; the harness that took the pass away is
 FLAKE-HINT4's fix, working.
 
 Two pairs changed differing rows without a verdict move, as on train 3:
@@ -635,7 +641,8 @@ gone, and `/mcp show` was typed 0.06 to 0.13 s later than before.
 - `screen_moves.py`, `screen-moves-main.txt`, `screen-moves-units.txt`: the
   screens that moved, clock-like and run-local text set aside.
 - `models2-runs.txt`: `h1-models2`'s six runs, each `/models` ask and the
-  catalog it got, and the shim warm-up trace.
+  catalog it got, the shim warm-up trace, and `main`'s xfx under the train's
+  harness.
 - `tc_vs_256.py` (TC-NOTATION's), `tc-vs-256.txt`: each `-tc` snap against
   its 256-colour twin at the head, both sides, and the SGRs of the new twin.
 - `redacted.py`: every sweep-derived file here went through

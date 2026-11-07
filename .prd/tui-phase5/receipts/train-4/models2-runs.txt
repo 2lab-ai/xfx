@@ -30,3 +30,11 @@ m2-head-2: [('before', 'normalized-identical'), ('after', 'unresolved-defect')]
 + 21 659: rm -f <scratch>/fxcap.BLOgf0/clipboard <scratch>/fxcap.BLOgf0/clipboard-file
 + 21 696: tmux -f /dev/null -S <scratch>/fxcap.BLOgf0/s start-server ';' set-hook -g alert-bell 'run-sh
 # 0 s the gateway starts (544); 1 s the first shim runs (657); 11 s the second (658); 21 s the next line (659); 21 s tmux starts and launches (696)
+
+# The deciding cell, under the suite lock: main e6cde019's xfx (the same binary as m2-main-*, sha256 9ad52be1...) run by the TRAIN's harness and scenario (`sweep.sh --only h1-models2` from the train's worktree). The pair moves with the harness, not with the code:
+main-binary-train-harness: [('before', 'normalized-identical'), ('after', 'unresolved-defect')]
+    fx asks: ['15014 ms', '27080 ms (2nd)']; xfx asks: ['23861 ms']
+    after row: fx 'Models 2  [All]' / xfx 'Models 1  [All]'
+    after row: fx '  fake/model-released-later' / xfx '  fake/model-a'
+    after row: fx '  fake/model-a' / xfx ''
+    xfx sha256 9ad52be11730e3b85799153f7752fbabbbcbeec0284204955c485de2fa5d1897
