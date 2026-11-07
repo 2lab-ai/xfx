@@ -243,7 +243,7 @@ receipt.
 
 ## Mutants (`mutants.txt`, `mutants.py`)
 
-On a `git clone --no-local` of the branch at `0aaff75f`, never the
+On a `git clone --no-local` of the branch at `95669160`, never the
 worktree; the clone clean after. Each reverts or half-reverts one rule and
 runs the TUI's lib tests (`cargo test --locked --lib tui::`). **14 of 14
 killed**, at `95669160`:
@@ -351,7 +351,9 @@ test-check-no-secrets (13 cases), test-gate-env (5), test-preview-contract
 release and faulty builds; smoke (47 checks, 0 failures) and smoke-tui (37
 scenarios and the oracle, **1127 checks, 0 failures**). Nothing re-run.
 After the ledger-only commit `5a7c80dd`: check-no-stubs ok and fxcap
-test-sweep (26 tests) OK.
+test-sweep (26 tests) OK. This receipt's commit was staged and checked with
+check-no-secrets and check-xfx-identity over the whole tree, 12808 tracked
+files (`gates.txt`'s 12550 is the tree before the receipt's captures).
 
 ## Files
 
