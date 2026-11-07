@@ -1,0 +1,24 @@
+# Phase 5 T-U1-SAFE round 2 (review MUST 1): a command's output whose tab
+# moves down with its word when the next word crosses the margin. fx's wrap
+# writes the tab as the spaces to its stop where it meets it, then moves the
+# word with those spaces (`assistant_wrap.zig:163-174`, `:729-775@481104fd`).
+# fx's `shell`/`run` is xfx's `terminal`/`exec`. TZ=UTC on both.
+fx: gateway p5-transcript-safetab-turns.json
+xfx: gateway p5-transcript-safetab-xfx.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+env TZ=UTC
+work p5-transcript-safetab-ws
+wait 4
+type show the file
+wait 1
+key Enter
+wait 5
+snap end
+key C-o
+wait 2
+snap full
+key C-o
+wait 1
+gwlog

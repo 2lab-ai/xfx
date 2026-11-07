@@ -27317,10 +27317,11 @@ mod tests {
             ],
             "{screen:#?}"
         );
-        // What the read returned, which the document never showed -- made
-        // inert, as a live turn's would be at the channel.
+        // What the read returned, which the document never showed -- spelled
+        // as fx spells a result (`TerminalSafeIndentedWriter`), as a live
+        // turn's would be at the channel.
         assert!(
-            screen.contains(&"\u{2502}  1    ONLY-IN-THE-LOG [2J".to_string()),
+            screen.contains(&"\u{2502}  1    ONLY-IN-THE-LOG\\x1b[2J".to_string()),
             "{screen:#?}"
         );
         assert!(
@@ -27541,7 +27542,12 @@ mod tests {
             painted.contains("prompt x ]0;pwned y [2Jz 31m"),
             "{painted:?}"
         );
-        assert!(full.contains("read x ]0;pwned y [2Jz 31m"), "{full:?}");
+        // A call's result on the full transcript is spelled, as fx v0.0.16
+        // spells one there (`TerminalSafeIndentedWriter`), not blanked.
+        assert!(
+            full.contains("read x\\x1b]0;pwned\\x07y\\x1b[2Jz\\u{009b}31m"),
+            "{full:?}"
+        );
     }
 
     #[test]

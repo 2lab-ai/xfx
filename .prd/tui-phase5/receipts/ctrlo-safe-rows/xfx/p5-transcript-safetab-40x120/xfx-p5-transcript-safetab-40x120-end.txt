@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-e16af12 [debug] · Run /help for commands
+
+┃ show the file
+
+  Showing the file.
+
+● 1 tool call · 1 command
+└ Ran cat tab.txt
+
+  Shown.
+
+  0s (↑3 ↓80)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,1 @@
+[{"chunks": ["Showing the file.\n"], "tools": [{"name": "terminal", "input": {"action": "exec", "command": "cat tab.txt"}}]}, {"delayMs": 60, "chunks": ["Shown."]}, {"delayMs": 60, "chunks": ["Spare."]}]

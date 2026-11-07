@@ -1,0 +1,25 @@
+# Mutant: on a throwaway git clone --no-local of 127f0502, an argument's value names C0 and C1 but
+# no mark (the bidi/zero-width/BOM escape dropped from that one row kind). The fix's diff against it:
+
++                        // MUTANT: an argument's value names C0 and C1 but no mark.
++                        value: argument.value.chars().map(|c| { let code = u32::from(c); if c == '\t' { "    ".to_string() } else if c != '\n' && (code < 0x20 || code == 0x7f) { format!("\\x{code:02x}") } else if (0x80..=0x9f).contains(&code) { format!("\\u{{{code:04x}}}") } else { c.to_string() } }).collect(),
+
+# cargo test --locked --lib on the clone, the four detail-row tests and the sweep probe:
+test tui::full_transcript::tests::zz_sweep_probe ... ok
+test tui::full_transcript::tests::a_read_row_is_spelled_as_fxs_terminal_safe_writer_spells_it ... ok
+test tui::full_transcript::tests::a_command_row_is_decoded_as_fxs_command_output_is_and_names_the_marks ... ok
+test tui::full_transcript::tests::an_argument_row_is_spelled_as_fxs_terminal_safe_writer_spells_it ... FAILED
+test tui::full_transcript::tests::no_detail_row_hands_the_terminal_a_control_or_a_mark_at_any_width ... FAILED
+test result: FAILED. 3 passed; 2 failed
+
+# Their failures:
+thread 'tui::full_transcript::tests::no_detail_row_hands_the_terminal_a_control_or_a_mark_at_any_width' (266096888) panicked at src/tui/full_transcript.rs:3916:17:
+10: "│\u{1b}[38;5;245m  'A\u{202e}B\u{200b}C\u{feff}D\\x\u{1b}[0m"
+panicked at
+src/tui/full_transcript.rs:3862:9:
+[
+    "  2026-10-06 14:43:50.620 UTC · Tool",
+    "● 2 tool calls · 1 read · 1 command",
+    "├ Ran printf '%s\\n' 'A\u{202e}B\u{200b}C\u{feff}D [2JE F G' >/dev/null; cat safe.txt #  ",
+    "│  command: printf '%s\\n' 'A\u{202e}B\u{200b}C\u{feff}D\\x1b[2JE\\u{009b}F    G' >/dev/null; cat safe.txt # \\x0d",
+    "│ a\\u{202e}b\\u{200b}c\\u{feff}de\\u{009b}f        g",
