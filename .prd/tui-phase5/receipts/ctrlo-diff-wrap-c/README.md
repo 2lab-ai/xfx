@@ -65,13 +65,20 @@ the capture is the evidence, not this reason].
 - **`walked`** (`src/tui/full_transcript.rs`) remembers whether the last
   cluster was a tab, and drops a cluster of no cells that comes right after
   one.
-- **It joins nothing.** A control ends a grapheme cluster (UAX #29 GB5), so
-  a cluster of no cells stands alone only right after a tab. Anywhere else
-  it is already part of the cluster before it (`wrap::first_cluster`). The
-  join branch, and its comment "as the painter joins it", are gone.
-- **The one branch left** keeps such a cluster as a cell of its own only if
-  it were the row's first cluster, which no diff row has: every row opens
-  with the gutter.
+- **It joins nothing.** A cluster of no cells is mostly part of the cluster
+  before it (`wrap::first_cluster`). It stands alone only after a character
+  UAX #29 counts as a control, which ends a grapheme cluster (GB4, GB5): a
+  tab, or one `terminal_safe_line` writes as itself, such as the soft hyphen
+  U+00AD. The join branch, and its comment "as the painter joins it", are
+  gone.
+- **After any such character but a tab**, the cluster is kept as a cell of
+  no width after that character's cell, as before. The frame segments the
+  same text again and measures it the same way. *Corrected in DIFF-WRAPd*:
+  this paragraph first said such a cluster stands alone only after a tab,
+  which the opus review of DIFF-WRAPc showed false (`x` U+00AD U+0301 reaches
+  that branch). The test
+  `a_mark_alone_after_a_character_that_ends_its_cluster_is_kept_after_a_tab`
+  now pins it.
 
 The doc comment and `docs/parity.md:238` say this. A mark is dropped, not a
 character, and fx's screen drops it too, so no ledger row is needed.

@@ -2302,17 +2302,21 @@ impl WalkedCell {
 ///
 /// * **A character whose cells would pass the last column** starts the next
 ///   row, at its column 1 (`shouldWrapAt`, `:4019-4022`).
-/// * **What takes no cells** is part of the cluster before it
-///   ([`wrap::first_cluster`]), with one exception: a control ends a
-///   grapheme cluster (UAX #29 GB5), so a mark or a selector right after a
-///   tab is a cluster of its own. fx writes it where its column is, and its
-///   screen does not draw it, whether the tab moved the column or not
-///   (`p5-transcript-diffwrap2` lines 15-19: `…k1Z`, `…meZ`, `p      q` for
-///   a U+FE0F or a U+0301 after the tab; `t́      u` for one before it);
-///   so it is dropped here too. Kept, it would stand in the row text right
-///   after the character before the tab, and the frame, which segments the
-///   row again, would measure the two as one cluster (`1` U+FE0F two cells)
-///   and cut the row's last cell.
+/// * **What takes no cells** moves no column. It is mostly part of the
+///   cluster before it ([`wrap::first_cluster`]), but a character that UAX
+///   #29 counts as a control ends a grapheme cluster (GB4, GB5), so a mark
+///   or a selector after one is a cluster of its own: after a tab, or after
+///   one [`terminal_safe_line`] writes as itself, such as the soft hyphen
+///   U+00AD. After such a character it is kept, a cell of no width after
+///   that character's cell -- the same text the frame segments again and
+///   measures the same way. **Right after a tab** it is dropped: fx writes
+///   it where its column is, and its screen does not draw it, whether the
+///   tab moved the column or not (`p5-transcript-diffwrap2` lines 15-19:
+///   `…k1Z`, `…meZ`, `p      q` for a U+FE0F or a U+0301 after the tab;
+///   `t́      u` for one before it). Kept, it would stand in the row text
+///   right after the character before the tab, and the frame, which
+///   segments the row again, would measure the two as one cluster (`1`
+///   U+FE0F two cells) and cut the row's last cell.
 /// * **A tab** moves to the next stop of eight of the row it is on -- a row
 ///   run on included, counted from that row's column -- and at most to the
 ///   last column (`nextTabStopColumn`, `display_width.zig:292-300@481104fd`,
@@ -2359,8 +2363,8 @@ fn walked(row: &str, cols: u16, style: &str, reset: &str) -> Vec<String> {
         }
         let width = wrap::cluster_width(cluster);
         if width == 0 {
-            // Only after a tab, or as the row's first cluster, which no row
-            // here has (it opens with the gutter).
+            // A cluster of its own only after a character UAX #29 counts as
+            // a control: dropped after a tab, kept after any other (U+00AD).
             if !after_tab {
                 cells.push(WalkedCell {
                     text: cluster.into(),
@@ -3630,6 +3634,26 @@ mod tests {
             plain(&added("t\u{301}\tu", 120)),
             ["  \u{2502} 1 + t\u{301}       u"]
         );
+    }
+
+    #[test]
+    fn a_mark_alone_after_a_character_that_ends_its_cluster_is_kept_after_a_tab() {
+        // A tab counts only for the cluster right after it: once a character
+        // has been written, a mark that stands as a cluster of its own --
+        // after a soft hyphen, which ends a grapheme cluster (it is a
+        // control to UAX #29, GB4/GB5) and which `terminal_safe_line` writes
+        // as itself -- is kept, a cell of no width after the hyphen's cell,
+        // as before the tab rule. The frame segments the row text the same
+        // way and keeps every cell (`super::frame::clip`).
+        let blanks = " ".repeat(8);
+        let rows = added("\tx\u{ad}\u{301}y", 120);
+        assert_eq!(
+            plain(&rows),
+            [format!("  \u{2502} 1 + {blanks}x\u{ad}\u{301}y")]
+        );
+        for row in &rows {
+            assert_eq!(super::super::frame::clip(row, 120), row, "{rows:?}");
+        }
     }
 
     #[test]
