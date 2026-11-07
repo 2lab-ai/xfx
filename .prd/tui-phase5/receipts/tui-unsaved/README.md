@@ -19,7 +19,8 @@ Binaries (sha256 prefix of `target/debug/xfx`):
 - L-U3d GREEN `c32f85d5…`, built at `d87d448b` (banner `v0.1.0-d87d448`).
 - L-U3e first GREEN `f3064c38…`, built at `efcff6bf` (banner `v0.1.0-efcff6b`).
 - L-U3e GREEN `c49e8889…`, built at `80cd9aef` (banner `v0.1.0-80cd9ae`).
-- **GREEN `67635b2e…`, built at `fe8dd28e` (banner `v0.1.0-fe8dd28`)**: every capture now in `green/` and `fx/`, from the sweep that `green.txt` scores.
+- L-U3f GREEN `67635b2e…`, built at `fe8dd28e` (banner `v0.1.0-fe8dd28`).
+- **GREEN `8cc4a4a3…`, built at `f83d96be` (banner `v0.1.0-f83d96b`), the merge of main `24a6b912`**: every capture now in `green/` and `fx/`, from the sweep that `green.txt` scores.
 
 fx is v0.0.16 (`8e6cda2e…`), checked by `capture.sh` around every run.
 
@@ -80,7 +81,7 @@ Each fails its test.
 
 ## GREEN
 
-Round 1's sweep (`scripts/fxcap/sweep.sh --only 'p5-lifecycle-relhome*'`, 15 pairs). `green/` and `green.txt` now hold the latest sweep (L-U3f, 24 pairs); this section is round 1's account.
+Round 1's sweep (`scripts/fxcap/sweep.sh --only 'p5-lifecycle-relhome*'`, 15 pairs). `green/` and `green.txt` now hold the latest sweep (the merge of main `24a6b912`, 24 pairs); this section is round 1's account.
 
 - **Workspace listings: all four byte-identical to fx's.**
 - **13 pairs normalized-identical.** That covers every TUI pair of `p5-lifecycle-relhome`, `-made` and the new `-unsaved` (launch, turn, `/resume`, `/fork`, `/rename`, `/new`, the second turn, `/quit`'s scrollback), and both `xfx sessions` pairs. The `tui-without-home*` causes are dropped.
@@ -211,6 +212,21 @@ Code: `fe8dd28e`. RED, GREEN and mutants: `red-tests-r7.txt`, on a throwaway clo
   - That block also said fx captured into a session's `images/`. At the pin every capture goes to the temporary folder, and the block now says so.
   - `image.rs:158` and the `/image` row of `docs/parity.md` now cite `140-148`, and that row's `session_store.zig:102-118` is now `44-51`.
 - **GREEN** at `fe8dd28e` (`green.txt`, the same sweep as L-U3e's): the same scores as at `80cd9aef`. 22 of 24 pairs are normalized-identical, `image-paste` is 7/7, the five workspace listings are byte-identical, and each request carries the same number of images as fx's.
+
+## Merged main `24a6b912` for the PR
+
+`f83d96be` merges main `24a6b912` (train 2, PR #76) into this branch.
+- **The one conflict.** `docs/parity.md`'s `profile home ~/.xfx` row. Main's `/mcp --project` and verb-error sentences and this branch's refusal wording were merged clause by clause; every fragment of both sides is kept.
+- **Moved `file:line` references,** found by mapping each one from the side that wrote it to the merged file.
+  - The ledger's `src/tui/shell.rs:12192` is now `12267`, and `:37272` is now `37356` (5 rows): this branch's lines above them moved them, and the code is the same.
+  - `docs/parity.md`'s `src/tools/mcp.rs:601-607` is now `422-428`: main shrank `mcp.rs`, and the error arm is the same.
+  - No reference this branch's commits wrote moved.
+- **Gate at `f83d96be`.** fmt, both clippies, identity, stubs and secrets pass. `cargo test` is 5164/0, the fault-injection suite 5201/0, and `test-sweep` and `test-capture` pass.
+- **GREEN** (`green.txt`). The sweep from a build at `f83d96be` scores the same as at `fe8dd28e`, line for line:
+  - 22 of 24 pairs are normalized-identical. The other two are the `u02-status` cascade (`status-panel-sandbox`, `-updates`, `-step-limit`) and `r00-resume` (`launch-refusal-row`), causes the train kept.
+  - `image-paste` is 7/7.
+  - The five workspace listings are byte-identical.
+  - Each request carries the same number of images as fx's.
 
 ## Pins (Opus SHOULD 2-4)
 
