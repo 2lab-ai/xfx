@@ -1467,11 +1467,21 @@ mod tests {
     /// A loopback server for one connection that sends a `200` head promising
     /// 100000 bytes, then one byte a second -- progress that never finishes --
     /// until a write fails (the client hung up), `stop` is set, or 30 s pass.
-    /// Returns how many bytes it dripped and whether the client hung up.
-    fn dripping(stop: &Arc<AtomicBool>) -> (String, std::thread::JoinHandle<(usize, bool)>) {
+    /// Returns how many bytes it dripped and whether the client hung up; while
+    /// it runs, the count so far is the middle of the tuple, so a test can
+    /// wait for the fetch to be in the body instead of guessing when it is.
+    fn dripping(
+        stop: &Arc<AtomicBool>,
+    ) -> (
+        String,
+        Arc<AtomicUsize>,
+        std::thread::JoinHandle<(usize, bool)>,
+    ) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a port");
         let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
         let stop = Arc::clone(stop);
+        let drips = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&drips);
         let thread = std::thread::spawn(move || {
             let Some(mut connection) = accept_within(&listener, Duration::from_secs(20)) else {
                 return (0, false);
@@ -1498,13 +1508,34 @@ mod tests {
                         return (dripped, true);
                     }
                     dripped += 1;
+                    counted.store(dripped, Ordering::SeqCst);
                     next += Duration::from_secs(1);
                 }
                 std::thread::sleep(Duration::from_millis(20));
             }
             (dripped, false)
         });
-        (origin, thread)
+        (origin, drips, thread)
+    }
+
+    /// How long a test waits for a fetch to reach the state its stop is
+    /// about. A worker on a loaded runner can take seconds to build its
+    /// client and connect, and a wait that ends is a failure with a name
+    /// rather than a hang.
+    const START_PATIENCE: Duration = Duration::from_secs(60);
+
+    /// Waits until a [`dripping`] server has read the request and sent the
+    /// head and a byte of the body -- the fetch is in its body -- and answers
+    /// whether it did within [`START_PATIENCE`].
+    fn in_the_body(drips: &AtomicUsize) -> bool {
+        let started = Instant::now();
+        while drips.load(Ordering::SeqCst) == 0 {
+            if started.elapsed() >= START_PATIENCE {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        true
     }
 
     fn failed(outcome: Outcome) -> Failed {
@@ -1814,7 +1845,7 @@ mod tests {
             }
         });
 
-        let (drip_origin, dripper) = dripping(&stop);
+        let (drip_origin, _, dripper) = dripping(&stop);
 
         let started = Instant::now();
         let mut fetches: Vec<Fetch> = [&silent_origin, &stalled_origin, &drip_origin]
@@ -1842,7 +1873,7 @@ mod tests {
     #[test]
     fn a_fetch_runs_on_its_own_thread_and_can_be_cancelled_mid_body() {
         let stop = Arc::new(AtomicBool::new(false));
-        let (origin, server) = dripping(&stop);
+        let (origin, drips, server) = dripping(&stop);
         let slot = Slot::default();
         let spawned = Arc::new(AtomicUsize::new(0));
         let counting = Arc::clone(&spawned);
@@ -1861,14 +1892,20 @@ mod tests {
             "start does not wait for the answer"
         );
         assert!(started.elapsed() < Duration::from_secs(1));
-        // Into the body: the head and a byte or two have arrived.
-        std::thread::sleep(Duration::from_millis(1500));
+        // Into the body: the server has read the request and sent the head and
+        // a byte. Waited for, not slept for: on a fixed 1.5 s a worker slower
+        // than that to connect was cancelled before it asked, the server was
+        // never called, and the check on what it saw below failed.
+        assert!(in_the_body(&drips), "the fetch never reached the body");
+        let cancelled = Instant::now();
         fetch.cancel();
         assert_eq!(
             wait(&mut fetch, Duration::from_secs(5)),
             Some(Outcome::Cancelled)
         );
-        assert!(started.elapsed() < Duration::from_secs(7));
+        // From the cancel, as the old 7 s from the start was 5.5 s past a
+        // cancel 1.5 s into it.
+        assert!(cancelled.elapsed() < Duration::from_millis(5_500));
         // Told once.
         assert_eq!(fetch.try_outcome(), None);
         // The thread ends, and with it the connection.
@@ -1895,7 +1932,7 @@ mod tests {
         // Ranges left behind a dropped fetch would each ask again, for up to
         // 15 s apiece, with nobody to tell.
         let stop = Arc::new(AtomicBool::new(false));
-        let (origin, server) = dripping(&stop);
+        let (origin, drips, server) = dripping(&stop);
         let slot = Slot::default();
         let fetch = Fetch::start(
             question_at(&origin),
@@ -1903,7 +1940,9 @@ mod tests {
             keeping(&slot),
         )
         .expect("a worker");
-        std::thread::sleep(Duration::from_millis(1500));
+        // Dropped in the first range's body, as above: a drop before the
+        // worker connected would leave the server nobody to hang up on.
+        assert!(in_the_body(&drips), "the fetch never reached the body");
         let dropped = Instant::now();
         drop(fetch);
         assert!(

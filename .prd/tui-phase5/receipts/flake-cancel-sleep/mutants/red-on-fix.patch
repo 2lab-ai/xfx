@@ -1,0 +1,274 @@
+diff --git a/src/agent/machine.rs b/src/agent/machine.rs
+index ac3b49f2..ba265082 100644
+--- a/src/agent/machine.rs
++++ b/src/agent/machine.rs
+@@ -863,6 +863,12 @@ impl TurnMachine {
+         let mut rebuilt = start == Start::Rebuilt;
+         // The first request was measured before the turn opened.
+         let mut checked = start == Start::Checked;
++        if let Some(ms) = std::env::var("XFX_RED_SLOW_TURN_MS")
++            .ok()
++            .and_then(|v| v.parse::<u64>().ok())
++        {
++            std::thread::sleep(std::time::Duration::from_millis(ms));
++        }
+         loop {
+             if self.request.cancel.is_cancelled() {
+                 return Err(TurnError::Cancelled);
+diff --git a/src/tools/terminal.rs b/src/tools/terminal.rs
+index acd00503..24de8af4 100644
+--- a/src/tools/terminal.rs
++++ b/src/tools/terminal.rs
+@@ -522,7 +522,7 @@ fn supervise(child: &mut Child, timeout: Duration, cancel: &CancelToken) -> Endi
+             Ok(None) => {}
+             Err(_) => return Ending::Exited(-1),
+         }
+-        if cancel.is_cancelled() {
++        if cancel.is_cancelled() && std::env::var_os("XFX_RED_IGNORE_CANCEL").is_none() {
+             // Asked first, as upstream asks (`terminationSignalPlan`,
+             // `command_runner.zig:2473-2493`: `SIGTERM` to the group for a
+             // cooperative stop, `SIGKILL` once its grace is spent), then
+diff --git a/src/usage/report.rs b/src/usage/report.rs
+index d6929706..98e0c244 100644
+--- a/src/usage/report.rs
++++ b/src/usage/report.rs
+@@ -805,6 +805,12 @@ pub(crate) fn fetch_on_this_thread(
+     ranges: &[DayRange],
+     cancel: &CancellationToken,
+ ) -> Outcome {
++    if let Some(ms) = std::env::var("XFX_RED_SLOW_FETCH_MS")
++        .ok()
++        .and_then(|v| v.parse::<u64>().ok())
++    {
++        std::thread::sleep(std::time::Duration::from_millis(ms));
++    }
+     let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+         .enable_all()
+         .build()
+@@ -833,7 +839,7 @@ async fn fetch_all(
+     for range in ranges {
+         let rows = tokio::select! {
+             biased;
+-            () = cancel.cancelled() => return Outcome::Cancelled,
++            () = cancel.cancelled(), if std::env::var_os("XFX_RED_FETCH_IGNORE_CANCEL").is_none() => return Outcome::Cancelled,
+             rows = fetch_rows(&client, question, *range) => rows,
+         };
+         match rows {
+@@ -1955,6 +1961,83 @@ mod tests {
+         assert!(hung_up, "the connection outlived the fetch");
+     }
+ 
++    #[test]
++    fn old_a_fetch_runs_on_its_own_thread_and_can_be_cancelled_mid_body() {
++        let stop = Arc::new(AtomicBool::new(false));
++        let (origin, _drips, server) = dripping(&stop);
++        let slot = Slot::default();
++        let spawned = Arc::new(AtomicUsize::new(0));
++        let counting = Arc::clone(&spawned);
++        let spawn = keeping(&slot);
++        let asked = question_at(&origin);
++        let started = Instant::now();
++        let mut fetch = Fetch::start(asked, vec![today()], move |job| {
++            counting.fetch_add(1, Ordering::SeqCst);
++            spawn(job)
++        })
++        .expect("a worker");
++        assert_eq!(spawned.load(Ordering::SeqCst), 1);
++        assert_eq!(
++            fetch.try_outcome(),
++            None,
++            "start does not wait for the answer"
++        );
++        assert!(started.elapsed() < Duration::from_secs(1));
++        // Into the body: the head and a byte or two have arrived.
++        std::thread::sleep(Duration::from_millis(1500));
++        fetch.cancel();
++        assert_eq!(
++            wait(&mut fetch, Duration::from_secs(5)),
++            Some(Outcome::Cancelled)
++        );
++        assert!(started.elapsed() < Duration::from_secs(7));
++        // Told once.
++        assert_eq!(fetch.try_outcome(), None);
++        // The thread ends, and with it the connection.
++        assert!(
++            exited_within(&slot, Duration::from_secs(5)),
++            "the worker outlived its cancel"
++        );
++        let (dripped, hung_up) = server.join().expect("the server");
++        assert!(
++            dripped >= 1 && hung_up,
++            "dripped {dripped}, hung up: {hung_up}"
++        );
++        stop.store(true, Ordering::SeqCst);
++
++        // A spawner that cannot start a thread is an error, not a fetch.
++        let refused = Fetch::start(question_at(&origin), vec![today()], |_| {
++            Err(io::Error::other("no threads"))
++        });
++        assert!(refused.is_err());
++    }
++
++    #[test]
++    fn old_a_dropped_fetch_stops_and_lets_go_of_the_key() {
++        // Ranges left behind a dropped fetch would each ask again, for up to
++        // 15 s apiece, with nobody to tell.
++        let stop = Arc::new(AtomicBool::new(false));
++        let (origin, _drips, server) = dripping(&stop);
++        let slot = Slot::default();
++        let fetch = Fetch::start(
++            question_at(&origin),
++            vec![today(), today(), today()],
++            keeping(&slot),
++        )
++        .expect("a worker");
++        std::thread::sleep(Duration::from_millis(1500));
++        let dropped = Instant::now();
++        drop(fetch);
++        assert!(
++            exited_within(&slot, Duration::from_secs(5)),
++            "the worker outlived its fetch"
++        );
++        assert!(dropped.elapsed() < Duration::from_secs(5));
++        let (_, hung_up) = server.join().expect("the server");
++        stop.store(true, Ordering::SeqCst);
++        assert!(hung_up, "the connection outlived the fetch");
++    }
++
+     #[test]
+     fn a_url_safe_base64_echo_is_caught_where_it_differs_from_standard() {
+         // `KEY` has no byte whose low six bits are 62 or 63 (`>`, `?`, `~`)
+diff --git a/tests/permissions.rs b/tests/permissions.rs
+index b250e92c..6f63eb59 100644
+--- a/tests/permissions.rs
++++ b/tests/permissions.rs
+@@ -3623,7 +3623,7 @@ fn a_stopped_command_is_asked_to_stop_and_the_screen_is_shown_how_it_ended() {
+         let result = call(
+             &context,
+             "terminal",
+-            json!({ "action": "exec", "command": command }),
++            json!({ "action": "exec", "command": format!("{}{command}", red_delay()) }),
+         );
+         let returned = Instant::now();
+         let stopped = stopper.join().expect("the stopper");
+@@ -3668,6 +3668,12 @@ const START_PATIENCE: Duration = Duration::from_secs(60);
+ /// long it waited. It cancels either way: a stopper that gave up silently
+ /// would leave the command to run out its own time and blame the delay on
+ /// the tool.
++fn red_delay() -> String {
++    std::env::var("XFX_RED_SHELL_DELAY")
++        .map(|d| format!("sleep {d}; "))
++        .unwrap_or_default()
++}
++
+ fn stop_once_written(
+     cancel: CancelToken,
+     marker: PathBuf,
+@@ -6094,3 +6100,43 @@ fn a_rule_is_prepared_in_ask_so_full_access_cannot_remember_a_change_a_table_den
+     );
+     assert!(!tree.root().join("secret").exists());
+ }
++
++#[test]
++fn old_a_stopped_command_is_asked_to_stop_and_the_screen_is_shown_how_it_ended() {
++    let stop_after = |command: &str| {
++        let tree = Tree::new();
++        let cancel = CancelToken::new();
++        let context = ToolContext::new(AccessScope::primary_only(tree.root()).expect("root"))
++            .with_permissions(session(PermissionMode::Yolo))
++            .with_cancel(cancel.clone());
++        let watcher = cancel.clone();
++        std::thread::spawn(move || {
++            std::thread::sleep(Duration::from_millis(300));
++            watcher.cancel();
++        });
++        let started = Instant::now();
++        let result = call(
++            &context,
++            "terminal",
++            json!({ "action": "exec", "command": format!("{}{command}", red_delay()) }),
++        );
++        (result, started.elapsed())
++    };
++    let (result, took) = stop_after("echo started; sleep 30");
++    assert_eq!(result.output, "aborted by user");
++    let presented = result.presented.as_deref().expect("the screen's account");
++    assert!(presented.contains("<signal>15</signal>"), "{presented}");
++    assert!(presented.contains("started"), "{presented}");
++    assert!(took < Duration::from_secs(5), "{took:?}");
++
++    // One that will not stop when asked is killed once the grace is over.
++    let (result, took) = stop_after("trap '' TERM; sleep 30 & wait");
++    assert_eq!(result.output, "aborted by user");
++    let presented = result.presented.as_deref().expect("the screen's account");
++    assert!(
++        presented.contains("<signal>9</signal>") || presented.contains("<exit_code>"),
++        "{presented}"
++    );
++    assert!(took >= Duration::from_millis(900), "no grace: {took:?}");
++    assert!(took < Duration::from_secs(5), "{took:?}");
++}
+diff --git a/tests/tool_loop.rs b/tests/tool_loop.rs
+index 0ca99db8..3ecf635a 100644
+--- a/tests/tool_loop.rs
++++ b/tests/tool_loop.rs
+@@ -4651,3 +4651,59 @@ async fn a_lost_or_stopped_request_counts_what_it_streamed() {
+         assert_eq!((turn, answering), (Some(3), None));
+     }
+ }
++
++#[tokio::test]
++async fn old_a_command_the_person_stopped_leaves_the_request_that_asked_for_it_counted() {
++    // The stop reaches a running command at once (`terminal::supervise`), and
++    // the turn still settles: the request that asked for the command is in the
++    // turn's frame, for `/usage`, at what it reported.
++    let tree = Tree::new();
++    let cancel = CancelToken::new();
++    let prompter = ScriptedAmender::new(vec![Amendment::plain()], cancel.clone());
++    let provider = StreamingProvider::new(vec![(
++        vec![Chunk::ToolInput("{\"command\":\"sleep 30\"}")],
++        reporting(
++            calls_step(vec![ToolCall {
++                id: "c1".to_string(),
++                name: "terminal".to_string(),
++                input: json!({ "action": "exec", "command": "sleep 30" }),
++            }]),
++            Some(40),
++        ),
++    )]);
++    // From another thread: the command holds this one while it runs.
++    let stopper = cancel.clone();
++    let stop = std::thread::spawn(move || {
++        std::thread::sleep(std::time::Duration::from_millis(300));
++        stopper.cancel();
++    });
++    let mut sink = Counted::default();
++    let mut journal = RecordingJournal::default();
++    let started = std::time::Instant::now();
++    let _ = run_turn_saved(
++        asking_turn(
++            "run it",
++            // The tools hold the turn's token, as the TUI's conversation does.
++            asking_context(&tree, ToolLimits::default(), prompter).with_cancel(cancel.clone()),
++            cancel,
++        ),
++        ProjectContext::none(),
++        &provider,
++        &mut sink,
++        &mut journal,
++    )
++    .await;
++    stop.join().expect("the stopper");
++    assert!(
++        started.elapsed() < std::time::Duration::from_secs(10),
++        "the command ran on"
++    );
++    assert_eq!(sink.progress.last(), Some(&Progress::Settled(40)));
++    let SessionEvent::UsageRecorded {
++        turn_output_tokens, ..
++    } = usage_frame(&journal)
++    else {
++        unreachable!()
++    };
++    assert_eq!(*turn_output_tokens, Some(40));
++}
