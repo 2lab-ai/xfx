@@ -100,6 +100,13 @@ def sha256(path):
     return h.hexdigest()
 
 
+def git_env():
+    """The environment for git: this one without GIT_*. Git takes the
+    repository it reads from GIT_DIR, GIT_COMMON_DIR and the rest, and an
+    inherited one made it answer for another repository."""
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+
 def main_worktree():
     try:
         common = subprocess.run(
@@ -107,6 +114,7 @@ def main_worktree():
             capture_output=True,
             text=True,
             check=True,
+            env=git_env(),
         ).stdout.strip()
         return os.path.realpath(os.path.dirname(common))
     except (OSError, subprocess.CalledProcessError):
@@ -984,7 +992,9 @@ def start(args, red, say):
 
 def git_head():
     try:
-        return subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        return subprocess.run(
+            ["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, text=True, check=True, env=git_env()
+        ).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return None
 
