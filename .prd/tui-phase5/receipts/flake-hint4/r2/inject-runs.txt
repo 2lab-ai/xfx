@@ -1,0 +1,20 @@
+# xfx built at 1e22c660 with inject.patch (a Ctrl-C a permission question answers also arms the exit hint), run alone with the round-2 capture.sh on three versions of a scenario.
+## permissions-midturn, the round-2 scenario (absent halfway into the 3 s, snap at 3 s)
+r2-permissions-midturn: absent 'press ctrl+c again to exit': it is on the screen, 12.50 s since launch; the screen
+r2b-1: absent 'press ctrl+c again to exit': it is on the screen, 12.42 s since launch; the screen
+r2b-2: absent 'press ctrl+c again to exit': it is on the screen, 12.44 s since launch; the screen
+r2b-3: absent 'press ctrl+c again to exit': it is on the screen, 12.43 s since launch; the screen
+## permissions-midturn, the round-1 scenario (until gone, then the snap)
+r1: until gone 'press ctrl+c again to exit': after 0.01 s, 13.95 s since launch; never seen; hint in after-refusal: 0
+## permissions-midturn, the base scenario (24a6b912: snap at 3 s)
+base 1: exit 0, hint in after-refusal: 0
+base 2: exit 0, hint in after-refusal: 0
+base 3: exit 0, hint in after-refusal: 0
+base 4: exit 0, hint in after-refusal: 0
+base 5: exit 0, hint in after-refusal: 0
+## approvals, the round-2 scenario: the command's question owns the hint row
+r2: absent 'press ctrl+c again to exit': not on the screen, 12.36 s since launch; hint in after-cc-cmd-ask: 0
+## the screen the round-2 permissions-midturn failed on (rows that are not blank)
+  | x𝒇x v0.1.0-1e22c66 [debug] · Run /help for commands
+  | ┃
+  | press ctrl+c again to exit
