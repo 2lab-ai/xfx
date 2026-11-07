@@ -525,6 +525,17 @@ rm -f "$ilock/Cargo.lock"
 also=("Cargo.lock")
 refuses identity-deleted-file "tracked files missing from the working tree" "$ilock/scripts/check-xfx-identity.sh"
 new_ilock
+# A tracked file under a directory the scan cannot search: `ls-files -d`
+# lists it as missing after `cannot lstat` on its standard error, and that
+# is a listing that failed, not a missing file.
+mkdir -p "$ilock/locked"
+printf 'clean\n' >"$ilock/locked/notes.txt"
+sg -C "$ilock" add locked/notes.txt
+chmod 600 "$ilock/locked"
+also=("cannot lstat")
+refuses identity-unsearchable-dir "could not list the tracked files missing" "$ilock/scripts/check-xfx-identity.sh"
+chmod 755 "$ilock/locked"
+new_ilock
 # A copy with no repository of its own, inside one that tracks it: a vendored
 # subtree. The parent tracks vendor/xfx/Cargo.lock with the residue, and this
 # script at vendor/xfx/scripts/. Git finds the parent's repository; under
