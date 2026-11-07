@@ -1,0 +1,22 @@
+# Phase 5 L-U1: an automatic compaction that fails inside a turn. Two turns
+# (the first reads a file, so a compaction needs notes), then a third whose
+# request the provider refuses as too large for the window
+# (`provider_overflow`); the notes request is refused, so the compaction
+# fails inside the third turn. fx v0.0.16 finishes that turn `.failed`
+# (`orchestrator.zig:7864-7865`, `:5615-5618@481104fd`): working, then error.
+gateway p5-lifecycle-osc-autocompactfail-turns.json
+work compact-ws
+xfx: env XFX_SOUND=off
+wait 4
+type first question
+key Enter
+wait 3
+type second question
+key Enter
+wait 2.5
+wire o00-answered
+type third question
+key Enter
+wait 5
+wire o01-failed
+gwlog
