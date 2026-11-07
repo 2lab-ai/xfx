@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-efcff6b [debug] · Run /help for commands
+x𝒇x v0.1.0-80cd9ae [debug] · Run /help for commands
 xfx sessions: HOME is not set
 
 
@@ -39,4 +39,4 @@ xfx sessions: HOME is not set
 
 
 
-Pane is dead (status 1, Sat Nov  7 15:06:49 2026)
+Pane is dead (status 1, Sat Nov  7 15:17:21 2026)

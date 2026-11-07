@@ -17,7 +17,8 @@ Binaries (sha256 prefix of `target/debug/xfx`):
 - Round 2 GREEN `a1fbfed4…`, built at `a38a413c` (banner `v0.1.0-a38a413`).
 - L-U3c GREEN `821508c0…`, built at `9f0e4a66` (banner `v0.1.0-9f0e4a6`).
 - L-U3d GREEN `c32f85d5…`, built at `d87d448b` (banner `v0.1.0-d87d448`).
-- **GREEN `f3064c38…`, built at `efcff6bf` (banner `v0.1.0-efcff6b`)**: every capture now in `green/` and `fx/`, from the sweep that `green.txt` scores.
+- L-U3e first GREEN `f3064c38…`, built at `efcff6bf` (banner `v0.1.0-efcff6b`).
+- **GREEN `c49e8889…`, built at `80cd9aef` (banner `v0.1.0-80cd9ae`)**: every capture now in `green/` and `fx/`, from the sweep that `green.txt` scores.
 
 fx is v0.0.16 (`8e6cda2e…`), checked by `capture.sh` around every run.
 
@@ -78,7 +79,7 @@ Each fails its test.
 
 ## GREEN
 
-`green/`, compared in `green.txt` (`scripts/fxcap/sweep.sh --only 'p5-lifecycle-relhome*'`, 15 pairs).
+Round 1's sweep (`scripts/fxcap/sweep.sh --only 'p5-lifecycle-relhome*'`, 15 pairs). `green/` and `green.txt` now hold the latest sweep (L-U3e, 24 pairs); this section is round 1's account.
 
 - **Workspace listings: all four byte-identical to fx's.**
 - **13 pairs normalized-identical.** That covers every TUI pair of `p5-lifecycle-relhome`, `-made` and the new `-unsaved` (launch, turn, `/resume`, `/fork`, `/rename`, `/new`, the second turn, `/quit`'s scrollback), and both `xfx sessions` pairs. The `tui-without-home*` causes are dropped.
@@ -169,7 +170,7 @@ fx titles only an active, saved session (`activeSessionId(app) orelse return`, `
 
 ## L-U3e: the clipboard read's folder and script, a failed clipboard copy, the refusal's words (opus-d SHOULDs)
 
-Code: `efcff6bf`. RED, GREEN and mutants: `red-tests-r6.txt`, on a throwaway clone.
+Code: `efcff6bf`, then `80cd9aef`. RED, GREEN and mutants: `red-tests-r6.txt`, on a throwaway clone.
 
 - **Item 1, the clipboard read.** It made its folder under `$TMPDIR` as given. A relative `TMPDIR` refused the paste (`failed to paste clipboard image: InvalidPath`), and `TMPDIR` went into the AppleScript unescaped.
   - fx makes it with `createTempSnapshotDir` (`loadClipboardImageAttachment`, `image_attachments.zig:1987-2030@481104fd`), under `realpath("/tmp")`.
@@ -181,8 +182,11 @@ Code: `efcff6bf`. RED, GREEN and mutants: `red-tests-r6.txt`, on a throwaway clo
   - Now: no badge, no number spent, and `✗ images: failed to paste clipboard image: <name>` (fx's words for a failed paste, `:92`).
   - RED: `a_clipboard_image_whose_copy_cannot_be_written_puts_no_badge_in` (`/paste` and Ctrl-V) fails on `73137e00` with no notice at all (`left: []`). GREEN on `efcff6bf`. Mutant M4 (the base's badge with no link) fails it.
 - **Item 4, nits.** `attach`'s doc comment is back on `attach`. `Image::copy`'s doc no longer says a failed copy leaves `None` on an attached image. A typed path with no room for its badge now removes the copy made for it then, not at exit: `an_unsaved_typed_path_with_no_room_for_its_badge_leaves_no_copy` fails on `73137e00` (the copy is still in the directory) and under mutant M5.
+  - The same leak was on the three other routes, which the review did not name: a clipboard image, `/image` and a pasted path each made their copy and then, with no room for the badge, left it until exit. fx checks for room before it captures (`image_commands.zig:128-130`) and discards an attachment it does not insert, snapshot and all (`discardImageAttachment`, `:114`).
+  - `80cd9aef`: `attach` removes the copy made for an image it could not place, and `paste_paths` removes its images' copies when the composer refuses the paste.
+  - `an_image_the_composer_has_no_room_for_leaves_no_copy_on_any_route` fails on `efcff6bf` (the clipboard image's copy is left). Mutants M6 (`attach` keeps it) and M7 (a refused paste keeps its copies) fail it.
 - **Citations.** fx line numbers I had counted with `nl -v`, which skips blank lines, are now the pin's real lines: `session_store.zig:44-51`, `app_session_runtime.zig:1332-1345`, `image_attachments.zig:248-275`, `:331-347` and `:349-369`, `image_commands.zig:140-143` and `:39`, `input_paste_runtime.zig:491-494`, `input_submit_runtime.zig:1219-1224`.
-- **GREEN** (`green.txt`, `scripts/fxcap/sweep.sh --only 'p5-lifecycle-relhome*' --only image-paste`): 22 of 24 pairs normalized-identical. The two others are the standing `u02-status` cascade and the `r00-resume` decision. `image-paste`'s 7 pairs, which read the clipboard through the harness's `osascript`, are all normalized-identical. The five workspace listings are byte-identical, and each request carries the same number of images as fx's (1 and 1; 2 for `image-paste`).
+- **GREEN** at `80cd9aef` (`green.txt`, `scripts/fxcap/sweep.sh --only 'p5-lifecycle-relhome*' --only image-paste`; the same scores as the sweep at `efcff6bf`): 22 of 24 pairs normalized-identical. The two others are the standing `u02-status` cascade and the `r00-resume` decision. `image-paste`'s 7 pairs, which read the clipboard through the harness's `osascript`, are all normalized-identical. The five workspace listings are byte-identical, and each request carries the same number of images as fx's (1 and 1; 2 for `image-paste`).
 
 ## Pins (Opus SHOULD 2-4)
 

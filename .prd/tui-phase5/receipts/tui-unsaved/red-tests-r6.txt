@@ -1,7 +1,7 @@
 # L-U3e, on a throwaway clone (git clone --no-local in the short TMPDIR); each step resets src/ and tests/
 # RED = 73137e00's src with efcff6bf's new tests; GREEN = efcff6bf; M1-M5 = mutants of efcff6bf.
 # The clipboard_script unit test does not compile on 73137e00 (its signature changed), so M1/M2 are its RED.
-# Item 1 (binary test, TMPDIR with a quote and a relative TMPDIR) and item 4 (no-room) / item 3 (clipboard copy refused):
+# Item 1 (binary test, TMPDIR with a quote and a relative TMPDIR), item 3 (clipboard copy refused), item 4 (no-room):
 ## RED: base 73137e00 src, L-U3e tests
 base-tui exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 174 filtered out; finished in 20.90s 
 test a_clipboard_read_goes_under_the_real_tmp_whatever_tmpdir_says ... FAILED
@@ -56,3 +56,23 @@ green-lib exit=0 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 399
 test clipboard::tests::the_clipboard_reads_path_is_one_string_in_its_script_or_none ... ok
 test tui::shell::tests::a_clipboard_image_whose_copy_cannot_be_written_puts_no_badge_in ... ok
 test tui::shell::tests::an_unsaved_typed_path_with_no_room_for_its_badge_leaves_no_copy ... ok
+
+# 80cd9aef: no copy left on the other routes when the badge has no room. RED = efcff6bf's src with the new test; GREEN = 80cd9aef; M6, M7 = mutants of 80cd9aef
+## RED: efcff6bf src, the new test
+base-noroom exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4002 filtered out; finished in 0.35s 
+test tui::shell::tests::an_image_the_composer_has_no_room_for_leaves_no_copy_on_any_route ... FAILED
+thread 'tui::shell::tests::an_image_the_composer_has_no_room_for_leaves_no_copy_on_any_route' (272675385) panicked at src/tui/shell.rs:37793:9:
+["/private/tmp/xfx-image-snapshots-5ab31a3636efbf781293ba400f129547/image-1-3fd6e6be528c182d.bin"]
+## GREEN: 80cd9aef
+green-noroom exit=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4002 filtered out; finished in 0.34s 
+test tui::shell::tests::an_image_the_composer_has_no_room_for_leaves_no_copy_on_any_route ... ok
+## M6: attach() keeps the copy it could not place
+m6-attach exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4002 filtered out; finished in 0.33s 
+test tui::shell::tests::an_image_the_composer_has_no_room_for_leaves_no_copy_on_any_route ... FAILED
+thread 'tui::shell::tests::an_image_the_composer_has_no_room_for_leaves_no_copy_on_any_route' (272678040) panicked at src/tui/shell.rs:37818:9:
+["/private/tmp/xfx-image-snapshots-d9afdd90d30fcd7e2575f6bb4a78acfe/image-1-3fd6e6be528c182d.bin"]
+## M7: a refused paste keeps its images' copies
+m7-paste exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4002 filtered out; finished in 0.35s 
+test tui::shell::tests::an_image_the_composer_has_no_room_for_leaves_no_copy_on_any_route ... FAILED
+thread 'tui::shell::tests::an_image_the_composer_has_no_room_for_leaves_no_copy_on_any_route' (272679799) panicked at src/tui/shell.rs:37826:9:
+["/private/tmp/xfx-image-snapshots-3ca5ee731a005c3e3c85b3debd3f8e19/image-1-3fd6e6be528c182d.bin"]

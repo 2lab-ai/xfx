@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-efcff6b [debug] · Run /help for commands
+x𝒇x v0.1.0-80cd9ae [debug] · Run /help for commands
 
 ! history: durable prompt history unavailable
 
@@ -21,7 +21,7 @@ Status
   Session grants    0
   Step limit        25
   Ultrafast         not requested
-  Build             debug · efcff6bf04de
+  Build             debug · 80cd9aef1fd2
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 esc close
 

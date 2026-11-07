@@ -1,4 +1,4 @@
-# GREEN: efcff6bf's xfx (sha256 f3064c38...) against fx v0.0.16 (8e6cda2e...), scored with parity-ledger.toml at efcff6bf
+# GREEN: 80cd9aef's xfx (sha256 c49e8889...) against fx v0.0.16 (8e6cda2e...), scored with parity-ledger.toml at 80cd9aef
 workls SAME p5-lifecycle-relhome-40x120-work-h02.txt
 workls SAME p5-lifecycle-relhome-image-40x120-work-i00.txt
 workls SAME p5-lifecycle-relhome-made-40x120-work-h03.txt
@@ -30,13 +30,12 @@ normalized-identical p5-lifecycle-relhome-unsaved-40x120-u06-new
 normalized-identical p5-lifecycle-relhome-unsaved-40x120-u07-turn
 normalized-identical p5-lifecycle-relhome-unsaved-40x120-u08-quit.full
 
-
-# p5-lifecycle-relhome-image: image parts per request (sweep6)
+# p5-lifecycle-relhome-image: image parts per request (sweep7)
 fx v0.0.16 001-completion.json images=1
 fx v0.0.16 002-completion.json images=1
-xfx efcff6bf 001-completion.json images=1
-xfx efcff6bf 002-completion.json images=1
+xfx 80cd9aef 001-completion.json images=1
+xfx 80cd9aef 002-completion.json images=1
 
-# image-paste: image parts per request (sweep6)
+# image-paste: image parts per request (sweep7)
 fx v0.0.16 002-completion.json images=2
-xfx efcff6bf 002-completion.json images=2
+xfx 80cd9aef 002-completion.json images=2
