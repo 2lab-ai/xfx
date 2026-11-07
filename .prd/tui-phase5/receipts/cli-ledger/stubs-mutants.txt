@@ -1,0 +1,20 @@
+== base-m1: src-mutated, ledger-mutated
+check-no-stubs: ok
+exit=0
+== new-m1: src-mutated, ledger-mutated
+check-no-stubs: command `update` is documented as an alias of the deferred `upgrade` but src/cli.rs advertises it
+check-no-stubs: surface `update` has more than one row in docs/parity.md
+check-no-stubs: 2 problem(s) found
+exit=1
+== new-m2: src-same, ledger-mutated
+check-no-stubs: the `upgrade` row in docs/parity.md has an `Alias:` that names no backticked command
+check-no-stubs: 1 problem(s) found
+exit=1
+== new-m3: src-same, ledger-mutated
+check-no-stubs: the `status` row in docs/parity.md names the alias `stat` but says 'implemented'; only a deferred command's alias can be reconciled here
+check-no-stubs: 1 problem(s) found
+exit=1
+== new-m4: src-same, ledger-mutated
+check-no-stubs: surface `usage` has more than one row in docs/parity.md
+check-no-stubs: 1 problem(s) found
+exit=1

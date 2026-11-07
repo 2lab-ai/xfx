@@ -1,0 +1,5 @@
+head=c21212ba
+     Running tests/cli.rs (target/debug/deps/cli-d768a55c797aca95)
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+     Running tests/parity.rs (target/debug/deps/parity-980418d577d0d951)
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s

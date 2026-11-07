@@ -1,0 +1,10 @@
+--- a/src/cli.rs
++++ b/src/cli.rs
+@@ -413,6 +413,7 @@
+         json: bool,
+     },
+     /// Report the resolved model, credential source, and workspace
++    #[command(alias = "update")]
+     Status {
+         /// Emit one JSON document instead of text
+         #[arg(long)]
