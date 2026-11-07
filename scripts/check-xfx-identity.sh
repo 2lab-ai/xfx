@@ -230,7 +230,9 @@ fi
 # copy of xfx inside another repository (a vendored subtree) has none, and
 # git walks up to the parent's; with `--work-tree=.` the parent's paths then
 # resolved inside this directory, where none exists, and `git grep` skipped
-# every one without a word.
+# every one without a word. In practice that copy is refused because its
+# `.git` cannot be opened: when it can, git's discovery starts at that same
+# `.git`, and no case reaches the comparison's false side.
 #
 # The two are compared as files (`-ef`: device and inode), not as paths. A
 # ceiling at the parent directory (GIT_CEILING_DIRECTORIES) did not hold:
@@ -238,14 +240,23 @@ fi
 # this root was reached through a symlink or, on a case-folding file system,
 # by a path in another case; and the list is colon-separated, so a `:` in
 # the parent's path split it.
+#
+# This trusts the root's `.git`: what the repository it names tracks is what
+# is scanned. A `.git` naming the parent's repository makes the parent's
+# paths the tracked ones, and those are not in this tree: refused below, as
+# tracked files missing from the working tree.
 if ! discovered="$(scan_git . rev-parse --absolute-git-dir 2>"$control_root/errors")"; then
 	fail 'not a git checkout, or git cannot open it; this check can only speak about the tracked files of the checkout it is in:'
 	cat "$control_root/errors" >&2
 	exit 1
 fi
-if ! own="$(git -c core.fsmonitor=false --git-dir="$repo_root/.git" rev-parse --absolute-git-dir 2>/dev/null)" ||
-	! [ "$discovered" -ef "$own" ]; then
-	fail "not a git checkout of its own: git finds the repository at $discovered, which no .git here names; this check can only speak about the tracked files of the checkout it is in"
+if ! own="$(git -c core.fsmonitor=false --git-dir="$repo_root/.git" rev-parse --absolute-git-dir 2>"$control_root/errors")"; then
+	fail "not a git checkout of its own: the root's .git cannot be opened; this check can only speak about the tracked files of the checkout it is in:"
+	cat "$control_root/errors" >&2
+	exit 1
+fi
+if ! [ "$discovered" -ef "$own" ]; then
+	fail "not a git checkout of its own: the repository found is not the root's own (git finds $discovered, the root's .git names $own)"
 	exit 1
 fi
 
@@ -293,6 +304,19 @@ if [ "${#skipped[@]}" -ne 0 ] || [ "${#assumed[@]}" -ne 0 ]; then
 fi
 if [ "$tracked_count" -eq 0 ]; then
 	fail 'no tracked files to scan; the check would pass for the wrong reason'
+	exit 1
+fi
+# Every tracked file is in the working tree: `git grep` skips one it cannot
+# find without a word. A file deleted and not yet committed is refused by
+# name too; so is every path of another repository a planted `.git` names.
+if ! scan_git . ls-files -d -z >"$control_root/deleted" 2>"$control_root/errors" || [ -s "$control_root/errors" ]; then
+	fail 'git ls-files could not list the tracked files missing from this checkout:'
+	cat "$control_root/errors" >&2
+	exit 1
+fi
+if [ -s "$control_root/deleted" ]; then
+	fail 'tracked files missing from the working tree, which git grep would skip; restore or remove them (git restore -- <file>, or git rm -- <file>):'
+	tr '\000' '\n' <"$control_root/deleted" >&2
 	exit 1
 fi
 
