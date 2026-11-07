@@ -245,9 +245,12 @@ extern "C" {
 /// longer name is still too long.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn libc_zone_at(epoch_s: i64, name: &mut [u8; MAX_ZONE_NAME_LEN + 1]) -> Zone<'_> {
-    // Every moment `local` passes, 0 through 253_402_300_799 s, is a 64-bit
-    // `time_t` on both targets.
-    let timer = epoch_s as libc::time_t;
+    // A moment the C library's `time_t` cannot hold reads in UTC, as upstream
+    // reads it (`std.math.cast(...) orelse return .utc`, `:151`). `.ok()`:
+    // where `time_t` is 64-bit the conversion cannot fail.
+    let Some(timer) = libc::time_t::try_from(epoch_s).ok() else {
+        return Zone::UTC;
+    };
     let mut ready = LIBC_ZONE
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);

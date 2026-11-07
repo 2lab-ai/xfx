@@ -97,6 +97,10 @@ fn a_zone_without_a_plain_name_shows_its_offset() {
     assert_eq!(at(0, b"ABCDEFGHIJK"), "2024-01-02 03:04:05.006 +0000");
     // Ten is the most shown.
     assert_eq!(at(0, b"ABCDEFGHIJ"), "2024-01-02 03:04:05.006 ABCDEFGHIJ");
+    // A name with a sign is a name, not an offset to be rewritten: tzdata's
+    // `-03` (America/Sao_Paulo) prints `-03`, not `-0300` (`:118-124`).
+    assert_eq!(at(-3 * 3600, b"-03"), "2024-01-02 00:04:05.006 -03");
+    assert_eq!(at(5 * 3600, b"+05"), "2024-01-02 08:04:05.006 +05");
 }
 
 /// The abbreviations a zone file or a `TZ` string could carry to the terminal
@@ -353,6 +357,14 @@ fn the_c_library_reads_a_zone_without_a_usable_abbreviation_as_its_offset() {
         read_in("<ABCDEFGHIJK>-5:30", &[AT]),
         ["2024-01-02 08:34:05.006 +0530"]
     );
+    // A name with a sign stays the name: tzdata's `-03`, from a string and
+    // from a zone file, prints `-03`, not the `-0300` an unnamed zone gets.
+    assert_eq!(read_in("<-03>3", &[AT]), ["2024-01-02 00:04:05.006 -03"]);
+    assert_eq!(read_in("<+05>-5", &[AT]), ["2024-01-02 08:04:05.006 +05"]);
+    let signed = tempfile::tempdir().expect("a directory");
+    let path = signed.path().join("minus03");
+    std::fs::write(&path, zone_file(b"-03", -3 * 3600)).expect("a zone file");
+    assert_eq!(read_in(&path, &[AT]), ["2024-01-02 00:04:05.006 -03"]);
     // A zone file whose name is empty.
     let dir = tempfile::tempdir().expect("a directory");
     let path = dir.path().join("empty");
