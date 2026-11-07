@@ -298,6 +298,41 @@ fn a_deferred_command_is_rejected_like_any_unknown_name() {
 }
 
 #[test]
+fn upstreams_session_store_conversion_surfaces_are_refused() {
+    // fx v0.0.16 converts its v1 session store into v2 (`sessions convert`,
+    // `src/builtins/commands.zig:192`, `:198@481104fd`), and 0.0.13 had the
+    // switches for that move (`--sessions-v2`, `session migrate <id>`,
+    // `ask --continue-recovery`, `commands.zig:32`, `:53`, `:57`, `:196`,
+    // `:202@c1db9191`). xfx's store has one format and nothing older to
+    // convert, so none of them is a promise it makes (the `sessions` row of
+    // docs/parity.md): each is a usage error before anything is read. For
+    // `session migrate <id>` the word `migrate` is taken as the selector, so
+    // the id after it is the argument refused.
+    let sandbox = Sandbox::new();
+    for args in [
+        vec!["sessions", "convert"],
+        vec!["sessions", "convert", "--json"],
+        vec!["session", "migrate", "last"],
+        vec!["ask", "--continue-recovery", "hi"],
+        vec!["ask", "--sessions-v2", "hi"],
+        vec!["--sessions-v2"],
+    ] {
+        let run = sandbox.run(&args);
+        assert_eq!(run.code, Some(1), "{args:?} must exit 1: {}", run.stderr);
+        assert_eq!(run.stdout, "", "{args:?} must not write to stdout");
+        assert!(
+            run.stderr.starts_with("error: unexpected argument"),
+            "{args:?} must be refused by the parser: {}",
+            run.stderr
+        );
+    }
+    assert!(
+        !sandbox.profile_dir().exists(),
+        "a refused invocation must not create a profile home"
+    );
+}
+
+#[test]
 fn a_bare_invocation_without_a_terminal_is_refused_with_exit_1() {
     // A bare `xfx` asks for the shell, and a shell needs a terminal. In a test
     // harness there is none, so this is the refusal path; the shell's own
