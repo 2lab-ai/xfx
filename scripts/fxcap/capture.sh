@@ -106,9 +106,9 @@
 #                          them, and refuses a snap inside one's window that
 #                          no `until` precedes). Prints how long it waited and
 #                          how long since the binary was launched (or last
-#                          relaunched) -- and, for a `gone` whose text was not
-#                          on the screen at its first look, `never seen`: it
-#                          proved nothing came and went.
+#                          relaunched) -- and, for a `gone` whose text no
+#                          `until` of this run has seen on the screen, `never
+#                          seen`: nothing showed it came and went.
 #   absent <text>          fails the run (exit 1), with the screen, if <text>
 #                          is on the pane's screen now: a row that must not
 #                          be there at all (the exit hint after a Ctrl-C a
@@ -740,8 +740,10 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
     ${hold[@]+"${hold[@]}"} \
     new-session -d -s cap -x "$cols" -y "$rows" "cd $run/work && exec $launch" \; \
     pipe-pane -o -t cap "cat >> $run/wire"
-  # When the binary was launched (or last relaunched), for `until`'s line.
+  # When the binary was launched (or last relaunched), for `until`'s line;
+  # and the texts an `until` of this run has seen on the screen.
   : > "$run/launched"
+  : > "$run/seen"
 
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
@@ -779,6 +781,7 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
           fi
           sleep 0.05
         done
+        if [[ -n $seen ]]; then printf '%s\n' "$text" >> "$run/seen"; elif grep -qxF -- "$text" "$run/seen"; then seen=1; fi
         echo "until $cond '$text': after $(since "$run/until") s, $(since "$run/launched") s since launch$([[ $cond == gone && -z $seen ]] && echo '; never seen')" ;;
       absent)
         local screen

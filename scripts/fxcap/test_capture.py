@@ -559,7 +559,10 @@ class Verbs(unittest.TestCase):
         self.assertIn("guards:", r.stdout, "the guards still ran")
 
     def test_until_gone_says_never_seen_when_its_text_was_not_there_at_all(self):
-        r = capture("wait 0.5\n" + self.ROW_FOR_A_WHILE + "until shown X[1]*Y\nuntil gone X[1]*Y\nuntil gone not-on-this-screen\nsnap a\n")
+        # The row is up for 1.5 s: gone before the `until gone` first looks.
+        # An `until shown` of this run saw it, so it came and went; the other
+        # text no `until` ever saw.
+        r = capture("wait 0.5\n" + self.ROW_FOR_A_WHILE + "until shown X[1]*Y\nwait 2.5\nuntil gone X[1]*Y\nuntil gone not-on-this-screen\nsnap a\n")
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         self.assertRegex(r.stdout, r"until gone 'X\[1\]\*Y': after \d+\.\d\d s, \d+\.\d\d s since launch\n")
         self.assertRegex(r.stdout, r"until gone 'not-on-this-screen': after \d+\.\d\d s, \d+\.\d\d s since launch; never seen\n")
