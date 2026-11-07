@@ -40,6 +40,14 @@ Round 1 (`e21d3aa1`):
   and selects on the page measured now (`selectProjectionViewportOffset`,
   `:11647-11660`).
 
+Round 3 (T-U1U2c) changes only this receipt's checker (above), one comment
+in `position.rs` (the tests that call `buildFullTranscriptProjection` also
+include `runtime_tests.zig`'s and `resize_tests.zig`'s), and `docs/parity.md`:
+the run-on applies to every row the record was given laid out (`Body::Block`)
+-- a fork's line, a cancelled question, a replayed turn's cancelled line --
+and `/trace` lays them out the same way. The captures stand: no product code
+changed.
+
 Round 2 (`25e2c4e`, `f3bf43f`, `52b150c`):
 
 - **One measure** (opus 5). A character's cells are the screen's
@@ -117,7 +125,20 @@ ledger's normalizations. It takes out only two causes, by exact pattern:
 - fx's `system prompt:` and `skills:` lines, and each side's tool list as one
   row (`session-record`), counted.
 
-Nothing else is excused. There is no edge allowance. The claims:
+Nothing else is excused. There is no edge allowance. And `check.py` fails
+closed (round 3, T-U1U2c):
+
+- a tool list must end at a row ending `)`, and each of its later rows must
+  be tool names only. Otherwise the capture is malformed and the claim fails;
+  round 2 folded every row after an unclosed list into `<tools>`;
+- every claim states how many rows it takes out, side by side and cause by
+  cause, and those counts must match;
+- every claim states how many rows only one side covers past the compared
+  ones, and how many are compared from the top; those must match too;
+- the row above the footer must be blank and unstyled. It is read, not
+  dropped.
+
+The claims:
 
 - **stitch:** each side's windows, a page or an arrow apart, are checked
   against each other where they overlap. They are joined into the bottom of
@@ -201,8 +222,26 @@ round 1's `pair.py` (`PAGE_OFFSET=2`, round 1's ledger), `check.py`, and
   - under this ledger the sweep lists 2 "rows no cause covers".
 
 On the two edge mutants the sweep under this ledger stays quiet: rows 1-2
-and 35-37 are what `transcript-page-offset` names. Those rows are
-`check.py`'s to read.
+and 35-37 are what `transcript-page-offset` names. `check.py` reads them:
+
+- rows 1-2 and 35-36 are compared through the stitch;
+- row 37, the blank row above the footer, must be blank and unstyled.
+
+## Round 3's assertions against changed captures (`mutants-c.txt`)
+
+`mutants-c.py` runs one mutant per assertion round 3 added, through round
+2's `check.py` and through this one. Each mutant keeps its screen's 40 rows,
+with the footer where it was. **Round 2 passes all six, and this `check.py`
+fails all six**; on unchanged captures both pass.
+
+| mutant | this `check.py` |
+|---|---|
+| records: xfx's tool list loses its `)`; `mcp: none` and `a line 3` below it changed (gpt6-b's MUST) | `malformed capture: … the tool list from row 2 has no closing row: '  +5 more'` |
+| records: xfx's tool list gains a row of tool names | `xfx: 3 tools-list rows taken out, the claim is 2` |
+| records: fx gains a second `skills: loading` | `fx: 3 session-record rows taken out, the claim is 2` |
+| tools: xfx's banner gone from the one-screen record | `only fx covers 1 and only xfx 0, the claim is 0 and 0` |
+| question: a row above xfx's banner | `only fx covers 0 and only xfx 1, the claim is 0 and 0` |
+| anchormid: text in the blank row above xfx's footer, on all three screens of the held page | `malformed capture: the row above the footer is 'stray', not a blank one` |
 
 `sweep-view.txt` is the sweep's view of every `full*` pair of the seven
 scenarios under this ledger: **0 rows no cause covers**.
@@ -231,16 +270,18 @@ The result is in "Gates".
 ## Files
 
 - `fx/`, `xfx/`, `red/`: the captures (redacted with `scripts/fxcap/redact.py`).
-- `check.py`, `sweep-view.py`, `mutants.py`: the checkers.
-- `green.txt`, `red.txt`, `sweep-view.txt`, `mutants.txt`, `regressions.txt`:
-  their output.
+- `check.py`, `sweep-view.py`, `mutants.py`, `mutants-c.py`: the checkers.
+- `green.txt`, `red.txt`, `sweep-view.txt`, `mutants.txt`, `mutants-c.txt`,
+  `regressions.txt`: their output (round 3 re-ran all but `regressions.txt`
+  from the same captures).
 - `red-tests.txt`, `red-u2-base.txt`, `red-round1-head.txt`: the RED test runs.
 
 ## Gates
 
-Run on the tree at the receipt's first commit (`4a19a15e`, whose code is
-`52b150c`'s), `TMPDIR=/private/tmp/claude-501/tw`, each full run after the
-idle wait:
+Round 2 ran these on `4a19a15e`, whose code is `52b150c`'s. Round 3 ran the
+whole list again on `01981fc3`, with the same results (9817 files for the
+three checks). `TMPDIR=/private/tmp/claude-501/tw`; each full run came after
+the idle wait:
 
 | gate | result |
 |---|---|
@@ -256,5 +297,6 @@ idle wait:
 | `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx` | 37 scenarios + the oracle, 1111 checks, 0 failures |
 | `check.py` on `fx/` against `xfx/` (`green.txt`) | 34 claims, 34 hold |
 | `check.py` on `fx/` against `red/` (`red.txt`) | 34 claims, 12 fail |
+| `mutants-c.py` (`mutants-c.txt`, round 3) | round 2's `check.py` passes 6 of 6 mutants, this one fails 6 of 6 |
 | `sweep-view.py` (`sweep-view.txt`) | 0 rows no cause covers |
 | `regressions.txt` | 23 of 23 snaps identical |

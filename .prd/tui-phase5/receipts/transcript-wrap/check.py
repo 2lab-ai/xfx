@@ -81,6 +81,10 @@ FX_ONLY = {
     "session-record": re.compile(r"^  (?:system prompt: ready · \d+ bytes|skills: loading)$"),
 }
 TOOLS_START = re.compile(r"^  tools: \d+ advertised \(")
+# A row of the tool list after its first: tool names only, each followed by
+# `,`, or the list's last row, ending `+N more)` -- or fx's `more)` alone.
+TOOL = r"(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill)"
+TOOLS_MORE = re.compile(r"^  (?:%s, )*(?:%s,|\+\d+ more\)|more\))$" % (TOOL, TOOL))
 FOOTER = "┃ full detail"
 VIEWPORT = 36
 ARROW = 3
@@ -102,12 +106,19 @@ def rows_of(side, scenario, size, snap):
     return [cells.normalize_row(r, RULES[rule_side]) for r in raw]
 
 
+class Malformed(Exception):
+    """A capture that is not the shape a claim reads: the claim fails."""
+
+
 def record(rows):
-    """The rows above the footer's blank row."""
+    """The rows above the footer's blank row -- which must be blank, and
+    unstyled: it is read, not dropped."""
     for i, r in enumerate(rows):
         if text(r).startswith(FOOTER):
+            if i < 1 or rows[i - 1] != []:
+                raise Malformed("the row above the footer is %r, not a blank one" % (text(rows[i - 1]) if i else None))
             return rows[: i - 1]
-    raise ValueError("no Ctrl-O footer")
+    raise Malformed("no Ctrl-O footer")
 
 
 def causes_applied(rows, side):
@@ -122,9 +133,14 @@ def causes_applied(rows, side):
                 i += 1
                 continue
         if TOOLS_START.search(t):
+            # The list, to its closing row; every row after the first is a
+            # row of tool names. Anything else is not a tool list, and no row
+            # is folded into one that is not.
             j = i
-            while j < len(rows) and not text(rows[j]).endswith(")"):
+            while not text(rows[j]).endswith(")"):
                 j += 1
+                if j == len(rows) or not TOOLS_MORE.search(text(rows[j])):
+                    raise Malformed("%s: the tool list from row %d has no closing row: %r" % (side, i + 1, text(rows[j]) if j < len(rows) else None))
             taken["tools-list"] += j - i + 1
             out.append([(0, "<tools>", ())])
             i = j + 1
@@ -190,7 +206,14 @@ def joined(side, scenario, size, windows, claim):
     return doc
 
 
-def check_stitch(scenario, size, windows, expect):
+def check_taken(claim, label, side, taken, want):
+    """The rows taken out of a side must be the claim's count, cause by cause."""
+    for cause in ("tool-schema", "session-record", "tools-list"):
+        if taken[cause] != want.get(cause, 0):
+            claim.fail("%s %s: %d %s rows taken out, the claim is %d" % (label, side, taken[cause], cause, want.get(cause, 0)))
+
+
+def check_stitch(scenario, size, windows, expect, uncovered):
     claim = Claim("stitch %s %s [%s]" % (scenario, size, " ".join(s for s, _ in windows)))
     docs = {}
     for side in ("fx", "xfx"):
@@ -198,33 +221,37 @@ def check_stitch(scenario, size, windows, expect):
         applied, taken = causes_applied(doc, side)
         docs[side] = applied
         claim.say("%-3s %3d rows joined; taken out: %s" % (side, len(doc), ", ".join("%s %d" % kv for kv in taken.items() if kv[1])))
-        if side == "fx":
-            for cause, want in expect.items():
-                if taken[cause] != want:
-                    claim.fail("fx: %d %s rows taken out, the claim is %d" % (taken[cause], cause, want))
+        check_taken(claim, "the joined document:", side, taken, expect[side])
     a, b = docs["fx"], docs["xfx"]
     n = min(len(a), len(b))
     if a[len(a) - n :] != b[len(b) - n :]:
         ca, cb = first_difference(list(reversed(a[len(a) - n :])), list(reversed(b[len(b) - n :])))
         claim.fail("bottom-up, fx %r / xfx %r" % (text(ca) if ca else None, text(cb) if cb else None))
     claim.say("compared bottom-up: %d rows the same; above them only fx covers %d, only xfx %d" % (n, len(a) - n, len(b) - n))
+    if (len(a) - n, len(b) - n) != uncovered:
+        claim.fail("only fx covers %d and only xfx %d, the claim is %d and %d" % (len(a) - n, len(b) - n, uncovered[0], uncovered[1]))
     docs["compared"] = n
     return claim, docs
 
 
-def check_top(scenario, size, snaps):
+def check_top(scenario, size, snaps, expect, compared, uncovered):
     claim = Claim("top %s %s [%s]" % (scenario, size, " ".join(snaps)))
     for snap in snaps:
         a, ta = causes_applied(record(rows_of("fx", scenario, size, snap)), "fx")
         b, tb = causes_applied(record(rows_of("xfx", scenario, size, snap)), "xfx")
+        check_taken(claim, snap + ":", "fx", ta, expect[snap]["fx"])
+        check_taken(claim, snap + ":", "xfx", tb, expect[snap]["xfx"])
         # Both start at the same row of the document: what is on the screen
-        # is compared from the top, as far as both go.
+        # is compared from the top, as far as both go -- and how far that is
+        # is the claim's, as are the rows past it only one side shows.
         n = min(len(a), len(b))
         same = a[:n] == b[:n]
         if not same:
             ca, cb = first_difference(a[:n], b[:n])
             claim.fail("%s: fx %r / xfx %r" % (snap, text(ca) if ca else None, text(cb) if cb else None))
-        claim.say("%s: %d rows the same from the top (fx took out %d session-record rows)" % (snap, n if same else 0, ta["session-record"]))
+        if n != compared or (len(a) - n, len(b) - n) != uncovered:
+            claim.fail("%s: %d rows compared, fx %d and xfx %d past them; the claim is %d, %d and %d" % (snap, n, len(a) - n, len(b) - n, compared, uncovered[0], uncovered[1]))
+        claim.say("%s: %d rows the same from the top, then only xfx shows %d (fx took out %d session-record rows)" % (snap, n if same else 0, len(b) - n, ta["session-record"]))
     return claim
 
 
@@ -318,28 +345,42 @@ def check_inline(scenario, size, snap):
 
 
 PAGE, UP = "page", "arrow"
-SCHEMA2 = {"tool-schema": 2}
-BOTH = {"tool-schema": 2, "session-record": 2}
+
+
+def taken(fx, xfx):
+    """The rows a claim takes out on each side, cause by cause."""
+    return {"fx": fx, "xfx": xfx}
+
+
+# What each side has taken out, by the claim (`check_taken`), and how many
+# rows only one side covers past the compared ones: none where the whole
+# record fits the screen; xfx's two at the top where fx's page starts two
+# rows later (a lone tail, or an arrow window's own top); xfx's banner where
+# fx's two-pages-up stops a row lower; xfx's last two in a window at the top,
+# under fx's two-row-taller session record.
+WHOLE = taken({"tool-schema": 2, "session-record": 2, "tools-list": 2}, {"tools-list": 2})
+SCHEMA2 = taken({"tool-schema": 2}, {})
+SESSION = lambda rows: taken({"session-record": 2, "tools-list": rows}, {"tools-list": rows})  # noqa: E731
 SPEC = {
     "p5-transcript-tools": [
-        ("stitch", "40x120", "doc", [("full-running", None)], BOTH),
+        ("stitch", "40x120", "doc", [("full-running", None)], WHOLE, (0, 0)),
         ("hold", "40x120", "full-running", "full-pgup"),
-        ("stitch", "40x80", "doc80", [("full-running", None)], BOTH),
+        ("stitch", "40x80", "doc80", [("full-running", None)], WHOLE, (0, 0)),
         ("hold", "40x80", "full-running", "full-pgup"),
         ("inline", "40x120", "running"),
         ("inline", "40x80", "running"),
     ],
     "p5-transcript-anchormid": [
-        ("stitch", "40x120", "running", [("full-pgup-up", UP), ("full-pgup", PAGE), ("full-running", None)], SCHEMA2),
+        ("stitch", "40x120", "running", [("full-pgup-up", UP), ("full-pgup", PAGE), ("full-running", None)], SCHEMA2, (0, 2)),
         ("inside", "40x120", "full-pgup", "running", None),
         ("hold", "40x120", "full-pgup", "full-pgup-back"),
         ("hold", "40x120", "full-pgup", "full-pgup-after"),
-        ("stitch", "40x120", "settled", [("full-end", None)], SCHEMA2),
+        ("stitch", "40x120", "settled", [("full-end", None)], SCHEMA2, (0, 2)),
         ("inline", "40x120", "running"),
         ("inline", "40x120", "end"),
     ],
     "p5-transcript-anchor": [
-        ("stitch", "40x120", "running", [("full-pgup2", PAGE), ("full-pgup", PAGE), ("full-running", None)], BOTH),
+        ("stitch", "40x120", "running", [("full-pgup2", PAGE), ("full-pgup", PAGE), ("full-running", None)], WHOLE, (0, 1)),
         # At the top a `* network:` record lands inside the view, under the
         # ones there: the view holds above it, and pushes down under it.
         ("insert", "40x120", "full-pgup2", "full-pgup2-after"),
@@ -347,26 +388,27 @@ SPEC = {
         ("inline", "40x120", "end"),
     ],
     "p5-transcript-resize": [
-        ("stitch", "40x120", "running-120", [("full-pgup-up", UP), ("full-pgup", PAGE), ("full-running", None)], SCHEMA2),
+        ("stitch", "40x120", "running-120", [("full-pgup-up", UP), ("full-pgup", PAGE), ("full-running", None)], SCHEMA2, (0, 2)),
         ("inside", "40x120", "full-pgup", "running-120", None),
         ("hold", "40x120", "full-pgup", "full-pgup-back"),
         ("row1", "40x120", "full-pgup", "full-pgup-80"),
-        ("stitch", "40x120", "running-80", [("full-tail-80-up", UP), ("full-tail-80-pgup", PAGE), ("full-tail-80", None)], SCHEMA2),
+        ("stitch", "40x120", "running-80", [("full-tail-80-up", UP), ("full-tail-80-pgup", PAGE), ("full-tail-80", None)], SCHEMA2, (0, 2)),
         ("inside", "40x120", "full-pgup-80", "running-80", "full-pgup"),
         ("inside", "40x120", "full-tail-80-pgup", "running-80", None),
         ("row1", "40x120", "full-tail-80-pgup", "full-pgup-120"),
-        ("stitch", "40x120", "running-120b", [("full-tail-120-up", UP), ("full-tail-120-pgup", PAGE), ("full-tail-120", None)], SCHEMA2),
+        ("stitch", "40x120", "running-120b", [("full-tail-120-up", UP), ("full-tail-120-pgup", PAGE), ("full-tail-120", None)], SCHEMA2, (0, 2)),
         ("inside", "40x120", "full-pgup-120", "running-120b", "full-tail-80-pgup"),
         ("hold", "40x120", "full-tail-120-pgup", "full-pgup-after"),
     ],
     "p5-transcript-records": [
-        ("top", "40x120", ["full-records", "full-records-80", "full-records-120"]),
+        ("top", "40x120", ["full-records", "full-records-80", "full-records-120"],
+         {snap: SESSION(2) for snap in ("full-records", "full-records-80", "full-records-120")}, 33, (0, 2)),
         ("row1", "40x120", "full-records", "full-records-80"),
         ("row1", "40x120", "full-records", "full-records-120"),
     ],
     "p5-transcript-question": [
-        ("stitch", "40x120", "120", [("full-120", None)], {"session-record": 2}),
-        ("stitch", "40x120", "60", [("full-60", None)], {"session-record": 2}),
+        ("stitch", "40x120", "120", [("full-120", None)], SESSION(2), (0, 0)),
+        ("stitch", "40x120", "60", [("full-60", None)], SESSION(3), (0, 0)),
         ("inline", "40x120", "answered"),
     ],
 }
@@ -380,22 +422,39 @@ def main():
         docs, shifts = {}, {}
         for item in items:
             kind = item[0]
-            if kind == "stitch":
-                claim, joined_docs = check_stitch(scenario, item[1], item[3], item[4])
-                docs[item[2]] = joined_docs
-            elif kind == "top":
-                claim = check_top(scenario, item[1], item[2])
-            elif kind == "hold":
-                claim = check_hold(scenario, item[1], item[2], item[3])
-            elif kind == "insert":
-                claim = check_insert(scenario, item[1], item[2], item[3])
-            elif kind == "row1":
-                claim = check_row1(scenario, item[1], item[2], item[3])
-            elif kind == "inside":
-                claim = check_inside(scenario, item[1], item[2], docs[item[3]], item[3], shifts, item[4])
-            elif kind == "inline":
-                claim = check_inline(scenario, item[1], item[2])
+            try:
+                claim = run_claim(scenario, item, docs, shifts)
+            except Malformed as error:
+                claim = Claim("%s %s %s" % (kind, scenario, " ".join(str(x) for x in item[1:3])))
+                claim.fail("malformed capture: %s" % error)
             claims.append(claim)
+    report(claims)
+
+
+def run_claim(scenario, item, docs, shifts):
+    kind = item[0]
+    if kind == "stitch":
+        claim, joined_docs = check_stitch(scenario, item[1], item[3], item[4], item[5])
+        docs[item[2]] = joined_docs
+        return claim
+    if kind == "top":
+        return check_top(scenario, item[1], item[2], item[3], item[4], item[5])
+    if kind == "hold":
+        return check_hold(scenario, item[1], item[2], item[3])
+    if kind == "insert":
+        return check_insert(scenario, item[1], item[2], item[3])
+    if kind == "row1":
+        return check_row1(scenario, item[1], item[2], item[3])
+    if kind == "inside":
+        if item[3] not in docs:
+            raise Malformed("the stitch %s it is read in did not join" % item[3])
+        return check_inside(scenario, item[1], item[2], docs[item[3]], item[3], shifts, item[4])
+    if kind == "inline":
+        return check_inline(scenario, item[1], item[2])
+    raise ValueError(kind)
+
+
+def report(claims):
     bad = 0
     for claim in claims:
         print(("ok   " if claim.ok else "FAIL ") + claim.name)

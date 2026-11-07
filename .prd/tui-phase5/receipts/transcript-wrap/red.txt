@@ -3,6 +3,7 @@ FAIL stitch p5-transcript-tools 40x120 [full-running]
        xfx  25 rows joined; taken out: tools-list 2
        FAIL bottom-up, fx '  word33 word34 word35 word36 word37 word38 word39 LONG_TAIL >/dev/null; sleep 12; echo finished' / xfx '└ Running echo word0 word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13 word14 word15 wo…'
        compared bottom-up: 24 rows the same; above them only fx covers 2, only xfx 0
+       FAIL only fx covers 2 and only xfx 0, the claim is 0 and 0
 ok   hold p5-transcript-tools 40x120 full-running == full-pgup
        fx  all 36 rows the same; row 1 '<banner>'
        xfx all 36 rows the same; row 1 '<banner>'
@@ -11,6 +12,7 @@ FAIL stitch p5-transcript-tools 40x80 [full-running]
        xfx  27 rows joined; taken out: tools-list 2
        FAIL bottom-up, fx '  sleep 12; echo finished' / xfx '└ Running echo word0 word1 word2 word3 word4 word5 word6 word7 word8 word9 word…'
        compared bottom-up: 26 rows the same; above them only fx covers 4, only xfx 0
+       FAIL only fx covers 4 and only xfx 0, the claim is 0 and 0
 ok   hold p5-transcript-tools 40x80 full-running == full-pgup
        fx  all 36 rows the same; row 1 '<banner>'
        xfx all 36 rows the same; row 1 '<banner>'
@@ -47,6 +49,7 @@ FAIL stitch p5-transcript-anchor 40x120 [full-pgup2 full-pgup full-running]
        xfx 104 rows joined; taken out: tools-list 2
        FAIL bottom-up, fx '  zz' / xfx '└ Running sleep 9; echo  w00 w01 w02 w03 w04 w05 w06 w07 w08 w09 w10 w11 w12 w13 w14 w15 w16 w17 w18 w19 w20 w21 w22 w2…'
        compared bottom-up: 103 rows the same; above them only fx covers 0, only xfx 0
+       FAIL only fx covers 0 and only xfx 0, the claim is 0 and 1
 ok   insert p5-transcript-anchor 40x120 full-pgup2 -> full-pgup2-after
        fx  rows 1-19 the same; a 5-row record at row 20; the 12 rows under it are the ones that were at row 20 on
        xfx rows 1-18 the same; a 5-row record at row 19; the 13 rows under it are the ones that were at row 19 on
@@ -98,10 +101,12 @@ FAIL hold p5-transcript-resize 40x120 full-tail-120-pgup == full-pgup-after
        fx  all 36 rows the same; row 1 '│  9     a line 9 of the a file'
        FAIL xfx: '│  6     a line 6 of the a file' / '● 6 tool calls · 5 read · 1 command'
 FAIL top p5-transcript-records 40x120 [full-records full-records-80 full-records-120]
-       full-records: 33 rows the same from the top (fx took out 2 session-record rows)
+       full-records: 33 rows the same from the top, then only xfx shows 2 (fx took out 2 session-record rows)
+       FAIL full-records-80: xfx: 0 tools-list rows taken out, the claim is 2
        FAIL full-records-80: fx '* session: provider: gateway · model: fake/model-a · effort: auto' / xfx '  mcp: none'
-       full-records-80: 0 rows the same from the top (fx took out 2 session-record rows)
-       full-records-120: 33 rows the same from the top (fx took out 2 session-record rows)
+       FAIL full-records-80: 33 rows compared, fx 0 and xfx 3 past them; the claim is 33, 0 and 2
+       full-records-80: 0 rows the same from the top, then only xfx shows 3 (fx took out 2 session-record rows)
+       full-records-120: 33 rows the same from the top, then only xfx shows 2 (fx took out 2 session-record rows)
 FAIL row1 p5-transcript-records 40x120 full-records, full-records-80
        fx  row 1 '* session: provider: gateway · model: fake/model-a · effort: auto' in both
        FAIL xfx: '* session: provider: gateway · model: fake/model-a · effort: auto' / '  mcp: none'
@@ -117,6 +122,7 @@ FAIL stitch p5-transcript-question 40x120 [full-60]
        xfx  32 rows joined; taken out: tools-list 3
        FAIL bottom-up, fx 'l disk' / xfx '     Postgres with the write-ahead log kept on the fast loc…'
        compared bottom-up: 30 rows the same; above them only fx covers 2, only xfx 0
+       FAIL only fx covers 2 and only xfx 0, the claim is 0 and 0
 ok   inline p5-transcript-question 40x120 answered
        all 41 rows the same
 34 claims, 22 hold, 12 fail
