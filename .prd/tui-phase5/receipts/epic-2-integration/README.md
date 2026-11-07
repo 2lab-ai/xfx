@@ -479,3 +479,193 @@ back empty twice, 45 s apart:
 | `scripts/check-usage-clock.sh` | ok |
 
 No test failed, so none was re-run.
+
+## INT3: `main` @ `46c4efa6` (#63 PROFILE-DIR, #62 usage U4-U6), opus's INT2c SHOULD 1
+
+INT2c closed with no MUST from either engine (`EPIC2-INT2c/reviews/`).
+
+### The merge
+
+`118d4b4e`, `git merge --no-edit 46c4efa6` (#63 `f71f7ea8`, #62): no
+conflict, and `git show --remerge-diff 118d4b4e` prints nothing (0 lines). It
+did not compile, though: one semantic seam, below, fixed in `3cf5075e`. So
+`118d4b4e` alone does not build; every commit after it does.
+
+### The seams
+
+- **PROFILE-DIR and `/mcp`'s writer.** #63 deleted `create_private_dir` from
+  `src/mcp/config.rs` and moved the whole-file profile writer (`edit_profile`)
+  to `profile_home::ensure`. MCP-V's `update` -- the writer of `/mcp add`,
+  `/mcp remove` and their `--project` form -- still called it
+  (`E0425`, `src/mcp/config.rs:1916` as merged). Fix (`3cf5075e`):
+  - `update` makes the profile home private or refuses it, never repaired
+    (`profile_home::ensure(dir, dir)`, `src/mcp/config.rs:1932`), for both
+    files: the lock is the profile's whichever file is edited, as upstream's
+    `profileDir` opens it verified private for the lock
+    (`src/core/mcp_host/config_file.zig:147-155@481104fd`). A refusal is said
+    in the session store's words after `Couldn't add <name> to <file>: `
+    (`EditError::Refused`, `:1645`); upstream says `something went wrong`
+    there (`describe`, `src/core/mcp_host/verbs.zig:313-326@481104fd`).
+  - **The workspace's `.mcp.json` is not profile state.** It is the
+    project's shared file, upstream's rule for it: "A project's `.mcp.json`
+    is shared, so it keeps its mode", a link or a file with another hard
+    link refused, the file replaced atomically where it is (`write`,
+    `src/core/mcp_host/config_file.zig:157-171@481104fd`). xfx's `replace`
+    already does that (the mode kept, `Symlink`/`HardLink`/`ReadOnly`
+    refused); only the lock goes through the profile home. `docs/parity.md`'s
+    profile-home row says both now, and that the verbs say the store's
+    sentence (the error names it listed are the test-only writer's).
+  - **The writer table** (`src/profile_home/tests.rs`, "every product
+    writer"): its MCP entry ran `add_profile_server`, the whole-file writer
+    MCP-V made test-only (`9034e3b9`). It runs `/mcp add` for the profile and
+    with `--project` instead (`:148`, `:152`), so every case of the table
+    (missing home, open home, linked home, umask) covers the verbs' writer.
+  - **The scan passes for the right reason.** `src/mcp/config.rs`'s product
+    code makes no directory (the deleted helper's `DirBuilder::new(` is gone
+    with it) and holds `crate::profile_home::ensure(dir, dir)` once, in
+    `update` (`edit_profile`'s is test-only and cut). Mutants (a throwaway
+    clone, `mutants_int3.py`): `update` making the home with
+    `fs::create_dir_all` first fails
+    `no_product_code_makes_a_directory_but_on_the_lines_allowed`; `update`
+    with no check fails the open-home writer case (`/mcp add` wrote into a
+    `0755` home) and `every_profile_writer_makes_its_directories_through_the_helper`.
+  - **Every other MCP write in the profile** is a settings write (a project
+    server's approval or rejection, `save_action` ->
+    `provider::profile::edit_document`), which #63 already routes.
+  - **Test fixtures.** The MCP side's cases that made `~/.xfx` with the
+    umask's mode, or put it under a home that was not there, are refused now,
+    as #63's own fixtures were; they make it as xfx does
+    (`profile_home::made`, a home that exists), as #63 did for main's:
+    `scratch_repo` (a home), `mcp::config::tests` x3, `mcp::command::tests`'
+    `write_profile`, the shell's `mcp_args_shell` (`3cf5075e`) and `McpCase`
+    (`189173da`, 13 MCP-M cases). No assertion changed.
+- **#62's `/usage` screen and `/mcp`'s menu.** `/mcp` already closes the
+  screen and its runtime (`close_usage`, `src/tui/shell.rs:13101`, merged
+  clean), and drops a waiting `/fork` (`:13105`). `/usage` closed every other
+  surface but not `/mcp`'s menu. It does now (`:12786`, `3cf5075e`); neither
+  can open over the other by a typed line (the menu takes Enter and its
+  filter is the composer), and upstream's `commandShowUsage` closes the
+  skills, model, help, settings and inline menus, not the MCP host menu
+  (`src/core/app/app_commands.zig:808-830@481104fd`); the close keeps the
+  slot's one-surface rule for any other way the handler is reached, as
+  FK-GAPc's opener table does. RED: `the_usage_screen_and_the_mcp_menu_close_each_other`
+  (`:42576`) -> `/usage over /mcp: two surfaces in the slot`, `left: 2`.
+  `slot_occupants` counts both (`:42329`, `:42331`); FK-GAPc's opener table
+  (`:42540`) passes with `/usage` and `/mcp` in it; `usage()` still drops a
+  waiting `/fork`.
+- **PROC-SPAWN.** Clippy on the merged tree, both feature sets: no
+  `disallowed-methods` site, so nothing #62 or #63 brings starts a child or makes a pipe outside `process::*`.
+
+### Opus's INT2c SHOULD 1: Escape before the resume lands
+
+- The fork lands under the session picker (the prompt held), another
+  session is chosen (`resume_selected`), and Escape takes the picker down
+  while the resume runs: `close_sessions(true)` on an empty search skips
+  `amended`, and the settle put the prompt in the composer, which the resumed
+  session kept. A fork that lands after the resume was asked for, with the
+  picker taken down, did the same -- on `main` too.
+- Fix (`3cf5075e`): `resume_selected`'s `Ok` arm drops `fork_prompt` and
+  `fork_prompt_held` (`src/tui/shell.rs:6295`): another session is on its
+  way in, and both prompts are the replaced conversation's.
+- RED, before the fix: `a_fork_prompt_held_under_the_session_picker_is_dropped_by_the_resume_an_escape_left_running`
+  (`:43007`) -> `the forked conversation's prompt came back over a resume in
+  flight`, `left: "second prompt beta"`;
+  `a_fork_still_on_its_way_when_another_session_is_resumed_brings_no_prompt_to_it`
+  (`:43054`) -> `left: "second prompt beta"`. GREEN after. Mutant (clone):
+  without the two drops, both fail.
+- **Residuals, as decided (opus SHOULD 2), each a prompt lost rather than
+  carried into another conversation:** C-p, or `/model`'s menu going on into
+  a model's effort column, drops a held prompt; and a resume that was asked
+  for and then fails (`ResumeFailed`) leaves the forked conversation current
+  with its prompt already dropped by `resume_selected`. `main` lost the
+  prompt on both paths too (on the second, the picker's search held it and
+  Escape's `close_sessions(true)` threw it away).
+
+### Ledger
+
+`d25f1d83`, `52fdf178`: #63's and #62's rows moved `docs/parity.md` `:209` ->
+`:210`, `:215` -> `:216`, `:237` -> `:238`; #62 moved
+`src/gateway/mod.rs:86` -> `:59` and `src/session/store.rs:1059` -> `:992`;
+INT3's tests moved `src/tui/shell.rs:1575` -> `:1584` and `:36772` ->
+`:36815`. The read of every citation on the head finds none stale.
+
+### Pairs (fx v0.0.16, sha256 `8e6cda2e…`)
+
+Every capture is from a binary built at `52fdf178`, the INT3 code head
+(this receipt's commit after it adds this directory's text and
+`mutants_int3.py` only): the debug build, whose row 1 reads `x𝒇x
+v0.1.0-52fdf17 [debug]`; the release build for 24x50, and a debug build
+stamped `XFX_BUILD_CHANNEL=release` for the `/usage` pairs (#62's receipt
+took them that way: the plain debug banner, 52 cells, wraps at 50 columns and
+moves every row, `xfx-debug-banner-wrap`); both banners read `x𝒇x v0.1.0`,
+and both binaries hold the revision `52fdf178a05a`.
+
+**Epic 1 and epic 2**, every scenario at 40x120 in the CI sweep below, and
+the units' own sizes (14x120, 12x120, 40x60 by `sweep.sh`; 24x50 by
+`capture.sh` on the release build). Each at its unit count or above:
+
+| scenario | unit (INT2c) | INT3 |
+|---|---|---|
+| `p5-mcp-*` (20), 40x120 | 85 / 1 / 146 | 85 / 1 / 146 |
+| `p5-mcp-menu-new` 40x60 | 22 / 1 / 34 | 22 / 1 / 34 |
+| `p5-input-mcp` | 9 / 0 / 9 | 9 / 0 / 9 |
+| `p5-effort-fork-*` (16) | as in the table above | each the same |
+| `p5-effort-fork-effort-short` 12x120 | 3 / 0 / 3 | 3 / 0 / 3 |
+| `p5-panels-status-short` 14x120 | 3 / 1 / 6 | 3 / 1 / 6 |
+| `p5-panels-status-short` 24x50 | 1 / 5 / 6 | 1 / 5 / 6 |
+| `p5-panels-*`, `p5-permissions-*`, `p5-session-early-prefs` | as in the table above | each the same, but `p5-panels-help` 9 -> **10** / 0 / 17 and `p5-panels-slash` 2 -> **5** / 0 / 15 |
+
+The four that went up (`help` `query-cost`, `slash` `cost-run`,
+`filter-co`, `filter-st`) pass at the base too: #62's, not this merge's.
+
+**`/usage`** (#62's receipt, `usage-screen` and `usage-ledger-retire`), every
+`p5-usage-*` scenario at #62's three sizes, xfx stamped as #62's was; 40x120
+and 24x80 classified by the sweep, 40x50 by `status-panel/pairs.py` (the
+sweep's fx inventory does not parse at 50 columns, as #62 found):
+
+| scenario | #62 (each size) | INT3 40x120 | 40x50 | 24x80 |
+|---|---|---|---|---|
+| `p5-usage-cached` | 21 / 0 / 21 | 21 / 0 / 21 | 21 / 0 / 21 | 21 / 0 / 21 |
+| `p5-usage-budget` | 14 / 0 / 14 | 14 / 0 / 14 | 14 / 0 / 14 | 14 / 0 / 14 |
+| `p5-usage-many` | 5 / 0 / 5 | 5 / 0 / 5 | 5 / 0 / 5 | 5 / 0 / 5 |
+| `p5-usage-nokey` | 0 / 4 / 4 (`usage-no-sign-in`) | 0 / 4 / 4 | 0 / 4 / 4 | 0 / 4 / 4 |
+| `p5-usage-turns` | 18 / 0 / 20, 2 `stats-bytes` | 18 / 0 / 20, `stats`, `credits` `stats-bytes` | the same | the same |
+| `p5-usage-noledger` | 4 rows-identical (40x120) | 4 / 0 / 4 | 4 / 0 / 4 | 4 / 0 / 4 |
+| `p5-usage-codex`, `p5-usage-oidc` (research, no unit count) | base `46c4efa6`, 40x120: 0 / 0 / 4 and 3 / 0 / 3 | 0 / 0 / 4, 3 / 0 / 3 | the same | the same |
+
+### Sweep
+
+`sweep.yml`'s job, run locally: `ci-sweep.sh --base 46c4efa6 --fx <fx
+v0.0.16> --pin v0.0.16 --xfx <52fdf178 debug> --base-xfx <46c4efa6 debug>
+--jobs 2`, `FX_AUTO_UPGRADE=0`. 63 scenarios (10 core, 9 changed, the rest
+named by the receipts), **468 snap pairs: 304 pass at the head, 25 new, 0
+regressions**; 2,235 s. The 25 new pairs are the MCP side's edited
+scenarios' snaps the base's `.cap` files do not take (`p5-mcp-config` 3,
+`-config-ignored` 4, `-config-vars` 4, `-errdata` 1, `-failed` 4, `-known`
+1, `-live` 6, `-rpcerror` 1, `-unavailable` 1), as against `0e9e7ce8`. Every
+pair not passing at the head does not pass at the base either.
+
+### Gates
+
+On `52fdf178`, `TMPDIR=/private/tmp/claude-501/ep2`, each full suite started
+after `pgrep -x cargo` and `pgrep -x 'xfx-[0-9a-f]+'` both came back empty
+twice, 45 s apart:
+
+| gate | result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings` | ok |
+| `cargo clippy … --features fault-injection -- -D warnings` | ok |
+| `cargo test --locked --no-fail-fast` | 5,042 passed, 0 failed, 7 ignored |
+| `cargo test … --features fault-injection --no-fail-fast` | 5,079 passed, 0 failed, 7 ignored |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | ok |
+| `cargo build --locked --release`; `--release --features fault-injection --target-dir target/faulty` | ok |
+| `scripts/smoke.sh target/release/xfx <dir>` | 47 checks, 0 failures |
+| `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios and the oracle, 1,111 checks, 0 failures |
+| `scripts/check-preview-contract.sh` | ok |
+| `scripts/check-tui-preflight-cost.sh` | ok (every case under budget) |
+| `scripts/check-usage-clock.sh` | ok |
+
+The first default-suite run, on `d25f1d83`, failed 13 MCP-M shell cases
+(`McpCase`'s open `~/.xfx`, above); `189173da` fixed the fixture, and the
+runs above are the whole suites again, not the 13 alone.
