@@ -21,6 +21,26 @@ set -euo pipefail
 # options are its own.
 unset GREP_OPTIONS
 
+# Git takes where a repository is, which index it lists, where it writes
+# objects and which config and attributes apply from its environment:
+# `GIT_DIR`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, `GIT_COMMON_DIR`,
+# `GIT_CONFIG_*`, `GIT_ATTR_SOURCE` and more. One inherited from a caller --
+# an exported shell, a hook -- made it list another index: with
+# `GIT_INDEX_FILE` naming one without a file, the key in that file passed. With
+# `GIT_OBJECT_DIRECTORY` or `GIT_COMMON_DIR`, the control below wrote into
+# another repository. Inside a hook, git exports `GIT_DIR` and
+# `GIT_INDEX_FILE` for the commit it is making. This scan reads every file's
+# content from the working tree, never from an index, so it is a check of the
+# checkout there too, and it lists the checkout's own index.
+# This checks the checkout it is in, as CI does: that checkout's own
+# `.git`, index and working tree. So every `GIT_*` goes before any git runs.
+# scripts/test-gate-env.sh holds it to that.
+for name in $(compgen -e); do
+	case "$name" in
+	GIT_*) unset "$name" ;;
+	esac
+done
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 

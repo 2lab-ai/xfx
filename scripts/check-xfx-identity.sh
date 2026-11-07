@@ -23,6 +23,23 @@
 
 set -euo pipefail
 
+# Git takes where a repository is, which index it lists, where it writes
+# objects and which config and attributes apply from its environment:
+# `GIT_DIR`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, `GIT_COMMON_DIR`,
+# `GIT_CONFIG_*`, `GIT_ATTR_SOURCE` and more. One inherited from a caller --
+# an exported shell, a hook -- made it pass residue in its own tree:
+# with `GIT_DIR` it scanned the other repository, and with `GIT_INDEX_FILE` an
+# index without the file. With `GIT_DIR`, `GIT_OBJECT_DIRECTORY` or
+# `GIT_COMMON_DIR`, the controls below wrote into another repository.
+# This checks the checkout it is in, as CI does: that checkout's own
+# `.git`, index and working tree. So every `GIT_*` goes before any git runs.
+# scripts/test-gate-env.sh holds it to that.
+for name in $(compgen -e); do
+	case "$name" in
+	GIT_*) unset "$name" ;;
+	esac
+done
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
@@ -47,8 +64,22 @@ retired_upper="$(printf '%s' "$retired" | tr '[:lower:]' '[:upper:]')"
 retired_mixed="${retired_upper:0:1}${retired:1}"
 
 # Every tracked line whose text carries the retired name, in any case.
+#
+# Binary by content, not by attributes. `git grep -I` takes "binary" from the
+# `diff` attribute first, and attributes come from places a caller holds: a
+# global or system config's `core.attributesFile`, `.git/config`,
+# `.git/info/attributes`, an untracked `.gitattributes`. `*.lock -diff` in any
+# of them hid a Cargo.lock from this scan. So `-a` reads every tracked file as
+# text, and a file is passed over only if it is binary by git's own rule when
+# no attribute says: a NUL in its first 8000 bytes. `--no-color`, because
+# `color.grep=always` would colour the names `-l -z` lists.
 tracked_content() {
-	git -C "$1" grep -I -n -i -e "$retired" -- || true
+	local path
+	while IFS= read -r -d '' path; do
+		if [ "$(head -c 8000 "$1/$path" | LC_ALL=C tr -d -c '\000' | wc -c)" -eq 0 ]; then
+			git -C "$1" grep -a --no-color -n -i -e "$retired" -- ":(literal)$path" || true
+		fi
+	done < <(git -C "$1" grep -a --no-color -l -z -i -e "$retired" -- || true)
 }
 
 # Every tracked path whose own name carries it.

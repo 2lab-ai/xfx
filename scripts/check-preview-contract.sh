@@ -42,9 +42,25 @@ set -euo pipefail
 
 # BSD grep -- macOS's -- puts `GREP_OPTIONS` in front of every argument list:
 # a `-v` there makes "the README carries the install command" true of any
-# README with another line. (GNU grep 3.8 ignores it.) This script's options are its own;
-# scripts/test-gate-env.sh holds it to that.
+# README with another line. (GNU grep 3.8 ignores it.) This script's options
+# are its own; scripts/test-gate-env.sh holds it to that.
 unset GREP_OPTIONS
+
+# Git takes where a repository is, which index it lists, where it writes
+# objects and which config and attributes apply from its environment:
+# `GIT_DIR`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, `GIT_COMMON_DIR`,
+# `GIT_CONFIG_*`, `GIT_ATTR_SOURCE` and more. One inherited from a caller --
+# an exported shell, a hook -- sent the scratch commits the epoch
+# gate runs over into another repository: `GIT_DIR`, `GIT_OBJECT_DIRECTORY`
+# and `GIT_COMMON_DIR` each did, whatever `scratch_git` pins.
+# This checks the checkout it is in, as CI does: that checkout's own
+# `.git`, index and working tree. So every `GIT_*` goes before any git runs.
+# scripts/test-gate-env.sh holds it to that.
+for name in $(compgen -e); do
+	case "$name" in
+	GIT_*) unset "$name" ;;
+	esac
+done
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
