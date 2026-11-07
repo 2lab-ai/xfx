@@ -1,0 +1,19 @@
+# p5-mcp-menu-old three more times per build, one sweep after another (--jobs 1), head = d96603f (xfx-A), base = 58b463c; the verdict of the three snaps around the 10 s probe's end.
+head run 1 resources normalized-identical
+head run 1 prompts normalized-identical
+head run 1 servers normalized-identical
+base run 1 resources unresolved-defect
+base run 1 prompts normalized-identical
+base run 1 servers unresolved-defect
+head run 2 resources unresolved-defect
+head run 2 prompts unresolved-defect
+head run 2 servers normalized-identical
+base run 2 resources unresolved-defect
+base run 2 prompts normalized-identical
+base run 2 servers unresolved-defect
+head run 3 resources normalized-identical
+head run 3 prompts normalized-identical
+head run 3 servers normalized-identical
+base run 3 resources unresolved-defect
+base run 3 prompts normalized-identical
+base run 3 servers unresolved-defect

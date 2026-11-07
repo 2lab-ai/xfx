@@ -1,0 +1,109 @@
+# TC-NOTATION gates at the code head 16101f19 (the receipt untracked; check-no-secrets with it staged), suites one at a time, TMPDIR=<tmp>
+# part 1 (cargo); each result line kept, compile noise dropped
+# HEAD 16101f19, tree clean apart from the untracked receipt: 0 other changes
+## cargo fmt --check
+$ cargo fmt --check
+exit=0 passed=n/a failed=n/a seconds=2
+## clippy default
+$ cargo clippy --locked --all-targets -- -D warnings
+exit=0 passed=n/a failed=n/a seconds=20
+## clippy fault-injection
+$ cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+exit=0 passed=n/a failed=n/a seconds=5
+## cargo test --locked
+$ cargo test --locked --no-fail-fast
+test tui::question::tests::a_screen_the_terminal_will_not_describe_is_refused_rather_than_panicked_on ... ok
+test tui::worker::tests::a_panic_that_carried_text_is_reported_in_the_words_it_panicked_with ... ok
+test result: ok. 4265 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; 
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 175 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+exit=0 passed=5176 failed=0 seconds=105
+## cargo test --locked --features fault-injection
+$ cargo test --locked --features fault-injection --no-fail-fast
+test tui::question::tests::a_screen_the_terminal_will_not_describe_is_refused_rather_than_panicked_on ... ok
+test tui::worker::tests::a_panic_that_carried_text_is_reported_in_the_words_it_panicked_with ... ok
+test result: ok. 4288 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; 
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 189 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; 
+exit=0 passed=5213 failed=0 seconds=114
+## cargo build --release
+$ cargo build --locked --release
+exit=0 passed=n/a failed=n/a seconds=15
+## faulty build
+$ cargo build --locked --release --features fault-injection --target-dir target/faulty
+exit=0 passed=n/a failed=n/a seconds=16
+# done
+
+# part 2 (scripts)
+# HEAD 16101f19
+## check-xfx-identity
+$ scripts/check-xfx-identity.sh
+check-xfx-identity: ok (12229 tracked file(s) scanned)
+exit=0 seconds=1
+## check-no-stubs
+$ scripts/check-no-stubs.sh
+check-no-stubs: ok
+exit=0 seconds=10
+## check-preview-contract
+$ scripts/check-preview-contract.sh
+check-preview-contract: ok (.github/workflows/preview.yml)
+exit=0 seconds=2
+## check-tui-preflight-cost (CI)
+$ scripts/check-tui-preflight-cost.sh
+preflight 200x300 update: 85420 bytes in 798.212µs mean, 782.209µs min, 785.625µs median, 852.792µs max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 401.611µs mean, 393.417µs min, 398.375µs median, 426.416µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 1.437097ms mean, 1.395834ms min, 1.412041ms median, 1.732ms max (budget 32 ms)
+check-tui-preflight-cost: ok
+exit=0 seconds=90
+## fxcap test-sweep
+$ scripts/fxcap/test-sweep.sh
+----------------------------------------------------------------------
+Ran 26 tests in 8.019s
+
+OK
+exit=0 seconds=14
+## fxcap test-capture
+$ scripts/fxcap/test-capture.sh
+----------------------------------------------------------------------
+Ran 42 tests in 142.013s
+
+OK
+exit=0 seconds=142
+## smoke-tui
+$ scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <scratch>/smoke-tui
+  27-live-theme-retint                  ok
+
+smoke-tui: 37 scenarios + the oracle, 1111 checks, 0 failures
+evidence: <scratch>/smoke-tui
+exit=0 seconds=66
+# done
+
+## fxcap test-sweep (both suites; part 2 kept the last lines only)
+Ran 50 tests ... OK
+Ran 26 tests ... OK
+
+## check-no-secrets (receipt staged: 12347 tracked files, 921596 bytes of NUL-separated names)
+check-no-secrets: ok (12347 tracked file(s) scanned; again after gates.txt was staged: ok (12348 tracked file(s) scanned))
+exit=0

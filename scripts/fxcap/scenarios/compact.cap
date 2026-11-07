@@ -9,6 +9,10 @@ key Enter
 wait 0.3
 snap empty-0.3s
 wait 2
+# "No context to compact." and the busy refusal stay 1.5 s
+# (compaction.rs TRANSIENT, compaction_activity.zig:123@481104fd); the
+# snaps that mean them gone or up wait for the screen (FLAKE-HINT4).
+until gone No context to compact.
 snap empty-2.3s
 type first question
 key Enter
@@ -33,6 +37,7 @@ key Enter
 wait 0.3
 snap busy
 wait 1.7
+until gone Wait for the active work to finish
 snap busy-2.0s
 wait 2.5
 snap third-answered

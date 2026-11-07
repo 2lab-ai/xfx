@@ -1,6 +1,6 @@
 // Loopback fake AI Gateway for side-by-side fx/xfx captures.
 // Usage: [FAKEGW_MODELS=<catalog.json>] [FAKEGW_MODELS_DOWN_MS=<ms>] [FAKEGW_MODELS_DELAY_MS=<ms>] [FAKEGW_CREDITS=<credits.json>] [FAKEGW_TITLE=<title.json>]
-//        [FAKEGW_MODELS2=<catalog.json> FAKEGW_MODELS2_MS=<ms>] [FAKEGW_USAGE=<usage.json>]
+//        [FAKEGW_MODELS2=<file>] [FAKEGW_USAGE=<usage.json>]
 //        [FAKEGW_RELEASE=<file>]
 //        bun fakegw.ts <port> <script.json> [bodies-dir]
 // script.json: array of turns. Each turn is
@@ -24,8 +24,9 @@
 // (vercel-labs/fx@481104fd src/gateway/client.zig:39-49); after it the same port listens again.
 // Bun.serve has no way to close one connection, so a cut closes every connection open at that
 // moment (`server.stop(true)`): a turn that cuts should not share the moment with another stream.
-// FAKEGW_MODELS2 is a second catalog the models path serves instead once FAKEGW_MODELS2_MS have
-// passed since the gateway started: a model released while the binary runs.
+// FAKEGW_MODELS2 names a file the models path serves instead while it exists (`capture.sh`'s
+// `models2` line renames a catalog into place): a model released while the binary runs, at a
+// point in the scenario rather than a moment on the gateway's clock, which load moves.
 // FAKEGW_USAGE names a file read on every request (`capture.sh`'s `usage` verb swaps it): while it
 // exists, the usage reads fx v0.0.16 makes are answered from it, in the shapes of its own e2e fake
 // (vercel-labs/fx@481104fd tests/e2e/usage-fakes.ts) -- GET /v1/report (`{"results":[rows]}`),
@@ -342,9 +343,9 @@ async function answer(req: Request, asked: number): Promise<Response> {
         const delay = Number(process.env.FAKEGW_MODELS_DELAY_MS || 0);
         if (delay > 0) await Bun.sleep(delay);
         if (timed) log(`GET ${url.pathname} -> 200${at(Date.now() - started)}`);
-        // FAKEGW_MODELS2 (`models2`): the second catalog, once FAKEGW_MODELS2_MS have passed by
-        // the time the answer goes (after any `modelsdelay`).
-        if (process.env.FAKEGW_MODELS2 && Date.now() - started >= Number(process.env.FAKEGW_MODELS2_MS || 0)) {
+        // FAKEGW_MODELS2 (`models2`): the second catalog, once its file is in place by the time
+        // the answer goes (after any `modelsdelay`).
+        if (process.env.FAKEGW_MODELS2 && (await Bun.file(process.env.FAKEGW_MODELS2).exists())) {
           log(`GET ${url.pathname} -> second catalog`);
           return new Response(await Bun.file(process.env.FAKEGW_MODELS2).text(), { headers: { "content-type": "application/json" } });
         }

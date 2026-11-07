@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* mcp: fixture
+    status     ready, 1 tool
+    version    2026-07-28
+    transport  stdio
+    command    <bun> <repo>/scripts/fxcap/
+  scenarios/p5-mcp-discover-stdio.ts modern
+    source     ~/.fx/mcp.json
+    tools      1
+      echo  Echo text through the modern discover fixture
+
+┃ use the fixture echo tool
+
+● 3 tool calls · 2 MCP calls · 1 read
+├ Searched capabilities echo text through the fixture
+├ Ran MCP mcp_fixture_echo
+└ Ran MCP mcp_fixture_echo
+
+  done.
+
+  0s (↑6 ↓160)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -4,7 +4,7 @@
 //! xfx's for what it does differently.
 
 use super::*;
-use crate::tui::theme::{Depth, Mode};
+use crate::tui::theme::Mode;
 use crate::usage::report::{Budget, RefreshPeriod, API_KEY_LABEL};
 use crate::usage::view::View;
 
@@ -17,10 +17,7 @@ const NOW: i64 = 20737 * DAY_MS + 8 * HOUR_MS + 16 * MINUTE_MS;
 const WIDTHS: [u16; 9] = [40, 48, 56, 64, 80, 100, 120, 180, 240];
 const LABEL: &str = "acme-design-tools-platform (fx login)";
 
-const PALETTE: Palette = Palette {
-    mode: Mode::Dark,
-    depth: Depth::Ansi256,
-};
+const PALETTE: Palette = Palette { mode: Mode::Dark };
 
 /// fx's `testRow` (`:1636-1652`).
 fn row(model: &str, cost: f64, requests: u64, tokens: u64) -> ModelRow {

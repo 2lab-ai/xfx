@@ -36,6 +36,7 @@ CAPTURE = os.path.join(HERE, "capture.sh")
 FAKEGW = os.path.join(HERE, "fakegw.ts")
 MCPHTTP = os.path.join(HERE, "mcphttp.ts")
 STDIO = os.path.join(HERE, "scenarios", "p5-mcp-stdio.ts")
+DISCOVER_STDIO = os.path.join(HERE, "scenarios", "p5-mcp-discover-stdio.ts")
 
 for _tool in ("tmux", "bun", "curl"):
     if not shutil.which(_tool):
@@ -149,16 +150,24 @@ class Refusals(unittest.TestCase):
             ("rehomefile .fx/a/../../../x c.json\nsnap a\n", "rehomefile takes a relative path inside HOME"),
             ("rehomefile /etc/x c.json\nsnap a\n", "rehomefile takes a relative path inside HOME, not /etc/x"),
             ("rehomefile .fx/s.json missing.json\nsnap a\n", "rehomefile takes <path> <file in"),
-            ("models2 c.json\nsnap a\n", "models2 takes <catalog.json> <ms>, not c.json"),
-            ("models2 missing.json 10\nsnap a\n", "models2 takes <catalog.json> <ms>"),
-            ("models2 c.json soon\nsnap a\n", "models2 takes <catalog.json> <ms>, not c.json soon"),
+            ("models2 missing.json\nsnap a\n", "models2 takes <catalog.json>, served from its line on, not missing.json"),
+            # The old form, a moment on the gateway's clock: refused, not read as a file name.
+            ("models2 c.json 5000\nsnap a\n", "models2 takes <catalog.json>, served from its line on, not c.json 5000"),
             ("modelsdelay soon\nsnap a\n", "modelsdelay takes milliseconds, not soon"),
             ("clock yesterday\nsnap a\n", "clock takes milliseconds since the epoch, not yesterday"),
             ("usage missing.json\nsnap a\n", "usage takes a file in"),
-            ("mcphttp sometimes\nsnap a\n", "mcphttp takes ready, methodnotfound, hang, fail or rpcerror, not sometimes"),
+            ("mcphttp sometimes\nsnap a\n", "mcphttp takes ready, methodnotfound, hang, fail, rpcerror, modern, notimpl, old2024, malformed, hostile, ssehold, sseidless, ssestrid or ssefail, not sometimes"),
             ("jobctl now\nsnap a\n", "jobctl takes no argument, not now"),
             ("held now\nsnap a\n", "held takes no argument, not now"),
             ("release 1\nsnap a\n", "release takes no argument, not 1"),
+            ("until\nsnap a\n", "until takes an argument"),
+            ("until soon Full access\nsnap a\n", "until takes shown <text> or gone <text>, not soon Full access"),
+            ("until shown\nsnap a\n", "until takes shown <text> or gone <text>, not shown"),
+            ("until gone   \nsnap a\n", "until takes shown <text> or gone <text>, not gone   "),
+            ("absent\nsnap a\n", "absent takes an argument"),
+            ("absent   \nsnap a\n", "absent takes <text>, not   "),
+            ("expect\nsnap a\n", "expect takes an argument"),
+            ("expect a\nsnap a\n", "expect takes <label> <text>, not a"),
             ("homefile ../x c.json\nsnap a\n", "homefile takes a relative path inside HOME, not ../x"),
         ):
             with self.subTest(cap=cap.split("\n")[0]):
@@ -445,10 +454,16 @@ class Verbs(unittest.TestCase):
         self.assertRegex(log, r"request GET /v1/report\?start_date=2026-10-12&end_date=2026-10-12 at=\d+ms -> 404 at=\d+ms headers=-")
 
     def test_models2_and_modelsdelay(self):
-        get = "type curl -s \"$FX_E2E_GATEWAY_MODELS_URL\"; echo\nkey Enter\nwait 0.8\n"
+        # The second catalog from the `models2` line on, by order alone: each
+        # ask's answer is waited for on the screen, so no step races another
+        # however late the shell or the gateway runs (FLAKE-HINT4 r2: row 19,
+        # where the first ask came 9 s after the gateway started, past the
+        # old fixed 5 s, and got the second catalog).
+        get = "type curl -s \"$FX_E2E_GATEWAY_MODELS_URL\"; echo\nkey Enter\nuntil shown %s\n"
+        one, two = '{"data":[{"id":"fake/one"}]}', '{"data":[{"id":"fake/two"}]}'
         r = capture(
-            "models one.json\nmodels2 two.json 5000\nmodelsdelay 200\nwait 0.5\n" + get + "wait 4.5\n" + get + "snap a\ngwlog\n",
-            {"one.json": '{"data":[{"id":"fake/one"}]}\n', "two.json": '{"data":[{"id":"fake/two"}]}\n'},
+            "models one.json\nmodelsdelay 200\nwait 0.5\n" + get % one + "models2 two.json\n" + get % two + "snap a\ngwlog\n",
+            {"one.json": one + "\n", "two.json": two + "\n"},
         )
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         a = r.screen("a")
@@ -476,8 +491,8 @@ class Verbs(unittest.TestCase):
         self.assertIn(" status:404 rc:0", a)
         self.assertIn('{"jsonrpc":"2.0","id":4,"error":{"code":-32601,"message":"Method not found"}} status:200', a)
         log = r.file("mcphttp", ".log")
-        self.assertRegex(log, r"POST /mcp rpc=initialize id=2 session=no version=- mode=ready -> 200")
-        self.assertRegex(log, r"POST /mcp rpc=server/discover id=4 session=no version=- mode=methodnotfound -> 200")
+        self.assertRegex(log, r"POST /mcp rpc=initialize id=2 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200")
+        self.assertRegex(log, r"POST /mcp rpc=server/discover id=4 session=no version=- mcp-method=- mcp-name=- mode=methodnotfound -> 200")
 
     def test_held_waits_for_the_hold_and_release_lets_it_go(self):
         # The stub's curl prints each event as it arrives: two before the hold, the rest after.
@@ -510,6 +525,80 @@ class Verbs(unittest.TestCase):
         self.assertIn("holdAt 2 not held: this turn has 2 event(s): holdAt is 1 to 1", r.stderr)
         self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-a.txt")))
         self.assertIn("guards:", r.stdout, "the guards still ran")
+
+    # A row the stub's shell puts up for a while and takes away, as a binary's
+    # timer does: `X[1]*Y`, printed a second after Enter and cleared 1.5 s
+    # later. The typed line holds `X[%s]*Y`, never the row itself; and the
+    # row has `[` and `*` in it, which a glob would not match as themselves.
+    ROW_FOR_A_WHILE = "type sleep 1; printf 'X[%s]*Y\\n' 1; sleep 1.5; clear; printf 'after-%s\\n' it\nkey Enter\n"
+
+    def test_until_waits_for_a_row_to_come_and_then_to_go(self):
+        r = capture("wait 0.5\n" + self.ROW_FOR_A_WHILE + "until shown X[1]*Y\nsnap on\nuntil gone X[1]*Y\nsnap off\n")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertIn("X[1]*Y", r.file("on").split("\n"))
+        self.assertNotIn("X[1]*Y", r.file("off"))
+        shown = re.search(r"until shown 'X\[1\]\*Y': after (\d+\.\d\d) s, (\d+\.\d\d) s since launch\n", r.stdout)
+        gone = re.search(r"until gone 'X\[1\]\*Y': after (\d+\.\d\d) s, (\d+\.\d\d) s since launch\n", r.stdout)
+        self.assertTrue(shown and gone, r.stdout)
+        # Each waited for the screen, not for a second count: the row came
+        # about a second after Enter and went about 1.5 s after that.
+        self.assertGreater(float(shown.group(1)), 0.5)
+        self.assertGreater(float(gone.group(1)), 1.0)
+        self.assertGreater(float(gone.group(2)), float(shown.group(2)))
+
+    def test_until_fails_the_run_when_the_row_never_comes(self):
+        r = capture("wait 0.5\nuntil shown never-on-this-screen\nsnap a\n")
+        self.assertEqual(r.code, 1, r.stdout + r.stderr)
+        self.assertRegex(r.stderr, r"until shown 'never-on-this-screen': still not shown after (\d+\.\d\d) s \(\d+ looks\); the screen's rows that are not blank:")
+        # Thirty seconds of elapsed time, however many looks that took.
+        waited = float(re.search(r"still not shown after (\d+\.\d\d) s", r.stderr).group(1))
+        self.assertGreaterEqual(waited, 29.0)
+        self.assertLess(waited, 32.0)
+        self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-a.txt")))
+        self.assertIn("guards:", r.stdout, "the guards still ran")
+
+    def test_until_fails_the_run_when_the_row_never_goes(self):
+        r = capture("wait 0.5\ntype printf 'stays-%s\\n' put\nkey Enter\nuntil shown stays-put\nuntil gone stays-put\nsnap a\n")
+        self.assertEqual(r.code, 1, r.stdout + r.stderr)
+        self.assertRegex(r.stderr, r"until gone 'stays-put': still shown after \d+\.\d\d s \(\d+ looks\); the screen's rows that are not blank:")
+        self.assertIn("  | stays-put", r.stderr, "the screen it last read")
+        self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-a.txt")))
+        self.assertIn("guards:", r.stdout, "the guards still ran")
+
+    def test_until_gone_says_never_seen_when_its_text_was_not_there_at_all(self):
+        # The row is up for 1.5 s: gone before the `until gone` first looks.
+        # An `until shown` of this run saw it, so it came and went; the other
+        # text no `until` ever saw.
+        r = capture("wait 0.5\n" + self.ROW_FOR_A_WHILE + "until shown X[1]*Y\nwait 2.5\nuntil gone X[1]*Y\nuntil gone not-on-this-screen\nsnap a\n")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertRegex(r.stdout, r"until gone 'X\[1\]\*Y': after \d+\.\d\d s, \d+\.\d\d s since launch\n")
+        self.assertRegex(r.stdout, r"until gone 'not-on-this-screen': after \d+\.\d\d s, \d+\.\d\d s since launch; never seen\n")
+
+    def test_absent_passes_a_screen_without_its_text_and_fails_one_with_it(self):
+        # The injected hint (FLAKE-HINT4 r2): a stub that puts up the Ctrl-C
+        # exit hint where the scenario says none may be. `absent` fails the
+        # run there, with the screen, and nothing after it is snapped.
+        ok = capture("wait 0.5\nabsent press ctrl+c again to exit\nsnap a\n")
+        self.assertEqual(ok.code, 0, ok.stdout + ok.stderr)
+        self.assertRegex(ok.stdout, r"absent 'press ctrl\+c again to exit': not on the screen, \d+\.\d\d s since launch\n")
+        r = capture("wait 0.5\ntype printf 'press ctrl+c %s to exit\\n' again\nkey Enter\n"
+                    "until shown press ctrl+c again to exit\nabsent press ctrl+c again to exit\nsnap a\n")
+        self.assertEqual(r.code, 1, r.stdout + r.stderr)
+        self.assertIn("absent 'press ctrl+c again to exit': it is on the screen", r.stderr)
+        self.assertIn("  | press ctrl+c again to exit", r.stderr, "the screen it read")
+        self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-a.txt")))
+        self.assertIn("guards:", r.stdout, "the guards still ran")
+
+    def test_expect_checks_the_frame_a_snap_wrote(self):
+        r = capture("wait 0.5\n" + self.ROW_FOR_A_WHILE + "until shown X[1]*Y\nsnap on\nexpect on X[1]*Y\nuntil gone X[1]*Y\nsnap off\nexpect off X[1]*Y\nsnap never\n")
+        self.assertEqual(r.code, 1, r.stdout + r.stderr)
+        self.assertIn("expect on 'X[1]*Y': the snap holds it", r.stdout)
+        self.assertIn("expect off 'X[1]*Y': the snap does not hold it; its rows that are not blank:", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-never.txt")), "the run went on")
+        self.assertIn("guards:", r.stdout, "the guards still ran")
+        missing = capture("wait 0.5\nexpect nothing X\n")
+        self.assertEqual(missing.code, 1, missing.stdout + missing.stderr)
+        self.assertIn("expect nothing: no snap nothing was written before it", missing.stderr)
 
     def test_sockets(self):
         r = capture("env P=@PORT@\nwait 1\ntype exec 3<>/dev/tcp/127.0.0.1/$P\nkey Enter\nwait 0.5\nsockets s\n")
@@ -560,7 +649,7 @@ class FakeGateway(unittest.TestCase):
         d = scratch()
         write(os.path.join(d, "turns.json"), json.dumps(list(turns)))
         os.makedirs(os.path.join(d, "bodies"))
-        clean = {k: "" for k in ("FAKEGW_MODELS", "FAKEGW_MODELS_DOWN_MS", "FAKEGW_MODELS_DELAY_MS", "FAKEGW_MODELS2", "FAKEGW_MODELS2_MS", "FAKEGW_CREDITS", "FAKEGW_TITLE", "FAKEGW_USAGE", "FAKEGW_RELEASE")}
+        clean = {k: "" for k in ("FAKEGW_MODELS", "FAKEGW_MODELS_DOWN_MS", "FAKEGW_MODELS_DELAY_MS", "FAKEGW_MODELS2", "FAKEGW_CREDITS", "FAKEGW_TITLE", "FAKEGW_USAGE", "FAKEGW_RELEASE")}
         clean.update(env)
         s = Server(self, FAKEGW, os.path.join(d, "turns.json"), os.path.join(d, "bodies"), env=clean)
         s.bodies = os.path.join(d, "bodies")
@@ -689,13 +778,17 @@ class FakeGateway(unittest.TestCase):
         d = scratch()
         write(os.path.join(d, "one.json"), '{"data":[{"id":"fake/one"}]}')
         write(os.path.join(d, "two.json"), '{"data":[{"id":"fake/two"}]}')
-        g = self.gw(FAKEGW_MODELS=os.path.join(d, "one.json"), FAKEGW_MODELS2=os.path.join(d, "two.json"), FAKEGW_MODELS2_MS="1500", FAKEGW_MODELS_DELAY_MS="0")
+        # FAKEGW_MODELS2 names a file not there yet: the first catalog until
+        # it is put in place, the second after, whenever that is.
+        second = os.path.join(d, "models2.json")
+        g = self.gw(FAKEGW_MODELS=os.path.join(d, "one.json"), FAKEGW_MODELS2=second, FAKEGW_MODELS_DELAY_MS="0")
         self.assertIn(b"fake/one", g.ask("GET", "/coding-agent/v1/models")[2])
-        time.sleep(1.6)
+        self.assertIn(b"fake/one", g.ask("GET", "/coding-agent/v1/models")[2])
+        os.rename(os.path.join(d, "two.json"), second)
         self.assertIn(b"fake/two", g.ask("GET", "/coding-agent/v1/models")[2])
         log = g.lines()
         self.assertEqual(log.count("-> second catalog"), 1)
-        self.assertEqual(len(re.findall(r"GET /coding-agent/v1/models bearer=no at=\d+ms", log)), 2)
+        self.assertEqual(len(re.findall(r"GET /coding-agent/v1/models bearer=no at=\d+ms", log)), 3)
 
     def test_the_usage_routes_their_shapes_and_knobs(self):
         d = scratch()
@@ -813,7 +906,7 @@ class McpHttp(unittest.TestCase):
         self.assertEqual(s.ask("GET", "/mcp")[0], 405)
         self.assertEqual(s.ask("DELETE", "/mcp")[0], 204)
         log = s.lines()
-        self.assertRegex(log, r"\+\d+ms POST /mcp rpc=tools/call id=5 session=yes version=2025-06-18 mode=ready -> 200 \+\d+ms")
+        self.assertRegex(log, r"\+\d+ms POST /mcp rpc=tools/call id=5 session=yes version=2025-06-18 mcp-method=- mcp-name=- mode=ready -> 200 \+\d+ms")
         self.assertNotIn("fxcap-session-1", log)
 
     def test_methodnotfound_answers_discover_with_the_rpc_error_and_then_serves(self):
@@ -830,7 +923,7 @@ class McpHttp(unittest.TestCase):
         write(self.mode, "ready\n")
         self.assertEqual(self.rpc(s, "ping", 2)[2], {"jsonrpc": "2.0", "id": 2, "result": {}})
         time.sleep(0.2)
-        self.assertRegex(s.lines(), r"rpc=ping id=1 session=no version=- mode=ready -> 200")
+        self.assertRegex(s.lines(), r"rpc=ping id=1 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200")
 
     def test_fail_and_rpcerror(self):
         s = self.server("fail")
@@ -838,6 +931,175 @@ class McpHttp(unittest.TestCase):
         write(self.mode, "rpcerror\n")
         self.assertEqual(self.rpc(s, "initialize", 2)[2]["error"], {"code": -32603, "message": "fixture refuses"})
         self.assertEqual(self.rpc(s, "notifications/initialized")[0], 202)
+
+
+    MODERN_META = {"progressToken": 2, "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                   "io.modelcontextprotocol/clientCapabilities": {}, "io.modelcontextprotocol/clientInfo": {"name": "t", "version": "1"}}
+
+    def test_modern_lists_2026_and_holds_every_request_to_its_meta_and_header(self):
+        s = self.server("modern")
+        status, h, body = self.rpc(s, "server/discover", 1, {"_meta": dict(self.MODERN_META, progressToken=1)},
+                                   {"mcp-protocol-version": "2026-07-28", "mcp-method": "server/discover"})
+        self.assertEqual((status, body["result"]["supportedVersions"], body["result"]["resultType"]), (200, ["2026-07-28"], "complete"))
+        self.assertIsNone(h.get("MCP-Session-Id") or h.get("mcp-session-id"))
+        self.assertEqual(self.rpc(s, "initialize", 2, {"protocolVersion": "2025-11-25"})[2]["error"]["code"], -32601)
+        self.assertEqual(self.rpc(s, "tools/list", 3, {"_meta": {"progressToken": 3}}, {"mcp-protocol-version": "2026-07-28"})[0::2],
+                         (400, {"jsonrpc": "2.0", "id": 3, "error": {"code": -32602, "message": "Missing modern request metadata"}}))
+        self.assertEqual(self.rpc(s, "tools/list", 4, {"_meta": self.MODERN_META})[0], 400, "no version header")
+        status, _, body = self.rpc(s, "tools/list", 5, {"_meta": self.MODERN_META}, {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/list"})
+        self.assertEqual((status, [t["name"] for t in body["result"]["tools"]]), (200, ["echo"]))
+        call = self.rpc(s, "tools/call", 6, {"_meta": self.MODERN_META, "name": "echo", "arguments": {"text": "hi"}},
+                        {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "echo"})[2]
+        self.assertEqual(call["result"]["content"][0]["text"], "MCPHTTP_MODERN_ECHO: hi")
+        self.assertRegex(s.lines(), r"rpc=tools/call id=6 session=no version=2026-07-28 mcp-method=tools/call mcp-name=echo mode=modern -> 200")
+
+    def test_notimpl_answers_discover_404_with_the_rpc_error(self):
+        s = self.server("notimpl")
+        self.assertEqual(self.rpc(s, "server/discover", 1)[0::2],
+                         (404, {"jsonrpc": "2.0", "id": 1, "error": {"code": -32601, "message": "Method not found"}}))
+        self.assertEqual(self.rpc(s, "tools/list", 2, {"_meta": self.MODERN_META}, {"mcp-protocol-version": "2026-07-28"})[2]["result"]["tools"][0]["name"], "echo")
+
+    def test_old2024_initializes_at_2024_11_05(self):
+        s = self.server("old2024")
+        self.assertEqual(self.rpc(s, "server/discover", 1)[0::2], (404, None))
+        self.assertEqual(self.rpc(s, "initialize", 2, {"protocolVersion": "2025-11-25"})[2]["result"]["protocolVersion"], "2024-11-05")
+
+    def test_malformed_and_hostile_answer_discover_and_then_serve_as_ready(self):
+        s = self.server("malformed")
+        status, _, body = self.rpc(s, "server/discover", 1)
+        self.assertEqual((status, body["jsonrpc"], body["id"]), (200, "2.0", 1))
+        self.assertIsInstance(body["result"], str)
+        self.assertIn("\x1b]0;", body["result"])
+        self.assertEqual(self.rpc(s, "initialize", 2, {"protocolVersion": "2025-11-25"})[2]["result"]["protocolVersion"], "2025-11-25")
+        write(self.mode, "hostile\n")
+        result = self.rpc(s, "server/discover", 3)[2]["result"]
+        self.assertEqual(result["resultType"], "complete")
+        self.assertNotIn("2026-07-28", [v for v in result["supportedVersions"]])
+        self.assertEqual(len(result["supportedVersions"][3]), 65536)
+        self.assertIn("\x1b", result["instructions"])
+
+
+    def test_the_sse_modes_answer_discover_on_an_event_stream(self):
+        def events(mode):
+            write(self.mode, mode + "\n")
+            msg = {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}}
+            c = http.client.HTTPConnection("127.0.0.1", s.port, timeout=5)
+            try:
+                c.request("POST", "/mcp", body=json.dumps(msg), headers={"content-type": "application/json"})
+                r = c.getresponse()
+                kind = r.getheader("content-type")
+                # The first event, read as it comes: `ssehold` never ends.
+                line = r.fp.readline()
+                while not line.startswith(b"data: "):
+                    line = r.fp.readline()
+                return r.status, kind, json.loads(line[len(b"data: "):])
+            finally:
+                c.close()
+
+        s = self.server("ssehold")
+        status, kind, frame = events("ssehold")
+        self.assertEqual((status, kind, frame["id"], frame["result"]["supportedVersions"]), (200, "text/event-stream", 1, ["2026-07-28"]))
+        self.assertEqual(events("ssestrid")[2]["id"], "1")
+        self.assertEqual(events("ssefail")[0::2][0], 500)
+        self.assertEqual(events("ssefail")[2]["id"], 1)
+        self.assertEqual(events("sseidless")[2], {"jsonrpc": "2.0", "id": None, "error": {"code": -32601, "message": "Method not found"}})
+        # Anything but discover is the mode's plain server, and a mode that is
+        # no SSE mode answers discover as before.
+        self.assertEqual(self.rpc(s, "initialize", 2, {"protocolVersion": "2025-11-25"})[2]["result"]["protocolVersion"], "2025-11-25")
+        write(self.mode, "ready\n")
+        self.assertEqual(self.rpc(s, "server/discover", 3)[0::2], (404, None))
+
+
+class McpDiscoverStdio(unittest.TestCase):
+    """scenarios/p5-mcp-discover-stdio.ts, the p5-mcp-discover scenarios' stdio server."""
+
+    def start(self, mode):
+        self.log = os.path.join(scratch(), "wire.ndjson")
+        self.p = subprocess.Popen([BUN, DISCOVER_STDIO, mode], stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=dict(os.environ, MCPSTDIO_WIRE_LOG=self.log))
+        self.addCleanup(self.stop)
+
+    def stop(self):
+        if self.p.poll() is None:
+            self.p.kill()
+            self.p.wait()
+        self.p.stdin.close()
+        self.p.stdout.close()
+
+    def send(self, msg):
+        self.p.stdin.write((json.dumps(msg) + "\n").encode())
+        self.p.stdin.flush()
+
+    def ask(self, msg):
+        self.send(msg)
+        return json.loads(self.p.stdout.readline())
+
+    META = {"progressToken": 2, "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}, "io.modelcontextprotocol/clientInfo": {"name": "t", "version": "1"}}
+
+    def test_modern_lists_2026_refuses_initialize_and_holds_requests_to_their_meta(self):
+        self.start("modern")
+        result = self.ask({"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {"_meta": dict(self.META, progressToken=1)}})["result"]
+        self.assertEqual((result["supportedVersions"], result["resultType"]), (["2026-07-28"], "complete"))
+        self.assertEqual(self.ask({"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}})["error"]["code"], -32601)
+        self.assertEqual(self.ask({"jsonrpc": "2.0", "id": 3, "method": "tools/list", "params": {"_meta": {"progressToken": 3}}})["error"],
+                         {"code": -32602, "message": "Missing modern request metadata"})
+        tools = self.ask({"jsonrpc": "2.0", "id": 4, "method": "tools/list", "params": {"_meta": self.META}})["result"]
+        self.assertEqual((tools["resultType"], tools["tools"][0]["name"]), ("complete", "echo"))
+        call = self.ask({"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"_meta": self.META, "name": "echo", "arguments": {"text": "hi"}}})
+        self.assertEqual(call["result"]["content"][0]["text"], "DISCOVER_MODERN_RESULT:hi")
+        with open(self.log) as f:
+            self.assertEqual([json.loads(line)["sequence"] for line in f], [1, 2, 3, 4, 5])
+
+    def test_silent_says_nothing_to_discover_then_initializes(self):
+        self.start("silent")
+        self.send({"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}})
+        init = self.ask({"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}})
+        self.assertEqual((init["id"], init["result"]["protocolVersion"]), (2, "2025-06-18"))
+
+    def test_old2024_refuses_discover_and_initializes_at_2024_11_05(self):
+        self.start("old2024")
+        self.assertEqual(self.ask({"jsonrpc": "2.0", "id": 1, "method": "server/discover"})["error"]["code"], -32601)
+        self.assertEqual(self.ask({"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}})["result"]["protocolVersion"], "2024-11-05")
+
+    def test_malformed_and_hostile_answers(self):
+        self.start("malformed")
+        reply = self.ask({"jsonrpc": "2.0", "id": 1, "method": "server/discover"})
+        self.assertIsInstance(reply["result"], str)
+        self.assertIn("\x1b", reply["result"])
+        self.assertEqual(self.ask({"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}})["result"]["protocolVersion"], "2025-06-18")
+        self.stop()
+        self.start("hostile")
+        result = self.ask({"jsonrpc": "2.0", "id": 1, "method": "server/discover"})["result"]
+        self.assertNotIn("2026-07-28", result["supportedVersions"])
+        self.assertIn("\x1b", result["instructions"])
+
+    def test_banner_asks_escaped_doubled_and_deep(self):
+        self.start("banner")
+        self.send({"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}})
+        self.assertEqual(self.p.stdout.readline(), b"Server started on stdio\n")
+        self.assertEqual(json.loads(self.p.stdout.readline())["result"]["supportedVersions"], ["2026-07-28"])
+        self.stop()
+        self.start("asks")
+        self.send({"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}})
+        self.assertEqual(json.loads(self.p.stdout.readline()), {"jsonrpc": "2.0", "id": "q1", "method": "ping"})
+        self.assertEqual(json.loads(self.p.stdout.readline())["error"]["code"], -32601)
+        self.send({"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}})
+        self.assertEqual(json.loads(self.p.stdout.readline()), {"jsonrpc": "2.0", "id": "q2", "method": "ping"})
+        self.assertEqual(json.loads(self.p.stdout.readline())["result"]["protocolVersion"], "2025-06-18")
+        self.stop()
+        for mode, raw in (
+            ("escaped", b'"supportedVersions":["2026\\u002d07-28","2025\\u002d11-25"]'),
+            ("doubled", b'"supportedVersions":["2026-07-28"],"supportedVersions":[]'),
+            ("deep:3", b'"supportedVersions":[[[]]]'),
+        ):
+            self.start(mode)
+            self.send({"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}})
+            self.assertIn(raw, self.p.stdout.readline(), mode)
+            self.stop()
+
+    def test_an_unknown_mode_is_refused(self):
+        p = subprocess.run([BUN, DISCOVER_STDIO, "bogus"], stdin=subprocess.DEVNULL, capture_output=True, timeout=30)
+        self.assertEqual(p.returncode, 2)
 
 
 class McpStdio(unittest.TestCase):

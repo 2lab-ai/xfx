@@ -836,12 +836,9 @@ mod tests {
 
     use crate::provider::model::{parse_gateway_catalog, picker_order, ModelFacts};
 
-    use super::super::theme::{Depth, Mode};
+    use super::super::theme::Mode;
 
-    const PALETTE: Palette = Palette {
-        mode: Mode::Dark,
-        depth: Depth::Ansi256,
-    };
+    const PALETTE: Palette = Palette { mode: Mode::Dark };
 
     /// Upstream's `selected_completion_style` (`core/shared/theme.zig:97`).
     const BRIGHT: &str = "\u{1b}[1;38;5;255m";

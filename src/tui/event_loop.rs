@@ -2327,11 +2327,6 @@ mod tests {
 
     /// [`shell`] on a screen of `rows` x `cols`.
     fn shell_of(rows: u16, cols: u16) -> Fixture {
-        shell_at(rows, cols, crate::tui::theme::Depth::Ansi256)
-    }
-
-    /// [`shell_of`] on a terminal of the colour depth given.
-    fn shell_at(rows: u16, cols: u16, depth: crate::tui::theme::Depth) -> Fixture {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         // A workspace with the same last component in every fixture, because
@@ -2351,7 +2346,6 @@ mod tests {
                 crate::tui::layout::solve(rows, cols, 1).expect("a band"),
                 crate::tui::theme::Palette {
                     mode: crate::tui::theme::Mode::Dark,
-                    depth,
                 },
                 false,
                 work,
@@ -5688,16 +5682,16 @@ mod tests {
     }
 
     #[test]
-    fn a_truecolor_sessions_answer_code_recolours_in_the_notation_it_was_drawn_in() {
-        // A session whose terminal claims truecolor paints xfx's own greys in
-        // `38;2` (`theme::depth_from_env`) and an answer's inline code and code
-        // block in `markdown::theme`'s `38;5`, as fx's builtins are at every
-        // depth (`theme.zig:75-159@481104fd`) -- and fx recolours those on a
-        // switch whatever the terminal claimed (`store.zig:3784-3800`,
-        // `transcript_blocks.zig:2023-2029`). So here the inline code and the
-        // comment move as in a 256-colour session, still spelt `38;5`, while
-        // the turn's summary moves in the direct notation it was drawn in.
-        let mut shell = shell_at(24, 80, crate::tui::theme::Depth::TrueColor);
+    fn an_answers_code_and_its_summary_are_spelt_as_upstream_spells_them_across_a_switch() {
+        // fx's builtins are `38;5` literals at every depth, the palette's
+        // greys and the highlighter's alike (`theme.zig:75-159@481104fd`), and
+        // a switch rewrites them through a table that names `38;5` alone
+        // (`store.zig:3784-3800`) or draws a code block again in the new
+        // theme (`transcript_blocks.zig:2023-2029`) -- whatever the terminal
+        // claimed. So every grey here is spelt `38;5`, before and after each
+        // switch: the inline code, the code block's comment and the turn's
+        // summary (read as spelt, so a direct spelling of the same grey fails).
+        let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
         let mut out = screen();
@@ -5721,7 +5715,7 @@ mod tests {
         );
         assert_eq!(
             fg_spelt(&landed, "0s (").as_deref(),
-            Some("38;2;138;138;138"),
+            Some("38;5;245"),
             "{landed:?}"
         );
 
@@ -5739,8 +5733,8 @@ mod tests {
         );
         assert_eq!(
             fg_spelt(&written, "0s (").as_deref(),
-            Some("38;2;158;158;158"),
-            "the summary left the direct notation it was drawn in: {written:?}"
+            Some("38;5;247"),
+            "the summary was not given the light dim grey as upstream spells it: {written:?}"
         );
 
         shell.route_bytes(WENT_DARK);
@@ -5757,7 +5751,7 @@ mod tests {
         );
         assert_eq!(
             fg_spelt(&back, "0s (").as_deref(),
-            Some("38;2;138;138;138"),
+            Some("38;5;245"),
             "{back:?}"
         );
     }
@@ -6283,56 +6277,49 @@ mod tests {
     }
 
     #[test]
-    fn a_truecolor_sessions_tool_group_is_drawn_again_as_the_group_draws_it() {
-        // Drawn again, a group's rows are what the group draws in the new
-        // mode, whatever notation each grey is spelt in: the statusline as
-        // the palette spells it, the highlighter's words in `38;5`
-        // (`p5-toolgroup-retint-tc`). Nothing here asks which notation the
-        // palette uses, so a palette that spells its greys `38;5` at every
-        // depth draws the same rows.
-        let mut shell = shell_at(24, 80, crate::tui::theme::Depth::TrueColor);
+    fn a_tool_groups_rows_are_spelt_as_upstream_spells_them_across_a_switch() {
+        // A group's rows drawn again are what the group draws in the new
+        // mode, every grey spelt `38;5` as fx's builtins are at every depth
+        // (`theme.zig:75-159@481104fd`): the statusline grey `245`/`241`
+        // (`:81,124`), the highlighter's string `250`/`241` and comment
+        // `245`/`243` (`:109-111,152-154`) (`p5-toolgroup-retint`, `-tc`).
+        let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
         let mut out = screen();
         let now = Instant::now();
-        let statusline = |shell: &Fixture| {
-            shell
-                .palette()
-                .statusline()
-                .trim_start_matches("\u{1b}[")
-                .trim_end_matches('m')
-                .to_string()
-        };
         a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
         a_command_then_an_answer(&mut shell);
         let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        let read = |written: &str| {
+            [
+                fg_spelt(written, "\u{2514} Ran "),
+                fg_spelt(written, "\"hi"),
+                fg_spelt(written, "# note"),
+            ]
+        };
+        let spelt = |wanted: [&str; 3]| wanted.map(|wanted| Some(wanted.to_string()));
         assert_eq!(
-            fg_spelt(&landed, "\u{2514} Ran "),
-            Some(statusline(&shell)),
+            read(&landed),
+            spelt(["38;5;245", "38;5;250", "38;5;245"]),
             "{landed:?}"
         );
-        assert_eq!(fg_spelt(&landed, "\"hi").as_deref(), Some("38;5;250"));
-        assert_eq!(fg_spelt(&landed, "# note").as_deref(), Some("38;5;245"));
 
         shell.route_bytes(WENT_LIGHT);
         let light = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert_eq!(
-            fg_spelt(&light, "\u{2514} Ran "),
-            Some(statusline(&shell)),
+            read(&light),
+            spelt(["38;5;241", "38;5;241", "38;5;243"]),
             "{light:?}"
         );
-        assert_eq!(fg_spelt(&light, "\"hi").as_deref(), Some("38;5;241"));
-        assert_eq!(fg_spelt(&light, "# note").as_deref(), Some("38;5;243"));
 
         shell.route_bytes(WENT_DARK);
         let back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert_eq!(
-            fg_spelt(&back, "\u{2514} Ran "),
-            Some(statusline(&shell)),
+            read(&back),
+            spelt(["38;5;245", "38;5;250", "38;5;245"]),
             "{back:?}"
         );
-        assert_eq!(fg_spelt(&back, "\"hi").as_deref(), Some("38;5;250"));
-        assert_eq!(fg_spelt(&back, "# note").as_deref(), Some("38;5;245"));
     }
 
     #[test]
@@ -13135,7 +13122,6 @@ mod tests {
                 crate::tui::layout::solve(24, 80, 1).expect("a band"),
                 crate::tui::theme::Palette {
                     mode: crate::tui::theme::Mode::Dark,
-                    depth: crate::tui::theme::Depth::Ansi256,
                 },
                 false,
                 work.with_mcp(std::sync::Arc::clone(&runtime)),
@@ -13314,112 +13300,292 @@ mod tests {
 
     #[test]
     fn a_tool_rows_selector_glyph_is_drawn_again_in_the_frame_writers_bracket_and_accepted() {
-        // Both reviews' join check (train 3). At both depths, dark to light
-        // and back, each call row's switch is accepted by the check (the
-        // debt is paid, and the band records the screen only once the
-        // vector has landed); it leaves the row as a fresh landing in that
-        // palette leaves it, cell for cell; and the selector units are
-        // written as fx's frame writer writes them: `ECH 2` and a `CHA` to
-        // the column after a two-cell one mid-row, a `CHA` after a one-cell
-        // one, and `?7h` `ECH 2` the unit `?7l`, no anchor, at the margin.
-        // The append that landed the rows wrote them as they stand
-        // (`frame.rs`'s `place`, upstream's document append).
-        use crate::tui::theme::Depth;
-        for depth in [Depth::Ansi256, Depth::TrueColor] {
-            let now = Instant::now();
-            let mut failures = FrameFailures::default();
-            let mut out = screen();
+        // Both reviews' join check (train 3). Dark to light and back, each
+        // call row's switch is accepted by the check (the debt is paid, and
+        // the band records the screen only once the vector has landed); it
+        // leaves the row as a fresh landing in that palette leaves it, cell
+        // for cell; and the selector units are written as fx's frame writer
+        // writes them: `ECH 2` and a `CHA` to the column after a two-cell one
+        // mid-row, a `CHA` after a one-cell one, and `?7h` `ECH 2` the unit
+        // `?7l`, no anchor, at the margin. The append that landed the rows
+        // wrote them as they stand (`frame.rs`'s `place`, upstream's document
+        // append).
+        //
+        // Train 3 ran this at both depths. Since TC-NOTATION the palette is a
+        // mode and nothing else, every builtin grey spelt `38;5` at every
+        // depth, and the launch reads no `COLORTERM` for it (train 4): one run
+        // is both depths', so the greys below hold with no depth to gate them.
+        let now = Instant::now();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
 
-            // The group drawn fresh on a light screen: what the switch owes.
-            let mut fresh = shell_at(24, 80, depth);
-            let mut fresh_band = Band::new();
-            a_turn_under_way(&mut fresh, &mut fresh_band, &mut out, &mut failures, now);
-            fresh.route_bytes(WENT_LIGHT);
-            tick(&mut fresh, &mut fresh_band, &mut out, &mut failures, now);
-            three_selector_calls_then_an_answer(&mut fresh);
-            tick(&mut fresh, &mut fresh_band, &mut out, &mut failures, now);
+        // The group drawn fresh on a light screen: what the switch owes.
+        let mut fresh = shell_of(24, 80);
+        let mut fresh_band = Band::new();
+        a_turn_under_way(&mut fresh, &mut fresh_band, &mut out, &mut failures, now);
+        fresh.route_bytes(WENT_LIGHT);
+        tick(&mut fresh, &mut fresh_band, &mut out, &mut failures, now);
+        three_selector_calls_then_an_answer(&mut fresh);
+        tick(&mut fresh, &mut fresh_band, &mut out, &mut failures, now);
 
-            let mut shell = shell_at(24, 80, depth);
-            let mut band = Band::new();
-            a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
-            three_selector_calls_then_an_answer(&mut shell);
-            let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        let mut shell = shell_of(24, 80);
+        let mut band = Band::new();
+        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+        three_selector_calls_then_an_answer(&mut shell);
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(
+            landed.contains("\u{26a1}\u{fe0f}") && !landed.contains("\u{1b}[2X"),
+            "the append did not write the rows as they stand: {landed:?}"
+        );
+        let dark: Vec<_> = SELECTOR_ROWS
+            .iter()
+            .map(|row| row_cells(&band, row).expect("the call row on the screen").1)
+            .collect();
+
+        let (mid, mid_width) = column_holding(&band, SELECTOR_ROWS[0], "\u{26a1}\u{fe0f}")
+            .expect("the two-cell selector glyph mid-row");
+        let (quote, quote_width) = column_holding(&band, SELECTOR_ROWS[1], "\"\u{fe0f}")
+            .expect("the quote the selector was joined to");
+        let (margin, margin_width) = column_holding(&band, SELECTOR_ROWS[2], "\u{26a1}\u{fe0f}")
+            .expect("the two-cell selector glyph at the margin");
+        assert_eq!((mid, mid_width), (13, 2));
+        assert_eq!((quote, quote_width), (14, 1));
+        assert_eq!(
+            (margin, margin_width),
+            (79, 2),
+            "the glyph does not end in the last column"
+        );
+
+        for (report, wanted) in [(WENT_LIGHT, None), (WENT_DARK, Some(&dark))] {
+            tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            assert!(!shell.owes_retint(), "nothing was owed yet");
+            shell.route_bytes(report);
+            let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
             assert!(
-                landed.contains("\u{26a1}\u{fe0f}") && !landed.contains("\u{1b}[2X"),
-                "{depth:?}: the append did not write the rows as they stand: {landed:?}"
+                !shell.owes_retint(),
+                "the switch's vector was refused: {written:?}"
             );
-            let dark: Vec<_> = SELECTOR_ROWS
-                .iter()
-                .map(|row| row_cells(&band, row).expect("the call row on the screen").1)
-                .collect();
-
-            let (mid, mid_width) = column_holding(&band, SELECTOR_ROWS[0], "\u{26a1}\u{fe0f}")
-                .expect("the two-cell selector glyph mid-row");
-            let (quote, quote_width) = column_holding(&band, SELECTOR_ROWS[1], "\"\u{fe0f}")
-                .expect("the quote the selector was joined to");
-            let (margin, margin_width) =
-                column_holding(&band, SELECTOR_ROWS[2], "\u{26a1}\u{fe0f}")
-                    .expect("the two-cell selector glyph at the margin");
-            assert_eq!((mid, mid_width), (13, 2), "{depth:?}");
-            assert_eq!((quote, quote_width), (14, 1), "{depth:?}");
-            assert_eq!(
-                (margin, margin_width),
-                (79, 2),
-                "{depth:?}: the glyph does not end in the last column"
+            assert!(
+                written.contains(&format!(
+                    "\u{1b}[2X\u{26a1}\u{fe0f}\u{1b}[{}G",
+                    mid + mid_width
+                )),
+                "the mid-row glyph is not cleared and anchored: {written:?}"
             );
-
-            for (report, wanted) in [(WENT_LIGHT, None), (WENT_DARK, Some(&dark))] {
-                tick(&mut shell, &mut band, &mut out, &mut failures, now);
-                assert!(!shell.owes_retint(), "{depth:?}: nothing was owed yet");
-                shell.route_bytes(report);
-                let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            assert!(
+                written.contains(&format!("\"\u{fe0f}\u{1b}[{}G", quote + quote_width)),
+                "the joined one-cell unit is not anchored: {written:?}"
+            );
+            let bracket = "\u{1b}[?7h\u{1b}[2X\u{26a1}\u{fe0f}\u{1b}[?7l";
+            let at = written
+                .find(bracket)
+                .unwrap_or_else(|| panic!("no bracket at the margin: {written:?}"));
+            let after = &written[at + bracket.len()..];
+            let anchored = after.strip_prefix("\u{1b}[").is_some_and(|rest| {
+                let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+                digits > 0 && rest[digits..].starts_with('G')
+            });
+            assert!(!anchored, "anchored past the margin: {written:?}");
+            for (index, row) in SELECTOR_ROWS.iter().enumerate() {
+                let (_, now_held) = row_cells(&band, row).expect("the call row");
+                let owed = match wanted {
+                    Some(dark) => dark[index].clone(),
+                    None => row_cells(&fresh_band, row).expect("the fresh row").1,
+                };
                 assert!(
-                    !shell.owes_retint(),
-                    "{depth:?}: the switch's vector was refused: {written:?}"
+                    now_held == owed,
+                    "{row:?}: drawn again, not as a fresh landing:\n{now_held:?}\n{owed:?}"
                 );
-                assert!(
-                    written.contains(&format!(
-                        "\u{1b}[2X\u{26a1}\u{fe0f}\u{1b}[{}G",
-                        mid + mid_width
-                    )),
-                    "{depth:?}: the mid-row glyph is not cleared and anchored: {written:?}"
-                );
-                assert!(
-                    written.contains(&format!("\"\u{fe0f}\u{1b}[{}G", quote + quote_width)),
-                    "{depth:?}: the joined one-cell unit is not anchored: {written:?}"
-                );
-                let bracket = "\u{1b}[?7h\u{1b}[2X\u{26a1}\u{fe0f}\u{1b}[?7l";
-                let at = written
-                    .find(bracket)
-                    .unwrap_or_else(|| panic!("{depth:?}: no bracket at the margin: {written:?}"));
-                let after = &written[at + bracket.len()..];
-                let anchored = after.strip_prefix("\u{1b}[").is_some_and(|rest| {
-                    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
-                    digits > 0 && rest[digits..].starts_with('G')
-                });
-                assert!(
-                    !anchored,
-                    "{depth:?}: anchored past the margin: {written:?}"
-                );
-                for (index, row) in SELECTOR_ROWS.iter().enumerate() {
-                    let (_, now_held) = row_cells(&band, row).expect("the call row");
-                    let owed = match wanted {
-                        Some(dark) => dark[index].clone(),
-                        None => row_cells(&fresh_band, row).expect("the fresh row").1,
-                    };
-                    assert!(
-                        now_held == owed,
-                        "{depth:?} {row:?}: drawn again, not as a fresh landing:\n{now_held:?}\n{owed:?}"
-                    );
-                }
-            }
-            if depth == Depth::Ansi256 {
-                // Back on the dark screen: the string's and the statusline's
-                // greys, as the group's first landing had them.
-                assert_eq!(on_screen(&band, SELECTOR_ROWS[0], "\u{26a1}"), Some(250));
-                assert_eq!(on_screen(&band, SELECTOR_ROWS[1], "\"\u{fe0f}"), Some(250));
-                assert_eq!(on_screen(&band, SELECTOR_ROWS[2], "\u{26a1}"), Some(245));
             }
         }
+        // Back on the dark screen: the string's and the statusline's greys,
+        // as the group's first landing had them.
+        assert_eq!(on_screen(&band, SELECTOR_ROWS[0], "\u{26a1}"), Some(250));
+        assert_eq!(on_screen(&band, SELECTOR_ROWS[1], "\"\u{fe0f}"), Some(250));
+        assert_eq!(on_screen(&band, SELECTOR_ROWS[2], "\u{26a1}"), Some(245));
+    }
+
+    /// Every SGR a frame wrote that names a colour in the direct notation
+    /// (`38;2;...`, `48;2;...`): none, as fx's builtins are `38;5` at every
+    /// depth.
+    fn direct_colours(written: &str) -> Vec<String> {
+        let mut found = Vec::new();
+        for (index, _) in written.match_indices("\u{1b}[") {
+            let rest = &written[index + 2..];
+            let Some(end) = rest.find(|c: char| c.is_ascii_alphabetic()) else {
+                continue;
+            };
+            if rest.as_bytes()[end] != b'm' {
+                continue;
+            }
+            let params: Vec<&str> = rest[..end].split(';').collect();
+            if params
+                .windows(2)
+                .any(|pair| matches!(pair, ["38" | "48", "2"]))
+            {
+                found.push(rest[..end].to_string());
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn a_2026_servers_version_and_protocol_rows_are_spelt_as_upstream_spells_its_greys() {
+        // Train 4's join of MCP-E and TC-NOTATION: a stdio server that meets
+        // fx's `server/discover` probe as a 2026-07-28 server (MCP-E's era,
+        // `tests/support/mcp_discover_fixture.sh` `modern`), its version as
+        // `/mcp show` says it (a neutral notice, `mcp::command::show`) and as
+        // the `/mcp` menu's server screen says it (`protocol`, `fact_row`),
+        // written by the frame and drawn again across a theme switch. Every
+        // grey there is spelt `38;5`, fx's literal (`theme.zig:75-159`
+        // `@481104fd`): the notice grey 250 dark, 241 light, and the menu's
+        // dim label 247 light. The palette is a mode and nothing else, and the
+        // launch reads `COLORTERM` for the Ultra mark alone (`tui::run`), so
+        // this palette is the one a truecolor launch builds too.
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/support/mcp_discover_fixture.sh");
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let root = workspace.path().join("work");
+        std::fs::create_dir(&root).expect("the workspace directory");
+        let xfx = home.path().join(".xfx");
+        std::fs::create_dir(&xfx).expect("~/.xfx");
+        let profile = xfx.join("mcp.json");
+        let entry = serde_json::json!({
+            "command": "/bin/sh",
+            "args": [&fixture],
+            "env": {"MCP_DISCOVER_MODE": "modern"},
+        });
+        std::fs::write(
+            &profile,
+            serde_json::json!({"mcpServers": {"probe": entry}}).to_string(),
+        )
+        .expect("the profile");
+        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+            profile: Some(profile),
+            settings: Some(xfx.join("settings.json")),
+            workspace: root.clone(),
+        });
+        runtime.start_and_wait(Duration::from_secs(60));
+        // The startup reload is over; the server's connection is its own
+        // thread's: up to a minute for a state correct code reaches at once.
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let view = loop {
+            let view = runtime
+                .views()
+                .into_iter()
+                .find(|view| view.name == "probe")
+                .expect("the server");
+            if !matches!(
+                view.connection,
+                crate::mcp::runtime::Connection::Connecting
+                    | crate::mcp::runtime::Connection::Retrying
+            ) {
+                break view;
+            }
+            assert!(Instant::now() < deadline, "never settled: {view:?}");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(
+            view.protocol_version.as_deref(),
+            Some("2026-07-28"),
+            "not served in its era: {view:?}"
+        );
+        let config = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+            &root,
+        )
+        .expect("load a configuration");
+        let (work, _work, _control) = crate::tui::worker::WorkHandle::detached();
+        let mut shell = Fixture {
+            shell: Shell::new(
+                &config,
+                crate::tui::layout::solve(24, 120, 1).expect("a band"),
+                crate::tui::theme::Palette {
+                    mode: crate::tui::theme::Mode::Dark,
+                },
+                false,
+                work.with_mcp(std::sync::Arc::clone(&runtime)),
+            )
+            .anchored(),
+            _work,
+            _control,
+            _home: home,
+            _workspace: workspace,
+        };
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        tick(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+        );
+
+        // Frames until one has written `needle`, the MCP runtime's answer
+        // being another thread's: what every frame wrote, in order.
+        let until = |shell: &mut Fixture,
+                     band: &mut Band,
+                     out: &mut FlakyScreen,
+                     failures: &mut FrameFailures,
+                     needle: &str| {
+            let deadline = Instant::now() + Duration::from_secs(30);
+            let mut written = String::new();
+            while !written.contains(needle) {
+                assert!(
+                    Instant::now() < deadline,
+                    "never written: {needle:?}\n{written:?}"
+                );
+                std::thread::sleep(Duration::from_millis(20));
+                shell.settle_band(Instant::now());
+                written.push_str(&tick(shell, band, out, failures, Instant::now()));
+            }
+            written
+        };
+
+        shell.route_read(b"/mcp show probe\r");
+        let shown = until(&mut shell, &mut band, &mut out, &mut failures, "2026-07-28");
+        assert_eq!(
+            fg_spelt(&shown, "version    2026-07-28").as_deref(),
+            Some("38;5;250"),
+            "{shown:?}"
+        );
+        assert_eq!(direct_colours(&shown), Vec::<String>::new(), "{shown:?}");
+
+        shell.route_bytes(WENT_LIGHT);
+        let light = tick(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+        );
+        assert_eq!(
+            fg_spelt(&light, "2026-07-28").as_deref(),
+            Some("38;5;241"),
+            "the version row was not drawn again in the light notice grey: {light:?}"
+        );
+        assert_eq!(direct_colours(&light), Vec::<String>::new(), "{light:?}");
+
+        shell.route_read(b"/mcp\r");
+        shell.settle_band(Instant::now() + Duration::from_secs(1));
+        // An Enter more than `MCP_ENTER_HELD` after the one before it.
+        std::thread::sleep(Duration::from_millis(600));
+        shell.route_read(b"\r");
+        let server = until(&mut shell, &mut band, &mut out, &mut failures, "protocol");
+        assert_eq!(
+            shell.mcp_screen(),
+            Some(super::super::mcp_menu::Screen::Server)
+        );
+        assert!(server.contains("2026-07-28"), "{server:?}");
+        assert_eq!(
+            fg_spelt(&server, "protocol").as_deref(),
+            Some("38;5;247"),
+            "{server:?}"
+        );
+        assert_eq!(direct_colours(&server), Vec::<String>::new(), "{server:?}");
+        runtime.shutdown();
     }
 }

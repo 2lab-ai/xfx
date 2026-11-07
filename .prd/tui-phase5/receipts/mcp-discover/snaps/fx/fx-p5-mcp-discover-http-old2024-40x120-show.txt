@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* mcp: fixture
+    status     retrying
+    transport  http
+    url        http://127.0.0.1:64505/mcp
+    source     ~/.fx/mcp.json
+    error      it answered with an MCP version fx doesn't support (fx speaks 2025-03-26 and newer)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* mcp: NAME   SOURCE          TRANSPORT  STATUS
+  d126   ~/.fx/mcp.json  stdio      retrying
+  d2582  ~/.fx/mcp.json  stdio      retrying
+  d2583  ~/.fx/mcp.json  stdio      ready, 1 tool
+  d4000  ~/.fx/mcp.json  stdio      ready, 1 tool
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

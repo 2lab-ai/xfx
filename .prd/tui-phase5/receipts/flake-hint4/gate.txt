@@ -1,0 +1,25 @@
+# gate at ba242353, load { 43.63 37.41 31.78 }, 22:27:12
+fmt: exit 0 -- 
+clippy: exit 0 -- 
+clippy-fault-injection: exit 0 -- 
+test: exit 101 -- 1 suites: 4245 passed, 1 failed, 7 ignored
+test-fault-injection: exit 0 -- 15 suites: 5194 passed, 0 failed, 7 ignored
+check-no-secrets: exit 0 -- check-no-secrets: ok (12063 tracked file(s) scanned) 
+check-no-stubs: exit 0 -- check-no-stubs: ok 
+check-preview-contract: exit 0 -- check-preview-contract: ok (.github/workflows/preview.yml) 
+check-tui-preflight-cost: exit 0 -- check-tui-preflight-cost: ok 
+check-usage-clock: exit 0 -- check-usage-clock: ok 
+check-xfx-identity: exit 0 -- check-xfx-identity: ok (12063 tracked file(s) scanned) 
+test-sweep: exit 0 -- Ran 58 tests in 13.882s OK Ran 26 tests in 11.930s OK 
+test-capture: exit 0 -- Ran 45 tests in 229.216s OK 
+# done 22:38:30, load { 11.14 16.27 23.15 }
+
+# cargo test --locked stops at the first failing test binary: the lib suite above, its one failure:
+---- tui::copy::tests::an_ending_session_lets_a_copy_that_answers_land stdout ----
+
+thread 'tui::copy::tests::an_ending_session_lets_a_copy_that_answers_land' panicked at src/tui/copy.rs:248:9:
+assertion `left == right` failed
+  left: Some([97, 32, 102, 105, 114, 115, 116, 32, 114, 101, 112, 108, 121])
+ right: Some([116, 104, 101, 32, 114, 101, 112, 108, 121])
+# cargo test --locked again, alone, at load 11.5 (22:38):
+test: exit 0 -- 15 suites: 5157 passed, 0 failed, 7 ignored

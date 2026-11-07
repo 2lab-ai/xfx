@@ -4,10 +4,17 @@
 wait 2
 snap start
 key BTab
+# The warning is snapped while it is up and once it has gone, each by
+# the screen rather than by a second count against its 4 s (FLAKE-HINT4).
+until shown Full access
 wait 0.5
 snap btab-full
+# The frame itself holds the row it is for, or the run fails: the `until
+# shown` before it was a look, and a wait came between (FLAKE-HINT4).
+expect btab-full Full access
 home btab-full
 wait 4.5
+until gone Full access
 snap btab-full-later
 home btab-full-later
 key BTab

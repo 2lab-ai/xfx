@@ -3793,7 +3793,6 @@ mod tests {
         // A gutter writes nothing of its own; landing it is a state change.
         let palette = crate::tui::theme::Palette {
             mode: crate::tui::theme::Mode::Dark,
-            depth: crate::tui::theme::Depth::Ansi256,
         };
         while transcript
             .emit_front(palette, |_| {
@@ -6584,7 +6583,6 @@ mod tests {
                 &mut Counted::default(),
                 &super::super::theme::Palette {
                     mode: super::super::theme::Mode::Light,
-                    depth: super::super::theme::Depth::Ansi256,
                 },
                 &geometry()
             ),
@@ -7058,9 +7056,9 @@ mod tests {
     // do is narrow -- colours, above the band, no scroll, nothing created --
     // and these say so at the level the bytes are decided.
 
-    /// The document's two owned greys, dark and light, at the depth these
-    /// cases paint in. Spelled out rather than asked of `theme`: a test built
-    /// from the accessor it is checking passes for whatever that accessor says.
+    /// The document's two owned greys, dark and light. Spelled out rather than
+    /// asked of `theme`: a test built from the accessor it is checking passes
+    /// for whatever that accessor says.
     const BODY_DARK: &str = "\u{1b}[38;5;255m";
     const BODY_LIGHT: &str = "\u{1b}[38;5;235m";
     const NOTICE_DARK: &str = "\u{1b}[38;5;250m";
@@ -7071,14 +7069,12 @@ mod tests {
     fn dark_palette() -> super::super::theme::Palette {
         super::super::theme::Palette {
             mode: super::super::theme::Mode::Dark,
-            depth: super::super::theme::Depth::Ansi256,
         }
     }
 
     fn light_palette() -> super::super::theme::Palette {
         super::super::theme::Palette {
             mode: super::super::theme::Mode::Light,
-            depth: super::super::theme::Depth::Ansi256,
         }
     }
 

@@ -1,0 +1,26 @@
+# A message that waited for a slot after its caller had gone.
+# 1. On d96603f9 (round 2's head), a first version of the case (16 given-up calls, probes freed by a 1.5 s idle; the fixture's connections counted, 33 expected), three runs:
+opened=35 methods=<32 x server/discover, tools/list>
+thread 'mcp::tests::discover::red_scratch_a_waiting_request_its_caller_left_never_reaches_the_wire' (289329888) panicked at src/mcp/tests/discover.rs:1220:5:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 1.55s
+opened=38 methods=<32 x server/discover, tools/list>
+thread 'mcp::tests::discover::red_scratch_a_waiting_request_its_caller_left_never_reaches_the_wire' (289330082) panicked at src/mcp/tests/discover.rs:1220:5:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 1.56s
+opened=33 methods=<32 x server/discover, tools/list>
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4306 filtered out; finished in 1.56s
+# 2. The committed case on a copy of 7c2ceeea with the guard in run() taken out (begun POSTs counted, 33 expected), five runs:
+thread 'mcp::tests::discover::a_waiting_request_whose_caller_has_gone_never_reaches_the_server' (289769697) panicked at src/mcp/tests/discover.rs:1148:5:
+  left: 45
+ right: 33
+thread 'mcp::tests::discover::a_waiting_request_whose_caller_has_gone_never_reaches_the_server' (289769763) panicked at src/mcp/tests/discover.rs:1148:5:
+  left: 46
+ right: 33
+thread 'mcp::tests::discover::a_waiting_request_whose_caller_has_gone_never_reaches_the_server' (289769844) panicked at src/mcp/tests/discover.rs:1148:5:
+  left: 51
+ right: 33
+thread 'mcp::tests::discover::a_waiting_request_whose_caller_has_gone_never_reaches_the_server' (289769915) panicked at src/mcp/tests/discover.rs:1148:5:
+  left: 53
+ right: 33
+thread 'mcp::tests::discover::a_waiting_request_whose_caller_has_gone_never_reaches_the_server' (289769981) panicked at src/mcp/tests/discover.rs:1148:5:
+  left: 53
+ right: 33

@@ -7,6 +7,10 @@ wait 4
 type /compact
 key Enter
 wait 2
+# "No context to compact." stays 1.5 s (compaction.rs TRANSIENT,
+# compaction_activity.zig:123@481104fd): the wire and the snap below are
+# taken once it has gone, by the screen (FLAKE-HINT4).
+until gone No context to compact.
 wire w00-noop
 snap c00-noop
 type first question

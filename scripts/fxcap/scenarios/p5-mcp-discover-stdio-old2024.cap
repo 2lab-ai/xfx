@@ -1,0 +1,16 @@
+# p5 mcp discover (the wire read at ~5 s, between the third try and the fourth -- 1+2+4 s of
+# backoff -- and `/mcp show` given 4 s, which fx answers once its next try is over): a stdio server that only speaks 2024-11-05
+# (p5-mcp-discover-stdio.ts `old2024`): it does not know `server/discover`, and answers
+# `initialize` with 2024-11-05, which fx v0.0.16 no longer speaks -- `unsupported_version`,
+# "it answered with an MCP version fx doesn't support (fx speaks 2025-03-26 and newer)"
+# (src/core/mcp_host/runtime.zig:2296@481104fd) -- so it is retrying. `home wire` is
+# what the server was sent.
+fx: homefile .fx/mcp.json p5-mcp-discover-stdio-old2024-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-discover-stdio-old2024-profile.json
+gateway p5-mcp-hello.json
+wait 5
+home wire
+type /mcp show fixture
+key Enter
+wait 4
+snap show

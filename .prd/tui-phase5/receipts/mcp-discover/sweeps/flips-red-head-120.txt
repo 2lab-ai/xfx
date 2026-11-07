@@ -1,0 +1,8 @@
+pairs: base 23, head 177, both 23
+base fails, head passes (4):
+  p5-mcp-discover-http-ssehold/show: unresolved-defect -> normalized-identical
+  p5-mcp-discover-http-sseidless/show: unresolved-defect -> normalized-identical
+  p5-mcp-discover-http-ssestrid/show: unresolved-defect -> normalized-identical
+  p5-mcp-discover-stdio-banner/show: unresolved-defect -> normalized-identical
+base passes, head fails (0):
+same side, another verdict (0):

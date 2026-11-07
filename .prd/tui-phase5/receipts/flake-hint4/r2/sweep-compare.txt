@@ -1,0 +1,88 @@
+# pairs_compare.py, round 2: the 13 scenarios round 2 touched (--only each), 40x120, --jobs 2, one ledger (sha256 c7c99457..., main's, unchanged here).
+# base: main 6c93f359's harness and scenarios, xfx built at 6c93f35. head: the branch's harness and scenarios, xfx built at 8c2e7de (src/ is the same at every later commit of the branch: git diff 8c2e7def d40bf1a3 -- src Cargo.lock build.rs is empty).
+# head-1, head-2 at b0522162; head-3, head-4 at bf794f0d (capture.sh's never seen). d40bf1a3 then changed capture.sh only in models2's lines, which none of the 13 uses.
+# Order run: base 1, head 1, base 2, head 2, then head 3, head 4.
+
+## each sweep
+base-1: x𝒇x v0.1.0-6c93f35; wall 5m27s, load 10.1 at the start and 15.8 at the peak; Scenarios: 13 -- ran 12, failed 1, timeout 0. pass = 25 / 93 = 26.9%; ledger c7c99457...
+head-1: x𝒇x v0.1.0-8c2e7de; wall 4m21s, load 15.7 at the start and 16.5 at the peak; Scenarios: 13 -- ran 12, failed 1, timeout 0. pass = 26 / 93 = 28.0%; ledger c7c99457...
+base-2: x𝒇x v0.1.0-6c93f35; wall 4m33s, load 9.6 at the start and 25.6 at the peak; Scenarios: 13 -- ran 13, failed 0, timeout 0. pass = 27 / 93 = 29.0%; ledger c7c99457...
+head-2: x𝒇x v0.1.0-8c2e7de; wall 4m19s, load 25.5 at the start and 25.5 at the peak; Scenarios: 13 -- ran 13, failed 0, timeout 0. pass = 29 / 93 = 31.2%; ledger c7c99457...
+head-3: x𝒇x v0.1.0-8c2e7de; wall 5m48s, load 11.6 at the start and 14.7 at the peak; Scenarios: 13 -- ran 13, failed 0, timeout 0. pass = 29 / 93 = 31.2%; ledger c7c99457...
+head-4: x𝒇x v0.1.0-8c2e7de; wall 5m29s, load 6.9 at the start and 19.6 at the peak; Scenarios: 13 -- ran 13, failed 0, timeout 0. pass = 29 / 93 = 31.2%; ledger c7c99457...
+
+## base 1-2 against head 3-4 (bf794f0d)
+pairs: base 93, head 93; runs: base 2, head 2
+base: 52 of 186 pair runs pass; pairs passing in every run: 24 of 93
+head: 58 of 186 pair runs pass; pairs passing in every run: 29 of 93
+     interrupt/cc-0.3: base failed,unresolved-defect -> head unresolved-defect,unresolved-defect
+     interrupt/cc-1.5: base failed,unresolved-defect -> head unresolved-defect,unresolved-defect
+     interrupt/cc-3.5: base failed,unresolved-defect -> head unresolved-defect,unresolved-defect
+     interrupt/end.full: base failed,unresolved-defect -> head unresolved-defect,unresolved-defect
+     interrupt/esc1: base failed,unresolved-defect -> head unresolved-defect,unresolved-defect
+     interrupt/esc2: base failed,unresolved-defect -> head unresolved-defect,unresolved-defect
+     interrupt/esc2-later: base failed,unresolved-defect -> head unresolved-defect,unresolved-defect
+     interrupt/idle-cc: base failed,normalized-identical -> head normalized-identical,normalized-identical
+     interrupt/idle-cc-expired: base failed,normalized-identical -> head normalized-identical,normalized-identical
+     interrupt/mid: base failed,normalized-identical -> head normalized-identical,normalized-identical
+     interrupt/mid2: base failed,unresolved-defect -> head unresolved-defect,unresolved-defect
+     interrupt/next: base failed,unresolved-defect -> head unresolved-defect,unresolved-defect
+     interrupt-recovered/rec-0.5: base normalized-identical,unresolved-defect -> head normalized-identical,normalized-identical
+     interrupt-recovered/rec-1.8: base unresolved-defect,unresolved-defect -> head normalized-identical,normalized-identical
+pairs whose verdicts are not one and the same across all runs: 14; drops: 0
+
+## base 1-2 against head 1-2 (b0522162)
+pairs: base 93, head 93; runs: base 2, head 2
+base: 52 of 186 pair runs pass; pairs passing in every run: 24 of 93
+head: 55 of 186 pair runs pass; pairs passing in every run: 26 of 93
+     interrupt/cc-0.3: base failed,unresolved-defect -> head failed,unresolved-defect
+     interrupt/cc-1.5: base failed,unresolved-defect -> head failed,unresolved-defect
+     interrupt/cc-3.5: base failed,unresolved-defect -> head failed,unresolved-defect
+     interrupt/end.full: base failed,unresolved-defect -> head failed,unresolved-defect
+     interrupt/esc1: base failed,unresolved-defect -> head failed,unresolved-defect
+     interrupt/esc2: base failed,unresolved-defect -> head failed,unresolved-defect
+     interrupt/esc2-later: base failed,unresolved-defect -> head failed,unresolved-defect
+     interrupt/idle-cc: base failed,normalized-identical -> head failed,normalized-identical
+     interrupt/idle-cc-expired: base failed,normalized-identical -> head failed,normalized-identical
+     interrupt/mid: base failed,normalized-identical -> head failed,normalized-identical
+     interrupt/mid2: base failed,unresolved-defect -> head failed,unresolved-defect
+     interrupt/next: base failed,unresolved-defect -> head failed,unresolved-defect
+     interrupt-recovered/rec-0.5: base normalized-identical,unresolved-defect -> head normalized-identical,normalized-identical
+     interrupt-recovered/rec-1.8: base unresolved-defect,unresolved-defect -> head normalized-identical,normalized-identical
+pairs whose verdicts are not one and the same across all runs: 14; drops: 0
+
+## base 2 against head 2-4: interrupt ran in each (base-1 and head-1 lost xfx's interrupt at launch: r2/launch-probe.txt)
+pairs: base 93, head 93; runs: base 1, head 3
+base: 27 of 93 pair runs pass; pairs passing in every run: 27 of 93
+head: 87 of 279 pair runs pass; pairs passing in every run: 29 of 93
+     interrupt-recovered/rec-0.5: base unresolved-defect -> head normalized-identical,normalized-identical,normalized-identical
+     interrupt-recovered/rec-1.8: base unresolved-defect -> head normalized-identical,normalized-identical,normalized-identical
+pairs whose verdicts are not one and the same across all runs: 2; drops: 0
+
+## h1-models2, the one scenario models2 serves (d40bf1a3): base (main's harness, the fixed 9 s) 4 runs, head (the models2 line) 3 runs, alternating after base 0
+pairs: base 2, head 2; runs: base 4, head 3
+base: 4 of 8 pair runs pass; pairs passing in every run: 1 of 2
+head: 3 of 6 pair runs pass; pairs passing in every run: 1 of 2
+pairs whose verdicts are not one and the same across all runs: 0; drops: 0
+m2-base-0: before normalized-identical, after unresolved-defect
+  fx: ask at 4356 ms (answered with the second catalog) ask at 16400 ms 
+  xfx: ask at 3258 ms 
+m2-base-1: before normalized-identical, after unresolved-defect
+  fx: ask at 1222 ms (answered with the second catalog) ask at 13292 ms 
+  xfx: ask at 870 ms 
+m2-head-1: before normalized-identical, after unresolved-defect
+  fx: ask at 1239 ms (answered with the second catalog) ask at 13304 ms 
+  xfx: ask at 890 ms 
+m2-base-2: before normalized-identical, after unresolved-defect
+  fx: ask at 1194 ms (answered with the second catalog) ask at 13258 ms 
+  xfx: ask at 907 ms 
+m2-head-2: before normalized-identical, after unresolved-defect
+  fx: ask at 1228 ms (answered with the second catalog) ask at 13302 ms 
+  xfx: ask at 846 ms 
+m2-base-3: before normalized-identical, after unresolved-defect
+  fx: ask at 1220 ms (answered with the second catalog) ask at 13273 ms 
+  xfx: ask at 867 ms 
+m2-head-3: before normalized-identical, after unresolved-defect
+  fx: ask at 14265 ms (answered with the second catalog) ask at 26356 ms 
+  xfx: ask at 9854 ms 
+# m2-head-3 is a loaded run: the launch's ask at 9854 ms (xfx) and 14265 ms (fx) got the first catalog; under the fixed 9 s it would have got the second.

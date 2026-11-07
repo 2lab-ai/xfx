@@ -1,0 +1,38 @@
+# every `until` line in the capture logs (each binary's capture.log) of the three scenarios train 4 converted, and of the new `-tc` twin, in the two sweeps that ran them:
+#   head  = the head sweep, sw-head (xfx 3bd15c89), the train's harness
+#   d2e25b0a = the first sweep of the three, right after the conversion commit (xfx built at d2e25b0a)
+# capture.sh prints, for each `until`: how long it waited after its line, and the time since launch
+## head: repo_head 3bd15c89, xfx sha256 bdeba8959f77
+head	p5-mcp-discover-http-modern	fx	until shown 'Full access': after 0.01 s, 0.03 s since launch
+head	p5-mcp-discover-http-modern	fx	until gone 'Full access': after 0.01 s, 6.06 s since launch
+head	p5-mcp-discover-http-modern	xfx	until shown 'Full access': after 0.07 s, 0.10 s since launch
+head	p5-mcp-discover-http-modern	xfx	until gone 'Full access': after 0.01 s, 6.13 s since launch
+head	p5-mcp-discover-http-notimpl	fx	until shown 'Full access': after 0.01 s, 0.03 s since launch
+head	p5-mcp-discover-http-notimpl	fx	until gone 'Full access': after 0.03 s, 6.08 s since launch
+head	p5-mcp-discover-http-notimpl	xfx	until shown 'Full access': after 0.07 s, 0.09 s since launch
+head	p5-mcp-discover-http-notimpl	xfx	until gone 'Full access': after 0.01 s, 6.12 s since launch
+head	p5-mcp-discover-stdio-modern	fx	until shown 'Full access': after 0.02 s, 0.08 s since launch
+head	p5-mcp-discover-stdio-modern	fx	until gone 'Full access': after 0.01 s, 6.11 s since launch
+head	p5-mcp-discover-stdio-modern	xfx	until shown 'Full access': after 0.07 s, 0.09 s since launch
+head	p5-mcp-discover-stdio-modern	xfx	until gone 'Full access': after 0.01 s, 6.13 s since launch
+head	p5-mcp-discover-stdio-modern-tc	fx	until shown 'Full access': after 0.01 s, 0.04 s since launch
+head	p5-mcp-discover-stdio-modern-tc	fx	until gone 'Full access': after 0.01 s, 6.08 s since launch
+head	p5-mcp-discover-stdio-modern-tc	xfx	until shown 'Full access': after 0.07 s, 0.10 s since launch
+head	p5-mcp-discover-stdio-modern-tc	xfx	until gone 'Full access': after 0.01 s, 6.12 s since launch
+## d2e25b0a: repo_head d2e25b0a, xfx sha256 f83290461d31
+d2e25b0a	p5-mcp-discover-http-modern	fx	until shown 'Full access': after 0.01 s, 0.03 s since launch
+d2e25b0a	p5-mcp-discover-http-modern	fx	until gone 'Full access': after 0.01 s, 6.06 s since launch
+d2e25b0a	p5-mcp-discover-http-modern	xfx	until shown 'Full access': after 0.07 s, 0.09 s since launch
+d2e25b0a	p5-mcp-discover-http-modern	xfx	until gone 'Full access': after 0.01 s, 6.12 s since launch
+d2e25b0a	p5-mcp-discover-http-notimpl	fx	until shown 'Full access': after 0.01 s, 0.03 s since launch
+d2e25b0a	p5-mcp-discover-http-notimpl	fx	until gone 'Full access': after 0.01 s, 6.06 s since launch
+d2e25b0a	p5-mcp-discover-http-notimpl	xfx	until shown 'Full access': after 0.07 s, 0.08 s since launch
+d2e25b0a	p5-mcp-discover-http-notimpl	xfx	until gone 'Full access': after 0.01 s, 6.11 s since launch
+d2e25b0a	p5-mcp-discover-stdio-modern	fx	until shown 'Full access': after 0.01 s, 0.03 s since launch
+d2e25b0a	p5-mcp-discover-stdio-modern	fx	until gone 'Full access': after 0.01 s, 6.06 s since launch
+d2e25b0a	p5-mcp-discover-stdio-modern	xfx	until shown 'Full access': after 0.07 s, 0.09 s since launch
+d2e25b0a	p5-mcp-discover-stdio-modern	xfx	until gone 'Full access': after 0.01 s, 6.12 s since launch
+# the three converted, until shown 'Full access': 12 lines; after its line 0.01 to 0.07 s; since launch 0.03 to 0.10 s
+# the three converted, until gone 'Full access': 12 lines; after its line 0.01 to 0.03 s; since launch 6.06 to 6.13 s
+# the -tc twin, until shown 'Full access': 2 lines; after its line 0.01 to 0.07 s; since launch 0.04 to 0.10 s
+# the -tc twin, until gone 'Full access': 2 lines; after its line 0.01 to 0.01 s; since launch 6.08 to 6.12 s

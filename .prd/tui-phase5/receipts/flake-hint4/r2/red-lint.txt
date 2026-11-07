@@ -1,0 +1,15 @@
+FAIL: test_a_ctrl_c_arms_the_exit_hint_and_any_other_keystroke_takes_it_down (cap='key C-c\nwait 1\npastex 3\nwait 2\nsnap a\n')
+FAIL: test_a_ctrl_c_arms_the_exit_hint_and_any_other_keystroke_takes_it_down (cap='key C-c\nwait 1\nkey -H 1b 5b 3f 39 39 37 3b 32 6e\nwait 2\nsnap a\n')
+FAIL: test_a_line_that_takes_the_warnings_row_before_its_window_stops_its_clock (wait='12', until='until gone Full access\n')
+FAIL: test_a_line_that_takes_the_warnings_row_inside_its_window_is_refused (line='key C-o')
+FAIL: test_a_profile_in_full_access_arms_it_too (line='reseed s.json')
+FAIL: test_a_profile_in_full_access_arms_it_too (line='rehomefile .xfx/settings.json s.json')
+FAIL: test_absent_says_a_ctrl_c_armed_nothing
+FAIL: test_an_until_or_absent_counts_only_with_the_timers_exact_text (line='until gone Full access never-rendered')
+FAIL: test_an_until_or_absent_counts_only_with_the_timers_exact_text (line='until gone Full access enabled')
+FAIL: test_an_until_or_absent_counts_only_with_the_timers_exact_text (line='absent Full access')
+FAIL: test_an_until_or_absent_counts_only_with_the_timers_exact_text (line='absent press ctrl+c again to exit')
+FAIL: test_an_until_or_absent_counts_only_with_the_timers_exact_text (line='until gone press ctrl+c again to exit, please')
+FAIL: test_an_until_or_absent_counts_only_with_the_timers_exact_text
+FAIL: test_an_until_shown_nothing_counted_armed_reaches_back_to_the_last_input
+Ran 14 tests (the round-2 test_sweep.py Capfile class) against the round-1 capfile.py (9f968a65): 14 failing subtests
