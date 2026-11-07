@@ -1,0 +1,22 @@
+# RED, part 2: the test a_character_a_terminal_draws_wider_than_it_is_counted_is_named_in_a_files_line
+# appended to e6cde019's src/tui/full_transcript.rs (product code unchanged), in a throwaway clone
+
+running 1 test
+test tui::full_transcript::tests::a_character_a_terminal_draws_wider_than_it_is_counted_is_named_in_a_files_line ... FAILED
+
+failures:
+
+---- tui::full_transcript::tests::a_character_a_terminal_draws_wider_than_it_is_counted_is_named_in_a_files_line stdout ----
+
+assertion `left == right` failed
+  left: "fam ☝ ⸺ 🖐 x\u{e0002}y a\u{fe0f}b \u{ad}\u{fe0f}c \\u{2065}f end"
+ right: "fam \\u{261d} \\u{2e3a} \\u{1f590} x\\u{e0002}y a\\u{fe0f}b \u{ad}\\u{fe0f}c \\u{2065}f end"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::full_transcript::tests::a_character_a_terminal_draws_wider_than_it_is_counted_is_named_in_a_files_line
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4321 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
