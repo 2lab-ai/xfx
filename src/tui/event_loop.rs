@@ -5927,6 +5927,10 @@ mod tests {
         let again = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert_eq!(fg_of(&again, "\u{2514} Ran "), Some(241), "{again:?}");
         assert_eq!(fg_of(&again, "# note"), Some(243), "{again:?}");
+        // The header said the same before the result as after it, so the
+        // rewrite kept the row on the screen rather than placing it again --
+        // and it is still a row drawn again.
+        assert_eq!(fg_of(&again, "1 tool call"), Some(241), "{again:?}");
     }
 
     #[test]
