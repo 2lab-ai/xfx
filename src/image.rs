@@ -155,7 +155,8 @@ pub struct Image {
     pub id: u32,
     /// The file it was read from, resolved -- or, for a clipboard image, the
     /// copy written when it was pasted, named [`Self::snapshot_name`], which
-    /// is what upstream names and links one by (`image_commands.zig:138-147`).
+    /// is what upstream names and links one by
+    /// (`image_commands.zig:140-148@481104fd`).
     pub path: PathBuf,
     pub media_type: MediaType,
     /// What was read when it was attached, and nothing read since.
@@ -173,8 +174,9 @@ pub struct Image {
     /// private temporary directory a paste's copy goes to -- for a session
     /// that keeps no copy of its own (an unsaved one), as upstream captures
     /// every attachment into its process's temporary folder
-    /// (`captureImageAttachment`, `src/core/app/app_session_runtime.zig:1331-1344@481104fd`).
-    /// `None` otherwise, and when the copy could not be written.
+    /// (`captureImageAttachment`, `src/core/app/app_session_runtime.zig:1332-1345@481104fd`).
+    /// `None` otherwise: a session that saves keeps its own, and an image
+    /// whose copy could not be written is not attached at all.
     pub copy: Option<PathBuf>,
 }
 
