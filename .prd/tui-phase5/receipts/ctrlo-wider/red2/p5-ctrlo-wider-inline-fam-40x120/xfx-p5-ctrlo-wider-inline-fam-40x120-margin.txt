@@ -17,6 +17,7 @@ x𝒇x v0.1.0-88c2fec [debug] · Run /help for commands
   TAIL5678
 
   ☝☝☝☝wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwL
+  wwwwwwwwwwwwwwwwwwwwEND
 
   0s (↑1 ↓40)
 
@@ -31,7 +32,6 @@ x𝒇x v0.1.0-88c2fec [debug] · Run /help for commands
 ┃ TAIL
 
 auto · model-a
-
 
 
 

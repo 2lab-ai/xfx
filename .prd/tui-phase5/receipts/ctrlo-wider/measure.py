@@ -9,7 +9,10 @@ Reads `<build>/<scenario>-40x120/<prefix>-<scenario>-40x120-<snap>.txt`
 `red2` (88c2fec1) and `xfx` (the head), and runs <replay_ghostty>
 (replay_ghostty.c) on each wire -- for `resized` and `ctrlo-resized`, with the
 terminal resized to 140x40 where the `margin` wire ended (capture.sh `resize`
-came next). For each form below it prints the rows that hold it, on each
+came next). fx writes the document again at the new width; xfx leaves the rows
+it wrote to the terminal (the ledger's `resize-document-repaint`), so on xfx
+`resized` asks whether the rows written at 120 columns still read whole, and
+`ctrlo-resized` is the screen laid out again. For each form below it prints the rows that hold it, on each
 terminal, and whether they read as the text does: every glyph of the text, in
 order (`ok`), or the glyphs of the text the longest alignment leaves unmatched
 (`LOST ...`). A token `\\u{NNNN}` reads as the glyph it names; a cell a
@@ -56,7 +59,7 @@ ANSWER = [
     ("U+2E3A at the margin", W(117) + "\u2e3aTAIL5678", r"^  w{110}"),
     ("`a` U+FE0F at the margin", W(117) + "a\ufe0fTAIL5678", r"^  w{110}"),
     ("U+E0002 `z` at the margin", W(117) + "\U000e0002zTAIL5678", r"^  w{110}"),
-    ("four U+261D in front", FOUR + W(110) + "TAIL", r"^  (?:\u261d|\\u\{261d\})"),
+    ("four U+261D in front", FOUR + W(110) + "TAIL" + W(20) + "END", r"^  (?:\u261d|\\u\{261d\})"),
 ]
 for snap, surface in (("answer", "answer"), ("ctrlo", "Ctrl-O Response"), ("resized", "answer, 140 columns"), ("ctrlo-resized", "Ctrl-O Response, 140 columns")):
     for name, text, start in ANSWER:

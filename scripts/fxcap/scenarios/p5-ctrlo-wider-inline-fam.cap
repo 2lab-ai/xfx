@@ -2,14 +2,18 @@
 # (the inline transcript, 118 cells of text a row), in a prompt, on Ctrl-O
 # and in the composer. The answer: the short line, then four paragraphs that
 # reach a row's last cell by the count (U+261D, U+2E3A, `a` U+FE0F, U+E0002
-# then `z`, each before `TAIL5678`) and one that fills a row by it with four
-# U+261D at its front. Then the short line typed (the composer), sent as a
-# prompt (its card), Ctrl-O over both turns; then the four-U+261D line, a new
-# line and 117 `w`, U+261D and `TAIL` typed (the composer at the margin), the
-# screen widened to 140 columns, and Ctrl-O again (its rows laid out again at
-# the new width; the document's rows are the terminal's, as written). `cursor`
-# says where the caret is; `wire` keeps every byte written, for a replay on
-# libghostty-vt (.prd/tui-phase5/receipts/ctrlo-wider/replay_ghostty.c).
+# then `z`, each before `TAIL5678`) and one whose first row by the count is
+# four U+261D, 110 `w` and `TAIL`, with 20 `w` and `END` after it -- two rows
+# by fx's count and by xfx's named form alike, at 120 columns and at 140, so
+# no row below it moves and no Ctrl-O page starts on another row. Then the
+# short line typed (the composer), sent as a prompt (its card), Ctrl-O over
+# both turns; then four U+261D, 110 `w` and `TAIL`, a new line and 117 `w`,
+# U+261D and `TAIL` typed (the composer at the margin), the screen widened to
+# 140 columns (fx writes the document again at the new width, xfx leaves its
+# rows to the terminal), and Ctrl-O again (its rows laid out again at the new
+# width). `cursor` says where the caret is; `wire` keeps every byte written,
+# for a replay on libghostty-vt
+# (.prd/tui-phase5/receipts/ctrlo-wider/replay_ghostty.c).
 gateway p5-ctrlo-wider-inline-fam-turns.json
 fx: env FX_AUTO_UPGRADE=0
 keep

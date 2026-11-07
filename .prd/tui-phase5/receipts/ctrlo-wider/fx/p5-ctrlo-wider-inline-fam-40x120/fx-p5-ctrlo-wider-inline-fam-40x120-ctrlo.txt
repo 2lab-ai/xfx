@@ -1,12 +1,11 @@
-  2026-11-08 07:09:18.025 KST · Notice
-* network: provider: gateway · model: fake/model-a · 131ms
+* network: provider: gateway · model: fake/model-a · 130ms
   finish: stop
   tokens: 1200 in · 40 out
 
-  2026-11-08 07:09:12.214 KST · Prompt
+  2026-11-08 07:36:38.531 KST · Prompt
 ┃ go
 
-  2026-11-08 07:09:12.226 KST · Response
+  2026-11-08 07:36:38.543 KST · Response
   fam ☝ ⸺ 🖐 x󠀂b  c  d  e ⁥f end
 
   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
@@ -22,17 +21,18 @@
   TAIL5678
 
   ☝☝☝☝wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwL
+  wwwwwwwwwwwwwwwwwwwwEND
 
-  2026-11-08 07:09:12.232 KST · Usage
+  2026-11-08 07:36:38.548 KST · Usage
   0s (↑1 ↓40)
 
-  2026-11-08 07:09:17.888 KST · Prompt
+  2026-11-08 07:36:44.212 KST · Prompt
 ┃ fam ☝ ⸺ 🖐 x󠀂b  c  d  e ⁥f end
 
-  2026-11-08 07:09:18.025 KST · Response
+  2026-11-08 07:36:44.353 KST · Response
   Spare.
 
-  2026-11-08 07:09:18.021 KST · Usage
+  2026-11-08 07:36:44.344 KST · Usage
   0s (↑16 ↓40)
 
 ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close

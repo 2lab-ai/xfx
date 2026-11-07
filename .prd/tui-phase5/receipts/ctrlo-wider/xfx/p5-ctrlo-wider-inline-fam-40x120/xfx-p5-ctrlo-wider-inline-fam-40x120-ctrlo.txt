@@ -1,0 +1,40 @@
+* network: provider: gateway · model: fake/model-a · 63ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-08 07:37:07.866 KST · Prompt
+┃ go
+
+  2026-11-08 07:37:07.981 KST · Response
+  fam \u{261d} \u{2e3a} \u{1f590} x\u{e0002}y a\u{fe0f}b ­\u{fe0f}c ﾠ\u{fe0f}d ￰\u{fe0f}e \u{2065}f end
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\
+  u{261d}TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\
+  u{2e3a}TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwa
+  \u{fe0f}TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\
+  u{e0002}zTAIL5678
+
+  \u{261d}\u{261d}\u{261d}\u{261d}wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+  wwwwwwwwwwwwwwwwwwwwwwwwTAILwwwwwwwwwwwwwwwwwwwwEND
+
+  2026-11-08 07:37:08.583 KST · Usage
+  0s (↑1 ↓40)
+
+  2026-11-08 07:37:13.542 KST · Prompt
+┃ fam \u{261d} \u{2e3a} \u{1f590} x\u{e0002}y a\u{fe0f}b ­\u{fe0f}c ﾠ\u{fe0f}d ￰\u{fe0f}e \u{2065}f end
+
+  2026-11-08 07:37:13.678 KST · Response
+  Spare.
+
+  2026-11-08 07:37:13.678 KST · Usage
+  0s (↑16 ↓40)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a

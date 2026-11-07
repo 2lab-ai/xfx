@@ -1,0 +1,40 @@
+[38;5;250m* network: provider: gateway · model: fake/model-a · 63ms[39m
+  [38;5;250mfinish: stop[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-08 07:37:07.866 KST · Prompt[39m
+[38;5;255m┃[39m [1mgo[0m
+
+[38;5;245m  2026-11-08 07:37:07.981 KST · Response[39m
+  fam \u{261d} \u{2e3a} \u{1f590} x\u{e0002}y a\u{fe0f}b ­\u{fe0f}c ﾠ\u{fe0f}d ￰\u{fe0f}e \u{2065}f end
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\
+  u{261d}TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\
+  u{2e3a}TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwa
+  \u{fe0f}TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\
+  u{e0002}zTAIL5678
+
+  \u{261d}\u{261d}\u{261d}\u{261d}wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+  wwwwwwwwwwwwwwwwwwwwwwwwTAILwwwwwwwwwwwwwwwwwwwwEND
+
+[38;5;245m  2026-11-08 07:37:08.583 KST · Usage[39m
+[38;5;245m  0s (↑1 ↓40)[39m
+
+[38;5;245m  2026-11-08 07:37:13.542 KST · Prompt[39m
+[38;5;255m┃[39m [1mfam \u{261d} \u{2e3a} \u{1f590} x\u{e0002}y a\u{fe0f}b ­\u{fe0f}c ﾠ\u{fe0f}d ￰\u{fe0f}e \u{2065}f end[0m
+
+[38;5;245m  2026-11-08 07:37:13.678 KST · Response[39m
+  Spare.
+
+[38;5;245m  2026-11-08 07:37:13.678 KST · Usage[39m
+[38;5;245m  0s (↑16 ↓40)[39m
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m

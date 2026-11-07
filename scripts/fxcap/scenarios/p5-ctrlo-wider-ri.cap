@@ -1,0 +1,21 @@
+# Phase 5 (CTRLO-WIDER): an odd run of regional indicators in an answer,
+# Z U S (U+1F1FF U+1F1FA U+1F1F8), where U S is a flag and Z U is none. fx
+# counts a run along the line (`displayUnitAt`, an RGI flag whole, else one
+# indicator, two cells): Z 2 and U S 2, four. xfx counts a grapheme cluster
+# at a time, and the clusters pair from the run's start: Z U 4 and S 2, six.
+# A short line, and one that reaches the margin with it: 110 `w`, Z U S and
+# `TAIL5678`, cut where each count reaches the 118 cells of a row. `wire`
+# keeps every byte written.
+gateway p5-ctrlo-wider-ri-turns.json
+fx: env FX_AUTO_UPGRADE=0
+keep
+wait 4
+# A debug xfx under load takes the terminal later than fx does.
+xfx: wait 3
+type go
+wait 1
+key Enter
+wait 4
+snap answer
+wire answer
+gwlog

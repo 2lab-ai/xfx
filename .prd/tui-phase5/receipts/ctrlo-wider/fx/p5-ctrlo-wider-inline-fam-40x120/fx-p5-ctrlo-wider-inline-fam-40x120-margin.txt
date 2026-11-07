@@ -17,6 +17,7 @@
   TAIL5678
 
   ☝☝☝☝wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwL
+  wwwwwwwwwwwwwwwwwwwwEND
 
   0s (↑1 ↓40)
 
@@ -31,7 +32,6 @@
 ┃ TAIL
 
 auto · model-a
-
 
 
 
