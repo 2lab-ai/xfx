@@ -675,3 +675,12 @@ fx_row = '^auto · model-a · fix the renderer loop, it redraw'
 xfx_row = '^auto · model-a · Fix the renderer loop$'
 fix = "the fake gateway keeps an unused connection open for fx's 30 s pool TTL (fakegw.ts idleTimeout), not a scenario file"
 why = "fx's title call goes out on the connection it warmed at launch, which the fake reset after 10 s idle, so fx keeps the derived title (receipts/w9/README.md:81-131): a property of the capture harness."
+
+[[cause]]
+id = "launch-refusal-row"
+kind = "decision"
+owner = "user decision launch refusals before or after the terminal"
+scenarios = ["p5-lifecycle-relhome-resume"]
+snaps = ["r00-resume.full"]
+rows = ["2-3"]
+why = "fx takes the terminal before it opens the session `--resume` names and refuses after its restore, which ends `ESC[1;1H ESC[J ... \\r\\n` and leaves a blank row above `fx: HomeNotSet` (the wire, .prd/tui-phase5/receipts/tui-unsaved/README.md); xfx opens the session before the terminal is touched and refuses on the shell row it was given (src/tui/mod.rs:127-133). The same row for any refused resume, a missing id on an ordinary HOME too, so not this unit's: the words match."
