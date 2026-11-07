@@ -2759,11 +2759,16 @@ mod tests {
             "bidi \u{202e} x\nzero\u{200b}width \u{feff} bom\nesc \u{1b}[2J c1 \u{9b}\ntab\there\ncrlf\r\nlit \\x1b\n",
         );
         let rows = diff_rows(&diff, 120, DARK);
+        // Written out rather than read from `fx_names`, so a change there
+        // cannot pass itself.
+        let acted_on = |c: char| {
+            c.is_control()
+                || matches!(c, '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}' | '\u{61c}')
+        };
         for row in plain(&rows) {
             assert!(
-                !row.chars()
-                    .any(|c| c.is_control() || fx_names(u32::from(c))),
-                "a row hands the terminal a byte it acts on: {row:?}"
+                !row.chars().any(acted_on),
+                "a row hands the terminal a character it acts on: {row:?}"
             );
         }
         assert_eq!(
