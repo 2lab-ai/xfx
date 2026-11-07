@@ -543,6 +543,17 @@ fix = "fx's turns read `ctl.txt` first as xfx's do (`p5-transcript-diffctl-xfx.j
 why = "xfx's `edit_file` refuses a file it has not read in full (docs/parity.md:158), so T-U6 gave xfx its own turns, which read `ctl.txt` before the edit, and left fx's as they were (the .cap's header): xfx's group counts a read fx's has not, shows its `Read ctl.txt` row and, on Ctrl-O, its entry and its three read rows, and its turn's summary counts the longer answer (`↓120` against fx's `↓80`). The summary row was covered by the wildcard `stream-position` until #75 deleted it, which is not where a stream stands but a different turn, so no hold makes it the same; the rows a scenario compares (the diff rows, Ctrl-O's spelling) are T-U6's `check.py` claims (.prd/tui-phase5/receipts/transcript-receipts/README.md)."
 
 [[cause]]
+id = "edit-not-utf8"
+kind = "defect"
+owner = "unowned (edit_file on a file that is not UTF-8, which xfx refuses: docs/parity.md `edit_file`)"
+scenarios = ["p5-transcript-diffbad"]
+snaps = ["*"]
+whole_snap = true
+xfx = ["src/tools/mutate.rs:437-442", "src/tools/read.rs:1162"]
+fx = ["src/tools/filesystem/edit_file.zig:1-275@c1db9191"]
+why = "fx v0.0.16 edits a file that is not UTF-8 and shows its stray bytes as `\\xNN` in the diff (9db199e4, `dupeValidUtf8`, `text_utils.zig:444-460@481104fd`); xfx refuses it (`edit_file cannot edit <path>: it is not UTF-8 text`), and its read before, `binary or non-utf8 file omitted`, is no read in full, so the read proof refuses first: `└ Failed bad.txt: edit_file will not replace ...` against fx's `└ Edited bad.txt +1 / -1`, a failed call's argument rows on Ctrl-O against fx's diff, and the rows under them shifted. T-U6 recorded it (docs/parity.md:158; .prd/tui-phase5/receipts/transcript-receipts/README.md, `refused`) with no ledger entry; named at train 2 so its sweep attributes every row, as subagent-tool names a deferred tool's."
+
+[[cause]]
 id = "cancelled-marker"
 kind = "unit"
 owner = "T-U4 cancelled marker"
@@ -983,5 +994,5 @@ kind = "decision"
 owner = "user decision launch refusals before or after the terminal"
 scenarios = ["p5-lifecycle-relhome-resume"]
 snaps = ["r00-resume.full"]
-rows = ["2-3"]
-why = "fx takes the terminal before it opens the session `--resume` names and refuses after its restore, which ends `ESC[1;1H ESC[J ... \\r\\n` and leaves a blank row above `fx: HomeNotSet` (the wire, .prd/tui-phase5/receipts/tui-unsaved/README.md); xfx opens the session before the terminal is touched and refuses on the shell row it was given (src/tui/mod.rs:127-133). The same row for any refused resume, a missing id on an ordinary HOME too, so not this unit's: the words match."
+rows = ["2-3", 41]
+why = "fx takes the terminal before it opens the session `--resume` names and refuses after its restore, which ends `ESC[1;1H ESC[J ... \\r\\n` and leaves a blank row above `fx: HomeNotSet` (the wire, .prd/tui-phase5/receipts/tui-unsaved/README.md); xfx opens the session before the terminal is touched and refuses on the shell row it was given (src/tui/mod.rs:127-133). The same row for any refused resume, a missing id on an ordinary HOME too, so not this unit's: the words match. Row 41 is the same shift at the other end: aligned, xfx's capture keeps one blank row more under its refusal (rows added at train 2, whose sweep found it; L-U3's own harness classifies the pair the same way)."
