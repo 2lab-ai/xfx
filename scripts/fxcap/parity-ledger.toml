@@ -569,11 +569,11 @@ why = "v0.0.16 marks a cancelled tool call `▪` where c1db919 and xfx mark it `
 id = "truecolor-grey-notation"
 kind = "unit"
 owner = "TC-NOTATION builtin greys spelt 38;5 at every depth"
-scenarios = ["p5-inline-code-retint-tc", "p5-inline-code-retint-light-tc", "p5-inline-code-table-tc", "p5-inline-code-table-light-tc", "p5-toolgroup-retint-tc", "p5-toolgroup-retint-light-tc", "p5-toolstop-retint-tc", "p5-toolstop-retint-light-tc"]
+scenarios = ["p5-inline-code-retint-tc", "p5-inline-code-retint-light-tc", "p5-inline-code-table-tc", "p5-inline-code-table-light-tc", "p5-toolgroup-retint-tc", "p5-toolgroup-retint-light-tc", "p5-toolstop-retint-tc", "p5-toolstop-retint-light-tc", "p5-toolgroup-live-tc", "p5-toolgroup-ctrlo-tc"]
 snaps = ["*"]
-fx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] |^[▪■] Cancelled '
-xfx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] |^[▪■] Cancelled '
-why = "Under COLORTERM=truecolor xfx spells its own greys -- the card's and the composer's rail, a turn's summary, the hint row, a tool group's mark and statusline grey, a stopped call's own line (its marker, `Cancelled` and its argument) -- 38;2;L;L;L (src/tui/theme.rs depth_from_env, truecolor), the same xterm-ramp colours fx writes as 38;5;N: fx's builtins are 256-colour at every depth (src/core/shared/theme.zig:75-159@481104fd), and its capture there is byte-identical to its 256-colour one. Read with each direct grey as the index it spells, these pairs are identical (.prd/tui-phase5/receipts/inline-code-truecolor/, notation.py). Decided 2026-11-07: follow fx; TC-NOTATION spells them 38;5."
+fx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] |^[▪■] Cancelled |^~ Running \('
+xfx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] |^[▪■] Cancelled |^~ Running \('
+why = "Under COLORTERM=truecolor xfx spells its own greys -- the card's and the composer's rail, a turn's summary, the hint row, a tool group's mark and statusline grey, a stopped call's own line (its marker, `Cancelled` and its argument), the activity row a running command adds (`p5-toolgroup-live-tc`) -- 38;2;L;L;L (src/tui/theme.rs depth_from_env, truecolor), the same xterm-ramp colours fx writes as 38;5;N: fx's builtins are 256-colour at every depth (src/core/shared/theme.zig:75-159@481104fd), and its capture there is byte-identical to its 256-colour one. Read with each direct grey as the index it spells, these pairs are identical (.prd/tui-phase5/receipts/inline-code-truecolor/, notation.py; TG-REDRAW's two, .prd/tui-phase5/receipts/toolgroup-redraw/). Decided 2026-11-07: follow fx; TC-NOTATION spells them 38;5."
 
 [[cause]]
 id = "status-panel-scroll-window"
@@ -830,7 +830,7 @@ why = "The scenario records what fx v0.0.16 prints for `fx update --help`, `fx u
 id = "full-transcript-shift"
 kind = "defect"
 owner = "unowned (follows session-record and tool-schema)"
-scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout"]
+scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout", "p5-toolgroup-ctrlo*"]
 snaps = ["*ctrl-o*", "full*"]
 whole_snap = true
 xfx = ["src/tui/shell.rs:37272", "src/tui/approval_view.rs:685"]
