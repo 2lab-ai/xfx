@@ -1111,10 +1111,13 @@ fn commit_counted(
 ///   ([`Shell::take_status_moved_by_input`]): upstream handles the keys after
 ///   it reports, so what they did is on that pass's frame and reported by the
 ///   next (`osc/w02-done`: the prompt's `Thinking`, then `working`). A stop
-///   is not one, and a prompt the runtime has not started -- typed or not, a
-///   prompt typed after a stop included -- is reported on the tick whose
-///   frame first shows its `Thinking`, after that frame
-///   ([`Shell::take_status_moved_by_input`] says why). The launch's report
+///   is not one, and a prompt the runtime has not started -- typed or not --
+///   is reported on the tick whose frame first shows its `Thinking`, after
+///   that frame, unless it was sent while a turn that started was still in
+///   hand, a stopped one included: that one goes ahead of the frame that
+///   shows its turn, as upstream's queued prompt does
+///   (`p5-lifecycle-osc-stopnext`; [`Shell::take_status_moved_by_input`]
+///   says why). The launch's report
 ///   is taken before the keys typed ahead of the session are read
 ///   ([`launch_title`]), so the first tick writes it, as above, whatever
 ///   those keys did.

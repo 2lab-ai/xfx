@@ -271,15 +271,22 @@ parity row; `2f6323a3`, main; `75f70b03`, a scenario), from the two reviews of `
   The stop kept the status settled across the keystroke, so nothing marked the prompt as typed.
   fx's stop stays requested until its worker takes the next item (`takeNextWorkLocked`,
   `worker_runtime.zig:1512`; `finishProcessing` leaves it, `:1541-1563`), nothing is busy while it
-  is (`app_worker_runtime.zig:785-788`, `:762-765`), and the prompt's keystroke frame shows its
-  activity, which reads no cancel (`pendingPromptActivityVisible`, `app_render_runtime.zig:286-290`):
-  the frame, then `working`. Work that is only a prompt waiting is now held whatever got it there
-  (`Shell::status_held`), and the tick whose frame first shows the turn writes the report after it;
-  a hold that ends without its turn owes no frame anything (`take_status_moved_by_input`). The exact
-  window -- a prompt typed before the stopped turn's `TurnEnded` -- is a few milliseconds and no
-  scenario can type into it; `interruptnext` types the second prompt 1.5 s after the stop, where
-  fx's stop is still requested (the same fx mechanism) and xfx's stopped turn has ended: both write
-  the frame, then `working`.
+  is (`cancellation_stops_turn`, `app_worker_runtime.zig:734-735`, `:762-765`), and the prompt's
+  keystroke frame shows its activity, which reads no cancel (`pendingPromptActivityVisible`,
+  `app_render_runtime.zig:286-290`): the frame, then `working`. Work that is only a prompt waiting
+  is now held whatever got it there (`Shell::status_held`), and the tick whose frame first shows the
+  turn writes the report after it; a hold that ends without its turn owes no frame anything
+  (`take_status_moved_by_input`). The exact window -- a prompt typed before the stopped turn's
+  `TurnEnded` -- is a few milliseconds and no scenario can type into it; `interruptnext` types the
+  second prompt 1.5 s after the stop, where fx's stop is still requested (the same fx mechanism) and
+  xfx's stopped turn has ended: both write the frame, then `working`.
+  **Corrected by STOP-LATE-EVENT** (`../stop-late-event/README.md`): a scenario can type into the
+  window -- the stop and the prompt in one read (`p5-lifecycle-osc-stopnext`) -- and there fx
+  v0.0.16 shows nothing of the prompt's turn until its worker takes it, then writes `working` and
+  then the frame with the prompt (three runs). The keystroke frame does not show its activity, so
+  the premise above is wrong for that window, and this bullet's hold for a stop-window prompt is
+  reverted there: such a prompt is reported ahead of the frame that shows its turn, however the
+  runtime's two events split across ticks.
 - **A prompt held behind other runtime work: no difference on the wire** (opus SHOULD 2, gpt6 NTH
   1). fx adopts a prompt at the keystroke and queues it only once it may run
   (`adoptPendingUserPrompt`, `finalizePendingSubmission`, `main.zig:1234-1266`), holding it while
