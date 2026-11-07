@@ -192,7 +192,12 @@ gone. The captures agree: every `-tc` pair at the head scores as its
   `:105`, `:109-127` (one doc line was added above them). Every
   `src/...rs:N` citation in `docs/`, `scripts/` and `src/` into a file this
   unit changed now names the line it named at the base (the audit compared
-  the base's line text with the head's for each).
+  the base's line text with the head's for each), except
+  `docs/superpowers/plans/2026-09-11-tui-approval-amendment.md`'s
+  `src/tui/theme.rs:333`, a historical plan whose `:333` already named
+  another line at the base, left as it is. `shell.rs:12192` named a blank
+  line at the base (the line before `send`'s doc): moved with it, not
+  repaired.
 - `theme.rs` (`ultra_marker`'s doc) and `docs/parity.md`: fx's
   `truecolorSupportedForValues` is `theme_protocol.zig:84-93@481104fd` (the
   doc said `:83-92`, a line off at both pins).
