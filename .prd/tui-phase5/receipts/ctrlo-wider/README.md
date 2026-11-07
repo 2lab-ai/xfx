@@ -124,6 +124,20 @@ are no flag, kept at the base, are named at the head: four cells to xfx and
 fx, two to both terminals, so a review row laid out at four would put
 cells where the terminal does not.
 
+**Clusters, not only scalars** (`review/cluster_dump.rs`, run on a clone at
+the base and at the head; `review/clusters-base.txt`, `-head.txt`): every
+cluster formed by one of the fillers or of 9 `FX_COUNTED` scalars (U+0605,
+U+09BE, U+302E, U+FF9E, U+1D165, U+1F1E6, U+1F1FA, U+E0000, U+E0080) before
+or after 22 emoji sequences, joiners, marks, jamo and letters -- 341
+clusters. **None counts fewer cells at the head**; 221 count more, every one
+holding an `FX_COUNTED` scalar; the 72 that hold a filler and no
+`FX_COUNTED` scalar count as at the base (`upstream_cells` a display unit at
+a time changes nothing for them: a filler never shares a cluster with an RGI
+sequence it precedes, and the modifier forms count as before, the
+WIDTH-DISPUTED tests unchanged). One cluster's `squeezed` moved:
+U+1F44D U+1F3FD U+302E, two cells at the base (squeezed) and four at the
+head (not), its U+302E still named by `uncounted`.
+
 ## Part 2: the 43 fx and xfx count alike -- measured, then named on Ctrl-O
 
 The family (`compare.txt`): U+261D, U+26F9, U+270C-270D, U+1F3CB-1F3CC,
@@ -200,6 +214,13 @@ for cell but on the answer's short row, which it wrote as the document's.
 - **Ctrl-O's answer rows** (Response) are the model's, written as fx
   writes them, as inline.
 
+**What starts showing as a token, where fx shows the glyph:** in a file's or
+a tool's line on Ctrl-O, ☝ ⛹ ✌ ✍ 🏋 🏌 🕴 🕵 🖐 without their U+FE0F (with it
+they stay), the two- and three-em dashes ⸺ ⸻, U+FE0F after a character that
+takes no emoji presentation (a letter, a space, a soft hyphen), and the tags
+U+E0002-E001F; in the review, the 417 regional-indicator pairs that are no
+flag (part 1).
+
 Tests (`src/tui/full_transcript.rs`):
 `a_character_a_terminal_draws_wider_than_it_is_counted_is_named_in_a_files_line`
 -- line 2 through the diff rows' and the details' spelling, what stays, the
@@ -266,4 +287,31 @@ never the worktree: all killed.
 
 ## Gates (`gates.txt`)
 
-GATES
+Run 1 at `69b1b539` (the code of `0b4807bc`, the scenarios and the ledger), CI's steps one at a time:
+
+| gate | command | exit | s |
+|---|---|---|---|
+| fmt | `cargo fmt --check` | 0 | 2 |
+| clippy | `cargo clippy --locked --all-targets -- -D warnings` | 0 | 7 |
+| clippy-fault | `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | 0 | 50 |
+| test | `cargo test --locked --no-fail-fast` | 0 | 183 |
+| test-fault | `cargo test --locked --features fault-injection --no-fail-fast` | 0 | 174 |
+| identity | `scripts/check-xfx-identity.sh` | 0 | 1 |
+| no-stubs | `scripts/check-no-stubs.sh` | 0 | 15 |
+| no-secrets | `scripts/check-no-secrets.sh` | 0 | 43 |
+| preview-contract | `scripts/check-preview-contract.sh` | 0 | 5 |
+| preflight-cost | `scripts/check-tui-preflight-cost.sh` | 0 | 138 |
+| usage-clock | `scripts/check-usage-clock.sh` | 0 | 9 |
+| test-no-secrets | `scripts/test-check-no-secrets.sh` | 0 | 92 |
+| test-gate-env | `scripts/test-gate-env.sh` | 0 | 96 |
+| test-preview-contract | `scripts/test-preview-contract.sh` | 0 | 71 |
+| test-sweep | `scripts/fxcap/test-sweep.sh` | 0 | 22 |
+| test-capture | `scripts/fxcap/test-capture.sh` | 0 | 150 |
+| release | `cargo build --locked --release` | 0 | 18 |
+| faulty | `cargo build --locked --release --features fault-injection --target-dir target/faulty` | 0 | 35 |
+| smoke | `scripts/smoke.sh target/release/xfx <tmp>/smk/smoke` | 0 | 5 |
+| smoke-tui | `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <tmp>/smk/smoke-tui` | 0 | 67 |
+
+`cargo test --locked --no-fail-fast`: 15 test binaries, 5,230 passed, 0 failed, 7 ignored; with `--features fault-injection`, 5,267 passed, 0 failed, 7 ignored. `smoke.sh`: 47 checks, 0 failures. `smoke-tui.sh`: 37 scenarios and the oracle, 1,127 checks, 0 failures.
+
+RUN2
