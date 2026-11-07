@@ -1,0 +1,23 @@
+# Phase 5 lifecycle (L-U3b round 2): an image in a session with no usable
+# HOME. fx v0.0.16's turn keeps the image's bytes whether or not the session
+# is saved (D44, session_store.zig:43-50), so the second request carries it
+# again; the gateway log's bodies show it. Nothing is kept in the workspace.
+models models-image.json
+gateway image-turns.json
+work image-ws
+work p5-relhome-made
+env HOME=relative/homedir
+wait 3
+type /image shot.png
+key Enter
+wait 1.5
+type  what is in this image?
+key Enter
+wait 4
+snap sent
+type describe it again
+key Enter
+wait 4
+snap again
+gwlog
+workls i00

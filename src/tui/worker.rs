@@ -2099,7 +2099,16 @@ impl Runtime {
     /// the Gateway names a title model, a configured provider -- llmux's
     /// place here -- names none), at the endpoint every turn goes to
     /// (`Bundle::select`).
+    ///
+    /// Nobody for an unsaved session: upstream titles only the session it
+    /// saves, and with no store it has none, so no prompt excerpt goes to a
+    /// title model (`activeSessionId(app) orelse return`,
+    /// `maybeStartSessionTitleGeneration`,
+    /// `src/core/app/app_session_runtime.zig:3035@481104fd`).
     fn title_asker(&self) -> Option<(crate::gateway::Endpoint, crate::config::Credential)> {
+        if self.store.is_unsaved() {
+            return None;
+        }
         let credential = gateway_credential(&self.config)?.clone();
         let endpoint = crate::gateway::Endpoint::from_process().ok()?;
         Some((endpoint, credential))
@@ -8039,8 +8048,18 @@ mod tests {
         // opens, in memory, and `/status`, `/fork` and the exit say there is
         // no saved session.
         let workspace = tempfile::tempdir().expect("a workspace");
-        let mut config = config(workspace.path(), workspace.path());
-        config.profile_dir = None;
+        // No home, and a Gateway key, so the only reason not to title is the
+        // store.
+        let config = RuntimeConfig::load_with(
+            &Environment::new(
+                None,
+                BTreeMap::from([("AI_GATEWAY_API_KEY".to_string(), "key".to_string())]),
+            ),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        assert_eq!(config.profile_dir, None);
+        assert!(gateway_credential(&config).is_some());
         let store = open_store(&config).expect("an unsaved store");
         assert!(store.is_unsaved());
         let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
@@ -8048,6 +8067,12 @@ mod tests {
             .conversation(&CancelToken::new())
             .expect("a conversation opens unsaved");
         assert_eq!(state.shell_session(), ShellSession::Unavailable);
+        // No title model is asked: upstream titles only a saved session
+        // (`maybeStartSessionTitleGeneration`, `:3035@481104fd`).
+        assert!(
+            state.title_asker().is_none(),
+            "an unsaved session asked for a title"
+        );
         assert!(matches!(
             state.fork_points(),
             super::super::fork_menu::ForkPoints::Unsaved

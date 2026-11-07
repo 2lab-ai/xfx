@@ -1005,22 +1005,39 @@ fn zero_is_the_line_shell() {
     assert_no_mode_bytes(&session.settled_text());
 }
 
+/// One entry of [`tree`]: its path under the root, and for a file its
+/// length, its modification time and its bytes, so an overwrite in place
+/// shows as surely as a new name.
+type Entry = (
+    std::path::PathBuf,
+    Option<(u64, std::time::SystemTime, Vec<u8>)>,
+);
+
 /// Every path under `root`, directories too, relative to it and sorted, not
-/// following links: what a run made shows here even when it made only a
-/// directory.
-fn tree(root: &std::path::Path) -> Vec<std::path::PathBuf> {
-    fn walk(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+/// following links, each file with what it holds ([`Entry`]): what a run made
+/// shows here even when it made only a directory, and what it changed shows
+/// even when it kept the name.
+fn tree(root: &std::path::Path) -> Vec<Entry> {
+    fn walk(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<Entry>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
         };
         for entry in entries {
             let path = entry.expect("an entry").path();
-            out.push(
-                path.strip_prefix(root)
-                    .expect("under the root")
-                    .to_path_buf(),
-            );
-            if std::fs::symlink_metadata(&path).expect("metadata").is_dir() {
+            let metadata = std::fs::symlink_metadata(&path).expect("metadata");
+            let name = path
+                .strip_prefix(root)
+                .expect("under the root")
+                .to_path_buf();
+            let held = metadata.is_file().then(|| {
+                (
+                    metadata.len(),
+                    metadata.modified().expect("a modification time"),
+                    std::fs::read(&path).expect("the file's bytes"),
+                )
+            });
+            out.push((name, held));
+            if metadata.is_dir() {
                 walk(root, &path, out);
             }
         }
@@ -1029,6 +1046,25 @@ fn tree(root: &std::path::Path) -> Vec<std::path::PathBuf> {
     walk(root, root, &mut out);
     out.sort();
     out
+}
+
+/// Files a profile under a relative `HOME` would read or write, put where it
+/// would find them: [`tree`] then sees a read-and-rewrite as well as a new
+/// file. Only an unsaved session can leave them as they were.
+fn seed_relative_profile(workspace: &std::path::Path) {
+    let profile = workspace.join("relative/home/.xfx");
+    std::fs::create_dir_all(&profile).expect("a profile under the relative home");
+    std::fs::write(
+        profile.join("settings.json"),
+        "{\"prompt_history\":{\"enabled\":true}}\n",
+    )
+    .expect("seeded settings");
+    std::fs::write(
+        profile.join("history.jsonl"),
+        "{\"schema_version\":1,\"timestamp_ms\":1,\"workspace_root\":\"/w\",\"text\":\"seeded\"}\n",
+    )
+    .expect("seeded history");
+    std::fs::write(workspace.join("notes.txt"), "NOTES-VALUE-17\n").expect("seeded notes");
 }
 
 #[test]
@@ -1040,13 +1076,16 @@ fn with_no_usable_home_the_session_runs_unsaved_and_writes_nothing() {
     // `p5-lifecycle-relhome-unsaved` is what its screens say. The relative
     // value names a folder that is there, inside the workspace, so a session
     // log, a history or a lock kept under it would change the sandbox's tree.
-    for home in ["relative/home", ""] {
+    //
+    // Unset, empty and relative; the relative one's folder holds a profile
+    // with settings and a history, and the workspace a file, each checked
+    // byte for byte and by modification time after the run.
+    for home in [None, Some("relative/home"), Some("")] {
         let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
             support::fake_gateway::content_only(&["MARKER-UNSAVED"]),
         )]);
         let sandbox = Sandbox::new();
-        std::fs::create_dir_all(sandbox.workspace.join("relative/home"))
-            .expect("the folder a relative HOME names");
+        seed_relative_profile(&sandbox.workspace);
         let root = sandbox
             .workspace
             .parent()
@@ -1057,7 +1096,10 @@ fn with_no_usable_home_the_session_runs_unsaved_and_writes_nothing() {
         pty.resize(30, 120);
         let size = (30, 120);
         let mut command = tui_with(&sandbox, &gateway);
-        command.env("HOME", home);
+        match home {
+            Some(home) => command.env("HOME", home),
+            None => command.env_remove("HOME"),
+        };
         let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
         session.wait_for(READY);
         on_screen(
@@ -1098,6 +1140,61 @@ fn with_no_usable_home_the_session_runs_unsaved_and_writes_nothing() {
             !text.contains("--resume"),
             "HOME={home:?}: an unsaved session names no way back in"
         );
+        assert_eq!(tree(&root), before, "HOME={home:?} wrote into the sandbox");
+    }
+}
+
+#[test]
+fn with_no_usable_home_a_tool_runs_under_the_session_authority_alone() {
+    // An unsaved conversation has no saved-session rules file to decide with
+    // and no durable id (`crate::interactive::bind_conversation`): a tool the
+    // model calls runs under the session's own authority. Bound to a rules
+    // path under the unsaved store's `/dev/null`, every decision would fail
+    // closed on a file that cannot be read, and the read below would be
+    // refused rather than answered.
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    for home in ["relative/home", ""] {
+        let gateway = FakeGateway::start(vec![
+            Reply::Sse(sse_body(&[
+                tool_call(
+                    "call-0",
+                    "read_file",
+                    serde_json::json!({ "path": "notes.txt" }),
+                ),
+                finish("tool-calls"),
+            ])),
+            Reply::Sse(content_only(&["MARKER-READ"])),
+        ]);
+        let sandbox = Sandbox::new();
+        seed_relative_profile(&sandbox.workspace);
+        let root = sandbox
+            .workspace
+            .parent()
+            .expect("the sandbox root")
+            .to_path_buf();
+        let before = tree(&root);
+        let pty = Pty::open();
+        pty.resize(30, 120);
+        let mut command = tui_with(&sandbox, &gateway);
+        command.env("HOME", home);
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+        session.wait_for(READY);
+        session.type_bytes(b"read the notes\r");
+        session.wait_for("MARKER-READ");
+        let requests = gateway.requests();
+        let answered = requests
+            .iter()
+            .filter(|request| request.path.ends_with("/language-model"))
+            .nth(1)
+            .unwrap_or_else(|| panic!("HOME={home:?}: no request after the tool ran"))
+            .body
+            .clone();
+        assert!(
+            answered.contains("NOTES-VALUE-17"),
+            "HOME={home:?}: the read was not answered with the file: {answered}"
+        );
+        session.type_bytes(b"/quit\r");
+        assert_eq!(session.wait_exit().code(), Some(0), "HOME={home:?}");
         assert_eq!(tree(&root), before, "HOME={home:?} wrote into the sandbox");
     }
 }

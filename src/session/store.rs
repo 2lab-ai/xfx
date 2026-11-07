@@ -2620,12 +2620,28 @@ impl SessionRecorder {
         if images.is_empty() || self.failure.is_some() {
             return None;
         }
-        // An unsaved session keeps no copies: its images are the ones the
-        // turn holds in memory, each named by where it came from.
+        // An unsaved session keeps no copies: the turn holds the bytes it
+        // was handed, so every later request sends them again, each named by
+        // where it came from -- an attached file, or a paste's own copy
+        // (`crate::tui::clipboard_image::PasteCopies`). Upstream's turn keeps
+        // the bytes whether or not the session is saved (D44,
+        // `src/core/session/session_store.zig:43-50@481104fd`; captured for
+        // every session, inlined only into a saved one,
+        // `src/core/app/app_session_runtime.zig:1331-1344@481104fd`).
         let Some(dir) = self.session.dir() else {
             self.commit(SessionEvent::ImagesAttached {
                 images: images.iter().map(recorded_as_handed).collect(),
             });
+            if self.failure.is_none() {
+                if let Some(turn) = self.session.state.turns.last_mut() {
+                    for (kept, image) in turn.images.iter_mut().zip(images) {
+                        kept.snapshot = Snapshot::Loaded {
+                            bytes: Arc::clone(&image.bytes),
+                            path: Arc::from(image.path.as_path()),
+                        };
+                    }
+                }
+            }
             return None;
         };
         if let Err(err) = save_snapshots(dir, images) {
@@ -2708,11 +2724,28 @@ impl SessionRecorder {
             )
         });
         let Some(dir) = self.session.dir() else {
-            // Unsaved: the result's images stay as the turn holds them.
+            // Unsaved: the result's images are held as they were handed over,
+            // and go out again as a prompt's do ([`Self::attach_images`]).
             self.commit(SessionEvent::ToolImagesAttached {
                 call_id: call_id.to_string(),
                 images: recorded,
             });
+            if self.failure.is_none() {
+                if let Some(TurnStep::ToolResult { images: kept, .. }) = self
+                    .session
+                    .state
+                    .turns
+                    .last_mut()
+                    .and_then(|turn| turn.steps.last_mut())
+                {
+                    for (kept, image) in kept.iter_mut().zip(images) {
+                        kept.snapshot = Snapshot::Loaded {
+                            bytes: Arc::clone(&image.data),
+                            path: Arc::from(Path::new(&image.path)),
+                        };
+                    }
+                }
+            }
             return;
         };
         if let Err(err) = save_copies(dir, copies) {
@@ -5135,6 +5168,89 @@ mod tests {
         // Its paths name nowhere a write could land: below a file.
         assert!(store.profile_dir().starts_with("/dev/null"));
         assert!(!store.session_dir(&id).exists());
+    }
+
+    #[test]
+    fn an_unsaved_sessions_images_are_sent_again_on_every_later_turn() {
+        // A turn's images go out again with each later request, as a saved
+        // session's do from their copies (the next test): an unsaved
+        // session has no copy, so it holds the bytes it was handed -- an
+        // attached file's, a paste's, a tool's -- and names each by the path
+        // it came from.
+        let store = SessionStore::unsaved();
+        let session = store
+            .create(
+                SessionId::generate(),
+                NewSession {
+                    origin_workspace_root: PathBuf::from("/w"),
+                    workspace_root: PathBuf::from("/w"),
+                    model: "m".to_string(),
+                    permission_mode: PermissionMode::Auto,
+                    provider: None,
+                },
+            )
+            .expect("an unsaved session");
+        let mut recorder = SessionRecorder::new(store, session);
+        recorder.commit(SessionEvent::UserMessage {
+            text: "[Image #3][Image #4] what is in this image?".to_string(),
+        });
+        assert_eq!(recorder.attach_images(&[shot(3), shot(4)]), None);
+        recorder.commit(SessionEvent::AssistantMessage {
+            text: String::new(),
+            tool_calls: vec![RecordedToolCall {
+                id: "c1".to_string(),
+                name: "read_file".to_string(),
+                input: serde_json::json!({"path": "shot.png"}),
+            }],
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+            model: None,
+        });
+        recorder.commit(SessionEvent::ToolResult {
+            call_id: "c1".to_string(),
+            tool: "read_file".to_string(),
+            ok: true,
+            output: "image attached".to_string(),
+            ending: None,
+            lines: None,
+            change: None,
+        });
+        let image = crate::image::ToolImage {
+            media_type: crate::image::MediaType::Png,
+            data: Arc::from(crate::image::fixture::SHOT_PNG),
+            path: "shot.png".to_string(),
+        };
+        recorder.attach_tool_images("c1", std::slice::from_ref(&image));
+        recorder.commit(SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 2,
+            },
+        });
+        assert_eq!(recorder.failure(), None);
+
+        // The next turn's history: both prompt images and the tool's, with
+        // nothing withheld.
+        let live = recorder
+            .state()
+            .history_messages(Wire::VercelGateway, &recorder.state().model);
+        assert_eq!(images_of(&live.messages[0]), 2, "{:?}", live.messages[0]);
+        assert!(live.notices.is_empty(), "{:?}", live.notices);
+        assert_eq!(
+            saved_paths(&live.messages[0])[0],
+            PathBuf::from("/w/shot.png")
+        );
+        let carried: Vec<crate::image::ToolImage> = live
+            .messages
+            .iter()
+            .flat_map(|message| message.content.iter())
+            .flat_map(|part| match part {
+                crate::gateway::protocol::ContentPart::ToolResult { images, .. } => images.clone(),
+                _ => Vec::new(),
+            })
+            .collect();
+        assert_eq!(carried, [image]);
     }
 
     #[test]

@@ -126,6 +126,18 @@ impl Base {
     /// to copy: auto refuses by the written path's own components only
     /// (`pathContainsComponentSequence`, `tool_admission.zig:695-716`), and
     /// its `homeDir` gives a relative `HOME` to nobody.
+    ///
+    /// **Its limit: one folder.** The base is that `HOME` under the folder xfx
+    /// was started in. A command run elsewhere -- a terminal `cwd` the model
+    /// names (`crate::tools::terminal`), git in another root
+    /// (`super::gitconfig`) -- finds the same `HOME` under its own folder,
+    /// and a link there is not looked at. Not added per command: a write is
+    /// checked before any command chooses its folder, and the folders a
+    /// later command may name are every directory in scope, so a base per
+    /// root would cover the roots and not their subdirectories while reading
+    /// as complete. What it needs is a link already planted under such a
+    /// folder's relative home, which only the person can plant: auto refuses
+    /// a write to `.zshrc` and the rest by name (`super::authority`).
     pub fn from_environment() -> Vec<Self> {
         let absolute = |name: &str| {
             std::env::var_os(name)
