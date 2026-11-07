@@ -31598,6 +31598,52 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_tilde_under_no_usable_home_browses_nothing() {
+        // The file index's `~` is the profile's home (`config.home()`), held
+        // to `HOME`'s one rule: an empty or relative `HOME` is none, so `~/`
+        // names no folder -- not the process's own `$HOME`, which the index
+        // read for itself before, and not a folder under the workspace.
+        let workspace = tempfile::tempdir().expect("a workspace");
+        std::fs::create_dir_all(workspace.path().join("relative/home")).expect("a folder");
+        for home in ["relative/home", ""] {
+            let config = RuntimeConfig::load_with(
+                &Environment::new(Some(std::path::PathBuf::from(home)), BTreeMap::new()),
+                workspace.path(),
+            )
+            .expect("load a configuration");
+            let (work, _sent, _control) = WorkHandle::detached();
+            let mut shell = Shell::new(
+                &config,
+                crate::tui::layout::solve(24, 80, 1).expect("a band"),
+                PALETTE,
+                false,
+                work,
+            );
+            assert!(shell.unsaved, "HOME={home:?}");
+            assert_eq!(
+                shell.files.lookup("~/"),
+                super::super::file_index::Lookup::Unavailable,
+                "HOME={home:?}"
+            );
+        }
+        // An absolute one is a home: `~/` is read.
+        let home = tempfile::tempdir().expect("a home");
+        let (work, _sent, _control) = WorkHandle::detached();
+        let mut shell = Shell::new(
+            &config(home.path(), workspace.path()),
+            crate::tui::layout::solve(24, 80, 1).expect("a band"),
+            PALETTE,
+            false,
+            work,
+        );
+        assert!(!shell.unsaved);
+        assert_ne!(
+            shell.files.lookup("~/"),
+            super::super::file_index::Lookup::Unavailable
+        );
+    }
+
     /// The research captures' `ws2` workspace, and a shell working in it.
     fn in_ws2(rows: u16, cols: u16) -> (tempfile::TempDir, Fixture) {
         let workspace = super::super::file_index::tests::seeded();

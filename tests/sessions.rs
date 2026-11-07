@@ -1712,6 +1712,20 @@ fn a_relative_or_empty_home_is_no_home_and_nothing_is_written_anywhere() {
         assert!(ask.stderr.contains("no home directory"), "{}", ask.stderr);
         let setup = sandbox.run(&["setup", "gateway"], &env);
         assert_eq!(setup.code, Some(1), "HOME={home:?}: {}", setup.stderr);
+        assert!(
+            (setup.stderr.clone() + &setup.stdout)
+                .contains("xfx cannot configure gateway because no home directory is set"),
+            "HOME={home:?}: the refusal says why: {}",
+            setup.stderr
+        );
+        // The way out the refusal names asks, and keeps nothing either.
+        let unsaved = sandbox.run(&["ask", "--no-save", "remember this"], &env);
+        assert_eq!(unsaved.code, Some(0), "HOME={home:?}: {}", unsaved.stderr);
+        assert!(
+            unsaved.stdout.contains("recorded nowhere"),
+            "HOME={home:?}: {}",
+            unsaved.stdout
+        );
         // A reader reports no store rather than reading a relative one.
         let doctor = sandbox.run(&["doctor"], &env);
         assert!(
