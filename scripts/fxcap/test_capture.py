@@ -477,8 +477,8 @@ class Verbs(unittest.TestCase):
         self.assertIn(" status:404 rc:0", a)
         self.assertIn('{"jsonrpc":"2.0","id":4,"error":{"code":-32601,"message":"Method not found"}} status:200', a)
         log = r.file("mcphttp", ".log")
-        self.assertRegex(log, r"POST /mcp rpc=initialize id=2 session=no version=- mode=ready -> 200")
-        self.assertRegex(log, r"POST /mcp rpc=server/discover id=4 session=no version=- mode=methodnotfound -> 200")
+        self.assertRegex(log, r"POST /mcp rpc=initialize id=2 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200")
+        self.assertRegex(log, r"POST /mcp rpc=server/discover id=4 session=no version=- mcp-method=- mcp-name=- mode=methodnotfound -> 200")
 
     def test_held_waits_for_the_hold_and_release_lets_it_go(self):
         # The stub's curl prints each event as it arrives: two before the hold, the rest after.
