@@ -370,6 +370,17 @@ Tests (`unit-r3.txt`): the tui modules, 1315 passed, 0 failed (round 2's 1314
 and the new case); `scripts/fxcap/test-sweep.sh` OK. fmt and both clippies
 clean.
 
+**Mutants, round 3** (`mutants-r3.txt`, `mutate.py`; on the throwaway clone
+at `c10f718e`, unmutated `1315 passed`): all five killed.
+
+| mutant | what it does | fails |
+|---|---|---|
+| R | a row painted in the other mode written as painted | 4 (the queued cases, the Ctrl-O case, the resume case) |
+| S | a bold foreground recoloured without its bold | 2 (the new case among them) |
+| U | a direct (`38;2`) foreground not recognised | 2 (the new case among them) |
+| K | a row recoloured by the plain rule, whatever its kind | 1 (the new case alone) |
+| V | a bold foreground not recoloured at all | 2 (the new case among them) |
+
 ## GREEN (`f482d340`): `green.txt`, `ctrlo-rows.txt`, `ctrlo-records.txt`, `row8.txt`
 
 | pairs (40x120) | snaps | result |

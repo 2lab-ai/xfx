@@ -57,6 +57,14 @@ M = {
  "U-recolour-skips-direct": [("src/tui/transcript.rs",
    "        [\"38\", \"2\", red, green, blue] => Color::Rgb(number(red)?, number(green)?, number(blue)?),",
    "")],
+ # K: a row recoloured as written by the plain rule, whatever its kind
+ "K-recolour-ignores-kind": [("src/tui/transcript.rs",
+   "    let wanted = palette.document_retint_in(kind, colour)?;",
+   "    let wanted = palette.document_retint_in(DocumentRow::Plain, colour)?;")],
+ # V: a bold foreground recoloured as written keeps the old colour
+ "V-recolour-skips-bold": [("src/tui/transcript.rs",
+   "        Some(colour) => (true, colour),",
+   "        Some(_) => return None,")],
  # M: a superseded block not coalesced
  "M-no-coalesce": [("src/tui/transcript.rs",
    "        if matches!(self.queue.back(), Some(Op::Block(..))) {\n            self.queue.pop_back();\n        }",
