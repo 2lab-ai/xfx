@@ -80,6 +80,7 @@ scripts/
   check-no-stubs.sh          # ledger <-> source, both directions
   check-no-secrets.sh        # credential shapes, with a positive control
   test-check-no-secrets.sh   # the secrets check over a tree past ARG_MAX: every file read, failures closed
+  test-gate-env.sh           # each gate refuses a planted violation under the GREP_OPTIONS that hid it
   check-xfx-identity.sh      # the retired local name must not survive, with a positive control
   check-preview-contract.sh  # the preview release's artifact set and naming
   test-preview-contract.sh   # mutants of the preview trigger and epoch gate, each caught by name

@@ -130,6 +130,13 @@ jobs:
       - name: The secrets check reads a tree past ARG_MAX
         run: ./scripts/test-check-no-secrets.sh
 
+      # BSD grep, on the macOS rows, puts GREP_OPTIONS in front of every
+      # argument list, so a gate that decides by grep would decide by that
+      # variable. Each gate unsets it; this plants one violation per gate and
+      # requires it refused under the value that used to hide it.
+      - name: No gate takes its grep options from the environment
+        run: ./scripts/test-gate-env.sh
+
       - name: One product name in tracked files
         run: ./scripts/check-xfx-identity.sh
 
