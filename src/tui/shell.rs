@@ -9844,7 +9844,8 @@ impl Shell {
 
     /// Puts `image`'s badge into the draft at the caret, the image behind it,
     /// and spends its number. `false` when the composer has no room for the
-    /// badge, which spends nothing.
+    /// badge, which spends nothing and removes the copy made for `image`
+    /// ([`Self::discard_copy`]).
     ///
     /// The insertion is a boundary of the edit history rather than an entry
     /// in it, as upstream's is (`historyBoundary`, `image_commands.zig:172-174`):
@@ -9852,23 +9853,38 @@ impl Shell {
     fn attach(&mut self, image: crate::image::Image) -> bool {
         let id = image.id;
         let Some(next) = id.checked_add(1) else {
+            self.discard_copy(&image);
             return false;
         };
+        let image = std::sync::Arc::new(image);
         let kind = EntityKind::Image {
             token: std::sync::Arc::from(crate::image::token(id)),
-            image: std::sync::Arc::new(image),
+            image: std::sync::Arc::clone(&image),
         };
         if self
             .editor
             .insert_entity(&crate::image::badge(id), kind)
             .is_none()
         {
+            self.discard_copy(&image);
             return false;
         }
         self.images_next = next;
         self.edit_history.boundary();
         self.amended(None);
         true
+    }
+
+    /// Removes the copy xfx made for `image` ([`crate::image::Image::own_copy`])
+    /// when the image is not attached after all, as upstream discards an
+    /// attachment it does not insert, its snapshot with it
+    /// (`discardImageAttachment`, `image_commands.zig:114@481104fd`), rather
+    /// than leaving it until the session ends. Only a file in the copies'
+    /// own directory ([`super::clipboard_image::PasteCopies::discard`]).
+    fn discard_copy(&self, image: &crate::image::Image) {
+        if let Some(copy) = image.own_copy() {
+            self.paste_copies.discard(copy);
+        }
     }
 
     /// An edit the prompt's byte budget refused: the composer is exactly as it
@@ -9961,6 +9977,16 @@ impl Shell {
         }
         replacement.push_str(&text[cut..]);
         let refused = |shell: &mut Self| shell.over_budget();
+        // A paste the composer refuses attaches none of its images, and the
+        // copies made for them go now.
+        let unmade = |shell: &mut Self, spans: &[Span]| {
+            for span in spans {
+                if let EntityKind::Image { image, .. } = &span.kind {
+                    shell.discard_copy(image);
+                }
+            }
+            shell.over_budget();
+        };
         if spans.is_empty() {
             if !paste::fits(
                 self.editor.text().len(),
@@ -10004,7 +10030,7 @@ impl Shell {
             );
         let draft = if consume { 0 } else { self.editor.text().len() };
         if !paste::fits(draft, self.editor.retained(), replacement.len()) {
-            refused(self);
+            unmade(self, &spans);
             return;
         }
         if consume {
@@ -10019,7 +10045,7 @@ impl Shell {
             .insert_with_entities(&replacement, &spans)
             .is_none()
         {
-            refused(self);
+            unmade(self, &spans);
             return;
         }
         self.images_next = first + spans.len() as u32;
@@ -10112,7 +10138,7 @@ impl Shell {
         let before = self.draft_before();
         let made: Vec<std::path::PathBuf> = ready
             .iter()
-            .filter_map(|(_, image)| image.copy.clone())
+            .filter_map(|(_, image)| image.own_copy().map(std::path::Path::to_path_buf))
             .collect();
         // From the last to the first, so each range is still where it was.
         for (range, image) in ready.into_iter().rev() {
@@ -37750,6 +37776,73 @@ mod tests {
         shell.take_draft();
         shell.route_bytes(b"/image shot.png\r");
         assert_eq!(attached_ids(&shell), [1]);
+    }
+
+    #[test]
+    fn an_image_the_composer_has_no_room_for_leaves_no_copy_on_any_route() {
+        // Upstream checks for room before it captures (`canInsert`,
+        // `image_commands.zig:128-130@481104fd`) and discards an attachment
+        // it does not insert, its snapshot with it (`:114`): no copy outlives
+        // an image that was not attached. xfx makes the copy first, so it
+        // removes it there.
+        fn copies(shell: &Attaching) -> Vec<std::path::PathBuf> {
+            shell
+                .paste_copies
+                .dir()
+                .map(|dir| {
+                    std::fs::read_dir(dir)
+                        .expect("the copies' directory")
+                        .map(|entry| entry.expect("an entry").path())
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+        fn fill(shell: &mut Attaching, room: usize) {
+            assert!(shell
+                .editor
+                .insert(&"x".repeat(editor::MAX_COMPOSER_BYTES - room))
+                .is_some());
+        }
+        // A clipboard image, whose copy is made as it arrives.
+        let tool = crate::clipboard::fake::FakeTool::holding(Some(crate::image::fixture::SHOT_PNG));
+        let mut shell = attaching();
+        shell.clipboard_reads = ClipboardReads::new(tool.clipboard());
+        fill(&mut shell, "[Image 1]".len() - 1);
+        shell.route_bytes(b"\x16");
+        assert_eq!(
+            read_settled(&mut shell),
+            said(notice::Notice::neutral(
+                "images",
+                "input is full; image not attached"
+            ))
+        );
+        assert!(copies(&shell).is_empty(), "{:?}", copies(&shell));
+
+        // A pasted path in an unsaved session: the paste does not fit with
+        // its badge, so none of it lands.
+        let mut shell = attaching_unsaved();
+        fill(&mut shell, "shot.png".len());
+        pasted(&mut shell, "shot.png");
+        assert!(attached_ids(&shell).is_empty());
+        assert!(shell.paste_copies.dir().is_some(), "no copy was made");
+        assert!(copies(&shell).is_empty(), "{:?}", copies(&shell));
+
+        // `/image`'s two steps in an unsaved session, the copy made and the
+        // badge refused.
+        let mut shell = attaching_unsaved();
+        let shot = shell.workspace.join("shot.png");
+        let image = shell
+            .captured(crate::image::Image::new(
+                1,
+                shot,
+                crate::image::MediaType::Png,
+                std::sync::Arc::from(crate::image::fixture::SHOT_PNG.to_vec()),
+            ))
+            .expect("the copy");
+        assert_eq!(copies(&shell).len(), 1);
+        fill(&mut shell, "[Image 1]".len() - 1);
+        assert!(!shell.attach(image));
+        assert!(copies(&shell).is_empty(), "{:?}", copies(&shell));
     }
 
     #[test]
