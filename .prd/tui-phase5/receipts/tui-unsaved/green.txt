@@ -1,10 +1,17 @@
-# GREEN: d87d448b's xfx (sha256 c32f85d5...) against fx v0.0.16 (8e6cda2e...), scored with parity-ledger.toml at d87d448b
+# GREEN: efcff6bf's xfx (sha256 f3064c38...) against fx v0.0.16 (8e6cda2e...), scored with parity-ledger.toml at efcff6bf
 workls SAME p5-lifecycle-relhome-40x120-work-h02.txt
 workls SAME p5-lifecycle-relhome-image-40x120-work-i00.txt
 workls SAME p5-lifecycle-relhome-made-40x120-work-h03.txt
 workls SAME p5-lifecycle-relhome-resume-40x120-work-r01.txt
 workls SAME p5-lifecycle-relhome-unsaved-40x120-work-u09.txt
-# snap pairs: scripts/fxcap/sweep.sh --only 'p5-lifecycle-relhome*', 17 pairs
+# snap pairs: scripts/fxcap/sweep.sh --only 'p5-lifecycle-relhome*' --only image-paste, 24 pairs
+normalized-identical image-paste-40x120-paste-none
+normalized-identical image-paste-40x120-ctrl-v-none
+normalized-identical image-paste-40x120-paste
+normalized-identical image-paste-40x120-ctrl-v
+normalized-identical image-paste-40x120-images
+normalized-identical image-paste-40x120-sent
+normalized-identical image-paste-40x120-end.full
 normalized-identical p5-lifecycle-relhome-40x120-h00-launch
 normalized-identical p5-lifecycle-relhome-40x120-h01-sessions.full
 normalized-identical p5-lifecycle-relhome-image-40x120-sent
@@ -23,8 +30,13 @@ normalized-identical p5-lifecycle-relhome-unsaved-40x120-u06-new
 normalized-identical p5-lifecycle-relhome-unsaved-40x120-u07-turn
 normalized-identical p5-lifecycle-relhome-unsaved-40x120-u08-quit.full
 
-# p5-lifecycle-relhome-image: image parts per request (sweep5)
+
+# p5-lifecycle-relhome-image: image parts per request (sweep6)
 fx v0.0.16 001-completion.json images=1
 fx v0.0.16 002-completion.json images=1
-xfx d87d448b 001-completion.json images=1
-xfx d87d448b 002-completion.json images=1
+xfx efcff6bf 001-completion.json images=1
+xfx efcff6bf 002-completion.json images=1
+
+# image-paste: image parts per request (sweep6)
+fx v0.0.16 002-completion.json images=2
+xfx efcff6bf 002-completion.json images=2

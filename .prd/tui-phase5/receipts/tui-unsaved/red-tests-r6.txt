@@ -1,0 +1,58 @@
+# L-U3e, on a throwaway clone (git clone --no-local in the short TMPDIR); each step resets src/ and tests/
+# RED = 73137e00's src with efcff6bf's new tests; GREEN = efcff6bf; M1-M5 = mutants of efcff6bf.
+# The clipboard_script unit test does not compile on 73137e00 (its signature changed), so M1/M2 are its RED.
+# Item 1 (binary test, TMPDIR with a quote and a relative TMPDIR) and item 4 (no-room) / item 3 (clipboard copy refused):
+## RED: base 73137e00 src, L-U3e tests
+base-tui exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 174 filtered out; finished in 20.90s 
+test a_clipboard_read_goes_under_the_real_tmp_whatever_tmpdir_says ... FAILED
+thread 'a_clipboard_read_goes_under_the_real_tmp_whatever_tmpdir_says' (272453361) panicked at tests/support/pty.rs:367:13:
+timed out waiting for ["┃ [Image 1]"] on the screen, [] off it; terminal so far:
+ x𝒇x v0.1.0-73137e0 [debug] · Run /help for commands ┃ auto · glm-5.2 ✗ images: failed to paste clipboard image: FileNotFound ┃ auto · glm-5.2 
+## GREEN: efcff6bf
+green-tui exit=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 174 filtered out; finished in 1.69s 
+test a_clipboard_read_goes_under_the_real_tmp_whatever_tmpdir_says ... ok
+## M1: no escaping
+m1-escape exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4001 filtered out; finished in 0.00s 
+test clipboard::tests::the_clipboard_reads_path_is_one_string_in_its_script_or_none ... FAILED
+thread 'clipboard::tests::the_clipboard_reads_path_is_one_string_in_its_script_or_none' (272465845) panicked at src/clipboard.rs:684:9:
+ left: Some("set outFile to POSIX file \"/t\"mp\\x/clipboard.png\"")
+ right: Some("set outFile to POSIX file \"/t\\\"mp\\\\x/clipboard.png\"")
+## M2: control characters let through
+m2-control exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4001 filtered out; finished in 0.01s 
+test clipboard::tests::the_clipboard_reads_path_is_one_string_in_its_script_or_none ... FAILED
+thread 'clipboard::tests::the_clipboard_reads_path_is_one_string_in_its_script_or_none' (272466566) panicked at src/clipboard.rs:699:13:
+ left: Some("set outFile to POSIX file \"/tmp/a\nb/clipboard.png\"\nset pngData to the clipboard as «class PNGf»\nset fileRef to open for access outFile with write permission\nset eof fileRef to 0\nwrite pngData to fileRef\nclose access fileRef\n")
+ right: None
+## M3: the read under TMPDIR again
+m3-tmpdir exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 174 filtered out; finished in 20.91s 
+test a_clipboard_read_goes_under_the_real_tmp_whatever_tmpdir_says ... FAILED
+thread 'a_clipboard_read_goes_under_the_real_tmp_whatever_tmpdir_says' (272468075) panicked at tests/support/pty.rs:367:13:
+timed out waiting for ["┃ [Image 1]"] on the screen, [] off it; terminal so far:
+ x𝒇x v0.1.0-efcff6b [debug] · Run /help for commands ┃ auto · glm-5.2 ✗ images: failed to paste clipboard image: FileNotFound ┃ auto · glm-5.2 
+## M4: a failed clipboard copy still badges (the base's)
+m4-clipboard exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4001 filtered out; finished in 0.32s 
+test tui::shell::tests::a_clipboard_image_whose_copy_cannot_be_written_puts_no_badge_in ... FAILED
+thread 'tui::shell::tests::a_clipboard_image_whose_copy_cannot_be_written_puts_no_badge_in' (272483603) panicked at src/tui/shell.rs:37652:13:
+ left: []
+ right: ["✗ images: failed to paste clipboard image: FileNotFound", ""]
+## M5: no room keeps the copies
+m5-noroom exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4001 filtered out; finished in 3.62s 
+test tui::shell::tests::an_unsaved_typed_path_with_no_room_for_its_badge_leaves_no_copy ... FAILED
+thread 'tui::shell::tests::an_unsaved_typed_path_with_no_room_for_its_badge_leaves_no_copy' (272485534) panicked at src/tui/shell.rs:37692:9:
+["/private/tmp/xfx-image-snapshots-3ffe0e0a00e6f43cfa1ae5cac8c3ed81/image-1-3fd6e6be528c182d.bin"]
+
+# the two shell tests, run again with `cargo test --lib -- <names>` (the first run passed two names without `--`, a cargo usage error)
+## RED: base 73137e00 src, L-U3e shell tests
+base-lib exit=101 test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 3999 filtered out; finished in 3.64s 
+test tui::shell::tests::a_clipboard_image_whose_copy_cannot_be_written_puts_no_badge_in ... FAILED
+test tui::shell::tests::an_unsaved_typed_path_with_no_room_for_its_badge_leaves_no_copy ... FAILED
+thread 'tui::shell::tests::a_clipboard_image_whose_copy_cannot_be_written_puts_no_badge_in' (272490691) panicked at src/tui/shell.rs:37619:13:
+ left: []
+ right: ["✗ images: failed to paste clipboard image: FileNotFound", ""]
+thread 'tui::shell::tests::an_unsaved_typed_path_with_no_room_for_its_badge_leaves_no_copy' (272490692) panicked at src/tui/shell.rs:37662:9:
+["/private/tmp/xfx-image-snapshots-57e173073bf71783e85452364aa7ef28/image-1-3fd6e6be528c182d.bin"]
+## GREEN: efcff6bf
+green-lib exit=0 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 3999 filtered out; finished in 3.65s 
+test clipboard::tests::the_clipboard_reads_path_is_one_string_in_its_script_or_none ... ok
+test tui::shell::tests::a_clipboard_image_whose_copy_cannot_be_written_puts_no_badge_in ... ok
+test tui::shell::tests::an_unsaved_typed_path_with_no_room_for_its_badge_leaves_no_copy ... ok
