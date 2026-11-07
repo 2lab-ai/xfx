@@ -1,0 +1,11 @@
+pairs: base 107, head 107
+pass: base 44 / 107, head 44 / 107
+verdicts that moved: 6
+  p5-transcript-diffwrap2/full: unresolved-defect -> normalized-identical
+  p5-transcript-records/start: normalized-identical -> unresolved-defect
+  p5-transcript-submit/filled: normalized-identical -> identical
+  p5-transcript-submit/second: normalized-identical -> identical
+  p5-transcript-submit-multi/filled: normalized-identical -> identical
+  p5-transcript-submit-multi/second: normalized-identical -> identical
+dropped: 1
+  DROP p5-transcript-records/start: normalized-identical -> unresolved-defect

@@ -1,0 +1,6 @@
+red-dd0e4e2 1 ['unresolved-defect']
+head-378a083 1 ['unresolved-defect']
+red-dd0e4e2 2 ['unresolved-defect']
+head-378a083 2 ['normalized-identical']
+red-dd0e4e2 3 ['normalized-identical']
+head-378a083 3 ['unresolved-defect']
