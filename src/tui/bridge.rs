@@ -953,12 +953,12 @@ fn inert_step(step: super::hydration::HydratedStep) -> super::hydration::Hydrate
 /// that reorders the row. Spelled here rather than blanked, because a blank
 /// is a space no row can name again; and spelled again by the row unchanged.
 fn spelled_shown(shown: Shown) -> Shown {
-    let activity = shown.presentation.activity;
+    let presentation = shown.presentation;
     Shown {
-        presentation: shown.presentation,
+        presentation,
         target: shown
             .target
-            .map(|target| super::toolgroup::spelled(&target, activity)),
+            .map(|target| super::toolgroup::spelled(&target, presentation)),
     }
 }
 

@@ -5230,11 +5230,11 @@ mod tests {
         // `:22`), a file change's path at 4 096 (`fileMutationDisplayPath`,
         // `src/core/agent/runtime/tool_presentation.zig:736-753`,
         // `diff.max_encoded_label_bytes`), each cut back to leave room for
-        // `...` (`encodeTerminalSafe`). Every other argument fx writes raw and
-        // unbounded (`formatToolAction`, `src/core/app/app_agent_runtime.zig:
-        // 1248-1310`); xfx spells it, at a file change's bound (ledger
-        // `call-row-raw-argument`), so past 4 096 bytes it alone is cut where
-        // fx's is not.
+        // `...` (`encodeTerminalSafe`). Every other argument fx writes raw at
+        // any length (`formatToolAction`, `src/core/app/app_agent_runtime.zig:
+        // 1248-1310`; `presentationLabelValue`, `src/core/tooling/
+        // tool_dispatch.zig:626-647`): xfx spells it (ledger
+        // `call-row-raw-argument`) and shows it whole too.
         let heading = |shown: Shown| -> String {
             let mut record = record();
             record.tool_started("c", &shown);
@@ -5265,10 +5265,18 @@ mod tests {
             ),
             (write(&a(4_096)), format!("\u{2514} Wrote {}", a(4_096))),
             (write(&a(4_097)), format!("\u{2514} Wrote {}...", a(4_093))),
-            // Past the old 1 KB cut, and whole as on fx.
+            // Past the old 1 KB cut and past a file change's bound: whole, as
+            // on fx -- a read's path, a pattern, a new folder's path.
             (read(&a(3_000)), format!("\u{2514} Read {}", a(3_000))),
-            // fx: `Read` and all 4 097 bytes.
-            (read(&a(4_097)), format!("\u{2514} Read {}...", a(4_093))),
+            (read(&a(20_000)), format!("\u{2514} Read {}", a(20_000))),
+            (
+                read::GLOB_FILES.shown(&json!({"pattern": a(20_000)})),
+                format!("\u{2514} Matched {}", a(20_000)),
+            ),
+            (
+                crate::tools::mutate::CREATE_FOLDER.shown(&json!({"path": a(20_000)})),
+                format!("\u{2514} Created {}", a(20_000)),
+            ),
         ] {
             let got = heading(shown);
             assert!(

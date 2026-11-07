@@ -44,7 +44,7 @@
 
 use crate::markdown::code_highlight::{self, Variant};
 use crate::markdown::{code_highlight_languages, theme as syntax};
-use crate::tools::{mcp, Activity, LineChanges, Outcome, Shown};
+use crate::tools::{mcp, mutate, Activity, LineChanges, Outcome, Presentation, Shown};
 
 use super::theme::{DocumentRow, Mode, Palette, Redraw, CANCELLED_MARK};
 
@@ -76,9 +76,11 @@ const COMMAND_TARGET_BYTES: usize = COMMAND_SOURCE_BYTES - 1;
 /// argument the heading already shows ([`status`]).
 const COMMAND_STATUS_BYTES: usize = 120;
 
-/// How many bytes of any other call's argument a row keeps, spelled: fx's
-/// bound for a file change's path (`diff.max_encoded_label_bytes`,
-/// `src/core/output/diff.zig:10@481104fd`, `fileMutationDisplayPath`).
+/// How many bytes of a file change's path a row keeps, spelled: fx's bound
+/// for it (`diff.max_encoded_label_bytes`, `src/core/output/diff.zig:10@481104fd`,
+/// `fileMutationDisplayPath`), for `write_file` and `edit_file` alone
+/// (`file_mutation_contract.isToolName`,
+/// `src/core/tooling/file_mutation_contract.zig:487-490`).
 const TARGET_BYTES: usize = 4 * 1024;
 
 /// How many bytes of a failure's reason a row keeps, spelled
@@ -235,7 +237,7 @@ impl Call {
                 crate::mcp::terminal_safe(named)
             }
             Some(target) if !(refused && self.changes_a_file()) => {
-                spelled(target, self.shown.presentation.activity)
+                spelled(target, self.shown.presentation)
             }
             _ => default.to_string(),
         }
@@ -747,16 +749,20 @@ fn cancelled_line(call: &Call, palette: Palette) -> String {
 ///   then [`Spelling`] writes it at [`COMMAND_TARGET_BYTES`]
 ///   (`formatRunCommandDetailBounded`, `:432-447`, the row's text at
 ///   `src/core/app/app_callbacks.zig:544-549`);
-/// * any other argument is [`Spelling`]'s as it is, at [`TARGET_BYTES`],
-///   as fx spells a file change's path (`fileMutationDisplayPath`,
-///   `src/core/agent/runtime/tool_presentation.zig:736-753`). fx writes a
-///   read's, a list's or a pattern's row with the argument as it came -- the
-///   marks and the C1 controls to the terminal as themselves, the other
-///   controls dropped, the row ended at its first line break
-///   (`formatToolAction`, `src/core/app/app_agent_runtime.zig:1248-1310`,
+/// * a file change's path (`write_file`, `edit_file`) is [`Spelling`]'s as
+///   it is, at [`TARGET_BYTES`], as fx spells it (`fileMutationDisplayPath`,
+///   `src/core/agent/runtime/tool_presentation.zig:736-753`);
+/// * any other argument is [`Spelling`]'s as it is, whole. fx writes a
+///   read's, a list's, a pattern's or a new folder's row with the argument as
+///   it came, at any length -- the marks and the C1 controls to the terminal as
+///   themselves, the other controls dropped, the row ended at its first line
+///   break (`formatToolAction`, `src/core/app/app_agent_runtime.zig:1248-1310`,
+///   `presentationLabelValue`, `src/core/tooling/tool_dispatch.zig:626-647`,
 ///   and `formatToolActionValue`, `:1340-1342`; `normalizeCanonicalStatus`,
 ///   `src/ui/transcript/tool_group_projection.zig:317-347`) -- which is not
-///   safe to copy (ledger `call-row-raw-argument`).
+///   safe to copy (ledger `call-row-raw-argument`); its length is, and Ctrl-O
+///   shows the heading whole as fx's does (`formatExpandedChild`, `:786-787`:
+///   an expanded row is never clipped).
 ///
 /// Spaces around an argument stay, upstream's `Failed   missing.txt  :`
 /// (`fx-read-failures-40x120-live`). Not fx's: a command's `cd . &&` and its
@@ -766,17 +772,24 @@ fn cancelled_line(call: &Call, palette: Palette) -> String {
 /// Idempotent: what it writes holds no line break, nothing it would spell and
 /// nothing past its bound -- so the channel spells the argument as it crosses
 /// (`super::bridge`'s `made_inert`) and the row spells it again unchanged.
-pub(crate) fn spelled(target: &str, activity: Activity) -> String {
-    if activity != Activity::Command {
-        let mut spelling = Spelling::new(TARGET_BYTES);
-        for character in target.chars() {
-            if !spelling.push(character) {
-                break;
-            }
-        }
-        return spelling.finish();
+pub(crate) fn spelled(target: &str, presentation: Presentation) -> String {
+    if presentation.activity == Activity::Command {
+        return command_spelled(target, COMMAND_TARGET_BYTES, true);
     }
-    command_spelled(target, COMMAND_TARGET_BYTES, true)
+    let file_change = [mutate::WRITE_FILE, mutate::EDIT_FILE]
+        .iter()
+        .any(|spec| spec.presentation() == presentation);
+    let mut spelling = Spelling::new(if file_change {
+        TARGET_BYTES
+    } else {
+        usize::MAX
+    });
+    for character in target.chars() {
+        if !spelling.push(character) {
+            break;
+        }
+    }
+    spelling.finish()
 }
 
 /// fx's status phrase for a call with this argument as the model wrote it,
@@ -2240,7 +2253,8 @@ mod tests {
         // reflow bound, 14 399 bytes (`max_run_command_reflow_bytes`,
         // `tool_presentation.zig:21-23`, `formatRunCommandDetailBounded`
         // `:441`), a file change's path at 4 096 (`diff.max_encoded_label_bytes`,
-        // `src/core/output/diff.zig:10`), and so every other argument here.
+        // `src/core/output/diff.zig:10`). Every other argument fx writes as it
+        // came, at any length, and so here, spelled.
         let pair = "A\u{202e}";
         let spelled_pair = r"A\u{202e}";
         let mut group = ToolGroup::default();
@@ -2252,10 +2266,22 @@ mod tests {
         let mut group = ToolGroup::default();
         group.start(
             "1".into(),
+            shown(
+                &WRITE_FILE,
+                json!({"path": pair.repeat(5_000), "content": "x"}),
+            ),
+        );
+        assert!(group.finish("1", true, "", Outcome::Finished, None));
+        let row = &plain(&group)[1];
+        let expected = format!("\u{2514} Wrote {}A...", spelled_pair.repeat(454));
+        assert!(*row == expected, "{}", &row[row.len() - 40..]);
+        let mut group = ToolGroup::default();
+        group.start(
+            "1".into(),
             shown(&read::READ_FILE, json!({"path": pair.repeat(5_000)})),
         );
         let row = &plain(&group)[1];
-        let expected = format!("\u{2514} Reading {}A...", spelled_pair.repeat(454));
+        let expected = format!("\u{2514} Reading {}", spelled_pair.repeat(5_000));
         assert!(*row == expected, "{}", &row[row.len() - 40..]);
     }
 
@@ -2294,8 +2320,8 @@ mod tests {
             let expanded = strip(&group.expanded(DARK)[1]);
             assert_eq!(expanded, format!("\u{2514} {row}"));
             // And spelled again, as the row spells what the channel spelled.
-            let once = spelled(&command_text, Activity::Command);
-            assert_eq!(spelled(&once, Activity::Command), once);
+            let once = spelled(&command_text, terminal::TERMINAL.presentation());
+            assert_eq!(spelled(&once, terminal::TERMINAL.presentation()), once);
         }
     }
 
