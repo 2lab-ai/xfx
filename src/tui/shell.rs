@@ -123,7 +123,7 @@ use super::settings::{self, Setting, SettingsAction, SettingsMenu};
 use super::skills_menu::{self, Origin as SkillsOrigin, SkillsMenu};
 use super::sound::Sound;
 use super::statusline::{self, MenuAction as StatuslineAction};
-use super::theme::{DocumentRow, Mode, Palette};
+use super::theme::{DocumentRow, Mode, Palette, CANCELLED_MARK};
 use super::toolgroup::ToolGroup;
 use super::trace::{Job, Traces};
 use super::transcript::{Append, Gutter, Landed, Role, Transcript};
@@ -145,14 +145,15 @@ use crate::tools::{LineChanges, Outcome as CallOutcome, Shown};
 use crate::workspace::access::{self as workspace_access, WorkspaceAccess};
 
 /// Upstream's line for a cancelled turn, in this product's name and in
-/// `palette`: `■` in the warning grey, `Cancelled` in the hint grey, and the
-/// question after it in the terminal's own colour (`lifecycleTerminalLine`,
-/// `transcript/runtime.zig:633-680`; `fx-interrupt-40x120-cc-0.3.ansi`:
-/// `ESC[38;5;252m■ESC[39m ESC[38;5;255mCancelledESC[39m · What can fx do
-/// differently?`).
+/// `palette`: [`CANCELLED_MARK`] in the warning grey, `Cancelled` in the hint
+/// grey, and the question after it in the terminal's own colour
+/// (`lifecycleTerminalLine`, `transcript/runtime.zig:633-680`;
+/// `receipts/cancel-marker/fx/fx-p5-transcript-cancel-40x120-esc.ansi`, fx
+/// v0.0.16: `ESC[38;5;252m▪ESC[39m ESC[38;5;255mCancelledESC[39m · What can
+/// fx do differently?`).
 pub(crate) fn cancelled_line(palette: Palette) -> String {
     format!(
-        "{}\u{25a0}{} {}Cancelled{}{CANCELLED_FOLLOW_UP}",
+        "{}{CANCELLED_MARK}{} {}Cancelled{}{CANCELLED_FOLLOW_UP}",
         palette.warning(),
         palette.reset(),
         palette.hint(),
@@ -987,7 +988,7 @@ pub(crate) struct Shell {
     /// rather than painted under the line that says it was cancelled, and the
     /// conclusion that ends it says nothing the line has not.
     cancelling: bool,
-    /// The turn's `■ Cancelled` line, while it waits for a running call to
+    /// The turn's `▪ Cancelled` line, while it waits for a running call to
     /// settle ([`Self::cancel_turn_with`]), and whether the queue notice waits
     /// with it.
     cancel_owed: Option<bool>,
@@ -4398,7 +4399,7 @@ impl Shell {
                 // A turn this session stopped has already been answered for,
                 // at the keystroke: no summary under an answer that was cut
                 // off, and no `✗ system:` for a failure the user asked for --
-                // upstream writes the one `■ Cancelled` line and nothing after
+                // upstream writes the one `▪ Cancelled` line and nothing after
                 // it (`fx-interrupt-40x120-cc-1.5`).
                 self.cancel_covers = 0;
                 let (failure, summary) = if std::mem::take(&mut self.cancelling) {
@@ -9008,7 +9009,7 @@ impl Shell {
             // answers the key, as upstream's does the moment it is pressed
             // (`fx-approvals-cc-40x120-after-esc`); the refusal the runtime
             // reports for it next is the same stop in the tool's words, and is
-            // dropped ([`Self::abandoned`]). That call's own `■ Cancelled …`
+            // dropped ([`Self::abandoned`]). That call's own `▪ Cancelled …`
             // line is the turn's, so no second one is written for the turn
             // (`append_turn_cancellation`, `transcript/runtime.zig:5378-5383`).
             //
@@ -9114,7 +9115,7 @@ impl Shell {
     /// **Whichever way the batch ends, the document keeps a record of it**,
     /// as upstream's does (`finalizeQuestionTranscript`,
     /// `input_question_runtime.zig:120-136`): every question with its answer
-    /// hung under it, or `■ Cancelled` ([`super::question`]'s
+    /// hung under it, or `▪ Cancelled` ([`super::question`]'s
     /// `answered_rows`, `cancelled_row`). Behind the stream rather than at
     /// once ([`Self::mark`]), because a question can be answered while the
     /// text the model wrote before asking it is still being released, and the
@@ -9202,7 +9203,7 @@ impl Shell {
                     DocumentRow::Plain,
                 )]));
                 self.settled_question();
-                // **The question's `■ Cancelled` is the turn's line**, and
+                // **The question's `▪ Cancelled` is the turn's line**, and
                 // nothing follows it: upstream's `cancelQuestionPrompt` records
                 // the question cancelled and stops the turn, with no line of
                 // the turn's own after it and no exit armed -- the key was the
@@ -9543,7 +9544,7 @@ impl Shell {
     /// counted, with its own line under the group.
     ///
     /// Says whether it stopped anything -- that is, whether a call's own
-    /// `■ Cancelled …` line is now in the document.
+    /// `▪ Cancelled …` line is now in the document.
     fn settle_group(&mut self) -> bool {
         self.full.settle();
         let stopped = self.group.cancel_running();
@@ -11900,18 +11901,18 @@ impl Shell {
     }
 
     /// The same, told whether the keystroke has already written a call's own
-    /// `■ Cancelled …` line -- which is the turn's line too, so no second one
+    /// `▪ Cancelled …` line -- which is the turn's line too, so no second one
     /// is written (`append_turn_cancellation`, `transcript/runtime.zig:
     /// 5378-5383`).
     ///
     /// **A running command is settled by this keystroke**, as upstream's is
-    /// (`fx-interrupt-40x120-cmd-cc`: `└ Cancelled sleep 6` and `■ Cancelled
-    /// sleep 6 · …` at once): the turn's flag is raised before the message goes
-    /// ([`super::worker::WorkHandle::control`]), and the command's supervisor
-    /// kills it and its group within a poll (`crate::tools::terminal`). Its
-    /// line is the turn's, so no second one is written; the result the runtime
-    /// reports for it next is the same stop in the tool's words, and is dropped
-    /// ([`Self::abandoned`]).
+    /// (`fx-interrupt-40x120-cmd-cc`: `└ Cancelled sleep 6` and the call's own
+    /// `Cancelled sleep 6 · …` line at once): the turn's flag is raised before
+    /// the message goes ([`super::worker::WorkHandle::control`]), and the
+    /// command's supervisor kills it and its group within a poll
+    /// (`crate::tools::terminal`). Its line is the turn's, so no second one is
+    /// written; the result the runtime reports for it next is the same stop in
+    /// the tool's words, and is dropped ([`Self::abandoned`]).
     ///
     /// **Any other running call is not**: a file tool does not poll the flag,
     /// and runs to its end before the turn reads the stop. A `Cancelled` row
@@ -12000,7 +12001,7 @@ impl Shell {
 
     /// Upstream's line for a cancelled turn (`writeTurnCancellation` and
     /// `lifecycleTerminalLine`, `transcript/runtime.zig:633-680`, `:9951-9966`):
-    /// `■` in the warning grey, `Cancelled` in the hint grey, and the question
+    /// `▪` in the warning grey, `Cancelled` in the hint grey, and the question
     /// after it in the terminal's own colour -- with a blank row above and
     /// below, as `fx-interrupt-40x120-cc-0.3` lays it out.
     fn write_cancelled(&mut self) {
@@ -15744,7 +15745,7 @@ mod tests {
     /// it ([`Shell::write_cancelled`]).
     fn cancelled() -> Vec<String> {
         vec![
-            "\u{25a0} Cancelled \u{b7} What can xfx do differently?".to_string(),
+            "\u{25aa} Cancelled \u{b7} What can xfx do differently?".to_string(),
             String::new(),
         ]
     }
@@ -19796,9 +19797,9 @@ mod tests {
 
     /// How the interrupt's notice opens in the document: `⊘ turn: ` and the
     /// sentence after it.
-    /// The turn's own `■ Cancelled` line (claim changed: this was the line
+    /// The turn's own `▪ Cancelled` line (claim changed: this was the line
     /// shell's interrupt notice, `⊘ turn: interrupted …`).
-    const INTERRUPTED_ROW: &str = "\u{25a0} Cancelled \u{b7} What can xfx do differently?";
+    const INTERRUPTED_ROW: &str = "\u{25aa} Cancelled \u{b7} What can xfx do differently?";
 
     /// A tool call starting, as the runtime announces it: with the row its
     /// own spec gives it (`crate::tools::ToolSpec::shown`).
@@ -21291,7 +21292,7 @@ mod tests {
             fixture.route_bytes(key);
             fixture.settle_input(Instant::now() + Duration::from_millis(100));
             let document = fixture.document();
-            assert_eq!(document[..2], ["■ Cancelled", ""], "{key:?}: {document:?}");
+            assert_eq!(document[..2], ["▪ Cancelled", ""], "{key:?}: {document:?}");
         }
     }
 
@@ -21793,7 +21794,7 @@ mod tests {
         // so at once, in upstream's line for a cancelled turn, so the user
         // watches the request land rather than inferring it from a stream that
         // may not stop for a while. Claim changed: the document line was the
-        // line shell's interrupt notice; it is upstream's `■ Cancelled` line,
+        // line shell's interrupt notice; it is upstream's `▪ Cancelled` line,
         // and the promise about the next press moved to the hint row.
         let mut shell = shell(24, 80);
         shell.route_bytes(b"stream something\r");
@@ -21817,8 +21818,9 @@ mod tests {
 
     #[test]
     fn the_cancelled_line_is_upstreams_marker_word_and_question_in_upstreams_greys() {
-        // `fx-interrupt-40x120-cc-0.3.ansi`: `ESC[38;5;252m■ESC[39m
-        // ESC[38;5;255mCancelledESC[39m · What can fx do differently?` -- the
+        // `receipts/cancel-marker/fx/fx-p5-transcript-cancel-40x120-esc.ansi`
+        // (fx v0.0.16): `ESC[38;5;252m▪ESC[39m ESC[38;5;255mCancelledESC[39m
+        // · What can fx do differently?` -- the
         // marker in the warning grey, the word in the hint grey, the question
         // in the terminal's own colour. tmux re-serializes resets as `39`;
         // this crate writes `0`, the same pen.
@@ -21837,7 +21839,7 @@ mod tests {
         assert_eq!(
             rows,
             vec![
-                "\u{1b}[38;5;252m\u{25a0}\u{1b}[0m \u{1b}[38;5;255mCancelled\u{1b}[0m \u{b7} What can xfx do differently?"
+                "\u{1b}[38;5;252m\u{25aa}\u{1b}[0m \u{1b}[38;5;255mCancelled\u{1b}[0m \u{b7} What can xfx do differently?"
                     .to_string(),
                 String::new(),
             ]
@@ -21850,7 +21852,7 @@ mod tests {
         };
         assert_eq!(
             cancelled_line(light),
-            "\u{1b}[38;5;238m\u{25a0}\u{1b}[0m \u{1b}[38;5;235mCancelled\u{1b}[0m \u{b7} What can xfx do differently?"
+            "\u{1b}[38;5;238m\u{25aa}\u{1b}[0m \u{1b}[38;5;235mCancelled\u{1b}[0m \u{b7} What can xfx do differently?"
         );
     }
 
@@ -22772,7 +22774,7 @@ mod tests {
     #[test]
     fn a_ctrl_c_at_a_models_question_leaves_only_the_questions_cancelled_line() {
         // `cancelQuestionPrompt` (`input_question_runtime.zig:59-80`) and
-        // `receipts/f3/fx-question-…-q2-esc`: the question's `■ Cancelled` is
+        // `receipts/f3/fx-question-…-q2-esc`: the question's `▪ Cancelled` is
         // the turn's line; no second line and no exit armed follow it.
         let mut shell = running("ask me");
         shell.apply(UiEvent::Question(QuestionRequest {
@@ -22857,7 +22859,7 @@ mod tests {
         assert!(!text.contains("MARKER-STOPPED"), "{written:#?}");
         assert!(!text.contains("system"), "{written:#?}");
         let line = text
-            .find("\u{25a0} Cancelled \u{b7} What can xfx")
+            .find("\u{25aa} Cancelled \u{b7} What can xfx")
             .expect("the turn's line");
         let second = text.find("MARKER-SECOND").expect("the next answer");
         assert!(line < second, "{written:#?}");
@@ -28044,7 +28046,7 @@ mod tests {
             [
                 "\u{2503} and once more",
                 "",
-                "\u{25a0} Cancelled \u{b7} What can xfx do differently?",
+                "\u{25aa} Cancelled \u{b7} What can xfx do differently?",
                 "",
                 "\u{2503} and then",
                 "",
@@ -28069,7 +28071,7 @@ mod tests {
         assert_eq!(
             rows[4],
             format!(
-                "{}\u{25a0}{} {}Cancelled{} \u{b7} What can xfx do differently?",
+                "{}\u{25aa}{} {}Cancelled{} \u{b7} What can xfx do differently?",
                 PALETTE.warning(),
                 PALETTE.reset(),
                 PALETTE.hint(),
@@ -31600,7 +31602,7 @@ mod tests {
         // turn (`app_input_runtime.zig:3139-3143`), and the call the panel was
         // asking about never runs, so the row says `Cancelled`, the header
         // counts it, and the call gets its own line under the group -- at the
-        // keystroke. That line is the turn's too: no second `■ Cancelled`
+        // keystroke. That line is the turn's too: no second `▪ Cancelled`
         // follows it (`append_turn_cancellation`, `transcript/runtime.zig:
         // 5378-5383`). Claim changed: an interrupt notice used to follow.
         let mut shell = shell(24, 80);
@@ -31625,7 +31627,7 @@ mod tests {
                 "\u{25cf} 1 tool call \u{b7} 1 edit \u{b7} 1 cancelled",
                 "\u{2514} Cancelled file",
                 "",
-                "\u{25a0} Cancelled file \u{b7} What can xfx do differently?",
+                "\u{25aa} Cancelled file \u{b7} What can xfx do differently?",
                 "",
             ],
             "{written:#?}"
@@ -31659,7 +31661,7 @@ mod tests {
     fn ctrl_c_at_an_approval_leaves_the_calls_row_to_its_refusal() {
         // Ctrl-C at a question refuses this call and the turn goes on
         // (`src/ui/input/runtime.zig:61`, `3 => .deny`), so nothing is stopped
-        // at the keystroke: no `Cancelled` row and no `■` line. The refusal
+        // at the keystroke: no `Cancelled` row and no `▪` line. The refusal
         // the runtime reports is what settles the row, as `Denied`, in the
         // same group the turn's next call is counted in.
         let mut shell = shell(24, 80);
@@ -31679,7 +31681,7 @@ mod tests {
         assert!(
             !written
                 .iter()
-                .any(|row| row.contains("Cancelled") || row.starts_with('\u{25a0}')),
+                .any(|row| row.contains("Cancelled") || row.starts_with('\u{25aa}')),
             "{written:#?}"
         );
 
@@ -31714,7 +31716,7 @@ mod tests {
         // supervisor kills it within a poll -- so the screen says so at the
         // keystroke, as upstream's does (`fx-interrupt-40x120-cmd-cc`): the
         // group's `· 1 cancelled`, `└ Cancelled sleep 30`, and the call's own
-        // `■ Cancelled sleep 30 · …`, which is the turn's line too. The
+        // `▪ Cancelled sleep 30 · …`, which is the turn's line too. The
         // runtime's result for the call, the same stop in the tool's words,
         // changes nothing, and neither does the turn's conclusion.
         let mut shell = shell(24, 80);
@@ -31739,7 +31741,7 @@ mod tests {
                 "\u{25cf} 1 tool call \u{b7} 1 command \u{b7} 1 cancelled",
                 "\u{2514} Cancelled sleep 30",
                 "",
-                "\u{25a0} Cancelled sleep 30 \u{b7} What can xfx do differently?",
+                "\u{25aa} Cancelled sleep 30 \u{b7} What can xfx do differently?",
                 "",
             ],
             "{at_the_key:#?}"
@@ -31834,7 +31836,7 @@ mod tests {
                 "\u{25cf} 1 tool call \u{b7} 1 write \u{b7} 1 cancelled",
                 "\u{2514} Cancelled file",
                 "",
-                "\u{25a0} Cancelled file \u{b7} What can xfx do differently?",
+                "\u{25aa} Cancelled file \u{b7} What can xfx do differently?",
                 "",
                 "\u{2717} system: the turn was cancelled",
                 "",

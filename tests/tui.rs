@@ -3960,8 +3960,8 @@ fn the_request_after_a_cancelled_question_answers_it_aborted_as_upstreams_does()
 #[test]
 fn escape_twice_stops_a_running_command_and_its_group_at_once_as_upstreams_does() {
     // Upstream kills a running command at the keystroke
-    // (`fx-interrupt-cmd-40x120-cmd-cc`: `└ Cancelled sleep 6` and `■
-    // Cancelled sleep 6 · …` at once) and the next request answers the call
+    // (`fx-interrupt-cmd-40x120-cmd-cc`: `└ Cancelled sleep 6` and the call's
+    // own `Cancelled sleep 6 · …` line at once) and the next request answers the call
     // `{"type":"error-text","value":"aborted by user"}` before `<turn_aborted>`
     // (`fx-interrupt-next-cmd-40x120-bodies/003-completion.json`;
     // `vercel-labs/fx@c1db9191 src/core/session/session.zig:64`, `:2701-2747`).
@@ -4030,7 +4030,7 @@ fn escape_twice_stops_a_running_command_and_its_group_at_once_as_upstreams_does(
     on_screen(
         &session,
         (24, 80),
-        &["\u{2514} Cancelled sleep 30", "\u{25a0} Cancelled sleep 30"],
+        &["\u{2514} Cancelled sleep 30", "\u{25aa} Cancelled sleep 30"],
         &["Running sleep"],
     );
 
@@ -4108,7 +4108,7 @@ fn an_interrupt_drops_the_steer_that_was_waiting_rather_than_delivering_it() {
     on_screen(
         &session,
         (24, 80),
-        &["\u{25a0} Cancelled sleep 30"],
+        &["\u{25aa} Cancelled sleep 30"],
         &["\u{250b} change tone"],
     );
     assert!(matches!(session.state(), Wait::Running));
@@ -12982,7 +12982,7 @@ fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_s
 
     // Nor on a resume of it: the stopped turn replays as its card alone, as
     // upstream's does (`tui-compaction-activity.test.ts:481-488`) -- no
-    // `■ Cancelled`, no `✗ system`.
+    // `▪ Cancelled`, no `✗ system`.
     let pty = Pty::open();
     pty.resize(40, 120);
     let mut resumed = tui_with(&sandbox, &gateway);

@@ -46,7 +46,7 @@ use crate::markdown::code_highlight::{self, Variant};
 use crate::markdown::{code_highlight_languages, theme as syntax};
 use crate::tools::{mcp, Activity, LineChanges, Outcome, Shown};
 
-use super::theme::{DocumentRow, Mode, Palette, Redraw};
+use super::theme::{DocumentRow, Mode, Palette, Redraw, CANCELLED_MARK};
 
 /// What a cancelled call's own line ends with, after its mark and its row
 /// (`vercel-labs/fx@c1db9191 src/ui/transcript/runtime.zig:644`), in this
@@ -106,9 +106,9 @@ const CATEGORIES: [(Activity, &str); 5] = [
 /// its own, after every one in [`CATEGORIES`] when two counts tie
 /// (`vercel-labs/fx@481104fd src/ui/transcript/tool_group_projection.zig:
 /// 143-156`, `MCP call` at index 8, after `command`'s 5), and `MCP calls` for
-/// more than one (`:542`). Until fx v0.0.16 such a call was counted as a
-/// command (`fx-p5-mcp-turn-40x120-turn`: `2 commands` on 0.0.13, `2 MCP
-/// calls` on 0.0.16).
+/// more than one ([`category_word`]). Until fx v0.0.16 such a call was
+/// counted as a command (`fx-p5-mcp-turn-40x120-turn`: `2 commands` on 0.0.13,
+/// `2 MCP calls` on 0.0.16).
 const MCP_CALL: &str = "MCP call";
 
 /// The calls of one group, in the order they started.
@@ -652,12 +652,7 @@ fn summary(calls: &[&Call]) -> String {
     // By count, most first; a tie keeps the categories' own order.
     counted.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
     for (count, _, label) in counted {
-        let plural = if matches!(label, "command" | MCP_CALL) && count != 1 {
-            "s"
-        } else {
-            ""
-        };
-        out.push_str(&format!(" \u{b7} {count} {label}{plural}"));
+        out.push_str(&format!(" \u{b7} {count} {}", category_word(label, count)));
     }
     for label in WENT_WRONG {
         let count = calls
@@ -669,6 +664,30 @@ fn summary(calls: &[&Call]) -> String {
         }
     }
     out
+}
+
+/// The word a kind of work is counted in for `count` calls: upstream's table
+/// (`formatGroupSummary`, `vercel-labs/fx@481104fd
+/// src/ui/transcript/tool_group_projection.zig:539-544`). A count of 1 takes
+/// the label as written; any other takes the label's plural where the table
+/// has one -- `commands`, `subagents`, `MCP calls` -- and the label itself
+/// where it has none (`2 read`, `3 edit`). `subagent` is upstream's word for a
+/// tool xfx does not have (`docs/parity.md`, `subagent`): the table keeps it
+/// so the header says what fx's would the day the tool is ported, and no call
+/// of xfx's is counted as one.
+fn category_word(label: &str, count: usize) -> &str {
+    const PLURALS: [(&str, &str); 3] = [
+        ("command", "commands"),
+        ("subagent", "subagents"),
+        (MCP_CALL, "MCP calls"),
+    ];
+    if count == 1 {
+        return label;
+    }
+    PLURALS
+        .iter()
+        .find(|(singular, _)| *singular == label)
+        .map_or(label, |(_, plural)| plural)
 }
 
 /// The ways a settled call can have gone wrong, in the order a header counts
@@ -708,7 +727,7 @@ fn cancelled_line(call: &Call, palette: Palette) -> String {
         call.target()
     };
     format!(
-        "{}\u{25a0}{reset}{} Cancelled{reset} {base}{target}{reset}{CANCELLED_FOLLOW_UP}",
+        "{}{CANCELLED_MARK}{reset}{} Cancelled{reset} {base}{target}{reset}{CANCELLED_FOLLOW_UP}",
         palette.warning(),
         palette.hint(),
     )
@@ -1303,14 +1322,14 @@ mod tests {
                 "\u{25cf} 1 tool call \u{b7} 1 command \u{b7} 1 cancelled",
                 "\u{2514} Cancelled sleep 30",
                 "",
-                "\u{25a0} Cancelled sleep 30 \u{b7} What can xfx do differently?",
+                "\u{25aa} Cancelled sleep 30 \u{b7} What can xfx do differently?",
                 "",
             ]
         );
         let line = &group.rows(DARK)[3];
         assert!(
             line.starts_with(&format!(
-                "{WORD}\u{25a0}{RESET}{HINT} Cancelled{RESET} {TEXT}"
+                "{WORD}\u{25aa}{RESET}{HINT} Cancelled{RESET} {TEXT}"
             )),
             "{line:?}"
         );
@@ -1556,7 +1575,7 @@ mod tests {
                 DocumentRow::Plain,
             ]
         );
-        assert!(rows[4].contains('\u{25a0}'), "{rows:?}");
+        assert!(rows[4].contains('\u{25aa}'), "{rows:?}");
         assert!(ToolGroup::default().kinds().is_empty());
     }
 
@@ -1854,7 +1873,7 @@ mod tests {
                 "\u{25cf} 1 tool call \u{b7} 1 MCP call \u{b7} 1 cancelled",
                 "\u{2514} Cancelled mcp_web_echo",
                 "",
-                "\u{25a0} Cancelled mcp_web_echo \u{b7} What can xfx do differently?",
+                "\u{25aa} Cancelled mcp_web_echo \u{b7} What can xfx do differently?",
                 "",
             ]
         );
@@ -2074,7 +2093,7 @@ mod tests {
         check(
             &group,
             3,
-            format!("\u{25a0} Cancelled {SPELLED} \u{b7} What can xfx do differently?"),
+            format!("\u{25aa} Cancelled {SPELLED} \u{b7} What can xfx do differently?"),
         );
     }
 
@@ -2278,5 +2297,51 @@ mod tests {
             let once = spelled(&command_text, Activity::Command);
             assert_eq!(spelled(&once, Activity::Command), once);
         }
+    }
+
+    #[test]
+    fn a_kinds_word_for_more_than_one_call_is_upstreams_table() {
+        // `formatGroupSummary` (`tool_group_projection.zig:520-545@481104fd`):
+        // a count of 1 takes the label as written; any other takes
+        // `commands`, `subagents` or `MCP calls`, and every other label stays
+        // as it is (`2 read`, `3 edit`). The labels are upstream's
+        // `category_labels` (`:142-152`); `open`, `subagent` and `browser`
+        // name tools xfx does not have, so only this table knows them.
+        for label in [
+            "read", "list", "write", "edit", "open", "command", "subagent", "browser", "MCP call",
+        ] {
+            assert_eq!(category_word(label, 1), label);
+        }
+        for (label, plural) in [
+            ("read", "read"),
+            ("list", "list"),
+            ("write", "write"),
+            ("edit", "edit"),
+            ("open", "open"),
+            ("command", "commands"),
+            ("subagent", "subagents"),
+            ("browser", "browser"),
+            ("MCP call", "MCP calls"),
+        ] {
+            for count in [2, 3, 12] {
+                assert_eq!(category_word(label, count), plural, "{label} x{count}");
+            }
+        }
+        // Upstream's own case (`group summary uses singular and plural
+        // subagent labels`, `:1509-1524`), as the header joins the words.
+        let words = |counts: &[(usize, &str)]| -> String {
+            counts
+                .iter()
+                .map(|(count, label)| format!(" \u{b7} {count} {}", category_word(label, *count)))
+                .collect()
+        };
+        assert_eq!(
+            words(&[(1, "command"), (1, "subagent")]),
+            " \u{b7} 1 command \u{b7} 1 subagent"
+        );
+        assert_eq!(
+            words(&[(3, "subagent"), (2, "command")]),
+            " \u{b7} 3 subagents \u{b7} 2 commands"
+        );
     }
 }

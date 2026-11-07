@@ -3912,7 +3912,7 @@ mod tests {
                 "\u{2514} Cancelled sleep 30",
             ]
         );
-        // The group's own `■ Cancelled …` line is the inline transcript's:
+        // The group's own `▪ Cancelled …` line is the inline transcript's:
         // upstream's full screen does not repeat it (`fx-approvals-cc-40x120-full`).
         assert!(!rows.iter().any(|row| row.contains("What can")));
     }
@@ -5216,6 +5216,69 @@ mod tests {
         assert!(!rows.concat().contains('\u{2026}'), "{rows:?}");
         for row in record.rows(24, 40, DARK, "") {
             assert!(wrap::width(&row) <= 24, "{row:?}");
+        }
+    }
+
+    #[test]
+    fn a_heading_is_cut_only_where_fxs_own_bound_on_its_phrase_cuts_it() {
+        // T-U1+U2's review found the heading cut at 1 KB where fx shows it
+        // whole: fx never clips an expanded row (`formatExpandedChild`,
+        // `tool_group_projection.zig:786-787@481104fd`) and bounds only the
+        // phrase it is made of -- a command at 14 399 bytes
+        // (`formatRunCommandDetailBounded`, `src/core/tooling/
+        // tool_presentation.zig:432-447`, with `max_run_command_reflow_bytes`,
+        // `:22`), a file change's path at 4 096 (`fileMutationDisplayPath`,
+        // `src/core/agent/runtime/tool_presentation.zig:736-753`,
+        // `diff.max_encoded_label_bytes`), each cut back to leave room for
+        // `...` (`encodeTerminalSafe`). Every other argument fx writes raw and
+        // unbounded (`formatToolAction`, `src/core/app/app_agent_runtime.zig:
+        // 1248-1310`); xfx spells it, at a file change's bound (ledger
+        // `call-row-raw-argument`), so past 4 096 bytes it alone is cut where
+        // fx's is not.
+        let heading = |shown: Shown| -> String {
+            let mut record = record();
+            record.tool_started("c", &shown);
+            record.tool_finished("c", true, "", Outcome::Finished, None);
+            let rows = plain(&record.rows(120, 20_000, DARK, ""));
+            let at = rows
+                .iter()
+                .position(|row| row.starts_with('\u{2514}'))
+                .expect("the heading");
+            let mut whole = rows[at].clone();
+            for row in &rows[at + 1..] {
+                let Some(rest) = row.strip_prefix("  ") else {
+                    break;
+                };
+                whole.push_str(rest);
+            }
+            whole
+        };
+        let write = |path: &str| {
+            crate::tools::mutate::WRITE_FILE.shown(&json!({"path": path, "content": "x"}))
+        };
+        let a = |count: usize| "a".repeat(count);
+        for (shown, expected) in [
+            (command(&a(14_399)), format!("\u{2514} Ran {}", a(14_399))),
+            (
+                command(&a(14_400)),
+                format!("\u{2514} Ran {}...", a(14_396)),
+            ),
+            (write(&a(4_096)), format!("\u{2514} Wrote {}", a(4_096))),
+            (write(&a(4_097)), format!("\u{2514} Wrote {}...", a(4_093))),
+            // Past the old 1 KB cut, and whole as on fx.
+            (read(&a(3_000)), format!("\u{2514} Read {}", a(3_000))),
+            // fx: `Read` and all 4 097 bytes.
+            (read(&a(4_097)), format!("\u{2514} Read {}...", a(4_093))),
+        ] {
+            let got = heading(shown);
+            assert!(
+                got == expected,
+                "{} bytes, ends {:?}, wanted {} ending {:?}",
+                got.len(),
+                &got[got.len().saturating_sub(12)..],
+                expected.len(),
+                &expected[expected.len() - 12..]
+            );
         }
     }
 

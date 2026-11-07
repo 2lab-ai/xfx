@@ -1,4 +1,4 @@
-# Ctrl-C at a model's question: the question's `■ Cancelled` is the turn's
+# Ctrl-C at a model's question: the question's `▪ Cancelled` is the turn's
 # line, and nothing follows it -- no second cancelled line, no exit armed
 # (fx `cancelQuestionPrompt`, input_question_runtime.zig:59-80).
 gateway interrupt-question.json

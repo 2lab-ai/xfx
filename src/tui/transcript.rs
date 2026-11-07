@@ -3735,7 +3735,7 @@ mod tests {
                 "\u{25cf} header",
                 "\u{2514} call",
                 "",
-                "\u{25a0} Cancelled call",
+                "\u{25aa} Cancelled call",
                 "",
             ]),
             vec![
@@ -4050,13 +4050,13 @@ mod tests {
         // row's kind; every other byte stays, a link and a reset included.
         let link = "\u{1b}]8;id=fx-1;https://example.com\u{1b}\\";
         let row = format!(
-            "\u{1b}[38;5;252m\u{25a0}\u{1b}[0m\u{1b}[1;38;5;255m Cancelled\u{1b}[0m \
+            "\u{1b}[38;5;252m\u{25aa}\u{1b}[0m\u{1b}[1;38;5;255m Cancelled\u{1b}[0m \
              \u{1b}[38;5;245mx {link}y\u{1b}[39m \u{1b}[38;5;243m# note\u{1b}[0m"
         );
         assert_eq!(
             recoloured(&row, DocumentRow::ToolStopped, LIGHT_256),
             format!(
-                "\u{1b}[38;5;238m\u{25a0}\u{1b}[0m\u{1b}[1;38;5;235m Cancelled\u{1b}[0m \
+                "\u{1b}[38;5;238m\u{25aa}\u{1b}[0m\u{1b}[1;38;5;235m Cancelled\u{1b}[0m \
                  \u{1b}[38;5;247mx {link}y\u{1b}[39m \u{1b}[38;5;243m# note\u{1b}[0m"
             ),
             "the token table's pairs, the bold kept, 243 (in no pair) left"
