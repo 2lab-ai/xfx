@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* mcp: fixture
+    status     ready, 1 tool
+    version    2025-11-25
+    transport  http
+    url        http://127.0.0.1:58981/mcp
+    source     ~/.fx/mcp.json
+    tools      1
+      echo  Echo the text back (fxcap HTTP fixture)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

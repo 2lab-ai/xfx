@@ -1,0 +1,46 @@
+# MCP-E mutants: each applied alone to a `git clone --no-local` of the branch at d4183be1, the named tests run (`cargo test --locked --lib <filter>`), the file reverted.
+# KILLED: the tests failed on the mutant (a `test result: FAILED` line); a compile error would be reported as such (there is none).
+
+M1 initialize accepts a version not its own (2024-11-05) [src/mcp/era.rs] -> mcp::tests::discover::a_stdio_server_that_speaks_only_2024_11_05: KILLED
+    test mcp::tests::discover::a_stdio_server_that_speaks_only_2024_11_05_is_refused_in_fxs_words ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4281 filtered out; finished in 0.09s
+M2 the probe is not cut to what is left of the start [src/mcp/runtime.rs] -> mcp::tests::discover::the_probe_and_initialize_share_the_start: KILLED
+    test mcp::tests::discover::the_probe_and_initialize_share_the_start_so_a_start_never_outlasts_its_timeout ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4281 filtered out; finished in 10.56s
+M3 an HTTP exchange is not bounded by its caller's deadline [src/mcp/transport.rs] -> mcp::tests::discover::an_http_probe_the_server_holds_open: KILLED
+    test mcp::tests::discover::an_http_probe_the_server_holds_open_does_not_hold_up_initialize ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4281 filtered out; finished in 60.03s
+M4 an error without an id does not answer the probe [src/mcp/transport.rs] -> mcp::tests::discover::a_hostile_discover_answer: KILLED
+    test mcp::tests::discover::a_hostile_discover_answer_neither_crashes_nor_hangs_a_start_nor_reaches_the_screen ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4281 filtered out; finished in 6.74s
+M5 a 2026 stdio server's request is answered [src/mcp/transport.rs] -> mcp::tests::discover::a_2026_stdio_server_is_served: KILLED
+    test mcp::tests::discover::a_2026_stdio_server_is_served_in_its_era_with_no_initialize ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4281 filtered out; finished in 0.58s
+M6 a request with no params carries no _meta [src/mcp/transport.rs] -> mcp::tests::discover::a_stdio_server_is_asked_server_discover_first: KILLED
+    test mcp::tests::discover::a_stdio_server_is_asked_server_discover_first_and_every_request_leads_with_its_progress_token ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4281 filtered out; finished in 0.06s
+M7 each try's ids start again at 1 [src/mcp/runtime.rs] -> mcp::tests::discover::a_stdio_server_that_speaks_only_2024_11_05: KILLED
+    test mcp::tests::discover::a_stdio_server_that_speaks_only_2024_11_05_is_refused_in_fxs_words ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4281 filtered out; finished in 1.10s
+M8 a 2026 HTTP POST carries no Mcp-Method [src/mcp/transport.rs] -> mcp::tests::discover::a_2026_http_server_is_probed: KILLED
+    test mcp::tests::discover::a_2026_http_server_is_probed_with_its_version_headers_and_served_without_a_session ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4281 filtered out; finished in 0.05s
+M9 a stdio reply fx refuses is read as a version list [src/mcp/runtime.rs] -> mcp::tests::discover::a_hostile_discover_answer: KILLED
+    test mcp::tests::discover::a_hostile_discover_answer_neither_crashes_nor_hangs_a_start_nor_reaches_the_screen ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4281 filtered out; finished in 0.56s
+M10 a modern server that falls quiet is initialized anyway [src/mcp/era.rs] -> mcp::tests::discover::a_hostile_discover_answer: KILLED
+    test mcp::tests::discover::a_hostile_discover_answer_neither_crashes_nor_hangs_a_start_nor_reaches_the_screen ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4281 filtered out; finished in 10.42s
+M11 a 404 with -32601 is a legacy answer [src/mcp/era.rs] -> mcp::tests::discover::a_404_with_method_not_found: KILLED
+    (applied by hand after the run, the condition as rustfmt wrapped it: `if false && status == 404`)
+    test mcp::tests::discover::a_404_with_method_not_found_is_a_2026_server_without_discovery ... FAILED: left: Failed, right: Ready
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4281 filtered out; finished in 0.08s
+M12 the unsupported-version words lose fx's parenthesis [src/mcp/era.rs] -> mcp::tests::discover::a_stdio_server_that_speaks_only_2024_11_05: KILLED
+    test mcp::tests::discover::a_stdio_server_that_speaks_only_2024_11_05_is_refused_in_fxs_words ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4281 filtered out; finished in 1.09s
+M13 a version list matches a string that only contains a version [src/mcp/era.rs] -> mcp::tests::discover::a_hostile_discover_answer: KILLED
+    test mcp::tests::discover::a_hostile_discover_answer_neither_crashes_nor_hangs_a_start_nor_reaches_the_screen ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4281 filtered out; finished in 0.13s
+M14 an HTTP body that is no JSON-RPC is a broken stream [src/mcp/transport.rs] -> mcp::tests::discover::an_http_body_that_is_no_json_rpc: KILLED
+    test mcp::tests::discover::an_http_body_that_is_no_json_rpc_is_a_legacy_answer_at_once ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4281 filtered out; finished in 10.04s

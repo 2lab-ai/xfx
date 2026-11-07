@@ -1,0 +1,15 @@
+# fx v0.0.16 vs xfx head (d4183be1), pairs.py: raw rows that differ, and after the ledger's normalizations
+p5-mcp-discover-http-malformed-40x120-show: raw 1 rows, normalized 0 rows
+p5-mcp-discover-http-modern-40x120-show: raw 1 rows, normalized 0 rows
+p5-mcp-discover-http-modern-40x120-turn: raw 1 rows, normalized 0 rows
+p5-mcp-discover-http-notimpl-40x120-show: raw 1 rows, normalized 0 rows
+p5-mcp-discover-http-notimpl-40x120-turn: raw 1 rows, normalized 0 rows
+p5-mcp-discover-stdio-malformed-40x120-show: raw 0 rows, normalized 0 rows
+p5-mcp-discover-stdio-modern-40x120-show: raw 0 rows, normalized 0 rows
+p5-mcp-discover-stdio-modern-40x120-turn: raw 0 rows, normalized 0 rows
+p5-mcp-discover-stdio-silent-40x120-probing: raw 0 rows, normalized 0 rows
+p5-mcp-discover-stdio-silent-40x120-show: raw 0 rows, normalized 0 rows
+p5-mcp-discover-http-hostile-40x120-show: raw 2 rows, normalized 0 rows
+p5-mcp-discover-http-old2024-40x120-show: raw 2 rows, normalized 0 rows
+p5-mcp-discover-stdio-hostile-40x120-show: raw 1 rows, normalized 0 rows
+p5-mcp-discover-stdio-old2024-40x120-show: raw 1 rows, normalized 0 rows
