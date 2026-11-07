@@ -115,16 +115,32 @@ impl Base {
     /// place of `~/.config`, and `$ZDOTDIR`, where zsh reads its startup files
     /// in place of `~`. Each only when it is an absolute path. For a front end
     /// to hand its tools ([`crate::tools::ToolContext::with_link_bases`]).
+    ///
+    /// And a relative `HOME`, which is no profile home
+    /// (`crate::config::home_dir`) but is still what a command xfx runs is
+    /// handed (`crate::permission::authority`'s environment): its shell, its
+    /// git and the rest find their dotfiles under it, from their own folder.
+    /// So it is a home base where xfx was started -- its entries, and what
+    /// git's global configuration there includes -- as the profile home was
+    /// before a relative `HOME` stopped being one. Upstream has no such check
+    /// to copy: auto refuses by the written path's own components only
+    /// (`pathContainsComponentSequence`, `tool_admission.zig:695-716`), and
+    /// its `homeDir` gives a relative `HOME` to nobody.
     pub fn from_environment() -> Vec<Self> {
         let absolute = |name: &str| {
             std::env::var_os(name)
                 .map(PathBuf::from)
                 .filter(|path| path.is_absolute())
         };
+        let relative_home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .filter(|home| !home.as_os_str().is_empty() && home.is_relative())
+            .and_then(|home| std::env::current_dir().ok().map(|cwd| cwd.join(home)));
         absolute("XDG_CONFIG_HOME")
             .map(Self::Config)
             .into_iter()
             .chain(absolute("ZDOTDIR").map(Self::Root))
+            .chain(relative_home.map(Self::Home))
             .collect()
     }
 
