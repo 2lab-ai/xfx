@@ -372,31 +372,72 @@ fn the_c_library_reads_a_zone_without_a_usable_abbreviation_as_its_offset() {
     assert_eq!(read_in(&path, &[AT]), ["2024-01-02 08:34:05.006 +0530"]);
 }
 
+/// One reading through the C library: what it is, what it read, and what
+/// it should have.
+type Case = (String, Result<Vec<String>, String>, Vec<&'static str>);
+
 #[test]
 fn the_c_library_reads_a_zone_that_cannot_apply_in_utc() {
-    // Shifted out of 1970 through 9999.
-    assert_eq!(read_in("PST8", &[2]), ["1970-01-01 00:00:00.002 UTC"]);
-    assert_eq!(
-        read_in("<+14>-14", &[MAX_TIMESTAMP_MS]),
-        ["9999-12-31 23:59:59.999 UTC"]
-    );
-    // An offset of a day or more, from a string and from zone files.
-    assert_eq!(read_in("<XX>-25", &[AT]), ["2024-01-02 03:04:05.006 UTC"]);
+    const DAY_LESS_A_SECOND: &str = "2024-01-03 03:04:04.006 XXX";
+    const IN_UTC: &str = "2024-01-02 03:04:05.006 UTC";
     let dir = tempfile::tempdir().expect("a directory");
+    let mut cases: Vec<Case> = Vec::new();
+    // An offset of a day or more, from zone files: no `TZ` parser stands
+    // between the offset written and `tm_gmtoff`, on any C library.
     for offset_s in [90_000, -90_000, i32::MAX] {
         let path = dir.path().join(format!("day{offset_s}"));
         std::fs::write(&path, zone_file(b"DAY", offset_s)).expect("a zone file");
-        assert_eq!(
-            read_in(&path, &[AT]),
-            ["2024-01-02 03:04:05.006 UTC"],
-            "{offset_s}"
-        );
+        cases.push((
+            format!("zone file at {offset_s} s"),
+            try_read_in(&path, &[AT]),
+            vec![IN_UTC],
+        ));
     }
+    // POSIX strings every C library here reads alike: a name of three, hours
+    // up to 24. A day exactly reads UTC, a day less a second applies. Past
+    // 24 hours glibc clamps the hours to 24 (`compute_offset`, time/tzset.c)
+    // and macOS keeps 25: a day or more either way.
+    for (tz, moment, expected) in [
+        ("<XXX>-24", AT, IN_UTC),
+        ("<XXX>-25", AT, IN_UTC),
+        ("<XXX>-23:59:59", AT, DAY_LESS_A_SECOND),
+        // Shifted out of 1970 through 9999.
+        ("PST8", 2, "1970-01-01 00:00:00.002 UTC"),
+        ("<+14>-14", MAX_TIMESTAMP_MS, "9999-12-31 23:59:59.999 UTC"),
+    ] {
+        cases.push((tz.to_string(), try_read_in(tz, &[moment]), vec![expected]));
+    }
+    // A quoted name of two is not POSIX. macOS's tzcode takes it, at 25 h: a
+    // day or more, UTC. glibc refuses a name under three (`parse_tzname`)
+    // and reads UTC with no name (`__tzset_parse_tz`), which the filter will
+    // not show: the offset, `+0000`. fx, linking the same C library and the
+    // same filter, prints the same.
+    #[cfg(target_os = "macos")]
+    let two = IN_UTC;
+    #[cfg(not(target_os = "macos"))]
+    let two = "2024-01-02 03:04:05.006 +0000";
+    cases.push((
+        "<XX>-25".to_string(),
+        try_read_in("<XX>-25", &[AT]),
+        vec![two],
+    ));
     // And nothing at all outside the range.
-    assert_eq!(
-        read_in("IST-5:30", &[-1, MAX_TIMESTAMP_MS + 1]),
-        ["none", "none"]
-    );
+    cases.push((
+        "IST-5:30 outside 1970-9999".to_string(),
+        try_read_in("IST-5:30", &[-1, MAX_TIMESTAMP_MS + 1]),
+        vec!["none", "none"],
+    ));
+    // Every case read before any is judged, so one platform's reading
+    // cannot hide the next case's.
+    let wrong: Vec<String> = cases
+        .into_iter()
+        .filter(|(_, read, expected)| {
+            read.as_deref()
+                .map_or(true, |read| read != expected.as_slice())
+        })
+        .map(|(what, read, expected)| format!("{what}: {read:?}, expected {expected:?}"))
+        .collect();
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
 #[test]

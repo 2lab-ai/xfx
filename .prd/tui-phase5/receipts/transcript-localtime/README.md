@@ -251,3 +251,42 @@ with `TMPDIR=/private/tmp/claude-501/tlt`:
 - identity, stubs and secrets checks: ok (9842 files). `test-sweep`: ok.
 - Release and faulty builds: ok. `smoke.sh`: 47 checks, 0 failures.
   `smoke-tui`: 37 scenarios plus the oracle, 1111 checks, 0 failures.
+
+## T-U5c (the Linux CI result, train PR #73)
+
+- **The failure.** Both Linux jobs failed
+  `the_c_library_reads_a_zone_that_cannot_apply_in_utc` at its `<XX>-25`
+  assert: `+0000` where the test expected `UTC`. Opus predicted it. glibc's
+  `parse_tzname` refuses a quoted name under three characters (`if (*p++ !=
+  '>' || len < 3) return false;`, `time/tzset.c`, glibc master). On that
+  failure `__tzset_parse_tz` leaves "unnamed UTC" (`tz_rules[0].name = ""`,
+  offset 0). The filter refuses the empty name, so the output is `+0000`. The
+  assert panicked, so the zone files after it (±90000 s, `i32::MAX` s) never
+  ran on Linux.
+- **fx does the same.** fx links libc (`build.zig:76@481104fd`,
+  `.link_libc = true`). It reads `tm_zone`/`tm_gmtoff` from `localtime_r`
+  (`local_time.zig:151-158@481104fd`) through the same filter (`:118-124`).
+  On glibc, an empty name at offset 0 prints `+0000` in fx too
+  (`writeZoneName`, `:106-116`). [추론] fx's Linux build is not run here.
+  fx's release builds `-Dtarget=x86_64-linux`/`aarch64-linux`
+  (`.github/workflows/release.yml@481104fd`), whose default libc was not read.
+- **The test now** reads every case before it judges any, and reports each
+  wrong one.
+  - The zone files run unconditionally, first.
+  - Then POSIX strings that both C libraries read alike: `<XXX>-24` reads UTC
+    (exactly a day), `<XXX>-25` reads UTC (glibc clamps hours over 24 to 24 in
+    `compute_offset`, macOS keeps 25 h), and `<XXX>-23:59:59` applies (`… XXX`,
+    a day less a second). Then `PST8` and `<+14>-14`.
+  - `<XX>-25` asserts each platform's own reading: macOS `UTC` (its tzcode
+    takes the 2-character name at 25 h), elsewhere `+0000`.
+- **The other C-library tests, checked against glibc's rules.** `<-03>3`,
+  `<+05>-5`, `<+0545>-5:45` and `<ABCDEFGHIJK>-5:30` are quoted names of 3 or
+  more characters, which `parse_tzname` accepts (11 is not too long). `PST8`
+  and `IST-5:30` are unquoted, 3 letters. `EST5EDT,M3.2.0,M11.1.0` and
+  `AEST-10AEDT,M10.1.0,M4.1.0/3` have names of 3 and 4. Hours are all at most
+  24. None takes glibc's failure path, and those tests passed on both Linux
+  jobs.
+- **Gates (macOS):** `cargo fmt --check`, `cargo clippy --locked
+  --all-targets -- -D warnings`, the same with `--features fault-injection`:
+  ok. `cargo test --lib local_time::`, default and fault-injection: 11 passed
+  each. The Linux receipt is the train's CI.
