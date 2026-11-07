@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-151dde9 [debug] · Run /help for commands
+
+  2026-11-07 03:38:16.898 UTC · Notice
+* session: provider: gateway · model: fake/model-a · effort:
+  auto
+  tools: 13 advertised (list_files, glob_files, grep_files,
+  read_file, write_file, edit_file, create_folder, terminal,
+  +5 more)
+  mcp: none
+
+  2026-11-07 03:38:22.035 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 1ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-07 03:38:22.151 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 62ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-07 03:38:21.968 UTC · Prompt
+┃ show the file
+
+  2026-11-07 03:38:22.071 UTC · Response
+  Showing the file.
+
+  2026-11-07 03:38:22.071 UTC · Tool
+● 2 tool calls · 1 read · 1 command
+├ Ran printf '%s\n' 'A‮B​C﻿D [2JE F G' >/dev/null; cat safe.txt
+│ #
+│  command: printf '%s\n'
+│  'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G'
+│  >/dev/null; cat safe.txt # \x0d
+│ a\u{202e}b\u{200b}c\u{feff}de\u{009b}f        g
+│ X
+
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a

@@ -1,0 +1,40 @@
+  tokens: 1200 in · 40 out
+
+  2026-11-07 03:38:51.371 UTC · Prompt
+┃ look
+
+  2026-11-07 03:38:51.459 UTC · Response
+  Looking.
+
+  2026-11-07 03:38:51.459 UTC · Tool
+● 3 tool calls · 1 read · 1 list · 1 command · 1 failed
+├ Ran printf '%s' 'A‮B⁦C؜D [2JE F G H' >/dev/null
+│  command: printf '%s'
+│  'A\u{202e}B\u{2066}C\u{061c}D\x1b[2JE\x0dF
+│  G\u{009b}H' >/dev/null
+
+  2026-11-07 03:38:51.480 UTC · Tool
+├ Matched n‮o⁦p؜q 7r s t u*.md
+│  pattern: n\u{202e}o\u{2066}p\u{061c}q\x1b7r
+│  s\u{009b}t\x0du*.md
+│  [glob] no matches for n\u{202e}o\u{2066}p\u{061c}q\x1b7r
+│     s\u{009b}t\x0du*.md
+
+
+  2026-11-07 03:38:51.492 UTC · Tool
+└ Failed m‮n⁦o؜p [2Jq r s t.txt: Path not found: m‮n⁦o؜p [2Jq r s
+  t.txt
+│  path: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq
+│  r\u{009b}s\x0dt.txt
+│  Path not found: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq    r
+│  \u{009b}s\x0dt.txt
+
+  2026-11-07 03:38:51.604 UTC · Response
+  Done.
+
+  2026-11-07 03:38:51.604 UTC · Usage
+  0s (↑1 ↓80)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a

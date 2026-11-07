@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-29e8f8d [debug] · Run /help for commands
+
+┃ show the file
+
+  Showing the file.
+
+● 2 tool calls · 1 read · 1 command
+├ Ran printf '%s\n' 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u…
+└ Read safe.txt
+
+  Shown.
+
+  1s (↑3 ↓80)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
