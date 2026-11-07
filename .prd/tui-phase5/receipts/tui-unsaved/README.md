@@ -14,7 +14,8 @@ Commits:
 Binaries (sha256 prefix of `target/debug/xfx`):
 - RED `715a65de…`, built at `771b428b` (banner `v0.1.0-771b428`).
 - Round 1 GREEN `6c3d4d49…`, built at `83d06be6` (banner `v0.1.0-83d06be`). Round 2 RED for the image pair is this binary: `src/` is unchanged from `83d06be6` to `82919cc0` (`git diff --stat 83d06be6 82919cc0 -- src tests Cargo.toml Cargo.lock build.rs` is empty).
-- **GREEN `a1fbfed4…`, built at `a38a413c` (banner `v0.1.0-a38a413`)**: every capture in `green/`.
+- Round 2 GREEN `a1fbfed4…`, built at `a38a413c` (banner `v0.1.0-a38a413`).
+- **GREEN `821508c0…`, built at `9f0e4a66` (banner `v0.1.0-9f0e4a6`)**: every capture now in `green/`, from the sweep that `green.txt` scores.
 
 fx is v0.0.16 (`8e6cda2e…`), checked by `capture.sh` around every run.
 
@@ -131,13 +132,16 @@ fx titles only an active, saved session (`activeSessionId(app) orelse return`, `
 
 - **What fx names.** Only its own copy of an image, never the file it was attached from (`savedImagePath`, `noteAttachmentLocations`, `src/core/images/image_attachments.zig:1050-1062@481104fd`). In an unsaved session, that copy is its temporary snapshot (`captureImageAttachment`, `app_session_runtime.zig:1331-1344`).
 - **What xfx did.** In an unsaved session, turn 1 named nothing. Turn 2 and later named the attached file's source path.
-- **What xfx does now.**
-  - It names only its own copy: the session's, or a paste's. An attached file in an unsaved session has none, so its note says `No local image file is available` on every turn.
-  - That is narrower than fx, which makes a temporary copy and names it. This is written in `docs/parity.md`.
-  - A pasted image is named by its paste copy on every turn.
-- **Tests** (`red-tests-r3.txt`).
+- **What xfx does now** (`9f0e4a66`; `6edb0ab9` first wrote a no-copy divergence, which had no allowed reason and is withdrawn).
+  - In an unsaved session `Shell::attach` copies an attached file into the private directory the paste copies use. The copy is `0600` in a `0700` directory and is removed with the shell, as fx captures every attachment (`captureImageAttachment`, `app_session_runtime.zig:1331-1344`; `createTempSnapshotDir`, `image_attachments.zig:246-273`).
+  - `Image::own_copy` is the one rule for turn 1 (`user_message`) and the history (`Snapshot::Loaded`): a paste's copy, otherwise that temporary copy. So the note names the copy on every turn and never the source.
+  - A copy that cannot be written leaves none, and the note names nothing, as a paste's does.
+  - The badge, the `attached image: <name>` notice and the files the user named are unchanged; the workspace listings stay byte-identical with fx's (`green.txt`).
+- **Tests** (`red-tests-r3.txt`, `red-tests-r4.txt`).
   - RED: `an_unsaved_sessions_image_is_named_the_same_on_every_turn_and_only_by_its_own_copy` fails on `ad670388`'s `src` at turn 1, with `[None, None]`.
-  - A mutant that brings back the source path in the history fails at "every later turn".
+  - The same test now expects the attached file's temporary copy on turn 1 and on every later turn, never the source, and no name when there is no copy.
+  - `an_unsaved_sessions_attached_file_gets_a_private_temporary_copy`: the copy sits beside the paste copies, is `0600` in `0700`, holds the bytes, leaves the source as it was, and is removed with the shell. A saving session makes no such copy.
+  - Mutants that fail: A (no copy at attach), B (`own_copy` ignores the copy), C (`own_copy` names the source); and the round-3 mutant (the history names the source path).
 - **Wording fixes.**
   - `links.rs` and `docs/parity.md` now say that a git the terminal runs in another folder reads `<folder>/<HOME>/.gitconfig`, which the walk does not seed.
   - The fx citation for `activeSessionId` is now `:3036`.

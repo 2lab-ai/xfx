@@ -1,0 +1,23 @@
+# L-U3c round 2: mutants on a throwaway clone of 9f0e4a66 (git clone --no-local in the short TMPDIR); each step resets src/
+## mutant A: Shell::attach makes no copy (dd618c39's behaviour)
+ma-shell exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3992 filtered out; finished in 0.01s 
+test tui::shell::tests::an_unsaved_sessions_attached_file_gets_a_private_temporary_copy ... FAILED
+## mutant B: own_copy names only a paste's copy (dd618c39's rule)
+mb-machine exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3992 filtered out; finished in 0.01s 
+test agent::machine::tests::an_unsaved_sessions_image_is_named_the_same_on_every_turn_and_only_by_its_own_copy ... FAILED
+## mutant C: own_copy names the source file
+mc-machine exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3992 filtered out; finished in 0.01s 
+test agent::machine::tests::an_unsaved_sessions_image_is_named_the_same_on_every_turn_and_only_by_its_own_copy ... FAILED
+## why each failed
+-- ma-shell
+thread 'tui::shell::tests::an_unsaved_sessions_attached_file_gets_a_private_temporary_copy' (270222392) panicked at src/tui/shell.rs:37382:39:
+a temporary copy
+
+-- mb-machine
+thread 'agent::machine::tests::an_unsaved_sessions_image_is_named_the_same_on_every_turn_and_only_by_its_own_copy' (270225789) panicked at src/agent/machine.rs:2382:9:
+assertion `left == right` failed: the turn that sends them
+  left: [Some("<local-path>"), None]
+-- mc-machine
+thread 'agent::machine::tests::an_unsaved_sessions_image_is_named_the_same_on_every_turn_and_only_by_its_own_copy' (270228673) panicked at src/agent/machine.rs:2382:9:
+assertion `left == right` failed: the turn that sends them
+  left: [Some("<local-path>"), Some("/w/shot.png")]

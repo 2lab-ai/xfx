@@ -1,10 +1,9 @@
-# GREEN: a38a413c's xfx (sha256 a1fbfed4...) against fx v0.0.16 (8e6cda2e...), scored with parity-ledger.toml at a38a413c
-# workspace listings (workls), byte for byte on the raw captures
-SAME p5-lifecycle-relhome-image-40x120-work-i00.txt
-SAME p5-lifecycle-relhome-40x120-work-h02.txt
-SAME p5-lifecycle-relhome-made-40x120-work-h03.txt
-SAME p5-lifecycle-relhome-resume-40x120-work-r01.txt
-SAME p5-lifecycle-relhome-unsaved-40x120-work-u09.txt
+# GREEN: 9f0e4a66's xfx (sha256 821508c0...) against fx v0.0.16 (8e6cda2e...), scored with parity-ledger.toml at 9f0e4a66
+workls SAME p5-lifecycle-relhome-40x120-work-h02.txt
+workls SAME p5-lifecycle-relhome-image-40x120-work-i00.txt
+workls SAME p5-lifecycle-relhome-made-40x120-work-h03.txt
+workls SAME p5-lifecycle-relhome-resume-40x120-work-r01.txt
+workls SAME p5-lifecycle-relhome-unsaved-40x120-work-u09.txt
 # snap pairs: scripts/fxcap/sweep.sh --only 'p5-lifecycle-relhome*', 17 pairs
 normalized-identical p5-lifecycle-relhome-40x120-h00-launch
 normalized-identical p5-lifecycle-relhome-40x120-h01-sessions.full
@@ -24,11 +23,8 @@ normalized-identical p5-lifecycle-relhome-unsaved-40x120-u06-new
 normalized-identical p5-lifecycle-relhome-unsaved-40x120-u07-turn
 normalized-identical p5-lifecycle-relhome-unsaved-40x120-u08-quit.full
 
-# p5-lifecycle-relhome-image: the image parts of each request the fake gateway received (a title request carries none)
+# p5-lifecycle-relhome-image: image parts per request (sweep4)
 fx v0.0.16 001-completion.json images=1
 fx v0.0.16 002-completion.json images=1
-RED 83d06be6 (src = 82919cc0's) 001-title.json images=0
-RED 83d06be6 (src = 82919cc0's) 002-completion.json images=1
-RED 83d06be6 (src = 82919cc0's) 003-completion.json images=0
-GREEN a38a413c 001-completion.json images=1
-GREEN a38a413c 002-completion.json images=1
+xfx 9f0e4a66 001-completion.json images=1
+xfx 9f0e4a66 002-completion.json images=1
