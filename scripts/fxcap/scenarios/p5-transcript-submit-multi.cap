@@ -1,0 +1,24 @@
+# Phase 5 transcript (T-U6, fx v0.0.16's 70611a91): a three-line prompt
+# submitted on a full screen (the answer of p5-transcript-submit, taller than
+# the screen). The terminal bytes are kept on both sides of Enter (`wire`) to
+# find what the frame that clears the composer shows of the prompt: fx
+# previews its last line until the card is written.
+gateway p5-transcript-submit-turns.json
+fx: env FX_AUTO_UPGRADE=0
+wait 4
+type fill the screen
+wait 1
+key Enter
+wait 8
+snap filled
+paste multi line one\nmulti line two\nmulti line three
+wait 0.5
+wire before-submit
+key Enter
+wait 0.15
+snap submit-0.15
+wait 3
+snap second
+snapfull second
+wire after-submit
+gwlog

@@ -1,0 +1,6 @@
+first line
+tab	here
+bidi ‮ reversed
+zero​width ﻿ bom
+crlf line
+del  and literal \x1b text

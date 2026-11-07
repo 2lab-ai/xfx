@@ -1,0 +1,23 @@
+# TMPDIR=/private/tmp/claude-501/tr cargo test --locked --lib tui::wrap::tests::a_cluster_that_holds
+# on d3584529's code (2f328d47's product code) with only this test added; (cluster, painter, fx's count by the port)
+
+running 1 test
+test tui::wrap::tests::a_cluster_that_holds_a_soft_hyphen_or_a_filler_takes_the_cells_fx_counts ... FAILED
+
+failures:
+
+---- tui::wrap::tests::a_cluster_that_holds_a_soft_hyphen_or_a_filler_takes_the_cells_fx_counts stdout ----
+
+thread 'tui::wrap::tests::a_cluster_that_holds_a_soft_hyphen_or_a_filler_takes_the_cells_fx_counts' (268642734) panicked at src/tui/wrap.rs:1239:9:
+assertion `left == right` failed: (cluster, painter, fx)
+  left: [("1160 0301", 0, 1), ("1160 FE0E", 0, 1), ("1160 034F", 0, 1), ("1160 200D", 0, 1), ("3164 0301", 0, 2), ("3164 FE0E", 0, 2), ("3164 034F", 0, 2), ("3164 200D", 0, 2), ("FFA0 0301", 0, 1), ("FFA0 FE0E", 0, 1), ("FFA0 034F", 0, 1), ("FFA0 200D", 0, 1), ("115F 1160", 2, 3), ("1100 1160", 2, 3), ("115F 1161", 2, 3), ("1100 1160 11A8", 2, 4)]
+ right: []
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::wrap::tests::a_cluster_that_holds_a_soft_hyphen_or_a_filler_takes_the_cells_fx_counts
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4036 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`

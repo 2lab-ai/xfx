@@ -1891,9 +1891,26 @@ fn run_on(row: &str, cols: u16) -> Vec<String> {
 }
 
 /// A change as upstream's transcript shows one under its call
-/// (`appendDiffRenderLine`, `diff.zig:1063-1084`): `  │ N ± text`, the changed
-/// lines in the diff grey and the rest in the dim one -- monochrome, as
-/// upstream's markers are until a theme is pinned (`render.zig:93-105`).
+/// (`appendDiffRenderLine`, `diff.zig:1250-1276@481104fd`): `  │ N ± text`,
+/// the changed lines in the diff grey and the rest in the dim one --
+/// monochrome, as upstream's markers are until a theme is pinned
+/// (`render.zig:93-105`).
+///
+/// **A line's text is a file's, and it is written as fx v0.0.16 writes it**
+/// (9db199e4): read back from the permission boundary's spelling
+/// ([`unspelled`]) and spelled again with fx's own forms
+/// ([`terminal_safe_line`], `appendTerminalSafeLine`,
+/// `text_utils.zig:419-442@481104fd`, from `diff.zig:1273@481104fd`), so the
+/// row is fx's byte for byte and nothing in it is a byte a terminal acts on.
+/// A tab is fx's too: fx hands the terminal the tab, which moves to the next
+/// stop over cells it leaves unwritten; this screen places rows cell by cell,
+/// so it writes those cells, unstyled, as the terminal leaves them
+/// ([`drawn_tabs`]).
+///
+/// The review keeps xfx's own spelling (`approval_view::tamed` over
+/// `bounded_diff_side`): it is the screen a change is decided on, and fx's
+/// forms there would show a change of a carriage return as no change at all
+/// (`scripts/fxcap/parity-ledger.toml`, `review-diff-spelling`).
 fn diff_rows(diff: &ApprovalDiff, cols: u16, palette: Palette) -> Vec<String> {
     let review = Review::of_diff(diff);
     let width = review
@@ -1910,19 +1927,22 @@ fn diff_rows(diff: &ApprovalDiff, cols: u16, palette: Palette) -> Vec<String> {
         .to_string()
         .len();
     let reset = palette.reset();
+    // `  │ `, the number, a space, the sign, a space.
+    let start = 4 + width + 3;
     review
         .lines
         .iter()
         .map(|line| {
+            let file = |text: &str| terminal_safe_line(&unspelled(text));
             let (style, number, sign, text) = match line {
                 ReviewLine::Context(number, text) => {
-                    (palette.dim(), number.to_string(), ' ', text.clone())
+                    (palette.dim(), number.to_string(), ' ', file(text))
                 }
                 ReviewLine::Added(number, text) => {
-                    (palette.diff(), number.to_string(), '+', text.clone())
+                    (palette.diff(), number.to_string(), '+', file(text))
                 }
                 ReviewLine::Removed(number, text) => {
-                    (palette.diff(), number.to_string(), '-', text.clone())
+                    (palette.diff(), number.to_string(), '-', file(text))
                 }
                 ReviewLine::Elided(count) => (
                     palette.dim(),
@@ -1934,10 +1954,135 @@ fn diff_rows(diff: &ApprovalDiff, cols: u16, palette: Palette) -> Vec<String> {
                     (palette.dim(), String::new(), ' ', (*text).to_string())
                 }
             };
+            let text = drawn_tabs(&text, start, style, reset);
             let row = format!("  \u{2502} {number:>width$} {sign} {text}");
             format!("{style}{}{reset}", clip(&row, cols))
         })
         .collect()
+}
+
+/// A line of a change as the permission boundary spelled it
+/// (`crate::permission::bounded_diff_side`), read back to the file's own text:
+/// `\\` a backslash, `\t` a tab, `\r` a carriage return, `\u{…}` the code point
+/// it names. The boundary spends a backslash on every name and doubles the
+/// file's own, so each backslash here begins one of those; a backslash that
+/// begins none of them (text that did not come from the boundary: a log
+/// written by hand) is kept as it is.
+///
+/// What this returns is never written as it is: [`terminal_safe_line`] spells
+/// every byte of it a terminal would act on.
+fn unspelled(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(at) = rest.find('\\') {
+        out.push_str(&rest[..at]);
+        rest = &rest[at..];
+        let after = &rest[1..];
+        let (character, len) = if after.starts_with('\\') {
+            (Some('\\'), 2)
+        } else if after.starts_with('t') {
+            (Some('\t'), 2)
+        } else if after.starts_with('r') {
+            (Some('\r'), 2)
+        } else {
+            match after
+                .strip_prefix("u{")
+                .and_then(|digits| digits.split_once('}'))
+                .filter(|(hex, _)| {
+                    (1..=6).contains(&hex.len()) && hex.bytes().all(|b| b.is_ascii_hexdigit())
+                })
+                .and_then(|(hex, _)| {
+                    u32::from_str_radix(hex, 16)
+                        .ok()
+                        .map(|code| (code, hex.len()))
+                })
+                .and_then(|(code, digits)| char::from_u32(code).map(|c| (c, digits)))
+            {
+                Some((character, digits)) => (Some(character), 1 + 2 + digits + 1),
+                None => (None, 1),
+            }
+        };
+        match character {
+            Some(character) => out.push(character),
+            None => out.push('\\'),
+        }
+        rest = &rest[len..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// One line of a file, ready to draw, as fx v0.0.16 writes one
+/// (`appendTerminalSafeLine`, `src/core/shared/text_utils.zig:419-442@481104fd`):
+///
+/// * a carriage return that ends the line is dropped (`:429`);
+/// * a tab stays (`:432-436`);
+/// * every other C0 control and `DEL` is `\xNN`, two lower-case hex digits
+///   (`terminalSafeToken`, `:645-646`; `writeByteEscape`, `:675-686`);
+/// * a C1 control, a zero-width or directional mark, a line or paragraph
+///   separator, an embedding, an override, an isolate, an invisible operator
+///   and the byte-order mark are `\u{NNNN}`, at least four lower-case hex
+///   digits (`isNonPrintingCodepoint`, `:703-708`; `writeCodepointEscape`,
+///   `:688-701`) -- and so is the Arabic letter mark (`U+061C`), which fx
+///   writes as itself: it reorders the text around it as the marks fx names
+///   do (`approval_view`'s `reorders`), so it is named here too
+///   (`scripts/fxcap/parity-ledger.toml`, `ctrl-o-arabic-letter-mark`);
+/// * everything else is itself (`:666`).
+///
+/// fx also writes `\xNN` for each byte outside a valid UTF-8 sequence
+/// (`:652-662`); a line here is a `str`, so it has none -- a file that is not
+/// UTF-8 is never edited (`crate::tools::mutate`), and a write's review of one
+/// says so in words ([`crate::permission::non_text_summary`]).
+fn terminal_safe_line(line: &str) -> String {
+    use std::fmt::Write as _;
+    let line = line.strip_suffix('\r').unwrap_or(line);
+    let mut out = String::with_capacity(line.len());
+    for character in line.chars() {
+        let code = u32::from(character);
+        if character == '\t' {
+            out.push('\t');
+        } else if code < 0x20 || code == 0x7f {
+            let _ = write!(out, "\\x{code:02x}");
+        } else if fx_names(code) || character == '\u{061c}' {
+            let _ = write!(out, "\\u{{{code:04x}}}");
+        } else {
+            out.push(character);
+        }
+    }
+    out
+}
+
+/// fx's `isNonPrintingCodepoint` (`text_utils.zig:703-708@481104fd`).
+fn fx_names(code: u32) -> bool {
+    (0x80..=0x9f).contains(&code)
+        || (0x200b..=0x200f).contains(&code)
+        || (0x2028..=0x202e).contains(&code)
+        || (0x2060..=0x206f).contains(&code)
+        || code == 0xfeff
+}
+
+/// `text` with each tab drawn as the terminal draws the one fx writes: blank,
+/// unstyled cells up to the next stop, a multiple of eight columns from the
+/// screen's left edge, the text starting at column `start`. The row's style
+/// is put back after them.
+fn drawn_tabs(text: &str, start: usize, style: &str, reset: &str) -> String {
+    if !text.contains('\t') {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut column = start;
+    for (index, piece) in text.split('\t').enumerate() {
+        if index > 0 {
+            let blank = 8 - column % 8;
+            out.push_str(reset);
+            out.push_str(&" ".repeat(blank));
+            out.push_str(style);
+            column += blank;
+        }
+        out.push_str(piece);
+        column += usize::from(wrap::width(piece));
+    }
+    out
 }
 
 /// Everything `transcript` has queued, laid out as the rows a terminal would
@@ -2602,6 +2747,226 @@ mod tests {
             !plain.iter().any(|row| row.contains("content:")),
             "the arguments were listed beside the diff that covers them: {plain:?}"
         );
+    }
+
+    #[test]
+    fn a_changes_rows_write_a_files_bytes_as_fx_does_and_hand_the_terminal_none() {
+        // fx v0.0.16's 9db199e4: a diff row's text goes through
+        // `appendTerminalSafeLine` (`text_utils.zig:419-442@481104fd`, from
+        // `diff.zig:1273`). The permission boundary spelled the sides its own
+        // way (`bounded_diff_side`); the row is fx's.
+        let diff = ApprovalDiff::of(
+            "a\n",
+            "bidi \u{202e} x\nzero\u{200b}width \u{feff} bom\nesc \u{1b}[2J c1 \u{9b}\ntab\there\ncrlf\r\nlit \\x1b\n",
+        );
+        let rows = diff_rows(&diff, 120, DARK);
+        // Written out rather than read from `fx_names`, so a change there
+        // cannot pass itself.
+        let acted_on = |c: char| {
+            c.is_control()
+                || matches!(c, '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}' | '\u{61c}')
+        };
+        // Only the palette's own colours are taken out, so a raw ESC -- and
+        // the sequence it begins -- is still there to be seen (`plain` would
+        // strip it with every other sequence).
+        for row in &rows {
+            let bare = [DARK.dim(), DARK.diff(), DARK.reset()]
+                .iter()
+                .fold(row.clone(), |row, sgr| row.replace(sgr, ""));
+            assert!(
+                !bare.chars().any(acted_on),
+                "a row hands the terminal a character it acts on: {bare:?}"
+            );
+        }
+        assert_eq!(
+            rows,
+            [
+                "\u{1b}[38;5;252m  \u{2502} 1 - a\u{1b}[0m",
+                "\u{1b}[38;5;252m  \u{2502} 1 + bidi \\u{202e} x\u{1b}[0m",
+                "\u{1b}[38;5;252m  \u{2502} 2 + zero\\u{200b}width \\u{feff} bom\u{1b}[0m",
+                "\u{1b}[38;5;252m  \u{2502} 3 + esc \\x1b[2J c1 \\u{009b}\u{1b}[0m",
+                // The tab's cells, unstyled, up to column 16, as a terminal
+                // leaves the cells fx's tab moves over.
+                "\u{1b}[38;5;252m  \u{2502} 4 + tab\u{1b}[0m     \u{1b}[38;5;252mhere\u{1b}[0m",
+                "\u{1b}[38;5;252m  \u{2502} 5 + crlf\u{1b}[0m",
+                "\u{1b}[38;5;252m  \u{2502} 6 + lit \\x1b\u{1b}[0m",
+            ]
+        );
+        // The review keeps xfx's own spelling: it is the screen a change is
+        // decided on (parity-ledger.toml `review-diff-spelling`).
+        let reviewed: Vec<String> = Review::of_diff(&diff)
+            .rows(120, &super::super::approval_view::Styles::PLAIN)
+            .into_iter()
+            .map(|(row, _)| row.trim_start().to_string())
+            .collect();
+        assert_eq!(reviewed[1], "1 + bidi \\u{202E} x");
+        assert_eq!(reviewed[5], "5 + crlf\\r");
+        assert_eq!(reviewed[6], "6 + lit \\\\x1b");
+    }
+
+    #[test]
+    fn a_files_line_is_spelled_as_fxs_append_terminal_safe_line_spells_it() {
+        // (the file's line, the row's text, fx's line at 481104fd in
+        // src/core/shared/text_utils.zig)
+        let table: &[(&str, &str, &str)] = &[
+            (
+                "before\u{1b}[2Jcleared",
+                "before\\x1b[2Jcleared",
+                "ESC, a CSI: terminalSafeToken :645-646, writeByteEscape :675-686",
+            ),
+            (
+                "\u{1b}]0;title\u{7}",
+                "\\x1b]0;title\\x07",
+                "an OSC and its BEL: :645-646",
+            ),
+            (
+                "second \u{9b}line",
+                "second \\u{009b}line",
+                "C1 CSI U+009B: isNonPrintingCodepoint :704, writeCodepointEscape :688-701",
+            ),
+            ("osc \u{9d}x", "osc \\u{009d}x", "C1 OSC U+009D: :704"),
+            ("del \u{7f}", "del \\x7f", "DEL: :645"),
+            (
+                "tab\there",
+                "tab\there",
+                "a tab stays: appendTerminalSafeLine :432-436",
+            ),
+            ("crlf line\r", "crlf line", "a trailing CR is dropped: :429"),
+            ("two\r\r", "two\\x0d", "only one: :429, then :645"),
+            ("mid\rline", "mid\\x0dline", "a CR inside the line: :645"),
+            ("bidi \u{202e} x", "bidi \\u{202e} x", "U+202E: :706"),
+            (
+                "isolate \u{2066}x\u{2069}",
+                "isolate \\u{2066}x\\u{2069}",
+                "an isolate: :707",
+            ),
+            (
+                "mark \u{200e}\u{200f}",
+                "mark \\u{200e}\\u{200f}",
+                "LRM, RLM: :705",
+            ),
+            ("zero\u{200b}width", "zero\\u{200b}width", "U+200B: :705"),
+            ("line\u{2028}sep", "line\\u{2028}sep", "U+2028: :706"),
+            ("\u{feff}bom", "\\u{feff}bom", "U+FEFF: :708"),
+            (
+                "é 한 😀 ⋯ \u{202e}",
+                "é 한 😀 ⋯ \\u{202e}",
+                "printables stay: :666",
+            ),
+            (
+                "literal \\x1b",
+                "literal \\x1b",
+                "a backslash is itself: :648-649",
+            ),
+            // xfx's one addition: fx writes U+061C as itself (:703-708 has no
+            // arm for it); it reorders as the marks above do.
+            (
+                "alm \u{61c}x",
+                "alm \\u{061c}x",
+                "U+061C: xfx names it (ctrl-o-arabic-letter-mark)",
+            ),
+        ];
+        // A byte outside a valid UTF-8 sequence (:652-662) cannot be here:
+        // the line is a `str`.
+        for (line, row, why) in table {
+            assert_eq!(terminal_safe_line(line), *row, "{why}");
+        }
+    }
+
+    #[test]
+    fn every_code_point_to_u2100_and_past_it_is_spelled_as_fx_spells_it() {
+        // fx's rule for one character of a line, written out here rather
+        // than read from `terminal_safe_line` or `fx_names`, so a narrowed
+        // range cannot pass itself (`terminalSafeToken`,
+        // `text_utils.zig:643-667@481104fd`; `isNonPrintingCodepoint`,
+        // `:703-708`): C0 and DEL `\xNN`; C1, U+200B-200F, U+2028-202E,
+        // U+2060-206F and U+FEFF `\u{NNNN}`; a tab itself; and xfx's one
+        // addition, U+061C.
+        let fx = |c: char| -> String {
+            let code = u32::from(c);
+            if c == '\t' {
+                "\t".to_string()
+            } else if code < 0x20 || code == 0x7f {
+                format!("\\x{code:02x}")
+            } else if (0x80..=0x9f).contains(&code)
+                || (0x200b..=0x200f).contains(&code)
+                || (0x2028..=0x202e).contains(&code)
+                || (0x2060..=0x206f).contains(&code)
+                || code == 0xfeff
+                || code == 0x061c
+            {
+                format!("\\u{{{code:04x}}}")
+            } else {
+                c.to_string()
+            }
+        };
+        // Every code point to U+2100, then the byte-order mark and the
+        // default-ignorable ones fx writes as themselves and tmux 3.7b draws
+        // a cell wide (`approval_view`'s `default_ignorable`): those stay
+        // raw here too, as fx's, and the painter counts them as fx does
+        // (`super::super::wrap`'s `counted_as_upstream`, WIDTH-DISPUTED).
+        let points = (0u32..=0x2100)
+            .chain([0xfeff, 0x061c, 0x3164, 0xffa0])
+            .chain(0xfff0..=0xfff8);
+        let mut checked = 0;
+        for code in points {
+            let Some(c) = char::from_u32(code) else {
+                continue;
+            };
+            // Between two letters, so a carriage return is not the one
+            // that ends the line (that one is dropped, `:429`).
+            let line = format!("a{c}b");
+            assert_eq!(
+                terminal_safe_line(&line),
+                format!("a{}b", fx(c)),
+                "U+{code:04X}"
+            );
+            checked += 1;
+        }
+        assert_eq!(checked, 0x2101 + 2 + 2 + 9);
+    }
+
+    #[test]
+    fn the_boundarys_spelling_reads_back_to_the_files_text() {
+        // `bounded_diff_side` is injective; `unspelled` is its inverse on a
+        // line, over every scalar up to U+00FF and the marks fx names.
+        let mut samples: Vec<String> = (0u32..=0xff)
+            .filter_map(char::from_u32)
+            .filter(|c| *c != '\n')
+            .map(|c| format!("a{c}b"))
+            .collect();
+        samples.extend(
+            [
+                "\u{202e}",
+                "\u{200b}",
+                "\u{feff}",
+                "\u{61c}",
+                "\\",
+                "\\\\",
+                "\\t",
+                "\\u{001B}",
+                "x\\",
+            ]
+            .iter()
+            .map(|s| (*s).to_string()),
+        );
+        for raw in samples {
+            let spelled = crate::permission::bounded_diff_side(&raw);
+            assert_eq!(unspelled(&spelled), raw, "{spelled:?}");
+        }
+        // What the boundary never writes is kept as it is, and spelled
+        // safely after it.
+        for (odd, kept) in [
+            ("\\q", "\\q"),
+            ("\\u{D800}", "\\u{D800}"),
+            ("\\u{zz}", "\\u{zz}"),
+            ("\\u{+41}", "\\u{+41}"),
+            ("\\u{", "\\u{"),
+            ("end\\", "end\\"),
+        ] {
+            assert_eq!(unspelled(odd), kept);
+            assert_eq!(terminal_safe_line(&unspelled(odd)), kept);
+        }
     }
 
     #[test]

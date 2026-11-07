@@ -1,0 +1,77 @@
+x𝒇x v0.1.0-039fb5c [debug] · Run /help for commands
+
+┃ fill the screen
+
+  Filler line 01 of the first answer.
+
+  Filler line 02 of the first answer.
+
+  Filler line 03 of the first answer.
+
+  Filler line 04 of the first answer.
+
+  Filler line 05 of the first answer.
+
+  Filler line 06 of the first answer.
+
+  Filler line 07 of the first answer.
+
+  Filler line 08 of the first answer.
+
+  Filler line 09 of the first answer.
+
+  Filler line 10 of the first answer.
+
+  Filler line 11 of the first answer.
+
+  Filler line 12 of the first answer.
+
+  Filler line 13 of the first answer.
+
+  Filler line 14 of the first answer.
+
+  Filler line 15 of the first answer.
+
+  Filler line 16 of the first answer.
+
+  Filler line 17 of the first answer.
+
+  Filler line 18 of the first answer.
+
+  Filler line 19 of the first answer.
+
+  Filler line 20 of the first answer.
+
+  Filler line 21 of the first answer.
+
+  Filler line 22 of the first answer.
+
+  Filler line 23 of the first answer.
+
+  Filler line 24 of the first answer.
+
+  Filler line 25 of the first answer.
+
+  Filler line 26 of the first answer.
+
+  Filler line 27 of the first answer.
+
+  Filler line 28 of the first answer.
+
+  Filler line 29 of the first answer.
+
+  Filler line 30 of the first answer.
+
+  0s (↑4 ↓40)
+
+┃ multi line one
+┃ multi line two
+┃ multi line three
+
+  Second answer.
+
+  0s (↑13 ↓40)
+
+┃
+
+auto · model-a

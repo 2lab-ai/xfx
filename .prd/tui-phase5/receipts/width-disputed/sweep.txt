@@ -1,0 +1,2 @@
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4035 filtered out; finished in 1.25s
+sweep:  1111999 scalars measured in 13 s of tmux

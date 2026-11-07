@@ -1,0 +1,12 @@
+# a throwaway clone of f84734dc (git clone --no-local), with one change: fx_names loses its U+2028-U+202E arm,
+# so U+202E (the right-to-left override) is no longer escaped:
+-        || (0x2028..=0x202e).contains(&code)
+# TMPDIR=/private/tmp/claude-501/tr cargo test --locked --lib tui::full_transcript
+test tui::full_transcript::tests::a_files_line_is_spelled_as_fxs_append_terminal_safe_line_spells_it ... FAILED
+test tui::full_transcript::tests::a_changes_rows_write_a_files_bytes_as_fx_does_and_hand_the_terminal_none ... FAILED
+thread 'tui::full_transcript::tests::a_files_line_is_spelled_as_fxs_append_terminal_safe_line_spells_it' (265278202) panicked at src/tui/full_transcript.rs:2865:13:
+  left: "bidi \u{202e} x"
+ right: "bidi \\u{202e} x"
+thread 'tui::full_transcript::tests::a_changes_rows_write_a_files_bytes_as_fx_does_and_hand_the_terminal_none' (265278196) panicked at src/tui/full_transcript.rs:2769:13:
+a row hands the terminal a character it acts on: "  │ 1 + bidi \u{202e} x"
+test result: FAILED. 71 passed; 2 failed; 0 ignored; 0 measured; 3961 filtered out; finished in 0.41s

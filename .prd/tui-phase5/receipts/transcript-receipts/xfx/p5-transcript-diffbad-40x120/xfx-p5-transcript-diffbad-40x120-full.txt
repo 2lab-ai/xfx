@@ -1,0 +1,40 @@
+* network: provider: gateway · model: fake/model-a · 1ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-07 10:44:48.507 KST · Notice
+* network: provider: gateway · model: fake/model-a · 1ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-07 10:44:48.596 KST · Notice
+* network: provider: gateway · model: fake/model-a · 63ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-07 10:44:48.408 KST · Prompt
+┃ edit the file
+
+  2026-11-07 10:44:48.518 KST · Response
+  Editing the file.
+
+  2026-11-07 10:44:48.518 KST · Tool
+● 2 tool calls · 1 read · 1 edit · 1 failed
+├ Read bad.txt
+│  binary or non-utf8 file omitted (34 bytes)
+
+  2026-11-07 10:44:48.518 KST · Tool
+└ Failed bad.txt: edit_file will not replace `bad.txt` because this session has not read it; call read_file on it first
+│  old_string: first line
+│  new_string: FIRST LINE
+│  edit_file will not replace `bad.txt` because this session has not read it; call read_file on it first
+
+  2026-11-07 10:44:48.633 KST · Response
+  Edited.
+
+  2026-11-07 10:44:48.633 KST · Usage
+  0s (↑3 ↓120)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a

@@ -1,0 +1,23 @@
+# TMPDIR=/private/tmp/claude-501/tr cargo test --locked --lib tui::wrap::tests::the_soft_hyphen
+# on 8837634a's code with only this test added (before the fix); (code point, (painter alone, painter between letters), markdown port, fx)
+
+running 1 test
+test tui::wrap::tests::the_soft_hyphen_and_the_fillers_take_the_cells_fx_counts ... FAILED
+
+failures:
+
+---- tui::wrap::tests::the_soft_hyphen_and_the_fillers_take_the_cells_fx_counts stdout ----
+
+thread 'tui::wrap::tests::the_soft_hyphen_and_the_fillers_take_the_cells_fx_counts' (266838785) panicked at src/tui/wrap.rs:1149:9:
+assertion `left == right` failed
+  left: [("U+00AD", (0, 0), 1, 1), ("U+1160", (0, 0), 1, 1), ("U+3164", (0, 0), 2, 2), ("U+FFA0", (0, 0), 1, 1), ("U+FFF0", (0, 0), 1, 1), ("U+FFF1", (0, 0), 1, 1), ("U+FFF2", (0, 0), 1, 1), ("U+FFF3", (0, 0), 1, 1), ("U+FFF4", (0, 0), 1, 1), ("U+FFF5", (0, 0), 1, 1), ("U+FFF6", (0, 0), 1, 1), ("U+FFF7", (0, 0), 1, 1), ("U+FFF8", (0, 0), 1, 1)]
+ right: []
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::wrap::tests::the_soft_hyphen_and_the_fillers_take_the_cells_fx_counts
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4035 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
