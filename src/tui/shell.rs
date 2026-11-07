@@ -26717,6 +26717,196 @@ mod tests {
     }
 
     #[test]
+    fn a_resumed_calls_short_argument_is_looked_for_in_fxs_status_of_the_raw_command() {
+        // CALLROW-SAFE round 2: Ctrl-O leaves an argument's row out when fx's
+        // 120-byte status phrase holds its value (`argumentVisibleInToolHeading`,
+        // `src/ui/full_transcript_screen.zig:6594-6619@481104fd`), and fx makes
+        // that phrase from the command as written: 116 `a`, then U+202E, is
+        // cut before the whole `\u{202e}`. Made from the channel's spelling
+        // instead, the bound fell inside the escape, kept a literal `\`, and
+        // hid `cwd: a\`, which fx shows. The whole way: the log,
+        // `bridge::inert_hydration`, the shell, Ctrl-O.
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let command = format!("{}\u{202e}z", "a".repeat(116));
+        let steps = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![RecordedToolCall {
+                    id: "c".to_string(),
+                    name: "terminal".to_string(),
+                    input: serde_json::json!({"action": "exec", "command": command, "cwd": "a\\"}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+            TurnStep::ToolResult {
+                images: Vec::new(),
+                call_id: "c".to_string(),
+                tool: "terminal".to_string(),
+                ok: true,
+                output: String::new(),
+                ending: None,
+                lines: None,
+                change: None,
+            },
+        ];
+        let state = logged(vec![logged_turn(
+            "run it",
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        )]);
+        let mut resumed = shell(40, 160);
+        resumed.hydrate(bridge::inert_hydration(state), false);
+        resumed.route_bytes(b"\x0f");
+        let rows = uncoloured_rows(&resumed.screen_rows());
+        let heading = format!("\u{2514} Ran {}\\u{{202e}}z", "a".repeat(116));
+        assert!(rows.contains(&heading), "{rows:#?}");
+        assert!(
+            rows.iter().any(|row| row == "\u{2502}  cwd: a\\"),
+            "{rows:#?}"
+        );
+    }
+
+    #[test]
+    fn a_failed_calls_long_reason_is_spelled_and_bounded_alike_on_both_views() {
+        // CALLROW-SAFE round 2: a reason crossing the 120 bytes the shell
+        // used to cut it at and the 256 fx bounds it at, with white space at
+        // the first and an escape at the second: the channel flattens and
+        // spells it (`encodeTerminalSafeInline`, `text_utils.zig:397-417
+        // @481104fd`), and the document's row and Ctrl-O's heading carry the
+        // same text. A resumed failure has no reason, as fx's replay has none
+        // (`app_session_runtime.zig:4296-4312@481104fd`; capture
+        // `fx-resume-tools-40x120-resumed`, `Failed missing.txt`).
+        let reason = format!(
+            "Path not found: {}\t \r\n{}\u{1b}[2J{}\u{202e}{}",
+            "a".repeat(100),
+            "b".repeat(100),
+            "c".repeat(29),
+            "d".repeat(50)
+        );
+        let spelled = format!(
+            "Path not found: {} {}\\x1b[2J{}...",
+            "a".repeat(100),
+            "b".repeat(100),
+            "c".repeat(29)
+        );
+        assert_eq!(spelled.len(), 256);
+        let row = format!("\u{2514} Failed gone.txt: {spelled}");
+        let mut live = shell(40, 300);
+        live.route_bytes(b"read\r");
+        let _ = live.picks_up();
+        live.apply(UiEvent::TurnStarted.made_inert());
+        live.apply(
+            tool_start("r", "read_file", serde_json::json!({"path": "gone.txt"})).made_inert(),
+        );
+        live.apply(
+            UiEvent::ToolResult {
+                call_id: "r".to_string(),
+                tool: "read_file".to_string(),
+                ok: false,
+                detail: reason.clone(),
+                outcome: CallOutcome::Finished,
+                changes: None,
+            }
+            .made_inert(),
+        );
+        live.apply(UiEvent::Delta("Done.".to_string()));
+        live.apply(UiEvent::TurnEnded { failure: None });
+        live.shell.flush_paced();
+        let document = uncoloured_rows(&live.painted_document());
+        assert!(document.contains(&row), "{document:#?}");
+        live.route_bytes(b"\x0f");
+        let full = uncoloured_rows(&live.screen_rows());
+        assert!(full.contains(&row), "{full:#?}");
+        // At 120 columns the document's row is cut at the edge; it is the
+        // same row.
+        let mut narrow = shell(40, 120);
+        narrow.route_bytes(b"read\r");
+        let _ = narrow.picks_up();
+        narrow.apply(UiEvent::TurnStarted);
+        narrow.apply(
+            tool_start("r", "read_file", serde_json::json!({"path": "gone.txt"})).made_inert(),
+        );
+        narrow.apply(
+            UiEvent::ToolResult {
+                call_id: "r".to_string(),
+                tool: "read_file".to_string(),
+                ok: false,
+                detail: reason.clone(),
+                outcome: CallOutcome::Finished,
+                changes: None,
+            }
+            .made_inert(),
+        );
+        narrow.apply(UiEvent::TurnEnded { failure: None });
+        narrow.shell.flush_paced();
+        let cut = uncoloured_rows(&[super::super::transcript::ellipsized(&row, 120)]);
+        let document = uncoloured_rows(&narrow.painted_document());
+        assert!(document.contains(&cut[0]), "{:?}\n{document:#?}", cut[0]);
+        for bytes in [
+            document.join("\n"),
+            uncoloured_rows(&narrow.screen_rows()).join("\n"),
+        ] {
+            assert!(
+                !bytes.contains('\u{202e}') && !bytes.contains('\t'),
+                "{bytes:?}"
+            );
+        }
+
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let steps = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![RecordedToolCall {
+                    id: "r".to_string(),
+                    name: "read_file".to_string(),
+                    input: serde_json::json!({"path": "gone.txt"}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+            TurnStep::ToolResult {
+                images: Vec::new(),
+                call_id: "r".to_string(),
+                tool: "read_file".to_string(),
+                ok: false,
+                output: reason,
+                ending: None,
+                lines: None,
+                change: None,
+            },
+        ];
+        let state = logged(vec![logged_turn(
+            "read",
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        )]);
+        let mut resumed = shell(40, 300);
+        resumed.hydrate(bridge::inert_hydration(state), false);
+        let document = uncoloured_rows(&resumed.painted_document());
+        assert!(
+            document.iter().any(|row| row == "\u{2514} Failed gone.txt"),
+            "{document:#?}"
+        );
+        resumed.route_bytes(b"\x0f");
+        let full = uncoloured_rows(&resumed.screen_rows());
+        assert!(
+            full.iter().any(|row| row == "\u{2514} Failed gone.txt"),
+            "{full:#?}"
+        );
+    }
+
+    #[test]
     fn a_stopped_turn_replays_as_upstreams_cancellation_and_a_failed_one_as_failed() {
         use crate::session::{RecordedToolCall, ToolEnding, TurnConclusion, TurnStep};
         let cut_off = vec![

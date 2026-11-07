@@ -411,7 +411,9 @@ pub(crate) struct Argument {
     /// already shows it (`argumentVisibleInToolHeading`,
     /// `full_transcript_screen.zig:6594-6619@481104fd`), which looks for the
     /// value as written in a heading fx spelled -- so one holding anything
-    /// the heading spells, a control or a mark, is never found there.
+    /// the heading spells, a control or a mark, is never found there -- and
+    /// in its status phrase, whose command is its first 120 bytes: judged here,
+    /// on the raw call, before anything is spelled (`super::toolgroup::status`).
     pub(crate) text: bool,
 }
 
@@ -612,17 +614,25 @@ fn arguments(tool: &str, input: &Value) -> Vec<Argument> {
         .collect();
     names.sort_by_key(|name| declared.iter().position(|declared| declared == name));
     names.extend(map.keys().filter(|name| !declared.contains(&name.as_str())));
+    let status = Registry::builtin()
+        .spec(tool)
+        .and_then(|spec| super::toolgroup::status(&spec.shown(input)));
     names
         .into_iter()
         .map(|name| {
             let value = &map[name];
             let (value, text) = match value {
                 // Shown by the heading only as written, never once it spelled
-                // a control or a mark (`super::toolgroup::spelled`).
+                // a control or a mark (`super::toolgroup::spelled`), and only
+                // where fx's status phrase holds it as written
+                // (`super::toolgroup::status`, made from the raw call).
                 Value::String(text) => (
                     text.clone(),
                     crate::tools::question::terminal_safe(text).len() == text.len()
-                        && !text.contains('\u{061c}'),
+                        && !text.contains('\u{061c}')
+                        && status
+                            .as_deref()
+                            .is_none_or(|status| status.contains(text.as_str())),
                 ),
                 other => (other.to_string(), false),
             };
@@ -1884,8 +1894,7 @@ impl FullTranscript {
                 let shown_already = argument.text
                     && !argument.value.is_empty()
                     && heading_fits
-                    && first_line.contains(argument.value.as_str())
-                    && super::toolgroup::status_shows(&call.shown, &argument.value);
+                    && first_line.contains(argument.value.as_str());
                 let exec = call.shown.presentation.activity == Activity::Command
                     && argument.name == "action"
                     && argument.value == "exec";

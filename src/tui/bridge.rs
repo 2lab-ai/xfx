@@ -472,8 +472,9 @@ impl UiEvent {
     /// spells it.
     ///
     /// Exhaustive on purpose: a variant added later does not compile until its
-    /// text has been given an answer here.
-    fn made_inert(self) -> Self {
+    /// text has been given an answer here. `pub(crate)` for the shell's tests,
+    /// which hand it events the way the channel does.
+    pub(crate) fn made_inert(self) -> Self {
         match self {
             // No text at all: what it carries is the fact that it arrived.
             Self::TurnStarted => Self::TurnStarted,

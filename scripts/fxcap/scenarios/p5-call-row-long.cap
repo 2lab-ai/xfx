@@ -1,0 +1,19 @@
+# Phase 5 CALLROW-SAFE round 2: a command fx reads only in part. Its first
+# 14 400 bytes are `echo shown` and line breaks, and `echo hidden` comes
+# after them: fx's row shows the head and says nothing of the tail
+# (projectRunCommandActivitySource reads 14 400 bytes; only the encoder
+# marks a cut); xfx's ends `...` (ledger `call-row-source-cut`). fx's
+# `shell`/`run` is xfx's `terminal`/`exec`. TZ=UTC on both.
+fx: gateway p5-call-row-long-turns.json
+xfx: gateway p5-call-row-long-xfx.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+env TZ=UTC
+wait 4
+type run it
+wait 1
+key Enter
+wait 5
+snap end
+gwlog

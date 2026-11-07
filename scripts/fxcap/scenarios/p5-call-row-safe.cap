@@ -1,10 +1,12 @@
 # Phase 5 CALLROW-SAFE: a call's own row -- the transcript's tool row and
 # Ctrl-O's heading -- over arguments a terminal would act on or that would
 # reorder the row. One step, three calls: a command, a glob pattern and a
-# read path, each carrying U+202E, U+2066, U+061C, an escape (ESC[2J; ESC 7
-# in the pattern, where `[` would open a character class), a bare CR, a tab
-# and the C1 U+009B. fx's `shell`/`run` is xfx's `terminal`/`exec`. TZ=UTC
-# on both.
+# read path, each carrying U+202E, U+2066, an escape (ESC[2J; ESC 7 in the
+# pattern, where `[` would open a character class), a bare CR, a tab and the
+# C1 U+009B, and the pattern and the path U+061C too -- not the command,
+# whose rows are fx's cell for cell and so are compared with nothing set
+# aside (the ledger's `call-row-raw-argument` names the other two calls'
+# rows only). fx's `shell`/`run` is xfx's `terminal`/`exec`. TZ=UTC on both.
 fx: gateway p5-call-row-safe-turns.json
 xfx: gateway p5-call-row-safe-xfx.json
 fx: env FX_AUTO_UPGRADE=0

@@ -67,7 +67,7 @@ const COMMAND_TARGET_BYTES: usize = COMMAND_SOURCE_BYTES - 1;
 /// the call's row is made from before the transcript puts the stored command
 /// in its place (`max_run_command_activity_bytes`, `tool_presentation.zig:21`;
 /// `formatRunCommandActivity`, `:393-416`), and the one Ctrl-O looks in for an
-/// argument the heading already shows ([`status_shows`]).
+/// argument the heading already shows ([`status`]).
 const COMMAND_STATUS_BYTES: usize = 120;
 
 /// How many bytes of any other call's argument a row keeps, spelled: fx's
@@ -572,7 +572,9 @@ fn cancelled_line(call: &Call, palette: Palette) -> String {
 ///   src/core/tooling/tool_presentation.zig:256-311`): of its first
 ///   [`COMMAND_SOURCE_BYTES`], a carriage return or a line feed ends a line,
 ///   the spaces and tabs that open the next go with it, and one space stands
-///   for the break once something came before it and something follows;
+///   for the break once something came before it and something follows --
+///   and where fx says nothing of a command it stopped reading with more left
+///   to show, the row ends `...` (ledger `call-row-source-cut`);
 ///   then [`Spelling`] writes it at [`COMMAND_TARGET_BYTES`]
 ///   (`formatRunCommandDetailBounded`, `:432-447`, the row's text at
 ///   `src/core/app/app_callbacks.zig:544-549`);
@@ -608,27 +610,30 @@ pub(crate) fn spelled(target: &str, activity: Activity) -> String {
     command_spelled(target, COMMAND_TARGET_BYTES)
 }
 
-/// Whether fx's status phrase for this call holds `value` -- the text Ctrl-O
-/// looks in for an argument the heading already shows
-/// (`argumentVisibleInToolHeading`, `src/ui/full_transcript_screen.zig:
-/// 6594-6619@481104fd`, reads the status entry's own bytes, not the command the
-/// heading puts in its place): a command's is its first [`COMMAND_STATUS_BYTES`]
-/// spelled, so a command past them keeps its argument row even where the heading
-/// shows it whole. Any other call's status is its whole argument, which its row
-/// shows (`true`; the heading's own text is the caller's to search).
+/// fx's status phrase for a call with this argument as the model wrote it,
+/// or `None` when its status is the whole argument -- the text Ctrl-O looks in
+/// for an argument the heading already shows (`argumentVisibleInToolHeading`,
+/// `src/ui/full_transcript_screen.zig:6594-6619@481104fd`, reads the status
+/// entry's own bytes, not the command the heading puts in its place).
 ///
-/// The target here is already spelled once (the channel's, [`spelled`]), and a
-/// bound that falls inside one of its escapes cuts that escape's text where fx,
-/// spelling the raw command, would cut before it: a value is found differently
-/// only when it ends within an escape's length of byte 117 of a command that
-/// has one.
-pub(crate) fn status_shows(shown: &Shown, value: &str) -> bool {
-    match (&shown.target, shown.presentation.activity) {
-        (Some(target), Activity::Command) => {
-            command_spelled(target, COMMAND_STATUS_BYTES).contains(value)
-        }
-        _ => true,
-    }
+/// A command's is its first [`COMMAND_STATUS_BYTES`] spelled, so a command
+/// past them keeps its argument row even where the heading shows it whole. A
+/// command call with no command has an empty one, which holds nothing. Any
+/// other call's status is its whole argument, which its row shows.
+///
+/// `shown` must be the **raw** call -- the tool's own decode of the model's
+/// arguments, before the channel spells them (`super::bridge`'s
+/// `spelled_shown`): a bound applied to the spelled text could fall inside an
+/// escape's spelling, where fx's, on the raw command, falls before the whole
+/// escape, and a value ending in `\` would be found where fx finds none.
+pub(crate) fn status(shown: &Shown) -> Option<String> {
+    (shown.presentation.activity == Activity::Command).then(|| {
+        shown
+            .target
+            .as_deref()
+            .map(|target| command_spelled(target, COMMAND_STATUS_BYTES))
+            .unwrap_or_default()
+    })
 }
 
 /// A command as [`spelled`] spells it, at `max` bytes.
@@ -638,6 +643,17 @@ fn command_spelled(target: &str, max: usize) -> String {
     let mut written = false;
     for (at, character) in target.char_indices() {
         if at >= COMMAND_SOURCE_BYTES {
+            // fx stops reading here and says nothing of what it left
+            // (`tool_presentation.zig:268`, its marker only the encoder's,
+            // `:445`): a row that hides its own tail without a word is not
+            // safe to copy, so the row is marked cut when anything it would
+            // show is left (ledger `call-row-source-cut`).
+            if target[at..]
+                .chars()
+                .any(|left| !matches!(left, ' ' | '\t' | '\r' | '\n'))
+            {
+                spelling.cut = true;
+            }
             break;
         }
         match character {
@@ -655,8 +671,10 @@ fn command_spelled(target: &str, max: usize) -> String {
             // fx reads the command's first bytes, so a character the bound
             // splits is read in part; no part is a character, and each of its
             // bytes is `\xNN` (`terminalSafeToken`, `text_utils.zig:652-657`).
+            // The rest of it is left unread, so the row is marked cut too.
             let mut bytes = [0u8; 4];
             character.encode_utf8(&mut bytes);
+            spelling.cut = true;
             bytes[..COMMAND_SOURCE_BYTES - at]
                 .iter()
                 .all(|byte| spelling.token(&format!("\\x{byte:02x}")))
@@ -1566,5 +1584,40 @@ mod tests {
         let row = &plain(&group)[1];
         let expected = format!("\u{2514} Reading {}A...", spelled_pair.repeat(454));
         assert!(*row == expected, "{}", &row[row.len() - 40..]);
+    }
+
+    #[test]
+    fn a_command_read_only_in_part_says_so_where_fx_says_nothing() {
+        // fx reads a command's first 14 400 bytes and marks nothing when what
+        // it read fits (`projectRunCommandActivitySource`, `tool_presentation.
+        // zig:268@481104fd`; the marker only `encodeTerminalSafe`'s, `:445`):
+        // one that is mostly line breaks shows its head alone, its tail hidden
+        // without a word. Here the row says it was cut -- in the transcript
+        // and on Ctrl-O, where a row that hides its own tail is not safe to
+        // copy (ledger `call-row-source-cut`) -- but only when something the
+        // row would show is left.
+        let breaks = "\n".repeat(14_400);
+        for (command_text, row) in [
+            (
+                format!("echo shown{breaks}echo hidden"),
+                "Running echo shown...",
+            ),
+            (format!("echo shown{breaks} \t\r\n"), "Running echo shown"),
+            // A character the bound splits: the byte read is `\xNN`, as fx
+            // writes it, and the rest is marked.
+            (
+                format!("echo shown{}\u{202e}z", "\n".repeat(14_389)),
+                r"Running echo shown \xe2...",
+            ),
+        ] {
+            let mut group = ToolGroup::default();
+            group.start("1".into(), command(&command_text));
+            assert_eq!(plain(&group)[1], format!("\u{2514} {row}"));
+            let expanded = strip(&group.expanded(DARK)[1]);
+            assert_eq!(expanded, format!("\u{2514} {row}"));
+            // And spelled again, as the row spells what the channel spelled.
+            let once = spelled(&command_text, Activity::Command);
+            assert_eq!(spelled(&once, Activity::Command), once);
+        }
     }
 }
