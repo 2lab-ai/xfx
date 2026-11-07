@@ -72,6 +72,9 @@ comes from the environment and reaches the terminal. Base: T-U1+U2's head
 The C-library tests use POSIX `TZ` strings and zone files the test writes, so
 they need no system tzdata. They ran on macOS here; **CI's two Linux runners
 are their glibc receipt** (each assertion holds whether or not glibc scrubs).
+On glibc, `<XX>-25` probably reads UTC for another reason: glibc refuses a
+quoted name under 3 characters [추론, opus review]. There the day fallback is
+proven by the ±90000 s zone files, not by that string (T-U5b below).
 `ctrl_o_shows_what_a_tool_read_…` now sets `TZ=UTC` for its ` UTC · Tool`.
 
 ## RED
@@ -195,3 +198,56 @@ cargo … && ! pgrep -x 'xfx-[0-9a-f]+' …`), macOS:
 | `cargo build --locked --release`; `--release --features fault-injection --target-dir target/faulty` | ok; ok |
 | `scripts/smoke.sh target/release/xfx` | 47 checks, 0 failures |
 | `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx` | 37 scenarios + the oracle, 1111 checks, 0 failures |
+
+## T-U5b (after review: gpt6 and opus MUST none, opus APPROVE)
+
+- **Merge.** `feat/p5-transcript-wrap` @ `f103c2a9` (T-U1U2b, code
+  `52b150c7`) merged as `edbe9a80`. `src/tui/full_transcript.rs` merged
+  without a conflict (their measure, question rows and rebuild; this unit's
+  `stamp`). The one conflict, `docs/parity.md`'s Ctrl-O row, keeps their row
+  with this unit's local-time clause in place of its UTC one.
+- **Opus SHOULD 1** (`c84392a3`): `libc::time_t::try_from(epoch_s).ok()`,
+  `Zone::UTC` otherwise, before the lock (fx `local_time.zig:151@481104fd`);
+  the "64-bit `time_t` on both targets" comment is gone.
+- **Opus SHOULD 2** (`c84392a3`): a signed name stays its name. tzdata's
+  `-03` (America/Sao_Paulo, `-03` in macOS's tzdata) and `+05` print as
+  named, not `-0300`/`+0500` (`isPlainZoneName`, `:118-124`): in pure code
+  (`a_zone_without_a_plain_name_shows_its_offset`), and through the C library
+  from `<-03>3`, `<+05>-5` and a zone file named `-03`
+  (`the_c_library_reads_a_zone_without_a_usable_abbreviation_as_its_offset`).
+- **Opus SHOULD 3** (a note): on Linux, `<XX>-25`
+  (`the_c_library_reads_a_zone_that_cannot_apply_in_utc`) may read UTC
+  because glibc refuses the 2-character quoted name, not because of the day
+  fallback; on glibc that fallback is proven by the same test's ±90000 s and
+  `i32::MAX` s zone files. The Linux CI results are to be read by test name
+  before merge.
+
+Re-run on the merged build (`tu5b/`). The code commit is **`c84392a3`**,
+built after it was committed: 39 of 39 banner-bearing snaps read
+`v0.1.0-c84392a`, and the merge base's binary (f103c2a9, a throwaway clone)
+reads `v0.1.0-f103c2a` in 39 of 39 (`tu5b/banners.txt`).
+
+- **Pairs** against the same `fx/` snaps: `p5-transcript-tz` **0 of 41**,
+  `-tzsys` **0 of 41** (`tu5b/pairs/`). All 24 clocks check, 0 `WRONG`
+  (`tu5b/clocks.txt`).
+- **Regressions** (`tu5b/regressions.txt`): every `p5-transcript-*` capture,
+  15 runs and 83 snaps, `question` and `records` included, merge base against
+  head. 74 are identical, and 8 differ only in a Ctrl-O header's zone (`UTC` →
+  `KST`/`IST`, as above). One row is the run's timing: `cancel`'s `mid` snap,
+  taken mid-stream, shows `↓43` on the base and `↓51` on the head. On a
+  recapture the base gave `↓49` and `↓51` and the head `↓51` twice, so the
+  count moves on the base alone. That snap has no header.
+- **T-U1U2b's `check.py`** (their claims and their `fx/` snaps), with the
+  head's captures as `xfx/`: **34 claims, 34 hold, 0 fail**
+  (`tu5b/check-tu1u2b.txt`).
+- **Not re-run:** the mutants (`mutants.txt` is from `1a4d9523`). The new
+  `-03`/`+05` assertions fail under a filter that takes no `+`/`-` [추론].
+
+Gates at `c84392a3`, run one at a time, each full suite after the idle wait,
+with `TMPDIR=/private/tmp/claude-501/tlt`:
+- fmt and both clippy runs: ok.
+- Tests: 4925 passed, 0 failed (7 ignored); fault-injection: 4954 passed, 0
+  failed (7 ignored).
+- identity, stubs and secrets checks: ok (9842 files). `test-sweep`: ok.
+- Release and faulty builds: ok. `smoke.sh`: 47 checks, 0 failures.
+  `smoke-tui`: 37 scenarios plus the oracle, 1111 checks, 0 failures.
