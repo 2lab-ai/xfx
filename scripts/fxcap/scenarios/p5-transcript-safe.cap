@@ -1,0 +1,29 @@
+# Phase 5 T-U1-SAFE: Ctrl-O's argument, read and command rows over text a
+# terminal would act on. One step: a command whose own text carries U+202E,
+# U+200B, U+FEFF, ESC[2J, the C1 U+009B, a tab and (after a comment) a
+# trailing CR, and that prints a file holding the same characters ended by
+# CRLF, then a line a bare CR rewrites; then a read of that file. fx's
+# `shell`/`run` is xfx's `terminal`/`exec`. TZ=UTC on both.
+fx: gateway p5-transcript-safe-turns.json
+xfx: gateway p5-transcript-safe-xfx.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+env TZ=UTC
+work p5-transcript-safe-ws
+wait 4
+type show the file
+wait 1
+key Enter
+wait 5
+snap end
+snapfull end
+key C-o
+wait 2
+snap full
+key PPage
+wait 1
+snap full-pgup
+key C-o
+wait 1
+gwlog

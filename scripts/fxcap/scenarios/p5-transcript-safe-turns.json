@@ -1,0 +1,1 @@
+[{"chunks": ["Showing the file.\n"], "tools": [{"name": "shell", "input": {"request": {"action": "run", "command": "printf '%s\\n' 'A\u202eB\u200bC\ufeffD\u001b[2JE\u009bF\tG' >/dev/null; cat safe.txt # \r", "yield_time_ms": 5000}}}, {"name": "read_file", "input": {"path": "safe.txt"}}]}, {"delayMs": 60, "chunks": ["Shown."]}, {"delayMs": 60, "chunks": ["Spare."]}]

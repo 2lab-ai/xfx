@@ -413,33 +413,95 @@ pub(crate) struct Argument {
 }
 
 impl Detail {
-    /// The same detail with every control a terminal would obey made a space
-    /// (`super::bridge::inert`): all of it is the model's or a tool's.
+    /// The same detail with nothing left in it that a terminal would act on
+    /// or that would hide or reorder the text around it: all of it is the
+    /// model's or a tool's.
+    ///
+    /// An argument, a result and a command's output are spelled as fx v0.0.16
+    /// spells them on this screen ([`detail_spelled`]); a change's sides are
+    /// still made inert (`super::bridge::inert`), the diff rows' own spelling
+    /// being theirs. Idempotent: what it writes is printable ASCII.
     pub(crate) fn made_inert(self) -> Self {
-        let inert = |text: String| bridge::inert(&text).into_owned();
+        let spelled = |text: String| detail_spelled(&text, FOUR_CELLS);
         match self {
             Detail::Arguments(arguments) => Detail::Arguments(
                 arguments
                     .into_iter()
                     .map(|argument| Argument {
-                        name: inert(argument.name),
-                        value: inert(argument.value),
+                        name: spelled(argument.name),
+                        value: spelled(argument.value),
                         text: argument.text,
                     })
                     .collect(),
             ),
             Detail::Command { output, status } => Detail::Command {
-                output: inert(output),
-                status: status.map(inert),
+                // The tab is the row's to draw to its stop (`railed`).
+                output: detail_spelled(&output, "\t"),
+                status: status.map(spelled),
             },
-            Detail::Result(text) => Detail::Result(inert(text)),
-            Detail::Change(change) => Detail::Change(ApprovalDiff {
-                before: inert(change.before),
-                after: inert(change.after),
-                ..change
-            }),
+            Detail::Result(text) => Detail::Result(spelled(text)),
+            Detail::Change(change) => {
+                let inert = |text: String| bridge::inert(&text).into_owned();
+                Detail::Change(ApprovalDiff {
+                    before: inert(change.before),
+                    after: inert(change.after),
+                    ..change
+                })
+            }
         }
     }
+}
+
+/// What fx writes for a tab in a call's argument or result: four spaces,
+/// wherever it stands (`TerminalSafeIndentedWriter.append`,
+/// `full_transcript_screen.zig:5171-5172@481104fd`).
+const FOUR_CELLS: &str = "    ";
+
+/// `text` as fx v0.0.16 writes a call's detail on this screen
+/// (`TerminalSafeIndentedWriter`, `full_transcript_screen.zig:5147-5194@481104fd`,
+/// for an argument, `appendFullSemanticArguments`, `:6681-6695`, and a
+/// result, `appendStoredResultContent`, `:5196-5229`, and `:6856-6864`):
+///
+/// * a line feed ends the line, and stays (`:5167-5170`);
+/// * a tab is `tab` -- [`FOUR_CELLS`] there; a command's output keeps its
+///   own for the row to draw (`wrapLiteralCommandOutput`,
+///   `assistant_wrap.zig:524-546@481104fd`);
+/// * everything else is fx's `terminalSafeToken`
+///   (`text_utils.zig:643-667@481104fd`), which is
+///   [`crate::tools::question::terminal_safe`]: every other C0 control and
+///   `DEL` `\xNN` -- a carriage return too, at a line's end or not -- and the
+///   C1 controls, the zero-width and directional marks, the separators, the
+///   embeddings, overrides and isolates and the byte-order mark `\u{NNNN}`;
+/// * and the Arabic letter mark (`U+061C`), which fx writes as itself, is
+///   `\u{061c}` too: it reorders the text around it as the marks fx names do
+///   (`approval_view`'s `reorders`; `scripts/fxcap/parity-ledger.toml`,
+///   `ctrl-o-command-marks`).
+///
+/// A command's output reaches this after [`command_stream`] has done what
+/// fx's decoder does with its escapes and carriage returns; what is left of
+/// either is spelled here. fx names the marks in an argument and a result,
+/// not in a command's output (`command_output_content.zig:171-173@481104fd`);
+/// here they are named in all three -- copying the raw ones is not safe
+/// (`ctrl-o-command-marks`).
+fn detail_spelled(text: &str, tab: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for (index, line) in text.split('\n').enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        for (index, piece) in line.split('\t').enumerate() {
+            if index > 0 {
+                out.push_str(tab);
+            }
+            let spelled = crate::tools::question::terminal_safe(piece);
+            if spelled.contains('\u{061c}') {
+                out.push_str(&spelled.replace('\u{061c}', "\\u{061c}"));
+            } else {
+                out.push_str(&spelled);
+            }
+        }
+    }
+    out
 }
 
 /// The details one journal record carries, by the call they belong to.
@@ -579,9 +641,12 @@ fn result(tool: &str, output: &str) -> Detail {
 
 /// A command's output out of the frame `terminal` reports it in
 /// (`crate::tools::terminal`'s `Outcome::into_result`): the streams with the
-/// tool's escaping undone, stdout before stderr, and the status when it was
+/// tool's escaping undone, each read as fx's decoder reads it
+/// ([`command_stream`]), stdout before stderr, and the status when it was
 /// not a clean exit -- upstream's `exit code N` and `signal N` rows
-/// (`appendCommandProcessPresentation`, `:6765-6795`).
+/// (`appendCommandProcessPresentation`, `:6765-6795`). Its tabs are kept, as
+/// fx keeps them (`Decoder.consumeByte`, `command_output_content.zig:
+/// 119-122@481104fd`), for the row to draw to the screen's stops.
 ///
 /// `None` for anything not in that frame -- a refusal, a timeout, a
 /// cancellation -- which is then shown as the text it is.
@@ -608,10 +673,193 @@ fn command_result(output: &str) -> Option<(String, Option<String>)> {
     let (stderr, _) = rest.split_once("</stderr>")?;
     let mut text = String::new();
     for stream in [stdout, stderr] {
-        text.push_str(&unframed(stream));
+        text.push_str(&command_stream(&unframed(stream)));
     }
     let text = text.strip_suffix('\n').unwrap_or(&text).to_string();
-    Some((wrap::expand_tabs(&text).into_owned(), status))
+    Some((text, status))
+}
+
+/// The most of one escape sequence fx's decoder keeps to write back when the
+/// sequence never ends (`Decoder.escape_bytes`, `command_output_content.zig:
+/// 57@481104fd`).
+const ESCAPE_KEPT_BYTES: usize = 64;
+
+/// One of a command's streams as fx v0.0.16's decoder makes it presentable
+/// (`Decoder`, `command_output_content.zig:52-282@481104fd`), before a byte of
+/// it is measured or bounded:
+///
+/// * an escape sequence is dropped whole -- a CSI to its final byte, an OSC
+///   to its `BEL` or `ESC \`, `ESC` and one byte in `@`..`_` (`:196-253`);
+///   one a control interrupts, or the stream ends inside, is written back
+///   instead, its controls as `\xNN` and `...` after it when it ran past
+///   [`ESCAPE_KEPT_BYTES`] (`flushIncompleteEscape`, `:264-275`); an `ESC`
+///   before anything else is written back and the byte after it read again
+///   (`:212-219`);
+/// * a carriage return before a line feed ends the line with it, one before
+///   anything else starts the line again (`replaceLine`, `:86-95`), and one
+///   that ends the stream is dropped (`finish`, `:68-72`);
+/// * a tab and printable ASCII are themselves, any other C0 control or `DEL`
+///   is `\xNN`, a C1 control `\u{00NN}` (`:113-176`), and everything else is
+///   itself -- [`detail_spelled`] names what fx leaves there.
+///
+/// fx works on bytes and names each one outside valid UTF-8 `\xNN`; a stream
+/// here is already text (`terminal` decodes its bytes lossily), and an escape
+/// kept past its last whole character is cut on that character rather than
+/// inside it.
+fn command_stream(raw: &str) -> String {
+    #[derive(PartialEq)]
+    enum Escape {
+        None,
+        Escape,
+        Csi,
+        Osc,
+        OscEscape,
+    }
+    struct Decoder {
+        out: String,
+        line_start: usize,
+        pending_cr: bool,
+        state: Escape,
+        kept: String,
+        overflow: bool,
+    }
+    impl Decoder {
+        fn byte_escape(&mut self, character: char) {
+            use std::fmt::Write as _;
+            let _ = write!(self.out, "\\x{:02x}", u32::from(character));
+        }
+        fn keep(&mut self, character: char) {
+            if self.kept.len() + character.len_utf8() <= ESCAPE_KEPT_BYTES {
+                self.kept.push(character);
+            } else {
+                self.overflow = true;
+            }
+        }
+        fn reset(&mut self) {
+            self.state = Escape::None;
+            self.kept.clear();
+            self.overflow = false;
+        }
+        fn flush_incomplete(&mut self) {
+            let kept = std::mem::take(&mut self.kept);
+            for character in kept.chars() {
+                if character < ' ' || character == '\u{7f}' {
+                    self.byte_escape(character);
+                } else {
+                    self.out.push(character);
+                }
+            }
+            if self.overflow {
+                self.out.push_str("...");
+            }
+            self.reset();
+        }
+        /// `consumeEscapeByte`: whether `character` was the sequence's.
+        fn escape(&mut self, character: char) -> bool {
+            match self.state {
+                Escape::None => false,
+                Escape::Escape => match character {
+                    '[' => {
+                        self.keep(character);
+                        self.state = Escape::Csi;
+                        true
+                    }
+                    ']' => {
+                        self.keep(character);
+                        self.state = Escape::Osc;
+                        true
+                    }
+                    '\u{40}'..='\u{5f}' => {
+                        self.reset();
+                        true
+                    }
+                    _ => {
+                        self.flush_incomplete();
+                        false
+                    }
+                },
+                Escape::Csi => {
+                    self.keep(character);
+                    if ('\u{40}'..='\u{7e}').contains(&character) {
+                        self.reset();
+                    } else if character < ' ' || character == '\u{7f}' {
+                        self.flush_incomplete();
+                    }
+                    true
+                }
+                Escape::Osc => {
+                    self.keep(character);
+                    if character == '\u{7}' {
+                        self.reset();
+                    } else if character == '\u{1b}' {
+                        self.state = Escape::OscEscape;
+                    }
+                    true
+                }
+                Escape::OscEscape => {
+                    self.keep(character);
+                    if character == '\\' {
+                        self.reset();
+                    } else if character != '\u{1b}' {
+                        self.state = Escape::Osc;
+                    }
+                    true
+                }
+            }
+        }
+        /// `consumeByte`, a character at a time.
+        fn consume(&mut self, character: char) {
+            if self.escape(character) {
+                return;
+            }
+            if self.pending_cr {
+                self.pending_cr = false;
+                if character == '\n' {
+                    self.out.push('\n');
+                    self.line_start = self.out.len();
+                    return;
+                }
+                self.out.truncate(self.line_start);
+            }
+            match character {
+                '\u{1b}' => {
+                    self.state = Escape::Escape;
+                    self.kept.clear();
+                    self.overflow = false;
+                    self.keep(character);
+                }
+                '\r' => self.pending_cr = true,
+                '\n' => {
+                    self.out.push('\n');
+                    self.line_start = self.out.len();
+                }
+                '\t' | ' '..='\u{7e}' => self.out.push(character),
+                '\u{80}'..='\u{9f}' => {
+                    use std::fmt::Write as _;
+                    let _ = write!(self.out, "\\u{{{:04x}}}", u32::from(character));
+                }
+                _ if character < ' ' || character == '\u{7f}' => self.byte_escape(character),
+                _ => self.out.push(character),
+            }
+        }
+    }
+    let mut decoder = Decoder {
+        out: String::with_capacity(raw.len()),
+        line_start: 0,
+        pending_cr: false,
+        state: Escape::None,
+        kept: String::new(),
+        overflow: false,
+    };
+    for character in raw.chars() {
+        decoder.consume(character);
+    }
+    // `finish`.
+    decoder.pending_cr = false;
+    if decoder.state != Escape::None {
+        decoder.flush_incomplete();
+    }
+    decoder.out
 }
 
 /// `terminal`'s escaping undone (`framed`: `&`, `<`, `>`).
@@ -1804,7 +2052,15 @@ fn railed(text: &str, gutter: &str, cols: u16, palette: Palette) -> Vec<String> 
             continue;
         }
         for row in super::prose::literal(line, width, rail) {
-            let piece = line[row.start..row.end].trim_end_matches([' ', '\n']);
+            // A command's tab, as the spaces to the stop the wrap measured it
+            // to: a column of the screen, the rail and the gutter included
+            // (`wrapLiteralCommandOutput`, `assistant_wrap.zig:524-546@481104fd`).
+            let piece = super::prose::expand_tabs(
+                &line[row.start..row.end],
+                usize::from(rail) + 1,
+                usize::from(cols),
+            );
+            let piece = piece.trim_end_matches([' ', '\n']);
             let piece = clip(piece, width);
             rows.push(format!("\u{2502}{dim}{gutter}{piece}{reset}"));
         }
@@ -3438,17 +3694,228 @@ mod tests {
         let Detail::Arguments(arguments) = detail else {
             panic!("not arguments");
         };
-        assert!(!arguments[0].name.contains('\u{1b}'));
-        assert!(!arguments[0].value.chars().any(char::is_control));
+        // Spelled, not blanked: fx's `\xNN` (`terminalSafeToken`,
+        // `text_utils.zig:643-667@481104fd`).
+        assert_eq!(arguments[0].name, "p\\x1b[2J");
+        assert_eq!(arguments[0].value, "v\\x1b]0;x\\x07");
+        // A command's output that never went through `command_stream` (made
+        // here by hand) is spelled the same; its line break and tab stay.
         let Detail::Command { output, status } = Detail::Command {
-            output: "a\u{1b}[31mb\nc".into(),
+            output: "a\u{1b}[31mb\nc\td\u{202e}".into(),
             status: Some("s\u{7}".into()),
         }
         .made_inert() else {
             panic!("not a command");
         };
-        assert_eq!(output, "a [31mb\nc");
-        assert_eq!(status.as_deref(), Some("s "));
+        assert_eq!(output, "a\\x1b[31mb\nc\td\\u{202e}");
+        assert_eq!(status.as_deref(), Some("s\\x07"));
+        // And it is idempotent: what it writes is printable ASCII.
+        let again = Detail::Command {
+            output: output.clone(),
+            status: status.clone(),
+        }
+        .made_inert();
+        assert_eq!(again, Detail::Command { output, status });
+    }
+
+    #[test]
+    fn a_commands_stream_is_read_as_fxs_decoder_reads_it() {
+        // `command_output_content.zig:52-282@481104fd`, one case per branch.
+        for (raw, shown) in [
+            // Sequences dropped whole: CSI, OSC to BEL and to ST, ESC + Fe.
+            ("a\u{1b}[2Jb\u{1b}[31mc", "abc"),
+            ("a\u{1b}]0;title\u{7}b\u{1b}]8;;x\u{1b}\\c", "abc"),
+            ("a\u{1b}Mb\u{1b}7c", "ab\\x1b7c"),
+            // A sequence a control interrupts, or the stream ends inside, is
+            // written back, its controls `\xNN`; a line feed inside a CSI is
+            // the sequence's, not a line's end.
+            ("a\u{1b}[2\u{7}b", "a\\x1b[2\\x07b"),
+            ("a\u{1b}[2\nb", "a\\x1b[2\\x0ab"),
+            ("a\u{1b}[12", "a\\x1b[12"),
+            ("a\u{1b}", "a\\x1b"),
+            // `ESC ESC [`: the first written back, the second a sequence.
+            ("a\u{1b}\u{1b}[1mb", "a\\x1bb"),
+            // Carriage returns: CRLF a line's end, a bare one the line again,
+            // the stream's last one dropped.
+            ("one\r\ntwo", "one\ntwo"),
+            ("over\rX\nnext", "X\nnext"),
+            ("a\rb\rc", "c"),
+            ("done\r", "done"),
+            ("x\r\u{1b}[2Ky", "y"),
+            // Tabs and printable ASCII themselves, other controls `\xNN`, C1
+            // `\u{00NN}`, the rest itself (the marks are `detail_spelled`'s).
+            ("a\tb\u{7}c\u{7f}d", "a\tb\\x07c\\x7fd"),
+            ("e\u{9b}f\u{85}", "e\\u{009b}f\\u{0085}"),
+            ("\u{202e}\u{e9}", "\u{202e}\u{e9}"),
+        ] {
+            assert_eq!(command_stream(raw), shown, "{raw:?}");
+        }
+        // A sequence that runs past what fx keeps of it ends `...`.
+        let long = format!("\u{1b}[{}", "1;".repeat(40));
+        let kept = command_stream(&long);
+        assert!(kept.ends_with("..."), "{kept:?}");
+        assert_eq!(
+            kept.len(),
+            "\\x1b".len() + ESCAPE_KEPT_BYTES - 1 + "...".len()
+        );
+        // Each stream is its own: stdout's carriage return does not reach
+        // into stderr.
+        let framed = "<command>x</command>\n<cwd>.</cwd>\n<exit_code>0</exit_code>\n<stdout>\nout\r</stdout>\n<stderr>\nerr\n</stderr>\n";
+        assert_eq!(
+            result("terminal", framed),
+            Detail::Command {
+                output: "outerr".into(),
+                status: None,
+            }
+        );
+    }
+
+    // -- T-U1-SAFE: what a terminal would act on, in a call's detail rows ----
+
+    /// `p5-transcript-safe`'s step: a command whose own text carries a
+    /// right-to-left override, a zero-width space, a byte-order mark, an
+    /// `ESC[2J`, the C1 `U+009B`, a tab and -- after a comment -- a trailing
+    /// carriage return, printing a file that holds the same and ends its line
+    /// on CRLF, then a line a bare carriage return rewrites; then a read of
+    /// that file. Each detail as the bridge hands it over (`made_inert`).
+    fn unsafe_detail_record() -> FullTranscript {
+        let command_text =
+            "printf '%s\\n' 'A\u{202e}B\u{200b}C\u{feff}D\u{1b}[2JE\u{9b}F\tG' >/dev/null; cat safe.txt # \r";
+        let file = "a\u{202e}b\u{200b}c\u{feff}d\u{1b}[2Je\u{9b}f\tg\r\nover\rX\n";
+        let mut record = record();
+        let detail = |record: &mut FullTranscript, id: &str, detail: Detail| {
+            record.observe(&UiEvent::ToolDetail {
+                call_id: id.into(),
+                detail: detail.made_inert(),
+            });
+        };
+        let input = json!({"action": "exec", "command": command_text});
+        record.tool_started("c", &command(command_text));
+        detail(
+            &mut record,
+            "c",
+            Detail::Arguments(arguments("terminal", &input)),
+        );
+        // `crate::tools::terminal`'s frame, as `p5-transcript-safe`'s
+        // gateway log has it.
+        let framed = format!(
+            "<command>x</command>\n<cwd>.</cwd>\n<exit_code>0</exit_code>\n<stdout>\n{file}</stdout>\n<stderr>\n</stderr>\n"
+        );
+        detail(&mut record, "c", result("terminal", &framed));
+        record.tool_finished("c", true, "", Outcome::Exited(0), None);
+        let input = json!({"path": "safe.txt"});
+        record.tool_started("r", &read("safe.txt"));
+        detail(
+            &mut record,
+            "r",
+            Detail::Arguments(arguments("read_file", &input)),
+        );
+        let read = "<path>safe.txt</path>\n<content>\n1\ta\u{202e}b\u{200b}c\u{feff}d\u{1b}[2Je\u{9b}f\tg\r\n2\tover\rX\n</content>";
+        detail(&mut record, "r", result("read_file", read));
+        record.tool_finished("r", true, "", Outcome::Finished, None);
+        record
+    }
+
+    /// A character no detail row may hand the terminal as itself: a control
+    /// other than the escape (which [`only_colours`] reads), or a mark fx
+    /// names (`isNonPrintingCodepoint`, `text_utils.zig:703-708@481104fd`) or
+    /// this screen does (`U+061C`).
+    fn obeyed_or_hidden(character: char) -> bool {
+        let code = u32::from(character);
+        (code < 0x20 && character != '\u{1b}')
+            || code == 0x7f
+            || (0x80..=0x9f).contains(&code)
+            || (0x200b..=0x200f).contains(&code)
+            || (0x2028..=0x202e).contains(&code)
+            || (0x2060..=0x206f).contains(&code)
+            || code == 0xfeff
+            || code == 0x061c
+    }
+
+    /// Whether every escape in `row` is a colour (`ESC[…m`), the only ones
+    /// this screen writes.
+    fn only_colours(row: &str) -> bool {
+        let mut rest = row;
+        while let Some(at) = rest.find('\u{1b}') {
+            rest = &rest[at..];
+            match super::super::pacer::escape_at(rest) {
+                Some(len) if rest[..len].starts_with("\u{1b}[") && rest[..len].ends_with('m') => {
+                    rest = &rest[len..];
+                }
+                _ => return false,
+            }
+        }
+        true
+    }
+
+    #[test]
+    fn an_argument_row_is_spelled_as_fxs_terminal_safe_writer_spells_it() {
+        // `p5-transcript-safe`, fx v0.0.16's Ctrl-O: `appendFullSemanticArguments`
+        // writes `name: value` through `TerminalSafeIndentedWriter`
+        // (`full_transcript_screen.zig:6681-6695@481104fd`, `:5147-5194`): a tab
+        // four spaces, every other control `\xNN` -- the trailing carriage
+        // return too -- and the marks `\u{NNNN}` (`terminalSafeToken`,
+        // `text_utils.zig:643-667@481104fd`).
+        let rows = screen(&unsafe_detail_record());
+        let row = "\u{2502}  command: printf '%s\\n' 'A\\u{202e}B\\u{200b}C\\u{feff}D\\x1b[2JE\\u{009b}F    G' >/dev/null; cat safe.txt # \\x0d";
+        assert!(rows.iter().any(|shown| shown == row), "{rows:#?}");
+    }
+
+    #[test]
+    fn a_read_row_is_spelled_as_fxs_terminal_safe_writer_spells_it() {
+        // The same writer for a tool's result (`appendStoredResultContent`,
+        // `:5196-5229@481104fd`, and the inline result, `:6856-6864`): each
+        // line's carriage return `\x0d`, the bare one too.
+        let rows = screen(&unsafe_detail_record());
+        for row in [
+            "\u{2502}  1    a\\u{202e}b\\u{200b}c\\u{feff}d\\x1b[2Je\\u{009b}f    g\\x0d",
+            "\u{2502}  2    over\\x0dX",
+        ] {
+            assert!(
+                rows.iter().any(|shown| shown == row),
+                "{row:?} in {rows:#?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_command_row_is_decoded_as_fxs_command_output_is_and_names_the_marks() {
+        // fx's command output goes through its `Decoder`
+        // (`command_output_content.zig:52-282@481104fd`) instead: an escape
+        // sequence is dropped, a bare carriage return starts the line again,
+        // CRLF ends it, the C1 control is `\u{009b}`, and the tab is kept to
+        // the next eight-column stop of the screen (`wrapLiteralCommandOutput`,
+        // `assistant_wrap.zig:524-546@481104fd`). fx leaves the marks as they
+        // are (`:171-173`); here they are named as on every other detail row
+        // (`scripts/fxcap/parity-ledger.toml`, `ctrl-o-command-marks`).
+        let rows = screen(&unsafe_detail_record());
+        let at = rows
+            .iter()
+            .position(|row| row.starts_with("\u{2502} a"))
+            .unwrap_or_else(|| panic!("the output's first row in {rows:#?}"));
+        assert_eq!(
+            rows[at..at + 2],
+            [
+                "\u{2502} a\\u{202e}b\\u{200b}c\\u{feff}de\\u{009b}f        g",
+                "\u{2502} X",
+            ]
+        );
+    }
+
+    #[test]
+    fn no_detail_row_hands_the_terminal_a_control_or_a_mark_at_any_width() {
+        let record = unsafe_detail_record();
+        for cols in [10u16, 24, 80, 120] {
+            let rows = record.rows(cols, 40, DARK, "");
+            for row in &rows {
+                assert!(wrap::width(row) <= cols, "{cols}: {row:?}");
+            }
+            // The detail rows: those on the rail, the calls' own rows aside.
+            for row in rows.iter().filter(|row| row.starts_with('\u{2502}')) {
+                assert!(!row.chars().any(obeyed_or_hidden), "{cols}: {row:?}");
+                assert!(only_colours(row), "{cols}: {row:?}");
+            }
+        }
     }
 
     #[test]
