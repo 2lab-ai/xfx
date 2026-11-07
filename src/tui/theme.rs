@@ -1346,31 +1346,30 @@ mod tests {
         };
         // A stopped call's own line is not projected again: it moves through
         // upstream's token table (`a_stopped_calls_line_moves_through_upstreams_token_table`).
-        for row in [DocumentRow::ToolGroup] {
-            assert_eq!(
-                dark.document_retint_in(row, Color::Indexed(241)),
-                Some("\u{1b}[38;5;250m"),
-                "{row:?}: a light string was taken for the statusline"
-            );
-            assert_eq!(
-                light.document_retint_in(row, Color::Indexed(250)),
-                Some("\u{1b}[38;5;241m"),
-                "{row:?}"
-            );
-            assert_eq!(
-                light.document_retint_in(row, Color::Indexed(245)),
-                Some("\u{1b}[38;5;243m"),
-                "{row:?}: a dark comment was taken for the statusline"
-            );
-            assert_eq!(
-                dark.document_retint_in(row, Color::Indexed(243)),
-                Some("\u{1b}[38;5;245m"),
-                "{row:?}"
-            );
-            // Already in the grey in force.
-            assert_eq!(dark.document_retint_in(row, Color::Indexed(250)), None);
-            assert_eq!(light.document_retint_in(row, Color::Indexed(241)), None);
-        }
+        let row = DocumentRow::ToolGroup;
+        assert_eq!(
+            dark.document_retint_in(row, Color::Indexed(241)),
+            Some("\u{1b}[38;5;250m"),
+            "{row:?}: a light string was taken for the statusline"
+        );
+        assert_eq!(
+            light.document_retint_in(row, Color::Indexed(250)),
+            Some("\u{1b}[38;5;241m"),
+            "{row:?}"
+        );
+        assert_eq!(
+            light.document_retint_in(row, Color::Indexed(245)),
+            Some("\u{1b}[38;5;243m"),
+            "{row:?}: a dark comment was taken for the statusline"
+        );
+        assert_eq!(
+            dark.document_retint_in(row, Color::Indexed(243)),
+            Some("\u{1b}[38;5;245m"),
+            "{row:?}"
+        );
+        // Already in the grey in force.
+        assert_eq!(dark.document_retint_in(row, Color::Indexed(250)), None);
+        assert_eq!(light.document_retint_in(row, Color::Indexed(241)), None);
         // The row's own greys, spelt exactly, keep their roles: the statusline
         // on a group's row.
         assert_eq!(
