@@ -536,9 +536,21 @@ impl Palette {
     /// screen -- not to the summary's 247. A cancelled call's line keeps its
     /// argument in [`TOOL`], 245 on either screen. The highlighter's quieter
     /// greys (a string or a number, 250 and 241) are repainted as the notice
-    /// grey they share on dark; on light, where 241 is also the statusline's,
-    /// the statusline wins, which costs a quoted string in a command its
-    /// shade -- the one cell this cannot tell apart -- and nothing else.
+    /// grey they share on dark.
+    ///
+    /// **At 256 colours two cells of a tool row cannot be told apart, and the
+    /// ambiguity is that depth's alone.** On light a string's 241 is also the
+    /// statusline's, and on dark a comment's 245 is too, so the statusline
+    /// wins both: a string drawn light goes to 245 on a dark screen, not 250,
+    /// and a comment drawn dark to 241, not 243. Upstream does not recolour a
+    /// tool row; it projects the group again in the new theme
+    /// (`tool_group_projection.zig:558-640,742-784@481104fd`), which a
+    /// recolouring of what the screen holds cannot reproduce
+    /// (`p5-toolgroup-retint`, `.prd/tui-phase5/receipts/inline-code-truecolor/`).
+    /// In a truecolor session the row's own greys -- the statusline's, the
+    /// mark's, a stopped call's argument -- are this palette's and spelt
+    /// `38;2`, so an indexed cell on a tool row is the highlighter's and is
+    /// answered by its roles alone, as on a code row (`p5-toolgroup-retint-tc`).
     ///
     /// A code block's rows are the highlighter's greys and nothing else: its
     /// words ([`COMMAND`]), its strings and numbers (the notice grey, as on a
@@ -552,15 +564,20 @@ impl Palette {
         row: DocumentRow,
         colour: Color,
     ) -> Option<&'static str> {
+        let at = self.painter_of(colour);
+        // An indexed cell in a truecolor session ([`Self::painter_of`]).
+        let highlighters = at.depth != self.depth;
         let roles: &[usize] = match row {
             DocumentRow::Plain => return self.document_retint(colour),
+            DocumentRow::ToolGroup | DocumentRow::ToolStopped if highlighters => {
+                &[COMMENT, COMMAND, NOTICE]
+            }
             DocumentRow::ToolGroup => &[STATUSLINE, HINT, COMMAND, NOTICE],
             DocumentRow::ToolStopped => &[WARNING, HINT, TOOL, COMMAND, NOTICE],
             DocumentRow::Answer => &[ANSWER],
             DocumentRow::Code => &[COMMENT, COMMAND, NOTICE],
             DocumentRow::Table => return None,
         };
-        let at = self.painter_of(colour);
         let role = roles.iter().copied().find(|&role| {
             [Mode::Dark, Mode::Light]
                 .into_iter()
@@ -1240,9 +1257,10 @@ mod tests {
         // The highlighter paints a code block and a command's words in `38;5`
         // at every depth (`theme.zig:107-115,150-158@481104fd`), and fx draws
         // a block again in the new theme (`transcript_blocks.zig:2023-2029`)
-        // and rewrites a tool row's bytes (`store.zig:3745-3750`) whatever the
-        // terminal claimed. So in a truecolor session those cells move as they
-        // do in a 256-colour one, spelt as they were drawn.
+        // and projects a tool group again in it
+        // (`tool_group_projection.zig:558-640,742-784`) whatever the terminal
+        // claimed. So in a truecolor session those cells move as they do in a
+        // 256-colour one, spelt as they were drawn.
         let light = Palette {
             mode: Mode::Light,
             depth: Depth::TrueColor,
@@ -1291,6 +1309,75 @@ mod tests {
             );
         }
         assert_eq!(light.document_retint(Color::Indexed(75)), None);
+    }
+
+    #[test]
+    fn a_truecolor_tool_rows_indexed_greys_are_the_highlighters_both_ways() {
+        // fx projects a tool group again in the new theme on a switch
+        // (`tool_group_projection.zig:558-640`, the command through
+        // `highlightCommandPhrase` in `shared_theme.current()`, `:742-784`,
+        // `@481104fd`), so a command's string goes 250 -> 241 -> 250 and its
+        // comment 245 -> 243 -> 245 (`p5-toolgroup-retint-tc`). In a truecolor
+        // session the row's own greys -- the statusline's, the mark's, a
+        // stopped call's argument -- are this palette's, spelt `38;2`, so an
+        // indexed cell there is the highlighter's and nothing else: a light
+        // `241` is a string, never the statusline (which would make it 245),
+        // and a dark `245` is a comment, never the statusline (241).
+        let light = Palette {
+            mode: Mode::Light,
+            depth: Depth::TrueColor,
+        };
+        let dark = Palette {
+            mode: Mode::Dark,
+            depth: Depth::TrueColor,
+        };
+        for row in [DocumentRow::ToolGroup, DocumentRow::ToolStopped] {
+            assert_eq!(
+                dark.document_retint_in(row, Color::Indexed(241)),
+                Some("\u{1b}[38;5;250m"),
+                "{row:?}: a light string was taken for the statusline"
+            );
+            assert_eq!(
+                light.document_retint_in(row, Color::Indexed(250)),
+                Some("\u{1b}[38;5;241m"),
+                "{row:?}"
+            );
+            assert_eq!(
+                light.document_retint_in(row, Color::Indexed(245)),
+                Some("\u{1b}[38;5;243m"),
+                "{row:?}: a dark comment was taken for the statusline"
+            );
+            assert_eq!(
+                dark.document_retint_in(row, Color::Indexed(243)),
+                Some("\u{1b}[38;5;245m"),
+                "{row:?}"
+            );
+            // Already in the grey in force.
+            assert_eq!(dark.document_retint_in(row, Color::Indexed(250)), None);
+            assert_eq!(light.document_retint_in(row, Color::Indexed(241)), None);
+        }
+        // The row's own greys, spelt exactly, keep their roles: the statusline
+        // on a group's row, the argument (245 on either screen) on a stopped
+        // call's.
+        assert_eq!(
+            dark.document_retint_in(DocumentRow::ToolGroup, Color::Rgb(98, 98, 98)),
+            Some("\u{1b}[38;2;138;138;138m")
+        );
+        assert_eq!(
+            light.document_retint_in(DocumentRow::ToolStopped, Color::Rgb(138, 138, 138)),
+            None
+        );
+        // At 256 colours the colour alone cannot tell the two apart, and the
+        // statusline still wins -- the divergence the next unit owns
+        // (`docs/parity.md`, the coloured output row).
+        let indexed = Palette {
+            mode: Mode::Dark,
+            depth: Depth::Ansi256,
+        };
+        assert_eq!(
+            indexed.document_retint_in(DocumentRow::ToolGroup, Color::Indexed(241)),
+            Some("\u{1b}[38;5;245m")
+        );
     }
 
     #[test]

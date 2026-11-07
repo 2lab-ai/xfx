@@ -1,0 +1,1 @@
+[{"tool": {"name": "shell", "input": {"request": {"action": "run", "command": "echo \"hi\" 42 | grep hi # note", "yield_time_ms": 30000}}}}, {"delayMs": 60, "chunks": ["Done ", "with it."]}, {"delayMs": 50, "chunks": ["Spare ", "one."]}]
