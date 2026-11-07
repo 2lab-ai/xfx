@@ -2715,9 +2715,9 @@ fn scroll_one(buffer: &mut Vec<u8>, geometry: &Geometry) {
 /// dispute**, which is where this differs from the rows a frame paints
 /// ([`write_row`]). These rows are the document's, and upstream writes its
 /// document's rows as their own bytes -- `appendDocumentMovement`,
-/// `src/ui/render_engine/terminal_diff.zig:1369-1425@481104fd`, outside the
+/// `src/ui/render_engine/terminal_diff.zig:1369-1426@481104fd`, outside the
 /// frame diff that writes `ECH`/`CHA` around such a glyph (`engine.zig:
-/// 2557-2592`) -- so the terminal places what follows by its own advance, as
+/// 2548-2589`) -- so the terminal places what follows by its own advance, as
 /// it does under upstream. An anchor here would also skip cells on a row this
 /// erases only behind its text: the cells a terminal draws narrower than this
 /// crate counts would keep whatever the scroll brought up into them.
@@ -2735,7 +2735,7 @@ fn place(buffer: &mut Vec<u8>, line: u16, row: &str, geometry: &Geometry) {
 /// ([`super::grid::write_row_text`]) -- the clear, the anchor and the autowrap
 /// bracket upstream's frame diff writes around a unit. The alternate plane's
 /// surface and the band's whole repaints: upstream paints both through that
-/// diff (`terminal_diff.zig:628-640@481104fd`).
+/// diff (`terminal_diff.zig:618-640@481104fd`).
 fn write_row(buffer: &mut Vec<u8>, row: &str, cols: u16) {
     super::grid::write_row_text(buffer, &row_text(row, cols), cols);
 }
@@ -8112,7 +8112,7 @@ mod tests {
     //
     // The frames painted whole write a row's text rather than a grid's cells,
     // and owe it what the grid diff does for each cell (`super::super::grid`'s
-    // tests): upstream's `src/core/terminal/engine.zig:2557-2592@481104fd`.
+    // tests): upstream's `src/core/terminal/engine.zig:2548-2589@481104fd`.
     // The document's rows are not a frame's (`place`).
 
     const BOLT: &str = "\u{26a1}\u{fe0e}";
@@ -8162,7 +8162,7 @@ mod tests {
     #[test]
     fn a_document_row_is_written_as_it_stands_as_upstreams_document_append_is() {
         // Upstream writes a document row as its own bytes, outside the frame
-        // diff that anchors (`terminal_diff.zig:1369-1425@481104fd`).
+        // diff that anchors (`terminal_diff.zig:1369-1426@481104fd`).
         let geometry = geometry();
         let mut band = Band::new();
         band.commit(&mut Vec::new(), &band_rows(), &geometry, (23, 2))

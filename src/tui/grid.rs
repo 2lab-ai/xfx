@@ -29,7 +29,7 @@
 //! OSC 8 links (`super::hyperlink`, closed at the end of every row), and `EL`.
 //! An erase to the end of a row is what says a row got shorter. Around one
 //! display unit it emits three more, upstream's (`src/core/terminal/
-//! engine.zig:2557-2592@481104fd`), and so does every row a frame writes whole
+//! engine.zig:2548-2589@481104fd`), and so does every row a frame writes whole
 //! ([`write_row_text`]): `ECH` over the two cells of a unit whose suffix holds a
 //! variation selector, `CHA` to the column after such a unit, and `?7h`/`?7l`
 //! around a wide unit with a suffix at the right margin ([`put_unit`]).
@@ -204,7 +204,7 @@ pub(crate) fn tokenize_row(
 /// whether anything else is written on the row after it, a cell or an erase.
 ///
 /// Upstream's frame writer, cell by cell (`src/core/terminal/engine.zig:
-/// 2557-2592@481104fd`), and the **one** spelling of it: [`Grid::diff_from`]
+/// 2548-2589@481104fd`), and the **one** spelling of it: [`Grid::diff_from`]
 /// writes each cell through this and [`write_row_text`] each unit of a row
 /// written whole, so a full paint and a partial one cannot disagree.
 ///
@@ -1847,7 +1847,7 @@ mod tests {
 
     // -- a variation selector, and the cells after it ------------------------
     //
-    // Upstream's frame writer, `src/core/terminal/engine.zig:2557-2592@481104fd`
+    // Upstream's frame writer, `src/core/terminal/engine.zig:2548-2589@481104fd`
     // (`95e6c8fd`): a display unit whose suffix holds U+FE0E or U+FE0F has both
     // of its cells cleared first when it is two wide, and the cursor is put back
     // on the column after it when anything else is written on the row; a
@@ -1864,7 +1864,7 @@ mod tests {
 
     #[test]
     fn a_wide_glyph_with_a_text_selector_is_cleared_first_and_the_cursor_put_back_after_it() {
-        // Upstream's test, `engine.zig:4035-4064@481104fd`: `\x1b[2X` and the
+        // Upstream's test, `engine.zig:4056-4085@481104fd`: `\x1b[2X` and the
         // glyph, then `\x1b[5G` -- the column after it, one-based.
         let before = painted(10, "");
         let after = painted(10, &format!("a {BOLT} b"));

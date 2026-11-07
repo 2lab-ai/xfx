@@ -160,7 +160,7 @@ What is modelled, and nothing else:
 * `CHA` (`CSI col G`, a column on the screen) and `ECH` (`CSI n X`, one cell
   or more, none past the last column, the caret left where it is): what the
   painter writes around a glyph whose suffix holds a variation selector
-  (`src/tui/grid.rs`'s `put_unit`, upstream's `engine.zig:2557-2592`) -- the
+  (`src/tui/grid.rs`'s `put_unit`, upstream's `engine.zig:2548-2589`) -- the
   clear in front of it and the column after it. Both stay on the caret's row,
   so `check.rs` takes them under an open link where it refuses `CUP`, `ED`
   and `EL`, and so does this

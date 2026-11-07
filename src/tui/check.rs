@@ -2341,7 +2341,7 @@ fn control_sequence(model: &mut TerminalModel, bytes: &[u8], at: usize) -> Resul
         // so what the link would take in is the next cells of that row, which
         // the painter writes under the link they are in (`reopen` switches it
         // before any cell that is not), and upstream writes it after the
-        // cell's link is open (`engine.zig:2557-2588@481104fd`).
+        // cell's link is open (`engine.zig:2559-2588@481104fd`).
         (b' ', b'G') => {
             let Caret::Known((row, _)) = model.caret else {
                 return Err(Reject::new(
@@ -4672,7 +4672,7 @@ mod tests {
     // -- the anchor around a variation selector ------------------------------
     //
     // What the painter writes around a display unit whose suffix holds U+FE0E
-    // or U+FE0F, upstream's `engine.zig:2557-2592@481104fd`: `ECH` over both of
+    // or U+FE0F, upstream's `engine.zig:2548-2589@481104fd`: `ECH` over both of
     // its cells, `CHA` to the column after it, and `?7h`/`?7l` around a
     // suffixed wide unit at the margin.
 
