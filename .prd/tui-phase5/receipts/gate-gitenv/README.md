@@ -17,6 +17,9 @@ A claim with no log is marked *(not measured here)* with its source.
   `4a95372f`. Line numbers in the round 2b section are at `4a95372f`.
 - **Round 2c:** the tests at `c00d2bb3` (on `625abcf1`), the fix at
   `16c115c1`. Line numbers in the round 2c section are at `16c115c1`.
+- **Round 2d:** the tests at `3241b7da` (on `978ef4bf`), the fix at
+  `84e7ca74`, one more case at `96d1f424`. Line numbers in the round 2d
+  section are at `96d1f424`.
 
 **The goal:** no environment or config a caller inherits can make a CI gate
 read anything but the repository it is checking, pass a violation, or write
@@ -471,13 +474,16 @@ that does not compare paths. Git discovers the repository from the root
 (`rev-parse --absolute-git-dir`). That repository must be the same file
 (`-ef`: device and inode) as the one the root's own `.git` names
 (`git --git-dir=<root>/.git rev-parse --absolute-git-dir`). A linked
-worktree's or submodule's `.git` file names its own repository. A copy with
-no `.git` fails the second command and is refused by name. The refusal
-prints the repository git found.
+worktree's `.git` file names its own repository (`identity-linked-worktree`).
+A submodule's does too by the same route *(not measured in 2c; round 2d
+adds `identity-submodule`)*. A copy with no `.git` fails the second command
+and is refused by name. The refusal prints the repository git found.
 
 An entry with both bits is now listed under both refusals (`:275-279`).
 Setting the two bits takes two `update-index` calls: one call with both
-options set only the last (`identity-both-bits`'s comment).
+options set only the last. *(Not measured in 2c, whose source was a manual
+run noted in `identity-both-bits`'s comment; round 2d's
+`discovery-probe.sh` logs it: one call gives `h`, two give `s`.)*
 
 | at `16c115c1` | macOS | Linux |
 |---|---|---|
@@ -527,6 +533,134 @@ that passed:
   `identity-both-bits`. `identity-walks-up-to-a-parent` (2b's) is gone with
   the ceiling it took out.
 
+## Round 2d
+
+Both round 2c reviews found the same gap, older than this unit: the check
+trusts the root's `.git`. A vendored copy whose root `.git` names the
+parent's repository passed. The copy can carry a file (`gitdir: <parent>/.git`)
+or a symlink to the parent's `.git`. Opus also named a 2b leftover: a
+tracked file missing from the working tree is skipped without a word.
+`discovery-probe.sh` gains a row for each (`runs-r2d-*.txt`: `the identity
+script at ...`). Rows at `978ef4bf`, the same on macOS and Linux:
+
+| at `978ef4bf` | result |
+|---|---|
+| vendored, its `.git` a file naming the parent's | **exit 0**, `ok (2 tracked file(s) scanned)` |
+| vendored, its `.git` a symlink to the parent's | **exit 0** |
+| own checkout, its tracked `Cargo.lock` deleted | **exit 0** |
+| own checkout, as a submodule | exit 1, the residue named |
+| a `.git` naming a decoy that tracks only `scripts/check-xfx-identity.sh` | exit 0, `ok (1 tracked file(s) scanned)` |
+
+**The fix** (`check-xfx-identity.sh:309-321`): after the index-bit check,
+`git ls-files -d` must list nothing. A tracked file missing from the
+working tree is refused by name, with "restore or remove them". In both
+`.git` rows the paths the parent tracks, `vendor/xfx/...`, are not in the
+copy's tree. A listing that fails, or writes to its standard error, is a
+failure of its own (`could not list the tracked files missing`). A tracked
+file under a directory the scan cannot search is listed after a `cannot
+lstat` line, and is reported as such. At `96d1f424` the three exit 0 rows
+above exit 1, `tracked files missing from the working tree`.
+
+A developer with a tracked file deleted and not yet committed is now
+refused, by name. These are not refused:
+- this worktree, itself a linked worktree (`.git` a file), 12 161 files
+  (`gates-full-r2d.txt`);
+- a submodule (`identity-submodule`);
+- a one-commit-deep checkout made the way actions/checkout leaves one
+  (init, `fetch --depth=1` of the commit, a detached checkout), and a
+  linked worktree of it. `ci-checkout-probe.sh` makes both and runs the
+  identity gate in each: `ok (12161 tracked file(s) scanned)`, exit 0, on
+  both platforms (`runs-r2d-*.txt`: `check-xfx-identity.sh at 96d1f424`).
+
+**What the check still trusts.** Git defines what is tracked as what the
+repository the root's `.git` names tracks, and that is what is scanned.
+The last row above shows it: a `.git` naming a decoy repository whose
+tracked paths all exist here gives exit 0 at both commits, with the residue
+in an untracked `Cargo.lock`. That is the boundary, not a bypass of it. In
+that layout the file is not tracked by the checkout's repository, and a
+push of that repository would not publish it.
+
+**The own-repository check's messages** (`:228-261`). The second lookup,
+`--git-dir=<root>/.git`, keeps git's standard error. The check's two
+conditions now have their own messages:
+- "the root's .git cannot be opened", followed by git's reason;
+- "the repository found is not the root's own", naming both repositories.
+
+In practice the vendored copy is refused by the first. When the root's
+`.git` opens, discovery starts at that same `.git`, and no case reaches the
+second. The comment says so.
+
+**Cases** (`test-gate-env.sh:510-622`):
+- `identity-vendored-gitfile` and `identity-vendored-git-symlink`: the
+  missing-files refusal, naming `vendor/xfx/Cargo.lock`.
+- `identity-deleted-file`: the same, naming `Cargo.lock`.
+- `identity-unsearchable-dir`: the listing failure, with `cannot lstat`.
+  Added at `96d1f424`, after the fix, to pin that branch.
+- `identity-submodule`: a submodule is still scanned.
+- The four `identity-vendored` cases by path now require "the root's .git
+  cannot be opened" and git's reason, `not a git repository`.
+- `identity-both-bits` now requires both remedies (`refuses` takes further
+  messages from `also`).
+
+| `test-gate-env.sh` at | macOS | Linux |
+|---|---|---|
+| `978ef4bf` | 54 pass | 52 pass, two miscased skipped |
+| `3241b7da` (the new cases, the gates at `978ef4bf`) | `7 problem(s), 51 case(s) passed` | `6 problem(s), 50 case(s) passed` |
+| `96d1f424` | 59 pass | 57 pass, two miscased skipped |
+| `96d1f424`'s test against the gates at `978ef4bf` | `8 problem(s), 51 case(s) passed` | `7 problem(s), 50 case(s) passed` |
+
+The problems at `3241b7da`, six on Linux and seven on macOS:
+- exit 0: `identity-deleted-file`, `-vendored-gitfile`,
+  `-vendored-git-symlink`;
+- the old message: `identity-vendored`, `-vendored-symlink`,
+  `-vendored-colon`, and on macOS `-vendored-miscased` as well.
+
+The head's test against the gates at `978ef4bf` adds
+`identity-unsearchable-dir`. There the old gate refuses the tree as well,
+but as `git grep could not search`, not as a failed listing.
+
+`identity-both-bits` and `identity-submodule` pass there: they hold 2c's
+behaviour, and the half-reverts, below.
+
+Mutants, each on a `--no-local` clone at `96d1f424`, after a control run
+that passed:
+- `mutants-r2d-linux.txt` (Linux): 26 mutants. 25 ran;
+  `identity-own-check-by-path` was skipped, as in 2c. 22 caught, 3 OTHER.
+  Each OTHER failed its own cases and one more, which its expected set did
+  not name:
+  - `identity-sparse-remedy-clears-the-bit` also failed
+    `identity-both-bits`, which since 2d requires the sparse remedy too.
+  - `identity-ceiling-instead` and `identity-requires-a-git-directory` are
+    alternative fixes written into the gate. Their refusal messages
+    differed from 2d's, so cases that check messages failed:
+    `identity-core.quotePath` for the first, and the four vendored cases for
+    the second.
+  - Each set was corrected, and the messages of the two alternatives were
+    made to match what 2d's cases require. The reasons are in
+    `mutants-r2d.py`. Those three alone were run again: 3 of 3 caught
+    (`mutants-r2d-linux-rerun.txt`). They now read:
+    - `identity-ceiling-instead` → `identity-vendored-symlink`, `-colon`;
+    - `identity-requires-a-git-directory` (`[ -d .git ]`) →
+      `identity-linked-worktree`, `identity-submodule`,
+      `identity-vendored-gitfile`.
+- New in 2d, caught there:
+  - `identity-skips-missing-files` → `identity-deleted-file`,
+    `-vendored-gitfile`, `-vendored-git-symlink`;
+  - `identity-missing-listing-ignores-errors` →
+    `identity-unsearchable-dir`;
+  - `identity-own-git-failure-ignored` and `identity-own-git-reason-dropped`
+    → the vendored cases. With the first, `-ef` refuses the copy by the
+    other message: that is the one way the comparison's false side was
+    reached, and only under a mutant;
+  - `identity-both-bits-one-list` and `identity-both-bits-other-list` (each
+    half of the two-list entry) → `identity-both-bits`.
+- `mutants-r2d-macos.txt` (macOS, case folded): 4 of 4, the ones the
+  miscased cases decide, run after the corrections above:
+  - `identity-own-git-failure-ignored` and `-reason-dropped` → the four
+    vendored cases, `-miscased` included;
+  - `identity-ceiling-instead` → symlink, colon and miscased;
+  - `identity-own-check-by-path` → `identity-own-miscased`.
+
 ## Gates
 
 `gates-code.txt` (`gates.sh`, the worktree at `fff83c06`), all exit 0:
@@ -542,6 +676,35 @@ that passed:
 
 `gates-receipt.txt` runs again the gates that read the tracked tree, at the
 receipt commit, which adds only this folder.
+
+Round 2d, the full gate list (`gates-full.sh`): every step of ci.yml's
+gate job in its order, plus `test-check-no-secrets.sh`, `fxcap/test-sweep.sh`
+and `fxcap/test-capture.sh`, one at a time, in the worktree at `96d1f424`.
+The machine is shared by several workers.
+- **Under `suite-lock.sh`** (`gates-full-r2d.txt`), which bounds the
+  machine's heavy jobs, 21 of 22 exit 0:
+  - `cargo fmt --check`, both clippy runs, `cargo test --all-targets` and
+    the two fault-injection test runs (190 and 4 275 passed);
+  - every `check-*.sh` and `test-*.sh` (`test-gate-env` 59 cases,
+    `test-preview-contract` 24 mutants);
+  - both release builds, `smoke.sh`, `smoke-tui.sh`, `fxcap/test-sweep.sh`
+    (51 and 27 tests) and actionlint.
+- **`fxcap/test-capture.sh` fails one test, `test_models2_and_modelsdelay`,
+  at this head and at the unit base `45d99f52` alike.** Both runs were
+  under the lock, the base one on a `--no-local` clone
+  (`test-capture-r2d-head.txt`, `test-capture-r2d-base.txt`). The error is
+  `ValueError: substring not found` for the second catalog in the screen.
+  No file under `scripts/fxcap/` that test or `capture.sh` uses changed in
+  this unit (`git diff --stat 45d99f52 96d1f424 -- scripts/fxcap/` lists
+  only the sweep's four files). It is not this unit's, and not fixed here.
+- **Before the lock existed** (`gates-full-r2d-unlocked.txt`), three gates
+  failed under the load of other suites:
+  - the fault-injection tui run (18 of 190);
+  - the fault-injection lib run (1 of 4 275, "the copy never finished");
+  - test-capture (the test above, and `test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run`).
+
+  Run again alone (`gates-rerun-r2d-unlocked.txt`), the first two passed.
+  Under the lock all of them passed except the models test.
 
 Round 2b, `gates-code-r2b.txt` (the worktree at `4a95372f`), all exit 0: the
 same list; `check-no-secrets` and `check-xfx-identity` over 12 140 files,
@@ -563,11 +726,15 @@ Round 2c, the four tree-reading gates (`check-no-secrets`,
   `runs-r2.sh`, `mutants-r2.py` (round 2); `vendored-probe.sh`,
   `runs-r2b.sh`, `mutants-r2b.py`, `row-time.sh`, `row-time-rounds.sh`
   (round 2b); `discovery-probe.sh`, `runs-r2c.sh`, `mutants-r2c.py` (round
-  2c); `gates.sh` and `publish.py`.
+  2c); `ci-checkout-probe.sh`, `runs-r2d.sh`, `mutants-r2d.py`,
+  `gates-full.sh`, `gates-rerun.sh` (round 2d); `gates.sh` and
+  `publish.py`.
 - **Logs:** the `.txt` files. Round 2 rewrote `inventory.txt` and
   `gates-code.txt` at `fff83c06`; round 1's are in git at `2c8fbc64`.
   `r2-base-macos.txt` ran an earlier `r2-probes.sh`, before its index-bit,
   corrupt-index and no-secrets `core.worktree` rows.
+  `runs-r2c-*.txt` ran `discovery-probe.sh` as it was at `fa3a94e0`; 2d
+  added its `.git`-naming, deleted-file, submodule, decoy and one-call rows.
 - **Redaction:** the logs went through `scripts/fxcap/redact.py`, so `<tmp>`
   is the gate's `TMPDIR`, `<scratch>` the session scratchpad, `<copy>` a
   container's copy, and `<local-path>` any other local path. `publish.py` also

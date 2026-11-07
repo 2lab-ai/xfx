@@ -29,6 +29,8 @@ redactor = Redactor({
     "<copy>": "<copy>",
     "<copy>": "<copy>",
     "<copy>": "<copy>",
+    "<smoke>": "<smoke>",
+    "<smoke>": "<smoke>",
 })
 
 files = {
@@ -84,6 +86,23 @@ files = {
     "discovery-probe.sh": scratch / "tools/discovery-probe.sh",
     "runs-r2c.sh": scratch / "tools/runs-r2c.sh",
     "mutants-r2c.py": scratch / "tools/mutants-r2c.py",
+    # round 2d
+    "runs-r2d-macos.txt": scratch / "r2d/runs-r2d-macos.log",
+    "runs-r2d-linux.txt": scratch / "r2d/runs-r2d-linux.log",
+    "mutants-r2d-linux.txt": scratch / "r2d/mutants-r2d-linux-first.out",
+    "mutants-r2d-linux-rerun.txt": scratch / "r2d/mutants-r2d-linux-rerun.out",
+    "mutants-r2d-macos.txt": scratch / "r2d/mutants-r2d-macos.out",
+    "gates-full-r2d.txt": scratch / "r2d/gates-full.log",
+    "gates-full-r2d-unlocked.txt": scratch / "r2d/gates-full-unlocked.log",
+    "gates-rerun-r2d-unlocked.txt": scratch / "r2d/gates-rerun-head.log",
+    "test-capture-r2d-head.txt": pathlib.Path("<smoke>/logs/21.log"),
+    "test-capture-r2d-base.txt": scratch / "r2d/test-capture-base.log",
+    "gates-rerun.sh": scratch / "tools/gates-rerun.sh",
+    "gates-receipt-r2d.txt": scratch / "r2d/gates-receipt.log",
+    "ci-checkout-probe.sh": scratch / "tools/ci-checkout-probe.sh",
+    "runs-r2d.sh": scratch / "tools/runs-r2d.sh",
+    "mutants-r2d.py": scratch / "tools/mutants-r2d.py",
+    "gates-full.sh": scratch / "tools/gates-full.sh",
 }
 for name, source in files.items():
     if only and name not in only:

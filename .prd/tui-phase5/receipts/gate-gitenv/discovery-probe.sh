@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 #
-# GATE-GITENV round 2c: the identity script of <checkout>, run on a copy
-# with no repository of its own inside a parent that tracks the residue,
-# reached four ways; and on an own checkout reached three ways; and on an
-# entry with both index bits. Each row: exit status and the first line it
-# said.
+# GATE-GITENV rounds 2c and 2d: the identity script of <checkout>, run on a
+# copy with no repository of its own inside a parent that tracks the
+# residue, reached four ways, and given a root .git naming the parent's
+# repository two ways; on an own checkout reached four ways, with a tracked
+# file deleted, and as a submodule; on a .git naming a decoy that tracks
+# only clean files present here; and on an entry with both index bits, set
+# by two update-index calls and by one. Each row: exit status and the first
+# line it said.
 #
 #   discovery-probe.sh <checkout>
 set -uo pipefail
@@ -65,10 +68,40 @@ fi
 sg -C "$s/own" commit -q -m own
 sg -C "$s/own" worktree add -q "$s/linked" -b linked
 row "own, a linked worktree" "$s/linked/scripts/check-xfx-identity.sh"
+# 2d: a root .git naming the parent's repository.
+vendor "$s/vgitfile"
+printf 'gitdir: %s\n' "$s/vgitfile/.git" >"$s/vgitfile/vendor/xfx/.git"
+row "vendored, its .git a file naming the parent's" "$s/vgitfile/vendor/xfx/scripts/check-xfx-identity.sh"
+vendor "$s/vgitlink"
+ln -s "$s/vgitlink/.git" "$s/vgitlink/vendor/xfx/.git"
+row "vendored, its .git a symlink to the parent's" "$s/vgitlink/vendor/xfx/scripts/check-xfx-identity.sh"
+own "$s/deleted"
+rm -f "$s/deleted/Cargo.lock"
+row "own, its tracked Cargo.lock deleted" "$s/deleted/scripts/check-xfx-identity.sh"
+own "$s/subsrc"
+sg -C "$s/subsrc" commit -q -m subsrc
+mkdir -p "$s/super"
+sg -C "$s/super" init -q
+sg -C "$s/super" -c protocol.file.allow=always submodule --quiet add "$s/subsrc" sub
+row "own, a submodule" "$s/super/sub/scripts/check-xfx-identity.sh"
+# The trust boundary: a .git naming another repository whose tracked paths
+# all exist here. What that repository tracks is what is scanned.
+mkdir -p "$s/decoy/scripts"
+cp "$src/scripts/check-xfx-identity.sh" "$s/decoy/scripts/"
+sg -C "$s/decoy" init -q
+sg -C "$s/decoy" add scripts/check-xfx-identity.sh
+mkdir -p "$s/planted/scripts"
+cp "$src/scripts/check-xfx-identity.sh" "$s/planted/scripts/"
+printf 'name = "%s-core"\n' "$retired" >"$s/planted/Cargo.lock"
+printf 'gitdir: %s\n' "$s/decoy/.git" >"$s/planted/.git"
+row "a .git naming a decoy tracking the clean files" "$s/planted/scripts/check-xfx-identity.sh"
 own "$s/both"
 sg -C "$s/both" update-index --skip-worktree Cargo.lock
 sg -C "$s/both" update-index --assume-unchanged Cargo.lock
-printf 'ls-files -v: %s\n' "$(sg -C "$s/both" ls-files -v Cargo.lock)"
+printf 'ls-files -v, two update-index calls: %s\n' "$(sg -C "$s/both" ls-files -v Cargo.lock)"
+own "$s/onecall"
+sg -C "$s/onecall" update-index --skip-worktree --assume-unchanged Cargo.lock
+printf 'ls-files -v, one call with both options: %s\n' "$(sg -C "$s/onecall" ls-files -v Cargo.lock)"
 "$s/both/scripts/check-xfx-identity.sh" >"$s/out" 2>&1 </dev/null
 printf '%-44s exit %-3s %s\n' "both index bits on Cargo.lock" "$?" "$(grep -c -E '^check-xfx-identity: tracked files marked' "$s/out") refusal line(s): $(grep -o -E 'marked (skip-worktree|assume-unchanged)' "$s/out" | tr '\n' ' ')"
 # What `pwd -P`, the fix round 2b's reviewers suggested, gives for the root
