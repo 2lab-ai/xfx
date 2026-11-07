@@ -699,6 +699,45 @@ class Sweep(unittest.TestCase):
         self.assertEqual(r2.returncode, 0, r2.stderr)
         self.assertEqual(self.board(out)["totals"], t)
 
+    def test_a_cause_past_its_date_attributes_no_row_of_a_sweep(self):
+        # `ok`'s snap `b` differs (each binary names itself). A cause covering
+        # both rows, past its date, attributes neither: they come back as rows
+        # no cause covers (sweep.py's `attribute` is handed `live_causes`).
+        # The same cause with no date takes them, on a rescore of the same
+        # captures.
+        cause = textwrap.dedent(
+            """
+            [[cause]]
+            id = "says"
+            kind = "unit"
+            owner = "U-1"
+            scenarios = ["ok"]
+            snaps = ["b"]
+            fx_row = '^fx says$'
+            xfx_row = '^xfx says$'
+            why = "w"
+            %s
+            """
+        )
+        pin = '[[pin]]\nname = "fake"\nversion = "9"\nsha256 = "%s"\n' % self.sha
+
+        def pair_b(out):
+            with open(os.path.join(out, "pairs.json")) as f:
+                return next(p for p in json.load(f) if p["scenario"] == "ok" and p["label"] == "b")
+
+        self.ledger = ledger_file(pin, cause % 'expires = "date:2000-01-01"')
+        r, out = self.sweep("--fx", self.fx, "--pin-sha", self.sha, "--only", "ok")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        b = pair_b(out)
+        self.assertEqual(b["verdict"], "unresolved-defect", b)
+        self.assertEqual(b["causes"], [], b)
+        self.assertEqual(sorted(text for _, _, text in b["unattributed"]), ["fx says", "xfx says"], b)
+        self.ledger = ledger_file(pin, cause % "")
+        r, _ = self.sweep("--rescore", out=out)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        b = pair_b(out)
+        self.assertEqual((b["causes"], b["unattributed"]), (["says"], []), b)
+
     def test_the_inventory_alone(self):
         r, out = self.sweep("--fx", self.fx, "--pin-sha", self.sha, "--inventory-only")
         self.assertEqual(r.returncode, 0, r.stderr)
