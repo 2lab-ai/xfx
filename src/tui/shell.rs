@@ -9793,7 +9793,20 @@ impl Shell {
     /// The insertion is a boundary of the edit history rather than an entry
     /// in it, as upstream's is (`historyBoundary`, `image_commands.zig:172-174`):
     /// an undo does not take an attachment back -- deleting its badge does.
-    fn attach(&mut self, image: crate::image::Image) -> bool {
+    fn attach(&mut self, mut image: crate::image::Image) -> bool {
+        // An unsaved session keeps no copy of a file the user named, so one
+        // is made now, beside the paste copies (owner-only, removed with the
+        // session), as upstream captures every attachment into its
+        // temporary folder (`captureImageAttachment`,
+        // `app_session_runtime.zig:1331-1344@481104fd`): the note for an
+        // image a request leaves out names that copy, never the file. One
+        // that cannot be written leaves none, and the note names nothing.
+        if self.unsaved && !image.copied && image.copy.is_none() {
+            image.copy = self
+                .paste_copies
+                .write(&image.snapshot_name(), &image.bytes)
+                .ok();
+        }
         let id = image.id;
         let Some(next) = id.checked_add(1) else {
             return false;
@@ -37321,6 +37334,95 @@ mod tests {
         let dir = shell.paste_copies.dir().expect("a directory").to_path_buf();
         drop(shell);
         assert!(!dir.exists(), "{dir:?} outlived the session");
+    }
+
+    #[test]
+    fn an_unsaved_sessions_attached_file_gets_a_private_temporary_copy() {
+        // Upstream captures every attachment into its process's temporary
+        // folder (`captureImageAttachment`, `app_session_runtime.zig:1331-1344`,
+        // `createTempSnapshotDir`, `image_attachments.zig:246-273@481104fd`),
+        // and an unsaved session's note names that copy. xfx's goes where a
+        // paste's does: owner-only, in the shell's private directory, gone
+        // with the shell. The file the user named is left as it was.
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let source = workspace.path().join("shot.png");
+        std::fs::write(&source, crate::image::fixture::SHOT_PNG).expect("a picture");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(
+                Some(std::path::PathBuf::from("relative/home")),
+                BTreeMap::new(),
+            ),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        let (work, _sent, _control) = WorkHandle::detached();
+        let mut shell = Shell::new(
+            &config,
+            crate::tui::layout::solve(40, 120, 1).expect("a band"),
+            PALETTE,
+            false,
+            work,
+        );
+        assert!(shell.unsaved);
+        shell.workspace = workspace.path().canonicalize().expect("canonical");
+        shell.route_bytes(b"/image shot.png\r");
+        let image = shell
+            .editor
+            .entities()
+            .images()
+            .next()
+            .cloned()
+            .expect("an image");
+        assert!(!image.copied);
+        assert_eq!(
+            image.name(),
+            "shot.png",
+            "the badge and the notice keep its name"
+        );
+        let copy = image.copy.clone().expect("a temporary copy");
+        assert_eq!(image.own_copy(), Some(copy.as_path()));
+        assert_ne!(copy, image.path);
+        assert_eq!(
+            Some(copy.parent().expect("a directory")),
+            shell.paste_copies.dir(),
+            "beside the paste copies"
+        );
+        assert_eq!(
+            copy.file_name().and_then(|name| name.to_str()),
+            Some(image.snapshot_name().as_str())
+        );
+        assert_eq!(
+            std::fs::read(&copy).expect("the copy"),
+            crate::image::fixture::SHOT_PNG
+        );
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = |path: &std::path::Path| {
+                std::fs::metadata(path).expect("mode").permissions().mode() & 0o777
+            };
+            assert_eq!(mode(&copy), 0o600);
+            assert_eq!(mode(copy.parent().expect("a directory")), 0o700);
+        }
+        assert_eq!(
+            std::fs::read(&source).expect("the source"),
+            crate::image::fixture::SHOT_PNG
+        );
+        let dir = copy.parent().expect("a directory").to_path_buf();
+        drop(shell);
+        assert!(!dir.exists(), "{dir:?} outlived the session");
+
+        // A session that saves keeps its own copy in the log, and makes none.
+        let mut saved = attaching();
+        saved.route_bytes(b"/image shot.png\r");
+        let image = saved
+            .editor
+            .entities()
+            .images()
+            .next()
+            .cloned()
+            .expect("an image");
+        assert_eq!(image.copy, None);
+        assert_eq!(saved.paste_copies.dir(), None);
     }
 
     #[test]

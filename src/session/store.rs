@@ -2645,9 +2645,9 @@ impl SessionRecorder {
                     for (kept, image) in turn.images.iter_mut().zip(images) {
                         kept.snapshot = Snapshot::Loaded {
                             bytes: Arc::clone(&image.bytes),
-                            // A paste's own copy is xfx's; an attached file
-                            // is not, and is named by nothing.
-                            path: image.copied.then(|| Arc::from(image.path.as_path())),
+                            // xfx's own copy: a paste's, or an attached
+                            // file's temporary one -- never the file itself.
+                            path: image.own_copy().map(Arc::from),
                         };
                     }
                 }

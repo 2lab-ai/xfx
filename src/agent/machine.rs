@@ -341,9 +341,7 @@ fn user_message(request: &TurnRequest, saved: Option<&std::path::Path>) -> Messa
         request.images.iter().map(|image| {
             image.part(match saved {
                 Some(dir) => Some(std::sync::Arc::from(dir.join(image.snapshot_name()))),
-                None => image
-                    .copied
-                    .then(|| std::sync::Arc::from(image.path.as_path())),
+                None => image.own_copy().map(std::sync::Arc::from),
             })
         }),
     )
@@ -2307,11 +2305,14 @@ mod tests {
         // fx names only the session's own copy of an image in the note for one
         // a request leaves out, never the file it was attached from
         // (`savedImagePath`, `noteAttachmentLocations`,
-        // `src/core/images/image_attachments.zig:1050-1062@481104fd`). An
-        // unsaved xfx session keeps a copy of a pasted image (the paste's own)
-        // and none of an attached file: so the paste is named by its copy and
-        // the file by nothing, on the turn that sends it and on every turn
-        // after, rebuilt from the history.
+        // `src/core/images/image_attachments.zig:1050-1062@481104fd`), and
+        // in an unsaved session that copy is its temporary one
+        // (`captureImageAttachment`, `app_session_runtime.zig:1331-1344`). An
+        // unsaved xfx session keeps a pasted image's paste copy and an
+        // attached file's temporary copy (`crate::tui::shell`'s `attach`):
+        // each is named by that copy, on the turn that sends it and on every
+        // turn after, rebuilt from the history -- and the file the user named
+        // never is.
         use crate::gateway::protocol::ContentPart;
         use crate::session::{NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore};
         let image = |id: u32, path: &str, copied: bool| {
@@ -2325,7 +2326,10 @@ mod tests {
             image
         };
         let pasted = image(1, "/tmp/xfx-image-snapshots/1-abc.png", true);
-        let attached = image(2, "/w/shot.png", false);
+        let mut attached = image(2, "/w/shot.png", false);
+        attached.copy = Some(std::path::PathBuf::from(
+            "/tmp/xfx-image-snapshots/2-abc.png",
+        ));
         let (_dir, tools) = tools();
         let request = TurnRequest {
             images: vec![pasted.clone(), attached.clone()],
@@ -2371,13 +2375,30 @@ mod tests {
             Some(saved) => user_message(&request, Some(&saved)),
             None => user_message(&request, None),
         };
-        let expected = vec![Some(std::path::PathBuf::from(&pasted.path)), None];
+        let expected = vec![
+            Some(std::path::PathBuf::from(&pasted.path)),
+            attached.copy.clone(),
+        ];
         assert_eq!(saved_of(&first), expected, "the turn that sends them");
         // Turn 2 and after: the same images, from the history.
         let later = recorder
             .state()
             .history_messages(crate::provider::Wire::VercelGateway, "m");
         assert_eq!(saved_of(&later.messages[0]), expected, "every later turn");
+        for named in saved_of(&first).iter().chain(&saved_of(&later.messages[0])) {
+            assert_ne!(
+                named.as_deref(),
+                Some(attached.path.as_path()),
+                "the source was named"
+            );
+        }
+        // No copy -- one that could not be written -- is no name, on every turn.
+        attached.copy = None;
+        let without = TurnRequest {
+            images: vec![attached],
+            ..request
+        };
+        assert_eq!(saved_of(&user_message(&without, None)), [None]);
     }
 
     #[test]
