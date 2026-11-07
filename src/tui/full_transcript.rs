@@ -406,9 +406,12 @@ pub(crate) enum Detail {
 pub(crate) struct Argument {
     pub(crate) name: String,
     pub(crate) value: String,
-    /// Whether the value was a JSON string: the only kind upstream leaves out
-    /// when the call's own row already shows it (`argumentVisibleInToolHeading`,
-    /// `:6505-6510`).
+    /// Whether the value was a JSON string the heading could show as the model
+    /// wrote it: the only kind upstream leaves out when the call's own row
+    /// already shows it (`argumentVisibleInToolHeading`,
+    /// `full_transcript_screen.zig:6594-6619@481104fd`), which looks for the
+    /// value as written in a heading fx spelled -- so one holding anything
+    /// the heading spells, a control or a mark, is never found there.
     pub(crate) text: bool,
 }
 
@@ -614,7 +617,13 @@ fn arguments(tool: &str, input: &Value) -> Vec<Argument> {
         .map(|name| {
             let value = &map[name];
             let (value, text) = match value {
-                Value::String(text) => (text.clone(), true),
+                // Shown by the heading only as written, never once it spelled
+                // a control or a mark (`super::toolgroup::spelled`).
+                Value::String(text) => (
+                    text.clone(),
+                    crate::tools::question::terminal_safe(text).len() == text.len()
+                        && !text.contains('\u{061c}'),
+                ),
                 other => (other.to_string(), false),
             };
             Argument {
@@ -3993,7 +4002,9 @@ mod tests {
                 detail: Detail::Arguments(vec![Argument {
                     name: "path".into(),
                     value: "a    b".into(),
-                    text: true,
+                    // The heading spells the tab `\x09`, so it never shows the
+                    // value as written.
+                    text: false,
                 }]),
             }
         );
@@ -4481,5 +4492,139 @@ mod tests {
         while record.key(Action::PageDown, 120, 40, DARK) == Reply::Moved {}
         let narrow = screen_at(&record, 80);
         assert!(narrow[35].trim_end().ends_with("tail words"), "{narrow:?}");
+    }
+
+    // -- CALLROW-SAFE: a call's own row, this screen's heading --------------
+
+    /// `p5-call-row-safe`'s step: a command, a glob pattern and a read path,
+    /// each with a right-to-left override, a left-to-right isolate, the
+    /// Arabic letter mark, `ESC[2J`, a bare carriage return, a tab and the C1
+    /// `U+009B`, and each call's arguments as the bridge hands them over. The
+    /// read fails; its reason quotes the path.
+    fn unsafe_heading_record() -> FullTranscript {
+        let command_text =
+            "printf '%s' 'A\u{202e}B\u{2066}C\u{061c}D\u{1b}[2JE\rF\tG\u{9b}H' >/dev/null";
+        let pattern = "n\u{202e}o\u{2066}p\u{061c}q\u{1b}7r\ts\u{9b}t\ru*.md";
+        let path = "m\u{202e}n\u{2066}o\u{061c}p\u{1b}[2Jq\tr\u{9b}s\rt.txt";
+        let mut record = record();
+        let calls = [
+            (
+                "c",
+                "terminal",
+                json!({"action": "exec", "command": command_text}),
+                command(command_text),
+            ),
+            (
+                "g",
+                "glob_files",
+                json!({ "pattern": pattern }),
+                read::GLOB_FILES.shown(&json!({ "pattern": pattern })),
+            ),
+            ("r", "read_file", json!({ "path": path }), read(path)),
+        ];
+        for (id, tool, input, shown) in &calls {
+            record.tool_started(id, shown);
+            record.observe(&UiEvent::ToolDetail {
+                call_id: (*id).into(),
+                detail: Detail::Arguments(arguments(tool, input)).made_inert(),
+            });
+        }
+        record.tool_finished("c", true, "", Outcome::Exited(0), None);
+        record.tool_finished("g", true, "", Outcome::Finished, None);
+        let reason = format!("Path not found: {path}");
+        record.tool_finished("r", false, &reason, Outcome::Finished, None);
+        record
+    }
+
+    #[test]
+    fn a_calls_heading_is_spelled_as_its_transcript_row_is_at_any_width() {
+        // fx's heading here is the status phrase its transcript row is made
+        // from (`formatExpandedChild`, `tool_group_projection.zig:788-821
+        // @481104fd`), wrapped and never cut: the command as
+        // `encodeTerminalSafe` wrote it (`p5-call-row-safe-…-full`). The
+        // pattern and the path are spelled the same way here, where fx's
+        // are raw (ledger `call-row-raw-argument`); so is the Arabic letter
+        // mark. The argument rows stay: fx finds none of the three raw values
+        // in its heading (`argumentVisibleInToolHeading`).
+        let record = unsafe_heading_record();
+        for cols in [10u16, 24, 80, 120] {
+            for row in record.rows(cols, 400, DARK, "") {
+                assert!(wrap::width(&row) <= cols, "{cols}: {row:?}");
+                assert!(!row.chars().any(obeyed_or_hidden), "{cols}: {row:?}");
+                assert!(only_colours(&row), "{cols}: {row:?}");
+            }
+        }
+        let rows = plain(&record.rows(240, 400, DARK, ""));
+        for row in [
+            r"├ Ran printf '%s' 'A\u{202e}B\u{2066}C\u{061c}D\x1b[2JE F\x09G\u{009b}H' >/dev/null",
+            r"│  command: printf '%s' 'A\u{202e}B\u{2066}C\u{061c}D\x1b[2JE\x0dF    G\u{009b}H' >/dev/null",
+            r"├ Matched n\u{202e}o\u{2066}p\u{061c}q\x1b7r\x09s\u{009b}t\x0du*.md",
+            r"│  pattern: n\u{202e}o\u{2066}p\u{061c}q\x1b7r    s\u{009b}t\x0du*.md",
+            r"└ Failed m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq\x09r\u{009b}s\x0dt.txt: Path not found: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq r\u{009b}s t.txt",
+            r"│  path: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq    r\u{009b}s\x0dt.txt",
+        ] {
+            assert!(rows.iter().any(|shown| shown == row), "{row}\n{rows:#?}");
+        }
+    }
+
+    #[test]
+    fn a_value_the_heading_had_to_spell_is_never_shown_by_it_already() {
+        // `argumentVisibleInToolHeading` (`full_transcript_screen.zig:
+        // 6594-6619@481104fd`) looks for the value as the model wrote it in
+        // the heading fx spelled: one that holds anything `encodeTerminalSafe`
+        // names -- a mark with no control beside it, here -- is never found,
+        // and keeps its row. The heading is spelled here too, so the value is
+        // judged as it was written, not as this screen spells it
+        // (`Argument::text`). The Arabic letter mark, which fx writes as
+        // itself, is named in this heading, so its value keeps its row too.
+        for (tool, input, shown, row) in [
+            (
+                "terminal",
+                json!({"action": "exec", "command": "echo A\u{202e}B"}),
+                command("echo A\u{202e}B"),
+                Some(r"│  command: echo A\u{202e}B"),
+            ),
+            (
+                "terminal",
+                json!({"action": "exec", "command": "echo A\u{061c}B"}),
+                command("echo A\u{061c}B"),
+                Some(r"│  command: echo A\u{061c}B"),
+            ),
+            (
+                "terminal",
+                json!({"action": "exec", "command": "echo plain"}),
+                command("echo plain"),
+                None,
+            ),
+            (
+                "read_file",
+                json!({"path": "a\u{2066}b.txt"}),
+                read("a\u{2066}b.txt"),
+                Some(r"│  path: a\u{2066}b.txt"),
+            ),
+            (
+                "read_file",
+                json!({"path": "plain.txt"}),
+                read("plain.txt"),
+                None,
+            ),
+        ] {
+            let mut record = record();
+            record.tool_started("c", &shown);
+            record.observe(&UiEvent::ToolDetail {
+                call_id: "c".into(),
+                detail: Detail::Arguments(arguments(tool, &input)).made_inert(),
+            });
+            record.tool_finished("c", true, "", Outcome::Exited(0), None);
+            let rows = screen_at(&record, 120);
+            let arguments: Vec<&String> = rows
+                .iter()
+                .filter(|line| line.starts_with("\u{2502}  "))
+                .collect();
+            match row {
+                Some(row) => assert_eq!(arguments, [row], "{input}"),
+                None => assert_eq!(arguments, Vec::<&String>::new(), "{input}"),
+            }
+        }
     }
 }

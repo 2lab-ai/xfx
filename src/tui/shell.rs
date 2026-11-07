@@ -26659,6 +26659,71 @@ mod tests {
     }
 
     #[test]
+    fn a_resumed_calls_own_row_is_spelled_on_the_document_and_the_full_transcript() {
+        // CALLROW-SAFE, the whole way a resumed call's argument travels:
+        // the log, `bridge::inert_hydration`, the shell, the group's row in
+        // the document and the heading on Ctrl-O's screen -- each spelled as
+        // fx spells a command's row (`encodeTerminalSafe`), nothing in either
+        // a terminal would act on or that reorders the row.
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let command = "printf 'A\u{202e}B\u{2066}C\u{061c}D\u{1b}[2JE\rF\tG\u{9b}H'";
+        let steps = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![RecordedToolCall {
+                    id: "c".to_string(),
+                    name: "terminal".to_string(),
+                    input: serde_json::json!({"action": "exec", "command": command}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+            TurnStep::ToolResult {
+                images: Vec::new(),
+                call_id: "c".to_string(),
+                tool: "terminal".to_string(),
+                ok: true,
+                output: String::new(),
+                ending: None,
+                lines: None,
+                change: None,
+            },
+        ];
+        let state = logged(vec![logged_turn(
+            "run it",
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        )]);
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(bridge::inert_hydration(state), false);
+        let painted = resumed.painted_document().join("\n");
+        resumed.route_bytes(b"\x0f");
+        let full = resumed.screen_rows().join("\n");
+        let spelled = r"printf 'A\u{202e}B\u{2066}C\u{061c}D\x1b[2JE F\x09G\u{009b}H'";
+        for (surface, bytes) in [("document", &painted), ("full transcript", &full)] {
+            // Every colour off, whoever painted it (the shell highlighter's
+            // too): what is left is the row's text.
+            let mut plain = String::new();
+            let mut rest = bytes.as_str();
+            while let Some(at) = rest.find('\u{1b}') {
+                plain.push_str(&rest[..at]);
+                rest = &rest[at..];
+                rest = &rest[rest.find('m').map_or(rest.len(), |end| end + 1)..];
+            }
+            plain.push_str(rest);
+            assert!(plain.contains(spelled), "{surface}: {plain:?}");
+            for mark in ['\u{202e}', '\u{2066}', '\u{061c}', '\u{9b}', '\r', '\t'] {
+                assert!(!bytes.contains(mark), "{surface}: {mark:?} in {bytes:?}");
+            }
+        }
+    }
+
+    #[test]
     fn a_stopped_turn_replays_as_upstreams_cancellation_and_a_failed_one_as_failed() {
         use crate::session::{RecordedToolCall, ToolEnding, TurnConclusion, TurnStep};
         let cut_off = vec![
