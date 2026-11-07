@@ -1,0 +1,40 @@
+* mcp: proj
+    status     waiting for approval
+    transport  stdio
+    command    <bun> <scenarios>/
+  p5-mcp-stdio.ts
+    source     .mcp.json
+    next       /mcp approve proj
+
+! mcp: fixture runs a command, so it has no login.
+
+* mcp: remote
+    status     retrying
+    transport  http
+    url        http://127.0.0.1:9/mcp
+    source     ~/.fx/mcp.json
+    error      it refused or never answered fx's initialize request
+
+! mcp: Couldn't sign in to remote: fx couldn't find how to sign in to it.
+
+! mcp: /mcp auth is now /mcp login NAME.
+
+* mcp: remote wasn't signed in.
+
+* mcp: Added two to ~/.fx/mcp.json.
+
+! mcp: /mcp add needs a URL, or -- and a command.
+  usage: /mcp add [--project] [--header K=V]... NAME URL
+         /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...]
+         /mcp add [--project] slack
+    --project  write ./.mcp.json instead of ~/.fx/mcp.json
+
+! mcp: /mcp add has no --transport flag.
+  usage: /mcp add [--project] [--header K=V]... NAME URL
+         /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...]
+         /mcp add [--project] slack
+    --project  write ./.mcp.json instead of ~/.fx/mcp.json
+
+┃
+
+auto · model-a                                                                       proj is waiting for approval · /mcp

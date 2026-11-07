@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-d5425d9 [debug] · Run /help for commands
+
+┃ use the web echo tool
+
+● 2 tool calls · 1 read · 1 command
+├ Searched capabilities echo text through the web server
+└ Ran MCP mcp_web_echo
+
+  done.
+
+  3s (↑5 ↓120)
+
+┃ and once more
+
+● 2 tool calls · 1 read · 1 command · 1 cancelled
+├ Searched capabilities echo text through the web server
+└ Cancelled MCP mcp_web_echo
+
+■ Cancelled MCP mcp_web_echo · What can xfx do differently?
+
+┃
+
+press ctrl+c again to exit
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,40 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.16 · Run /help for commands[39m
+
+[38;5;250m* mcp: NAME      SOURCE          TRANSPORT  STATUS[39m
+  [38;5;250mfixture   ~/.fx/mcp.json  stdio      ready, 1 tool[39m
+  [38;5;250mfallback  ~/.fx/mcp.json  stdio      ready, 1 tool[39m
+
+[38;5;252m! mcp:[38;5;250m note: ~/.fx/mcp.json server 'unset' field argument requires environment variable 'P5_UNSET_TOKEN'; set it or use[39m
+  [38;5;250m${P5_UNSET_TOKEN:-default}.[39m
+  [38;5;250mnote: ~/.fx/mcp.json server 'remote' field http_header requires environment variable 'P5_UNSET_HEADER'; set it or use[39m
+  [38;5;250m${P5_UNSET_HEADER:-default}.
+[39m  [38;5;250mnote: ~/.fx/mcp.json server 'badref' was skipped: a ${...} in it isn't valid.[39m
+  [38;5;250mnote: ~/.fx/mcp.json server 'evil\x1b]0;x\x07' was skipped: its name has a character fx won't print.[39m
+  [38;5;250mnote: ~/.fx/mcp.json server 'rtl\u{202e}txt' was skipped: its name has a character fx won't print.[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m                                                                     [38;5;245mMCP config has 5 problems · /mcp list
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

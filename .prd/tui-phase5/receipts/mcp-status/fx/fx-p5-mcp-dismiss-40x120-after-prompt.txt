@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ hello
+
+  ok.
+
+  0s (↑2 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

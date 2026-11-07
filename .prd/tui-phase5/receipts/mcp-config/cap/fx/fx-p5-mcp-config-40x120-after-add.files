@@ -1,0 +1,65 @@
+=== ~/.fx/history.jsonl (962 bytes)
+{"schema_version":1,"timestamp_ms":1793932564016,"workspace_root":"<scratch>/work","text":"/mcp add two -- <bun> <scenarios>/p5-mcp-stdio.ts"}
+{"schema_version":1,"timestamp_ms":1793932567037,"workspace_root":"<scratch>/work","text":"/mcp add --env K=v --env Z=1 three -- <bun> <scenarios>/p5-mcp-stdio.ts --flag"}
+{"schema_version":1,"timestamp_ms":1793932570052,"workspace_root":"<scratch>/work","text":"/mcp add --header X-Team=core web http://127.0.0.1:9/web"}
+{"schema_version":1,"timestamp_ms":1793932573075,"workspace_root":"<scratch>/work","text":"/mcp add --project p2 -- <bun> <scenarios>/p5-mcp-stdio.ts"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/mcp-credentials/credentials-v3.lock (0 bytes)
+=== ~/.fx/mcp.json (1137 bytes)
+{
+  "theme": "dark",
+  "mcp": {
+    "old": {
+      "type": "local",
+      "command": [
+        "<bun>",
+        "<scenarios>/p5-mcp-stdio.ts"
+      ],
+      "enabled": true,
+      "startup_timeout_ms": 30000,
+      "operation_timeout_ms": 60000,
+      "restart_limit": 1
+    },
+    "two": {
+      "command": "<bun>",
+      "args": [
+        "<scenarios>/p5-mcp-stdio.ts"
+      ]
+    },
+    "three": {
+      "command": "<bun>",
+      "args": [
+        "<scenarios>/p5-mcp-stdio.ts",
+        "--flag"
+      ],
+      "env": {
+        "K": "v",
+        "Z": "1"
+      }
+    },
+    "web": {
+      "type": "http",
+      "url": "http://127.0.0.1:9/web",
+      "headers": {
+        "X-Team": "core"
+      }
+    }
+  },
+  "n": 1.50,
+  "e": -0.5E+10,
+  "s": "café / \u001f 😀 tab\t",
+  "empty": {},
+  "list": [],
+  "nested": [
+    [
+      1,
+      {
+        "a": null,
+        "b": false
+      }
+    ]
+  ]
+}
+
+=== ~/.fx/mcp.lock (0 bytes)

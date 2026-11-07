@@ -1,0 +1,9 @@
+=== ~/.xfx/history.jsonl (255 bytes)
+{"schema_version":1,"timestamp_ms":1793942491430,"workspace_root":"<scratch>/work","text":"/mcp"}
+{"schema_version":1,"timestamp_ms":1793942494001,"workspace_root":"<scratch>/work","text":"/mcp list"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/mcp.json (680 bytes)
+{"mcpServers":{"fixture":{"command":"<bun>","args":["${P5_DIR}/p5-mcp-stdio.ts"],"env":{"MCPSTDIO_WIRE_LOG":"${P5_HOME}/p5-wire-${P5_TAG}.log"}},"fallback":{"command":"<bun>","args":["${P5_UNSET_DIR:-<scenarios>}/p5-mcp-stdio.ts"]},"unset":{"command":"<bun>","args":["${P5_DIR}/p5-mcp-stdio.ts","--token=${P5_UNSET_TOKEN}"]},"remote":{"type":"http","url":"http://127.0.0.1:9/mcp","headers":{"X-P5":"${P5_UNSET_HEADER}"}},"badref":{"command":"<bun>","args":["${P5 DIR}"]},"evil\u001b]0;x\u0007":{"command":"true"},"rtl‮txt":{"command":"true"}}}
+
+=== ~/p5-wire-fake-p5-tag.log (342 bytes)

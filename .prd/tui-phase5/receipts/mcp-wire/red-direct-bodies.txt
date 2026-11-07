@@ -1,0 +1,11 @@
+# p5-mcp-direct: fx v0.0.16 (sha 8e6cda2e) vs xfx at d5425d93 (the base)
+requests: fx=2 xfx=1
+002-completion.json vs 002-completion.json
+  mcp tools same names: False  fx=['capability_search', 'mcp_select_tool'] xfx=['capability_search', 'mcp_select_tool', 'mcp_features']
+    capability_search: differs in ['description']
+    mcp_select_tool: differs in ['inputSchema']
+  <mcp_servers> same: False  (1 vs 1)
+    fx : <mcp_servers>\n  <server name="fixture" state="ready" />\n</mcp_servers>
+    xfx: <mcp_servers>\n  <server name="fixture" state="ready" tools="1" />\n</mcp_servers>
+  tool calls/results same: True  (0 vs 0)
+RESULT: DIFFERS

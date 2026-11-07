@@ -1,0 +1,40 @@
+  2026-11-06 12:36:26.812 KST · Notice
+* network: provider: gateway · model: fake/model-a · 16ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-06 12:36:26.823 KST · Notice
+* network: provider: gateway · model: fake/model-a · 15ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-06 12:36:29.828 KST · Notice
+* network: provider: gateway · model: fake/model-a · 15ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-06 12:36:26.775 KST · Prompt
+┃ use the web echo tool
+
+  2026-11-06 12:36:26.812 KST · Tool
+● 2 tool calls · 1 read · 1 MCP call
+├ Searched capabilities echo text through the web server
+│  {"skills":[],"mcp_tools":[{"name":"mcp_web_echo","server":"web","description":"Echo the text back (fxcap HTTP fixture
+│  )","purpose":"Echo the text back (fxcap HTTP fixture)","usage":["mcp","web","echo"]}],"counts":{"skills":0,"mcp_tools
+│  ":1},"total_matches":{"skills":0,"mcp_tools":1}}
+
+  2026-11-06 12:36:26.834 KST · Tool
+└ Ran MCP mcp_web_echo
+│  text: hi
+│  {"server":"web","tool":"mcp_web_echo","result":{"content":[{"type":"text","text":"MCPHTTP_ECHO: hi"}],"isError":false
+│  }}
+
+  2026-11-06 12:36:29.828 KST · Response
+  done.
+
+  2026-11-06 12:36:29.828 KST · Usage
+  3s (↑5 ↓120)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a

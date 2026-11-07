@@ -232,6 +232,7 @@ fn mcp_record(servers: &[crate::mcp::runtime::ServerView]) -> String {
                 Connection::Disconnected => "disconnected",
                 Connection::Disabled => "disabled",
                 Connection::Connecting => "connecting",
+                Connection::Retrying => "retrying",
                 Connection::Ready => "ready",
                 Connection::Failed => "failed",
             };

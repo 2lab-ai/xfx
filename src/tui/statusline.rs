@@ -32,12 +32,17 @@
 //! while it is up: the picker is a modal of its own rather than a view of the
 //! draft (`surface_frame.zig:384-393`, `input_visible` false).
 
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use crate::config::StatusLine;
 use crate::config::StatusLineItem as Item;
+use crate::mcp::config::Admission;
+use crate::mcp::runtime::{Connection, ServerView, Status};
+use crate::mcp::McpRuntime;
 
 use super::input::Action;
 use super::picker::{cells, ellipsized, pad_to};
@@ -524,6 +529,207 @@ fn read_small(path: &Path) -> Option<String> {
     fs::read_to_string(path).ok()
 }
 
+// ---------------------------------------------------------------------------
+// the status line's MCP text
+// ---------------------------------------------------------------------------
+
+/// The most bytes of the MCP text (`host_status_buf: [120]u8`,
+/// `vercel-labs/fx@481104fd src/core/app/app_mcp_runtime.zig:66-68`).
+const MCP_STATUS_MAX_BYTES: usize = 120;
+
+/// The text is rebuilt at most this often, since servers change on their own
+/// (`refreshHostStatus`, `app_mcp_runtime.zig:140-151`).
+pub(crate) const MCP_STATUS_REFRESH: Duration = Duration::from_millis(250);
+
+/// The longest the status line waits for servers to finish starting
+/// (`startup_quiet_ms`, `src/core/mcp_host/menu.zig:443-444@481104fd`).
+const MCP_STARTUP_QUIET: Duration = Duration::from_secs(10);
+
+/// What the status line's right-hand slot says about MCP: fx v0.0.16's
+/// `hostStatusLine` (`app_mcp_runtime.zig:153-187`).
+///
+/// It names what needs the person -- `proj is waiting for approval · /mcp`,
+/// `bad failed · /mcp`, `2 MCP need attention · /mcp` -- and else the config
+/// problems, `MCP config has 1 problem · /mcp list`; and nothing while all is
+/// well ([`mcp_status_line`]). While the servers started less than ten
+/// seconds ago are still coming up it says nothing, so the count shows once
+/// rather than climbing as they report in ([`startup_settled`]). A prompt
+/// sent is the person having seen it: what needs attention then is left to
+/// `/mcp`, and only a server that needs attention afterwards is named
+/// ([`Self::dismiss`]).
+///
+/// fx's sign-in news (`Signing in to X · /mcp`, `Signed in to X`) is not
+/// here: MCP sign-in is not built (`docs/parity.md`).
+#[derive(Debug, Default)]
+pub(crate) struct McpStatus {
+    text: String,
+    /// When the text was last rebuilt.
+    at: Option<Instant>,
+    /// Once a prompt was sent, the servers that needed attention then.
+    seen: Option<HashSet<String>>,
+    /// A prompt was sent: record what needs attention once servers finish
+    /// starting.
+    dismiss_requested: bool,
+}
+
+impl McpStatus {
+    /// What the slot says now; empty for nothing.
+    pub(crate) fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// A slot already saying `text`: a case about where the row puts it.
+    #[cfg(test)]
+    pub(crate) fn showing(text: &str) -> Self {
+        Self {
+            text: text.to_string(),
+            ..Self::default()
+        }
+    }
+
+    /// Rebuilds the text from `runtime` at `now`, at most every
+    /// [`MCP_STATUS_REFRESH`]; true when it changed.
+    pub(crate) fn refresh(&mut self, now: Instant, runtime: &McpRuntime) -> bool {
+        if self
+            .at
+            .is_some_and(|at| now.saturating_duration_since(at) < MCP_STATUS_REFRESH)
+        {
+            return false;
+        }
+        self.at = Some(now);
+        let views = runtime.views();
+        let since_start = runtime
+            .started_at()
+            .map(|started| now.saturating_duration_since(started));
+        let next = self.line(&views, since_start, runtime.issues().len());
+        if next == self.text {
+            return false;
+        }
+        self.text = next;
+        true
+    }
+
+    /// The person sent a prompt (`dismissHostStatus`,
+    /// `app_mcp_runtime.zig:190-197`; `input_submit_runtime.zig:1108-1109`):
+    /// what needs attention has been seen. Servers still starting are
+    /// recorded once they finish. The next refresh does not wait its turn.
+    pub(crate) fn dismiss(&mut self) {
+        self.dismiss_requested = true;
+        self.at = None;
+    }
+
+    /// `hostStatusLine`: `since_start` is how long ago the servers were last
+    /// started, `None` before any were.
+    fn line(
+        &mut self,
+        views: &[ServerView],
+        since_start: Option<Duration>,
+        notes: usize,
+    ) -> String {
+        // While servers start, what needs the person waits, so the count
+        // shows once and does not climb. A prompt sent meanwhile is recorded
+        // once they are done.
+        if since_start.is_some_and(|since| !startup_settled(views, since)) {
+            return String::new();
+        }
+        if self.dismiss_requested {
+            self.seen = Some(
+                views
+                    .iter()
+                    .filter(|view| needs_attention(view))
+                    .map(|view| view.name.clone())
+                    .collect(),
+            );
+            self.dismiss_requested = false;
+        }
+        // After a prompt, what the person already saw stays in `/mcp`, and
+        // config problems are not repeated.
+        if let Some(seen) = &self.seen {
+            let fresh: Vec<ServerView> = views
+                .iter()
+                .filter(|view| needs_attention(view) && !seen.contains(&view.name))
+                .cloned()
+                .collect();
+            return mcp_status_line(&fresh, 0);
+        }
+        mcp_status_line(views, notes)
+    }
+}
+
+/// Whether servers started `since_start` ago are done starting: none is
+/// still coming up -- connecting, or retrying after a failure -- or ten
+/// seconds passed (`startupSettled`, `menu.zig:445-458@481104fd`). A server
+/// that needs the person does not hold the wait.
+fn startup_settled(views: &[ServerView], since_start: Duration) -> bool {
+    if since_start >= MCP_STARTUP_QUIET {
+        return true;
+    }
+    !views.iter().any(|view| {
+        matches!(
+            view.connection,
+            Connection::Disconnected | Connection::Connecting | Connection::Retrying
+        ) && !needs_attention(view)
+    })
+}
+
+/// Whether a server waits on the person: the servers the status line counts
+/// (`needsAttention`, `menu.zig:540-545@481104fd`). A server switched off or
+/// rejected was the person's own choice, so it does not.
+pub(crate) fn needs_attention(view: &ServerView) -> bool {
+    view.admission != Some(Admission::Rejected)
+        && !(view.connection == Connection::Disabled && view.admission != Some(Admission::Pending))
+        && attention(view).is_some()
+}
+
+/// What a server needs from the person, if anything (`attention`,
+/// `menu.zig:547-557@481104fd`). fx's `needs a variable` and `can't use a
+/// variable` are a project server whose `${VAR}` could not be expanded,
+/// which xfx counts among the config problems instead (`src/mcp/config.rs`).
+fn attention(view: &ServerView) -> Option<&'static str> {
+    if view.status() == Status::NeedsAuth {
+        return Some("needs login");
+    }
+    if view.admission == Some(Admission::Pending) {
+        return Some("is waiting for approval");
+    }
+    (view.status() == Status::Failed).then_some("failed")
+}
+
+/// What the status line says about `views` (`statusLine`,
+/// `menu.zig:506-538@481104fd`): the one server that needs the person, by
+/// name and why; how many, when more do; else how many config problems
+/// `/mcp list` shows; else nothing, since `/mcp` lists every server.
+///
+/// A name is a configuration's, and a project's `.mcp.json` is the
+/// repository's: it reaches the screen only through
+/// [`crate::mcp::terminal_safe`], which spells what a terminal would obey
+/// (fx writes such a byte as `?`). The whole is at most
+/// [`MCP_STATUS_MAX_BYTES`], never cut inside a character.
+pub(crate) fn mcp_status_line(views: &[ServerView], notes: usize) -> String {
+    let needing: Vec<(&ServerView, &str)> = views
+        .iter()
+        .filter(|view| needs_attention(view))
+        .filter_map(|view| attention(view).map(|why| (view, why)))
+        .collect();
+    let text = match needing.as_slice() {
+        [(view, why)] => format!(
+            "{} {why} \u{b7} /mcp",
+            crate::mcp::terminal_safe(&view.name)
+        ),
+        [] if notes > 0 => format!(
+            "MCP config has {notes} problem{} \u{b7} /mcp list",
+            if notes == 1 { "" } else { "s" }
+        ),
+        [] => String::new(),
+        many => format!("{} MCP need attention \u{b7} /mcp", many.len()),
+    };
+    let mut end = text.len().min(MCP_STATUS_MAX_BYTES);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -853,5 +1059,210 @@ mod tests {
         // machine this runs on; if one were, the claim is still that the
         // label is the path.
         assert_eq!(workspace.label(), root.path().to_string_lossy());
+    }
+
+    // -- the MCP text -------------------------------------------------------
+
+    use crate::mcp::config::{Source, Transport as Kind};
+    use crate::mcp::runtime::{Capabilities, Listed};
+
+    /// A server as the status line sees it: `connection`, and for a project
+    /// server whether it waits on the person or was rejected.
+    fn server(name: &str, connection: Connection, admission: Option<Admission>) -> ServerView {
+        ServerView {
+            name: name.to_string(),
+            source: if admission.is_some() {
+                Source::Workspace
+            } else {
+                Source::Profile
+            },
+            transport: Kind::Stdio,
+            admission,
+            connection,
+            needs_auth: false,
+            required: false,
+            reloading: false,
+            protocol_version: None,
+            capabilities: Capabilities::default(),
+            tool_count: None,
+            tools_held: 0,
+            listed: Listed::default(),
+            failure: None,
+            entry: None,
+        }
+    }
+
+    fn pending(name: &str) -> ServerView {
+        server(name, Connection::Disabled, Some(Admission::Pending))
+    }
+
+    #[test]
+    fn the_mcp_text_names_one_server_counts_several_and_else_the_config_problems() {
+        // `menu.zig:582-597@481104fd`, the words of the gated sign-in aside.
+        let ready = server("linear", Connection::Ready, None);
+        let off = server("old", Connection::Disabled, None);
+        let rejected = server("nope", Connection::Disabled, Some(Admission::Rejected));
+        let bad = server("bad", Connection::Failed, None);
+        let mut auth = server("plain", Connection::Failed, None);
+        auth.needs_auth = true;
+        assert_eq!(
+            mcp_status_line(&[pending("proj"), ready.clone()], 0),
+            "proj is waiting for approval \u{b7} /mcp"
+        );
+        assert_eq!(
+            mcp_status_line(&[ready.clone(), bad.clone(), off.clone()], 0),
+            "bad failed \u{b7} /mcp"
+        );
+        assert_eq!(
+            mcp_status_line(&[auth.clone(), ready.clone()], 0),
+            "plain needs login \u{b7} /mcp"
+        );
+        assert_eq!(
+            mcp_status_line(&[auth, pending("proj"), ready.clone()], 3),
+            "2 MCP need attention \u{b7} /mcp"
+        );
+        assert_eq!(
+            mcp_status_line(std::slice::from_ref(&ready), 2),
+            "MCP config has 2 problems \u{b7} /mcp list"
+        );
+        assert_eq!(
+            mcp_status_line(std::slice::from_ref(&ready), 1),
+            "MCP config has 1 problem \u{b7} /mcp list"
+        );
+        // All is well, a server still coming up or switched off or rejected
+        // by the person included: nothing to say.
+        let starting = server("web", Connection::Connecting, None);
+        let retrying = server("flaky", Connection::Retrying, None);
+        assert_eq!(
+            mcp_status_line(&[ready, off, rejected, starting, retrying], 0),
+            ""
+        );
+        assert_eq!(mcp_status_line(&[], 0), "");
+    }
+
+    #[test]
+    fn a_name_from_a_repository_is_spelled_and_the_text_stops_at_120_bytes() {
+        // A `.mcp.json` is the repository's: a name that would move the
+        // cursor or reorder the row is named, never obeyed.
+        let hostile = pending("x\u{1b}[2J\u{202e}y");
+        let text = mcp_status_line(&[hostile], 0);
+        assert!(
+            !text.contains('\u{1b}') && !text.contains('\u{202e}'),
+            "{text:?}"
+        );
+        assert!(text.starts_with("x\\x1b[2J"), "{text:?}");
+        assert!(
+            text.ends_with(" is waiting for approval \u{b7} /mcp"),
+            "{text:?}"
+        );
+        // The slot is fx's 120 bytes at most, never cut inside a character.
+        let long = pending(&"\u{e9}".repeat(100));
+        let text = mcp_status_line(&[long], 0);
+        assert!(text.len() <= 120 && text.len() >= 119, "{}", text.len());
+    }
+
+    #[test]
+    fn the_text_waits_for_servers_coming_up_at_most_ten_seconds() {
+        // `startupSettled`, `menu.zig:445-458@481104fd`; fx's `menu-new`
+        // capture: nothing at 4 s while `remote` retries, then
+        // `proj is waiting for approval · /mcp` at 12 s.
+        let views = [
+            server("fixture", Connection::Ready, None),
+            server("remote", Connection::Retrying, None),
+            pending("proj"),
+        ];
+        let mut status = McpStatus::default();
+        assert_eq!(status.line(&views, Some(Duration::from_secs(4)), 0), "");
+        assert_eq!(
+            status.line(&views, Some(Duration::from_secs(10)), 0),
+            "proj is waiting for approval \u{b7} /mcp"
+        );
+        // Every server done coming up settles it at once; one that needs the
+        // person never holds it.
+        let done = [server("fixture", Connection::Ready, None), pending("proj")];
+        assert_eq!(
+            status.line(&done, Some(Duration::from_millis(1)), 0),
+            "proj is waiting for approval \u{b7} /mcp"
+        );
+        let connecting = [
+            server("fixture", Connection::Connecting, None),
+            pending("proj"),
+        ];
+        assert_eq!(
+            status.line(&connecting, Some(Duration::from_secs(9)), 0),
+            ""
+        );
+        // With no servers ever started there is nothing to wait for.
+        assert_eq!(
+            status.line(&connecting, None, 0),
+            "proj is waiting for approval \u{b7} /mcp"
+        );
+    }
+
+    #[test]
+    fn a_prompt_sent_leaves_what_was_seen_to_mcp_and_names_only_what_is_new() {
+        // `dismissHostStatus` and `hostStatusLine`'s seen set
+        // (`app_mcp_runtime.zig:166-197@481104fd`; fx's `dismiss` capture).
+        let settled = Some(Duration::from_secs(13));
+        let mut status = McpStatus::default();
+        let before = [server("fixture", Connection::Ready, None), pending("proj")];
+        assert_eq!(
+            status.line(&before, settled, 1),
+            "proj is waiting for approval \u{b7} /mcp"
+        );
+        status.dismiss();
+        assert_eq!(
+            status.line(&before, settled, 1),
+            "",
+            "seen, and no config note"
+        );
+        // A server that fails afterwards is new, and named alone.
+        let after = [server("fixture", Connection::Failed, None), pending("proj")];
+        assert_eq!(
+            status.line(&after, settled, 1),
+            "fixture failed \u{b7} /mcp"
+        );
+    }
+
+    #[test]
+    fn a_prompt_sent_while_servers_start_is_recorded_once_they_are_done() {
+        // The unsettled return comes before the seen set is recorded, so a
+        // server that fails after the prompt but before the wait ends counts
+        // as seen: what needs attention when the wait ends is what the
+        // prompt dismissed.
+        let mut status = McpStatus::default();
+        let starting = [server("bad", Connection::Retrying, None)];
+        status.dismiss();
+        assert_eq!(status.line(&starting, Some(Duration::from_secs(2)), 0), "");
+        let failed = [server("bad", Connection::Failed, None)];
+        assert_eq!(status.line(&failed, Some(Duration::from_secs(11)), 0), "");
+        assert!(status
+            .seen
+            .as_ref()
+            .is_some_and(|seen| seen.contains("bad")));
+    }
+
+    #[test]
+    fn the_text_is_rebuilt_at_most_every_quarter_second_and_at_once_after_a_prompt() {
+        let runtime = crate::mcp::McpRuntime::inert();
+        let mut status = McpStatus::default();
+        let now = Instant::now();
+        // Nothing to say, and nothing changed: no frame owed.
+        assert!(!status.refresh(now, &runtime));
+        assert_eq!(status.at, Some(now));
+        status.refresh(now + Duration::from_millis(100), &runtime);
+        assert_eq!(status.at, Some(now), "rebuilt inside the quarter second");
+        status.refresh(now + MCP_STATUS_REFRESH, &runtime);
+        assert_eq!(status.at, Some(now + MCP_STATUS_REFRESH));
+        status.dismiss();
+        status.refresh(
+            now + MCP_STATUS_REFRESH + Duration::from_millis(1),
+            &runtime,
+        );
+        assert_eq!(
+            status.at,
+            Some(now + MCP_STATUS_REFRESH + Duration::from_millis(1)),
+            "a prompt does not wait its turn"
+        );
     }
 }

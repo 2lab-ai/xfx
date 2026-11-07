@@ -1,0 +1,40 @@
+
+! mcp: /mcp reload is gone: fx reloads after add, remove, approve, and reject.
+
+! mcp: /mcp auth is now /mcp login NAME.
+
+! mcp: /mcp trust is now /mcp approve NAME and /mcp reject NAME.
+
+! mcp: /mcp resource is gone: fx doesn't support MCP resources and prompts yet.
+
+! mcp: /mcp prompt is gone: fx doesn't support MCP resources and prompts yet.
+
+! mcp: No MCP server named nope. /mcp list shows them.
+
+! mcp: No MCP server named nope. /mcp list shows them.
+
+! mcp: No MCP server named nope. /mcp list shows them.
+
+! mcp: No MCP server named nope in ~/.fx/mcp.json or .mcp.json.
+
+! mcp: /mcp approve needs one server NAME.
+  usage: /mcp approve NAME | --all
+
+! mcp: No project server named nope in .mcp.json.
+
+! mcp: /mcp add needs a NAME.
+  usage: /mcp add [--project] [--header K=V]... NAME URL
+         /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...]
+         /mcp add [--project] slack
+    --project  write ./.mcp.json instead of ~/.fx/mcp.json
+
+* mcp: usage: /mcp add [--project] [--header K=V]... NAME URL
+         /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...]
+         /mcp add [--project] slack
+    --project  write ./.mcp.json instead of ~/.fx/mcp.json
+
+! mcp: /mcp list --connect is now /mcp show NAME.
+
+┃
+
+auto · model-a

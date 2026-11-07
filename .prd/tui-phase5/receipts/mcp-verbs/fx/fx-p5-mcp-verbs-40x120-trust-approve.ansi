@@ -1,0 +1,40 @@
+  [38;5;250m  error      it refused or never answered fx's initialize request[39m
+
+[38;5;252m! mcp:[38;5;250m Couldn't sign in to remote: fx couldn't find how to sign in to it.[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp auth is now /mcp login NAME.[39m
+
+[38;5;250m* mcp: remote wasn't signed in.[39m
+
+[38;5;250m* mcp: Added two to ~/.fx/mcp.json.[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp add needs a URL, or -- and a command.[39m
+  [38;5;250musage: /mcp add [--project] [--header K=V]... NAME URL[39m
+  [38;5;250m       /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...][39m
+  [38;5;250m       /mcp add [--project] slack[39m
+  [38;5;250m  --project  write ./.mcp.json instead of ~/.fx/mcp.json[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp add has no --transport flag.[39m
+  [38;5;250musage: /mcp add [--project] [--header K=V]... NAME URL[39m
+  [38;5;250m       /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...][39m
+  [38;5;250m       /mcp add [--project] slack[39m
+  [38;5;250m  --project  write ./.mcp.json instead of ~/.fx/mcp.json[39m
+
+[38;5;250m* mcp: Added web2 to ~/.fx/mcp.json.[39m
+
+[38;5;252m! mcp:[38;5;250m 'bad.name' can't be a server name: use letters, digits, '-' and '_'.[39m
+  [38;5;250musage: /mcp add [--project] [--header K=V]... NAME URL[39m
+  [38;5;250m       /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...][39m
+  [38;5;250m       /mcp add [--project] slack[39m
+  [38;5;250m  --project  write ./.mcp.json instead of ~/.fx/mcp.json[39m
+
+[38;5;250m* mcp: Approved proj, which runs: <bun> <local-path>
+[39m  [38;5;250mscenarios/p5-mcp-stdio.ts[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp trust is now /mcp approve NAME and /mcp reject NAME.[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m
+
+

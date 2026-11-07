@@ -1,0 +1,16 @@
+# p5-mcp-direct: fx v0.0.16 (sha 8e6cda2e) vs xfx at this branch (MCP-Wc)
+requests: fx=2 xfx=2
+002-completion.json vs 002-completion.json
+  mcp tools same names: True  fx=['capability_search', 'mcp_select_tool'] xfx=['capability_search', 'mcp_select_tool']
+    capability_search: differs in ['description']
+    mcp_select_tool: differs in ['inputSchema']
+  <mcp_servers> same: True  (1 vs 1)
+  tool calls/results same: True  (0 vs 0)
+003-completion.json vs 003-completion.json
+  mcp tools same names: True  fx=['capability_search', 'mcp_select_tool', 'mcp_fixture_echo'] xfx=['capability_search', 'mcp_select_tool', 'mcp_fixture_echo']
+    capability_search: differs in ['description']
+    mcp_select_tool: differs in ['inputSchema']
+    mcp_fixture_echo: identical
+  <mcp_servers> same: True  (1 vs 1)
+  tool calls/results same: True  (2 vs 2)
+RESULT: identical (but the known differences)

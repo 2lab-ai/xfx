@@ -1,0 +1,21 @@
+# p5-mcp-unavailable: fx v0.0.16 (sha 8e6cda2e) vs xfx at this branch
+requests: fx=2 xfx=2
+001-completion.json vs 002-completion.json
+  mcp tools same names: True  fx=['capability_search', 'mcp_select_tool'] xfx=['capability_search', 'mcp_select_tool']
+    capability_search: differs in ['description']
+    mcp_select_tool: differs in ['inputSchema']
+  <mcp_servers> same: False  (1 vs 1)
+    fx : <mcp_servers>\n  <server name="bad" state="discovering" />\n  <server name="fixture" state="ready" />\n</mcp_servers>
+    xfx: <mcp_servers>\n  <server name="bad" state="failed" />\n  <server name="fixture" state="ready" />\n</mcp_servers>
+  tool calls/results same: True  (0 vs 0)
+002-completion.json vs 003-completion.json
+  mcp tools same names: True  fx=['capability_search', 'mcp_select_tool'] xfx=['capability_search', 'mcp_select_tool']
+    capability_search: differs in ['description']
+    mcp_select_tool: differs in ['inputSchema']
+  <mcp_servers> same: False  (1 vs 1)
+    fx : <mcp_servers>\n  <server name="bad" state="discovering" />\n  <server name="fixture" state="ready" />\n</mcp_servers>
+    xfx: <mcp_servers>\n  <server name="bad" state="failed" />\n  <server name="fixture" state="ready" />\n</mcp_servers>
+  tool calls/results same: False  (2 vs 2)
+    fx : {"type": "tool-result", "toolCallId": "call_search", "toolName": "capability_search", "output": {"type": "text", "value": "{\"skills\":[],\"mcp_tools\":[],\"counts\":{\"skills\":0,\"mcp_tools\":0},\"total_matches\":{\"skills\":0,\"mcp_tools\":0},\"state\":\"no_match\",\"mcp_unavailable\":[\"MCP server 'bad' is unavailable: its process exited with code 3; its last stderr lines: &quot;boom-stderr&quot;\"]}"}}
+    xfx: {"type": "tool-result", "toolCallId": "call_search", "toolName": "capability_search", "output": {"type": "text", "value": "{\"skills\":[],\"mcp_tools\":[],\"counts\":{\"skills\":0,\"mcp_tools\":0},\"total_matches\":{\"skills\":0,\"mcp_tools\":0},\"state\":\"no_match\",\"mcp_unavailable\":[\"MCP server 'bad' is unavailable: McpInitFailed\"]}"}}
+RESULT: DIFFERS

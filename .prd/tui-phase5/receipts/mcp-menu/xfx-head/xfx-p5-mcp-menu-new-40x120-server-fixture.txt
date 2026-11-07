@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-562149d [debug] · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  fixture
+  runs      <bun> <scenarios>/p5-m…
+  file      ~/.xfx/mcp.json
+  status    ready
+  protocol  2025-03-26
+
+› Remove        /mcp remove fixture
+
+  Tools 1
+  echo                  Echo text through the legacy MCP fixture
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter run     esc back
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

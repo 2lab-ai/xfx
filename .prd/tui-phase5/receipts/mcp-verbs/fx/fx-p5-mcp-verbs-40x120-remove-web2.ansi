@@ -1,0 +1,40 @@
+  [38;5;250m       /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...][39m
+  [38;5;250m       /mcp add [--project] slack[39m
+  [38;5;250m  --project  write ./.mcp.json instead of ~/.fx/mcp.json[39m
+
+[38;5;250m* mcp: Added web2 to ~/.fx/mcp.json.[39m
+
+[38;5;252m! mcp:[38;5;250m 'bad.name' can't be a server name: use letters, digits, '-' and '_'.[39m
+  [38;5;250musage: /mcp add [--project] [--header K=V]... NAME URL[39m
+  [38;5;250m       /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...][39m
+  [38;5;250m       /mcp add [--project] slack[39m
+  [38;5;250m  --project  write ./.mcp.json instead of ~/.fx/mcp.json[39m
+
+[38;5;250m* mcp: Approved proj, which runs: <bun> <local-path>
+[39m  [38;5;250mscenarios/p5-mcp-stdio.ts[39m
+
+[38;5;252m! mcp:[38;5;250m /mcp trust is now /mcp approve NAME and /mcp reject NAME.[39m
+
+[38;5;250m* mcp: NAME     SOURCE          TRANSPORT  STATUS[39m
+  [38;5;250mfixture  ~/.fx/mcp.json  stdio      ready, 1 tool[39m
+  [38;5;250mremote   ~/.fx/mcp.json  http       connecting[39m
+  [38;5;250mtwo      ~/.fx/mcp.json  stdio      ready, 1 tool[39m
+  [38;5;250mweb2     ~/.fx/mcp.json  http       connecting[39m
+  [38;5;250mproj     .mcp.json       stdio      ready, 1 tool[39m
+
+[38;5;250m* mcp: Rejected proj. fx won't start it in this project.[39m
+
+[38;5;250m* mcp: Removed two from ~/.fx/mcp.json.[39m
+
+[38;5;252m! mcp:[38;5;250m No MCP server named three in ~/.fx/mcp.json or .mcp.json.[39m
+
+[38;5;250m* mcp: Removed web2 from ~/.fx/mcp.json.[39m
+
+[38;5;252m! mcp:[38;5;250m No MCP server named web2 in ~/.fx/mcp.json or .mcp.json.[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m
+
+
+

@@ -6,9 +6,9 @@
 //! (`vercel-labs/fx@c1db9191 src/core/mcp/`): stdio servers and streamable
 //! HTTP servers without OAuth, upstream's legacy `initialize` handshake as its
 //! default, upstream's profile file and project trust, and upstream's
-//! model-facing surface -- a servers block and three meta-tools, with a
-//! server's own tools advertised only once a search or an explicit selection
-//! picks them ([`catalog`]).
+//! model-facing surface -- a servers block and two meta-tools, with a
+//! server's own tools advertised only once a search, an explicit selection
+//! or a direct call picks them ([`catalog`]).
 //!
 //! | piece | what it is |
 //! |---|---|
@@ -59,11 +59,13 @@ pub use runtime::{McpRuntime, Paths};
 #[derive(Debug, Clone, PartialEq)]
 pub enum McpError {
     Named(&'static str),
-    /// The server answered with a JSON-RPC error.
+    /// The server answered with a JSON-RPC error: its code and message, and
+    /// not its `data`, which fx v0.0.16 does not keep either
+    /// (`CallResult.failure`, `vercel-labs/fx@481104fd
+    /// src/core/mcp_host/runtime.zig:117`, `:2371`).
     Protocol {
         code: i64,
         message: String,
-        data: Option<serde_json::Value>,
     },
     /// A stopped server that could not be started again, and why.
     Restart(String),

@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-9c83b7e [debug] · Run /help for commands
+
+* mcp: MCP startup: 7 servers need attention, 7 failed. Use /mcp list for details.
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

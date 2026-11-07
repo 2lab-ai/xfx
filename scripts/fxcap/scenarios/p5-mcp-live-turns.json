@@ -1,0 +1,10 @@
+[
+ {"tool":{"id":"call_search","name":"capability_search","input":{"query":"echo text through the web server"}}},
+ {"tool":{"id":"call_echo","name":"mcp_web_echo","input":{"text":"hi"}}},
+ {"chunks":["done."]},
+ {"tool":{"id":"call_search2","name":"capability_search","input":{"query":"echo text through the web server"}}},
+ {"tool":{"id":"call_echo2","name":"mcp_web_echo","input":{"text":"again"}}},
+ {"tool":{"id":"call_search3","name":"capability_search","input":{"query":"echo text through the web server"}}},
+ {"tool":{"id":"call_echo3","name":"mcp_web_echo","input":{"text":"refused"}}},
+ {"chunks":["it failed."]}
+]

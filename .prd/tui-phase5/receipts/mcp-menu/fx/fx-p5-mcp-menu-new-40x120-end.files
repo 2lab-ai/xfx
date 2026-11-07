@@ -1,0 +1,25 @@
+=== ~/.fx/backups/settings.json.backup.1793953496814-0000000000000001-be694ee5ae1dc183c4a98357ee2d636b (114 bytes)
+{"workspaces":{"<scratch>/work":{"enabledMcpjsonServers":["proj"]}}}
+
+=== ~/.fx/history.jsonl (143 bytes)
+{"schema_version":1,"timestamp_ms":1793953463677,"workspace_root":"<scratch>/work","text":"/mcp"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/mcp-credentials/credentials-v3.lock (0 bytes)
+=== ~/.fx/mcp.json (222 bytes)
+{
+  "mcpServers": {
+    "fixture": {
+      "command": "<bun>",
+      "args": [
+        "<scenarios>/p5-mcp-stdio.ts"
+      ]
+    }
+  }
+}
+
+=== ~/.fx/mcp.lock (0 bytes)
+=== ~/.fx/settings.json (115 bytes)
+{"workspaces":{"<scratch>/work":{"disabledMcpjsonServers":["proj"]}}}
+
+=== ~/.fx/settings.lock (0 bytes)
