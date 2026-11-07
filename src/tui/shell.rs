@@ -4365,22 +4365,24 @@ impl Shell {
             UiEvent::TurnEnded { failure } => {
                 // What the terminal is told the turn came to, read before the
                 // cancel is taken below: a turn the user stopped is idle, as
-                // upstream reports an interrupted one; a failure is an error,
-                // whether the turn's or the work's that ended with no turn --
-                // upstream's `noteFailure` on its `request failed` notice
-                // (`app_worker_runtime.zig:1214-1216`); a turn that answered
-                // is done. Work that ran no turn and did not fail -- a
-                // `/model`, a listing -- has no result.
-                let outcome = if self.cancelling {
-                    Some(program_status::Outcome::Interrupted)
-                } else if failure.is_some() {
-                    Some(program_status::Outcome::Failed)
-                } else {
-                    self.tally
-                        .started
-                        .is_some()
-                        .then_some(program_status::Outcome::Completed)
-                };
+                // upstream reports an interrupted one; one that failed is an
+                // error, and one that answered is done. **A turn's only.**
+                // Upstream's worker runs a prompt or a compaction and nothing
+                // else (`WorkItem`, `worker_runtime.zig:167-170@481104fd`), so
+                // its results -- `noteTurnFinished`, and `noteFailure` on the
+                // `request failed` a failed item ends in
+                // (`app_process_runtime.zig:70`, `:164`) -- are about those
+                // alone. A provider switch, a listing or a `/workspace` that
+                // ends here ran no turn, and has no result to report.
+                let outcome = self.tally.started.is_some().then(|| {
+                    if self.cancelling {
+                        program_status::Outcome::Interrupted
+                    } else if failure.is_some() {
+                        program_status::Outcome::Failed
+                    } else {
+                        program_status::Outcome::Completed
+                    }
+                });
                 if let Some(outcome) = outcome {
                     self.program_status.turn_finished(outcome);
                 }
@@ -10012,11 +10014,18 @@ impl Shell {
     /// Upstream's precedence (`reportProgramStatus`,
     /// `app_worker_runtime.zig:768-791@481104fd`): a permission question --
     /// a tool call's, on either plane, or a rule change's confirmation --
-    /// then a question the model asked, then work the runtime has in hand,
-    /// and otherwise the last result. Work is upstream's `busy`
-    /// (`:762-765`): a turn running or anything submitted and not yet over,
-    /// unless the user has stopped it -- a turn being cancelled is already
-    /// waiting for the next instruction.
+    /// then a question the model asked, then work, and otherwise the last
+    /// result. Work is upstream's `busy` (`:762-765`): `stream.active or
+    /// processing or queued_count > 0`, where the worker processes a prompt
+    /// or a compaction and nothing else (`WorkItem`,
+    /// `worker_runtime.zig:167-170`) -- so here a turn running, a prompt
+    /// waiting for one, or a manual `/compact` in hand. Not a provider switch,
+    /// a `/resume` listing, a fork or a `/workspace`, which xfx's runtime
+    /// also takes as work and upstream does not: its picker is polled
+    /// (`pollSessionPicker`, `main.zig:2930`) and writes no report
+    /// (`p5-lifecycle-osc-picker`). And none of it once the user has stopped
+    /// it -- a turn or a compaction being cancelled is already waiting for
+    /// the next instruction (`cancellation_stops_turn`).
     pub(crate) fn take_program_status(&mut self) -> Option<program_status::Report> {
         let label;
         let activity = if let Some(request) = self
@@ -10040,7 +10049,14 @@ impl Shell {
                 kind: program_status::Blocked::Question,
                 message: ask.question(),
             }
-        } else if !self.cancelling && (self.activity.working() || self.work.outstanding() > 0) {
+        } else if !self.cancelling
+            && (self.activity.working()
+                || !self.prompts.is_empty()
+                || self
+                    .compaction
+                    .as_ref()
+                    .is_some_and(|compaction| compaction.active() && !compaction.stopped()))
+        {
             program_status::Activity::Working
         } else {
             program_status::Activity::Settled
@@ -44513,8 +44529,11 @@ mod tests {
         shell.work.give_back();
         assert_eq!(status_of(&mut shell), None, "the stop was reported twice");
 
-        // A `/model`-class piece of work: held, and over with no turn and no
-        // failure. Working, then idle -- not the result before it again.
+        // Work that is neither a turn nor a `/compact` -- a listing, a
+        // provider switch, even one that fails, even one the user stops --
+        // reports nothing: upstream's worker never runs it (`WorkItem`,
+        // `worker_runtime.zig:167-170@481104fd`), and the record still says
+        // the last turn's result.
         shell
             .work
             .submit(TurnWork::Submit("third".into()))
@@ -44526,25 +44545,39 @@ mod tests {
         assert_eq!(status_of(&mut shell).as_deref(), Some("done"));
         shell.work.submit(TurnWork::Sessions).expect("a listing");
         let _ = shell.picks_up();
-        assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
-        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(status_of(&mut shell), None, "a listing reported");
+        shell.apply(UiEvent::Sessions(None));
         shell.work.give_back();
-        assert_eq!(status_of(&mut shell).as_deref(), Some("idle"));
-
-        // Work that ran no turn and failed -- a provider switch, the one
-        // piece of work that concludes with a failure and no turn -- is an
-        // error, as upstream's `request failed` from a queued item is.
+        assert_eq!(status_of(&mut shell), None);
         shell
             .work
             .submit(TurnWork::Setup(crate::provider::ProviderId::Llmux))
             .expect("a switch");
         let _ = shell.picks_up();
-        assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
+        assert_eq!(status_of(&mut shell), None, "a switch reported");
         shell.apply(UiEvent::TurnEnded {
             failure: Some("the daemon did not answer".into()),
         });
         shell.work.give_back();
-        assert_eq!(status_of(&mut shell).as_deref(), Some("error"));
+        assert_eq!(status_of(&mut shell), None, "a failed switch reported");
+        shell
+            .work
+            .submit(TurnWork::Setup(crate::provider::ProviderId::Llmux))
+            .expect("a switch");
+        let _ = shell.picks_up();
+        shell.route_bytes(&[0x03]);
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        assert_eq!(status_of(&mut shell), None, "a stopped switch reported");
+        // And the result is still the turn's: the next one starts from it.
+        shell
+            .work
+            .submit(TurnWork::Submit("fourth".into()))
+            .expect("a place");
+        let _ = shell.picks_up();
+        shell.settle_band(Instant::now());
+        shell.apply(UiEvent::TurnStarted);
+        assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
     }
 
     #[test]

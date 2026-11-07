@@ -1,0 +1,73 @@
+DIFF p5-lifecycle-osc-ask-40x120        a00-quit               fx  2  red  0  (none)
+DIFF p5-lifecycle-osc-ask-40x120        a01-ask                fx  2  red  0  (none)
+DIFF p5-lifecycle-osc-compact-40x120    c00-noop               fx  1  red  0  (none)
+DIFF p5-lifecycle-osc-compact-40x120    c01-answered           fx  5  red  0  (none)
+DIFF p5-lifecycle-osc-compact-40x120    c02-compacted          fx  7  red  0  (none)
+DIFF p5-lifecycle-osc-compactfail-40x120 f00-answered           fx  5  red  0  (none)
+DIFF p5-lifecycle-osc-compactfail-40x120 f01-failed             fx  7  red  0  (none)
+DIFF p5-lifecycle-osc-hostile-40x120    h00-permission         fx  3  red  0  (none)
+DIFF p5-lifecycle-osc-hostile-40x120    h01-question           fx  7  red  0  (none)
+DIFF p5-lifecycle-osc-hostile-40x120    h02-exit               fx 10  red  0  (none)
+DIFF p5-lifecycle-osc-hup-40x120        u00-done               fx  3  red  0  (none)
+DIFF p5-lifecycle-osc-hup-40x120        u01-hung-up            fx  4  red  0  (none)
+DIFF p5-lifecycle-osc-interrupt-40x120  i00-working            fx  2  red  0  (none)
+DIFF p5-lifecycle-osc-interrupt-40x120  i01-after-esc          fx  3  red  0  (none)
+DIFF p5-lifecycle-osc-interrupt-40x120  i02-exit               fx  4  red  0  (none)
+DIFF p5-lifecycle-osc-retry-40x120      r00-retrying           fx  2  red  0  (none)
+DIFF p5-lifecycle-osc-states-40x120     w00-start              fx  1  red  0  (none)
+DIFF p5-lifecycle-osc-states-40x120     w01-working            fx  2  red  0  (none)
+DIFF p5-lifecycle-osc-states-40x120     w02-done               fx  3  red  0  (none)
+DIFF p5-lifecycle-osc-states-40x120     w03-done2              fx  5  red  0  (none)
+DIFF p5-lifecycle-osc-states-40x120     w04-error              fx  7  red  0  (none)
+DIFF p5-lifecycle-osc-states-40x120     w05-permission         fx  9  red  0  (none)
+DIFF p5-lifecycle-osc-states-40x120     w06-after-permission   fx 11  red  0  (none)
+DIFF p5-lifecycle-osc-states-40x120     w07-question           fx 13  red  0  (none)
+DIFF p5-lifecycle-osc-states-40x120     w08-after-question     fx 15  red  0  (none)
+DIFF p5-lifecycle-osc-states-40x120     w09-exit               fx 16  red  0  (none)
+DIFF p5-lifecycle-osc-suspend-40x120    s00-done               fx  3  red  0  (none)
+DIFF p5-lifecycle-osc-suspend-40x120    s01-stopped            fx  4  red  0  (none)
+DIFF p5-lifecycle-osc-suspend-40x120    s02-resumed            fx  5  red  0  (none)
+DIFF p5-lifecycle-osc-suspend-40x120    s03-next-turn          fx  7  red  0  (none)
+DIFF p5-lifecycle-osc-term-40x120       t00-done               fx  3  red  0  (none)
+DIFF p5-lifecycle-osc-term-40x120       t01-terminated         fx  4  red  0  (none)
+build: every banner in the red wires is v0.1.0-24a6b91
+FAIL last red p5-lifecycle-osc-ask-40x120 a00-quit: the session ended with no clear
+FAIL same p5-lifecycle-osc-ask-40x120 a00-quit: fx ['state=idle:app=<program>', 'state=clear'] / red []
+FAIL last red p5-lifecycle-osc-ask-40x120 a01-ask: the session ended with no clear
+FAIL same p5-lifecycle-osc-ask-40x120 a01-ask: fx ['state=idle:app=<program>', 'state=clear'] / red []
+FAIL same p5-lifecycle-osc-compact-40x120 c00-noop: fx ['state=idle:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-compact-40x120 c01-answered: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-compact-40x120 c02-compacted: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-compactfail-40x120 f00-answered: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-compactfail-40x120 f01-failed: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=error:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-hostile-40x120 h00-permission: fx ['state=idle:app=<program>', 'state=working:app=<program>', "state=blocked:kind=permission:app=<program>:msg='<command-tool> echo \\\\u{202e}evil\\\\u{202c}\\\\x09done > out.txt'"] / red []
+FAIL same p5-lifecycle-osc-hostile-40x120 h01-question: fx ['state=idle:app=<program>', 'state=working:app=<program>', "state=blocked:kind=permission:app=<program>:msg='<command-tool> echo \\\\u{202e}evil\\\\u{202c}\\\\x09done > out.txt'", 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', "state=blocked:kind=question:app=<program>:msg='Pick\\\\x1b]2;owned\\\\x07 a\\\\u{0085}branch\\\\u{202e}? now \\\\u{009b}31m'"] / red []
+FAIL last red p5-lifecycle-osc-hostile-40x120 h02-exit: the session ended with no clear
+FAIL same p5-lifecycle-osc-hostile-40x120 h02-exit: fx ['state=idle:app=<program>', 'state=working:app=<program>', "state=blocked:kind=permission:app=<program>:msg='<command-tool> echo \\\\u{202e}evil\\\\u{202c}\\\\x09done > out.txt'", 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', "state=blocked:kind=question:app=<program>:msg='Pick\\\\x1b]2;owned\\\\x07 a\\\\u{0085}branch\\\\u{202e}? now \\\\u{009b}31m'", 'state=working:app=<program>', 'state=done:app=<program>', 'state=clear'] / red []
+FAIL same p5-lifecycle-osc-hup-40x120 u00-done: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / red []
+FAIL last red p5-lifecycle-osc-hup-40x120 u01-hung-up: the session ended with no clear
+FAIL same p5-lifecycle-osc-hup-40x120 u01-hung-up: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=clear'] / red []
+FAIL same p5-lifecycle-osc-interrupt-40x120 i00-working: fx ['state=idle:app=<program>', 'state=working:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-interrupt-40x120 i01-after-esc: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=idle:app=<program>'] / red []
+FAIL last red p5-lifecycle-osc-interrupt-40x120 i02-exit: the session ended with no clear
+FAIL same p5-lifecycle-osc-interrupt-40x120 i02-exit: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=idle:app=<program>', 'state=clear'] / red []
+FAIL same p5-lifecycle-osc-retry-40x120 r00-retrying: fx ['state=idle:app=<program>', 'state=working:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-states-40x120 w00-start: fx ['state=idle:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-states-40x120 w01-working: fx ['state=idle:app=<program>', 'state=working:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-states-40x120 w02-done: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-states-40x120 w03-done2: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-states-40x120 w04-error: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=error:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-states-40x120 w05-permission: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=error:app=<program>', 'state=working:app=<program>', "state=blocked:kind=permission:app=<program>:msg='<command-tool> echo hi > out.txt'"] / red []
+FAIL same p5-lifecycle-osc-states-40x120 w06-after-permission: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=error:app=<program>', 'state=working:app=<program>', "state=blocked:kind=permission:app=<program>:msg='<command-tool> echo hi > out.txt'", 'state=working:app=<program>', 'state=done:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-states-40x120 w07-question: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=error:app=<program>', 'state=working:app=<program>', "state=blocked:kind=permission:app=<program>:msg='<command-tool> echo hi > out.txt'", 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', "state=blocked:kind=question:app=<program>:msg='Which branch?'"] / red []
+FAIL same p5-lifecycle-osc-states-40x120 w08-after-question: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=error:app=<program>', 'state=working:app=<program>', "state=blocked:kind=permission:app=<program>:msg='<command-tool> echo hi > out.txt'", 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', "state=blocked:kind=question:app=<program>:msg='Which branch?'", 'state=working:app=<program>', 'state=done:app=<program>'] / red []
+FAIL last red p5-lifecycle-osc-states-40x120 w09-exit: the session ended with no clear
+FAIL same p5-lifecycle-osc-states-40x120 w09-exit: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', 'state=error:app=<program>', 'state=working:app=<program>', "state=blocked:kind=permission:app=<program>:msg='<command-tool> echo hi > out.txt'", 'state=working:app=<program>', 'state=done:app=<program>', 'state=working:app=<program>', "state=blocked:kind=question:app=<program>:msg='Which branch?'", 'state=working:app=<program>', 'state=done:app=<program>', 'state=clear'] / red []
+FAIL same p5-lifecycle-osc-suspend-40x120 s00-done: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-suspend-40x120 s01-stopped: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=clear'] / red []
+FAIL same p5-lifecycle-osc-suspend-40x120 s02-resumed: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=clear', 'state=idle:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-suspend-40x120 s03-next-turn: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=clear', 'state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / red []
+FAIL same p5-lifecycle-osc-term-40x120 t00-done: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>'] / red []
+FAIL last red p5-lifecycle-osc-term-40x120 t01-terminated: the session ended with no clear
+FAIL same p5-lifecycle-osc-term-40x120 t01-terminated: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>', 'state=clear'] / red []
+32 wire pairs, 39 failing claims
