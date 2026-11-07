@@ -313,6 +313,44 @@ mod tests {
     }
 
     #[test]
+    fn an_end_whose_look_at_the_grace_panics_still_stops_and_joins_every_copy() {
+        // A case's own look at the grace can fail -- `tool.open()` expects
+        // its write -- and the end has already taken every thread from the
+        // errands by then, so the Drop after it has none left. The end
+        // itself must stop and join them on the way out: the tool killed and
+        // the copy's thread over, its answer sent (FLAKE-COPYEND r2, gpt6
+        // MUST 1).
+        let tool = gated();
+        let copies = Copies::new(tool.clipboard());
+        assert!(copies.start(Arc::from("the reply")));
+        let deadline = Instant::now() + LOADED;
+        while tool.hung().is_none() {
+            assert!(Instant::now() < deadline, "the tool never started");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let pid = tool.hung().expect("the tool started");
+        let ended = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            copies
+                .errands
+                .end(|_| panic!("a look at the grace that fails"));
+        }));
+        assert!(ended.is_err(), "the look at the grace did not panic");
+        assert!(
+            !FakeTool::alive(pid),
+            "a panic in the end left the tool running (pid {pid})"
+        );
+        assert_eq!(
+            copies.finished(),
+            Some(false),
+            "a panic in the end left the copy's thread running"
+        );
+        assert!(
+            !tool.gave_up(),
+            "the tool waited at its gate until it gave up"
+        );
+    }
+
+    #[test]
     fn a_copy_is_started_and_answered_later_rather_than_waited_for() {
         // A tool that answers only when this case opens its gate, so "start
         // returned" and "the copy is over" are two moments in the case's own
