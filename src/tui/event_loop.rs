@@ -699,14 +699,16 @@ fn collect_facts(
 fn adopt_resume(shell: &mut Shell, band: &mut Band, plane_restored: bool) {
     if plane_restored {
         band.plane_given_back();
+        // The stop handler wrote the abnormal restore, and with it the clear
+        // of the terminal's program status record
+        // (`super::term::ABNORMAL_RESTORE`): the next report is written
+        // whatever it says, and a result the user already saw comes back as
+        // idle (`program_status.zig:98-104`). **Only then**, as upstream
+        // invalidates only around its own suspend (`main.zig:1050-1055@481104fd`):
+        // a bare `kill -CONT`, or an uncatchable `SIGSTOP` and its `CONT`,
+        // cleared nothing, and the record still says what it said.
+        shell.program_status_resumed();
     }
-    // The stop handler's restore cleared the terminal's program status record
-    // (`super::term::ABNORMAL_RESTORE`), and so may whatever had the terminal
-    // since: the next report is written whatever it says, and a result the
-    // user already saw comes back as idle (`program_status.zig:98-104`,
-    // `main.zig:1050-1055@481104fd`). Any continue, as the damage below is:
-    // a record written again costs one report.
-    shell.program_status_resumed();
     // Through the shell's own door rather than by asking for the reason
     // directly: a resume is not only a frame the band owes, it is the moment
     // this session stops being able to say what is on **any** row -- the
@@ -1054,10 +1056,14 @@ fn commit_counted(
 /// the same on the borrowed plane and on a screen no band fits on -- two of
 /// the states a session waits on the user in.
 ///
-/// Through the output check like every other vector ([`check_program_status`])
-/// and disposed of as the bells are: refused without a byte taken, it is
-/// offered again on the next tick; torn, the session ends; landed, it mends
-/// nothing, because a report is no proof the screen is taking frames.
+/// Through the output check like every other vector ([`check_program_status`]).
+/// One the terminal did not take is **dropped**, as upstream's is: the
+/// reporter recorded it as written before the write was tried
+/// (`program_status.zig:124-127@481104fd`) and upstream only traces the
+/// failure (`transcript/runtime.zig:10422-10428`), so the next report is the
+/// next change. The refusal still counts against the frame budget, and a torn
+/// one ends the session, as every coordinate-free vector's does; a landed one
+/// mends nothing, because a report is no proof the screen is taking frames.
 fn commit_program_status(
     shell: &mut Shell,
     out: &mut impl Sink,
@@ -1071,16 +1077,9 @@ fn commit_program_status(
         .map_err(Emit::rejected)
         .and_then(|()| out.emit(report.bytes.as_bytes()))
     {
-        let rearm = matches!(emit, Emit::Rejected(_) | Emit::ZeroProgress(_));
-        return match disposed(emit, failures, now) {
-            Some(fatal) => Err(fatal),
-            None => {
-                if rearm {
-                    shell.program_status_refused();
-                }
-                Ok(())
-            }
-        };
+        if let Some(fatal) = disposed(emit, failures, now) {
+            return Err(fatal);
+        }
     }
     Ok(())
 }
@@ -12732,7 +12731,11 @@ mod tests {
     }
 
     #[test]
-    fn a_refused_program_status_is_offered_again_and_written_once() {
+    fn a_refused_program_status_is_dropped_as_upstreams_is() {
+        // Upstream records a report as written before it tries the write
+        // (`program_status.zig:124-127@481104fd`) and only traces a failed
+        // one (`transcript/runtime.zig:10422-10428`): the report is gone, and
+        // the next one written is the next change.
         let mut shell = shell();
         let mut band = Band::new();
         let mut out = StatusScreen {
@@ -12742,10 +12745,17 @@ mod tests {
         status_tick(&mut shell, &mut band, &mut out);
         assert!(out.reports().is_empty(), "the refused report landed");
         status_tick(&mut shell, &mut band, &mut out);
+        assert!(
+            out.reports().is_empty(),
+            "the refused report was offered again: {:?}",
+            out.reports()
+        );
+        shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
         assert_eq!(
             out.reports(),
-            [IDLE],
-            "the report was forgotten, or written twice"
+            ["\u{1b}]7501;state=working:app=xfx\u{1b}\\"],
+            "the next change was not written"
         );
     }
 
@@ -12760,12 +12770,138 @@ mod tests {
         status_tick(&mut shell, &mut band, &mut out);
         status_tick(&mut shell, &mut band, &mut out);
         assert_eq!(out.reports(), [IDLE]);
-        adopt_resume(&mut shell, &mut band, false);
+        adopt_resume(&mut shell, &mut band, true);
         status_tick(&mut shell, &mut band, &mut out);
         assert_eq!(
             out.reports(),
             [IDLE, IDLE],
             "the cleared record was not written again"
         );
+    }
+
+    #[test]
+    fn a_continue_no_handler_answered_leaves_the_record_as_it_was() {
+        // A bare `kill -CONT`, or an uncatchable `SIGSTOP` and its `CONT`,
+        // ran no handler and cleared nothing: the record still says the last
+        // result, and no report is written -- upstream invalidates only
+        // around its own suspend (`main.zig:1050-1055@481104fd`).
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        status_tick(&mut shell, &mut band, &mut out);
+        let done = "\u{1b}]7501;state=done:app=xfx\u{1b}\\";
+        assert_eq!(out.reports().last().map(String::as_str), Some(done));
+        let before = out.reports().len();
+        adopt_resume(&mut shell, &mut band, false);
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(
+            out.reports().len(),
+            before,
+            "a continue nothing cleared rewrote the record: {:?}",
+            out.reports()
+        );
+        // And one the handler answered turns the seen result back into idle.
+        adopt_resume(&mut shell, &mut band, true);
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(out.reports().last().map(String::as_str), Some(IDLE));
+    }
+
+    #[test]
+    fn every_report_the_encoder_makes_of_hostile_text_passes_the_output_check() {
+        // The encoder (`program_status`) and the check's own parser
+        // (`check::program_status_command`) agree: a report built from text
+        // carrying controls, bidi marks, zero-width marks, invalid-looking
+        // runs or a length past the bound is admitted as written -- so no
+        // hostile label or question is a report the loop drops -- and is the
+        // state it was declared as.
+        use super::super::program_status::{Activity, Blocked, Reporter};
+        let cases = [
+            "  Run\n\ttests?\x1b]2;owned\x07 \u{9b} now ok  ",
+            "rm -rf / \u{202e}gnp.exe\u{202c}",
+            "\u{2066}isolated\u{2069} \u{200f}rtl\u{200e}",
+            "a\x1b[2J\x1b]52;c;aGVsbG8=\x07b",
+            "c\u{7f}d\u{85}e\u{9b}1m\u{9d}f",
+            "zero\u{200b}width\u{feff}",
+            "",
+            " \n\t ",
+        ];
+        let long_bidi = "\u{202e}x".repeat(300);
+        let long_wide = "é".repeat(200);
+        let mut reporter = Reporter::default();
+        for (n, text) in cases
+            .iter()
+            .copied()
+            .chain([long_bidi.as_str(), long_wide.as_str()])
+            .enumerate()
+        {
+            for kind in [Blocked::Permission, Blocked::Question] {
+                // A working report between, so each blocked one is new.
+                let _ = reporter.update(Activity::Working);
+                let report = reporter
+                    .update(Activity::Blocked {
+                        kind,
+                        message: text,
+                    })
+                    .expect("a report");
+                check_program_status(&report)
+                    .unwrap_or_else(|err| panic!("case {n} {kind:?} {text:?}: {err}"));
+            }
+        }
+        for activity in [Activity::Working, Activity::Settled] {
+            let mut reporter = Reporter::default();
+            if let Some(report) = reporter.update(activity) {
+                check_program_status(&report).expect("a plain report");
+            }
+        }
+    }
+
+    #[test]
+    fn a_report_the_terminal_took_part_of_ends_the_session_and_the_restore_ends_the_string() {
+        // A torn report leaves the terminal inside a string sequence. It ends
+        // the session, as every torn coordinate-free vector does (the
+        // `docs/parity.md` torn-write table), and the restore that follows
+        // opens with `ESC`, which ends the string the terminal was left in
+        // before anything of the restore is read as its argument -- so the
+        // restore's own clear arrives whole.
+        struct TearsReports;
+        impl Sink for TearsReports {
+            fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+                if bytes.starts_with(REPORT) {
+                    return Err(Emit::Partial {
+                        delivered: bytes.len() / 2,
+                        cause: io::Error::new(io::ErrorKind::WriteZero, "torn"),
+                    });
+                }
+                Ok(())
+            }
+        }
+        let mut shell = shell();
+        let mut band = Band::new();
+        let torn = commit_counted(
+            &mut shell,
+            &mut band,
+            &mut TearsReports,
+            &mut FrameFailures::default(),
+            Instant::now(),
+            Reconciled,
+        );
+        assert!(torn.is_err(), "a torn report did not end the session");
+        for restore in [
+            super::super::term::RESTORE,
+            super::super::term::RESTORE_TMUX,
+            super::super::term::ABNORMAL_RESTORE,
+            super::super::term::ABNORMAL_RESTORE_TMUX,
+        ] {
+            assert!(restore.starts_with('\u{1b}'), "{restore:?}");
+            assert_eq!(
+                restore.matches(super::super::program_status::CLEAR).count(),
+                1
+            );
+        }
     }
 }

@@ -84,10 +84,12 @@ pub(crate) const MODE_SET_TMUX: &str = "\x1b[>4;2m\x1b[?2004h\x1b[?7l\x1b[?2031h
 /// an open update waits for it. The restore check seeds an open update
 /// ([`check_restore`]), so a restore without the close is refused.
 ///
-/// **And all four clear the terminal's program status records**
-/// ([`super::program_status::CLEAR`]) right after `?2004l`, where upstream's
-/// four do (`app_lifecycle.zig:43-48@481104fd`): a session that has ended --
-/// or stopped -- leaves no `working` or `done` behind it. Spelled out inside
+/// **And all four include the clear of the terminal's program status
+/// records** ([`super::program_status::CLEAR`]) right after `?2004l`, where
+/// upstream's four do (`app_lifecycle.zig:43-48@481104fd`), so a session that
+/// has ended -- or stopped -- leaves no `working` or `done` behind it on a
+/// terminal that took the restore. A restore the descriptor takes only part
+/// of can lose it, as it can lose the rest of the restore. Spelled out inside
 /// each literal rather than concatenated, because the abnormal two are what a
 /// signal handler writes in one `write(2)` and have to be `'static` bytes; a
 /// test holds each to the constant. The restore check requires it
@@ -500,9 +502,9 @@ fn check_restore(
                 title_stack: 0,
                 plane: super::check::PlaneKind::Primary,
                 cursor_visible: Some(true),
-                // Every restore clears the program status records, and one
-                // that lost the clear leaves the terminal saying `working`
-                // for a session that has gone.
+                // Every restore includes the clear of the program status
+                // records, and one that lost it leaves the terminal saying
+                // `working` for a session that has gone.
                 clears_status: true,
             },
             // The `1049l` in front of the restore is the one transition this

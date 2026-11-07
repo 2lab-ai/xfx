@@ -9,16 +9,17 @@
 //! **The rule is upstream's, line for line.** The settled value, the
 //! "report each result only once" dedup (`4ae9eeeb`), the one-line message and
 //! its bound are ported from `:41-204`, and its tests below are upstream's own
-//! vectors (`:220-361`). Two things differ, each for a reason:
+//! vectors (`:220-361`). One thing differs, for the user's own reason:
 //!
 //! * **`app=xfx`, not `app=fx`.** The record names the program that owns the
-//!   terminal, and the program is xfx: the window title and the banner say so
-//!   (`super::frame`'s title). Upstream writes its own name (`:22`).
-//! * **A refused write is offered again** ([`Reporter::refused`]): every
-//!   coordinate-free vector the loop writes -- the bells, the theme query -- is
-//!   re-armed when the terminal took none of it, where upstream traces the
-//!   failure and moves on (`transcript/runtime.zig:10416-10429`). Observable
-//!   only on a terminal that refused a write.
+//!   terminal, and the program is xfx: "a separate identity"
+//!   (`.prd/01-spec.md:56`), held by `scripts/check-xfx-identity.sh`.
+//!   Upstream writes its own name (`:22`).
+//!
+//! A report the terminal did not take is **dropped**, as upstream's is: the
+//! reporter records it as written before the write is tried (`:124-127`) and
+//! the loop only traces a failed one (`transcript/runtime.zig:10416-10429`),
+//! so it is written again only once the status changes.
 //!
 //! **What reaches the terminal is ASCII the session spelled.** The only text
 //! that comes from outside -- a permission's label, a model's question -- is
@@ -154,12 +155,6 @@ impl Reporter {
         if self.settled_reported {
             self.settle(Settled::Idle);
         }
-    }
-
-    /// The report this tick produced was not taken by the terminal: it is
-    /// offered again on the next tick, recomputed rather than replayed.
-    pub(crate) fn refused(&mut self) {
-        self.last = None;
     }
 
     /// The report to write when it differs from the last one
@@ -600,22 +595,6 @@ mod tests {
                 .bytes()
                 .all(|byte| (0x20..0x7f).contains(&byte)));
         }
-    }
-
-    #[test]
-    fn a_refused_report_is_offered_again_and_says_what_is_true_now() {
-        let mut reporter = Reporter::default();
-        expect_report(&mut reporter, Activity::Settled, IDLE);
-        reporter.turn_started();
-        reporter.turn_finished(Outcome::Completed);
-        expect_report(&mut reporter, Activity::Settled, DONE);
-        reporter.refused();
-        expect_report(&mut reporter, Activity::Settled, DONE);
-        assert_eq!(reporter.update(Activity::Settled), None);
-        // Refused, and work began before the next tick: that is what is
-        // offered.
-        reporter.refused();
-        expect_report(&mut reporter, Activity::Working, WORKING);
     }
 
     #[test]

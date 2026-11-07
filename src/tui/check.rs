@@ -2602,9 +2602,11 @@ pub(crate) enum StatusRecord {
 /// * `state=clear`, alone;
 /// * `state=idle|working|done|error:app=xfx`;
 /// * `state=blocked:kind=permission|question:app=xfx`, optionally followed by
-///   `:msg=` and standard base64 with its padding -- no longer than
-///   [`super::program_status::MAX_ENCODED_MESSAGE`], decoding to UTF-8 with
-///   no control character in it.
+///   `:msg=` and standard base64 with its padding, in its one canonical
+///   spelling (the bits padding leaves over are zero) -- no longer than
+///   [`super::program_status::MAX_ENCODED_MESSAGE`] characters, decoding to at
+///   most [`super::program_status::MAX_MESSAGE_BYTES`] bytes of UTF-8 with no
+///   control character in it.
 ///
 /// The message is the one place foreign text reaches this sequence, and the
 /// rule is the security claim the reporter makes: whatever a label or a
@@ -2649,6 +2651,9 @@ fn program_status_command(body: &str, at: usize) -> Result<StatusRecord, Reject>
     }
     let message = wire_base64(encoded)
         .ok_or_else(|| refused("a program status message that is not base64"))?;
+    if message.len() > super::program_status::MAX_MESSAGE_BYTES {
+        return Err(refused("a program status message outside its bound"));
+    }
     let message = String::from_utf8(message)
         .map_err(|_| refused("a program status message that is not text"))?;
     if message.chars().any(char::is_control) {
@@ -2660,8 +2665,9 @@ fn program_status_command(body: &str, at: usize) -> Result<StatusRecord, Reject>
 }
 
 /// Standard base64 with its padding (RFC 4648 §4), strictly: whole quads, the
-/// alphabet and nothing else, `=` only at the end and at most two of it.
-/// `None` for anything else.
+/// alphabet and nothing else, `=` only at the end and at most two of it, and
+/// the bits the padding leaves over zero (§3.5's canonical encoding: `YQ==`
+/// and never `YR==`). `None` for anything else.
 fn wire_base64(encoded: &str) -> Option<Vec<u8>> {
     let bytes = encoded.as_bytes();
     if !bytes.len().is_multiple_of(4) {
@@ -2689,8 +2695,18 @@ fn wire_base64(encoded: &str) -> Option<Vec<u8>> {
             let digit = if n * 4 + k >= body { 0 } else { value(*byte)? };
             quad = (quad << 6) | digit;
         }
-        let three = [(quad >> 16) as u8, (quad >> 8) as u8, quad as u8];
         let last = n * 4 + 4 > body;
+        // What the padding leaves over: the low 4 bits of a quad that carries
+        // one byte, the low 2 of one that carries two.
+        let leftover = match (last, pad) {
+            (true, 2) => quad & 0xffff,
+            (true, 1) => quad & 0xff,
+            _ => 0,
+        };
+        if leftover != 0 {
+            return None;
+        }
+        let three = [(quad >> 16) as u8, (quad >> 8) as u8, quad as u8];
         out.extend_from_slice(&three[..if last { 3 - pad } else { 3 }]);
     }
     Some(out)
@@ -4696,6 +4712,16 @@ mod tests {
                 b"\x1b]7501;state=blocked:kind=permission:app=xfx:msg=wps=\x1b\\",
                 "a program status message carrying a control character",
             ),
+            // Non-canonical: the bits `YR==` leaves over are not zero, and it
+            // would decode to the same `a` as `YQ==`.
+            (
+                b"\x1b]7501;state=blocked:kind=permission:app=xfx:msg=YR==\x1b\\",
+                "a program status message that is not base64",
+            ),
+            (
+                b"\x1b]7501;state=blocked:kind=permission:app=xfx:msg=YWJ=\x1b\\",
+                "a program status message that is not base64",
+            ),
             (
                 b"\x1b]7501;state=blocked:kind=permission:app=xfx:msg=/w==\x1b\\",
                 "a program status message that is not text",
@@ -4730,6 +4756,25 @@ mod tests {
                 .shape(),
             "a program status message outside its bound"
         );
+        // Inside the encoded bound and past the decoded one: 344 characters
+        // are 258 bytes, and the message is at most 256.
+        let decoded_long = format!(
+            "\x1b]7501;state=blocked:kind=permission:app=xfx:msg={}\x1b\\",
+            "QUFB".repeat(86)
+        );
+        assert_eq!(
+            preflight(&seed, decoded_long.as_bytes(), &permission)
+                .expect_err("past the decoded bound")
+                .shape(),
+            "a program status message outside its bound"
+        );
+        // And a message at the bound, the longest the encoder writes, is
+        // admitted.
+        let largest = format!(
+            "\x1b]7501;state=blocked:kind=permission:app=xfx:msg={}\x1b\\",
+            crate::image::base64(&[b'a'; 256])
+        );
+        preflight(&seed, largest.as_bytes(), &permission).expect("256 bytes, its bound");
         // A bidi override is text: kept, inside the encoding.
         preflight(
             &seed,

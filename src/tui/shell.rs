@@ -988,6 +988,17 @@ pub(crate) struct Shell {
     /// rather than painted under the line that says it was cancelled, and the
     /// conclusion that ends it says nothing the line has not.
     cancelling: bool,
+    /// The turn in hand stopped because an automatic compaction inside it
+    /// failed -- not because the user stopped it.
+    ///
+    /// It rides with [`Self::cancelling`], which keeps the turn's conclusion
+    /// silent (the row has said why), and the program status reads it first:
+    /// upstream finishes such a turn `.failed` -- the compaction's error
+    /// leaves the turn (`orchestrator.zig:7864-7865@481104fd`) and the turn is
+    /// finished `.failed` (`:5615-5618`) -- which is `error`
+    /// (`program_status.zig:62-65`, `:79`). Only a cancelled compaction is an
+    /// interrupted turn there (`:7847-7861`).
+    compaction_failed: bool,
     /// The turn's `■ Cancelled` line, while it waits for a running call to
     /// settle ([`Self::cancel_turn_with`]), and whether the queue notice waits
     /// with it.
@@ -2345,6 +2356,7 @@ impl Shell {
             exit_armed: false,
             interrupt_armed: false,
             cancelling: false,
+            compaction_failed: false,
             cancel_owed: None,
             cancel_covers: 0,
             retry: None,
@@ -4022,6 +4034,7 @@ impl Shell {
                 // A new turn must not report an earlier turn's result once it
                 // settles (`noteTurnStarted`, `app_worker_runtime.zig:972`).
                 self.program_status.turn_started();
+                self.compaction_failed = false;
                 self.retry = None;
                 // A turn the user already stopped can still say it started --
                 // the runtime took it before it read the cancellation -- and
@@ -4375,7 +4388,9 @@ impl Shell {
                 // alone. A provider switch, a listing or a `/workspace` that
                 // ends here ran no turn, and has no result to report.
                 let outcome = self.tally.started.is_some().then(|| {
-                    if self.cancelling {
+                    if std::mem::take(&mut self.compaction_failed) {
+                        program_status::Outcome::Failed
+                    } else if self.cancelling {
                         program_status::Outcome::Interrupted
                     } else if failure.is_some() {
                         program_status::Outcome::Failed
@@ -9934,6 +9949,7 @@ impl Shell {
         // once none is held, no event about the cancelled work is coming.
         if self.cancelling && self.work.outstanding() == 0 {
             self.cancelling = false;
+            self.compaction_failed = false;
             self.cancel_owed = None;
             self.cancel_covers = 0;
         }
@@ -10025,7 +10041,9 @@ impl Shell {
     /// (`pollSessionPicker`, `main.zig:2930`) and writes no report
     /// (`p5-lifecycle-osc-picker`). And none of it once the user has stopped
     /// it -- a turn or a compaction being cancelled is already waiting for
-    /// the next instruction (`cancellation_stops_turn`).
+    /// the next instruction (`cancellation_stops_turn`). A turn an automatic
+    /// compaction failed is not one the user stopped: it is working until it
+    /// ends, and then an error ([`Self::compaction_failed`]).
     pub(crate) fn take_program_status(&mut self) -> Option<program_status::Report> {
         let label;
         let activity = if let Some(request) = self
@@ -10049,7 +10067,7 @@ impl Shell {
                 kind: program_status::Blocked::Question,
                 message: ask.question(),
             }
-        } else if !self.cancelling
+        } else if (!self.cancelling || self.compaction_failed)
             && (self.activity.working()
                 || !self.prompts.is_empty()
                 || self
@@ -10062,11 +10080,6 @@ impl Shell {
             program_status::Activity::Settled
         };
         self.program_status.update(activity)
-    }
-
-    /// The terminal took none of the last report: it is offered again.
-    pub(crate) fn program_status_refused(&mut self) {
-        self.program_status.refused();
     }
 
     /// Somebody else has had the terminal -- a stop, whose restore cleared
@@ -10820,6 +10833,9 @@ impl Shell {
                     // conclusion adds nothing (`compactionErrorHandled`,
                     // `app_process_runtime.zig:10-17`, `:55-56`).
                     self.cancelling = true;
+                    // And unless the user stopped it, the turn failed: that is
+                    // what the program status reports ([`Self::compaction_failed`]).
+                    self.compaction_failed = feedback != compaction::Feedback::Cancelled;
                 }
             }
         }
@@ -44651,6 +44667,58 @@ mod tests {
         );
         shell.rule_confirm = None;
         assert_eq!(status_of(&mut shell).as_deref(), Some("idle"));
+    }
+
+    #[test]
+    fn an_automatic_compaction_that_fails_inside_a_turn_is_that_turns_error() {
+        // Upstream: the compaction's error leaves the turn
+        // (`orchestrator.zig:7864-7865@481104fd`), which is finished `.failed`
+        // (`:5615-5618`) -- `error` (`program_status.zig:62-65`, `:79`). The
+        // turn stays `working` until it ends, and its conclusion still says
+        // nothing (the row has said why).
+        let mut shell = shell(24, 80);
+        let _ = status_of(&mut shell);
+        shell.route_bytes(b"third question\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnStarted);
+        assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
+        shell.apply(UiEvent::Compaction(compaction::Update::Began {
+            automatic: true,
+        }));
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Failed,
+        )));
+        assert_eq!(
+            status_of(&mut shell),
+            None,
+            "a failed compaction is not a stopped turn"
+        );
+        let _ = shell.document();
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("compaction failed".into()),
+        });
+        shell.work.give_back();
+        assert_eq!(status_of(&mut shell).as_deref(), Some("error"));
+        assert!(
+            !shell.document().iter().any(|row| row.contains("system:")),
+            "the conclusion said something the row had"
+        );
+
+        // One the user stopped is the turn's interrupt: idle.
+        shell.route_bytes(b"fourth question\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnStarted);
+        assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
+        shell.apply(UiEvent::Compaction(compaction::Update::Began {
+            automatic: true,
+        }));
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Cancelled,
+        )));
+        assert_eq!(status_of(&mut shell).as_deref(), Some("idle"));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        assert_eq!(status_of(&mut shell), None);
     }
 
     #[test]
