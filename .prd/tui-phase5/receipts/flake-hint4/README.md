@@ -170,7 +170,9 @@ and four refusals in `Refusals.test_each_verbs_arguments`. Round 2's:
   upper end to the time since the last input line (round 2: round 1 set it
   to 0). `until gone <the timer's text>` and `absent <the timer's text>`
   disarm it, but not while a line before the window has paused it (round 2:
-  gone then is hidden, not spent).
+  gone then is hidden, not spent), and an `absent` only once the row could
+  have been drawn: the timer's `settle`, 1 s after the Ctrl-C for the hint,
+  3 s after launch for the warning (round 2).
 - **Refused**: a `snap` or `snapfull` whose range meets the window. For the
   warning, also a Ctrl-C, an Escape, a Ctrl-O or a typed `/` inside its
   window: each can take the row, the clock stops while the warning is off
@@ -510,9 +512,11 @@ The commits, in order:
 | `b0522162` | a comment in `capfile.py`: xfx `shell.rs` lines moved by that merge, and fx's `yolo_warning_visible` line, which round 2 had miscited |
 | `bf794f0d` | `until gone`'s `never seen` counts every `until` of the run (item 6) |
 | `d40bf1a3` | `models2` by order, not 5 s from the gateway's start (item 12) |
-| the next | this receipt |
+| `32932ad5` | this receipt, first cut |
+| `8a995bea` | an `absent` counts only once its row could be drawn (item 2) |
+| the next | this receipt, brought up to `8a995bea` |
 
-No product code changed in round 2 either: `git diff 6c93f359 d40bf1a3 --
+No product code changed in round 2 either: `git diff 6c93f359 8a995bea --
 src tests Cargo.toml Cargo.lock build.rs` is empty.
 
 xfx line numbers in this section are at `1e22c660` unless marked.
@@ -525,7 +529,7 @@ xfx line numbers in this section are at `1e22c660` unless marked.
 | # | review item | change | RED on round 1 | mutant |
 |---|---|---|---|---|
 | 1 | an `until` with any text that held the timer's text discharged it | `races` counts an `until` or `absent` line only with the timer's exact text | lines 8, 9, 12, 13 (`until gone Full access never-rendered`, `… enabled`, `…exit, please`, `until shown Full access enabled`) | N1 |
-| 2 | `approvals`' `until gone` would wait away a hint armed by mistake | new verb `absent <text>`: fails the run if the text is on the screen now. `approvals` and `permissions-midturn` look halfway and snap at the base's moment. `races` reads `absent <exact text>` as "this armed nothing" | lines 7, 10, 11 | N2, N10, N11 |
+| 2 | `approvals`' `until gone` would wait away a hint armed by mistake | new verb `absent <text>`: fails the run if the text is on the screen now. `approvals` and `permissions-midturn` look halfway and snap at the base's moment. `races` reads `absent <exact text>` as "this armed nothing", but only from the timer's `settle` on (`8a995bea`): 1 s after the Ctrl-C for the hint, 3 s after launch for the warning. Sooner, the row may not be drawn yet, and the `absent` would pass while it asserted nothing | lines 7, 10, 11; `r2/red-settle.txt` | N2, N10, N11, N18 |
 | 3 | Ctrl-O not counted as taking the warning's row | `C-o` in the warning's `pauses`; the test's `key C-o` now refused | line 4 | N3 |
 | 4 | `pastex` and `key -H` counted as taking the exit hint down | only a `key` line that is not `key -H` and a `type` line disarm; the test's cases flipped | lines 1, 2 | N4 |
 | 5 | receipt claims the evidence did not back | corrected in place above, each marked "corrected in round 2" | | |
@@ -572,7 +576,7 @@ question answers also arms the exit hint. `r2/inject-runs.txt`:
 
 ### The check over the repository
 
-`r2/check-head.txt`: at `d40bf1a3`, 0 races over 307 scenarios.
+`r2/check-head.txt`: at `8a995bea`, 0 races over 307 scenarios.
 `test-sweep.sh` runs the same check in the gate.
 
 ### Sweeps, base against head
@@ -582,7 +586,8 @@ touched. Base = main `6c93f359`'s harness and scenarios with xfx built at
 `6c93f35`; head = the branch's with xfx built at `8c2e7de` (no later commit
 of the branch changes `src/`). Two base sweeps and four head sweeps, two at
 `b0522162` and two at `bf794f0d`; `d40bf1a3` then changed `capture.sh` only
-in `models2`'s lines, which none of the 13 uses. Load 6.9 to 25.6.
+in `models2`'s lines, which none of the 13 uses, and `8a995bea` changed
+only the check, which runs before a sweep does. Load 6.9 to 25.6.
 
 - **No pair went from passing to anything else** (drops: 0) in any of the
   comparisons: base 1-2 against heads 3-4, against heads 1-2, and base 2
@@ -607,15 +612,20 @@ in `models2`'s lines, which none of the 13 uses. Load 6.9 to 25.6.
 
 ### Mutants
 
-`mutants.py`, on a `git clone --no-local` at `d40bf1a3` (`GIT_DIR`,
+`mutants.py`, on a `git clone --no-local` at `8a995bea` (`GIT_DIR`,
 `GIT_INDEX_FILE`, `GIT_WORK_TREE` unset). Round 1's 16 (M), updated where
-round 2 moved their text, and round 2's 17 (N1 to N17), each a one-place
-change and the test it names. `mutants.txt`: **33 of 33 killed**.
+round 2 moved their text, and round 2's 18 (N1 to N18), each a one-place
+change and the test it names. `mutants.txt`: **34 of 34 killed**. N5 (a
+paused row's `until gone` counted) is killed by the paused-row test: at
+`8a995bea` an `absent` of a paused warning is also short of its `settle`,
+so the `absent` test no longer tells N5 apart (a first run with that test
+had N5 survive; it was retargeted, not dropped).
 
 ### Gates
 
-`r2/gate.txt`, at `d40bf1a3` with this directory's changes not yet
-committed, one at a time (load 5 to 8):
+`r2/gate.txt`, at `8a995bea` with this directory's changes not yet
+committed, one at a time (load 6 to 9). The same list passed at `d40bf1a3`
+with the same counts (that log is `r2/gate.txt` in git at `32932ad5`).
 
 | gate | result |
 |---|---|
@@ -688,8 +698,8 @@ remain, each named by review or found here:
 - `until-waits.txt`: the head sweeps' `until` lines.
 - `green-*.txt`: the GREEN reruns.
 - `gate.txt`: round 1's gate.
-- `r2/`: round 2. `red-lint.txt` and `red-neverseen.txt` (RED),
-  `inject.patch` and `inject-runs.txt` (the injected hint), `check-head.txt`
-  (the check over the repository), `sweep-compare.txt` and
-  `until-waits.txt` (the sweeps), `launch-probe.txt` (`interrupt`'s first
-  runs), `gate.txt`.
+- `r2/`: round 2. `red-lint.txt`, `red-neverseen.txt` and
+  `red-settle.txt` (RED), `inject.patch` and `inject-runs.txt` (the injected
+  hint), `models2.txt` (item 12's RED and GREEN), `check-head.txt` (the
+  check over the repository), `sweep-compare.txt` and `until-waits.txt` (the
+  sweeps), `launch-probe.txt` (`interrupt`'s first runs), `gate.txt`.

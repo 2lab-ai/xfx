@@ -70,8 +70,10 @@ MUTANTS = [
      '(verb == "type" or (verb == "key" and not rest.startswith("-H ")))', '(verb in ("type", "pastex") or verb == "key")',
      SWEEP_TESTS + ["Capfile.test_a_ctrl_c_arms_the_exit_hint_and_any_other_keystroke_takes_it_down"]),
     ("N5 gone while the row is paused counts", FX + "capfile.py",
-     "            elif names and not frozen:\n", "            elif names:\n",
-     SWEEP_TESTS + ["Capfile.test_absent_says_a_ctrl_c_armed_nothing"]),
+     "            elif names and not frozen and (", "            elif names and (",
+     # An `absent` of the paused warning is also short of its settle, so
+     # the paused `until gone` is the case that tells (8a995bea).
+     SWEEP_TESTS + ["Capfile.test_a_line_that_takes_the_warnings_row_before_its_window_stops_its_clock"]),
     ("N6 an `until shown` nothing counted armed starts at 0", FX + "capfile.py",
      "clock[1] if clock else since_input[1]", "clock[1] if clock else 0.0",
      SWEEP_TESTS + ["Capfile.test_an_until_shown_nothing_counted_armed_reaches_back_to_the_last_input"]),
@@ -109,6 +111,9 @@ MUTANTS = [
      '      models2) cp "$scenarios/$rest" "$run/models2.tmp"; mv -f "$run/models2.tmp" "$run/models2.json" ;;\n',
      "      models2) ;;\n",
      CAPTURE_TESTS + ["Verbs.test_models2_and_modelsdelay"]),
+    ("N18 an `absent` counts however soon after the arming", FX + "capfile.py",
+     '(verb != "absent" or clock[0] >= timer.settle)', "True",
+     SWEEP_TESTS + ["Capfile.test_absent_says_a_ctrl_c_armed_nothing"]),
     ("M10 the sweep does not refuse a race", FX + "sweep.py",
      "    if raced:\n", "    if raced and False:\n",
      SWEEP_TESTS + ["Sweep.test_a_snap_that_races_a_timer_runs_nothing"]),
