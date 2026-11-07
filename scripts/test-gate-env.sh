@@ -64,6 +64,11 @@
 # own checkout reached the first and last ways, which must still be scanned.
 # And an index entry with both bits.
 #
+# Round 2d adds: a vendored copy whose root `.git` (a file, or a symlink)
+# names the parent's repository, a tracked file missing from the working
+# tree, and a submodule; the reason git gives when the root's `.git` cannot
+# be opened; and both remedies for an entry with both bits.
+#
 # Requires git, ruby (check-preview-contract.sh) and rustc (build.rs), and a
 # user that cannot read a mode-000 file (not root).
 
@@ -346,8 +351,10 @@ nothing_ran() {
 # refuses <case> <message> <command...>: runs the command against a fresh
 # decoy and requires exit 1, the message, the decoy unchanged, nothing run
 # from config and no trace written.
+# Further messages the next `refuses` must also find; it empties the list.
+also=()
 refuses() {
-	local name="$1" message="$2" status=0
+	local name="$1" message="$2" status=0 missing="" more
 	shift 2
 	new_decoy
 	decoy_sums >"$work/decoy.before"
@@ -359,6 +366,12 @@ refuses() {
 	elif ! grep -q -F -e "$message" "$work/$name.log"; then
 		problem "$name: the gate failed, but not with '$message'; its last lines:"
 		tail -n 6 "$work/$name.log" | cut -c 1-200 >&2
+	elif for more in ${also[@]+"${also[@]}"}; do
+		grep -q -F -e "$more" "$work/$name.log" || missing="$missing '$more'"
+	done
+	[ -n "$missing" ]; then
+		problem "$name: the gate failed with '$message', but not also with$missing; its last lines:"
+		tail -n 6 "$work/$name.log" | cut -c 1-200 >&2
 	elif ! cmp -s "$work/decoy.before" "$work/decoy.after"; then
 		problem "$name: the gate wrote into the decoy repository:"
 		{ diff "$work/decoy.before" "$work/decoy.after" || true; } | head -n 6 >&2
@@ -368,6 +381,7 @@ refuses() {
 	fi
 	# What a failed case left, so the next case starts clean.
 	rm -f "${ran:?}"/* "${trace:?}"
+	also=()
 }
 
 path_found="the retired product name is still in tracked path names"
@@ -497,11 +511,20 @@ for bit in skip-worktree assume-unchanged; do
 done
 # Both bits on one entry (`ls-files -v` tags it `s`): `git sparse-checkout
 # disable` leaves the assume-unchanged one, so the refusal names both
-# remedies. One update-index call with both options sets only the last.
+# remedies, each of which the case requires. One update-index call with
+# both options set only the last (discovery-probe.sh, in the receipt).
 new_ilock
 sg -C "$ilock" update-index --skip-worktree Cargo.lock
 sg -C "$ilock" update-index --assume-unchanged Cargo.lock
-refuses identity-both-bits "git update-index --no-assume-unchanged" "$ilock/scripts/check-xfx-identity.sh"
+also=("git update-index --no-assume-unchanged")
+refuses identity-both-bits "git sparse-checkout disable" "$ilock/scripts/check-xfx-identity.sh"
+# A tracked file missing from the working tree, its index text carrying the
+# name: `git grep` skips a file it cannot find without a word.
+new_ilock
+rm -f "$ilock/Cargo.lock"
+also=("Cargo.lock")
+refuses identity-deleted-file "tracked files missing from the working tree" "$ilock/scripts/check-xfx-identity.sh"
+new_ilock
 # A copy with no repository of its own, inside one that tracks it: a vendored
 # subtree. The parent tracks vendor/xfx/Cargo.lock with the residue, and this
 # script at vendor/xfx/scripts/. Git finds the parent's repository; under
@@ -513,11 +536,36 @@ cp scripts/check-xfx-identity.sh "$vendored/vendor/xfx/scripts/"
 printf 'name = "%s-core"\n' "$retired" >"$vendored/vendor/xfx/Cargo.lock"
 sg -C "$vendored" init -q
 sg -C "$vendored" add -A
-refuses identity-vendored "not a git checkout of its own" "$vendored/vendor/xfx/scripts/check-xfx-identity.sh"
+opened="the root's .git cannot be opened"
+also=("not a git repository")
+refuses identity-vendored "$opened" "$vendored/vendor/xfx/scripts/check-xfx-identity.sh"
+# The copy given a root `.git` that names the parent's repository: a file
+# (`gitdir: ...`), or a symlink to the parent's `.git`. Both lookups find the
+# parent's repository; its index's paths, vendor/xfx/..., are not in this
+# tree.
+gitfile="$work/vgitfile"
+mkdir -p "$gitfile/vendor/xfx/scripts"
+cp scripts/check-xfx-identity.sh "$gitfile/vendor/xfx/scripts/"
+printf 'name = "%s-core"\n' "$retired" >"$gitfile/vendor/xfx/Cargo.lock"
+sg -C "$gitfile" init -q
+sg -C "$gitfile" add -A
+printf 'gitdir: %s\n' "$gitfile/.git" >"$gitfile/vendor/xfx/.git"
+also=("vendor/xfx/Cargo.lock")
+refuses identity-vendored-gitfile "tracked files missing from the working tree" "$gitfile/vendor/xfx/scripts/check-xfx-identity.sh"
+gitlink="$work/vgitlink"
+mkdir -p "$gitlink/vendor/xfx/scripts"
+cp scripts/check-xfx-identity.sh "$gitlink/vendor/xfx/scripts/"
+printf 'name = "%s-core"\n' "$retired" >"$gitlink/vendor/xfx/Cargo.lock"
+sg -C "$gitlink" init -q
+sg -C "$gitlink" add -A
+ln -s "$gitlink/.git" "$gitlink/vendor/xfx/.git"
+also=("vendor/xfx/Cargo.lock")
+refuses identity-vendored-git-symlink "tracked files missing from the working tree" "$gitlink/vendor/xfx/scripts/check-xfx-identity.sh"
 # The same copy reached through a symlink to its root: the script's own idea
 # of its root, and of the root's parent, is the link's.
 ln -s "$vendored/vendor/xfx" "$work/xfx-link"
-refuses identity-vendored-symlink "not a git checkout of its own" "$work/xfx-link/scripts/check-xfx-identity.sh"
+also=("not a git repository")
+refuses identity-vendored-symlink "$opened" "$work/xfx-link/scripts/check-xfx-identity.sh"
 # A parent repository whose path has a `:` in it.
 colon="$work/vend:ored"
 mkdir -p "$colon/vendor/xfx/scripts"
@@ -525,11 +573,13 @@ cp scripts/check-xfx-identity.sh "$colon/vendor/xfx/scripts/"
 printf 'name = "%s-core"\n' "$retired" >"$colon/vendor/xfx/Cargo.lock"
 sg -C "$colon" init -q
 sg -C "$colon" add -A
-refuses identity-vendored-colon "not a git checkout of its own" "$colon/vendor/xfx/scripts/check-xfx-identity.sh"
+also=("not a git repository")
+refuses identity-vendored-colon "$opened" "$colon/vendor/xfx/scripts/check-xfx-identity.sh"
 # The copy invoked by a path in another case, where the file system folds
 # case (macOS's default); elsewhere there is no such path to give.
 if [ "$vendored" -ef "$work/VENDORED" ]; then
-	refuses identity-vendored-miscased "not a git checkout of its own" "$work/VENDORED/vendor/xfx/scripts/check-xfx-identity.sh"
+	also=("not a git repository")
+	refuses identity-vendored-miscased "$opened" "$work/VENDORED/vendor/xfx/scripts/check-xfx-identity.sh"
 else
 	printf 'test-gate-env: skip %-28s %s\n' identity-vendored-miscased "this file system does not fold case"
 fi
@@ -549,6 +599,17 @@ if [ "$ilock" -ef "$work/ILOCK" ]; then
 else
 	printf 'test-gate-env: skip %-28s %s\n' identity-own-miscased "this file system does not fold case"
 fi
+# A submodule, whose `.git` is a file naming .git/modules/<name> in the
+# superproject, and whose config names its work tree: its own checkout, and
+# scanned.
+new_ilock
+sg -C "$ilock" -c user.name=i -c user.email=i@example.invalid -c commit.gpgsign=false commit -q -m ilock
+super="$work/super"
+mkdir -p "$super"
+sg -C "$super" init -q
+sg -C "$super" -c protocol.file.allow=always submodule --quiet add "$ilock" sub
+refuses identity-submodule "$content_found" "$super/sub/scripts/check-xfx-identity.sh"
+new_ilock
 
 # A HOME config that runs programs: the gates refuse their violations and run
 # none of them.
