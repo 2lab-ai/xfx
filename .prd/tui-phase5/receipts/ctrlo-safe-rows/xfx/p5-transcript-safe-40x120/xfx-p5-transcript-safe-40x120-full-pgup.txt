@@ -1,35 +1,35 @@
-x𝒇x v0.1.0-3046d8d [debug] · Run /help for commands
+x𝒇x v0.1.0-e16af12 [debug] · Run /help for commands
 
-  2026-11-07 03:15:32.527 UTC · Notice
+  2026-11-07 03:45:13.146 UTC · Notice
 * session: provider: gateway · model: fake/model-a · effort: auto
   tools: 13 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,
   +5 more)
   mcp: none
 
-  2026-11-07 03:15:36.767 UTC · Notice
+  2026-11-07 03:45:17.090 UTC · Notice
 * network: provider: gateway · model: fake/model-a · 1ms
   finish: tool_calls
   tokens: 1200 in · 40 out
 
-  2026-11-07 03:15:36.887 UTC · Notice
-* network: provider: gateway · model: fake/model-a · 61ms
+  2026-11-07 03:45:17.211 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 62ms
   finish: stop
   tokens: 1200 in · 40 out
 
-  2026-11-07 03:15:36.698 UTC · Prompt
+  2026-11-07 03:45:17.020 UTC · Prompt
 ┃ show the file
 
-  2026-11-07 03:15:36.801 UTC · Response
+  2026-11-07 03:45:17.126 UTC · Response
   Showing the file.
 
-  2026-11-07 03:15:36.801 UTC · Tool
+  2026-11-07 03:45:17.126 UTC · Tool
 ● 2 tool calls · 1 read · 1 command
 ├ Ran : 'A‮B​C﻿D [2JE F G؜H⁧I'; cat safe.txt #
 │  command: : 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G\u{061c}H\u{2067}I'; cat safe.txt # \x0d
 │ a\u{202e}b\u{200b}c\u{feff}de\u{009b}f        g\u{061c}h\u{2067}i
 │ X
 
-  2026-11-07 03:15:36.801 UTC · Tool
+  2026-11-07 03:45:17.126 UTC · Tool
 └ Read safe.txt
 │  1    a\u{202e}b\u{200b}c\u{feff}d\x1b[2Je\u{009b}f    g\u{061c}h\u{2067}i\x0d
 │  2    over\x0dX

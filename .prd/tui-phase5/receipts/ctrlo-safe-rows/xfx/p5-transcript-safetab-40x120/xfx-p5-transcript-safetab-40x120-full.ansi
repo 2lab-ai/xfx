@@ -3,23 +3,23 @@
   [38;5;250m+5 more)[39m
   [38;5;250mmcp: none[39m
 
-[38;5;245m  2026-11-07 03:15:56.416 UTC · Notice[39m
+[38;5;245m  2026-11-07 03:45:32.032 UTC · Notice[39m
 [38;5;250m* network: provider: gateway · model: fake/model-a · 1ms[39m
   [38;5;250mfinish: tool_calls[39m
   [38;5;250mtokens: 1200 in · 40 out[39m
 
-[38;5;245m  2026-11-07 03:15:56.524 UTC · Notice[39m
+[38;5;245m  2026-11-07 03:45:32.137 UTC · Notice[39m
 [38;5;250m* network: provider: gateway · model: fake/model-a · 63ms[39m
   [38;5;250mfinish: stop[39m
   [38;5;250mtokens: 1200 in · 40 out[39m
 
-[38;5;245m  2026-11-07 03:15:56.354 UTC · Prompt[39m
+[38;5;245m  2026-11-07 03:45:31.960 UTC · Prompt[39m
 [38;5;255m┃[39m [1mshow the file[0m
 
-[38;5;245m  2026-11-07 03:15:56.450 UTC · Response[39m
+[38;5;245m  2026-11-07 03:45:32.064 UTC · Response[39m
   Showing the file.
 
-[38;5;245m  2026-11-07 03:15:56.450 UTC · Tool[39m
+[38;5;245m  2026-11-07 03:45:32.064 UTC · Tool[39m
 [38;5;255m●[39m [38;5;245m1 tool call · 1 command[39m
 └ Ran [38;5;252mcat[39m tab.txt
 │[38;5;245m aaa[39m
@@ -29,10 +29,10 @@
 │[38;5;245m aaaaaaaaaa[39m
 │[38;5;245m b  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwZ[39m
 
-[38;5;245m  2026-11-07 03:15:56.558 UTC · Response[39m
+[38;5;245m  2026-11-07 03:45:32.181 UTC · Response[39m
   Shown.
 
-[38;5;245m  2026-11-07 03:15:56.558 UTC · Usage[39m
+[38;5;245m  2026-11-07 03:45:32.181 UTC · Usage[39m
 [38;5;245m  0s (↑3 ↓80)[39m
 
 [38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m

@@ -4,17 +4,18 @@ Security unit (S): terminal injection on the full transcript. Base:
 `train/p5-1107` at `56979c59` (PR #73's train, which holds T-U1+U2's
 tool-row wrap). Round 1: `127f0502` and `28f3fda5` (clippy's rename of the
 decoder's state to fx's `EscapeState`; two shell tests read the spelled rows).
-Round 2 (the review of `151dde9f`): `3046d8d4`, on `fix/p5-ctrlo-safe-rows`.
+Round 2 (the review of `151dde9f`): `3046d8d4`, and `e16af128` (clippy: `prose::literal` is the tests' alone), on `fix/p5-ctrlo-safe-rows`.
 Oracle: fx v0.0.16 (`vercel-labs/fx@481104fd`).
 
-**Builds.** Every `xfx/` capture is from a debug build of `3046d8d`, the
+**Builds.** Every `xfx/` capture is from a debug build of `e16af12`, the
 code commit under this receipt; every `red/` capture from a debug build of
 the base `56979c5`; `red-tab/` from a build of round 1's `28f3fda`, where the
 tab defect round 2 fixes was made. `publish.py`'s check as the captures were
-copied in: each snap whose row 1 is the banner reads `x𝒇x v0.1.0-3046d8d
+copied in: each snap whose row 1 is the banner reads `x𝒇x v0.1.0-e16af12
 [debug]` (xfx), `v0.1.0-56979c5` (red) or `v0.1.0-28f3fda` (red-tab). The seven
-scenarios `check.txt` re-reads were captured from the same `3046d8d` build
-(row 1 of each: `v0.1.0-3046d8d`). fx is the v0.0.16 reference binary, sha256
+scenarios `check.txt` re-reads were captured from the same `e16af12` build
+(row 1 of each: `v0.1.0-e16af12`). `3046d8d`'s captures, taken first, differ
+from these in a `* network:` latency only. fx is the v0.0.16 reference binary, sha256
 `8e6cda2e…`, checked before and after each sweep (`sweep-*.md`).
 
 ## The finding, on the base
@@ -55,7 +56,7 @@ one cell it took where it was met, though from the new row's column it would
 be five, and every character is kept. Likewise three cells that would be
 eight (`│ bbbbbb   y…yZ`), two that would be five (`│ b  w…wZ`).
 
-## What changed (lines at `3046d8d4`)
+## What changed (lines at `e16af128`)
 
 Round 1 (`127f0502` + `28f3fda5`, `src/tui/full_transcript.rs`):
 
@@ -75,11 +76,11 @@ Round 1 (`127f0502` + `28f3fda5`, `src/tui/full_transcript.rs`):
   from the row it was drawn on (`prose::expand_tabs`). **That lost output**
   (round 2's MUST, below).
 
-Round 2 (`3046d8d4`):
+Round 2 (`3046d8d4` + `e16af128`):
 
-- **The tab.** `prose::literal_drawn` (`src/tui/prose.rs:210`) lays a line
+- **The tab.** `prose::literal_drawn` (`src/tui/prose.rs:214`) lays a line
   out as `literal` does and draws each tab in the cells the layout gave it
-  where it met it (`Layout` records them, `:399`), which a word the reflow
+  where it met it (`Layout` records them, `:403`), which a word the reflow
   moves down keeps -- fx's rule above. `railed` (`full_transcript.rs:2051`)
   draws through it (`:2068`).
 - **`keep`** (`:737`) stops at the first overflow, as fx's
@@ -128,11 +129,11 @@ ASCII.
   fx on `p5-transcript-safetab`: rows 26, 28 and 30 unexplained on both
   sides -- `│ b     x…x` (five cells, the `Z` cut off), `│ bbbbbb        y…y`
   (eight, `Z` cut off), `│ b     w…wZ` (five where fx's two).
-- **GREEN**: the test passes on `3046d8d4`, at every width from 8 to 48
+- **GREEN**: the test passes on `e16af128`, at every width from 8 to 48
   columns over four lines, and its row at 20 columns is fx's
   (`│ aaa` / `│ b 1234567890123`); `prose`'s
   `a_literal_tab_is_drawn_in_the_cells_it_was_measured_in_where_it_moves_down`
-  pins the layout. The pair: `p5-transcript-safetab` at `3046d8d` has no row
+  pins the layout. The pair: `p5-transcript-safetab` at `e16af12` has no row
   unexplained -- `end` normalized-identical, `full` only `tool-schema`,
   `session-record` and `safe-page-edge`.
 - **Mutant** (`mutants-r2.txt`): `railed` put back to measuring the tab again
@@ -177,7 +178,7 @@ ASCII.
   `a_spelled_token_may_be_cut_and_every_piece_of_it_is_inert_ascii` (the
   bound cuts a command's `\u{009b}` to `\u{`, a result's cut falls before its
   spelling, a row's end splits `\u{202e}`, every piece printable ASCII).
-- **Pair** (`pairs.txt`, `sweep-new.md`): `3046d8d` against fx: **no row is
+- **Pair** (`pairs.txt`, `sweep-new.md`): `e16af12` against fx: **no row is
   unexplained** on either scenario. The argument and read rows are fx's cell
   for cell but for the named U+061C; the command row is fx's but for the named
   marks (`ctrl-o-command-marks`, all three rows, both pages); what is left is
@@ -185,7 +186,7 @@ ASCII.
   `safe-page-edge` (those two causes four rows deep at the two page edges)
   already name.
 - **`check.py`** (`check.txt`): the T-U1U2 receipt's checker, its own fx
-  captures against new captures of the seven scenarios from `3046d8d`:
+  captures against new captures of the seven scenarios from `e16af12`:
   **34 claims, 34 hold**. No claim changed: the report is
   `transcript-wrap/green.txt` line for line, every count the same (`diff`
   with the hex digits of the revisions masked: no difference).
@@ -201,7 +202,7 @@ every step exit 0.
 ## Mutants
 
 Round 2 (`mutants-r2.txt`, `mutants-r2.py`), each alone on a throwaway
-`git clone --no-local` of `3046d8d4`:
+`git clone --no-local` of `3046d8d4` (`e16af128` touches none of the four arms):
 
 | mutant | fails |
 |---|---|

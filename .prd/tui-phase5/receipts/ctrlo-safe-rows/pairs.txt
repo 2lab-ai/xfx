@@ -88,7 +88,7 @@ p5-transcript-safetab  full       unresolved-defect  causes=session-record,safe-
     fx  30 -                      │ b  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwZ
     xfx 30 -                      │ b     wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwZ
 
-== xfx the fix 3046d8d (round 2) against fx v0.0.16
+== xfx the fix e16af12 (round 2) against fx v0.0.16
 p5-transcript-safe     end        unresolved-defect  causes=ctrl-o-call-row-spelling
     rows no cause or divergence explains: none
     fx   8 -                      ├ Ran : 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F\x09G<U+061C>H\u{2067}I'; cat safe.txt #
