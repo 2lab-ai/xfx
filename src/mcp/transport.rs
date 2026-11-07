@@ -133,7 +133,7 @@ pub trait Transport: Send + Sync {
     /// then cancelled with `notifications/cancelled`; over HTTP its stream is
     /// closed if no 2025 session has begun, and is otherwise left to the
     /// server or the connection's close (`timerFired`,
-    /// `src/mcp/core/request.zig:296-304`; `server.zig:1997-2000`). See
+    /// `src/mcp/core/request.zig:311-318`; `server.zig:1997-2000`). See
     /// [`Self::probes_open`].
     fn detect(
         &self,
@@ -175,7 +175,7 @@ pub enum WireEra {
     /// server's own requests go unanswered.
     Detecting,
     /// `initialize` is under way: a 2025 session has begun, so a server's own
-    /// requests are answered (`legacyEra`, `src/mcp/server.zig:846-849
+    /// requests are answered (`legacyEra`, `src/mcp/server.zig:888-891
     /// @481104fd`).
     Initializing,
     /// A 2025 server, at the version `initialize` agreed on.
@@ -193,7 +193,8 @@ impl WireEra {
     }
 
     /// Whether a 2025 session has begun: `initialize` was sent
-    /// (`legacyEra`; `startSession`, `src/mcp/server.zig:2033`).
+    /// (`legacyEra`, `src/mcp/server.zig:888-891`; `startSession`, `:1358-1359`,
+    /// sent at `:2035`).
     fn in_session(self) -> bool {
         matches!(self, Self::Initializing | Self::Legacy(_))
     }
@@ -451,7 +452,7 @@ impl StdioTransport {
     /// in its request table, until it is answered, the connection ends, or
     /// `at` -- its idle timeout -- comes; then it is cancelled with fx's
     /// `notifications/cancelled` (`timerFired`, `src/mcp/core/request.zig:
-    /// 296-304`; `send_cancel`, `src/mcp/server.zig:1983-1992@481104fd`).
+    /// 311-318`; `send_cancel`, `src/mcp/server.zig:1986-1995@481104fd`).
     fn cancel_later(&self, id: u64, at: Instant) {
         let pending = Arc::clone(&self.pending);
         let stdin = Arc::clone(&self.stdin);
@@ -1073,7 +1074,7 @@ impl Transport for StdioTransport {
                 // A probe whose timer fired stays in flight until its own
                 // idle timeout, as fx's does; `initialize` is never cancelled
                 // (`timerFired`: no cancel for `.initialize`,
-                // `src/mcp/core/request.zig:296-304@481104fd`); anything else
+                // `src/mcp/core/request.zig:311-318@481104fd`); anything else
                 // is forgotten.
                 if probing && err == McpError::Named("McpRequestTimedOut") {
                     self.cancel_later(id, sent + self.idle);
@@ -1298,7 +1299,7 @@ impl Stopping for Server<'_> {
 }
 
 /// fx's cancellation of request `id` on stdio: `notifications/cancelled`
-/// naming it, and nothing else (`send_cancel`, `src/mcp/server.zig:1983-1992
+/// naming it, and nothing else (`send_cancel`, `src/mcp/server.zig:1986-1995
 /// @481104fd`).
 fn cancel_frame(id: u64) -> String {
     format!(

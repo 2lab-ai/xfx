@@ -28,7 +28,7 @@
 //   asks       a 2025 server that asks the client `ping` (id "q1") before it answers
 //              `server/discover` with -32601, and `ping` (id "q2") before it answers
 //              `initialize`: fx answers a server's request only in a 2025 session, which starts
-//              with `initialize` (`legacyEra`, src/mcp/server.zig:846-849, :1152-1154@481104fd)
+//              with `initialize` (`legacyEra`, src/mcp/server.zig:888-891, :1154@481104fd)
 //   escaped    answers `server/discover` with a complete result listing 2026-07-28 and
 //              2025-11-25, each written with an escape (`\u002d` for a hyphen), then a 2025
 //              server: fx compares versions as written (`plainString`, era.zig:425@481104fd)

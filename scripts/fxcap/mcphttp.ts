@@ -51,7 +51,7 @@
 //             error that has no id, which answers the POST it came on (src/mcp/server.zig:
 //             1155-1158@481104fd): a legacy answer, so `initialize` follows at once
 //   ssestrid  `modern`, except that the discover answer comes on an event stream and names
-//             its id as a string of digits, which fx reads as its own (`ownId`, wire.zig:300)
+//             its id as a string of digits, which fx reads as its own (`ownId`, wire.zig:305-313)
 //   ssefail   `modern`, except that the discover answer comes on an event stream under HTTP
 //             500: fx reads an event stream's answers whatever the status (`readEvents`,
 //             src/mcp/io/http.zig:643-692@481104fd), so it is ready at 2026-07-28

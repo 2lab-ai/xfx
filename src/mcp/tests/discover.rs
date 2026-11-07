@@ -227,8 +227,8 @@ fn a_stdio_probe_given_up_on_is_cancelled_at_its_request_timeout() {
     // fx leaves a probe whose timer fired in its request table, and cancels
     // it when the request times out -- after the server's
     // `operation_timeout_ms` (`idle_ms`, `src/mcp/core/request.zig:64-66`;
-    // `timerFired`, `:296-304`; `send_cancel`, `src/mcp/server.zig:1983-1992`)
-    // -- with the frame fx writes (`writeCancel`).
+    // `timerFired`, `:311-318`; `send_cancel`, `src/mcp/server.zig:1986-1995`)
+    // -- with the frame fx writes there.
     let home = Home::new();
     let log = home.dir.path().join("wire.log");
     let mut server = discover_server("silent", &log);

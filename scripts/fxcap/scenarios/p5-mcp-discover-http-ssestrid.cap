@@ -1,6 +1,6 @@
 # p5 mcp discover: a 2026-07-28 HTTP server whose discover answer comes on an event stream naming its id
 # as a string of digits (mcphttp.ts `ssestrid`), which fx reads as its own (`ownId`,
-# src/mcp/protocol/wire.zig:300-308@481104fd): ready at 2026-07-28.
+# src/mcp/protocol/wire.zig:305-313@481104fd): ready at 2026-07-28.
 # `gwlog` copies the server log.
 mcphttp ssestrid
 fx: homefile .fx/mcp.json p5-mcp-discover-http-profile.json

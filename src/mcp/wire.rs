@@ -272,7 +272,7 @@ pub fn array_has_string(array: &str, needle: &str) -> Result<bool, DecodeError> 
 }
 
 /// Calls `each` with every element of the JSON array `array`, raw
-/// (`Elements`, `wire.zig:179-206`).
+/// (`Elements`, `wire.zig:180-205`).
 fn for_each_element<'a>(array: &'a str, mut each: impl FnMut(&'a str)) -> Result<(), DecodeError> {
     let mut s = Scanner::new(array);
     if s.first_token()? != b'[' {
@@ -322,7 +322,7 @@ pub fn decode_string(raw: &str) -> Option<String> {
 }
 
 /// JSON-RPC ids are strings or integers, never null (`isRequestId`,
-/// `wire.zig:300-305`).
+/// `wire.zig:298-303`).
 fn is_request_id(raw: &str) -> bool {
     let first = raw.as_bytes()[0];
     if first == b'"' {
@@ -335,7 +335,7 @@ fn is_request_id(raw: &str) -> bool {
 }
 
 /// The id of a response, when it is one the client could have issued
-/// (`ownId`, `wire.zig:307-315`): a string's contents or a number's digits,
+/// (`ownId`, `wire.zig:305-313`): a string's contents or a number's digits,
 /// as plain decimal; `None` for null, absent, or negative; anything else is
 /// an invalid id.
 pub fn own_id(raw: Option<&str>) -> Result<Option<u64>, DecodeError> {
