@@ -1,0 +1,21 @@
+== mutant: none
+   round 2 check.py: exit 0  3 claims, 3 hold, 0 fail
+   this check.py:    exit 0  3 claims, 3 hold, 0 fail
+== mutant: records: xfx's tool list loses its closing `)`, and a row after it and one far below are changed (the tool list must close; gpt6-b's MUST)
+   round 2 check.py: exit 0  3 claims, 3 hold, 0 fail
+   this check.py:    exit 1  FAIL malformed capture: xfx: the tool list from row 2 has no closing row: '  +5 more'
+== mutant: records: xfx's tool list gains a row of tool names (the rows taken out must be the claim's)
+   round 2 check.py: exit 0  3 claims, 3 hold, 0 fail
+   this check.py:    exit 1  FAIL full-records: xfx: 3 tools-list rows taken out, the claim is 2
+== mutant: records: fx gains a second `skills: loading` row (the rows taken out, and the rows compared, are the claim's)
+   round 2 check.py: exit 0  3 claims, 3 hold, 0 fail
+   this check.py:    exit 1  FAIL full-records: fx: 3 session-record rows taken out, the claim is 2
+== mutant: tools: xfx's banner is gone from both screens of the one-screen record (the rows only one side covers are the claim's)
+   round 2 check.py: exit 0  6 claims, 6 hold, 0 fail
+   this check.py:    exit 1  FAIL only fx covers 1 and only xfx 0, the claim is 0 and 0
+== mutant: question: a row is put in above xfx's banner (the same assertion, the other way)
+   round 2 check.py: exit 0  3 claims, 3 hold, 0 fail
+   this check.py:    exit 1  FAIL only fx covers 0 and only xfx 1, the claim is 0 and 0
+== mutant: anchormid: text in the blank row above xfx's footer, on the three screens of the held page (that row is read, not dropped)
+   round 2 check.py: exit 0  7 claims, 7 hold, 0 fail
+   this check.py:    exit 1  FAIL malformed capture: the row above the footer is 'stray', not a blank one

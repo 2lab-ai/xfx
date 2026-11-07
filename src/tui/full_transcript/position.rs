@@ -18,8 +18,9 @@
 //! width the one it is found on. Upstream's `prepare_projection`
 //! (`:115-122`), which would instead queue the bookmark the last selection
 //! refreshed, is called only by `buildFullTranscriptProjection`
-//! (`src/ui/transcript/runtime.zig:10661-10676@481104fd`), and only
-//! `runtime.zig`'s own tests call that; the screen's pages are installed
+//! (`src/ui/transcript/runtime.zig:10661-10676@481104fd`), and only tests
+//! call that -- `runtime.zig`'s own, `runtime_tests.zig`'s and
+//! `src/ui/resize_tests.zig`'s; the screen's pages are installed
 //! through `presentationForRebuiltPage` (`:11584-11590`), which pins. The
 //! running binary agrees: in `p5-transcript-records` a reader on the
 //! `* session:` record's first row is still on it after the window narrows

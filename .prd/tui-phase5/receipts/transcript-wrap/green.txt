@@ -91,9 +91,9 @@ ok   hold p5-transcript-resize 40x120 full-tail-120-pgup == full-pgup-after
        fx  all 36 rows the same; row 1 '│  9     a line 9 of the a file'
        xfx all 36 rows the same; row 1 '│  7     a line 7 of the a file'
 ok   top p5-transcript-records 40x120 [full-records full-records-80 full-records-120]
-       full-records: 33 rows the same from the top (fx took out 2 session-record rows)
-       full-records-80: 33 rows the same from the top (fx took out 2 session-record rows)
-       full-records-120: 33 rows the same from the top (fx took out 2 session-record rows)
+       full-records: 33 rows the same from the top, then only xfx shows 2 (fx took out 2 session-record rows)
+       full-records-80: 33 rows the same from the top, then only xfx shows 2 (fx took out 2 session-record rows)
+       full-records-120: 33 rows the same from the top, then only xfx shows 2 (fx took out 2 session-record rows)
 ok   row1 p5-transcript-records 40x120 full-records, full-records-80
        fx  row 1 '* session: provider: gateway · model: fake/model-a · effort: auto' in both
        xfx row 1 '* session: provider: gateway · model: fake/model-a · effort: auto' in both
