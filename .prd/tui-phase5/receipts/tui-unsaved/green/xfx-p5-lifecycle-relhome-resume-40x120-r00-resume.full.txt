@@ -1,0 +1,42 @@
+x𝒇x v0.1.0-83d06be [debug] · Run /help for commands
+xfx: HomeNotSet
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 1, Sat Nov  7 11:53:04 2026)

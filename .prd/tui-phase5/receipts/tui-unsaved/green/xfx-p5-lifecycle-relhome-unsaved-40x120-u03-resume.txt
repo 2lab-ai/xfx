@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-83d06be [debug] · Run /help for commands
+
+! history: durable prompt history unavailable
+
+┃ hello
+
+  Saved nowhere.
+
+  0s (↑2 ↓40)
+
+✗ session: unable to list saved sessions: SessionStoreUnavailable
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Sessions 0  [Current workspace]  All workspaces
+
+  Unable to load sessions.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab scope     enter resume     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

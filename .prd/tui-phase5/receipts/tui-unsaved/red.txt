@@ -1,0 +1,35 @@
+# RED: 771b428b's xfx (sha256 715a65de...) against fx v0.0.16, cells.py (row 1 not compared)
+== p5-lifecycle-relhome-40x120-h00-launch.ansi
+4 rows differ in their cells (row 1 not compared)
+== p5-lifecycle-relhome-40x120-h01-sessions.full.ansi
+2 rows differ in their cells (row 1 not compared)
+== p5-lifecycle-relhome-made-40x120-h00-launch.ansi
+4 rows differ in their cells (row 1 not compared)
+== p5-lifecycle-relhome-made-40x120-h01-turn.ansi
+7 rows differ in their cells (row 1 not compared)
+== p5-lifecycle-relhome-made-40x120-h02-sessions.full.ansi
+2 rows differ in their cells (row 1 not compared)
+== p5-lifecycle-relhome-resume-40x120-r00-resume.full.ansi
+3 rows differ in their cells (row 1 not compared)
+== p5-lifecycle-relhome-unsaved-40x120-u00-launch.ansi
+4 rows differ in their cells (row 1 not compared)
+== p5-lifecycle-relhome-unsaved-40x120-u01-turn.ansi
+7 rows differ in their cells (row 1 not compared)
+== p5-lifecycle-relhome-unsaved-40x120-u02-status.ansi
+20 rows differ in their cells (row 1 not compared)
+== p5-lifecycle-relhome-unsaved-40x120-u03-resume.ansi
+12 rows differ in their cells (row 1 not compared)
+== p5-lifecycle-relhome-unsaved-40x120-u04-fork.ansi
+9 rows differ in their cells (row 1 not compared)
+== p5-lifecycle-relhome-unsaved-40x120-u05-rename.ansi
+10 rows differ in their cells (row 1 not compared)
+== p5-lifecycle-relhome-unsaved-40x120-u06-new.ansi
+3 rows differ in their cells (row 1 not compared)
+== p5-lifecycle-relhome-unsaved-40x120-u07-turn.ansi
+6 rows differ in their cells (row 1 not compared)
+== p5-lifecycle-relhome-unsaved-40x120-u08-quit.full.ansi
+14 rows differ in their cells (row 1 not compared)
+== p5-lifecycle-relhome-40x120-work-h02.txt: SAME
+== p5-lifecycle-relhome-made-40x120-work-h03.txt: SAME
+== p5-lifecycle-relhome-resume-40x120-work-r01.txt: SAME
+== p5-lifecycle-relhome-unsaved-40x120-work-u09.txt: SAME

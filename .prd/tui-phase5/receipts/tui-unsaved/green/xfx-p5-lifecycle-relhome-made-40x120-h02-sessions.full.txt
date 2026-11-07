@@ -1,0 +1,42 @@
+x𝒇x v0.1.0-83d06be [debug] · Run /help for commands
+xfx sessions: HOME is not set
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 1, Sat Nov  7 11:51:33 2026)

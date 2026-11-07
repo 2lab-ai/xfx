@@ -1,0 +1,42 @@
+xfx: xfx cannot record a conversation because no home directory is set; run `xfx ask --no-save <prompt>` to ask without
+xfx sessions: HOME is not set
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 1, Sat Nov  7 11:50:45 2026)
