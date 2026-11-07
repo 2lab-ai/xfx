@@ -15,6 +15,12 @@
 
 set -euo pipefail
 
+# BSD grep -- macOS's -- puts `GREP_OPTIONS` in front of every argument list,
+# so a `--exclude=*.md` there would skip every Markdown file this scan names,
+# and the scan would report them clean. (GNU grep 3.8 ignores it.) The scan's
+# options are its own.
+unset GREP_OPTIONS
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
@@ -346,7 +352,8 @@ fi
 #
 # All of it one name to a batch, so it crosses every batch boundary: the keys
 # above are in the first batch (`-`) and the last (the quoted name), and the
-# file `grep` cannot read is a batch before one it can, whose key is found too.
+# file `grep` cannot read is a batch before one it can, whose key must be
+# printed too, under the read failure.
 # `scripts/test-check-no-secrets.sh` does the same over a tree that does not
 # fit on one command line.
 sample_dir="$(mktemp -d "${TMPDIR:-/tmp}/xfx-secret-names.XXXXXX")"
@@ -406,6 +413,10 @@ esac
 case "$sample_report" in
 *"grep could not read every file"*"does-not-exist"*) ;;
 *) fail "a file grep could not read was not a failure; this scan is not working" ;;
+esac
+case "$sample_report" in
+*"grep could not read every file for the 'OpenAI-style key' pattern:"*"does-not-exist"*"./-:1:"*) ;;
+*) fail "a key in the batch after one grep could not read was not printed; this scan is not working" ;;
 esac
 
 scan "${files[@]}" </dev/null
