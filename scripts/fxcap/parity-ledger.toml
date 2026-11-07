@@ -249,23 +249,6 @@ resolution = "T-U3 ships v0.0.16's inline code shade against the v0.0.16 pin"
 expires = "pin:v0.0.16"
 source = [".prd/07-fx-parity-program.md:43", "docs/parity.md:241", "src/markdown/theme.rs:49", "src/markdown/theme.rs:69"]
 
-# v0.0.16: a session whose terminal claims truecolor (T-U3-TC). Approved for
-# the v0.0.16 pin only, and lapses at the next pin's review.
-
-[[divergence]]
-id = "truecolor-grey-notation"
-class = "user-decision"
-pins = ["v0.0.16"]
-scenarios = ["p5-inline-code-retint-tc", "p5-inline-code-retint-light-tc", "p5-inline-code-table-tc", "p5-inline-code-table-light-tc"]
-snaps = ["*"]
-fx_row = '^┃|^  <wall> \(|^auto · model-a$'
-xfx_row = '^┃|^  <wall> \(|^auto · model-a$'
-reason = "Under COLORTERM=truecolor xfx spells its own greys -- the card's and the composer's rail, a turn's summary, the hint row -- 38;2;L;L;L (theme::depth_from_env, theme::truecolor), the same xterm-ramp colours fx writes as 38;5;N: fx's builtins are 256-colour at every depth (`src/core/shared/theme.zig:75-159@481104fd`) and its capture there is byte-identical to its 256-colour one. Read with each direct grey as the index it spells, these pairs are identical (`.prd/tui-phase5/receipts/inline-code-truecolor/`, notation.py); the rows this selects differ in that spelling alone. A decision made before this pin, the user's to keep or drop."
-owner = "user decision truecolor grey notation"
-resolution = "the user keeps the direct spelling of xfx's greys (written as lasting) or has them spelt 38;5 as fx's"
-expires = "date:2026-12-04"
-source = ["docs/parity.md:241", "src/tui/theme.rs:691", "src/tui/theme.rs:843"]
-
 # v0.0.16: the `/status` panel (P-status). Approved for the v0.0.16 pin only;
 # each lapses at the next pin's review, 2026-12-04 at the latest (there is no
 # later [[pin]] to name yet), and is approved again or dropped then.
@@ -386,6 +369,26 @@ source = [".prd/07-fx-parity-program.md:45", "docs/parity.md:113"]
 # .prd/tui-phase4/receipts/sweep/ has the table.
 
 # (b) units in flight, the specific rows first.
+
+[[cause]]
+id = "truecolor-grey-notation"
+kind = "unit"
+owner = "TC-NOTATION builtin greys spelt 38;5 at every depth"
+scenarios = ["p5-inline-code-retint-tc", "p5-inline-code-retint-light-tc", "p5-inline-code-table-tc", "p5-inline-code-table-light-tc", "p5-toolgroup-retint-tc", "p5-toolgroup-retint-light-tc"]
+snaps = ["*"]
+fx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] '
+xfx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] '
+why = "Under COLORTERM=truecolor xfx spells its own greys -- the card's and the composer's rail, a turn's summary, the hint row, a tool group's mark and statusline grey -- 38;2;L;L;L (src/tui/theme.rs depth_from_env, truecolor), the same xterm-ramp colours fx writes as 38;5;N: fx's builtins are 256-colour at every depth (src/core/shared/theme.zig:75-159@481104fd), and its capture there is byte-identical to its 256-colour one. Read with each direct grey as the index it spells, these pairs are identical (.prd/tui-phase5/receipts/inline-code-truecolor/, notation.py). Decided 2026-11-07: follow fx; TC-NOTATION spells them 38;5."
+
+[[cause]]
+id = "toolgroup-retint-256"
+kind = "unit"
+owner = "TG-REDRAW tool rows drawn again on a theme switch"
+scenarios = ["p5-toolgroup-retint", "p5-toolgroup-retint-light"]
+snaps = ["light", "dark", "dark-again"]
+fx_row = '^└ Ran '
+xfx_row = '^└ Ran '
+why = "At 256 colours a tool row's string (light 241) and comment (dark 245) are the statusline's grey in that mode, so xfx's recolouring of the screen gives them the statusline's next grey (245, 241) where fx gives the highlighter's (250, 243): fx projects the group again in the new theme (src/ui/transcript/tool_group_projection.zig:558-640,742-784@481104fd), from entries xfx does not keep once a group's block closes. A truecolor session has no such cell (T-U3-TCb, .prd/tui-phase5/receipts/inline-code-truecolor/)."
 
 [[cause]]
 id = "cancelled-marker"

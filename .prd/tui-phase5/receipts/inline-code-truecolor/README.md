@@ -10,7 +10,9 @@ Gap found by T-U3 (`../inline-code-shade/README.md`, "Not here"). Oracle:
 fx v0.0.16 (`481104fd`, executable sha256 `8e6cda2e…`). Base: PR #67's head
 `02b4619b` (T-U3 and T-U3b merged with `origin/main` `10434d28`). Code head:
 `9461bf70` -- every xfx capture under `xfx/` carries the banner
-`v0.1.0-9461bf7`, every one under `red/` `v0.1.0-02b4619`.
+`v0.1.0-9461bf7`, every one under `red/` `v0.1.0-02b4619`. The review
+round T-U3-TCb (below) is code head `3afa6fa0` on base `6c41c2ac`; its
+captures are under `toolgroup/`.
 
 ## fx's rule (all `@481104fd`)
 
@@ -70,13 +72,15 @@ notation, and a direct grey in a **256-colour** session is nobody's.
   cannot disagree. A 256-colour session takes the old path unchanged.
 - Tables keep their drawn colours at either depth (`DocumentRow::Table`
   answers nothing before any depth is asked).
-- **Also covered, by the same rule, without a capture**: a tool group's
-  highlighted words (`252`/`238`) and strings (`250`/`241`) on its
-  `ToolGroup`/`ToolStopped` rows, which T-U3 named in the same note. fx
-  rewrites a tool row's bytes through the same table (`store.zig:3745-3750`,
-  `themeOwnsRawEntry` `.tool_status`, `:3802-3813`). Held by
-  `a_truecolor_sessions_code_and_tool_rows_recolour_their_indexed_greys_as_fx`;
-  no `p5-*` scenario reports a theme change over a tool group.
+- **Also covered by the same rule**: a tool group's highlighted words
+  (`252`/`238`) on its `ToolGroup`/`ToolStopped` rows, and nothing else of
+  a tool row -- that is all
+  `a_truecolor_sessions_code_and_tool_rows_recolour_their_indexed_greys_as_fx`
+  holds. A tool row's strings and comments were **not** right in a truecolor
+  session at `9461bf70` (the 256-colour roles answered them, statusline
+  first); T-U3-TCb, below, found that on captures and fixed it. (This
+  section first said fx rewrites a tool row through the token table; it
+  does not: it projects the group again, below.)
 
 ## Captures
 
@@ -146,23 +150,24 @@ session draws is unchanged, and only the switch moved.
 
 In every pair, before and after the fix, the cells xfx paints in its own
 palette differ from fx's in spelling and in nothing else (`notation:` lines;
-`kept: 0`). Recorded in `docs/parity.md:241` and in the ledger
-(`scripts/fxcap/parity-ledger.toml`, `truecolor-grey-notation`,
-`user-decision`, the v0.0.16 pin, these four scenarios, the rows that hold
-those greys). Keeping it or spelling xfx's greys `38;5` as fx does is the
-user's call; this unit does neither.
+`kept: 0`). **Decided 2026-11-07 (dispatcher, T-U3-TCb): follow fx** --
+builtin-theme greys spelt `38;5` at every depth -- in the next unit,
+TC-NOTATION, not here. Recorded in `docs/parity.md:241`, and in the ledger
+as `[[cause]] truecolor-grey-notation`, `kind = "unit"`, owned by
+TC-NOTATION (`scripts/fxcap/parity-ledger.toml`, the way `cancelled-marker`
+is): it approves nothing, so these pairs stay `unresolved-defect` in a
+sweep, attributed to that unit, until it lands.
 
-The entry selects rows by their normalized text -- the rails (`^┃`), the
-summary (`^  <wall> \(`, after `turn-wall-time`) and the hint row
-(`^auto · model-a$`) -- so it cannot cover an answer's row. `ledger.txt`,
-one sweep of the four scenarios each way: at the code head 12 of 12 pairs
-`approved-divergence`, every differing row matched by this entry and no
-other; at `02b4619b` the four switched snaps stay `unresolved-defect`, the
-rows no entry covers being exactly the answer's inline code and code rows
-(`Run zig build test …`, `# build and test`, `const n = 42;`, …), and the
-other eight `approved-divergence`. T-U3's entry `inline-code-shade` cited
-`docs/parity.md:240`, which a merge from `main` had moved to `:241`;
-corrected.
+It selects rows by their normalized text -- the rails (`^┃`), the summary
+(`^  <wall> \(`, after `turn-wall-time`), the hint row (`^auto · model-a$`)
+and a tool group's rows (`^● `, `^[├└] `) -- so it does not reach an
+answer's row. T-U3's entry `inline-code-shade` cited `docs/parity.md:240`,
+which a merge from `main` had moved to `:241`; corrected. `ledger.txt`:
+one sweep at T-U3-TCb's code head of the four `-tc` inline-code scenarios
+and the four tool-group ones: 24 pairs, 3 `normalized-identical`, 21
+`unresolved-defect` -- 18 attributed to `truecolor-grey-notation` alone, 3
+(the 256-colour tool pairs' switched snaps) to `toolgroup-retint-256`
+alone, and no differing row without a cause.
 
 ## No regression at 256 colours
 
@@ -238,7 +243,79 @@ its commit `232762e5`. Corrected here:
 - The same six scenarios from this unit's code head (`9461bf70`, banner
   `v0.1.0-9461bf7`) against fx: `x256.txt`, below.
 
-## Gates
+## T-U3-TCb: the review round on `6c41c2ac`
+
+Code head `3afa6fa0` (banner `v0.1.0-3afa6fa` on every `toolgroup/xfx/`
+capture); base `6c41c2ac` (`v0.1.0-6c41c2a`, `toolgroup/red/`, rebuilt from
+that clean commit). Results: `toolgroup.txt`, `mutants-b.txt`, `ledger.txt`.
+
+**What fx does to a tool row on a switch.** It does not recolour it: the
+group is a projection of its entries (`formatGroupBlock`,
+`src/ui/transcript/tool_group_projection.zig:558-640@481104fd`), drawn again
+in the theme then in force -- the command through `highlightCommandPhrase`
+with `shared_theme.current()` (`:742-784`, `:770`). The token table
+(`store.zig:3784-3800`) is not what moves it. Two review leads were read
+against that, on the new scenarios `p5-toolgroup-retint` (256 colours,
+drawn dark), `-light` (drawn light), `-tc` and `-light-tc` (the same under
+`COLORTERM=truecolor`), one `sh` command with a string, a number, an
+operator and a comment:
+
+- "the statusline 245 would go to 247": **not reproduced**. fx's light
+  snap holds `ESC[38;5;241m└ Ran ESC[38;5;238mechoESC[38;5;241m "hi" 42 …`
+  -- 241, as xfx's.
+- "a comment (245) goes to 241 where fx gives 247": xfx's half reproduced,
+  fx's not -- fx's light snap holds `ESC[38;5;243m# note`, the light comment
+  grey of a fresh projection, not the table's 247.
+
+**MUST 1, truecolor (fixed).** On a tool row, an indexed cell in a
+truecolor session was answered by the 256-colour roles, statusline first:
+`Palette { Dark, TrueColor }.document_retint_in(ToolGroup, Indexed(241))`
+gave `38;5;245` (`mutants-b.txt`, the RED run of the new test). Since the
+row's own greys there are `38;2`, such a cell is the highlighter's and is
+now answered by `COMMENT`, `COMMAND`, `NOTICE` alone, on `ToolGroup` and
+`ToolStopped` rows (`cancelled_line` highlights a stopped command the same
+way, `src/tui/toolgroup.rs:517-532`). Captures: at `6c41c2ac` the `-tc`
+pairs' switched snaps differ from fx in the string (`250` vs `245`, 4
+cells) and the comment (`243` vs `241`, 5 cells; drawn light, `245` vs
+`243`); at `3afa6fa0` all six `-tc` pairs are `ramp: 0`, `kept: 0`. The
+four inline-code `-tc` scenarios taken again at `3afa6fa0`: unchanged
+(`ramp: 0`, `kept: 0`, no cell differs from `xfx/`).
+Test: `tui::theme::tests::a_truecolor_tool_rows_indexed_greys_are_the_highlighters_both_ways`
+(250/241 and 245/243 both ways on both row kinds, the row's direct greys
+still the palette's). Mutants: D (the arm removed) and E (`COMMENT` left
+out) each fail it.
+
+**At 256 colours (not changed; the unit TG-REDRAW).** The same two cells
+differ there (`p5-toolgroup-retint` `light`, `dark-again`; `-light` `dark`),
+identically at `6c41c2ac` and `3afa6fa0` (no differing cell between them in
+any of the six snaps): a light string's `241` and a dark comment's `245` are
+the statusline's own grey in that mode, so no colour rule can tell them
+apart, and xfx keeps no group to project again once its block closes
+(`settle_group`/`close_group`, `src/tui/shell.rs`). Matching fx means
+drawing the rows again in the new palette: a per-line redraw source carried
+with the row on the `Append::kinds` path, or a cache of each tool row's two
+renderings keyed by its text. Recorded in `docs/parity.md:241`, in
+`document_retint_in`'s doc, and as `[[cause]] toolgroup-retint-256`
+(`kind = "unit"`).
+
+**MUST 2.** `truecolor-grey-notation` re-filed as a cause owned by
+TC-NOTATION (above); the "user's call" wording is gone; the "Also covered"
+claim is narrowed to what the tests and captures hold.
+
+Gates at `3afa6fa0` (the receipt commit on top changes no compiled file),
+the suites one at a time after the idle wait, `TMPDIR=/private/tmp/claude-501/ict`:
+
+| gate | result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings` | ok |
+| `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | ok |
+| `cargo test --locked --no-fail-fast` | 4893 passed, 0 failed |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 4922 passed, 0 failed |
+| `scripts/check-xfx-identity.sh` / `check-no-stubs.sh` / `check-no-secrets.sh` | ok / ok / ok (9810 tracked files, the receipt staged) |
+| `scripts/fxcap/test-sweep.sh` (the ledger changed) | 48 + 24 tests ok |
+
+## Gates (T-U3-TC, at `9461bf70`)
 
 At the code head `9461bf70`, one at a time, the test suites each after the
 idle wait (`until ! pgrep -x cargo … && ! pgrep -x 'xfx-[0-9a-f]+' …`),
@@ -252,7 +329,7 @@ idle wait (`until ! pgrep -x cargo … && ! pgrep -x 'xfx-[0-9a-f]+' …`),
 | `cargo test --locked --no-fail-fast` | 4892 passed, 0 failed |
 | `cargo test --locked --features fault-injection --no-fail-fast` | 4921 passed, 0 failed |
 | `scripts/check-xfx-identity.sh` / `check-no-stubs.sh` / `check-no-secrets.sh` | ok / ok / ok (9730 tracked files, this receipt staged) |
-| `scripts/fxcap/test-sweep.sh` (the ledger changed) | 24 tests ok |
+| `scripts/fxcap/test-sweep.sh` (the ledger changed) | 48 + 24 tests ok |
 
 The receipt commit on top of `9461bf70` changes no compiled file (`.prd/`,
 `docs/parity.md`, `scripts/fxcap/parity-ledger.toml` only), so a binary

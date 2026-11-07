@@ -1,42 +1,45 @@
-# The ledger entry truecolor-grey-notation (v0.0.16 pin), on two sweeps of the four -tc scenarios, 40x120:
+# The ledger's two causes for this unit's scenarios (T-U3-TCb), on one sweep against the v0.0.16 pin, 40x120:
 #   scripts/fxcap/sweep.sh --fx <fx v0.0.16> --pin-sha 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2 \
-#     --xfx <xfx> --jobs 2 --only 'p5-inline-code-*-tc' --out <out>
-# head = this unit's code head 9461bf70 (banner v0.1.0-9461bf7), red = 02b4619b (v0.1.0-02b4619).
-# The head sweep was first scored with the entry's summary selector written as `^  \d+s \(`: the sweep matches the
-# normalized row (`turn-wall-time` writes `<wall>`), so the summary row went unmatched and all 12 pairs were
-# unresolved; with `^  <wall> \(` (the entry as committed), rescored over the same captures (sweep.sh --rescore).
-# Per pair: verdict, the entries its rows matched, and the rows no entry covers.
+#     --xfx <xfx at 3afa6fa0, banner v0.1.0-3afa6fa> --jobs 2 --only 'p5-inline-code-*-tc' --only 'p5-toolgroup-retint*' --out <out>
+# truecolor-grey-notation was a [[divergence]] (user-decision) at 9461bf70, which approved the 12 inline-code -tc pairs;
+# re-filed as a [[cause]] kind = "unit" owned by TC-NOTATION, it approves nothing, so they are unresolved again and
+# attributed to that unit. toolgroup-retint-256 is the 256-colour tool-row remainder, owned by TG-REDRAW. The sweep was
+# first scored with the hint-row selector `^auto · model-a$`, which missed the tool scenarios' `full access · model-a`
+# (6 snaps with a row no cause covered); rescored over the same captures (sweep.sh --rescore) with the entry as committed.
+# Per pair: verdict, its causes, and the rows that differ.
 
-## head
 | total | ran | identical | normalized-identical | approved-divergence | approved-divergence-cascade | replaced-in-next-pin | unresolved-defect | failed | timeout |
 |---|---|---|---|---|---|---|---|---|---|
-| 12 | 12 | 0 | 0 | 12 | 0 | 0 | 0 | 0 | 0 |
-p5-inline-code-retint-light-tc   light        approved-divergence  ['truecolor-grey-notation'] []
-p5-inline-code-retint-light-tc   dark         approved-divergence  ['truecolor-grey-notation'] []
-p5-inline-code-retint-light-tc   light-again  approved-divergence  ['truecolor-grey-notation'] []
-p5-inline-code-retint-tc         dark         approved-divergence  ['truecolor-grey-notation'] []
-p5-inline-code-retint-tc         light        approved-divergence  ['truecolor-grey-notation'] []
-p5-inline-code-retint-tc         dark-again   approved-divergence  ['truecolor-grey-notation'] []
-p5-inline-code-table-light-tc    light        approved-divergence  ['truecolor-grey-notation'] []
-p5-inline-code-table-light-tc    dark         approved-divergence  ['truecolor-grey-notation'] []
-p5-inline-code-table-light-tc    light-again  approved-divergence  ['truecolor-grey-notation'] []
-p5-inline-code-table-tc          dark         approved-divergence  ['truecolor-grey-notation'] []
-p5-inline-code-table-tc          light        approved-divergence  ['truecolor-grey-notation'] []
-p5-inline-code-table-tc          dark-again   approved-divergence  ['truecolor-grey-notation'] []
+| 24 | 24 | 0 | 3 | 0 | 0 | 0 | 21 | 0 | 0 |
 
-## red
-| total | ran | identical | normalized-identical | approved-divergence | approved-divergence-cascade | replaced-in-next-pin | unresolved-defect | failed | timeout |
-|---|---|---|---|---|---|---|---|---|---|
-| 12 | 12 | 0 | 0 | 8 | 0 | 0 | 4 | 0 | 0 |
-p5-inline-code-retint-light-tc   light        approved-divergence  ['truecolor-grey-notation'] []
-p5-inline-code-retint-light-tc   dark         unresolved-defect    ['truecolor-grey-notation'] [(5, '  Run zig build test before you push.'), (8, '  # build and test'), (9, '  zig build test --summary all'), (13, '  // the answer'), (14, '  const n = 42;'), (15, '  const s = "hi";'), (18, '  Done with everything.')]
-p5-inline-code-retint-light-tc   light-again  approved-divergence  ['truecolor-grey-notation'] []
-p5-inline-code-retint-tc         dark         approved-divergence  ['truecolor-grey-notation'] []
-p5-inline-code-retint-tc         light        unresolved-defect    ['truecolor-grey-notation'] [(5, '  Run zig build test before you push.'), (8, '  # build and test'), (9, '  zig build test --summary all'), (13, '  // the answer'), (14, '  const n = 42;'), (15, '  const s = "hi";'), (18, '  Done with everything.')]
-p5-inline-code-retint-tc         dark-again   approved-divergence  ['truecolor-grey-notation'] []
-p5-inline-code-table-light-tc    light        approved-divergence  ['truecolor-grey-notation'] []
-p5-inline-code-table-light-tc    dark         unresolved-defect    ['truecolor-grey-notation'] [(5, '  Run zig build first.'), (15, '  Done with everything.')]
-p5-inline-code-table-light-tc    light-again  approved-divergence  ['truecolor-grey-notation'] []
-p5-inline-code-table-tc          dark         approved-divergence  ['truecolor-grey-notation'] []
-p5-inline-code-table-tc          light        unresolved-defect    ['truecolor-grey-notation'] [(5, '  Run zig build first.'), (15, '  Done with everything.')]
-p5-inline-code-table-tc          dark-again   approved-divergence  ['truecolor-grey-notation'] []
+| cause | kind | snaps | only | what | owner |
+|---|---|---|---|---|---|
+| truecolor-grey-notation | b | 18 | 18 | … | `TC-NOTATION builtin greys spelt 38;5 at every depth` |
+| toolgroup-retint-256 | b | 3 | 3 | … | `TG-REDRAW tool rows drawn again on a theme switch` |
+
+(no row without a cause)
+
+p5-inline-code-retint-light-tc   light        unresolved-defect     truecolor-grey-notation     [(3, '┃ show me the code'), (20, '  <wall> (↑4 ↓40)'), (22, '┃'), (24, 'auto · model-a')]
+p5-inline-code-retint-light-tc   dark         unresolved-defect     truecolor-grey-notation     [(3, '┃ show me the code'), (20, '  <wall> (↑4 ↓40)'), (22, '┃'), (24, 'auto · model-a')]
+p5-inline-code-retint-light-tc   light-again  unresolved-defect     truecolor-grey-notation     [(3, '┃ show me the code'), (20, '  <wall> (↑4 ↓40)'), (22, '┃'), (24, 'auto · model-a')]
+p5-inline-code-retint-tc         dark         unresolved-defect     truecolor-grey-notation     [(3, '┃ show me the code'), (20, '  <wall> (↑4 ↓40)'), (22, '┃'), (24, 'auto · model-a')]
+p5-inline-code-retint-tc         light        unresolved-defect     truecolor-grey-notation     [(3, '┃ show me the code'), (20, '  <wall> (↑4 ↓40)'), (22, '┃'), (24, 'auto · model-a')]
+p5-inline-code-retint-tc         dark-again   unresolved-defect     truecolor-grey-notation     [(3, '┃ show me the code'), (20, '  <wall> (↑4 ↓40)'), (22, '┃'), (24, 'auto · model-a')]
+p5-inline-code-table-light-tc    light        unresolved-defect     truecolor-grey-notation     [(3, '┃ show me the table'), (17, '  <wall> (↑5 ↓40)'), (19, '┃'), (21, 'auto · model-a')]
+p5-inline-code-table-light-tc    dark         unresolved-defect     truecolor-grey-notation     [(3, '┃ show me the table'), (17, '  <wall> (↑5 ↓40)'), (19, '┃'), (21, 'auto · model-a')]
+p5-inline-code-table-light-tc    light-again  unresolved-defect     truecolor-grey-notation     [(3, '┃ show me the table'), (17, '  <wall> (↑5 ↓40)'), (19, '┃'), (21, 'auto · model-a')]
+p5-inline-code-table-tc          dark         unresolved-defect     truecolor-grey-notation     [(3, '┃ show me the table'), (17, '  <wall> (↑5 ↓40)'), (19, '┃'), (21, 'auto · model-a')]
+p5-inline-code-table-tc          light        unresolved-defect     truecolor-grey-notation     [(3, '┃ show me the table'), (17, '  <wall> (↑5 ↓40)'), (19, '┃'), (21, 'auto · model-a')]
+p5-inline-code-table-tc          dark-again   unresolved-defect     truecolor-grey-notation     [(3, '┃ show me the table'), (17, '  <wall> (↑5 ↓40)'), (19, '┃'), (21, 'auto · model-a')]
+p5-toolgroup-retint              dark         normalized-identical  -                           []
+p5-toolgroup-retint              light        unresolved-defect     toolgroup-retint-256        [(6, '└ Ran echo "hi" 42 | grep hi # note')]
+p5-toolgroup-retint              dark-again   unresolved-defect     toolgroup-retint-256        [(6, '└ Ran echo "hi" 42 | grep hi # note')]
+p5-toolgroup-retint-light        light        normalized-identical  -                           []
+p5-toolgroup-retint-light        dark         unresolved-defect     toolgroup-retint-256        [(6, '└ Ran echo "hi" 42 | grep hi # note')]
+p5-toolgroup-retint-light        light-again  normalized-identical  -                           []
+p5-toolgroup-retint-light-tc     light        unresolved-defect     truecolor-grey-notation     [(3, '┃ run the command'), (5, '● 1 tool call · 1 command'), (6, '└ Ran echo "hi" 42 | grep hi # note'), (10, '  <wall> (↑4 ↓80)'), (12, '┃'), (14, 'full access · model-a')]
+p5-toolgroup-retint-light-tc     dark         unresolved-defect     truecolor-grey-notation     [(3, '┃ run the command'), (5, '● 1 tool call · 1 command'), (6, '└ Ran echo "hi" 42 | grep hi # note'), (10, '  <wall> (↑4 ↓80)'), (12, '┃'), (14, 'full access · model-a')]
+p5-toolgroup-retint-light-tc     light-again  unresolved-defect     truecolor-grey-notation     [(3, '┃ run the command'), (5, '● 1 tool call · 1 command'), (6, '└ Ran echo "hi" 42 | grep hi # note'), (10, '  <wall> (↑4 ↓80)'), (12, '┃'), (14, 'full access · model-a')]
+p5-toolgroup-retint-tc           dark         unresolved-defect     truecolor-grey-notation     [(3, '┃ run the command'), (5, '● 1 tool call · 1 command'), (6, '└ Ran echo "hi" 42 | grep hi # note'), (10, '  <wall> (↑4 ↓80)'), (12, '┃'), (14, 'full access · model-a')]
+p5-toolgroup-retint-tc           light        unresolved-defect     truecolor-grey-notation     [(3, '┃ run the command'), (5, '● 1 tool call · 1 command'), (6, '└ Ran echo "hi" 42 | grep hi # note'), (10, '  <wall> (↑4 ↓80)'), (12, '┃'), (14, 'full access · model-a')]
+p5-toolgroup-retint-tc           dark-again   unresolved-defect     truecolor-grey-notation     [(3, '┃ run the command'), (5, '● 1 tool call · 1 command'), (6, '└ Ran echo "hi" 42 | grep hi # note'), (10, '  <wall> (↑4 ↓80)'), (12, '┃'), (14, 'full access · model-a')]
