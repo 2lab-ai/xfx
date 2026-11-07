@@ -6,7 +6,7 @@ gateway notice-midstream-turn.json
 wait 2
 type stream a long answer please
 key Enter
-wait 2
+held
 type /notacommand
 wait 0.3
 key Enter
@@ -15,6 +15,7 @@ type /version
 wait 0.3
 key Enter
 wait 0.7
+release
 wait 5
 snap end
 key C-o

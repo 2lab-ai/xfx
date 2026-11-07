@@ -11,11 +11,12 @@ xfx: env XFX_PERMISSION_MODE=yolo
 wait 2
 type stream please
 key Enter
-wait 2
+held
 type what are you doing
 key Enter
 wait 0.4
 snap steer-stream
+release
 wait 12
 snap steer-stream-done
 type run it

@@ -6,13 +6,14 @@ gateway rename-midturn-turns.json
 wait 4
 type count to ten slowly
 key Enter
-wait 1.5
+held
 type /rename Counted mid turn
 wait 0.3
 key Enter
 wait 0.8
 snap during
 title during
+release
 wait 5
 snap after
 keep

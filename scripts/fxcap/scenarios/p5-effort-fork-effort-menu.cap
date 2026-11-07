@@ -94,13 +94,14 @@ snap level-low
 home after-low
 type slow turn please
 key Enter
-wait 1.5
+held
 paste /effort high
 wait 0.4
 key Enter
 wait 1
 snap midturn
 home after-midturn
+release
 wait 8
 snap midturn-done
 type after the change

@@ -16,12 +16,13 @@ wait 1
 type stream one
 wait 0.5
 key Enter
-wait 2
+held
 type /resume
 wait 0.5
 key Enter
 wait 1
 snap while-streaming
+release
 wait 8
 type /quit
 wait 0.5
