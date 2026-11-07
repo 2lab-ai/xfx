@@ -1,0 +1,28 @@
+# Phase 5 transcript (DIFF-WRAPb): a write of a new file of fourteen lines,
+# so the line numbers take two columns, whose tabs land where fx's row
+# walker has already run a row on -- a tab on the walker's second row
+# (`\t`, 108 or 110 characters, `\t`), a tab after a row the walker filled
+# to the last column, a tab on a reflowed row under the gutter, two tabs at
+# the margin, a tab after a wide character in the last column and one
+# before a wide character -- and a two-digit line reflowed. Ctrl-O over the change:
+# fx reflows each line (`reflowDiffRow`, transcript_blocks.zig:720-768
+# @481104fd), then its walker places each tab from the column of the row
+# it is on (full_transcript_screen.zig:4004-4031@481104fd).
+gateway p5-transcript-diffwrap2-turns.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+keep
+wait 4
+type write the file
+wait 1
+key Enter
+wait 5
+snap edited
+key C-o
+wait 2
+snap full
+key C-o
+wait 1
+snap closed
+gwlog
