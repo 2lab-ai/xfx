@@ -1471,7 +1471,13 @@ pub(crate) struct Shell {
     /// ([`Self::banner_rows`]) and its card is written when its turn starts,
     /// as upstream delivers a steer (`fx-steer-40x120-steer-done`) -- never at
     /// the keystroke, in the middle of the answer it was typed under.
-    prompts: VecDeque<(u64, Option<String>, Option<WaitingCard>)>,
+    ///
+    /// The fourth says the prompt was sent while a turn that had started was
+    /// still in hand -- running, or stopped and not yet ended -- so its turn
+    /// is reported as it starts, ahead of the frame that shows it, as
+    /// upstream reports a prompt it queued behind a turn
+    /// ([`Self::take_status_moved_by_input`]).
+    prompts: VecDeque<(u64, Option<String>, Option<WaitingCard>, bool)>,
     /// The prompts sent into the running turn and not yet taken by it
     /// ([`crate::agent::steering`]), oldest first: the number the runtime
     /// knows each by, the prompt as the model is given it, and its card.
@@ -4101,7 +4107,7 @@ impl Shell {
                 if !self.cancelling {
                     self.activity.set(Work::Thinking);
                 }
-                let (input, title, card) = self.prompts.pop_front().unwrap_or_default();
+                let (input, title, card, _) = self.prompts.pop_front().unwrap_or_default();
                 self.tally.begin(Instant::now(), input);
                 self.turn_title = title;
                 // The waiting prompt is delivered: its card goes into the
@@ -10202,26 +10208,34 @@ impl Shell {
     /// **Nor is one that waits for anything else**, typed or not: work that
     /// is only a prompt waiting is held the same way ([`Self::status_held`]),
     /// and the tick whose frame first shows its turn writes the report after
-    /// that frame. A prompt typed after a stop, before the stopped turn has
-    /// ended, is one: the stop keeps the status settled across the keystroke,
-    /// so nothing above marks it as typed, and the stopped turn's end would
-    /// otherwise report `working` ahead of every frame that shows the prompt's
-    /// turn. Upstream's stop stays requested until the worker takes the next
-    /// item (`takeNextWorkLocked`, `worker_runtime.zig:1512@481104fd`;
-    /// `finishProcessing` leaves it, `:1541-1563`) and nothing is busy while it
-    /// is (`app_worker_runtime.zig:785-788`), while the prompt's keystroke
-    /// frame shows its activity (`pendingPromptActivityVisible`,
-    /// `app_render_runtime.zig:286-290`): the `Thinking` frame, then `working`.
-    /// A hold that ends without its turn -- the prompt stopped, reset or
-    /// replaced before it started -- owes no frame anything: what is reported
-    /// then goes where it would have.
+    /// that frame. A hold that ends without its turn -- the prompt stopped,
+    /// reset or replaced before it started -- owes no frame anything: what is
+    /// reported then goes where it would have.
+    ///
+    /// **Except a prompt sent while a turn that started was still in hand** --
+    /// running, or stopped and not yet ended ([`Self::prompts`]' fourth).
+    /// Upstream queues it behind that turn and shows nothing of its turn
+    /// until the worker takes it, in the pass that reports `working` and
+    /// then paints the prompt and its activity (`p5-lifecycle-osc-stopnext`
+    /// on fx v0.0.16: `idle`, the `Cancelled` frame, `working`, then the
+    /// frame with the prompt). A stop stays requested until that take
+    /// (`takeNextWorkLocked`, `worker_runtime.zig:1512@481104fd`;
+    /// `finishProcessing` leaves it, `:1541-1563`), and nothing is busy while
+    /// it is (`cancellation_stops_turn`, `app_worker_runtime.zig:734-735`,
+    /// `:762-765`). So such a prompt is not held: its `working` goes ahead of
+    /// the frame that shows its turn, whether the turn it waited behind ends
+    /// in the tick its own starts in -- the runtime sends the two with no wait
+    /// on this thread -- or in an earlier one. Behind a turn that was not
+    /// stopped, that report is the running turn's `working`, which is not
+    /// written again.
     pub(crate) fn take_status_moved_by_input(&mut self) -> Keyed {
         let compacting = self
             .compaction
             .as_ref()
             .is_some_and(|compaction| compaction.active() && !compaction.stopped());
         let working = self.status_activity() == StatusActivity::Working;
-        if working && !self.activity.working() && !compacting {
+        let behind_a_turn = self.prompts.front().is_some_and(|prompt| prompt.3);
+        if working && !self.activity.working() && !compacting && !behind_a_turn {
             self.status_held = true;
             return Keyed::NotYet;
         }
@@ -12696,6 +12710,10 @@ impl Shell {
         // prompt typed after it goes out as soon as that work unwinds, and its
         // card is written at once, as it always was.
         let waits = self.activity.working();
+        // Whether a turn that started is still in hand, stopped or not: the
+        // prompt is then queued behind it, as upstream's is, and its turn is
+        // reported ahead of the frame that shows it.
+        let behind = self.tally.started.is_some();
         match self.work.submit(work) {
             Ok(()) => {
                 self.ask_for_title(excerpt.as_deref(), Some(self.work.accepted()));
@@ -12710,12 +12728,17 @@ impl Shell {
                 let mut estimate = Estimator::default();
                 estimate.consume(&sent);
                 if waits {
-                    self.prompts
-                        .push_back((estimate.estimate(), title, Some((card, links, runs))));
+                    self.prompts.push_back((
+                        estimate.estimate(),
+                        title,
+                        Some((card, links, runs)),
+                        behind,
+                    ));
                     self.refit();
                     self.render.request(Reason::Footer);
                 } else {
-                    self.prompts.push_back((estimate.estimate(), title, None));
+                    self.prompts
+                        .push_back((estimate.estimate(), title, None, behind));
                     self.echo(&card, links, runs);
                 }
                 self.gestures.submitted();
@@ -12768,10 +12791,12 @@ impl Shell {
                 Ok(()) => {
                     let mut estimate = Estimator::default();
                     estimate.consume(&card);
+                    // Sent while the turn that missed it was still in hand.
                     self.prompts.push_back((
                         estimate.estimate(),
                         title_of(&prompt),
                         Some((card, BadgeLinks::new(), SkillRuns::new())),
+                        true,
                     ));
                 }
                 Err(rejected) => {
@@ -15536,7 +15561,7 @@ impl Shell {
         let waiting = self
             .prompts
             .iter()
-            .map(|(_, _, card)| card.as_ref().map(|(card, links, _)| (card.as_str(), links)));
+            .map(|(_, _, card, _)| card.as_ref().map(|(card, links, _)| (card.as_str(), links)));
         for card in steers.chain(waiting) {
             let Some((card, links)) = card else {
                 continue;
