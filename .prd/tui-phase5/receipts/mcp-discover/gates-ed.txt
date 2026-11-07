@@ -1,0 +1,36 @@
+# The gate at 7ff9864b (the merge of origin/main 6c93f359 into the branch), one step after another (scratchpad tools/gate5.sh), TMPDIR=<tmp>.
+head 7ff9864ba3f5ffa718a70543c9371a45ab5fea28
+dirty-before: 0
+build exit=0 11s
+mcp-tests exit=0 38s
+fmt exit=0 2s
+clippy exit=0 16s
+clippy-fi exit=0 12s
+test exit=0 141s
+test-fi exit=0 152s
+identity exit=0 0s
+no-stubs exit=0 11s
+no-secrets exit=0 33s
+test-sweep exit=0 18s
+test-capture exit=1 150s
+test-check-no-secrets exit=0 96s
+test-gate-env exit=0 119s
+dirty-after: 0
+GATEDONE
+test: passed 5218 failed 0 ignored 7
+test-fi: passed 5255 failed 0 ignored 7
+mcp-tests: test result: ok. 232 passed; 0 failed; 2 ignored; 0 measured; 4079 filtered out; finished in 18.75s
+
+# test-capture run again alone (scripts/fxcap/test-capture.sh):
+load before:  0:16  up 9 days, 11 mins, 1 user, load averages: 9.48 11.10 11.54
+test-capture rerun exit=1
+load after:  0:21  up 9 days, 16 mins, 1 user, load averages: 6.42 8.96 10.50
+ERROR: test_models2_and_modelsdelay (__main__.Verbs.test_models2_and_modelsdelay)
+Ran 53 tests in 300.463s
+FAILED (errors=1)
+
+# test_models2_and_modelsdelay alone, alternating 7c2ceeea (before the merge) and 7ff9864b in the --no-local clone:
+7c2ceeea FAILED (errors=1) load=8.84 9.49 10.51
+7ff9864b FAILED (errors=1) load=9.11 9.50 10.49
+7c2ceeea FAILED (errors=1) load=8.69 9.38 10.43
+7ff9864b FAILED (errors=1) load=19.61 11.75 11.26

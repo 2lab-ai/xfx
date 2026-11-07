@@ -208,6 +208,35 @@ What still leans on a clock in `src/mcp/tests/discover.rs`, and how much:
 No case reads a state that a timer of its own can end before the case looks
 at it. The lower bounds stay (`took >= …`).
 
+## MCP-Ed: one test, the receipt, and main merged in
+
+- `8ea201e9` (tests and docs only): the stdio cancel case no longer asserts
+  that `initialize` was written before the 2 s cancel; it checks that the
+  first frame read is the probe (`{"method":"server/discover","id":1}`), and
+  the lower bound and the `probes_open` poll carry the rest. The paragraph
+  on what the sweeps cover now says the captures are historical and which
+  `src/` changes the tests, not the captures, cover. `docs/parity.md` names a
+  third MCP-SEAMS gap (a given-up waiting message keeps its admission place
+  until popped; fx frees it at the cancel, `http.zig:252-263`).
+- `7ff9864b`: `Merge origin/main 6c93f359 (#78 landed) into
+  feat/p5-mcp-discover for train 4`, no conflicts.
+- The gate at `7ff9864b` (`gates-ed.txt`, `gates-ed/`), one step after
+  another, the tree clean before and after: build, the MCP tests (232
+  passed), fmt, both clippy runs, `cargo test` (5,218 passed, 0 failed, 7
+  ignored) and with fault-injection (5,255 passed, 0 failed, 7 ignored),
+  identity, no-stubs, no-secrets, test-sweep, `scripts/test-check-no-secrets.sh`
+  (13 cases) and `scripts/test-gate-env.sh` (5 cases): exit 0.
+  **`scripts/fxcap/test-capture.sh` exits 1** on one case of fxcap's own,
+  `Verbs.test_models2_and_modelsdelay`, in the gate and run again alone:
+  its fake gateway serves a second catalog 5,000 ms after it starts, and the
+  case's first `curl` reached it at 9,042 ms (`gates-ed/models2-gateway.txt`)
+  on this machine at a load average of 9-19, so the first catalog was never
+  served. Alternated in the clone, the case fails on `7c2ceeea` -- before the
+  merge -- as on `7ff9864b`, four of four (`gates-ed.txt`); it passed at
+  `7c2ceeea` in round 3's gate (`gates.txt`: test-capture exit 0). Neither
+  this branch nor the merge changes it (`scripts/fxcap/test_capture.py`,
+  `fakegw.ts` and `capture.sh` are the same at `7c2ceeea` and `7ff9864b`).
+
 ## RED: round 1's head against round 2's cases
 
 `sweeps/red-120-*` (`v0.1.0-f3a859c`, the 18 discover scenarios and
@@ -392,6 +421,7 @@ Both owned by unit MCP-SEAMS (dispatcher, 2026-11-07; `docs/parity.md`):
 
 ## Files
 
+- `gates-ed.txt`, `gates-ed/` (MCP-Ed, at `7ff9864b`).
 - `README.md`; `wire_compare.py`, `flips.py`, `mutants.py`,
   `mutants-d96603f9.py` (`python3 -I` each; the mutant scripts' TMPDIR is
   redacted to `<tmp>`). Round 1's `pairs.py` is gone: the sweep compares every pair
