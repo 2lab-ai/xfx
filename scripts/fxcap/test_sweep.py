@@ -770,9 +770,16 @@ class GitEnvironment(unittest.TestCase):
         import sweep
 
         want = sweep.main_worktree()
+        if want is None and not os.path.exists(os.path.join(REPO, ".git")):
+            self.skipTest("not run from a git checkout: there is no main worktree to find")
         self.assertIsNotNone(want)
         decoy = os.path.join(scratch(), "decoy")
-        subprocess.run(["git", "init", "-q", decoy], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "init", "-q", decoy],
+            check=True,
+            capture_output=True,
+            env=dict(sweep.git_env(), GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1"),
+        )
         for extra in ({"GIT_DIR": os.path.join(decoy, ".git")}, {"GIT_COMMON_DIR": os.path.join(decoy, ".git")}):
             saved = {k: os.environ.get(k) for k in extra}
             os.environ.update(extra)

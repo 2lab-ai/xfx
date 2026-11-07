@@ -33,10 +33,15 @@ set -euo pipefail
 # `GIT_COMMON_DIR`, the controls below wrote into another repository.
 # This checks the checkout it is in, as CI does: that checkout's own
 # `.git`, index and working tree. So every `GIT_*` goes before any git runs.
+# `${!GIT_@}` is the shell's own list of its variables so named: no command
+# to be missing (`compgen` is absent from a bash built without readline, and
+# a failed substitution in a `for` list does not stop `set -e`). A name that
+# is no identifier cannot be unset, and git reads none such.
 # scripts/test-gate-env.sh holds it to that.
-for name in $(compgen -e); do
+for name in "${!GIT_@}"; do
 	case "$name" in
-	GIT_*) unset "$name" ;;
+	*[!A-Za-z0-9_]*) ;;
+	*) unset "$name" ;;
 	esac
 done
 
@@ -63,7 +68,30 @@ retired="${retired}r"
 retired_upper="$(printf '%s' "$retired" | tr '[:lower:]' '[:upper:]')"
 retired_mixed="${retired_upper:0:1}${retired:1}"
 
-# Every tracked line whose text carries the retired name, in any case.
+# Git for the scans, in a checkout or a control alike. Config the GIT_* drop
+# leaves -- global, system, the repository's own -- can still steer it:
+# - `core.fsmonitor` runs a program, and git ran it during `ls-files` and
+#   `grep`. Pinned off.
+# - a checkout-local `core.worktree` made `git grep` read another tree, a
+#   clean copy, while the file probe below read this one. `--work-tree=.`
+#   names the tree: the directory `-C` entered.
+# Config that makes git fail is caught by the callers, which treat any
+# failure as a failed scan.
+scan_git() {
+	local root="$1"
+	shift
+	git -c core.fsmonitor=false -C "$root" --work-tree=. "$@"
+}
+
+# Git for the throwaway control repositories: no global or system config at
+# all, so no hook, template or fsmonitor of the caller's runs in them.
+scratch_git() {
+	GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c core.fsmonitor=false "$@"
+}
+
+# Every tracked line whose text carries the retired name, in any case. Prints
+# the hits; returns non-zero, having said why on standard error, if the scan
+# could not finish -- never an empty answer for a scan that did not run.
 #
 # Binary by content, not by attributes. `git grep -I` takes "binary" from the
 # `diff` attribute first, and attributes come from places a caller holds: a
@@ -73,18 +101,58 @@ retired_mixed="${retired_upper:0:1}${retired:1}"
 # text, and a file is passed over only if it is binary by git's own rule when
 # no attribute says: a NUL in its first 8000 bytes. `--no-color`, because
 # `color.grep=always` would colour the names `-l -z` lists.
+#
+# Failure, from either `git grep`, is a status above 1 or anything on its
+# standard error. Bad config (`grep.patternType`, `grep.threads`, ...) exits
+# 128, and an unreadable tracked file is only `error: failed to stat` with
+# status 1 -- "no match". The probe of a listed file's first bytes failing is
+# a failure too.
+#
+# `git grep` and the probe both read the working tree only for an entry with
+# neither index bit set; the scan below refuses a checkout with either.
 tracked_content() {
-	local path
+	local root="$1" path status probe
+	local listing="$control_root/listing" errors="$control_root/errors"
+	status=0
+	scan_git "$root" grep -a --no-color -l -z -i -e "$retired" -- >"$listing" 2>"$errors" || status=$?
+	if [ "$status" -gt 1 ] || [ -s "$errors" ]; then
+		printf 'check-xfx-identity: git grep could not search %s (status %d):\n' "$root" "$status" >&2
+		cat "$errors" >&2
+		return 1
+	fi
 	while IFS= read -r -d '' path; do
-		if [ "$(head -c 8000 "$1/$path" | LC_ALL=C tr -d -c '\000' | wc -c)" -eq 0 ]; then
-			git -C "$1" grep -a --no-color -n -i -e "$retired" -- ":(literal)$path" || true
+		if ! probe="$(head -c 8000 "$root/$path" | LC_ALL=C tr -d -c '\000' | wc -c)"; then
+			printf 'check-xfx-identity: could not read the first bytes of %s\n' "$root/$path" >&2
+			return 1
 		fi
-	done < <(git -C "$1" grep -a --no-color -l -z -i -e "$retired" -- || true)
+		if [ "$probe" -eq 0 ]; then
+			status=0
+			scan_git "$root" grep -a --no-color -n -i -e "$retired" -- ":(literal)$path" 2>"$errors" || status=$?
+			if [ "$status" -gt 1 ] || [ -s "$errors" ]; then
+				printf 'check-xfx-identity: git grep could not search %s (status %d):\n' "$root/$path" "$status" >&2
+				cat "$errors" >&2
+				return 1
+			fi
+		fi
+	done <"$listing"
 }
 
-# Every tracked path whose own name carries it.
+# Every tracked path whose own name carries it. Fails like tracked_content.
 tracked_paths() {
-	git -C "$1" ls-files | grep -i -e "$retired" || true
+	local root="$1" status=0
+	local names="$control_root/names" errors="$control_root/errors"
+	scan_git "$root" ls-files >"$names" 2>"$errors" || status=$?
+	if [ "$status" -ne 0 ] || [ -s "$errors" ]; then
+		printf 'check-xfx-identity: git ls-files could not list %s (status %d):\n' "$root" "$status" >&2
+		cat "$errors" >&2
+		return 1
+	fi
+	status=0
+	grep -i -e "$retired" "$names" || status=$?
+	if [ "$status" -gt 1 ]; then
+		printf 'check-xfx-identity: grep could not read the names of %s\n' "$root" >&2
+		return 1
+	fi
 }
 
 # --- the positive control ----------------------------------------------------
@@ -104,7 +172,7 @@ trap 'rm -rf "$control_root"' EXIT
 
 init_repo() {
 	mkdir -p "$1"
-	git -C "$1" init -q
+	scratch_git -C "$1" init -q
 }
 
 dirty="$control_root/dirty"
@@ -117,10 +185,14 @@ printf 'The project file is .%s.json\n' "$retired" >"$dirty/project.md"
 printf 'Download %s-macos-aarch64 and verify it.\n' "$retired" >"$dirty/asset.md"
 printf 'https://github.com/2lab-ai/%s\n' "$retired" >"$dirty/repo.md"
 printf 'This page names nothing retired.\n' >"$dirty/docs/2026-08-21-$retired-design.md"
-git -C "$dirty" add -A -f
+scratch_git -C "$dirty" add -A -f
 
-control_content="$(tracked_content "$dirty")"
-control_paths="$(tracked_paths "$dirty")"
+if ! control_content="$(tracked_content "$dirty")"; then
+	fail 'the content scan could not run in its own control; this scan is not working'
+fi
+if ! control_paths="$(tracked_paths "$dirty")"; then
+	fail 'the path scan could not run in its own control; this scan is not working'
+fi
 
 # One fixture per class, so a scan that finds only the easy lowercase prose
 # cannot pass by finding one of them.
@@ -143,33 +215,62 @@ mkdir -p "$clean/docs"
 	printf 'This product uses ~/.xfx, .xfx.json, XFX_MODEL, and 2lab-ai/xfx.\n'
 } >"$clean/README.md"
 printf 'A design page.\n' >"$clean/docs/2026-08-21-xfx-design.md"
-git -C "$clean" add -A -f
+scratch_git -C "$clean" add -A -f
 
-if [ -n "$(tracked_content "$clean")" ] || [ -n "$(tracked_paths "$clean")" ]; then
+if ! clean_content="$(tracked_content "$clean")" || ! clean_paths="$(tracked_paths "$clean")"; then
+	fail 'the scan could not run in its clean control; this scan is not working'
+elif [ -n "$clean_content" ] || [ -n "$clean_paths" ]; then
 	fail 'the scan flags upstream fx or current xfx names; it would force an allowlist onto a correct tree'
 fi
 
 # --- the scan itself ---------------------------------------------------------
 
-if ! git rev-parse --git-dir >/dev/null 2>&1; then
-	fail 'not a git checkout; this check can only speak about tracked files'
+if ! scan_git . rev-parse --git-dir >/dev/null 2>"$control_root/errors"; then
+	fail 'not a git checkout, or git cannot open it; this check can only speak about tracked files:'
+	cat "$control_root/errors" >&2
 	exit 1
 fi
 
-tracked_count="$(git ls-files | wc -l | tr -d ' ')"
+# `-v` tags each entry: `H` for a plain one, `S` for skip-worktree, lower
+# case for assume-unchanged. Either bit makes the content scan's answer about
+# something other than the file: `git grep` passes over a skip-worktree entry
+# (a sparse checkout's file outside its cone) without a word, and reads an
+# assume-unchanged one from the index while the probe reads the working tree,
+# so a working copy with a NUL hid an index text that carried the name. Only
+# local index state sets either; a CI checkout has neither.
+if ! scan_git . ls-files -v -z >"$control_root/tracked" 2>"$control_root/errors" || [ -s "$control_root/errors" ]; then
+	fail 'git ls-files could not list this checkout:'
+	cat "$control_root/errors" >&2
+	exit 1
+fi
+tracked_count=0
+flagged=()
+while IFS= read -r -d '' entry; do
+	tracked_count=$((tracked_count + 1))
+	case "$entry" in
+	S\ * | [[:lower:]]\ *) flagged+=("${entry#??}") ;;
+	esac
+done <"$control_root/tracked"
+if [ "${#flagged[@]}" -ne 0 ]; then
+	fail 'tracked files marked skip-worktree or assume-unchanged, whose content this scan cannot vouch for; clear the bits (git update-index --no-skip-worktree, --no-assume-unchanged):'
+	printf '%s\n' "${flagged[@]}" >&2
+	exit 1
+fi
 if [ "$tracked_count" -eq 0 ]; then
 	fail 'no tracked files to scan; the check would pass for the wrong reason'
 	exit 1
 fi
 
-content="$(tracked_content .)"
-if [ -n "$content" ]; then
+if ! content="$(tracked_content .)"; then
+	fail 'the content scan could not finish, so it found nothing it can vouch for'
+elif [ -n "$content" ]; then
 	fail 'the retired product name is still in tracked content:'
 	printf '%s\n' "$content" >&2
 fi
 
-paths="$(tracked_paths .)"
-if [ -n "$paths" ]; then
+if ! paths="$(tracked_paths .)"; then
+	fail 'the path scan could not finish, so it found nothing it can vouch for'
+elif [ -n "$paths" ]; then
 	fail 'the retired product name is still in tracked path names:'
 	printf '%s\n' "$paths" >&2
 fi

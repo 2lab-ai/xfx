@@ -93,6 +93,8 @@ jobs:
           BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
+          # Git reads its repository, index and config from GIT_*; none of a caller's.
+          for name in "${!GIT_@}"; do case "$name" in *[!A-Za-z0-9_]*) ;; *) unset "$name" ;; esac; done
           epoch=.github/preview-epoch
           if [[ "$BEFORE" =~ ^0{40}$ ]]; then
             echo "publish=false" >>"$GITHUB_OUTPUT"
@@ -123,6 +125,8 @@ jobs:
         if: steps.epoch.outputs.publish == 'true'
         run: |
           set -eu
+          # Git reads its repository, index and config from GIT_*; none of a caller's.
+          for name in "${!GIT_@}"; do case "$name" in *[!A-Za-z0-9_]*) ;; *) unset "$name" ;; esac; done
           actual="$(git rev-parse HEAD)"
           if [ "$actual" != "${GITHUB_SHA}" ]; then
             echo "checked out $actual, expected ${GITHUB_SHA}" >&2
@@ -142,6 +146,8 @@ jobs:
         if: steps.epoch.outputs.publish == 'true'
         run: |
           set -euo pipefail
+          # Git reads its repository, index and config from GIT_*; none of a caller's.
+          for name in "${!GIT_@}"; do case "$name" in *[!A-Za-z0-9_]*) ;; *) unset "$name" ;; esac; done
           commit="$(git rev-parse HEAD)"
           if ! [[ "$commit" =~ ^[0-9a-f]{40}$ ]]; then
             echo "HEAD is not a full commit sha: $commit" >&2
@@ -248,6 +254,8 @@ jobs:
       - name: Confirm the checkout is the commit being published
         run: |
           set -eu
+          # Git reads its repository, index and config from GIT_*; none of a caller's.
+          for name in "${!GIT_@}"; do case "$name" in *[!A-Za-z0-9_]*) ;; *) unset "$name" ;; esac; done
           actual="$(git rev-parse HEAD)"
           expected="${{ needs.preflight.outputs.commit }}"
           if [ "$actual" != "$expected" ]; then
@@ -460,6 +468,8 @@ jobs:
           TAP_PUSH_KEY: ${{ secrets.TAP_PUSH_KEY }}
         run: |
           set -euo pipefail
+          # Git reads its repository, index and config from GIT_*; none of a caller's.
+          for name in "${!GIT_@}"; do case "$name" in *[!A-Za-z0-9_]*) ;; *) unset "$name" ;; esac; done
 
           if [ -z "${TAP_PUSH_KEY:-}" ]; then
             echo "TAP_PUSH_KEY is not set, so the tap cannot be updated and this preview would not be installable" >&2
@@ -653,6 +663,8 @@ jobs:
           SHA12: ${{ needs.preflight.outputs.sha12 }}
         run: |
           set -euo pipefail
+          # Git reads its repository, index and config from GIT_*; none of a caller's.
+          for name in "${!GIT_@}"; do case "$name" in *[!A-Za-z0-9_]*) ;; *) unset "$name" ;; esac; done
 
           if [ -z "${TAP_PUSH_KEY:-}" ]; then
             echo "TAP_PUSH_KEY is not set, so the tap cannot be updated and this preview would not be installable" >&2

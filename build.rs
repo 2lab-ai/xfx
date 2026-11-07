@@ -93,9 +93,27 @@ fn watch_git_head() {
     }
 }
 
+/// `git`, with every `GIT_*` this build inherited taken out of its
+/// environment.
+///
+/// Git takes the repository it reads from `GIT_DIR`, `GIT_WORK_TREE`,
+/// `GIT_COMMON_DIR` and the rest, and writes a trace wherever `GIT_TRACE`
+/// says. An exported one stamped another repository's HEAD into the binary,
+/// and wrote the trace file. The revision is this checkout's, so git is asked
+/// about this checkout only. scripts/test-gate-env.sh holds it to that.
+fn git() -> Command {
+    let mut command = Command::new("git");
+    for (name, _) in std::env::vars_os() {
+        if name.as_encoded_bytes().starts_with(b"GIT_") {
+            command.env_remove(name);
+        }
+    }
+    command
+}
+
 /// A path git prints for `args`, or `None` outside a repository.
 fn git_path(args: &[&str]) -> Option<std::path::PathBuf> {
-    let output = Command::new("git").args(args).output().ok()?;
+    let output = git().args(args).output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -108,10 +126,7 @@ fn env_revision() -> Option<String> {
 }
 
 fn git_revision() -> Option<String> {
-    let output = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()?;
+    let output = git().args(["rev-parse", "HEAD"]).output().ok()?;
     if !output.status.success() {
         return None;
     }
