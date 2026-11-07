@@ -135,10 +135,10 @@ did not compile. Resolution: the test runs once on the one palette
 three grey checks no longer gated (they are the palette's `38;5` greys,
 which TC-NOTATION spells so at every depth), and its comment says why. This
 is TC-NOTATION's own treatment of its two depth tests
-(`a_truecolor_sessions_*`, rewritten to one palette). It passed at the first
-run, and with it the other train 3 join test (`tui::frame`):
-`cargo test --lib -- a_tool_rows_selector_glyph a_tool_rows_split_selector_cell`,
-2 passed. `grep` over the merged `src` and `tests` found no other use of
+(`a_truecolor_sessions_*`, rewritten to one palette). It and the other
+train 3 join test (`tui::frame`) pass in both of the gate's cargo test runs
+(`join-tests.txt`, the gate logs' lines; the run at the merge was not
+logged). `grep` over the merged `src` and `tests` found no other use of
 `Depth`, `shell_at`, `depth_from_env`, `truecolor()` or `painter_of`, and
 no other `main`-side line since `ec390074` that writes or expects `38;2`.
 
@@ -320,11 +320,11 @@ in the frame; a light report: the row drawn again in `38;5;241`; `/mcp`,
 Enter: the server screen, `protocol` in the light dim `38;5;247`, no direct
 colour. fx's literals: `theme.zig:85`/`:128` (notice text 250/241) and
 `:86`/`:129` (dim 245/247) at `481104fd`, as TC-NOTATION's README cites
-them. Its first run failed in the test itself: it read the server's view
-right after the startup reload, while the connection was still
-`Connecting` (no version yet). The test now waits, up to 60 s, for the
-connection to settle (as MCP-E's own `settled` helper does), and passed; no
-`src` line outside the test changed.
+them. The test waits, up to 60 s, for the server's connection to settle
+before it reads the version (as MCP-E's own `settled` helper does). It
+passes in both of the gate's cargo test runs (`join-tests.txt`); its runs
+while it was written were not logged. No `src` line outside the test
+changed.
 
 **Does it discriminate?** `mutants.py`, on a `git clone --no-local` of
 the train at `3bd15c89`, each mutant one exact replacement, the join test
@@ -394,7 +394,8 @@ docs Cargo.toml Cargo.lock build.rs` is empty).
 | `scripts/smoke.sh target/release/xfx <dir>` | 47 checks, 0 failures |
 | `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios and the oracle, 1127 checks, 0 failures |
 
-**Every side's tests are in.** `#[test]` attributes under `src` and
+**Every side's tests are in** (`test-counts.txt`: the commands and their
+output, per commit). `#[test]` attributes under `src` and
 `tests` (`git grep -c`): `main` 5140; MCP-E +54 since its base, at merge 1
 5194; merge 2 5192 (TC-NOTATION -2: its deleted depth tests); merge 3 5192
 (FLAKE-HINT4 changes no Rust); the join test +1, 5193 at the head. `cargo
@@ -493,11 +494,17 @@ got the first catalog, by order, and `after` is the difference FLAKE-HINT4
 recorded on every one of its 7 runs, base and head: fx asks again at the
 second `/model` and shows two models, xfx asks at launch only and shows one
 (`flake-hint4/r2/sweep-compare.txt`, "fx asks again at the second /model,
-xfx at launch only"). Why the first ask was that late: `capture.sh` (both
+xfx at launch only"). That is a gap in xfx, on record since
+`../fxcap-h1/README.md:84` (fx asked at 832 ms and 12913 ms, the second
+answered with the second catalog; xfx once, at 6179 ms). It is owned by a
+new unit, **MODELS-REASK** (xfx asks the catalog again when `/model`
+opens, as fx does); the ledger is not changed in this train. Why the first ask was that late: `capture.sh` (both
 trees, the same lines) runs two freshly written shims once before launch,
-and each first exec took about 10 s on this machine today (`bash -x` of
-`main`'s `capture.sh` under the lock: gateway at 0 s, the first shim at
-1 s, the second at 11 s, tmux and the launch at 21 s). So `main` passed
+and in one `bash -x` trace of `main`'s `capture.sh` under the lock each
+first exec took about 10 s (gateway at 0 s, the first shim at 1 s, the
+second at 11 s, tmux and the launch at 21 s; `models2-runs.txt`). One
+trace, not a measure of every run: the head's own sweep run, earlier,
+asked at 735 ms (xfx) and 2362 ms (fx), and got the first catalog. So `main` passed
 `after` only because its fixed clock ran out before launch. **The deciding
 cell**: `main`'s own xfx (sha256 `9ad52be1…`, the binary of all three
 `main` runs) under the train's harness and scenario, under the lock:
@@ -601,12 +608,14 @@ The three scenarios converted for the lint, MCP-E's head (their base: MCP-E
 `d96603f9`'s sweep, its scenarios) against the train's (`compare-mcp-e.txt`
 holds them): `p5-mcp-discover-http-modern` `show`, `turn`,
 `-http-notimpl` `show`, `turn`, `-stdio-modern` `show`, `turn`: 6 of 6
-normalized-identical on both, verdicts unchanged. Their `until` lines, in
-every run of them here (the head sweep and a first sweep of the three at
-`d2e25b0a`, each binary): `until shown Full access` returned 0.01 to 0.07 s
-after its line, 0.03 to 0.10 s after launch; `until gone Full access` 0.01
-to 0.03 s after the `wait 6`, 6.06 to 6.13 s after launch -- the warning had
-gone, and `/mcp show` was typed 0.06 to 0.13 s later than before.
+normalized-identical on both, verdicts unchanged. Their `until` lines
+(`until-waits.txt`, every one in the capture logs of the head sweep and of
+a first sweep of the three at `d2e25b0a`, each binary; 12 of each kind):
+`until shown Full access` returned 0.01 to 0.07 s after its line, 0.03 to
+0.10 s after launch; `until gone Full access` 0.01 to 0.03 s after the
+`wait 6`, 6.06 to 6.13 s after launch -- the warning had gone, and
+`/mcp show` is typed 6.06 to 6.13 s after launch, where the old form typed
+it after the `wait 6` alone.
 
 ## Files
 
@@ -626,6 +635,10 @@ gone, and `/mcp show` was typed 0.06 to 0.13 s later than before.
 - `lint.py`, `lint.txt`: FLAKE-HINT4's timer-window lint over each side's
   scenarios and the train's; `models2-grep.txt`: the old `models2` form.
 - `mcp-greys.txt`: the MCP surfaces, their greys, where `COLORTERM` is read.
+- `join-tests.txt`: the three join tests' lines in the gate's two cargo
+  test logs; `test-counts.txt`: the test counts per commit, with their
+  commands; `until-waits.txt`: every `until` line of the converted
+  scenarios' runs.
 - `mutants.py`, `mutants.txt`: the MCP-E x TC-NOTATION join test's mutants.
 - `gates.sh`, `gates.txt`: the gate as it ran; `gates-final.txt`: the file
   checks with the receipt in its final form.
