@@ -21,17 +21,24 @@
 #   - a key in the first file, in the last, and in a file named `-n` (an option
 #     if it were not `./`-qualified) is found and printed;
 #   - a file in the middle that cannot be read fails the check, by name;
-#   - a key in every file is found in every file: no batch is dropped, no
-#     name at a batch's edge falls between two;
+#   - a `GREP_OPTIONS` that excludes Markdown does not hide a key in a
+#     Markdown file (BSD grep reads that variable);
+#   - a `grep` killed by a signal, or exiting 126 or 127, in a batch in the
+#     middle fails the check: past 2 is "not looked at" too;
+#   - a distinct key in every file is reported once each, the set compared
+#     whole: no batch dropped or read twice, no name at a batch's edge lost.
 #   - a tree with nothing to scan is refused, not passed.
+# Most of the names carry a tab, a newline and a byte that is not UTF-8 --
+# a valid two-byte character where the filesystem refuses that (macOS) -- so
+# every batch boundary is between two of them.
 # Every run has a key on its standard input, which the check must never read,
 # and none may report "Argument list too long".
 #
 # The keys are fakes of the shapes the check looks for, assembled at runtime,
 # because this file is itself tracked and the check reads it.
 #
-# Requires git, getconf, and a user that cannot read a mode-000 file (not
-# root).
+# Requires git, getconf, grep on `PATH`, and a user that cannot read a
+# mode-000 file (not root).
 
 set -euo pipefail
 
@@ -43,6 +50,9 @@ check="$repo_root/scripts/check-no-secrets.sh"
 # that ran this.
 unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR \
 	GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
+# And this file's own `grep`s read the check's output with options of their
+# own; one case below sets `GREP_OPTIONS` for the check alone.
+unset GREP_OPTIONS
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/xfx-secrets-test.XXXXXX")"
 trap 'rm -rf "$work"' EXIT HUP INT TERM
@@ -65,11 +75,28 @@ key_prefix="sk"
 fake_key="${key_prefix}-${filler}"
 printf '%s\n' "$fake_key" >"$work/stdin"
 
+real_grep="$(type -P grep || true)"
+if [ -z "$real_grep" ]; then
+	problem "no grep on PATH"
+	exit 1
+fi
+
 # --- the large tree ----------------------------------------------------------
 #
 # Names of a fixed length, so the bytes they take as operands are known: a
-# directory of 126 bytes and a file of 238, `./`-qualified, plus the NUL that
-# ends each argument and the pointer to it.
+# directory of 126 bytes and a file of about 240, `./`-qualified, plus the NUL
+# that ends each argument and the pointer to it.
+
+tab="$(printf '\t')"
+nl="$(printf '\nx')"
+nl="${nl%x}"
+if (printf 'x\n' >"$work/$(printf 'probe-\377')") 2>/dev/null; then
+	odd="$(printf '\377')"
+	odd_note="0xFF, not UTF-8"
+else
+	odd="$(printf '\303\251')"
+	odd_note="U+00E9; this filesystem refuses a name that is not UTF-8"
+fi
 
 arg_max="$(getconf ARG_MAX)"
 case "$arg_max" in
@@ -88,9 +115,11 @@ target=$((limit + limit / 4))
 
 printf -v dir_pad '%*s' 120 ''
 dir_pad="${dir_pad// /a}"
-printf -v file_pad '%*s' 230 ''
+printf -v file_pad '%*s' 228 ''
 file_pad="${file_pad// /b}"
-per_file=$((2 + 6 + 120 + 1 + 8 + 230 + 1 + 8))
+# Every file name: its index, then a tab, a newline and the odd byte.
+printf -v sample './d%04d-%s/f%06d-%s%s%s%s' 0 "$dir_pad" 0 "$tab" "$nl" "$odd" "$file_pad"
+per_file=$(($(LC_ALL=C && printf '%d' "${#sample}") + 1 + 8))
 count=$(((target + per_file - 1) / per_file))
 
 big="$work/big"
@@ -100,22 +129,26 @@ cp "$check" "$big/scripts/check-no-secrets.sh"
 i=0
 while [ "$i" -lt "$count" ]; do
 	printf -v dir 'd%04d-%s' $((i / 100)) "$dir_pad"
-	printf -v name 'f%06d-%s' "$i" "$file_pad"
+	printf -v name 'f%06d-%s%s%s%s' "$i" "$tab" "$nl" "$odd" "$file_pad"
 	[ -d "$big/$dir" ] || mkdir "$big/$dir"
 	printf 'clean %d\n' "$i" >"$big/$dir/$name"
+	if [ "$i" -eq $((count / 3)) ]; then
+		marker="$dir/$name"
+	fi
 	if [ "$i" -eq $((count / 2)) ]; then
 		middle="$dir/$name"
 	fi
 	i=$((i + 1))
 done
-# Git orders names bytewise: `+` before `-` before `d` before `scripts/`
-# before `zz`. So the first operand is `+first-batch`, the second `-n`, and
-# the last `zz-last-batch`.
+# Git orders names bytewise: `+` before `-` before `d` before `notes.md`
+# before `scripts/` before `zz`. So the first operand is `+first-batch`, the
+# second `-n`, and the last `zz-last-batch`.
 printf 'clean\n' >"$big/+first-batch"
 printf 'clean\n' >"$big/-n"
+printf 'clean\n' >"$big/notes.md"
 printf 'clean\n' >"$big/zz-last-batch"
 git -C "$big" add -f -A
-tracked=$((count + 4))
+tracked=$((count + 5))
 
 git -C "$big" ls-files -z >"$work/listing"
 names=()
@@ -152,15 +185,24 @@ elif ! grep -q -F -e "Argument list too long" "$work/e2big"; then
 fi
 printf 'test-check-no-secrets: %d tracked names overflow ARG_MAX (%d): %s\n' \
 	"$tracked" "$arg_max" "$(sed -n '1p' "$work/e2big")"
+printf 'test-check-no-secrets: %d names carry a tab, a newline and %s\n' "$count" "$odd_note"
 operands=()
 
 # --- the cases ---------------------------------------------------------------
 
-# Runs the check copied into $1, with a key on its standard input; leaves its
-# exit status in `status` and what it printed in "$work/out".
+# run_check <root> [NAME=value...]: runs the check copied into <root>, with
+# those variables in its environment and a key on its standard input; leaves
+# its exit status in `status` and what it printed in "$work/out".
 run_check() {
+	local root="$1"
+	shift
 	status=0
-	"$1/scripts/check-no-secrets.sh" <"$work/stdin" >"$work/out" 2>&1 || status=$?
+	env "$@" "$root/scripts/check-no-secrets.sh" <"$work/stdin" >"$work/out" 2>&1 || status=$?
+}
+
+# Searches the check's output, bytes as bytes: the names in it are not UTF-8.
+search() {
+	LC_ALL=C "$real_grep" -a "$@"
 }
 
 # verdict <case> <expected status> <text the output must contain>...
@@ -171,19 +213,25 @@ verdict() {
 		bad="the check exited $status, expected $want"
 	fi
 	for needle in "$@"; do
-		if ! grep -q -F -e "$needle" "$work/out"; then
+		case "$needle" in
+		*"$nl"*)
+			problem "$name: a needle with a newline is two needles to grep -F; this test is wrong"
+			return
+			;;
+		esac
+		if ! search -q -F -e "$needle" "$work/out"; then
 			bad="${bad:+$bad; }its output lacks '$needle'"
 		fi
 	done
-	if grep -q -F -e "Argument list too long" "$work/out"; then
+	if search -q -F -e "Argument list too long" "$work/out"; then
 		bad="${bad:+$bad; }it overflowed ARG_MAX"
 	fi
-	if grep -q -F -e "(standard input)" "$work/out"; then
+	if search -q -F -e "(standard input)" "$work/out"; then
 		bad="${bad:+$bad; }it read its standard input"
 	fi
 	if [ -n "$bad" ]; then
 		problem "$name: $bad; the first lines it printed:"
-		sed -n '1,12p' "$work/out" | cut -c 1-200 >&2
+		LC_ALL=C sed -n '1,12p' "$work/out" | LC_ALL=C cut -c 1-200 >&2
 	else
 		printf 'test-check-no-secrets: ok %-18s exit %d\n' "$name" "$status"
 		passed=$((passed + 1))
@@ -217,27 +265,80 @@ if [ -r "$big/$middle" ]; then
 	problem "a mode-000 file is still readable; the unreadable case proves nothing"
 else
 	run_check "$big"
+	# Its name up to the newline: one line of the output.
 	verdict unreadable-middle 1 \
 		"check-no-secrets: grep could not read every file for the 'OpenAI-style key' pattern:" \
-		"./$middle"
+		"./${middle%%"$nl"*}"
 fi
 chmod 644 "$big/$middle"
 
-# A key in every file but the check's own copy, and every one reported.
+printf '%s\n' "$fake_key" >"$big/notes.md"
+run_check "$big" "GREP_OPTIONS=--exclude=*.md"
+verdict grep-options 1 "check-no-secrets: possible OpenAI-style key:" "./notes.md:1:$fake_key"
+clean notes.md
+
+# A `grep` that does not finish one batch in the middle -- the one naming
+# `marker` -- by a signal or by the shell's 126 or 127; every other batch,
+# and every `grep` the check's own controls run, is the real one. The shim
+# leaves a file behind when it fires, or the case proves nothing.
+shim="$work/shim"
+mkdir -p "$shim"
+cat >"$shim/grep" <<EOF
+#!/bin/sh
+for arg in "\$@"; do
+	if [ "\$arg" = "\$XFX_TEST_GREP_DIES_ON" ]; then
+		: >>"\$XFX_TEST_GREP_FIRED"
+		case "\$XFX_TEST_GREP_DEATH" in
+		signal) kill -KILL \$\$ ;;
+		*) exit "\$XFX_TEST_GREP_DEATH" ;;
+		esac
+	fi
+done
+exec "$real_grep" "\$@"
+EOF
+chmod 755 "$shim/grep"
+for death in signal 126 127; do
+	rm -f "$work/fired"
+	run_check "$big" "PATH=$shim:$PATH" "XFX_TEST_GREP_DIES_ON=./$marker" \
+		"XFX_TEST_GREP_DEATH=$death" "XFX_TEST_GREP_FIRED=$work/fired"
+	if [ ! -e "$work/fired" ]; then
+		problem "grep-$death: the shim never saw the batch it was to stop; the case proves nothing"
+		continue
+	fi
+	verdict "grep-$death" 1 \
+		"check-no-secrets: grep could not read every file for the 'OpenAI-style key' pattern:"
+done
+
+# A key of its own in every file but the check's copy, and each reported
+# exactly once: the reported lines, sorted, are the expected ones. A count
+# would not do -- the batches are the same size, so one read twice would hide
+# one not read. A name with a newline is two lines; the key is on the second,
+# and the key is what makes each line one file's.
+: >"$work/expected"
 planted=0
 for name in "${names[@]}"; do
 	if [ "$name" != scripts/check-no-secrets.sh ]; then
-		printf '%s\n' "$fake_key" >"$big/$name"
+		printf -v key '%s-%s%06d' "$key_prefix" "$filler" "$planted"
+		printf '%s\n' "$key" >"$big/$name"
+		printf './%s:1:%s\n' "$name" "$key" >>"$work/expected"
 		planted=$((planted + 1))
 	fi
 done
 run_check "$big"
 verdict every-file 1 "check-no-secrets: possible OpenAI-style key:"
-found="$(grep -c -F -e ":1:$fake_key" "$work/out" || true)"
-if [ "$found" -ne "$planted" ]; then
-	problem "every-file: $found of the $planted planted keys were reported"
+{ search -F -e ":1:$key_prefix-" "$work/expected" || true; } | LC_ALL=C sort >"$work/expected.sorted"
+{ search -F -e ":1:$key_prefix-" "$work/out" || true; } | LC_ALL=C sort >"$work/reported.sorted"
+want_lines="$(wc -l <"$work/expected.sorted" | tr -d ' ')"
+if [ "$want_lines" -ne "$planted" ]; then
+	problem "every-file-set: $want_lines expected lines for $planted keys; this test is wrong"
+elif ! cmp -s "$work/expected.sorted" "$work/reported.sorted"; then
+	missing="$(LC_ALL=C comm -23 "$work/expected.sorted" "$work/reported.sorted" | wc -l | tr -d ' ')"
+	extra="$(LC_ALL=C comm -13 "$work/expected.sorted" "$work/reported.sorted" | wc -l | tr -d ' ')"
+	problem "every-file-set: of $planted keys, $missing not reported and $extra reported but not expected (or twice); one of each:"
+	LC_ALL=C comm -23 "$work/expected.sorted" "$work/reported.sorted" | sed -n '1p' | LC_ALL=C cut -c 1-160 >&2
+	LC_ALL=C comm -13 "$work/expected.sorted" "$work/reported.sorted" | sed -n '1p' | LC_ALL=C cut -c 1-160 >&2
 else
-	printf 'test-check-no-secrets: ok %-18s %d of %d keys reported\n' every-file-count "$found" "$planted"
+	printf 'test-check-no-secrets: ok %-18s %d of %d keys, each once\n' every-file-set "$want_lines" "$planted"
 	passed=$((passed + 1))
 fi
 
