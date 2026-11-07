@@ -44529,6 +44529,35 @@ mod tests {
         shell.work.give_back();
         assert_eq!(status_of(&mut shell), None, "the stop was reported twice");
 
+        // Stopped while a call is still running: the turn's row stays up
+        // until the call says how it ended (`cancel_owed`), and the record
+        // is idle all the same -- upstream's `cancellation_stops_turn` takes
+        // a stopped turn out of `busy` whatever is still winding down. A
+        // session of its own, so the Ctrl-C above has armed no exit.
+        let mut winding = self::shell(24, 80);
+        let _ = status_of(&mut winding);
+        winding.route_bytes(b"read it\r");
+        let _ = winding.picks_up();
+        winding.apply(UiEvent::TurnStarted);
+        winding.apply(tool_start(
+            "c1",
+            "read_file",
+            serde_json::json!({"path": "a.txt"}),
+        ));
+        assert_eq!(status_of(&mut winding).as_deref(), Some("working"));
+        winding.route_bytes(&[0x03]);
+        assert!(
+            winding.activity.working(),
+            "the row went with the keystroke"
+        );
+        assert_eq!(status_of(&mut winding).as_deref(), Some("idle"));
+        winding.apply(tool_result("c1", "read_file", false, "aborted by user"));
+        winding.apply(UiEvent::TurnEnded {
+            failure: Some("cancelled".into()),
+        });
+        winding.work.give_back();
+        assert_eq!(status_of(&mut winding), None);
+
         // Work that is neither a turn nor a `/compact` -- a listing, a
         // provider switch, even one that fails, even one the user stops --
         // reports nothing: upstream's worker never runs it (`WorkItem`,
