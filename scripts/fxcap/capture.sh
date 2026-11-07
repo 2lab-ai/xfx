@@ -53,12 +53,13 @@
 #                          read can still be on its way when the model asks
 #                          its question; with it (`0` too) the gateway log's
 #                          catalog lines say when, in ms since it started
-#   models2 <catalog.json> <ms>
-#                          that path answers <catalog.json> instead once <ms>
-#                          have passed since the gateway started, by the time
-#                          it answers (after any `modelsdelay`): a model
-#                          released while the binary runs (fakegw logs each
-#                          ask that got it as `-> second catalog`)
+#   models2 <catalog.json> from this line on, that path answers
+#                          <catalog.json> instead -- an ask answered after the
+#                          line (after any `modelsdelay`) gets it: a model
+#                          released while the binary runs, at a point in the
+#                          scenario rather than a moment on the gateway's
+#                          clock (fakegw logs each ask that got it as
+#                          `-> second catalog`)
 #   credits <credits.json> what it answers for GET /coding-agent/v1/credits
 #                          (default: 404 `not found`)
 #   titled <title.json>    what it answers a session-title request with
@@ -467,7 +468,7 @@ main() {
   bin_real=$(realpath "$bin")
 
   local turns='[]' extra_env='' models='' credits='' titled='' nomodel='' modelsdown='' modelsdelay=''
-  local models2='' models2ms='' jobctl='' clock='' usage='' mcpmode='' keep=''
+  local jobctl='' clock='' usage='' mcpmode='' keep=''
   # The directories `work` and `dir` copied into, whose files get the
   # placeholders too; and whether a line the run fills names `@MCPPORT@`.
   local copied=() names_mcpport=''
@@ -533,9 +534,7 @@ main() {
     # `usage` and `mcphttp` the first line is the one in place at launch.
     case $line in
       models2\ *)
-        read -r models2 models2ms <<< "${line#models2 }"
-        [[ -f $scenarios/$models2 && $models2ms =~ ^[0-9]+$ ]] || { echo "models2 takes <catalog.json> <ms>, not ${line#models2 }" >&2; exit 2; }
-        models2=$scenarios/$models2 ;;
+        [[ ${line#models2 } != *' '* && -f $scenarios/${line#models2 } ]] || { echo "models2 takes <catalog.json>, served from its line on, not ${line#models2 }" >&2; exit 2; } ;;
       jobctl) jobctl=1 ;;
       modelsdelay\ *)
         [[ ${line#modelsdelay } =~ ^[0-9]+$ ]] || { echo "modelsdelay takes milliseconds, not ${line#modelsdelay }" >&2; exit 2; } ;;
@@ -583,7 +582,7 @@ main() {
   # A held stream (a turn's `holdAt`) goes on once this file has a line for
   # it: `release` writes one, `held` waits for the hold in the gateway's log.
   local holds=0
-  FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_DOWN_MS=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS2=$models2 FAKEGW_MODELS2_MS=$models2ms FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
+  FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_DOWN_MS=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
   gateway=$!
   sock=$run/s
   trap cleanup EXIT
@@ -752,7 +751,7 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
     # binary again with no arguments, rather than with the word `relaunch`.
     [[ $line == *' '* ]] || rest=''
     case $verb in
-      ''|'#'*|gateway|env|seed|homefile|work|models|credits|titled|modelsdown|modelsdelay|models2|jobctl|nomodel|githead|sparsepng|pnghdr|dir) ;;
+      ''|'#'*|gateway|env|seed|homefile|work|models|credits|titled|modelsdown|modelsdelay|jobctl|nomodel|githead|sparsepng|pnghdr|dir) ;;
       wait) sleep "$rest" ;;
       held)
         holds=$((holds + 1))
@@ -950,6 +949,8 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         esac
         ;;
       mcphttp) printf '%s\n' "$rest" > "$run/mcphttp.tmp"; mv -f "$run/mcphttp.tmp" "$run/mcphttp.mode" ;;
+      # Renamed into place, as `usage` is: fakegw serves it while it exists.
+      models2) cp "$scenarios/$rest" "$run/models2.tmp"; mv -f "$run/models2.tmp" "$run/models2.json" ;;
       sockets)
         local name=$out/$which-$scenario-$size-$rest.sockets pid lsof=/usr/sbin/lsof
         [[ -x $lsof ]] || lsof=lsof

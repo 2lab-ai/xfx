@@ -149,9 +149,9 @@ class Refusals(unittest.TestCase):
             ("rehomefile .fx/a/../../../x c.json\nsnap a\n", "rehomefile takes a relative path inside HOME"),
             ("rehomefile /etc/x c.json\nsnap a\n", "rehomefile takes a relative path inside HOME, not /etc/x"),
             ("rehomefile .fx/s.json missing.json\nsnap a\n", "rehomefile takes <path> <file in"),
-            ("models2 c.json\nsnap a\n", "models2 takes <catalog.json> <ms>, not c.json"),
-            ("models2 missing.json 10\nsnap a\n", "models2 takes <catalog.json> <ms>"),
-            ("models2 c.json soon\nsnap a\n", "models2 takes <catalog.json> <ms>, not c.json soon"),
+            ("models2 missing.json\nsnap a\n", "models2 takes <catalog.json>, served from its line on, not missing.json"),
+            # The old form, a moment on the gateway's clock: refused, not read as a file name.
+            ("models2 c.json 5000\nsnap a\n", "models2 takes <catalog.json>, served from its line on, not c.json 5000"),
             ("modelsdelay soon\nsnap a\n", "modelsdelay takes milliseconds, not soon"),
             ("clock yesterday\nsnap a\n", "clock takes milliseconds since the epoch, not yesterday"),
             ("usage missing.json\nsnap a\n", "usage takes a file in"),
@@ -453,10 +453,16 @@ class Verbs(unittest.TestCase):
         self.assertRegex(log, r"request GET /v1/report\?start_date=2026-10-12&end_date=2026-10-12 at=\d+ms -> 404 at=\d+ms headers=-")
 
     def test_models2_and_modelsdelay(self):
-        get = "type curl -s \"$FX_E2E_GATEWAY_MODELS_URL\"; echo\nkey Enter\nwait 0.8\n"
+        # The second catalog from the `models2` line on, by order alone: each
+        # ask's answer is waited for on the screen, so no step races another
+        # however late the shell or the gateway runs (FLAKE-HINT4 r2: row 19,
+        # where the first ask came 9 s after the gateway started, past the
+        # old fixed 5 s, and got the second catalog).
+        get = "type curl -s \"$FX_E2E_GATEWAY_MODELS_URL\"; echo\nkey Enter\nuntil shown %s\n"
+        one, two = '{"data":[{"id":"fake/one"}]}', '{"data":[{"id":"fake/two"}]}'
         r = capture(
-            "models one.json\nmodels2 two.json 5000\nmodelsdelay 200\nwait 0.5\n" + get + "wait 4.5\n" + get + "snap a\ngwlog\n",
-            {"one.json": '{"data":[{"id":"fake/one"}]}\n', "two.json": '{"data":[{"id":"fake/two"}]}\n'},
+            "models one.json\nmodelsdelay 200\nwait 0.5\n" + get % one + "models2 two.json\n" + get % two + "snap a\ngwlog\n",
+            {"one.json": one + "\n", "two.json": two + "\n"},
         )
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         a = r.screen("a")
@@ -642,7 +648,7 @@ class FakeGateway(unittest.TestCase):
         d = scratch()
         write(os.path.join(d, "turns.json"), json.dumps(list(turns)))
         os.makedirs(os.path.join(d, "bodies"))
-        clean = {k: "" for k in ("FAKEGW_MODELS", "FAKEGW_MODELS_DOWN_MS", "FAKEGW_MODELS_DELAY_MS", "FAKEGW_MODELS2", "FAKEGW_MODELS2_MS", "FAKEGW_CREDITS", "FAKEGW_TITLE", "FAKEGW_USAGE", "FAKEGW_RELEASE")}
+        clean = {k: "" for k in ("FAKEGW_MODELS", "FAKEGW_MODELS_DOWN_MS", "FAKEGW_MODELS_DELAY_MS", "FAKEGW_MODELS2", "FAKEGW_CREDITS", "FAKEGW_TITLE", "FAKEGW_USAGE", "FAKEGW_RELEASE")}
         clean.update(env)
         s = Server(self, FAKEGW, os.path.join(d, "turns.json"), os.path.join(d, "bodies"), env=clean)
         s.bodies = os.path.join(d, "bodies")
@@ -771,13 +777,17 @@ class FakeGateway(unittest.TestCase):
         d = scratch()
         write(os.path.join(d, "one.json"), '{"data":[{"id":"fake/one"}]}')
         write(os.path.join(d, "two.json"), '{"data":[{"id":"fake/two"}]}')
-        g = self.gw(FAKEGW_MODELS=os.path.join(d, "one.json"), FAKEGW_MODELS2=os.path.join(d, "two.json"), FAKEGW_MODELS2_MS="1500", FAKEGW_MODELS_DELAY_MS="0")
+        # FAKEGW_MODELS2 names a file not there yet: the first catalog until
+        # it is put in place, the second after, whenever that is.
+        second = os.path.join(d, "models2.json")
+        g = self.gw(FAKEGW_MODELS=os.path.join(d, "one.json"), FAKEGW_MODELS2=second, FAKEGW_MODELS_DELAY_MS="0")
         self.assertIn(b"fake/one", g.ask("GET", "/coding-agent/v1/models")[2])
-        time.sleep(1.6)
+        self.assertIn(b"fake/one", g.ask("GET", "/coding-agent/v1/models")[2])
+        os.rename(os.path.join(d, "two.json"), second)
         self.assertIn(b"fake/two", g.ask("GET", "/coding-agent/v1/models")[2])
         log = g.lines()
         self.assertEqual(log.count("-> second catalog"), 1)
-        self.assertEqual(len(re.findall(r"GET /coding-agent/v1/models bearer=no at=\d+ms", log)), 2)
+        self.assertEqual(len(re.findall(r"GET /coding-agent/v1/models bearer=no at=\d+ms", log)), 3)
 
     def test_the_usage_routes_their_shapes_and_knobs(self):
         d = scratch()
