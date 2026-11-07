@@ -17,6 +17,7 @@ type stream one
 wait 0.5
 key Enter
 held
+wait 1
 type /resume
 wait 0.5
 key Enter

@@ -6,6 +6,7 @@ wait 2
 type stream a long answer please
 key Enter
 held
+wait 1
 type /version
 wait 0.3
 key Enter

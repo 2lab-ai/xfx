@@ -16,6 +16,7 @@ snap with-arg
 type slow turn please
 key Enter
 held
+wait 1
 type /fork
 key Enter
 wait 1

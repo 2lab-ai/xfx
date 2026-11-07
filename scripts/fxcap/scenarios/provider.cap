@@ -67,6 +67,7 @@ home after-commit
 type stream something long please
 key Enter
 held
+wait 1
 type /provider
 key Enter
 wait 1

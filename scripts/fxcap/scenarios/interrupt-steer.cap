@@ -12,6 +12,7 @@ wait 2
 type stream please
 key Enter
 held
+wait 1
 type what are you doing
 key Enter
 wait 0.4

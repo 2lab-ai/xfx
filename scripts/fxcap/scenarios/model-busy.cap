@@ -8,6 +8,7 @@ wait 2.5
 type say something
 key Enter
 held
+wait 1
 type /model grok
 wait 0.5
 key Escape

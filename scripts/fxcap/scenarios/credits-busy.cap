@@ -8,6 +8,7 @@ wait 2.5
 type explain the plan please
 key Enter
 held
+wait 1
 type /credits
 key Enter
 wait 1

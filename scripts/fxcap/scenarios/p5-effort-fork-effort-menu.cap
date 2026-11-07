@@ -95,6 +95,7 @@ home after-low
 type slow turn please
 key Enter
 held
+wait 1
 paste /effort high
 wait 0.4
 key Enter
