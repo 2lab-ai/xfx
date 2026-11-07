@@ -52,6 +52,12 @@
 # `core.fsmonitor` and `core.hooksPath` run programs. A program run from
 # config, or a `GIT_TRACE` file written, fails any case.
 #
+# Round 2b adds: a copy with no repository of its own inside one that tracks
+# it (a vendored subtree), which `--work-tree=.` had turned into a silent
+# pass; a linked worktree, where the identity scan and build.rs must still
+# work; and the remedy the index-bit refusal names. And the nested run of
+# test-check-no-secrets.sh below is CI's only full run of it.
+#
 # Requires git, ruby (check-preview-contract.sh) and rustc (build.rs), and a
 # user that cannot read a mode-000 file (not root).
 
@@ -470,13 +476,37 @@ refuses identity-core.worktree "$content_found" "$ilock/scripts/check-xfx-identi
 # Index bits that part the working tree from what git grep reads: a
 # skip-worktree entry it passes over, and an assume-unchanged one it reads
 # from the index while the binary probe reads a working copy with a NUL.
-flagged="marked skip-worktree or assume-unchanged"
+# Each refusal names a remedy that ends in a scan. For a sparse checkout that
+# is `git sparse-checkout disable`: clearing skip-worktree on a file the
+# working tree lacks leaves a deleted file, which the scan skips.
 for bit in skip-worktree assume-unchanged; do
+	case "$bit" in
+	skip-worktree) message="git sparse-checkout disable" ;;
+	assume-unchanged) message="marked assume-unchanged" ;;
+	esac
 	new_ilock
 	sg -C "$ilock" update-index "--$bit" Cargo.lock
 	printf 'bin\000ary\n' >"$ilock/Cargo.lock"
-	refuses "identity-$bit" "$flagged" "$ilock/scripts/check-xfx-identity.sh"
+	refuses "identity-$bit" "$message" "$ilock/scripts/check-xfx-identity.sh"
 done
+# A copy with no repository of its own, inside one that tracks it: a vendored
+# subtree. The parent tracks vendor/xfx/Cargo.lock with the residue, and this
+# script at vendor/xfx/scripts/. Git finds the parent's repository; under
+# `--work-tree=.` its paths resolved inside vendor/xfx, where none exists,
+# and `git grep` skipped each one without a word.
+vendored="$work/vendored"
+mkdir -p "$vendored/vendor/xfx/scripts"
+cp scripts/check-xfx-identity.sh "$vendored/vendor/xfx/scripts/"
+printf 'name = "%s-core"\n' "$retired" >"$vendored/vendor/xfx/Cargo.lock"
+sg -C "$vendored" init -q
+sg -C "$vendored" add -A
+refuses identity-vendored "not a git checkout of its own" "$vendored/vendor/xfx/scripts/check-xfx-identity.sh"
+# A linked worktree, whose `.git` is a file: its own checkout, and scanned.
+new_ilock
+sg -C "$ilock" -c user.name=i -c user.email=i@example.invalid -c commit.gpgsign=false commit -q -m ilock
+sg -C "$ilock" worktree add -q "$work/ilock-linked" -b linked
+refuses identity-linked-worktree "$content_found" "$work/ilock-linked/scripts/check-xfx-identity.sh"
+rm -rf "${work:?}/ilock-linked"
 new_ilock
 
 # A HOME config that runs programs: the gates refuse their violations and run
@@ -533,54 +563,93 @@ assertion() {
 }
 refuses ci-checkout-assertion "checked out" assertion GIT_DIR="$decoy/.git" GIT_TRACE="$trace"
 
-# build.rs, compiled alone and run in the scratch checkout: the revision it
-# stamps is the checkout's HEAD under a GIT_DIR naming the decoy, and it runs
-# no config program and writes no trace.
+# build.rs, compiled alone. build_case <case> <dir> runs it in <dir> under a
+# GIT_DIR naming the decoy, a GIT_TRACE and the HOME that runs programs, and
+# requires the revision it stamps to be <dir>'s HEAD, the decoy unchanged and
+# nothing run. What it printed is left in "$work/<case>.log".
 edition="$(sed -n 's/^edition *= *"\([0-9]*\)".*/\1/p' Cargo.toml | head -n 1)"
+build_case() {
+	local name="$1" dir="$2" want got status=0
+	want="$(sg -C "$dir" rev-parse HEAD)"
+	new_decoy
+	decoy_sums >"$work/decoy.before"
+	(cd "$dir" && env -u XFX_BUILD_REVISION -u XFX_BUILD_CHANNEL PROFILE=debug OUT_DIR="$work" \
+		GIT_DIR="$decoy/.git" GIT_TRACE="$trace" HOME="$home" "$work/build-script") \
+		>"$work/$name.log" 2>&1 </dev/null || status=$?
+	decoy_sums >"$work/decoy.after"
+	got="$(sed -n 's/^cargo:rustc-env=XFX_BUILD_REVISION=//p' "$work/$name.log")"
+	if [ "$status" -ne 0 ]; then
+		problem "$name: it exited $status"
+		tail -n 6 "$work/$name.log" >&2
+		return 1
+	elif [ -z "$got" ] || [ "${want#"$got"}" = "$want" ]; then
+		problem "$name: it stamped '$got', which is not the HEAD of its checkout, ${want:0:12}"
+		return 1
+	elif ! cmp -s "$work/decoy.before" "$work/decoy.after"; then
+		problem "$name: it wrote into the decoy repository"
+		return 1
+	elif ! nothing_ran "$name"; then
+		return 1
+	fi
+	stamped="$got"
+}
 if ! rustc --edition "$edition" build.rs -o "$work/build-script" >"$work/rustc.log" 2>&1; then
 	problem "build-script: rustc could not compile build.rs:"
 	tail -n 6 "$work/rustc.log" >&2
 else
-	want="$(sg -C "$checkout" rev-parse HEAD)"
-	new_decoy
-	decoy_sums >"$work/decoy.before"
-	status=0
-	(cd "$checkout" && env -u XFX_BUILD_REVISION -u XFX_BUILD_CHANNEL PROFILE=debug OUT_DIR="$work" \
-		GIT_DIR="$decoy/.git" GIT_TRACE="$trace" HOME="$home" "$work/build-script") \
-		>"$work/build-script.log" 2>&1 </dev/null || status=$?
-	decoy_sums >"$work/decoy.after"
-	got="$(sed -n 's/^cargo:rustc-env=XFX_BUILD_REVISION=//p' "$work/build-script.log")"
-	if [ "$status" -ne 0 ]; then
-		problem "build-script: it exited $status"
-		tail -n 6 "$work/build-script.log" >&2
-	elif [ -z "$got" ] || [ "${want#"$got"}" = "$want" ]; then
-		problem "build-script: it stamped '$got', which is not the checkout's HEAD ${want:0:12}"
-	elif ! cmp -s "$work/decoy.before" "$work/decoy.after"; then
-		problem "build-script: it wrote into the decoy repository"
-	elif nothing_ran build-script; then
-		printf 'test-gate-env: ok %-30s %s\n' build-script "stamps the checkout's HEAD ($got)"
+	if build_case build-script "$checkout"; then
+		printf 'test-gate-env: ok %-30s %s\n' build-script "stamps the checkout's HEAD ($stamped)"
 		passed=$((passed + 1))
+	fi
+	rm -f "${ran:?}"/* "${trace:?}"
+	# A linked worktree of that checkout, on a commit of its own: its `.git`
+	# is a file naming the worktree's git directory. The revision is the
+	# worktree's, and what build.rs watches for the next commit is the
+	# worktree's own HEAD and its branch's ref in the main repository.
+	linked="$work/checkout-linked"
+	sg -C "$checkout" worktree add -q "$linked" -b linked-build
+	printf 'linked\n' >"$linked/l.txt"
+	sg -C "$linked" add l.txt
+	sg -C "$linked" -c user.name=c -c user.email=c@example.invalid -c commit.gpgsign=false commit -q -m linked
+	if build_case build-script-linked-worktree "$linked"; then
+		watched="$(sed -n 's/^cargo:rerun-if-changed=//p' "$work/build-script-linked-worktree.log")"
+		if ! grep -q -E '(^|/)\.git/worktrees/checkout-linked/HEAD$' <<<"$watched"; then
+			problem "build-script-linked-worktree: it does not watch the worktree's own HEAD; it watches:"
+			printf '%s\n' "$watched" >&2
+		elif ! grep -q -E '(^|/)\.git/refs/heads/linked-build$' <<<"$watched"; then
+			problem "build-script-linked-worktree: it does not watch the branch ref in the main repository; it watches:"
+			printf '%s\n' "$watched" >&2
+		else
+			printf 'test-gate-env: ok %-30s %s\n' build-script-linked-worktree "stamps the worktree's HEAD ($stamped), watches its HEAD and ref"
+			passed=$((passed + 1))
+		fi
 	fi
 fi
 rm -f "${ran:?}"/* "${trace:?}"
 
 # test-check-no-secrets.sh, whole, under a GIT_DIR naming the decoy, a
 # GIT_TRACE and the HOME that runs programs: it passes, and none of them
-# touches anything.
+# touches anything. This is CI's only full run of it (ci.yml runs it nowhere
+# else), so a failure prints its whole log.
 new_decoy
 decoy_sums >"$work/decoy.before"
 status=0
 env GIT_DIR="$decoy/.git" GIT_TRACE="$trace" HOME="$home" ./scripts/test-check-no-secrets.sh \
 	>"$work/test-check-no-secrets.log" 2>&1 </dev/null || status=$?
 decoy_sums >"$work/decoy.after"
+nested=failed
 if [ "$status" -ne 0 ]; then
-	problem "test-check-no-secrets: it exited $status; its last lines:"
-	tail -n 6 "$work/test-check-no-secrets.log" | cut -c 1-200 >&2
+	problem "test-check-no-secrets: it exited $status"
 elif ! cmp -s "$work/decoy.before" "$work/decoy.after"; then
 	problem "test-check-no-secrets: it wrote into the decoy repository"
 elif nothing_ran test-check-no-secrets; then
+	nested=ok
 	printf 'test-gate-env: ok %-30s %s\n' test-check-no-secrets "$(tail -n 1 "$work/test-check-no-secrets.log" | cut -c 1-60)"
 	passed=$((passed + 1))
+fi
+if [ "$nested" != ok ]; then
+	printf 'test-gate-env: the whole log of test-check-no-secrets.sh:\n' >&2
+	cat "$work/test-check-no-secrets.log" >&2
 fi
 rm -f "${ran:?}"/* "${trace:?}"
 
