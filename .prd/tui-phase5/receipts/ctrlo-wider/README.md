@@ -136,7 +136,12 @@ a time changes nothing for them: a filler never shares a cluster with an RGI
 sequence it precedes, and the modifier forms count as before, the
 WIDTH-DISPUTED tests unchanged). One cluster's `squeezed` moved:
 U+1F44D U+1F3FD U+302E, two cells at the base (squeezed) and four at the
-head (not), its U+302E still named by `uncounted`.
+head (not). The review's three spellings of it, and of `x` around it, are
+the same bytes at the base and at the head (`review/squeezed.txt`, from
+`review/sq_dump.rs` on the two clones): at both, `tamed` and `named` write
+its U+1F3FD and its U+302E as names and `command_text` its U+302E, so no
+cluster of them is left in the output for `squeezed` to decide, and the
+flip reaches no byte the review writes.
 
 ## Part 2: the 43 fx and xfx count alike -- measured, then named on Ctrl-O
 
