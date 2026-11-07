@@ -1,10 +1,11 @@
 """Copies T-U6's captures into the receipt, redacted, after checking that each
 xfx snap whose row 1 is the banner names the build it must.
 
-usage: python3 -I -B publish.py <repo> <cap-dir> <receipt-dir> <green-sha7> <red-sha7>
+usage: python3 -I -B publish.py <repo> <cap-dir> <receipt-dir> <green-sha7> <red-sha7> <red-u6b-sha7>
 
-<cap-dir> holds `fx/`, `xfx/` (the build under the receipt) and `red/` (the
-base's build), each as `capture.sh` wrote them: flat, every scenario's files
+<cap-dir> holds `fx/`, `xfx/` (the build under the receipt), `red/` (the
+base's build) and `red-u6b/` (T-U6's build, which T-U6b changes), each as
+`capture.sh` wrote them: flat, every scenario's files
 side by side. Snaps (`.ansi`, `.txt`) and terminal bytes (`.wire`) are
 copied, nothing else (no request bodies, no gateway logs, no workspace
 listing, and no replayed frame: `frames.py` makes those from the wires). A
@@ -18,7 +19,7 @@ import shutil
 import sys
 
 repo, cap, out = (os.path.realpath(p) for p in sys.argv[1:4])
-green_sha, red_sha = sys.argv[4:6]
+green_sha, red_sha, u6b_sha = sys.argv[4:7]
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(repo, "scripts", "fxcap"))
 from redact import LEFTOVER, Redactor  # noqa: E402
@@ -26,7 +27,8 @@ from redact import LEFTOVER, Redactor  # noqa: E402
 red = Redactor({repo: "<repo>", cap: "<scratch>"})
 SCENARIOS = ["p5-transcript-submit", "p5-transcript-submit-multi", "p5-transcript-tallfirst",
              "p5-transcript-diffctl", "p5-transcript-diffodd", "p5-transcript-diffbad", "p5-transcript-diffask"]
-SIDES = {"fx": ("fx", "fx", None), "xfx": ("xfx", "xfx", green_sha), "red": ("red", "xfx", red_sha)}
+SIDES = {"fx": ("fx", "fx", None), "xfx": ("xfx", "xfx", green_sha), "red": ("red", "xfx", red_sha),
+         "red-u6b": ("red-u6b", "xfx", u6b_sha)}
 BANNER = re.compile(r"^x𝒇x v0\.1\.0-([0-9a-f]{7}) \[debug\]")
 LABEL = re.compile(r"^[a-z0-9.]+(?:-[a-z0-9.]+)*\.(?:ansi|txt|wire)$")
 for name in SIDES:

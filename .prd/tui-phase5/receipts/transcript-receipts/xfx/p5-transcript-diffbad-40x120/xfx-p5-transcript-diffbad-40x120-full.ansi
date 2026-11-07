@@ -1,38 +1,38 @@
-[38;5;250m* network: provider: gateway · model: fake/model-a · 2ms[39m
-  [38;5;250mfinish: tool_calls[39m
-  [38;5;250mtokens: 1200 in · 40 out[39m
-
-[38;5;245m  2026-11-07 10:13:48.887 KST · Notice[39m
 [38;5;250m* network: provider: gateway · model: fake/model-a · 1ms[39m
   [38;5;250mfinish: tool_calls[39m
   [38;5;250mtokens: 1200 in · 40 out[39m
 
-[38;5;245m  2026-11-07 10:13:48.987 KST · Notice[39m
+[38;5;245m  2026-11-07 10:44:48.507 KST · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 1ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-07 10:44:48.596 KST · Notice[39m
 [38;5;250m* network: provider: gateway · model: fake/model-a · 63ms[39m
   [38;5;250mfinish: stop[39m
   [38;5;250mtokens: 1200 in · 40 out[39m
 
-[38;5;245m  2026-11-07 10:13:48.789 KST · Prompt[39m
+[38;5;245m  2026-11-07 10:44:48.408 KST · Prompt[39m
 [38;5;255m┃[39m [1medit the file[0m
 
-[38;5;245m  2026-11-07 10:13:48.901 KST · Response[39m
+[38;5;245m  2026-11-07 10:44:48.518 KST · Response[39m
   Editing the file.
 
-[38;5;245m  2026-11-07 10:13:48.901 KST · Tool[39m
+[38;5;245m  2026-11-07 10:44:48.518 KST · Tool[39m
 [38;5;255m●[39m [38;5;245m2 tool calls · 1 read · 1 edit · 1 failed[39m
 ├ Read bad.txt
 │[38;5;245m  binary or non-utf8 file omitted (34 bytes)[39m
 
-[38;5;245m  2026-11-07 10:13:48.901 KST · Tool[39m
+[38;5;245m  2026-11-07 10:44:48.518 KST · Tool[39m
 └ Failed bad.txt: edit_file will not replace `bad.txt` because this session has not read it; call read_file on it first
 │[38;5;245m  old_string: first line[39m
 │[38;5;245m  new_string: FIRST LINE[39m
 │[38;5;245m  edit_file will not replace `bad.txt` because this session has not read it; call read_file on it first[39m
 
-[38;5;245m  2026-11-07 10:13:49.018 KST · Response[39m
+[38;5;245m  2026-11-07 10:44:48.633 KST · Response[39m
   Edited.
 
-[38;5;245m  2026-11-07 10:13:49.018 KST · Usage[39m
+[38;5;245m  2026-11-07 10:44:48.633 KST · Usage[39m
 [38;5;245m  0s (↑3 ↓120)[39m
 
 [38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m

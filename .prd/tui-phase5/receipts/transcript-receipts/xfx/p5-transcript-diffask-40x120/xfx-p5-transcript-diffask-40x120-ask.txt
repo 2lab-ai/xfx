@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-4aca257 [debug] · Run /help for commands
+x𝒇x v0.1.0-f84734d [debug] · Run /help for commands
 
 ┃ edit the file
 
@@ -21,7 +21,7 @@ x𝒇x v0.1.0-4aca257 [debug] · Run /help for commands
     2  Apply + allow future edits to this file for this session
     3  Don't apply
   2 = allow every future edit_file to `ctl.txt` for the rest of this session, whatever its contents, and in every later
-  `xfx ask --resume-id 1794014037812-d668e177da40559f` of this saved session
+  `xfx ask --resume-id 1794015897323-2131263542288868` of this saved session
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel

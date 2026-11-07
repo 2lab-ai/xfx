@@ -1,10 +1,10 @@
 """T-U6's receipt checker: fx v0.0.16's T7, T8 and T10 (transcript.md §2),
 each claim checked against the captures, cell by cell with their styles.
 
-usage: python3 -I -B check.py <repo> <receipt-dir> [xfx|red]
+usage: python3 -I -B check.py <repo> <receipt-dir> [xfx|red|red-u6b]
 
-Reads `fx/` and, for xfx's side, `xfx/` (the build under the receipt) or
-`red/` (the base's): `<side>/<scenario>-40x120/<prefix>-<scenario>-40x120-
+Reads `fx/` and, for xfx's side, `xfx/` (the build under the receipt),
+`red/` (the base's) or `red-u6b/` (T-U6's, before T-U6b): `<side>/<scenario>-40x120/<prefix>-<scenario>-40x120-
 <snap>.ansi`, and the `frame<k>`/`wireend` screens `frames.py` replays from
 the wires. Each row is read as `scripts/fxcap/cells.py` reads it; where a claim
 compares two sides, the parity ledger's normalizations for each side are
@@ -24,11 +24,13 @@ The claims (SPEC below):
            blank row under them and one over them, the previous turn's summary
            above that.
   same     T7: fx's screen after the frame that completes its card against
-           xfx's (and the snap 0.15 s after Enter): every row the same, except
-           the activity row (36), which the claim names and prints -- fx
-           writes `• Thinking` and its clock a frame later, xfx both at once,
-           and at 0.15 s either may have the answer's reported tokens; not the
-           card's.
+           xfx's (and the snap 0.15 s after Enter), aligned at the card: the
+           rows above it and its rows the same, and the composer's rows
+           (38-40). The rows between the card and the composer are set aside
+           and printed: the band's activity row, which fx writes with the card
+           (`• Thinking`, its clock a frame later) and xfx once the runtime
+           says the turn started -- in the same frame or the next, as the
+           thread hands it over; not the card's.
   inline   a snap: every row the same on both sides.
   whole    T8: the tall card's 60 rows (`TALL_PROMPT_HEAD`, `tall prompt body
            01`..`58`, `TALL_PROMPT_TAIL`) in the whole history (`.full`),
@@ -37,13 +39,18 @@ The claims (SPEC below):
            turn's summary and one blank row.
   spelled  T10: every diff row of a snap (Ctrl-O's `  │ N ± text`, or the
            review's `    N ± text` between its rules) is the fixture's line N
-           -- the file before the edit for ` ` and `-`, after it for `+` -- as
-           that product spells a file's line (`fx_spelled`, `xfx_spelled`
-           below); the rows are exactly the window's lines; no cell of one
-           holds a control, a bidirectional, zero-width or other code point
-           fx names (`HIDDEN`). A row whose text is the same on both sides is
-           the same cell by cell, styles included; one spelled differently
-           has the same styles as fx's.
+           -- the file before the edit for ` ` and `-`, after it for `+` --
+           spelled as the claim's spelling says: fx's on fx's side; on xfx's,
+           fx's in Ctrl-O (T-U6b; and U+061C named, `ctrl-o-arabic-letter-
+           mark`) and xfx's own in the review (`review-diff-spelling`)
+           (`fx_spelled`, `xfx_spelled` below); the rows are exactly the
+           window's lines; no cell of one holds a control or a code point fx
+           names (`hidden`). A row whose text is the same on both sides is the
+           same cell by cell, styles included; one spelled differently has the
+           same styles as fx's.
+  bytes    T10 (T-U6b): Ctrl-O's diff rows, each the same bytes on both sides
+           as the capture holds them (`capture-pane -e`, colours and all), and
+           printed.
   refused  T10: xfx draws no diff for an edit of a file that is not UTF-8: no
            diff row, and the call's row says it failed.
   nodiff   T10: the inline transcript draws no diff of a change, on either
@@ -64,7 +71,7 @@ import unicodedata
 repo = os.path.realpath(sys.argv[1])
 receipt = os.path.realpath(sys.argv[2])
 xside = sys.argv[3] if len(sys.argv) > 3 else "xfx"
-assert xside in ("xfx", "red"), xside
+assert xside in ("xfx", "red", "red-u6b"), xside
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(repo, "scripts", "fxcap"))
 
@@ -73,7 +80,7 @@ import ledger as ledgermod  # noqa: E402
 
 LEDGER = ledgermod.load(os.path.join(repo, "scripts", "fxcap", "parity-ledger.toml"), repo)
 RULES = {"fx": ledgermod.rules_for(LEDGER, "fx"), "xfx": ledgermod.rules_for(LEDGER, "xfx")}
-BUILD = {"xfx": "4aca257", "red": "039fb5c"}
+BUILD = {"xfx": "f84734d", "red": "039fb5c", "red-u6b": "4aca257"}
 SCEN = os.path.join(repo, "scripts", "fxcap", "scenarios")
 text = cells.text_of
 
@@ -131,7 +138,7 @@ def hidden(ch):
     return unicodedata.category(ch) == "Cc" or fx_nonprinting(ord(ch))
 
 
-def fx_spelled(raw, col):
+def fx_spelled(raw, col, alm=False):
     """`appendTerminalSafeLine` (`text_utils.zig:419-442@481104fd`): a
     trailing CR dropped; a tab kept (drawn here as the terminal draws it, to
     the next multiple of 8 from column `col`, where the text starts); a C0
@@ -165,7 +172,8 @@ def fx_spelled(raw, col):
                 out += "\\x%02x" % b
                 i += 1
             else:
-                out += "\\u{%04x}" % ord(ch) if fx_nonprinting(ord(ch)) else ch
+                named = fx_nonprinting(ord(ch)) or (alm and ch == "\u061c")
+                out += "\\u{%04x}" % ord(ch) if named else ch
                 i += n
     return out
 
@@ -262,21 +270,32 @@ def check_frame(scenario, expect):
     return claim
 
 
-ACTIVITY = re.compile(r"^[•~ ] (?:Thinking|Generating)(?: \((?:\d+s|<s>)\))?(?: \(↑\d+ ↓\d+\))?$")
-
-
 def check_same(scenario, fx_snap, xfx_snap):
+    """The two screens aligned at the card: the rows above it as far as both
+    go, and the card's rows, the same; the composer and the two rows under it
+    (38-40) the same. The rows between the card and the composer -- the
+    band's blank row and its activity row, which xfx writes once the runtime
+    says the turn has started and fx with the card -- are set aside, and
+    printed."""
     claim = Claim("same %s fx %s / %s %s" % (scenario, fx_snap, side_name("xfx"), xfx_snap))
     a = rows_of("fx", scenario, fx_snap)
     b = rows_of("xfx", scenario, xfx_snap)
-    if not (ACTIVITY.match(text(a[35])) and ACTIVITY.match(text(b[35]))):
-        claim.fail("row 36 is not the activity row on both sides: %r / %r" % (text(a[35]), text(b[35])))
+    fa, card_a = card_rows(a)
+    fb, card_b = card_rows(b)
+    if not card_a or card_a != card_b:
+        claim.fail("the cards are fx %r / %s %r" % (card_a, side_name("xfx"), card_b))
         return claim
-    diff = [i + 1 for i in range(40) if i != 35 and a[i] != b[i]]
+    n, above = len(card_a), min(fa, fb)
+    diff = [("above", i) for i in range(above) if a[fa - above + i] != b[fb - above + i]]
+    diff += [("card", i) for i in range(n) if a[fa + i] != b[fb + i]]
+    diff += [("band", i + 1) for i in (37, 38, 39) if a[i] != b[i]]
     if diff:
-        claim.fail("rows %s differ" % diff)
-    else:
-        claim.say("rows 1-35 and 37-40 the same; row 36, the activity row, set aside: fx %r / %s %r" % (text(a[35]), side_name("xfx"), text(b[35])))
+        claim.fail("rows differ: %s" % diff)
+        return claim
+    claim.say("aligned at the card (fx row %d, %s row %d): the %d rows above it and its %d the same; rows 38-40 the same"
+              % (fa + 1, side_name("xfx"), fb + 1, above, n))
+    claim.say("set aside, between the card and the composer: fx %r / %s %r"
+              % ([text(r) for r in a[fa + n : 37]], side_name("xfx"), [text(r) for r in b[fb + n : 37]]))
     return claim
 
 
@@ -359,19 +378,25 @@ def check_spelled(scenario, snap, kind, ws, name, old, new, window):
             claim.fail("%s: the diff rows are %s, the window is %s" % (label, [(n, s) for _, n, s, _ in listed], window))
             continue
         bad = 0
+        spelling = "fx" if side == "fx" or kind == "ctrl-o" else "xfx"
         for i, n, sign, shown in listed:
             line = (after if sign == "+" else before)[n - 1]
             col = len(text(rows[i])) - len(shown)
-            want = fx_spelled(line, col) if side == "fx" else xfx_spelled(line)
+            if side == "fx":
+                want = fx_spelled(line, col)
+            elif kind == "ctrl-o":
+                want = fx_spelled(line, col, alm=True)
+            else:
+                want = xfx_spelled(line)
             if shown != want.rstrip(" "):
-                claim.fail("%s row %d: %r, %s's spelling is %r" % (label, i + 1, shown, label if side == "fx" else "xfx", want))
+                claim.fail("%s row %d: %r, %s's spelling is %r" % (label, i + 1, shown, spelling, want))
                 bad += 1
             raw = [ch for _, ch, _ in rows[i] if hidden(ch)]
             if raw:
                 claim.fail("%s row %d: the terminal was handed %s as itself" % (label, i + 1, ["U+%04X" % ord(c) for c in raw]))
                 bad += 1
         if not bad:
-            claim.say("%-3s %d diff rows, each the file's line as %s spells it; none holds a hidden character" % (label, len(listed), "fx" if side == "fx" else "xfx"))
+            claim.say("%-3s %d diff rows, each the file's line as %s spells it; none holds a hidden character" % (label, len(listed), spelling))
     if claim.ok:
         (a, la), (b, lb) = found["fx"], found["xfx"]
         same = spelled_apart = 0
@@ -388,6 +413,26 @@ def check_spelled(scenario, snap, kind, ws, name, old, new, window):
                 claim.say("%d %s spelled apart: fx %r / %s %r" % (n, s, ta, side_name("xfx"), tb))
                 spelled_apart += 1
         claim.say("%d rows the same cell by cell, %d spelled apart with fx's styles" % (same, spelled_apart))
+    return claim
+
+
+def check_bytes(scenario, snap):
+    claim = Claim("bytes %s %s" % (scenario, snap))
+    found = {}
+    for side in ("fx", "xfx"):
+        lines = open(path(side, scenario, snap), encoding="utf-8").read().split("\n")
+        listed = diff_rows(rows_of(side, scenario, snap), "ctrl-o")
+        found[side] = [((n, s), lines[i]) for i, n, s, _ in listed]
+    if [k for k, _ in found["fx"]] != [k for k, _ in found["xfx"]] or not found["fx"]:
+        claim.fail("the diff rows are fx %s / %s %s" % ([k for k, _ in found["fx"]], side_name("xfx"), [k for k, _ in found["xfx"]]))
+        return claim
+    for ((n, s), a), (_, b) in zip(found["fx"], found["xfx"]):
+        if a != b:
+            claim.fail("%d %s: fx %r / %s %r" % (n, s, a, side_name("xfx"), b))
+        else:
+            claim.say("%d %s  %r" % (n, s, a))
+    if claim.ok:
+        claim.say("all %d diff rows the same bytes on both sides" % len(found["fx"]))
     return claim
 
 
@@ -475,6 +520,9 @@ SPEC = [
     ("spelled", "p5-transcript-diffodd", "full", "ctrl-o") + ODD,
     ("spelled", "p5-transcript-diffask", "ask", "review") + CTL,
     ("spelled", "p5-transcript-diffask", "full", "ctrl-o") + CTL,
+    ("bytes", "p5-transcript-diffctl", "full"),
+    ("bytes", "p5-transcript-diffodd", "full"),
+    ("bytes", "p5-transcript-diffask", "full"),
     ("refused", "p5-transcript-diffbad", "full") + BAD,
     ("nodiff", "p5-transcript-diffctl", "edited", "ctl.txt"),
     ("nodiff", "p5-transcript-diffodd", "edited", "odd.txt"),
@@ -502,6 +550,8 @@ def run(item):
         return check_whole(scenario, item[2], item[3])
     if kind == "spelled":
         return check_spelled(scenario, item[2], item[3], *item[4:])
+    if kind == "bytes":
+        return check_bytes(scenario, item[2])
     if kind == "refused":
         return check_refused(scenario, item[2], *item[3:])
     if kind == "nodiff":

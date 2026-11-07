@@ -72,11 +72,20 @@ MUTANTS = [
     # A raw ESC never reaches a capture as text: the terminal acts on it, so
     # the row loses what it was spelled as, and that is what fails.
     ("T10: xfx's Ctrl-O row hands the terminal the file's ESC[2J",
-     [("xfx", "p5-transcript-diffctl", "full", replace(27, "\\u{001B}", "\x1b"))],
-     "FAIL xfx row 27: 'beforecleared', xfx's spelling is 'before\\\\u{001B}[2Jcleared'"),
-    ("T10: xfx's Ctrl-O row hands the terminal the file's bidirectional override",
-     [("xfx", "p5-transcript-diffodd", "full", replace(27, "\\u{202E}", "\u202e"))],
+     [("xfx", "p5-transcript-diffctl", "full", replace(27, "\\x1b", "\x1b"))],
+     "FAIL xfx row 27: 'beforecleared', fx's spelling is 'before\\\\x1b[2Jcleared'"),
+    # The security mutant T-U6b asks for: the bidi escape dropped.
+    ("T10: xfx's Ctrl-O row drops the bidi escape and hands the terminal U+202E",
+     [("xfx", "p5-transcript-diffodd", "full", replace(27, "\\u{202e}", "\u202e"))],
      "FAIL xfx row 27: the terminal was handed ['U+202E'] as itself"),
+    # The same text and cells check.py's cell reading calls equal, other
+    # bytes: the tab's cells styled (`bytes` is stricter than `spelled`).
+    ("T10: xfx's tab cells carry the row's colour",
+     [("xfx", "p5-transcript-diffodd", "full", replace(26, "tab\x1b[39m     \x1b[38;5;245mhere", "tab     here"))],
+     "FAIL 2  : fx '\\x1b[38;5;245m  │ 2   tab\\x1b[39m     \\x1b[38;5;245mhere\\x1b[39m' / xfx '\\x1b[38;5;245m  │ 2   tab     here\\x1b[39m'"),
+    ("T10: xfx's Ctrl-O writes xfx's own spelling, as before T-U6b",
+     [("xfx", "p5-transcript-diffctl", "full", replace(27, "\\x1b", "\\u{001B}"))],
+     "FAIL xfx row 27: 'before\\\\u{001B}[2Jcleared', fx's spelling is 'before\\\\x1b[2Jcleared'"),
     ("T10: xfx's review spells the C1 control in fx's lower case",
      [("xfx", "p5-transcript-diffask", "ask", replace(12, "\\u{009B}", "\\u{009b}"))],
      "FAIL xfx row 12: 'second \\\\u{009b}line', xfx's spelling is 'second \\\\u{009B}line'"),

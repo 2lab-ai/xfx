@@ -33,7 +33,7 @@
 
 ┃ second prompt
 
-  Generating (0s) (↑4 ↓40)
+  Generating (0s) (↑4 ↓4)
 
 ┃
 
