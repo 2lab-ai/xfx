@@ -34,7 +34,7 @@ at `d314549e`.
 - The pacer's in-place retint of a queued inline-code open now reads both
   builtins (`src/ui/assistant/pacer.zig:200-204@481104fd`). xfx has no
   counterpart to change: it queues raw markdown and renders it on release in
-  the palette then in force (`docs/parity.md:240`).
+  the palette then in force (`docs/parity.md:240` (`:241` since the merge `9438587d`)).
 
 ## Two leads corrected
 
@@ -214,7 +214,7 @@ but this unit's own `p5-inline-code-*`.
 
 ## Ledger and parity
 
-- `docs/parity.md:240` (coloured output row): inline code's shade and how a
+- `docs/parity.md:240` (`:241` since the merge `9438587d`) (coloured output row): inline code's shade and how a
   code block's rows are recoloured.
 - `scripts/fxcap/parity-ledger.toml`: divergence `inline-code-shade`,
   `replaced-in-next-pin` for the `c1db919` pin only (as `status-notice`):
@@ -240,7 +240,7 @@ but this unit's own `p5-inline-code-*`.
   group's highlighted words, keep the colours they were drawn in across a
   switch; fx's builtins are 256-colour at every depth and recolour. It
   predates this unit and reverses a tested decision, so it is recorded in
-  `docs/parity.md:240` and left to its own unit. **Closed by T-U3-TC**
+  `docs/parity.md:240` (`:241` since the merge `9438587d`) and left to its own unit. **Closed by T-U3-TC**
   (`../inline-code-truecolor/README.md`), which also found that a capture
   can show it: tmux keeps `38;2` through `capture-pane -e`.
 
