@@ -1,0 +1,110 @@
+# GREEN: xfx at this unit's code head 9461bf70 (banner v0.1.0-9461bf7) against fx v0.0.16, COLORTERM=truecolor, 40x120
+# python3 -I notation.py scripts/fxcap fx/fx-<pair> <dir>/xfx-<pair> <dir>/xfx-<drawn snap of the same run>
+== p5-inline-code-retint-tc dark
+ramp: 0 rows differ (row 1 not compared)
+notation: 17 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 4 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 2 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-inline-code-retint-tc light
+ramp: 0 rows differ (row 1 not compared)
+notation: 2 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 4 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 8 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-inline-code-retint-tc dark-again
+ramp: 0 rows differ (row 1 not compared)
+notation: 17 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 4 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 2 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-inline-code-retint-light-tc light
+ramp: 0 rows differ (row 1 not compared)
+notation: 2 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 4 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 8 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-inline-code-retint-light-tc dark
+ramp: 0 rows differ (row 1 not compared)
+notation: 17 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 4 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 2 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-inline-code-retint-light-tc light-again
+ramp: 0 rows differ (row 1 not compared)
+notation: 2 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 4 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 8 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-inline-code-table-tc dark
+ramp: 0 rows differ (row 1 not compared)
+notation: 17 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 4 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 2 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-inline-code-table-tc light
+ramp: 0 rows differ (row 1 not compared)
+notation: 2 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 4 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 8 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-inline-code-table-tc dark-again
+ramp: 0 rows differ (row 1 not compared)
+notation: 17 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 4 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 2 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-inline-code-table-light-tc light
+ramp: 0 rows differ (row 1 not compared)
+notation: 2 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 4 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 8 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-inline-code-table-light-tc dark
+ramp: 0 rows differ (row 1 not compared)
+notation: 17 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 4 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 2 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-inline-code-table-light-tc light-again
+ramp: 0 rows differ (row 1 not compared)
+notation: 2 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 4 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 8 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 23 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+
+# The first snap of each run, red/ against xfx/ (python3 -I ../inline-code-shade/cellpairs.py scripts/fxcap red/<snap> xfx/<snap>): no differing cell = SAME
+SAME p5-inline-code-retint-tc-40x120-dark
+SAME p5-inline-code-retint-light-tc-40x120-light
+SAME p5-inline-code-table-tc-40x120-dark
+SAME p5-inline-code-table-light-tc-40x120-light

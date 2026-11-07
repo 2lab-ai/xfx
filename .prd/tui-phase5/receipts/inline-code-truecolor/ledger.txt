@@ -1,0 +1,42 @@
+# The ledger entry truecolor-grey-notation (v0.0.16 pin), on two sweeps of the four -tc scenarios, 40x120:
+#   scripts/fxcap/sweep.sh --fx <fx v0.0.16> --pin-sha 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2 \
+#     --xfx <xfx> --jobs 2 --only 'p5-inline-code-*-tc' --out <out>
+# head = this unit's code head 9461bf70 (banner v0.1.0-9461bf7), red = 02b4619b (v0.1.0-02b4619).
+# The head sweep was first scored with the entry's summary selector written as `^  \d+s \(`: the sweep matches the
+# normalized row (`turn-wall-time` writes `<wall>`), so the summary row went unmatched and all 12 pairs were
+# unresolved; with `^  <wall> \(` (the entry as committed), rescored over the same captures (sweep.sh --rescore).
+# Per pair: verdict, the entries its rows matched, and the rows no entry covers.
+
+## head
+| total | ran | identical | normalized-identical | approved-divergence | approved-divergence-cascade | replaced-in-next-pin | unresolved-defect | failed | timeout |
+|---|---|---|---|---|---|---|---|---|---|
+| 12 | 12 | 0 | 0 | 12 | 0 | 0 | 0 | 0 | 0 |
+p5-inline-code-retint-light-tc   light        approved-divergence  ['truecolor-grey-notation'] []
+p5-inline-code-retint-light-tc   dark         approved-divergence  ['truecolor-grey-notation'] []
+p5-inline-code-retint-light-tc   light-again  approved-divergence  ['truecolor-grey-notation'] []
+p5-inline-code-retint-tc         dark         approved-divergence  ['truecolor-grey-notation'] []
+p5-inline-code-retint-tc         light        approved-divergence  ['truecolor-grey-notation'] []
+p5-inline-code-retint-tc         dark-again   approved-divergence  ['truecolor-grey-notation'] []
+p5-inline-code-table-light-tc    light        approved-divergence  ['truecolor-grey-notation'] []
+p5-inline-code-table-light-tc    dark         approved-divergence  ['truecolor-grey-notation'] []
+p5-inline-code-table-light-tc    light-again  approved-divergence  ['truecolor-grey-notation'] []
+p5-inline-code-table-tc          dark         approved-divergence  ['truecolor-grey-notation'] []
+p5-inline-code-table-tc          light        approved-divergence  ['truecolor-grey-notation'] []
+p5-inline-code-table-tc          dark-again   approved-divergence  ['truecolor-grey-notation'] []
+
+## red
+| total | ran | identical | normalized-identical | approved-divergence | approved-divergence-cascade | replaced-in-next-pin | unresolved-defect | failed | timeout |
+|---|---|---|---|---|---|---|---|---|---|
+| 12 | 12 | 0 | 0 | 8 | 0 | 0 | 4 | 0 | 0 |
+p5-inline-code-retint-light-tc   light        approved-divergence  ['truecolor-grey-notation'] []
+p5-inline-code-retint-light-tc   dark         unresolved-defect    ['truecolor-grey-notation'] [(5, '  Run zig build test before you push.'), (8, '  # build and test'), (9, '  zig build test --summary all'), (13, '  // the answer'), (14, '  const n = 42;'), (15, '  const s = "hi";'), (18, '  Done with everything.')]
+p5-inline-code-retint-light-tc   light-again  approved-divergence  ['truecolor-grey-notation'] []
+p5-inline-code-retint-tc         dark         approved-divergence  ['truecolor-grey-notation'] []
+p5-inline-code-retint-tc         light        unresolved-defect    ['truecolor-grey-notation'] [(5, '  Run zig build test before you push.'), (8, '  # build and test'), (9, '  zig build test --summary all'), (13, '  // the answer'), (14, '  const n = 42;'), (15, '  const s = "hi";'), (18, '  Done with everything.')]
+p5-inline-code-retint-tc         dark-again   approved-divergence  ['truecolor-grey-notation'] []
+p5-inline-code-table-light-tc    light        approved-divergence  ['truecolor-grey-notation'] []
+p5-inline-code-table-light-tc    dark         unresolved-defect    ['truecolor-grey-notation'] [(5, '  Run zig build first.'), (15, '  Done with everything.')]
+p5-inline-code-table-light-tc    light-again  approved-divergence  ['truecolor-grey-notation'] []
+p5-inline-code-table-tc          dark         approved-divergence  ['truecolor-grey-notation'] []
+p5-inline-code-table-tc          light        unresolved-defect    ['truecolor-grey-notation'] [(5, '  Run zig build first.'), (15, '  Done with everything.')]
+p5-inline-code-table-tc          dark-again   approved-divergence  ['truecolor-grey-notation'] []

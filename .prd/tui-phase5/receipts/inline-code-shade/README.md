@@ -85,8 +85,20 @@ XFX_BIN=<xfx>       TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh xfx 
 ```
 
 `capture.sh` runs fx with `FX_AUTO_UPGRADE=0` and checks its bytes after the
-run (sha256 `8e6cda2e…` unchanged, each run). `red/` is `main`'s binary
-(`d314549e`), `xfx/` this branch's, both debug builds.
+run (sha256 `8e6cda2e…` unchanged, each run). All debug builds; what each
+was built from, by the banner its row 1 carries (`build.rs`: `git rev-parse
+HEAD` at build time), corrected 2026-11-07 by T-U3-TC
+(`../inline-code-truecolor/README.md`):
+
+- `red/`: `v0.1.0-d314549`, `main` at `d314549e`.
+- `red-b/`: `v0.1.0-d314549` too, so it was built from a working tree on
+  `d314549e`, not from T-U3's commit `232762e5`: what it draws (inline code
+  `255`/`235`, the table recoloured) is T-U3's code before that commit,
+  without T-U3b.
+- `xfx/`: **re-taken at PR #67's head `02b4619b`** (`v0.1.0-02b4619`, a
+  clean committed tree: T-U3, T-U3b and `origin/main` `10434d28`). The set
+  first committed here carried `v0.1.0-232762e`: built from T-U3b's working
+  tree on `232762e5` before T-U3b was committed as `50b44d11`.
 
 - `p5-transcript-md`, `p5-transcript-md-light`: the research's scenarios.
   **`p5-transcript-md-light` is fixed**: it set only `FX_THEME=light`, so
@@ -121,7 +133,7 @@ Every pair differs, and only in colour (cell text identical in all):
 | `p5-inline-code-retint` `light` | inline code `235` vs `247` (22); comments `243` vs `247` (24) |
 | `p5-inline-code-retint-light` `light`, `light-again` | inline code `235` vs `247` |
 | `p5-inline-code-retint-light` `dark` | inline code `255` vs `245` (22); comments `245` vs `243` (24) |
-| `p5-inline-code-table` (all three), `-table-light` (all three) | on `main`: every inline-code cell (245/247 vs 255/235). On T-U3's head `232762e5` (`red-b/`): `light`, the table's 20 cells `255` vs `235`; `-light` `dark`, `235` vs `255` -- the recoloured table |
+| `p5-inline-code-table` (all three), `-table-light` (all three) | on `main`: every inline-code cell (245/247 vs 255/235). On T-U3's code before its commit `232762e5` (`red-b/`, banner `d314549`, above): `light`, the table's 20 cells `255` vs `235`; `-light` `dark`, `235` vs `255` -- the recoloured table |
 
 ## GREEN: `green.txt`
 
@@ -136,8 +148,13 @@ Every pair differs, and only in colour (cell text identical in all):
 | `p5-inline-code-table` | `dark`, `light`, `dark-again` |
 | `p5-inline-code-table-light` | `light`, `dark`, `light-again` |
 
-GREEN was taken again at T-U3b's head on all six scenarios (`xfx/`): 18
-pairs identical, the same four Ctrl-O pairs not (below).
+GREEN was taken again at T-U3b's head on all six scenarios: 18 pairs
+identical, the same four Ctrl-O pairs not (below). **Re-taken 2026-11-07
+at PR #67's head `02b4619b`** (`xfx/`, a clean committed tree; "Captures"
+above), which is what `green.txt` and `coderuns.txt` now read: the same 18
+pairs identical and the same four not, for the same reasons. (A first take
+of the md pair there read `2s` on the turn's summary where fx read `1s`, a
+wall clock under a loaded machine; taken again, identical.)
 
 The two Ctrl-O snaps of each md scenario (`full`, `full-pgup`) are not
 identical, for reasons outside this unit: the entry times' zone (T9: fx
@@ -150,7 +167,7 @@ and 14 runs, all `255` dark, all `235` light); on `main` they were
 
 ## No regression: `regress.txt`
 
-`main`'s binary against this branch's (taken again at T-U3b's head), on every other `p5-transcript-*`
+`main`'s binary against this branch's (taken again with T-U3b's binary, banner `232762e`: its working tree before `50b44d11`, as `xfx/`'s first set; not re-taken -- T-U3-TC's base-against-head run at committed code is `../inline-code-truecolor/regress.txt`), on every other `p5-transcript-*`
 scenario (`anchor`, `anchormid`, `cancel`, `diffctl`, `submit`,
 `tallfirst`, `tools`, `tz`, `tzsys`; the md pair is above), every snap
 grouped by `cellpairs.py`: 39 pairs, 22 identical. In the other 17 no cell
@@ -223,7 +240,9 @@ but this unit's own `p5-inline-code-*`.
   group's highlighted words, keep the colours they were drawn in across a
   switch; fx's builtins are 256-colour at every depth and recolour. It
   predates this unit and reverses a tested decision, so it is recorded in
-  `docs/parity.md:240` and left to its own unit.
+  `docs/parity.md:240` and left to its own unit. **Closed by T-U3-TC**
+  (`../inline-code-truecolor/README.md`), which also found that a capture
+  can show it: tmux keeps `38;2` through `capture-pane -e`.
 
 ## fx lines relied on (all `@481104fd`)
 

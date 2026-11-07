@@ -1,4 +1,5 @@
-# RED (T-U3b, the table pairs): T-U3's head 232762e5 against fx v0.0.16
+# RED (T-U3b, the table pairs): T-U3's code before its commit 232762e5 (banner v0.1.0-d314549: built from a
+# working tree on d314549e; corrected 2026-11-07, README.md "Captures") against fx v0.0.16
 # cd .prd/tui-phase5/receipts/inline-code-shade; python3 -I ../../../tui-phase4/receipts/m1/cells.py fx/fx-<pair> red-b/xfx-<pair>   (row 1, the banner, not compared)
 SAME p5-inline-code-table-40x120-dark-again.ansi
 SAME p5-inline-code-table-40x120-dark.ansi
