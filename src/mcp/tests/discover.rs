@@ -379,6 +379,8 @@ fn seen(
 /// - `malformed`: discover 200 with JSON that is no valid JSON-RPC, then
 ///   `legacy`;
 /// - `slam`: discover's connection closed with no answer, then `legacy`;
+/// - `request`: discover answered with a request of the server's own, which
+///   answers nothing, then `legacy`;
 /// - `hang`: discover held open, never answered, then `legacy`.
 fn discover_http(mode: &'static str) -> (u16, Arc<Mutex<Vec<Seen>>>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
@@ -463,6 +465,11 @@ fn discover_http(mode: &'static str) -> (u16, Arc<Mutex<Vec<Seen>>>) {
                             "notimpl" => answer("404 Not Found", "", json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": "Method not found"}}).to_string()),
                             "malformed" => answer("200 OK", "", json!({"jsonrpc": "2.0", "id": id, "result": "\u{1b}]0;pwned\u{7}"}).to_string()),
                             "slam" => return,
+                            "request" => answer(
+                                "200 OK",
+                                "",
+                                json!({"jsonrpc": "2.0", "id": 9, "method": "ping"}).to_string(),
+                            ),
                             "hang" => {
                                 // Held until the client lets go of it.
                                 let mut rest = [0u8; 1];
@@ -669,33 +676,38 @@ fn an_http_body_that_is_no_json_rpc_is_a_legacy_answer_at_once() {
 fn a_probe_whose_connection_breaks_is_sent_once_more_then_waits_out_its_timer() {
     // A broken stream is re-issued once (`max_attempts = 2`,
     // `src/mcp/core/http_modern.zig:21-24`), and then only the probe's timer
-    // answers (`probe_timer_fired`): initialize after it.
-    let (port, log) = discover_http("slam");
-    let home = Home::new();
-    let runtime = http_runtime(&home, port);
-    runtime.set_probe_timeout(Duration::from_millis(600));
-    let started = Instant::now();
-    runtime.start();
-    let view = settled(&runtime, "remote");
-    let took = started.elapsed();
-    assert_eq!(view.status(), Status::Ready, "{view:?}");
-    assert!(took >= Duration::from_millis(550), "{took:?}");
-    assert!(took < WAIT, "{took:?}");
-    assert_eq!(
-        log.lock()
-            .unwrap()
-            .iter()
-            .map(|s| s.method.clone())
-            .collect::<Vec<_>>(),
-        [
-            "server/discover",
-            "server/discover",
-            "initialize",
-            "notifications/initialized",
-            "tools/list"
-        ]
-    );
-    runtime.shutdown();
+    // answers (`probe_timer_fired`): initialize after it. A body whose one
+    // message is a request answers nothing either: its stream ends without
+    // the answer (`src/mcp/server.zig:1152-1158`).
+    for mode in ["slam", "request"] {
+        let (port, log) = discover_http(mode);
+        let home = Home::new();
+        let runtime = http_runtime(&home, port);
+        runtime.set_probe_timeout(Duration::from_millis(600));
+        let started = Instant::now();
+        runtime.start();
+        let view = settled(&runtime, "remote");
+        let took = started.elapsed();
+        assert_eq!(view.status(), Status::Ready, "{view:?}");
+        assert!(took >= Duration::from_millis(550), "{took:?}");
+        assert!(took < WAIT, "{took:?}");
+        assert_eq!(
+            log.lock()
+                .unwrap()
+                .iter()
+                .map(|s| s.method.clone())
+                .collect::<Vec<_>>(),
+            [
+                "server/discover",
+                "server/discover",
+                "initialize",
+                "notifications/initialized",
+                "tools/list"
+            ],
+            "{mode}"
+        );
+        runtime.shutdown();
+    }
 }
 
 #[test]

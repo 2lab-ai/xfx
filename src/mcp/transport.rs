@@ -1621,6 +1621,11 @@ async fn detect_reply(
             let Ok(frame) = serde_json::from_slice::<Value>(&body) else {
                 return Ok(none);
             };
+            // A request or notification is a message, but no answer to this
+            // POST: the stream ends without one.
+            if frame.get("method").is_some_and(Value::is_string) {
+                return Err(McpError::Named("McpNoResult"));
+            }
             let Ok(response) = era::decode_response(&frame) else {
                 return Ok(none);
             };
