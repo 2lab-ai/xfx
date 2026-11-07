@@ -19,3 +19,21 @@ snaps whose screen differs only in clock-like text: 126; otherwise: 3
 ## <toolgroup-ctrlo-r3's own head sweep> against <the train head's sweep>
 snaps whose screen differs only in clock-like text: 12; otherwise: 0
 
+## <main e51685d6's sweep> against <the train head's sweep>
+snaps whose screen differs only in clock-like text: 189; otherwise: 15
+   ('xfx', 'fulltranscript', 'cmd-ask', [23], [('ume-id 1794060374490-cf8c4869b4474102` of this saved session', 'ume-id 1794058892236-31a78137ae3e2c7f` of this saved session')])
+   ('xfx', 'fulltranscript', 'cmd-ask-ctrl-o', [23], [('ume-id 1794060374490-cf8c4869b4474102` of this saved session', 'ume-id 1794058892236-31a78137ae3e2c7f` of this saved session')])
+   ('xfx', 'fulltranscript', 'edit-ask', [25], [('ume-id 1794060374490-cf8c4869b4474102` of this saved session', 'ume-id 1794058892236-31a78137ae3e2c7f` of this saved session')])
+   ('fx', 'p5-toolstop-retint-light', 'light', [12], [('press ctrl+c again to exit', 'full access · model-a')])
+   ('fx', 'p5-toolstop-retint-light-tc', 'light', [12], [('press ctrl+c again to exit', 'full access · model-a')])
+   ('xfx', 'p5-transcript-diffask', 'ask', [24], [('ume-id 1794060785397-f62e7f35335eb3c8` of this saved session', 'ume-id 1794059245658-578aa25991225ee6` of this saved session')])
+   ('xfx', 'p5-transcript-diffwide', 'full', [2, 3, 4, 5, 6, 7], [('  finish: tool_calls', '  tokens: 1200 in · 40 out'), ('  tokens: 1200 in · 40 out', '')])
+   ('xfx', 'p5-transcript-diffwide2', 'full', [2, 3, 5, 6, 7, 8], [('  2026-11-07 23:15:56.285 KST · Prompt', '  2026-11-07 22:50:24.810 KST · Response'), ('┃ edit the file', '  Editing the file.')])
+   ('xfx', 'p5-transcript-diffwrap', 'full', [2, 3, 4, 5, 6, 7], [('  2026-11-07 23:16:12.436 KST · Notice', '  2026-11-07 22:50:32.982 KST · Prompt'), ('* network: provider: gateway · model: fake/model-a · 1ms', '┃ write the file')])
+   ('xfx', 'p5-transcript-diffwrap2', 'full', [2, 3, 4, 5, 6, 7], [('┃ write the file', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'), ('', 'bbbb    Z')])
+   ('xfx', 'p5-transcript-resize', 'start', [5], [('full access · model-a', '         Full access enabled: xfx permission checks disabled')])
+   ('xfx', 'resume-tools', 'cmd-ask', [26], [('ume-id 1794059854773-74a03e17aeb7c068` of this saved session', 'ume-id 1794058399628-d3b25bcd58f1aa8a` of this saved session')])
+   ('xfx', 'resume-tools', 'edit-ask', [28], [('ume-id 1794059854773-74a03e17aeb7c068` of this saved session', 'ume-id 1794058399628-d3b25bcd58f1aa8a` of this saved session')])
+   ('xfx', 'resume-tools', 'exit-ask', [30], [('ume-id 1794059854773-74a03e17aeb7c068` of this saved session', 'ume-id 1794058399628-d3b25bcd58f1aa8a` of this saved session')])
+   ('xfx', 'resume-tools', 'write-ask', [27], [('ume-id 1794059854773-74a03e17aeb7c068` of this saved session', 'ume-id 1794058399628-d3b25bcd58f1aa8a` of this saved session')])
+

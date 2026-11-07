@@ -7,7 +7,8 @@ tags: [xfx, phase5, fx-0.0.16, train]
 # P5 train 3: three closed units, one branch
 
 Branch `train/p5-1107c`, from `origin/main` `e51685d6` (PR #77, as the
-brief expected). Every unit was closed by its own two-engine review; this
+brief expected); `origin/main` `6c93f359` (PR #78, SECRETS-ARGMAX) merged in
+after the three unit merges, at the dispatcher's word. Every unit was closed by its own two-engine review; this
 train combines them and re-designs nothing. No source line was changed to
 make them meet: the merges are git's own, the one test added is the join
 check both reviews asked for, and it passed on the merged code at its first
@@ -28,13 +29,17 @@ train 2's round-3 head `58b463c8`, which is git's merge base for each.
 | 1 | DIFF-WRAP + b/c/d | `feat/p5-ctrlo-diff-wrap` @ `82442e28` | `b095ffe7` | `58b463c8` | none |
 | 2 | ENGINE-VS-ANCHOR + b | `feat/p5-engine-vs-anchor` @ `8d802907` | `23fd093c` | `58b463c8` | none |
 | 3 | TG-REDRAW + b/c | `feat/p5-toolgroup-redraw` @ `ec390074` | `116c7b10` | `58b463c8` | none |
+| 4 | `origin/main` (#78, SECRETS-ARGMAX) | `6c93f359` | `a1a1524c` | `e51685d6` | none |
 
-After them: `ebba626d` (the join test, below), `b4e0d06e` (the ledger's
-moved refs, below) and the receipt commit. The sweep's binary is
-`b4e0d06e`'s; the receipt commit changes no compiled file.
+Between merges 3 and 4: `ebba626d` (the join test, below), `b4e0d06e` (the
+ledger's moved refs, below) and `cc686a4c` (this receipt, first part); after
+merge 4, the receipt's last commits. The sweep's binary is `b4e0d06e`'s:
+`git diff b4e0d06e <head> -- src tests build.rs Cargo.toml Cargo.lock` is
+empty, merge 4 included (#78 changes scripts outside `scripts/fxcap`, CI and
+docs only).
 
 **No textual conflict anywhere.** `git show --remerge-diff` of each merge
-(`remerge-1.txt` .. `remerge-3.txt`) has an empty body: each merge commit is
+(`remerge-1.txt` .. `remerge-4.txt`) has an empty body: each merge commit is
 git's automatic result, unchanged.
 
 - **Merge 1, DIFF-WRAP.** `src/tui/full_transcript.rs`,
@@ -65,13 +70,23 @@ git's automatic result, unchanged.
     `shell.rs`, the ledger (`toolgroup-retint-256` deleted,
     `toolgroup-ctrlo-record-short` added, `truecolor-grey-notation`
     widened) and the `colored and hyperlinked TTY output` row merged clean.
+- **Merge 4, `origin/main` `6c93f359`.** Its base is the train's own,
+  `e51685d6`. `main`'s side: `scripts/check-no-secrets.sh` (batched under
+  `ARG_MAX`), `GREP_OPTIONS` unset in `check-no-stubs.sh`,
+  `check-preview-contract.sh`, `check-tui-preflight-cost.sh`,
+  `check-usage-clock.sh`, `test-preview-contract.sh`, two new scripts
+  (`test-check-no-secrets.sh`, `test-gate-env.sh`), `ci.yml`,
+  `CONTRIBUTING.md`, `README.md`, `.prd/02-architecture.md` and its receipt.
+  The train touches none of those files; no ledger entry, no
+  `docs/parity.md` row, no compiled file.
 
 **Historical scripts that still name a closed cause.**
-`width-disputed/check.py` (a comment) and `ctrlo-diff-wrap-b/check.py`
-(`"covered": {"frame-variation-selector-anchor", ...}`) name
-ENGINE-VS-ANCHOR's cause, which this train's ledger no longer has. They are
-the receipts of their own heads and are not gates here; nothing at this head
-runs them.
+`width-disputed/check.py` (a comment), `ctrlo-diff-wrap-b/check.py` and
+`ctrlo-diff-wrap-c/check.py` (`"covered": {"frame-variation-selector-anchor",
+...}`) name ENGINE-VS-ANCHOR's cause, which this train's ledger no longer
+has. They are the receipts of their own heads and are not gates here. Run on
+the train's captures anyway, DIFF-WRAP-c's fails that one claim for that
+reason alone (Sweep, below).
 
 ## The token check (`token_check.py`, `token-check.txt`)
 
@@ -85,11 +100,11 @@ For each merge, against git's merge base:
   side added is in, the rest are the base's; and every comment line a side
   added is in and every one a side deleted is not.
 
-Result: all three merges OK. No row and no entry was changed by both sides,
+Result: all four merges OK. No row and no entry was changed by both sides,
 so every changed row is exactly its one side's (merge 1: `/image`, `/paste`,
 `MCP server tools`, `profile home ~/.xfx` from `main`, `full transcript
 (C-o)` from DIFF-WRAP; merge 3 adds `colored and hyperlinked TTY output`
-from TG-REDRAW). The ledger: `ctrl-o-diff-row-clipped`,
+from TG-REDRAW; merge 4 changes none: `main`'s side touched neither file). The ledger: `ctrl-o-diff-row-clipped`,
 `frame-variation-selector-anchor` and `toolgroup-retint-256` deleted by
 their units and gone; `toolgroup-ctrlo-record-short` added and in;
 `filler-modifier-count` and `truecolor-grey-notation` as their units changed
@@ -98,7 +113,7 @@ them; `main`'s five re-pointed entries as `main` has them.
 **The negative control** (`--self-test`, in the same file): on each merge's
 own texts, one token a side added dropped from its row, one token a side
 deleted put back, an added ledger entry dropped, a deleted one restored, a
-comment line dropped -- 13 cases over the three merges, 13 found.
+comment line dropped -- 17 cases over the four merges, 17 found.
 
 `docs/parity.md` is 288 lines at the base, on `main`, on every unit tip and
 at the head, and every side's change is a row rewritten in place, so the
@@ -120,14 +135,17 @@ text at the new line: 7 of 7.
 | entry | cited (frame) | now | moved by |
 |---|---|---|---|
 | `submit-multi-card-whole` (why; `send`) | `src/tui/shell.rs:12267` (`main`) | `:12275` | TG-REDRAW (+8 above it) |
-| `session-record`, `transcript-page-offset`, `safe-page-edge`, `full-transcript-shift` | `src/tui/shell.rs:37356` (`main`) | `:37458` | stale in `main`'s own frame: `main`'s `:37356` is a test's `let (said_more, unsaid) = ...`; the `* session:` record's `"  tools: {} advertised ({},"` is `main`'s `:37440` (the train-2 round-2 and L-U3 lines above it). Then TG-REDRAW (+18 above it) |
+| `session-record`, `transcript-page-offset`, `safe-page-edge`, `full-transcript-shift` | `src/tui/shell.rs:37356` (`main`) | `:37458` | stale in `main`'s own frame: `main`'s `:37356` is a test's `let (said_more, unsaid) = ...`; the `* session:` record's `"  tools: {} advertised ({},"` is `main`'s `:37440`. `:37356` is where the record stood on train 2's head `24a6b912`; the L-U3 merge `f83d96be` pointed the ledger there, and L-U3's own lines above it had moved it to 37440 in the merged file. Then TG-REDRAW (+18 above it) |
 | `toolgroup-ctrlo-record-short` (TG-REDRAW's own) | `src/tui/shell.rs:37272` (TG-REDRAW) | `:37458` | stale in its own frame: copied from its base's siblings; TG-REDRAW's `:37272` is a comment, its record line `:37374`. Pointed at its siblings' line |
 | `cancelled-marker` (xfx) | `src/tui/toolgroup.rs:618` | `:711` | stale on `main` by 4 since train 2's `5f2d0b88` (written at `97644085`, where `:618` is the stopped call's `\u{25a0} ... Cancelled` line), then TG-REDRAW (+89) |
 | `call-row-raw-argument` (source), `call-row-page-edge` (xfx) | `src/tui/toolgroup.rs:657` | `:750` | the same (`pub(crate) fn spelled`) |
 | `call-row-source-cut` (source) | `src/tui/toolgroup.rs:705` | `:798` | the same (`fn command_spelled`) |
 | `call-row-arabic-letter-mark` (source) | `src/tui/toolgroup.rs:819` | `:912` | the same (the U+061C arm) |
 
-No other reference moved. `src/tui/full_transcript.rs:492`
+No other reference moved, and merge 4 moved none (`refs-head.txt`: the 65
+references at the merge-4 head mapped from the train before it and from
+`main` `6c93f359`, 0 moved; `repointed.py` at that head, 7 of 7 again).
+`src/tui/full_transcript.rs:492`
 (`ctrl-o-command-marks`) is in the file DIFF-WRAP grew, below it; no
 reference points into `grid.rs`, `frame.rs`, `check.rs`, `theme.rs`,
 `transcript.rs` or `event_loop.rs`. No entry's text other than the line
@@ -287,10 +305,47 @@ unit fixed are scored under the train's ledger, where the other unit's cause
 is gone, so they read as uncaused rows on the reference side.
 
 **Result at the head** (`sweep-head.md`): 75 scenarios ran, 0 failed, 0
-timed out; 347 pairs, **178 pass** (51.3%), 165 unresolved, wall 24 min at
-load 15-30.
+timed out; 347 pairs, **178 pass** (51.3%), 165 unresolved, wall 24 min,
+load 15 at its start and 104 at its peak (other sessions' work, its last
+minutes).
 
-(`main` sweep: pending, in the next receipt commit.)
+### Against `main`
+
+`main` `e51685d6`'s build on the same selection (`sweep-main.md`): 347
+pairs, 167 pass, 177 unresolved, 0 failed or timed out, wall 26 min. It ran
+right after the head's, at load 100 at its start (other sessions' work;
+`uptime` read 7.6 two-thirds of the way through). `6c93f359`, merged in since, changes no compiled file,
+so this is `main`'s code.
+
+`compare-main.txt`, pair by pair over all 347: **167 → 178 pass, 0
+dropped**; 12 verdicts moved, every one up, and every one a unit's code:
+
+| pair(s) | `main` → train | what moved it |
+|---|---|---|
+| `p5-toolgroup-retint` `light`, `dark-again`; `-retint-light` `dark`, `light-again` | unresolved → normalized-identical | TG-REDRAW: the four clash snaps, its receipt's `toolgroup-retint-256` cells |
+| `p5-toolgroup-live` `running-light`, `dark`; `p5-toolgroup-ctrlo` `light`, `dark-again` | unresolved → normalized-identical | TG-REDRAW: the four its receipt names on its new scenarios |
+| `p5-transcript-diffwrap` `full`, `-diffwrap2` `full`, `-diffwide` `full` | unresolved → normalized-identical | DIFF-WRAP's reflow (`-diffwrap2` with its tab and mark rules, b/c/d) |
+| `p5-transcript-diffwide2` `full` | unresolved → approved-divergence | DIFF-WRAP's reflow and ENGINE-VS-ANCHOR's anchor: every row left is `filler-modifier-count`'s (below) |
+
+Two pairs changed differing rows without a verdict move:
+- `p5-transcript-diffwide2` `full`: the four `filler-modifier-count` rows,
+  now aligned to fx's at the same row numbers (as against the units' sweeps,
+  below).
+- `read-failures` `live-ctrl-o-up1` (unresolved on both, causes
+  `session-record` and `full-transcript-shift` on both): the "new" rows are
+  the same rows, whose fx text names a path under the sweep's own scratch
+  directory, a fresh random name per run (written `<run-dir>` in
+  `compare-main.txt`). Not the code.
+
+Screens that moved without a verdict (`screen-moves.txt`, its last block):
+204 snaps differ, 189 only in clock-like text; the other 15 are the resume
+id a saved session prints (a fresh one each run: `fulltranscript` ×3,
+`resume-tools` ×4, `p5-transcript-diffask`), fx's own transient `press
+ctrl+c again to exit` on `p5-toolstop-retint-light` `light` and its `-tc`
+twin (fx's screen; TG-REDRAW's receipt names the same hint), the launch
+notice on `p5-transcript-resize` `start`, and the four Ctrl-O diff pages
+whose rows DIFF-WRAP's reflow moves (`diffwide`, `diffwide2`, `diffwrap`,
+`diffwrap2` `full`).
 
 ### Against each unit's own head sweep
 
