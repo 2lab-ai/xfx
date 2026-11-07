@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ run the command
+
+● 1 tool call · 1 command
+└ Ran echo "hi" 42 | grep hi # note
+
+  Done with it.
+
+  0s (↑4 ↓80)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

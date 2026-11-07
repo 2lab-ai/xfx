@@ -247,7 +247,7 @@ reason = "v0.0.16 paints an answer's inline code in the theme's brightest neutra
 owner = "T-U3"
 resolution = "T-U3 ships v0.0.16's inline code shade against the v0.0.16 pin"
 expires = "pin:v0.0.16"
-source = [".prd/07-fx-parity-program.md:43", "docs/parity.md:240", "src/markdown/theme.rs:49", "src/markdown/theme.rs:69"]
+source = [".prd/07-fx-parity-program.md:43", "docs/parity.md:241", "src/markdown/theme.rs:49", "src/markdown/theme.rs:69"]
 
 # v0.0.16: the `/status` panel (P-status). Approved for the v0.0.16 pin only;
 # each lapses at the next pin's review, 2026-12-04 at the latest (there is no
@@ -384,6 +384,10 @@ source = ["docs/parity.md:99", "src/tui/mcp_menu.rs:1500"]
 
 # (b) units in flight, the specific rows first.
 
+# Before truecolor-grey-notation: a truecolor stopped call's own line
+# (`^[▪■] Cancelled `) is a row of both, and the first cause that covers a
+# row is that row's -- so the row stays T-U4's while the marker differs, and
+# is TC-NOTATION's once T-U4 has changed it (T-U3-TCd).
 [[cause]]
 id = "cancelled-marker"
 kind = "unit"
@@ -395,6 +399,26 @@ xfx_row = '^■ Cancelled '
 xfx = ["src/tui/toolgroup.rs:583"]
 fx = ["src/ui/transcript/runtime.zig:618@481104fd"]
 why = "v0.0.16 marks a cancelled tool call `▪` where c1db919 and xfx mark it `■`; T-U4 owns the marker everywhere (.prd/tui-phase5/ssot.md, Wave 1)."
+
+[[cause]]
+id = "truecolor-grey-notation"
+kind = "unit"
+owner = "TC-NOTATION builtin greys spelt 38;5 at every depth"
+scenarios = ["p5-inline-code-retint-tc", "p5-inline-code-retint-light-tc", "p5-inline-code-table-tc", "p5-inline-code-table-light-tc", "p5-toolgroup-retint-tc", "p5-toolgroup-retint-light-tc", "p5-toolstop-retint-tc", "p5-toolstop-retint-light-tc"]
+snaps = ["*"]
+fx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] |^[▪■] Cancelled '
+xfx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] |^[▪■] Cancelled '
+why = "Under COLORTERM=truecolor xfx spells its own greys -- the card's and the composer's rail, a turn's summary, the hint row, a tool group's mark and statusline grey, a stopped call's own line (its marker, `Cancelled` and its argument) -- 38;2;L;L;L (src/tui/theme.rs depth_from_env, truecolor), the same xterm-ramp colours fx writes as 38;5;N: fx's builtins are 256-colour at every depth (src/core/shared/theme.zig:75-159@481104fd), and its capture there is byte-identical to its 256-colour one. Read with each direct grey as the index it spells, these pairs are identical (.prd/tui-phase5/receipts/inline-code-truecolor/, notation.py). Decided 2026-11-07: follow fx; TC-NOTATION spells them 38;5."
+
+[[cause]]
+id = "toolgroup-retint-256"
+kind = "unit"
+owner = "TG-REDRAW tool rows drawn again on a theme switch"
+scenarios = ["p5-toolgroup-retint", "p5-toolgroup-retint-light", "p5-toolstop-retint", "p5-toolstop-retint-light"]
+snaps = ["light", "dark", "dark-again", "light-again"]
+fx_row = '^└ (?:Ran|Cancelled) '
+xfx_row = '^└ (?:Ran|Cancelled) '
+why = "At 256 colours a cell of a tool group's row that holds the statusline grey of the mode in force -- 241 on a light screen, 245 on a dark one -- cannot be told from the statusline: xfx's recolouring of the screen gives it the other mode's statusline grey (245, 241) where fx gives the highlighter's (a string 250, a comment 243), because fx projects the group again in the new theme (src/ui/transcript/tool_group_projection.zig:558-640,742-784@481104fd), from entries xfx does not keep once a group's block closes. A string holds it on a light screen and a comment on a dark one, whether drawn in that mode or moved there by a switch: a string drawn dark is 241 once light, and a comment drawn light is 245 once dark (it goes there as fx's does, T-U3-TCc), so each joins on the next switch (dark-again of p5-toolgroup-retint and p5-toolstop-retint, light-again of their -light twins). A truecolor session has none (T-U3-TCb). .prd/tui-phase5/receipts/inline-code-truecolor/."
 
 [[cause]]
 id = "status-panel-scroll-window"

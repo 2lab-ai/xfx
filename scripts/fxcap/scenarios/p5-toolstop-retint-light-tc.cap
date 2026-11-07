@@ -1,0 +1,22 @@
+# P5 T-U3-TCc: p5-toolstop-retint-light in a session that claims truecolor
+# (COLORTERM=truecolor, as p5-inline-code-retint-tc).
+fx: gateway p5-toolstop-retint-fx.json
+xfx: gateway p5-toolstop-retint-xfx.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+env COLORTERM=truecolor
+env COLORFGBG='0;15'
+wait 3
+type run cmd
+key Enter
+wait 2.5
+key C-c
+wait 3
+snap light
+key -H 1b 5b 3f 39 39 37 3b 31 6e
+wait 2
+snap dark
+key -H 1b 5b 3f 39 39 37 3b 32 6e
+wait 2
+snap light-again

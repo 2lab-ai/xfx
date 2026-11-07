@@ -1,0 +1,175 @@
+# T-U3-TCd: the ledger's causes again, on the same captures -- the c7a3dd15 sweep ledger.txt reads (banner v0.1.0-c7a3dd1,
+# fx v0.0.16 sha256 8e6cda2e...), no capture run and no code changed. Copies of that sweep's --out (two more, altered, in 3), each rescored:
+#   scripts/fxcap/sweep.sh --rescore --ledger <the ledger at 8dd037eb, sha256 ba150b21...> --out <copy-old>
+#   scripts/fxcap/sweep.sh --rescore --out <copy-new>                       (this unit's ledger)
+#   python3 -I ledger-body.py <copy>                                       (ledger.txt's body: tables, then one line per pair)
+#   python3 -I ledger-cover.py scripts/fxcap . <ledger> <copy>             (every cause that covers each row, not only the first)
+#   python3 -I stopped-row.py scripts/fxcap <copy-new>                     (row 8 of the -tc stopped pairs, cell by cell)
+# The ledger at 8dd037eb is the one the sweep ran with (same sha256): copy-old's pairs.json is byte-identical to the sweep's,
+# and ledger-body.py on it prints ledger.txt's lines 11-58 byte for byte.
+#
+# The change: truecolor-grey-notation's fx_row/xfx_row also select a stopped call's own line ('^[▪■] Cancelled '), and
+# cancelled-marker moves to stand before it -- the first cause in the file that covers a row is that row's (sweep.py
+# attribute), so without the move that row would leave cancelled-marker for truecolor-grey-notation in six pairs.
+
+## 1. Attribution: unchanged
+
+copy-new's pairs.json is byte-identical to copy-old's, and so are diffs/. summary.md and scoreboard.md differ in the
+ledger's sha256 and toolgroup-retint-256's reworded `what`; scoreboard.json in the sha256 and the order of
+causes.by_cause, which is the file's (cancelled-marker now first). The body at this unit's ledger:
+
+| total | ran | identical | normalized-identical | approved-divergence | approved-divergence-cascade | replaced-in-next-pin | unresolved-defect | failed | timeout |
+|---|---|---|---|---|---|---|---|---|---|
+| 36 | 36 | 0 | 2 | 0 | 0 | 0 | 34 | 0 | 0 |
+
+| cause | kind | snaps | only | what | owner |
+|---|---|---|---|---|---|
+| truecolor-grey-notation | b | 24 | 18 | … | `TC-NOTATION builtin greys spelt 38;5 at every depth` |
+| cancelled-marker | b | 12 | 2 | … | `T-U4 cancelled marker` |
+| toolgroup-retint-256 | b | 8 | 4 | … | `TG-REDRAW tool rows drawn again on a theme switch` |
+
+(no row without a cause)
+
+p5-inline-code-retint-light-tc   light        unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the code'), (20, '  <wall> (↑4 ↓40)'), (22, '┃'), (24, 'auto · model-a')]
+p5-inline-code-retint-light-tc   dark         unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the code'), (20, '  <wall> (↑4 ↓40)'), (22, '┃'), (24, 'auto · model-a')]
+p5-inline-code-retint-light-tc   light-again  unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the code'), (20, '  <wall> (↑4 ↓40)'), (22, '┃'), (24, 'auto · model-a')]
+p5-inline-code-retint-tc         dark         unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the code'), (20, '  <wall> (↑4 ↓40)'), (22, '┃'), (24, 'auto · model-a')]
+p5-inline-code-retint-tc         light        unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the code'), (20, '  <wall> (↑4 ↓40)'), (22, '┃'), (24, 'auto · model-a')]
+p5-inline-code-retint-tc         dark-again   unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the code'), (20, '  <wall> (↑4 ↓40)'), (22, '┃'), (24, 'auto · model-a')]
+p5-inline-code-table-light-tc    light        unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the table'), (17, '  <wall> (↑5 ↓40)'), (19, '┃'), (21, 'auto · model-a')]
+p5-inline-code-table-light-tc    dark         unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the table'), (17, '  <wall> (↑5 ↓40)'), (19, '┃'), (21, 'auto · model-a')]
+p5-inline-code-table-light-tc    light-again  unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the table'), (17, '  <wall> (↑5 ↓40)'), (19, '┃'), (21, 'auto · model-a')]
+p5-inline-code-table-tc          dark         unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the table'), (17, '  <wall> (↑5 ↓40)'), (19, '┃'), (21, 'auto · model-a')]
+p5-inline-code-table-tc          light        unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the table'), (17, '  <wall> (↑5 ↓40)'), (19, '┃'), (21, 'auto · model-a')]
+p5-inline-code-table-tc          dark-again   unresolved-defect     truecolor-grey-notation                            [(3, '┃ show me the table'), (17, '  <wall> (↑5 ↓40)'), (19, '┃'), (21, 'auto · model-a')]
+p5-toolgroup-retint              dark         normalized-identical  -                                                  []
+p5-toolgroup-retint              light        unresolved-defect     toolgroup-retint-256                               [(6, '└ Ran echo "hi" 42 | grep hi # note')]
+p5-toolgroup-retint              dark-again   unresolved-defect     toolgroup-retint-256                               [(6, '└ Ran echo "hi" 42 | grep hi # note')]
+p5-toolgroup-retint-light        light        normalized-identical  -                                                  []
+p5-toolgroup-retint-light        dark         unresolved-defect     toolgroup-retint-256                               [(6, '└ Ran echo "hi" 42 | grep hi # note')]
+p5-toolgroup-retint-light        light-again  unresolved-defect     toolgroup-retint-256                               [(6, '└ Ran echo "hi" 42 | grep hi # note')]
+p5-toolgroup-retint-light-tc     light        unresolved-defect     truecolor-grey-notation                            [(3, '┃ run the command'), (5, '● 1 tool call · 1 command'), (6, '└ Ran echo "hi" 42 | grep hi # note'), (10, '  <wall> (↑4 ↓80)'), (12, '┃'), (14, 'full access · model-a')]
+p5-toolgroup-retint-light-tc     dark         unresolved-defect     truecolor-grey-notation                            [(3, '┃ run the command'), (5, '● 1 tool call · 1 command'), (6, '└ Ran echo "hi" 42 | grep hi # note'), (10, '  <wall> (↑4 ↓80)'), (12, '┃'), (14, 'full access · model-a')]
+p5-toolgroup-retint-light-tc     light-again  unresolved-defect     truecolor-grey-notation                            [(3, '┃ run the command'), (5, '● 1 tool call · 1 command'), (6, '└ Ran echo "hi" 42 | grep hi # note'), (10, '  <wall> (↑4 ↓80)'), (12, '┃'), (14, 'full access · model-a')]
+p5-toolgroup-retint-tc           dark         unresolved-defect     truecolor-grey-notation                            [(3, '┃ run the command'), (5, '● 1 tool call · 1 command'), (6, '└ Ran echo "hi" 42 | grep hi # note'), (10, '  <wall> (↑4 ↓80)'), (12, '┃'), (14, 'full access · model-a')]
+p5-toolgroup-retint-tc           light        unresolved-defect     truecolor-grey-notation                            [(3, '┃ run the command'), (5, '● 1 tool call · 1 command'), (6, '└ Ran echo "hi" 42 | grep hi # note'), (10, '  <wall> (↑4 ↓80)'), (12, '┃'), (14, 'full access · model-a')]
+p5-toolgroup-retint-tc           dark-again   unresolved-defect     truecolor-grey-notation                            [(3, '┃ run the command'), (5, '● 1 tool call · 1 command'), (6, '└ Ran echo "hi" 42 | grep hi # note'), (10, '  <wall> (↑4 ↓80)'), (12, '┃'), (14, 'full access · model-a')]
+p5-toolstop-retint               dark         unresolved-defect     cancelled-marker                                   [(8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?')]
+p5-toolstop-retint               light        unresolved-defect     toolgroup-retint-256,cancelled-marker              [(6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?')]
+p5-toolstop-retint               dark-again   unresolved-defect     toolgroup-retint-256,cancelled-marker              [(6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?')]
+p5-toolstop-retint-light         light        unresolved-defect     cancelled-marker                                   [(8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?')]
+p5-toolstop-retint-light         dark         unresolved-defect     toolgroup-retint-256,cancelled-marker              [(6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?')]
+p5-toolstop-retint-light         light-again  unresolved-defect     toolgroup-retint-256,cancelled-marker              [(6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?')]
+p5-toolstop-retint-light-tc      light        unresolved-defect     truecolor-grey-notation,cancelled-marker           [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+p5-toolstop-retint-light-tc      dark         unresolved-defect     truecolor-grey-notation,cancelled-marker           [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+p5-toolstop-retint-light-tc      light-again  unresolved-defect     truecolor-grey-notation,cancelled-marker           [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+p5-toolstop-retint-tc            dark         unresolved-defect     truecolor-grey-notation,cancelled-marker           [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+p5-toolstop-retint-tc            light        unresolved-defect     truecolor-grey-notation,cancelled-marker           [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+p5-toolstop-retint-tc            dark-again   unresolved-defect     truecolor-grey-notation,cancelled-marker           [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+
+diff <ledger.txt lines 11-58> <the body above>:
+(no line differs)
+
+## 2. The rows that now carry both causes
+
+diff <ledger-cover.py at 8dd037eb's ledger> <ledger-cover.py at this unit's>, over all 268 unmatched rows (both sides)
+of the 34 unresolved pairs. Row 8 of the six -tc stopped pairs, on each side, is covered by both; it stays
+cancelled-marker's (the first), and nothing else changes:
+
+203,204c203,204
+< p5-toolstop-retint-light-tc    light        fx    8: cancelled-marker                                 | ▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+< p5-toolstop-retint-light-tc    light        xfx   8: cancelled-marker                                 | ■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+---
+> p5-toolstop-retint-light-tc    light        fx    8: cancelled-marker,truecolor-grey-notation         | ▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+> p5-toolstop-retint-light-tc    light        xfx   8: cancelled-marker,truecolor-grey-notation         | ■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+215,216c215,216
+< p5-toolstop-retint-light-tc    dark         fx    8: cancelled-marker                                 | ▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+< p5-toolstop-retint-light-tc    dark         xfx   8: cancelled-marker                                 | ■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+---
+> p5-toolstop-retint-light-tc    dark         fx    8: cancelled-marker,truecolor-grey-notation         | ▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+> p5-toolstop-retint-light-tc    dark         xfx   8: cancelled-marker,truecolor-grey-notation         | ■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+227,228c227,228
+< p5-toolstop-retint-light-tc    light-again  fx    8: cancelled-marker                                 | ▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+< p5-toolstop-retint-light-tc    light-again  xfx   8: cancelled-marker                                 | ■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+---
+> p5-toolstop-retint-light-tc    light-again  fx    8: cancelled-marker,truecolor-grey-notation         | ▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+> p5-toolstop-retint-light-tc    light-again  xfx   8: cancelled-marker,truecolor-grey-notation         | ■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+239,240c239,240
+< p5-toolstop-retint-tc          dark         fx    8: cancelled-marker                                 | ▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+< p5-toolstop-retint-tc          dark         xfx   8: cancelled-marker                                 | ■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+---
+> p5-toolstop-retint-tc          dark         fx    8: cancelled-marker,truecolor-grey-notation         | ▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+> p5-toolstop-retint-tc          dark         xfx   8: cancelled-marker,truecolor-grey-notation         | ■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+251,252c251,252
+< p5-toolstop-retint-tc          light        fx    8: cancelled-marker                                 | ▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+< p5-toolstop-retint-tc          light        xfx   8: cancelled-marker                                 | ■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+---
+> p5-toolstop-retint-tc          light        fx    8: cancelled-marker,truecolor-grey-notation         | ▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+> p5-toolstop-retint-tc          light        xfx   8: cancelled-marker,truecolor-grey-notation         | ■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+263,264c263,264
+< p5-toolstop-retint-tc          dark-again   fx    8: cancelled-marker                                 | ▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+< p5-toolstop-retint-tc          dark-again   xfx   8: cancelled-marker                                 | ■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+---
+> p5-toolstop-retint-tc          dark-again   fx    8: cancelled-marker,truecolor-grey-notation         | ▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+> p5-toolstop-retint-tc          dark-again   xfx   8: cancelled-marker,truecolor-grey-notation         | ■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?
+
+Row 8's cells whose foreground differs (stopped-row.py). In all six pairs -- toolstop.txt:256,283,310 name the three
+where the argument is a one-cell group -- the marker, `Cancelled` and the argument are each a direct grey that reads
+as fx's index, so row 8 still differs once T-U4 makes the marker the same:
+
+p5-toolstop-retint-tc dark: cols 0-0 '▪'/'■' fx 252 xfx (208, 208, 208) reads 252; cols 2-10 'Cancelled'/'Cancelled' fx 255 xfx (238, 238, 238) reads 255; cols 18-18 '6'/'6' fx 245 xfx (138, 138, 138) reads 245
+p5-toolstop-retint-tc light: cols 0-0 '▪'/'■' fx 238 xfx (68, 68, 68) reads 238; cols 2-10 'Cancelled'/'Cancelled' fx 235 xfx (38, 38, 38) reads 235; cols 18-18 '6'/'6' fx 247 xfx (158, 158, 158) reads 247
+p5-toolstop-retint-tc dark-again: cols 0-0 '▪'/'■' fx 252 xfx (208, 208, 208) reads 252; cols 2-10 'Cancelled'/'Cancelled' fx 255 xfx (238, 238, 238) reads 255; cols 18-18 '6'/'6' fx 245 xfx (138, 138, 138) reads 245
+p5-toolstop-retint-light-tc light: cols 0-0 '▪'/'■' fx 238 xfx (68, 68, 68) reads 238; cols 2-10 'Cancelled'/'Cancelled' fx 235 xfx (38, 38, 38) reads 235; cols 18-18 '6'/'6' fx 245 xfx (138, 138, 138) reads 245
+p5-toolstop-retint-light-tc dark: cols 0-0 '▪'/'■' fx 252 xfx (208, 208, 208) reads 252; cols 2-10 'Cancelled'/'Cancelled' fx 255 xfx (238, 238, 238) reads 255; cols 18-18 '6'/'6' fx 245 xfx (138, 138, 138) reads 245
+p5-toolstop-retint-light-tc light-again: cols 0-0 '▪'/'■' fx 238 xfx (68, 68, 68) reads 238; cols 2-10 'Cancelled'/'Cancelled' fx 235 xfx (38, 38, 38) reads 235; cols 18-18 '6'/'6' fx 247 xfx (158, 158, 158) reads 247
+
+## 3. Look-ahead: the captures as T-U4 will leave them
+
+Two more copies: in each, xfx's marker ■ made ▪ in the twelve stopped-call xfx captures (one occurrence in each .ansi and
+.txt, nowhere else), and cancelled-marker taken out of the ledger -- at 8dd037eb (sim-old) and at this unit (sim-new).
+diff <ledger-body.py sim-old> <ledger-body.py sim-new>:
+
+7c7
+< | truecolor-grey-notation | b | 24 | 18 | … | `TC-NOTATION builtin greys spelt 38;5 at every depth` |
+---
+> | truecolor-grey-notation | b | 24 | 24 | … | `TC-NOTATION builtin greys spelt 38;5 at every depth` |
+10c10
+< rows without a cause: [["p5-toolstop-retint-light-tc", "light"], ["p5-toolstop-retint-light-tc", "dark"], ["p5-toolstop-retint-light-tc", "light-again"], ["p5-toolstop-retint-tc", "dark"], ["p5-toolstop-retint-tc", "light"], ["p5-toolstop-retint-tc", "dark-again"]]
+---
+> (no row without a cause)
+
+At 8dd037eb's patterns those six pairs would have row 8 without a cause; at this unit's, none. (In both, the two
+256-colour stopped snaps that differed in the marker alone -- p5-toolstop-retint dark, p5-toolstop-retint-light
+light -- become normalized-identical: 4 of 36.)
+
+## 4. Why cancelled-marker moved: the pattern alone
+
+One more copy, rescored at this unit's ledger with cancelled-marker put back where it stood (after toolgroup-retint-256).
+diff <ledger-body.py at this unit's ledger> <ledger-body.py with the pattern extended and cancelled-marker not moved>:
+
+7,8c7
+< | truecolor-grey-notation | b | 24 | 18 | … | `TC-NOTATION builtin greys spelt 38;5 at every depth` |
+< | cancelled-marker | b | 12 | 2 | … | `T-U4 cancelled marker` |
+---
+> | truecolor-grey-notation | b | 24 | 24 | … | `TC-NOTATION builtin greys spelt 38;5 at every depth` |
+9a9
+> | cancelled-marker | b | 6 | 2 | … | `T-U4 cancelled marker` |
+43,48c43,48
+< p5-toolstop-retint-light-tc      light        unresolved-defect     truecolor-grey-notation,cancelled-marker           [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+< p5-toolstop-retint-light-tc      dark         unresolved-defect     truecolor-grey-notation,cancelled-marker           [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+< p5-toolstop-retint-light-tc      light-again  unresolved-defect     truecolor-grey-notation,cancelled-marker           [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+< p5-toolstop-retint-tc            dark         unresolved-defect     truecolor-grey-notation,cancelled-marker           [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+< p5-toolstop-retint-tc            light        unresolved-defect     truecolor-grey-notation,cancelled-marker           [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+< p5-toolstop-retint-tc            dark-again   unresolved-defect     truecolor-grey-notation,cancelled-marker           [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+---
+> p5-toolstop-retint-light-tc      light        unresolved-defect     truecolor-grey-notation                            [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+> p5-toolstop-retint-light-tc      dark         unresolved-defect     truecolor-grey-notation                            [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+> p5-toolstop-retint-light-tc      light-again  unresolved-defect     truecolor-grey-notation                            [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+> p5-toolstop-retint-tc            dark         unresolved-defect     truecolor-grey-notation                            [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+> p5-toolstop-retint-tc            light        unresolved-defect     truecolor-grey-notation                            [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+> p5-toolstop-retint-tc            dark-again   unresolved-defect     truecolor-grey-notation                            [(3, '┃ run cmd'), (5, '● 1 tool call · 1 command · 1 cancelled'), (6, '└ Cancelled sleep 6 && echo "x" # note'), (8, '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'), (10, '┃'), (12, 'full access · model-a')]
+
+Row 8 of the six -tc stopped pairs would go to truecolor-grey-notation, the first cause covering it, and those pairs would
+lose cancelled-marker (12 snaps to 6). No reader keys on the order: scoreboard.json's causes.by_cause is written by
+sweep.py alone, and ci_sweep.py asks ledger.covering for any nondeterminism cause, not the first.

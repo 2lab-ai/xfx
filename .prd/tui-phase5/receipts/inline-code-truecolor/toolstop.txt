@@ -1,0 +1,409 @@
+# RED: xfx at aad662fe (banner v0.1.0-aad662f) against fx v0.0.16, the stopped-call scenarios, 40x120. Every pair also differs in the cancelled line's marker (fx ▪, xfx ■: the T-U4 cause cancelled-marker), a TEXT-DIFFERS row.
+# python3 -I ../notation.py scripts/fxcap fx/fx-<pair> <dir>/xfx-<pair> <dir>/xfx-<drawn snap of the same run>
+== p5-toolstop-retint dark
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 1 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 252),) xfx (('fg', 252),) TEXT-DIFFERS
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint light
+ramp row 6: fx '└ Cancelled sleep 6 && echo "x" # note'
+ramp row 6: xfx '└ Cancelled sleep 6 && echo "x" # note'
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 2 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 238),) xfx (('fg', 238),) TEXT-DIFFERS
+colour: 5 fx (('fg', 243),) xfx (('fg', 241),) same-text
+colour: 6 fx (('fg', 247),) xfx (('fg', 245),) same-text
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint dark-again
+ramp row 6: fx '└ Cancelled sleep 6 && echo "x" # note'
+ramp row 6: xfx '└ Cancelled sleep 6 && echo "x" # note'
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 2 rows differ (row 1 not compared)
+colour: 3 fx (('fg', 250),) xfx (('fg', 245),) same-text
+colour: 1 fx (('fg', 252),) xfx (('fg', 252),) TEXT-DIFFERS
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint-light light
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 1 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 238),) xfx (('fg', 238),) TEXT-DIFFERS
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint-light dark
+ramp row 6: fx '└ Cancelled sleep 6 && echo "x" # note'
+ramp row 6: xfx '└ Cancelled sleep 6 && echo "x" # note'
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 2 rows differ (row 1 not compared)
+colour: 5 fx (('fg', 245),) xfx (('fg', 243),) same-text
+colour: 3 fx (('fg', 250),) xfx (('fg', 245),) same-text
+colour: 1 fx (('fg', 252),) xfx (('fg', 252),) TEXT-DIFFERS
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint-light light-again
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 1 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 238),) xfx (('fg', 238),) TEXT-DIFFERS
+colour: 1 fx (('fg', 247),) xfx (('fg', 245),) same-text
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint-tc dark
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 1 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 252),) xfx (('fg', 252),) TEXT-DIFFERS
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 49 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 10 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 12 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 71 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint-tc light
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 1 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 238),) xfx (('fg', 238),) TEXT-DIFFERS
+colour: 5 fx (('fg', 247),) xfx (('fg', 243),) same-text
+colour: 1 fx (('fg', 247),) xfx (('fg', 245),) same-text
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 12 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 10 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 48 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 70 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint-tc dark-again
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 1 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 252),) xfx (('fg', 252),) TEXT-DIFFERS
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 49 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 10 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 12 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 71 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint-light-tc light
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 1 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 238),) xfx (('fg', 238),) TEXT-DIFFERS
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 12 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 10 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 48 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 1 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 71 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint-light-tc dark
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 1 rows differ (row 1 not compared)
+colour: 5 fx (('fg', 243),) xfx (('fg', 245),) same-text
+colour: 1 fx (('fg', 252),) xfx (('fg', 252),) TEXT-DIFFERS
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 49 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 10 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 12 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 71 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint-light-tc light-again
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 1 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 238),) xfx (('fg', 238),) TEXT-DIFFERS
+colour: 1 fx (('fg', 247),) xfx (('fg', 245),) same-text
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 12 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 10 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 48 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 70 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+
+# xfx at c7a3dd15 (banner v0.1.0-c7a3dd1) against fx v0.0.16
+# python3 -I ../notation.py scripts/fxcap fx/fx-<pair> <dir>/xfx-<pair> <dir>/xfx-<drawn snap of the same run>
+== p5-toolstop-retint dark
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 1 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 252),) xfx (('fg', 252),) TEXT-DIFFERS
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint light
+ramp row 6: fx '└ Cancelled sleep 6 && echo "x" # note'
+ramp row 6: xfx '└ Cancelled sleep 6 && echo "x" # note'
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 2 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 238),) xfx (('fg', 238),) TEXT-DIFFERS
+colour: 5 fx (('fg', 243),) xfx (('fg', 241),) same-text
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint dark-again
+ramp row 6: fx '└ Cancelled sleep 6 && echo "x" # note'
+ramp row 6: xfx '└ Cancelled sleep 6 && echo "x" # note'
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 2 rows differ (row 1 not compared)
+colour: 3 fx (('fg', 250),) xfx (('fg', 245),) same-text
+colour: 1 fx (('fg', 252),) xfx (('fg', 252),) TEXT-DIFFERS
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint-light light
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 1 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 238),) xfx (('fg', 238),) TEXT-DIFFERS
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint-light dark
+ramp row 6: fx '└ Cancelled sleep 6 && echo "x" # note'
+ramp row 6: xfx '└ Cancelled sleep 6 && echo "x" # note'
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 2 rows differ (row 1 not compared)
+colour: 3 fx (('fg', 250),) xfx (('fg', 245),) same-text
+colour: 1 fx (('fg', 252),) xfx (('fg', 252),) TEXT-DIFFERS
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint-light light-again
+ramp row 6: fx '└ Cancelled sleep 6 && echo "x" # note'
+ramp row 6: xfx '└ Cancelled sleep 6 && echo "x" # note'
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 2 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 238),) xfx (('fg', 238),) TEXT-DIFFERS
+colour: 5 fx (('fg', 243),) xfx (('fg', 241),) same-text
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint-tc dark
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 1 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 252),) xfx (('fg', 252),) TEXT-DIFFERS
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 49 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 10 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 12 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 71 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint-tc light
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 1 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 238),) xfx (('fg', 238),) TEXT-DIFFERS
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 12 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 10 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 48 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 1 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 71 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint-tc dark-again
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 1 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 252),) xfx (('fg', 252),) TEXT-DIFFERS
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 49 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 10 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 12 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 71 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint-light-tc light
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 1 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 238),) xfx (('fg', 238),) TEXT-DIFFERS
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 12 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 10 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 48 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 1 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 71 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint-light-tc dark
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 1 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 252),) xfx (('fg', 252),) TEXT-DIFFERS
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 49 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 10 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 12 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 71 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolstop-retint-light-tc light-again
+ramp row 8: fx '▪ Cancelled sleep 6 && echo "x" # note · What can fx do diff'
+ramp row 8: xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do dif'
+ramp: 1 rows differ (row 1 not compared)
+colour: 1 fx (('fg', 238),) xfx (('fg', 238),) TEXT-DIFFERS
+colour: 17 fx () xfx () TEXT-DIFFERS
+colour: 1 fx None xfx () TEXT-DIFFERS
+notation: 12 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 10 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 48 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 1 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 71 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+
+# The tool-group scenarios again at c7a3dd15 (toolgroup/xfx-c/) against fx v0.0.16
+# python3 -I ../notation.py scripts/fxcap fx/fx-<pair> <dir>/xfx-<pair> <dir>/xfx-<drawn snap of the same run>
+== p5-toolgroup-retint dark
+ramp: 0 rows differ (row 1 not compared)
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint light
+ramp row 6: fx '└ Ran echo "hi" 42 | grep hi # note'
+ramp row 6: xfx '└ Ran echo "hi" 42 | grep hi # note'
+ramp: 1 rows differ (row 1 not compared)
+colour: 5 fx (('fg', 243),) xfx (('fg', 241),) same-text
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolgroup-retint dark-again
+ramp row 6: fx '└ Ran echo "hi" 42 | grep hi # note'
+ramp row 6: xfx '└ Ran echo "hi" 42 | grep hi # note'
+ramp: 1 rows differ (row 1 not compared)
+colour: 4 fx (('fg', 250),) xfx (('fg', 245),) same-text
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolgroup-retint-light light
+ramp: 0 rows differ (row 1 not compared)
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint-light dark
+ramp row 6: fx '└ Ran echo "hi" 42 | grep hi # note'
+ramp row 6: xfx '└ Ran echo "hi" 42 | grep hi # note'
+ramp: 1 rows differ (row 1 not compared)
+colour: 4 fx (('fg', 250),) xfx (('fg', 245),) same-text
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolgroup-retint-light light-again
+ramp row 6: fx '└ Ran echo "hi" 42 | grep hi # note'
+ramp row 6: xfx '└ Ran echo "hi" 42 | grep hi # note'
+ramp: 1 rows differ (row 1 not compared)
+colour: 5 fx (('fg', 243),) xfx (('fg', 241),) same-text
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolgroup-retint-tc dark
+ramp: 0 rows differ (row 1 not compared)
+notation: 43 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 10 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 3 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 56 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint-tc light
+ramp: 0 rows differ (row 1 not compared)
+notation: 3 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 10 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 34 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 56 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint-tc dark-again
+ramp: 0 rows differ (row 1 not compared)
+notation: 43 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 10 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 3 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 56 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint-light-tc light
+ramp: 0 rows differ (row 1 not compared)
+notation: 3 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 10 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 34 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 56 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint-light-tc dark
+ramp: 0 rows differ (row 1 not compared)
+notation: 43 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 10 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 3 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 56 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint-light-tc light-again
+ramp: 0 rows differ (row 1 not compared)
+notation: 3 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 10 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 34 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 56 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0

@@ -1,0 +1,52 @@
+# Mutants of src/tui/theme.rs at 9461bf70, each applied to a saved copy of the file and the file restored after
+# (sha256 7477c7e988c6ecfa before and after). Command per mutant:
+#   cargo test --locked --lib -- tui::theme tui::event_loop::tests::a_truecolor tui::event_loop::tests::a_theme_report \
+#     tui::event_loop::tests::a_tables_cells tui::event_loop::tests::a_code_block
+# A: painter_of returns the palette unchanged (02b4619b's rule: a cell is matched only in the session's notation)
+# B: matched in 38;5 but repainted in the session's notation (Some(self.paint(role)) in both retint functions)
+# C: painter_of also reads a direct grey in a 256-colour session as truecolor
+# Unmutated: 27 passed, 0 failed.
+== mutant A
+test tui::theme::tests::a_direct_colour_session_matches_and_repaints_in_the_same_notation ... FAILED
+test tui::theme::tests::a_truecolor_sessions_code_and_tool_rows_recolour_their_indexed_greys_as_fx ... FAILED
+test tui::event_loop::tests::a_truecolor_sessions_answer_code_recolours_in_the_notation_it_was_drawn_in ... FAILED
+thread 'tui::theme::tests::a_direct_colour_session_matches_and_repaints_in_the_same_notation' panicked at src/tui/theme.rs:1203:9:
+assertion `left == right` failed
+  left: None
+ right: Some("\u{1b}[38;5;235m")
+thread 'tui::theme::tests::a_truecolor_sessions_code_and_tool_rows_recolour_their_indexed_greys_as_fx' panicked at src/tui/theme.rs:1256:13:
+assertion `left == right` failed: Code 245
+  left: None
+ right: Some("\u{1b}[38;5;243m")
+thread 'tui::event_loop::tests::a_truecolor_sessions_answer_code_recolours_in_the_notation_it_was_drawn_in' panicked at src/tui/event_loop.rs:5707:9:
+assertion `left == right` failed: the answer's inline code kept the dark grey, or changed notation: "\u{1b}[?2026h\u{1b}[?25l\u{1b}[9;1H\u{1b}[38;2;38;38;38m┃\u{1b}[20;1H\u{1b}[0m\u{1b}[38;2;158;158;158m  0s (↑2 ↓18)\u{1b}[0m\u{1b}[22;3H\u{1b}[22;1H\u{1b}[38;2;38;38;38m┃\u{1b}[24;1H\u{1b}[0m\u{1b}[38;2;98;98;98mrun `xfx setup` · \u{1b}[0m\u{1b}[38;2;68;68;68mauto\u{1b}[0m\u{1b}[38;2;98;98;98m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h"
+  left: None
+ right: Some("38;5;235")
+test result: FAILED. 24 passed; 3 failed; 0 ignored; 0 measured; 3972 filtered out; finished in 0.03s
+error: test failed, to rerun pass `--lib`
+== mutant B
+test tui::theme::tests::a_direct_colour_session_matches_and_repaints_in_the_same_notation ... FAILED
+test tui::theme::tests::a_truecolor_sessions_code_and_tool_rows_recolour_their_indexed_greys_as_fx ... FAILED
+test tui::event_loop::tests::a_truecolor_sessions_answer_code_recolours_in_the_notation_it_was_drawn_in ... FAILED
+thread 'tui::theme::tests::a_direct_colour_session_matches_and_repaints_in_the_same_notation' panicked at src/tui/theme.rs:1208:9:
+assertion `left == right` failed
+  left: Some("\u{1b}[38;2;38;38;38m")
+ right: Some("\u{1b}[38;5;235m")
+thread 'tui::theme::tests::a_truecolor_sessions_code_and_tool_rows_recolour_their_indexed_greys_as_fx' panicked at src/tui/theme.rs:1261:13:
+assertion `left == right` failed: Code 245
+  left: Some("\u{1b}[38;2;118;118;118m")
+ right: Some("\u{1b}[38;5;243m")
+thread 'tui::event_loop::tests::a_truecolor_sessions_answer_code_recolours_in_the_notation_it_was_drawn_in' panicked at src/tui/event_loop.rs:5707:9:
+assertion `left == right` failed: the answer's inline code kept the dark grey, or changed notation: "\u{1b}[?2026h\u{1b}[?25l\u{1b}[9;1H\u{1b}[38;2;38;38;38m┃\u{1b}[11;7Hzig build\u{1b}[14;3H\u{1b}[0m\u{1b}[38;2;118;118;118m# build it\u{1b}[15;3H\u{1b}[0m\u{1b}[38;2;68;68;68mzig\u{1b}[20;1H\u{1b}[0m\u{1b}[38;2;158;158;158m  0s (↑2 ↓18)\u{1b}[0m\u{1b}[22;3H\u{1b}[22;1H\u{1b}[38;2;38;38;38m┃\u{1b}[24;1H\u{1b}[0m\u{1b}[38;2;98;98;98mrun `xfx setup` · \u{1b}[0m\u{1b}[38;2;68;68;68mauto\u{1b}[0m\u{1b}[38;2;98;98;98m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h"
+  left: Some("38;2;38;38;38")
+ right: Some("38;5;235")
+test result: FAILED. 24 passed; 3 failed; 0 ignored; 0 measured; 3972 filtered out; finished in 0.03s
+error: test failed, to rerun pass `--lib`
+== mutant C
+test tui::theme::tests::a_direct_colour_session_matches_and_repaints_in_the_same_notation ... FAILED
+thread 'tui::theme::tests::a_direct_colour_session_matches_and_repaints_in_the_same_notation' panicked at src/tui/theme.rs:1235:9:
+assertion `left == right` failed
+  left: Some("\u{1b}[38;2;38;38;38m")
+ right: None
+test result: FAILED. 26 passed; 1 failed; 0 ignored; 0 measured; 3972 filtered out; finished in 0.03s
+error: test failed, to rerun pass `--lib`

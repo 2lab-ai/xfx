@@ -1226,10 +1226,14 @@ mod tests {
     fn a_theme_report_repaints_a_group_as_the_other_palette_would_draw_it() {
         // The 245 of a group's rows is upstream's statusline grey and goes to
         // 241 on a light screen; the summary under it is the dim grey, also
-        // 245 on dark, and goes to 247. A command's words go 252 -> 238, the
-        // mark 255 -> 235, and a cancelled call's own line keeps its argument
-        // in 245 on either screen (`tool_stdout_style`). Each cell is compared
-        // with what drawing the same group in the light palette leaves.
+        // 245 on dark, and goes to 247. A command's words go 252 -> 238 and
+        // the mark 255 -> 235. Each cell of the group's own rows is compared
+        // with what drawing the same group in the light palette leaves --
+        // upstream projects them again (`tool_group_projection.zig:558-640`).
+        // A cancelled call's own line is not projected again but rewritten
+        // through upstream's token table (`:649-664`, `store.zig:3784-3800`),
+        // so its argument, drawn 245 on either screen, is 247 after the
+        // switch where a fresh light drawing has 245 (`p5-toolstop-retint`).
         let mut group = ToolGroup::default();
         group.start(
             "1".into(),
@@ -1247,7 +1251,25 @@ mod tests {
         assert!(moved > 0, "nothing was repainted");
         let light_rows = drawn_in(&mut group, LIGHT);
         let (fresh, _) = on_a_grid(&group, &light_rows, LIGHT);
-        same_cells(&repainted, &fresh, last);
+        let stopped = (1..=last)
+            .find(|&line| repainted.kind(line) == DocumentRow::ToolStopped)
+            .expect("a cancelled call's own line");
+        same_cells(&repainted, &fresh, stopped - 1);
+        let argument = (1..=repainted.cols())
+            .find(|&column| {
+                matches!(repainted.cell(stopped, column),
+                    Some(super::super::grid::Cell::Lead { grapheme, .. }) if grapheme == "3")
+            })
+            .expect("the argument's `30`");
+        let Some(super::super::grid::Cell::Lead { sgr, .. }) = repainted.cell(stopped, argument)
+        else {
+            unreachable!()
+        };
+        assert_eq!(
+            sgr.color().ok(),
+            Some(crate::tui::check::Color::Indexed(247)),
+            "a cancelled call's argument did not move as upstream's token table moves it"
+        );
 
         // And back: a light screen reported dark again is the dark drawing.
         // (Without a quoted string or a number in the command: on light those
