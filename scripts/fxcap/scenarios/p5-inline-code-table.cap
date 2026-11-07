@@ -1,0 +1,20 @@
+# P5 U3b: a table's inline code across a live theme switch. fx keeps a table's
+# cells as they were styled when the table was added (store.zig:3758@481104fd
+# skips `.assistant_table`; renderTableForTranscript takes no theme,
+# transcript_blocks.zig:980-984), so its inline code keeps the shade it was
+# drawn in while the prose around it is recoloured. Dark first, then the
+# terminal reports light and dark again (as p5-inline-code-retint).
+gateway p5-inline-code-table-turns.json
+fx: env FX_AUTO_UPGRADE=0
+wait 4
+type show me the table
+wait 1
+key Enter
+wait 8
+snap dark
+key -H 1b 5b 3f 39 39 37 3b 32 6e
+wait 2
+snap light
+key -H 1b 5b 3f 39 39 37 3b 31 6e
+wait 2
+snap dark-again

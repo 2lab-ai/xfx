@@ -1,0 +1,154 @@
+Mutants of src/local_time.rs on a throwaway `git clone --no-local` of this branch (the code of this commit), macOS. Each: cargo test --lib -- local_time:: tui::full_transcript::tests::a_header_is ; cargo test --test tui ctrl_o_reads
+
+=== mutant: none
+test local_time::tests::a_reading_is_the_moment_in_the_given_zone ... ok
+test local_time::tests::a_zone_without_a_plain_name_shows_its_offset ... ok
+test local_time::tests::a_zone_that_cannot_apply_reads_in_utc ... ok
+test local_time::tests::a_reading_follows_the_test_zone ... ok
+test tui::full_transcript::tests::a_header_is_upstreams_local_stamp_and_the_entrys_kind ... ok
+test local_time::tests::no_offset_or_moment_makes_a_reading_fail ... ok
+test local_time::tests::a_hostile_abbreviation_never_reaches_the_screen ... ok
+test local_time::tests::the_c_library_reads_daylight_saving_time_on_each_moments_own_date ... ok
+test local_time::tests::the_c_library_reads_a_zone_without_a_usable_abbreviation_as_its_offset ... ok
+test local_time::tests::the_c_library_reads_a_zone_that_cannot_apply_in_utc ... ok
+test local_time::tests::a_hostile_zone_file_never_reaches_the_screen ... ok
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 4007 filtered out; finished in 0.44s
+test ctrl_o_reads_its_headers_in_the_local_zone_and_never_prints_a_zone_files_escapes ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 170 filtered out; finished in 1.42s
+=== mutant: filter-removed
+193,197c193,194
+< fn is_plain_zone_name(name: &[u8]) -> bool {
+<     (1..=MAX_ZONE_NAME_LEN).contains(&name.len())
+<         && name
+<             .iter()
+<             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-'))
+> fn is_plain_zone_name(_name: &[u8]) -> bool {
+test local_time::tests::a_reading_is_the_moment_in_the_given_zone ... ok
+test local_time::tests::a_reading_follows_the_test_zone ... ok
+test local_time::tests::a_zone_without_a_plain_name_shows_its_offset ... FAILED
+test local_time::tests::a_zone_that_cannot_apply_reads_in_utc ... FAILED
+test local_time::tests::no_offset_or_moment_makes_a_reading_fail ... FAILED
+test tui::full_transcript::tests::a_header_is_upstreams_local_stamp_and_the_entrys_kind ... FAILED
+test local_time::tests::a_hostile_abbreviation_never_reaches_the_screen ... FAILED
+test local_time::tests::the_c_library_reads_a_zone_without_a_usable_abbreviation_as_its_offset ... FAILED
+test local_time::tests::the_c_library_reads_daylight_saving_time_on_each_moments_own_date ... ok
+test local_time::tests::the_c_library_reads_a_zone_that_cannot_apply_in_utc ... ok
+test local_time::tests::a_hostile_zone_file_never_reaches_the_screen ... FAILED
+test result: FAILED. 5 passed; 7 failed; 0 ignored; 0 measured; 4007 filtered out; finished in 0.42s
+test ctrl_o_reads_its_headers_in_the_local_zone_and_never_prints_a_zone_files_escapes ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 170 filtered out; finished in 1.35s
+=== mutant: length-only
+195,197d194
+<         && name
+<             .iter()
+<             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-'))
+test local_time::tests::a_reading_is_the_moment_in_the_given_zone ... ok
+test local_time::tests::a_reading_follows_the_test_zone ... ok
+test local_time::tests::a_zone_that_cannot_apply_reads_in_utc ... ok
+test local_time::tests::no_offset_or_moment_makes_a_reading_fail ... ok
+test local_time::tests::a_zone_without_a_plain_name_shows_its_offset ... FAILED
+test tui::full_transcript::tests::a_header_is_upstreams_local_stamp_and_the_entrys_kind ... FAILED
+test local_time::tests::a_hostile_abbreviation_never_reaches_the_screen ... FAILED
+test local_time::tests::the_c_library_reads_daylight_saving_time_on_each_moments_own_date ... ok
+test local_time::tests::the_c_library_reads_a_zone_without_a_usable_abbreviation_as_its_offset ... ok
+test local_time::tests::the_c_library_reads_a_zone_that_cannot_apply_in_utc ... ok
+test local_time::tests::a_hostile_zone_file_never_reaches_the_screen ... FAILED
+test result: FAILED. 8 passed; 4 failed; 0 ignored; 0 measured; 4007 filtered out; finished in 0.46s
+test ctrl_o_reads_its_headers_in_the_local_zone_and_never_prints_a_zone_files_escapes ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 170 filtered out; finished in 1.38s
+=== mutant: charset-only
+194,197c194
+<     (1..=MAX_ZONE_NAME_LEN).contains(&name.len())
+<         && name
+<             .iter()
+<             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-'))
+>     name.iter().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-'))
+test local_time::tests::a_reading_is_the_moment_in_the_given_zone ... ok
+test local_time::tests::a_reading_follows_the_test_zone ... ok
+test tui::full_transcript::tests::a_header_is_upstreams_local_stamp_and_the_entrys_kind ... ok
+test local_time::tests::no_offset_or_moment_makes_a_reading_fail ... FAILED
+test local_time::tests::a_zone_that_cannot_apply_reads_in_utc ... FAILED
+test local_time::tests::a_zone_without_a_plain_name_shows_its_offset ... FAILED
+test local_time::tests::a_hostile_abbreviation_never_reaches_the_screen ... FAILED
+test local_time::tests::the_c_library_reads_daylight_saving_time_on_each_moments_own_date ... ok
+test local_time::tests::the_c_library_reads_a_zone_without_a_usable_abbreviation_as_its_offset ... FAILED
+test local_time::tests::the_c_library_reads_a_zone_that_cannot_apply_in_utc ... ok
+test local_time::tests::a_hostile_zone_file_never_reaches_the_screen ... FAILED
+test result: FAILED. 6 passed; 6 failed; 0 ignored; 0 measured; 4007 filtered out; finished in 0.43s
+test ctrl_o_reads_its_headers_in_the_local_zone_and_never_prints_a_zone_files_escapes ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 170 filtered out; finished in 1.37s
+=== mutant: no-day-fallback
+146,147c146
+<     if zone.offset_s.unsigned_abs() >= SECONDS_PER_DAY
+<         || !(0..=MAX_TIMESTAMP_MS).contains(&local_ms)
+>     if !(0..=MAX_TIMESTAMP_MS).contains(&local_ms)
+test local_time::tests::a_reading_is_the_moment_in_the_given_zone ... ok
+test local_time::tests::a_zone_without_a_plain_name_shows_its_offset ... ok
+test local_time::tests::a_reading_follows_the_test_zone ... ok
+test tui::full_transcript::tests::a_header_is_upstreams_local_stamp_and_the_entrys_kind ... ok
+test local_time::tests::no_offset_or_moment_makes_a_reading_fail ... ok
+test local_time::tests::a_hostile_abbreviation_never_reaches_the_screen ... ok
+test local_time::tests::a_zone_that_cannot_apply_reads_in_utc ... FAILED
+test local_time::tests::the_c_library_reads_daylight_saving_time_on_each_moments_own_date ... ok
+test local_time::tests::the_c_library_reads_a_zone_without_a_usable_abbreviation_as_its_offset ... ok
+test local_time::tests::the_c_library_reads_a_zone_that_cannot_apply_in_utc ... FAILED
+test local_time::tests::a_hostile_zone_file_never_reaches_the_screen ... ok
+test result: FAILED. 10 passed; 2 failed; 0 ignored; 0 measured; 4007 filtered out; finished in 0.46s
+test ctrl_o_reads_its_headers_in_the_local_zone_and_never_prints_a_zone_files_escapes ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 170 filtered out; finished in 1.57s
+=== mutant: no-range-fallback
+147d146
+<         || !(0..=MAX_TIMESTAMP_MS).contains(&local_ms)
+test local_time::tests::a_zone_without_a_plain_name_shows_its_offset ... ok
+test local_time::tests::a_reading_is_the_moment_in_the_given_zone ... ok
+test local_time::tests::a_reading_follows_the_test_zone ... ok
+test tui::full_transcript::tests::a_header_is_upstreams_local_stamp_and_the_entrys_kind ... ok
+test local_time::tests::a_zone_that_cannot_apply_reads_in_utc ... FAILED
+test local_time::tests::no_offset_or_moment_makes_a_reading_fail ... FAILED
+test local_time::tests::a_hostile_abbreviation_never_reaches_the_screen ... ok
+test local_time::tests::the_c_library_reads_a_zone_that_cannot_apply_in_utc ... FAILED
+test local_time::tests::the_c_library_reads_daylight_saving_time_on_each_moments_own_date ... ok
+test local_time::tests::the_c_library_reads_a_zone_without_a_usable_abbreviation_as_its_offset ... ok
+test local_time::tests::a_hostile_zone_file_never_reaches_the_screen ... ok
+test result: FAILED. 9 passed; 3 failed; 0 ignored; 0 measured; 4007 filtered out; finished in 0.47s
+test ctrl_o_reads_its_headers_in_the_local_zone_and_never_prints_a_zone_files_escapes ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 170 filtered out; finished in 1.43s
+
+--- filter-removed: every hostile case, as the two tests report them
+a_hostile_abbreviation_never_reaches_the_screen:
+[
+    "ESC, a CSI erase: Ok(\"2024-01-02 08:34:05.006 \\u{1b}[2J\")",
+    "ESC, a CSI colour: Ok(\"2024-01-02 08:34:05.006 \\u{1b}[31mX\")",
+    "an OSC title: Ok(\"2024-01-02 08:34:05.006 \\u{1b}]0;pwn\\u{7}\")",
+    "an OSC 8 link: Err(\"panicked\")",
+    "a C1 CSI, in UTF-8: Ok(\"2024-01-02 08:34:05.006 \\u{9b}2J\")",
+    "a bare C1 CSI: Ok(\"2024-01-02 08:34:05.006 \")",
+    "a bare C1 OSC: Ok(\"2024-01-02 08:34:05.006 \")",
+    "a bell: Ok(\"2024-01-02 08:34:05.006 IST\\u{7}\")",
+    "a DEL: Ok(\"2024-01-02 08:34:05.006 IST\\u{7f}\")",
+    "a NUL inside: Ok(\"2024-01-02 08:34:05.006 IS\\0T\")",
+    "non-ASCII: Ok(\"2024-01-02 08:34:05.006 KST한\")",
+    "Latin-1: Ok(\"2024-01-02 08:34:05.006 \")",
+    "a space: Ok(\"2024-01-02 08:34:05.006 A B\")",
+    "an underscore (macOS's scrubbed ESC): Ok(\"2024-01-02 08:34:05.006 __2J\")",
+    "eleven bytes: Err(\"panicked\")",
+    "300 bytes: Err(\"panicked\")",
+]
+a_hostile_zone_file_never_reaches_the_screen:
+[
+    "ESC, a CSI erase: Ok(\"2024-01-02 08:34:05.006 __2J\")",
+    "ESC, a CSI colour: Ok(\"2024-01-02 08:34:05.006 __31mX\")",
+    "an OSC title: Ok(\"2024-01-02 08:34:05.006 __0_pwn_\")",
+    "an OSC 8 link: Err(\"the copy failed: thread 'local_time::tests::a_copy_of_this_binary_reads_its_zone' (<tid>) panicked at src/local_time.rs:177:12: range end index 11 out of range for slice of l
+    "a C1 CSI, in UTF-8: Ok(\"2024-01-02 08:34:05.006 __2J\")",
+    "a bare C1 CSI: Ok(\"2024-01-02 08:34:05.006 _2J\")",
+    "a bare C1 OSC: Ok(\"2024-01-02 08:34:05.006 _0_x_\")",
+    "a bell: Ok(\"2024-01-02 08:34:05.006 IST_\")",
+    "a DEL: Ok(\"2024-01-02 08:34:05.006 IST_\")",
+    "non-ASCII: Ok(\"2024-01-02 08:34:05.006 KST___\")",
+    "Latin-1: Ok(\"2024-01-02 08:34:05.006 K_T\")",
+    "a space: Ok(\"2024-01-02 08:34:05.006 A B\")",
+    "an underscore (macOS's scrubbed ESC): Ok(\"2024-01-02 08:34:05.006 __2J\")",
+    "eleven bytes: Err(\"the copy failed: thread 'local_time::tests::a_copy_of_this_binary_reads_its_zone' (<tid>) panicked at src/local_time.rs:177:12: range end index 11 out of range for slice of le
+    "forty bytes and an ESC: Err(\"the copy failed: thread 'local_time::tests::a_copy_of_this_binary_reads_its_zone' (<tid>) panicked at src/local_time.rs:177:12: range end index 11 out of range for s
+]

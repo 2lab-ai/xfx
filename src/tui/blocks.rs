@@ -1074,7 +1074,7 @@ const OSC8_CLOSE: &[u8] = b"\x1b]8;;\x1b\\";
 /// longer than 24 bytes that is *not* a theme slot. Upstream ignores it and
 /// keeps the previous foreground; this carries it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct CellSgr<'a> {
+pub(crate) struct CellSgr<'a> {
     bold: bool,
     dim: bool,
     italic: bool,
@@ -1088,13 +1088,13 @@ struct CellSgr<'a> {
 const REOPEN_CAPACITY: usize = 64;
 
 impl<'a> CellSgr<'a> {
-    fn is_active(&self) -> bool {
+    pub(crate) fn is_active(&self) -> bool {
         self.bold || self.dim || self.italic || self.underline || self.strike || self.fg.is_some()
     }
 
     /// Updates from one complete escape sequence; anything but an SGR is
     /// ignored (`pacer.zig:64-117`).
-    fn apply(&mut self, seq: &'a [u8]) {
+    pub(crate) fn apply(&mut self, seq: &'a [u8]) {
         if seq.len() < 3 || seq[0] != ESC || seq[1] != b'[' || seq[seq.len() - 1] != b'm' {
             return;
         }
@@ -1156,7 +1156,7 @@ impl<'a> CellSgr<'a> {
 
     /// The opens that restore this state, bold first and the foreground last
     /// (`pacer.zig:132-162`).
-    fn write_opens(&self, out: &mut Vec<u8>) {
+    pub(crate) fn write_opens(&self, out: &mut Vec<u8>) {
         let mut written = 0;
         let mut append = |src: &[u8]| {
             if written + src.len() <= REOPEN_CAPACITY {
@@ -1297,6 +1297,17 @@ mod tests {
     //! `renderTableForTranscript`, `renderThematicRuleForTranscript`, and
     //! `assistant_wrap.prefixStructuralRows`, under Zig 0.16 with upstream's
     //! default (dark, unpinned) theme.
+    //!
+    //! fx v0.0.16's `5e32bce2` moved inline code's open in a table cell to
+    //! `ESC[38;5;255m` from `c1db9191`'s `ESC[38;5;245m`
+    //! (`theme.zig:102@481104fd`; the same length, so no row moves). The
+    //! `table_*` and `cells_*` goldens carry that change, and only those: a
+    //! code panel's `245` is the comment grey, which did not move. The table
+    //! sweeps still compare against `c1db9191`'s hashes with that one sequence
+    //! put back ([`C1DB_INLINE_CODE`]), and pass with it. They were not dumped
+    //! again at `481104fd` (no Zig 0.17 toolchain here), so a change to table
+    //! rendering in another commit of `c1db9191..481104fd` is not checked by
+    //! them.
 
     use super::*;
 
@@ -2041,6 +2052,18 @@ mod tests {
         ("rule", 0x917b_e065_e3f0_a13a, 121),
     ];
 
+    /// Inline code's open at `c1db9191`, the build [`UPSTREAM_SWEEPS`] were
+    /// taken from; v0.0.16's is [`FX_DARK`]'s.
+    const C1DB_INLINE_CODE: &str = "\x1b[38;5;245m";
+
+    /// A table's rows as `c1db9191` drew them: the same bytes but for inline
+    /// code's open (`5e32bce2`). A table cell has no other `255` to confuse
+    /// it with: its only colours are inline code's and a link's.
+    fn as_c1db(rows: String) -> String {
+        assert_ne!(FX_DARK.inline_code_open, C1DB_INLINE_CODE);
+        rows.replace(FX_DARK.inline_code_open.as_ref(), C1DB_INLINE_CODE)
+    }
+
     #[test]
     fn matches_upstream_bytes_at_every_width() {
         let mut panels = Fnv::new();
@@ -2058,8 +2081,8 @@ mod tests {
         let mut table_rows = Fnv::new();
         for parsed in fixture_tables() {
             for cols in 0..=120 {
-                tables.feed(&render_table(&parsed, cols));
-                table_rows.feed(&table_row_bytes(&parsed, cols));
+                tables.feed(&as_c1db(render_table(&parsed, cols)));
+                table_rows.feed(&as_c1db(table_row_bytes(&parsed, cols)));
             }
         }
         let mut rules = Fnv::new();
@@ -2627,10 +2650,10 @@ mod tests {
                 "┌───┬─────────────────────────────────┬────────────────────────────────────────┐\n",
                 "│ \x1b[1m#\x1b[22m │ \x1b[1mChoice\x1b[22m                          │ \x1b[1mDirect consequences\x1b[22m                    │\n",
                 "├───┼─────────────────────────────────┼────────────────────────────────────────┤\n",
-                "│ 1 │ \x1b[1mChange:\x1b[22m on reopen, an\x1b[0m           │ \x1b[38;5;245mrecovery.json\x1b[39m and \x1b[38;5;245mrecovery.asked\x1b[39m go\x1b[0m    │\n",
+                "│ 1 │ \x1b[1mChange:\x1b[22m on reopen, an\x1b[0m           │ \x1b[38;5;255mrecovery.json\x1b[39m and \x1b[38;5;255mrecovery.asked\x1b[39m go\x1b[0m    │\n",
                 "│   │ unfinished turn gets            │ away. The adapter handles a turn that  │\n",
-                "│   │ \x1b[38;5;245mturn_interrupted{reason:\x1b[0m        │ ends in a tool call with no result     │\n",
-                "│   │ \x1b[38;5;245mcrash}\x1b[39m; it's never cut\x1b[0m          │                                        │\n",
+                "│   │ \x1b[38;5;255mturn_interrupted{reason:\x1b[0m        │ ends in a tool call with no result     │\n",
+                "│   │ \x1b[38;5;255mcrash}\x1b[39m; it's never cut\x1b[0m          │                                        │\n",
                 "├───┼─────────────────────────────────┼────────────────────────────────────────┤\n",
                 "│ 8 │ \x1b[1mKeep:\x1b[22m forks start only at turn\x1b[0m  │ Mid-turn forks deferred                │\n",
                 "│   │ boundaries (or turn 0)          │                                        │\n",
@@ -2644,13 +2667,13 @@ mod tests {
                 "│ \x1b[1m#\x1b[22m │ \x1b[1mChoice\x1b[22m          │ \x1b[1mDirect\x1b[22m         │\n",
                 "│   │                 │ \x1b[1mconsequences\x1b[22m   │\n",
                 "├───┼─────────────────┼────────────────┤\n",
-                "│ 1 │ \x1b[1mChange:\x1b[22m on\x1b[0m      │ \x1b[38;5;245mrecovery.json\x1b[39m\x1b[0m  │\n",
+                "│ 1 │ \x1b[1mChange:\x1b[22m on\x1b[0m      │ \x1b[38;5;255mrecovery.json\x1b[39m\x1b[0m  │\n",
                 "│   │ reopen, an      │ and            │\n",
-                "│   │ unfinished turn │ \x1b[38;5;245mrecovery.asked\x1b[39m\x1b[0m │\n",
+                "│   │ unfinished turn │ \x1b[38;5;255mrecovery.asked\x1b[39m\x1b[0m │\n",
                 "│   │ gets            │ go away. The   │\n",
-                "│   │ \x1b[38;5;245mturn_interrupte\x1b[0m │ adapter        │\n",
-                "│   │ \x1b[38;5;245md{reason:\x1b[0m       │ handles a turn │\n",
-                "│   │ \x1b[38;5;245mcrash}\x1b[39m; it's\x1b[0m    │ that ends in a │\n",
+                "│   │ \x1b[38;5;255mturn_interrupte\x1b[0m │ adapter        │\n",
+                "│   │ \x1b[38;5;255md{reason:\x1b[0m       │ handles a turn │\n",
+                "│   │ \x1b[38;5;255mcrash}\x1b[39m; it's\x1b[0m    │ that ends in a │\n",
                 "│   │ never cut       │ tool call with │\n",
                 "│   │                 │ no result      │\n",
                 "├───┼─────────────────┼────────────────┤\n",
@@ -2669,13 +2692,13 @@ mod tests {
                 "│Choice: \x1b[1mChange│\n",
                 "│:\x1b[22m on reopen, a│\n",
                 "│n unfinished t│\n",
-                "│urn gets \x1b[38;5;245mturn_│\n",
+                "│urn gets \x1b[38;5;255mturn_│\n",
                 "│interrupted{re│\n",
                 "│ason: crash}\x1b[39m; │\n",
                 "│it's never cut│\n",
                 "│Direct consequ│\n",
-                "│ences: \x1b[38;5;245mrecover│\n",
-                "│y.json\x1b[39m and \x1b[38;5;245mrec│\n",
+                "│ences: \x1b[38;5;255mrecover│\n",
+                "│y.json\x1b[39m and \x1b[38;5;255mrec│\n",
                 "│overy.asked\x1b[39m go│\n",
                 "│ away. The ada│\n",
                 "│pter handles a│\n",
@@ -2725,8 +2748,8 @@ mod tests {
                 "┌──────┬─────────────────────┐\n",
                 "│ \x1b[1mName\x1b[22m │ \x1b[1mNotes\x1b[22m               │\n",
                 "├──────┼─────────────────────┤\n",
-                "│ api  │ see \x1b[38;5;245malpha beta\x1b[0m      │\n",
-                "│      │ \x1b[38;5;245mgamma delta\x1b[39m and \x1b]8;id=fx-1;https://example.com/docs\x1b\\\x1b[38;5;75m\x1b[4mthe\x1b[0m\x1b]8;;\x1b\\ │\n",
+                "│ api  │ see \x1b[38;5;255malpha beta\x1b[0m      │\n",
+                "│      │ \x1b[38;5;255mgamma delta\x1b[39m and \x1b]8;id=fx-1;https://example.com/docs\x1b\\\x1b[38;5;75m\x1b[4mthe\x1b[0m\x1b]8;;\x1b\\ │\n",
                 "│      │ \x1b[4m\x1b[38;5;75m\x1b]8;id=fx-1;https://example.com/docs\x1b\\project\x1b[0m\x1b]8;;\x1b\\             │\n",
                 "│      │ \x1b[4m\x1b[38;5;75m\x1b]8;id=fx-1;https://example.com/docs\x1b\\documentation\x1b[24m\x1b[39m\x1b]8;;\x1b\\ or\x1b[0m    │\n",
                 "│      │ \x1b[4m\x1b[38;5;75m\x1b]8;id=fx-2;https://example.com/a b\x1b\\spaced reference\x1b[24m\x1b[39m\x1b]8;;\x1b\\\x1b[0m    │\n",
@@ -2894,8 +2917,8 @@ mod tests {
                 "   c\x1b[0m",
             ),
         ),
-        ("cells_link", "Name\u{1f}Notes\u{1e}api\u{1f}see \x1b[38;5;245malpha beta gamma delta\x1b[39m and \x1b]8;id=fx-1;https://example.com/docs\x1b\\\x1b[38;5;75m\x1b[4mthe project documentation\x1b[24m\x1b[39m\x1b]8;;\x1b\\ or \x1b]8;id=fx-2;https://example.com/a b\x1b\\\x1b[38;5;75m\x1b[4mspaced reference\x1b[24m\x1b[39m\x1b]8;;\x1b\\ now\u{1d}ll"),
-        ("cells_decision", "#\u{1f}Choice\u{1f}Direct consequences\u{1e}1\u{1f}\x1b[1mChange:\x1b[22m on reopen, an unfinished turn gets \x1b[38;5;245mturn_interrupted{reason: crash}\x1b[39m; it's never cut\u{1f}\x1b[38;5;245mrecovery.json\x1b[39m and \x1b[38;5;245mrecovery.asked\x1b[39m go away. The adapter handles a turn that ends in a tool call with no result\u{1e}8\u{1f}\x1b[1mKeep:\x1b[22m forks start only at turn boundaries (or turn 0)\u{1f}Mid-turn forks deferred\u{1d}lll"),
+        ("cells_link", "Name\u{1f}Notes\u{1e}api\u{1f}see \x1b[38;5;255malpha beta gamma delta\x1b[39m and \x1b]8;id=fx-1;https://example.com/docs\x1b\\\x1b[38;5;75m\x1b[4mthe project documentation\x1b[24m\x1b[39m\x1b]8;;\x1b\\ or \x1b]8;id=fx-2;https://example.com/a b\x1b\\\x1b[38;5;75m\x1b[4mspaced reference\x1b[24m\x1b[39m\x1b]8;;\x1b\\ now\u{1d}ll"),
+        ("cells_decision", "#\u{1f}Choice\u{1f}Direct consequences\u{1e}1\u{1f}\x1b[1mChange:\x1b[22m on reopen, an unfinished turn gets \x1b[38;5;255mturn_interrupted{reason: crash}\x1b[39m; it's never cut\u{1f}\x1b[38;5;255mrecovery.json\x1b[39m and \x1b[38;5;255mrecovery.asked\x1b[39m go away. The adapter handles a turn that ends in a tool call with no result\u{1e}8\u{1f}\x1b[1mKeep:\x1b[22m forks start only at turn boundaries (or turn 0)\u{1f}Mid-turn forks deferred\u{1d}lll"),
         ("cells_align", "Name\u{1f}Count\u{1f}Mid\u{1e}api\u{1f}7\u{1f}x\u{1e}web service\u{1f}12345\u{1f}yy\u{1d}lrc"),
         ("cells_bold", "prefix \x1b[1mstrong\x1b[22m suffix\u{1e}value\u{1d}l"),
         ("cells_cjk", "名前\u{1f}説明\u{1e}漢字\u{1f}長い説明のテキストです\u{1d}ll"),

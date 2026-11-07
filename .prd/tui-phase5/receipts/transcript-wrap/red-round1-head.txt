@@ -1,0 +1,17 @@
+Round 2's new tests pasted onto the round-1 head 6c99caa5 (a throwaway git clone --no-local), cargo test --lib full_transcript:
+test tui::full_transcript::tests::a_resolution_wider_than_a_narrowed_screen_runs_on_to_the_next_row ... FAILED
+test tui::full_transcript::tests::a_reader_among_the_records_keeps_its_row_when_the_width_changes ... FAILED
+test tui::full_transcript::tool_status::tests::a_malformed_escape_before_a_multibyte_character_is_neither_a_panic_nor_a_wider_row ... FAILED
+test tui::full_transcript::tool_status::tests::no_row_is_wider_than_the_screen_by_the_screens_own_measure ... FAILED
+test tui::full_transcript::tool_status::tests::a_run_of_tabs_is_scanned_once ... FAILED
+thread 'tui::full_transcript::tests::a_resolution_wider_than_a_narrowed_screen_runs_on_to_the_next_row' (261299769) panicked at src/tui/full_transcript.rs:3907:9:
+  left: ["  1) Which of the two storage engines should the nightly im…", "     checks?", "     Postgres with the log", ""]
+ right: ["  1) Which of the two storage engines should the nightly imp", "ort job write its staging tables into before it runs the", "     checks?", "     Postgres with the log"]
+thread 'tui::full_transcript::tests::a_reader_among_the_records_keeps_its_row_when_the_width_changes' (261299766) panicked at src/tui/full_transcript.rs:3944:9:
+thread 'tui::full_transcript::tool_status::tests::a_malformed_escape_before_a_multibyte_character_is_neither_a_panic_nor_a_wider_row' (261299797) panicked at src/tui/full_transcript/tool_status.rs:534:21:
+1: "\u{1b}�"
+thread 'tui::full_transcript::tool_status::tests::no_row_is_wider_than_the_screen_by_the_screens_own_measure' (261299803) panicked at src/tui/full_transcript/tool_status.rs:493:21:
+"៘" at 8: "  ៘x ៘x" is 11 cells
+thread 'tui::full_transcript::tool_status::tests::a_run_of_tabs_is_scanned_once' (261299800) panicked at src/tui/full_transcript/tool_status.rs:514:9:
+22.934127334s for a run of 200 000 tabs
+test result: FAILED. 77 passed; 5 failed; 0 ignored; 0 measured; 3933 filtered out; finished in 22.95s

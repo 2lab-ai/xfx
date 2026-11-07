@@ -1,0 +1,40 @@
+● 6 tool calls · 5 read · 1 command
+├ Read a.txt
+│  1     a line 1 of the a file
+│  2     a line 2 of the a file
+│  3     a line 3 of the a file
+│  4     a line 4 of the a file
+│  5     a line 5 of the a file
+│  6     a line 6 of the a file
+│  7     a line 7 of the a file
+│  8     a line 8 of the a file
+│  9     a line 9 of the a file
+│  10    a line 10 of the a file
+│  11    a line 11 of the a file
+│  12    a line 12 of the a file
+
+  2026-11-06 23:29:57.498 UTC · Tool
+├ Read b.txt
+│  1     b line 1 of the b file
+│  2     b line 2 of the b file
+│  3     b line 3 of the b file
+│  4     b line 4 of the b file
+│  5     b line 5 of the b file
+│  6     b line 6 of the b file
+│  7     b line 7 of the b file
+│  8     b line 8 of the b file
+│  9     b line 9 of the b file
+│  10    b line 10 of the b file
+│  11    b line 11 of the b file
+│  12    b line 12 of the b file
+
+  2026-11-06 23:29:57.512 UTC · Tool
+├ Read c.txt
+│  1     c line 1 of the c file
+│  2     c line 2 of the c file
+│  3     c line 3 of the c file
+│  4     c line 4 of the c file
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a

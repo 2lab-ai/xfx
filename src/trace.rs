@@ -310,7 +310,7 @@ fn utc(at_ms: i64) -> (i64, i64, i64, i64, i64, i64, i64) {
 
 /// The calendar date `days` after 1970-01-01, proleptic Gregorian -- Howard
 /// Hinnant's `civil_from_days`, the same arithmetic `std.time.epoch` does for
-/// upstream. The full transcript's headers are dated by it too.
+/// upstream. `crate::local_time`'s readings are dated by it too.
 pub(crate) fn civil(days: i64) -> (i64, i64, i64) {
     let shifted = days + 719_468;
     let era = shifted.div_euclid(146_097);

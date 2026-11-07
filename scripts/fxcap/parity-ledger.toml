@@ -132,11 +132,11 @@ source = [".prd/tui-phase4/receipts/f5/README.md:38"]
 
 [[normalization]]
 id = "transcript-timestamp"
-fx = '\b\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} UTC\b'
-xfx = '\b\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} UTC\b'
+fx = '\b\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}(?= [A-Za-z0-9+-]{1,10}(?: · |$))'
+xfx = '\b\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}(?= [A-Za-z0-9+-]{1,10}(?: · |$))'
 mask = "X"
-why = "The full transcript (Ctrl-O) heads every entry with the moment it was recorded (`  <ts> UTC · Tool`): the run's clock, masked to the same length."
-source = [".prd/tui-phase4/receipts/f5/README.md:38", ".prd/tui-phase4/receipts/f5/README.md:49"]
+why = "The full transcript (Ctrl-O) heads every entry with the moment it was recorded (`  <ts> <zone> · Tool`): the run's clock, masked to the same length. The zone after it -- `UTC`, `KST`, `+0530`, the local zone since v0.0.16's c9bc4876 -- is the product's and is compared."
+source = [".prd/tui-phase4/receipts/f5/README.md:38", ".prd/tui-phase4/receipts/f5/README.md:49", "docs/parity.md:238"]
 
 [[normalization]]
 id = "tmux-dead-pane"
@@ -234,6 +234,20 @@ owner = "P-status"
 resolution = "P-status ships the /status panel against the v0.0.16 pin"
 expires = "pin:v0.0.16"
 source = [".prd/tui-phase4/ssot.md:115", ".prd/07-fx-parity-program.md:45", "docs/parity.md:115"]
+
+[[divergence]]
+id = "inline-code-shade"
+class = "replaced-in-next-pin"
+pins = ["c1db919"]
+scenarios = ["answered", "copy", "links", "rename", "reset", "reset-wire", "resume", "resume-launch", "resume-wire", "table-wrap", "usage", "usage-session"]
+snaps = ["*"]
+fx_row = '\bcode\b'
+xfx_row = '\bcode\b'
+reason = "v0.0.16 paints an answer's inline code in the theme's brightest neutral, 255 dark and 235 light, where c1db919 painted it 245 and 247 (5e32bce2, `src/core/shared/theme.zig:102,145@481104fd`). xfx paints v0.0.16's (T-U3), so against c1db919 the rows that hold a code span differ in that colour. The selector is the word every such span in these scenarios has (`code`, `inline code`, `https://example.com/code`), on both sides, so it covers any row with that word in these 12 scenarios, against c1db919 only (`.prd/tui-phase5/receipts/inline-code-shade/ledger.txt`)."
+owner = "T-U3"
+resolution = "T-U3 ships v0.0.16's inline code shade against the v0.0.16 pin"
+expires = "pin:v0.0.16"
+source = [".prd/07-fx-parity-program.md:43", "docs/parity.md:240", "src/markdown/theme.rs:49", "src/markdown/theme.rs:69"]
 
 # v0.0.16: the `/status` panel (P-status). Approved for the v0.0.16 pin only;
 # each lapses at the next pin's review, 2026-12-04 at the latest (there is no
@@ -560,11 +574,33 @@ kind = "defect"
 owner = "unowned (S1 item 2 owns the skill notices, not this record)"
 scenarios = ["*"]
 snaps = ["*"]
-fx_row = '^  (?:system prompt: |skills: |tools: \d+ advertised|mcp: none$)|^  more\)$'
-xfx_row = '^  tools: \d+ advertised|^  \+\d+ more\)$'
-xfx = ["src/tui/shell.rs:36814"]
+fx_row = '^  (?:system prompt: |skills: |tools: \d+ advertised|mcp: none$)|^  more\)$|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
+xfx_row = '^  tools: \d+ advertised|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
+xfx = ["src/tui/shell.rs:36836"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/app/app_bootstrap_runtime.zig:90@c1db9191"]
-why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:238)."
+why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:238). The tool list's later rows are matched at any width: rows of tool names alone, each ending `,` or `+N more)` (`  write_file, shell, …, +6 more)` at 80 columns, `p5-transcript-tools`; `  edit_file, write_file, shell, subagent, capability_search,` / `  +6 more)` at 60, `p5-transcript-question`)."
+
+[[cause]]
+id = "transcript-page-offset"
+kind = "defect"
+owner = "unowned (follows tool-schema and session-record)"
+scenarios = ["p5-transcript-anchor", "p5-transcript-anchormid", "p5-transcript-resize", "p5-transcript-records", "p5-transcript-question"]
+snaps = ["full-*"]
+rows = ["1-2", "35-37"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:36836"]
+fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
+why = "Rows only one side has push the other side's rows off a Ctrl-O page by two: fx's command entry has two argument rows xfx's `terminal` has not (`tool-schema`), so a page counted from the tail starts two rows later on fx; fx's `* session:` record has two lines xfx's has not (`session-record`), so a page counted from the top ends two rows earlier, and a record shorter than the screen leaves xfx two more blank rows. Only the two rows at each edge of the record (and the footer's blank row under it); every other row of these pages is compared, cell by cell with its styles, against the other side's document joined from its windows (.prd/tui-phase5/receipts/transcript-wrap/check.py)."
+
+[[cause]]
+id = "subagent-tool"
+kind = "defect"
+owner = "unowned (the subagent tool, deferred: docs/parity.md `subagent`)"
+scenarios = ["p5-transcript-tools"]
+snaps = ["end*", "full-pgup-after", "full-tail*"]
+whole_snap = true
+xfx = ["docs/parity.md:172"]
+fx = ["src/core/tooling/tools.zig:1370@c1db9191"]
+why = "The scenario's second step calls fx's `subagent` tool twice; xfx has none, so its turns leave the step out. Every snap after that step has fx's two subagent rows, their results and the header's `2 subagents` count, and stands rows apart; what else differs there is read once xfx has the tool. The snaps before the step are not covered (`full-running`, `full-pgup`, `running`)."
 
 [[cause]]
 id = "full-transcript-shift"
@@ -573,7 +609,7 @@ owner = "unowned (follows session-record and tool-schema)"
 scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout"]
 snaps = ["*ctrl-o*", "full*"]
 whole_snap = true
-xfx = ["src/tui/shell.rs:36814", "src/tui/approval_view.rs:685"]
+xfx = ["src/tui/shell.rs:36836", "src/tui/approval_view.rs:685"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/execution/command_environment.zig:128@c1db9191"]
 why = "Every Ctrl-O row under fx's taller session record and its shell calls' argument rows stands lower than xfx's, so a page shows other entries; what else differs on these pages is read only once those two are fixed."
 

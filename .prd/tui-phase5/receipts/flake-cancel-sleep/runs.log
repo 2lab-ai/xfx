@@ -1,0 +1,16 @@
+# alone, x30 each (test binary, --exact, one process per run)
+a_stopped_command_is_asked_to_stop_and_the_screen_is_shown_how_it_ended | passed 30/30, failed 0 | slowest 1.27s (process, build excluded) | load { 3.98 5.03 5.51 } | 
+a_command_the_person_stopped_leaves_the_request_that_asked_for_it_counted | passed 30/30, failed 0 | slowest 0.59s (process, build excluded) | load { 4.06 5.02 5.51 } | 
+usage::report::tests::a_fetch_runs_on_its_own_thread_and_can_be_cancelled_mid_body | passed 30/30, failed 0 | slowest 2.91s (process, build excluded) | load { 3.43 4.66 5.33 } | 
+usage::report::tests::a_dropped_fetch_stops_and_lets_go_of_the_key | passed 30/30, failed 0 | slowest 2.07s (process, build excluded) | load { 3.69 4.48 5.21 } | 
+
+# full targets, x3 each, cargo test --locked <target> --no-fail-fast, each run after the idle wait
+permissions run 1 | rc=0 | 2s | start load { 6.09 5.85 5.62 } | test result: ok. 158 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.84s | a_stopped_command_is_asked_to_stop_and_the_screen_is_shown_how_it_ended ... ok;
+permissions run 2 | rc=0 | 2s | start load { 6.09 5.85 5.62 } | test result: ok. 158 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.71s | a_stopped_command_is_asked_to_stop_and_the_screen_is_shown_how_it_ended ... ok;
+permissions run 3 | rc=0 | 2s | start load { 6.00 5.83 5.61 } | test result: ok. 158 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.89s | a_stopped_command_is_asked_to_stop_and_the_screen_is_shown_how_it_ended ... ok;
+tool_loop run 1 | rc=0 | 1s | start load { 6.00 5.83 5.61 } | test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s | a_command_the_person_stopped_leaves_the_request_that_asked_for_it_counted ... ok;
+tool_loop run 2 | rc=0 | 1s | start load { 6.00 5.83 5.61 } | test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s | a_command_the_person_stopped_leaves_the_request_that_asked_for_it_counted ... ok;
+tool_loop run 3 | rc=0 | 1s | start load { 6.00 5.83 5.61 } | test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s | a_command_the_person_stopped_leaves_the_request_that_asked_for_it_counted ... ok;
+lib run 1 | rc=0 | 34s | start load { 5.76 5.79 5.60 } | test result: ok. 3979 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 33.98s | usage::report::tests::a_fetch_runs_on_its_own_thread_and_can_be_cancelled_mid_body ... ok;usage::report::tests::a_dropped_fetch_stops_and_lets_go_of_the_key ... ok;
+lib run 2 | rc=0 | 34s | start load { 6.38 5.98 5.68 } | test result: ok. 3979 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 33.50s | usage::report::tests::a_dropped_fetch_stops_and_lets_go_of_the_key ... ok;usage::report::tests::a_fetch_runs_on_its_own_thread_and_can_be_cancelled_mid_body ... ok;
+lib run 3 | rc=0 | 33s | start load { 8.89 6.71 5.96 } | test result: ok. 3979 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 32.85s | usage::report::tests::a_dropped_fetch_stops_and_lets_go_of_the_key ... ok;usage::report::tests::a_fetch_runs_on_its_own_thread_and_can_be_cancelled_mid_body ... ok;
