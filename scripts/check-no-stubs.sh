@@ -24,10 +24,11 @@
 #      could be advertised as an alias.
 #   7. Every upstream alias a deferred `command` row names in its notes
 #      (`Alias: \`update\``) is deferred with that row: not advertised, and not
-#      a surface of any other row. An `Alias:` on any other row is refused,
-#      because an alias xfx answered would be a parser promise (a clap alias)
-#      that this text-level check cannot read -- `tests/parity.rs` runs every
-#      such name through the built binary instead.
+#      a surface of any other row. An `Alias:` on any other command row is
+#      refused, because an alias xfx answered would be a parser promise (a clap
+#      alias) that this text-level check cannot read -- `tests/parity.rs` runs
+#      every such name through the built binary instead, and refuses an
+#      `Alias:` on a row of any other kind.
 #
 # The check is text-level on purpose: it must run without building, so a broken
 # build cannot hide a broken promise. `tests/parity.rs` runs the same

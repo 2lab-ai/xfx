@@ -37,19 +37,6 @@ pages.
 
 Upstream's command union is `src/core/cli/cli_surface.zig:58-84`.
 
-**An upstream alias of a command is not a command of its own, and it does not
-get a row of its own.** It is named in the notes of the row of the command it
-spells, as `Alias:` and the backticked name (`Aliases:` and a comma-separated
-list for more than one), and it shares that row's status. Every one today is on
-a `deferred` row, so it is deferred with it: not a subcommand, not a clap alias,
-not in help, and refused exactly as a name xfx has never heard of is.
-`scripts/check-no-stubs.sh` holds those names to the rules a deferred row's own
-name is held to, and to one row per surface; it refuses an `Alias:` on any other
-row, because an alias xfx answered would be a parser promise that script cannot
-read. `tests/parity.rs` runs each one through the built binary and compares its
-refusal with an unknown name's. There are two: `update` on `upgrade` (new in
-v0.0.16) and `balance` on `credits`.
-
 | Surface | Kind | Status | Notes and upstream evidence |
 |---|---|---|---|
 | `status` | command | implemented | `[--json]`. Model, provider, credential source, permission mode, sandbox, workspace, history turns, step limit. `cli_surface.zig:69`, `output_contracts.zig:489-540`. |
@@ -71,9 +58,9 @@ v0.0.16) and `balance` on `credits`.
 | `provider` | command | deferred | Provider switching, including Codex. xfx implements provider *switching* as `xfx setup <provider>`, which is where upstream moved it in 0.0.5; the standalone `provider` command name is not advertised. `cli_surface.zig:72`. |
 | `background` | command | deferred | Background and durable work. `cli_surface.zig:74`. |
 | `teams` | command | deferred | Vercel team selection; needs `login`. `cli_surface.zig:75`. |
-| `credits` | command | deferred | Billing surface; needs `login`. Alias: `balance`, upstream's second spelling of the same command at both pins (`.aliases = &.{"balance"}`, `src/builtins/commands.zig:219@481104fd`, `:237@c1db9191`; the help row reads `credits\|balance`, `:308@481104fd`). `cli_surface.zig:79`. |
+| `credits` | command | deferred | Billing surface; needs `login` (see § Upstream command aliases). Alias: `balance`, upstream's second spelling of the same command at both pins (`.aliases = &.{"balance"}`, `src/builtins/commands.zig:219@481104fd`, `:237@c1db9191`; the help row reads `credits\|balance`, `:308@481104fd`). `cli_surface.zig:79`. |
 | `usage` | command | deferred | Usage reporting; needs `login`. `cli_surface.zig:80`. |
-| `upgrade` | command | deferred | Self-updater and release channels. Alias: `update`, which fx v0.0.16 added as a second spelling of the same command (`c61fc618`; `.aliases = &.{"update"}`, `src/builtins/commands.zig:242@481104fd`, parsed as `upgrade` with the same `--channel <stable\|dev>` and `--json`, `src/core/cli/cli_surface.zig:3664-3667@481104fd`). There `fx update --help` prints upgrade's own page -- `fx upgrade`, `Upgrade 𝒇x on the selected release channel`, `Usage: fx upgrade [--channel <stable\|dev>] [--json]` -- and exits 0, and the top-level help's row reads `upgrade\|update` (`commands.zig:320@481104fd`; `fx-p5-cli-ledger-update-help-40x120-h00-update-help`, `-h02-help-update`); at 0.0.13 `fx update` was `fx: unknown subcommand: update`, exit 1. xfx has no self-updater, so `xfx update` takes the parser's unknown-command path like any name it has never heard of. `cli_surface.zig:81`. |
+| `upgrade` | command | deferred | Self-updater and release channels (see § Upstream command aliases). Alias: `update`, which fx v0.0.16 added as a second spelling of the same command (`c61fc618`; `.aliases = &.{"update"}`, `src/builtins/commands.zig:242@481104fd`, parsed as `upgrade` with the same `--channel <stable\|dev>` and `--json`, `src/core/cli/cli_surface.zig:3664-3667@481104fd`). There `fx update --help` prints upgrade's own page -- `fx upgrade`, `Upgrade 𝒇x on the selected release channel`, `Usage: fx upgrade [--channel <stable\|dev>] [--json]` -- and exits 0, and the top-level help's row reads `upgrade\|update` (`commands.zig:320@481104fd`; `fx-p5-cli-ledger-update-help-40x120-h00-update-help`, `-h02-help-update`); at 0.0.13 `fx update` was `fx: unknown subcommand: update`, exit 1. xfx has no self-updater, so `xfx update` takes the parser's unknown-command path like any name it has never heard of. `cli_surface.zig:81`. |
 | `replay` | command | deferred | Golden terminal replay; needs the full-screen UI. `cli_surface.zig:82`. |
 | `workspace` | command | deferred | Additional-root management. `cli_surface.zig:83`. |
 
@@ -279,3 +266,23 @@ terminal's own parser resynchronized on the fragment it was left holding.
 | WASM core | embedding | deferred | `src/wasm_core_main.zig`, `src/wasm_term_main.zig`. |
 | N-API module | embedding | deferred | `src/napi_core_main.zig`, `sdk/NAPI.md`. |
 | Rust library crate | embedding | partial | The crate is public so tests can drive it, but its API is not stable and it is not published. |
+
+## Upstream command aliases
+
+The `command` rows above name them in their notes; this is the rule they
+follow. It is kept at the end of the file so that it moves no row a line
+citation points at (`scripts/fxcap/parity-ledger.toml`).
+
+**An upstream alias of a command is not a command of its own, and it does not
+get a row of its own.** It is named in the notes of the row of the command it
+spells, as `Alias:` and the backticked name (`Aliases:` and a comma-separated
+list for more than one), and it shares that row's status. Every one today is on
+a `deferred` row, so it is deferred with it: not a subcommand, not a clap alias,
+not in help, and refused exactly as a name xfx has never heard of is.
+`scripts/check-no-stubs.sh` holds those names to the rules a deferred row's own
+name is held to, and to one row per surface, and refuses an `Alias:` on any
+other command row; `tests/parity.rs` refuses one on any other row at all. An
+alias xfx answered would be a clap alias, which neither the script nor the
+parser's name list can see, so `tests/parity.rs` also runs each name through
+the built binary and compares its refusal with an unknown name's. There are
+two: `update` on `upgrade` (new in v0.0.16) and `balance` on `credits`.
