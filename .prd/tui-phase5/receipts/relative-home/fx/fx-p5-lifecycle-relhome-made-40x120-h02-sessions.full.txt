@@ -1,0 +1,42 @@
+𝒇x v0.0.16 · Run /help for commands
+fx sessions: HOME is not set
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 1, Sat Nov  7 10:44:15 2026)

@@ -1192,6 +1192,7 @@ pub(crate) fn spawn(
     // launch resumed or that the first prompt will open.
     let mut seed = status_snapshot(&config, &config.model, None);
     seed.session = Some(match resumed.as_ref() {
+        _ if store.is_unsaved() => ShellSession::Unavailable,
         Some(resumed) => ShellSession::Open {
             id: resumed.session.id().to_string(),
             saved: true,
@@ -1371,6 +1372,13 @@ impl Resumption {
     ) -> io::Result<Self> {
         let scope = conversation_scope(config).map_err(io::Error::other)?;
         let store = open_store(config)?;
+        // No home, nothing to continue: upstream's launch asks for its store
+        // as required when it resumes and stops at `HomeNotSet`
+        // (`initializePersistence`, `app_session_runtime.zig:1443-1445@481104fd`),
+        // which it prints as `fx: HomeNotSet`.
+        if store.is_unsaved() {
+            return Err(io::Error::other(HOME_NOT_SET));
+        }
         let resumed = store
             .resume(selector, &config.workspace_root)
             .map_err(io::Error::other)?;
@@ -1520,10 +1528,18 @@ pub(crate) fn unauthenticated(config: &RuntimeConfig) -> Option<ProviderId> {
     (!crate::provider::credential_ready(config.provider, config)).then_some(config.provider)
 }
 
-/// Opens the session store this session records into.
+/// Why `xfx --resume` opened nothing with no usable `HOME`: upstream's error
+/// name, as its launch prints it.
+const HOME_NOT_SET: &str = "HomeNotSet";
+
+/// Opens the session store this session records into: the profile's, or --
+/// with no usable `HOME` (`crate::config::home_dir`) -- one that records in
+/// memory and writes nowhere ([`SessionStore::unsaved`]), as upstream runs a
+/// session with no store (`initializePersistence`,
+/// `src/core/app/app_session_runtime.zig:1438-1449@481104fd`).
 fn open_store(config: &RuntimeConfig) -> io::Result<SessionStore> {
     let Some(profile_dir) = config.profile_dir.as_ref() else {
-        return Err(io::Error::other(crate::interactive::NO_STORE));
+        return Ok(SessionStore::unsaved());
     };
     SessionStore::open(profile_dir).map_err(io::Error::other)
 }
@@ -1858,12 +1874,16 @@ impl Runtime {
         self.board.publish_with(
             snapshot,
             TraceFacts {
-                session: self.conversation.as_ref().map(|conversation| {
-                    (
-                        self.store.profile_dir().to_path_buf(),
-                        conversation.recorder.id().clone(),
-                    )
-                }),
+                session: self
+                    .conversation
+                    .as_ref()
+                    .filter(|_| !self.store.is_unsaved())
+                    .map(|conversation| {
+                        (
+                            self.store.profile_dir().to_path_buf(),
+                            conversation.recorder.id().clone(),
+                        )
+                    }),
                 settings: crate::trace::Settings::of(&self.config),
             },
         );
@@ -1875,6 +1895,11 @@ impl Runtime {
     /// with none open, the id the next prompt will open, not saved yet; or
     /// none, when the store refused the last one this shell asked for.
     fn shell_session(&self) -> ShellSession {
+        // No store: `none · this shell can't save sessions`, whatever runs
+        // in memory (fx's u02 of `p5-lifecycle-relhome-unsaved`).
+        if self.store.is_unsaved() {
+            return ShellSession::Unavailable;
+        }
         match &self.conversation {
             Some(conversation) => ShellSession::Open {
                 id: conversation.recorder.id().to_string(),
@@ -1951,7 +1976,12 @@ impl Runtime {
         );
         match opened {
             Ok(conversation) => {
-                slot.opened(target);
+                // An unsaved session has no file to be the store: nothing is
+                // held for it either, `remember` being refused without a
+                // saved session (`super::shell`'s `permissions`).
+                if !self.store.is_unsaved() {
+                    slot.opened(target);
+                }
                 drop(slot);
                 self.next_session = SessionId::generate();
                 self.conversation = Some(conversation);
@@ -2069,7 +2099,16 @@ impl Runtime {
     /// the Gateway names a title model, a configured provider -- llmux's
     /// place here -- names none), at the endpoint every turn goes to
     /// (`Bundle::select`).
+    ///
+    /// Nobody for an unsaved session: upstream titles only the session it
+    /// saves, and with no store it has none, so no prompt excerpt goes to a
+    /// title model (`activeSessionId(app) orelse return`,
+    /// `maybeStartSessionTitleGeneration`,
+    /// `src/core/app/app_session_runtime.zig:3036@481104fd`).
     fn title_asker(&self) -> Option<(crate::gateway::Endpoint, crate::config::Credential)> {
+        if self.store.is_unsaved() {
+            return None;
+        }
         let credential = gateway_credential(&self.config)?.clone();
         let endpoint = crate::gateway::Endpoint::from_process().ok()?;
         Some((endpoint, credential))
@@ -2443,6 +2482,11 @@ impl Runtime {
     /// every commit publishes ([`crate::session::SessionRecorder::commit`]).
     fn fork_points(&self) -> super::fork_menu::ForkPoints {
         use super::fork_menu::{ForkPoint, ForkPoints};
+        // No store is no saved session, before a prompt as after one
+        // (`openForkMenu`, `app_session_runtime.zig:2072-2076@481104fd`).
+        if self.store.is_unsaved() {
+            return ForkPoints::Unsaved;
+        }
         let Some(conversation) = self.conversation.as_ref() else {
             return ForkPoints::Points(Vec::new());
         };
@@ -2743,6 +2787,10 @@ impl Runtime {
     /// is not this runtime's any more, so its session is not named either:
     /// what is named is the one the next prompt would have gone to.
     fn resumable(&self) -> Option<SessionId> {
+        // Nothing saved is nothing to resume: no handoff line at the exit.
+        if self.store.is_unsaved() {
+            return None;
+        }
         self.conversation
             .as_ref()
             .filter(|conversation| {
@@ -7994,15 +8042,47 @@ mod tests {
     }
 
     #[test]
-    fn a_session_with_nowhere_to_record_is_refused_before_a_thread_is_started() {
+    fn a_session_with_no_home_runs_unsaved_and_says_so() {
+        // Upstream runs it with no store (`initializePersistence`,
+        // `app_session_runtime.zig:1438-1449@481104fd`): the conversation
+        // opens, in memory, and `/status`, `/fork` and the exit say there is
+        // no saved session.
         let workspace = tempfile::tempdir().expect("a workspace");
-        let mut config = config(workspace.path(), workspace.path());
-        config.profile_dir = None;
-        let err = open_store(&config).expect_err("a store with no home was opened anyway");
+        // No home, and a Gateway key, so the only reason not to title is the
+        // store.
+        let config = RuntimeConfig::load_with(
+            &Environment::new(
+                None,
+                BTreeMap::from([("AI_GATEWAY_API_KEY".to_string(), "key".to_string())]),
+            ),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        assert_eq!(config.profile_dir, None);
+        assert!(gateway_credential(&config).is_some());
+        let store = open_store(&config).expect("an unsaved store");
+        assert!(store.is_unsaved());
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        state
+            .conversation(&CancelToken::new())
+            .expect("a conversation opens unsaved");
+        assert_eq!(state.shell_session(), ShellSession::Unavailable);
+        // No title model is asked: upstream titles only a saved session
+        // (`maybeStartSessionTitleGeneration`, `:3036@481104fd`).
         assert!(
-            err.to_string().contains("cannot record"),
-            "the refusal does not say why: {err}"
+            state.title_asker().is_none(),
+            "an unsaved session asked for a title"
         );
+        assert!(matches!(
+            state.fork_points(),
+            super::super::fork_menu::ForkPoints::Unsaved
+        ));
+        assert_eq!(state.resumable(), None);
+        assert_eq!(state.sessions(), None, "nothing to list");
+        let listed = std::fs::read_dir(workspace.path())
+            .expect("the workspace")
+            .count();
+        assert_eq!(listed, 0, "the workspace holds what the session wrote");
     }
 
     // -----------------------------------------------------------------------

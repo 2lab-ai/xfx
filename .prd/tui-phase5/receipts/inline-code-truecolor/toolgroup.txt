@@ -1,0 +1,207 @@
+# RED: xfx at 6c41c2ac (banner v0.1.0-6c41c2a) against fx v0.0.16, the tool-group scenarios, 40x120
+# python3 -I ../notation.py scripts/fxcap fx/fx-<pair> <dir>/xfx-<pair> <dir>/xfx-<drawn snap of the same run>
+== p5-toolgroup-retint dark
+ramp: 0 rows differ (row 1 not compared)
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint light
+ramp row 6: fx '└ Ran echo "hi" 42 | grep hi # note'
+ramp row 6: xfx '└ Ran echo "hi" 42 | grep hi # note'
+ramp: 1 rows differ (row 1 not compared)
+colour: 5 fx (('fg', 243),) xfx (('fg', 241),) same-text
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolgroup-retint dark-again
+ramp row 6: fx '└ Ran echo "hi" 42 | grep hi # note'
+ramp row 6: xfx '└ Ran echo "hi" 42 | grep hi # note'
+ramp: 1 rows differ (row 1 not compared)
+colour: 4 fx (('fg', 250),) xfx (('fg', 245),) same-text
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolgroup-retint-light light
+ramp: 0 rows differ (row 1 not compared)
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint-light dark
+ramp row 6: fx '└ Ran echo "hi" 42 | grep hi # note'
+ramp row 6: xfx '└ Ran echo "hi" 42 | grep hi # note'
+ramp: 1 rows differ (row 1 not compared)
+colour: 5 fx (('fg', 245),) xfx (('fg', 243),) same-text
+colour: 4 fx (('fg', 250),) xfx (('fg', 245),) same-text
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolgroup-retint-light light-again
+ramp: 0 rows differ (row 1 not compared)
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint-tc dark
+ramp: 0 rows differ (row 1 not compared)
+notation: 43 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 10 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 3 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 56 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint-tc light
+ramp row 6: fx '└ Ran echo "hi" 42 | grep hi # note'
+ramp row 6: xfx '└ Ran echo "hi" 42 | grep hi # note'
+ramp: 1 rows differ (row 1 not compared)
+colour: 5 fx (('fg', 243),) xfx (('fg', 241),) same-text
+notation: 3 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 10 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 34 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 56 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolgroup-retint-tc dark-again
+ramp row 6: fx '└ Ran echo "hi" 42 | grep hi # note'
+ramp row 6: xfx '└ Ran echo "hi" 42 | grep hi # note'
+ramp: 1 rows differ (row 1 not compared)
+colour: 4 fx (('fg', 250),) xfx (('fg', 245),) same-text
+notation: 43 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 10 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 3 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 56 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolgroup-retint-light-tc light
+ramp: 0 rows differ (row 1 not compared)
+notation: 3 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 10 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 34 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 56 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint-light-tc dark
+ramp row 6: fx '└ Ran echo "hi" 42 | grep hi # note'
+ramp row 6: xfx '└ Ran echo "hi" 42 | grep hi # note'
+ramp: 1 rows differ (row 1 not compared)
+colour: 5 fx (('fg', 245),) xfx (('fg', 243),) same-text
+colour: 4 fx (('fg', 250),) xfx (('fg', 245),) same-text
+notation: 43 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 10 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 3 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 56 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolgroup-retint-light-tc light-again
+ramp: 0 rows differ (row 1 not compared)
+notation: 3 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 10 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 34 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 56 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+
+# GREEN at truecolor, unchanged at 256: xfx at 3afa6fa0 (banner v0.1.0-3afa6fa) against fx v0.0.16
+# python3 -I ../notation.py scripts/fxcap fx/fx-<pair> <dir>/xfx-<pair> <dir>/xfx-<drawn snap of the same run>
+== p5-toolgroup-retint dark
+ramp: 0 rows differ (row 1 not compared)
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint light
+ramp row 6: fx '└ Ran echo "hi" 42 | grep hi # note'
+ramp row 6: xfx '└ Ran echo "hi" 42 | grep hi # note'
+ramp: 1 rows differ (row 1 not compared)
+colour: 5 fx (('fg', 243),) xfx (('fg', 241),) same-text
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolgroup-retint dark-again
+ramp row 6: fx '└ Ran echo "hi" 42 | grep hi # note'
+ramp row 6: xfx '└ Ran echo "hi" 42 | grep hi # note'
+ramp: 1 rows differ (row 1 not compared)
+colour: 4 fx (('fg', 250),) xfx (('fg', 245),) same-text
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolgroup-retint-light light
+ramp: 0 rows differ (row 1 not compared)
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint-light dark
+ramp row 6: fx '└ Ran echo "hi" 42 | grep hi # note'
+ramp row 6: xfx '└ Ran echo "hi" 42 | grep hi # note'
+ramp: 1 rows differ (row 1 not compared)
+colour: 5 fx (('fg', 245),) xfx (('fg', 243),) same-text
+colour: 4 fx (('fg', 250),) xfx (('fg', 245),) same-text
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 1
+== p5-toolgroup-retint-light light-again
+ramp: 0 rows differ (row 1 not compared)
+notation: 0 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint-tc dark
+ramp: 0 rows differ (row 1 not compared)
+notation: 43 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 10 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 3 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 56 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint-tc light
+ramp: 0 rows differ (row 1 not compared)
+notation: 3 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 10 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 34 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 56 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint-tc dark-again
+ramp: 0 rows differ (row 1 not compared)
+notation: 43 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 10 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 3 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 56 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint-light-tc light
+ramp: 0 rows differ (row 1 not compared)
+notation: 3 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 10 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 34 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 56 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint-light-tc dark
+ramp: 0 rows differ (row 1 not compared)
+notation: 43 fx (('fg', 245),) xfx (('fg', (138, 138, 138)),)
+notation: 10 fx (('fg', 252),) xfx (('fg', (208, 208, 208)),)
+notation: 3 fx (('fg', 255),) xfx (('fg', (238, 238, 238)),)
+notation: 56 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+== p5-toolgroup-retint-light-tc light-again
+ramp: 0 rows differ (row 1 not compared)
+notation: 3 fx (('fg', 235),) xfx (('fg', (38, 38, 38)),)
+notation: 10 fx (('fg', 238),) xfx (('fg', (68, 68, 68)),)
+notation: 34 fx (('fg', 241),) xfx (('fg', (98, 98, 98)),)
+notation: 9 fx (('fg', 247),) xfx (('fg', (158, 158, 158)),)
+notation: 56 cells in all
+kept: 0 cells changed notation since the drawn snap
+exit 0
+
+# 256 colours, 6c41c2ac against 3afa6fa0 (python3 -I ../../inline-code-shade/cellpairs.py scripts/fxcap red/<snap> xfx/<snap>): SAME = no differing cell
+SAME p5-toolgroup-retint-40x120-dark-again.ansi
+SAME p5-toolgroup-retint-40x120-dark.ansi
+SAME p5-toolgroup-retint-40x120-light.ansi
+SAME p5-toolgroup-retint-light-40x120-dark.ansi
+SAME p5-toolgroup-retint-light-40x120-light-again.ansi
+SAME p5-toolgroup-retint-light-40x120-light.ansi
+
+# the four p5-inline-code-*-tc scenarios again at 3afa6fa0 (not committed; same commands): ramp 0 and kept 0 in all 12 pairs, and no differing cell against xfx/ (9461bf70) in any of the 12 snaps

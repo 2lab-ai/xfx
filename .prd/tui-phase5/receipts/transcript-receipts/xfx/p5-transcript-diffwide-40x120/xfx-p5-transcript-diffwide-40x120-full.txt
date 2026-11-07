@@ -1,0 +1,40 @@
+  2026-11-07 11:24:54.666 KST · Notice
+* network: provider: gateway · model: fake/model-a · 1ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-07 11:24:54.757 KST · Notice
+* network: provider: gateway · model: fake/model-a · 63ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-07 11:24:54.571 KST · Prompt
+┃ edit the file
+
+  2026-11-07 11:24:54.677 KST · Response
+  Editing the file.
+
+  2026-11-07 11:24:54.677 KST · Tool
+● 2 tool calls · 1 read · 1 edit
+├ Read wide.txt
+│  1    first line
+│  2    soft­hyphen hangulfiller choseongᅟfiller halfﾠfiller spec￰ial
+│  3    wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww­­­­TAI8
+
+  2026-11-07 11:24:54.677 KST · Tool
+└ Edited wide.txt +1 / -1
+
+  │ 1 - first line
+  │ 1 + FIRST LINE
+  │ 2   soft­hyphen hangulfiller choseongᅟfiller halfﾠfiller spec￰ial
+  │ 3   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww­­­­TAI8
+
+  2026-11-07 11:24:54.799 KST · Response
+  Edited.
+
+  2026-11-07 11:24:54.799 KST · Usage
+  0s (↑3 ↓120)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a

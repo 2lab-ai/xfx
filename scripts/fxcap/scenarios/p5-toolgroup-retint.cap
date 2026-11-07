@@ -1,0 +1,24 @@
+# P5 T-U3-TCb: a tool group across a live theme switch, 256 colours. One
+# command (each product's own shell tool, in its no-questions mode) whose
+# words the shell highlighter paints: a function, a string, a number, an
+# operator and a comment; then the answer. Drawn dark, then the terminal
+# reports light and dark again (as p5-inline-code-retint). What fx does to a
+# tool row's greys on a switch -- its statusline grey, the highlighted
+# words -- is what this captures.
+fx: gateway p5-toolgroup-retint-fx.json
+xfx: gateway p5-toolgroup-retint-xfx.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+wait 4
+type run the command
+wait 1
+key Enter
+wait 8
+snap dark
+key -H 1b 5b 3f 39 39 37 3b 32 6e
+wait 2
+snap light
+key -H 1b 5b 3f 39 39 37 3b 31 6e
+wait 2
+snap dark-again

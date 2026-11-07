@@ -1,0 +1,15 @@
+# Phase 5 lifecycle (L-U3b): `--resume` with no usable HOME, which has no
+# store to resume from (fx v0.0.16 21a55a45). The workspace holds the folder
+# the relative HOME names, so anything kept there would show in `workls`.
+work p5-relhome-made
+env HOME=relative/homedir
+keep
+wait 3
+type /quit
+key Enter
+wait 2
+fx: relaunch --resume-last
+xfx: relaunch --resume last
+wait 4
+snapfull r00-resume
+workls r01

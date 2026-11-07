@@ -1,0 +1,23 @@
+# Phase 5 lifecycle, L-U4 (cli-ledger): the help fx v0.0.16 prints for
+# `fx update`, the alias it added for `fx upgrade` (`commands.zig:242`), beside
+# upgrade's own and the top-level row that names both, so the parity row of the
+# deferred `upgrade` says what fx does there. The release host is the fake
+# gateway, which answers 404, so nothing is downloaded or installed even if a
+# help flag were not honoured.
+env FX_AUTO_UPGRADE=0
+env FX_E2E_UPGRADE_BASE_URL=http://127.0.0.1:@PORT@
+wait 3
+keep
+type /quit
+key Enter
+wait 2
+relaunch update --help
+wait 3
+snapfull h00-update-help
+relaunch upgrade --help
+wait 3
+snapfull h01-upgrade-help
+relaunch help update
+wait 3
+snapfull h02-help-update
+gwlog

@@ -38,8 +38,9 @@ use sha2::{Digest, Sha256};
 use super::{
     apply, create_private_dir, create_private_file, ensure_private_dir, io_error, lock_exclusive,
     read_snapshot, read_snapshots, set_private_dir_mode, sync_directory, validate_title,
-    verify_private, workspace_key, DurableState, SessionError, SessionId, SessionStore, TurnStep,
-    WritableSession, EVENTS_FILE, IMAGES_DIR, MAX_EVENT_LOG_BYTES, MAX_RENAMED_TITLE_BYTES,
+    verify_private, workspace_key, Disk, DurableState, SessionError, SessionId, SessionStore,
+    TurnStep, WritableSession, EVENTS_FILE, IMAGES_DIR, MAX_EVENT_LOG_BYTES,
+    MAX_RENAMED_TITLE_BYTES,
 };
 use crate::permission::session_rules;
 use crate::session::event::{
@@ -310,8 +311,10 @@ impl SessionStore {
             .map_err(|err| io_error(&log_path, err))?;
         let mut session = WritableSession {
             id: id.clone(),
-            dir: stage.path.clone(),
-            file,
+            disk: Some(Disk {
+                dir: stage.path.clone(),
+                file,
+            }),
             log_generation: log.generation,
             written_bytes: log.bytes.len() as u64,
             published_bytes: 0,
@@ -337,13 +340,15 @@ impl SessionStore {
         }
         fs::rename(&stage.path, &destination).map_err(|err| io_error(&destination, err))?;
         stage.placed();
-        session.dir = destination;
+        if let Some(disk) = session.disk.as_mut() {
+            disk.dir = destination.clone();
+        }
         // Whole from here: a failure to make the name durable is reported,
         // and the fork, which is complete, is left where a reader finds it,
         // as upstream leaves a published one (`session.zig:578`).
         sync_directory(&self.sessions_dir)?;
         // Its images read back from its own copies, as a resume reads them.
-        read_snapshots(&session.dir, &mut session.state);
+        read_snapshots(&destination, &mut session.state);
         Ok(session)
     }
 }

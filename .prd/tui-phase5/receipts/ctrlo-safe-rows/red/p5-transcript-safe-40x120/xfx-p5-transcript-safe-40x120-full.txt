@@ -1,0 +1,40 @@
+  mcp: none
+
+  2026-11-07 03:19:34.750 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 1ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-07 03:19:34.870 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 63ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-07 03:19:34.678 UTC · Prompt
+┃ show the file
+
+  2026-11-07 03:19:34.793 UTC · Response
+  Showing the file.
+
+  2026-11-07 03:19:34.793 UTC · Tool
+● 2 tool calls · 1 read · 1 command
+├ Ran : 'A‮B​C﻿D [2JE F G؜H⁧I'; cat safe.txt #
+│  command: : 'A‮B​C﻿D [2JE F    G؜H⁧I'; cat safe.txt #
+│ a‮b​c﻿d [2Je f    g؜h⁧i
+│ over
+│ X
+
+  2026-11-07 03:19:34.793 UTC · Tool
+└ Read safe.txt
+│  1    a‮b​c﻿d [2Je f    g؜h⁧i
+│  2    overX
+
+  2026-11-07 03:19:34.905 UTC · Response
+  Shown.
+
+  2026-11-07 03:19:34.905 UTC · Usage
+  0s (↑3 ↓80)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a

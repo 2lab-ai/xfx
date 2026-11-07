@@ -1,0 +1,22 @@
+# TMPDIR=/private/tmp/claude-501/tr cargo test --locked --lib a_changes_rows_name_what_would_reorder
+# on 039fb5c8's code with only the new test added (before the fix in diff_rows); the last line is git rev-parse HEAD then
+
+running 1 test
+test tui::full_transcript::tests::a_changes_rows_name_what_would_reorder_or_hide_its_text_as_the_review_does ... FAILED
+
+failures:
+
+---- tui::full_transcript::tests::a_changes_rows_name_what_would_reorder_or_hide_its_text_as_the_review_does stdout ----
+
+thread 'tui::full_transcript::tests::a_changes_rows_name_what_would_reorder_or_hide_its_text_as_the_review_does' (264287617) panicked at src/tui/full_transcript.rs:2622:13:
+'\u{202e}' reached a row: ["\u{1b}[38;5;252m  │ 1 - a\u{1b}[0m", "\u{1b}[38;5;252m  │ 1 + bidi \u{202e} x\u{1b}[0m", "\u{1b}[38;5;252m  │ 2 + zero\u{200b}width \u{feff} bom\u{1b}[0m", "\u{1b}[38;5;252m  │ 3 + esc \\u{001B}[2J c1 \\u{009B}\u{1b}[0m"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::full_transcript::tests::a_changes_rows_name_what_would_reorder_or_hide_its_text_as_the_review_does
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4031 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
+039fb5c8

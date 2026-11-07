@@ -1005,6 +1005,273 @@ fn zero_is_the_line_shell() {
     assert_no_mode_bytes(&session.settled_text());
 }
 
+/// One entry of [`tree`]: its path under the root, and for a file its
+/// length, its modification time and its bytes, so an overwrite in place
+/// shows as surely as a new name.
+type Entry = (
+    std::path::PathBuf,
+    Option<(u64, std::time::SystemTime, Vec<u8>)>,
+);
+
+/// Every path under `root`, directories too, relative to it and sorted, not
+/// following links, each file with what it holds ([`Entry`]): what a run made
+/// shows here even when it made only a directory, and what it changed shows
+/// even when it kept the name.
+fn tree(root: &std::path::Path) -> Vec<Entry> {
+    fn walk(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<Entry>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries {
+            let path = entry.expect("an entry").path();
+            let metadata = std::fs::symlink_metadata(&path).expect("metadata");
+            let name = path
+                .strip_prefix(root)
+                .expect("under the root")
+                .to_path_buf();
+            let held = metadata.is_file().then(|| {
+                (
+                    metadata.len(),
+                    metadata.modified().expect("a modification time"),
+                    std::fs::read(&path).expect("the file's bytes"),
+                )
+            });
+            out.push((name, held));
+            if metadata.is_dir() {
+                walk(root, &path, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, root, &mut out);
+    out.sort();
+    out
+}
+
+/// Files a profile under a relative `HOME` would read or write, put where it
+/// would find them: [`tree`] then sees a read-and-rewrite as well as a new
+/// file. Only an unsaved session can leave them as they were.
+fn seed_relative_profile(workspace: &std::path::Path) {
+    let profile = workspace.join("relative/home/.xfx");
+    std::fs::create_dir_all(&profile).expect("a profile under the relative home");
+    std::fs::write(
+        profile.join("settings.json"),
+        "{\"prompt_history\":{\"enabled\":true}}\n",
+    )
+    .expect("seeded settings");
+    std::fs::write(
+        profile.join("history.jsonl"),
+        "{\"schema_version\":1,\"timestamp_ms\":1,\"workspace_root\":\"/w\",\"text\":\"seeded\"}\n",
+    )
+    .expect("seeded history");
+    std::fs::write(workspace.join("notes.txt"), "NOTES-VALUE-17\n").expect("seeded notes");
+}
+
+#[test]
+fn with_no_usable_home_the_session_runs_unsaved_and_writes_nothing() {
+    // fx v0.0.16 runs a session with no store and saves nothing: an empty or
+    // relative `HOME` counts as unset (`homeDir`,
+    // `src/core/shared/io.zig:475-483@481104fd`), its `v2_store` stays null
+    // (`initializePersistence`, `app_session_runtime.zig:1438-1449`), and
+    // `p5-lifecycle-relhome-unsaved` is what its screens say. The relative
+    // value names a folder that is there, inside the workspace, so a session
+    // log, a history or a lock kept under it would change the sandbox's tree.
+    //
+    // Unset, empty and relative; the relative one's folder holds a profile
+    // with settings and a history, and the workspace a file, each checked
+    // byte for byte and by modification time after the run.
+    for home in [None, Some("relative/home"), Some("")] {
+        let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+            support::fake_gateway::content_only(&["MARKER-UNSAVED"]),
+        )]);
+        let sandbox = Sandbox::new();
+        seed_relative_profile(&sandbox.workspace);
+        let root = sandbox
+            .workspace
+            .parent()
+            .expect("the sandbox root")
+            .to_path_buf();
+        let before = tree(&root);
+        let pty = Pty::open();
+        pty.resize(30, 120);
+        let size = (30, 120);
+        let mut command = tui_with(&sandbox, &gateway);
+        match home {
+            Some(home) => command.env("HOME", home),
+            None => command.env_remove("HOME"),
+        };
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+        session.wait_for(READY);
+        on_screen(
+            &session,
+            size,
+            &["! history: durable prompt history unavailable"],
+            &[],
+        );
+        session.type_bytes(b"hello\r");
+        session.wait_for("MARKER-UNSAVED");
+        session.type_bytes(b"/rename later\r");
+        on_screen(
+            &session,
+            size,
+            &["✗ session: no active session to rename"],
+            &[],
+        );
+        session.type_bytes(b"/fork\r");
+        on_screen(
+            &session,
+            size,
+            &["! session: /fork needs a saved session"],
+            &[],
+        );
+        session.type_bytes(b"/status\r");
+        on_screen(
+            &session,
+            size,
+            &["none · this shell can't save sessions"],
+            &[],
+        );
+        session.type_bytes(b"\x1b");
+        on_screen(&session, size, &[], &["this shell can't save sessions"]);
+        session.type_bytes(b"/quit\r");
+        assert_eq!(session.wait_exit().code(), Some(0), "HOME={home:?}");
+        let text = session.settled_text();
+        assert!(
+            !text.contains("--resume"),
+            "HOME={home:?}: an unsaved session names no way back in"
+        );
+        assert_eq!(tree(&root), before, "HOME={home:?} wrote into the sandbox");
+    }
+}
+
+#[test]
+fn with_no_usable_home_a_tool_runs_under_the_session_authority_alone() {
+    // An unsaved conversation has no saved-session rules file to decide with
+    // and no durable id (`crate::interactive::bind_conversation`): a tool the
+    // model calls runs under the session's own authority. Bound to a rules
+    // path under the unsaved store's `/dev/null`, every decision would fail
+    // closed on a file that cannot be read, and the read below would be
+    // refused rather than answered.
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    for home in ["relative/home", ""] {
+        let gateway = FakeGateway::start(vec![
+            Reply::Sse(sse_body(&[
+                tool_call(
+                    "call-0",
+                    "read_file",
+                    serde_json::json!({ "path": "notes.txt" }),
+                ),
+                finish("tool-calls"),
+            ])),
+            Reply::Sse(content_only(&["MARKER-READ"])),
+        ]);
+        let sandbox = Sandbox::new();
+        seed_relative_profile(&sandbox.workspace);
+        let root = sandbox
+            .workspace
+            .parent()
+            .expect("the sandbox root")
+            .to_path_buf();
+        let before = tree(&root);
+        let pty = Pty::open();
+        pty.resize(30, 120);
+        let mut command = tui_with(&sandbox, &gateway);
+        command.env("HOME", home);
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+        session.wait_for(READY);
+        session.type_bytes(b"read the notes\r");
+        session.wait_for("MARKER-READ");
+        let requests = gateway.requests();
+        let answered = requests
+            .iter()
+            .filter(|request| request.path.ends_with("/language-model"))
+            .nth(1)
+            .unwrap_or_else(|| panic!("HOME={home:?}: no request after the tool ran"))
+            .body
+            .clone();
+        assert!(
+            answered.contains("NOTES-VALUE-17"),
+            "HOME={home:?}: the read was not answered with the file: {answered}"
+        );
+        session.type_bytes(b"/quit\r");
+        assert_eq!(session.wait_exit().code(), Some(0), "HOME={home:?}");
+        assert_eq!(tree(&root), before, "HOME={home:?} wrote into the sandbox");
+    }
+}
+
+#[test]
+fn with_no_usable_home_an_attached_files_copy_never_lands_under_a_relative_tmpdir() {
+    // An unsaved session copies an attached file to a private temporary
+    // directory under upstream's root, the real `/tmp`
+    // (`createTempSnapshotDir`, `image_attachments.zig:246-273@481104fd`),
+    // not under `$TMPDIR` as given: a relative `TMPDIR` naming a folder the
+    // project holds would put the copy in the working tree.
+    let sandbox = Sandbox::new();
+    seed_relative_profile(&sandbox.workspace);
+    std::fs::write(
+        sandbox.workspace.join("shot.png"),
+        include_bytes!("../scripts/fxcap/scenarios/image-ws/shot.png"),
+    )
+    .expect("a picture");
+    std::fs::create_dir_all(sandbox.workspace.join("relative-tmp"))
+        .expect("the folder TMPDIR names");
+    let root = sandbox
+        .workspace
+        .parent()
+        .expect("the sandbox root")
+        .to_path_buf();
+    let before = tree(&root);
+    let pty = Pty::open();
+    pty.resize(30, 120);
+    let mut command = tui(&sandbox);
+    command
+        .env("HOME", "relative/home")
+        .env("TMPDIR", "relative-tmp");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"/image shot.png\r");
+    on_screen(
+        &session,
+        (30, 120),
+        &["* images: attached image: shot.png"],
+        &[],
+    );
+    // While the session holds the copy: the shell removes its directory as
+    // it ends, so only now could a copy under the relative `TMPDIR` be seen.
+    assert_eq!(tree(&root), before, "the copy landed in the sandbox");
+    session.type_bytes(b"\x15/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(tree(&root), before, "the sandbox changed by the exit");
+}
+
+#[test]
+fn with_no_usable_home_a_resume_has_nothing_to_continue() {
+    // fx's launch, asked to resume with no store, prints `fx: HomeNotSet`
+    // and exits 1 (`p5-lifecycle-relhome-resume`); nothing is made.
+    let sandbox = Sandbox::new();
+    std::fs::create_dir_all(sandbox.workspace.join("relative/home"))
+        .expect("the folder a relative HOME names");
+    let root = sandbox
+        .workspace
+        .parent()
+        .expect("the sandbox root")
+        .to_path_buf();
+    let before = tree(&root);
+    let pty = Pty::open();
+    let mut command = tui(&sandbox);
+    command
+        .env("HOME", "relative/home")
+        .args(["--resume", "last"]);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    assert_eq!(session.wait_exit().code(), Some(1));
+    assert!(
+        session.settled_text().contains("xfx: HomeNotSet"),
+        "{}",
+        session.text()
+    );
+    assert_eq!(tree(&root), before);
+}
+
 // ---------------------------------------------------------------------------
 // the route, negatively
 // ---------------------------------------------------------------------------

@@ -436,7 +436,7 @@ main() {
   bin_real=$(realpath "$bin")
 
   local turns='[]' extra_env='' models='' credits='' titled='' nomodel='' modelsdown='' modelsdelay=''
-  local models2='' models2ms='' jobctl='' clock='' usage='' mcpmode=''
+  local models2='' models2ms='' jobctl='' clock='' usage='' mcpmode='' keep=''
   # The directories `work` and `dir` copied into, whose files get the
   # placeholders too; and whether a line the run fills names `@MCPPORT@`.
   local copied=() names_mcpport=''
@@ -451,6 +451,7 @@ main() {
         [[ $line != *@MCPPORT@* || $line == env\ * ]] || names_mcpport=1 ;;
     esac
     [[ $line == gateway\ * ]] && turns=$(cat "$scenarios/${line#gateway }")
+    [[ $line == keep ]] && keep=1
     [[ $line == env\ * ]] && extra_env="$extra_env ${line#env }"
     # Owner-only, as each product keeps its own profile: xfx refuses to read
     # a profile directory anyone else can reach.
@@ -686,8 +687,15 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
   # and a hook set after `new-session` returned can be set after that bell.
   # The pane's output is piped to `$run/wire` (for `wire`) in the same command
   # list, so the server has read none of it before the pipe is attached.
+  # A scenario that `keep`s its pane keeps it from the first byte, as the
+  # pipe is attached: a binary that refuses at once (no usable HOME, say)
+  # can be gone before the scenario's own `keep` line runs, and the server
+  # with it.
+  local hold=()
+  [[ -z $keep ]] || hold=(set-option -gw remain-on-exit on ';')
   tmux -f /dev/null -S "$sock" start-server \; \
     set-hook -g alert-bell "run-shell 'echo bell >> $run/bells'" \; \
+    ${hold[@]+"${hold[@]}"} \
     new-session -d -s cap -x "$cols" -y "$rows" "cd $run/work && exec $launch" \; \
     pipe-pane -o -t cap "cat >> $run/wire"
 

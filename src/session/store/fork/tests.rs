@@ -524,7 +524,7 @@ fn live_snapshot(
         ));
     Snapshot::Loaded {
         bytes: Arc::from(fs::read(&path).expect("the fork's copy")),
-        path: Arc::from(path.as_path()),
+        path: Some(Arc::from(path.as_path())),
     }
 }
 

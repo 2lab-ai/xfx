@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-9f93f8a [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mlook[0m
+
+  Looking.
+
+[38;5;255m●[39m [38;5;245m3 tool calls · 1 read · 1 list · 1 command · 1 failed[39m
+[38;5;245m├ Ran [38;5;252mprintf[38;5;245m [38;5;250m'%s'[38;5;245m [38;5;250m'A\u{202e}B\u{2066}CD\x1b[2JE F\x09G\u{009b}H'[38;5;245m [38;5;252m>[38;5;245m/dev/null[39m
+[38;5;245m├ Matched n\u{202e}o\u{2066}p\u{061c}q\x1b7r\x09s\u{009b}t\x0du*.md[39m
+[38;5;245m└ Failed m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq\x09r\u{009b}s\x0dt.txt: Path not found: m\u{202e}n\u{2066}o\u{061c}p\x1b[…
+
+[39m  Done.
+
+[38;5;245m  0s (↑1 ↓80)[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mfull access[38;5;245m · model-a[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,33 @@
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.61s
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+
+running 1 test
+test tui::shell::tests::an_mcp_calls_reason_through_the_channel_is_the_rows_own_spelling_cut_once ... FAILED
+
+failures:
+
+---- tui::shell::tests::an_mcp_calls_reason_through_the_channel_is_the_rows_own_spelling_cut_once stdout ----
+
+thread 'tui::shell::tests::an_mcp_calls_reason_through_the_channel_is_the_rows_own_spelling_cut_once' (274887700) panicked at src/tui/shell.rs:27869:9:
+└ Failed mcp_web_echo: refused \ by the\u{00ad}\u{202e} server\x07: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\u{fe0f}\u{fe0f}\u{fe0f}\u{fe0f}\u{fe0f}\u{fe0f}\x1b...
+[
+    "┃ echo",
+    "",
+    "● 1 tool call · 1 MCP call · 1 failed",
+    "└ Failed mcp_web_echo: refused \\ by the\\u{00ad}\\u{202e} server\\x07: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\u{fe0f}\\u{fe0f}\\u{fe0f}\\u{fe0f}\\u{fe0f}\\u{fe0f}\\x1b\\...",
+    "",
+    "  Done.",
+    "",
+    "  0s (↑1 ↓2)",
+    "",
+]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::shell::tests::an_mcp_calls_reason_through_the_channel_is_the_rows_own_spelling_cut_once
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4249 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--lib`

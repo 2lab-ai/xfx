@@ -1,0 +1,40 @@
+[38;5;250m* network: provider: gateway · model: fake/model-a · 92ms[39m
+  [38;5;250mfinish: stop[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-07 09:57:04.164 KST · Prompt[39m
+[38;5;255m┃[39m [1medit the file[0m
+
+[38;5;245m  2026-11-07 09:57:04.607 KST · Response[39m
+  Editing the file.
+
+[38;5;245m  2026-11-07 09:57:04.607 KST · Tool[39m
+[38;5;255m●[39m [38;5;245m2 tool calls · 1 read · 1 edit[39m
+├ Read odd.txt
+│[38;5;245m  1    first line[39m
+│[38;5;245m  2    tab    here[39m
+│[38;5;245m  3    bidi ‮ reversed[39m
+│[38;5;245m  4    zero​width ﻿ bom[39m
+│[38;5;245m  5    crlf line[39m
+│[38;5;245m  6    del   and literal \x1b text[39m
+
+[38;5;245m  2026-11-07 09:57:04.845 KST · Tool[39m
+└ Edited odd.txt +1 / -1
+
+[38;5;252m  │ 1 - first line[39m
+[38;5;252m  │ 1 + FIRST LINE[39m
+[38;5;245m  │ 2   tab\there[39m
+[38;5;245m  │ 3   bidi ‮ reversed[39m
+[38;5;245m  │ 4   zero​width ﻿ bom[39m
+[38;5;245m  │ 5   crlf line\r[39m
+[38;5;245m  │ 6   del \u{007F} and literal \\x1b text[39m
+
+[38;5;245m  2026-11-07 09:57:05.326 KST · Response[39m
+  Edited.
+
+[38;5;245m  2026-11-07 09:57:05.326 KST · Usage[39m
+[38;5;245m  1s (↑3 ↓120)[39m
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mfull access[38;5;245m · model-a[39m

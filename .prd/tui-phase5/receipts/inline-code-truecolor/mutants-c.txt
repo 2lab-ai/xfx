@@ -1,0 +1,71 @@
+# T-U3-TCc. RED at unit level, against aad662fe's src/tui/theme.rs with the new tests added and the code not yet changed:
+#   cargo test --locked --lib -- tui::theme::tests::a_256_colour_tool_rows_light_comment_is_a_comment_and_nothing_else_moves
+test tui::theme::tests::a_256_colour_tool_rows_light_comment_is_a_comment_and_nothing_else_moves ... FAILED
+thread 'tui::theme::tests::a_256_colour_tool_rows_light_comment_is_a_comment_and_nothing_else_moves' panicked at src/tui/theme.rs:1398:9:
+  left: None
+ right: Some("\u{1b}[38;5;245m")
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4000 filtered out; finished in 0.00s
+#   cargo test --locked --lib -- tui::theme   (with the stopped-line tests; the ToolGroup comment fix already in)
+test tui::theme::tests::a_stopped_calls_line_moves_through_upstreams_token_table ... FAILED
+test tui::theme::tests::a_tool_groups_row_answers_its_colours_as_the_groups ... FAILED
+thread 'tui::theme::tests::a_stopped_calls_line_moves_through_upstreams_token_table' panicked at src/tui/theme.rs:1414:17:
+  left: None
+ right: Some("\u{1b}[38;5;247m")
+thread 'tui::theme::tests::a_tool_groups_row_answers_its_colours_as_the_groups' panicked at src/tui/theme.rs:1766:9:
+  left: None
+ right: Some("\u{1b}[38;5;247m")
+test result: FAILED. 22 passed; 2 failed; 0 ignored; 0 measured; 3978 filtered out; finished in 0.00s
+
+# Mutants of src/tui/theme.rs at c7a3dd15, each on a saved copy, the file restored after (sha256 dc9a87af74f5c825 before and after):
+#   cargo test --locked --lib -- tui::theme tui::toolgroup tui::event_loop::tests::a_truecolor tui::event_loop::tests::a_theme_report tui::event_loop::tests::a_tables_cells tui::event_loop::tests::a_code_block
+# F: COMMENT removed from the 256-colour ToolGroup roles (aad662fe's)
+# G: COMMENT first in them
+# H: ToolStopped back to [WARNING, HINT, TOOL, COMMAND, NOTICE] (aad662fe's at 256 colours)
+# I: a truecolor ToolStopped arm [COMMAND, NOTICE] (the review's suggestion)
+# Unmutated: 49 passed, 0 failed.
+== mutant F
+test tui::theme::tests::a_256_colour_tool_rows_light_comment_is_a_comment_and_nothing_else_moves ... FAILED
+thread 'tui::theme::tests::a_256_colour_tool_rows_light_comment_is_a_comment_and_nothing_else_moves' panicked at src/tui/theme.rs:1459:9:
+  left: None
+ right: Some("\u{1b}[38;5;245m")
+test result: FAILED. 48 passed; 1 failed; 0 ignored; 0 measured; 3953 filtered out; finished in 0.04s
+error: test failed, to rerun pass `--lib`
+== mutant G
+test tui::theme::tests::a_truecolor_sessions_code_and_tool_rows_recolour_their_indexed_greys_as_fx ... FAILED
+test tui::theme::tests::a_tool_groups_row_answers_its_colours_as_the_groups ... FAILED
+test tui::theme::tests::a_256_colour_tool_rows_light_comment_is_a_comment_and_nothing_else_moves ... FAILED
+test tui::toolgroup::tests::a_theme_report_repaints_a_group_as_the_other_palette_would_draw_it ... FAILED
+thread 'tui::theme::tests::a_truecolor_sessions_code_and_tool_rows_recolour_their_indexed_greys_as_fx' panicked at src/tui/theme.rs:1311:9:
+  left: Some("\u{1b}[38;2;118;118;118m")
+ right: Some("\u{1b}[38;2;98;98;98m")
+thread 'tui::theme::tests::a_tool_groups_row_answers_its_colours_as_the_groups' panicked at src/tui/theme.rs:1766:9:
+  left: Some("\u{1b}[38;5;243m")
+ right: Some("\u{1b}[38;5;241m")
+thread 'tui::theme::tests::a_256_colour_tool_rows_light_comment_is_a_comment_and_nothing_else_moves' panicked at src/tui/theme.rs:1483:13:
+  left: Some("\u{1b}[38;5;243m")
+ right: Some("\u{1b}[38;5;241m")
+thread 'tui::toolgroup::tests::a_theme_report_repaints_a_group_as_the_other_palette_would_draw_it' panicked at src/tui/toolgroup.rs:1114:17:
+test result: FAILED. 45 passed; 4 failed; 0 ignored; 0 measured; 3953 filtered out; finished in 0.02s
+error: test failed, to rerun pass `--lib`
+== mutant H
+test tui::theme::tests::a_stopped_calls_line_moves_through_upstreams_token_table ... FAILED
+test tui::theme::tests::a_tool_groups_row_answers_its_colours_as_the_groups ... FAILED
+test tui::toolgroup::tests::a_theme_report_repaints_a_group_as_the_other_palette_would_draw_it ... FAILED
+thread 'tui::theme::tests::a_stopped_calls_line_moves_through_upstreams_token_table' panicked at src/tui/theme.rs:1425:17:
+  left: None
+ right: Some("\u{1b}[38;5;247m")
+thread 'tui::theme::tests::a_tool_groups_row_answers_its_colours_as_the_groups' panicked at src/tui/theme.rs:1777:9:
+  left: None
+ right: Some("\u{1b}[38;5;247m")
+thread 'tui::toolgroup::tests::a_theme_report_repaints_a_group_as_the_other_palette_would_draw_it' panicked at src/tui/toolgroup.rs:1196:9:
+  left: Some(Indexed(245))
+ right: Some(Indexed(247))
+test result: FAILED. 46 passed; 3 failed; 0 ignored; 0 measured; 3953 filtered out; finished in 0.03s
+error: test failed, to rerun pass `--lib`
+== mutant I
+test tui::theme::tests::a_stopped_calls_line_moves_through_upstreams_token_table ... FAILED
+thread 'tui::theme::tests::a_stopped_calls_line_moves_through_upstreams_token_table' panicked at src/tui/theme.rs:1426:17:
+  left: None
+ right: Some("\u{1b}[38;5;247m")
+test result: FAILED. 48 passed; 1 failed; 0 ignored; 0 measured; 3953 filtered out; finished in 0.05s
+error: test failed, to rerun pass `--lib`

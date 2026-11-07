@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-9f93f8a [debug] · Run /help for commands
+
+┃ run it
+
+  Running it.
+
+● 1 tool call · 1 command · 1 failed
+└ Failed echo shown
+
+  Done.
+
+  0s (↑2 ↓80)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -242,6 +242,22 @@ class CiSweep(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertFalse(os.path.exists(os.path.join(out, "base-retry-2")), "no run past the first that passes")
 
+    def test_a_nondeterminism_cause_past_its_date_buys_no_retry(self):
+        # The case above with the `tick` cause expired: it covers nothing, so
+        # the varying base is run once, fails, and the pair is one neither
+        # build passes -- not a regression it would take a retry to see.
+        self.write(self.ledger, LEDGER.replace('fix = "wait on content"', 'fix = "wait on content"\nexpires = "date:2000-01-01"') % self.sha)
+        self.write(self.core, "basevary\n")
+        self.write(os.path.join(self.scen, "basevary.cap"), "snap a\n")
+        self.commit("basevary")
+        base = self.git("rev-parse", "HEAD").strip()
+        r, out = self.run_ci("--base", base, "--base-xfx", self.bins["base"])
+        pair = self.result(out)["pairs"][0]
+        self.assertEqual(pair.get("base_runs"), 1, pair)
+        self.assertNotEqual(pair["base"], "identical", pair)
+        self.assertFalse(pair["regression"], pair)
+        self.assertFalse(os.path.exists(os.path.join(out, "base-retry-1")), "an expired cause bought a retry")
+
     def test_no_failing_pair_runs_no_base(self):
         self.write(self.core, "same\nuses\n")
         r, out = self.run_ci("--base", self.base, "--base-xfx", self.bins["base"])

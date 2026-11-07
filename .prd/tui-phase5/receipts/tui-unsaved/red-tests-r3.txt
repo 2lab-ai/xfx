@@ -1,0 +1,11 @@
+# L-U3c. RED: the new test on ad670388's src (the worktree before the fix): turn 1 names neither image
+thread 'agent::machine::tests::an_unsaved_sessions_image_is_named_the_same_on_every_turn_and_only_by_its_own_copy' (269246930) panicked at src/agent/machine.rs:2362:9:
+  left: [None, None]
+ right: [Some("<local-path>"), None]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3991 filtered out; finished in 0.00s
+
+# Mutant on a throwaway clone of 6edb0ab9: the unsaved history names the attached file's source path again (turn 2+)
+thread 'agent::machine::tests::an_unsaved_sessions_image_is_named_the_same_on_every_turn_and_only_by_its_own_copy' (269434237) panicked at src/agent/machine.rs:2380:9:
+  left: [Some("<local-path>"), Some("/w/shot.png")]
+ right: [Some("<local-path>"), None]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3991 filtered out; finished in 0.01s

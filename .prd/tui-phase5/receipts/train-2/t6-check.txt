@@ -1,0 +1,117 @@
+ok   build p5-transcript-submit (xfx)
+       before-submit.wire writes the banner of bca3e79 once
+       after-submit.wire writes the banner of bca3e79 once
+ok   replay p5-transcript-submit
+       fx  the whole wire replayed is the `second` snap, all 41 rows
+       xfx the whole wire replayed is the `second` snap, all 41 rows
+ok   frame p5-transcript-submit
+       fx frame 1: composer empty; the card ['second prompt'] at rows 34-34, under '  <wall> (↑4 ↓40)'
+       xfx frame 1: composer empty; the card ['second prompt'] at rows 34-34, under '  <wall> (↑4 ↓40)'
+ok   same p5-transcript-submit fx frame1 / xfx frame1
+       aligned at the card (fx row 34, xfx row 34): the 33 rows above it and its 1 the same; rows 38-40 the same
+       set aside, between the card and the composer: fx ['', '• Thinking', ''] / xfx ['', '~ Thinking (<s>) (↑4 ↓0)', '']
+ok   inline p5-transcript-submit filled
+       all 41 rows the same
+ok   same p5-transcript-submit fx submit-0.15 / xfx submit-0.15
+       aligned at the card (fx row 34, xfx row 34): the 33 rows above it and its 1 the same; rows 38-40 the same
+       set aside, between the card and the composer: fx ['', '~ Generating (<s>) (↑4 ↓2)', ''] / xfx ['', '~ Generating (<s>) (↑4 ↓2)', '']
+ok   inline p5-transcript-submit second
+       all 41 rows the same
+ok   build p5-transcript-submit-multi (xfx)
+       before-submit.wire writes the banner of bca3e79 once
+       after-submit.wire writes the banner of bca3e79 once
+ok   replay p5-transcript-submit-multi
+       fx  the whole wire replayed is the `second` snap, all 41 rows
+       xfx the whole wire replayed is the `second` snap, all 41 rows
+ok   frame p5-transcript-submit-multi
+       fx frame 1: composer empty; the card ['multi line three'] at rows 34-34, under '  <wall> (↑4 ↓40)'
+       fx frame 2: composer empty; the card ['multi line one', 'multi line two', 'multi line three'] at rows 32-34, under '  <wall> (↑4 ↓40)'
+       xfx frame 1: composer empty; the card ['multi line one', 'multi line two', 'multi line three'] at rows 32-34, under '  <wall> (↑4 ↓40)'
+ok   same p5-transcript-submit-multi fx frame2 / xfx frame1
+       aligned at the card (fx row 32, xfx row 32): the 31 rows above it and its 3 the same; rows 38-40 the same
+       set aside, between the card and the composer: fx ['', '• Thinking', ''] / xfx ['', '~ Thinking (<s>) (↑13 ↓0)', '']
+ok   inline p5-transcript-submit-multi filled
+       all 41 rows the same
+ok   inline p5-transcript-submit-multi second
+       all 41 rows the same
+ok   inline p5-transcript-submit-multi second.full
+       all 78 rows the same
+ok   whole p5-transcript-tallfirst tall.full
+       fx  all 60 card rows once, in order, rows 3-62 of 71, under the banner and one blank row
+       xfx all 60 card rows once, in order, rows 3-62 of 71, under the banner and one blank row
+ok   inline p5-transcript-tallfirst tall.full
+       all 71 rows the same
+ok   inline p5-transcript-tallfirst tall
+       all 41 rows the same
+ok   whole p5-transcript-submit tall.full
+       fx  all 60 card rows once, in order, rows 73-132 of 141, under the previous turn's summary '  <wall> (↑4 ↓40)' and one blank row
+       xfx all 60 card rows once, in order, rows 73-132 of 141, under the previous turn's summary '  <wall> (↑4 ↓40)' and one blank row
+ok   inline p5-transcript-submit tall.full
+       all 141 rows the same
+ok   inline p5-transcript-submit tall
+       all 41 rows the same
+ok   spelled p5-transcript-diffctl full (ctrl-o)
+       fx  4 diff rows, each the file's line as fx spells it; none holds a hidden character
+       xfx 4 diff rows, each the file's line as fx spells it; none holds a hidden character
+       4 rows the same cell by cell, 0 spelled apart with fx's styles
+ok   spelled p5-transcript-diffodd full (ctrl-o)
+       fx  7 diff rows, each the file's line as fx spells it; none holds a hidden character
+       xfx 7 diff rows, each the file's line as fx spells it; none holds a hidden character
+       7 rows the same cell by cell, 0 spelled apart with fx's styles
+ok   spelled p5-transcript-diffask ask (review)
+       fx  4 diff rows, each the file's line as fx spells it; none holds a hidden character
+       xfx 4 diff rows, each the file's line as xfx spells it; none holds a hidden character
+       1   spelled apart: fx 'before\\x1b[2Jcleared' / xfx 'before\\u{001B}[2Jcleared'
+       2   spelled apart: fx 'second \\u{009b}line' / xfx 'second \\u{009B}line'
+       2 rows the same cell by cell, 2 spelled apart with fx's styles
+ok   spelled p5-transcript-diffask full (ctrl-o)
+       fx  4 diff rows, each the file's line as fx spells it; none holds a hidden character
+       xfx 4 diff rows, each the file's line as fx spells it; none holds a hidden character
+       4 rows the same cell by cell, 0 spelled apart with fx's styles
+ok   bytes p5-transcript-diffctl full
+       1    '\x1b[38;5;245m  │ 1   before\\x1b[2Jcleared\x1b[39m'
+       2    '\x1b[38;5;245m  │ 2   second \\u{009b}line\x1b[39m'
+       3 -  '\x1b[38;5;252m  │ 3 - third line\x1b[39m'
+       3 +  '\x1b[38;5;252m  │ 3 + THIRD LINE\x1b[39m'
+       all 4 diff rows the same bytes on both sides
+ok   bytes p5-transcript-diffodd full
+       1 -  '\x1b[38;5;252m  │ 1 - first line\x1b[39m'
+       1 +  '\x1b[38;5;252m  │ 1 + FIRST LINE\x1b[39m'
+       2    '\x1b[38;5;245m  │ 2   tab\x1b[39m     \x1b[38;5;245mhere\x1b[39m'
+       3    '\x1b[38;5;245m  │ 3   bidi \\u{202e} reversed'
+       4    '  │ 4   zero\\u{200b}width \\u{feff} bom\x1b[39m'
+       5    '\x1b[38;5;245m  │ 5   crlf line\x1b[39m'
+       6    '\x1b[38;5;245m  │ 6   del \\x7f and literal \\x1b text\x1b[39m'
+       all 7 diff rows the same bytes on both sides
+ok   bytes p5-transcript-diffask full
+       1    '\x1b[38;5;245m  │ 1   before\\x1b[2Jcleared\x1b[39m'
+       2    '\x1b[38;5;245m  │ 2   second \\u{009b}line\x1b[39m'
+       3 -  '\x1b[38;5;252m  │ 3 - third line\x1b[39m'
+       3 +  '\x1b[38;5;252m  │ 3 + THIRD LINE\x1b[39m'
+       all 4 diff rows the same bytes on both sides
+ok   bytes p5-transcript-diffwide full [(1, '-'), (1, '+'), (2, ' ')]
+       1 -  '\x1b[38;5;252m  │ 1 - first line\x1b[39m'
+       1 +  '\x1b[38;5;252m  │ 1 + FIRST LINE\x1b[39m'
+       2    '\x1b[38;5;245m  │ 2   soft\xadhyphen hangulfiller choseongᅟfiller halfﾠfiller spec\ufff0ial\x1b[39m'
+       all 3 diff rows the same bytes on both sides
+ok   refused p5-transcript-diffbad full
+       fx  edits it: 4 diff rows, its stray bytes spelled ['bad \\xff byte', 'lone \\xc3 lead']
+       xfx no diff row; '└ Failed bad.txt: edit_file will not replace `bad.txt` because this session has not read it; call read_file on it first'
+ok   nodiff p5-transcript-diffctl edited
+       fx  no diff row; '└ Edited ctl.txt +1 / -1'
+       xfx no diff row; '└ Edited ctl.txt +1 / -1'
+ok   nodiff p5-transcript-diffodd edited
+       fx  no diff row; '└ Edited odd.txt +1 / -1'
+       xfx no diff row; '└ Edited odd.txt +1 / -1'
+ok   inline p5-transcript-diffodd edited
+       all 41 rows the same
+ok   inline p5-transcript-diffodd closed
+       all 41 rows the same
+ok   inline p5-transcript-diffask applied
+       all 41 rows the same
+ok   inline p5-transcript-diffask closed
+       all 41 rows the same
+35 claims, 35 hold, 0 fail
+findings (no claim covers these rows): 2
+       p5-transcript-diffwide full fx line 3 (ctrl-o-width-disputed) ends '\xad\xad\xad\xadTAIL'
+       p5-transcript-diffwide full xfx line 3 (ctrl-o-width-disputed) ends '\xad\xad\xad\xadTAIL'

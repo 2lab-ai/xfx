@@ -169,6 +169,13 @@ pub struct Image {
     /// clipboard rather than a file the user named: the session then records
     /// it by its saved copy, which outlives the paste's.
     pub copied: bool,
+    /// A file the user named, copied when it was attached into the same
+    /// private temporary directory a paste's copy goes to -- for a session
+    /// that keeps no copy of its own (an unsaved one), as upstream captures
+    /// every attachment into its process's temporary folder
+    /// (`captureImageAttachment`, `src/core/app/app_session_runtime.zig:1331-1344@481104fd`).
+    /// `None` otherwise, and when the copy could not be written.
+    pub copy: Option<PathBuf>,
 }
 
 impl Image {
@@ -192,6 +199,21 @@ impl Image {
             bytes,
             sha256,
             copied: false,
+            copy: None,
+        }
+    }
+
+    /// xfx's own copy of this image, when it keeps one outside a session: a
+    /// paste's ([`Self::copied`]), or an attached file's temporary one
+    /// ([`Self::copy`]). The note for an image a request leaves out names
+    /// only such a copy, never the file it was attached from, as upstream
+    /// names only its own (`savedImagePath`, `noteAttachmentLocations`,
+    /// `src/core/images/image_attachments.zig:1050-1062@481104fd`).
+    pub fn own_copy(&self) -> Option<&Path> {
+        if self.copied {
+            Some(&self.path)
+        } else {
+            self.copy.as_deref()
         }
     }
 

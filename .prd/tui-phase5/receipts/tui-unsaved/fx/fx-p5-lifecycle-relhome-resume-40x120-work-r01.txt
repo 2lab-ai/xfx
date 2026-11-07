@@ -1,0 +1,3 @@
+== ./relative/homedir/README
+The folder a relative HOME names, inside the workspace.
+

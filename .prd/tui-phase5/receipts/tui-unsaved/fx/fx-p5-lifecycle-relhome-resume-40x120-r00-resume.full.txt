@@ -1,0 +1,42 @@
+𝒇x v0.0.16 · Run /help for commands
+
+fx: HomeNotSet
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 1, Sat Nov  7 11:52:44 2026)

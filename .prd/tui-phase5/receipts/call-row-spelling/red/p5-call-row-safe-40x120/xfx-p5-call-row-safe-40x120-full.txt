@@ -1,0 +1,40 @@
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-11-07 04:39:20.325 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 67ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-07 04:39:20.105 UTC · Prompt
+┃ look
+
+  2026-11-07 04:39:20.196 UTC · Response
+  Looking.
+
+  2026-11-07 04:39:20.196 UTC · Tool
+● 3 tool calls · 1 read · 1 list · 1 command · 1 failed
+├ Ran printf '%s' 'A\u{202e}B\u{2066}CD\x1b[2JE F\x09G\u{009b}H' >/dev/null
+│  command: printf '%s' 'A\u{202e}B\u{2066}CD\x1b[2JE\x0dF    G\u{009b}H' >/dev/null
+
+  2026-11-07 04:39:20.229 UTC · Tool
+├ Matched n\u{202e}o\u{2066}p\u{061c}q\x1b7r\x09s\u{009b}t\x0du*.md
+│  pattern: n\u{202e}o\u{2066}p\u{061c}q\x1b7r    s\u{009b}t\x0du*.md
+│  [glob] no matches for n\u{202e}o\u{2066}p\u{061c}q\x1b7r    s\u{009b}t\x0du*.md
+
+
+  2026-11-07 04:39:20.248 UTC · Tool
+└ Failed m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq\x09r\u{009b}s\x0dt.txt: Path not found:
+  m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq r\u{009b}s t.txt
+│  path: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq    r\u{009b}s\x0dt.txt
+│  Path not found: m\u{202e}n\u{2066}o\u{061c}p\x1b[2Jq    r\u{009b}s\x0dt.txt
+
+  2026-11-07 04:39:20.370 UTC · Response
+  Done.
+
+  2026-11-07 04:39:20.370 UTC · Usage
+  0s (↑1 ↓80)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a

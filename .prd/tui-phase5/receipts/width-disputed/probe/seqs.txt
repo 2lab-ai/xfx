@@ -1,0 +1,76 @@
+ad
+ad 301
+ad fe0e
+ad 34f
+ad 200d
+115f
+115f 301
+115f fe0e
+115f 34f
+115f 200d
+1160
+1160 301
+1160 fe0e
+1160 34f
+1160 200d
+3164
+3164 301
+3164 fe0e
+3164 34f
+3164 200d
+ffa0
+ffa0 301
+ffa0 fe0e
+ffa0 34f
+ffa0 200d
+fff0
+fff0 301
+fff0 fe0e
+fff0 34f
+fff0 200d
+fff1
+fff1 301
+fff1 fe0e
+fff1 34f
+fff1 200d
+fff2
+fff2 301
+fff2 fe0e
+fff2 34f
+fff2 200d
+fff3
+fff3 301
+fff3 fe0e
+fff3 34f
+fff3 200d
+fff4
+fff4 301
+fff4 fe0e
+fff4 34f
+fff4 200d
+fff5
+fff5 301
+fff5 fe0e
+fff5 34f
+fff5 200d
+fff6
+fff6 301
+fff6 fe0e
+fff6 34f
+fff6 200d
+fff7
+fff7 301
+fff7 fe0e
+fff7 34f
+fff7 200d
+fff8
+fff8 301
+fff8 fe0e
+fff8 34f
+fff8 200d
+115f 1160
+1100 1160
+115f 1161
+1100 1160 11a8
+3164 3164
+ad ad

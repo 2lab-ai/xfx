@@ -1,0 +1,44 @@
+# The sweep probe (mutants.txt's clone, src/tui/full_transcript.rs tests::zz_sweep_probe, below): one
+# entry of every other kind the screen draws, each text P<U+202E>Q<U+200B>R ESC[2J S <U+009B> T TAB U after
+# bridge::inert, as the channel hands every UiEvent's text over; then the screen's rows at 120x40.
+# raw_mark = the row holds a mark as itself; esc2J = the row holds ESC[2J. Rust's {:?} writes a mark as \u{...}.
+
+PROBE raw_mark=false esc2J=false "x𝒇x v0.1.0-127f050 [debug] · Run /help for commands"
+PROBE raw_mark=false esc2J=false "  2026-10-06 14:43:50.620 UTC · Notice"
+PROBE raw_mark=true esc2J=false "* recovery: record P\u{202e}Q\u{200b}R [2JS T U"
+PROBE raw_mark=false esc2J=false "  2026-10-06 14:43:50.620 UTC · Prompt"
+PROBE raw_mark=true esc2J=false "┃ prompt P\u{202e}Q\u{200b}R [2JS T U"
+PROBE raw_mark=false esc2J=false "  2026-10-06 14:43:50.620 UTC · Response"
+PROBE raw_mark=true esc2J=false "  answer P\u{202e}Q\u{200b}R [2JS T U"
+PROBE raw_mark=false esc2J=false "  2026-10-06 14:43:50.620 UTC · Notice"
+PROBE raw_mark=true esc2J=false "! network: notice P\u{202e}Q\u{200b}R [2JS T U"
+PROBE raw_mark=true esc2J=false "block P\u{202e}Q\u{200b}R [2JS T U"
+PROBE raw_mark=false esc2J=false "  2026-10-06 14:43:50.620 UTC · Tool"
+PROBE raw_mark=false esc2J=false "● 1 tool call · 1 command"
+PROBE raw_mark=true esc2J=false "└ Ran heading P\u{202e}Q\u{200b}R [2JS T U"
+PROBE raw_mark=false esc2J=false "  2026-10-06 14:43:50.620 UTC · Usage"
+PROBE raw_mark=true esc2J=false "usage P\u{202e}Q\u{200b}R [2JS T U"
+PROBE raw_mark=false esc2J=false "┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close"
+
+# The probe:
+    #[test]
+    fn zz_sweep_probe() {
+        let evil = "P\u{202e}Q\u{200b}R\u{1b}[2JS\u{9b}T\tU";
+        // What the channel does to every text a UiEvent carries.
+        let inert = |s: &str| bridge::inert(s).into_owned();
+        let mut record = record();
+        record.welcome();
+        record.full_detail(Notice::neutral("recovery", inert(&format!("record {evil}"))));
+        record.prompt(&inert(&format!("prompt {evil}")));
+        record.answer(&inert(&format!("answer {evil}")));
+        record.notice(&Notice::warning("network", inert(&format!("notice {evil}"))));
+        record.block(&[inert(&format!("block {evil}"))]);
+        record.tool_started("c", &command(&format!("heading {evil}")));
+        record.tool_finished("c", true, "", Outcome::Exited(0), None);
+        record.usage(&inert(&format!("usage {evil}")));
+        record.open();
+        for row in record.rows(120, 40, DARK, "") {
+            let raw = row.chars().any(|c| matches!(c as u32, 0x200b..=0x200f | 0x2028..=0x202e | 0x80..=0x9f | 0xfeff));
+            println!("PROBE raw_mark={raw} esc2J={} {:?}", row.contains("\u{1b}[2J"), unpainted(&row));
+        }
+    }

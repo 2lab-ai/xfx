@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-e16af12 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;245m  2026-11-07 03:45:13.146 UTC · Notice[39m
+[38;5;250m* session: provider: gateway · model: fake/model-a · effort: auto[39m
+  [38;5;250mtools: 13 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,[39m
+  [38;5;250m+5 more)[39m
+  [38;5;250mmcp: none[39m
+
+[38;5;245m  2026-11-07 03:45:17.090 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 1ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-07 03:45:17.211 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 62ms[39m
+  [38;5;250mfinish: stop[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-07 03:45:17.020 UTC · Prompt[39m
+[38;5;255m┃[39m [1mshow the file[0m
+
+[38;5;245m  2026-11-07 03:45:17.126 UTC · Response[39m
+  Showing the file.
+
+[38;5;245m  2026-11-07 03:45:17.126 UTC · Tool[39m
+[38;5;255m●[39m [38;5;245m2 tool calls · 1 read · 1 command[39m
+├ Ran : [38;5;250m'A‮B​C﻿D [2JE F G؜H⁧I'[38;5;252m;[39m [38;5;252mcat[39m safe.txt [38;5;245m#  [39m
+│[38;5;245m  command: : 'A\u{202e}B\u{200b}C\u{feff}D\x1b[2JE\u{009b}F    G\u{061c}H\u{2067}I'; cat safe.txt # \x0d[39m
+│[38;5;245m a\u{202e}b\u{200b}c\u{feff}de\u{009b}f        g\u{061c}h\u{2067}i[39m
+│[38;5;245m X[39m
+
+[38;5;245m  2026-11-07 03:45:17.126 UTC · Tool[39m
+└ Read safe.txt
+│[38;5;245m  1    a\u{202e}b\u{200b}c\u{feff}d\x1b[2Je\u{009b}f    g\u{061c}h\u{2067}i\x0d[39m
+│[38;5;245m  2    over\x0dX[39m
+
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mfull access[38;5;245m · model-a[39m

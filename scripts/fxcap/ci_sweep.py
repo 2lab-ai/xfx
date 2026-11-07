@@ -343,7 +343,9 @@ def full(args, red, say):
 
 def run(args, red, say):
     led, pin = pin_of(args)
-    causes = [c for c in led["causes"] if "nondeterminism" in c["kind"]]
+    # Only a cause not past its date buys a retry: one past it covers nothing
+    # (ledger.py `live_causes`).
+    causes = [c for c in ledgermod.live_causes(led) if "nondeterminism" in c["kind"]]
     began = time.time()
     tree = Tree(args.scenarios)
     chosen, removed = select(tree, args.base, read_core(args.core))

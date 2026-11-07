@@ -112,12 +112,16 @@ class Malformed(Exception):
 
 def record(rows):
     """The rows above the footer's blank row -- which must be blank, and
-    unstyled: it is read, not dropped."""
+    unstyled: it is read, not dropped. The footer is on row VIEWPORT + 2 (38
+    at 40 rows), so a record is exactly VIEWPORT rows: one that lost or gained
+    a row is malformed, not a shorter or longer window (T-U6)."""
     for i, r in enumerate(rows):
         if text(r).startswith(FOOTER):
-            if i < 1 or rows[i - 1] != []:
-                raise Malformed("the row above the footer is %r, not a blank one" % (text(rows[i - 1]) if i else None))
-            return rows[: i - 1]
+            if i != VIEWPORT + 1:
+                raise Malformed("the footer is on row %d, not row %d" % (i + 1, VIEWPORT + 2))
+            if rows[i - 1] != []:
+                raise Malformed("the row above the footer is %r, not a blank one" % text(rows[i - 1]))
+            return rows[:VIEWPORT]
     raise Malformed("no Ctrl-O footer")
 
 
@@ -268,11 +272,12 @@ def check_hold(scenario, size, a_snap, b_snap):
     return claim
 
 
-def check_insert(scenario, size, a_snap, b_snap):
+def check_insert(scenario, size, a_snap, b_snap, at, height):
     """On each side, `b_snap`'s record is `a_snap`'s with one full-detail
     record put in at one row: the rows above it the same, then a `· Notice`
     header and its `* network:` row, then `a_snap`'s rows from there on,
-    pushed down by the record's height."""
+    pushed down by the record's height. The row it is put in at (`at`, side by
+    side) and its height are the claim's (T-U6)."""
     claim = Claim("insert %s %s %s -> %s" % (scenario, size, a_snap, b_snap))
     for side in ("fx", "xfx"):
         a = record(rows_of(side, scenario, size, a_snap))
@@ -287,6 +292,9 @@ def check_insert(scenario, size, a_snap, b_snap):
         m = next((m for m in range(2, len(b) - k) if b[k + m :] == a[k : len(a) - m]), None)
         if m is None:
             claim.fail("%s: the rows under the record are not the ones that were there" % side)
+            continue
+        if k + 1 != at[side] or m != height:
+            claim.fail("%s: a %d-row record at row %d, the claim is a %d-row record at row %d" % (side, m, k + 1, height, at[side]))
             continue
         claim.say("%-3s rows 1-%d the same; a %d-row record at row %d; the %d rows under it are the ones that were at row %d on" % (side, k, m, k + 1, len(b) - k - m, k + 1))
     return claim
@@ -383,7 +391,7 @@ SPEC = {
         ("stitch", "40x120", "running", [("full-pgup2", PAGE), ("full-pgup", PAGE), ("full-running", None)], WHOLE, (0, 1)),
         # At the top a `* network:` record lands inside the view, under the
         # ones there: the view holds above it, and pushes down under it.
-        ("insert", "40x120", "full-pgup2", "full-pgup2-after"),
+        ("insert", "40x120", "full-pgup2", "full-pgup2-after", {"fx": 20, "xfx": 19}, 5),
         ("inline", "40x120", "running"),
         ("inline", "40x120", "end"),
     ],
@@ -442,7 +450,7 @@ def run_claim(scenario, item, docs, shifts):
     if kind == "hold":
         return check_hold(scenario, item[1], item[2], item[3])
     if kind == "insert":
-        return check_insert(scenario, item[1], item[2], item[3])
+        return check_insert(scenario, item[1], item[2], item[3], item[4], item[5])
     if kind == "row1":
         return check_row1(scenario, item[1], item[2], item[3])
     if kind == "inside":

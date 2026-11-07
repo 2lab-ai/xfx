@@ -1,0 +1,76 @@
+# Round 2's RED: cargo test --locked --lib on a --no-local clone of 9f93f8a5 with round 2's test hunks put
+# on it alone (split_tests.py: the test-module hunks of 9f93f8a5..1789e2a6) and the one line those tests
+# need, `fn made_inert` made `pub(crate)` in src/tui/bridge.rs -- no behaviour. The MUST test and the cut
+# test fail; the reason test passes there (round 1 already spells reasons) and is caught by the
+# `reason-blanked` and `no-control-spelling` mutants (mutants.txt).
+
+
+running 3 tests
+test tui::toolgroup::tests::a_command_read_only_in_part_says_so_where_fx_says_nothing ... FAILED
+test tui::shell::tests::a_resumed_calls_short_argument_is_looked_for_in_fxs_status_of_the_raw_command ... FAILED
+test tui::shell::tests::a_failed_calls_long_reason_is_spelled_and_bounded_alike_on_both_views ... ok
+
+failures:
+
+---- tui::toolgroup::tests::a_command_read_only_in_part_says_so_where_fx_says_nothing stdout ----
+
+thread 'tui::toolgroup::tests::a_command_read_only_in_part_says_so_where_fx_says_nothing' (270181489) panicked at src/tui/toolgroup.rs:1597:13:
+assertion `left == right` failed
+  left: "└ Running echo shown"
+ right: "└ Running echo shown..."
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::shell::tests::a_resumed_calls_short_argument_is_looked_for_in_fxs_status_of_the_raw_command stdout ----
+
+thread 'tui::shell::tests::a_resumed_calls_short_argument_is_looked_for_in_fxs_status_of_the_raw_command' (270181488) panicked at src/tui/shell.rs:26769:9:
+[
+    "  2026-11-07 04:35:20.842 UTC · Notice",
+    "* session resumed: run it",
+    "",
+    "┃ run it",
+    "",
+    "● 1 tool call · 1 command",
+    "└ Ran aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\u{202e}z",
+    "│  command: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\u{202e}z",
+    "",
+    "  0s (↑2 ↓0)",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close",
+    "",
+    "run `xfx setup` · auto · glm-5.2",
+]
+
+
+failures:
+    tui::shell::tests::a_resumed_calls_short_argument_is_looked_for_in_fxs_status_of_the_raw_command
+    tui::toolgroup::tests::a_command_read_only_in_part_says_so_where_fx_says_nothing
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4055 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--lib`

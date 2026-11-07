@@ -1,0 +1,23 @@
+# P5 T-U3-TCc: a cancelled command's own line across a live theme switch,
+# 256 colours. The command (each product's own shell tool, in its
+# no-questions mode) holds a string and a comment; Ctrl-C stops it, so the
+# group shows the call cancelled and its own `Cancelled` line under it.
+# Drawn dark, then the terminal reports light and dark again.
+fx: gateway p5-toolstop-retint-fx.json
+xfx: gateway p5-toolstop-retint-xfx.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+wait 3
+type run cmd
+key Enter
+wait 2.5
+key C-c
+wait 3
+snap dark
+key -H 1b 5b 3f 39 39 37 3b 32 6e
+wait 2
+snap light
+key -H 1b 5b 3f 39 39 37 3b 31 6e
+wait 2
+snap dark-again

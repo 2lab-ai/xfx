@@ -135,7 +135,6 @@ use crate::clipboard::{self, Clipboard};
 use crate::config::{PermissionMode, RuntimeConfig, StatusLine, StatusLineItem};
 use crate::interactive::{self, Submitted};
 use crate::markdown::{self, MarkdownProcessor};
-use crate::output::safe_one_line;
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
 use crate::provider::effort::{intrinsic_fast, Effort, Speed, TurnSettings};
 use crate::provider::model::model_id_problem;
@@ -289,6 +288,9 @@ const NOTHING_TO_FORK: &str = "nothing to fork yet";
 /// shows (`:2073-2076`): a warning, under `session`.
 const FORK_UNSAVED: &str = "/fork needs a saved session";
 
+/// `/rename` with no saved session to name (`app_commands.zig:3031@481104fd`).
+const RENAME_UNSAVED: &str = "no active session to rename";
+
 /// What a fork that could not be made says (`submitForkMenuSelection`,
 /// `app_input_runtime.zig:1670-1678@481104fd`): an error, under `session`.
 const FORK_FAILED: &str = "Unable to fork the session.";
@@ -312,15 +314,6 @@ const RAIL_HIDDEN_ABOVE: &str = "\u{2503}\u{2191}";
 /// How many cells the rail and its space occupy, and therefore where an empty
 /// composer's caret sits (`visual_layout.zig:689-694`).
 const PROMPT_CELLS: u16 = 2;
-
-/// How much of a refused tool's own words a notice quotes back.
-///
-/// The same bound the line-oriented path gives a tool notice
-/// (`src/output.rs:1062`), spelled again rather than shared because that one is
-/// private to a module this task does not own. Both are there for the same
-/// reason: what a tool says about why it refused is for whoever needs it in
-/// full, and never for a row of the terminal's document.
-const TOOL_DETAIL_BYTES: usize = 120;
 
 /// The width `/trace`'s timeline is laid out at: the same for every report,
 /// whatever the screen's, and wide enough that a sentence is a line rather
@@ -1490,6 +1483,12 @@ pub(crate) struct Shell {
     /// The home directory `/image ~/…` is read under: the one the
     /// configuration found its profile in.
     home: Option<std::path::PathBuf>,
+    /// No usable `HOME`, so no profile: the session runs unsaved, as
+    /// upstream's does with no store (`initializePersistence`,
+    /// `src/core/app/app_session_runtime.zig:1438-1449@481104fd`), and the
+    /// commands that need a saved session say so (`/fork`, `/rename`,
+    /// `/resume`, `/permissions remember`).
+    unsaved: bool,
     /// The `/trace` reports still being built, written and copied on their own
     /// threads, and how each went ([`super::trace`]).
     traces: Traces,
@@ -2359,9 +2358,13 @@ impl Shell {
             dismissed: Dismissed::default(),
             file_picker: None,
             files: {
+                // `~` is the profile's home, held to `HOME`'s one rule
+                // ([`crate::config::home_dir`]): an empty or relative
+                // `HOME` is no home, so `~/` browses nothing rather than a
+                // folder under the workspace.
                 let mut files = Files::new(
                     config.workspace_root.clone(),
-                    std::env::var_os("HOME").map(std::path::PathBuf::from),
+                    config.home().map(std::path::Path::to_path_buf),
                 );
                 files.set_extra_roots(index_roots(
                     &config.workspace_root,
@@ -2464,6 +2467,7 @@ impl Shell {
                 .as_deref()
                 .and_then(std::path::Path::parent)
                 .map(std::path::Path::to_path_buf),
+            unsaved: config.profile_dir.is_none(),
             sound: Sound::new(config.notifications, settings.clone()),
             speed_saves: super::speed_save::Saves::new(settings, config.sources),
             metrics: Metrics::default(),
@@ -3492,6 +3496,20 @@ impl Shell {
         }
     }
 
+    /// With no profile, the prompt history has nowhere to be kept, and the
+    /// launch says so after its configuration notice, as upstream's does
+    /// when its history is unavailable (`app_bootstrap_runtime.zig:667-673`,
+    /// `.unavailable` with no home, `prompt_history_runtime.zig:49@481104fd`).
+    /// Lines typed are still recalled in this session; none is written.
+    pub(crate) fn history_unavailable(&mut self) {
+        if self.unsaved {
+            self.announce(notice::Notice::warning(
+                "history",
+                "durable prompt history unavailable",
+            ));
+        }
+    }
+
     /// Says that this session continues a saved one, as upstream's resume does
     /// (`writeResumeNotice`, `app_session_runtime.zig:4657-4672`): a neutral
     /// notice under `session resumed` whose body is the session's title, and
@@ -4134,7 +4152,10 @@ impl Shell {
                 self.mark(Mark::ToolResult {
                     id: call_id,
                     ok,
-                    detail: safe_one_line(&detail, TOOL_DETAIL_BYTES),
+                    // Spelled and bounded as the call's row has it, by the
+                    // channel (`super::toolgroup::flattened`: fx's
+                    // `encodeTerminalSafeInline` at 256 bytes).
+                    detail,
                     outcome,
                     changes,
                 });
@@ -10057,6 +10078,45 @@ impl Shell {
     /// The insertion is a boundary of the edit history rather than an entry
     /// in it, as upstream's is (`historyBoundary`, `image_commands.zig:172-174`):
     /// an undo does not take an attachment back -- deleting its badge does.
+    /// `image`, a file the user named, ready to attach: in a session that
+    /// keeps no copy of its own (an unsaved one), with its temporary copy
+    /// made now beside the paste copies ([`super::clipboard_image::PasteCopies`]),
+    /// as upstream captures every attachment into its temporary folder before
+    /// it is admitted (`captureImageAttachment`,
+    /// `app_session_runtime.zig:1331-1344@481104fd`) -- on every route a file
+    /// is attached by: `/image`, a pasted or dropped path, a path typed into
+    /// the prompt. The note for an image a request leaves out names that copy,
+    /// never the file.
+    ///
+    /// A copy that cannot be written refuses the attachment, as upstream's
+    /// capture refuses it (`captureImageAttachmentForAdmission`,
+    /// `src/core/images/image_attachments.zig:328-347@481104fd`), in its
+    /// words for a file it cannot attach (`failed to attach image: <name>`,
+    /// `image_commands.zig:38`).
+    fn captured(
+        &mut self,
+        mut image: crate::image::Image,
+    ) -> Result<crate::image::Image, notice::Notice> {
+        if self.unsaved && !image.copied && image.copy.is_none() {
+            match self
+                .paste_copies
+                .write(&image.snapshot_name(), &image.bytes)
+            {
+                Ok(copy) => image.copy = Some(copy),
+                Err(err) => {
+                    return Err(notice::Notice::error(
+                        crate::image::TOPIC,
+                        format!(
+                            "failed to attach image: {}",
+                            crate::image::io_name(err.kind())
+                        ),
+                    ))
+                }
+            }
+        }
+        Ok(image)
+    }
+
     fn attach(&mut self, image: crate::image::Image) -> bool {
         let id = image.id;
         let Some(next) = id.checked_add(1) else {
@@ -10137,6 +10197,21 @@ impl Shell {
             else {
                 continue;
             };
+            // A path whose copy cannot be made stays words, and says why, as
+            // upstream's rejected capture does (`continue`,
+            // `input_paste_runtime.zig:490-493@481104fd`).
+            let image = match self.captured(crate::image::Image::new(
+                id,
+                path,
+                media_type,
+                std::sync::Arc::from(bytes),
+            )) {
+                Ok(image) => image,
+                Err(refused) => {
+                    self.announce(refused);
+                    continue;
+                }
+            };
             replacement.push_str(&text[cut..word.range.start]);
             let start = replacement.len();
             replacement.push_str(&crate::image::badge(id));
@@ -10145,12 +10220,7 @@ impl Shell {
                 end: replacement.len(),
                 kind: EntityKind::Image {
                     token: std::sync::Arc::from(crate::image::token(id)),
-                    image: std::sync::Arc::new(crate::image::Image::new(
-                        id,
-                        path,
-                        media_type,
-                        std::sync::Arc::from(bytes),
-                    )),
+                    image: std::sync::Arc::new(image),
                 },
             });
             cut = word.range.end;
@@ -10276,18 +10346,40 @@ impl Shell {
         if found.is_empty() {
             return Typed::Nothing;
         }
+        // Every image made ready before the draft is touched: a copy that
+        // cannot be made refuses the prompt, as upstream's rejected capture
+        // rejects the submission and discards the copies it made
+        // (`captureImageAttachmentsForAdmission`,
+        // `image_attachments.zig:348-367@481104fd`).
+        let mut ready = Vec::with_capacity(found.len());
+        for (index, (range, (path, media_type, bytes))) in found.into_iter().enumerate() {
+            let image = crate::image::Image::new(
+                first + index as u32,
+                path,
+                media_type,
+                std::sync::Arc::from(bytes),
+            );
+            match self.captured(image) {
+                Ok(image) => ready.push((range, image)),
+                Err(refused) => {
+                    for (_, made) in &ready {
+                        let made: &crate::image::Image = made;
+                        if let Some(copy) = &made.copy {
+                            self.paste_copies.discard(copy);
+                        }
+                    }
+                    self.announce(refused);
+                    return Typed::Refused;
+                }
+            }
+        }
         let before = self.draft_before();
         // From the last to the first, so each range is still where it was.
-        for (index, (range, (path, media_type, bytes))) in found.into_iter().enumerate().rev() {
-            let id = first + index as u32;
+        for (range, image) in ready.into_iter().rev() {
+            let id = image.id;
             let kind = EntityKind::Image {
                 token: std::sync::Arc::from(crate::image::token(id)),
-                image: std::sync::Arc::new(crate::image::Image::new(
-                    id,
-                    path,
-                    media_type,
-                    std::sync::Arc::from(bytes),
-                )),
+                image: std::sync::Arc::new(image),
             };
             let placed = self
                 .editor
@@ -12683,6 +12775,19 @@ impl CommandHandlers for Shell {
             self.editor.text(),
             session_picker::page_for(self.geometry.rows),
         ));
+        // No store to list: the picker says `Unable to load sessions.` when
+        // the runtime answers, and the transcript says why, as upstream's
+        // load failure does (`writeSessionPickerError`,
+        // `app_session_runtime.zig:2436-2447@481104fd`).
+        if self.unsaved {
+            self.write_notice(&notice::Notice::error(
+                "session",
+                format!(
+                    "unable to list saved sessions: {}",
+                    crate::session::store::NO_STORE
+                ),
+            ));
+        }
         self.refit();
         self.render.request(Reason::Modal);
     }
@@ -12699,6 +12804,12 @@ impl CommandHandlers for Shell {
     /// ([`Self::fork_points`]) -- unless the composer was edited first, which
     /// closes it before it opens.
     fn fork(&mut self) {
+        // No store first, as upstream's `openForkMenu` asks for its session
+        // before it asks whether a turn runs (`:2073-2081@481104fd`).
+        if self.unsaved {
+            self.write_notice(&notice::Notice::warning("session", FORK_UNSAVED));
+            return;
+        }
         if self.provider_work_busy() {
             self.write_notice(&notice::Notice::neutral("session", FORK_BUSY));
             return;
@@ -12746,6 +12857,14 @@ impl CommandHandlers for Shell {
                 return;
             }
         };
+        // No store, no session to name -- and the window keeps its title, as
+        // upstream caches one only after it has a session
+        // (`renameActiveSession`, `app_session_runtime.zig:3141-3146@481104fd`;
+        // `NoActiveSession`, `app_commands.zig:3031@481104fd`).
+        if self.unsaved {
+            self.write_notice(&notice::Notice::error("session", RENAME_UNSAVED));
+            return;
+        }
         let announced = self.work.outstanding() > 0;
         self.work.control(TurnControl::Rename {
             title: title.clone(),
@@ -12897,9 +13016,13 @@ impl CommandHandlers for Shell {
         // There is always one: this shell's next session has its id from
         // launch.
         let store = self.work.saved_rules().view();
+        // An unsaved session has no saved-session rules to manage, as
+        // upstream's has no active saved session (`activeSessionId`,
+        // `app_session_runtime.zig:2917-2921@481104fd`; the refusal,
+        // `app_commands.zig:610-617@481104fd`).
         let managed = slash::manage_with(
             &request,
-            Some(&store.at),
+            (!self.unsaved).then_some(&store.at),
             |_| store.state.clone(),
             self.rules_busy(),
             |tool, arguments| self.prepare_rule_action(tool, arguments),
@@ -13348,12 +13471,18 @@ impl CommandHandlers for Shell {
                 problem.to_string(),
             )),
             Ok((path, media_type, bytes)) => {
-                let image = crate::image::Image::new(
+                let image = match self.captured(crate::image::Image::new(
                     self.images_next,
                     path,
                     media_type,
                     std::sync::Arc::from(bytes),
-                );
+                )) {
+                    Ok(image) => image,
+                    Err(refused) => {
+                        self.announce(refused);
+                        return;
+                    }
+                };
                 let name = image.name();
                 let body = if self.attach(image) {
                     format!("attached image: {name}")
@@ -27181,10 +27310,11 @@ mod tests {
             ],
             "{screen:#?}"
         );
-        // What the read returned, which the document never showed -- made
-        // inert, as a live turn's would be at the channel.
+        // What the read returned, which the document never showed -- spelled
+        // as fx spells a result (`TerminalSafeIndentedWriter`), as a live
+        // turn's would be at the channel.
         assert!(
-            screen.contains(&"\u{2502}  1    ONLY-IN-THE-LOG [2J".to_string()),
+            screen.contains(&"\u{2502}  1    ONLY-IN-THE-LOG\\x1b[2J".to_string()),
             "{screen:#?}"
         );
         assert!(
@@ -27405,7 +27535,351 @@ mod tests {
             painted.contains("prompt x ]0;pwned y [2Jz 31m"),
             "{painted:?}"
         );
-        assert!(full.contains("read x ]0;pwned y [2Jz 31m"), "{full:?}");
+        // A call's result on the full transcript is spelled, as fx v0.0.16
+        // spells one there (`TerminalSafeIndentedWriter`), not blanked.
+        assert!(
+            full.contains("read x\\x1b]0;pwned\\x07y\\x1b[2Jz\\u{009b}31m"),
+            "{full:?}"
+        );
+    }
+
+    #[test]
+    fn a_resumed_calls_own_row_is_spelled_on_the_document_and_the_full_transcript() {
+        // CALLROW-SAFE, the whole way a resumed call's argument travels:
+        // the log, `bridge::inert_hydration`, the shell, the group's row in
+        // the document and the heading on Ctrl-O's screen -- each spelled as
+        // fx spells a command's row (`encodeTerminalSafe`), nothing in either
+        // a terminal would act on or that reorders the row.
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let command = "printf 'A\u{202e}B\u{2066}C\u{061c}D\u{1b}[2JE\rF\tG\u{9b}H'";
+        let steps = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![RecordedToolCall {
+                    id: "c".to_string(),
+                    name: "terminal".to_string(),
+                    input: serde_json::json!({"action": "exec", "command": command}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+            TurnStep::ToolResult {
+                images: Vec::new(),
+                call_id: "c".to_string(),
+                tool: "terminal".to_string(),
+                ok: true,
+                output: String::new(),
+                ending: None,
+                lines: None,
+                change: None,
+            },
+        ];
+        let state = logged(vec![logged_turn(
+            "run it",
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        )]);
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(bridge::inert_hydration(state), false);
+        let painted = resumed.painted_document().join("\n");
+        resumed.route_bytes(b"\x0f");
+        let full = resumed.screen_rows().join("\n");
+        let spelled = r"printf 'A\u{202e}B\u{2066}C\u{061c}D\x1b[2JE F\x09G\u{009b}H'";
+        for (surface, bytes) in [("document", &painted), ("full transcript", &full)] {
+            // Every colour off, whoever painted it (the shell highlighter's
+            // too): what is left is the row's text.
+            let mut plain = String::new();
+            let mut rest = bytes.as_str();
+            while let Some(at) = rest.find('\u{1b}') {
+                plain.push_str(&rest[..at]);
+                rest = &rest[at..];
+                rest = &rest[rest.find('m').map_or(rest.len(), |end| end + 1)..];
+            }
+            plain.push_str(rest);
+            assert!(plain.contains(spelled), "{surface}: {plain:?}");
+            for mark in ['\u{202e}', '\u{2066}', '\u{061c}', '\u{9b}', '\r', '\t'] {
+                assert!(!bytes.contains(mark), "{surface}: {mark:?} in {bytes:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_resumed_calls_short_argument_is_looked_for_in_fxs_status_of_the_raw_command() {
+        // CALLROW-SAFE round 2: Ctrl-O leaves an argument's row out when fx's
+        // 120-byte status phrase holds its value (`argumentVisibleInToolHeading`,
+        // `src/ui/full_transcript_screen.zig:6594-6619@481104fd`), and fx makes
+        // that phrase from the command as written: 116 `a`, then U+202E, is
+        // cut before the whole `\u{202e}`. Made from the channel's spelling
+        // instead, the bound fell inside the escape, kept a literal `\`, and
+        // hid `cwd: a\`, which fx shows. The whole way: the log,
+        // `bridge::inert_hydration`, the shell, Ctrl-O.
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let command = format!("{}\u{202e}z", "a".repeat(116));
+        let steps = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![RecordedToolCall {
+                    id: "c".to_string(),
+                    name: "terminal".to_string(),
+                    input: serde_json::json!({"action": "exec", "command": command, "cwd": "a\\"}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+            TurnStep::ToolResult {
+                images: Vec::new(),
+                call_id: "c".to_string(),
+                tool: "terminal".to_string(),
+                ok: true,
+                output: String::new(),
+                ending: None,
+                lines: None,
+                change: None,
+            },
+        ];
+        let state = logged(vec![logged_turn(
+            "run it",
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        )]);
+        let mut resumed = shell(40, 160);
+        resumed.hydrate(bridge::inert_hydration(state), false);
+        resumed.route_bytes(b"\x0f");
+        let rows = uncoloured_rows(&resumed.screen_rows());
+        let heading = format!("\u{2514} Ran {}\\u{{202e}}z", "a".repeat(116));
+        assert!(rows.contains(&heading), "{rows:#?}");
+        assert!(
+            rows.iter().any(|row| row == "\u{2502}  cwd: a\\"),
+            "{rows:#?}"
+        );
+    }
+
+    #[test]
+    fn a_failed_calls_long_reason_is_spelled_and_bounded_alike_on_both_views() {
+        // CALLROW-SAFE round 2: a reason crossing the 120 bytes the shell
+        // used to cut it at and the 256 fx bounds it at, with white space at
+        // the first and an escape at the second: the channel flattens and
+        // spells it (`encodeTerminalSafeInline`, `text_utils.zig:397-417
+        // @481104fd`), and the document's row and Ctrl-O's heading carry the
+        // same text. A resumed failure has no reason, as fx's replay has none
+        // (`app_session_runtime.zig:4296-4312@481104fd`; capture
+        // `fx-resume-tools-40x120-resumed`, `Failed missing.txt`).
+        let reason = format!(
+            "Path not found: {}\t \r\n{}\u{1b}[2J{}\u{202e}{}",
+            "a".repeat(100),
+            "b".repeat(100),
+            "c".repeat(29),
+            "d".repeat(50)
+        );
+        let spelled = format!(
+            "Path not found: {} {}\\x1b[2J{}...",
+            "a".repeat(100),
+            "b".repeat(100),
+            "c".repeat(29)
+        );
+        assert_eq!(spelled.len(), 256);
+        let row = format!("\u{2514} Failed gone.txt: {spelled}");
+        let mut live = shell(40, 300);
+        live.route_bytes(b"read\r");
+        let _ = live.picks_up();
+        live.apply(UiEvent::TurnStarted.made_inert());
+        live.apply(
+            tool_start("r", "read_file", serde_json::json!({"path": "gone.txt"})).made_inert(),
+        );
+        live.apply(
+            UiEvent::ToolResult {
+                call_id: "r".to_string(),
+                tool: "read_file".to_string(),
+                ok: false,
+                detail: reason.clone(),
+                outcome: CallOutcome::Finished,
+                changes: None,
+            }
+            .made_inert(),
+        );
+        live.apply(UiEvent::Delta("Done.".to_string()));
+        live.apply(UiEvent::TurnEnded { failure: None });
+        live.shell.flush_paced();
+        let document = uncoloured_rows(&live.painted_document());
+        assert!(document.contains(&row), "{document:#?}");
+        live.route_bytes(b"\x0f");
+        let full = uncoloured_rows(&live.screen_rows());
+        assert!(full.contains(&row), "{full:#?}");
+        // At 120 columns the document's row is cut at the edge; it is the
+        // same row.
+        let mut narrow = shell(40, 120);
+        narrow.route_bytes(b"read\r");
+        let _ = narrow.picks_up();
+        narrow.apply(UiEvent::TurnStarted);
+        narrow.apply(
+            tool_start("r", "read_file", serde_json::json!({"path": "gone.txt"})).made_inert(),
+        );
+        narrow.apply(
+            UiEvent::ToolResult {
+                call_id: "r".to_string(),
+                tool: "read_file".to_string(),
+                ok: false,
+                detail: reason.clone(),
+                outcome: CallOutcome::Finished,
+                changes: None,
+            }
+            .made_inert(),
+        );
+        narrow.apply(UiEvent::TurnEnded { failure: None });
+        narrow.shell.flush_paced();
+        let cut = uncoloured_rows(&[super::super::transcript::ellipsized(&row, 120)]);
+        let document = uncoloured_rows(&narrow.painted_document());
+        assert!(document.contains(&cut[0]), "{:?}\n{document:#?}", cut[0]);
+        for bytes in [
+            document.join("\n"),
+            uncoloured_rows(&narrow.screen_rows()).join("\n"),
+        ] {
+            assert!(
+                !bytes.contains('\u{202e}') && !bytes.contains('\t'),
+                "{bytes:?}"
+            );
+        }
+
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let steps = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![RecordedToolCall {
+                    id: "r".to_string(),
+                    name: "read_file".to_string(),
+                    input: serde_json::json!({"path": "gone.txt"}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+            TurnStep::ToolResult {
+                images: Vec::new(),
+                call_id: "r".to_string(),
+                tool: "read_file".to_string(),
+                ok: false,
+                output: reason,
+                ending: None,
+                lines: None,
+                change: None,
+            },
+        ];
+        let state = logged(vec![logged_turn(
+            "read",
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        )]);
+        let mut resumed = shell(40, 300);
+        resumed.hydrate(bridge::inert_hydration(state), false);
+        let document = uncoloured_rows(&resumed.painted_document());
+        assert!(
+            document.iter().any(|row| row == "\u{2514} Failed gone.txt"),
+            "{document:#?}"
+        );
+        resumed.route_bytes(b"\x0f");
+        let full = uncoloured_rows(&resumed.screen_rows());
+        assert!(
+            full.iter().any(|row| row == "\u{2514} Failed gone.txt"),
+            "{full:#?}"
+        );
+    }
+
+    #[test]
+    fn an_mcp_calls_reason_through_the_channel_is_the_rows_own_spelling_cut_once() {
+        // Train 2's seam: the channel spells every call's reason as a
+        // command's row spells it (CALLROW-SAFE, `toolgroup::flattened`: fx's
+        // `encodeTerminalSafe` set), and an MCP call's row then spells a
+        // server's words with the wider set `crate::mcp::terminal_safe`
+        // names -- U+FE0F, U+00AD and the rest the channel leaves as they are
+        // -- under its own 256-byte bound. That second bound must not fall
+        // inside an escape the channel wrote: the row is what the MCP row
+        // makes of the server's words in one pass (`mcp::terminal_safe` over
+        // them, white space made one space), inline and on Ctrl-O. A reason
+        // that is white space alone is no reason, as fx's is none
+        // (`failureStatusDetail`, `src/core/agent/runtime/
+        // tool_presentation.zig:1490-1493@481104fd`, and `:1283`): `Failed
+        // mcp_web_echo`, no `: `.
+        fn one_pass(reason: &str) -> String {
+            let words: Vec<&str> = reason
+                .split([' ', '\t', '\n', '\r', '\x0b', '\x0c'])
+                .filter(|word| !word.is_empty())
+                .collect();
+            crate::mcp::terminal_safe(&words.join(" "))
+        }
+        fn failed_mcp_rows(reason: &str) -> (Vec<String>, Vec<String>) {
+            let mut live = shell(40, 300);
+            live.route_bytes(b"echo\r");
+            let _ = live.picks_up();
+            live.apply(UiEvent::TurnStarted.made_inert());
+            live.apply(
+                UiEvent::ToolStart {
+                    call_id: "m".to_string(),
+                    tool: "mcp_web_echo".to_string(),
+                    shown: crate::tools::mcp::shown("mcp_web_echo"),
+                }
+                .made_inert(),
+            );
+            live.apply(
+                UiEvent::ToolResult {
+                    call_id: "m".to_string(),
+                    tool: "mcp_web_echo".to_string(),
+                    ok: false,
+                    detail: reason.to_string(),
+                    outcome: CallOutcome::Finished,
+                    changes: None,
+                }
+                .made_inert(),
+            );
+            live.apply(UiEvent::Delta("Done.".to_string()));
+            live.apply(UiEvent::TurnEnded { failure: None });
+            live.shell.flush_paced();
+            let document = uncoloured_rows(&live.painted_document());
+            live.route_bytes(b"\x0f");
+            (document, uncoloured_rows(&live.screen_rows()))
+        }
+        // A literal backslash, a C0 control, an fx mark (U+202E), a soft
+        // hyphen (U+00AD) and a variation selector (U+FE0F) the channel
+        // leaves raw, then three escapes where the row's bound falls: the
+        // channel's text is 224 bytes, the row's would be 260.
+        let reason = format!(
+            "refused \\ by\t the\u{ad}\u{202e} server\u{7}: {}{}{}",
+            "A".repeat(155),
+            "\u{fe0f}".repeat(6),
+            "\u{1b}".repeat(3)
+        );
+        let spelled = one_pass(&reason);
+        assert!(spelled.ends_with("\\x1b..."), "{spelled}");
+        assert!(spelled.len() <= crate::mcp::TERMINAL_SAFE_MAX_BYTES);
+        let row = format!("\u{2514} Failed mcp_web_echo: {spelled}");
+        let (document, full) = failed_mcp_rows(&reason);
+        assert!(document.contains(&row), "{row}\n{document:#?}");
+        assert!(full.contains(&row), "{row}\n{full:#?}");
+        for blank in ["   ", " \t\r\n ", "\u{b}\u{c}"] {
+            let (document, full) = failed_mcp_rows(blank);
+            for rows in [&document, &full] {
+                assert!(
+                    rows.iter().any(|row| row == "\u{2514} Failed mcp_web_echo"),
+                    "{blank:?}: {rows:#?}"
+                );
+                assert!(!rows
+                    .iter()
+                    .any(|row| row.starts_with("\u{2514} Failed mcp_web_echo:")));
+            }
+        }
     }
 
     #[test]
@@ -32311,6 +32785,52 @@ mod tests {
             sent,
             control,
         }
+    }
+
+    #[test]
+    fn a_tilde_under_no_usable_home_browses_nothing() {
+        // The file index's `~` is the profile's home (`config.home()`), held
+        // to `HOME`'s one rule: an empty or relative `HOME` is none, so `~/`
+        // names no folder -- not the process's own `$HOME`, which the index
+        // read for itself before, and not a folder under the workspace.
+        let workspace = tempfile::tempdir().expect("a workspace");
+        std::fs::create_dir_all(workspace.path().join("relative/home")).expect("a folder");
+        for home in ["relative/home", ""] {
+            let config = RuntimeConfig::load_with(
+                &Environment::new(Some(std::path::PathBuf::from(home)), BTreeMap::new()),
+                workspace.path(),
+            )
+            .expect("load a configuration");
+            let (work, _sent, _control) = WorkHandle::detached();
+            let mut shell = Shell::new(
+                &config,
+                crate::tui::layout::solve(24, 80, 1).expect("a band"),
+                PALETTE,
+                false,
+                work,
+            );
+            assert!(shell.unsaved, "HOME={home:?}");
+            assert_eq!(
+                shell.files.lookup("~/"),
+                super::super::file_index::Lookup::Unavailable,
+                "HOME={home:?}"
+            );
+        }
+        // An absolute one is a home: `~/` is read.
+        let home = tempfile::tempdir().expect("a home");
+        let (work, _sent, _control) = WorkHandle::detached();
+        let mut shell = Shell::new(
+            &config(home.path(), workspace.path()),
+            crate::tui::layout::solve(24, 80, 1).expect("a band"),
+            PALETTE,
+            false,
+            work,
+        );
+        assert!(!shell.unsaved);
+        assert_ne!(
+            shell.files.lookup("~/"),
+            super::super::file_index::Lookup::Unavailable
+        );
     }
 
     /// The research captures' `ws2` workspace, and a shell working in it.
@@ -38225,6 +38745,207 @@ mod tests {
         let dir = shell.paste_copies.dir().expect("a directory").to_path_buf();
         drop(shell);
         assert!(!dir.exists(), "{dir:?} outlived the session");
+    }
+
+    #[test]
+    fn an_unsaved_sessions_attached_file_gets_a_private_temporary_copy() {
+        // Upstream captures every attachment into its process's temporary
+        // folder (`captureImageAttachment`, `app_session_runtime.zig:1331-1344`,
+        // `createTempSnapshotDir`, `image_attachments.zig:246-273@481104fd`),
+        // and an unsaved session's note names that copy. xfx's goes where a
+        // paste's does: owner-only, in the shell's private directory, gone
+        // with the shell. The file the user named is left as it was.
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let source = workspace.path().join("shot.png");
+        std::fs::write(&source, crate::image::fixture::SHOT_PNG).expect("a picture");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(
+                Some(std::path::PathBuf::from("relative/home")),
+                BTreeMap::new(),
+            ),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        let (work, _sent, _control) = WorkHandle::detached();
+        let mut shell = Shell::new(
+            &config,
+            crate::tui::layout::solve(40, 120, 1).expect("a band"),
+            PALETTE,
+            false,
+            work,
+        );
+        assert!(shell.unsaved);
+        shell.workspace = workspace.path().canonicalize().expect("canonical");
+        shell.route_bytes(b"/image shot.png\r");
+        let image = shell
+            .editor
+            .entities()
+            .images()
+            .next()
+            .cloned()
+            .expect("an image");
+        assert!(!image.copied);
+        assert_eq!(
+            image.name(),
+            "shot.png",
+            "the badge and the notice keep its name"
+        );
+        let copy = image.copy.clone().expect("a temporary copy");
+        assert_eq!(image.own_copy(), Some(copy.as_path()));
+        assert_ne!(copy, image.path);
+        assert_eq!(
+            Some(copy.parent().expect("a directory")),
+            shell.paste_copies.dir(),
+            "beside the paste copies"
+        );
+        assert_eq!(
+            copy.file_name().and_then(|name| name.to_str()),
+            Some(image.snapshot_name().as_str())
+        );
+        assert_eq!(
+            std::fs::read(&copy).expect("the copy"),
+            crate::image::fixture::SHOT_PNG
+        );
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = |path: &std::path::Path| {
+                std::fs::metadata(path).expect("mode").permissions().mode() & 0o777
+            };
+            assert_eq!(mode(&copy), 0o600);
+            assert_eq!(mode(copy.parent().expect("a directory")), 0o700);
+        }
+        assert_eq!(
+            std::fs::read(&source).expect("the source"),
+            crate::image::fixture::SHOT_PNG
+        );
+        let dir = copy.parent().expect("a directory").to_path_buf();
+        drop(shell);
+        assert!(!dir.exists(), "{dir:?} outlived the session");
+
+        // A session that saves keeps its own copy in the log, and makes none.
+        let mut saved = attaching();
+        saved.route_bytes(b"/image shot.png\r");
+        let image = saved
+            .editor
+            .entities()
+            .images()
+            .next()
+            .cloned()
+            .expect("an image");
+        assert_eq!(image.copy, None);
+        assert_eq!(saved.paste_copies.dir(), None);
+    }
+
+    /// The temporary copy an unsaved session made of `image`, checked: beside
+    /// the paste copies, owner-only, the bytes the image holds, and never the
+    /// file it was attached from.
+    fn checked_copy(shell: &Fixture, image: &crate::image::Image) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let copy = image
+            .copy
+            .clone()
+            .unwrap_or_else(|| panic!("image #{} has no temporary copy", image.id));
+        assert_ne!(copy, image.path, "the source is not a copy");
+        assert_eq!(copy.parent(), shell.paste_copies.dir());
+        assert_eq!(std::fs::read(&copy).expect("the copy"), &image.bytes[..]);
+        assert_eq!(
+            std::fs::metadata(&copy).expect("mode").permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(image.own_copy(), Some(copy.as_path()));
+        copy
+    }
+
+    // Upstream captures on each route a file is attached by: the `/image`
+    // command (`insertImageAtCursor`, `src/core/images/image_commands.zig:137-140`),
+    // a pasted or dropped path (`input_paste_runtime.zig:490-493`) and a path
+    // typed into the prompt (`captureExtractedImages`,
+    // `input_submit_runtime.zig:1218-1223@481104fd`). An unsaved session's
+    // copy is made on each of them.
+
+    /// [`attaching`], in a session that keeps no copy of its own.
+    fn attaching_unsaved() -> Attaching {
+        let mut shell = attaching();
+        shell.unsaved = true;
+        shell
+    }
+
+    #[test]
+    fn an_unsaved_slash_image_makes_the_files_copy() {
+        let mut shell = attaching_unsaved();
+        shell.route_bytes(b"/image shot.png\r");
+        let image = shell
+            .editor
+            .entities()
+            .images()
+            .next()
+            .cloned()
+            .expect("an image");
+        checked_copy(&shell, &image);
+    }
+
+    #[test]
+    fn an_unsaved_pasted_or_dropped_path_makes_the_files_copy() {
+        let mut shell = attaching_unsaved();
+        pasted(&mut shell, "shot.png describe this");
+        let image = shell
+            .editor
+            .entities()
+            .images()
+            .next()
+            .cloned()
+            .expect("an image");
+        checked_copy(&shell, &image);
+    }
+
+    #[test]
+    fn an_unsaved_typed_path_makes_the_files_copy_as_the_prompt_is_sent() {
+        let mut shell = attaching_unsaved();
+        shell.route_bytes(b"inspect shot.png,\r");
+        match shell.picks_up() {
+            TurnWork::Attached { images, .. } => {
+                assert_eq!(images.len(), 1, "{images:?}");
+                checked_copy(&shell, &images[0]);
+            }
+            other => panic!("not a prompt with an image: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_unsaved_copy_that_cannot_be_written_refuses_the_attachment_on_every_route() {
+        // Upstream refuses an attachment its capture fails for
+        // (`captureImageAttachmentForAdmission`,
+        // `src/core/images/image_attachments.zig:328-347@481104fd`): `/image`
+        // says why and puts no badge in, a pasted path stays words, and a
+        // typed path stops the prompt with the draft kept.
+        let refusal = said(notice::Notice::error(
+            crate::image::TOPIC,
+            "failed to attach image: FileNotFound",
+        ));
+        let unwritable = |shell: &mut Attaching| {
+            let gone = shell.workspace.join("no-such-directory");
+            shell.paste_copies = super::super::clipboard_image::PasteCopies::at(gone);
+        };
+        let mut shell = attaching_unsaved();
+        unwritable(&mut shell);
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(shell.document(), refusal);
+        assert_eq!(shell.editor.text(), "");
+        assert!(attached_ids(&shell).is_empty());
+
+        let mut shell = attaching_unsaved();
+        unwritable(&mut shell);
+        pasted(&mut shell, "shot.png describe this");
+        assert_eq!(shell.editor.text(), "shot.png describe this");
+        assert!(attached_ids(&shell).is_empty());
+        assert_eq!(shell.document(), refusal);
+
+        let mut shell = attaching_unsaved();
+        unwritable(&mut shell);
+        shell.route_bytes(b"inspect shot.png,\r");
+        assert!(shell.sent.try_recv().is_err(), "the prompt was sent");
+        assert_eq!(shell.editor.text(), "inspect shot.png,");
+        assert_eq!(shell.document(), refusal);
     }
 
     #[test]

@@ -5,6 +5,7 @@ usage: scripts/fxcap/test-sweep.sh   (python3 -I scripts/fxcap/test_sweep.py)
 """
 
 import atexit
+import datetime
 import glob
 import hashlib
 import json
@@ -428,6 +429,30 @@ class Ledger(unittest.TestCase):
             with self.assertRaises(ledgermod.LedgerError, msg=(kind, extra)):
                 ledgermod.load(ledger_file(LEDGER_TOML, cause % (kind, extra)), REPO)
 
+    def test_a_cause_past_its_date_covers_nothing(self):
+        cause = textwrap.dedent(
+            """
+            [[cause]]
+            id = "c"
+            kind = "unit"
+            owner = "U-1"
+            scenarios = ["*"]
+            snaps = ["*"]
+            fx_row = '^fx says'
+            why = "w"
+            %s
+            """
+        )
+        led = ledgermod.load(ledger_file(LEDGER_TOML, cause % 'expires = "date:2026-01-02"'), REPO)
+        live = lambda day: [c["id"] for c in ledgermod.live_causes(led, datetime.date(2026, 1, day))]
+        self.assertEqual(live(2), ["c"])
+        self.assertEqual(live(3), [])
+        led = ledgermod.load(ledger_file(LEDGER_TOML, cause % ""), REPO)
+        self.assertEqual([c["id"] for c in ledgermod.live_causes(led)], ["c"])
+        for bad in ('expires = "pin:b"', 'expires = "2026-01-02"', 'expires = "date:2026-02-30"'):
+            with self.assertRaises(ledgermod.LedgerError, msg=bad):
+                ledgermod.load(ledger_file(LEDGER_TOML, cause % bad), REPO)
+
     def test_the_repos_ledger_loads_and_every_source_it_cites_exists(self):
         led = ledgermod.load(LEDGER, REPO)
         names = [p["name"] for p in led["pins"]]
@@ -675,6 +700,45 @@ class Sweep(unittest.TestCase):
         r2, _ = self.sweep("--rescore", out=out)
         self.assertEqual(r2.returncode, 0, r2.stderr)
         self.assertEqual(self.board(out)["totals"], t)
+
+    def test_a_cause_past_its_date_attributes_no_row_of_a_sweep(self):
+        # `ok`'s snap `b` differs (each binary names itself). A cause covering
+        # both rows, past its date, attributes neither: they come back as rows
+        # no cause covers (sweep.py's `attribute` is handed `live_causes`).
+        # The same cause with no date takes them, on a rescore of the same
+        # captures.
+        cause = textwrap.dedent(
+            """
+            [[cause]]
+            id = "says"
+            kind = "unit"
+            owner = "U-1"
+            scenarios = ["ok"]
+            snaps = ["b"]
+            fx_row = '^fx says$'
+            xfx_row = '^xfx says$'
+            why = "w"
+            %s
+            """
+        )
+        pin = '[[pin]]\nname = "fake"\nversion = "9"\nsha256 = "%s"\n' % self.sha
+
+        def pair_b(out):
+            with open(os.path.join(out, "pairs.json")) as f:
+                return next(p for p in json.load(f) if p["scenario"] == "ok" and p["label"] == "b")
+
+        self.ledger = ledger_file(pin, cause % 'expires = "date:2000-01-01"')
+        r, out = self.sweep("--fx", self.fx, "--pin-sha", self.sha, "--only", "ok")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        b = pair_b(out)
+        self.assertEqual(b["verdict"], "unresolved-defect", b)
+        self.assertEqual(b["causes"], [], b)
+        self.assertEqual(sorted(text for _, _, text in b["unattributed"]), ["fx says", "xfx says"], b)
+        self.ledger = ledger_file(pin, cause % "")
+        r, _ = self.sweep("--rescore", out=out)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        b = pair_b(out)
+        self.assertEqual((b["causes"], b["unattributed"]), (["says"], []), b)
 
     def test_the_inventory_alone(self):
         r, out = self.sweep("--fx", self.fx, "--pin-sha", self.sha, "--inventory-only")

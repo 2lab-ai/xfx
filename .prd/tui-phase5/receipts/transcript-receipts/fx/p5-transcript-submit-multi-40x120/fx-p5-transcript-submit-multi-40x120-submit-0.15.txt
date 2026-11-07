@@ -1,0 +1,40 @@
+
+  Filler line 17 of the first answer.
+
+  Filler line 18 of the first answer.
+
+  Filler line 19 of the first answer.
+
+  Filler line 20 of the first answer.
+
+  Filler line 21 of the first answer.
+
+  Filler line 22 of the first answer.
+
+  Filler line 23 of the first answer.
+
+  Filler line 24 of the first answer.
+
+  Filler line 25 of the first answer.
+
+  Filler line 26 of the first answer.
+
+  Filler line 27 of the first answer.
+
+  Filler line 28 of the first answer.
+
+  Filler line 29 of the first answer.
+
+  Filler line 30 of the first answer.
+
+  0s (↑4 ↓40)
+
+┃ multi line one
+┃ multi line two
+┃ multi line three
+
+• Generating (0s) (↑13 ↓4)
+
+┃
+
+auto · model-a
