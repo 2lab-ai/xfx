@@ -308,14 +308,17 @@ mod tests {
         // only once its gate is opened, which nothing does: the shell's drop
         // joins the report's thread, the report is on disk whole, and the
         // tool is given up rather than waited for. An end that waited for it
-        // would wait until the gate gave up, and fail on that. No clock: the
-        // end's time holds the report's write and the copy's wait for another
-        // start (`SPAWNING`), which a bound of GRACE + 10 s counted
-        // (FLAKE-COPYEND r2).
+        // would wait until the gate gave up, and fail on that -- so the
+        // copy's own deadline is set past the gate's, or an end that never
+        // stopped it would be saved by the deadline. No clock: the end's time
+        // holds the report's write and the copy's wait for another start
+        // (`SPAWNING`), which a bound of GRACE + 10 s counted (FLAKE-COPYEND
+        // r2).
         let tool = FakeTool::keeping();
         tool.gate_file_copies();
         let dir = tempfile::tempdir().expect("a report directory");
-        let traces = Traces::new(tool.clipboard(), dir.path().to_path_buf());
+        let clipboard = tool.clipboard().waiting(Duration::from_secs(3600));
+        let traces = Traces::new(clipboard, dir.path().to_path_buf());
         assert!(traces.start(job(TraceFacts::default())));
         drop(traces);
         assert!(
