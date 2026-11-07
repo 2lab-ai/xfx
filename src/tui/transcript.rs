@@ -4083,6 +4083,89 @@ mod tests {
     }
 
     #[test]
+    fn every_palette_sequence_recoloured_as_written_is_what_a_report_leaves_on_the_screen() {
+        // `recoloured` -- each sequence through `recoloured_sequence` -- is
+        // the claim that a row written recoloured is the row a theme report
+        // would leave on the screen (`Grid::retint_document`, cell by cell).
+        // Every sequence the palette spells, painted in either mode at either
+        // depth, on a row of every kind, landing in either mode at that
+        // depth: the cell the report leaves and the cell the recoloured row
+        // is written as hold the same attributes.
+        use super::super::grid::{Cell, Grid};
+        use super::super::theme::{Depth, Mode};
+        let geometry = crate::tui::layout::solve(24, 80, 1).expect("a band");
+        let kinds = [
+            DocumentRow::Plain,
+            DocumentRow::ToolGroup,
+            DocumentRow::ToolStopped,
+            DocumentRow::Answer,
+            DocumentRow::Code,
+            DocumentRow::Table,
+        ];
+        let attributes = |grid: &Grid| match grid.cell(1, 1) {
+            Some(Cell::Lead { sgr, .. }) => sgr.reopen(),
+            _ => panic!("no cell where the row was placed"),
+        };
+        let (mut checked, mut moved) = (0, 0);
+        for depth in [Depth::Ansi256, Depth::TrueColor] {
+            for painted_in in [Mode::Dark, Mode::Light] {
+                let painted = Palette {
+                    mode: painted_in,
+                    depth,
+                };
+                let sequences = [
+                    ("divider", painted.divider().to_string()),
+                    ("hint", painted.hint().to_string()),
+                    ("notice", painted.notice().to_string()),
+                    ("activity", painted.activity().to_string()),
+                    ("statusline", painted.statusline().to_string()),
+                    ("dim", painted.dim().to_string()),
+                    ("warning", painted.warning().to_string()),
+                    ("tool_output", painted.tool_output().to_string()),
+                    ("notice_label", painted.notice_label().to_string()),
+                    ("notice_heading", painted.notice_heading().to_string()),
+                    ("diff", painted.diff().to_string()),
+                    ("answer", painted.answer().to_string()),
+                    ("danger", painted.danger().to_string()),
+                    ("strong", painted.strong().to_string()),
+                    ("reverse", painted.reverse().to_string()),
+                    ("bold", painted.bold().to_string()),
+                    ("selected", painted.selected()),
+                    ("subtitle", painted.subtitle().to_string()),
+                    ("reset", painted.reset().to_string()),
+                ];
+                for (name, sequence) in &sequences {
+                    let row = format!("{sequence}x{}", painted.reset());
+                    for kind in kinds {
+                        for landing in [Mode::Dark, Mode::Light] {
+                            let palette = Palette {
+                                mode: landing,
+                                depth,
+                            };
+                            let mut screen = Grid::blank(1, geometry.cols);
+                            screen.place_row(1, &row, &geometry);
+                            screen.set_kind(1, kind);
+                            moved += screen.retint_document(1, &palette, &geometry);
+                            let mut written = Grid::blank(1, geometry.cols);
+                            written.place_row(1, &recoloured(&row, kind, palette), &geometry);
+                            assert_eq!(
+                                attributes(&written),
+                                attributes(&screen),
+                                "{name} painted {painted_in:?} at {depth:?}, on a {kind:?} \
+                                 row, landing {landing:?}"
+                            );
+                            checked += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 2 * 2 * 19 * 6 * 2);
+        // The rule did move cells, so the agreement is not two no-ops.
+        assert!(moved > 0, "no report moved any cell");
+    }
+
+    #[test]
     fn a_blocks_drawings_stay_with_their_rows_past_the_rows_it_froze() {
         // A block taller than the tail keeps its first rows frozen and
         // rewrites the rest; each drawing written is still its own row's.

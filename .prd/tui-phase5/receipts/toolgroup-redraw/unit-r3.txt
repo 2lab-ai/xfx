@@ -1,0 +1,7 @@
+head b27717ce + the round-3 changes (uncommitted at this run)
+test result: ok. 1315 passed; 0 failed; 3 ignored; 0 measured; 2956 filtered out; finished in 5.40s
+unit exit 0
+test-sweep exit 0
+Ran 26 tests in 17.285s
+
+OK

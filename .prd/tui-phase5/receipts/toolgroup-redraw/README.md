@@ -21,7 +21,10 @@ and one more unit assertion). Round 2 (the review of `a765487d`, below):
 (`v0.1.0-58b463c`, 44 snaps, `red.txt`). Round 1's `xfx/` captures were
 `b6571bea`'s, with the same results (`green.txt` at `a765487d`). The commits
 after `f482d340` change `docs/parity.md`, `scripts/fxcap/parity-ledger.toml`
-and this directory, and no compiled file. Each capture is kept as its
+and this directory; round 3's also changes unit tests, inside the
+`#[cfg(test)] mod tests` of `src/tui/event_loop.rs` and
+`src/tui/transcript.rs`, so the binary the captures come from is built from
+the same source. Each capture is kept as its
 `capture-pane -e` file (`.ansi`), which every comparison here reads; the plain
 `.txt` render beside it is left out (Gates, `check-no-secrets.sh`).
 
@@ -242,9 +245,11 @@ are compared cell by cell with their styles, by the sweep's alignment. On
 the `-tc` pages the rows in xfx's own greys differ in notation, so
 `truecolor-grey-notation` (TC-NOTATION's) also names the Ctrl-O row shapes
 it covers there (an entry's heading, the session and network records, a
-command's output rail) by pattern, not whole snap; their colours are
-compared by the ramp reading in `ctrlo-rows.txt` until TC-NOTATION removes
-that cause. The sweep below has no uncaused row on any Ctrl-O page.
+command's output rail) by pattern, not whole snap, so the sweep does not
+compare those rows' colours at `-tc`. `ctrlo-rows.txt` reads only the
+group's header and call; the other rows are read in round 3
+(`ctrlo-records.txt`, below). The sweep below has no uncaused row on any
+Ctrl-O page.
 
 **6. Performance (opus, PLAUSIBLE): measured, then fixed.** A resume replays
 every call of every group before anything is drained, and each call's start
@@ -307,7 +312,65 @@ again at this head. The new ones:
 | O | a kept colouring found without its mode | 2 |
 | P | a kept colouring found without its run colour | 2 |
 
-## GREEN (`f482d340`): `green.txt`, `ctrlo-rows.txt`, `row8.txt`
+## Round 3: the review of `b27717ce` (receipt, ledger and tests; src unchanged)
+
+**1. The Ctrl-O rows the sweep does not read at `-tc` (gpt6, MUST).** Round
+2 said those rows' colours were compared in `ctrlo-rows.txt`, which reads
+only the group's header and call. They are compared now:
+`ctrlo-records.txt` (`ctrlo_records.py`) takes every row of
+`truecolor-grey-notation`'s shapes on the six Ctrl-O pages, at both depths:
+the entry headings, the session and network records, the prompt, the
+group's header and call, the output rail, the turn's summary, the footer and
+the statusline. Each fx row is paired with the xfx row of the same text. The
+clock and a network record's latency are masked, and their cells compared
+by attributes only. The pair is compared cell by cell, the character and
+every attribute (bold, the background, ...), a direct grey read as the ramp
+index it spells. Result: 22 rows a page, all the same; the negative control
+(fx's dark page against xfx's light) differs on all 22. Two rows a page have
+no xfx row of their text: fx's `│  action: run` and `│  yield_time_ms:
+30000`, the argument rows xfx does not draw (`tool-schema`). **Their
+truecolor-only colour differences stay unverified until TC-NOTATION removes
+`truecolor-grey-notation`.** fx's session lines that xfx lacks (`system
+prompt:`, `skills:`, the tool list) are not of the cause's shapes;
+`session-record` covers them at both depths.
+
+**2. `toolgroup-ctrlo-record-short` covers xfx's blank rows only (opus).** It
+gains `xfx_row = '^\s*$'`: with `rows` and a regex for xfx alone it covers
+xfx's blank rows 34-37 and no fx row (`ledger._covers`, the first table of
+`ctrlo-sweep-r3.txt`). `p5-toolgroup-ctrlo*` swept again with the same fx
+(sha256 `8e6cda2e…`, checked before the run) and the same xfx
+(`f482d340`'s build), scored with this ledger. Against round 2's head sweep,
+pair by pair (verdict, causes, uncaused rows, unaligned rows): 12 of 12 the
+same, **no pair moved** (`ctrlo-sweep-r3.txt`, `r3_probe.py`).
+
+**3. Both ways, and a card (opus).**
+`a_stopped_call_queued_while_ctrl_o_is_up_lands_in_the_palette_the_report_set`
+and `a_block_landing_behind_a_resume_in_another_palette_owes_no_recolour_of_the_old_screen`
+now run light to dark too. The writes queued under the open group in the
+queued-before-a-report cases and the Ctrl-O case
+(`a_notice_a_card_and_the_stop_queued`) include a card,
+`UiEvent::ToolFeedback` under a drawn group (`Trailed::Card`), and the
+screen read (`stopped_and_notice`) includes its rail: `235` when it lands
+light and `255` when it lands dark. Its text is bold with no colour, which
+no report changes.
+
+**4. Every palette sequence through `recoloured_sequence` (opus,
+PLAUSIBLE).**
+`every_palette_sequence_recoloured_as_written_is_what_a_report_leaves_on_the_screen`
+(`tui::transcript`) tests each of the 19 `Palette` accessors' sequences,
+painted in each mode at each depth, on a row of each of the six kinds,
+landing in each mode at that depth (912 cases). In each case the cell
+`Grid::retint_document` leaves on the screen holds the same attributes as
+the cell the row written through `recoloured` puts there. The test checks
+that the report changed some cells, so it cannot pass with both sides doing
+nothing. **It passes at `f482d340`'s src: no accessor failed,** so nothing
+was to stop for.
+
+Tests (`unit-r3.txt`): the tui modules, 1315 passed, 0 failed (round 2's 1314
+and the new case); `scripts/fxcap/test-sweep.sh` OK. fmt and both clippies
+clean.
+
+## GREEN (`f482d340`): `green.txt`, `ctrlo-rows.txt`, `ctrlo-records.txt`, `row8.txt`
 
 | pairs (40x120) | snaps | result |
 |---|---|---|
@@ -316,7 +379,7 @@ again at this head. The new ones:
 | `p5-toolstop-retint`, `-light` | 6 | row 8 only, the call's own line (cause `cancelled-marker`, T-U4, which covers the row): `row8.txt` lists every cell that differs there -- the marker (`▪` against `■`) and the product's name in the follow-up question (`fx do differently?` against `xfx do differently?`), and nothing of the argument or the comment. (`green.txt`'s `cells.py` line shows a 4-cell window from the first differing column only.) |
 | `p5-toolstop-retint-tc`, `-light-tc` | 6 | row 8 only, the same cells by the ramp reading (`row8.txt`); `kept: 0`. The `dark` snap of `-tc` also has fx's `press ctrl+c again to exit` on row 12, in this fx capture alone. The hint is transient on both products and the 3 s wait after Ctrl-C lands near its expiry: in round 1's head sweep both sides of that snap showed it, in the base sweep neither did |
 | `p5-toolgroup-live`, `-tc` (new) | 8 | `light`, `dark`: identical / `ramp: 0`; `running-*`: row 8 only, the activity marker's blink phase -- in the sweep the `activity-pulse` normalization reads it, and the 256-colour pairs pass there |
-| `p5-toolgroup-ctrlo`, `-tc` (new) | 12 | `dark`, `light`, `dark-again`: identical / `ramp: 0`; `full-*`: the tool group's two rows the same cell for cell (`ctrlo-rows.txt`: 12 of 12 at `f482d340`, as at the base); the rest of those pages is Ctrl-O's session record, the command's argument rows and the rows they shift, and the clock -- in the sweep `session-record`, `tool-schema`, `toolgroup-ctrlo-record-short` and, at `-tc`, `truecolor-grey-notation`, every other row compared; the clock masked by `transcript-timestamp` |
+| `p5-toolgroup-ctrlo`, `-tc` (new) | 12 | `dark`, `light`, `dark-again`: identical / `ramp: 0`; `full-*`: the tool group's two rows the same cell for cell (`ctrlo-rows.txt`: 12 of 12 at `f482d340`, as at the base), and every row of `truecolor-grey-notation`'s shapes with text on both sides the same, ramp-read (`ctrlo-records.txt`, round 3: 22 a page; fx's two argument rows have no xfx row); the rest of those pages is Ctrl-O's session record, the command's argument rows and the rows they shift, and the clock -- in the sweep `session-record`, `tool-schema`, `toolgroup-ctrlo-record-short` and, at `-tc`, `truecolor-grey-notation`, every other row compared; the clock masked by `transcript-timestamp` |
 
 Unit cases added or rewritten: `tui::grid` --
 `a_row_drawn_again_is_what_a_fresh_paint_of_its_drawing_leaves` (both ways,
@@ -402,7 +465,7 @@ Pair by pair, base against `f482d340` (`sweep-compare.txt`,
   command's output rail, each by its row's pattern.
 - `toolgroup-ctrlo-record-short` (new, round 2): rows 34-37 of
   `p5-toolgroup-ctrlo*`'s Ctrl-O pages, which xfx's shorter record leaves
-  blank. Round 1 had put those pages under `full-transcript-shift`, which is
+  blank -- xfx's blank rows there only (`xfx_row`, round 3). Round 1 had put those pages under `full-transcript-shift`, which is
   `whole_snap`; they are scored row by row now (Round 2, 5).
 - `docs/parity.md` (the colored-output row): a group's header and call rows
   are drawn again from the group's drawings, open or closed, at either

@@ -777,9 +777,10 @@ owner = "unowned (follows tool-schema and session-record)"
 scenarios = ["p5-toolgroup-ctrlo", "p5-toolgroup-ctrlo-tc"]
 snaps = ["full-*"]
 rows = ["34-37"]
+xfx_row = '^\s*$'
 xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37272"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
-why = "TG-REDRAW's Ctrl-O pages hold the whole record, read from the top: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so xfx's record ends four rows higher and leaves rows 34-37 blank where fx's turn summary still stands. Those four rows only: every other row of these pages is compared, the tool group's two rows among them (.prd/tui-phase5/receipts/toolgroup-redraw/)."
+why = "TG-REDRAW's Ctrl-O pages hold the whole record, read from the top: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so xfx's record ends four rows higher and leaves rows 34-37 blank where fx's turn summary still stands. xfx's blank rows there only (`xfx_row`): no fx row and no xfx row with text is this cause's, and every other row of these pages is compared, the tool group's two rows among them (.prd/tui-phase5/receipts/toolgroup-redraw/)."
 
 [[cause]]
 id = "safe-page-edge"

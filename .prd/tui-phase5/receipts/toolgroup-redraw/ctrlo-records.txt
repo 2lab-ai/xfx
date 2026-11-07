@@ -1,0 +1,186 @@
+# ctrlo_records.py over the Ctrl-O pages (captures in fx/ and xfx/, xfx = f482d340)
+
+## p5-toolgroup-ctrlo-tc full-dark
+same     '  # KST · Notice'
+same     '* session: provider: gateway · model: fake/model-a · effort: auto'
+same     '  mcp: none'
+same     '  # KST · Notice'
+same     '* network: provider: gateway · model: fake/model-a · #ms'
+same     '  finish: tool_calls'
+same     '  tokens: 1200 in · 40 out'
+same     '  # KST · Notice'
+same     '* network: provider: gateway · model: fake/model-a · #ms'
+same     '  finish: stop'
+same     '  tokens: 1200 in · 40 out'
+same     '  # KST · Prompt'
+same     '┃ run the command'
+same     '  # KST · Tool'
+same     '● 1 tool call · 1 command'
+same     '└ Ran echo "hi" 42 | grep hi # note'
+no xfx row of this text  '│  action: run'
+no xfx row of this text  '│  yield_time_ms: 30000'
+same     '│ hi 42'
+same     '  # KST · Response'
+same     '  # KST · Usage'
+same     '  0s (↑4 ↓80)'
+same     '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close'
+same     'full access · model-a'
+exit 0
+
+## p5-toolgroup-ctrlo-tc full-light
+same     '  # KST · Notice'
+same     '* session: provider: gateway · model: fake/model-a · effort: auto'
+same     '  mcp: none'
+same     '  # KST · Notice'
+same     '* network: provider: gateway · model: fake/model-a · #ms'
+same     '  finish: tool_calls'
+same     '  tokens: 1200 in · 40 out'
+same     '  # KST · Notice'
+same     '* network: provider: gateway · model: fake/model-a · #ms'
+same     '  finish: stop'
+same     '  tokens: 1200 in · 40 out'
+same     '  # KST · Prompt'
+same     '┃ run the command'
+same     '  # KST · Tool'
+same     '● 1 tool call · 1 command'
+same     '└ Ran echo "hi" 42 | grep hi # note'
+no xfx row of this text  '│  action: run'
+no xfx row of this text  '│  yield_time_ms: 30000'
+same     '│ hi 42'
+same     '  # KST · Response'
+same     '  # KST · Usage'
+same     '  0s (↑4 ↓80)'
+same     '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close'
+same     'full access · model-a'
+exit 0
+
+## p5-toolgroup-ctrlo-tc full-dark-again
+same     '  # KST · Notice'
+same     '* session: provider: gateway · model: fake/model-a · effort: auto'
+same     '  mcp: none'
+same     '  # KST · Notice'
+same     '* network: provider: gateway · model: fake/model-a · #ms'
+same     '  finish: tool_calls'
+same     '  tokens: 1200 in · 40 out'
+same     '  # KST · Notice'
+same     '* network: provider: gateway · model: fake/model-a · #ms'
+same     '  finish: stop'
+same     '  tokens: 1200 in · 40 out'
+same     '  # KST · Prompt'
+same     '┃ run the command'
+same     '  # KST · Tool'
+same     '● 1 tool call · 1 command'
+same     '└ Ran echo "hi" 42 | grep hi # note'
+no xfx row of this text  '│  action: run'
+no xfx row of this text  '│  yield_time_ms: 30000'
+same     '│ hi 42'
+same     '  # KST · Response'
+same     '  # KST · Usage'
+same     '  0s (↑4 ↓80)'
+same     '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close'
+same     'full access · model-a'
+exit 0
+
+## p5-toolgroup-ctrlo full-dark
+same     '  # KST · Notice'
+same     '* session: provider: gateway · model: fake/model-a · effort: auto'
+same     '  mcp: none'
+same     '  # KST · Notice'
+same     '* network: provider: gateway · model: fake/model-a · #ms'
+same     '  finish: tool_calls'
+same     '  tokens: 1200 in · 40 out'
+same     '  # KST · Notice'
+same     '* network: provider: gateway · model: fake/model-a · #ms'
+same     '  finish: stop'
+same     '  tokens: 1200 in · 40 out'
+same     '  # KST · Prompt'
+same     '┃ run the command'
+same     '  # KST · Tool'
+same     '● 1 tool call · 1 command'
+same     '└ Ran echo "hi" 42 | grep hi # note'
+no xfx row of this text  '│  action: run'
+no xfx row of this text  '│  yield_time_ms: 30000'
+same     '│ hi 42'
+same     '  # KST · Response'
+same     '  # KST · Usage'
+same     '  0s (↑4 ↓80)'
+same     '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close'
+same     'full access · model-a'
+exit 0
+
+## p5-toolgroup-ctrlo full-light
+same     '  # KST · Notice'
+same     '* session: provider: gateway · model: fake/model-a · effort: auto'
+same     '  mcp: none'
+same     '  # KST · Notice'
+same     '* network: provider: gateway · model: fake/model-a · #ms'
+same     '  finish: tool_calls'
+same     '  tokens: 1200 in · 40 out'
+same     '  # KST · Notice'
+same     '* network: provider: gateway · model: fake/model-a · #ms'
+same     '  finish: stop'
+same     '  tokens: 1200 in · 40 out'
+same     '  # KST · Prompt'
+same     '┃ run the command'
+same     '  # KST · Tool'
+same     '● 1 tool call · 1 command'
+same     '└ Ran echo "hi" 42 | grep hi # note'
+no xfx row of this text  '│  action: run'
+no xfx row of this text  '│  yield_time_ms: 30000'
+same     '│ hi 42'
+same     '  # KST · Response'
+same     '  # KST · Usage'
+same     '  0s (↑4 ↓80)'
+same     '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close'
+same     'full access · model-a'
+exit 0
+
+## p5-toolgroup-ctrlo full-dark-again
+same     '  # KST · Notice'
+same     '* session: provider: gateway · model: fake/model-a · effort: auto'
+same     '  mcp: none'
+same     '  # KST · Notice'
+same     '* network: provider: gateway · model: fake/model-a · #ms'
+same     '  finish: tool_calls'
+same     '  tokens: 1200 in · 40 out'
+same     '  # KST · Notice'
+same     '* network: provider: gateway · model: fake/model-a · #ms'
+same     '  finish: stop'
+same     '  tokens: 1200 in · 40 out'
+same     '  # KST · Prompt'
+same     '┃ run the command'
+same     '  # KST · Tool'
+same     '● 1 tool call · 1 command'
+same     '└ Ran echo "hi" 42 | grep hi # note'
+no xfx row of this text  '│  action: run'
+no xfx row of this text  '│  yield_time_ms: 30000'
+same     '│ hi 42'
+same     '  # KST · Response'
+same     '  # KST · Usage'
+same     '  0s (↑4 ↓80)'
+same     '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close'
+same     'full access · model-a'
+exit 0
+
+## negative control: fx p5-toolgroup-ctrlo-tc full-dark vs xfx full-light (must differ)
+   3 DIFFERS  '  # KST · Notice': [('masked', [(2, '2', (('fg', 245),))], [(2, '2', (
+   1 DIFFERS  '  # KST · Prompt': [('masked', [(2, '2', (('fg', 245),))], [(2, '2', (
+   1 DIFFERS  '  # KST · Response': [('masked', [(2, '2', (('fg', 245),))], [(2, '2',
+   1 DIFFERS  '  # KST · Tool': [('masked', [(2, '2', (('fg', 245),))], [(2, '2', (('
+   1 DIFFERS  '  # KST · Usage': [('masked', [(2, '2', (('fg', 245),))], [(2, '2', ((
+   1 DIFFERS  '  0s (↑4 ↓80)': [((2, '0', (('fg', 245),)), (2, '0', (('fg', (158, 158
+   1 DIFFERS  '  finish: stop': [((2, 'f', (('fg', 250),)), (2, 'f', (('fg', (98, 98,
+   1 DIFFERS  '  finish: tool_calls': [((2, 'f', (('fg', 250),)), (2, 'f', (('fg', (9
+   1 DIFFERS  '  mcp: none': [((2, 'm', (('fg', 250),)), (2, 'm', (('fg', (98, 98, 98
+   2 DIFFERS  '  tokens: 1200 in · 40 out': [((2, 't', (('fg', 250),)), (2, 't', (('f
+   2 DIFFERS  '* network: provider: gateway · model: fake/model-a · #ms': [((0, '*', 
+   1 DIFFERS  '* session: provider: gateway · model: fake/model-a · effort: auto': [(
+   1 DIFFERS  'full access · model-a': [((0, 'f', (('fg', 252),)), (0, 'f', (('fg', (
+   1 DIFFERS  '│ hi 42': [((2, 'h', (('fg', 245),)), (2, 'h', (('fg', (158, 158, 158)
+   1 DIFFERS  '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close': [((0, '┃
+   1 DIFFERS  '┃ run the command': [((0, '┃', (('fg', 255),)), (0, '┃', (('fg', (38, 
+   1 DIFFERS  '└ Ran echo "hi" 42 | grep hi # note': [((6, 'e', (('fg', 252),)), (6, 
+   1 DIFFERS  '● 1 tool call · 1 command': [((0, '●', (('fg', 255),)), (0, '●', (('fg
+   1 no xfx row of this text  '│  action: run'
+   1 no xfx row of this text  '│  yield_time_ms: 30000'
+exit 1

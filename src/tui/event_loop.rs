@@ -5973,10 +5973,21 @@ mod tests {
     /// them, and the call's own `■ Cancelled` line.
     fn a_stopped_group_and_a_notice_queued(shell: &mut Fixture) {
         a_command_running(shell);
+        a_notice_a_card_and_the_stop_queued(shell);
+    }
+
+    /// The writes under a group whose command is running: a notice, a card
+    /// (what the user said at an approval, `Trailed::Card`) and the turn's
+    /// end stopping the command, queued and not drained.
+    fn a_notice_a_card_and_the_stop_queued(shell: &mut Fixture) {
         shell.apply(UiEvent::Notice(super::super::notice::Notice::warning(
             "tool",
             "read_file ok",
         )));
+        shell.apply(UiEvent::ToolFeedback {
+            call_id: "1".to_string(),
+            text: "keep the header".to_string(),
+        });
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.flush_paced();
     }
@@ -6023,11 +6034,12 @@ mod tests {
         found
     }
 
-    /// What the screen holds of a stopped group and the notice under it
+    /// What the screen holds of a stopped group and what was written under it
     /// ([`a_stopped_group_and_a_notice_queued`]): the group's call row, the
     /// stopped call's mark, its `Cancelled`, its argument, its string and its
-    /// comment, and the notice's label and body.
-    fn stopped_and_notice(band: &Band) -> [Option<u8>; 8] {
+    /// comment, the notice's label and body, and the card's rail -- its text
+    /// is bold in no colour, which no report moves.
+    fn stopped_and_notice(band: &Band) -> [Option<u8>; 9] {
         let line = "\u{25a0} Cancelled";
         [
             on_screen(band, "\u{2514} Cancelled ", "\u{2514}"),
@@ -6038,8 +6050,17 @@ mod tests {
             on_screen(band, line, "# note"),
             on_screen(band, "! tool:", "tool:"),
             on_screen(band, "! tool:", "read_file ok"),
+            on_screen(band, "\u{2503} keep the header", "\u{2503}"),
         ]
     }
+
+    /// Dark to light: what [`stopped_and_notice`] reads once a block queued
+    /// dark has landed light -- fx's token table for the stopped line (dark
+    /// 245 is light 247), the notice's and the rail's own greys.
+    const STOPPED_LIGHT: [u8; 9] = [241, 238, 235, 247, 241, 247, 238, 241, 235];
+    /// Light to dark: the stopped line drawn light keeps its argument's 245
+    /// and its comment's 243, which are in no pair of upstream's table.
+    const STOPPED_DARK: [u8; 9] = [245, 252, 255, 245, 250, 243, 252, 250, 255];
 
     #[test]
     fn a_stopped_call_and_a_notice_queued_before_a_report_land_in_the_palette_the_report_set() {
@@ -6068,8 +6089,8 @@ mod tests {
         let light = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert_eq!(
             stopped_and_notice(&band),
-            [241, 238, 235, 247, 241, 247, 238, 241].map(Some),
-            "row, mark, Cancelled, argument, string, comment, label, notice: {light:?}"
+            STOPPED_LIGHT.map(Some),
+            "row, mark, Cancelled, argument, string, comment, label, notice, rail: {light:?}"
         );
     }
 
@@ -6091,8 +6112,8 @@ mod tests {
         let dark = tick(&mut other, &mut band, &mut out, &mut failures, now);
         assert_eq!(
             stopped_and_notice(&band),
-            [245, 252, 255, 245, 250, 243, 252, 250].map(Some),
-            "row, mark, Cancelled, argument, string, comment, label, notice: {dark:?}"
+            STOPPED_DARK.map(Some),
+            "row, mark, Cancelled, argument, string, comment, label, notice, rail: {dark:?}"
         );
     }
 
@@ -6225,35 +6246,40 @@ mod tests {
         // plane: the group is on the primary screen, Ctrl-O opens, the notice
         // and the stop are queued, the terminal reports light, and Ctrl-O
         // closes. The recolour waits for the primary plane, is paid there
-        // first, and the held appends land after it.
-        let mut shell = shell();
-        let mut band = Band::new();
-        let mut failures = FrameFailures::default();
-        let mut out = screen();
-        let now = Instant::now();
-        a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
-        a_command_running(&mut shell);
-        tick(&mut shell, &mut band, &mut out, &mut failures, now);
-        shell.route_bytes(b"\x0f");
-        tick(&mut shell, &mut band, &mut out, &mut failures, now);
-        assert!(band.on_alternate(), "Ctrl-O did not take the plane");
-        shell.apply(UiEvent::Notice(super::super::notice::Notice::warning(
-            "tool",
-            "read_file ok",
-        )));
-        shell.apply(UiEvent::TurnEnded { failure: None });
-        shell.flush_paced();
-        shell.route_bytes(WENT_LIGHT);
-        tick(&mut shell, &mut band, &mut out, &mut failures, now);
-        shell.route_bytes(b"\x0f");
-        let mut back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
-        back.push_str(&tick(&mut shell, &mut band, &mut out, &mut failures, now));
-        assert!(!band.on_alternate(), "Ctrl-O did not give the plane back");
-        assert_eq!(
-            stopped_and_notice(&band),
-            [241, 238, 235, 247, 241, 247, 238, 241].map(Some),
-            "row, mark, Cancelled, argument, string, comment, label, notice: {back:?}"
-        );
+        // first, and the held appends land after it. Both ways.
+        for (light_first, report, wanted) in [
+            (false, WENT_LIGHT, STOPPED_LIGHT),
+            (true, WENT_DARK, STOPPED_DARK),
+        ] {
+            let mut shell = shell();
+            let mut band = Band::new();
+            let mut failures = FrameFailures::default();
+            let mut out = screen();
+            let now = Instant::now();
+            a_turn_under_way(&mut shell, &mut band, &mut out, &mut failures, now);
+            if light_first {
+                shell.route_bytes(WENT_LIGHT);
+                tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            }
+            a_command_running(&mut shell);
+            tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            shell.route_bytes(b"\x0f");
+            tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            assert!(band.on_alternate(), "Ctrl-O did not take the plane");
+            a_notice_a_card_and_the_stop_queued(&mut shell);
+            shell.route_bytes(report);
+            tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            shell.route_bytes(b"\x0f");
+            let mut back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            back.push_str(&tick(&mut shell, &mut band, &mut out, &mut failures, now));
+            assert!(!band.on_alternate(), "Ctrl-O did not give the plane back");
+            assert_eq!(
+                stopped_and_notice(&band),
+                wanted.map(Some),
+                "light first {light_first}: row, mark, Cancelled, argument, string, \
+                 comment, label, notice, rail: {back:?}"
+            );
+        }
     }
 
     #[test]
@@ -6828,42 +6854,60 @@ mod tests {
         // writing on, and the band has not been told, so nothing of the old
         // screen is repainted -- the report's recolour was dropped with it
         // (`Shell::external_damage`). The block's own rows are written in the
-        // palette in force regardless.
-        let mut shell = shell();
-        let mut band = Band::new();
-        let mut failures = FrameFailures::default();
-        let mut out = screen();
-        let now = Instant::now();
-        a_document_on_the_screen(&mut shell, &mut band, &mut out, &mut failures, now);
-        shell.route_bytes(b"next\r");
-        shell.apply(UiEvent::TurnStarted);
-        a_command_running(&mut shell);
-        shell.apply(UiEvent::Notice(super::super::notice::Notice::warning(
-            "tool",
-            "queued under the group",
-        )));
-        shell.apply(UiEvent::TurnEnded { failure: None });
-        shell.flush_paced();
-        shell.route_bytes(WENT_LIGHT);
-        adopt_resume(&mut shell, &mut band, false);
-        let mut landed = String::new();
-        for tick_number in 0..2 {
-            let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
-            assert!(
-                !written.contains("a streamed answer") && !written.contains("read_file ok"),
-                "tick {tick_number} after a resume repainted the old screen's rows \
-                 from a shadow describing a screen somebody else had: {written:?}"
+        // palette in force regardless. Both ways: the mark, the argument, the
+        // comment and the notice's body as a report leaves them in that
+        // palette.
+        for (light_first, report, wanted) in [
+            (false, WENT_LIGHT, [238, 247, 247, 241]),
+            (true, WENT_DARK, [252, 245, 243, 250]),
+        ] {
+            let mut shell = shell();
+            let mut band = Band::new();
+            let mut failures = FrameFailures::default();
+            let mut out = screen();
+            let now = Instant::now();
+            a_document_on_the_screen(&mut shell, &mut band, &mut out, &mut failures, now);
+            if light_first {
+                shell.route_bytes(WENT_LIGHT);
+                tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            }
+            shell.route_bytes(b"next\r");
+            shell.apply(UiEvent::TurnStarted);
+            a_command_running(&mut shell);
+            shell.apply(UiEvent::Notice(super::super::notice::Notice::warning(
+                "tool",
+                "queued under the group",
+            )));
+            shell.apply(UiEvent::TurnEnded { failure: None });
+            shell.flush_paced();
+            shell.route_bytes(report);
+            adopt_resume(&mut shell, &mut band, false);
+            let mut landed = String::new();
+            for tick_number in 0..2 {
+                let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+                assert!(
+                    !written.contains("a streamed answer") && !written.contains("read_file ok"),
+                    "light first {light_first}, tick {tick_number} after a resume \
+                     repainted the old screen's rows from a shadow describing a \
+                     screen somebody else had: {written:?}"
+                );
+                landed.push_str(&written);
+            }
+            // And the rows that landed are in the palette in force all the
+            // same: they were recoloured as they were written, not by a
+            // recolour of the screen.
+            let line = &landed[landed.find("\u{25a0}").expect("the stopped line")..];
+            assert_eq!(
+                [
+                    fg_of(&landed, "\u{25a0}"),
+                    fg_of(line, " 42 "),
+                    fg_of(line, "# note"),
+                    fg_of(&landed, " queued under"),
+                ],
+                wanted.map(Some),
+                "light first {light_first}: mark, argument, comment, notice: {landed:?}"
             );
-            landed.push_str(&written);
         }
-        // And the rows that landed are in the palette in force all the same:
-        // they were recoloured as they were written, not by a recolour of
-        // the screen.
-        assert_eq!(fg_of(&landed, "\u{25a0}"), Some(238), "{landed:?}");
-        let line = &landed[landed.find("\u{25a0}").expect("the stopped line")..];
-        assert_eq!(fg_of(line, " 42 "), Some(247), "{landed:?}");
-        assert_eq!(fg_of(line, "# note"), Some(247), "{landed:?}");
-        assert_eq!(fg_of(&landed, " queued under"), Some(241), "{landed:?}");
     }
 
     #[test]
