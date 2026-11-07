@@ -1,46 +1,41 @@
-head a3ebc769
+head ed4c58c0
 Darwin arm64
 GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
 git version 2.54.0 (Apple Git-157)
 rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)
 TMPDIR=<tmp>
 
-== what changed since 45d99f52
- .../receipts/gate-gitenv/gitenv-sweep.sh           | 156 ++++++++
- .prd/tui-phase5/receipts/gate-gitenv/hook-probe.sh | 110 ++++++
- .prd/tui-phase5/receipts/gate-gitenv/inventory.sh  |  33 ++
- .prd/tui-phase5/receipts/gate-gitenv/inventory.txt |  51 +++
- .prd/tui-phase5/receipts/gate-gitenv/mutants-py.py |  67 ++++
- .../tui-phase5/receipts/gate-gitenv/mutants-py.txt |   7 +
- .prd/tui-phase5/receipts/gate-gitenv/mutants.py    |  93 +++++
- .prd/tui-phase5/receipts/gate-gitenv/mutants.txt   |  10 +
- .prd/tui-phase5/receipts/gate-gitenv/publish.py    |  69 ++++
- .../receipts/gate-gitenv/py-runs-linux-a.txt       |  87 +++++
- .../receipts/gate-gitenv/py-runs-linux-b.txt       |  49 +++
- .../receipts/gate-gitenv/py-runs-macos.txt         |  41 +++
- .prd/tui-phase5/receipts/gate-gitenv/py-runs.sh    |  29 ++
- .../tui-phase5/receipts/gate-gitenv/runs-linux.txt | 384 ++++++++++++++++++++
- .../tui-phase5/receipts/gate-gitenv/runs-macos.txt | 396 +++++++++++++++++++++
- .prd/tui-phase5/receipts/gate-gitenv/runs.sh       |  48 +++
- scripts/check-no-secrets.sh                        |  20 ++
- scripts/check-preview-contract.sh                  |  20 +-
- scripts/check-xfx-identity.sh                      |  33 +-
- scripts/fxcap/ci_sweep.py                          |   7 +-
- scripts/fxcap/sweep.py                             |  12 +-
- scripts/fxcap/test_ci_sweep.py                     |  40 +++
- scripts/fxcap/test_sweep.py                        |  26 ++
- scripts/test-gate-env.sh                           | 173 ++++++++-
- 27 files changed, 2361 insertions(+), 8 deletions(-)
+== what changed since fff83c06
+ .prd/tui-phase5/receipts/gate-gitenv/README.md     | 314 +++++++++++++++------
+ .../tui-phase5/receipts/gate-gitenv/gates-code.txt | 160 ++++++-----
+ .prd/tui-phase5/receipts/gate-gitenv/gates.sh      |  12 +-
+ .prd/tui-phase5/receipts/gate-gitenv/inventory.sh  |  17 +-
+ .prd/tui-phase5/receipts/gate-gitenv/inventory.txt |  23 +-
+ .../receipts/gate-gitenv/mutants-r2-first.txt      |  78 +++++
+ .prd/tui-phase5/receipts/gate-gitenv/mutants-r2.py | 200 +++++++++++++
+ .../tui-phase5/receipts/gate-gitenv/mutants-r2.txt |  78 +++++
+ .prd/tui-phase5/receipts/gate-gitenv/publish.py    |  11 +
+ .../receipts/gate-gitenv/r2-base-macos.txt         |  32 +++
+ .prd/tui-phase5/receipts/gate-gitenv/r2-probes.sh  | 151 ++++++++++
+ .../receipts/gate-gitenv/regression-epoch-gate.txt |  54 ++++
+ .../receipts/gate-gitenv/runs-r2-linux.txt         | 224 +++++++++++++++
+ .../receipts/gate-gitenv/runs-r2-macos.txt         | 223 +++++++++++++++
+ .prd/tui-phase5/receipts/gate-gitenv/runs-r2.sh    |  43 +++
+ 15 files changed, 1452 insertions(+), 168 deletions(-)
 
 == ./scripts/check-no-secrets.sh
-check-no-secrets: ok (12130 tracked file(s) scanned)
--> exit 0, 113 s
+check-no-secrets: ok (12140 tracked file(s) scanned)
+-> exit 0, 22 s
 
 == ./scripts/check-xfx-identity.sh
-check-xfx-identity: ok (12130 tracked file(s) scanned)
+check-xfx-identity: ok (12140 tracked file(s) scanned)
 -> exit 0, 1 s
 
 == ./scripts/check-no-stubs.sh
 check-no-stubs: ok
--> exit 0, 24 s
-gates exit=0
+-> exit 0, 16 s
+
+== ./scripts/check-preview-contract.sh
+check-preview-contract: ok (.github/workflows/preview.yml)
+-> exit 0, 6 s
+exit=0
