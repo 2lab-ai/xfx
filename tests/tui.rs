@@ -1236,9 +1236,12 @@ fn with_no_usable_home_an_attached_files_copy_never_lands_under_a_relative_tmpdi
         &["* images: attached image: shot.png"],
         &[],
     );
+    // While the session holds the copy: the shell removes its directory as
+    // it ends, so only now could a copy under the relative `TMPDIR` be seen.
+    assert_eq!(tree(&root), before, "the copy landed in the sandbox");
     session.type_bytes(b"\x15/quit\r");
     assert_eq!(session.wait_exit().code(), Some(0));
-    assert_eq!(tree(&root), before, "the copy landed in the sandbox");
+    assert_eq!(tree(&root), before, "the sandbox changed by the exit");
 }
 
 #[test]
