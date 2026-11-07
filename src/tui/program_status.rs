@@ -30,7 +30,8 @@
 /// every restore, planned or not, and by the stop handler
 /// (`app_lifecycle.zig:43-48`). Spelled again inside each of
 /// [`super::term`]'s restore constants, which are literals a signal handler
-/// writes in one `write(2)`; a test there holds each to this.
+/// writes in one `write(2)`; a `const` assertion there holds each to this at
+/// build time, and a test holds the bytes.
 pub(crate) const CLEAR: &str = "\x1b]7501;state=clear\x1b\\";
 
 const PREFIX: &str = "\x1b]7501;";

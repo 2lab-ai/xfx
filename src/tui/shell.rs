@@ -44530,6 +44530,21 @@ mod tests {
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.work.give_back();
         assert_eq!(status_of(&mut shell).as_deref(), Some("idle"));
+
+        // Work that ran no turn and failed -- a provider switch, the one
+        // piece of work that concludes with a failure and no turn -- is an
+        // error, as upstream's `request failed` from a queued item is.
+        shell
+            .work
+            .submit(TurnWork::Setup(crate::provider::ProviderId::Llmux))
+            .expect("a switch");
+        let _ = shell.picks_up();
+        assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the daemon did not answer".into()),
+        });
+        shell.work.give_back();
+        assert_eq!(status_of(&mut shell).as_deref(), Some("error"));
     }
 
     #[test]

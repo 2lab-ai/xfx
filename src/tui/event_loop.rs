@@ -1042,9 +1042,10 @@ fn commit_counted(
 /// What the session is doing, told to the terminal as an OSC 7501 report
 /// ([`super::program_status`]), **before** this tick's frame.
 ///
-/// Before, because that is upstream's order: its tick reports the status
-/// while it drains the worker's events and flushes the frame afterwards
-/// (`processCooperativeWork`, `app_process_runtime.zig:50-60@481104fd`), so
+/// Before, because that is upstream's order: its loop collects facts first --
+/// the worker tick that reports the status as it drains the worker's events
+/// (`loopCollectFacts`, `src/main.zig:2983@481104fd`) -- and commits the frame
+/// afterwards (`src/ui/event_loop.zig:80`, `:116-117`), so
 /// the launch's `idle` lands ahead of the first `?2026h`
 /// (`research/tui-phase5` `osc/w00-start`) and every report between two
 /// frames, "like the notification bell" (`writeProgramStatus`,
@@ -12694,8 +12695,9 @@ mod tests {
 
     #[test]
     fn a_program_status_goes_out_before_the_frame_on_its_own_and_is_counted() {
-        // Upstream's order: the tick reports while it drains, and the frame
-        // is flushed after it (`app_process_runtime.zig:50-60@481104fd`), so
+        // Upstream's order: the worker tick reports while it collects facts,
+        // and the frame is committed after it (`src/main.zig:2983`,
+        // `src/ui/event_loop.zig:80`, `:116-117@481104fd`), so
         // the launch's `idle` precedes the first `?2026h` (`osc/w00-start`).
         let mut shell = shell();
         let mut band = Band::new();
