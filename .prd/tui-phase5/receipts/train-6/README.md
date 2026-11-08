@@ -91,7 +91,10 @@ After the merges, in order:
 | `03476db7` | the join tests (join checks 1 and 3, below); test only |
 | `0252c06f` | this receipt, first part (the gate, the sweeps, the probe, the network check and the Linux run ran at this commit; its code is `03476db7`'s) |
 | `392ca22a` | the row-cut join test's skin-tone modifier case, after the first mutant run let a mutant through (join check 1); test only |
-| the next | this receipt |
+| `033fdb33` | this receipt, the rest |
+| `3d3ee065` | `sweep.sh`'s comment reworded: the identity check found the retired name inside a directory name there |
+| `4bd99902` | `gates-final.txt` (both `cargo test` steps ran again here: `head-tests.txt`) |
+| the next two | this receipt's last corrections, then `gates-final.txt` again |
 
 `git show --remerge-diff` of each merge is `remerge-1.txt` .. `remerge-4.txt`.
 Merges 1 and 4 have an empty body: git's own result, unchanged. Merge 2's
@@ -132,8 +135,9 @@ changed since their base, and the nearest pair of hunks.
   `drawn_wider_named`, `shown_event` and the Prompt card. Where they meet is
   at run time: join check 1.
 
-The merged tree built with and without `fault-injection` after merges 2, 3
-and 4 (`cargo check --locked --all-targets`, both), and the four file
+The merged tree built with and without `fault-injection` after merges 2
+and 3 (`cargo check --locked --all-targets`, both), and with the default
+features after merge 4 (the gate at `0252c06f` compiled both); the four file
 checks (`cargo fmt --check`, `check-xfx-identity.sh`, `check-no-stubs.sh`,
 `check-no-secrets.sh`) passed on it before the gate.
 
@@ -262,10 +266,12 @@ the cited file, the line and two either side: **13 of 13 the same code**
 | `capfile.py` `TIMERS`, the full transcript | `:14051-14053` | `:14057-14059` | the same |
 | `event_loop.rs`, the wrap into 40 + 40 and 10 | `wrap.rs:213-221` (`main`) | `:232-240` | T-U4 (+19) |
 
-Each unit's own copies of `main`'s old references were stale on its branch
-(each moved code under a reference it did not change), and CTRLO-WIDER's
-`full_transcript.rs:492` was stale on CTRLO-WIDER: on its branch line 492
-is a doc comment.
+T-U4's and CTRLO-WIDER's copies of the base's references were stale on
+their own branches where each moved code under a reference it did not
+change: T-U4's `wrap.rs:622` and `wrap.rs:213-221` (its `fits`, +19 above
+them), CTRLO-WIDER's `full_transcript.rs:492` (a doc comment on its branch)
+and `wrap.rs:622`. GATE-GITENV(+F) and FLAKE-CATALOG-EVENT change none of
+the cited files.
 
 At the head (`refs-head.txt`): 76 references, 0 moved. `refs-all.txt` holds
 the widened scans at the head. What they still flag is not moved by this
@@ -586,6 +592,12 @@ at the start; at the end only this directory's `selection.txt` and
 | `scripts/smoke.sh target/release/xfx <dir>` | 47 checks, 0 failures |
 | `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios and the oracle, **1168 checks**, 0 failures |
 
+**At the final code** (`head-tests.txt`): both `cargo test` steps again at
+`4bd99902` (`392ca22a`'s code: one test's cases changed since the gate),
+one hold of the lock, load 4.8 -- **5357 passed** and **5394 passed**, 0
+failed, 7 ignored each, the tree clean before and after; clippy both ways,
+fmt and the touched tests had run at `392ca22a` (`join-head-r2.txt`).
+
 Every side's tests are in (`test-counts.txt`, `#[test]` under `src` and
 `tests`): base `884497c0` 5191; `main` 5239 (+48, train 5); T-U4 +12,
 CTRLO-WIDER(+F) +13, FLAKE-CATALOG-EVENT +2, GATE-GITENV(+F) none of
@@ -762,7 +774,8 @@ looks for and not its own text -- and the account's name: **0 hits**
 - `linux.sh`, `linux.txt`: the Linux row of CI's script tests, in a
   container.
 - `gates.sh`, `gates_txt.py`, `gates.txt`: the gate as it ran, and how
-  `gates.txt` was assembled; `gates-final.txt`: the file checks with the
+  `gates.txt` was assembled; `head-tests.txt`: its two `cargo test` steps at
+  the final code; `gates-final.txt`: the file checks with the
   receipt in its final form.
 - `test-counts.txt`: `#[test]` and the harness's `def test_` per commit.
 - `selection.txt`: the sweep's `--only` globs, each with why; `sweep.sh`:
