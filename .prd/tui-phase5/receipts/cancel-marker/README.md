@@ -304,7 +304,9 @@ gives the same bytes, so the guard (`if *drawn_in == palette.mode`,
    question batch's answers (`:9192`, `answered_rows`, `question.rs:738-775`:
    the questions as Plain rows with no colour, the answers as Answer rows in
    ANSWER 245 / 241); a refused batch (`:9200`, `cancelled_row`,
-   `question.rs:1025-1031`: LABEL 252 / 238). The text in them is spelled
+   `question.rs:1025-1031`: LABEL 252 / 238). HINT is not in Plain's list:
+   on the live line's Plain row its 255 / 235 is taken by BODY, the same
+   shades, so it maps to itself. The text in them is spelled
    (`safe_rows`, `tamed`: no escape a terminal obeys). Each of those colours
    in its own mode is its first role's shade in that mode, so
    `document_retint_in` answers `None` and `recoloured` copies the sequence.
@@ -494,18 +496,29 @@ ledger (`--rescore`):
 | base `884497c0` (`sweep-base.md`) | 400 / 651 | 14 | 386 | 4 + 2 | 245 | 0 |
 | head `3857d983` (`sweep-head.md`) | 461 / 651 | 14 | 447 | 4 + 2 | 156 | 28 |
 | head, `p5-mcp-verbs` run again (`sweep-mcp-verbs.md`) | **462 / 651** | 14 | 448 | 4 + 2 | 183 | **0** |
+| base `884497c0` on this branch's `p5-transcript-cancel` (`sweep-cancel-base.md`) | 1 / 7 | 0 | 1 | 0 | 6 | 0 |
 
 **Pair by pair (`sweep-compare.txt`): 62 pairs unresolved → normalized-identical**
 (the marker rows, in 19 scenarios; the four `p5-toolstop-retint*` among
 them, their truecolor grey already main's), 6 lose their uncaused rows and keep their cause
 (`approvals` `after-esc*`: AMEND-CARD-ROW; `p5-input-question` `q6*`:
 `question-cap-four`; `p5-transcript-cancel` `full`: 13 → 0, its three
-causes), and **no pair gains an uncaused row**. The comparison's 28 drops are
+causes), and **no pair gains an uncaused row**. `p5-transcript-cancel`'s
+scenario is not the same on the two sides -- this branch runs xfx with its
+own gateway and in yolo, main runs both on fx's turns, xfx in auto -- so main's build was
+also run on this branch's scenario: there `mid` passes already (the one
+of the 62 the scenario, not the code, moves), the other five plain pairs
+are unresolved by their `■ Cancelled` rows alone (rows 5 and 18) and pass
+at head, and `full` keeps 3 uncaused rows -- the live cancel's line on fx's
+Ctrl-O, none on xfx's -- which head takes to 0; the other 10 of its 13 were
+the scenario's. The comparison's 28 drops are
 all `p5-mcp-verbs`, whose xfx capture failed in the head sweep: its
 `until shown 'proj is waiting for approval'` timed out after 29.8 s, with
-the screen holding `┃ mcp list` -- the slash of the typed `/mcp list` lost
--- at a load of 8.5. Run again alone at head under the lock, it captured
-all 28 pairs and every one has the base's verdict and the base's uncaused
+the screen holding `┃ mcp list` -- the slash of the typed `/mcp list`, the
+first byte typed after the scenario's `key Escape` / `wait 1`, lost. Its
+cause is not found here, and load does not explain it (8.5 at that sweep's
+peak; the run below passed at 11.9-15.6). Run again alone at head under the
+lock, it captured all 28 pairs and every one has the base's verdict and the base's uncaused
 rows, except `show-remote`, which has 4 where the base had 11 (the base's
 xfx showed the `remote` server's detail panel, `status retrying`, under the
 table; the run's timing). The branch changes no `/mcp` code: its only
@@ -533,4 +546,4 @@ Nothing re-run.
 - `cmp_sweeps.py` (TG-REDRAW's); `sweep-base.md`, `sweep-base-ledger-head.md`, `sweep-cancel-base.md`, `sweep-head.md`, `sweep-head-retimed.md` (scoreboards); `sweep-compare.txt`; `pairs.txt`, `pairs-base-head.txt`.
 - `fx/`, `xfx/`, `xfx-base/` the `.ansi` captures of the 77 marker pairs; `marker_cells.py`; `green.txt`, `red.txt`.
 - `gates.txt`.
-- `round2/`: `render_cost_probe.rs`, `probe-before.txt`, `probe-after.txt` (MUST 2's measurements); `red.txt` (round 2's RED); `sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`, `sweep-mcp-verbs.md` (the touched scenarios); `gates.txt`.
+- `round2/`: `render_cost_probe.rs`, `probe-before.txt`, `probe-after.txt` (MUST 2's measurements); `red.txt` (round 2's RED); `sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`, `sweep-mcp-verbs.md`, `sweep-cancel-base.md` (the touched scenarios); `gates.txt`.
