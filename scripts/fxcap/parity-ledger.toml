@@ -41,8 +41,8 @@ fx = '^𝒇x v\d+\.\d+\.\d+ · Run /help for commands$'
 xfx = '^x𝒇x v\S+(?: \[[a-z]+\])? · Run /help for commands$'
 replace = "<banner>"
 attrs = "none"
-why = "Each product's first transcript row names the product and its version: fx `𝒇x v0.0.13`, xfx `x𝒇x v0.1.0-<rev> [debug]` (src/tui/shell.rs:185). The whole row, colours included, is the product's identity, not a screen to match; every receipt leaves it out (the M1 receipt's cells.py, row 1). Matched by its whole text wherever it stands, so a row 1 that is not the banner is compared."
-source = [".prd/tui-phase4/ssot.md:26", "src/tui/shell.rs:185", ".prd/tui-phase4/receipts/m1/README.md:49-50"]
+why = "Each product's first transcript row names the product and its version: fx `𝒇x v0.0.13`, xfx `x𝒇x v0.1.0-<rev> [debug]` (src/tui/shell.rs:187). The whole row, colours included, is the product's identity, not a screen to match; every receipt leaves it out (the M1 receipt's cells.py, row 1). Matched by its whole text wherever it stands, so a row 1 that is not the banner is compared."
+source = [".prd/tui-phase4/ssot.md:26", "src/tui/shell.rs:187", ".prd/tui-phase4/receipts/m1/README.md:49-50"]
 
 [[normalization]]
 id = "product-name"
@@ -504,7 +504,7 @@ owner = "user decision multi-line card preview"
 scenarios = ["p5-transcript-submit-multi"]
 snaps = ["frame1"]
 rows = ["32-36"]
-why = "Awaiting the user, to be asked at the epic-4 (Transcript) preview: copy fx's one-frame last-line preview of a multi-line card on a full screen, or keep the card whole from the first frame? fx v0.0.16's first frame after Enter shows only the prompt's last line and its next frame writes the card (70611a91); xfx's first frame writes the whole card (`send` and `echo`, src/tui/shell.rs:12600). One frame, a few milliseconds, and every snap after it is the same (.prd/tui-phase5/receipts/transcript-receipts, `frame` and `same`). xfx keeps the whole card until then: the dispatcher's interim choice (2026-11-07), not the user's, so it approves nothing. Resolved when the user answers: fx's preview copied, or the whole card written down as a lasting difference."
+why = "Awaiting the user, to be asked at the epic-4 (Transcript) preview: copy fx's one-frame last-line preview of a multi-line card on a full screen, or keep the card whole from the first frame? fx v0.0.16's first frame after Enter shows only the prompt's last line and its next frame writes the card (70611a91); xfx's first frame writes the whole card (`send` and `echo`, src/tui/shell.rs:12656). One frame, a few milliseconds, and every snap after it is the same (.prd/tui-phase5/receipts/transcript-receipts, `frame` and `same`). xfx keeps the whole card until then: the dispatcher's interim choice (2026-11-07), not the user's, so it approves nothing. Resolved when the user answers: fx's preview copied, or the whole card written down as a lasting difference."
 
 [[cause]]
 id = "diffctl-xfx-reads-first"
@@ -720,7 +720,7 @@ scenarios = ["*"]
 snaps = ["*"]
 fx_row = '^  (?:system prompt: |skills: |tools: \d+ advertised|mcp: none$)|^  more\)$|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
 xfx_row = '^  tools: \d+ advertised|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
-xfx = ["src/tui/shell.rs:37758"]
+xfx = ["src/tui/shell.rs:37963"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/app/app_bootstrap_runtime.zig:90@c1db9191"]
 why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:238). The tool list's later rows are matched at any width: rows of tool names alone, each ending `,` or `+N more)` (`  write_file, shell, …, +6 more)` at 80 columns, `p5-transcript-tools`; `  edit_file, write_file, shell, subagent, capability_search,` / `  +6 more)` at 60, `p5-transcript-question`)."
 
@@ -731,7 +731,7 @@ owner = "unowned (follows tool-schema and session-record)"
 scenarios = ["p5-transcript-anchor", "p5-transcript-anchormid", "p5-transcript-resize", "p5-transcript-records", "p5-transcript-question"]
 snaps = ["full-*"]
 rows = ["1-2", "35-37"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37758"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37963"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "Rows only one side has push the other side's rows off a Ctrl-O page by two: fx's command entry has two argument rows xfx's `terminal` has not (`tool-schema`), so a page counted from the tail starts two rows later on fx; fx's `* session:` record has two lines xfx's has not (`session-record`), so a page counted from the top ends two rows earlier, and a record shorter than the screen leaves xfx two more blank rows. Only the two rows at each edge of the record (and the footer's blank row under it); every other row of these pages is compared, cell by cell with its styles, against the other side's document joined from its windows (.prd/tui-phase5/receipts/transcript-wrap/check.py)."
 
@@ -743,7 +743,7 @@ scenarios = ["p5-toolgroup-ctrlo", "p5-toolgroup-ctrlo-tc"]
 snaps = ["full-*"]
 rows = ["34-37"]
 xfx_row = '^\s*$'
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37758"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37963"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "TG-REDRAW's Ctrl-O pages hold the whole record, read from the top: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so xfx's record ends four rows higher and leaves rows 34-37 blank where fx's turn summary still stands. xfx's blank rows there only (`xfx_row`): no fx row and no xfx row with text is this cause's, and every other row of these pages is compared, the tool group's two rows among them (.prd/tui-phase5/receipts/toolgroup-redraw/)."
 
@@ -754,7 +754,7 @@ owner = "unowned (follows tool-schema and session-record)"
 scenarios = ["p5-transcript-safe", "p5-transcript-safetab"]
 snaps = ["full", "full-pgup"]
 rows = ["1-2", "33-36"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37758"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37963"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "`transcript-page-offset` for `p5-transcript-safe` and `p5-transcript-safetab`, four rows deep: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so the tail page starts later on fx (xfx's top rows, the record's `+5 more)` and `mcp: none`, are above fx's) and the page at the top ends four rows earlier (xfx's rows 33-36, the read's heading and its two rows and the blank under them, are below fx's). The read's rows are compared on the tail page."
 
@@ -810,7 +810,7 @@ owner = "unowned (follows session-record and tool-schema)"
 scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout"]
 snaps = ["*ctrl-o*", "full*"]
 whole_snap = true
-xfx = ["src/tui/shell.rs:37758", "src/tui/approval_view.rs:685"]
+xfx = ["src/tui/shell.rs:37963", "src/tui/approval_view.rs:685"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/execution/command_environment.zig:128@c1db9191"]
 why = "Every Ctrl-O row under fx's taller session record and its shell calls' argument rows stands lower than xfx's, so a page shows other entries; what else differs on these pages is read only once those two are fixed."
 
@@ -846,7 +846,7 @@ scenarios = ["*"]
 snaps = ["*"]
 fx_row = '^\* stats: ansi_bytes=\d+,'
 xfx_row = '^\* stats: ansi_bytes=\d+,'
-xfx = ["src/tui/shell.rs:1644"]
+xfx = ["src/tui/shell.rs:1662"]
 fx = ["src/core/app/app_commands.zig:1014@c1db9191"]
 why = "`/stats` counts each product's own bytes to the terminal (fx 3499, xfx 2675 for the same screen): equal only if the two wrote the same bytes."
 
@@ -907,12 +907,22 @@ why = "The picker's age column reads the run's clock; the snaps fall about a min
 [[cause]]
 id = "catalog-window"
 kind = "nondeterminism"
-owner = "scenario + fakegw"
-scenarios = ["model-reask"]
-snaps = ["menu-failed"]
+owner = "FLAKE-MODELSDOWN (registry #19): scenario + fakegw"
+scenarios = ["model-reask", "model-column-idle", "model-column-reask"]
+snaps = ["menu-failed", "col-*"]
 whole_snap = true
-fix = "an outage counted in catalog requests rather than milliseconds since the gateway started (`modelsdown`, a fakegw/capture.sh change, not a scenario file)"
-why = "`modelsdown 6000` is wall-clock from the gateway's start: under load fx's /model asked after the window closed and listed the catalog; xfx asked inside it."
+fix = "an outage counted in catalog requests, or from a scenario line, rather than milliseconds since the gateway started (`modelsdown`, a fakegw/capture.sh change, not a scenario file); `model-column-hold` shows the column's rule with no gateway clock in it"
+why = "`modelsdown <ms>` is wall-clock from the gateway's start, and each binary launches a different time after it. Since MODELS-REASK both read the catalog by fx v0.0.16's rule -- at launch, then past each failure's hold (5 s, 10 s, ...) -- so a pair differs only when one binary's read lands on the other side of the outage's end: in MODELS-REASK's sweeps the first ask came 1.2 to 13.6 s after the gateway started, and `model-column-idle`'s column read at 6805 ms on xfx (503) and 9013 ms on fx (200) in one, `model-column-reask`'s at 8502 ms on xfx (503) and 12766 ms on fx (200) in another (.prd/tui-phase5/receipts/models-reask/README.md)."
+
+[[cause]]
+id = "activity-tokens-before-request"
+kind = "unit"
+owner = "a unit not yet named: the activity row's token suffix appears with the turn's first request"
+scenarios = ["model-parked"]
+snaps = ["menu-loading"]
+fx_row = '^~ Thinking \(<s>\)$'
+xfx_row = '^~ Thinking \(<s>\) \(↑\d+ ↓\d+\)$'
+why = "fx v0.0.16 publishes a turn's first token progress when its first request is prepared (`pushTokenProgressUpdate`, `src/core/agent/runtime/orchestrator.zig:7938-7941@481104fd`), after its wait of up to 2 s for the retry behind a failed catalog (`resolveForRequest`, `src/core/app/model_cache_runtime.zig:843-866`, from `orchestrator.zig:5885-5893`); xfx's band shows the prompt's own estimate from `TurnStarted` (`tally.begin`, src/tui/shell.rs:4128). Both turns wait out the retry since MODELS-REASK -- `Thinking` on both rows, where `main` said `Generating` -- and only the suffix differs, inside the wait (.prd/tui-phase5/receipts/models-reask/README.md)."
 
 [[cause]]
 id = "idle-connection"
