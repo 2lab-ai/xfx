@@ -36,7 +36,8 @@ while it unwinds. Now:
 ### T1 and item 7: where a stopped end's title goes
 At the base the lead is a flag and the title is computed when taken, so a later title in the same tick replaces it.
 Now the lead holds the string the end gave the session. When the band takes the lead (`take_leading_title`):
-- **the stop was pressed in this tick** (item 7): the lead is dropped and the title owed is held past this tick's frame
+- **the stop was pressed in this tick** (item 7): the title owed is held past this tick's frame (round 1 dropped the lead here; round 2 keeps it for
+  the next tick, MUST 2)
   (`take_title` answers nothing this tick), and `Shell::tick_committed`, called once the tick's frame is committed,
   asks for a frame, so the next tick's frame carries it:
   `idle`, the `Cancelled` frame, the title;
@@ -48,9 +49,10 @@ Now the lead holds the string the end gave the session. When the band takes the 
 fx presents text in a batch that holds the turn's completed finish, or that the worker had already let go of; it
 drops text in a batch taken while the stopped turn still runs. xfx's drain (`take_ui_events`) is its batch. Under the
 user's stop of a turn whose end may be a finish (`stop_reads_end`, no compaction ended it), a `Delta` or an
-operational line is kept; a finished end (`None`, not quiet) read in the same drain presents what was kept, below the
-keystroke's `Cancelled` line and above the summary; `Shell::ui_events_taken`, called when a drain ends, drops what is
-left. A turn the runtime finished before the stop reached it has all its events in the channel already, so one drain
+operational line is kept (round 2: and a tool row read behind them, in order; Round 2, the SHOULD); a finished end
+(`None`, not quiet) read in the same drain presents what was kept, below the keystroke's `Cancelled` line and above
+the summary; `Shell::ui_events_taken`, called when a drain ends, drops what is left (round 2: its text; the rows are
+written). A turn the runtime finished before the stop reached it has all its events in the channel already, so one drain
 takes them together, as fx's one batch does.
 
 ### Item 10a: a pending submission (built, not landed: Decisions, 1)
@@ -87,6 +89,11 @@ guarding it. What `late` can hold is bounded by the channel, not by the gate [re
    (`raced_against_control`, `biased`, `worker.rs:5513-5535`), and the stop cancels the turn's token there
    (`turn.cancel()`, `worker.rs:3815-3818`; `TurnCancel::cancel`, `bridge.rs:1367`); after it `send_ui` sends
    nothing, room or not (`biased`, `bridge.rs:1419-1429`; `a_cancelled_turn_stops_sending_even_when_there_is_room`).
+   A turn the runtime takes after the flag went up starts with the flag reset (`Cancellation::turn`, `bridge.rs:1340-1341`;
+   `worker.rs:287-289`), so its decode does not see it -- but the message was sent right after the flag (`worker.rs:531-533`): the take
+   reads it first and drops the covered work (`Taken::Abandon`, `biased`, `worker.rs:3301-3312`), or, if it landed
+   after the take, the race reads it before it polls the body again (`worker.rs:5529-5535`). Such a turn sends at
+   most one poll of its body after the stop.
 3. So the stopped turn's events after the keystroke are those already on the channel -- at most `UI_EVENTS` (256),
    each at most `DELTA_SLICE` (64 KiB) (`bridge.rs:96`, `:103`) -- plus what was decoded and in the turn's hands when
    the flag went up. A turn the stop did not cancel had finished, so everything it sent is on the channel ahead of
@@ -152,7 +159,8 @@ drain, still write the held row), and the two owed-line guards above.
 | `49b63de3` | MUST 1 and the SHOULD: `late` out of the gate; the stop's reads held in order, rows written whatever the end; the owed line asked past the held rows |
 | `fe9dee99` | NTH: the parity row's clauses; the refs round 2's code moved |
 | `a1b34517` | round 2's guards (tests only) |
-| the round-2 receipt commit | this section and the checks below; the gate follows in its own commit |
+| `17afa49a` | the round-2 receipt: this section and its checks |
+| the round-2 gate commit | `gates-r2.txt`; the two Design lines round 2 changed; the bound's covered-turn step |
 
 ## RED (`red-test.txt`)
 **`dac51b53`'s tests over `24fbc062`'s code**, in the worktree at `dac51b53`, tree clean. 5 fail, 2 guards pass:
@@ -255,7 +263,15 @@ both. `retryok`'s `k01-1.5s`, which moved in STOP-NEXT's sweeps with fx's own ca
 both sides here (the loads: 3.9-4.0 and 2.9-6.4, 1-minute averages). No pair drops on xfx's side.
 
 ## Gates (`gates.sh`, `gates.txt`, `gates-r2.txt`)
-**Round 2:** @@GATESR2@@
+**Round 2:** the same steps, one at a time, in one suite-lock slot (13:43:32Z to 13:59:07Z), at `17afa49a`, the
+round-2 receipt commit (code `49b63de3`, tests `a1b34517`); 0 tracked changes before and after; step 00 reads `rc=1`.
+Every other step `rc=0`: fmt and both clippys clean; `cargo test --all-targets` 5371 passed, 0 failed, 7 ignored
+(round 1's 5366 and round 2's five new tests: MUST 1's replaces round 1's guard); fault-injection `--test tui` 193,
+`--lib` 4480; the six checks ok (14157 tracked files); the three script tests ok; fxcap 66 + 26 and 59 tests OK;
+both release builds; smoke 47 checks and smoke-tui 1168 checks, 0 failures. Round 2's six tests are each `ok` in
+`04-test`'s log. **Which build each part read:** round 2's wires and sweep came from `a1b34517`'s debug build
+(sha256 `28429b9d…`) and its mutants from a clone at `a1b34517`, before the gate; the gate rebuilt at `17afa49a`
+(no `src` change since `a1b34517`) and nothing was captured from it.
 
 **Round 1:**
 Every CI step and `sweep.yml`'s two test scripts, one at a time, in one suite-lock slot (12:32:58Z to 12:46:59Z), at
