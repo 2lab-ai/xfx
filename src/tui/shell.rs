@@ -1234,9 +1234,12 @@ pub(crate) struct Shell {
     file_picker: Option<FilePicker>,
     /// The rows the last frame that landed painted the `@` list in, which its
     /// arrows scroll (`visible_rows`, `file_completion_state.zig:106-108`,
-    /// `:248`, `:294@481104fd`): six until a frame paints one, and kept from
-    /// one `@` word to the next as upstream's picker state keeps it
-    /// ([`Self::file_picker_landed`]).
+    /// `:248`, `:294@481104fd`): six until a frame paints one
+    /// ([`Self::file_picker_landed`]). Kept here for the session, as fx keeps
+    /// it in the picker's state (only `deinit` resets it, `:121-128`;
+    /// `invalidate` and `reconcile` leave it, `:130-139`, `:147-196`) -- though
+    /// no key reads it across words: a new word's keys wait for its first
+    /// frame, which sets it ([`FilePicker::trust`]).
     file_rows_painted: u16,
     /// Where the picker's rows come from: the workspace index and the last
     /// directory browsed, each read on a worker thread
@@ -16150,8 +16153,9 @@ impl Shell {
         };
         let snapshot = self.settings_snapshot();
         // Asked with the composer's height and the waiting prompt's rows the
-        // try below shows (none when it shows none): only the `@` list's
-        // height counts them.
+        // try below shows (none when it shows none). Only the `@` list's
+        // height counts them here; fx's other list pickers count them too
+        // (`surface_frame.zig:538-542@481104fd`), which MENU-BANNER-ROWS owns.
         let panel = |input_rows: u16, banner: u16| match slot {
             Some(Slot::Catalog(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Mcp(menu)) => {

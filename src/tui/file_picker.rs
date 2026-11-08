@@ -28,7 +28,10 @@
 //! fewer on a screen without them, grown to [`MOST_FILE_ROWS`] while five
 //! transcript rows stay visible above the band ([`FilePicker::height`]). The
 //! arrows scroll the rows the last frame that landed painted (99e62b8e;
-//! [`FilePicker::step`]).
+//! [`FilePicker::step`]), and every key acts only on rows a frame that landed
+//! has shown: until then a new query's arrows, Tab and Enter are spent (fx's
+//! `trusted`, `file_completion_state.zig:104`, `:218-240@481104fd`;
+//! [`FilePicker::trust`]).
 //!
 //! # What opens it
 //!
@@ -41,14 +44,16 @@
 //!
 //! # What choosing does
 //!
-//! Tab and Enter both put the marked path in place of what was typed after the
-//! `@` (`applyFilePickerSelection`, `input_completion_runtime.zig:898-953`):
+//! Tab and Enter both put the marked path, once a frame has shown it, in place
+//! of what was typed after the `@` (`applyFilePickerSelection`,
+//! `input_completion_runtime.zig:898-953`):
 //! `@path` and a space for a file, so the next word can be typed and the picker
 //! closes; `@dir/` and no space for a directory, so the picker goes on, listing
 //! it. Enter does **not** submit -- a second Enter does
 //! (`fx-composer-40x120-at-enter.txt`). With a query that matched nothing,
-//! Enter submits the line as typed (`tests/e2e/tui-file-picker.test.ts:1142`);
-//! while there is nothing to choose yet, it does nothing. The mention stays
+//! once a frame has said so, Enter submits the line as typed
+//! (`tests/e2e/tui-file-picker.test.ts:1142`); while there is nothing to
+//! choose yet, it does nothing. The mention stays
 //! text: what is sent is the line the user sees.
 
 use std::ops::Range;
