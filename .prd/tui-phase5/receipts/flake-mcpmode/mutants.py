@@ -1,5 +1,5 @@
 """Half-reverts of the FLAKE-MCPMODE fix, each on a throwaway copy of the
-fix commit's scripts/fxcap; each must make a test fail.
+final fix commit's scripts/fxcap; each must make a test fail.
 usage: python3 mutants.py <frozen-fix-tree> <scratch-dir>"""
 import os, shutil, subprocess, sys
 
@@ -21,9 +21,25 @@ MUTANTS = [
      '      if (e?.code === "ENOENT") return null;\n', "",
      ["Verbs.test_usage_is_in_place_at_launch_and_swapped_on_cue", "FakeGateway.test_the_usage_routes_their_shapes_and_knobs"]),
     ("capture.sh: clock in place", "capture.sh",
-     '''clock) (umask 077 && printf '%s\\n' "$rest" > "$run/clock.tmp") && mv -f "$run/clock.tmp" "$run/home/.fxcap-usage-clock" ;;''',
+     '''clock) (umask 077 && printf '%s\\n' "$rest" > "$run/home.tmp"); put_in_home "$run/home.tmp" "$run/home/.fxcap-usage-clock" ;;''',
      '''clock) (umask 077 && printf '%s\\n' "$rest" > "$run/home/.fxcap-usage-clock") ;;''',
      ["Verbs.test_a_file_a_verb_changes_mid_run_is_replaced_whole"]),
+    ("capture.sh: reseed in place", "capture.sh",
+     '''        put_in_home "$run/home.tmp" "$run/home/.$which/settings.json"''',
+     '''        cat "$run/home.tmp" > "$run/home/.$which/settings.json"; rm -f "$run/home.tmp"''',
+     ["Verbs.test_a_file_a_verb_changes_mid_run_is_replaced_whole"]),
+    ("capture.sh: rehomefile in place", "capture.sh",
+     '''        put_in_home "$run/home.tmp" "$run/home/$dest"''',
+     '''        cat "$run/home.tmp" > "$run/home/$dest"; rm -f "$run/home.tmp"''',
+     ["Verbs.test_a_file_a_verb_changes_mid_run_is_replaced_whole", "Verbs.test_rehomefile"]),
+    ("capture.sh: put_in_home without its link/directory refusal", "capture.sh",
+     '''  if [[ -L $dest || -d $dest ]]; then''',
+     '''  if false; then''',
+     ["Confinement.test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory"]),
+    ("capture.sh: put_in_home refusing a directory only", "capture.sh",
+     '''  if [[ -L $dest || -d $dest ]]; then''',
+     '''  if [[ -d $dest && ! -L $dest ]]; then''',
+     ["Confinement.test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory"]),
     ("capture.sh: release appended", "capture.sh",
      '''release) { cat "$run/gw-release" 2>/dev/null || true; echo release; } > "$run/gw-release.tmp"; mv -f "$run/gw-release.tmp" "$run/gw-release" ;;''',
      '''release) echo release >> "$run/gw-release" ;;''',

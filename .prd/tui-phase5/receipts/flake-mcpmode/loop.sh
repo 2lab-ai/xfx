@@ -1,9 +1,10 @@
 #!/bin/bash
-# usage: loop.sh <worktree> <label> <iterations> <outdir>
-# Runs the affected harness tests <iterations> times; one log per iteration and
-# a per-test pass count in <outdir>/<label>.counts.
+# usage: loop.sh <tree> <label> <iterations> <outdir> [tests...]
+# Runs the affected harness tests (or the tests named) <iterations> times; one
+# log per iteration and a per-test pass count in <outdir>/<label>.counts.
 set -u
 wt=$1 label=$2 n=$3 out=$4
+shift 4
 mkdir -p "$out/$label"
 tests=(
   McpHttp FakeGateway
@@ -12,6 +13,7 @@ tests=(
   Verbs.test_held_waits_for_the_hold_and_release_lets_it_go
   Verbs.test_a_file_a_verb_changes_mid_run_is_replaced_whole
 )
+(( $# == 0 )) || tests=("$@")
 export TMPDIR=/private/tmp/claude-501/flake-mcpmode/t
 mkdir -p "$TMPDIR"
 for i in $(seq 1 "$n"); do

@@ -6,9 +6,17 @@ GitHub-hosted) failed in the harness's own tests, in
 passed. The cause is in the harness, not in xfx: the test rewrote the mcphttp
 mode file in place (truncate, then write), and the fixture's held request
 read the file in between, found no word, and answered 500. Lines are at
-`main` @ `690aa505` unless marked "now" (the fix, `986b2812`).
+`main` @ `690aa505` unless marked "now" (the last code commit, `29fb72d8`).
 
-Commits: `fd8ddfd1` RED (tests only), `986b2812` the fix, then this receipt.
+Commits, in order:
+- `fd8ddfd1` RED: the three tests below, failing on base.
+- `986b2812` the fix: mcphttp's and fakegw's readers; `clock`, `release` and
+  `clipimage` renamed into place; the tests' `swap()`.
+- `4647fd7d` this receipt, first form.
+- `760d7f85` RED, second pass of the sweep: `reseed` and `rehomefile`, and a
+  HOME path that is a link.
+- `29fb72d8` the fix for it: `put_in_home`.
+- then this receipt in its final form and the gate.
 
 ## The failure
 
@@ -63,11 +71,14 @@ base; "now" is the fix.
 | mcphttp mode, from the tests | `test_capture.py` `write()`: `:923` (a request held), `:931`, `:974`, `:984`, `:1009` (none in flight) | `mcphttp.ts:75-78`, polled by `:248-251` | truncate-then-write; an empty read ended a hold with 500: **the flake** | `swap()` (now `:68-77`): a file beside it, `os.replace`; the reader below |
 | mcphttp mode, from capture.sh | `mcphttp` verb `capture.sh:959` (temp + `mv`); the launch write `:605` precedes the server | same | already renamed into place | unchanged; now pinned |
 | mcphttp mode, the reader | -- | `mode()` | one read; an empty or half-written file was `unknown(...)` | reads again every 10 ms for up to 2 s (`MODE_SETTLE_MS`, now `:76-92`) until the word is a mode; a read error is a retry |
-| fakegw releases | `release` verb `capture.sh:772` (`>>`); tests `:738` (`"w"`), `:748` (`"a"`) | `fakegw.ts:434-438` counts `\n`, polled every 20 ms (`:421-431`) | safe by construction: a half line is not counted, so a read under-counts and a hold waits one poll more | renamed into place anyway (now `capture.sh:776`; tests `swap()`), so the rule has no exception; reader unchanged, its reason now written beside it |
+| fakegw releases | `release` verb `capture.sh:772` (`>>`); tests `:738` (`"w"`), `:748` (`"a"`) | `fakegw.ts:434-438` counts `\n`, polled every 20 ms (`:421-431`) | safe by construction: a half line is not counted, so a read under-counts and a hold waits one poll more | renamed into place anyway (now `capture.sh:793`; tests `swap()`), so the rule has no exception; reader unchanged, its reason now written beside it |
 | fakegw usage answers | `usage` verb `capture.sh:956` (temp + `mv`), `off` = `rm` (`:955`); launch `:586`; test `:850` (`"w"`, no request in flight) | `fakegw.ts:211-215`: `exists()`, then `text()`, then `JSON.parse` | a `usage off` between `exists()` and `text()` threw (500); a half-written file failed to parse (500) | `settled()` (now `:209-234`): one read, ENOENT = absent, read again up to 2 s until it parses; test `swap()` |
 | fakegw second catalog | `models2` verb `capture.sh:961` (temp + `mv`); test `os.rename` (`:787`) | `fakegw.ts:348-350`: `exists()`, then `text()`, served raw | a non-atomic writer could have served an empty catalog | `settled()` (now `:375`) |
-| usage clock | `clock` verb `capture.sh:951`: `printf >` in place; the launch write `:664` precedes the binary | the binary: fx `readClockFile` (`src/core/app/usage_host.zig:205-219@481104fd`) and xfx `pinned` (`src/usage/clock.rs:95-114`) -- an unparsable read is the system clock | rewritten in place while the binary may ask the time | renamed into place, owner-only (now `capture.sh:957`); the readers are product code mirroring fx and stay as they are |
-| clipboard image | `clipimage` verb `capture.sh:984`: `cp` onto the old file (in place); `off` = `rm` (`:983`) | fake osascript `capture.sh:686-689`: `[ -f ]`, then `cat > out` | an in-place copy could be read half written; an `off` between `-f` and `cat` left an empty image file | temp + `mv` (now `:990`); the shim `cp`s (now `:689`), which writes nothing if the image is gone |
+| usage clock | `clock` verb `capture.sh:951`: `printf >` in place; the launch write `:664` precedes the binary | the binary: fx `readClockFile` (`src/core/app/usage_host.zig:205-219@481104fd`) and xfx `pinned` (`src/usage/clock.rs:95-114`) -- an unparsable read is the system clock | rewritten in place while the binary may ask the time | renamed into place by `put_in_home` (now `:438-451`, `:976`), owner-only; the readers are product code mirroring fx and stay as they are |
+| the binary's settings, `reseed` | `reseed` verb `capture.sh:911-914`: `>` in place, then `chmod 600` | the binary, when it reads its settings | documented for "between an exit and a `relaunch`", but nothing holds a scenario to that; its one use (`p5-session-early-prefs.cap:29`) follows a `/quit` by 2 s | `put_in_home` (now `:932-937`), 0600 |
+| a HOME file, `rehomefile` | `rehomefile` verb `capture.sh:916-923`: `>` in place ("an existing file is written in place", its doc), then `chmod 600` | the running binary: "a settings file made malformed after launch" | rewritten in place under a running binary; and a HOME path that was a link was written through, to wherever it pointed (`confinement-red.txt`) | `put_in_home` (now `:938-946`), 0600; a link or a directory there is refused, exit 2 |
+| `put_in_home`'s refusal | -- | -- | -- | `mv` onto a link to a directory would move the file into that directory, so the helper refuses a link or a directory outright |
+| clipboard image | `clipimage` verb `capture.sh:984`: `cp` onto the old file (in place); `off` = `rm` (`:983`) | fake osascript `capture.sh:686-689`: `[ -f ]`, then `cat > out` | an in-place copy could be read half written; an `off` between `-f` and `cat` left an empty image file | temp + `mv` (now `:1009`); the shim `cp`s (now `:689`), which writes nothing if the image is gone (driven end to end: `image-paste.txt`) |
 | `clipboard-fail` | `clipfail` `: >` / `rm` (`:1011-1012`) | shims' `[ -f ]` | a flag: create and unlink are atomic | unchanged |
 | `binpid` | `jobctl.pl:41` (`open '>'`, print) | `binary_pid`, `capture.sh:401-430` | the reader asks 20 times and takes a pid only if its parent is the pane and its executable the binary | unchanged |
 | `until`, `launched` | `: >` | `since` (`:432-434`), the mtime only | no content read | unchanged |
@@ -97,7 +108,25 @@ Three tests, each failing on the base on every run (`red.txt`):
   step waits for the shell's answer on the screen (`until shown`), not for a
   moment on the clock.
 
-The fix's bounds (2 s) are 5x the RED's empty window (400 ms).
+The fix's bounds (2 s) are 5x the RED's empty window (400 ms). No committed
+scenario can meet the new 2 s re-read of fakegw: all 11 files a `usage` or
+`models2` line names parse as JSON (9 scenarios checked with `json.load`).
+
+## RED, second pass (`760d7f85`)
+
+The sweep's second pass found `reseed` and `rehomefile`, which write the
+binary's HOME files with `>`:
+
+- the descriptor test now opens those two files too: on `4647fd7d` both fail
+  (`settings.json` and `.fxcap-rehome` read the new bytes through the old
+  descriptor), the other six pass; on base, five fail -- the five verbs that
+  wrote in place;
+- `Confinement.test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory`:
+  a HOME path that is a link to a file outside the run, and one that is a link
+  to a directory outside. On `4647fd7d` (and base) the first is written through
+  -- exit 0, the file outside overwritten -- and the second fails the run with
+  `Is a directory` (exit 1). Both must be refused (exit 2) with nothing outside
+  changed. `confinement-red.txt`.
 
 ## Loops
 
@@ -123,12 +152,18 @@ while it waited.
 
 ## Mutants
 
-Ten half-reverts of the fix, each on a throwaway copy of `986b2812`'s
-`scripts/fxcap` (`mutants.py`): 10/10 killed (`mutants.txt`). They include
-the mcphttp reader with no retry and with a 0 ms bound, fakegw's
-take-it-at-once and old `exists()`-then-`text()` second catalog, ENOENT as a
-failed read (killed by the existing `usage off` tests), and each of the five
-renames put back in place.
+Fourteen half-reverts, each on a throwaway copy of `29fb72d8`'s
+`scripts/fxcap` (`mutants.py`): 14/14 killed (`mutants.txt`). They are the
+mcphttp reader with no retry and with a 0 ms bound; fakegw's
+take-it-at-once, its old `exists()`-then-`text()` second catalog, and ENOENT
+as a failed read (killed by the existing `usage off` tests); each of the
+seven renames put back in place (`clock`, `reseed`, `rehomefile`, `release`,
+`clipimage`, `usage`, `mcphttp`); and `put_in_home` with no refusal and
+refusing a directory only. Not pinned by a mutant: the fake osascript's `cp`
+(its window, an `off` between `[ -f ]` and the read, needs a paste in flight
+at that moment); `image-paste.txt` drives it end to end instead. And the
+tests' own `swap()`: reverting it to `write()` leaves the readers to catch
+the empty file, which they do.
 
 ## Gate
 
@@ -140,6 +175,10 @@ GATE
 - `bun-split.txt` -- `"".trim().split(/\s+/)` is `[""]`; a missing file's
   read rejects with `ENOENT`.
 - `red.txt` -- the three RED tests on the RED commit.
+- `confinement-red.txt` -- the second pass's RED, on the first fix and on
+  base, and the write through a HOME link shown by hand.
+- `image-paste.txt` -- the fake osascript's `cp` driven end to end, fx and
+  xfx.
 - `loop.sh`, `load.sh`, `*.counts` -- the loops and their pass counts.
 - `mutants.py`, `mutants.txt` -- the half-reverts.
 - `gate.txt` -- the CI steps.

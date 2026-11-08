@@ -1,0 +1,30 @@
+# The second RED pass's two tests (test_capture.py at 760d7f85) run over two harnesses:
+# 4647fd7d's scripts/fxcap (the first fix), then base 690aa505's.
+
+== on 4647fd7d
+FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole (__main__.Verbs.test_a_file_a_verb_changes_mid_run_is_replaced_whole) (file='$HOME/.fx/settings.json')
+FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole (__main__.Verbs.test_a_file_a_verb_changes_mid_run_is_replaced_whole) (file='$HOME/.fxcap-rehome')
+FAIL: test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory (__main__.Confinement.test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory) (target='sentinel')
+AssertionError: 0 != 2 : until shown 'made-it': after 0.01 s, 0.54 s since launch
+FAIL: test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory (__main__.Confinement.test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory) (target='outside')
+AssertionError: 1 != 2 : until shown 'made-it': after 0.01 s, 0.53 s since launch
+Ran 2 tests in 9.812s
+FAILED (failures=4)
+
+== on 690aa505
+FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole (__main__.Verbs.test_a_file_a_verb_changes_mid_run_is_replaced_whole) (file='$HOME/.fxcap-usage-clock')
+FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole (__main__.Verbs.test_a_file_a_verb_changes_mid_run_is_replaced_whole) (file='$HOME/../gw-release')
+FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole (__main__.Verbs.test_a_file_a_verb_changes_mid_run_is_replaced_whole) (file='$HOME/../clipimage')
+FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole (__main__.Verbs.test_a_file_a_verb_changes_mid_run_is_replaced_whole) (file='$HOME/.fx/settings.json')
+FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole (__main__.Verbs.test_a_file_a_verb_changes_mid_run_is_replaced_whole) (file='$HOME/.fxcap-rehome')
+FAIL: test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory (__main__.Confinement.test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory) (target='sentinel')
+AssertionError: 0 != 2 : until shown 'made-it': after 0.01 s, 0.54 s since launch
+FAIL: test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory (__main__.Confinement.test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory) (target='outside')
+AssertionError: 1 != 2 : until shown 'made-it': after 0.01 s, 0.54 s since launch
+<local-path> line 920: <local-path> Is a directory
+Ran 2 tests in 5.000s
+FAILED (failures=7)
+
+== the link to a file, on 4647fd7d, by hand: `rehomefile .linked new.json` with ~/.linked -> <outside>/victim ("keep\n")
+exit 0
+victim now: '{"written":"through"}\n'
