@@ -985,6 +985,7 @@ kind = "unit"
 owner = "ESC-HINT-KEY"
 scenarios = ["p5-esc-clear"]
 snaps = ["c-deleted"]
+fx_row = '^auto · model-a\s*$'
 xfx_row = 'esc again to clear\s*$'
 xfx = ["src/tui/gesture.rs:162-164", "src/tui/gesture.rs:176-188"]
 fx = ["src/core/app/app_input_runtime.zig:855-859@481104fd"]
