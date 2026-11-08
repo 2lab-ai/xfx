@@ -11,8 +11,10 @@ one of the unit's rules: the three writers of the cancelled mark one at a
 time and the mark itself; the plural table's entries and its count rule;
 the argument bounds (a file change's path cut at 4 096 bytes, every other
 argument but a command whole); a live cancel's line on Ctrl-O and in
-/trace's timeline; and, round 2, the transcript row's own cut of an
-argument and Ctrl-O's recolouring of a block.
+/trace's timeline; round 2, the transcript row's own cut of an argument and
+Ctrl-O's recolouring of a block; and round 3, that cut by columns alone
+between whole units, Ctrl-O's one block per group and kept headings, and
+the transcript's kept long rows.
 """
 import os
 import re
@@ -47,11 +49,11 @@ MUTANTS = [
      '        .map_or(label, |(_, plural)| plural)',
      '        .map_or("reads", |(_, plural)| plural)'),
     ("every argument but a command at a file change's bound (the base's rule)", "src/tui/toolgroup.rs",
-     '    let mut spelling = Spelling::new(if names_a_changed_file(presentation) {\n        TARGET_BYTES\n    } else {\n        usize::MAX\n    });',
-     '    let mut spelling = Spelling::new(TARGET_BYTES);'),
+     '    if !names_a_changed_file(presentation) {\n        return spelled_whole(target);\n    }',
+     '    if !names_a_changed_file(presentation) {\n        return spelled_whole(&spelled(target, mutate::WRITE_FILE.presentation()));\n    }'),
     ("a file change's path unbounded", "src/tui/toolgroup.rs",
-     '    let mut spelling = Spelling::new(if names_a_changed_file(presentation) {\n        TARGET_BYTES\n    } else {',
-     '    let mut spelling = Spelling::new(if names_a_changed_file(presentation) {\n        usize::MAX\n    } else {'),
+     '    let mut spelling = Spelling::new(TARGET_BYTES);\n    for character in target.chars() {',
+     '    let mut spelling = Spelling::new(usize::MAX);\n    for character in target.chars() {'),
     ("edit_file's path unbounded (write_file's alone kept)", "src/tui/toolgroup.rs",
      '    [mutate::WRITE_FILE, mutate::EDIT_FILE]',
      '    [mutate::WRITE_FILE, mutate::WRITE_FILE]'),
@@ -61,9 +63,8 @@ MUTANTS = [
      '                        _ => "raw",', '                        _ => "questions",'),
     # Round 2.
     ("the transcript's row keeps the whole argument (no inline cut)", "src/tui/toolgroup.rs",
-     '            .and_then(inline_cut);', '            .and_then(|_| None::<String>);'),
-    ("the inline cut by bytes only (no column bound)", "src/tui/toolgroup.rs",
-     '        if cells > INLINE_CELLS {', '        if cells > usize::MAX - 1 {'),
+     '                    self.inline.get_or_init(|| inline(target)).clone()',
+     '                    spelled(target, self.shown.presentation)'),
     ("Ctrl-O's heading reads the transcript's cut argument", "src/tui/toolgroup.rs",
      '        self.header_and_calls(palette, "", true)', '        self.header_and_calls(palette, "", false)'),
     ("the inline cut at a screen's width, 512 columns (a cut a screen shows)", "src/tui/toolgroup.rs",
@@ -73,6 +74,44 @@ MUTANTS = [
      '                            run_on(row, cols)'),
     ("Ctrl-O recolours a block in its own mode too (no mode guard)", "src/tui/full_transcript.rs",
      '                        if *drawn_in == palette.mode {', '                        if *drawn_in != *drawn_in {'),
+    # Round 3: the row's cut.
+    ("a byte bound again (round 2's 256 KiB)", "src/tui/toolgroup.rs",
+     '        if cells > INLINE_CELLS {',
+     '        if cells > INLINE_CELLS || out.len() + unit_spelled.len() > 4 * INLINE_CELLS {'),
+    ("a spelling cut like any text (no spelling units)", "src/tui/toolgroup.rs",
+     '    match spelling_at(rest) {', '    match None::<usize> {'),
+    ("what joins a spelling's last character left out of its unit", "src/tui/toolgroup.rs",
+     '        Some(len) => len - 1 + cluster(&rest[len - 1..]),', '        Some(len) => len,'),
+    # Round 3: Ctrl-O.
+    ("each member builds the group's block again (no shared block)", "src/tui/full_transcript.rs",
+     '            if kept.revision == revision && kept.palette == palette {',
+     '            if false && kept.revision == revision && kept.palette == palette {'),
+    ("the group's block kept across a palette", "src/tui/full_transcript.rs",
+     '            if kept.revision == revision && kept.palette == palette {',
+     '            if kept.revision == revision {'),
+    ("the group's block kept across a change to the group", "src/tui/full_transcript.rs",
+     '            if kept.revision == revision && kept.palette == palette {',
+     '            if kept.palette == palette {'),
+    ("a heading laid out again on every layout (none kept)", "src/tui/full_transcript.rs",
+     '            if same {', '            if false && same {'),
+    ("a heading kept across a resize", "src/tui/full_transcript.rs",
+     '            let same = heading.cols == cols', '            let same = true'),
+    ("a heading kept whatever its text", "src/tui/full_transcript.rs",
+     '                    || heading.block.get(heading.index).map(String::as_str) == Some(text));',
+     '                    || true);'),
+    ("every heading taken to fit one row", "src/tui/full_transcript.rs",
+     '        let fits = wrap::fits(text, cols);', '        let fits = true;'),
+    ("fits says no to a row exactly the width", "src/tui/wrap.rs",
+     '        if cells > usize::from(cols) {', '        if cells >= usize::from(cols) {'),
+    # Round 3: the transcript's kept rows.
+    ("a long row kept nowhere (cut on every write)", "src/tui/transcript.rs",
+     '        kept.truncate(KEPT_ROWS);', '        kept.clear();'),
+    ("a kept row found at another width", "src/tui/transcript.rs",
+     '            .position(|kept| kept.cols == cols && kept.row == row)',
+     '            .position(|kept| kept.row == row)'),
+    ("a kept row found for another row", "src/tui/transcript.rs",
+     '            .position(|kept| kept.cols == cols && kept.row == row)',
+     '            .position(|kept| kept.cols == cols)'),
 ]
 
 

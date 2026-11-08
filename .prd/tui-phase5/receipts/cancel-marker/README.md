@@ -450,15 +450,19 @@ write/edit paths keep their own, smaller bounds. Pinned:
 the whole-heading test still holds 20 000-byte arguments whole on Ctrl-O.
 **What it leaves:** the bridge spells the whole argument once per call
 (34-134 ms), and Ctrl-O lays a multi-MiB heading out whole -- 0.96-3.7 s
-on opening and again on each change to the record while it is open (the
-layout is cached per revision, not per entry) -- the cost of showing fx's
-whole row; no scenario's turns carry an argument past 4 096 bytes.
+on opening, and again on a change to its own group, a resize or a theme
+switch (*corrected in round 3*: this said "on each change to the record ...
+cached per revision, not per entry"; the cache is per entry, keyed on the
+group's revision for a call, `full_transcript.rs:1727-1742` and `touch_group`
+`:1521-1526` at `0978e02c`, so a notice or streamed text re-lays nothing).
+Round 3 removes most of it (below).
 
 **(a) Ctrl-O blocks after a theme report.** fx rewrites a question's
 resolution and a cancelled turn's line through its token table on a switch
-(`retintEntriesForTheme`, `src/ui/transcript/store.zig:3722-3760@481104fd`,
+(`retintEntriesForTheme`, `src/ui/transcript/store.zig:3722-3777@481104fd`,
 returning when `from.light == to.light`, `:3728`; `themeOwnsRawEntry`
-holding `.question_resolution` and `.turn_cancellation`, `:3802-3812`), and
+holding `.question_resolution` and `.turn_cancellation`, `:3802-3814`; the
+end lines corrected in round 3), and
 Ctrl-O lays those entries out. xfx's Ctrl-O kept a block in the palette it
 was written in. Now `Body::Block` keeps each row's `DocumentRow` and the
 mode it was painted in (`Mark::Block` carries it from where the rows were
@@ -515,10 +519,19 @@ the scenario's. The comparison's 28 drops are
 all `p5-mcp-verbs`, whose xfx capture failed in the head sweep: its
 `until shown 'proj is waiting for approval'` timed out after 29.8 s, with
 the screen holding `┃ mcp list` -- the slash of the typed `/mcp list`, the
-first byte typed after the scenario's `key Escape` / `wait 1`, lost. Its
-cause is not found here, and load does not explain it (8.5 at that sweep's
-peak; the run below passed at 11.9-15.6). Run again alone at head under the
-lock, it captured all 28 pairs and every one has the base's verdict and the base's uncaused
+first byte typed after the scenario's `key Escape` / `wait 1`, lost. It is
+not T-U4's, and its root cause is not claimed here: opus's review traced the
+path -- xfx's key decoder stamps an ESC with the time it is read
+(`src/tui/input.rs:553`) and takes an ESC followed in the same read by a
+printable it has no binding for as one ignored Alt key (`:647-650`), as fx's
+does (`escape_parser.zig:556-559@c1db9191`) -- so an ESC and `/mcp list`
+arriving in one burst would lose exactly the `/`; nothing here shows why
+they would arrive together, and the branch does not touch `input.rs`. The
+dispatcher gives it its own harness unit. Load does not explain it either
+(8.5 at that sweep's peak; the run below passed at 11.9-15.6). So round 2's
+0 drops are **recovered by an isolated rerun of p5-mcp-verbs**, not the
+direct comparison's (`round2/sweep-compare.txt:99` says `drops: 28`): run
+again alone at head under the lock, it captured all 28 pairs and every one has the base's verdict and the base's uncaused
 rows, except `show-remote`, which has 4 where the base had 11 (the base's
 xfx showed the `remote` server's detail panel, `status retrying`, under the
 table; the run's timing). The branch changes no `/mcp` code: its only
@@ -536,6 +549,215 @@ test-check-no-secrets (13 cases), test-gate-env (5), test-preview-contract
 smoke-tui (37 scenarios and the oracle, **1127 checks, 0 failures**).
 Nothing re-run.
 
+## Round 3 (reviews: gpt6 REJECT, opus APPROVE)
+
+Two things reopened the unit under the confirm rule. Commits on `0978e02c`:
+`05ae2822` (**RED**, alone: `round3/red.txt`), `9af951ea` (MUST 1, the
+row's cut), `8102aaef` (MUST 2, Ctrl-O's caches), `82ad8e26` (**RED**, alone:
+`round3/red-kept-row.txt`), `7a93d048` (the transcript's kept long rows),
+`fe3ce5c7` (the retint test's name), `6aa9a299` (pins), `71bd4f31` (two fx
+cites in a comment). Code head **`71bd4f31`**.
+
+**MUST 1, the transcript's row: a regression against round 1, fixed.** Round
+2's `inline_cut` bounded the row at 256 KiB before it looked at columns, so
+text a screen shows went: `a` under 196 608 combining marks and `tail` showed
+`á...` where fx shows `átail` at every width, and its column cut looked at the
+clusters of a prefix already cut by characters. Now (`inline`,
+`src/tui/toolgroup.rs`) the row is cut by **columns alone** -- past 65 536,
+one more than the widest screen -- and only at the end of a whole **unit**:
+one of the argument's grapheme clusters, or a spelling it already holds
+(`\xNN`, `\u{N}`, `spelling_at`) together with whatever joins that
+spelling's last character (`unit_at`). The channel hands the row a spelled
+argument (`super::bridge`'s `spelled_shown`) and spelling it again changes
+nothing, so the same units hold through the real path. No byte bound is
+left, so `call-row-raw-argument`'s reason needs no clause for one (its
+"65 536 columns" stands).
+
+- RED at `05ae2822` (`round3/red.txt`): at 40 columns the heavy cluster's row
+  was 262 172 bytes where the whole row is 393 249; through the bridge the
+  cut fell inside a spelling (`...09b}\x01\u{0`). GREEN at `9af951ea`.
+- The test (`the_transcripts_row_shows_at_every_width_what_the_whole_row_does_and_ctrl_o_the_whole`)
+  has no exception left: for each of six arguments -- past any width, U+009B
+  spelled eight times as wide, the heavy cluster and `tail`, a run of ZWJ
+  families (their joiners spelled), and a heavy cluster in the last column
+  kept and one just past it -- `ellipsized` of the row equals `ellipsized` of
+  the whole row at 40, 120, 1000 and 65 534 columns; the kept text is a
+  prefix of the whole that ends where one of the raw argument's clusters
+  ends; it keeps at most 65 536 cells; it is cut exactly when the whole is
+  wider. `the_transcripts_row_cuts_a_spelled_argument_between_its_spellings`
+  sends U+009B and U+0001 through `UiEvent::ToolStart(..).made_inert()` after
+  leads of 0 to 7 characters, so the cut falls at every offset of a
+  spelling: the kept text is whole spellings and equals the whole row at the
+  four widths. `a_unit_of_the_row_is_a_cluster_or_a_spelling_with_what_joins_its_last_character`
+  pins the units, text that is half a spelling included.
+- **Oversized clusters: the cache, because "what a screen shows" of a
+  cluster is all of it.** The grid takes a cluster as one cell's glyph and
+  joins every zero-width cluster after it to that glyph (`tokenize_row`,
+  `src/tui/grid.rs:176-183`; `grapheme.push_str`, `:587-590`), with no bound,
+  and neither `frame::row_text` nor `clip` bounds one: xfx's screen writes
+  every byte of a cluster, which is what the byte-equal test above demands
+  too.
+  Showing "what a screen shows" of an oversized cluster is therefore keeping
+  it whole, and the redraw cost is bounded by keeping work instead: the row's
+  argument is made once per call and kept (`Call::inline`, a `OnceCell`), so
+  a redraw in either mode copies it; `spelled` hands back text with nothing
+  to spell after one look (`spelled_whole`); and the transcript keeps the
+  last five block rows of 64 KiB or more with the width they were cut for
+  and what they were cut to (`Transcript::cut_for_screen`, RED `82ad8e26`:
+  three writes, three cuts; GREEN `7a93d048`; pinned for another width and
+  another row).
+
+**MUST 2, Ctrl-O's layout.** Measured first (`round3/ctrl-o-breakdown.txt`,
+`ctrl_o_breakdown_probe.rs`, at round 2's code): for a 21-call group
+holding 4 Mi U+009B, the whole record's layout took 3.6 s, of which the
+pattern's own entry 0.86 s (its heading's `wrap::width`, measured to the end
+of 32 MiB, 0.50 s; the wrap 0.19 s; the block 0.13 s) and each of the 20
+reads' entries 0.14 s -- each rebuilding the group and its block, every
+member's argument spelled again, to read one row (opus's N-fold,
+`full_transcript.rs:1879-1898` at `0978e02c`). Now (`8102aaef`):
+
+- The block is the group's: `FullTranscript::group_block` builds it once for
+  the group's revision and the palette and every member's entry shares it.
+- Each call keeps its heading's rows and whether it fits (`Call::heading`,
+  `FullTranscript::heading`), keyed on the heading's text -- its state, its
+  connector and the palette are all in it -- and the width; the text is held
+  as the block's row (`Rc` and index), not a second copy. A call joining the
+  group re-lays the new call's heading and the one whose connector changed;
+  a theme switch only a heading with colours in its text (a command's
+  words); a resize every heading.
+- Whether a heading fits one row is `wrap::fits`, which reads to the cell
+  past the width instead of the end of the heading, and the heading's plain
+  first line is made only when an argument could be found in it.
+- RED at `05ae2822` (`round3/red.txt`, the test's counters): the first
+  layout built the block 6 times for 6 calls. GREEN at `8102aaef`
+  (`ctrl_o_builds_a_groups_block_once_and_lays_each_heading_out_once_for_what_it_shows`:
+  1 block and 6 headings; again, nothing; a call joins, 1 and 2; a theme
+  switch, 1 and 1; a resize, 0 and 7).
+- Not done: laying out only the rows on screen. With the above, the first
+  open of the worst case is 0.23 s, so it was not needed to stop a
+  multi-second block (below).
+
+**The numbers** (`round3/probe.txt`: `round3/render_cost_probe.rs`, one job
+under the suite lock, release, one case a process, round 2's head `0978e02c`
+and this round's code head `1d52413d` back to back; ms, peak RSS in MiB).
+The transcript: `start` is the group's first block, `rebuild` the median
+and the worst of 40 later events that redraw the open group, `grid` the
+frame's own work on the call's row (`Grid::row_matches` when the row stays in
+place). Ctrl-O: opened, a PageUp once open, a call that joins the open
+group, a theme switch, a resize to 100 columns.
+
+| case | row bytes | start | rebuild median / worst | grid | Ctrl-O open | PageUp | join | theme | resize | peak |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 8 MiB `a`, r2 | 139 | 5.1 | 3.3 / 3.5 | 0.0 | 917 | 0.0 | 962 | 981 | 940 | 582 |
+| 8 MiB `a`, r3 | 139 | 3.8 | 0.0 / 1.9 | 0.0 | **58** | 0.0 | **8.1** | **7.0** | **55** | **118** |
+| 4 Mi U+009B, r2 | 139 | 7.2 | 3.3 / 3.4 | 0.0 | 3 612 | 0.1 | 3 647 | 3 657 | 3 683 | 1 695 |
+| 4 Mi U+009B, r3 | 139 | 4.4 | 0.0 / 1.9 | 0.0 | **229** | 0.1 | **36** | **41** | **206** | **409** |
+| 2 Mi U+202E, r2 | 139 | 6.7 | 3.3 / 4.0 | 0.0 | 1 807 | 0.0 | 1 842 | 1 906 | 1 858 | 519 |
+| 2 Mi U+202E, r3 | 139 | 3.3 | 0.0 / 1.8 | 0.0 | **116** | 0.0 | **18** | **19** | **106** | **238** |
+| heavy cluster, r2 | 262 172 (cut) | 6.9 | 4.8 / 5.3 | 4.2 | 577 | 0.1 | 611 | 606 | 607 | 570 |
+| heavy cluster, r3 | 8 388 641 (whole) | 151 | 4.9 / 83 | **133** | **93** | 0.1 | **8.9** | **6.6** | **85** | **242** |
+| zero-width run, r2 | 262 171 (cut) | 7.3 | 5.3 / 6.2 | 5.2 | 476 | 0.1 | 513 | 510 | 511 | 568 |
+| zero-width run, r3 | 8 388 634 (whole) | 242 | 4.8 / 102 | **171** | **111** | 0.1 | **8.1** | **5.2** | **107** | **236** |
+
+The channel's one spelling of the argument (`bridge`): 32.5 → 7.2 ms for
+8 MiB of `a`, 131 → 65 ms for U+009B (`1d52413d`: round 3's first cut of
+`spelled_whole` asked `terminal_safe` and then spelled again, 192 ms,
+`round3/probe-71bd4f31.txt`), 68 → 30 ms for U+202E. A 9-byte pattern
+costs well under a millisecond everywhere on both sides.
+
+- **Input while Ctrl-O is open:** a key is handled in 0.1 ms once the page
+  is laid out (PageUp, layout cached). The event loop is single-threaded, so
+  a key typed during a layout waits for it: at most 0.23 s on opening, and
+  36-41 ms after a join or a theme switch; 0.21 s after a resize.
+- **What it leaves, by measurement:**
+  - A **byte-heavy row** (heavy cluster, zero-width run: 8 MiB that paint 1
+    and 0 cells) is now kept whole, as the screen keeps it, where round 2
+    cut it at 256 KiB and hid the `tail`. The shell's part of a redraw stays
+    at 5 ms (median); the first block (151-242 ms) and the worst of the 40
+    events (83-102 ms) are the row cut for the screen again -- for the
+    worst one, most likely its connector changing when the first read
+    joined, not traced. **The frame's work on that row is not
+    cached:** every append that rewrites the open block has the grid read
+    the row whole to compare or place it, 133-171 ms for 8 MiB of marks. It
+    is paid only while the block holding such a row is open, once per change
+    to its group, and bounded by the stream's 8 MiB; fx writes the same bytes
+    to its terminal. Caching it means a per-line record of the row last
+    placed in `grid.rs`, invalidated by every scroll, erase and recolour --
+    a change to the frame's diffing that this unit has not made.
+  - Ctrl-O lays a multi-MiB heading out whole on opening and on a resize
+    (0.06-0.23 s at 120 columns), the cost of fx's whole row.
+
+**The rest of round 3.**
+
+- **README fixes** (round 2's section above, marked there): the Ctrl-O cost
+  wording (the cache is per entry, keyed on the group's revision, so only a
+  change to its own group, a resize or a theme switch re-lays a call); the
+  sweep's 0 drops are "recovered by an isolated rerun of p5-mcp-verbs"
+  (`round2/sweep-compare.txt:99`: `drops: 28`); the lost `/` is not T-U4's,
+  with opus's cite (`src/tui/input.rs:553`, `:647-650`) and no root cause
+  claimed; `retintEntriesForTheme`'s and `themeOwnsRawEntry`'s end lines
+  (`store.zig:3722-3777`, `:3802-3814` at 481104fd, checked with `git show`;
+  also fixed in the code comment, `71bd4f31`).
+- **Ledger:** `call-row-raw-argument`'s reason already says "the
+  transcript's own row keeps 65 536 columns of them"; with the byte bound
+  gone it needs no 256 KiB clause, and none was added. Its and two other
+  causes' refs into `toolgroup.rs` moved with the code (889, 966, 1080);
+  `cancel-page-edge`'s owner is left as it is.
+- **The retint test** is now
+  `a_theme_report_recolours_ctrl_os_stopped_turn_line_and_refused_batch_row`
+  (`fe3ce5c7`, line-neutral): it checks those two rows only, and its comment
+  says an answered batch's rows are not checked.
+- **opus's Answer-row finding, checked at 481104fd and not fixed here** (the
+  dispatcher's own unit): fx writes an answered question's answer in
+  `ui_render.statusline_style` (`src/ui/footer/question_ui.zig:480`), which is
+  245 on fx-dark and 241 on fx-light (`src/core/shared/theme.zig:81`, `:124`);
+  a switch rewrites a `.question_resolution` entry (`store.zig:3808`) through
+  the token table, 245 -> 247 going light (`:3790`) and 241 -> 250 going dark
+  (`:3798`). xfx records the answer as `DocumentRow::Answer` and maps it to
+  `[ANSWER]` (`src/tui/theme.rs:625`), 245 dark and 241 light: after a switch
+  xfx shows 241 where fx shows 247, and 245 where fx shows 250 -- in the
+  document as on Ctrl-O. A rule of the document's that predates T-U4.
+
+**Mutants** (`mutants.txt`, `mutants.py`, at `1d52413d`, on a `git clone
+--no-local`, the clone clean after): **33, 32 killed, 1 equivalent** -- round
+2's mode guard, as before. Round 3's 15: a byte bound again (1 test); a
+spelling cut like any text (2); what joins a spelling's last character left
+out of its unit (1); each member builds the block again (1); the block kept
+across a palette (1), across a change to the group (1); a heading laid out on
+every layout (1), kept across a resize (3), kept whatever its text (1); every
+heading taken to fit (2); `fits` refusing a row exactly the width (1); a long
+row kept nowhere (2), found at another width (1), found for another row (1).
+Round 2's inline mutants re-pointed at the new code: the row keeps the whole
+argument (2), Ctrl-O reads the cut argument (1), the cut at 512 columns (3).
+
+**Sweep, the touched scenarios** (`round3/`; the 132 scenarios of round 2,
+`--jobs 2` under the suite lock; base `origin/main` 884497c0's sweep from
+round 2, head `1d52413d` built from a `git clone --no-local`, both scored
+with this branch's ledger): base **400 / 651**, head **462 / 651**, failed
+0. **The direct comparison (`round3/sweep-compare.txt`): 0 drops**; 62 pairs
+unresolved -> normalized-identical (round 2's 62), 6 lose their uncaused rows
+and keep their cause, 3 `p5-transcript-submit` pairs go identical ->
+normalized-identical (xfx's elapsed `1s` where fx's is `0s`, row 36), and no pair gains
+an uncaused row. The head sweep ran at a load of 21 at its start and 62 at
+its peak. (An earlier head sweep at `71bd4f31`, before the last fix, had 2
+drops, both outside what the branch touches: `interrupt-retry` `f0.15`
+(`K-recover`) and `p5-mcp-verbs` `startup`, where fx's banner, composer and
+status rows had nothing to match on xfx's screen; both pass in the sweep at
+`1d52413d`.)
+
+**Gates (`round3/gates.txt`)**, at `1d52413d`, every step of CI one at a
+time under the suite lock, each exit 0, nothing re-run: fmt; clippy, default
+and fault injection; `cargo test --locked` **5291 passed, 0 failed, 7
+ignored**, with fault injection **5328 / 0 / 7**; check-xfx-identity and
+check-no-secrets, check-no-stubs, check-preview-contract,
+check-tui-preflight-cost, check-usage-clock; test-check-no-secrets (13
+cases), test-gate-env (5), test-preview-contract (24 mutants caught); fxcap
+test-sweep (66 and 26 tests) and test-capture (59); the release and faulty
+builds; smoke (47 checks, 0 failures) and smoke-tui (37 scenarios and the
+oracle, **1127 checks, 0 failures**). At `71bd4f31` one step, fxcap
+test-capture, failed once (a wrapper shell not yet exec'd into `/bin/cat`
+after 1 s) and passed run again alone; that run is superseded by this one.
+
 ## Files
 
 - `README.md` this file.
@@ -547,3 +769,4 @@ Nothing re-run.
 - `fx/`, `xfx/`, `xfx-base/` the `.ansi` captures of the 77 marker pairs; `marker_cells.py`; `green.txt`, `red.txt`.
 - `gates.txt`.
 - `round2/`: `render_cost_probe.rs`, `probe-before.txt`, `probe-after.txt` (MUST 2's measurements); `red.txt` (round 2's RED); `sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`, `sweep-mcp-verbs.md`, `sweep-cancel-base.md` (the touched scenarios); `gates.txt`.
+- `round3/`: `red.txt`, `red-kept-row.txt` (the REDs); `ctrl_o_breakdown_probe.rs`, `ctrl-o-breakdown.txt` (where Ctrl-O's time went); `render_cost_probe.rs`, `probe.txt` (round 2 against round 3, one job), `probe-71bd4f31.txt`, `probe-busier.txt` (earlier runs); `sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`; `gates.txt`.
