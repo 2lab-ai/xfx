@@ -15487,6 +15487,39 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_title_runtime_answers_a_forced_catalog_read_from_its_stand_in() {
+        // The case above stays green on the pin alone: a catalog held as
+        // loaded keeps the selector's own reads idle, whatever they would
+        // ask. This one asks through the path the pin does not close -- the
+        // reader a `/model` typed mid-turn starts beside the work
+        // (`CatalogAsks::Reading`, from `ModelSelector::reader`) -- and the
+        // answer has to be the fixture's stand-in's: no rows, at once. The
+        // Gateway catalog the key would otherwise give the fixture answers
+        // with a failure, from a socket.
+        let (_home, _workspace, state) = titled_runtime(|_| generated("Read"));
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let started = state
+            .selector
+            .reader()
+            .begin(telling(state.config.provider, events_tx))
+            .expect("the fixture has a catalog to read");
+        let told = on_a_runtime(async {
+            tokio::time::timeout(TEST_DRAIN, events_rx.recv())
+                .await
+                .ok()
+                .flatten()
+        });
+        drop(started);
+        assert_eq!(
+            told,
+            Some(UiEvent::CatalogLoaded {
+                provider: ProviderId::Gateway,
+                entries: Vec::new(),
+            })
+        );
+    }
+
     // --- `/fork` (P5-FK2) ---------------------------------------------------
 
     /// The conversation's log as it stands on disk.
