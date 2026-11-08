@@ -45538,4 +45538,219 @@ mod tests {
             assert!(full.contains(&dark), "{dark:?} in {full:#?}");
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Train 6 joins: CTRLO-WIDER's names through T-U4's Ctrl-O caches
+    // -----------------------------------------------------------------------
+
+    /// Ctrl-O's screen with every entry's time taken out (`yyyy-mm-dd
+    /// hh:mm:ss.mmm`, the one thing two sessions given the same events write
+    /// differently); the rows' colours are kept.
+    fn timeless(rows: &[String]) -> Vec<String> {
+        rows.iter()
+            .map(|row| {
+                let mut out = String::new();
+                let mut rest = row.as_str();
+                while !rest.is_empty() {
+                    let stamp = rest.len() >= 23
+                        && rest.is_char_boundary(23)
+                        && rest[..23].char_indices().all(|(at, c)| match at {
+                            4 | 7 => c == '-',
+                            10 => c == ' ',
+                            13 | 16 => c == ':',
+                            19 => c == '.',
+                            _ => c.is_ascii_digit(),
+                        });
+                    if stamp {
+                        out.push_str("<time>");
+                        rest = &rest[23..];
+                    } else {
+                        let c = rest.chars().next().expect("a character");
+                        out.push(c);
+                        rest = &rest[c.len_utf8()..];
+                    }
+                }
+                out
+            })
+            .collect()
+    }
+
+    /// A path a read is given and the reply after it, each holding characters
+    /// a terminal draws wider than xfx and fx count them
+    /// (`super::drawn_wider`): U+261D and U+2E3A.
+    const WIDER_PATH: &str = "\u{261d}x\u{2e3a}wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww.txt";
+    const WIDER_PATH_NAMED: &str = r"\u{261d}x\u{2e3a}wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww.txt";
+    const WIDER_LABEL: &str = "fam\u{261d}\u{2e3a}";
+    const WIDER_LABEL_NAMED: &str = r"fam\u{261d}\u{2e3a}";
+
+    /// A finished turn that read [`WIDER_PATH`] -- its start, its arguments,
+    /// its result and the result's text, each through the channel's
+    /// `made_inert` as a live turn's are -- and answered with a code panel
+    /// labelled [`WIDER_LABEL`].
+    fn a_turn_that_read_a_wider_path(shell: &mut Fixture) {
+        shell.route_bytes(b"read it\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnStarted.made_inert());
+        shell.apply(
+            tool_start("r1", "read_file", serde_json::json!({ "path": WIDER_PATH })).made_inert(),
+        );
+        shell.apply(
+            UiEvent::ToolDetail {
+                call_id: "r1".into(),
+                detail: full_transcript::Detail::Arguments(vec![full_transcript::Argument {
+                    name: "path".into(),
+                    value: WIDER_PATH.into(),
+                    text: true,
+                }]),
+            }
+            .made_inert(),
+        );
+        shell.apply(tool_result("r1", "read_file", true, "").made_inert());
+        shell.apply(
+            UiEvent::ToolDetail {
+                call_id: "r1".into(),
+                detail: full_transcript::Detail::Result("line \u{261d} one\n".into()),
+            }
+            .made_inert(),
+        );
+        shell.apply(
+            UiEvent::Delta(format!("```{WIDER_LABEL}\ncode \u{261d} here\n```\n")).made_inert(),
+        );
+        shell.apply(UiEvent::TurnEnded { failure: None }.made_inert());
+        shell.shell.flush_paced();
+        let _ = shell.written();
+    }
+
+    /// The same session laid out from nothing at `cols` in `palette`, Ctrl-O
+    /// open: what a cache must equal.
+    fn fresh_ctrl_o(cols: u16, palette: Palette) -> Vec<String> {
+        let mut fresh = shell_with(40, cols, palette, false);
+        a_turn_that_read_a_wider_path(&mut fresh);
+        fresh.route_bytes(b"\x0f");
+        timeless(&fresh.screen_rows())
+    }
+
+    #[test]
+    fn ctrl_o_names_what_a_terminal_draws_wider_and_its_caches_follow_the_palette_and_the_width() {
+        // Train 6, join check 1. T-U4 keeps a group's Ctrl-O block per
+        // (revision, palette) and each call's heading per (text, width);
+        // CTRLO-WIDER names, on Ctrl-O, a file's or a tool's line (the
+        // arguments, the result) and an answer's code panel, its label
+        // included, and leaves the heading raw, as fx's is (its round 2,
+        // (f): `a_value_the_heading_had_to_spell_is_never_shown_by_it_already`).
+        // Through the caches, after a theme switch and after a resize, each
+        // screen is the one the same session laid out from nothing shows.
+        let mut live = shell(40, 120);
+        a_turn_that_read_a_wider_path(&mut live);
+        live.route_bytes(b"\x0f");
+        let dark = live.screen_rows();
+        let plain: Vec<String> = dark.iter().map(|row| colourless(row)).collect();
+        let heading = format!("\u{2514} Read {WIDER_PATH}");
+        assert!(plain.contains(&heading), "the heading, raw: {plain:#?}");
+        assert!(
+            plain.contains(&format!("\u{2502}  path: {WIDER_PATH_NAMED}")),
+            "the argument row, named: {plain:#?}"
+        );
+        assert!(
+            plain.iter().any(|row| row.contains(r"line \u{261d} one")),
+            "the result, named: {plain:#?}"
+        );
+        assert!(
+            plain
+                .iter()
+                .any(|row| row.contains(&format!("\u{2500} {WIDER_LABEL_NAMED} \u{2500}"))),
+            "the code panel's label, named: {plain:#?}"
+        );
+        assert!(
+            plain.iter().any(|row| row.contains(r"code \u{261d} here")),
+            "the code, named: {plain:#?}"
+        );
+        assert_eq!(
+            plain
+                .iter()
+                .filter(|row| row.contains('\u{261d}') || row.contains('\u{2e3a}'))
+                .collect::<Vec<_>>(),
+            [&heading],
+            "raw only in the heading: {plain:#?}"
+        );
+        assert_eq!(timeless(&dark), fresh_ctrl_o(120, PALETTE), "dark, 120");
+
+        // A theme switch: closed, the report, opened again.
+        live.route_bytes(b"\x0f");
+        live.route_bytes(WENT_LIGHT);
+        live.route_bytes(b"\x0f");
+        let light = live.screen_rows();
+        assert_ne!(light, dark, "the palette is in the rows");
+        assert_eq!(timeless(&light), fresh_ctrl_o(120, LIGHT), "light, 120");
+
+        // A resize while Ctrl-O is open: the heading wraps at 40 columns.
+        let _ = live.resize(40, 40);
+        let narrow = live.screen_rows();
+        let narrow_plain: Vec<String> = narrow.iter().map(|row| colourless(row)).collect();
+        assert!(
+            !narrow_plain.contains(&heading),
+            "the heading, laid out again: {narrow_plain:#?}"
+        );
+        assert!(
+            narrow_plain
+                .iter()
+                .all(|row| super::super::wrap::width(row) <= 40),
+            "{narrow_plain:#?}"
+        );
+        // Opened again at that width, it is the session laid out from nothing.
+        live.route_bytes(b"\x0f");
+        live.route_bytes(b"\x0f");
+        assert_eq!(
+            timeless(&live.screen_rows()),
+            fresh_ctrl_o(40, LIGHT),
+            "light, 40"
+        );
+
+        // And back: dark at 120, as first drawn, byte for byte.
+        live.route_bytes(b"\x0f");
+        live.route_bytes(WENT_DARK);
+        let _ = live.resize(40, 120);
+        live.route_bytes(b"\x0f");
+        assert_eq!(live.screen_rows(), dark, "dark, 120 again");
+    }
+
+    #[test]
+    fn a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back() {
+        // Train 6, join check 3: T-U4's retint of Ctrl-O's blocks (a
+        // cancelled line drawn in one mode, shown in another) beside
+        // CTRLO-WIDER's named code panel label, with the report arriving
+        // while Ctrl-O is open. Every row is the one the same session drawn
+        // from nothing in the new palette has -- no grey of the old one left
+        // -- and the report back gives the first screen byte for byte.
+        let session = |palette: Palette| {
+            let mut shell = shell_with(40, 120, palette, false);
+            a_turn_that_read_a_wider_path(&mut shell);
+            shell.route_bytes(b"stream something\r");
+            let _taken = shell.picks_up();
+            let _ = shell.take_pending();
+            shell.route_bytes(&[0x03]);
+            let _ = shell.take_pending();
+            shell.route_bytes(b"\x0f");
+            shell
+        };
+        let mut live = session(PALETTE);
+        let dark = live.screen_rows();
+        assert!(dark.contains(&cancelled_line(PALETTE)), "{dark:#?}");
+        let label = format!("\u{2500} {WIDER_LABEL_NAMED} \u{2500}");
+        assert!(
+            dark.iter().any(|row| colourless(row).contains(&label)),
+            "{dark:#?}"
+        );
+        live.route_bytes(WENT_LIGHT);
+        let light = live.screen_rows();
+        assert!(light.contains(&cancelled_line(LIGHT)), "{light:#?}");
+        assert!(!light.contains(&cancelled_line(PALETTE)), "{light:#?}");
+        assert_eq!(
+            timeless(&light),
+            timeless(&session(LIGHT).screen_rows()),
+            "the open screen after the report"
+        );
+        live.route_bytes(WENT_DARK);
+        assert_eq!(live.screen_rows(), dark, "the report back");
+    }
 }

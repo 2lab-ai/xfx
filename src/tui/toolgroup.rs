@@ -2692,4 +2692,90 @@ mod tests {
             assert_eq!(spelled_whole(text), spelling.finish(), "{text:?}");
         }
     }
+
+    #[test]
+    fn the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width() {
+        // Train 6, join check 1 (T-U4 x CTRLO-WIDER). CTRLO-WIDER names the
+        // scalars a terminal draws wider than xfx and fx count them on
+        // Ctrl-O's file and tool lines and in an answer
+        // (`super::super::drawn_wider`), not on this row: the transcript's
+        // row is upstream's argument as written (ledger
+        // `call-row-raw-argument`). So here a raw one is one of the row's
+        // grapheme clusters, and a named form the model wrote itself,
+        // `\u{261d}`, reads as one of the spellings the row keeps whole. T-U4
+        // cuts the row by columns between whole units; wherever that cut
+        // falls, it falls between two of either, and at 40, 120 and 1000
+        // columns a screen shows what it shows of the whole row.
+        let wide = usize::from(u16::MAX) + 1;
+        let raw: [&str; 5] = [
+            "\u{261d}",
+            "\u{2e3a}",
+            "\u{1f590}",
+            "x\u{e0002}",
+            "a\u{fe0f}",
+        ];
+        // Each spelling a unit of its own, and so each letter before one.
+        let named: [&str; 7] = [
+            r"\u{261d}",
+            r"\u{2e3a}",
+            r"\u{1f590}",
+            "x",
+            r"\u{e0002}",
+            "a",
+            r"\u{fe0f}",
+        ];
+        let filler = |n: usize| vec!["a"; n];
+        let cases: Vec<(&str, Vec<&str>)> = vec![
+            ("short, raw", raw.to_vec()),
+            ("short, named", named.to_vec()),
+            ("raw, past any screen", raw.repeat(wide / 4)),
+            ("named, past any screen", named.repeat(wide / 40)),
+            (
+                "a raw one at the cut",
+                [filler(wide - 1), raw.to_vec()].concat(),
+            ),
+            (
+                "a named one across the cut",
+                [filler(wide - 4), named.to_vec()].concat(),
+            ),
+        ];
+        for (why, units) in cases {
+            let pattern: String = units.concat();
+            let spelled = crate::tools::question::terminal_safe(&pattern).into_owned();
+            // Where each unit ends once spelled: the places a cut may fall.
+            let mut ends = vec![0];
+            for unit in &units {
+                let last = *ends.last().expect("a start");
+                ends.push(last + crate::tools::question::terminal_safe(unit).len());
+            }
+            assert_eq!(*ends.last().expect("an end"), spelled.len(), "{why}");
+            let mut group = ToolGroup::default();
+            group.start(
+                "1".into(),
+                shown(&read::GLOB_FILES, json!({ "pattern": pattern })),
+            );
+            let rows = group.rows(DARK);
+            let whole = format!("{TEXT}\u{2514} Matching {spelled}{RESET}");
+            for cols in [40, 120, 1000] {
+                assert_eq!(
+                    super::super::transcript::ellipsized(&rows[1], cols),
+                    super::super::transcript::ellipsized(&whole, cols),
+                    "{why}: {cols} columns"
+                );
+            }
+            let kept = strip(&rows[1]);
+            let kept = kept.strip_prefix("\u{2514} Matching ").expect("the row");
+            let kept = match kept.strip_suffix("...") {
+                Some(cut) if cut.len() < spelled.len() => cut,
+                _ => kept,
+            };
+            assert!(spelled.starts_with(kept), "{why}");
+            assert!(
+                ends.contains(&kept.len()),
+                "{why}: cut at byte {} of {}, inside a unit",
+                kept.len(),
+                spelled.len()
+            );
+        }
+    }
 }
