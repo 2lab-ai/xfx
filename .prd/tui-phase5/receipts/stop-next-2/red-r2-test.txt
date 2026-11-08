@@ -1,0 +1,52 @@
+# Round 2: the tests of 550a0b82 over 6ae96c6a's code (550a0b82 adds tests only), in the worktree, tree clean (tracked).
+# TMPDIR=<short> cargo test --locked --lib -- <the names>
+
+
+running 4 tests
+test tui::shell::tests::a_finished_turns_tool_row_read_after_a_stop_keeps_its_place_in_its_text ... FAILED
+test tui::event_loop::tests::a_tool_row_read_with_text_a_stop_drops_is_still_written ... ok
+test tui::event_loop::tests::a_stop_its_end_and_a_model_title_write_each_title_once_in_upstreams_order ... FAILED
+test tui::event_loop::tests::late_text_a_stop_holds_never_keeps_the_drain_from_its_turns_end ... FAILED
+
+failures:
+
+---- tui::shell::tests::a_finished_turns_tool_row_read_after_a_stop_keeps_its_place_in_its_text stdout ----
+
+thread 'tui::shell::tests::a_finished_turns_tool_row_read_after_a_stop_keeps_its_place_in_its_text' (345334880) panicked at src/tui/shell.rs:45930:9:
+the first text, the row, the second text: [
+    "\u{1b}[38;5;255m●\u{1b}[0m \u{1b}[38;5;245m1 tool call · 1 read\u{1b}[0m",
+    "\u{1b}[38;5;245m└ Read notes.txt\u{1b}[0m",
+    "",
+    "  FIRST-PART",
+    "",
+    "  SECOND-PART",
+    "",
+    "\u{1b}[38;5;245m  0s (↑4 ↓6)\u{1b}[0m",
+    "",
+]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::event_loop::tests::a_stop_its_end_and_a_model_title_write_each_title_once_in_upstreams_order stdout ----
+
+thread 'tui::event_loop::tests::a_stop_its_end_and_a_model_title_write_each_title_once_in_upstreams_order' (345334877) panicked at src/tui/event_loop.rs:14375:9:
+assertion `left == right` failed: each: `go` after the Cancelled frame, `Named`, `go` first
+  left: [("one tick", 0, 1, false), ("the next tick, before its frame", 0, 1, false)]
+ right: [("one tick", 1, 1, true), ("the next tick, before its frame", 1, 1, true)]
+
+---- tui::event_loop::tests::late_text_a_stop_holds_never_keeps_the_drain_from_its_turns_end stdout ----
+
+thread 'tui::event_loop::tests::late_text_a_stop_holds_never_keeps_the_drain_from_its_turns_end' (345334879) panicked at src/tui/event_loop.rs:14561:9:
+assertion `left == right` failed: each: the channel drained, the end read (its title), the late text shown
+  left: [("the stop's own end", false, false, false), ("a finish", false, false, false), ("a finish, across cut drains", false, false, false)]
+ right: [("the stop's own end", true, true, false), ("a finish", true, true, true), ("a finish, across cut drains", true, true, true)]
+
+
+failures:
+    tui::event_loop::tests::a_stop_its_end_and_a_model_title_write_each_title_once_in_upstreams_order
+    tui::event_loop::tests::late_text_a_stop_holds_never_keeps_the_drain_from_its_turns_end
+    tui::shell::tests::a_finished_turns_tool_row_read_after_a_stop_keeps_its_place_in_its_text
+
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 4458 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `--lib`
+rc=101

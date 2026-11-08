@@ -102,6 +102,14 @@ pub(crate) const DELTA_SLICE: usize = 64 * 1024;
 /// the turn rather than buffering an answer no one is reading.
 pub(crate) const UI_EVENTS: usize = 256;
 
+/// What a turn the user stopped ends with when the stop is all that ended it
+/// ([`UiEvent::TurnEnded`]): the runtime's one word for it, whichever layer
+/// read the cancellation first, so the band can tell the stop's own end --
+/// which it has already answered at the keystroke -- from a real failure
+/// that came after the stop, which upstream still reports
+/// (`interruption.zig:208-223`, `app_process_runtime.zig:157-169@481104fd`).
+pub(crate) const TURN_CANCELLED: &str = "the turn was cancelled";
+
 /// Something the runtime did that the UI has to show.
 ///
 /// Every `String` in here is text the UI will eventually place on a row, and
@@ -121,7 +129,16 @@ pub(crate) enum UiEvent {
     /// concluded turn holds is given back *after* its conclusion is sent
     /// (`super::worker`'s `turn_loop`), so a UI counting places would read
     /// either number depending on which thread ran last.
-    TurnStarted,
+    ///
+    /// `submission` is which piece of work this turn is: its place among
+    /// everything the UI ever submitted, counted from 1 -- the runtime's
+    /// `Queue::taken` once it has taken the item, which is the UI's
+    /// `WorkHandle::accepted` once it submitted it, the work channel having
+    /// one sender (`super::worker`). A stop quotes the same count
+    /// (`TurnControl::Cancel`'s `through`), so the UI can tell a turn the
+    /// runtime took before it read a stop, and stops, from one typed after it
+    /// -- without guessing from what it still holds.
+    TurnStarted { submission: usize },
     /// A fragment of the answer, in arrival order.
     Delta(String),
     /// A sentence the runtime adds to the answer about how it is being served
@@ -341,7 +358,9 @@ pub(crate) enum UiEvent {
     /// (`crate::output::EventSink::recovered`): the row says so for a moment
     /// ([`super::retry::Row::Recovered`]).
     Recovered { attempt: u32 },
-    /// The turn is over, whichever way it went. **Terminal.**
+    /// The turn is over, whichever way it went. **Terminal.** `failure` is
+    /// `None` for a turn that finished, [`TURN_CANCELLED`] for one a stop
+    /// ended, and what went wrong otherwise.
     TurnEnded { failure: Option<String> },
     /// The conversation has been dropped: a [`TurnControl::Reset`] was acted
     /// on, and the next prompt opens a new session.
@@ -500,8 +519,9 @@ impl UiEvent {
     /// which hand it events the way the channel does.
     pub(crate) fn made_inert(self) -> Self {
         match self {
-            // No text at all: what it carries is the fact that it arrived.
-            Self::TurnStarted => Self::TurnStarted,
+            // No text at all: what it carries is the fact that it arrived,
+            // and a count.
+            Self::TurnStarted { submission } => Self::TurnStarted { submission },
             Self::Delta(text) => Self::Delta(inert_owned(text)),
             Self::Operational(text) => Self::Operational(inert_owned(text)),
             // `call_id` and `tool` are the registry's and the provider's, and
@@ -1732,10 +1752,9 @@ impl UiEventSink {
             // kind is what a reader will be shown. An interrupted turn was
             // stopped on purpose; a broken pipe is a session that ended under
             // it.
-            Err(Stopped::Cancelled) => Err(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "the turn was cancelled",
-            )),
+            Err(Stopped::Cancelled) => {
+                Err(io::Error::new(io::ErrorKind::Interrupted, TURN_CANCELLED))
+            }
             Err(Stopped::UiGone) => Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
                 "the terminal session is gone",
@@ -2318,7 +2337,7 @@ mod tests {
             UiEvent::Notice(super::super::notice::Notice::neutral("", "n")),
             // A turn beginning is the *opposite* of one ending, and a drain
             // loop that stopped at it would leave before the answer.
-            UiEvent::TurnStarted,
+            UiEvent::TurnStarted { submission: 1 },
         ] {
             assert!(!event.is_terminal(), "{event:?} ended the turn");
         }

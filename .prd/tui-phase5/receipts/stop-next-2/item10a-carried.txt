@@ -1,0 +1,324 @@
+# Item 10a, carried to STOP-NEXT-3: the RED (103bb986, dropped from the branch), the fix tried over it, and the tests it broke.
+# The fix passed both item 10a tests; the full cargo test then failed 46 tests (all-targets, one run in a suite-lock slot),
+# each one a fixture that sends two lines to an idle session with no start read between them -- the prompt history's
+# walk, image and paste recall, the queue's refusals, /compact, /copy, /fork, /resume, a reset with a prompt waiting.
+# Each needs its fixture to start the turn between the lines, or the behaviour it pins re-read against fx; that is
+# STOP-NEXT-3's, with a capture (two lines in one send-keys on an idle session) and smoke-tui.
+
+## the 46 tests
+tui::event_loop::tests::a_held_prompt_reports_nothing_until_its_turn_starts_and_nothing_if_it_never_does
+tui::event_loop::tests::a_reset_and_a_report_in_one_tick_never_repaint_the_document_handed_to_scrollback
+tui::shell::tests::a_badge_whose_number_the_prompt_types_in_words_is_sent_under_a_fresh_one
+tui::shell::tests::a_blank_line_is_never_walked_back_to
+tui::shell::tests::a_block_does_not_survive_into_a_line_the_walk_hands_back
+tui::shell::tests::a_collapsed_paste_after_a_recall_leaves_the_walk_too
+tui::shell::tests::a_deletion_after_a_recall_leaves_the_walk_too
+tui::shell::tests::a_double_escape_after_a_recall_leaves_the_walk_too
+tui::shell::tests::a_forward_delete_after_a_recall_leaves_the_walk_too
+tui::shell::tests::a_history_entry_carries_the_blocks_its_summaries_named
+tui::shell::tests::a_launch_recalls_its_workspaces_saved_lines_unless_the_history_is_off
+tui::shell::tests::a_line_the_runtime_refused_is_not_walked_back_to
+tui::shell::tests::a_paste_the_walk_stood_aside_comes_back_as_the_block_with_a_new_number
+tui::shell::tests::a_pasted_line_is_not_folded_into_the_typed_words_that_look_like_it
+tui::shell::tests::a_prompt_carrying_an_image_is_recalled_in_session_but_not_written_to_the_file
+tui::shell::tests::a_prompt_the_runtime_refuses_keeps_the_paths_that_were_typed
+tui::shell::tests::a_prompt_waiting_for_its_turn_is_busy_too_and_the_turns_end_frees_the_column
+tui::shell::tests::a_recall_is_a_boundary_and_the_walk_survives_three_of_them
+tui::shell::tests::a_recalled_line_is_sent_as_itself
+tui::shell::tests::a_recalled_paste_comes_back_as_a_block_with_a_fresh_number
+tui::shell::tests::a_recalled_prompt_brings_its_image_back_under_a_fresh_number
+tui::shell::tests::a_recalled_mcp_line_opens_no_completions_until_it_is_edited
+tui::shell::tests::a_renumbered_prompt_the_runtime_refuses_keeps_its_badge_and_spends_nothing
+tui::shell::tests::a_reset_moves_the_title_lineage_on_at_the_keystroke
+tui::shell::tests::a_reset_with_a_prompt_waiting_drops_it_and_is_never_refused
+tui::shell::tests::a_submission_the_runtime_will_not_take_keeps_the_draft_and_says_so
+tui::shell::tests::a_summary_typed_by_hand_after_its_paste_was_sent_is_only_words
+tui::shell::tests::a_typed_path_is_attached_as_the_prompt_is_sent
+tui::shell::tests::a_typed_path_that_cannot_be_attached_stops_the_prompt_or_is_left_as_words
+tui::shell::tests::an_inline_paste_after_a_recall_leaves_the_walk_too
+tui::shell::tests::an_interrupt_says_that_the_queue_goes_with_the_turn
+tui::shell::tests::compact_while_a_turn_runs_or_waits_is_refused_with_upstreams_warning
+tui::shell::tests::copy_does_not_wait_behind_the_work_the_runtime_has_in_hand
+tui::shell::tests::credits_with_a_turn_running_and_the_queue_full_is_asked_and_survives_a_ctrl_c
+tui::shell::tests::dropping_the_conversation_takes_the_window_title_back_to_the_workspace
+tui::shell::tests::fork_says_why_it_cannot_and_takes_no_argument
+tui::shell::tests::one_prompt_may_wait_and_the_band_says_that_it_is_waiting
+tui::shell::tests::only_the_last_resets_fence_ends_the_draining
+tui::shell::tests::prompt_history_off_keeps_no_line_anywhere_and_on_keeps_them_again
+tui::shell::tests::resume_waits_for_a_response_or_a_prompt_and_not_for_other_work
+tui::shell::tests::typing_after_a_recall_starts_the_next_walk_at_the_newest_line
+tui::shell::tests::up_walks_back_through_the_submitted_lines_and_ctrl_n_returns_the_draft
+tui::shell::tests::trace_masks_what_looks_like_a_secret_in_what_the_screen_was_given
+tui::shell::tests::trace_mid_turn_is_answered_at_once_and_says_the_turn_was_running
+tui::shell::tests::ctrl_v_puts_the_clipboard_image_at_the_caret_with_no_notice
+escape_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue
+
+## the RED, git show 103bb986 -- src/tui/shell.rs
+commit 103bb9864712a742cc497cfeb94e2acc5efbab91
+Author: <redacted>
+Date:   Sun Nov 8 20:59:11 2026 +0900
+
+    test(tui): RED for STOP-NEXT-2 item 10a -- a line sent while a prompt is pending
+    
+    Tests only. Fails on cc231700: a prompt, a command, and a prompt behind
+    a provider switch, each sent while the prompt before it is fx's pending
+    submission, are submitted (or refused by the queue) where fx's submit
+    returns with the line left in the composer
+    (prompt_submit_deferred_for_pending, input_submit_runtime.zig:648-689
+    @481104fd). Guard, passing there too: the pending submission ends when
+    its turn starts or a stop covers it, and a prompt behind a running turn
+    is none.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/tui/shell.rs b/src/tui/shell.rs
+index 75c5e8da..0bb29d12 100644
+--- a/src/tui/shell.rs
++++ b/src/tui/shell.rs
+@@ -46305,6 +46305,134 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn a_line_sent_while_a_prompt_is_a_pending_submission_stays_in_the_composer() {
++        // Item 10a. Upstream holds a prompt sent to an idle session as a
++        // pending submission (`installPendingSubmission`,
++        // `input_submit_runtime.zig:1123-1160@481104fd`) until its UI drains
++        // the turn's `begin_presented_prompt` (`acceptPresentedPrompt`,
++        // `:415-426`), and while one exists its `submit` returns at once --
++        // `prompt_submit_deferred_for_pending` (`:648-689`) -- for a prompt and
++        // a command alike, the line left in the composer. Here: behind an
++        // idle session's prompt, and behind one sent while a provider switch
++        // is still to be made (upstream's preparation is no worker work).
++        let mut got = Vec::new();
++        for (case, second) in [
++            ("a prompt", "second"),
++            ("a command", "/stats"),
++            ("behind a switch", "second"),
++        ] {
++            let mut shell = shell(24, 80);
++            if case == "behind a switch" {
++                shell.switch_provider(ProviderId::Llmux);
++                let _ = shell.picks_up();
++            }
++            let accepted = shell.work.accepted();
++            shell.route_bytes(format!("first\r{second}\r").as_bytes());
++            let mut sent = Vec::new();
++            while let Ok(work) = shell.sent.try_recv() {
++                sent.push(work);
++            }
++            got.push((
++                case,
++                shell.work.accepted() - accepted,
++                sent,
++                shell.editor.text().to_string(),
++                // The queue's refusal, which is no deferral: behind a switch
++                // the runtime's two places are taken.
++                shell.notice.is_some(),
++            ));
++        }
++        assert_eq!(
++            got,
++            [
++                (
++                    "a prompt",
++                    1,
++                    vec![TurnWork::Submit("first".to_string())],
++                    "second".to_string(),
++                    false
++                ),
++                (
++                    "a command",
++                    1,
++                    vec![TurnWork::Submit("first".to_string())],
++                    "/stats".to_string(),
++                    false
++                ),
++                (
++                    "behind a switch",
++                    1,
++                    vec![TurnWork::Submit("first".to_string())],
++                    "second".to_string(),
++                    false
++                ),
++            ],
++            "each: the submissions the two lines made, the work sent, the composer, a refusal said"
++        );
++    }
++
++    #[test]
++    fn a_pending_submission_ends_when_its_turn_starts_or_a_stop_covers_it() {
++        // Upstream's pending submission ends when its UI drains the turn's
++        // start (`acceptPresentedPrompt`, `input_submit_runtime.zig:415-426@481104fd`)
++        // or when a press takes it back (`cancelPendingSubmission`,
++        // `app_input_runtime.zig:1541-1543`): a line sent after either is
++        // submitted. And a prompt sent behind a running turn is no pending
++        // submission (`tryHoldTurnStart`, `worker_runtime.zig:1273-1284`).
++        let mut got = Vec::new();
++        for case in [
++            "its turn starts",
++            "a stop covers it",
++            "behind a running turn",
++        ] {
++            let mut shell = shell(24, 80);
++            if case == "behind a running turn" {
++                // The running turn is the first line, and the second waits
++                // behind it in the queue.
++                shell.route_bytes(b"first\r");
++                let _ = shell.picks_up();
++                shell.start_turn();
++                let accepted = shell.work.accepted();
++                shell.route_bytes(b"second\r");
++                got.push((
++                    case,
++                    shell.work.accepted() - accepted,
++                    shell.editor.is_empty(),
++                ));
++                continue;
++            }
++            shell.route_bytes(b"first\r");
++            match case {
++                "its turn starts" => {
++                    let _ = shell.picks_up();
++                    shell.start_turn();
++                }
++                "a stop covers it" => {
++                    shell.route_bytes(&[0x03]);
++                    let _ = shell.controlled();
++                }
++                _ => {}
++            }
++            let accepted = shell.work.accepted();
++            shell.route_bytes(b"second\r");
++            got.push((
++                case,
++                shell.work.accepted() - accepted,
++                shell.editor.is_empty(),
++            ));
++        }
++        assert_eq!(
++            got,
++            [
++                ("its turn starts", 1, true),
++                ("a stop covers it", 1, true),
++                ("behind a running turn", 1, true),
++            ],
++            "each: the submission the second line made, the composer emptied"
++        );
++    }
++
+     #[test]
+     fn a_prompt_queued_at_once_under_a_manual_compactions_row_is_not_shown_waiting() {
+         // A prompt upstream queues at once is not a steer, and its band lists
+
+## the fix tried, git diff over 103bb986 -- src/tui/shell.rs
+diff --git a/src/tui/shell.rs b/src/tui/shell.rs
+index 0bb29d12..7998d8f7 100644
+--- a/src/tui/shell.rs
++++ b/src/tui/shell.rs
+@@ -1565,6 +1565,9 @@ pub(crate) struct Shell {
+     /// The title owed waits past this tick's frame and goes out with the
+     /// next tick's ([`Self::take_leading_title`], [`Self::tick_committed`]).
+     title_held: bool,
++    /// The number of a prompt upstream would hold as a pending submission,
++    /// until its turn's start is read ([`Self::submission_pending`]).
++    pending_submission: Option<usize>,
+     /// Answer text read under the user's stop of a turn whose end may still
+     /// say it finished first ([`Self::stop_reads_end`]): kept for the drain
+     /// it arrived in, presented if that drain also reads the turn's end and
+@@ -2621,6 +2624,7 @@ impl Shell {
+             title_held: false,
+             stop_in_tick: false,
+             late: Vec::new(),
++            pending_submission: None,
+             workspace: config.workspace_root.clone(),
+             document_rows: 0,
+             fatal: None,
+@@ -3814,6 +3818,7 @@ impl Shell {
+         self.stop_requested = false;
+         self.title_leads = None;
+         self.late.clear();
++        self.pending_submission = None;
+         // A landed fork's prompt held under a search is the replaced
+         // conversation's draft: a resume (the session picker is a search) or
+         // a later fork must not hand it to this one. A fork landing now
+@@ -4261,6 +4266,11 @@ impl Shell {
+                 {
+                     self.prompts.pop_front();
+                 }
++                // Its start is read, or a later one's is: the pending
++                // submission is over ([`Self::submission_pending`]).
++                if self.pending_submission.is_some_and(|at| at <= submission) {
++                    self.pending_submission = None;
++                }
+                 let WaitingPrompt {
+                     estimate,
+                     title,
+@@ -9063,6 +9073,19 @@ impl Shell {
+         self.activity.working() || self.waiting_prompts().next().is_some()
+     }
+ 
++    /// Whether a prompt sent earlier is still what upstream holds as a
++    /// pending submission: from its Return (`installPendingSubmission`,
++    /// `input_submit_runtime.zig:1123-1160@481104fd`) until its UI drains the
++    /// turn's start (`acceptPresentedPrompt`, `:415-426`; the prompt is
++    /// queued as already presented, `main.zig:1263-1270`, `:1434-1441`) --
++    /// here, until that start is read -- or a press takes it back
++    /// (`cancelPendingSubmission`, `app_input_runtime.zig:1541-1543`): a stop
++    /// whose count covers it.
++    fn submission_pending(&self) -> bool {
++        self.pending_submission
++            .is_some_and(|at| !self.cancel_through.is_some_and(|through| at <= through))
++    }
++
+     /// Whether answer text read now is kept for the turn's end to place
+     /// ([`Self::late`]): under the user's stop of a turn whose end may say it
+     /// came to something else, and not one a compaction ended.
+@@ -12765,6 +12788,15 @@ impl Shell {
+         if self.editor.is_empty() {
+             return;
+         }
++        // **Not while a prompt is a pending submission**: upstream's `submit`
++        // returns at once while one exists --
++        // `prompt_submit_deferred_for_pending`,
++        // `input_submit_runtime.zig:648-689@481104fd` -- for a prompt and a
++        // command alike, and the line stays in the composer for the next
++        // Return ([`Self::submission_pending`]).
++        if self.submission_pending() {
++            return;
++        }
+         // Whatever this line is -- a command, a prompt -- it is sent from a
+         // composer that has moved on from any `/fork` still waiting for its
+         // answer, so that answer opens nothing ([`Self::close_fork_menu`]):
+@@ -13074,6 +13106,23 @@ impl Shell {
+                 // prompt not behind a running turn is upstream's pending
+                 // submission, whose card is drawn at once.
+                 let submission = self.work.accepted();
++                // A pending submission upstream's way: its four conditions
++                // (`installPendingSubmission`, `input_submit_runtime.zig:
++                // 1135-1149@481104fd`) -- no turn streams and its pacer holds
++                // no text and the full transcript is closed (not `behind`,
++                // not `waits`), and its worker can hold the start
++                // (`tryHoldTurnStart`, `worker_runtime.zig:1273-1284`): nothing
++                // processing or queued, which here is no prompt waiting and
++                // no compaction running. Work that is the runtime's here and
++                // not upstream's worker's -- a provider switch, a `/resume`,
++                // a fork -- holds no start there.
++                if !waits
++                    && !behind
++                    && !self.compacting()
++                    && self.waiting_prompts().next().is_none()
++                {
++                    self.pending_submission = Some(submission);
++                }
+                 let (card, echoed) = if waits || behind {
+                     (Some((card, links, runs)), None)
+                 } else {
+@@ -15151,6 +15200,7 @@ impl Shell {
+         self.stop_requested = false;
+         self.title_leads = None;
+         self.late.clear();
++        self.pending_submission = None;
+         // So is a failed automatic compaction's turn: its result was reported
+         // when the compaction settled, and the end that would have taken this
+         // is drained. Kept, it would read the next conversation's first prompt

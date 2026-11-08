@@ -713,6 +713,12 @@ impl WorkHandle {
         self.titles.switch_pending()
     }
 
+    /// The position of that switch, while it is still to be made: the
+    /// count a stop's `through` is in.
+    pub(crate) fn pending_switch(&self) -> Option<usize> {
+        self.titles.pending_switch()
+    }
+
     /// How title generation stands, for `/trace`.
     pub(crate) fn title_generation(&self) -> crate::trace::TitleGeneration {
         self.titles.generation()
@@ -3802,7 +3808,12 @@ async fn run_turn(
     // holds when it hears the turn is over ([`super::shell`]'s `TurnEnded`).
     let steering = state.steering.clone();
     steering.open();
-    let _ = bridge::send_ui(events, &turn.token, UiEvent::TurnStarted).await;
+    // With its number: `turn_loop` has just taken it (`Queue::took`), so
+    // `taken` is this item's place among everything submitted.
+    let started = UiEvent::TurnStarted {
+        submission: queue.taken,
+    };
+    let _ = bridge::send_ui(events, &turn.token, started).await;
     // The title answers, held by the turn while it holds the runtime: the
     // first prompt's question is asked as it is submitted, and an answer that
     // waited for the turn to end would keep the window on the workspace's
@@ -5766,7 +5777,9 @@ async fn image_refusal(
         await_failed_catalog_retry(state, turn).await;
     }
     if turn.token.is_cancelled() {
-        return Some(crate::agent::TurnError::Cancelled.to_string());
+        // The stop's one word, which the band compares against
+        // ([`bridge::TURN_CANCELLED`]).
+        return Some(bridge::TURN_CANCELLED.to_string());
     }
     if fresh {
         let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
@@ -6262,14 +6275,48 @@ async fn one_turn(
     // because the log of it could not be written -- the same order
     // `interactive::one_turn` reports in. A turn that failed reports its own
     // failure first: that is the one that says why there is no answer.
-    match outcome {
-        Ok(_) => conversation
+    end_of_turn(
+        &outcome,
+        compaction_ended.get(),
+        conversation
             .recorder
             .failure()
             .map(|problem| format!("xfx: {problem}")),
+    )
+}
+
+/// What a turn's end says it came to ([`UiEvent::TurnEnded`]'s `failure`),
+/// from the machine's outcome, how the turn's last compaction settled, and
+/// what the log could not take.
+///
+/// **A stop's own end is one word**, [`bridge::TURN_CANCELLED`], whichever
+/// layer read the cancellation first -- the machine, or the event sink whose
+/// send the turn's token refused -- so the band can tell it from a real
+/// failure. A stopped turn whose interrupted record the log would not take
+/// ends in that failure instead: upstream finishes it `.interrupted` and
+/// still returns the propagation error (`interruption.zig:208-223@481104fd`),
+/// which is `request failed` under `system` (`app_process_runtime.zig:157-169`).
+fn end_of_turn<T>(
+    outcome: &Result<T, crate::agent::TurnError>,
+    compaction: Option<Feedback>,
+    log_failure: Option<String>,
+) -> Option<String> {
+    // Only an ending ends the turn: a compaction that found nothing to do, or
+    // found another running, lets it go on to its own end (the same three as
+    // `super::shell`'s `compaction_update`).
+    let compaction_ended =
+        compaction.is_some_and(|feedback| !matches!(feedback, Feedback::NoOp | Feedback::Busy));
+    match outcome {
+        Ok(_) => log_failure,
         // A compaction ended it: the row says why, and there is nothing more
         // for its conclusion to say (`compactionErrorHandled`).
-        Err(_) if compaction_ended.get().is_some() => None,
+        Err(_) if compaction_ended => None,
+        Err(crate::agent::TurnError::Cancelled) => {
+            Some(log_failure.unwrap_or_else(|| bridge::TURN_CANCELLED.to_string()))
+        }
+        Err(crate::agent::TurnError::Sink(err)) if err.kind() == io::ErrorKind::Interrupted => {
+            Some(log_failure.unwrap_or_else(|| bridge::TURN_CANCELLED.to_string()))
+        }
         Err(err) => Some(err.to_string()),
     }
 }
@@ -6938,6 +6985,127 @@ mod tests {
             queue.work.try_recv(),
             Ok(TurnWork::Submit("queued after".into())),
             "the interrupt spent its allowance on a prompt it was not about"
+        );
+    }
+
+    #[test]
+    fn a_turns_end_says_a_stop_in_one_word_and_anything_else_in_its_own() {
+        // The band answers a stop at the keystroke and suppresses only the
+        // stop's own end (`super::super::shell`'s `TurnEnded`), so that end is
+        // one word whichever layer read the cancellation: the machine, or a
+        // sink whose send the turn's token refused. A log that would not take
+        // the stopped turn is a failure all the same, as upstream returns the
+        // propagation error after the interrupted finish
+        // (`interruption.zig:208-223@481104fd`).
+        use crate::agent::TurnError;
+        let refused = || {
+            TurnError::Sink(io::Error::new(
+                io::ErrorKind::Interrupted,
+                bridge::TURN_CANCELLED,
+            ))
+        };
+        let log = || Some("xfx: the log is full".to_string());
+        let stop = || Some(bridge::TURN_CANCELLED.to_string());
+        let failed = TurnError::StepLimit { limit: 3 }.to_string();
+        type Case = (
+            &'static str,
+            Result<(), TurnError>,
+            Option<Feedback>,
+            Option<String>,
+            Option<String>,
+        );
+        let cases: Vec<Case> = vec![
+            ("finished", Ok(()), None, None, None),
+            ("finished, the log failed", Ok(()), None, log(), log()),
+            ("stopped", Err(TurnError::Cancelled), None, None, stop()),
+            ("stopped at a send", Err(refused()), None, None, stop()),
+            (
+                "stopped, the log failed",
+                Err(TurnError::Cancelled),
+                None,
+                log(),
+                log(),
+            ),
+            (
+                "stopped at a send, the log failed",
+                Err(refused()),
+                None,
+                log(),
+                log(),
+            ),
+            (
+                "a compaction's stop ended it",
+                Err(TurnError::Cancelled),
+                Some(Feedback::Cancelled),
+                log(),
+                None,
+            ),
+            (
+                "a compaction's failure ended it",
+                Err(TurnError::CompactionEnded {
+                    reason: "ModelFailed",
+                }),
+                Some(Feedback::Failed),
+                None,
+                None,
+            ),
+            (
+                "stopped after a compaction that compacted nothing",
+                Err(TurnError::Cancelled),
+                Some(Feedback::NoOp),
+                None,
+                stop(),
+            ),
+            (
+                "stopped after a compaction that found another running",
+                Err(TurnError::Cancelled),
+                Some(Feedback::Busy),
+                None,
+                stop(),
+            ),
+            (
+                "failed",
+                Err(TurnError::StepLimit { limit: 3 }),
+                None,
+                None,
+                Some(failed),
+            ),
+            (
+                "the terminal went",
+                Err(TurnError::Sink(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "gone",
+                ))),
+                None,
+                None,
+                Some("cannot write turn output: gone".into()),
+            ),
+            (
+                // A compaction that compacted nothing ends nothing: the
+                // turn's own failure is its end, as upstream fails it for the
+                // overflow it could not reduce (`orchestrator.zig:7934-7937`).
+                "failed after a compaction that compacted nothing",
+                Err(TurnError::ContextNotReduced {
+                    reason: "nothing to drop",
+                }),
+                Some(Feedback::NoOp),
+                None,
+                Some("request failed: nothing to drop".into()),
+            ),
+        ];
+        for (case, outcome, compaction, log_failure, said) in cases {
+            assert_eq!(
+                super::end_of_turn(&outcome, compaction, log_failure),
+                said,
+                "{case}"
+            );
+        }
+        // And a stop read before the turn's request is built is the same one
+        // word (`image_refusal`).
+        assert_eq!(
+            TurnError::Cancelled.to_string(),
+            bridge::TURN_CANCELLED,
+            "the machine's word for a stop"
         );
     }
 
@@ -7876,6 +8044,64 @@ mod tests {
     const PARKED_POLLS: usize = 8;
 
     #[test]
+    fn a_turns_start_names_its_submission_past_the_work_a_stop_dropped() {
+        // The number a start carries is the work item's place among
+        // everything the UI submitted -- the count a stop quotes -- so the
+        // band can tell a turn the runtime took before it read a stop from
+        // one typed after it (`super::shell`'s `TurnStarted`). Three items:
+        // a listing (no turn), a prompt a stop drops unstarted, and a prompt
+        // after the stop. The stop is in the control channel before the loop
+        // runs, so the loop reads it first (`biased`), after taking nothing:
+        // it drops items 1 and 2, and the one turn that starts is item 3's.
+        let (_home, _workspace, state) = recording();
+        assert!(
+            Bundle::select(&state.config, &CancelToken::new()).is_err(),
+            "the fixture would reach a real endpoint"
+        );
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(3);
+        work_tx.try_send(TurnWork::Sessions).expect("room");
+        work_tx
+            .try_send(TurnWork::Submit("dropped".to_string()))
+            .expect("room");
+        work_tx
+            .try_send(TurnWork::Submit("after the stop".to_string()))
+            .expect("room");
+        drop(work_tx);
+        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        control_tx
+            .send(TurnControl::Cancel { through: 2 })
+            .expect("open");
+        let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+        let (events, mut seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        let outstanding = AtomicUsize::new(3);
+        on_a_runtime(async {
+            tokio::time::timeout(
+                TEST_DRAIN,
+                turn_loop(
+                    state,
+                    &events,
+                    &mut work_rx,
+                    &mut changes,
+                    ControlChannel::new(control_rx),
+                    Cancellation::new(CancelToken::new()),
+                    &outstanding,
+                ),
+            )
+            .await
+            .expect("the loop never ran out of work")
+        });
+        drop(events);
+        let mut starts = Vec::new();
+        while let Ok(event) = seen.try_recv() {
+            if let UiEvent::TurnStarted { submission } = event {
+                starts.push(submission);
+            }
+        }
+        assert_eq!(starts, [3], "the turns that said they started");
+        assert_eq!(outstanding.load(Ordering::Acquire), 0, "a place was kept");
+    }
+
+    #[test]
     fn a_concluded_turn_reaches_the_ui_through_a_channel_that_had_no_room_for_it() {
         // The third arm of the drain protocol, at the real `run_turn` rather
         // than at a second copy of `bridge::send_terminal`: the turn has
@@ -7949,7 +8175,7 @@ mod tests {
             );
             assert_eq!(
                 seen.recv().await,
-                Some(UiEvent::TurnStarted),
+                Some(UiEvent::TurnStarted { submission: 1 }),
                 "the event the drain frees a permit by taking"
             );
 
@@ -8042,7 +8268,10 @@ mod tests {
             }
             // `TurnStarted` holds the one permit: the conclusion is not sent.
             let published = reply.get();
-            assert_eq!(seen.recv().await, Some(UiEvent::TurnStarted));
+            assert_eq!(
+                seen.recv().await,
+                Some(UiEvent::TurnStarted { submission: 1 })
+            );
             turn.await;
             (published, seen.try_recv())
         });

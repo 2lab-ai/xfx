@@ -1,0 +1,14 @@
+MOVED scripts/fxcap/parity-ledger.toml:507 src/tui/shell.rs:12718 -> :12865 (frame 8c5e9e16): 'fn send(&mut self, prompt: String, text: &str) -> bool {'
+MOVED scripts/fxcap/parity-ledger.toml:723 src/tui/shell.rs:37926 -> :38150 (frame 8c5e9e16): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:734 src/tui/shell.rs:37926 -> :38150 (frame 8c5e9e16): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:746 src/tui/shell.rs:37926 -> :38150 (frame 8c5e9e16): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:757 src/tui/shell.rs:37926 -> :38150 (frame 8c5e9e16): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:813 src/tui/shell.rs:37926 -> :38150 (frame 8c5e9e16): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:849 src/tui/shell.rs:1677 -> :1700 (frame 8c5e9e16): '"ansi_bytes={}, redraws={}, debounced_resizes={}, footer_updates=0, st'
+MOVED scripts/fxcap/capfile.py:159 src/tui/shell.rs:14172-14197 -> :14341-14366 (frame 8c5e9e16): "fn warning_shown(&self) -> Option<&'static str> {"
+MOVED src/tui/event_loop.rs:12594 src/tui/shell.rs:2706 -> :2751 (frame 8c5e9e16): '// A composer shorter than the rows the geometry gave it. Those rows a'
+MOVED src/tui/shell.rs:10217 src/tui/worker.rs:3835 -> :3840 (frame 8c5e9e16): 'bridge::send_terminal(events, UiEvent::TurnEnded { failure }).await;'
+MOVED src/tui/shell.rs:22194 src/tui/shell.rs:5816 -> :5930 (frame 8c5e9e16): '/// and Enter choose, Escape closes. Everything else is an edit of the'
+LOST  docs/parity.md:241 src/tui/worker.rs:3835 (no frame holds this line)
+LOST  docs/parity.md:241 src/tui/worker.rs:3524 (no frame holds this line)
+refs into changed files: 44 hold, 11 moved, 2 lost; 142 into unchanged files; 128 names not resolved to one file

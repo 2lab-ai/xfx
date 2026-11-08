@@ -1,0 +1,49 @@
+# RED: the tests of 220f9361 (tests only) over e636db48's code -- git rev-parse HEAD in the --no-local clone = 220f9361, parent e636db48
+# cargo test --locked --lib -- a_stopped_turn_whose_place_comes_back a_stopped_turn_with_a_call_running a_prompt_typed_before_a_stopped_turn_ends a_reset_before_a_failed_compactions a_prompt_queued_behind_a_running_turn
+
+running 5 tests
+test tui::shell::tests::a_stopped_turn_whose_place_comes_back_before_its_end_is_read_ends_as_the_stop_said ... FAILED
+test tui::shell::tests::a_stopped_turn_with_a_call_running_keeps_its_line_and_its_idle_through_a_late_end ... FAILED
+test tui::shell::tests::a_reset_before_a_failed_compactions_turn_ends_takes_that_result_with_its_conversation ... FAILED
+test tui::event_loop::tests::a_prompt_typed_before_a_stopped_turn_ends_is_reported_ahead_of_the_frame_that_shows_its_turn ... FAILED
+test tui::event_loop::tests::a_prompt_queued_behind_a_running_turn_writes_nothing_new_when_its_turn_starts ... ok
+
+failures:
+
+---- tui::shell::tests::a_stopped_turn_whose_place_comes_back_before_its_end_is_read_ends_as_the_stop_said stdout ----
+
+thread 'tui::shell::tests::a_stopped_turn_whose_place_comes_back_before_its_end_is_read_ends_as_the_stop_said' (315547860) panicked at src/tui/shell.rs:45151:9:
+assertion `left == right` failed: the reports, a `system` line, the `Cancelled` lines: ["  a whole line", "", "■ Cancelled · What can xfx do differently?", "", "✗ system: the turn was cancelled", ""]
+  left: ([Some("working"), Some("idle"), None, Some("error")], true, 1)
+ right: ([Some("working"), Some("idle"), None, None], false, 1)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::shell::tests::a_stopped_turn_with_a_call_running_keeps_its_line_and_its_idle_through_a_late_end stdout ----
+
+thread 'tui::shell::tests::a_stopped_turn_with_a_call_running_keeps_its_line_and_its_idle_through_a_late_end' (315547861) panicked at src/tui/shell.rs:45197:9:
+assertion `left == right` failed: the reports, a `system` line, the turn's `Cancelled` line: ["● 1 tool call · 1 read", "└ Read a.txt", "", "✗ system: the turn was cancelled", ""]
+  left: ([Some("working"), Some("idle"), Some("working"), Some("error")], true, false)
+ right: ([Some("working"), Some("idle"), None, None], false, true)
+
+---- tui::shell::tests::a_reset_before_a_failed_compactions_turn_ends_takes_that_result_with_its_conversation stdout ----
+
+thread 'tui::shell::tests::a_reset_before_a_failed_compactions_turn_ends_takes_that_result_with_its_conversation' (315547859) panicked at src/tui/shell.rs:45423:9:
+assertion `left == right` failed: the dropped conversation's failed compaction still holds the status
+  left: [(PromptBeforeTheEnd, [None, None, None]), (PromptAfterTheFence, [None, None]), (CompactionAfterTheFence, [None, None])]
+ right: [(PromptBeforeTheEnd, [Some("working"), None, None]), (PromptAfterTheFence, [None, Some("working")]), (CompactionAfterTheFence, [None, Some("working")])]
+
+---- tui::event_loop::tests::a_prompt_typed_before_a_stopped_turn_ends_is_reported_ahead_of_the_frame_that_shows_its_turn stdout ----
+
+thread 'tui::event_loop::tests::a_prompt_typed_before_a_stopped_turn_ends_is_reported_ahead_of_the_frame_that_shows_its_turn' (315547858) panicked at src/tui/event_loop.rs:13831:13:
+one drain false: the prompt's working is not ahead of the frame that shows its turn: ["\u{1b}[?2026h\u{1b}[?25l\u{1b}[24;1H\u{1b}[38;5;245mrun `xfx setup` · \u{1b}[0m\u{1b}[38;5;252mauto\u{1b}[0m\u{1b}[38;5;245m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h", "\u{1b}[?2026h\u{1b}[?25l\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[20;1H\u{1b}[38;5;252m• Thinking (0s)\u{1b}[0m\u{1b}[38;5;245m (↑1 ↓0)\u{1b}[22;1H\u{1b}[0m\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[K\u{1b}[24;1H\u{1b}[38;5;245mrun `xfx setup` · \u{1b}[0m\u{1b}[38;5;252mauto\u{1b}[0m\u{1b}[38;5;245m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h", "\u{1b}]7501;state=working:app=xfx\u{1b}\\"]
+
+
+failures:
+    tui::event_loop::tests::a_prompt_typed_before_a_stopped_turn_ends_is_reported_ahead_of_the_frame_that_shows_its_turn
+    tui::shell::tests::a_reset_before_a_failed_compactions_turn_ends_takes_that_result_with_its_conversation
+    tui::shell::tests::a_stopped_turn_whose_place_comes_back_before_its_end_is_read_ends_as_the_stop_said
+    tui::shell::tests::a_stopped_turn_with_a_call_running_keeps_its_line_and_its_idle_through_a_late_end
+
+test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 4361 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--lib`

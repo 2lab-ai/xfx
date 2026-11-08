@@ -1,0 +1,50 @@
+# STOP-NEXT-2 gate (gates.sh) at adc2d248 (the receipt commit; code 7d5e3d4b, tests 2a6e8fa7), TMPDIR=<local-path>,
+# the whole run inside one suite-lock slot. Step 00 is `false`: rc=1 shows each step's exit status is read into rc first.
+
+# head adc2d248183f81a799e0dd775e04596d7e237e44, tree: 0 tracked changes
+# slot taken 2026-11-08T12:32:58Z
+00 false rc=1 0s
+01 fmt rc=0 2s
+02 clippy rc=0 5s
+03 clippy-fault rc=0 14s
+04 test rc=0 98s
+05 test-fault-tui rc=0 29s
+06 test-fault-lib rc=0 62s
+07 check-no-stubs rc=0 8s
+08 check-no-secrets rc=0 28s
+09 test-check-no-secrets rc=0 66s
+10 test-gate-env rc=0 58s
+11 check-xfx-identity rc=0 1s
+12 check-preview-contract rc=0 1s
+13 test-preview-contract rc=0 46s
+14 check-tui-preflight-cost rc=0 82s
+15 check-usage-clock rc=0 1s
+16 fxcap-test-sweep rc=0 13s
+17 fxcap-test-capture rc=0 206s
+18 build-release rc=0 13s
+19 build-faulty rc=0 26s
+20 smoke rc=0 1s
+21 smoke-tui rc=0 81s
+# slot released 2026-11-08T12:46:59Z
+# tree after: 0 tracked changes
+
+## cargo test totals (sum of each binary's 'test result' line)
+04-test: 5366 passed, 0 failed, 7 ignored (14 binaries)
+05-test-fault-tui: 193 passed, 0 failed, 0 ignored (1 binaries)
+06-test-fault-lib: 4475 passed, 0 failed, 7 ignored (1 binaries)
+
+## the other steps' last lines
+07-check-no-stubs: check-no-stubs: ok
+08-check-no-secrets: check-no-secrets: ok (14087 tracked file(s) scanned)
+09-test-check-no-secrets: test-check-no-secrets: 3473 tracked names overflow ARG_MAX (1048576): ./scripts/test-check-no-secrets.sh: line 178: /usr/bin/env: Argument list too long test-check-no-secrets: 3468 names carry a tab, a newline and U+00E9; this filesystem refuses a name that is not UTF-8 test-check-no-secrets: ok clean              exit 0 test-check-no-secrets: ok first-batch        exit 1 test-check-no-secrets: ok last-batch         exit 1 test-check-no-secrets: ok dash-n-name        exit 1 test-check-no-secrets: ok unreadable-middle  exit 1 test-check-no-secrets: ok grep-options       exit 1 test-check-no-secrets: ok grep-signal        exit 1 test-check-no-secrets: ok grep-126           exit 1 test-check-no-secrets: ok grep-127           exit 1 test-check-no-secrets: ok every-file         exit 1 test-check-no-secrets: ok every-file-set     3472 of 3472 keys, each once test-check-no-secrets: ok nothing-tracked    exit 1 test-check-no-secrets: ok only-a-symlink     exit 1 test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
+10-test-gate-env: test-gate-env: this grep reads GREP_OPTIONS (grep (BSD grep, GNU compatible) 2.6.0-FreeBSD): each case below is a RED for its gate test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test test-gate-env: ok (5 cases)
+11-check-xfx-identity: check-xfx-identity: ok (14087 tracked file(s) scanned)
+12-check-preview-contract: check-preview-contract: ok (.github/workflows/preview.yml)
+13-test-preview-contract: test-preview-contract: caught paths-dropped                the push trigger's paths are nil test-preview-contract: caught paths-everything             the push trigger's paths are ["**"] test-preview-contract: caught paths-renamed                the push trigger's paths are [".github/epoch"] test-preview-contract: caught tags-added                   the push trigger filters on ["branches", "paths", "tags"] test-preview-contract: caught dispatch-added               the workflow triggers on ["push", "workflow_dispatch"] test-preview-contract: caught gate-removed                 preflight has no epoch gate test-preview-contract: caught gate-always-publishes        expected skip test-preview-contract: caught build-unconditional          build runs on nil test-preview-contract: caught publish-unconditional        publish runs on nil test-preview-contract: caught environment-dropped          publish reads TAP_PUSH_KEY under environment nil test-preview-contract: caught environment-renamed          publish reads TAP_PUSH_KEY under environment "production" test-preview-contract: caught environment-on-preflight     preflight names environment "preview" but reads no secret test-preview-contract: caught key-without-environment      build reads TAP_PUSH_KEY under environment nil test-preview-contract: caught build-whole-context          the jobs reading secrets are ["build", "publish"] test-preview-contract: caught build-bracket-key            the jobs reading secrets are ["build", "publish"] test-preview-contract: caught build-brace-literal          the jobs reading secrets are ["build", "publish"] test-preview-contract: caught publish-action-whole-context hands a secret to the action actions/github-script@v7 test-preview-contract: caught second-workflow              tap.yml mentions TAP_PUSH_KEY test-preview-contract: caught other-workflow-environment   dispatch.yml: job leak names environment "preview" test-preview-contract: caught other-workflow-whole-context report.yml: job report reads a secret test-preview-contract: caught secrets-inherit              call.yml: job call passes secrets test-preview-contract: caught epoch-absent                 there is no .github/preview-epoch test-preview-contract: caught epoch-two-lines              .github/preview-epoch is "phase4\nphase5\n" test-preview-contract: caught epoch-crlf                   .github/preview-epoch is "phase4\r\n" test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+14-check-tui-preflight-cost: check-tui-preflight-cost: measuring (default features) check-tui-preflight-cost: measuring (fault injection) check-tui-preflight-cost: ok
+15-check-usage-clock: check-usage-clock: debug: honoured (debug assertions) check-usage-clock: release: ignored (release) check-usage-clock: release, fault injection: ignored (release) check-usage-clock: ok
+20-smoke: 47 check(s), 0 failure(s)
+21-smoke-tui: smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+16-fxcap-test-sweep: Ran 66 tests in 5.486s OK Ran 26 tests in 7.903s OK
+17-fxcap-test-capture: Ran 59 tests in 204.751s OK
+01-fmt: 0 lines of output; 02-clippy, 03-clippy-fault: 0 and 0 warnings or errors

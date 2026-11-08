@@ -1,0 +1,353 @@
+# P5 STOP-NEXT-2 receipt: the stop window's last items, and STOP-NEXT's review follow-ups
+
+**S** (terminal escapes: the OSC 7501 wire, the window title; and what a keystroke submits). Spec: STOP-NEXT's
+proposed list (`../stop-next/README.md`, "STOP-NEXT-2"), the two reviews of STOP-NEXT (zbrain
+`p5/STOP-NEXT/reviews/opus.md`: SHOULD 1-2 and the NIT; `gpt6.md`: NTH 1-3), and the dispatcher's brief.
+
+- **Base:** STOP-NEXT's closed head `feat/p5-stop-next` `d2459a37`.
+
+## Design
+
+### The scope, item by item
+| # | item | what fx does at the pin | xfx at the base | mechanism | here? |
+|---|---|---|---|---|---|
+| R1 | opus SHOULD 1: item 5's exemption too broad | a second press on a running compaction only requests its cancel again (`cancelContextCompaction`, `worker_runtime.zig:1002-1035`); one on a provider preparation cancels it again (`cancelProviderPreparation`, `auth_runtime.zig:2052-2056`); neither writes a line or drops a queued prompt | the exemption (`shell.rs:12484-12488`) also covers the first press's own compaction (`active()` includes `Stopping`) and its own switch (`switch_pending()` until the loop top): a second press quotes `accepted()` again, drops the prompts typed between, and for a switch writes a second `■ Cancelled` | exempt only work the recorded stop did not cover: a manual compaction not yet stopped, a switch numbered past `cancel_through` (`WorkHandle::pending_switch`) | yes |
+| R2 | opus SHOULD 2: wording | -- | "a provider switch" where `switch_pending` also holds a `/resume` or a fork | the receipt and the parity row name all three | yes |
+| R3 | opus NIT: `apply`'s doc | -- | the doc sat above `turn_starts` | moved back | yes |
+| R4 | gpt6 NTH 1: `stop_requested` clears at the UI's read of the start, fx's at the worker's take | the press is cancelled by stream state the UI sets when it drains the turn's `begin_prompt` (`app_worker_runtime.zig:965-975`); after a stop the keystroke cleared it (`input_interrupt_runtime.zig:132`), so until that drain a press finds no active operation (`activeCancellationTarget`, `:178-187`; `cancellationTarget`, `:12-21`; `handleSemanticCtrlC`, `app_input_runtime.zig:1510-1547`) and cancels nothing, whatever the worker took | the same: until the start is read the guard holds the press | no change; a test pins the schedule (the take, a second press, then the start) | test only |
+| R5 | gpt6 NTH 2: "no card before the start" | -- | the pacer and full-transcript prompts' card tests assert only after the start | assert before and after, both branches | test only |
+| R6 | gpt6 NTH 3: STOP-NEXT's item 6 "closes: yes" | -- | -- | STOP-NEXT's table (`../stop-next/README.md`, row 6) now reads: title ownership and leading order closed there, the one title a tick closed here (T1); its rows 9 and 10 point on to STOP-NEXT-3 | yes |
+| T1 | one title per tick | each title is its own write when it is set (`syncTerminalTitleWith`, `app_session_runtime.zig:2965-2987`): the stopped end's on the pass that drains it (`ensureCachedSessionTitle`), a model's when it lands, later | a model's title read after the stopped end in one tick replaces it, and the tick writes one title, behind its report | the leading title is the string the end gave, kept apart from the title owed after it; when another title is owed behind it, the lead still leads the report and the other is held for the next tick's frame | yes |
+| 7 | a stop and its turn's end in one tick | the end is drained on a later pass than the keystroke's (keys are handled after a pass collects its facts, `src/ui/event_loop.zig:77-117`): `idle`, the `Cancelled` frame, the title (`../stop-late-event/osc-stopnext.txt`: @1256, @1340, @1404) | the end's title leads the tick's report: `OSC 2`, `idle`, the `Cancelled` frame | a lead in the stop's own tick is held past that tick's frame and written by the next | yes |
+| 8 | a finished turn's text read after the keystroke (covered turns too) | a batch whose segment holds the turn's own `turn_finished(.completed)`, or one taken after the worker let go of the turn (`active_turn_id` 0, `finishProcessing`), is no interrupted segment: its text is presented (`batchSegmentIsInterrupted`, `app_worker_runtime.zig:301-325`; `takeEventBatch`, `worker_runtime.zig:923-937`); a batch taken while the stopped turn still runs drops its text (`cancelledEventAdmission`, `:339-389`) | every `Delta` under a stop is dropped | under the user's stop, a `Delta` (and an operational line) is kept for the drain it arrived in; the turn's finished end in the same drain presents it, the end of the drain drops it | yes |
+| 10a | `turn_start_held`: a prompt while another is a pending submission | `submit` returns while a pending submission exists -- `prompt_submit_deferred_for_pending` (`input_submit_runtime.zig:648-689`), the draft left in the composer -- prompts and commands alike, from the Enter (`installPendingSubmission`, `:1123-1160`) until the drain of its `begin_presented_prompt` (`acceptPresentedPrompt`, `:415-426`; queued already presented, `main.zig:1434-1441`, `:1263-1270`) | the second line is submitted and queued | a prompt fx would hold as a pending submission is recorded as pending until its start is read, a stop covers it, a reset or a resume; meanwhile Return submits nothing | built, then STOP-NEXT-3 (Decisions, 1) |
+| 9 | a failed turn's title | depends on how the turn failed: a stream or non-retryable failure keeps a non-blank partial answer (`orchestrator.zig:8389-8400`, `:9246-9260`), a stall keeps its completed steps (`:5321-5330`), any other error keeps only completed steps and finishes it with a summary (`finishExecutionOnlyFailureIfNeeded`, `finalization.zig:226-246`, called at `orchestrator.zig:6118`, `:9443`); a kept turn titles the session | titles no failed turn | needs the runtime to say which path failed the turn and whether it kept it (xfx's log records every failed turn, `agent/machine.rs:744-746`, `:835-847`) | STOP-NEXT-3 |
+| 10b | `session_transition_held` | a `/new`, `/clear` or `/reset` holds starts and defers every key typed until its transition settles (`app_session_runtime.zig:1532-1538`, `:1723-1737`; `app_input_runtime.zig:679-700`; `main.zig:2992-3010`) | no deferral | key deferral across a reset | STOP-NEXT-3 |
+
+### R1: the exemption
+`cancel_turn` holds a press while `stop_requested`, save for work typed since. At the base "typed since" is read as "a
+manual compaction is active or a switch is pending", which also holds for the first press's own compaction or switch
+while it unwinds. Now:
+- a manual compaction is exempt only while it is running and not stopped (`compaction.stopped()` is the first press's
+  mark);
+- a switch is exempt only when its number is past `cancel_through`: `TitleDesk` already records the switch's number
+  (`switching(at)`), and `WorkHandle::pending_switch()` returns it while it is still to be made.
+
+### T1 and item 7: where a stopped end's title goes
+At the base the lead is a flag and the title is computed when taken, so a later title in the same tick replaces it.
+Now the lead holds the string the end gave the session. When the band takes the lead (`take_leading_title`):
+- **the stop was pressed in this tick** (item 7): the title owed is held past this tick's frame (round 1 dropped the lead here; round 2 keeps it for
+  the next tick, MUST 2)
+  (`take_title` answers nothing this tick), and `Shell::tick_committed`, called once the tick's frame is committed,
+  asks for a frame, so the next tick's frame carries it:
+  `idle`, the `Cancelled` frame, the title;
+- **another title is owed behind the lead** (T1): the lead is the band's title, ahead of the report, and the other
+  title is held past this tick's frame (`take_title` answers nothing) for the next tick's frame to write;
+- otherwise as at the base: the lead is the band's title and the report rides behind it.
+
+### Item 8: a finished turn's late text
+fx presents text in a batch that holds the turn's completed finish, or that the worker had already let go of; it
+drops text in a batch taken while the stopped turn still runs. xfx's drain (`take_ui_events`) is its batch. Under the
+user's stop of a turn whose end may be a finish (`stop_reads_end`, no compaction ended it), a `Delta` or an
+operational line is kept (round 2: and a tool row read behind them, in order; Round 2, the SHOULD); a finished end
+(`None`, not quiet) read in the same drain presents what was kept, below the keystroke's `Cancelled` line and above
+the summary; `Shell::ui_events_taken`, called when a drain ends, drops what is left (round 2: its text; the rows are
+written). A turn the runtime finished before the stop reached it has all its events in the channel already, so one drain
+takes them together, as fx's one batch does.
+
+### Item 10a: a pending submission (built, not landed: Decisions, 1)
+fx holds a prompt as a pending submission when no turn streams, its pacer is empty, the full transcript is closed and
+its worker can hold the next start (`installPendingSubmission`), and while one exists its `submit` returns at once.
+In xfx that is a prompt sent with no turn of its own in hand, not one upstream would queue at once
+(`!waits && !queued_at_once`), with no other prompt waiting and no compaction running. `pending_submission` holds its
+number until its start is read, a stop covers it, a reset or a resume; while it is set, `submit` returns with the draft
+left where it is.
+
+## Round 2: the review of `6ae96c6a`
+Both engines (zbrain `p5/STOP-NEXT-2/reviews/gpt6.md`, `opus.md`) found the same MUST in item 8, a lost title (gpt6's
+MUST, opus's NIT) and a reorder (opus's SHOULD); gpt6 added an NTH on the parity row. Each fix is RED-first: the RED
+commit is `550a0b82` (tests only), recorded on the clean tree over `6ae96c6a`'s code in `red-r2-test.txt`: 3 fail,
+1 guard passes.
+
+| # | the defect | RED (`550a0b82`) | fix | GREEN |
+|---|---|---|---|---|
+| MUST 1 | **late text could wedge the loop.** `paced_backlog` counted `late`; the drain refuses at `PACED_BACKLOG` before `try_recv`; the stop empties the pacer, so `late` alone held the gate, and only reading the turn's end (or a drain that empties the channel) lets go of it. 64 KiB held -- one `DELTA_SLICE` is enough -- and the end was never read, the runtime parked on a full channel, queued prompts never started. Round 1's guard pinned the wedged state | `late_text_a_stop_holds_never_keeps_the_drain_from_its_turns_end` (replaces round 1's guard): 64 KiB held, then the end, in one drain and across three drains the count cuts; `[(.., false, false, false) x3]` for `[("the stop's own end", true, true, false), ("a finish", true, true, true), ("a finish, across cut drains", true, true, true)]` -- the channel never drained, the end never read | `49b63de3`, fix (a): `late` is out of the gate (`paced_backlog` is the pacer's again) | passes; the base's "It cannot wedge: the pacer always drains" is true again |
+| MUST 2 | **the stop's own tick dropped the lead.** `take_leading_title` took `Some("go")` and, under `stop_in_tick`, returned without keeping it; the next frame computed the title then, so a model's `Named` in the same tick, or on the next before its frame, was written and `go` never | `a_stop_its_end_and_a_model_title_write_each_title_once_in_upstreams_order`: `[("one tick", 0, 1, false), ("the next tick, before its frame", 0, 1, false)]` for `(.., 1, 1, true)` each | `d228ab15`: the lead is kept past the stop's tick and taken by the next as any lead is -- ahead of that tick's report, a later title held for the frame after | passes: after the `Cancelled` frame, `]2;go` once, then `]2;Named` once |
+| SHOULD | **a stopped turn's tool rows went ahead of its held text.** `ToolStart`/`ToolResult` went to `mark()` at once while the `Delta`s waited in `late` | `a_finished_turns_tool_row_read_after_a_stop_keeps_its_place_in_its_text`: the rows were `Read notes.txt`, then `FIRST-PART`, `SECOND-PART` | `49b63de3`: `late` holds the stop's reads in order (`Late`: text, operational lines, a tool row read behind them; `mark_tool`, a row with nothing held still goes out at once); a presented end writes them in order and then the group's end; the stop's own end, an emptied drain and the settle's take-back write the rows and drop the text | passes: `FIRST-PART`, the row, `SECOND-PART` |
+| NTH | the parity row's older clauses ("its answer dropped"; the title leads "only while it is the title owed") contradicted the conditional rules after them | -- | `fe9dee99`: a covered turn's answer is held for its end (dropped when the stop ended it, presented when it had finished); the end gives a title only to a session without one, a title asked for before the end follows the report and one after it follows the end's; read in the stop's own tick the end's title goes on the next, each title once; held text and the rows behind it are presented in order, rows written whatever the end, none of it counted against the drain's bound | -- |
+
+**Fix (a) for MUST 1, and the bound it rests on.** Option (b) (count `late`, but never let it shut the gate alone
+while `pacer.pending() == 0`) is the same rule here: the stop empties the pacer (`abandon_answer`) and under it no
+`Delta` reaches the pacer, so while `late` holds anything the pacer is empty [reasoned from `abandon_answer` and the
+`Delta` arm, not measured]. (a) deletes the coupling instead of
+guarding it. What `late` can hold is bounded by the channel, not by the gate [read from the code]:
+1. The keystroke raises the running turn's flag **before** the message is sent (`WorkHandle::control`,
+   `worker.rs:523-533`), and that flag is the turn's mirror (`let stop = cancel.mirror()`, `worker.rs:1264`), which the
+   provider's decode polls per line (`gateway/sse.rs:233-248`): after the keystroke the decode makes at most the rest
+   of the line it is in.
+2. The runtime's race polls the control channel first, even while the body is parked on a full channel
+   (`raced_against_control`, `biased`, `worker.rs:5513-5535`), and the stop cancels the turn's token there
+   (`turn.cancel()`, `worker.rs:3815-3818`; `TurnCancel::cancel`, `bridge.rs:1367`); after it `send_ui` sends
+   nothing, room or not (`biased`, `bridge.rs:1419-1429`; `a_cancelled_turn_stops_sending_even_when_there_is_room`).
+   A turn the runtime takes after the flag went up starts with the flag reset (`Cancellation::turn`, `bridge.rs:1340-1341`;
+   `worker.rs:287-289`), so its decode does not see it -- but the message was sent right after the flag (`worker.rs:531-533`): the take
+   reads it first and drops the covered work (`Taken::Abandon`, `biased`, `worker.rs:3301-3312`), or, if it landed
+   after the take, the race reads it before it polls the body again (`worker.rs:5529-5535`). Such a turn sends at
+   most one poll of its body after the stop.
+3. So the stopped turn's events after the keystroke are those already on the channel -- at most `UI_EVENTS` (256),
+   each at most `DELTA_SLICE` (64 KiB) (`bridge.rs:96`, `:103`) -- plus what was decoded and in the turn's hands when
+   the flag went up. A turn the stop did not cancel had finished, so everything it sent is on the channel ahead of
+   its end, under the same bound. So `late` holds what the session had already been handed when the stop was
+   pressed, never text the provider sends after it. The tool rows `late` now holds are channel events too, each spelled and bounded before it
+   is sent (`bridge.rs:975`, `spelled_shown`; a result's detail at 256 bytes, `toolgroup::flattened`).
+4. Once the end is read, presented text goes into the pacer, which the gate bounds as before: the loop stops taking
+   events until it drains.
+
+**The owed line beside held rows** (found while fixing the SHOULD, not in the reviews). A cancel that waited for a
+running call is answered at the end: the call's own line if a call is still running, else the turn's `Cancelled`
+line (`cancel_owed`). With rows held, the question has to be asked about the calls as the held rows will leave
+them, before they run, because the line goes above the held text; asking `group.running()` there would read a held
+result's call as running and write no line at all. `runs_a_call_past_late` (with `ToolGroup::running_ids`) answers
+it. Guards: `a_cancel_that_waited_for_a_call_whose_result_is_held_writes_the_turns_line`,
+`a_cancel_that_waited_for_a_call_leaves_a_held_call_still_running_its_own_line` (`49b63de3`, `a1b34517`).
+
+**Guards for round 2** (passing at `49b63de3`; each the only kill of a mutant below):
+`a_tool_row_read_with_text_a_stop_drops_is_still_written` (an emptied drain, and the stop's own end in the same
+drain, still write the held row), and the two owed-line guards above.
+
+**Round 2's checks** (round 1's sections below stand for round 1's head; each is named where round 2 changed it):
+- **Code mutants** (`mutants.txt`, "round 2"): `mutants.py`'s rows rewritten to the code as it reads now and six
+  added (rows 5 and 19-24), on a `--no-local` clone at `a1b34517`, 900 s each: **24 of 24 killed**, 0 failed to
+  build; the unmutated clone passes 2807 of 2807. Round 2's rows: the stop's own tick dropping the lead (5, MUST 2's
+  RED); late text counted against the drain's bound again (19, MUST 1's RED); a tool row under a stop going out at
+  once (20, the SHOULD's RED); held rows dropped with the text, and by the stop's own end (21, 22: the held-row
+  guard); the owed line asked without the held rows, and a held start never counted as running (23, 24: the two
+  owed-line guards). Round 1's row 18 (late text outside the drain's bound) is gone with its code; row 19 is its rule
+  reversed.
+- **Wires** (`osc-r2.txt`; the wires in `r2/`, `r2-run2/`, `r2-run3/`): every osc scenario at `a1b3451`, 47 pairs,
+  **0 failing claims**, the head's banner on every wire; `stopnext` three times, 0 failing on each, with round 1's
+  offsets exactly (`idle` @797, `Cancelled` @883, `OSC 2 first question` @969, `working` @988, `second question`
+  @1070; fx @1256, @1340, @1404, @1423, @1480). No captured window reaches round 2's changes, as none reached round
+  1's. The checker is unchanged, so its wire mutants (round 1, 10 of 10) were not run again.
+- **Sweep** (`sweep-r2.txt`): every `p5-lifecycle-*` scenario at `a1b34517` (sha256 `28429b9d…`), 69 pairs, 0 failed,
+  0 timed out, **0 changed** against round 1's base sweep (`d2459a37`, whose build has not changed): 28
+  normalized-identical, 1 approved-divergence-cascade, 40 unresolved-defect on both. The ledger's sha256 differs
+  from round 1's because `fe9dee99` re-pointed `file:line` refs inside it; no normalization or divergence changed
+  (its diff is `source`/`xfx` refs and one `why`'s ref).
+- **Refs** (`refs-r2.txt`): against round 1's head `6ae96c6a`, over round 2's code: 41 hold, 16 moved, 0 lost.
+  `fe9dee99` re-pointed 14 with `--apply`: the ledger's five `toolgroup.rs` refs (`:710`, `:749` twice, `:797`, `:911`;
+  `running_ids` sits above them), `shell.rs:12959`, `:38274` x5 and `:1719`; `capfile.py`'s `warning_shown` range;
+  `event_loop.rs`'s `:970-973`. By hand, `capfile.py`'s bare `:14453-14455` -> `:14535-14537`. The two comment refs
+  main's tests had wrong already are left as they were.
+- **Gates** (`gates-r2.txt`): at the round-2 receipt commit (below, "Gates").
+- **Line budget**: `d2459a37..a1b34517`, outside tests +291 / -45 (round 2 alone +135 / -40); inside tests +725 / -14.
+
+## Commits (`feat/p5-stop-next-2`, from `d2459a37`)
+| commit | what |
+|---|---|
+| `24fbc062` | R3: `apply`'s doc comment back above it (no code change) |
+| `dac51b53` | the RED: tests only (below) |
+| `2c2c0e77` | R1, R2: the exemption narrowed to work the stop did not cover; the field's doc names the three switches and why the guard reads the UI's start |
+| `621a0ce4` | T1 and item 7: the lead is the end's string; a stop's own tick holds the title past its frame; a later title in the end's tick is held for the next frame |
+| `cc231700` | item 8: a finished turn's late text read with its end in one drain is presented |
+| `7d5e3d4b` | the parity row (R2's wording, items 7, 8, T1, STOP-NEXT-3); the refs this unit's code moved |
+| `2a6e8fa7` | guard tests for the code mutants that survived the first run (tests only) |
+| `adc2d248` | this receipt; STOP-NEXT's table qualified (R6) |
+| `6ae96c6a` | round 1's gate (`gates.txt`) |
+| `550a0b82` | round 2's RED: tests only |
+| `d228ab15` | MUST 2: the stop's own tick keeps the lead for the next |
+| `49b63de3` | MUST 1 and the SHOULD: `late` out of the gate; the stop's reads held in order, rows written whatever the end; the owed line asked past the held rows |
+| `fe9dee99` | NTH: the parity row's clauses; the refs round 2's code moved |
+| `a1b34517` | round 2's guards (tests only) |
+| `17afa49a` | the round-2 receipt: this section and its checks |
+| the round-2 gate commit | `gates-r2.txt`; the two Design lines round 2 changed; the bound's covered-turn step |
+
+## RED (`red-test.txt`)
+**`dac51b53`'s tests over `24fbc062`'s code**, in the worktree at `dac51b53`, tree clean. 5 fail, 2 guards pass:
+- R1, `a_second_press_while_the_first_ones_own_work_unwinds_stops_nothing_more` (opus's RED): `/compact`, Ctrl-C,
+  `next`, a second press before the compaction settles; and the same over a provider switch. `[("/compact",
+  Some(Cancel { through: 2 }), 0, [], true), ("a provider switch", Some(Cancel { through: 2 }), 1, [], true)]` for
+  `[("/compact", None, 0, [2], true), ("a provider switch", None, 0, [2], true)]` -- a second stop, `next` dropped,
+  and over the switch a second `■ Cancelled`;
+- T1, `a_model_title_after_a_stopped_end_in_one_tick_follows_the_ends_title_and_the_report`: the wire after the
+  end holds `working` and then `]2;Named`, and no `]2;go` (the stopped turn's title lost to the model's);
+- item 7, `a_stop_and_its_turns_end_in_one_tick_put_the_title_after_the_cancelled_frame`: `]2;go`, `idle`, the
+  `Cancelled` frame (fx: `idle`, the frame, the title);
+- item 8, `a_finished_turns_late_text_is_presented_with_its_end_in_one_drain`: `("one drain", false, ...)` and
+  `("a cut drain", false, ...)` for `true` -- the text dropped; `a_covered_turn_that_finished_before_the_stop_presents_its_text`:
+  the covered turn's `done` and summary with no text.
+- Guards, passing on the base too: R4, `a_press_after_the_runtime_took_a_turn_typed_after_the_stop_waits_for_its_start`
+  (the schedule gpt6 asked for: a stop, `next` typed, the stopped turn's end, the runtime takes `next`, a second
+  press, then the start, then a third press -- the second stops nothing, as fx's finds no active stream until its UI
+  drains the start, and the third stops that turn); R5, `a_prompt_queued_at_once_writes_no_card_before_its_turn_starts` (the pacer's branch and the full
+  transcript's: no card before the start, the card after it).
+
+**Item 10a's RED** (`item10a-red-test.txt`): `103bb986`'s tests over `cc231700`, 1 of 2 failing: a second line
+while the first is a pending submission is submitted, where fx leaves it in the composer. Dropped from the branch
+with its fix (Decisions).
+
+## GREEN
+- The seven tests above and the three guards below pass in the gate at the receipt commit (`gates.txt`, `04-test`:
+  each is listed `ok` in its log).
+- **Existing tests changed:** `a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report` (comment only:
+  the band no longer writes one title a tick); `a_completed_turns_text_unread_at_the_stop_leaves_the_cancelled_line_above_its_summary`
+  (comment only, naming item 8's test). No assertion of an existing test changed (`git diff -U0 d2459a37..2a6e8fa7
+  -- src`: every removed line in a test module is a comment).
+- **Guards with the fixes** (each failing only under its mutant, below): `a_compactions_stop_and_its_turns_end_in_one_tick_put_the_title_on_the_next_tick`
+  and item 8's cut-drain case (`2a6e8fa7`). Round 1's `late_text_a_stop_holds_counts_against_the_drains_bound`
+  (`cc231700`) pinned the wedge and is replaced in round 2.
+
+## Decisions
+1. **Item 10a dropped to STOP-NEXT-3 after it was built.** The fix (`item10a-carried.txt`, with the RED) made both
+   item 10a tests pass and 46 others fail, every one a fixture that sends two lines to an idle session with no start
+   read between them: the prompt history's walk, image and paste recall, the queue's refusals, `/compact`, `/copy`,
+   `/fork`, `/resume`, a reset with a prompt waiting. fx defers every Enter while a pending submission is held, so
+   each of those fixtures is pinning what fx would not do -- but changing 46 fixtures and re-reading what each pins
+   against fx is a unit of its own, with a capture (two lines in one send-keys on an idle session) and `smoke-tui`.
+   The branch went back to `cc231700` (`git reset --hard`, the patches kept in the receipt), and the full suite
+   passed there.
+2. **Item 9 and item 10b to STOP-NEXT-3**, unbuilt: item 9 needs the runtime to say how a turn failed and whether
+   fx would keep it (four failure paths, `fx-src.txt`, "STOP-NEXT-3, item 9"); item 10b needs keys deferred across a
+   reset's transition, the composer's half of fx's hold.
+3. **R4 is no defect** [read from the code]: fx's press is gated on the stream its UI sets when it drains
+   `begin_prompt` (`app_worker_runtime.zig:965-975`; `handleSemanticCtrlC`, `app_input_runtime.zig:1510-1547`;
+   `activeCancellationTarget`, `input_interrupt_runtime.zig:178-187`), and its stop's keystroke cleared that stream
+   (`:132`), so until the UI drains the next turn's start a press cancels nothing, whatever the worker took. xfx's
+   guard clears at the same read. A test pins the schedule; no code changed.
+4. **R6, STOP-NEXT's item 6**: its "closes?" cell now reads yes for title ownership and leading order and no for one
+   title a tick, which is T1, closed in `621a0ce4` (`../stop-next/README.md`, edited in the receipt commit; its rows 9
+   and 10 now point on to STOP-NEXT-3).
+5. **No wire claim added.** Items 7, 8 and T1 need the runtime to finish a stop, or a model to name the session,
+   within one tick of the UI; R1 needs a second press inside a stop's own unwinding. No capture reaches those
+   windows, so the unit tests are their receipt, and `osc.py` is STOP-NEXT's unchanged.
+6. **A drain is fx's batch only when it emptied the channel.** `drain_ui_events` now says whether it did; a drain
+   its bound cut short (`bridge::UI_EVENTS` events, or `PACED_BACKLOG`) keeps the late text for the next. Round 1
+   also counted the kept text against the backlog bound; that was the wedge round 2 removed (Round 2, MUST 1).
+
+## The checker (`osc.py`, `wire_mutants.py`)
+STOP-NEXT's, unchanged but for their docstrings and the receipt they copy. fx's wires are the earlier units' at the
+same pin (`stopnext`: `../stop-late-event/fx*/`; every other scenario: `../osc-program-status/fx/`).
+- **Wires** (`osc-all.txt`): every osc scenario, on the base (`d2459a3`, `base/`) and the head (`7d5e3d4`, `xfx/`):
+  47 wire pairs each, **0 failing claims on both**, and each build's banner on every wire of its side.
+- **`stopnext`, three runs per build** (`osc-stopnext.txt`): 0 failing claims on each of the six. Every run of both
+  builds has the same offsets after the stop: `idle` @797, the `Cancelled` frame @883, `OSC 2 first question` @969,
+  `working` @988, `second question` @1070 -- fx's order (@1256, @1340, @1404, @1423, @1480 on each of its three
+  runs). The base's title already follows its `Cancelled` frame, so the captured stop's end is read on a later tick
+  than the keystroke's and item 7's window is not reached: nothing moved.
+- **Wire mutants** (`wire-mutants.txt`): at `7d5e3d4`, the unchanged copy passes and each of STOP-NEXT's 10 mutants
+  fails.
+
+## Code mutants (`mutants.py`, `mutants.txt`)
+18 mutants, each one exact replacement in `shell.rs` or `event_loop.rs`, run on a `--no-local` clone against every
+TUI library test (`tui::`), 900 s each (a suite past it would be KILLED (hang); none was).
+- **The first run, at `7d5e3d4b`:** 15 killed, 3 survived, 0 failed to build: a compaction's stop that marks no tick
+  (6); every drain dropping late text (16); a drain cut at its bound counted as emptied (17). The unmutated clone
+  passes 2801 of 2801.
+- **`2a6e8fa7` adds a test for each** (tests only): `a_compactions_stop_and_its_turns_end_in_one_tick_put_the_title_on_the_next_tick`
+  (6), and item 8's cut-drain case with its text in the drain the bound cuts and its end in the next (16, 17; before
+  it, the text came after the cut, so it crossed no boundary). The three again, there (`mutants-rerun` rows in
+  `mutants.txt`): 3 of 3 killed, each by its new test; the unmutated clone passes 2802 of 2802.
+- **All 18 are killed, 0 failed to build.**
+- The rows, by what they break: R1 (1-3: the base's two exemptions, a switch the stop covers by one); item 7 and T1
+  (4-12: the base's lead, each stop's mark, a later title replacing the lead, a held title taken anyway or counted
+  as this tick's, no frame asked for it, the stop's tick or the loop's tick never ending); item 8 (13-18: the base's
+  drop, late text under the stop's own end, an emptied drain keeping it, every drain dropping it, a cut drain
+  counted as emptied, late text outside the drain's bound).
+
+## Sweep (`sweep.txt`)
+Every `p5-lifecycle-*` scenario (osc and lifecycle, 30 scenarios), fx v0.0.16 against the base's debug build
+(`d2459a3`, sha256 `951485d4…`) and the head's (`7d5e3d4`, `1d663f2f…`), in one suite-lock slot with the captures;
+both banners and both sha256s are in each summary. **69 pairs on each side, none on one side only, 0 failed and 0
+timed out, and 0 changed pairs**: 28 normalized-identical, 1 approved-divergence-cascade and 40 unresolved-defect on
+both. `retryok`'s `k01-1.5s`, which moved in STOP-NEXT's sweeps with fx's own capture, is normalized-identical on
+both sides here (the loads: 3.9-4.0 and 2.9-6.4, 1-minute averages). No pair drops on xfx's side.
+
+## Gates (`gates.sh`, `gates.txt`, `gates-r2.txt`)
+**Round 2:** the same steps, one at a time, in one suite-lock slot (13:43:32Z to 13:59:07Z), at `17afa49a`, the
+round-2 receipt commit (code `49b63de3`, tests `a1b34517`); 0 tracked changes before and after; step 00 reads `rc=1`.
+Every other step `rc=0`: fmt and both clippys clean; `cargo test --all-targets` 5371 passed, 0 failed, 7 ignored
+(round 1's 5366 and round 2's five new tests: MUST 1's replaces round 1's guard); fault-injection `--test tui` 193,
+`--lib` 4480; the six checks ok (14157 tracked files); the three script tests ok; fxcap 66 + 26 and 59 tests OK;
+both release builds; smoke 47 checks and smoke-tui 1168 checks, 0 failures. Round 2's six tests are each `ok` in
+`04-test`'s log. **Which build each part read:** round 2's wires and sweep came from `a1b34517`'s debug build
+(sha256 `28429b9d…`) and its mutants from a clone at `a1b34517`, before the gate; the gate rebuilt at `17afa49a`
+(no `src` change since `a1b34517`) and nothing was captured from it.
+
+**Round 1:**
+Every CI step and `sweep.yml`'s two test scripts, one at a time, in one suite-lock slot (12:32:58Z to 12:46:59Z), at
+`adc2d248`: the commit that adds this receipt, so the secrets, identity and stub checks read it tracked. The tree had
+0 tracked changes before and after. Step 00 is `false` and reads `rc=1`, so each step's `rc` is its own.
+
+| gate | result |
+|---|---|
+| `cargo fmt --check`; `clippy --all-targets -D warnings`, without and with `fault-injection` | ok; no output, 0 warnings, 0 warnings |
+| `cargo test --locked --all-targets --no-fail-fast` | 5366 passed, 0 failed, 7 ignored (14 binaries) |
+| `cargo test --features fault-injection --test tui`; `--lib` | 193 passed; 4475 passed, 0 failed, 7 ignored |
+| `check-no-stubs`, `check-no-secrets`, `check-xfx-identity`, `check-preview-contract`, `check-tui-preflight-cost`, `check-usage-clock` | ok (14087 tracked files) |
+| `test-check-no-secrets`, `test-gate-env`, `test-preview-contract` | ok (13 cases; 5 cases; 24 mutants caught) |
+| fxcap `test-sweep`; `test-capture` | 66 + 26 tests OK; 59 tests OK |
+| release and faulty release builds | ok |
+| `smoke.sh` (release); `smoke-tui.sh` (release, `--faulty`) | 47 checks, 0 failures; 37 scenarios + the oracle, 1168 checks, 0 failures |
+| osc wires, `stopnext` x3, wire mutants | 47 pairs, 0 failing on base and head; 0 failing on each of six runs; 10 of 10 mutants fail (above) |
+| code mutants; the unmutated clone | 18 of 18 killed; 2801 and 2802 of 2801 and 2802 passed (above) |
+| sweep, base vs head | 69 pairs each; 0 changed (above) |
+
+**Which build each part read.** The captures, the sweep and the first mutant run were taken before the gate, from
+`7d5e3d4b` (its debug build, sha256 `1d663f2f…`; the mutants on a clone at it). `2a6e8fa7` adds tests only -- outside
+the test modules `src` is the same at `7d5e3d4b` and `2a6e8fa7` (the line budget's +192 / -41 is the same for both
+heads) -- and the mutant rerun was on a clone at `2a6e8fa7`. The gate's `cargo test` rebuilt the debug binary at
+`adc2d248` afterwards, and nothing was captured from it.
+
+## The refs (`refs.py`, `refs-before.txt`, `refs-after.txt`)
+STOP-NEXT's `refs.py`, with the base `d2459a37` as the frame. **Before `7d5e3d4b`** (`refs-before.txt`, the code at
+`cc231700`): 43 hold, 12 moved, 2 lost (the parity row's two `worker.rs` refs, on lines this unit rewrote).
+Re-pointed in `7d5e3d4b`: the ledger's `shell.rs:12865` -> `:12959`, `:38150` -> `:38274` five times, `:1700` ->
+`:1719`; `capfile.py`'s `warning_shown` `:14341-14366` -> `:14435-14460` and its bare `:14359-14361` ->
+`:14453-14455` (by hand); `event_loop.rs`'s own `:959-962` -> `:970-973`; `shell.rs`'s `worker.rs:3840` -> `:3846`,
+and the parity row's `:3840`/`:3524` -> `:3846`/`:3530` (by hand). Left as they were: the two comment refs main's
+own tests had wrong before STOP-NEXT (`event_loop.rs`'s `shell.rs:2706`, `shell.rs`'s `:5816`), as STOP-NEXT left
+them. **After** (`refs-after.txt`, frames `d2459a37` and `7d5e3d4b`, the code at `2a6e8fa7`): 57 hold, 0 moved, 0
+lost -- the guard tests moved none.
+
+## Line budget
+`git diff -U0 d2459a37..2a6e8fa7 -- src`, each hunk counted by whether its new side starts below the file's
+`mod tests {`: outside tests +192 / -41 lines; inside tests +425 / -14. Under the brief's ~600, so the stop was
+not the budget: item 10a's fallout was (Decisions, 1).
+
+## STOP-NEXT-3 (proposed; the parity row's "Where xfx differs" names each)
+1. **A failed turn's title and summary** (item 9). fx keeps a failed turn by how it failed: a stream or
+   non-retryable failure keeps a non-blank partial answer (`orchestrator.zig:8389-8400`, `:9246-9260`), a stall its
+   completed steps (`:5321-5330`), any other error only its completed steps, finished with a summary
+   (`finishExecutionOnlyFailureIfNeeded`, `finalization.zig:226-246`, called at `orchestrator.zig:6118`, `:9443`);
+   a kept turn titles the session. Needs the runtime to say which path failed the turn and whether it kept anything
+   (xfx's log records every failed turn, `agent/machine.rs:744-746`, `:835-847`).
+2. **A line sent while a prompt is fx's pending submission** (item 10a). fx's `submit` returns while one exists
+   (`prompt_submit_deferred_for_pending`, `input_submit_runtime.zig:648-689`), prompts and commands alike, until
+   its UI drains the turn's `begin_presented_prompt` (`acceptPresentedPrompt`, `:415-426`). The RED and the fix
+   tried are in `item10a-carried.txt`, with the 46 tests the fix broke; each needs its fixture to start the turn
+   between its lines, or what it pins re-read against fx. With a capture (two lines in one send-keys on an idle
+   session) and `smoke-tui`.
+3. **A press on a pending submission** (with 2): fx's Ctrl-C takes the pending submission back and returns before
+   the stop (`app_input_runtime.zig:1541-1543`): the queued prompt removed, or its turn asked to cancel if the worker
+   already runs it, and nothing written into the transcript (`cancelPendingSubmission`,
+   `input_submit_runtime.zig:429-486`; `clearPendingSubmissionWithSnapshots`, `:549-569`) [read from the code]. xfx's
+   press there is a stop, with its `■ Cancelled` line.
+4. **Keys during a reset's transition** (item 10b): fx holds a `/new`, `/clear` or `/reset`'s transition
+   (`app_session_runtime.zig:1532-1538`) and defers every key typed meanwhile (`app_input_runtime.zig:679-700`),
+   replaying them with the hold still on (`app_session_runtime.zig:1723-1737`; `main.zig:2992-3010`). xfx defers no
+   keys across a reset.
+
+## Files
+- `README.md`; `fx-src.txt` (every fx citation this unit adds, read at the pin).
+- `red-test.txt`: the unit's RED; `item10a-red-test.txt`, `item10a-carried.txt`: item 10a's RED, the fix tried and
+  its fallout, for STOP-NEXT-3.
+- `osc.py`, `osc-all.txt`, `osc-stopnext.txt`: the checker and the wires' verdicts; `wire_mutants.py`,
+  `wire-mutants.txt`.
+- `mutants.py`, `mutants.txt`: the code mutants.
+- `sweep.txt`; `gates.sh`, `gates.txt`; `refs.py`, `refs-before.txt`, `refs-after.txt`.
+- Round 2: `red-r2-test.txt`; `osc-r2.txt` and the wires in `r2/`, `r2-run2/`, `r2-run3/` (`a1b34517`); `mutants.txt`'s
+  "round 2" (`mutants.py` as it reads now); `sweep-r2.txt`; `refs-r2.txt`; `gates-r2.txt`.
+- The wires: `base/`, `base-run2/`, `base-run3/` (`d2459a37`); `xfx/`, `xfx-run2/`, `xfx-run3/` (`7d5e3d4b`). fx's are
+  the earlier units' (above).
+
+Every committed file is redacted: it holds no home-directory path and no user name.

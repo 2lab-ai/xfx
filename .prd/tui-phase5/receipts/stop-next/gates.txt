@@ -1,0 +1,50 @@
+# STOP-NEXT gate (gates.sh) at c8666457 (the receipt commit; code 9712d8b8, tests d6be6c30), TMPDIR=<local-path>,
+# the whole run inside one suite-lock slot. Step 00 is `false`: rc=1 shows each step's exit status is read into rc first.
+
+# head c8666457b53476fe32211f5cd8edab2653e5725a, tree: 0 tracked changes
+# slot taken 2026-11-08T10:54:29Z
+00 false rc=1 0s
+01 fmt rc=0 2s
+02 clippy rc=0 10s
+03 clippy-fault rc=0 18s
+04 test rc=0 114s
+05 test-fault-tui rc=0 31s
+06 test-fault-lib rc=0 81s
+07 check-no-stubs rc=0 8s
+08 check-no-secrets rc=0 28s
+09 test-check-no-secrets rc=0 68s
+10 test-gate-env rc=0 101s
+11 check-xfx-identity rc=0 1s
+12 check-preview-contract rc=0 2s
+13 test-preview-contract rc=0 69s
+14 check-tui-preflight-cost rc=0 99s
+15 check-usage-clock rc=0 6s
+16 fxcap-test-sweep rc=0 50s
+17 fxcap-test-capture rc=0 227s
+18 build-release rc=0 15s
+19 build-faulty rc=0 24s
+20 smoke rc=0 2s
+21 smoke-tui rc=0 64s
+# slot released 2026-11-08T11:11:29Z
+# tree after: 0 tracked changes
+
+## cargo test totals (sum of each binary's 'test result' line)
+04-test: 5357 passed, 0 failed, 7 ignored (14 binaries)
+05-test-fault-tui: 193 passed, 0 failed, 0 ignored (1 binaries)
+06-test-fault-lib: 4466 passed, 0 failed, 7 ignored (1 binaries)
+
+## the other steps' last lines
+07-check-no-stubs: check-no-stubs: ok
+08-check-no-secrets: check-no-secrets: ok (13939 tracked file(s) scanned)
+09-test-check-no-secrets: test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
+10-test-gate-env: test-gate-env: ok (5 cases)
+11-check-xfx-identity: check-xfx-identity: ok (13939 tracked file(s) scanned)
+12-check-preview-contract: check-preview-contract: ok (.github/workflows/preview.yml)
+13-test-preview-contract: test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+14-check-tui-preflight-cost: check-tui-preflight-cost: ok
+15-check-usage-clock: check-usage-clock: ok
+20-smoke: 47 check(s), 0 failure(s)
+21-smoke-tui: smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+16-fxcap-test-sweep: Ran 66 tests in 5.245s OK Ran 26 tests in 38.530s OK 
+17-fxcap-test-capture: Ran 59 tests in 226.713s OK 
+01-fmt: 0 lines of output; 02-clippy, 03-clippy-fault: 0 and 0 warnings or errors
