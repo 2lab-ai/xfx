@@ -106,37 +106,85 @@ const CUT: &str = "...";
 /// both modes, on every change: kept whole, a redraw took 0.46 s for 8 MiB of
 /// `a` and 1.8 s for 4 Mi U+009B, the session 1.25 GiB at its peak
 /// (`.prd/tui-phase5/receipts/cancel-marker/round2/`).
+///
+/// Columns and nothing else: a bound on bytes cut text a screen shows -- a
+/// letter under 196 608 combining marks lost the `tail` after it (round 3).
+/// A cluster that holds many bytes is kept whole, as the screen keeps it
+/// (`super::grid::tokenize_row` joins every mark to its cell), and what it
+/// costs a redraw is paid once ([`Call::inline`], and the transcript's own
+/// cache of the rows it writes).
 const INLINE_CELLS: usize = u16::MAX as usize + 1;
 
-/// The bytes it keeps: four a column, which every single character and
-/// every spelling stays within. Only text that averages more -- emoji joined
-/// by U+200D, combining marks stacked on one letter -- is cut before the
-/// 65 536th column (a run of family emoji near the 21 000th), and then the
-/// row says so with [`CUT`].
-const INLINE_BYTES: usize = 4 * INLINE_CELLS;
-
 /// `target`, spelled as [`spelled`] spells an argument that is not a command,
-/// as the transcript's own row keeps it ([`INLINE_CELLS`], [`INLINE_BYTES`])
-/// and ended [`CUT`], or `None` when it keeps the whole. Spells no more than
-/// [`INLINE_BYTES`] of it; spelling an already spelled argument -- the
-/// channel's (`super::bridge`'s `spelled_shown`) -- changes nothing.
-fn inline_cut(target: &str) -> Option<String> {
-    let mut spelling = Spelling::new(INLINE_BYTES);
-    for character in target.chars() {
-        if !spelling.push(character) {
-            break;
-        }
-    }
-    let bytes_cut = spelling.cut;
-    let head = spelling.finish();
+/// as the transcript's own row keeps it: whole when it is no wider than
+/// [`INLINE_CELLS`], and otherwise up to the last whole unit that fits, ended
+/// [`CUT`].
+///
+/// A unit is one of `target`'s grapheme clusters, or a spelling it already
+/// holds (`\xNN`, `\u{N}`, [`spelling_at`]) with whatever joins that
+/// spelling's last character -- the channel's argument is spelled
+/// (`super::bridge`'s `spelled_shown`), and spelling it again changes nothing
+/// -- so the cut never falls inside a cluster or a spelling.
+fn inline(target: &str) -> String {
+    let mut out = String::new();
     let mut cells = 0usize;
-    for painted in super::wrap::painting(&head) {
-        cells += usize::from(super::wrap::cluster_width(painted.cluster));
+    let mut rest = target;
+    while !rest.is_empty() {
+        let unit = &rest[..unit_at(rest)];
+        let unit_spelled = spelled_whole(unit);
+        cells += usize::from(super::wrap::width(&unit_spelled));
         if cells > INLINE_CELLS {
-            return Some(format!("{}{CUT}", &head[..painted.start]));
+            out.push_str(CUT);
+            return out;
         }
+        out.push_str(&unit_spelled);
+        rest = &rest[unit.len()..];
     }
-    bytes_cut.then_some(head)
+    out
+}
+
+/// How many bytes of `rest` its first unit takes ([`inline`]): a spelling and
+/// what joins its last character, or one grapheme cluster.
+fn unit_at(rest: &str) -> usize {
+    use unicode_segmentation::UnicodeSegmentation;
+    let cluster = |text: &str| text.graphemes(true).next().map_or(text.len(), str::len);
+    match spelling_at(rest) {
+        // Its last character is `}` or a hex digit, and a mark after it joins
+        // it, so the cluster that character starts is the spelling's end.
+        Some(len) => len - 1 + cluster(&rest[len - 1..]),
+        None => cluster(rest),
+    }
+}
+
+/// The length of the spelling `rest` starts with, if it starts with one:
+/// `\xNN` or `\u{N}`, one to six hex digits, as [`Spelling`] writes them
+/// (`crate::tools::question::terminal_safe`). Text the model wrote that reads
+/// the same is taken for one too, which only keeps a cut from falling inside
+/// it.
+fn spelling_at(rest: &str) -> Option<usize> {
+    let bytes = rest.as_bytes();
+    if bytes.first() != Some(&b'\\') {
+        return None;
+    }
+    match bytes.get(1) {
+        Some(b'x')
+            if bytes
+                .get(2..4)
+                .is_some_and(|hex| hex.iter().all(u8::is_ascii_hexdigit)) =>
+        {
+            Some(4)
+        }
+        Some(b'u') if bytes.get(2) == Some(&b'{') => {
+            let digits = bytes[3..]
+                .iter()
+                .take(7)
+                .take_while(|byte| byte.is_ascii_hexdigit())
+                .count();
+            ((1..=6).contains(&digits) && bytes.get(3 + digits) == Some(&b'}'))
+                .then_some(4 + digits)
+        }
+        _ => None,
+    }
 }
 
 /// The kinds of work a header counts, in the order upstream breaks a tie in
@@ -177,10 +225,11 @@ pub(crate) struct ToolGroup {
 struct Call {
     id: String,
     shown: Shown,
-    /// The argument as the transcript's own row keeps it, when that is not
-    /// the whole of it ([`inline_cut`]); Ctrl-O's heading reads
-    /// [`Self::shown`].
-    inline: Option<String>,
+    /// The argument as the transcript's own row shows it ([`inline`]), made
+    /// the first time a row needs it and kept: a call's argument never
+    /// changes, and the block is drawn again in both modes on every change to
+    /// the group. Ctrl-O's heading reads [`Self::shown`].
+    inline: std::cell::OnceCell<String>,
     state: State,
     /// The command as the highlighter last coloured it, per mode and run
     /// colour ([`Call::highlighted`]).
@@ -276,26 +325,30 @@ impl Call {
     /// supplies is ([`crate::mcp::terminal_safe`]).
     ///
     /// `whole`: Ctrl-O's heading, which shows all of it; otherwise the
-    /// transcript's row, which keeps what a screen can show ([`inline_cut`]).
+    /// transcript's row, which keeps what a screen can show ([`inline`]) --
+    /// but a command's and a file change's, which have bounds of their own,
+    /// under that one.
     fn target(&self, whole: bool) -> String {
         let default = self.shown.presentation.default_target;
         let refused = matches!(self.state, State::Denied | State::Cancelled);
         let ran = matches!(self.state, State::Running | State::Done(_));
-        let argument = match &self.inline {
-            Some(inline) if !whole => Some(inline),
-            _ => self.shown.target.as_ref(),
-        };
-        match argument {
+        match self.shown.target.as_deref() {
             Some(target) if self.calls_mcp() => {
                 let named = if ran {
-                    target.as_str()
+                    target
                 } else {
                     target.strip_prefix("MCP ").unwrap_or(target)
                 };
                 crate::mcp::terminal_safe(named)
             }
             Some(target) if !(refused && self.changes_a_file()) => {
-                spelled(target, self.shown.presentation)
+                let own_bound = self.shown.presentation.activity == Activity::Command
+                    || names_a_changed_file(self.shown.presentation);
+                if whole || own_bound {
+                    spelled(target, self.shown.presentation)
+                } else {
+                    self.inline.get_or_init(|| inline(target)).clone()
+                }
             }
             _ => default.to_string(),
         }
@@ -433,17 +486,10 @@ impl ToolGroup {
         if shown.presentation.activity == Activity::Ask {
             return;
         }
-        // A command and a file change have bounds of their own, under this one.
-        let inline = shown
-            .target
-            .as_deref()
-            .filter(|_| shown.presentation.activity != Activity::Command)
-            .filter(|_| !names_a_changed_file(shown.presentation))
-            .and_then(inline_cut);
         self.calls.push(Call {
             id,
             shown,
-            inline,
+            inline: std::cell::OnceCell::new(),
             state: State::Running,
             highlights: std::cell::RefCell::default(),
         });
@@ -844,15 +890,33 @@ pub(crate) fn spelled(target: &str, presentation: Presentation) -> String {
     if presentation.activity == Activity::Command {
         return command_spelled(target, COMMAND_TARGET_BYTES, true);
     }
-    let mut spelling = Spelling::new(if names_a_changed_file(presentation) {
-        TARGET_BYTES
-    } else {
-        usize::MAX
-    });
+    if !names_a_changed_file(presentation) {
+        return spelled_whole(target);
+    }
+    let mut spelling = Spelling::new(TARGET_BYTES);
     for character in target.chars() {
         if !spelling.push(character) {
             break;
         }
+    }
+    spelling.finish()
+}
+
+/// [`Spelling`]'s of `text`, unbounded -- and `text` as it is when it holds
+/// nothing to spell, which is what the channel hands a row
+/// (`super::bridge`'s `spelled_shown`): one look over it instead of a token
+/// a character.
+fn spelled_whole(text: &str) -> String {
+    let unspelled = matches!(
+        crate::tools::question::terminal_safe(text),
+        std::borrow::Cow::Borrowed(_)
+    ) && !text.contains('\u{061c}');
+    if unspelled {
+        return text.to_string();
+    }
+    let mut spelling = Spelling::new(usize::MAX);
+    for character in text.chars() {
+        spelling.push(character);
     }
     spelling.finish()
 }
