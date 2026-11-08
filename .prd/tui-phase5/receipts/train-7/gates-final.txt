@@ -1,0 +1,6 @@
+# The file checks at 146f2494 (the receipt in its final form; code unchanged since c468f5e1), run in the worktree, tree clean at the start: yes; each exit from $? right after its command
+$ cargo fmt --check -> exit 0
+$ ./scripts/check-xfx-identity.sh -> exit 0; check-xfx-identity: ok (15370 tracked file(s) scanned)
+$ ./scripts/check-no-stubs.sh -> exit 0; check-no-stubs: ok
+$ ./scripts/check-no-secrets.sh -> exit 0; check-no-secrets: ok (15370 tracked file(s) scanned)
+# tree after: clean but for this file, which the redirect that wrote these lines had created (git status --porcelain: "?? .prd/tui-phase5/receipts/train-7/gates-final.txt")
