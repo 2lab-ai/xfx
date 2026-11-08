@@ -61,6 +61,80 @@ In xfx that is a prompt sent with no turn of its own in hand, not one upstream w
 number until its start is read, a stop covers it, a reset or a resume; while it is set, `submit` returns with the draft
 left where it is.
 
+## Round 2: the review of `6ae96c6a`
+Both engines (zbrain `p5/STOP-NEXT-2/reviews/gpt6.md`, `opus.md`) found the same MUST in item 8, a lost title (gpt6's
+MUST, opus's NIT) and a reorder (opus's SHOULD); gpt6 added an NTH on the parity row. Each fix is RED-first: the RED
+commit is `550a0b82` (tests only), recorded on the clean tree over `6ae96c6a`'s code in `red-r2-test.txt`: 3 fail,
+1 guard passes.
+
+| # | the defect | RED (`550a0b82`) | fix | GREEN |
+|---|---|---|---|---|
+| MUST 1 | **late text could wedge the loop.** `paced_backlog` counted `late`; the drain refuses at `PACED_BACKLOG` before `try_recv`; the stop empties the pacer, so `late` alone held the gate, and only reading the turn's end (or a drain that empties the channel) lets go of it. 64 KiB held -- one `DELTA_SLICE` is enough -- and the end was never read, the runtime parked on a full channel, queued prompts never started. Round 1's guard pinned the wedged state | `late_text_a_stop_holds_never_keeps_the_drain_from_its_turns_end` (replaces round 1's guard): 64 KiB held, then the end, in one drain and across three drains the count cuts; `[(.., false, false, false) x3]` for `[("the stop's own end", true, true, false), ("a finish", true, true, true), ("a finish, across cut drains", true, true, true)]` -- the channel never drained, the end never read | `49b63de3`, fix (a): `late` is out of the gate (`paced_backlog` is the pacer's again) | passes; the base's "It cannot wedge: the pacer always drains" is true again |
+| MUST 2 | **the stop's own tick dropped the lead.** `take_leading_title` took `Some("go")` and, under `stop_in_tick`, returned without keeping it; the next frame computed the title then, so a model's `Named` in the same tick, or on the next before its frame, was written and `go` never | `a_stop_its_end_and_a_model_title_write_each_title_once_in_upstreams_order`: `[("one tick", 0, 1, false), ("the next tick, before its frame", 0, 1, false)]` for `(.., 1, 1, true)` each | `d228ab15`: the lead is kept past the stop's tick and taken by the next as any lead is -- ahead of that tick's report, a later title held for the frame after | passes: after the `Cancelled` frame, `]2;go` once, then `]2;Named` once |
+| SHOULD | **a stopped turn's tool rows went ahead of its held text.** `ToolStart`/`ToolResult` went to `mark()` at once while the `Delta`s waited in `late` | `a_finished_turns_tool_row_read_after_a_stop_keeps_its_place_in_its_text`: the rows were `Read notes.txt`, then `FIRST-PART`, `SECOND-PART` | `49b63de3`: `late` holds the stop's reads in order (`Late`: text, operational lines, a tool row read behind them; `mark_tool`, a row with nothing held still goes out at once); a presented end writes them in order and then the group's end; the stop's own end, an emptied drain and the settle's take-back write the rows and drop the text | passes: `FIRST-PART`, the row, `SECOND-PART` |
+| NTH | the parity row's older clauses ("its answer dropped"; the title leads "only while it is the title owed") contradicted the conditional rules after them | -- | `fe9dee99`: a covered turn's answer is held for its end (dropped when the stop ended it, presented when it had finished); the end gives a title only to a session without one, a title asked for before the end follows the report and one after it follows the end's; read in the stop's own tick the end's title goes on the next, each title once; held text and the rows behind it are presented in order, rows written whatever the end, none of it counted against the drain's bound | -- |
+
+**Fix (a) for MUST 1, and the bound it rests on.** Option (b) (count `late`, but never let it shut the gate alone
+while `pacer.pending() == 0`) is the same rule here: the stop empties the pacer (`abandon_answer`) and under it no
+`Delta` reaches the pacer, so while `late` holds anything the pacer is empty [reasoned from `abandon_answer` and the
+`Delta` arm, not measured]. (a) deletes the coupling instead of
+guarding it. What `late` can hold is bounded by the channel, not by the gate [read from the code]:
+1. The keystroke raises the running turn's flag **before** the message is sent (`WorkHandle::control`,
+   `worker.rs:523-533`), and that flag is the turn's mirror (`let stop = cancel.mirror()`, `worker.rs:1264`), which the
+   provider's decode polls per line (`gateway/sse.rs:233-248`): after the keystroke the decode makes at most the rest
+   of the line it is in.
+2. The runtime's race polls the control channel first, even while the body is parked on a full channel
+   (`raced_against_control`, `biased`, `worker.rs:5513-5535`), and the stop cancels the turn's token there
+   (`turn.cancel()`, `worker.rs:3815-3818`; `TurnCancel::cancel`, `bridge.rs:1367`); after it `send_ui` sends
+   nothing, room or not (`biased`, `bridge.rs:1419-1429`; `a_cancelled_turn_stops_sending_even_when_there_is_room`).
+3. So the stopped turn's events after the keystroke are those already on the channel -- at most `UI_EVENTS` (256),
+   each at most `DELTA_SLICE` (64 KiB) (`bridge.rs:96`, `:103`) -- plus what was decoded and in the turn's hands when
+   the flag went up. A turn the stop did not cancel had finished, so everything it sent is on the channel ahead of
+   its end, under the same bound. So `late` holds what the session had already been handed when the stop was
+   pressed, never text the provider sends after it. The tool rows `late` now holds are channel events too, each spelled and bounded before it
+   is sent (`bridge.rs:975`, `spelled_shown`; a result's detail at 256 bytes, `toolgroup::flattened`).
+4. Once the end is read, presented text goes into the pacer, which the gate bounds as before: the loop stops taking
+   events until it drains.
+
+**The owed line beside held rows** (found while fixing the SHOULD, not in the reviews). A cancel that waited for a
+running call is answered at the end: the call's own line if a call is still running, else the turn's `Cancelled`
+line (`cancel_owed`). With rows held, the question has to be asked about the calls as the held rows will leave
+them, before they run, because the line goes above the held text; asking `group.running()` there would read a held
+result's call as running and write no line at all. `runs_a_call_past_late` (with `ToolGroup::running_ids`) answers
+it. Guards: `a_cancel_that_waited_for_a_call_whose_result_is_held_writes_the_turns_line`,
+`a_cancel_that_waited_for_a_call_leaves_a_held_call_still_running_its_own_line` (`49b63de3`, `a1b34517`).
+
+**Guards for round 2** (passing at `49b63de3`; each the only kill of a mutant below):
+`a_tool_row_read_with_text_a_stop_drops_is_still_written` (an emptied drain, and the stop's own end in the same
+drain, still write the held row), and the two owed-line guards above.
+
+**Round 2's checks** (round 1's sections below stand for round 1's head; each is named where round 2 changed it):
+- **Code mutants** (`mutants.txt`, "round 2"): `mutants.py`'s rows rewritten to the code as it reads now and six
+  added (rows 5 and 19-24), on a `--no-local` clone at `a1b34517`, 900 s each: **24 of 24 killed**, 0 failed to
+  build; the unmutated clone passes 2807 of 2807. Round 2's rows: the stop's own tick dropping the lead (5, MUST 2's
+  RED); late text counted against the drain's bound again (19, MUST 1's RED); a tool row under a stop going out at
+  once (20, the SHOULD's RED); held rows dropped with the text, and by the stop's own end (21, 22: the held-row
+  guard); the owed line asked without the held rows, and a held start never counted as running (23, 24: the two
+  owed-line guards). Round 1's row 18 (late text outside the drain's bound) is gone with its code; row 19 is its rule
+  reversed.
+- **Wires** (`osc-r2.txt`; the wires in `r2/`, `r2-run2/`, `r2-run3/`): every osc scenario at `a1b3451`, 47 pairs,
+  **0 failing claims**, the head's banner on every wire; `stopnext` three times, 0 failing on each, with round 1's
+  offsets exactly (`idle` @797, `Cancelled` @883, `OSC 2 first question` @969, `working` @988, `second question`
+  @1070; fx @1256, @1340, @1404, @1423, @1480). No captured window reaches round 2's changes, as none reached round
+  1's. The checker is unchanged, so its wire mutants (round 1, 10 of 10) were not run again.
+- **Sweep** (`sweep-r2.txt`): every `p5-lifecycle-*` scenario at `a1b34517` (sha256 `28429b9d…`), 69 pairs, 0 failed,
+  0 timed out, **0 changed** against round 1's base sweep (`d2459a37`, whose build has not changed): 28
+  normalized-identical, 1 approved-divergence-cascade, 40 unresolved-defect on both. The ledger's sha256 differs
+  from round 1's because `fe9dee99` re-pointed `file:line` refs inside it; no normalization or divergence changed
+  (its diff is `source`/`xfx` refs and one `why`'s ref).
+- **Refs** (`refs-r2.txt`): against round 1's head `6ae96c6a`, over round 2's code: 41 hold, 16 moved, 0 lost.
+  `fe9dee99` re-pointed 14 with `--apply`: the ledger's five `toolgroup.rs` refs (`:710`, `:749` twice, `:797`, `:911`;
+  `running_ids` sits above them), `shell.rs:12959`, `:38274` x5 and `:1719`; `capfile.py`'s `warning_shown` range;
+  `event_loop.rs`'s `:970-973`. By hand, `capfile.py`'s bare `:14453-14455` -> `:14535-14537`. The two comment refs
+  main's tests had wrong already are left as they were.
+- **Gates** (`gates-r2.txt`): at the round-2 receipt commit (below, "Gates").
+- **Line budget**: `d2459a37..a1b34517`, outside tests +291 / -45 (round 2 alone +135 / -40); inside tests +725 / -14.
+
 ## Commits (`feat/p5-stop-next-2`, from `d2459a37`)
 | commit | what |
 |---|---|
@@ -71,7 +145,14 @@ left where it is.
 | `cc231700` | item 8: a finished turn's late text read with its end in one drain is presented |
 | `7d5e3d4b` | the parity row (R2's wording, items 7, 8, T1, STOP-NEXT-3); the refs this unit's code moved |
 | `2a6e8fa7` | guard tests for the code mutants that survived the first run (tests only) |
-| the receipt commit | this receipt; STOP-NEXT's table qualified (R6); `gates.txt` follows in its own commit |
+| `adc2d248` | this receipt; STOP-NEXT's table qualified (R6) |
+| `6ae96c6a` | round 1's gate (`gates.txt`) |
+| `550a0b82` | round 2's RED: tests only |
+| `d228ab15` | MUST 2: the stop's own tick keeps the lead for the next |
+| `49b63de3` | MUST 1 and the SHOULD: `late` out of the gate; the stop's reads held in order, rows written whatever the end; the owed line asked past the held rows |
+| `fe9dee99` | NTH: the parity row's clauses; the refs round 2's code moved |
+| `a1b34517` | round 2's guards (tests only) |
+| the round-2 receipt commit | this section and the checks below; the gate follows in its own commit |
 
 ## RED (`red-test.txt`)
 **`dac51b53`'s tests over `24fbc062`'s code**, in the worktree at `dac51b53`, tree clean. 5 fail, 2 guards pass:
@@ -104,8 +185,9 @@ with its fix (Decisions).
   the band no longer writes one title a tick); `a_completed_turns_text_unread_at_the_stop_leaves_the_cancelled_line_above_its_summary`
   (comment only, naming item 8's test). No assertion of an existing test changed (`git diff -U0 d2459a37..2a6e8fa7
   -- src`: every removed line in a test module is a comment).
-- **Guards with the fixes** (each failing only under its mutant, below): `late_text_a_stop_holds_counts_against_the_drains_bound`
-  (`cc231700`); `a_compactions_stop_and_its_turns_end_in_one_tick_put_the_title_on_the_next_tick` and item 8's cut-drain case (`2a6e8fa7`).
+- **Guards with the fixes** (each failing only under its mutant, below): `a_compactions_stop_and_its_turns_end_in_one_tick_put_the_title_on_the_next_tick`
+  and item 8's cut-drain case (`2a6e8fa7`). Round 1's `late_text_a_stop_holds_counts_against_the_drains_bound`
+  (`cc231700`) pinned the wedge and is replaced in round 2.
 
 ## Decisions
 1. **Item 10a dropped to STOP-NEXT-3 after it was built.** The fix (`item10a-carried.txt`, with the RED) made both
@@ -131,8 +213,8 @@ with its fix (Decisions).
    within one tick of the UI; R1 needs a second press inside a stop's own unwinding. No capture reaches those
    windows, so the unit tests are their receipt, and `osc.py` is STOP-NEXT's unchanged.
 6. **A drain is fx's batch only when it emptied the channel.** `drain_ui_events` now says whether it did; a drain
-   its bound cut short (`bridge::UI_EVENTS` events, or `PACED_BACKLOG`) keeps the late text for the next, and the
-   kept text counts against the backlog bound, so the bound that keeps the pacer short still does.
+   its bound cut short (`bridge::UI_EVENTS` events, or `PACED_BACKLOG`) keeps the late text for the next. Round 1
+   also counted the kept text against the backlog bound; that was the wedge round 2 removed (Round 2, MUST 1).
 
 ## The checker (`osc.py`, `wire_mutants.py`)
 STOP-NEXT's, unchanged but for their docstrings and the receipt they copy. fx's wires are the earlier units' at the
@@ -172,7 +254,10 @@ timed out, and 0 changed pairs**: 28 normalized-identical, 1 approved-divergence
 both. `retryok`'s `k01-1.5s`, which moved in STOP-NEXT's sweeps with fx's own capture, is normalized-identical on
 both sides here (the loads: 3.9-4.0 and 2.9-6.4, 1-minute averages). No pair drops on xfx's side.
 
-## Gates (`gates.sh`, `gates.txt`)
+## Gates (`gates.sh`, `gates.txt`, `gates-r2.txt`)
+**Round 2:** @@GATESR2@@
+
+**Round 1:**
 Every CI step and `sweep.yml`'s two test scripts, one at a time, in one suite-lock slot (12:32:58Z to 12:46:59Z), at
 `adc2d248`: the commit that adds this receipt, so the secrets, identity and stub checks read it tracked. The tree had
 0 tracked changes before and after. Step 00 is `false` and reads `rc=1`, so each step's `rc` is its own.
@@ -244,6 +329,8 @@ not the budget: item 10a's fallout was (Decisions, 1).
   `wire-mutants.txt`.
 - `mutants.py`, `mutants.txt`: the code mutants.
 - `sweep.txt`; `gates.sh`, `gates.txt`; `refs.py`, `refs-before.txt`, `refs-after.txt`.
+- Round 2: `red-r2-test.txt`; `osc-r2.txt` and the wires in `r2/`, `r2-run2/`, `r2-run3/` (`a1b34517`); `mutants.txt`'s
+  "round 2" (`mutants.py` as it reads now); `sweep-r2.txt`; `refs-r2.txt`; `gates-r2.txt`.
 - The wires: `base/`, `base-run2/`, `base-run3/` (`d2459a37`); `xfx/`, `xfx-run2/`, `xfx-run3/` (`7d5e3d4b`). fx's are
   the earlier units' (above).
 

@@ -5,7 +5,10 @@ usage: python3 -I -B mutants.py <clone> <target-dir> <out-file> [n,n,...]
 STOP-NEXT's runner (`../stop-next/mutants.py`) with this unit's rows; a
 per-mutant time limit: a mutant whose suite runs past it is
 KILLED (hang). Each mutant is one exact replacement (or two) in
-src/tui/shell.rs or src/tui/event_loop.rs; the original must occur exactly once,
+src/tui/shell.rs or src/tui/event_loop.rs, as the code reads after round 2.
+Round 2 inserted row 5, so round 1's rows 5-17 are rows 6-18 here, and
+round 1's row 18 (late text outside the drain's bound) is gone with its
+code: row 19 is its rule reversed, the wedge round 2 removed; the original must occur exactly once,
 or the row is SKIP. The clone is restored with `git checkout -- .` after
 each. A mutant is killed when its command fails with a test that failed;
 one that fails to build is NOCOMPILE, which counts as no kill. TEST runs the
@@ -38,6 +41,7 @@ SWITCH = "            .is_some_and(|at| !self.cancel_through.is_some_and(|throug
 LEAD_STOP = (
     "        let lead = self.title_leads.take()?;\n"
     "        if self.stop_in_tick {\n"
+    "            self.title_leads = Some(lead);\n"
     "            self.title_held = true;\n"
     "            return None;\n"
     "        }\n"
@@ -69,17 +73,35 @@ COMMITTED = (
     "        }\n"
 )
 HOOK = "    shell.tick_committed();\n"
-KEEP = "                } else if self.keeps_late_text() {\n                    self.late.push((false, text));\n"
-PRESENT = (
-    "                for (operational, text) in std::mem::take(&mut self.late) {\n"
-    "                    if quiet {\n"
-    "                        break;\n"
-    "                    }\n"
-)
-EMPTIED = "        if emptied {\n            self.late.clear();\n        }\n"
+KEEP = "                } else if self.keeps_late_text() {\n                    self.late.push(Late::Text(text));\n"
+PRESENT = "                let presented = !quiet && !self.late.is_empty();\n"
+EMPTIED = "        if emptied {\n            self.release_late(false);\n        }\n"
 DRAINED = "            Err(_) => return true,\n"
 CAP = "    }\n    false\n}\n\n/// The three things an exit borrows"
-BACKLOG = "        self.pacer.pending().saturating_add(late)\n"
+# Round 2 (after the review of 6ae96c6a).
+BACKLOG = "    pub(crate) fn paced_backlog(&self) -> usize {\n        self.pacer.pending()\n    }\n"
+BACKLOG_LATE = (
+    "    pub(crate) fn paced_backlog(&self) -> usize {\n"
+    "        let late: usize = self\n"
+    "            .late\n"
+    "            .iter()\n"
+    "            .map(|held| match held {\n"
+    "                Late::Text(text) | Late::Operational(text) => text.len(),\n"
+    "                Late::Tool(_) => 0,\n"
+    "            })\n"
+    "            .sum();\n"
+    "        self.pacer.pending().saturating_add(late)\n"
+    "    }\n"
+)
+MARK_TOOL = "    fn mark_tool(&mut self, mark: Mark) {\n        if self.late.is_empty() {\n"
+RELEASE_TOOL = "                Late::Tool(mark) => self.mark(mark),\n"
+END_ROWS = "                if !presented {\n                    self.release_late(false);\n                }\n"
+PAST_LATE = (
+    "        self.group\n"
+    "            .running_ids()\n"
+    "            .chain(started)\n"
+    "            .any(|id| !settled.contains(&id))\n"
+)
 
 # Each mutant: a title and its edits, (path, original, replacement).
 MUTANTS = [
@@ -93,6 +115,8 @@ MUTANTS = [
     # Item 7 and one title per tick.
     ("7: a stop's own tick leads with the end's title (the base)",
      [(SHELL, LEAD_STOP, "        let lead = self.title_leads.take()?;\n")]),
+    ("7, T1: the stop's own tick drops the lead (round 1)",
+     [(SHELL, LEAD_STOP, LEAD_STOP.replace("            self.title_leads = Some(lead);\n", ""))]),
     ("7: a turn's stop marks no tick",
      [(SHELL, TURN_STOP, TURN_STOP.replace("        self.stop_in_tick = true;\n", ""))]),
     ("7: a compaction's stop marks no tick",
@@ -111,17 +135,28 @@ MUTANTS = [
      [(LOOP, HOOK, "")]),
     # Item 8: late text.
     ("8: late text never kept (the base)",
-     [(SHELL, KEEP, "                } else if false {\n                    self.late.push((false, text));\n")]),
+     [(SHELL, KEEP, "                } else if false {\n                    self.late.push(Late::Text(text));\n")]),
     ("8: late text presented under the stop's own end",
-     [(SHELL, PRESENT, PRESENT.replace("if quiet {", "if false {"))]),
+     [(SHELL, PRESENT, "                let presented = !self.late.is_empty();\n")]),
     ("8: an emptied drain keeps late text",
      [(SHELL, EMPTIED, "        let _ = emptied;\n")]),
     ("8: every drain drops late text",
-     [(SHELL, EMPTIED, "        let _ = emptied;\n        self.late.clear();\n")]),
+     [(SHELL, EMPTIED, "        let _ = emptied;\n        self.release_late(false);\n")]),
     ("8: a drain cut at its bound counts as emptied",
      [(LOOP, CAP, CAP.replace("    false\n}", "    true\n}"))]),
-    ("8: late text outside the drain's bound",
-     [(SHELL, BACKLOG, "        let _ = late;\n        self.pacer.pending()\n")]),
+    # Round 2.
+    ("MUST 1: late text counts against the drain's bound again (round 1's wedge)",
+     [(SHELL, BACKLOG, BACKLOG_LATE)]),
+    ("SHOULD: a tool row under a stop goes out at once (round 1)",
+     [(SHELL, MARK_TOOL, MARK_TOOL.replace("if self.late.is_empty() {", "if true {"))]),
+    ("SHOULD: held rows dropped with the text",
+     [(SHELL, RELEASE_TOOL, "                Late::Tool(mark) => {\n                    if presented {\n                        self.mark(mark);\n                    }\n                }\n")]),
+    ("SHOULD: the stop's own end drops held rows",
+     [(SHELL, END_ROWS, "                if !presented {\n                    self.late.clear();\n                }\n")]),
+    ("SHOULD: the owed line ignores held rows",
+     [(SHELL, PAST_LATE, "        let _ = (started, settled);\n        self.group.running()\n")]),
+    ("SHOULD: a held start never counts as running",
+     [(SHELL, PAST_LATE, PAST_LATE.replace(".chain(started)", ".chain(started.into_iter().filter(|_| false))"))]),
 ]
 
 lines = []

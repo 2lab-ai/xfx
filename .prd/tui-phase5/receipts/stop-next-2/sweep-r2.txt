@@ -1,0 +1,15 @@
+
+# Round 2: the head's sweep, every p5-lifecycle-* scenario, against round 1's base sweep above (same fx run settings;
+# the base was not swept again: its build, d2459a37, has not changed). head = a1b34517 (the worktree's debug build).
+
+## round 2 (sweep-head rc=0 446s 2026-11-08T13:41:31Z)
+### head
+- fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
+- xfx: `x𝒇x v0.1.0-a1b3451 [debug] · Run /help for commands`, sha256 `28429b9d2ab801bdcd2f66f7dafdb72477404af873fab23fdf9b643b3ec846de`
+- size 40x120, `--jobs 3`, 30 scenarios -- **PARTIAL**: `--only p5-lifecycle-*`, wall 7m26s, load 17.2 at the start and 18.1 at the peak (1-minute average, sampled every 5 s)
+- ledger sha256 `689aed6483f1e3995348d6dbf957719a64979275777376de08a61d899e69af58`: 14 normalizations; 15 divergences approved for this pin
+Scenarios: 30 -- ran 30, failed 0, timeout 0. **pass = 28 / 69 = 40.6%**
+pairs: base 69, head 69; only on one side: 0
+changed against round 1's base: 0
+base: {'approved-divergence-cascade': 1, 'normalized-identical': 28, 'unresolved-defect': 40}
+head: {'approved-divergence-cascade': 1, 'normalized-identical': 28, 'unresolved-defect': 40}
