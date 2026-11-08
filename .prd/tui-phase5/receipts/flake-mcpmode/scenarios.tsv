@@ -1,0 +1,49 @@
+# scenario	the changed verbs it uses (a line for: reseed rehomefile clock release clipimage usage models2 mcphttp)
+credits-busy	release
+fulltranscript-notice	release
+h1-mcphttp	mcphttp
+h1-mcphttp-fail	mcphttp
+h1-mcphttp-methodnotfound	mcphttp
+h1-models2	models2
+h1-rehomefile	rehomefile
+h1-usage	clock, usage
+h1-usage-codex	clock, usage
+h1-usage-grok	clock, usage
+image-paste	clipimage
+interrupt-steer	release
+model-busy	release
+model-busy-known	release
+notice-midstream	release
+notice-wire	release
+p5-effort-fork-effort-menu	release
+p5-effort-fork-fork-edge	release
+p5-lifecycle-osc-interrupt	release
+p5-lifecycle-osc-interruptnext	release
+p5-lifecycle-osc-states	release
+p5-mcp-discover-http-hostile	mcphttp
+p5-mcp-discover-http-malformed	mcphttp
+p5-mcp-discover-http-modern	mcphttp
+p5-mcp-discover-http-notimpl	mcphttp
+p5-mcp-discover-http-old2024	mcphttp
+p5-mcp-discover-http-ssefail	mcphttp
+p5-mcp-discover-http-ssehold	mcphttp
+p5-mcp-discover-http-sseidless	mcphttp
+p5-mcp-discover-http-ssestrid	mcphttp
+p5-mcp-live	mcphttp
+p5-mcp-rpcerror	mcphttp
+p5-panels-status-badsettings	rehomefile
+p5-session-early-prefs	reseed
+p5-transcript-cancel	release
+p5-transcript-submit	release
+p5-transcript-submit-multi	release
+p5-usage-budget	clock, usage
+p5-usage-cached	clock, usage
+p5-usage-many	clock, usage
+p5-usage-nokey	clock, usage
+p5-usage-turns	clock, usage
+provider	release
+provider-resume	reseed
+provider-resume-missing	reseed
+rename-midturn	release
+resume-empty	release
+streaming	release

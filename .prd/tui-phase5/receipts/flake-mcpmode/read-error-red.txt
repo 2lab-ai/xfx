@@ -1,0 +1,6 @@
+# The mode-file read-error test (test_capture.py at a2c0265a) on 2971aeff's harness, before the field existed: fails.
+# The other 24 McpHttp and FakeGateway tests, the deadline pins among them, pass there (Ran 24 tests ... OK, e85f1a59).
+FAIL: test_a_mode_file_that_cannot_be_read_is_answered_unknown_with_its_error (__main__.McpHttp.test_a_mode_file_that_cannot_be_read_is_answered_unknown_with_its_error)
+AssertionError: Regex didn't match: 'rpc=ping id=1 .* mode=unknown\\(\\) -> 500 \\+\\d+ms mode-file=ENOENT\\n' not found in '[mcphttp] listening 63237\n[mcphttp] +97ms POST /mcp rpc=ping id=1 session=no version=- mcp-method=- mcp-name=- mode=unknown() -> 500 +
+Ran 1 test in 2.123s
+FAILED (failures=1)

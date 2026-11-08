@@ -1063,6 +1063,27 @@ class FakeGateway(unittest.TestCase):
                 later.join()
                 self.assertEqual((status, body), want)
 
+    def test_a_usage_file_that_never_parses_is_answered_500_at_the_deadline(self):
+        # settled()'s re-read gives up (FLAKE-MCPMODE follow-up F): a usage
+        # file that is not JSON is read again for 2 s (fakegw.ts SETTLE_MS),
+        # then taken as it is and answered as base answered it, a 500 naming
+        # the parse error -- not held for ever.
+        d = scratch()
+        usage = os.path.join(d, "usage.json")
+        write(usage, '{"/v1/report":{"rows":[]}}')
+        g = self.gw(FAKEGW_USAGE=usage)
+        swap(usage, "not json")
+        status, _, body = g.ask("GET", "/v1/report?start_date=2026-10-12&end_date=2026-10-12", timeout=4)
+        self.assertEqual(status, 500)
+        self.assertTrue(body.startswith(b"fakegw: SyntaxError"), body)
+        end = time.time() + 5
+        while "request GET /v1/report" not in g.lines():
+            self.assertLess(time.time(), end, g.lines())
+            time.sleep(0.05)
+        m = re.search(r"request GET /v1/report\S* at=(\d+)ms -> 500 \(fakegw: SyntaxError[^\n]*\) at=(\d+)ms", g.lines())
+        self.assertIsNotNone(m, g.lines())
+        self.assertGreaterEqual(int(m.group(2)) - int(m.group(1)), 2000, "it read again until the deadline")
+
     def test_a_fake_key_and_team_reach_no_line_of_the_log_and_no_body(self):
         # A key in the harness's own style (capture.sh's AI_GATEWAY_API_KEY is
         # `fake-key-not-real`) and a team, on every path that reads or names a
@@ -1178,6 +1199,56 @@ class McpHttp(unittest.TestCase):
         s.wait_for("rpc=ping id=1 ")
         self.assertRegex(s.lines(), r"rpc=ping id=1 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200")
         self.assertNotIn("unknown(", s.lines())
+
+    # mcphttp.ts MODE_SETTLE_MS: a read that finds no mode is read again for
+    # this long, then answered as no mode.
+    SETTLE_MS = 2000
+
+    def answered(self, s, rpc):
+        """The server-side time a request took, from its log line: the
+        moment it came and the moment it was answered."""
+        s.wait_for("rpc=%s " % rpc)
+        m = re.search(r"\+(\d+)ms POST /mcp rpc=%s .* -> \d+ \+(\d+)ms" % re.escape(rpc), s.lines())
+        self.assertIsNotNone(m, s.lines())
+        return int(m.group(2)) - int(m.group(1))
+
+    def test_a_mode_file_that_never_holds_a_mode_is_answered_unknown_at_the_deadline(self):
+        # The re-read gives up (FLAKE-MCPMODE follow-up F): a word that is no
+        # mode stays the file's, and the request is answered as base answered
+        # it, `unknown(bogus)` and 500, once the deadline passes -- not held
+        # for ever.
+        s = self.server("ready")
+        swap(self.mode, "bogus\n")
+        status, _, body = s.ask("POST", "/mcp", body='{"jsonrpc":"2.0","id":1,"method":"ping"}', timeout=self.SETTLE_MS / 1000 + 2)
+        self.assertEqual((status, body), (500, b"fixture failing"))
+        self.assertGreaterEqual(self.answered(s, "ping id=1"), self.SETTLE_MS, "it read again until the deadline")
+        self.assertRegex(s.lines(), r"rpc=ping id=1 .* mode=unknown\(bogus\) -> 500 \+\d+ms\n")
+
+    def test_a_mode_file_that_cannot_be_read_is_answered_unknown_with_its_error(self):
+        # The same deadline for a file that is gone: `unknown()` and 500 as
+        # before, and the log line says why the read found no word.
+        s = self.server("ready")
+        os.remove(self.mode)
+        status, _, body = s.ask("POST", "/mcp", body='{"jsonrpc":"2.0","id":1,"method":"ping"}', timeout=self.SETTLE_MS / 1000 + 2)
+        self.assertEqual((status, body), (500, b"fixture failing"))
+        self.assertRegex(s.lines(), r"rpc=ping id=1 .* mode=unknown\(\) -> 500 \+\d+ms mode-file=ENOENT\n")
+        swap(self.mode, "ready\n")
+        self.assertEqual(self.rpc(s, "ping", 2)[0], 200)
+        self.assertRegex(s.lines(), r"rpc=ping id=2 .* mode=ready -> 200 \+\d+ms\n", "no error once the file reads")
+
+    def test_malformed_and_hostile_are_modes_and_answer_without_the_wait(self):
+        # The two modes whose answers are garbage are still modes: read once,
+        # answered at once, never held to the deadline. The bound sits just
+        # under the deadline, not near the few ms an answer takes: a request
+        # held to the deadline takes at least SETTLE_MS, so this still tells
+        # the two apart, and a scheduling stall on a loaded runner (registry
+        # #19's class) has 1.8 s of room instead of none.
+        for mode in ("malformed", "hostile"):
+            with self.subTest(mode=mode):
+                s = self.server(mode)
+                self.assertEqual(self.rpc(s, "server/discover", 1)[0], 200)
+                self.assertLess(self.answered(s, "server/discover id=1"), self.SETTLE_MS - 200)
+                self.assertRegex(s.lines(), r"rpc=server/discover id=1 .* mode=%s -> 200 \+\d+ms\n" % mode)
 
     def test_fail_and_rpcerror(self):
         s = self.server("fail")

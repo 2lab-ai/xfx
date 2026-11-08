@@ -4,9 +4,9 @@ set -u
 wt=$1 out=$2
 mkdir -p "$out"
 cd "$wt" || exit 2
-export TMPDIR=/private/tmp/claude-501/flake-mcpmode/gate
+export TMPDIR="${TMPDIR:?set TMPDIR to a scratch directory}/flake-mcpmode-gate"
 rm -rf "$TMPDIR"; mkdir -p "$TMPDIR"
-L=/private/tmp/claude-501/bin/suite-lock.sh
+L="${SUITE_LOCK:?set SUITE_LOCK to the suite-lock script}"
 step() {
   local name=$1; shift
   local t0=$SECONDS

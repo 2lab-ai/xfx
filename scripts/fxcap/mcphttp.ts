@@ -60,7 +60,8 @@
 // Every request is one line on stdout, once answered: the time in ms since the server started,
 // the HTTP method and path, the JSON-RPC method and id, whether it carried a session id, which
 // protocol version header, which `Mcp-Method` and `Mcp-Name` headers, the mode it was answered
-// in, and the status. Header values other than those three are never written.
+// in, and the status -- and, after an `unknown(...)` the mode file could not be read for, the
+// read's error code (`mode-file=ENOENT`). Header values other than those three are never written.
 const port = Number(process.argv[2] ?? 0);
 const modeFile = process.argv[3];
 if (!modeFile) {
@@ -78,15 +79,20 @@ const session = "fxcap-session-1";
 // to MODE_SETTLE_MS, before a word that is no mode is answered as `unknown(<word>)`: a held
 // request polls this, and one empty read used to end its hold with a 500 (FLAKE-MCPMODE,
 // registry #19). capture.sh's `mcphttp` verb renames the file into place, so it never takes a
-// retry; a writer by hand may.
+// retry; a writer by hand may. A read that fails is an empty word too; its error's code is kept
+// and, when the deadline answers `unknown(...)`, given beside it for the log line (`readError`).
 const MODE_SETTLE_MS = 2000;
-async function mode(): Promise<string> {
+async function mode(): Promise<{ now: string; readError: string }> {
   const until = Date.now() + MODE_SETTLE_MS;
+  let readError = "";
   for (;;) {
-    const text = await Bun.file(modeFile).text().catch(() => "");
+    const text = await Bun.file(modeFile).text().then(
+      (t) => ((readError = ""), t),
+      (e) => ((readError = String(e?.code ?? e?.name ?? "error")), ""),
+    );
     const word = text.trim().split(/\s+/)[0] ?? "";
-    if (modes.has(word)) return word;
-    if (Date.now() >= until) return `unknown(${word})`;
+    if (modes.has(word)) return { now: word, readError: "" };
+    if (Date.now() >= until) return { now: `unknown(${word})`, readError };
     await Bun.sleep(10);
   }
 }
@@ -258,15 +264,15 @@ const server = Bun.serve({
     } catch {
       message = null;
     }
-    let now = await mode();
+    let { now, readError } = await mode();
     while (now === "hang") {
       await Bun.sleep(50);
-      now = await mode();
+      ({ now, readError } = await mode());
     }
     const res = answerIn(now, req.method, message, req.headers.get("mcp-protocol-version"));
     const rpc = message ? `${message.method ?? (message.result !== undefined ? "(result)" : "(error)")} id=${message.id ?? "-"}` : "-";
     log(
-      `+${asked - started}ms ${req.method} ${url.pathname} rpc=${rpc} session=${req.headers.has("mcp-session-id") ? "yes" : "no"} version=${req.headers.get("mcp-protocol-version") ?? "-"} mcp-method=${req.headers.get("mcp-method") ?? "-"} mcp-name=${req.headers.get("mcp-name") ?? "-"} mode=${now} -> ${res.status} +${Date.now() - started}ms`,
+      `+${asked - started}ms ${req.method} ${url.pathname} rpc=${rpc} session=${req.headers.has("mcp-session-id") ? "yes" : "no"} version=${req.headers.get("mcp-protocol-version") ?? "-"} mcp-method=${req.headers.get("mcp-method") ?? "-"} mcp-name=${req.headers.get("mcp-name") ?? "-"} mode=${now} -> ${res.status} +${Date.now() - started}ms${readError ? ` mode-file=${readError}` : ""}`,
     );
     return res;
   },

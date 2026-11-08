@@ -1,18 +1,33 @@
 """Half-reverts of the FLAKE-MCPMODE fix, each on a throwaway copy of the
 final fix commit's scripts/fxcap; each must make a test fail.
-usage: python3 mutants.py <frozen-fix-tree> <scratch-dir>"""
+usage: python3 mutants.py <frozen-fix-tree> <scratch-dir>
+Each mutant's tests run under `timeout 300`: a mutant with no deadline
+never answers, and its test's own client timeout is what fails it."""
 import os, shutil, subprocess, sys
 
 src, work = sys.argv[1], sys.argv[2]
 MUTANTS = [
     ("mcphttp: one read, no retry", "mcphttp.ts",
-     "    if (Date.now() >= until) return `unknown(${word})`;", "    return `unknown(${word})`;",
+     "    if (Date.now() >= until) return { now: `unknown(${word})`, readError };", "    return { now: `unknown(${word})`, readError };",
      ["McpHttp.test_a_held_request_reads_past_a_mode_file_caught_empty"]),
+    ("mcphttp: no deadline (follow-up F)", "mcphttp.ts",
+     "    if (Date.now() >= until) return { now: `unknown(${word})`, readError };\n", "",
+     ["McpHttp.test_a_mode_file_that_never_holds_a_mode_is_answered_unknown_at_the_deadline"]),
+    ("mcphttp: the read error not kept (follow-up F)", "mcphttp.ts",
+     '      (e) => ((readError = String(e?.code ?? e?.name ?? "error")), ""),', '      (e) => "",',
+     ["McpHttp.test_a_mode_file_that_cannot_be_read_is_answered_unknown_with_its_error"]),
+    ("mcphttp: malformed and hostile held to the deadline (follow-up F)", "mcphttp.ts",
+     '    if (modes.has(word)) return { now: word, readError: "" };',
+     '    if (modes.has(word) && ((word !== "malformed" && word !== "hostile") || Date.now() >= until)) return { now: word, readError: "" };',
+     ["McpHttp.test_malformed_and_hostile_are_modes_and_answer_without_the_wait"]),
     ("mcphttp: bound 0", "mcphttp.ts", "const MODE_SETTLE_MS = 2000;", "const MODE_SETTLE_MS = 0;",
      ["McpHttp.test_a_held_request_reads_past_a_mode_file_caught_empty"]),
     ("fakegw: a read that does not parse is taken at once", "fakegw.ts",
      "      if (Date.now() >= until) return text;", "      return text;",
      ["FakeGateway.test_a_usage_file_or_second_catalog_caught_empty_is_read_again"]),
+    ("fakegw: no deadline (follow-up F)", "fakegw.ts",
+     "      if (Date.now() >= until) return text;\n", "",
+     ["FakeGateway.test_a_usage_file_that_never_parses_is_answered_500_at_the_deadline"]),
     ("fakegw: models2 read as before (exists, then text)", "fakegw.ts",
      "        const second = process.env.FAKEGW_MODELS2 ? await settled(process.env.FAKEGW_MODELS2) : null;",
      "        const second = process.env.FAKEGW_MODELS2 && (await Bun.file(process.env.FAKEGW_MODELS2).exists()) ? await Bun.file(process.env.FAKEGW_MODELS2).text() : null;",
@@ -57,7 +72,7 @@ MUTANTS = [
      '''mcphttp) printf '%s\\n' "$rest" > "$run/mcphttp.mode" ;;''',
      ["Verbs.test_a_file_a_verb_changes_mid_run_is_replaced_whole"]),
 ]
-env = dict(os.environ, TMPDIR="/private/tmp/claude-501/flake-mcpmode/t")
+env = dict(os.environ, TMPDIR=os.path.join(os.environ["TMPDIR"], "flake-mcpmode-t"))  # TMPDIR: a scratch directory
 killed = 0
 for name, file, old, new, tests in MUTANTS:
     tree = os.path.join(work, "mutant")

@@ -1,0 +1,34 @@
+# Follow-up F, loaded: the 4 new tests on b7561e7c, 20 runs, under SUITE_LOCK_EXCLUSIVE=1 suite-lock.sh (every slot held, so
+# nothing else heavy ran), one 'yes > /dev/null' per core (18) owned and stopped by load_loop.py.
+spinners 18 started 2026-11-08T18:04:47Z
+spinners stopped 2026-11-08T18:07:01Z; loop rc=0; 1-min load avg min 7.8 max 33.2 over 26 samples
+# (the 1-minute average climbs from where it stood when the spinners started; the loop lasted 2 min 14 s)
+test_a_mode_file_that_cannot_be_read_is_answered_unknown_with_its_error     passed 20/20
+test_a_mode_file_that_never_holds_a_mode_is_answered_unknown_at_the_deadline passed 20/20
+test_a_usage_file_that_never_parses_is_answered_500_at_the_deadline         passed 20/20
+test_malformed_and_hostile_are_modes_and_answer_without_the_wait            passed 20/20
+# per run:
+run 1 rc=0 Ran 4 tests in 6.607s OK 
+run 2 rc=0 Ran 4 tests in 6.611s OK 
+run 3 rc=0 Ran 4 tests in 6.592s OK 
+run 4 rc=0 Ran 4 tests in 6.647s OK 
+run 5 rc=0 Ran 4 tests in 6.631s OK 
+run 6 rc=0 Ran 4 tests in 6.620s OK 
+run 7 rc=0 Ran 4 tests in 6.581s OK 
+run 8 rc=0 Ran 4 tests in 6.604s OK 
+run 9 rc=0 Ran 4 tests in 6.611s OK 
+run 10 rc=0 Ran 4 tests in 6.590s OK 
+run 11 rc=0 Ran 4 tests in 6.590s OK 
+run 12 rc=0 Ran 4 tests in 6.584s OK 
+run 13 rc=0 Ran 4 tests in 6.584s OK 
+run 14 rc=0 Ran 4 tests in 6.584s OK 
+run 15 rc=0 Ran 4 tests in 6.583s OK 
+run 16 rc=0 Ran 4 tests in 6.611s OK 
+run 17 rc=0 Ran 4 tests in 6.590s OK 
+run 18 rc=0 Ran 4 tests in 6.580s OK 
+run 19 rc=0 Ran 4 tests in 6.614s OK 
+run 20 rc=0 Ran 4 tests in 6.616s OK 
+
+# After b7561e7c, scripts/fxcap/test-capture.sh once, unloaded, under one lock slot:
+Ran 67 tests in 228.367s
+OK
