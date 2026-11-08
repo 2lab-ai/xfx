@@ -1,0 +1,22 @@
+base: 39/76 pass; head: 51/76 pass
+moved: 12
+  p5-input-question q6: unresolved-defect -> normalized-identical
+  p5-input-question q6-after: unresolved-defect -> normalized-identical
+  p5-input-question q6-after.full: unresolved-defect -> normalized-identical
+  p5-input-question20 q20-answered: unresolved-defect -> identical
+  p5-input-question20 q20-answered.full: unresolved-defect -> normalized-identical
+  p5-input-question20 q20-back9: unresolved-defect -> normalized-identical
+  p5-input-question20 q20-first: unresolved-defect -> normalized-identical
+  p5-input-question20 q20-left: unresolved-defect -> normalized-identical
+  p5-input-question20 q20-panel: unresolved-defect -> normalized-identical
+  p5-input-question20 q20-tab10: unresolved-defect -> normalized-identical
+  p5-input-question20 q20-tab20: unresolved-defect -> normalized-identical
+  p5-input-question20 q20-wrap: unresolved-defect -> normalized-identical
+dropped (passed at the base, not at the head): 0
+unresolved at the head: 25
+  approvals: after-cc-cmd-ask[tool-schema,approval-grant-scope] after-esc[amendment-card-after-stop] after-esc.full[amendment-card-after-stop] cmd2-ask[tool-schema,approval-grant-scope] edit-amend-typed[approval-grant-scope] edit-ask[approval-grant-scope] edit-down1[approval-grant-scope] edit-down3-wrap[approval-grant-scope] edit-tab-amend[approval-grant-scope] write-ask[approval-grant-scope]
+  approvals-amend-limit: asked[approval-grant-scope] refused[approval-grant-scope] refused-after-edit[approval-grant-scope] refused-again[approval-grant-scope]
+  approvals-big: write-big[approval-scroll,approval-grant-scope] write-big-walked[approval-scroll,approval-grant-scope]
+  p5-input-approval: after[uncaused] cmd-ask[tool-schema] edit-ask[approval-grant-scope]
+  p5-input-question20: resumed[question-resume-replay] resumed.full[question-resume-replay]
+  p5-transcript-question: asked[uncaused] full-120[session-record,transcript-page-offset] full-60[session-record,transcript-page-offset] narrow[uncaused]

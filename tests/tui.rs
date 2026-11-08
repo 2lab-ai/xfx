@@ -4149,7 +4149,7 @@ fn twenty_questions_are_one_panel_and_their_answers_reach_the_next_request_in_or
     // questions` (`builtins/tools.zig:119-122`, `:607`;
     // `fx-p5-input-question20-40x120-bodies/002-completion.json`). Its own e2e
     // answers a batch of 20 by typing twenty ordinals in one write
-    // (`tui-resume.test.ts:5898-5961@481104fd`). Red before: the cap was 4,
+    // (`tui-decision-prompts.test.ts:2531-2590@481104fd`). Red before: the cap was 4,
     // the batch was refused and no panel opened.
     use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
     let gateway = FakeGateway::start(vec![
@@ -4172,7 +4172,7 @@ fn twenty_questions_are_one_panel_and_their_answers_reach_the_next_request_in_or
     on_screen(&session, (40, 120), &["Pick 10?", "Question 10 of 20"], &[]);
     // A narrow screen keeps the page, and the counter is back once the row
     // has room for it again (fx's own e2e of the full batch,
-    // `tui-decision-prompts.test.ts`, 28cf53b5). Read off what arrives after
+    // `tui-decision-prompts.test.ts:2574-2581@481104fd`). Read off what arrives after
     // each resize: the cells are rebuilt at one size only.
     let after = |text: &str, mark: usize| {
         String::from_utf8_lossy(&text.as_bytes()[mark.min(text.len())..]).into_owned()

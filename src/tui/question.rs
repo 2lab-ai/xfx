@@ -1896,7 +1896,7 @@ mod tests {
         // `composeQuestionResolutions` (`question_ui.zig:418-519@481104fd`) as
         // fx's e2e reads it: `  N) <question>` with the answer one row down
         // under the question's first character, `  10) ` six cells wide
-        // (`tui-resume.test.ts:5917-5927@481104fd`;
+        // (`tui-resume.test.ts:6176-6184@481104fd`;
         // `fx-p5-input-question20-40x120-q20-answered.full`).
         let panel = batch(20);
         let answers: Vec<String> = (1..=20).map(|index| format!("Keep {index}")).collect();
