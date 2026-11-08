@@ -484,7 +484,7 @@ class Redaction(unittest.TestCase):
     def test_a_path_under_a_capture_placeholder_is_left_and_a_redirect_is_not(self):
         # capture.sh writes a run's HOME as `<scratch>/home`: a summary row
         # that names it keeps it whole. A `>` that is no placeholder is not
-        # one: `>/home/bob/x` is still a local path.
+        # one: a redirect into a home directory is still a local path.
         text = "mcp <scratch>/home/.fx/mcp.json; ws <work>/home/a; log >" + "/ho" + "me/bob/x"
         self.assertEqual(self.red.public(text), "mcp <scratch>/home/.fx/mcp.json; ws <work>/home/a; log ><local-path>")
 

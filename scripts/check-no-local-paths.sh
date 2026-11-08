@@ -15,30 +15,42 @@
 #
 # It looks for the shapes such a path has, never for one machine's names:
 #
-#   /Users/<name>/         a macOS home directory
-#   /home/<name>/          a Linux home directory
+#   /Users/<name>          a macOS home directory
+#   /home/<name>           a Linux home directory
 #   /tmp/claude-<digits>   a harness's per-user scratch root, also as
-#                          /private/tmp/claude-<digits> on macOS
-#   /var/folders/          macOS's per-user temporary root, also as  (local-path-ok)
-#                          /private/var/folders/                      (local-path-ok)
+#                          /private/tmp/claude-<digits> on macOS, and the
+#                          `claude-<digits>/` a row opens with where a
+#                          binary broke such a root after its `tmp/`
+#   /var/folders/          macOS's per-user temporary root, also as  # local-path-ok
+#                          /private/var/folders/                      # local-path-ok
 #
-# A home directory counts where an absolute path starts: at the start of a
+# A home directory counts where an absolute path starts -- at the start of a
 # line, after a character no path name holds, or after a terminal control
 # sequence (a capture's .ansi colours a path with an SGR sequence, which ends
-# in `m`) -- so `a/home/b/` (a relative path) and `<scratch>/home/.fx/` (a
-# run's HOME, written as a placeholder) are not one. A user name starts with a letter, a digit or `_`, so `/home/.fx/`
-# is not one either.
+# in `m`) -- and ends with its name: before a `/`, any other character no name
+# holds, or the end of the line. So `a/home/b/` (a relative path) is not one,
+# a user name starts with a letter, a digit or `_` (`/home/.fx/` is not one),
+# and a redirect into a home directory, or a bare `cd` into one, is one.
+#
+# It is not every path of a machine. A Windows path, `~user`, a path a URL
+# percent-encodes, a home directory broken across two rows and a scratch root
+# broken anywhere but after its `tmp/` are not found by their shape.
 #
 # Two exceptions, and no others -- no directory is exempt:
 #
-# - **A documented placeholder**, `allowed` below: a home directory that is
-#   nobody's, a test's `/home/u/` or a README's `/home/you/`. It is taken out
-#   of a line before the shapes are matched again, so a line that holds one
-#   and a real path as well is still refused.
-# - **A line marked `local-path-ok`**, for a fixture that must hold such a
-#   shape on purpose: a redaction test's input, the shapes this file's own
-#   documentation names. The mark is on the line itself, in that file's own
-#   comment syntax, and excuses that line only.
+# - **A placeholder**, taken out of a line before the shapes are matched
+#   again, so a line that holds one and a real path as well is still refused:
+#   a home directory that is nobody's (`allowed` below: a test's `/home/u`, a
+#   README's `/home/you`), and a path that continues one of capture.sh's
+#   placeholders (`<scratch>/home/...`, a run's HOME).
+# - **A line that ends in a `local-path-ok` comment**, for a fixture that
+#   must hold such a shape on purpose: a redaction test's input, the shapes
+#   this file's own documentation names. The mark follows a comment opener
+#   (`#`, `//`, `--`, `;`, `<!--`, `/*`) on that line and ends it, a reason
+#   after a `:` allowed; it excuses that line only. In a capture -- a `.txt`,
+#   `.ansi`, `.wire`, `.json`, `.log` and the rest capture.sh writes, or a
+#   file under a `*-bodies/` directory -- no mark excuses anything: the text
+#   is a binary's, not a fixture's.
 #
 # The scan is over *tracked* files -- what a push publishes -- read from the
 # working tree, every one as text: a binary file can carry a path as well as
@@ -88,27 +100,54 @@ fail() {
 # none of them -- `/var/folder[s]/` matches only the bracket-free spelling --
 # because this file is tracked, and is scanned with the rest.
 esc=$'\033'
-start="(^|[^A-Za-z0-9._~+>-]|${esc}\\[[0-9;:?]*[@-~])"
+control="${esc}\\[[0-9;:?]*[@-~]"
+start="(^|[^A-Za-z0-9._~+-]|${control})"
 user='[A-Za-z0-9_][A-Za-z0-9._-]*'
+end='([^A-Za-z0-9._-]|$)'
 patterns=(
-	"a macOS home directory:${start}/User[s]/${user}/"
-	"a Linux home directory:${start}/hom[e]/${user}/"
+	"a macOS home directory:${start}/User[s]/${user}${end}"
+	"a Linux home directory:${start}/hom[e]/${user}${end}"
 	"a harness scratch root:/tmp/claud[e]-[0-9]+"
+	"a harness scratch root, broken after its tmp/:(^|[[:space:]]|${control})claud[e]-[0-9]+/"
 	"a macOS per-user temporary root:/var/folder[s]/"
 )
 
-# The documented placeholders: home directories of nobody, each a whole
-# `/<root>/<name>/` prefix.
+# The documented placeholders: home directories of nobody, each `/<root>/<name>`
+# taken out where its name ends (as a shape's does).
 allowed=(
-	/home/u/        # src/permission/policy.rs: the protected dotfiles of a user `u`
-	/Users/u/       #   and the same on macOS
-	/Users/me/      # src/tui/hyperlink.rs, src/tui/image_paths.rs: a screenshot's path
-	/home/someone/  # src/llmux/setup.rs: a config path the test reads back
-	/Users/someone/ # scripts/fxcap/test_sweep.py: the redactor's own input
-	/home/you/      # README.md: the example workspace
-	/home/runner/   # GitHub-hosted runners' home, and the user train-6's Linux container makes
+	/home/u        # src/permission/policy.rs: the protected dotfiles of a user `u`
+	/Users/u       #   and the same on macOS
+	/Users/me      # src/tui/hyperlink.rs, src/tui/image_paths.rs: a screenshot's path
+	/home/me       # src/mcp/transport.rs: a child's HOME the test sets
+	/Users/example # src/config.rs: a path the test keeps as it is
+	/home/someone  # src/llmux/setup.rs: a config path the test reads back
+	/Users/someone # scripts/fxcap/test_sweep.py: the redactor's own input
+	/home/you      # README.md: the example workspace
+	/home/runner   # GitHub-hosted runners' home, and the user train-6's Linux container makes
 )
+allowed_re="("
+for entry in "${allowed[@]}"; do
+	allowed_re+="${entry}|"
+done
+allowed_re="${allowed_re%|})${end}"
+# capture.sh's placeholders (scripts/fxcap/roots.py NAMES), as given and
+# resolved: what follows one is inside the run, a run's HOME among it.
+placeholders=()
+for name in work scratch scenarios bun tmp home; do
+	placeholders+=("<$name>" "<$name:real>")
+done
 marker=local-path-ok
+# The mark, as the comment that ends a line.
+marked_re="(^|[[:space:]])(#|//|--|;|<!--|/[*]).*${marker}(:.*)?([[:space:]]*(-->|[*]/))?[[:space:]]*$"
+
+# Whether a file is a capture, whose text no mark excuses: the kinds
+# scripts/fxcap/capture.sh writes, and a request body.
+is_capture() {
+	case "$1" in
+	*-bodies/* | *.txt | *.ansi | *.wire | *.json | *.log | *.files | *.clip | *.clipfile | *.title | *.cursor | *.bells | *.sockets | *.port) return 0 ;;
+	esac
+	return 1
+}
 
 # Git for the scans. Config the `GIT_*` drop leaves can still steer it:
 # `core.fsmonitor` runs a program; a checkout-local `core.worktree` reads
@@ -155,6 +194,10 @@ scan_tree() {
 		return 1
 	fi
 	while IFS= read -r -d '' path; do
+		markable=yes
+		if is_capture "$path"; then
+			markable=no
+		fi
 		if ! probe="$(head -c 8000 "$root/$path" | tr -d -c '\000' | wc -c)"; then
 			printf 'check-no-local-paths: could not read the first bytes of %s\n' "$root/$path" >&2
 			return 1
@@ -173,15 +216,26 @@ scan_tree() {
 		while IFS= read -r line || [ -n "$line" ]; do
 			number="${line%%:*}"
 			text="${line#*:}"
-			case "$text" in
-			*"$marker"*)
+			if [ "$markable" = yes ] && [[ $text =~ $marked_re ]]; then
 				marked=$((marked + 1))
 				continue
-				;;
-			esac
+			fi
 			bare="$text"
-			for entry in "${allowed[@]}"; do
-				bare="${bare//"$entry"/}"
+			# (Each pattern in a variable: bash 3.2 reads a `/` inside a quoted
+			# pattern as the expansion's own separator.)
+			for entry in "${placeholders[@]}"; do
+				inside="$entry/home"
+				bare="${bare//"$inside"/}"
+				inside="$entry/Users"
+				bare="${bare//"$inside"/}"
+			done
+			# Each placeholder home where its name ends, keeping the
+			# character after it; one at a time, the leftmost first.
+			# (Rebuilt from either side of the match: bash 3.2 keeps the quotes
+			# of a quoted replacement, and bash 5.2 reads `&` in a bare one.)
+			while [[ $bare =~ $allowed_re ]]; do
+				found="${BASH_REMATCH[0]}" after="${BASH_REMATCH[2]}"
+				bare="${bare%%"$found"*}${after}${bare#*"$found"}"
 			done
 			hit=""
 			for entry in "${patterns[@]}"; do
@@ -225,13 +279,20 @@ folders="${s}private${s}var${s}folders${s}ab${s}T${s}"
 	printf '%s\n' "${s}tmp${s}claude-1000${s}x" # 5
 	printf 'a%sb and %s\n' "$mac" "${s}home${s}u${s}" # 6: a relative path, then a placeholder
 	printf '%s and %s\n' "${s}home${s}u${s}" "$linux" # 7: a placeholder does not excuse a real path
-	printf '%s %s\n' "$folders" "$marker" # 8: marked
+	printf '%s # %s\n' "$folders" "$marker" # 8: marked, the comment that ends the line
 	printf '%s\n' "$linux"                # 9: the mark above is its own line's only
 	printf '<scratch>%shome%s.fx%smcp.json fxcap.Ab12Cd%shome%s.xfx%s\n' "$s" "$s" "$s" "$s" "$s" "$s" # 10
 	printf '%s<name>%s %s<digits> <work>%sshot.png\n' "${s}Users${s}" "$s" "${s}private${s}tmp${s}claude-" "$s" # 11
 	printf '\033[38;5;245m%sx\033[39m\n' "$linux" # 12: a coloured path, after its SGR sequence's `m`
+	printf 'log >%sx\n' "$linux"             # 13: a redirect is no placeholder
+	printf 'cd %s\n' "${s}Users${s}alice"    # 14: a home with no slash after it
+	printf '<scratch>%shome%su%sx <work:real>%sUsers%scarol%s\n' "$s" "$s" "$s" "$s" "$s" "$s" # 15: inside a run
+	printf '  \033[38;5;250mclaude-501%sfxcap.Ab12Cd%swork\n' "$s" "$s" # 16: a root broken after its tmp/
+	printf 'see %sx %s and more\n' "$mac" "$marker" # 17: a mark that does not end the line
 } >"$control/lines.md"
 printf 'x\000%s\n' "$mac" >"$control/blob.bin"
+mkdir -p "$control/x-bodies"
+printf '%s # %s\n' "$linux" "$marker" >"$control/x-bodies/001.json" # a mark in a capture
 scratch_git -C "$control" add -A -f
 want="blob.bin: (a binary file, which cannot be marked): a local path
 lines.md:1: a macOS home directory
@@ -240,16 +301,21 @@ lines.md:3: a harness scratch root
 lines.md:4: a macOS per-user temporary root
 lines.md:5: a harness scratch root
 lines.md:12: a Linux home directory
+lines.md:13: a Linux home directory
+lines.md:14: a macOS home directory
+lines.md:16: a harness scratch root, broken after its tmp/
+lines.md:17: a macOS home directory
 lines.md:7: a Linux home directory
-lines.md:9: a Linux home directory"
+lines.md:9: a Linux home directory
+x-bodies/001.json:1: a Linux home directory"
 # Into a file, not through `$( )`: the counts are this shell's.
 if ! scan_tree "$control" >"$work/got"; then
 	fail 'the scan could not run in its own control; this scan is not working'
 elif [ "$(sort "$work/got")" != "$(printf '%s\n' "$want" | sort)" ]; then
 	fail 'the scan does not report exactly the planted paths in its own control; this scan is not working:'
 	cat "$work/got" >&2
-elif [ "$marked" -ne 1 ] || [ "$placeheld" -ne 1 ]; then
-	fail "the control's marked line or its placeholder was not counted as one ($marked marked, $placeheld placeholder); this scan is not working"
+elif [ "$marked" -ne 1 ] || [ "$placeheld" -ne 2 ]; then
+	fail "the control's marked line and its two placeholder lines were not counted ($marked marked, $placeheld placeholder); this scan is not working"
 fi
 
 # --- the scan itself ---------------------------------------------------------

@@ -20,10 +20,15 @@
 #     named `-`, one under a directory named `-x`, one with no newline at its
 #     end, and a binary file (refused by name: it cannot be marked);
 #   - a placeholder and a real path on one line, and a marked line followed
-#     by an unmarked one: an exception covers its own text, not its neighbour.
+#     by an unmarked one: an exception covers its own text, not its neighbour;
+#   - a redirect into a home (`>` is no placeholder), a home with no slash
+#     after it, a harness root broken after its `tmp/`, a mark in a request
+#     body and in a `.txt` (no mark excuses a capture), and a mark that does
+#     not end its line.
 # Required to pass: the placeholders captures use, a relative path, the
 # documentation's `<name>` and `<digits>` forms, `$TMPDIR` and `~`, each
-# documented placeholder, and a marked fixture -- counted as such.
+# documented placeholder (bare too), a home inside a run (`<scratch>/home/...`),
+# and a marked fixture -- counted as such.
 # And the environment: `GIT_DIR` naming a clean decoy, `GIT_INDEX_FILE`
 # naming an empty index, `GREP_OPTIONS`, and a HOME whose config sets
 # `grep.column`, `color.grep` and an fsmonitor program must not change the
@@ -119,6 +124,13 @@ printf 'a\nb\n%s' "$harness_mac" >"$t/-x/last.txt"
 printf 'PNG\000%s\n' "$mac" >"$t/blob.bin"
 printf '%s and %s\n' "${s}home${s}u${s}" "$linux" >"$t/both.rs"
 printf '%s // local-path-ok\n%s\n' "$folders" "$folders" >"$t/marked.rs"
+printf 'log >%sx\n' "$linux" >"$t/redirect.sh"
+printf 'cd %s\n(%s)\n' "${s}Users${s}alice" "${s}home${s}bob" >"$t/bare.md"
+printf '  \033[38;5;250mclaude-501%sfxcap.Ab12Cd%swork\n' "$s" "$s" >"$t/wrapped.ansi"
+mkdir -p "$t/fx-x-40x120-bodies"
+printf '{"cwd":"%sx"} // local-path-ok\n' "$linux" >"$t/fx-x-40x120-bodies/001-completion.json"
+printf '%sx # local-path-ok\n' "$mac" >"$t/notes.txt"
+printf 'see %sx local-path-ok here\n' "$mac" >"$t/midline.md"
 track "$t"
 run_check "$t"
 want=(
@@ -135,6 +147,13 @@ want=(
 	"blob.bin: (a binary file, which cannot be marked): a local path"
 	"both.rs:1: $linux_shape"
 	"marked.rs:2: $folders_shape"
+	"redirect.sh:1: $linux_shape"
+	"bare.md:1: $home_shape"
+	"bare.md:2: $linux_shape"
+	"wrapped.ansi:1: a harness scratch root, broken after its tmp/"
+	"fx-x-40x120-bodies/001-completion.json:1: $linux_shape"
+	"notes.txt:1: $home_shape"
+	"midline.md:1: $home_shape"
 )
 missing=()
 for line in "${want[@]}"; do
@@ -183,14 +202,16 @@ new_tree "$t"
 	printf 'derived: "$TMPDIR/x" "${HOME}/x" ~/x\n'
 	printf 'placeholders: %s.zshrc %sa.png %sproject\n' "${s}home${s}u${s}" "${s}Users${s}me${s}" "${s}home${s}you${s}"
 	printf 'fixture: %sx  # local-path-ok: a redaction input\n' "$folders"
+	printf 'inside a run: <scratch>%shome%su%sx <work:real>%sUsers%scarol%snotes <tmp>%shome%sdave%s `%s` (%s)\n' \
+		"$s" "$s" "$s" "$s" "$s" "$s" "$s" "$s" "$s" "${s}Users${s}me" "${s}home${s}me"
 } >"$t/clean.md"
 track "$t"
 run_check "$t"
 if [ "$status" -ne 0 ]; then
 	problem "passes: the check exited $status on a tree with no local path:"
 	show
-elif [ -z "$self_marked" ] || ! grep -q -x -F "check-no-local-paths: ok (2 tracked file(s) scanned; $((self_marked + 1)) marked fixture line(s), $((self_placeheld + 1)) placeholder line(s))" "$work/out"; then
-	problem "passes: the check passed without counting the one marked line and the one placeholder line:"
+elif [ -z "$self_marked" ] || ! grep -q -x -F "check-no-local-paths: ok (2 tracked file(s) scanned; $((self_marked + 1)) marked fixture line(s), $((self_placeheld + 2)) placeholder line(s))" "$work/out"; then
+	problem "passes: the check passed without counting the one marked line and the two placeholder lines:"
 	show
 else
 	ok passes "placeholders, relative and derived paths, one marked fixture"
