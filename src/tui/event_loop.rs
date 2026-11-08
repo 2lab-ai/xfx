@@ -349,6 +349,16 @@ fn launch_title(shell: &mut Shell, band: &mut Band) {
 /// exists to prevent. What is left over is taken by the next turn, [`TICK`]
 /// later at the latest.
 fn take_ui_events(shell: &mut Shell, events: &mut Receiver<UiEvent>) {
+    // The drain is over, and whether it emptied the channel: the batch
+    // boundary a stopped turn's late text is read against
+    // ([`Shell::ui_events_taken`]).
+    let emptied = drain_ui_events(shell, events);
+    shell.ui_events_taken(emptied);
+}
+
+/// [`take_ui_events`]' drain: whether it stopped because the channel was
+/// empty (or closed), rather than at one of its two bounds.
+fn drain_ui_events(shell: &mut Shell, events: &mut Receiver<UiEvent>) -> bool {
     for _ in 0..bridge::UI_EVENTS {
         // And bounded a second way, which is where the pacer's queue gets its
         // bound. `Shell` releases answer text against a clock, so taking events
@@ -367,16 +377,17 @@ fn take_ui_events(shell: &mut Shell, events: &mut Receiver<UiEvent>) {
         // event of overshoot, which is the least any policy that may not drop
         // an event can be ([`PACED_BACKLOG`]).
         if shell.paced_backlog() >= PACED_BACKLOG {
-            return;
+            return false;
         }
         match events.try_recv() {
             Ok(event) => shell.apply(event),
             // Empty, or a runtime that is gone -- and a runtime that is gone
             // said so with a `Fatal` before its sender dropped, so there is
             // nothing here that has to be inferred from a closed channel.
-            Err(_) => return,
+            Err(_) => return true,
         }
     }
+    false
 }
 
 /// The three things an exit borrows from its caller.
@@ -14381,6 +14392,29 @@ mod tests {
                 ("a cut drain", true, true, true),
             ],
             "each: the late text, the Cancelled line above the summary, the text between them"
+        );
+    }
+
+    #[test]
+    fn late_text_a_stop_holds_counts_against_the_drains_bound() {
+        // The text a stopped turn's end may still place is the answer held a
+        // drain longer, and the bound that keeps the pacer's queue short
+        // (`the_loop_stops_taking_events_while_the_stream_it_already_has_is_deep_enough`)
+        // keeps it short too.
+        let (mut shell, mut band, mut out) = status_running(b"go\r");
+        shell.route_bytes(&[0x03]);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.apply(UiEvent::Delta("x".repeat(PACED_BACKLOG)));
+        let (events, mut receiver) = tokio::sync::mpsc::channel(bridge::UI_EVENTS);
+        let waiting = UiEvent::Delta("STILL-ON-THE-CHANNEL".to_string());
+        events
+            .try_send(waiting.clone())
+            .expect("room on the channel");
+        take_ui_events(&mut shell, &mut receiver);
+        assert_eq!(
+            receiver.try_recv().ok(),
+            Some(waiting),
+            "the loop took an event past the bound while a stop held late text"
         );
     }
 

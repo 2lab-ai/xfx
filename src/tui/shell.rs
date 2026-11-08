@@ -1565,6 +1565,12 @@ pub(crate) struct Shell {
     /// The title owed waits past this tick's frame and goes out with the
     /// next tick's ([`Self::take_leading_title`], [`Self::tick_committed`]).
     title_held: bool,
+    /// Answer text read under the user's stop of a turn whose end may still
+    /// say it finished first ([`Self::stop_reads_end`]): kept for the drain
+    /// it arrived in, presented if that drain also reads the turn's end and
+    /// the end is not the stop's own, dropped when the drain ends
+    /// ([`Self::ui_events_taken`]). `true` marks an operational line.
+    late: Vec<(bool, String)>,
     /// The user stopped work at a keystroke of this tick
     /// ([`Self::cancel_turn_with`], [`Self::stop_compaction`]), so its `idle`
     /// and its `Cancelled` frame are this tick's ([`Self::take_leading_title`]).
@@ -2614,6 +2620,7 @@ impl Shell {
             title_leads: None,
             title_held: false,
             stop_in_tick: false,
+            late: Vec::new(),
             workspace: config.workspace_root.clone(),
             document_rows: 0,
             fatal: None,
@@ -3806,6 +3813,7 @@ impl Shell {
         // stopped turn's title is the replaced conversation's.
         self.stop_requested = false;
         self.title_leads = None;
+        self.late.clear();
         // A landed fork's prompt held under a search is the replaced
         // conversation's draft: a resume (the session picker is a search) or
         // a later fork must not hand it to this one. A fork landing now
@@ -4288,7 +4296,8 @@ impl Shell {
             // **Not after a cancel**: what is still crossing the channel when
             // the user stopped the turn is the tail of the answer they stopped,
             // and the line saying so is already under what they read
-            // ([`Self::cancel_turn`]).
+            // ([`Self::cancel_turn`]) -- unless the turn's end, read in the
+            // same drain, says it came to something else ([`Self::late`]).
             UiEvent::Delta(text) => {
                 if !self.cancelling {
                     // A retried answer arriving leaves the row as it is:
@@ -4296,6 +4305,8 @@ impl Shell {
                     // through (`fx-interrupt-recovered-40x120-slow-2.8`), and
                     // then says that ([`UiEvent::Recovered`]).
                     self.stream(&text);
+                } else if self.keeps_late_text() {
+                    self.late.push((false, text));
                 }
             }
             // In the place the stream has reached, not at once: it is about the
@@ -4303,6 +4314,8 @@ impl Shell {
             UiEvent::Operational(text) => {
                 if !self.cancelling {
                     self.mark(Mark::Operational(text));
+                } else if self.keeps_late_text() {
+                    self.late.push((true, text));
                 }
             }
             // A request failed and the turn will try it again. Not after a
@@ -4660,6 +4673,24 @@ impl Shell {
                     }
                     if waiting {
                         self.write_notice(&notice::Notice::cancelled("queue", QUEUE_DROPPED));
+                    }
+                }
+                // The answer read after the stop in this drain, when the end
+                // is not the stop's own: upstream's drain presents a batch
+                // that holds the turn's own finish, or that its worker had
+                // already let go of, as no interrupted segment
+                // (`batchSegmentIsInterrupted`, `app_worker_runtime.zig:301-325@481104fd`;
+                // `takeEventBatch`'s `cancelled_turn_id`,
+                // `worker_runtime.zig:923-937`) -- under the keystroke's
+                // `Cancelled` line and above the summary or the failure.
+                for (operational, text) in std::mem::take(&mut self.late) {
+                    if quiet {
+                        break;
+                    }
+                    if operational {
+                        self.mark(Mark::Operational(text));
+                    } else {
+                        self.stream(&text);
                     }
                 }
                 // A summary only under a turn the runtime ran: `/model`, `/setup`
@@ -9032,6 +9063,26 @@ impl Shell {
         self.activity.working() || self.waiting_prompts().next().is_some()
     }
 
+    /// Whether answer text read now is kept for the turn's end to place
+    /// ([`Self::late`]): under the user's stop of a turn whose end may say it
+    /// came to something else, and not one a compaction ended.
+    fn keeps_late_text(&self) -> bool {
+        self.stop_reads_end && !self.compaction_ended_turn
+    }
+
+    /// A drain of the runtime's events is over (`super::event_loop`'s
+    /// `take_ui_events`). One that emptied the channel is upstream's batch:
+    /// answer text it read under a stop with no end of its turn behind it was
+    /// read while the stopped turn still ran, and upstream drops such a
+    /// batch's text (`cancelledEventAdmission`,
+    /// `app_worker_runtime.zig:339-389@481104fd`). One its bound cut short is
+    /// not: what is still on the channel is the same batch.
+    pub(crate) fn ui_events_taken(&mut self, emptied: bool) {
+        if emptied {
+            self.late.clear();
+        }
+    }
+
     /// The prompts still waiting for their turn: those [`Self::prompts`]
     /// holds that no stop covered ([`Self::cancel_through`]). A covered one
     /// is the runtime's to drop or to stop, and is neither shown nor work;
@@ -9885,9 +9936,12 @@ impl Shell {
     /// [`PACED_BACKLOG`]. That is where the bound on this queue lives: the
     /// channel fills behind a UI that has stopped listening, the runtime parks
     /// in its `send().await`, and the socket feels it -- rather than a `String`
-    /// here growing to the length of the answer.
+    /// here growing to the length of the answer. Answer text a stop's turn
+    /// is still to place ([`Self::late`]) counts too: it is the same text,
+    /// held a drain longer.
     pub(crate) fn paced_backlog(&self) -> usize {
-        self.pacer.pending()
+        let late: usize = self.late.iter().map(|(_, text)| text.len()).sum();
+        self.pacer.pending().saturating_add(late)
     }
 
     /// Why the session is ending, when the runtime is why.
@@ -10256,6 +10310,7 @@ impl Shell {
             self.stop_requested = false;
         }
         if self.cancelling && self.work.outstanding() == 0 && self.tally.started.is_none() {
+            self.late.clear();
             self.cancelling = false;
             self.stop_reads_end = false;
             self.compaction_ended_turn = false;
@@ -15095,6 +15150,7 @@ impl Shell {
         self.cancel_owed = None;
         self.stop_requested = false;
         self.title_leads = None;
+        self.late.clear();
         // So is a failed automatic compaction's turn: its result was reported
         // when the compaction settled, and the end that would have taken this
         // is drained. Kept, it would read the next conversation's first prompt
@@ -45851,9 +45907,9 @@ mod tests {
         // its `Cancelled` line at once (`input_interrupt_runtime.zig:91-127@481104fd`)
         // and its drain then presents the finished turn's summary
         // (`finishPromptPresentation`, `app_callbacks.zig:276-283`), so the
-        // line is above the summary. (What becomes of the late text is
-        // STOP-NEXT-2's: xfx drops it under the cancel, where upstream's drain
-        // presents a segment that is not an interrupted one.)
+        // line is above the summary. (The late text is presented between the
+        // two, as upstream's drain presents a segment that is not an
+        // interrupted one: `a_finished_turns_late_text_is_presented_with_its_end_in_one_drain`.)
         let mut shell = running("first question");
         shell.route_bytes(&[0x03]);
         shell.apply(UiEvent::Delta("an answer\n".to_string()));
