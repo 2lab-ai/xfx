@@ -1,0 +1,40 @@
+# token_check.py (train 7's, unchanged: byte for byte the same file) over the merges
+merge b4211654: ours ccced1f5, theirs 05a0a857, base 9298583e -- OK
+  parity row '`/model`': changed by theirs; 152 tokens added, 0 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause answer-modifier-sequence-wider: changed by ours, kept so
+  ledger cause call-row-page-edge: changed by ours, kept so
+  ledger cause ri-run-pairing: changed by ours, kept so
+  ledger divergence answer-drawn-wider-named: changed by ours, kept so
+  ledger divergence answer-label-and-modifier-named: changed by ours, kept so
+  ledger divergence call-row-arabic-letter-mark: changed by ours, kept so
+  ledger divergence call-row-raw-argument: changed by ours, kept so
+  ledger divergence call-row-source-cut: changed by ours, kept so
+  ledger divergence ctrl-o-drawn-wider-named: changed by ours, kept so
+  ledger divergence inline-band-row-anchor: changed by ours, kept so
+  ledger normalization capture-tmpdir: changed by ours, kept so
+  ledger normalization run-directory: changed by ours, kept so
+  ledger normalization tmux-dead-pane: changed by ours, kept so
+  ledger comments: 0 added, 0 deleted, all as expected
+merge b9658fe7: ours b4211654, theirs 3824f6ba, base 712dd8d1 -- OK
+  parity row '`/model`': changed by ours; 152 tokens added, 0 deleted, all as expected, in order
+  parity row '`ask_user_question`': changed by theirs; 303 tokens added, 1 deleted, all as expected, in order
+  parity row "a question's line breaks in a program status message": changed by theirs; 1 tokens added, 1 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause answer-modifier-sequence-wider: changed by ours, kept so
+  ledger cause call-row-page-edge: changed by ours, kept so
+  ledger cause question-cap-four: deleted by theirs, kept so
+  ledger cause question-resume-replay: added by theirs, kept so
+  ledger cause ri-run-pairing: changed by ours, kept so
+  ledger divergence answer-drawn-wider-named: changed by ours, kept so
+  ledger divergence answer-label-and-modifier-named: changed by ours, kept so
+  ledger divergence call-row-arabic-letter-mark: changed by ours, kept so
+  ledger divergence call-row-raw-argument: changed by ours, kept so
+  ledger divergence call-row-source-cut: changed by ours, kept so
+  ledger divergence ctrl-o-drawn-wider-named: changed by ours, kept so
+  ledger divergence inline-band-row-anchor: changed by ours, kept so
+  ledger normalization capture-tmpdir: changed by ours, kept so
+  ledger normalization run-directory: changed by ours, kept so
+  ledger normalization tmux-dead-pane: changed by ours, kept so
+  ledger comments: 1 added, 0 deleted, all as expected
+# exit 0

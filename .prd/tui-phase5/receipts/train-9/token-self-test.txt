@@ -1,0 +1,16 @@
+  self-test parity, a token a side added, dropped: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row one side changed ('`/model`'), two tokens swapped: found
+self-test b4211654: 4 of 4 found
+# exit 0
+  self-test parity, a token a side added, dropped: found
+  self-test ledger, an added entry (question-resume-replay) dropped: found
+  self-test ledger, a deleted entry (question-cap-four) back: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('`ask_user_question`') as the other side has it: found
+  self-test parity, a row a side changed ("a question's line breaks in a program st") as the other side has it: found
+  self-test parity, a row one side changed ('`/model`'), two tokens swapped: found
+self-test b9658fe7: 8 of 8 found
+# exit 0

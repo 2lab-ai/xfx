@@ -1,0 +1,4 @@
+== merge b4211654: ours ccced1f5, theirs 05a0a857, base 9298583e; files both changed: 0
+== merge b9658fe7: ours b4211654, theirs 3824f6ba, base 712dd8d1; files both changed: 2
+  docs/parity.md: ours 1 hunks, theirs 2 hunks; nearest: 68 unchanged base lines (ours 93-93, theirs 162-162)
+  scripts/fxcap/parity-ledger.toml: ours 13 hunks, theirs 2 hunks; nearest: 119 unchanged base lines (ours 533-533, theirs 653-653)

@@ -2,17 +2,17 @@
 # Train 9's merge checks, written into this directory through redacted.py:
 # the token check and its negative control over the merges (train 7's
 # token_check.py, byte for byte), the remerge-diffs, the reference maps
-# before the receipt (at the join tests' commit) and at the head, the stale
-# references, and the overlaps. Train 8's merge-checks.sh with this train's
-# merges and sides; no re-point (no reference the merges moved).
+# before the re-point commit (at the last join test's commit) and at the
+# head, the re-points against their code, the stale references, and the
+# overlaps. Train 8's merge-checks.sh with this train's merges and sides.
 # usage: merge-checks.sh <repo> <head> <merge>...   (no lock: git and python only)
 set -u
 repo=$1 head=$2; shift 2
 merges=("$@")
 here=$(cd "$(dirname "$0")" && pwd)
 rd() { python3 -I -B "$here/redacted.py" "$1" "$repo=<repo>"; }
-JOINS=afe31cb2
-SIDES=(main=ccced1f5 stop-in-catalog-wait=05a0a857 questions-20=3824f6ba)
+JOINS=${JOINS:-b9409b36}
+SIDES=(main=ccced1f5 stop-in-catalog-wait=05a0a857 questions-20=3824f6ba paste-after-end=a832f4d7)
 [ -n "${HNS:-}" ] && SIDES+=("history-notice-stop=$HNS")
 {
   echo "# token_check.py (train 7's, unchanged: $(cmp -s "$here/token_check.py" "$here/../train-7/token_check.py" && echo 'byte for byte the same file' || echo 'DIFFERENT from train 7s')) over the merges"
@@ -31,5 +31,7 @@ python3 -I -B "$here/refs_all.py" "$repo" $JOINS "${SIDES[@]}" | rd "$here/refs-
 python3 -I -B "$here/refs_short.py" "$repo" $JOINS "${SIDES[@]}" | rd "$here/refs-short-merges.txt"
 python3 -I -B "$here/refs.py" "$repo" "$head" "${SIDES[@]}" | rd "$here/refs-head.txt"
 { python3 -I -B "$here/refs_all.py" "$repo" "$head" "${SIDES[@]}"; echo; python3 -I -B "$here/refs_short.py" "$repo" "$head" "${SIDES[@]}"; } | rd "$here/refs-all.txt"
+python3 -I -B "$here/repointed.py" "$repo" "$head" | rd "$here/repointed.txt"
 python3 -I -B "$here/stale.py" "$repo" "$head" | rd "$here/stale.txt"
+python3 -I -B "$here/invariant.py" "$repo" a832f4d7 "$head" | rd "$here/invariant.txt"
 python3 -I -B "$here/overlap.py" "$repo" "${merges[@]}" | rd "$here/overlap.txt"

@@ -1,0 +1,9 @@
+# head dfedcd1a; sides: main ccced1f5, stop-in-catalog-wait 05a0a857, questions-20 3824f6ba
+docs/superpowers/plans/2026-08-24-provider-frame.md: tests/tool_loop.rs:1266
+    main MOVED -> 1274 | stop-in-catalog-wait MOVED -> 1274
+# 192 references in 592 files; 1 moved or changed on some side that cites them
+
+# head dfedcd1a; sides: main ccced1f5, stop-in-catalog-wait 05a0a857, questions-20 3824f6ba
+src/tui/event_loop.rs: frame.rs:1615-1628 (src/tui/frame.rs)
+    stop-in-catalog-wait CHANGED | questions-20 CHANGED
+# 31 short references into changed files; 1 moved or changed on some side that cites them

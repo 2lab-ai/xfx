@@ -1,0 +1,9 @@
+# lines holding #[test] under src and tests (git grep -c '#\[test\]'), and '    def test_' under scripts/fxcap, per commit
+ccced1f5 Merge pull request #86 from 2lab-ai/train/p5-1109a           rust  5374  fxcap 173
+05a0a857 docs(receipt): STOP-IN-CATALOG-WAIT round 2 -- the path chec rust  5361  fxcap 165
+9298583e Merge main f096c163 (#83, epic-4 preview epoch) into train/p rust  5360  fxcap 165
+3824f6ba docs(receipt): questions-20 -- the captures' scratch root ou rust  5367  fxcap 165
+712dd8d1 Merge pull request #85 from 2lab-ai/ci/p5-x86-time           rust  5360  fxcap 165
+b4211654 Merge STOP-IN-CATALOG-WAIT (fix/p5-stop-in-catalog-wait @ 05 rust  5375  fxcap 173
+b9658fe7 Merge QUESTIONS-20 (feat/p5-questions-20 @ 3824f6ba) into tr rust  5382  fxcap 173
+afe31cb2 test(tui): train 9 join check 2 -- stops around a 20-questio rust  5384  fxcap 173

@@ -1,0 +1,4 @@
+# head afe31cb2; sides: main ccced1f5, stop-in-catalog-wait 05a0a857, questions-20 3824f6ba
+src/tui/event_loop.rs: frame.rs:1615-1628 (src/tui/frame.rs)
+    stop-in-catalog-wait CHANGED | questions-20 CHANGED
+# 31 short references into changed files; 1 moved or changed on some side that cites them

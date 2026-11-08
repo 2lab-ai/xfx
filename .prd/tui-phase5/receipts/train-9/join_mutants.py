@@ -6,10 +6,11 @@ clone clean at the end; train 8's join_mutants.py's runner (each cargo run
 bounded at LIMIT seconds, its process group killed past it: "KILLED (hang)").
 
 Each mutant's text is its unit's own (QUESTIONS-20's mutants.py M1;
-STOP-IN-CATALOG-WAIT's mutants.py, its single-edit ones) but P1, on the
-question requester's stop arm. Each is run against the two join tests and
-one test of each unit: STOP-IN-CATALOG-WAIT's catalog-wait test and
-QUESTIONS-20's 20-question pty test.
+STOP-IN-CATALOG-WAIT's mutants.py, its single-edit ones; PASTE-AFTER-END's
+mutants.py 1 and 6) but P1, on the question requester's stop arm. Each is
+run against the three join tests (join checks 2 and 5) and one test of each
+unit: STOP-IN-CATALOG-WAIT's catalog-wait test, QUESTIONS-20's 20-question
+pty test and PASTE-AFTER-END's pty test of an Enter behind the marker.
 
     suite-lock.sh python3 -I -B join_mutants.py <clone>
 """
@@ -26,14 +27,19 @@ LIB = [
 TUI = [
     "a_stop_at_a_twenty_question_panel_is_one_cancelled_row_and_the_next_turn_carries_its_prompt",
     "twenty_questions_are_one_panel_and_their_answers_reach_the_next_request_in_order",
+    "a_paste_with_enter_behind_its_marker_on_page_ten_of_twenty_is_kept_and_answers_nothing",
+    "a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing",
 ]
 TESTS = LIB + TUI
-SHORT = {LIB[0]: "join-wait", TUI[0]: "join-panel", LIB[1]: "stop-unit", TUI[1]: "q20-unit"}
+SHORT = {LIB[0]: "join-wait", TUI[0]: "join-panel", TUI[2]: "join-paste", LIB[1]: "stop-unit", TUI[1]: "q20-unit",
+         TUI[3]: "paste-unit"}
 Q = "src/tools/question.rs"
 P = "src/tui/question.rs"
 W = "src/tui/worker.rs"
 M = "src/agent/machine.rs"
 B = "src/tui/bridge.rs"
+I = "src/tui/input.rs"
+S = "src/tui/shell.rs"
 MUTANTS = [
     ("Q1 the cap back to 4 (QUESTIONS-20's M1)", Q,
      "pub const MAX_QUESTIONS: usize = 20;", "pub const MAX_QUESTIONS: usize = 4;"),
@@ -50,6 +56,15 @@ MUTANTS = [
     ("P1 a stop at the panel answers the batch declined, not aborted", P,
      "                        self.control.give_back(stop);\n                        return QuestionReply::Interrupted;",
      "                        self.control.give_back(stop);\n                        return QuestionReply::Declined;"),
+    ("X1 the bytes behind the marker are decoded: a trailing CR submits (PASTE-AFTER-END's mutant 1)", I,
+     "        if let Some(behind) = self.behind.as_mut() {\n"
+     "            *behind = behind.saturating_add(1);\n"
+     "            return;\n"
+     "        }\n",
+     ""),
+    ("X6 no warning (PASTE-AFTER-END's mutant 6)", S,
+     "                if dropped > 0 {\n                    self.ignored_behind_paste();\n                }\n",
+     "                let _ = dropped;\n"),
 ]
 
 

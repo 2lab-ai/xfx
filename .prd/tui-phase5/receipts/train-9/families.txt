@@ -1,0 +1,10 @@
+| family | head | main | unit-stop-in-catalog-wait | unit-questions-20 |
+|---|---|---|---|---|
+| the stop scenarios (*stop*, interrupt*, compact-cancel, p5-transcript-cancel) | 79 / 89 | 75 / 86 | 3 / 3 | 4 / 4 |
+| p5-lifecycle-* (STOP-NEXT-2's OSC 7501 and lifecycle) | 28 / 69 | 28 / 69 | - | - |
+| model and catalog (model*, h1-models*, p5-input-model*, settings-model*) | 77 / 92 | 77 / 92 | 59 / 70 | - |
+| p5-input-question* | 18 / 20 | 3 / 6 | - | 18 / 20 |
+| p5-stop-in-catalog-wait | 3 / 3 | - | 3 / 3 | - |
+| STOP-IN-CATALOG-WAIT's selection (its sweep's 18) | 65 / 73 | 62 / 70 | 62 / 73 | - |
+| QUESTIONS-20's selection (its sweep's 13) | 51 / 76 | 36 / 62 | - | 51 / 76 |
+| every scenario swept | 231 / 322 | 212 / 305 | 62 / 73 | 51 / 76 |
