@@ -1,21 +1,27 @@
-# mutants.py over a copy of a2c0265a's scripts/fxcap (follow-up F): the 14 of 29fb72d8, the 'one read' pattern
-# moved to mode()'s new return, and 4 new ones. A no-deadline mutant never answers: its test's own client timeout (4 s) fails it.
-KILLED   mcphttp: one read, no retry                             rc=1 Ran 1 test in 1.317s FAILED (failures=1) | FAIL: test_a_held_request_reads_past_a_mode_file_caught_empty
-KILLED   mcphttp: no deadline (follow-up F)                      rc=1 Ran 1 test in 4.121s FAILED (errors=1) | ERROR: test_a_mode_file_that_never_holds_a_mode_is_answered_unknown_at_the_deadline
-KILLED   mcphttp: the read error not kept (follow-up F)          rc=1 Ran 1 test in 2.131s FAILED (failures=1) | FAIL: test_a_mode_file_that_cannot_be_read_is_answered_unknown_with_its_error
-KILLED   mcphttp: malformed and hostile held to the deadline (follow-up F) rc=1 Ran 1 test in 4.238s FAILED (failures=2) | FAIL: test_malformed_and_hostile_are_modes_and_answer_without_the_wait
-KILLED   mcphttp: bound 0                                        rc=1 Ran 1 test in 1.321s FAILED (failures=1) | FAIL: test_a_held_request_reads_past_a_mode_file_caught_empty
-KILLED   fakegw: a read that does not parse is taken at once     rc=1 Ran 1 test in 0.930s FAILED (failures=2) | FAIL: test_a_usage_file_or_second_catalog_caught_empty_is_read_again
-KILLED   fakegw: no deadline (follow-up F)                       rc=1 Ran 1 test in 4.113s FAILED (errors=1) | ERROR: test_a_usage_file_that_never_parses_is_answered_500_at_the_deadline
-KILLED   fakegw: models2 read as before (exists, then text)      rc=1 Ran 1 test in 0.921s FAILED (failures=1) | FAIL: test_a_usage_file_or_second_catalog_caught_empty_is_read_again
-KILLED   fakegw: ENOENT is a failed read, not absent             rc=1 Ran 2 tests in 4.567s FAILED (failures=2) | FAIL: test_the_usage_routes_their_shapes_and_knobs; FAIL: test_usage_is_in_place_at_launch_and_swapped_on_cue
-KILLED   capture.sh: clock in place                              rc=1 Ran 1 test in 2.276s FAILED (failures=1) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole
-KILLED   capture.sh: reseed in place                             rc=1 Ran 1 test in 2.262s FAILED (failures=1) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole
-KILLED   capture.sh: rehomefile in place                         rc=1 Ran 2 tests in 4.175s FAILED (failures=2) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole; FAIL: test_rehomefile
-KILLED   capture.sh: put_in_home without its link/directory refusal rc=1 Ran 1 test in 2.748s FAILED (failures=2) | FAIL: test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory
-KILLED   capture.sh: put_in_home refusing a directory only       rc=1 Ran 1 test in 2.751s FAILED (failures=2) | FAIL: test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory
-KILLED   capture.sh: release appended                            rc=1 Ran 1 test in 2.230s FAILED (failures=1) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole
-KILLED   capture.sh: clipimage copied in place                   rc=1 Ran 1 test in 2.273s FAILED (failures=1) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole
-KILLED   capture.sh: usage copied in place                       rc=1 Ran 1 test in 2.244s FAILED (failures=1) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole
-KILLED   capture.sh: mcphttp mode written in place               rc=1 Ran 1 test in 2.227s FAILED (failures=1) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole
+# mutants.py over a copy of b7561e7c's scripts/fxcap (follow-up F, the malformed/hostile bound at SETTLE_MS - 200 = 1800 ms):
+# 18/18 killed. A no-deadline mutant never answers: its test's own client timeout (4 s) fails it.
+KILLED   mcphttp: one read, no retry                             rc=1 Ran 1 test in 1.327s FAILED (failures=1) | FAIL: test_a_held_request_reads_past_a_mode_file_caught_empty
+KILLED   mcphttp: no deadline (follow-up F)                      rc=1 Ran 1 test in 4.129s FAILED (errors=1) | ERROR: test_a_mode_file_that_never_holds_a_mode_is_answered_unknown_at_the_deadline
+KILLED   mcphttp: the read error not kept (follow-up F)          rc=1 Ran 1 test in 2.123s FAILED (failures=1) | FAIL: test_a_mode_file_that_cannot_be_read_is_answered_unknown_with_its_error
+KILLED   mcphttp: malformed and hostile held to the deadline (follow-up F) rc=1 Ran 1 test in 4.233s FAILED (failures=2) | FAIL: test_malformed_and_hostile_are_modes_and_answer_without_the_wait
+KILLED   mcphttp: bound 0                                        rc=1 Ran 1 test in 1.320s FAILED (failures=1) | FAIL: test_a_held_request_reads_past_a_mode_file_caught_empty
+KILLED   fakegw: a read that does not parse is taken at once     rc=1 Ran 1 test in 0.929s FAILED (failures=2) | FAIL: test_a_usage_file_or_second_catalog_caught_empty_is_read_again
+KILLED   fakegw: no deadline (follow-up F)                       rc=1 Ran 1 test in 4.115s FAILED (errors=1) | ERROR: test_a_usage_file_that_never_parses_is_answered_500_at_the_deadline
+KILLED   fakegw: models2 read as before (exists, then text)      rc=1 Ran 1 test in 0.939s FAILED (failures=1) | FAIL: test_a_usage_file_or_second_catalog_caught_empty_is_read_again
+KILLED   fakegw: ENOENT is a failed read, not absent             rc=1 Ran 2 tests in 4.797s FAILED (failures=2) | FAIL: test_the_usage_routes_their_shapes_and_knobs; FAIL: test_usage_is_in_place_at_launch_and_swapped_on_cue
+KILLED   capture.sh: clock in place                              rc=1 Ran 1 test in 2.243s FAILED (failures=1) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole
+KILLED   capture.sh: reseed in place                             rc=1 Ran 1 test in 2.302s FAILED (failures=1) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole
+KILLED   capture.sh: rehomefile in place                         rc=1 Ran 2 tests in 4.219s FAILED (failures=2) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole; FAIL: test_rehomefile
+KILLED   capture.sh: put_in_home without its link/directory refusal rc=1 Ran 1 test in 2.847s FAILED (failures=2) | FAIL: test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory
+KILLED   capture.sh: put_in_home refusing a directory only       rc=1 Ran 1 test in 2.804s FAILED (failures=2) | FAIL: test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory
+KILLED   capture.sh: release appended                            rc=1 Ran 1 test in 2.324s FAILED (failures=1) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole
+KILLED   capture.sh: clipimage copied in place                   rc=1 Ran 1 test in 2.297s FAILED (failures=1) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole
+KILLED   capture.sh: usage copied in place                       rc=1 Ran 1 test in 2.285s FAILED (failures=1) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole
+KILLED   capture.sh: mcphttp mode written in place               rc=1 Ran 1 test in 2.345s FAILED (failures=1) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole
 killed 18/18
+
+# The hold-to-deadline mutant against the new bound, by hand on a throwaway copy (timeout 120):
+AssertionError: 2008 not less than 1800
+AssertionError: 2011 not less than 1800
+Ran 1 test in 4.244s
+FAILED (failures=2)

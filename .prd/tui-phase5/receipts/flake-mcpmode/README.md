@@ -20,8 +20,11 @@ Commits, in order:
 - `7266e29d`, `d9f07a81`, `2971aeff` this receipt and the gate; reviewed and
   closed there.
 - Follow-up F (branch `fix/p5-flake-mcpmode-f`): `e85f1a59` the deadline
-  pins, `a2c0265a` mcphttp's read-error field, then this receipt and the
-  gate (§ Follow-up F).
+  pins, `a2c0265a` mcphttp's read-error field, `708fe464` and `bbd06c80`
+  this receipt and the gate, `5b73d3ad` (the dispatcher: `pairs.sh` reads
+  its scratch dir and lock path from the environment), `b7561e7c` the
+  `malformed`/`hostile` bound moved to 1800 ms, then this receipt with the
+  loaded loop (§ Follow-up F).
 
 ## The failure
 
@@ -221,7 +224,8 @@ header):
   `not json` swapped into FAKEGW_USAGE; `500 fakegw: SyntaxError...`, at
   least 2000 ms after it came (`at=` stamps), within 4 s.
 - `McpHttp.test_malformed_and_hostile_are_modes_and_answer_without_the_wait`:
-  both are modes (`mcphttp.ts:73`), answered 200 in under 1000 ms.
+  both are modes (`mcphttp.ts:73`), answered 200 in under 1800 ms (it was
+  1000 ms until `b7561e7c`; see the load margin below).
 
 **The read error, kept** (`a2c0265a`; gpt6's second item). `mode()`
 (`mcphttp.ts:77-98`) took every failed read for an empty word. It now keeps
@@ -233,12 +237,22 @@ removes the mode file under a ready server: `unknown() -> 500 ...
 mode-file=ENOENT`, then `ready -> 200` with no field once the file is back.
 It fails on `2971aeff` (`read-error-red.txt`). 6 lines of fixture code.
 
-**Mutants.** 18/18 killed on a copy of `a2c0265a` (`mutants-f.txt`): the
-14 above (the "one read" one moved to `mode()`'s new return), plus deleting
-mcphttp's deadline, deleting fakegw's deadline, dropping the kept read
-error, and holding `malformed`/`hostile` to the deadline. Each runs under
-`timeout 300`; a no-deadline mutant never answers, and its test's 4 s client
-timeout fails it (`ERROR ... in 4.1 s`).
+**Mutants.** 18/18 killed (`mutants-f.txt`, on a copy of `b7561e7c`; the
+same 18/18 on `a2c0265a` before the bound moved): the 14 above (the "one
+read" one moved to `mode()`'s new return), plus deleting mcphttp's deadline,
+deleting fakegw's deadline, dropping the kept read error, and holding
+`malformed`/`hostile` to the deadline. Each runs under `timeout 300`; a
+no-deadline mutant never answers, and its test's 4 s client timeout fails it
+(`ERROR ... in 4.1 s`).
+
+**The load margin** (`b7561e7c`, after the review: registry #19's class).
+The `malformed`/`hostile` test asserted an answer in under 1000 ms, a time
+bound with little room for a stalled runner. It now asserts under
+`SETTLE_MS - 200` = 1800 ms, the reason in its comment. That still tells
+an answer from a hold: the hold-to-deadline mutant took 2008 and 2011 ms,
+and fails as `2008 not less than 1800` (by hand on a throwaway copy, under
+`timeout 120`; `mutants-f.txt`'s tail). The two deadline tests have no upper
+bound of their own beyond the client's 4 s timeout, 2 s past the deadline.
 
 **The committed scenarios through the changed code, base harness vs head
 harness.** Every committed scenario with a line for a writer this unit
@@ -283,7 +297,20 @@ plus receipt text), the heavy ones under the suite lock (`gate.sh`, its
 scratch paths renamed; `gate-f.txt`): all exit 0 -- cargo test 5327 passed,
 0 failed, and 5364 with fault injection; `test-capture.sh` 67 (63 + the 4
 new); `test-sweep.sh` 66 + 26; smoke 47; smoke-tui 37 scenarios, 1168 checks.
-No loaded run in this follow-up.
+
+**Unloaded, then loaded.** Every count of this follow-up above -- the
+mutants, the two sweeps, the gate -- was taken with no load added (the
+sweeps and the gate's heavy steps each under one lock slot). The 4 new
+tests were then run 20 times at `b7561e7c` under full-core load
+(`f-load.counts`): `SUITE_LOCK_EXCLUSIVE=1 suite-lock.sh python3
+load_loop.py ...`, which holds every lock slot, so nothing else heavy ran;
+`load_loop.py` starts one `yes > /dev/null` per core (18) as its own
+children, runs `loop.sh`, and stops them in `finally` (also on SIGTERM and
+SIGHUP). Spinners 2026-11-08 18:04:47Z-18:07:01Z; the 1-minute load average
+rose from 7.8 to 33.2 over the 2 min 14 s. Each of the 4 tests: 20/20.
+The gate above ran before `b7561e7c`; after it, `test-capture.sh` was run
+once more, unloaded, under one lock slot: 67 tests, OK (`f-load.counts`'s
+tail).
 
 ## Gate
 
@@ -314,4 +341,4 @@ test` step's 2200 s is mostly the wait for a lock slot.
 - `gate.sh`, `gate.txt` -- the CI steps.
 - Follow-up F: `mutants-f.txt`; `read-error-red.txt`; `scenarios.tsv`,
   `pairs.sh`, `compare_pairs.py`, `pairs.txt` (the base-vs-head sweeps);
-  `gate-f.txt`.
+  `gate-f.txt`; `load_loop.py`, `f-load.counts` (the loaded loop).
