@@ -3273,9 +3273,9 @@ mod tests {
     fn an_arguments_rows_are_held_at_their_count() {
         // GRID-ROW-COST, item 5: Ctrl-O keeps an argument's rows for as long
         // as its layout, and an argument of megabytes is a hundred thousand
-        // rows and more, laid line by line into a vector the growth leaves up
-        // to twice their size (6 MiB held for the rows of 2 Mi U+261D, this
-        // unit's receipt, `memory.txt`). The rows are the same rows.
+        // rows and more -- laid line by line into a vector the growth leaves
+        // larger than its rows (28 672 for 21 001 here, `red-memory.txt`).
+        // The rows are the same rows.
         let lines = format!("{}\n", "x\ty ".repeat(100)).repeat(3000);
         let text: Rc<str> = Rc::from(format!("content: {lines}"));
         let railed = Railed::new(Rc::clone(&text), text.len(), "  ", 120);
