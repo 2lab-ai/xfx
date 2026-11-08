@@ -294,7 +294,10 @@ change this receipt and `mutants.py` (M23) only. `red3/` is `08026927`'s build, 
      where the draft is `🇦🇦Q`: the count put the letters at cells 7-10, the
      terminal drew them at 5-8, and the grid erased 8-10 (`Grid::diff`
      writes only what changed, at the columns it counted). Not fixed;
-     recorded in the cause, with fx's `  ri 🇿🇺🇸 end  )`.
+     recorded in the cause, with fx's `  ri 🇿🇺🇸 end  )`. RI-COUNT also
+     owns `answer-modifier-sequence-wider` (item 4): its scope is the
+     sequences a terminal draws wider than they are counted --
+     regional-indicator runs and modifier sequences on bases outside the 43.
    - `resize-document-repaint` belongs to **RESIZE-REPAINT**, with
      `h1-resize`'s `small` and `large` in scope, and records that fx's
      repaint opens with `ESC[2J ESC[3J` -- it erases the scrollback -- so
@@ -314,7 +317,9 @@ change this receipt and `mutants.py` (M23) only. `red3/` is `08026927`'s build, 
    says so. The margin lines go on for 100 `w` and `END`, so each takes two
    rows on both sides and the rows differ in place. Modifier sequences on bases outside the 43 (U+1F46F U+1F3FB,
    U+1F93C U+1F3FB at the margin) lose `L 5` on tmux on fx and xfx alike:
-   the unowned defect cause `answer-modifier-sequence-wider`.
+   the defect cause `answer-modifier-sequence-wider`, owned by RI-COUNT
+   (the dispatcher's assignment after the quick confirm); fx and xfx lose
+   the same glyphs, so it explains no unresolved row.
 5. **`/copy` from a real reply** (gpt6 SHOULD, `6bcc58cc`):
    `a_reply_a_terminal_draws_wider_is_named_on_the_screen_and_kept_as_written_everywhere_else`
    (`tests/tui.rs`) sends the family through a fake Gateway: the session
@@ -323,6 +328,14 @@ change this receipt and `mutants.py` (M23) only. `red3/` is `08026927`'s build, 
    assistant message hold the model's bytes; the screen, the resumed screen
    and `/trace`'s timeline hold the names; the timeline's `] user` entry is
    the prompt as typed. It passes at `eeb0f7a7`'s code and at the head.
+   Beside it (gpt6's quick confirm, NTH 2),
+   `a_code_panels_label_a_terminal_draws_wider_is_named_on_the_screen_and_kept_as_written_everywhere_else`
+   does the same for a fenced reply whose label (U+261D `x` U+2E3A) a
+   terminal draws wider: the raw fence in the log, `/copy`, a resumed
+   `/copy` and the next request's history; the named label in the panel's
+   header on the screen and after the resume. It pins xfx's contract, not an
+   fx capture. `cargo test --test tui` under the lock: 178 passed, 0
+   failed; `test-sweep.sh`: 66 and 26 tests, OK.
 
 **Measure, the F scenarios** (`measure.txt`; `red-f.txt` for `red3`):
 
