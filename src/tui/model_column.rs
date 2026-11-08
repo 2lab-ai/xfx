@@ -1833,6 +1833,13 @@ mod tests {
             ids("openai/gpt-5"),
             ["openai/gpt-5", "openai/gpt-4.5-preview"]
         );
+        // The id alone: not a name or an alias the row carries.
+        let mut glm = entry("zai/glm-5", &[]);
+        glm.name = Some("Zhipu GLM".to_string());
+        glm.aliases = vec!["zhipu".to_string()];
+        let named = [glm];
+        assert!(Column::models("zhipu", Known::Rows(&named)).is_empty());
+        assert_eq!(Column::models("z.ai glm", Known::Rows(&named)).len(), 1);
 
         // fx fills its 32 places rank by rank (`modelCompletions`, `:897-913`),
         // so the cap keeps the best matches, not the first in the catalog.

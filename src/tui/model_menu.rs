@@ -1367,6 +1367,26 @@ mod tests {
                 window_start: 1,
             }
         );
+
+        // The mark is found in the ranked list, not in the catalog: first in
+        // the catalog, gpt-4.5-preview is still the fourth match.
+        assert!(menu.step(true, 3));
+        assert_eq!(menu.selected(), Some("openai/gpt-4.5-preview"));
+        menu.loaded(
+            &ids(&[
+                "openai/gpt-4.5-preview",
+                "acme/gpt5-pro",
+                "openai/gpt-5",
+                "acme/gpt5-lite",
+            ]),
+            None,
+        );
+        assert_eq!(menu.selected(), Some("openai/gpt-4.5-preview"));
+        assert!(
+            matches!(menu.inline(), Inline::Listed { selected: 3, .. }),
+            "{:?}",
+            menu.inline()
+        );
     }
 
     #[test]
