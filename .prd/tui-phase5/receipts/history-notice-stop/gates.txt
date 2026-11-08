@@ -1,4 +1,4 @@
-# gates.sh at f16a62ab, run 2 (the receipt's): TMPDIR=/private/tmp/claude-501/hns, one suite-lock slot
+# gates.sh at f16a62ab, run 2 (the receipt's): TMPDIR=<scratch>/hns, one suite-lock slot
 # head f16a62ab2ba8acbeff7c492cfe9048f3fc520156, tree: 0 tracked changes
 # slot taken 2026-11-08T22:28:41Z
 00 false rc=1 0s
@@ -29,7 +29,7 @@ exit=0
 # 04: 5449 passed, 0 failed over every target; 05: 195 passed; 0; 06: 4556 passed; 0
 # 21: smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
 
-# run 1, same commit, TMPDIR=/private/tmp/claude-501/history-notice-stop: step 16 failed on the path length alone
+# run 1, same commit, TMPDIR=<scratch>/history-notice-stop: step 16 failed on the path length alone
 # (5 of test_sweep.py's 70 tests: 'sweep: --tmp is too long for a tmux socket path under it', sweep.py:159-161); every other step rc=0
 # head f16a62ab2ba8acbeff7c492cfe9048f3fc520156, tree: 0 tracked changes
 # slot taken 2026-11-08T21:35:31Z

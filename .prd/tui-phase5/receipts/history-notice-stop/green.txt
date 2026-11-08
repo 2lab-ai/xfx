@@ -1,4 +1,4 @@
-# provider-carry-back-stop at 40x120: one capture per binary (capture.sh, TMPDIR /private/tmp/claude-501), the files in fx/, xfx/, base-xfx/
+# provider-carry-back-stop at 40x120: one capture per binary (capture.sh, TMPDIR <scratch>), the files in fx/, xfx/, base-xfx/
 # fx    : v0.0.16 release, sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
 # xfx   : built at 3899a8ba, sha256 8af7b8ecfafcb463f4083d1b90834c1080c4e4d0e950829cdabdc80f5b46a6a7, row 1: x𝒇x v0.1.0-3899a8b [debug] · Run /help for commands
 # base  : built at 05a0a857, sha256 7ab7a35b042029c4c3223966d3c4af80d25f69775d044e62699aa1b79f46cdea, row 1: x𝒇x v0.1.0-05a0a85 [debug] · Run /help for commands
