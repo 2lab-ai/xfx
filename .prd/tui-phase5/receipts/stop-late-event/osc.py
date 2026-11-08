@@ -96,10 +96,17 @@ The claims, per wire label:
            is on fx. A prompt sent in the stop window is reported ahead of
            the frame that first shows its turn on fx; written behind that
            frame, it fails here as well as under `order`'s `Thinking`.
+  title    (this receipt's, round 3) on a scenario this receipt captured on
+           fx, for every `working`: whether a window title (`OSC 2`) was
+           written since the report before it is what it is on fx. A stopped
+           turn's title is on fx's wire ahead of the next prompt's `working`
+           (`stopnext`: `idle`, the `Cancelled` frame, `OSC 2`, `working`);
+           written behind that `working`, it fails here.
   stable   (this receipt's) every further fx run of a scenario this receipt
            captured (`fx-run2/`, `fx-run3/`) has the same reports, the same
-           which-frame answers and the same activity answers as `fx/`: the
-           oracle is one order, not a race the comparison happened to catch.
+           which-frame answers, the same activity answers and the same title
+           answers as `fx/`: the oracle is one order, not a race the
+           comparison happened to catch.
 
 Exit 0 when every claim holds; otherwise each failing claim is printed and
 the exit is 1.
@@ -276,6 +283,26 @@ def activity_before_working(data):
     return out
 
 
+TITLE = re.compile(rb"\x1b\]2;")
+
+
+def titled_before_working(data):
+    """For each `working`, whether a window title was written since the
+    report before it (`title`)."""
+    events = [(m.start(), b"T", None) for m in TITLE.finditer(data)]
+    events += [(at, b"S", body) for at, body in reports(data) if body != b"state=clear"]
+    events.sort(key=lambda event: event[0])
+    out, seen = [], False
+    for _, kind, value in events:
+        if kind == b"T":
+            seen = True
+            continue
+        if value.startswith(b"state=working"):
+            out.append(seen)
+        seen = False
+    return out
+
+
 def between(data, at):
     opened = data.rfind(b"\x1b[?2026h", 0, at)
     closed = data.rfind(b"\x1b[?2026l", 0, at)
@@ -309,9 +336,9 @@ def main():
             if key not in fx:
                 continue
             ours = ([normalized(b) for _, b in reports(data)], which_frames(data),
-                    activity_before_working(data))
+                    activity_before_working(data), titled_before_working(data))
             theirs = ([normalized(b) for _, b in reports(fx[key])], which_frames(fx[key]),
-                      activity_before_working(fx[key]))
+                      activity_before_working(fx[key]), titled_before_working(fx[key]))
             if ours != theirs:
                 failures.append("stable %s %s %s: %s, not fx/'s %s" % (run, key[0], key[1], ours, theirs))
     # A kept build is compared on the scenarios it was captured on: a scenario
@@ -382,6 +409,12 @@ def main():
                 failures.append(
                     "activity %s %s: a frame showing the turn's activity before each working: "
                     "%s on fx, %s on %s" % (unit, label, fx_active, our_active, side)
+                )
+            fx_titled, our_titled = titled_before_working(theirs), titled_before_working(ours)
+            if fx_titled != our_titled:
+                failures.append(
+                    "title %s %s: a window title since the report before each working: "
+                    "%s on fx, %s on %s" % (unit, label, fx_titled, our_titled, side)
                 )
         mark = "same" if a == b else "DIFF"
         print("%-4s %-34s %-22s fx %2d  %s %2d  %s" % (mark, unit, label, len(a), side, len(b), " > ".join(b) or "(none)"))

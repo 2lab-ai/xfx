@@ -26,12 +26,14 @@ for name in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"):
 TEST = ["cargo", "test", "--locked", "--lib", "--", "tui::"]
 SHELL = "src/tui/shell.rs"
 WORKER = "src/tui/worker.rs"
+EVENT_LOOP = "src/tui/event_loop.rs"
 
 GUARD = "        if self.cancelling && self.work.outstanding() == 0 && self.tally.started.is_none() {\n"
 SETTLE = (
     GUARD
     + "            self.cancelling = false;\n"
     + "            self.stop_reads_end = false;\n"
+    + "            self.compaction_ended_turn = false;\n"
     + "            self.cancel_owed = None;\n"
     + "            self.cancel_covers = 0;\n"
     + "        }\n"
@@ -49,7 +51,9 @@ HOLD = "        if working && !self.activity.working() && !compacting && !behind
 GATE = "            self.work.outstanding() > 0 && self.prompts.front().is_some_and(|prompt| prompt.3);\n"
 QUIET = (
     "                let quiet = stopped\n"
-    "                    && (!reads_end || failure.as_deref() == Some(super::bridge::TURN_CANCELLED));\n"
+    "                    && (compactions\n"
+    "                        || !reads_end\n"
+    "                        || failure.as_deref() == Some(super::bridge::TURN_CANCELLED));\n"
 )
 STEER = "                        Some((card, BadgeLinks::new(), SkillRuns::new())),\n                        true,\n"
 
@@ -98,15 +102,26 @@ MUTANTS = [
      [(SHELL, QUIET, "                let quiet = stopped;\n")]),
     ("end: the user's stop not marked as reading the end",
      [(SHELL, "        self.stop_reads_end = true;\n", "")]),
-    ("end: a compaction's ending leaves the stop reading the end",
-     [(SHELL, "                    self.cancelling = true;\n                    self.stop_reads_end = false;\n",
+    ("end: a compaction's ending does not mark its turn",
+     [(SHELL, "                    self.cancelling = true;\n                    self.compaction_ended_turn = true;\n",
        "                    self.cancelling = true;\n")]),
     ("end: a real failure after the stop read as the stop's own",
-     [(SHELL, QUIET, "                let quiet = stopped && (!reads_end || failure.is_some());\n")]),
+     [(SHELL, QUIET, "                let quiet = stopped && (compactions || !reads_end || failure.is_some());\n")]),
     ("end: a stopped turn titles nothing (the base)",
      [(SHELL, "                        if quiet && ran && !noted {\n", "                        if false {\n")]),
     ("end: a turn an automatic compaction failed titles the session",
      [(SHELL, "                        if quiet && ran && !noted {\n", "                        if quiet && ran {\n")]),
+    # Round 3.
+    ("end: the end ignores the compaction's mark (round 2: a later stop reads it as a finish)",
+     [(SHELL, QUIET, "                let _ = compactions;\n                let quiet = stopped\n"
+       "                    && (!reads_end || failure.as_deref() == Some(super::bridge::TURN_CANCELLED));\n")]),
+    ("title: a stopped turn's title is not marked to lead (round 2's order)",
+     [(SHELL, "                            self.title_leads = self.title_owed;\n", "")]),
+    ("title: every owed title leads (a finished turn's ahead of its done)",
+     [(SHELL, "        if !std::mem::take(&mut self.title_leads) {\n            return None;\n        }\n",
+       "        self.title_leads = false;\n")]),
+    ("title: the loop does not hand the leading title to the band",
+     [(EVENT_LOOP, "    if let Some(title) = shell.take_leading_title() {\n        band.set_title(title);\n    }\n", "")]),
     ("runtime: a refused send's stop not said in the stop's word",
      [(WORKER, "        Err(crate::agent::TurnError::Sink(err)) if err.kind() == io::ErrorKind::Interrupted => {\n",
        "        Err(crate::agent::TurnError::Sink(err)) if false && err.kind() == io::ErrorKind::Interrupted => {\n")]),

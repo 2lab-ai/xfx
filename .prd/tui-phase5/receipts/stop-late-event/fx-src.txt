@@ -650,3 +650,65 @@
  3008              if (!display.present) return;
  3009              try setCachedSessionTitle(app, display.title);
  3010          }
+
+## Round 3, MUST B: once the worker's cancel is requested, the keystroke returns -- no second Cancelled line, no new stop
+
+### git -C fx-upstream show 481104fd:src/core/app/input_interrupt_runtime.zig | sed -n '91,96p'
+   91              if (!app.stream.active) return;
+   92              // Pending approval keeps the stream active until resolution.
+   93              // Avoid duplicate cancellation notices once the worker is cancelled.
+   94              if (app.worker.isCancelRequested()) return;
+   95              const compacting = if (comptime @hasDecl(@TypeOf(app.worker), "compactionActivitySnapshot")) blk: {
+   96                  const observed = app.worker.compactionActivitySnapshot();
+
+## Round 3, SHOULD 5: a stop that gets through clears the pacer too
+
+### git -C fx-upstream show 481104fd:src/core/app/input_interrupt_runtime.zig | sed -n '101,108p'
+  101              traceInterruptRequested(app, "input_active_stream");
+  102              if (comptime @hasDecl(@TypeOf(app.worker), "requestInteractiveCancel")) {
+  103                  app.worker.requestInteractiveCancel();
+  104              } else {
+  105                  app.worker.requestCancel();
+  106              }
+  107              app.pacer.clear(app.alloc);
+  108              if (comptime @hasDecl(App, "playCancelSound")) app.playCancelSound();
+
+## Round 3, SHOULD 3: what the submit path's two checks read (input_submit_runtime.zig:1138-1147 above) on the
+## production App: its shell is a TranscriptRuntime and its pacer an AssistantPacer
+
+### git -C fx-upstream show 481104fd:src/main.zig | sed -n '566,567p'
+  566      shell: TranscriptRuntime = .{},
+  567      pacer: assistant_pacer.AssistantPacer = .{},
+
+### git -C fx-upstream show 481104fd:src/ui/assistant/pacer.zig | sed -n '156,160p'
+  156  
+  157  pub const AssistantPacer = struct {
+  158      pending: std.ArrayList(u8) = .empty,
+  159      deferred_turn: ?FinishedPrompt = null,
+  160      deferred_started_ns: ?i128 = null,
+
+### git -C fx-upstream show 481104fd:src/ui/assistant/pacer.zig | sed -n '176,178p'
+  176      pub fn hasPending(self: *const AssistantPacer) bool {
+  177          return self.pending.items.len > 0 or self.deferred_turn != null;
+  178      }
+
+### git -C fx-upstream show 481104fd:src/ui/transcript/runtime.zig | sed -n '6966,6968p'
+ 6966      pub fn fullTranscriptActive(self: *const TranscriptRuntime) bool {
+ 6967          return self.full_transcript.depth.active();
+ 6968      }
+
+## Round 3, SHOULD 3: an in-turn compaction that compacted nothing (`compacted` null) skips the cut; the turn goes on,
+## and fails only for an overflow it could not reduce
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '7867,7867p'
+ 7867                      if (compacted) |outcome| {
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '7930,7937p'
+ 7930                          continue;
+ 7931                      }
+ 7932                  }
+ 7933              }
+ 7934              if (context_overflow_recovery == .pending) {
+ 7935                  compactor.traceFailure(step_ctx, .overflow_recovery_incomplete, "estimated_tokens={d}", .{if (request_cost_for_attempt) |cost| cost.estimated_input_tokens else 0});
+ 7936                  return error.ContextCapacityExceeded;
+ 7937              }

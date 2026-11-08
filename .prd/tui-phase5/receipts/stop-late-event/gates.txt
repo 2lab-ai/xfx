@@ -172,3 +172,41 @@ then in a second suite-lock slot (started 05:34:01Z):
   mutants 20 and 21 on the --no-local clone at d4ce0e0c: both KILLED (mutants.txt)
   the same clone unmutated, cargo test --locked --lib -- tui::: 2774 passed; 0 failed; 5 ignored
   the worktree at 27714762, cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0
+
+# ================================================================
+# Round 3: the dispatcher's list at 06ca9f1a2bda30a65df66b553fef518c8897d88d, one job after another in ONE suite-lock slot
+# (taken 06:07:25Z, done 06:50:12Z): cargo test x3, the debug, release and faulty builds,
+# smoke-tui, the two sweeps (sweep.txt), the captures (osc-all.txt, osc-stopnext.txt), the code mutants (mutants.txt) and
+# the unmutated clone. TMPDIR=<local-path>. The runner now keeps each step's exit in rc before anything else runs;
+# its first step is `false`, which must read rc=1.
+
+## the steps (number, name, exit, seconds, end)
+slot taken 06:07:25
+01 rc-selftest rc=1 0s 06:07:25
+02 test rc=0 164s 06:10:09
+03 test-fault-tui rc=0 24s 06:10:33
+04 test-fault-lib rc=0 51s 06:11:24
+05 build-debug rc=0 5s 06:11:29
+06 status-debug rc=0 1s 06:11:30
+07 build-release rc=0 13s 06:11:43
+08 build-faulty rc=0 13s 06:11:56
+09 smoke-tui rc=0 64s 06:13:00
+10 sweep-base rc=0 532s 06:21:52
+11 sweep-head rc=0 514s 06:30:26
+clone at 06ca9f1a
+mutants rc=0 06:49:37
+clean-tui rc=0 06:50:12
+done 06:50:12
+
+## cargo test totals (sum of each binary's 'test result' line)
+02-test: 14 binaries, 5338 passed, 0 failed, 7 ignored
+03-test-fault-tui: 1 binaries, 192 passed, 0 failed, 0 ignored
+04-test-fault-lib: 1 binaries, 4448 passed, 0 failed, 7 ignored
+
+## the rest
+06-status-debug: build_revision=06ca9f1a2bda
+09-smoke-tui: smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+10-sweep-base: pass = 28 / 69 = 40.6%; unresolved 40, failed 0, timeout 0
+11-sweep-head: pass = 28 / 69 = 40.6%; unresolved 40, failed 0, timeout 0
+captures: 16 of 16 exit 0
+clean-tui (the --no-local clone at the code head, unmutated): test result: ok. 2777 passed; 0 failed; 5 ignored; 0 measured; 1650 filtered out; finished in 22.88s

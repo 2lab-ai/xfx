@@ -22,6 +22,7 @@ IDLE = b"\x1b]7501;state=idle:app=xfx\x1b\\"
 WORKING = b"\x1b]7501;state=working:app=xfx\x1b\\"
 ERROR = b"\x1b]7501;state=error:app=xfx\x1b\\"
 FX_WORKING = b"\x1b]7501;state=working:app=fx\x1b\\"
+FX_IDLE = b"\x1b]7501;state=idle:app=fx\x1b\\"
 FRAME_END = b"\x1b[?2026l"
 
 
@@ -55,6 +56,21 @@ def the_stopped_turn_working_again_then_failed(data):
     return data[:at] + WORKING + ERROR + data[at:]
 
 
+def title_behind_the_next_working(data, idle=IDLE, working=WORKING):
+    """Round 2's order: the stopped turn's title (`OSC 2`) after the next
+    prompt's `working`, where fx's is ahead of it."""
+    first = data.find(idle)
+    stop = data.find(idle, first + 1) + len(idle)
+    start = data.find(b"\x1b]2;", stop)
+    end = data.find(b"\x07", start) + 1
+    assert start > 0 and end > start
+    title = data[start:end]
+    rest = data[:start] + data[end:]
+    at = rest.find(working, stop) + len(working)
+    assert at > len(working)
+    return rest[:at] + title + rest[at:]
+
+
 MUTANTS = [
     ("the prompt's working behind the frame that shows its Thinking (round 1's order)", SECOND,
      working_behind_the_thinking_frame),
@@ -63,6 +79,11 @@ MUTANTS = [
     ("the stopped turn working again, then failed", EXIT, the_stopped_turn_working_again_then_failed),
     ("an fx run whose working follows the prompt's frame", FX_RUN2,
      lambda data: working_behind_the_thinking_frame(data, FX_WORKING)),
+    ("the stopped turn's title behind the next prompt's working (round 2's order)", EXIT,
+     title_behind_the_next_working),
+    ("the same, on the second's wire", SECOND, title_behind_the_next_working),
+    ("an fx run whose title follows the next working", FX_RUN2,
+     lambda data: title_behind_the_next_working(data, FX_IDLE, FX_WORKING)),
 ]
 
 
