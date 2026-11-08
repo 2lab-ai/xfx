@@ -1220,7 +1220,7 @@ pub struct ModelSelector {
     /// that puts on the next one ends ([`LoadClock`]).
     clock: LoadClock,
     /// Reads handed to this selector that it did not take the answer of
-    /// ([`Self::adopt_load`]): each runs on to tell its answer, and is stopped
+    /// ([`Self::adopt_loads`]): each runs on to tell its answer, and is stopped
     /// with the selector -- so a provider switch, which replaces it, is never
     /// followed by the old provider's rows.
     strays: Vec<PendingLoad>,
@@ -1728,7 +1728,7 @@ impl PendingLoad {
 /// `startWarmup`, `src/core/app/model_cache_runtime.zig:321-349`). The read
 /// it starts runs on a thread of its own ([`PendingLoad`]), so a question
 /// that parks the thread asking does not hold it, and it is handed back to
-/// the selector afterwards ([`ModelSelector::adopt_load`]). `Send + Sync`,
+/// the selector afterwards ([`ModelSelector::adopt_loads`]). `Send + Sync`,
 /// so the prompter a question parks in can start one.
 #[derive(Clone)]
 pub(crate) struct CatalogReader {
