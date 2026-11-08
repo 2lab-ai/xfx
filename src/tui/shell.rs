@@ -43402,6 +43402,52 @@ mod tests {
     }
 
     #[test]
+    fn a_compact_typed_while_a_reset_drains_answers_as_upstreams_would() {
+        // Upstream's `/new` is the conversation's at once when nothing runs
+        // (`applyIdleLiveSessionTransition`, `session.reset`,
+        // `src/core/app/app_session_runtime.zig:1788-1816@481104fd`), so a
+        // `/compact` after it finds nothing to compact
+        // (`hasContextToCompact`, `src/core/session/session.zig:1597-1602`);
+        // while work runs the reset waits for it (`decideLiveSessionTransition`,
+        // `app_session_runtime.zig:1532-1554`) and a `/compact` is busy
+        // (`request_context_compaction`,
+        // `src/core/app/input_submit_runtime.zig:140-154`). Neither queues one.
+        // Here the board the band reads is the old conversation's until the
+        // reset's fence, so the keystroke is answered from the reset itself.
+        let mut got = Vec::new();
+        for case in ["nothing in hand", "a turn in hand"] {
+            let mut shell = with_a_turn();
+            if case == "a turn in hand" {
+                shell.route_bytes(b"first question\r");
+                let _ = shell.picks_up();
+                shell.start_turn();
+            }
+            shell.route_bytes(b"/new\r");
+            shell.route_bytes(b"/compact\r");
+            let queued = shell.sent.try_recv().ok();
+            got.push((case, compaction_row(&mut shell, Instant::now()), queued));
+        }
+        assert_eq!(
+            got,
+            [
+                (
+                    "nothing in hand",
+                    Some("No context to compact.".to_string()),
+                    None
+                ),
+                (
+                    "a turn in hand",
+                    Some(
+                        "Wait for the active work to finish before compacting context.".to_string()
+                    ),
+                    None
+                ),
+            ],
+            "each: (the row, the work sent)"
+        );
+    }
+
+    #[test]
     fn a_compaction_dropped_unstarted_reports_idle_after_a_failed_ones_error() {
         // `noteCompaction`: a manual compaction's cancel is `idle`
         // (`src/ui/terminal/program_status.zig:80-96@481104fd`). Typed and

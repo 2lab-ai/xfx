@@ -10212,6 +10212,84 @@ mod tests {
     }
 
     #[test]
+    fn a_compaction_a_stop_drops_while_other_work_lets_go_frees_its_place_at_once() {
+        // Upstream's worker settles the queued compaction a stop drops, and
+        // takes it off its queue, at the stop's own keystroke
+        // (`cancelContextCompaction`,
+        // `src/core/agent/worker_runtime.zig:1002-1021@481104fd`). Here the
+        // stop is read inside the race of the work in front of it -- a provider
+        // switch whose probe is still out (`run_setup`), which goes on until it
+        // returns -- and the compaction's place must be free from the stop on,
+        // as the base's was: held, the session's two places are spent
+        // (`WORK_LIMIT`) and the next prompt is refused. The band is told while
+        // the switch still runs, once.
+        let (handle, mut work_rx, _control) = WorkHandle::detached();
+        handle
+            .submit(TurnWork::Setup(ProviderId::Llmux))
+            .expect("idle");
+        assert!(
+            matches!(work_rx.try_recv(), Ok(TurnWork::Setup(_))),
+            "the switch is taken"
+        );
+        handle.submit(TurnWork::Compact).expect("one may wait");
+        let through = handle.accepted();
+        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        control_tx
+            .send(TurnControl::Cancel { through })
+            .expect("open");
+        let control = ControlChannel::new(control_rx);
+        let (events, mut seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &handle.outstanding,
+            taken: 1,
+            owed: 0,
+        };
+        let (release, released) = tokio::sync::oneshot::channel::<()>();
+        let asks = Arc::new(CatalogAsks::AfterWork);
+        let (during, admitted) = on_a_runtime(async {
+            let mut race = std::pin::pin!(raced_against_control(
+                async {
+                    let _ = released.await;
+                },
+                &control,
+                &asks,
+                |through| {
+                    queue.abandon(through);
+                },
+            ));
+            for poll in 0..PARKED_POLLS {
+                let pending = std::future::poll_fn(|context| {
+                    std::task::Poll::Ready(race.as_mut().poll(context).is_pending())
+                })
+                .await;
+                assert!(pending, "poll {poll}: the switch let go by itself");
+            }
+            let mut during = Vec::new();
+            while let Ok(event) = seen.try_recv() {
+                during.push(event);
+            }
+            let admitted = handle.submit(TurnWork::Submit("next question".into()));
+            let _ = release.send(());
+            let ((), ended) = race.await;
+            assert_eq!(ended, Ended::Turn);
+            (during, admitted)
+        });
+        drop(events);
+        assert_eq!(
+            (during, admitted),
+            (vec![UiEvent::Compaction(Update::Dropped)], Ok(())),
+            "(what the band was told while the switch ran, the next prompt)"
+        );
+        assert!(seen.try_recv().is_err(), "the band was told twice");
+        assert_eq!(
+            handle.outstanding(),
+            2,
+            "the switch's place and the prompt's, and no other"
+        );
+    }
+
+    #[test]
     fn a_dropped_compactions_place_is_held_until_its_ending_is_on_the_channel() {
         // The order every piece of work keeps: its last word, then its place
         // ([`turn_loop`]). Deterministic: the channel's one permit is taken,
