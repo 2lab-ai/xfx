@@ -7,3 +7,6 @@ p5-input-paste-field xfx-head  003-completion.json: \"answer\":\"keepnew\"
 p5-input-paste-amend fx        004-completion.json: "text":"keepnew"
 p5-input-paste-amend xfx-base  004-completion.json: "text":"keep"
 p5-input-paste-amend xfx-head  004-completion.json: "text":"keepnew"
+# round 2 (fd67ed2d)
+p5-input-paste-field xfx-r2    003-completion.json: \"answer\":\"keepnew\"
+p5-input-paste-amend xfx-r2    004-completion.json: "text":"keepnew"

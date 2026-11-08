@@ -11,15 +11,20 @@ I7, unit U5 (leads, re-derived here from fx's source). Oracle: fx v0.0.16
 (`481104fd`, executable sha256 `8e6cda2e…`, checked by `capture.sh` and
 `sweep.py` before and after every run, `FX_AUTO_UPGRADE=0`). Base: `main`
 `712dd8d1`. Branch `feat/p5-paste-after-end`. **Security-sensitive (S)**:
-clipboard bytes behind an embedded end marker must never run or be
-submitted.
+clipboard bytes behind an embedded end marker must not run or be submitted
+-- a guarantee that holds **within one continuously readable delivery**,
+and no further (round 2, below: a terminal that writes one paste with a
+readiness gap ends the delivery at the gap, in fx v0.0.16 as here).
 
-**Builds.** The base's debug build (`v0.1.0-712dd8d`, sha256 `cbfa3ee8…`)
-and the GREEN code commit's, **`1a76ea00`** (`v0.1.0-1a76ea0`, sha256
-`7283c1c8…`), each built after its commit; every xfx capture here is one of
-the two (row 1 of each `.txt` says which). No commit after `1a76ea00`
-changes a file the binary is built from: they are a scenario, two tests
-and this receipt.
+**Builds.** The base's debug build (`v0.1.0-712dd8d`, sha256 `cbfa3ee8…`),
+the GREEN code commit's, **`1a76ea00`** (`v0.1.0-1a76ea0`, sha256
+`7283c1c8…`), and round 2's code head, **`fd67ed2d`** (`v0.1.0-fd67ed2`,
+sha256 `371dcf08…`), each built after its commit; every xfx capture here is
+one of the three (row 1 of each `.txt` says which: `xfx-base/`, `xfx/`,
+`xfx-r2/`). Between `1a76ea00` and `fd67ed2d` the binary's sources change
+only in `c251a591` (`event_loop.rs`'s turn moved behind two closures,
+behaviour unchanged) and in comments; the rest are a scenario, tests and
+this receipt.
 
 | commit | what |
 |---|---|
@@ -28,7 +33,10 @@ and this receipt.
 | `649f08ab` | `paste-suffix.cap` gets back the Enter byte `1a76ea00`'s header rewrite dropped (a scenario, not the binary) |
 | `78b224cf` | test only: an Enter one read behind the end marker (the surviving mutant 12). **The full gate ran here** |
 | `30ba1e6e` | test only: an overflowed amendment with input behind it on the review plane ends on the warning (pins the README's and parity.md's review-plane claim) |
-| the last commit | this receipt, nothing else |
+| `d630bef2`, `5a963ed7` | round 1's receipt; `gates.txt` names the scratch root `<scratch>` |
+| `c251a591` | round 2: `burst(shell, buffer, ready, read)` behind `read_burst`, and the 32-read carry-over test |
+| `fd67ed2d` | round 2: the guarantee narrowed to one continuously readable delivery (parity.md, comments); stale c1db919 citations re-pointed. **Round 2's gate, captures, sweep and mutants ran here** |
+| the last commit | round 2's receipt, nothing else |
 
 ## fx's rule (`fx-src.txt`, every line read at the pin)
 
@@ -61,7 +69,7 @@ and this receipt.
   one warning); a marker split across reads is the marker
   (`paste_framing.zig:299-312`, settle `none` while capturing, `:161-162`).
 
-## What changed in xfx (`1a76ea00`)
+## What changed in xfx (`1a76ea00`; line numbers at that commit)
 
 xfx already had fx's delivery epoch (the decoder's `behind` count and the
 loop's `read_burst` drain, from X1); only the meaning of a counted suffix
@@ -199,6 +207,81 @@ them pair by pair:
   blank row above the composer after Escape cancels the write approval,
   which the base pair has at the same row -- not this unit's.
 - No other pair changed class, cause or uncaused count.
+
+## Round 2: the reviews (`fd67ed2d`)
+
+gpt6 asked whether "bytes after the marker are never input" holds when one
+paste reaches xfx with a gap in it; opus approved and asked for the 32-read
+carry-over to be pinned and for stale citations to go. Line numbers here are
+at `fd67ed2d`.
+
+**The guarantee, narrowed (gpt6's MUST).** A delivery ends at the first
+readiness check that finds nothing (`src/tui/event_loop.rs:633-669`
+`burst`, settling at `:642-645`), as fx's does (`event_loop.zig:94-119
+@481104fd`, settled at `:118`), and as xfx's did at the base (X1). So the
+guarantee is "within one continuously readable delivery": a terminal that
+writes one paste with a readiness gap in it ends the delivery at the gap,
+and the bytes after it are read as keys. `pty-queue.txt` (from
+`pty_queue.py`) shows how ordinary that is on this machine: a raw-mode pty
+takes **1022 bytes** before its writer must wait, so a longer paste reaches
+xfx only as the terminal refills the queue, and a check can find it empty
+in between. `docs/parity.md`'s paste paragraph now states exactly that
+("That is the whole of the guarantee"), with fx's lines and the note that a
+terminal stripping an embedded end marker closes the gap at the source; the
+module doc of `src/tui/input.rs` ("The window is the terminal's, not the
+clipboard's"), `burst`'s doc, the shell's `ignored_behind_paste` doc, the
+pty test's and smoke-tui's comments say "in the same delivery" where they
+said "never". Measuring the gap and anything stronger than fx's boundary is
+not this unit's.
+
+**The 32-read carry-over (opus SHOULD 1).** A pty test cannot be made to
+carry more than 4 KiB as one delivery here: the pty takes 1022 bytes before
+its writer waits (above), and whether the session's check finds the queue
+empty while the writer refills it is the scheduler's choice, so such a test
+would pass or fail by timing. The loop's turn therefore moved behind two
+closures in `c251a591`: `burst(shell, buffer, ready,
+read)`, with `read_burst` (`:594-610`) passing standard input's readiness
+check and read, unchanged. `src/tui/event_loop.rs:15931`
+`a_delivery_past_the_32nd_read_goes_on_into_the_next_turn_unsettled` feeds
+one delivery: `ESC[200~new ESC[201~`, 4096 bytes and an Enter. The first
+turn stops at the cap (4096 bytes read, input left) with the composer still
+`┃ prior`; the second reads the rest and settles: `┃ priornew`, the
+warning, nothing sent; an Enter of its own then sends `priornew`.
+
+**Stale citations (opus SHOULD 4).** `src/tui/input.rs`'s module doc, the
+`behind` field (`:420-426`), `end_delivery` (`:455-462`) and `feed`'s
+comment (`:472-477`), `burst`'s doc and the shell's `end_delivery` doc
+cite fx at the pin, not c1db919's lines or its removed `unsafe` state.
+
+**Captures** (`xfx-r2/`, `green-r2.txt`, from `fd67ed2d`'s build): the
+same as round 1's -- every paste pair 0 rows differing, the amendment pair
+its grant-scope rows only (5-6 per snap, `amend-rows.txt`); `wire.txt`'s
+round 2 lines: `keepnew` in the answer and the amendment.
+
+**Mutants** (`mutants.py`, `mutants.txt` rounds 3 and 4, on a throwaway
+clone at `fd67ed2d`): mutants 1-12 again, all **killed**; the new carry-over
+test is among the killers of 1, 4, 5, 6, 10 and 12, since every one of them
+also changes what the first turn of a long delivery leaves. Mutant 13 is
+new: **a delivery ends at the 32-read cap** (`if reads == READ_BURSTS {
+shell.end_delivery(); return Ok(()); }`, `event_loop.rs:653-655`) --
+killed by the carry-over test, and by it alone, which is what the test is
+for. **13 of 13 killed.**
+
+**Sweep** (`sweep-head-r2.md`, `sweep-compare-r2.txt`): the same 41
+scenarios on `fd67ed2d`'s build, against round 1's base sweep (the same base
+build, sha256 `cbfa3ee8…`, the same ledger, sha256 `530ac71a…`, the same
+scenario files): **base 189 / 253, head 200 / 253, drops 0**, and no pair
+differs from round 1's head sweep in class, cause or uncaused count.
+
+**Gate** (`gates-r3.txt`): every CI step of `ci.yml`, in order, at
+**`fd67ed2d`**, under the suite lock: fmt, both clippies, `cargo test
+--locked --all-targets` (14 binaries, 5449 passed, 0 failed) and with the
+fault injector (15 binaries, 5487 passed, 0 failed; the carry-over test
+`ok` in both), no-stubs, no-secrets, gate-env, identity, the preview
+contract and its mutants, the preflight cost, the usage clock, both release
+builds, `smoke.sh` (47 checks) and `smoke-tui.sh` (1167 checks, 0
+failures). All exit 0. The receipt commit after it changes only this
+directory.
 
 ## Retired and re-pointed
 

@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-fd67ed2 [debug] · Run /help for commands
+
+! input: Input that arrived right after the paste was ignored.
+
+┃ keep
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

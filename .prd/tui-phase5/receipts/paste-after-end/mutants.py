@@ -14,7 +14,7 @@ rules: the bytes behind the end marker are never input (a trailing CR that
 submits is mutant 1); the paste is kept whatever followed it; the warning
 is said, only when something followed, in fx's tone and words, after the
 paste's own outcome, on the review plane's status row; and a delivery is
-every read up to the drain, not one read.
+every read up to the drain, not one read, and goes on past the 32-read cap.
 """
 import os
 import re
@@ -76,6 +76,10 @@ MUTANTS = [
     ("a delivery is one read: the loop settles after every read", "src/tui/event_loop.rs",
      "            Ok(read) => shell.route_read(&buffer[..read]),\n",
      "            Ok(read) => {\n                shell.route_read(&buffer[..read]);\n                shell.end_delivery();\n            }\n"),
+    # Round 3 (the review's SHOULD 1): the 32-read cap ends the delivery.
+    ("a delivery ends at the 32-read cap, input still waiting", "src/tui/event_loop.rs",
+     "        if reads == READ_BURSTS {\n            return Ok(());\n        }\n",
+     "        if reads == READ_BURSTS {\n            shell.end_delivery();\n            return Ok(());\n        }\n"),
 ]
 
 
