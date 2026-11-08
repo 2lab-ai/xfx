@@ -43349,35 +43349,42 @@ mod tests {
         // stopping when the line comes, and its dismissal refuses an operation
         // still running (`compaction_activity.zig:129-137`), so the sentence
         // its end brings stays.
+        // A line sent before the stop is no line after it: upstream's
+        // dismissal found the operation running then.
         let mut got = Vec::new();
-        for (ending, update) in [
-            ("dropped", compaction::Update::Dropped),
+        for (ending, update, line_first) in [
+            ("dropped", compaction::Update::Dropped, false),
             (
                 "taken",
                 compaction::Update::Settled(compaction::Feedback::Cancelled),
+                false,
             ),
+            ("dropped, the line first", compaction::Update::Dropped, true),
         ] {
             let mut shell = with_a_turn();
             shell.route_bytes(b"/compact\r");
             let _ = shell.picks_up();
+            if line_first {
+                shell.route_bytes(b"/version\r");
+            }
             shell.route_bytes(&[0x03]);
-            shell.route_bytes(b"/version\r");
+            if !line_first {
+                shell.route_bytes(b"/version\r");
+            }
             let held = compaction_row(&mut shell, Instant::now());
             shell.apply(UiEvent::Compaction(update));
             got.push((ending, held, compaction_row(&mut shell, Instant::now())));
         }
         let stopping = Some("\u{2022} Stopping compaction (0s)".to_string());
+        let cancelled = Some("Compaction cancelled. Try /compact again when ready.".to_string());
         assert_eq!(
             got,
             [
                 ("dropped", stopping.clone(), None),
-                (
-                    "taken",
-                    stopping,
-                    Some("Compaction cancelled. Try /compact again when ready.".to_string())
-                ),
+                ("taken", stopping.clone(), cancelled.clone()),
+                ("dropped, the line first", stopping, cancelled),
             ],
-            "each: (how it ended, the row after the line, the row after the end)"
+            "each: (how it ended, the row after the line and the stop, the row after the end)"
         );
         // A drop is about a compaction still stopping and no other: not one
         // that runs, nor a row with none.
