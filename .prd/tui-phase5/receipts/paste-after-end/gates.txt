@@ -1,5 +1,5 @@
 # Every CI step of .github/workflows/ci.yml, in its order, in the worktree, under the machine's suite lock
-# (one slot for the whole run), TMPDIR=/private/tmp/claude-501/p5-paste-after-end. 'fi-test-all' is
+# (one slot for the whole run), TMPDIR=<scratch>/p5-paste-after-end. 'fi-test-all' is
 # 'cargo test --locked --features fault-injection --no-fail-fast', which covers CI's two fault-injection
 # test lines (--test tui, --lib).
 head 78b224cf
