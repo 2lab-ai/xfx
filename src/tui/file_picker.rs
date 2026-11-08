@@ -1127,6 +1127,19 @@ mod tests {
     }
 
     #[test]
+    fn the_list_grows_to_ten_rows_while_five_transcript_rows_stay_visible() {
+        // fx's own table (`file picker grows to ten rows while five transcript
+        // rows stay visible`, `picker_presentation.zig:1588-1597@481104fd`).
+        assert_eq!(FilePicker::height(40, 0), 10);
+        assert_eq!(FilePicker::height(24, 0), 10);
+        assert_eq!(FilePicker::height(18, 0), 8);
+        // Short terminals keep the list picker's height.
+        assert_eq!(FilePicker::height(16, 0), 6);
+        assert_eq!(FilePicker::height(12, 0), 6);
+        assert_eq!(FilePicker::height(6, 0), 1);
+    }
+
+    #[test]
     fn the_list_takes_six_rows_or_what_the_screen_has() {
         assert_eq!(FilePicker::height(40, 0), 6);
         assert_eq!(FilePicker::height(24, 0), 6);

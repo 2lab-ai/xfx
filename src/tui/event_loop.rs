@@ -15839,4 +15839,115 @@ mod tests {
              drain came first) and activity asks again"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // the `@` list's height and scroll
+    // -----------------------------------------------------------------------
+
+    /// The `@` list's rows as the band paints them now: each row's path and
+    /// whether the grey bar is on it.
+    fn at_rows(shell: &Shell) -> Vec<(String, bool)> {
+        const PATH: usize = "items/f-01.txt".len();
+        shell
+            .band_rows()
+            .iter()
+            .filter_map(|row| {
+                // The letters the query matched are bold inside the path.
+                let mut text = String::new();
+                let mut rest = row.as_str();
+                while let Some(at) = rest.find('\u{1b}') {
+                    text.push_str(&rest[..at]);
+                    rest = &rest[at..];
+                    rest = rest.find('m').map_or("", |end| &rest[end + 1..]);
+                }
+                text.push_str(rest);
+                let at = text.find("items/f-")?;
+                let path = text.get(at..at + PATH)?.to_string();
+                Some((path, row.contains("\u{1b}[48;5;239m")))
+            })
+            .collect()
+    }
+
+    /// The paths `first..=last` of the thirty, and which of them has the bar.
+    fn at_window(first: usize, last: usize, marked: usize) -> Vec<(String, bool)> {
+        (first..=last)
+            .map(|n| (format!("items/f-{n:02}.txt"), n == marked))
+            .collect()
+    }
+
+    #[test]
+    fn the_at_list_scrolls_by_the_rows_the_frame_that_landed_painted() {
+        // fx v0.0.16 gives the `@` list ten rows on a 40-row screen
+        // (`filePickerReservedRows`, `picker_presentation.zig:661-666`), and
+        // its arrows scroll the window the last committed frame painted
+        // (`paintedFilePickerReceipt`, `app_render_runtime.zig:2357-2360`;
+        // `acknowledge`, `file_completion_state.zig:294`; `navigate`, `:248`)
+        // -- the captures `p5-input-at-height` and `p5-input-at-resize`, over
+        // thirty names every ranking ties on.
+        let mut shell = shell_of(40, 120);
+        let items = shell._workspace.path().join("work").join("items");
+        std::fs::create_dir(&items).expect("a folder");
+        for n in 1..=30 {
+            std::fs::write(items.join(format!("f-{n:02}.txt")), "x\n").expect("a file");
+        }
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        // One tick: what the keys and the index owe, then the frame.
+        macro_rules! frame {
+            ($shell:expr) => {{
+                let now = Instant::now();
+                $shell.settle_input(now);
+                $shell.settle_band(now);
+                commit_frame(
+                    &mut $shell,
+                    &mut band,
+                    &mut out,
+                    &mut failures,
+                    now,
+                    Reconciled,
+                )
+                .expect("a frame");
+            }};
+        }
+        shell.route_bytes(b"@f-");
+        let deadline = Instant::now() + crate::process::START_PATIENCE;
+        while at_rows(&shell).len() < 6 {
+            assert!(
+                Instant::now() < deadline,
+                "the list never arrived: {:?}",
+                shell.band_rows()
+            );
+            frame!(shell);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        frame!(shell);
+        assert_eq!(at_rows(&shell), at_window(1, 10, 1), "ten rows at 40");
+
+        // Down twelve times: the bar on the last row, the window on 4-13.
+        shell.route_bytes(&b"\x1b[B".repeat(12));
+        frame!(shell);
+        assert_eq!(at_rows(&shell), at_window(4, 13, 13), "after Down x12");
+        // Up six: the bar moves and the window stays.
+        shell.route_bytes(&b"\x1b[A".repeat(6));
+        frame!(shell);
+        assert_eq!(at_rows(&shell), at_window(4, 13, 7), "after Up x6");
+        // Up three more: the bar passes the window's top, and the window moves.
+        shell.route_bytes(&b"\x1b[A".repeat(3));
+        frame!(shell);
+        assert_eq!(at_rows(&shell), at_window(4, 13, 4), "after Up x9");
+
+        // Back to f-13 and onto a 16-row screen: six rows, painted to keep
+        // the bar in view, while the window navigation left stays where it
+        // was (`paint_plan.zig:936-937`) -- so the first Up after it moves
+        // the window, scrolling the six rows that frame painted.
+        shell.route_bytes(&b"\x1b[B".repeat(9));
+        frame!(shell);
+        adopt_resize(&mut shell, &mut band, || (16, 120));
+        frame!(shell);
+        assert_eq!(at_rows(&shell), at_window(8, 13, 13), "at 16 rows");
+        shell.route_bytes(b"\x1b[A");
+        frame!(shell);
+        assert_eq!(at_rows(&shell), at_window(7, 12, 12), "Up at 16 rows");
+    }
 }
