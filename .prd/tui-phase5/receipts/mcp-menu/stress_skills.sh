@@ -20,8 +20,8 @@ new = '''            "a word no skill matches showed the menu: {:?}",
 if s.count(old) == 1:
     open(p, "w").write(s.replace(old, new))
 EOF
-mkdir -p /private/tmp/claude-501/fi
-export TMPDIR=/private/tmp/claude-501/fi
+mkdir -p "${TMPDIR:-/tmp}/fi"
+export TMPDIR="${TMPDIR:-/tmp}/fi"
 bin=$(cargo test --locked "$@" --lib --no-run --message-format=json 2>/dev/null | python3 -c '
 import sys, json
 for line in sys.stdin:

@@ -466,13 +466,13 @@ class Ledger(unittest.TestCase):
 
 class Redaction(unittest.TestCase):
     def setUp(self):
-        self.red = redact.Redactor({"/Users/someone/repo": "<repo>", "/private/tmp/claude-501/out": "<out>"})
+        self.red = redact.Redactor({"/Users/someone/repo": "<repo>", "/private/tmp/claude-501/out": "<out>"})  # local-path-ok: the redactor's input
 
     def test_known_roots_and_every_other_local_path(self):
         text = (
-            "repo /Users/someone/repo/scripts/fxcap; out /private/tmp/claude-501/out/runs/x; "
-            "home /Users/someone/.xfx/settings.json; scratch /private/tmp/claude-501/fxcap.Kun3pm/home/.fx; "
-            "temp /var/folders/ab/T/x; tmp /tmp/fxcap.a/s; volume /Volumes/Disk/fx"
+            "repo /Users/someone/repo/scripts/fxcap; out /private/tmp/claude-501/out/runs/x; "  # local-path-ok: the redactor's input
+            "home /Users/someone/.xfx/settings.json; scratch /private/tmp/claude-501/fxcap.Kun3pm/home/.fx; "  # local-path-ok
+            "temp /var/folders/ab/T/x; tmp /tmp/fxcap.a/s; volume /Volumes/Disk/fx"  # local-path-ok
         )
         got = self.red.public(text)
         for leak in ("/Users/", "/private/", "/var/", "/tmp/", "/Volumes/", "someone"):

@@ -4,7 +4,7 @@
 # at a time, with `delay.patch` applied to the tree in the current directory.
 #
 #   git apply .prd/tui-phase5/receipts/flake-filelist/delay.patch
-#   TMPDIR=/private/tmp/claude-501/flake-filelist \
+#   TMPDIR="${TMPDIR:-/tmp}/flake-filelist" \
 #     bash .prd/tui-phase5/receipts/flake-filelist/fifty.sh <out-dir>
 #   git checkout -- src/tui/file_index.rs
 #
