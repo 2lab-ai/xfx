@@ -22,7 +22,10 @@ pub const NOT_AVAILABLE_SENTINEL: &str =
     "(ask_user_question is only available in the interactive shell; ask the user freeform instead)";
 pub const FREEFORM_LABEL: &str = "Other";
 pub const MIN_QUESTIONS: usize = 1;
-pub const MAX_QUESTIONS: usize = 4;
+/// Upstream's `max_questions` (`question_answer.zig:7-9@481104fd`, 28cf53b5):
+/// the schema's `maxItems`, the description, the argument refusal and the
+/// worst-case document below all share it.
+pub const MAX_QUESTIONS: usize = 20;
 pub const MIN_OPTIONS: usize = 2;
 pub const MAX_OPTIONS: usize = 6;
 /// xfx-local size bounds, measured **after** encoding. Upstream leaves these
@@ -35,7 +38,7 @@ pub const MAX_FREEFORM_ENCODED_BYTES: usize = 4096;
 /// The largest document `encode_answers` can produce under those bounds, proved
 /// against `ToolLimits::default().max_output_bytes` by a test, so the registry's
 /// backstop clip (`src/tools/mod.rs:145`) can never make a result invalid JSON.
-pub const MAX_ENCODED_RESULT_BYTES: usize = 36_977;
+pub const MAX_ENCODED_RESULT_BYTES: usize = 184_881;
 
 /// Non-printing codepoints, exactly upstream's set (`text_utils.zig:593-599`).
 fn is_non_printing(character: char) -> bool {
@@ -212,7 +215,10 @@ pub fn parse(value: &Value) -> Result<AskUserQuestionInput, String> {
         .as_array()
         .ok_or_else(|| bad("\"questions\" must be an array"))?;
     if questions.len() < MIN_QUESTIONS || questions.len() > MAX_QUESTIONS {
-        return Err(bad("provide 1 to 4 questions"));
+        // `question_count_sentinel` (`ask_user_question.zig:19-22@481104fd`).
+        return Err(bad(&format!(
+            "provide {MIN_QUESTIONS} to {MAX_QUESTIONS} questions"
+        )));
     }
     let mut entries = Vec::with_capacity(questions.len());
     for item in questions {
@@ -330,7 +336,7 @@ const OPTION_DESCRIPTION_DESCRIPTION: &str =
 const QUESTION_TEXT_DESCRIPTION: &str = "The question text, shown to the user verbatim.";
 const OPTIONS_DESCRIPTION: &str = "2 to 6 labeled choices for this question.";
 const QUESTIONS_DESCRIPTION: &str =
-    "1 to 4 questions to ask in order, each answered before the next is shown.";
+    "1 to 20 questions to ask in order, each answered before the next is shown.";
 
 /// Adapted from upstream's `ask_user_question_description`
 /// (`vercel-labs/fx@580a0c5d` `src/builtins/tools.zig:358-359`), with the
@@ -339,8 +345,9 @@ const QUESTIONS_DESCRIPTION: &str =
 /// (`PermissionKind::Interaction`, `question.rs` tests) and has no
 /// `permission_request_id` argument in this schema, so there is nothing for
 /// those sentences to refer to. This is a labeled adaptation, not a verbatim
-/// quote.
-const DESCRIPTION: &str = "Ask the user 1 to 4 multiple-choice questions in interactive runs \
+/// quote. Its opening words are v0.0.16's own, the count included
+/// (`ask_user_question_description`, `builtins/tools.zig:119-122@481104fd`).
+const DESCRIPTION: &str = "Ask the user 1-20 multiple-choice questions in interactive runs \
     only when a concrete decision blocks progress after local files, git state, or tool output \
     cannot answer it. When to use: choose among precise, mutually exclusive paths before \
     acting, especially destructive or user-preference decisions. When NOT to use: discoverable \
