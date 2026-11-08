@@ -1,0 +1,26 @@
+# LAUNCH-SETTLE's mutants (mutants.py), on a git clone --no-local at 85428cc9, each run holding one suite-lock slot; 2026-11-08: the first 17 finished 14:01 KST, L7 again at 15:14 KST.
+## the first run
+L1 no launch wait at launch: KILLED (LaunchWait.test_the_first_line_waits_for_the_first_frame, exit 1: FAILED (failures=1))
+L2 no launch wait at a relaunch: KILLED (LaunchWait.test_a_relaunch_waits_for_its_first_frame_too, exit 1: FAILED (failures=1))
+L3 a blank screen counts as a frame: KILLED (LaunchWait.test_the_first_line_waits_for_the_first_frame, exit 1: FAILED (failures=1))
+L4 the 30 s bound gives up silently: KILLED (LaunchWait.test_a_binary_that_never_draws_fails_the_run, exit 1: FAILED (failures=1))
+L5 a dead pane under keep fails the run: KILLED (LaunchWait.test_a_binary_gone_at_once_is_final_under_keep_and_fails_the_run_without, exit 1: FAILED (failures=1))
+L6 a gone pane is taken for up: KILLED (LaunchWait.test_a_binary_gone_at_once_is_final_under_keep_and_fails_the_run_without, exit 1: FAILED (failures=1))
+L7 `since launch` counts from the launch: SURVIVED (LaunchWait.test_since_launch_counts_from_the_first_frame, exit 0: OK)
+L8 nodraw not honoured: KILLED (LaunchWait.test_nodraw_runs_a_stub_that_draws_nothing_at_once, exit 1: FAILED (failures=1))
+L9 `seen` kept over a relaunch: KILLED (Verbs.test_never_seen_is_of_the_binary_since_its_last_launch, exit 1: FAILED (failures=1))
+L10 `expect` reads any frame of the name: KILLED (Verbs.test_expect_reads_only_a_frame_this_run_wrote, exit 1: FAILED (failures=1))
+L11 a snapfull label is not recorded as <label>.full: KILLED (Verbs.test_expect_reads_only_a_frame_this_run_wrote, exit 1: FAILED (failures=1))
+C1 `absent` counts over a launch-armed timer (the base rule): KILLED (Capfile.test_absent_says_a_ctrl_c_armed_nothing, exit 1: FAILED (failures=1))
+C2 an `until shown` does not count as seen: KILLED (Capfile.test_absent_says_a_ctrl_c_armed_nothing, exit 1: FAILED (failures=1))
+C3 no settle after a key: KILLED (Capfile.test_absent_says_a_ctrl_c_armed_nothing, exit 1: FAILED (failures=1))
+C4 a relaunch keeps `seen`: KILLED (Capfile.test_absent_says_a_ctrl_c_armed_nothing, exit 1: FAILED (failures=1))
+C5 a paused row's `absent` counts once seen: KILLED (Capfile.test_absent_says_a_ctrl_c_armed_nothing, exit 1: FAILED (failures=1))
+C6 the warning keeps a settle: KILLED (Capfile.test_settle_is_an_allowance_for_a_key_only, exit 1: FAILED (failures=1))
+exit 0
+## L7 again
+The first L7 stamped `launched` when the wait began, and the stamp after the loop overwrote it: the mutant changed nothing, so it survived. mutants.py now has the corrected L7 (launched takes the mtime of `up`, stamped when the wait began), run alone:
+L7 `since launch` counts from the launch: KILLED (LaunchWait.test_since_launch_counts_from_the_first_frame, exit 1: FAILED (failures=1))
+exit 0
+
+Total: 17 mutants, 17 killed (L7 counted in its corrected form); none NOT APPLIED.

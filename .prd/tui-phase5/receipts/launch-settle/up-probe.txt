@@ -1,0 +1,221 @@
+# The launch wait, probed (item 1): b734d834's capture.sh with probe/probe.patch, which reads the pane tty's ISIG (stty -a -f) before each look at the screen, looks every 0.01 s, and looks ten more times after the first frame. probe/zup.cap (gateway interrupt-words.json / keep / wait 0.5 / snap a), 40x120, three runs each, each on a fresh copy of the binary (cp): fx v0.0.16 (sha256 8e6cda2e...) and xfx built at b734d834 (row 1 'x𝒇x v0.1.0-b734d83 [debug]'). Run 2026-11-08 07:54, load 10.7. Each sample: seconds since the wait began, the tty's ISIG, and whether the screen was blank, drawn (the first non-blank look) or after it.
+# Tally over the 6 launches: isig+blank 119, -isig+blank 1 (raw, not drawn yet), -isig+drawn 6, -isig+after 60, isig+drawn 0: no look saw a drawn screen on a terminal that still had ISIG.
+## fx run 1 (fresh copy, sha256 8e6cda2efddb)
+up: a first frame after 0.63 s (15 looks)
+guards: <bins>/probe/fx-up-1-82712 sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+exit 0
+  0.03 isig blank
+  0.07 isig blank
+  0.12 isig blank
+  0.16 isig blank
+  0.20 isig blank
+  0.24 isig blank
+  0.28 isig blank
+  0.32 isig blank
+  0.36 isig blank
+  0.40 isig blank
+  0.43 isig blank
+  0.48 isig blank
+  0.51 isig blank
+  0.56 isig blank
+  0.60 -isig drawn
+  0.64 -isig after
+  0.68 -isig after
+  0.71 -isig after
+  0.75 -isig after
+  0.80 -isig after
+  0.83 -isig after
+  0.87 -isig after
+  0.91 -isig after
+  0.94 -isig after
+  0.98 -isig after
+  a| 𝒇x v0.0.16 · Run /help for commands
+  a| ┃
+## xfx run 1 (fresh copy, sha256 0479210f455f)
+up: a first frame after 1.00 s (22 looks)
+exit 0
+  0.03 isig blank
+  0.06 isig blank
+  0.10 isig blank
+  0.13 isig blank
+  0.17 isig blank
+  0.21 isig blank
+  0.24 isig blank
+  0.27 isig blank
+  0.31 isig blank
+  0.35 isig blank
+  0.38 isig blank
+  0.42 isig blank
+  0.45 isig blank
+  0.52 isig blank
+  0.58 isig blank
+  0.63 isig blank
+  0.68 isig blank
+  0.74 isig blank
+  0.81 isig blank
+  0.87 isig blank
+  0.93 isig blank
+  0.99 -isig drawn
+  1.02 -isig after
+  1.05 -isig after
+  1.09 -isig after
+  1.14 -isig after
+  1.18 -isig after
+  1.21 -isig after
+  1.25 -isig after
+  1.29 -isig after
+  1.33 -isig after
+  1.37 -isig after
+  a| x𝒇x v0.1.0-b734d83 [debug] · Run /help for commands
+  a| ┃
+## fx run 2 (fresh copy, sha256 8e6cda2efddb)
+up: a first frame after 1.48 s (41 looks)
+guards: <bins>/probe/fx-up-2-82712 sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+exit 0
+  0.03 isig blank
+  0.07 isig blank
+  0.11 isig blank
+  0.15 isig blank
+  0.19 isig blank
+  0.22 isig blank
+  0.26 isig blank
+  0.30 isig blank
+  0.33 isig blank
+  0.37 isig blank
+  0.41 isig blank
+  0.45 isig blank
+  0.48 isig blank
+  0.52 isig blank
+  0.55 isig blank
+  0.59 isig blank
+  0.63 isig blank
+  0.67 isig blank
+  0.71 isig blank
+  0.74 isig blank
+  0.77 isig blank
+  0.81 isig blank
+  0.84 isig blank
+  0.88 isig blank
+  0.91 isig blank
+  0.94 isig blank
+  0.97 isig blank
+  1.01 isig blank
+  1.04 isig blank
+  1.08 isig blank
+  1.12 isig blank
+  1.15 isig blank
+  1.19 isig blank
+  1.22 isig blank
+  1.25 isig blank
+  1.29 isig blank
+  1.32 isig blank
+  1.36 isig blank
+  1.40 isig blank
+  1.43 isig blank
+  1.47 -isig drawn
+  1.49 -isig after
+  1.52 -isig after
+  1.54 -isig after
+  1.57 -isig after
+  1.59 -isig after
+  1.62 -isig after
+  1.65 -isig after
+  1.67 -isig after
+  1.70 -isig after
+  1.72 -isig after
+  a| 𝒇x v0.0.16 · Run /help for commands
+  a| ┃
+## xfx run 2 (fresh copy, sha256 0479210f455f)
+up: a first frame after 0.73 s (18 looks)
+exit 0
+  0.04 isig blank
+  0.09 isig blank
+  0.13 isig blank
+  0.17 isig blank
+  0.20 isig blank
+  0.23 isig blank
+  0.27 isig blank
+  0.31 isig blank
+  0.35 isig blank
+  0.39 isig blank
+  0.43 isig blank
+  0.47 isig blank
+  0.51 isig blank
+  0.55 isig blank
+  0.59 isig blank
+  0.64 isig blank
+  0.68 -isig blank
+  0.72 -isig drawn
+  0.74 -isig after
+  0.77 -isig after
+  0.80 -isig after
+  0.83 -isig after
+  0.85 -isig after
+  0.89 -isig after
+  0.92 -isig after
+  0.95 -isig after
+  0.98 -isig after
+  1.01 -isig after
+  a| x𝒇x v0.1.0-b734d83 [debug] · Run /help for commands
+  a| ┃
+## fx run 3 (fresh copy, sha256 8e6cda2efddb)
+up: a first frame after 0.15 s (4 looks)
+guards: <bins>/probe/fx-up-3-82712 sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+exit 0
+  0.03 isig blank
+  0.07 isig blank
+  0.10 isig blank
+  0.14 -isig drawn
+  0.16 -isig after
+  0.18 -isig after
+  0.21 -isig after
+  0.24 -isig after
+  0.26 -isig after
+  0.29 -isig after
+  0.31 -isig after
+  0.34 -isig after
+  0.37 -isig after
+  0.39 -isig after
+  a| 𝒇x v0.0.16 · Run /help for commands
+  a| ┃
+## xfx run 3 (fresh copy, sha256 0479210f455f)
+up: a first frame after 0.76 s (26 looks)
+exit 0
+  0.02 isig blank
+  0.05 isig blank
+  0.08 isig blank
+  0.11 isig blank
+  0.14 isig blank
+  0.16 isig blank
+  0.19 isig blank
+  0.22 isig blank
+  0.25 isig blank
+  0.28 isig blank
+  0.31 isig blank
+  0.34 isig blank
+  0.37 isig blank
+  0.40 isig blank
+  0.43 isig blank
+  0.46 isig blank
+  0.49 isig blank
+  0.52 isig blank
+  0.55 isig blank
+  0.58 isig blank
+  0.61 isig blank
+  0.64 isig blank
+  0.67 isig blank
+  0.70 isig blank
+  0.73 isig blank
+  0.76 -isig drawn
+  0.77 -isig after
+  0.79 -isig after
+  0.81 -isig after
+  0.84 -isig after
+  0.86 -isig after
+  0.88 -isig after
+  0.90 -isig after
+  0.92 -isig after
+  0.95 -isig after
+  0.97 -isig after
+  a| x𝒇x v0.1.0-b734d83 [debug] · Run /help for commands
+  a| ┃
