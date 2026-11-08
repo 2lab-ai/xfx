@@ -14,7 +14,7 @@ tests=(
   Verbs.test_a_file_a_verb_changes_mid_run_is_replaced_whole
 )
 (( $# == 0 )) || tests=("$@")
-export TMPDIR=/private/tmp/claude-501/flake-mcpmode/t
+export TMPDIR="${TMPDIR:?set TMPDIR to a scratch directory}/flake-mcpmode-t"
 mkdir -p "$TMPDIR"
 for i in $(seq 1 "$n"); do
   log=$out/$label/run-$i.log

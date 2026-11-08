@@ -72,7 +72,7 @@ MUTANTS = [
      '''mcphttp) printf '%s\\n' "$rest" > "$run/mcphttp.mode" ;;''',
      ["Verbs.test_a_file_a_verb_changes_mid_run_is_replaced_whole"]),
 ]
-env = dict(os.environ, TMPDIR="/private/tmp/claude-501/flake-mcpmode/t")
+env = dict(os.environ, TMPDIR=os.path.join(os.environ["TMPDIR"], "flake-mcpmode-t"))  # TMPDIR: a scratch directory
 killed = 0
 for name, file, old, new, tests in MUTANTS:
     tree = os.path.join(work, "mutant")
