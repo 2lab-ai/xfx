@@ -34581,6 +34581,26 @@ mod tests {
     }
 
     #[test]
+    fn a_frame_that_gave_the_list_no_rows_leaves_the_rows_its_arrows_scroll() {
+        // fx sets the painted rows only from a frame whose footer gave the
+        // file picker rows of its own (`picker_rows > 0`,
+        // `app_render_runtime.zig:1854-1857@481104fd`): a frame that landed on
+        // a band with no panel showed no list, so it is not a frame the
+        // arrows scroll.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@");
+        listed(&mut shell);
+        assert_eq!(shell.geometry.panel, 10);
+        shell.file_picker_landed();
+        assert_eq!(shell.file_rows_painted, 10);
+        shell.geometry = crate::tui::layout::solve(40, 120, 1).expect("a band");
+        assert_eq!(shell.geometry.panel, 0);
+        assert!(matches!(shell.slot(), Some(Slot::Files(_))));
+        shell.file_picker_landed();
+        assert_eq!(shell.file_rows_painted, 10, "a frame with no list set them");
+    }
+
+    #[test]
     fn a_question_dismisses_the_file_list() {
         let (_workspace, mut shell) = in_ws2(24, 80);
         shell.route_bytes(b"@");
