@@ -165,6 +165,7 @@ Each `abandon` call site, and how its contract changes:
 | `run_compact` (`:3955`) | in the race's stop, while a compaction runs | the same |
 | `run_setup` (`:4973`) | in the race's stop, while a provider switch runs | the same |
 | `change_model` (`:5200`, also through `apply_deferred`) | in the race's stop | the same |
+| any of them, then `Ended::Session` | the session is ending | not told: the band is leaving, and the places stay held (below) |
 
 The race's stop cannot await (`raced_against_control`), so a drop made there waits for the work
 it raced. That work is cancelled by the same stop (`turn.cancel()`), so it lets go at once,
@@ -288,7 +289,13 @@ reads (`../osc-program-status/fx/`).
 
 ## Gate
 
-GATE2
+`../train-7/gates.sh`, unchanged, at `83cb5a1f` (the round 2 receipt commit; the code is
+`d268896a`'s), the tree clean before and after, in one hold of the suite lock (`gate2.txt`):
+**20 steps, 0 failed**. fmt, clippy and clippy with the fault injector; `cargo test` (5,452
+passed, 0 failed, 15 binaries) and with the fault injector (5,489 passed, 0 failed); every
+`check-*.sh` and `test-*.sh`; fxcap `test-sweep` and `test-capture`; both release builds; `smoke`
+and `smoke-tui`. This unit's seven tests and the original one pass in both test runs. Round 1's
+gate is `gate.txt`.
 
 ## A neighbour looked at
 
