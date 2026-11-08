@@ -15985,29 +15985,60 @@ mod tests {
     }
 
     #[test]
-    fn the_rows_painted_are_kept_from_one_at_word_to_the_next_and_only_the_lists_frames_set_them() {
-        // fx keeps the painted rows in the picker's state for the session
-        // (`visible_rows`, `file_completion_state.zig:106-108`; only `deinit`
-        // resets it) and sets them only from a frame that showed the file
-        // picker (`picker_kind == .file`, `app_render_runtime.zig:1854-1857`).
-        // So after the list's ten rows, a slash menu's frame, and an `@` word
-        // typed again with twelve Downs in the same read, before any frame:
-        // the twelve scroll ten rows, and the window is on 4-13.
+    fn a_new_at_words_arrows_wait_for_the_frame_that_shows_its_rows() {
+        // fx's arrows move the bar only over rows a committed frame has shown
+        // (`navigate` returns while `!trusted`, `file_completion_state.zig:
+        // 239-240@481104fd`): a changed query clears it (`reconcile`, `:175`)
+        // and only `acknowledge` sets it (`:295`), from a committed frame that
+        // showed the picker (`app_render_runtime.zig:1022-1026`). So a new `@`
+        // word and three Downs in one read, before any frame: the Downs are
+        // spent and the bar is on the first row; after that frame, three
+        // Downs move it three rows.
         let mut list = AtList::open(40, 120);
-        list.keys(b"\x15");
-        assert!(
-            at_rows(&list.shell).is_empty(),
-            "C-u did not close the list"
-        );
-        list.keys(b"/");
-        assert!(list.shell.geometry.panel > 0, "no slash menu");
-        assert_ne!(
-            list.shell.geometry.panel, 10,
-            "a slash menu as tall as the list proves nothing"
-        );
         let mut typed = b"\x15@f-".to_vec();
-        typed.extend(DOWN.repeat(12));
-        assert_eq!(list.keys(&typed), at_window(4, 13, 13));
+        typed.extend(DOWN.repeat(3));
+        assert_eq!(
+            list.keys(&typed),
+            at_window(1, 10, 1),
+            "the Downs moved the bar"
+        );
+        assert_eq!(list.keys(&DOWN.repeat(3)), at_window(1, 10, 4));
+    }
+
+    #[test]
+    fn a_refused_frame_leaves_the_at_lists_arrows_waiting_for_one_that_lands() {
+        // fx distrusts the picker when a frame is not committed
+        // (`app_render_runtime.zig:1002-1003@481104fd`), so the next arrow is
+        // spent until a committed frame shows the rows again (`:1022-1023`).
+        let mut list = AtList::open(40, 120);
+        list.out.refusals = 1;
+        list.shell.route_bytes(DOWN);
+        list.tick();
+        list.shell.route_bytes(DOWN);
+        list.tick();
+        assert_eq!(
+            at_rows(&list.shell),
+            at_window(1, 10, 2),
+            "after a refused frame"
+        );
+        assert_eq!(list.keys(DOWN), at_window(1, 10, 3));
+
+        // A resize whose first frame is refused: the arrow after it is spent,
+        // the frame that lands shows six rows from the window the 10-row
+        // moves left (rank 3), and the next Up scrolls those six.
+        list.keys(&UP.repeat(2));
+        assert_eq!(list.keys(&DOWN.repeat(12)), at_window(4, 13, 13));
+        list.out.refusals = 1;
+        adopt_resize(&mut list.shell, &mut list.band, || (16, 120));
+        list.tick();
+        list.shell.route_bytes(UP);
+        list.tick();
+        assert_eq!(
+            at_rows(&list.shell),
+            at_window(8, 13, 13),
+            "the frame that landed"
+        );
+        assert_eq!(list.keys(UP), at_window(7, 12, 12));
     }
 
     #[test]

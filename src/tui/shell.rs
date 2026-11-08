@@ -34581,6 +34581,51 @@ mod tests {
     }
 
     #[test]
+    fn tab_and_enter_before_a_new_words_first_frame_choose_nothing_and_send_nothing() {
+        // fx chooses only from rows a committed frame has shown: `selected`
+        // and `acceptedEmpty` both need `trusted`
+        // (`file_completion_state.zig:218-228@481104fd`), which a changed
+        // query clears (`reconcile`, `:175`). Tab with nothing chosen does
+        // nothing (`autocompleteFilePickerSelection`,
+        // `input_completion_runtime.zig:946-957`), and Enter is spent: it
+        // submits a query nothing matched only once a frame has shown
+        // `no matching files` (`submitFilePickerOnEnter`, `:1034-1041`).
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@");
+        listed(&mut shell);
+        shell.file_picker_landed();
+        // A new word and Down, Tab in one read.
+        shell.route_bytes(b"\x15@s\x1b[B\t");
+        assert_eq!(shell.editor.text(), "@s", "Tab chose a row no frame showed");
+        let first = shell
+            .file_picker
+            .as_ref()
+            .and_then(|files| files.rows_for_test().first().cloned())
+            .expect("rows");
+        shell.file_picker_landed();
+        shell.route_bytes(b"\t");
+        assert_eq!(
+            shell.editor.text(),
+            format!("@{} ", first.path),
+            "the Down moved the bar"
+        );
+
+        // A word nothing matches, and Enter in the same read: spent.
+        shell.route_bytes(b"\x15@zzzz-not-here\r");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "Enter sent before the frame"
+        );
+        assert_eq!(shell.editor.text(), "@zzzz-not-here");
+        shell.file_picker_landed();
+        shell.route_bytes(b"\r");
+        match shell.picks_up() {
+            TurnWork::Submit(prompt) => assert_eq!(prompt, "@zzzz-not-here"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
     fn a_frame_that_gave_the_list_no_rows_leaves_the_rows_its_arrows_scroll() {
         // fx sets the painted rows only from a frame whose footer gave the
         // file picker rows of its own (`picker_rows > 0`,

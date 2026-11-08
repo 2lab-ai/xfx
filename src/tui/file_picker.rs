@@ -579,6 +579,12 @@ impl FilePicker {
         true
     }
 
+    /// The rows it has, top first, for a case to name one.
+    #[cfg(test)]
+    pub(crate) fn rows_for_test(&self) -> &[Found] {
+        &self.rows
+    }
+
     /// The marked row, when there is one.
     pub(crate) fn marked(&self) -> Option<&Found> {
         self.rows.get(self.selected)
@@ -1376,6 +1382,29 @@ mod tests {
         let rows = list.rows(1, 40, 6, DARK);
         assert_eq!(plain(&rows[0]), "./06.txt");
         assert_eq!(plain(&rows[5]), "./11.txt");
+    }
+
+    #[test]
+    fn a_refresh_that_finds_the_mark_on_the_first_row_keeps_the_window() {
+        // fx maps the mark to its path's new place and keeps the stored
+        // window (`view`, `file_completion_state.zig:258-275@481104fd`;
+        // `acknowledge`, `:292-293`); the frame paints from row 0 to show it
+        // (`paint_plan.zig:936-937`), and the next move scrolls from the
+        // stored start (`list_window.zig:55-68`): Down puts the window on 1.
+        let mut list = thirty();
+        for _ in 0..12 {
+            list.step(1, 10);
+        }
+        assert_eq!(mark_and_window(&list), (12, 3));
+        let rotated: Vec<Found> = (12..30)
+            .chain(0..12)
+            .map(|n| file(&format!("./{n:02}.txt")))
+            .collect();
+        assert!(list.settle(Lookup::Rows(rotated)));
+        assert_eq!(mark_and_window(&list), (0, 3));
+        assert_eq!(plain(&list.rows(1, 40, 10, DARK)[0]), "./12.txt");
+        list.step(1, 10);
+        assert_eq!(mark_and_window(&list), (1, 1));
     }
 
     #[test]
