@@ -661,8 +661,11 @@ impl Column {
 
     /// Tab: the marked row written into the composer
     /// (`autocompleteModelPickerSelection`, `:1085-1121`) -- the model's id,
-    /// with the column still on the models; or the level after the model, with
-    /// the column still on the levels and the mark on it. On an `/effort`
+    /// with the column still on the models and the mark back on the first
+    /// row the written line lists, which under the ranks can be more than
+    /// that model (`commit`, `src/core/input/composer_text_replacement.zig:
+    /// 73-92@481104fd`, `model_completion_index = 0`); or the level after the
+    /// model, with the column still on the levels and the mark on it. On an `/effort`
     /// line, the level after `/effort ` as it is shown -- `default` for the
     /// default -- and, the text being replaced, the mark back on the first
     /// row the line now lists (`:1168-1175@481104fd`; `replace` clears the
@@ -676,6 +679,8 @@ impl Column {
         match query.stage {
             Stage::Model => {
                 let id = self.chosen_model(query, catalog)?.id.clone();
+                self.model_index = 0;
+                self.model_window = 0;
                 Some(format!("{PREFIX}{id}"))
             }
             Stage::Effort => {
