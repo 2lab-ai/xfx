@@ -34,6 +34,7 @@
 
 use crate::provider::model::{CatalogEntry, CatalogRetry};
 
+use super::model_search;
 use super::picker::{cells, edge_start, ellipsized, pad_to};
 use super::theme::Palette;
 
@@ -205,11 +206,12 @@ enum Load {
 /// One model as the menu shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Item {
+    /// The whole `provider/model` id, which is all the search reads
+    /// ([`model_search`]).
     id: String,
-    /// What is in front of the id's first `/`, or nothing (`modelProvider`,
-    /// `model_cache_runtime.zig:876-882`): the search looks here too.
-    vendor: String,
-    /// The tab it is under.
+    /// The tab it is under: its vendor's, the vendor being what is in front of
+    /// the id's first `/`, or nothing (`modelProvider`,
+    /// `model_cache_runtime.zig:1148-1152@481104fd`).
     tab: Vendor,
     /// Its facts, joined; empty when the catalog published none.
     facts: String,
@@ -218,12 +220,11 @@ struct Item {
 impl Item {
     fn of(entry: &CatalogEntry) -> Self {
         let vendor = match entry.id.split_once('/') {
-            Some((vendor, _)) if !vendor.is_empty() => vendor.to_string(),
-            _ => String::new(),
+            Some((vendor, _)) if !vendor.is_empty() => vendor,
+            _ => "",
         };
         Self {
-            tab: Vendor::of(&vendor),
-            vendor,
+            tab: Vendor::of(vendor),
             id: entry.id.clone(),
             facts: facts(entry),
         }
@@ -497,22 +498,20 @@ impl ModelMenu {
         (count > 0).then(|| items[self.selected % count].id.as_str())
     }
 
-    /// What the menu lists: the tab's models the search finds, in the order
-    /// the rows came.
+    /// What the menu lists: the tab's models the search finds, better matches
+    /// first and equal ones in the order the rows came (`modelMenuItemAt`,
+    /// `model_cache_runtime.zig:298-315@481104fd`; [`model_search`]). The
+    /// count, the rows, the mark, `/settings`' Model row and the mark kept
+    /// across a revalidation ([`Self::loaded`], `modelMenuDisplayIndex`,
+    /// `:317-338`) all read this one list.
     fn items(&self) -> Vec<&Item> {
-        let query = self
-            .query
-            .trim_matches([' ', '\t', '\r', '\n'])
-            .to_ascii_lowercase();
-        self.items
-            .iter()
-            .filter(|item| self.tab == Vendor::All || item.tab == self.tab)
-            .filter(|item| {
-                query.is_empty()
-                    || item.id.to_ascii_lowercase().contains(&query)
-                    || item.vendor.to_ascii_lowercase().contains(&query)
-            })
-            .collect()
+        model_search::ranked(
+            self.items
+                .iter()
+                .filter(|item| self.tab == Vendor::All || item.tab == self.tab),
+            |item| item.id.as_str(),
+            &self.query,
+        )
     }
 
     /// The menu's shape in `budget` rows (`ModelMenuLayout.build`, `:31-91`).

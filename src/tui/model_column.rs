@@ -5,7 +5,8 @@
 //! src/core/app/input_completion_runtime.zig:1029-1360`, the stage machine in
 //! `src/core/input/picker_state.zig:205-487`): typing `/model ` opens a column
 //! of the catalog's models **under the argument** (`fx-model-40x120-space`),
-//! the text after it filters them, Enter on a model opens a second column
+//! the text after it searches them as the menu does ([`super::model_search`],
+//! v0.0.16's ranks), Enter on a model opens a second column
 //! under the next token -- `default`, then the levels the catalog lists for
 //! that model, in its order (`fx-model-40x120-gpt-enter`) -- and Enter there
 //! opens a third, the speed -- `normal`, then `fast` and `ultrafast` where the
@@ -67,6 +68,7 @@ use crate::provider::effort::{Effort, Speed};
 use crate::provider::model::CatalogEntry;
 
 use super::effort_menu;
+use super::model_search;
 use super::picker::{edge_start, ellipsized};
 use super::theme::Palette;
 
@@ -377,15 +379,14 @@ impl Column {
         self.dismissed = dismissed;
     }
 
-    /// The models `query` lists, in the catalog's order: every id containing
-    /// it, ignoring case (`modelCompletions`, `model_cache_runtime.zig:681-695`).
+    /// The models `query` lists, ranked as the menu ranks them -- better
+    /// matches first, equal ones in the catalog's order -- and the first
+    /// [`MOST_MODELS`] of them (`modelCompletions`,
+    /// `model_cache_runtime.zig:895-913@481104fd`; [`model_search`]).
     pub(crate) fn models<'c>(query: &str, catalog: Known<'c>) -> Vec<&'c CatalogEntry> {
-        catalog
-            .rows()
-            .iter()
-            .filter(|entry| query.is_empty() || contains_ignoring_case(&entry.id, query))
-            .take(MOST_MODELS)
-            .collect()
+        let mut models = model_search::ranked(catalog.rows(), |entry| entry.id.as_str(), query);
+        models.truncate(MOST_MODELS);
+        models
     }
 
     /// The model `query` names exactly, ignoring case and the blanks round it
