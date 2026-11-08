@@ -626,6 +626,16 @@ wire (above).
 | the 16 captures (14 scenarios, then `stopnext` twice more) | 16 of 16 exit 0 |
 | code mutants; the unmutated clone | 27 of 27 killed; 2777 of 2777 passed |
 
+**The tree was not clean for the whole slot.** A `refs.py --apply` against the wrong frame changed
+two test comments (`shell.rs:2706` and `:5816` re-pointed in an `event_loop.rs` and a `shell.rs`
+comment) at 06:09:51Z, and they were reverted before step 05. A second apply and revert touched the
+same files at 06:11:34Z.
+- The `cargo test` steps 02-04, and perhaps the release build, may have compiled those two comment
+  lines.
+- The debug build behind every capture, the head sweep and `xfx status` (step 05), the faulty
+  build, the mutants and the unmutated clone did not.
+- Neither line is code (`gates.txt`, round 3).
+
 This round's list asked for neither test-capture nor test-sweep, so neither was rerun.
 - The harness files round 3 changes are `osc.py`, `wire_mutants.py` and `mutants.py`, which live in
   this receipt, plus a comment in `capfile.py` and nine pointer fields (`xfx`, `why`, `source`) in

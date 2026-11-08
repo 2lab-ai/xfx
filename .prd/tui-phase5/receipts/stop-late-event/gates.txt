@@ -210,3 +210,15 @@ done 06:50:12
 11-sweep-head: pass = 28 / 69 = 40.6%; unresolved 40, failed 0, timeout 0
 captures: 16 of 16 exit 0
 clean-tui (the --no-local clone at the code head, unmutated): test result: ok. 2777 passed; 0 failed; 5 ignored; 0 measured; 1650 filtered out; finished in 22.88s
+
+## the tree during the slot: two comment lines were dirty for part of it
+A refs.py --apply against the wrong frame changed two comments at 06:09:51Z: `shell.rs:2706` -> `:2725` in an
+event_loop.rs test comment and `shell.rs:5816` -> `:5843` in a shell.rs test comment. Both were reverted between
+06:10:33Z and 06:11:24Z. A second apply and revert, in one command, rewrote the same two files at 06:11:34Z.
+- So step 02 (all-targets) may have compiled them, step 03 (fault-injection tui) did, and step 04 (fault-injection
+  lib) did for part of its run. Step 07 (the release build, 06:11:30-06:11:43) may have read them in that second's
+  window.
+- Step 05's debug build (06:11:24-06:11:29), which made the binary behind every capture, the head sweep and
+  `xfx status`, and step 08's faulty build were built from a clean tree.
+- The mutants and the unmutated clone ran on a --no-local clone at the commit. Neither change is code, and the tree
+  matched 06ca9f1a again from 06:11:34Z on (the files' mtime).
