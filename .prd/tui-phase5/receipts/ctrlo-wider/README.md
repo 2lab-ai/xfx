@@ -762,4 +762,40 @@ scenarios and the oracle, 1,127 checks, 0 failures. `test-capture.sh`
 failed outside the lock on `test_models2_and_modelsdelay` alone (the
 harness's catalog timing, below), and passed under it: 42 tests, OK.
 
+
+**After train 4** (`gates-train4.txt`) at `ad2a4d1d`, the tree clean, the
+same list, the two full suites and smoke-tui under `suite-lock.sh`:
+
+| gate | exit | s |
+|---|---|---|
+| fmt | 0 | 1 |
+| clippy | 0 | 18 |
+| clippy-fault | 0 | 17 |
+| test | 0 | 201 |
+| test-fault | 0 | 193 |
+| identity | 0 | 1 |
+| no-stubs | 0 | 8 |
+| no-secrets | 0 | 25 |
+| preview-contract | 0 | 2 |
+| preflight-cost | 0 | 89 |
+| usage-clock | 0 | 1 |
+| test-no-secrets | 0 | 88 |
+| test-gate-env | 0 | 92 |
+| test-preview-contract | 0 | 47 |
+| test-sweep | 0 | 52 |
+| test-capture | 1 | 570 |
+| release | 0 | 14 |
+| faulty | 0 | 19 |
+| smoke | 0 | 6 |
+| smoke-tui | 0 | 1866 |
+
+`cargo test`: 15 binaries, 5,289 passed, 0 failed, 7 ignored; with
+`fault-injection`, 5,326 passed, 0 failed, 7 ignored. `smoke.sh`: 47
+checks, 0 failures. `smoke-tui.sh`: 37 scenarios and the oracle, 1,127
+checks, 0 failures (1,866 s queued and run under the lock). `test-capture.sh`
+failed outside the lock on
+`test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run`
+alone (the wrapper's `/bin/sh` still the pane's process when the harness
+looked: timing, no xfx in it), and passed under it: 59 tests, OK.
+
 **`test-capture.sh` failed in run 2, and fails at the base too.** In run 2 (548 s, the machine shared; run 1's took 150 s and passed) `test_models2_and_modelsdelay` and `test_a_pid_whose_executable_is_not_the_binary_…` failed; again under the lock, only `test_models2_and_modelsdelay` (`ValueError`, the second catalog not in the log). That test drives a stub binary and `fakegw.ts`, no xfx, and the harness files are the base's bytes (`git diff e6cde019 -- scripts/fxcap/{capture.sh,test_capture.py,test-capture.sh,fakegw.ts}` is empty). Alone, three times each under the lock: the base's clone FAILED, OK, FAILED; the head FAILED, FAILED, FAILED. It is the harness's own timing (`models2` 5 s from the gateway's start), which FLAKE-HINT4 r2 (`d40bf1a3`, unmerged) changes to "by order" -- not this unit's (`gates.txt`).
