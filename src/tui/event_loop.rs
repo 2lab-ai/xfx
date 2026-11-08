@@ -14167,43 +14167,61 @@ mod tests {
     fn a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report() {
         // A stopped turn's end leads the tick's report with the title it gave
         // the session (`a_stopped_turns_title_goes_out_ahead_of_the_next_prompts_working`).
-        // Only that title: a session that has one already takes none from the
-        // stopped turn (`ensureCachedSessionTitle`,
-        // `app_session_runtime.zig:2997-3010@481104fd`), and a title another
-        // event of the same drain asked for -- a model naming the session,
-        // read just before the stopped turn's end -- is the tick's own, which
-        // follows its report.
-        let mut shell = shell();
-        let mut band = Band::new();
-        let mut out = StatusScreen::default();
-        launch_title(&mut shell, &mut band);
-        status_tick(&mut shell, &mut band, &mut out);
-        shell.route_bytes(b"go\r");
-        status_tick(&mut shell, &mut band, &mut out);
-        shell.start_turn();
-        shell.settle_band(Instant::now());
-        status_tick(&mut shell, &mut band, &mut out);
-        shell.route_bytes(&[0x03]);
-        status_tick(&mut shell, &mut band, &mut out);
-        shell.route_bytes(b"after\r");
-        status_tick(&mut shell, &mut band, &mut out);
-        let before = out.vectors.len();
-        shell.apply(UiEvent::SessionTitled("Named".into()));
-        shell.apply(UiEvent::TurnEnded {
-            failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
-        });
-        shell.start_turn();
-        for _ in 0..2 {
+        // Only that title, and only while it is still the title owed: a
+        // session that has one already takes none from the stopped turn
+        // (`ensureCachedSessionTitle`, `app_session_runtime.zig:2997-3010@481104fd`),
+        // and a title another event of the same drain asked for -- a model
+        // naming the session, read before the stopped turn's end or after it
+        // -- is the tick's own, which follows its report. (Upstream writes
+        // the stopped turn's title on the pass that drains its end and the
+        // model's on a later one; the band writes the one title a tick ends
+        // with, as it writes the launch's once where upstream writes it
+        // twice.)
+        let mut got = Vec::new();
+        for model_first in [true, false] {
+            let mut shell = shell();
+            let mut band = Band::new();
+            let mut out = StatusScreen::default();
+            launch_title(&mut shell, &mut band);
+            status_tick(&mut shell, &mut band, &mut out);
+            shell.route_bytes(b"go\r");
+            status_tick(&mut shell, &mut band, &mut out);
+            shell.start_turn();
             shell.settle_band(Instant::now());
             status_tick(&mut shell, &mut band, &mut out);
+            shell.route_bytes(&[0x03]);
+            status_tick(&mut shell, &mut band, &mut out);
+            shell.route_bytes(b"after\r");
+            status_tick(&mut shell, &mut band, &mut out);
+            let before = out.vectors.len();
+            let named = UiEvent::SessionTitled("Named".into());
+            if model_first {
+                shell.apply(named.clone());
+            }
+            shell.apply(UiEvent::TurnEnded {
+                failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+            });
+            if !model_first {
+                shell.apply(named);
+            }
+            shell.start_turn();
+            for _ in 0..2 {
+                shell.settle_band(Instant::now());
+                status_tick(&mut shell, &mut band, &mut out);
+            }
+            let wire = out.vectors[before..].concat();
+            let title = find(&wire, b"\x1b]2;Named\x07");
+            let working = find(&wire, WORKING.as_bytes());
+            got.push((
+                model_first,
+                title.is_some() && working.is_some() && working < title,
+                String::from_utf8_lossy(&wire).into_owned(),
+            ));
         }
-        let wire = out.vectors[before..].concat();
-        let title = find(&wire, b"\x1b]2;Named\x07");
-        let working = find(&wire, WORKING.as_bytes());
         assert!(
-            title.is_some() && working.is_some() && working < title,
-            "the model's title is not behind the tick's working: {:?}",
-            String::from_utf8_lossy(&wire)
+            got.iter().all(|(_, behind, _)| *behind),
+            "the model's title behind the tick's working, read before the stopped end \
+             and after it: {got:?}"
         );
     }
 
