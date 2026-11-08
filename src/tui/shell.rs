@@ -1481,10 +1481,11 @@ pub(crate) struct Shell {
     /// as upstream delivers a steer (`fx-steer-40x120-steer-done`) -- never at
     /// the keystroke, in the middle of the answer it was typed under.
     ///
-    /// The fourth says the prompt was sent while a turn that had started was
-    /// still in hand -- running, or stopped and not yet ended -- so its turn
-    /// is reported as it starts, ahead of the frame that shows it, as
-    /// upstream reports a prompt it queued behind a turn
+    /// The fourth says upstream would have queued the prompt at once rather
+    /// than hold it as a pending submission: a turn that had started was
+    /// still in hand -- running, or stopped and not yet ended -- the last
+    /// answer was still being paced out, or the full transcript was open. Its
+    /// `working` is then not held for the frame that shows its turn
     /// ([`Self::take_status_moved_by_input`]).
     prompts: VecDeque<(u64, Option<String>, Option<WaitingCard>, bool)>,
     /// The prompts sent into the running turn and not yet taken by it
@@ -10258,17 +10259,20 @@ impl Shell {
     /// reset or replaced before it started -- owes no frame anything: what is
     /// reported then goes where it would have.
     ///
-    /// **Except a prompt sent while a turn that started was still in hand** --
-    /// running, or stopped and not yet ended ([`Self::prompts`]' fourth).
-    /// Upstream does not hold such a prompt as a pending submission -- it
-    /// installs one only while no turn streams and the worker can hold the
-    /// next start (`installPendingSubmission`,
-    /// `input_submit_runtime.zig:1136`, `:1149@481104fd`; `tryHoldTurnStart`
-    /// refuses while it processes or has work queued,
-    /// `worker_runtime.zig:1273-1280`) -- but queues it with the worker at
-    /// once (`enqueuePromptForSubmit`, `input_submit_runtime.zig:1112-1118`),
-    /// so no frame shows its activity until the worker takes it, in the pass
-    /// that reports `working` and then paints the prompt
+    /// **Except a prompt upstream would have queued at once**
+    /// ([`Self::prompts`]' fourth). Upstream installs a pending submission --
+    /// whose keystroke frame shows its activity -- only while no turn streams,
+    /// its pacer holds no text, the full transcript is closed and the worker
+    /// can hold the next start (`installPendingSubmission`,
+    /// `input_submit_runtime.zig:1123-1149@481104fd`; `tryHoldTurnStart`
+    /// refuses while it processes, has work queued or holds another start,
+    /// `worker_runtime.zig:1273-1280`). Otherwise it queues the prompt at
+    /// once (`enqueuePromptForSubmit`, `input_submit_runtime.zig:1112-1118`).
+    /// xfx reads the first three: a turn that started still in hand, the
+    /// pacer, the full transcript; a start held by another waiting prompt or
+    /// by a session transition is STOP-NEXT's. A queued prompt shows nothing
+    /// of its turn until the worker takes it, in the pass that reports
+    /// `working` and then paints the prompt
     /// (`p5-lifecycle-osc-stopnext` on fx v0.0.16: `idle`, the `Cancelled`
     /// frame, `working`, then the frame with the prompt). A stop stays
     /// requested until that take
@@ -10280,14 +10284,19 @@ impl Shell {
     /// in the tick its own starts in -- the runtime sends the two with no wait
     /// on this thread -- or in an earlier one. Behind a turn that was not
     /// stopped, that report is the running turn's `working`, which is not
-    /// written again.
+    /// written again. Only while the runtime still holds a place: a prompt
+    /// it dropped on reading a stop leaves its entry and is no work.
     pub(crate) fn take_status_moved_by_input(&mut self) -> Keyed {
         let compacting = self
             .compaction
             .as_ref()
             .is_some_and(|compaction| compaction.active() && !compaction.stopped());
         let working = self.status_activity() == StatusActivity::Working;
-        let behind_a_turn = self.prompts.front().is_some_and(|prompt| prompt.3);
+        // Queued work, while the runtime still holds a place for it: a prompt
+        // its loop dropped on reading a stop (`Taken::Abandon`) says nothing
+        // and leaves its entry here (STOP-NEXT), and is no work at all.
+        let behind_a_turn =
+            self.work.outstanding() > 0 && self.prompts.front().is_some_and(|prompt| prompt.3);
         if working && !self.activity.working() && !compacting && !behind_a_turn {
             self.status_held = true;
             return Keyed::NotYet;
@@ -12763,10 +12772,13 @@ impl Shell {
         // prompt typed after it goes out as soon as that work unwinds, and its
         // card is written at once, as it always was.
         let waits = self.activity.working();
-        // Whether a turn that started is still in hand, stopped or not: the
-        // prompt is then queued behind it, as upstream's is, and its turn is
-        // reported ahead of the frame that shows it.
-        let behind = self.tally.started.is_some();
+        // Whether upstream would queue this prompt at once rather than hold it
+        // as a pending submission ([`Self::prompts`]' fourth): a turn that
+        // started is still in hand, stopped or not; the last answer is still
+        // being paced out; or the full transcript is open
+        // (`installPendingSubmission`, `input_submit_runtime.zig:1136-1149@481104fd`).
+        let behind =
+            self.tally.started.is_some() || self.pacer.pending() > 0 || self.full.is_open();
         match self.work.submit(work) {
             Ok(()) => {
                 self.ask_for_title(excerpt.as_deref(), Some(self.work.accepted()));
@@ -12847,9 +12859,11 @@ impl Shell {
                     // Sent while the turn that missed it was still in hand:
                     // upstream's is already queued work, deferred to the
                     // next turn (`finishProcessing`'s `.continuation`,
-                    // `worker_runtime.zig:1548-1551@481104fd`). The report
-                    // reads the same either way -- the turn's `working` is
-                    // what is on the terminal when this runs.
+                    // `worker_runtime.zig:1548-1551@481104fd`), and busy. It
+                    // matters when the turn's last report was a result -- an
+                    // automatic compaction's `error` -- rather than `working`:
+                    // the steer's `working` is then the tick's own, not held
+                    // for its turn's start.
                     self.prompts.push_back((
                         estimate.estimate(),
                         title_of(&prompt),
