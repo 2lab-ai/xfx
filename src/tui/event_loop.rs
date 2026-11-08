@@ -15839,4 +15839,144 @@ mod tests {
              drain came first) and activity asks again"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // COMPACT-NOTICE-LATE
+    // -----------------------------------------------------------------------
+
+    /// Upstream's sentence for a stopped compaction (`compactionFeedbackLabel`,
+    /// `src/core/output/activity_status.zig:43-67@481104fd`).
+    const COMPACTION_CANCELLED: &str = "Compaction cancelled. Try /compact again when ready.";
+
+    /// Whether one of the band's rows says `needle`.
+    fn band_says(shell: &Shell, needle: &str) -> bool {
+        shell.band_rows().iter().any(|row| row.contains(needle))
+    }
+
+    /// [`shell`], with a turn in its conversation as `/status` reads it, so a
+    /// `/compact` has something to compact.
+    fn shell_with_a_turn() -> Fixture {
+        let shell = shell();
+        let config = RuntimeConfig::load_with(
+            &Environment::new(Some(shell._home.path().to_path_buf()), BTreeMap::new()),
+            &shell._workspace.path().join("work"),
+        )
+        .expect("load a configuration");
+        let mut snapshot = crate::output::StatusSnapshot::new(
+            &config,
+            crate::build_info(),
+            crate::output::SessionFacts::default(),
+        );
+        snapshot.history_turns = 1;
+        shell.handle.publish_status(snapshot);
+        shell
+    }
+
+    #[test]
+    fn a_stopped_compactions_sentence_the_next_line_took_away_stays_away() {
+        // PR #82's CI, `ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes`
+        // (`tests/tui.rs`): the row said the sentence, the line sent took it
+        // away, and it was back in the same frame, under `third question`, and
+        // stayed. The runtime sends a compaction's ending before it gives its
+        // place back (`run_compact`, then `turn_loop`'s `fetch_sub`), so a tick
+        // whose drain came before both and whose settle came after them finds
+        // nothing in hand with the ending still on the channel. Upstream's
+        // line dismisses the sentence for good: its settle reaches only an
+        // operation that is still running (`State.settle`,
+        // `src/core/output/compaction_activity.zig:118-120@481104fd`), and a
+        // dismissed one stays dismissed (`:129-137`, `visible`, `:52-53`).
+        //
+        // The schedule is the loop's own (`session`): the keys, then the
+        // drain, then the settle, with the runtime's two steps between one
+        // tick's drain and its settle. The next line is typed as a person
+        // types it: once the row says the sentence. Three lines: a prompt;
+        // `/compact`, whose new compaction the stale ending would settle; and
+        // a prompt after an automatic compaction stopped inside its turn.
+        let mut got = Vec::new();
+        for case in ["a prompt", "/compact", "a prompt after an automatic one"] {
+            let automatic = case.ends_with("automatic one");
+            let mut shell = if automatic {
+                let (mut shell, _, _) = status_running(b"go\r");
+                shell.apply(UiEvent::Compaction(crate::tui::compaction::Update::Began {
+                    automatic: true,
+                }));
+                shell
+            } else {
+                let mut shell = shell_with_a_turn();
+                shell.route_bytes(b"/compact\r");
+                // The runtime took it: it is waiting for its notes.
+                assert_eq!(
+                    shell._work.try_recv().ok(),
+                    Some(crate::tui::bridge::TurnWork::Compact),
+                    "{case}"
+                );
+                shell
+            };
+            shell.settle_band(Instant::now());
+            shell.route_bytes(&[0x03]);
+            shell.settle_band(Instant::now());
+            assert!(band_says(&shell, "Stopping compaction"), "{case}");
+            let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+            // The tick the runtime ends in. Its drain finds nothing...
+            take_ui_events(&mut shell, &mut receiver);
+            // ...the runtime says how it ended and gives its place back...
+            events
+                .try_send(UiEvent::Compaction(
+                    crate::tui::compaction::Update::Settled(
+                        crate::tui::compaction::Feedback::Cancelled,
+                    ),
+                ))
+                .expect("room");
+            if automatic {
+                events
+                    .try_send(UiEvent::TurnEnded {
+                        failure: Some(bridge::TURN_CANCELLED.to_string()),
+                    })
+                    .expect("room");
+            }
+            shell.handle.give_back();
+            // ...and the tick settles.
+            shell.settle_band(Instant::now());
+            let mut ticks = 0;
+            while !band_says(&shell, COMPACTION_CANCELLED) {
+                ticks += 1;
+                assert!(
+                    ticks <= 3,
+                    "{case}: the sentence never came: {:?}",
+                    shell.band_rows()
+                );
+                take_ui_events(&mut shell, &mut receiver);
+                shell.settle_band(Instant::now());
+            }
+            let line: &[u8] = if case == "/compact" {
+                b"/compact\r"
+            } else {
+                b"third question\r"
+            };
+            shell.route_bytes(line);
+            // The row as the line left it, before anything more is read.
+            shell.settle_band(Instant::now());
+            let cleared = !band_says(&shell, COMPACTION_CANCELLED);
+            for _ in 0..3 {
+                take_ui_events(&mut shell, &mut receiver);
+                shell.settle_band(Instant::now());
+            }
+            got.push((
+                case,
+                cleared,
+                band_says(&shell, COMPACTION_CANCELLED),
+                band_says(&shell, "Preparing compaction"),
+            ));
+        }
+        assert_eq!(
+            got,
+            [
+                ("a prompt", true, false, false),
+                ("/compact", true, false, true),
+                ("a prompt after an automatic one", true, false, false),
+            ],
+            "each: (the line took the sentence away, the sentence on the row three drains \
+             later, the new compaction's own row)"
+        );
+    }
 }
