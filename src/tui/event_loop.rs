@@ -15879,6 +15879,79 @@ mod tests {
             .collect()
     }
 
+    /// A session at `rows` x `cols` in a workspace of thirty files every
+    /// ranking ties on (`items/f-01.txt` .. `items/f-30.txt`, the scenarios'
+    /// `p5-input-at-height-ws`), with `@f-` typed and its ten rows painted.
+    struct AtList {
+        shell: Fixture,
+        band: Band,
+        out: FlakyScreen,
+        failures: FrameFailures,
+    }
+
+    impl AtList {
+        fn open(rows: u16, cols: u16) -> Self {
+            let shell = shell_of(rows, cols);
+            let items = shell._workspace.path().join("work").join("items");
+            std::fs::create_dir(&items).expect("a folder");
+            for n in 1..=30 {
+                std::fs::write(items.join(format!("f-{n:02}.txt")), "x\n").expect("a file");
+            }
+            let mut list = Self {
+                shell,
+                band: Band::new(),
+                out: screen(),
+                failures: FrameFailures::default(),
+            };
+            list.shell.route_bytes(b"@f-");
+            let deadline = Instant::now() + crate::process::START_PATIENCE;
+            while at_rows(&list.shell).len() < 6 {
+                assert!(
+                    Instant::now() < deadline,
+                    "the list never arrived: {:?}",
+                    list.shell.band_rows()
+                );
+                list.tick();
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            list.tick();
+            list
+        }
+
+        /// One turn of the loop: what the keys and the index owe, then the
+        /// frame.
+        fn tick(&mut self) {
+            let now = Instant::now();
+            self.shell.settle_input(now);
+            self.shell.settle_band(now);
+            commit_frame(
+                &mut self.shell,
+                &mut self.band,
+                &mut self.out,
+                &mut self.failures,
+                now,
+                Reconciled,
+            )
+            .expect("a frame");
+        }
+
+        /// `bytes` typed, and the frame after them.
+        fn keys(&mut self, bytes: &[u8]) -> Vec<(String, bool)> {
+            self.shell.route_bytes(bytes);
+            self.tick();
+            at_rows(&self.shell)
+        }
+
+        fn resize(&mut self, rows: u16, cols: u16) -> Vec<(String, bool)> {
+            adopt_resize(&mut self.shell, &mut self.band, || (rows, cols));
+            self.tick();
+            at_rows(&self.shell)
+        }
+    }
+
+    const DOWN: &[u8] = b"\x1b[B";
+    const UP: &[u8] = b"\x1b[A";
+
     #[test]
     fn the_at_list_scrolls_by_the_rows_the_frame_that_landed_painted() {
         // fx v0.0.16 gives the `@` list ten rows on a 40-row screen
@@ -15888,70 +15961,53 @@ mod tests {
         // `acknowledge`, `file_completion_state.zig:294`; `navigate`, `:248`)
         // -- the captures `p5-input-at-height` and `p5-input-at-resize`, over
         // thirty names every ranking ties on.
-        let mut shell = shell_of(40, 120);
-        let items = shell._workspace.path().join("work").join("items");
-        std::fs::create_dir(&items).expect("a folder");
-        for n in 1..=30 {
-            std::fs::write(items.join(format!("f-{n:02}.txt")), "x\n").expect("a file");
-        }
-        let mut band = Band::new();
-        let mut failures = FrameFailures::default();
-        let mut out = screen();
-        // One tick: what the keys and the index owe, then the frame.
-        macro_rules! frame {
-            ($shell:expr) => {{
-                let now = Instant::now();
-                $shell.settle_input(now);
-                $shell.settle_band(now);
-                commit_frame(
-                    &mut $shell,
-                    &mut band,
-                    &mut out,
-                    &mut failures,
-                    now,
-                    Reconciled,
-                )
-                .expect("a frame");
-            }};
-        }
-        shell.route_bytes(b"@f-");
-        let deadline = Instant::now() + crate::process::START_PATIENCE;
-        while at_rows(&shell).len() < 6 {
-            assert!(
-                Instant::now() < deadline,
-                "the list never arrived: {:?}",
-                shell.band_rows()
-            );
-            frame!(shell);
-            std::thread::sleep(Duration::from_millis(2));
-        }
-        frame!(shell);
-        assert_eq!(at_rows(&shell), at_window(1, 10, 1), "ten rows at 40");
+        let mut list = AtList::open(40, 120);
+        assert_eq!(at_rows(&list.shell), at_window(1, 10, 1), "ten rows at 40");
 
         // Down twelve times: the bar on the last row, the window on 4-13.
-        shell.route_bytes(&b"\x1b[B".repeat(12));
-        frame!(shell);
-        assert_eq!(at_rows(&shell), at_window(4, 13, 13), "after Down x12");
+        assert_eq!(
+            list.keys(&DOWN.repeat(12)),
+            at_window(4, 13, 13),
+            "after Down x12"
+        );
         // Up six: the bar moves and the window stays.
-        shell.route_bytes(&b"\x1b[A".repeat(6));
-        frame!(shell);
-        assert_eq!(at_rows(&shell), at_window(4, 13, 7), "after Up x6");
+        assert_eq!(list.keys(&UP.repeat(6)), at_window(4, 13, 7), "after Up x6");
         // Up three more: the bar passes the window's top, and the window moves.
-        shell.route_bytes(&b"\x1b[A".repeat(3));
-        frame!(shell);
-        assert_eq!(at_rows(&shell), at_window(4, 13, 4), "after Up x9");
+        assert_eq!(list.keys(&UP.repeat(3)), at_window(4, 13, 4), "after Up x9");
 
         // Back to f-13 and onto a 16-row screen: six rows, painted to keep
         // the bar in view, while the window navigation left stays where it
         // was (`paint_plan.zig:936-937`) -- so the first Up after it moves
         // the window, scrolling the six rows that frame painted.
-        shell.route_bytes(&b"\x1b[B".repeat(9));
-        frame!(shell);
-        adopt_resize(&mut shell, &mut band, || (16, 120));
-        frame!(shell);
-        assert_eq!(at_rows(&shell), at_window(8, 13, 13), "at 16 rows");
-        shell.route_bytes(b"\x1b[A");
-        frame!(shell);
-        assert_eq!(at_rows(&shell), at_window(7, 12, 12), "Up at 16 rows");
+        list.keys(&DOWN.repeat(9));
+        assert_eq!(list.resize(16, 120), at_window(8, 13, 13), "at 16 rows");
+        assert_eq!(list.keys(UP), at_window(7, 12, 12), "Up at 16 rows");
+    }
+
+    #[test]
+    fn the_frame_that_gives_the_plane_back_is_one_the_at_lists_arrows_scroll() {
+        // Ctrl-O over the `@` list, a resize while the transcript is up, and
+        // Ctrl-O again: the frame that gives the plane back paints the band,
+        // the list in six rows, and it is a committed frame like any other
+        // (`paintedFilePickerReceipt` for any committed frame that showed the
+        // picker, `app_render_runtime.zig:1854-1857@481104fd`). Two Ups after
+        // it: the first scrolls six rows from where the window was left
+        // (rank 3) to 6, and the second keeps the window there. Had the
+        // return not counted, the first would have scrolled ten from 3, kept
+        // 3, and the second moved the window to 5.
+        let mut list = AtList::open(40, 120);
+        assert_eq!(list.keys(&DOWN.repeat(12)), at_window(4, 13, 13));
+        list.keys(b"\x0f");
+        assert!(list.band.on_alternate(), "Ctrl-O did not take the plane");
+        list.resize(16, 120);
+        list.keys(b"\x0f");
+        assert!(!list.band.on_alternate(), "Ctrl-O did not give it back");
+        assert_eq!(
+            at_rows(&list.shell),
+            at_window(8, 13, 13),
+            "the band it gave back"
+        );
+        assert_eq!(list.keys(UP), at_window(7, 12, 12), "the first Up");
+        assert_eq!(list.keys(UP), at_window(7, 12, 11), "the second Up");
     }
 }
