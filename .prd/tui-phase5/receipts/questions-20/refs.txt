@@ -1,0 +1,166 @@
+# head dc2410c6; sides: base 712dd8d1
+docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:888]
+    base* = row
+docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:196]
+    base* = row
+docs/parity.md:96	[scripts/fxcap/parity-ledger.toml:307]
+    base* = row
+docs/parity.md:99	[scripts/fxcap/parity-ledger.toml:432]
+    base* = row
+docs/parity.md:107	[scripts/fxcap/parity-ledger.toml:123]
+    base* = row
+docs/parity.md:109	[scripts/fxcap/parity-ledger.toml:913]
+    base* = row
+docs/parity.md:113	[scripts/fxcap/parity-ledger.toml:349]
+    base* = row
+docs/parity.md:115	[scripts/fxcap/parity-ledger.toml:70, scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:236, scripts/fxcap/parity-ledger.toml:267, scripts/fxcap/parity-ledger.toml:280, scripts/fxcap/parity-ledger.toml:294, scripts/fxcap/parity-ledger.toml:321, scripts/fxcap/parity-ledger.toml:335, scripts/fxcap/parity-ledger.toml:418]
+    base* = row
+docs/parity.md:118	[scripts/fxcap/parity-ledger.toml:61]
+    base* = row
+docs/parity.md:120	[scripts/fxcap/parity-ledger.toml:182, scripts/fxcap/parity-ledger.toml:335]
+    base* = row
+docs/parity.md:158	[scripts/fxcap/parity-ledger.toml:562, scripts/fxcap/parity-ledger.toml:573]
+    base* = row
+docs/parity.md:160	[scripts/fxcap/parity-ledger.toml:776]
+    base* = row
+docs/parity.md:162	[scripts/fxcap/parity-ledger.toml:655]
+    base = row
+docs/parity.md:172	[scripts/fxcap/parity-ledger.toml:877]
+    base* = row
+docs/parity.md:177	[scripts/fxcap/parity-ledger.toml:740]
+    base* = row
+docs/parity.md:210	[scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:321]
+    base* = row
+docs/parity.md:216	[scripts/fxcap/parity-ledger.toml:712]
+    base* = row
+docs/parity.md:237	[scripts/fxcap/parity-ledger.toml:450, scripts/fxcap/parity-ledger.toml:505, scripts/fxcap/parity-ledger.toml:519, scripts/fxcap/parity-ledger.toml:533]
+    base* = row
+docs/parity.md:238	[scripts/fxcap/parity-ledger.toml:139, scripts/fxcap/parity-ledger.toml:363, scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:387, scripts/fxcap/parity-ledger.toml:391, scripts/fxcap/parity-ledger.toml:405, scripts/fxcap/parity-ledger.toml:463, scripts/fxcap/parity-ledger.toml:491, scripts/fxcap/parity-ledger.toml:788]
+    base* = row
+docs/parity.md:243	[scripts/fxcap/parity-ledger.toml:250]
+    base* = row
+scripts/check-xfx-identity.sh:5	[docs/parity.md:241]
+    base* =
+scripts/fxcap/capture.sh:315-317	[scripts/fxcap/parity-ledger.toml:85]
+    base* =
+scripts/fxcap/capture.sh:521	[scripts/fxcap/parity-ledger.toml:78]
+    base* =
+scripts/fxcap/capture.sh:952	[scripts/fxcap/parity-ledger.toml:147]
+    base* =
+scripts/fxcap/cells.py:12-14	[scripts/fxcap/parity-ledger.toml:53]
+    base* =
+src/agent/machine.rs:78-85	[docs/parity.md:237]
+    base* =
+src/config/schema.rs:545-550	[docs/parity.md:93]
+    base* =
+src/gateway/mod.rs:59	[scripts/fxcap/parity-ledger.toml:640, scripts/fxcap/parity-ledger.toml:650, docs/parity.md:237]
+    base* =
+src/gateway/mod.rs:994-995	[docs/parity.md:237]
+    base* =
+src/image.rs:101	[scripts/fxcap/parity-ledger.toml:740]
+    base* =
+src/markdown/theme.rs:49	[scripts/fxcap/parity-ledger.toml:250]
+    base* =
+src/markdown/theme.rs:69	[scripts/fxcap/parity-ledger.toml:250]
+    base* =
+src/mcp/runtime.rs:90	[scripts/fxcap/parity-ledger.toml:1124]
+    base* =
+src/mcp/transport.rs:1318-1320	[docs/parity.md:221]
+    base* =
+src/permission/authority.rs:38-41	[scripts/fxcap/parity-ledger.toml:866]
+    base* =
+src/permission/authority.rs:737	[scripts/fxcap/parity-ledger.toml:450]
+    base* =
+src/permission/authority.rs:1145-1149	[scripts/fxcap/parity-ledger.toml:866]
+    base* =
+src/permission/slash.rs:466	[scripts/fxcap/parity-ledger.toml:774]
+    base* =
+src/provider/mod.rs:116	[scripts/fxcap/parity-ledger.toml:762]
+    base* =
+src/proxy/server.rs:1583-1613	[docs/parity.md:114]
+    base* =
+src/session/store.rs:74	[docs/parity.md:48]
+    base* =
+src/session/store.rs:1000	[scripts/fxcap/parity-ledger.toml:670]
+    base* =
+src/sound.rs:37	[scripts/fxcap/parity-ledger.toml:911]
+    base* =
+src/tools/mcp.rs:422-428	[scripts/fxcap/parity-ledger.toml:1077, docs/parity.md:176]
+    base* =
+src/tools/mutate.rs:437-442	[scripts/fxcap/parity-ledger.toml:571, docs/parity.md:158]
+    base* =
+src/tools/question.rs:60-76	[docs/parity.md:242]
+    base -> 63-79
+src/tools/read.rs:1162	[scripts/fxcap/parity-ledger.toml:571, docs/parity.md:158]
+    base* =
+src/tools/spec.rs:214	[scripts/fxcap/parity-ledger.toml:868]
+    base* =
+src/tui/approval_view.rs:106	[scripts/fxcap/parity-ledger.toml:923]
+    base* =
+src/tui/approval_view.rs:685	[scripts/fxcap/parity-ledger.toml:774, scripts/fxcap/parity-ledger.toml:797, scripts/fxcap/parity-ledger.toml:809, scripts/fxcap/parity-ledger.toml:820, scripts/fxcap/parity-ledger.toml:831, scripts/fxcap/parity-ledger.toml:854, scripts/fxcap/parity-ledger.toml:899]
+    base* =
+src/tui/approval_view.rs:971-976	[scripts/fxcap/parity-ledger.toml:463]
+    base* =
+src/tui/approval_view.rs:1224	[scripts/fxcap/parity-ledger.toml:981]
+    base* =
+src/tui/frame.rs:2749	[scripts/fxcap/parity-ledger.toml:533]
+    base* =
+src/tui/full_transcript.rs:495	[scripts/fxcap/parity-ledger.toml:363]
+    base* =
+src/tui/full_transcript.rs:3005	[scripts/fxcap/parity-ledger.toml:491, scripts/fxcap/parity-ledger.toml:981]
+    base* =
+src/tui/full_transcript.rs:3056	[scripts/fxcap/parity-ledger.toml:505, scripts/fxcap/parity-ledger.toml:519]
+    base* =
+src/tui/gesture.rs:162-164	[scripts/fxcap/parity-ledger.toml:1111]
+    base* =
+src/tui/gesture.rs:176-188	[scripts/fxcap/parity-ledger.toml:1099, scripts/fxcap/parity-ledger.toml:1111]
+    base* =
+src/tui/grid.rs:933	[scripts/fxcap/parity-ledger.toml:958]
+    base* =
+src/tui/layout.rs:91	[scripts/fxcap/parity-ledger.toml:946, scripts/fxcap/parity-ledger.toml:994]
+    base* =
+src/tui/mcp_menu.rs:786-791	[scripts/fxcap/parity-ledger.toml:1123]
+    base* =
+src/tui/mcp_menu.rs:1500	[scripts/fxcap/parity-ledger.toml:432]
+    base* =
+src/tui/mod.rs:127-133	[scripts/fxcap/parity-ledger.toml:1086]
+    base* =
+src/tui/retry.rs:369-381	[docs/parity.md:237]
+    base* =
+src/tui/settings.rs:361	[scripts/fxcap/parity-ledger.toml:911]
+    base* =
+src/tui/shell.rs:187	[scripts/fxcap/parity-ledger.toml:44, scripts/fxcap/parity-ledger.toml:45]
+    base* =
+src/tui/shell.rs:1756	[scripts/fxcap/parity-ledger.toml:935]
+    base* =
+src/tui/shell.rs:4333	[scripts/fxcap/parity-ledger.toml:1046]
+    base* =
+src/tui/shell.rs:10194	[scripts/fxcap/parity-ledger.toml:843, scripts/fxcap/parity-ledger.toml:845]
+    base* =
+src/tui/shell.rs:13112	[scripts/fxcap/parity-ledger.toml:551]
+    base* =
+src/tui/shell.rs:13423	[scripts/fxcap/parity-ledger.toml:505]
+    base* =
+src/tui/shell.rs:16321	[scripts/fxcap/parity-ledger.toml:969]
+    base* =
+src/tui/shell.rs:38615	[scripts/fxcap/parity-ledger.toml:786, scripts/fxcap/parity-ledger.toml:797, scripts/fxcap/parity-ledger.toml:809, scripts/fxcap/parity-ledger.toml:820, scripts/fxcap/parity-ledger.toml:831, scripts/fxcap/parity-ledger.toml:899]
+    base* =
+src/tui/toolgroup.rs:511-513	[scripts/fxcap/parity-ledger.toml:661]
+    base =
+src/tui/toolgroup.rs:922	[scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:854]
+    base* =
+src/tui/toolgroup.rs:999	[scripts/fxcap/parity-ledger.toml:391]
+    base* =
+src/tui/toolgroup.rs:1113	[scripts/fxcap/parity-ledger.toml:405]
+    base* =
+src/tui/usage_menu.rs:790	[scripts/fxcap/parity-ledger.toml:349]
+    base* =
+src/tui/wrap.rs:673-693	[scripts/fxcap/parity-ledger.toml:958]
+    base* =
+src/tui/wrap.rs:726	[scripts/fxcap/parity-ledger.toml:477]
+    base* =
+tests/e2e/file-tool-paths.test.ts:1170-1179	[docs/parity.md:218]
+    base* =
+tests/tla/session_manager/system-design.md:1536-1560	[docs/parity.md:92]
+    base* =
+# 82 references; 0 (side, reference) pairs MOVED; * = the side's own text cites it

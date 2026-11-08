@@ -1,0 +1,364 @@
+# fx sources this unit cites, read with `git show <rev>:<path>` (v0.0.16 = 481104fd, old = c1db9191).
+# Each entry: what it shows, path:lines@rev, then those lines (cut at 200 characters).
+
+## the cap: one constant shared by the schema, the parser and saved-answer decoding
+src/core/agent/question_answer.zig:7-9@481104fd
+    /// Most questions one `ask_user_question` call may ask. The tool schema, the
+    /// argument parser, and saved-result decoding all share this bound.
+    pub const max_questions: u32 = 20;
+
+## old: decoding bounded at 4
+src/core/agent/question_answer.zig:54-54@c1db9191
+        if (items.len < 1 or items.len > 4) return null;
+
+## the description, its count from the constant
+src/builtins/tools.zig:119-122@481104fd
+    const ask_user_question_description = std.fmt.comptimePrint(
+        "Ask the user 1-{d} multiple-choice questions in interactive runs only when a concrete decision blocks progress after local files, git state, or tool output cannot answer it. When to use: choose a
+        .{question_answer.max_questions},
+    );
+
+## old: the description at 1-4
+src/builtins/tools.zig:169-170@c1db9191
+    const ask_user_question_description =
+        "Ask the user 1-4 multiple-choice questions in interactive runs only when a concrete decision blocks progress after local files, git state, or tool output cannot answer it. When to use: choose amo
+
+## the schema: questions minItems 1, maxItems max_questions
+src/builtins/tools.zig:607-607@481104fd
+                    .{ .name = "questions", .json_type = .array, .bounds = &.{ .min_items = 1, .max_items = question_answer.max_questions }, .shape = &.{ .array_objects = &ask_user_question_question_schem
+
+## old: maxItems 4
+src/builtins/tools.zig:708-708@c1db9191
+                    .{ .name = "questions", .json_type = .array, .bounds = &.{ .min_items = 1, .max_items = 4 }, .shape = &.{ .array_objects = &ask_user_question_question_schema } },
+
+## per question: options 2 to 6 (unchanged by 28cf53b5)
+src/builtins/tools.zig:130-136@481104fd
+    const ask_user_question_question_schema = model_tool_schema.ObjectSchema{
+        .properties = &.{
+            .{ .name = "question", .json_type = .string, .description = "Specific blocking decision shown to the user; do not ask for facts tools can inspect." },
+            .{ .name = "options", .json_type = .array, .bounds = &.{ .min_items = 2, .max_items = 6 }, .shape = &.{ .array_objects = &ask_user_question_option_schema } },
+        },
+        .required = &.{ "question", "options" },
+    };
+
+## fx's own test of the wire: description prefix, maxItems 20, options maxItems 6
+src/builtins/tools.zig:1461-1463@481104fd
+        try std.testing.expect(std.mem.startsWith(u8, ask_user_question.description, "Ask the user 1-20 multiple-choice questions"));
+        try std.testing.expect(std.mem.find(u8, schema_json, "\"questions\":{\"type\":\"array\",\"minItems\":1,\"maxItems\":20") != null);
+        try std.testing.expect(std.mem.find(u8, schema_json, "\"options\":{\"type\":\"array\",\"minItems\":2,\"maxItems\":6") != null);
+
+## the refusal at 0 and past the cap, from the constant
+src/tools/agent/ask_user_question.zig:18-22@481104fd
+    const invalid_args_sentinel = "(ask_user_question: invalid arguments; provide {questions})";
+    const question_count_sentinel = std.fmt.comptimePrint(
+        "(ask_user_question: provide 1 to {d} questions)",
+        .{question_answer.max_questions},
+    );
+
+## the parser's question bound: below 1 or above 20
+src/tools/agent/ask_user_question.zig:190-191@481104fd
+        const questions_arr = questions_value.array;
+        if (questions_arr.items.len < 1 or questions_arr.items.len > question_answer.max_questions) return error.QuestionCount;
+
+## old: the parser's bound at 4
+src/tools/agent/ask_user_question.zig:134-134@c1db9191
+        if (questions_arr.items.len < 1 or questions_arr.items.len > 4) return error.QuestionCount;
+
+## old: the refusal words
+src/tools/agent/ask_user_question.zig:204-204@c1db9191
+            error.QuestionCount => "(ask_user_question: provide 1 to 4 questions)",
+
+## per question: 2 to 6 options
+src/tools/agent/ask_user_question.zig:208-209@481104fd
+            const options_arr = options_value.array;
+            if (options_arr.items.len < 2 or options_arr.items.len > 6) return error.OptionCount;
+
+## every argument refusal, the count's included
+src/tools/agent/ask_user_question.zig:255-275@481104fd
+    fn invalidArgsBody(alloc: Allocator, err: QuestionBatchParseError) Allocator.Error![]u8 {
+        const body = switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.InvalidArguments => invalid_args_sentinel,
+            error.MissingQuestions => "(ask_user_question: missing required array \"questions\")",
+            error.QuestionsNotArray => "(ask_user_question: \"questions\" must be an array)",
+            error.QuestionCount => question_count_sentinel,
+            error.QuestionNotObject => "(ask_user_question: each question must be an object with a \"question\" and \"options\")",
+            error.MissingQuestionText => "(ask_user_question: each question requires a \"question\" string)",
+            error.QuestionTextNotString => "(ask_user_question: question \"question\" must be a string)",
+            error.EmptyQuestionText => "(ask_user_question: question text must not be empty)",
+            error.MissingOptions => "(ask_user_question: each question requires an \"options\" array)",
+            error.OptionsNotArray => "(ask_user_question: \"options\" must be an array)",
+            error.OptionCount => "(ask_user_question: provide 2 to 6 options per question)",
+            error.OptionNotObject => "(ask_user_question: each option must be an object with a \"label\")",
+            error.MissingOptionLabel => "(ask_user_question: each option requires a \"label\" string)",
+            error.OptionLabelNotString => "(ask_user_question: option \"label\" must be a string)",
+            error.EmptyOptionLabel => "(ask_user_question: option labels must not be empty)",
+            error.DuplicateOptionLabel => "(ask_user_question: option labels must be unique within a question)",
+        };
+        return alloc.dupe(u8, body);
+
+## a refusal is the call's output ...
+src/tools/agent/ask_user_question.zig:117-122@481104fd
+    pub fn executeWithRequester(result_alloc: Allocator, args_json: []const u8, requester: Requester) ![]u8 {
+        var parse_arena_state = std.heap.ArenaAllocator.init(result_alloc);
+        defer parse_arena_state.deinit();
+        const parse_arena = parse_arena_state.allocator();
+    
+        const entries = parseQuestionBatch(parse_arena, args_json) catch |err| return invalidArgsBody(result_alloc, err);
+
+## ... and the call succeeds with it (xfx: a failed call, docs/parity.md adaptation (7))
+src/tools/agent/ask_user_question.zig:104-114@481104fd
+        const output = executeWithRequester(ctx.allocator, input.args_json, .{
+            .observer = ctx.observer,
+            .call_id = ctx.tool_call_id,
+            .ctx = ctx.ask_question_ctx,
+            .response_alloc = ctx.allocator,
+            .request = request,
+        }) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return .{ .failure = try ctx.allocator.print("ask_user_question failed: {s}", .{@errorName(err)}) },
+        };
+        return .{ .success = output };
+
+## no per-field size bound: the encoder is unbounded (maxInt)
+src/tools/agent/ask_user_question.zig:249-253@481104fd
+    fn dupeTerminalSafeQuestionText(arena: Allocator, text: []const u8) Allocator.Error![]const u8 {
+        if (text_utils.isTerminalSafe(text)) return arena.dupe(u8, text);
+        const encoded = try text_utils.encodeTerminalSafeInline(arena, text, std.math.maxInt(usize));
+        return encoded.bytes;
+    }
+
+## the result budget does not scale with the count: 64 KiB for every tool
+src/core/tooling/tool_result_limits.zig:7-7@481104fd
+    pub const default_max_tool_result_bytes: usize = 64 * 1024;
+
+## the prompt's page index is a u8 ...
+src/core/agent/question_prompt.zig:119-119@481104fd
+        current_index: u8 = 0,
+
+## ... which fx's test of a full batch asserts holds the cap
+src/core/agent/question_prompt.zig:1702-1704@481104fd
+        // Pages are indexed with this type, and the prompt parks at the batch
+        // length once every page is answered.
+        comptime std.debug.assert(batch_len <= std.math.maxInt(@FieldType(QuestionPrompt, "current_index")));
+
+## the hint row: the keys, a shorter variant that fits, the counter only with two cells of air
+src/ui/footer/input_presentation.zig:192-246@481104fd
+    const predefined_question_hints = [_][]const u8{
+        "↑↓ options · tab questions · enter answer · esc cancel",
+        "tab questions · enter answer · esc cancel",
+        "enter answer · esc cancel",
+    };
+    
+    fn questionInteractionHint(
+        projection: question_prompt.Projection,
+        width: u16,
+        out_buf: []u8,
+    ) []const u8 {
+        const option_count = if (projection.current_entry) |entry| entry.options.len else 0;
+        const variants: []const []const u8 = if (projection.isFreeformSelected())
+            &freeform_question_hints
+        else
+            &predefined_question_hints;
+    
+        var out: std.Io.Writer = .fixed(out_buf);
+        if (projection.isFreeformSelected()) {
+            out.writeAll(
+                "type answer    ↑↓←→ cursor    shift+↑↓ options    tab questions    enter answer    esc cancel",
+            ) catch return display_width.widestFitting(variants, width);
+        } else {
+            out.print(
+                "1–{d} choose now    ↑↓ options    tab questions    enter answer    esc cancel",
+                .{option_count},
+            ) catch return display_width.widestFitting(variants, width);
+        }
+        var base = out.buffered();
+        if (display_width.visibleWidth(base) > width) {
+            const variant = display_width.widestFitting(variants, width);
+            out = .fixed(out_buf);
+            out.writeAll(variant) catch return variant;
+            base = out.buffered();
+        }
+    
+        // Batch progress rides the hint row, right-aligned like the rest of the
+        // footer chrome; a lone question needs no counter.
+        if (projection.entry_count > 1) {
+            var counter_buf: [32]u8 = undefined;
+            const counter = std.mem.print(
+                &counter_buf,
+                "Question {d} of {d}",
+                .{ projection.current_index + 1, projection.entry_count },
+            ) catch "";
+            const base_width = display_width.visibleWidth(base);
+            const counter_width = display_width.visibleWidth(counter);
+            if (counter.len > 0 and base_width + counter_width + 2 <= width) {
+                out.splatByteAll(' ', width - base_width - counter_width) catch return base;
+                out.writeAll(counter) catch return base;
+                return out.buffered();
+            }
+        }
+        return base;
+    }
+
+## the hint row's buffer
+src/ui/footer/input_presentation.zig:483-485@481104fd
+        var question_hint_buf: [512]u8 = undefined;
+        const question_hint = if (ctx.question) |projection|
+            questionInteractionHint(projection, width, &question_hint_buf)
+
+## Left: back one page, stops at the first
+src/core/agent/question_prompt.zig:609-615@481104fd
+        pub fn retreatToPrevious(self: *QuestionPrompt) QuestionInputEvent {
+            if (!self.active or self.current_index == 0) return .none;
+            self.entries.items[self.current_index].freeform_preferred_column = null;
+            self.current_index -= 1;
+            self.entries.items[self.current_index].freeform_preferred_column = null;
+            return .redraw;
+        }
+
+## Left and word-left are the retreat
+src/core/app/input_question_runtime.zig:189-195@481104fd
+                    },
+                    .cursor_left, .word_left => {
+                        switch (app.question_prompt.retreatToPrevious()) {
+                            .redraw => try rerenderQuestionBlock(app),
+                            else => {},
+                        }
+                    },
+
+## Tab: the next page, wrapping past the last
+src/core/agent/question_prompt.zig:670-676@481104fd
+        fn cycleQuestionPage(self: *QuestionPrompt) void {
+            if (!self.active or self.entries.items.len == 0) return;
+            self.entries.items[self.current_index].freeform_preferred_column = null;
+            const next = (@as(usize, self.current_index) + 1) % self.entries.items.len;
+            self.current_index = @intCast(next);
+            self.entries.items[self.current_index].freeform_preferred_column = null;
+        }
+
+## a decision moves to the next unanswered page, cycling; none left is all_decided
+src/core/agent/question_prompt.zig:657-667@481104fd
+            var offset: usize = 1;
+            while (offset < self.entries.items.len) : (offset += 1) {
+                const candidate = (answered_index + offset) % self.entries.items.len;
+                if (self.entries.items[candidate].answer == null) {
+                    self.current_index = @intCast(candidate);
+                    self.entries.items[candidate].freeform_preferred_column = null;
+                    return .{ .decision = answered_index };
+                }
+            }
+            self.current_index = @intCast(self.entries.items.len);
+            return .all_decided;
+
+## a resolution: '  N) ' and the answer under the question's first character, at any width of N
+src/ui/footer/question_ui.zig:461-481@481104fd
+    fn writeQuestionAnswerResolution(
+        writer: *std.Io.Writer,
+        question: []const u8,
+        answer: []const u8,
+        number: usize,
+        cols: u16,
+    ) !void {
+        // The question is numbered by its position in the batch; the muted
+        // answer hangs beneath, aligned under the question text. Pure
+        // typography, so the block never reads as a tool group.
+        var prefix_buf: [16]u8 = undefined;
+        const question_prefix = std.mem.print(&prefix_buf, "  {d}) ", .{number}) catch "  ";
+        var indent_buf: [16]u8 = undefined;
+        const indent = blk: {
+            const width = @min(display_width.visibleWidth(question_prefix), indent_buf.len);
+            @memset(indent_buf[0..width], ' ');
+            break :blk indent_buf[0..width];
+        };
+        try writeResolutionField(writer, question_prefix, indent, question, cols, null);
+        try writeResolutionField(writer, indent, indent, answer, cols, ui_render.statusline_style);
+    }
+
+## a resume replays an answered batch through decodeJson (xfx: not at all; ledger question-resume-replay)
+src/core/app/app_session_runtime.zig:4589-4607@481104fd
+            fn writeAnsweredQuestionResult(
+                app: *App,
+                sink: anytype,
+                call: types.ToolCall,
+                result: types.PersistedToolResult,
+            ) !bool {
+                if (result.status != .success or
+                    !std.mem.eql(u8, result.tool_name, "ask_user_question") or
+                    !@hasDecl(App, "writeHistoricalQuestionResolution")) return false;
+    
+                var answer_arena = std.heap.ArenaAllocator.init(app.alloc);
+                defer mem_utils.deinit_arena(answer_arena);
+                const answers = (try question_answer.decodeJson(
+                    answer_arena.allocator(),
+                    result.output,
+                )) orelse return false;
+    
+                const entry_id = try sink.appendQuestionResolution(answers);
+                try sink.attachHistoricalToolDetail(entry_id, call, result);
+
+## saved-answer decoding, 1 to max_questions
+src/core/agent/question_answer.zig:43-74@481104fd
+    pub fn decodeJson(
+        arena: Allocator,
+        output: []const u8,
+    ) Allocator.Error!?[]const types.QuestionAnswer {
+        const root = std.json.parseFromSliceLeaky(
+            std.json.Value,
+            arena,
+            output,
+            .{},
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return null,
+        };
+    
+        if (root != .array) return null;
+        const items = root.array.items;
+        if (items.len < 1 or items.len > max_questions) return null;
+    
+        const answers = try arena.alloc(types.QuestionAnswer, items.len);
+        for (items, 0..) |item, index| {
+            if (item != .object) return null;
+            const question = item.object.get("question") orelse return null;
+            const answer = item.object.get("answer") orelse return null;
+            if (question != .string or answer != .string) return null;
+            answers[index] = .{
+                .question = question.string,
+                .answer = answer.string,
+            };
+        }
+    
+        return answers;
+    }
+
+## old: the same replay, bounded at 4 by decodeJson
+src/core/app/app_session_runtime.zig:5351-5369@c1db9191
+            fn writeAnsweredQuestionResult(
+                app: *App,
+                sink: anytype,
+                call: types.ToolCall,
+                result: types.PersistedToolResult,
+            ) !bool {
+                if (result.status != .success or
+                    !std.mem.eql(u8, result.tool_name, "ask_user_question") or
+                    !@hasDecl(App, "writeHistoricalQuestionResolution")) return false;
+    
+                var answer_arena = std.heap.ArenaAllocator.init(app.alloc);
+                defer mem_utils.deinit_arena(answer_arena);
+                const answers = (try question_answer.decodeJson(
+                    answer_arena.allocator(),
+                    result.output,
+                )) orelse return false;
+    
+                const entry_id = try sink.appendQuestionResolution(answers);
+                try sink.attachHistoricalToolDetail(entry_id, call, result);
+
+## fx's e2e: a full 20-question batch replays every answer after resume
+tests/e2e/tui-resume.test.ts:6154-6160@481104fd
+    test.skipIf(!tmuxAvailable())(
+      "a full 20-question batch replays every answer after resume",
+      async () => {
+        const root = realpathSync(mkdtempSync(join(tmpdir(), "fx-tui-resume-question-batch-")));
+        const home = join(root, "home");
+        const workspace = join(root, "workspace");
+        const stderrPath = join(root, "stderr.log");

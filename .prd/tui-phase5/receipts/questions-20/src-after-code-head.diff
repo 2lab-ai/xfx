@@ -1,0 +1,53 @@
+diff --git a/src/tools/question.rs b/src/tools/question.rs
+index 9894b35e..3cbe544e 100644
+--- a/src/tools/question.rs
++++ b/src/tools/question.rs
+@@ -37,7 +37,7 @@ pub const MAX_DESCRIPTION_ENCODED_BYTES: usize = 256;
+ pub const MAX_FREEFORM_ENCODED_BYTES: usize = 4096;
+ /// The largest document `encode_answers` can produce under those bounds, proved
+ /// against `ToolLimits::default().max_output_bytes` by a test, so the registry's
+-/// backstop clip (`src/tools/mod.rs:145`) can never make a result invalid JSON.
++/// backstop clip (`src/tools/mod.rs:346`) can never make a result invalid JSON.
+ pub const MAX_ENCODED_RESULT_BYTES: usize = 184_881;
+ 
+ /// Non-printing codepoints, exactly upstream's set (`text_utils.zig:593-599`).
+@@ -769,7 +769,7 @@ mod tests {
+ 
+     #[test]
+     fn a_full_batch_of_six_options_each_is_asked_once_and_one_more_question_is_refused_unasked() {
+-        // Upstream's own case (`ask_user_question.zig:426-525@481104fd`): every
++        // Upstream's own case (`ask_user_question.zig:432-531@481104fd`): every
+         // question of a full batch reaches the requester in order with all six
+         // of its options, question `i` is answered with option `i % 6`, and the
+         // document comes back whole and in order. One more question is refused
+@@ -974,7 +974,7 @@ mod tests {
+ 
+     #[test]
+     fn a_result_the_callers_limit_cannot_carry_is_refused_before_the_registry_clips_it() {
+-        // `Registry::execute` clips past `max_output_bytes` (`src/tools/mod.rs:145`),
++        // `Registry::execute` clips past `max_output_bytes` (`src/tools/mod.rs:346`),
+         // and clipped JSON is not JSON.
+         //
+         // NOTE: the plan's original fixture answer ("a moderate answer") serializes
+@@ -1018,7 +1018,7 @@ mod tests {
+         //
+         // The answer is 40 `x`s, not something short like "ok": the refusal
+         // message itself is 56 bytes, and `Registry::execute` clips whatever
+-        // `execute` returns to the same `max_output_bytes` (`mod.rs:145`), so
++        // `execute` returns to the same `max_output_bytes` (`mod.rs:346`), so
+         // a one-byte-short limit under ~56 would truncate the refusal text
+         // too and this test would be asserting against a clipped message
+         // instead of the one `execute` actually produced.
+diff --git a/src/tui/question.rs b/src/tui/question.rs
+index 50f2af1a..83376503 100644
+--- a/src/tui/question.rs
++++ b/src/tui/question.rs
+@@ -1896,7 +1896,7 @@ mod tests {
+         // `composeQuestionResolutions` (`question_ui.zig:418-519@481104fd`) as
+         // fx's e2e reads it: `  N) <question>` with the answer one row down
+         // under the question's first character, `  10) ` six cells wide
+-        // (`tui-resume.test.ts:5917-5927@481104fd`;
++        // (`tui-resume.test.ts:6176-6184@481104fd`;
+         // `fx-p5-input-question20-40x120-q20-answered.full`).
+         let panel = batch(20);
+         let answers: Vec<String> = (1..=20).map(|index| format!("Keep {index}")).collect();

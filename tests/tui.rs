@@ -4116,6 +4116,195 @@ fn the_request_after_a_cancelled_question_answers_it_aborted_as_upstreams_does()
     assert_eq!(prompt[4]["content"][0]["text"], "next", "{body:#}");
 }
 
+/// `count` questions of two described choices each, `Pick N?` with `Keep N`
+/// and `Change N`: the batch `p5-input-question20` asks.
+fn question_batch(count: usize) -> serde_json::Value {
+    serde_json::json!({ "questions": (1..=count).map(|index| serde_json::json!({
+        "question": format!("Pick {index}?"),
+        "options": [
+            { "label": format!("Keep {index}"), "description": "Leave it as it is." },
+            { "label": format!("Change {index}"), "description": "Apply the change." },
+        ],
+    })).collect::<Vec<_>>() })
+}
+
+/// The tool result a request carries for the call `id`.
+fn tool_output(body: &serde_json::Value, id: &str) -> serde_json::Value {
+    body["prompt"]
+        .as_array()
+        .expect("a prompt")
+        .iter()
+        .filter(|message| message["role"] == "tool")
+        .flat_map(|message| message["content"].as_array().cloned().unwrap_or_default())
+        .find(|part| part["toolCallId"] == id)
+        .map(|part| part["output"].clone())
+        .unwrap_or_else(|| panic!("no result for {id} in {body:#}"))
+}
+
+#[test]
+fn twenty_questions_are_one_panel_and_their_answers_reach_the_next_request_in_order() {
+    // fx v0.0.16 asks up to 20 questions in one call (28cf53b5;
+    // `max_questions = 20`, `question_answer.zig:9@481104fd`), and says so to
+    // the model: `"maxItems":20` and `Ask the user 1-20 multiple-choice
+    // questions` (`builtins/tools.zig:119-122`, `:607`;
+    // `fx-p5-input-question20-40x120-bodies/002-completion.json`). Its own e2e
+    // answers a batch of 20 by typing twenty ordinals in one write
+    // (`tui-decision-prompts.test.ts:2531-2590@481104fd`). Red before: the cap was 4,
+    // the batch was refused and no panel opened.
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call("q20", "ask_user_question", question_batch(20)),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-TWENTY"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    // Wide enough for the counter beside the keys (`input_presentation.zig:228-246`).
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"ask twenty\r");
+    on_screen(&session, (40, 120), &["Pick 1?", "Question 1 of 20"], &[]);
+    session.type_bytes(b"\t\t\t\t\t\t\t\t\t");
+    on_screen(&session, (40, 120), &["Pick 10?", "Question 10 of 20"], &[]);
+    // A narrow screen keeps the page, and the counter is back once the row
+    // has room for it again (fx's own e2e of the full batch,
+    // `tui-decision-prompts.test.ts:2574-2581@481104fd`). Read off what arrives after
+    // each resize: the cells are rebuilt at one size only.
+    let after = |text: &str, mark: usize| {
+        String::from_utf8_lossy(&text.as_bytes()[mark.min(text.len())..]).into_owned()
+    };
+    let mark = session.text().len();
+    resize(&pty, &session, 24, 48);
+    session.wait_until("page 10 kept at 48 columns", |text| {
+        let text = after(text, mark);
+        text.contains("Pick 10?") && text.contains("Change 10")
+    });
+    let mark = session.text().len();
+    resize(&pty, &session, 40, 120);
+    session.wait_until("the counter back at 120 columns", |text| {
+        after(text, mark).contains("Question 10 of 20")
+    });
+    // Past the last back to the first, and the batch answered from there: odd
+    // questions keep, even ones change.
+    session.type_bytes(b"\t\t\t\t\t\t\t\t\t\t\t");
+    on_screen(
+        &session,
+        (40, 120),
+        &["Pick 1?", "Question 1 of 20"],
+        &["Pick 10?"],
+    );
+    session.type_bytes(b"12121212121212121212");
+    session.wait_for("MARKER-TWENTY");
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 2, "one panel, one answer, one more request");
+    let first = requests[0].json();
+    let advertised = first["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .find(|tool| tool["name"] == "ask_user_question")
+        .cloned()
+        .expect("ask_user_question is advertised");
+    assert_eq!(
+        advertised["inputSchema"]["properties"]["questions"]["maxItems"],
+        serde_json::json!(20),
+        "{advertised:#}"
+    );
+    assert!(
+        advertised["description"]
+            .as_str()
+            .is_some_and(|text| text.starts_with("Ask the user 1-20 multiple-choice questions")),
+        "{advertised:#}"
+    );
+    let output = tool_output(&requests[1].json(), "q20");
+    let expected: Vec<serde_json::Value> = (1..=20)
+        .map(|index| {
+            serde_json::json!({
+                "question": format!("Pick {index}?"),
+                "answer": format!("{} {index}", if index % 2 == 1 { "Keep" } else { "Change" }),
+            })
+        })
+        .collect();
+    assert_eq!(output["type"], "text", "{output:#}");
+    let document: serde_json::Value =
+        serde_json::from_str(output["value"].as_str().expect("a text result")).unwrap();
+    assert_eq!(document, serde_json::Value::Array(expected));
+}
+
+#[test]
+fn six_questions_open_the_panel_and_twenty_one_or_none_are_refused_in_upstreams_words() {
+    // `p5-input-question`'s `q6`: six questions open fx v0.0.16's panel at
+    // `Question 1 of 6`, and Escape leaves `▪ Cancelled`
+    // (`fx-p5-input-question-40x120-q6`). Past the cap, and at none, the call
+    // is refused before any panel opens with
+    // `(ask_user_question: provide 1 to 20 questions)`
+    // (`ask_user_question.zig:19-22`, `:191`, `:261@481104fd`;
+    // `fx-p5-input-question21-40x120-bodies/003-completion.json`, `005-…`),
+    // and the turn goes on. Red before: six was past the cap of 4, and the
+    // words were `provide 1 to 4 questions`.
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call("q6", "ask_user_question", question_batch(6)),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(sse_body(&[
+            tool_call("q21", "ask_user_question", question_batch(21)),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-OVER"])),
+        Reply::Sse(sse_body(&[
+            tool_call("q0", "ask_user_question", question_batch(0)),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-NONE"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"ask six\r");
+    on_screen(&session, (40, 120), &["Pick 1?", "Question 1 of 6"], &[]);
+    session.type_bytes(&[0x1b]);
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{25aa} Cancelled"],
+        &["Question 1 of 6"],
+    );
+    session.type_bytes(b"ask too many\r");
+    session.wait_for("MARKER-OVER");
+    session.type_bytes(b"ask none\r");
+    session.wait_for("MARKER-NONE");
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // The six-question turn was stopped at its panel and asked for nothing
+    // more; each refusal is answered and its turn asks once more.
+    let requests = gateway.requests();
+    assert_eq!(
+        requests.len(),
+        5,
+        "6 (stopped), 21 + its answer, 0 + its answer"
+    );
+    for (index, id) in [(2, "q21"), (4, "q0")] {
+        let output = tool_output(&requests[index].json(), id);
+        assert_eq!(
+            output["value"], "(ask_user_question: provide 1 to 20 questions)",
+            "{output:#}"
+        );
+    }
+}
+
 #[test]
 fn escape_twice_stops_a_running_command_and_its_group_at_once_as_upstreams_does() {
     // Upstream kills a running command at the keystroke

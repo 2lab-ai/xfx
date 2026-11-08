@@ -22,7 +22,10 @@ pub const NOT_AVAILABLE_SENTINEL: &str =
     "(ask_user_question is only available in the interactive shell; ask the user freeform instead)";
 pub const FREEFORM_LABEL: &str = "Other";
 pub const MIN_QUESTIONS: usize = 1;
-pub const MAX_QUESTIONS: usize = 4;
+/// Upstream's `max_questions` (`question_answer.zig:7-9@481104fd`, 28cf53b5):
+/// the schema's `maxItems`, the description, the argument refusal and the
+/// worst-case document below all share it.
+pub const MAX_QUESTIONS: usize = 20;
 pub const MIN_OPTIONS: usize = 2;
 pub const MAX_OPTIONS: usize = 6;
 /// xfx-local size bounds, measured **after** encoding. Upstream leaves these
@@ -34,8 +37,8 @@ pub const MAX_DESCRIPTION_ENCODED_BYTES: usize = 256;
 pub const MAX_FREEFORM_ENCODED_BYTES: usize = 4096;
 /// The largest document `encode_answers` can produce under those bounds, proved
 /// against `ToolLimits::default().max_output_bytes` by a test, so the registry's
-/// backstop clip (`src/tools/mod.rs:145`) can never make a result invalid JSON.
-pub const MAX_ENCODED_RESULT_BYTES: usize = 36_977;
+/// backstop clip (`src/tools/mod.rs:346`) can never make a result invalid JSON.
+pub const MAX_ENCODED_RESULT_BYTES: usize = 184_881;
 
 /// Non-printing codepoints, exactly upstream's set (`text_utils.zig:593-599`).
 fn is_non_printing(character: char) -> bool {
@@ -212,7 +215,10 @@ pub fn parse(value: &Value) -> Result<AskUserQuestionInput, String> {
         .as_array()
         .ok_or_else(|| bad("\"questions\" must be an array"))?;
     if questions.len() < MIN_QUESTIONS || questions.len() > MAX_QUESTIONS {
-        return Err(bad("provide 1 to 4 questions"));
+        // `question_count_sentinel` (`ask_user_question.zig:19-22@481104fd`).
+        return Err(bad(&format!(
+            "provide {MIN_QUESTIONS} to {MAX_QUESTIONS} questions"
+        )));
     }
     let mut entries = Vec::with_capacity(questions.len());
     for item in questions {
@@ -330,7 +336,7 @@ const OPTION_DESCRIPTION_DESCRIPTION: &str =
 const QUESTION_TEXT_DESCRIPTION: &str = "The question text, shown to the user verbatim.";
 const OPTIONS_DESCRIPTION: &str = "2 to 6 labeled choices for this question.";
 const QUESTIONS_DESCRIPTION: &str =
-    "1 to 4 questions to ask in order, each answered before the next is shown.";
+    "1 to 20 questions to ask in order, each answered before the next is shown.";
 
 /// Adapted from upstream's `ask_user_question_description`
 /// (`vercel-labs/fx@580a0c5d` `src/builtins/tools.zig:358-359`), with the
@@ -339,8 +345,9 @@ const QUESTIONS_DESCRIPTION: &str =
 /// (`PermissionKind::Interaction`, `question.rs` tests) and has no
 /// `permission_request_id` argument in this schema, so there is nothing for
 /// those sentences to refer to. This is a labeled adaptation, not a verbatim
-/// quote.
-const DESCRIPTION: &str = "Ask the user 1 to 4 multiple-choice questions in interactive runs \
+/// quote. Its opening words are v0.0.16's own, the count included
+/// (`ask_user_question_description`, `builtins/tools.zig:119-122@481104fd`).
+const DESCRIPTION: &str = "Ask the user 1-20 multiple-choice questions in interactive runs \
     only when a concrete decision blocks progress after local files, git state, or tool output \
     cannot answer it. When to use: choose among precise, mutually exclusive paths before \
     acting, especially destructive or user-preference decisions. When NOT to use: discoverable \
@@ -624,8 +631,10 @@ mod tests {
     #[test]
     fn parsing_refuses_out_of_bounds_batches_with_the_upstream_bodies() {
         for (args, expected) in [
-            (qs(0), "(ask_user_question: provide 1 to 4 questions)"),
-            (qs(5), "(ask_user_question: provide 1 to 4 questions)"),
+            // Upstream's bound and its words at both ends
+            // (`ask_user_question.zig:19-22`, `:191`, `:261@481104fd`).
+            (qs(0), "(ask_user_question: provide 1 to 20 questions)"),
+            (qs(21), "(ask_user_question: provide 1 to 20 questions)"),
             (
                 os(1),
                 "(ask_user_question: provide 2 to 6 options per question)",
@@ -652,6 +661,8 @@ mod tests {
         assert!(
             parse(&qs(1)).is_ok()
                 && parse(&qs(4)).is_ok()
+                && parse(&qs(5)).is_ok()
+                && parse(&qs(20)).is_ok()
                 && parse(&os(2)).is_ok()
                 && parse(&os(6)).is_ok()
         );
@@ -722,6 +733,107 @@ mod tests {
     }
 
     #[test]
+    fn the_cap_is_upstreams_twenty_in_the_description_the_schema_and_the_refusal() {
+        // One bound, shared as upstream shares `max_questions`
+        // (`question_answer.zig:7-9`, `builtins/tools.zig:119-122`, `:607`,
+        // `ask_user_question.zig:19-22@481104fd`), and each place it is
+        // spelled is tied to the constant here, so moving one moves them all.
+        assert_eq!(MAX_QUESTIONS, 20);
+        assert!(
+            DESCRIPTION.starts_with("Ask the user 1-20 multiple-choice questions"),
+            "{DESCRIPTION}"
+        );
+        assert!(DESCRIPTION.starts_with(&format!(
+            "Ask the user {MIN_QUESTIONS}-{MAX_QUESTIONS} multiple-choice questions"
+        )));
+        assert!(QUESTIONS_DESCRIPTION
+            .starts_with(&format!("{MIN_QUESTIONS} to {MAX_QUESTIONS} questions")));
+        let advertised = Registry::builtin()
+            .advertisement()
+            .into_iter()
+            .find(|schema| schema["name"] == "ask_user_question")
+            .expect("advertised");
+        let questions = &advertised["inputSchema"]["properties"]["questions"];
+        assert_eq!(questions["minItems"], json!(1), "{questions}");
+        assert_eq!(questions["maxItems"], json!(20), "{questions}");
+        assert_eq!(
+            advertised["description"].as_str(),
+            Some(DESCRIPTION),
+            "{advertised}"
+        );
+        assert_eq!(
+            parse(&qs(MAX_QUESTIONS + 1)).unwrap_err(),
+            format!("(ask_user_question: provide {MIN_QUESTIONS} to {MAX_QUESTIONS} questions)")
+        );
+    }
+
+    #[test]
+    fn a_full_batch_of_six_options_each_is_asked_once_and_one_more_question_is_refused_unasked() {
+        // Upstream's own case (`ask_user_question.zig:432-531@481104fd`): every
+        // question of a full batch reaches the requester in order with all six
+        // of its options, question `i` is answered with option `i % 6`, and the
+        // document comes back whole and in order. One more question is refused
+        // before anyone is asked.
+        fn batch(count: usize) -> Value {
+            json!({"questions": (1..=count).map(|question| json!({
+                "question": format!("Question {question}?"),
+                "options": (1..=MAX_OPTIONS).map(|option| json!({
+                    "label": format!("Q{question} option {option}"),
+                    "description": format!("Consequence {question}.{option}"),
+                })).collect::<Vec<_>>(),
+            })).collect::<Vec<_>>()})
+        }
+        struct ByIndex(Arc<Mutex<Vec<Vec<QuestionEntry>>>>);
+        impl QuestionRequester for ByIndex {
+            fn request(&self, entries: &[QuestionEntry]) -> Reply {
+                self.0.lock().unwrap().push(entries.to_vec());
+                Reply::Answered(
+                    entries
+                        .iter()
+                        .enumerate()
+                        .map(|(index, entry)| entry.options[index % MAX_OPTIONS].label.clone())
+                        .collect(),
+                )
+            }
+        }
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let dir = tempfile::tempdir().unwrap();
+        let context = ToolContext::new(AccessScope::primary_only(dir.path()).unwrap())
+            .with_questioner(Arc::new(ByIndex(Arc::clone(&asked))));
+
+        let result = run(&batch(MAX_QUESTIONS), &context);
+        assert!(result.ok, "{}", result.output);
+        {
+            let asked = asked.lock().unwrap();
+            assert_eq!(asked.len(), 1, "one batch, asked once");
+            assert_eq!(asked[0].len(), 20);
+            for (index, entry) in asked[0].iter().enumerate() {
+                assert_eq!(entry.question, format!("Question {}?", index + 1));
+                assert_eq!(entry.options.len(), MAX_OPTIONS);
+            }
+        }
+        let document: Vec<Value> = serde_json::from_str(&result.output).unwrap();
+        assert_eq!(document.len(), 20);
+        for (index, pair) in document.iter().enumerate() {
+            assert_eq!(
+                pair,
+                &json!({
+                    "question": format!("Question {}?", index + 1),
+                    "answer": format!("Q{} option {}", index + 1, index % MAX_OPTIONS + 1),
+                })
+            );
+        }
+
+        let refused = run(&batch(MAX_QUESTIONS + 1), &context);
+        assert!(!refused.ok);
+        assert_eq!(
+            refused.output,
+            "(ask_user_question: provide 1 to 20 questions)"
+        );
+        assert_eq!(asked.lock().unwrap().len(), 1, "nobody was asked again");
+    }
+
+    #[test]
     fn the_worst_case_result_fits_the_shipped_output_limit() {
         // An upper bound, and tight: after `terminal_safe` no control characters
         // remain, so serde can only expand `"` and `\`, to two bytes each. The
@@ -734,7 +846,9 @@ mod tests {
             + MAX_QUESTIONS * PER_QUESTION
             + (MAX_QUESTIONS - 1); // the commas between them
         assert_eq!(MAX_ENCODED_RESULT_BYTES, WORST);
-        assert_eq!(WORST, 36_977);
+        // Twenty questions (`max_questions`, `question_answer.zig:9@481104fd`):
+        // five times the old four-question bound of 36 977.
+        assert_eq!(WORST, 184_881);
         assert!(WORST <= ToolLimits::default().max_output_bytes);
     }
 
@@ -756,7 +870,7 @@ mod tests {
         for (args, expected) in [
             (
                 json!({"questions": []}),
-                "(ask_user_question: provide 1 to 4 questions)",
+                "(ask_user_question: provide 1 to 20 questions)",
             ),
             (
                 json!({"questions": [{"question": "q", "why": "x",
@@ -860,7 +974,7 @@ mod tests {
 
     #[test]
     fn a_result_the_callers_limit_cannot_carry_is_refused_before_the_registry_clips_it() {
-        // `Registry::execute` clips past `max_output_bytes` (`src/tools/mod.rs:145`),
+        // `Registry::execute` clips past `max_output_bytes` (`src/tools/mod.rs:346`),
         // and clipped JSON is not JSON.
         //
         // NOTE: the plan's original fixture answer ("a moderate answer") serializes
@@ -904,7 +1018,7 @@ mod tests {
         //
         // The answer is 40 `x`s, not something short like "ok": the refusal
         // message itself is 56 bytes, and `Registry::execute` clips whatever
-        // `execute` returns to the same `max_output_bytes` (`mod.rs:145`), so
+        // `execute` returns to the same `max_output_bytes` (`mod.rs:346`), so
         // a one-byte-short limit under ~56 would truncate the refusal text
         // too and this test would be asserting against a clipped message
         // instead of the one `execute` actually produced.
