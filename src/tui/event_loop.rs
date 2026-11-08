@@ -9536,6 +9536,185 @@ mod tests {
         }
     }
 
+    /// What one write of a scripted terminal does.
+    #[derive(Clone, Copy)]
+    enum Step {
+        Take,
+        Refuse,
+        /// Takes this many bytes, then fails: the update lands torn.
+        Tear(usize),
+    }
+
+    /// A terminal that does what `script` says to its writes, one update
+    /// after another, and takes everything once the script is spent.
+    struct Scripted {
+        script: Vec<Step>,
+        update: usize,
+        torn: bool,
+        written: Vec<u8>,
+    }
+
+    impl RawWrite for Scripted {
+        fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if std::mem::take(&mut self.torn) {
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "torn"));
+            }
+            let step = self.script.get(self.update).copied().unwrap_or(Step::Take);
+            self.update += 1;
+            match step {
+                Step::Take => {
+                    self.written.extend_from_slice(bytes);
+                    Ok(bytes.len())
+                }
+                Step::Refuse => Err(io::Error::new(io::ErrorKind::BrokenPipe, "not now")),
+                Step::Tear(taken) => {
+                    let taken = taken.min(bytes.len().saturating_sub(1)).max(1);
+                    self.written.extend_from_slice(&bytes[..taken]);
+                    self.torn = true;
+                    Ok(taken)
+                }
+            }
+        }
+    }
+
+    impl Sink for Scripted {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            emit_counted(self, bytes)
+        }
+    }
+
+    #[test]
+    fn a_refused_or_torn_write_at_the_preview_or_the_card_still_leaves_the_card_once() {
+        // The tick's two updates -- the preview's frame and the card's -- each
+        // refused, and the preview's torn: whatever the terminal took, the
+        // ticks after it put the card there once, in order, with nothing of
+        // the preview beside it.
+        for (script, what) in [
+            (vec![Step::Refuse], "the preview's frame refused"),
+            (vec![Step::Take, Step::Refuse], "the card's frame refused"),
+            (vec![Step::Tear(40)], "the preview's frame torn"),
+        ] {
+            let words: Vec<String> = ["RETRY-ONE", "RETRY-TWO", "RETRY-THREE"]
+                .map(String::from)
+                .to_vec();
+            let (mut shell, mut band, mut failures, out, mut terminal) = full_with_draft(&words);
+            let mut out = Scripted {
+                script,
+                update: 0,
+                torn: false,
+                written: out.written,
+            };
+            shell.route_bytes(b"\r");
+            assert!(
+                shell.previewing(),
+                "{what}: no preview, so this case proves nothing"
+            );
+            for _ in 0..4 {
+                let _ = commit_counted(
+                    &mut shell,
+                    &mut band,
+                    &mut out,
+                    &mut failures,
+                    Instant::now(),
+                    Reconciled,
+                );
+                terminal.catch_up(&out.written);
+            }
+            card_once(&terminal, &words, what);
+            assert!(
+                !shell.previewing() && !shell.owes_document(),
+                "{what}: the card is still owed"
+            );
+        }
+    }
+
+    #[test]
+    fn ctrl_o_read_with_the_enter_takes_the_plane_after_the_card() {
+        // Ctrl-O read with the Enter that previews the card: the full
+        // transcript takes the other plane before any frame shows the
+        // preview, so the barrier pays the card whole first, and the screen
+        // Ctrl-O gives back holds it once.
+        let words: Vec<String> = ["CTRLO-ONE", "CTRLO-TWO", "CTRLO-THREE"]
+            .map(String::from)
+            .to_vec();
+        let (mut shell, mut band, mut failures, mut out, mut terminal) = full_with_draft(&words);
+        shell.route_bytes(b"\r\x0f");
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        assert!(
+            band.on_alternate(),
+            "Ctrl-O did not take the plane, so this case proves nothing"
+        );
+        shell.route_bytes(b"\x0f");
+        for _ in 0..3 {
+            loop_tick(
+                &mut shell,
+                &mut band,
+                &mut failures,
+                &mut out,
+                &mut terminal,
+            );
+        }
+        assert!(!band.on_alternate(), "Ctrl-O did not give the plane back");
+        card_once(&terminal, &words, "Ctrl-O with the Enter");
+    }
+
+    #[test]
+    fn an_answer_that_starts_with_the_preview_follows_the_card() {
+        // The turn starts and its first words arrive in the tick that shows
+        // the preview: the card is written, whole and once, and the answer
+        // under it.
+        let words: Vec<String> = ["STREAM-ONE", "STREAM-TWO", "STREAM-THREE"]
+            .map(String::from)
+            .to_vec();
+        let (mut shell, mut band, mut failures, mut out, mut terminal) = full_with_draft(&words);
+        shell.route_bytes(b"\r");
+        shell.start_turn();
+        shell.apply(UiEvent::Delta("STREAM-ANSWER first words.\n".to_string()));
+        shell.settle_band(Instant::now() + Duration::from_secs(5));
+        assert!(
+            shell.previewing(),
+            "no preview, so this case proves nothing"
+        );
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        assert!(!shell.previewing(), "the tick did not write the card");
+        // The rest of the answer, as a pacer that has caught up writes it,
+        // and the turn's end.
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        for _ in 0..3 {
+            loop_tick(
+                &mut shell,
+                &mut band,
+                &mut failures,
+                &mut out,
+                &mut terminal,
+            );
+        }
+        card_once(&terminal, &words, "an answer with the preview");
+        let rows = terminal.everything();
+        let card = rows
+            .iter()
+            .position(|row| row.contains("STREAM-THREE"))
+            .expect("the card");
+        let answer = rows
+            .iter()
+            .position(|row| row.contains("STREAM-ANSWER"))
+            .unwrap_or_else(|| panic!("the answer was never written: {rows:#?}"));
+        assert!(card < answer, "the answer is above the card: {rows:#?}");
+    }
+
     #[test]
     fn a_question_that_takes_the_plane_before_the_preview_lands_gets_the_card_first() {
         // The barrier ahead of `1049h` pays what the primary plane owes
