@@ -2651,4 +2651,27 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn a_unit_of_the_row_is_a_cluster_or_a_spelling_with_what_joins_its_last_character() {
+        // `inline`'s units: a cut falls between two of them. A mark after a
+        // spelling joins the spelling's last character on the screen, so it
+        // is the spelling's; a skin tone after one is too (an extend).
+        for (text, unit) in [
+            ("ab", "a"),
+            ("e\u{301}\u{301}x", "e\u{301}\u{301}"),
+            ("\\u{009b}x", "\\u{009b}"),
+            ("\\x01\u{301}y", "\\x01\u{301}"),
+            ("\\u{009b}\u{1f3fb}x", "\\u{009b}\u{1f3fb}"),
+            ("\\u{10ffff}", "\\u{10ffff}"),
+            // Not spellings: a bare backslash, too few or too many digits.
+            ("\\xq1", "\\"),
+            ("\\x0", "\\"),
+            ("\\u{}", "\\"),
+            ("\\u{1234567}", "\\"),
+            ("\\u{12", "\\"),
+        ] {
+            assert_eq!(&text[..unit_at(text)], unit, "{text:?}");
+        }
+    }
 }

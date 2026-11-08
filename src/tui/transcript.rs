@@ -4385,4 +4385,23 @@ mod tests {
         }
         assert_eq!(transcript.cut_long.get(), 1, "cut once for 40 columns");
     }
+
+    #[test]
+    fn a_kept_row_is_found_only_for_the_same_row_at_the_same_width() {
+        // What `cut_for_screen` keeps is the cut of one row for one width:
+        // another width, or another row of the same length, is cut again.
+        let transcript = Transcript::new(40);
+        let wide = "a".repeat(KEPT_ROW_BYTES);
+        let other = "b".repeat(KEPT_ROW_BYTES);
+        for (row, cols) in [
+            (&wide, 40),
+            (&wide, 30),
+            (&other, 30),
+            (&wide, 40),
+            (&wide, 30),
+        ] {
+            assert_eq!(transcript.cut_for_screen(row, cols), ellipsized(row, cols));
+        }
+        assert_eq!(transcript.cut_long.get(), 3, "the last two were kept");
+    }
 }
