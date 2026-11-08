@@ -1,0 +1,25 @@
+ 1     0.1 min  Set up job
+ 2     0.3 min  Check out the exact commit
+ 3     0.0 min  Confirm the checkout is the commit under test
+ 4     0.6 min  Install the pinned toolchain
+ 5     0.0 min  Confirm the runner really is this target
+ 6     0.1 min  Formatting
+ 7     3.2 min  Lints
+ 8     9.0 min  Tests
+ 9     9.2 min  Tests, with the fault injector
+10     0.7 min  No stubs, and the parity ledger reconciles
+11     2.6 min  No credentials in tracked files
+12     0.0 min  No gate takes its options, repository or config from the environment
+13     0.1 min  One product name in tracked files
+14     0.1 min  The preview publication contract holds
+15     0.0 min  The preview contract catches every mutant it exists for
+16    17.5 min  The output check still fits inside a frame's budget
+17     0.0 min  A release build ignores the pinned usage clock
+18     2.8 min  Release build
+19     0.1 min  Smoke the release binary
+20     0.0 min  Keep the smoke evidence of a failed run
+21     5.0 min  Build the binary the restoration matrix drives
+22     1.6 min  Smoke the TUI on a real terminal
+23     0.0 min  Keep the TUI evidence of a failed run
+46     0.1 min  Post Check out the exact commit
+47     0.0 min  Complete job
