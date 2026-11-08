@@ -63,7 +63,10 @@ its longest clause moved whole with its anchors to the start of the row's
 last cell (the key, the multiset and the contiguity unchanged; only the
 order rule sees it),
 and for the first row one side alone changed, two of its tokens swapped --
-each must be found.
+each must be found. Merge 5 (ARGROW-CACHE), whose sides changed neither
+file: a row neither side changed must be the base's exactly (round 1's rules
+let a reordering inside it by), and its control plants a token dropped, two
+tokens swapped, two rows swapped, a ledger entry and a comment line dropped.
 """
 import difflib
 import collections
@@ -168,6 +171,14 @@ def check_parity(base, ours, theirs, merged, out):
         if lb == lo == lt == lm:
             continue
         cb, co, ct, cm = tokens(lb), tokens(lo), tokens(lt), tokens(lm)
+        # Train 6, merge 5: a row neither side changed is the base's, token
+        # for token and in order (the multiset alone lets a reordering by).
+        if lb is not None and lo == lb and lt == lb and lm != lb:
+            bad += 1
+            label = key[1] if key[0] == "row" else ("<line> " + key[1][:40])
+            out.append(f"  PARITY {label!r}: changed by neither side, not the base's")
+            changed.append((key, []))
+            continue
         want = cb + (co - cb) + (ct - cb)
         want = want - (cb - co) - (cb - ct)
         sides = [name for name, line in (("ours", lo), ("theirs", lt)) if line != lb]
@@ -270,6 +281,47 @@ def check_ledger(base, ours, theirs, merged, out):
     return bad
 
 
+def self_test_unchanged(pb, po, pt, pm, lb, lo, lt, lm):
+    """Train 6, merge 5: the negative control for a merge whose sides changed
+    neither file since their base. The merged texts must then be the base's;
+    each case plants one change in M and must be found: a token dropped from a
+    row, two tokens of a row swapped (the multiset unchanged), two adjacent
+    rows swapped, a ledger entry dropped, a comment line dropped."""
+    found = cases = 0
+    lines = pm.split("\n")
+    table = [i for i, line in enumerate(lines) if line.startswith("| ") and line.count("|") > 3]
+    i = table[len(table) // 2]
+    words = lines[i].split(" ")
+    j = next(k for k in range(3, len(words) - 1) if words[k] != words[k + 1])
+    dropped = lines[:i] + [" ".join(words[:j] + words[j + 1:])] + lines[i + 1:]
+    swapped_words = words[:j] + [words[j + 1], words[j]] + words[j + 2:]
+    swapped = lines[:i] + [" ".join(swapped_words)] + lines[i + 1:]
+    k = next(n for n in table if n + 1 in table)
+    rows_swapped = lines[:k] + [lines[k + 1], lines[k]] + lines[k + 2:]
+    for name, text in (("a token of a row neither side changed, dropped", dropped),
+                       ("two tokens of a row neither side changed, swapped", swapped),
+                       ("two adjacent rows neither side changed, swapped", rows_swapped)):
+        out = []
+        bad = check_parity(pb, po, pt, "\n".join(text), out)
+        print(f"  self-test parity, {name}: {'found' if bad else 'MISSED'}")
+        found += bool(bad)
+        cases += 1
+    ident = next(iter(k for k in entries(lm) if k[1] is not None))
+    start = lm.index(f'id = "{ident[1]}"')
+    head = lm.rindex(f"[[{ident[0]}]]", 0, start)
+    end = lm.find("\n[[", start)
+    out = []
+    bad = check_ledger(lb, lo, lt, lm[:head] + lm[end + 1:], out)
+    print(f"  self-test ledger, an entry neither side changed ({ident[1]}) dropped: {'found' if bad else 'MISSED'}")
+    found += bool(bad)
+    line = next(line for line in lm.splitlines() if line.lstrip().startswith("#"))
+    out = []
+    bad = check_ledger(lb, lo, lt, lm.replace(line + "\n", "", 1), out)
+    print(f"  self-test ledger, a comment line dropped: {'found' if bad else 'MISSED'}")
+    found += bool(bad)
+    return found, cases + 2
+
+
 def self_test(repo, merge):
     ours, theirs = git(repo, "rev-parse", f"{merge}^1", f"{merge}^2").split()
     base = git(repo, "merge-base", ours, theirs).strip()
@@ -279,7 +331,9 @@ def self_test(repo, merge):
     # A row a side changed: one of the tokens it added taken out, then one
     # it deleted put back.
     b, o, t = rows(pb), rows(po), rows(pt)
-    key = next(k for k in b if k[0] == "row" and (o.get(k) != b[k] or t.get(k) != b[k]))
+    key = next((k for k in b if k[0] == "row" and (o.get(k) != b[k] or t.get(k) != b[k])), None)
+    if key is None:
+        return self_test_unchanged(pb, po, pt, pm, lb, lo, lt, lm)
     side = o[key] if o.get(key) != b[key] else t[key]
     added = next(iter(tokens(side) - tokens(b[key])))
     gone = next(iter(tokens(b[key]) - tokens(side)), None)

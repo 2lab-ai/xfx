@@ -123,3 +123,6 @@ merge 5f601851: ours d55e2317, theirs 709786bb, base 884497c0 -- OK
   ledger divergence inline-code-shade: changed by ours, kept so
   ledger normalization banner: changed by ours, kept so
   ledger comments: 0 added, 0 deleted, all as expected
+merge 2ff36665: ours 99eb8a13, theirs e066669d, base 9681e9d8 -- OK
+  parity order: every row in each side's order
+  ledger comments: 0 added, 0 deleted, all as expected

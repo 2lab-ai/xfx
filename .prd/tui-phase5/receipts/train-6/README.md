@@ -1,10 +1,10 @@
 ---
-title: 0.0.16 delta -- P5 train 6 receipt (GATE-GITENV(+F), T-U4, CTRLO-WIDER(+F), FLAKE-CATALOG-EVENT into one branch)
+title: 0.0.16 delta -- P5 train 6 receipt (GATE-GITENV(+F), T-U4, CTRLO-WIDER(+F), FLAKE-CATALOG-EVENT, ARGROW-CACHE into one branch)
 type: receipt
 tags: [xfx, phase5, fx-0.0.16, train]
 ---
 
-# P5 train 6: four closed units, one branch
+# P5 train 6: five closed units, one branch
 
 Branch `train/p5-1108c`, from `origin/main` `690aa505` (PR #81, train 5:
 L-U1+U2 OSC 7501, FLAKE-COPYEND), as the brief expected; `origin/main` had
@@ -17,14 +17,25 @@ Oracle: fx v0.0.16 (`481104fd`), executable sha256
 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked
 by `sweep.py` before and after every run, `FX_AUTO_UPGRADE=0`.
 
-**At a glance.**
+**Round 3: the fifth unit** (`2ff36665`; "Merge 5" and "Train 6 findings,
+resolved", below). ARGROW-CACHE (`fix/p5-argrow-cache` @ `e066669d`, stacked
+on this train's `9681e9d8`) merged without a conflict; five references it
+moved re-pointed (`8ac4195b`, 5 of 5 the same code). At the head Ctrl-O's
+join, theme switch and resize take **33-34, 31-33 and 55-59 ms** for a call
+with 4 Mi U+009B arguments and **3.3-3.5, 2.6-2.7 and 23-25 ms** for 2 Mi
+U+261D [measured], under the 0.1 s bar, where the train before it took
+648-911 ms and 311-366 ms [measured]. That closes gpt6's render-cost MUST and
+opus's SHOULD 2 on train 6.
+
+**At a glance** (rounds 1 and 2: the first four units).
 - **Merges:** 1 and 4 are git's own (empty remerge-diffs). Merge 2 (T-U4)
   resolved two `src/tui/shell.rs` hunks (train 5's program-status fields and
   T-U4's marker line; both sides' appended tests) and two `docs/parity.md`
   rows; merge 3 (CTRLO-WIDER) the same two rows. Each row was merged word
   by word against the base, no word-level conflict; the token check
   (with a clause rule and, in round 2, an order rule) is OK on all four,
-  and its negative control finds 59 of 59 planted losses. 13 references the
+  and its negative control finds 59 of 59 planted losses (64 of 64 with
+  merge 5's). 13 references the
   merges moved, re-pointed and checked against their code (13 of 13).
 - **Join check 1:** on Ctrl-O CTRLO-WIDER's names (the arguments, the
   result, a code panel's label and its code) hold through T-U4's block and
@@ -100,13 +111,16 @@ unit and its head.
 | 2 | T-U4 | `feat/p5-cancel-marker` @ `5a7bb465` | `7fa4cc27` | `884497c0` | `src/tui/shell.rs`, two hunks; `docs/parity.md`, two rows |
 | 3 | CTRLO-WIDER(+F) | `feat/p5-ctrlo-wider-f` @ `1824e868` (stacked on `feat/p5-ctrlo-wider` @ `eeb0f7a7`) | `d55e2317` | `884497c0` | `docs/parity.md`, the same two rows |
 | 4 | FLAKE-CATALOG-EVENT | `fix/p5-flake-catalog-event` @ `709786bb` | `5f601851` | `884497c0` | none |
+| 5 | ARGROW-CACHE (round 3) | `fix/p5-argrow-cache` @ `e066669d` (stacked on this train's `9681e9d8`) | `2ff36665` | `9681e9d8` | none |
 
 Every base is git's merge base, and every one is `884497c0` (train 4,
 PR #80): GATE-GITENV-F merged it at `621c9504`, T-U4 at `3857d983`, CTRLO-WIDER
 at `e7a2e041`, FLAKE-CATALOG-EVENT branched from it, and `main` `690aa505` is
-train 5 on top of it. FLAKE-CATALOG-EVENT is the last merge and touches one
-file, `src/tui/worker.rs`, which no commit after it changes: `git revert -m 1
-5f601851` drops it alone if its dispatcher gate says so.
+train 5 on top of it. FLAKE-CATALOG-EVENT touches one file,
+`src/tui/worker.rs`, which no commit after it changes: `git revert -m 1
+5f601851` would drop it alone. Merge 5's base is `9681e9d8`, round 1's head,
+on which ARGROW-CACHE was built; the train's side added round 2
+(`4ac5ebfa`, a test, and the receipt) since.
 
 After the merges, in order:
 
@@ -121,9 +135,12 @@ After the merges, in order:
 | `4bd99902` | `gates-final.txt` (both `cargo test` steps ran again here: `head-tests.txt`) |
 | `fa18618c`, `9681e9d8` | three corrections and `head-tests.txt`; `gates-final.txt` again (the head round 1 handed back) |
 | `4ac5ebfa` | round 2: the caches join test compares the screen with the fresh 40-column session right after the resize, before Ctrl-O closes (gpt6's NTH 1); test only |
-| the next two | round 2's receipt, then `gates-final.txt` again |
+| `82371f30`, `99eb8a13` | round 2's receipt, then `gates-final.txt` again (the head round 2 handed back) |
+| `2ff36665` | **merge 5**: ARGROW-CACHE @ `e066669d` |
+| `8ac4195b` | the `path:line` references merge 5 moved, re-pointed (below) |
+| the next two | round 3's receipt, then `gates-final.txt` again |
 
-`git show --remerge-diff` of each merge is `remerge-1.txt` .. `remerge-4.txt`.
+`git show --remerge-diff` of each merge is `remerge-1.txt` .. `remerge-5.txt`.
 Merges 1 and 4 have an empty body: git's own result, unchanged. Merge 2's
 names `docs/parity.md` and `src/tui/shell.rs`, merge 3's `docs/parity.md`,
 each with the hunks below.
@@ -197,6 +214,18 @@ base's row as the ancestor; a word-level conflict would stop it, and none
 came): `full-screen TUI` holds train 5's clause and T-U4's five glyphs,
 `full transcript (C-o)` is T-U4's (train 5 left it as the base has it).
 
+### Merge 5: ARGROW-CACHE (round 3)
+
+No conflict, and `remerge-5.txt` has an empty body: git's own result. Its
+sides share one file since `9681e9d8`: `src/tui/shell.rs`, the train's
+`4ac5ebfa` (the caches join test: five hunks) and ARGROW-CACHE's tests
+appended at the end of `mod tests` (one hunk), 56 unchanged lines between
+the nearest two (`overlap.txt`) [measured]. ARGROW-CACHE changes
+`src/tui/full_transcript.rs` (+553/-76), `full_transcript/tool_status.rs`
+(+82/-4), `prose.rs` (+194/-37), `wrap.rs` (+278/-2) and `shell.rs` (+440,
+tests) [measured], and neither `docs/parity.md` nor the ledger; the train's side changed neither since `9681e9d8` either. The merged
+tree builds (`cargo check --locked --all-targets`) [measured].
+
 ### Merge 3's conflict: `docs/parity.md`
 
 The same two rows. CTRLO-WIDER(+F) changed both: in `full-screen TUI` the
@@ -231,7 +260,13 @@ in the merged row in that side's order. With the clause rule, a clause is
 whole, contiguous and in its side's place; and a row only one side changed
 is that side's row, token for token.
 
-**Result: all four merges OK.**
+**Added in round 3 (merge 5): a row neither side changed.** Merge 5's sides
+changed neither file, so every row is one neither side changed, and the
+rules above let a reordering inside such a row by (the multiset is the
+same, and the order rule looks only at rows a side changed). Now such a row
+must be the base's, token for token.
+
+**Result: all five merges OK** [measured].
 
 - Merge 1: GATE-GITENV-F changed neither file; `main`'s rows and ledger as
   `main` has them.
@@ -251,6 +286,8 @@ is that side's row, token for token.
   ledger: CTRLO-WIDER's `ctrl-o-drawn-wider-raw` gone, its four causes and
   four divergences in, every other entry the first parent's.
 - Merge 4: FLAKE-CATALOG-EVENT changed neither file.
+- Merge 5: neither side changed either file since `9681e9d8`; every row and
+  entry the base's.
 
 No ledger entry was changed by two sides; no comment line was lost.
 
@@ -270,7 +307,11 @@ the order rule sees it). Each case was checked to be caught by the rule it
 is for. **Merge 1: 8 of 8 found. Merge 2: 17 of 17**, among them
 `full-screen TUI` as each side has it, with a clause's tokens swapped, and
 with a clause moved. **Merge 3: 20 of 20**, the same four for each of the
-two rows. **Merge 4: 14 of 14.** (Round 1: 7, 15, 17 and 13.)
+two rows. **Merge 4: 14 of 14.** (Round 1: 7, 15, 17 and 13.) **Merge 5:
+5 of 5** (round 3's control for a merge whose sides changed neither file: a
+token dropped from a row, two tokens of a row swapped, two adjacent rows
+swapped, a ledger entry dropped, a comment line dropped; the swapped tokens
+are seen by round 3's rule alone). In all, 64 of 64 [measured].
 
 The re-point commit `dca1004e` changes ledger numbers after the merges; the
 token check is about the merges, and `repointed.py` checks each of those
@@ -315,7 +356,27 @@ them), CTRLO-WIDER's `full_transcript.rs:492` (a doc comment on its branch)
 and `wrap.rs:622`. GATE-GITENV(+F) and FLAKE-CATALOG-EVENT change none of
 the cited files.
 
-At the head (`refs-head.txt`): 76 references, 0 moved. `refs-all.txt` holds
+**Merge 5's (`8ac4195b`).** `refs.py` with the train before merge 5
+(`99eb8a13`) and ARGROW-CACHE (`e066669d`) as the sides (`refs-merge5.txt`,
+`refs-all-merge5.txt`, `refs-short-merge5.txt`) [measured]: four ledger
+references and one in `event_loop.rs`, each moved by ARGROW-CACHE's lines
+above it and stale on ARGROW-CACHE's own branch (it moved the code and not
+the references). Each re-pointed to the code it named at `99eb8a13` and
+checked by `repointed-merge5.py`, the line and two either side: **5 of 5
+the same code** (`repointed-merge5.txt`) [measured].
+
+| who cites it | cited at `99eb8a13` | now |
+|---|---|---|
+| ledger `ctrl-o-drawn-wider-named`, `answer-modifier-sequence-wider` | `src/tui/full_transcript.rs:2743` (`fn drawn_wider_named`) | `:3005` |
+| ledger `answer-drawn-wider-named`, `answer-label-and-modifier-named` | `src/tui/full_transcript.rs:2794` (the doc above `fn shown_event`) | `:3056` |
+| ledger `filler-modifier-count` | `src/tui/wrap.rs:656` (`fn upstream_cells`) | `:726` |
+| ledger `ri-run-pairing` | `src/tui/wrap.rs:612-623` (`fn cluster_cells` to its `upstream_cells` arm) | `:673-693` -- grown by ARGROW-CACHE's ASCII fast path inside it (`:674-682`), which the check takes out |
+| `event_loop.rs`, the wrap into 40 + 40 and 10 | `wrap.rs:232-240` (`wrap`'s word state) | `:293-301` |
+
+The two older stale references in `event_loop.rs` (`transcript.rs:136` and
+`:505-531`, below) are left for REF-LINT, as the dispatcher routed them.
+
+At the head (`refs-head.txt`, seven sides): 76 references, 0 moved. `refs-all.txt` holds
 the widened scans at the head. What they still flag is not moved by this
 train:
 
@@ -592,15 +653,63 @@ What the four say:
   open, 1 177 ms, against 864 in round 2). Round 1's (a) stands as a
   measurement and its owner moves: the uncached argument rows are `main`'s,
   not T-U4's; T-U4's part is the heading it lays out whole, its design.
-- **Where it goes:** the argument rows' layout (`tool_rows`,
-  `full_transcript.rs:2040-2063`; `laid_out`'s key, `:1768-1772`) is
-  ARGROW-CACHE's, which will be merged as this train's fifth unit and rerun
-  this probe against these four; the train does not fix it. No step here
-  is a hang, a panic or a wrong screen.
+- **Where it went:** the argument rows' layout (`tool_rows`, `laid_out`'s
+  key, at `9681e9d8`'s `full_transcript.rs:2040-2063` and `:1768-1772`) is
+  ARGROW-CACHE's, merged as this train's fifth unit in round 3 (below). No
+  step here is a hang, a panic or a wrong screen.
 
 Input while Ctrl-O is open is still 0.0-0.3 ms a key once laid out (PageUp,
 every row, both rounds). The probe's file and runner are kept; nothing of it is
 committed to `src`.
+
+**Round 3: after merge 5** (`probe/probe-merge5.txt`). The same probe and
+runner (`DETAILS=1 ROUNDS=2 suite-lock.sh run.sh <clone>...`), the call's
+arguments sent, on five `git clone --no-local`s with the probe appended:
+`main` `690aa505`, CTRLO-WIDER alone `1824e868`, T-U4 alone `5a7bb465`, the
+train before merge 5 (`99eb8a13`) and the train after it (`8ac4195b`, the
+merge and its re-points). Release, one case a process, the five alternating
+case by case, two rounds, **one hold of the suite lock**
+(`merge5-jobs.sh`), load 10.5 to 16.8. ms as `r1 / r2`; peak RSS in MiB;
+every number [measured] from that file.
+
+| case, with arguments | build | Ctrl-O open | join | theme | resize | peak MiB |
+|---|---|---|---|---|---|---|
+| 4 Mi U+009B (c1) | `main` | 622 / 605 | 616 / 605 | 604 / 590 | 626 / 608 | 455 |
+| | CTRLO-WIDER alone | 646 / 661 | 674 / 656 | 673 / 633 | 674 / 643 | 455 |
+| | T-U4 alone | 856 / 880 | 664 / 676 | 681 / 671 | 868 / 860 | 771 |
+| | train before merge 5 | 889 / 875 | 674 / 648 | 655 / 648 | 912 / 856 | 778 / 777 |
+| | **train after merge 5** | **74 / 76** | **33 / 34** | **31 / 33** | **55 / 59** | **415** |
+| 2 Mi U+261D (wider) | `main` | 118 / 115 | 114 / 115 | 119 / 115 | 116 / 117 | 84 |
+| | CTRLO-WIDER alone | 317 / 316 | 319 / 321 | 317 / 317 | 329 / 323 | 235 |
+| | T-U4 alone | 166 / 167 | 119 / 116 | 115 / 117 | 165 / 166 | 139 |
+| | train before merge 5 | 363 / 362 | 321 / 311 | 319 / 318 | 366 / 361 | 302 / 303 |
+| | **train after merge 5** | **27 / 27** | **3.3 / 3.5** | **2.7 / 2.6** | **24.5 / 23.2** | **138** |
+
+(Exact values with one decimal are in the file; the table rounds the
+three-digit ones.)
+
+- **The bar: join, theme and resize under 0.1 s at the new head** -- met in
+  both cases [measured]: c1 33.0-33.8, 31.1-32.8 and 55.2-59.4 ms; U+261D
+  3.3-3.5, 2.6-2.7 and 23.2-24.5 ms. Ctrl-O opens in 74-76 and 27 ms.
+- **Against the train before merge 5** [derived]: c1 join 19-20×, theme
+  20-21×, resize 14-17×, open 12× faster, peak 1.87× smaller; U+261D join
+  89-97×, theme 118-122×, resize 15-16×, open 13-14×, peak 2.19× smaller.
+- **Against `main`** [derived]: below it on every step in both cases -- c1
+  join 18-19×, theme 18-19×, resize 10-11×, open 8×; U+261D join 33-35×,
+  theme 44×, resize 4.7-5.0×, open 4.3-4.4×. Peak c1 415 MiB against 455
+  (1.10× smaller); U+261D 138 against 84 (1.64× larger: the named argument's
+  kept rows, CTRLO-WIDER's 8-byte form, held once a width).
+- **What is left** (ARGROW-CACHE's receipt, its "The numbers"): c1's 31-34
+  ms join and theme switch is T-U4's group block, built again for the
+  group's revision and the palette, not an argument row. The arguments'
+  crossing (`detail_ms`: spelled and named once a call, on the sending side
+  of the channel) is unchanged by merge 5: c1 64-73 ms on every build (its
+  spelling); U+261D 35.6-37.5 ms on the three that name it (CTRLO-WIDER alone,
+  the train before and after merge 5) and 2.8-3.1 ms on `main` and T-U4
+  alone [measured: `probe-merge5.txt`].
+- These five rows agree with ARGROW-CACHE's own run on its five builds
+  (its `probe.txt`, at `1a9652cc`; the train at `9681e9d8`): c1 join 32-34,
+  theme 30-36, resize 55-56 ms there; U+261D 3.1, 2.6-2.7, 25-28 ms.
 
 ### 3. Retint x naming: a theme report while Ctrl-O is open (`03476db7`)
 
@@ -673,6 +782,65 @@ Gateway's requests were not expected here.
 - What is not run here: GitHub's own runners. The matrix and its
   `script_tests` rows are checked as text (unchanged since `4db63171`), and
   each row's script tests were run on its OS's userland.
+
+### 6. Merge 5's join checks (round 3; `merge5-checks.txt`)
+
+In the same hold as round 3's probe, at `8ac4195b` (the merge and its
+re-points; the tree's only uncommitted files were this directory's)
+[measured]:
+
+| step | result |
+|---|---|
+| `cargo fmt --check` | exit 0 |
+| `cargo clippy --locked --all-targets -- -D warnings` | exit 0 |
+| `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | exit 0 |
+| 15 tests by name (below) | 15 passed, 0 failed |
+| `cargo test --locked --lib -- tui::full_transcript tui::toolgroup tui::wrap` | 186 passed, 0 failed |
+| `cargo test --locked --test tui` | 181 passed, 0 failed |
+
+The 15, each `ok`:
+- ARGROW-CACHE's: `ctrl_o_with_arguments_through_its_caches_is_the_session_laid_out_from_nothing_after_every_event`
+  (`shell.rs`; three real `/trace`s -- before Ctrl-O first opens, while
+  open, and again before a join -- a theme report and back, a join, a resize
+  to 40 and back, a reopen and new arguments, each compared with the
+  session laid out from nothing, the screen and the whole record),
+  `ctrl_o_wraps_a_calls_arguments_once_for_a_width_and_not_again_for_a_join_or_a_theme`
+  and `rows_kept_unpainted_are_the_rows_railed_painted_at_once`
+  (`full_transcript.rs`);
+- T-U4's heading and cache tests: `ctrl_o_builds_a_groups_block_once_and_lays_each_heading_out_once_for_what_it_shows`,
+  `a_long_heading_wraps_under_its_rail_instead_of_being_cut`,
+  `a_heading_is_cut_only_where_fxs_own_bound_on_its_phrase_cuts_it`,
+  `a_calls_heading_is_spelled_as_its_transcript_row_is_at_any_width`,
+  `arguments_beside_a_heading_wider_than_the_screen_keep_their_rows`, and
+  its Ctrl-O cancel and retint tests in `shell.rs`
+  (`a_turn_stopped_over_its_answer_leaves_its_cancelled_line_on_ctrl_o_too`,
+  `a_theme_report_recolours_ctrl_os_stopped_turn_line_and_refused_batch_row`);
+- CTRLO-WIDER's: `a_value_the_heading_had_to_spell_is_never_shown_by_it_already`
+  (the heading raw, the named argument row kept: its (f)) and
+  `a_code_panels_label_names_what_a_terminal_draws_wider`;
+- this train's three join tests: `ctrl_o_names_what_a_terminal_draws_wider_and_its_caches_follow_the_palette_and_the_width`,
+  `a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back`,
+  `the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width`.
+
+So with ARGROW-CACHE's kept argument rows the named argument row, the raw
+heading, the retint of the cancelled line and the named label, and the
+fresh-session equality after a resize while open all hold at the merged
+head. The full gate at the head is the dispatcher's.
+
+## Train 6 findings, resolved (round 3)
+
+| finding | where it was raised | what it was | resolved by | numbers at the new head |
+|---|---|---|---|---|
+| gpt6's MUST on train 6 (`9681e9d8`): the render cost with the call's arguments | gpt6's train 6 review; this receipt's join check 2, round 1 (b) and round 2 | Ctrl-O re-wrapped every member's argument rows on each join, theme switch and resize (`laid_out` keyed on revision, width and palette; `tool_rows` railing each argument whole). At the train before merge 5: c1 join 648-674, theme 648-655, resize 856-912 ms; U+261D 311-321, 318-319, 361-366 ms [measured, `probe-merge5.txt`] | **ARGROW-CACHE** (`a1ff89e7`: an argument's rows kept unpainted once a width and painted when shown; `1a9652cc`: the wraps' exact ASCII and repeat fast paths), merged at `2ff36665` | c1 join 33-34, theme 31-33, resize 55-59 ms; U+261D 3.3-3.5, 2.6-2.7, 23-25 ms [measured] -- **every one under 0.1 s**; 14-122× below the train before merge 5 and below `main` on every step [derived] |
+| opus's SHOULD 2 on train 6: the scope -- a cache keyed on (text, cols, palette) removes only the join; the theme switch and resize need palette-independent wrapped rows, or a bound on what Ctrl-O lays out | opus's train 6 review | the same cost, its required shape | ARGROW-CACHE: rows held unpainted (palette-independent), wrapped once a width, painted only for the rows shown (`Rows::copy`); a resize wraps once at the new width | theme 2.6-33 ms and resize 23-59 ms in both cases, with this train's probe against the four baselines opus named (`main`, CTRLO-WIDER alone, T-U4 alone) and the train before merge 5 [measured] |
+
+What the resolution leaves, as ARGROW-CACHE's receipt records it: c1's
+31-34 ms join and theme switch is T-U4's group block for a 32 MiB target,
+not an argument row; a call's results are still laid out on each layout of
+their entry, bounded by `RESULT_BYTES` (64 KiB a result: 16-17 ms a join
+for 20 such reads at its head); and the arguments' crossing is
+CTRLO-WIDER's naming pass, once a call. The first two are quoted from
+ARGROW-CACHE's receipt, not measured here; the crossing is measured above.
 
 ## Gate (`gates.sh`, `gates.txt`, `join-tests.txt`)
 
@@ -856,7 +1024,11 @@ looks for and not its own text -- and the account's name: **0 hits**
 
 ## Files
 
-- `remerge-1.txt` .. `remerge-4.txt`: `git show --remerge-diff` of each merge.
+- `remerge-1.txt` .. `remerge-5.txt`: `git show --remerge-diff` of each merge.
+- Round 3 (merge 5): `merge5-jobs.sh` (the probe on five builds and the
+  head's checks, one hold), `probe/probe-merge5.txt`, `merge5-checks.txt`;
+  `refs-merge5.txt`, `refs-all-merge5.txt`, `refs-short-merge5.txt`,
+  `repointed-merge5.py`, `repointed-merge5.txt`.
 - `rowmerge.py`: how merges 2 and 3 resolved `docs/parity.md`'s two rows,
   word by word against the base.
 - `overlap.py`, `overlap.txt`: every file both sides of a merge changed, and

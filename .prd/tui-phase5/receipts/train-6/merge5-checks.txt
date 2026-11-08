@@ -1,0 +1,26 @@
+# Train 6, merge 5 (merge5-jobs.sh), one hold of the suite lock: at the head after the probe: fmt, clippy both ways, the Ctrl-O join tests by name, the lib's full_transcript, toolgroup and wrap tests, the tui binary. "tree clean: no" is this directory's uncommitted files (token_check.py, the re-point checks, this script); no tracked file outside it changed
+== the head (8ac4195b); tree clean: no
+$ cargo fmt --check -> exit 0
+$ cargo clippy --locked --all-targets -- -D warnings -> exit 0
+$ cargo clippy --locked --all-targets --features fault-injection -- -D warnings -> exit 0
+$ cargo test --locked --lib --no-fail-fast -- --exact <15 named tests> -> exit 0; test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 4441 filtered out; finished in 2.98s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 4441 filtered out; finished in 2.98s
+test tui::full_transcript::tests::a_calls_heading_is_spelled_as_its_transcript_row_is_at_any_width ... ok
+test tui::full_transcript::tests::a_heading_is_cut_only_where_fxs_own_bound_on_its_phrase_cuts_it ... ok
+test tui::full_transcript::tests::a_long_heading_wraps_under_its_rail_instead_of_being_cut ... ok
+test tui::full_transcript::tests::a_value_the_heading_had_to_spell_is_never_shown_by_it_already ... ok
+test tui::full_transcript::tests::arguments_beside_a_heading_wider_than_the_screen_keep_their_rows ... ok
+test tui::full_transcript::tests::ctrl_o_builds_a_groups_block_once_and_lays_each_heading_out_once_for_what_it_shows ... ok
+test tui::full_transcript::tests::ctrl_o_wraps_a_calls_arguments_once_for_a_width_and_not_again_for_a_join_or_a_theme ... ok
+test tui::full_transcript::tests::rows_kept_unpainted_are_the_rows_railed_painted_at_once ... ok
+test tui::shell::tests::a_code_panels_label_names_what_a_terminal_draws_wider ... ok
+test tui::shell::tests::a_theme_report_recolours_ctrl_os_stopped_turn_line_and_refused_batch_row ... ok
+test tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back ... ok
+test tui::shell::tests::a_turn_stopped_over_its_answer_leaves_its_cancelled_line_on_ctrl_o_too ... ok
+test tui::shell::tests::ctrl_o_names_what_a_terminal_draws_wider_and_its_caches_follow_the_palette_and_the_width ... ok
+test tui::shell::tests::ctrl_o_with_arguments_through_its_caches_is_the_session_laid_out_from_nothing_after_every_event ... ok
+test tui::toolgroup::tests::the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width ... ok
+$ cargo test --locked --lib --no-fail-fast -- tui::full_transcript tui::toolgroup tui::wrap -> exit 0; test result: ok. 186 passed; 0 failed; 0 ignored; 0 measured; 4270 filtered out; finished in 24.35s
+$ cargo test --locked --test tui --no-fail-fast -> exit 0; test result: ok. 181 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.28s
+# tree clean after: no
+job exit 0

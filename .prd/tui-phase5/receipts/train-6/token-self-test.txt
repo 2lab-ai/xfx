@@ -61,3 +61,9 @@ self-test d55e2317: 20 of 20 found
   self-test parity, a row a side added ('A program status report (OSC 7501)') dropped: found
   self-test parity, a row one side changed ('`/resume`'), two tokens swapped: found
 self-test 5f601851: 14 of 14 found
+  self-test parity, a token of a row neither side changed, dropped: found
+  self-test parity, two tokens of a row neither side changed, swapped: found
+  self-test parity, two adjacent rows neither side changed, swapped: found
+  self-test ledger, an entry neither side changed (banner) dropped: found
+  self-test ledger, a comment line dropped: found
+self-test 2ff36665: 5 of 5 found

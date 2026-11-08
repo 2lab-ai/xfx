@@ -1,0 +1,4 @@
+# head HEAD; sides: train 99eb8a13, argrow e066669d
+src/tui/event_loop.rs: wrap.rs:232-240 (src/tui/wrap.rs)
+    train MOVED -> 293-301
+# 34 short references into changed files; 1 moved or changed on some side that cites them

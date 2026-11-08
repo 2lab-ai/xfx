@@ -1,4 +1,4 @@
-# head HEAD; sides: main 690aa505, gitenv 4db63171, tu4 5a7bb465, wider 1824e868, flake 709786bb
+# head HEAD; sides: main 690aa505, gitenv 4db63171, tu4 5a7bb465, wider 1824e868, flake 709786bb, train 99eb8a13, argrow e066669d
 docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/approval.rs:552-585
     gitenv MOVED -> 557-590 | tu4 MOVED -> 557-590 | wider MOVED -> 557-590 | flake MOVED -> 557-590
 docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:3108
@@ -29,7 +29,7 @@ tests/tui.rs: tests/tui.rs:1191
     gitenv MOVED -> 1304 | tu4 MOVED -> 1304 | wider MOVED -> 1304 | flake MOVED -> 1304
 # 185 references in 588 files; 14 moved or changed on some side that cites them
 
-# head HEAD; sides: main 690aa505, gitenv 4db63171, tu4 5a7bb465, wider 1824e868, flake 709786bb
+# head HEAD; sides: main 690aa505, gitenv 4db63171, tu4 5a7bb465, wider 1824e868, flake 709786bb, train 99eb8a13, argrow e066669d
 docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1295-1307 (src/tui/shell.rs)
     gitenv MOVED -> 1353-1365 | tu4 MOVED -> 1353-1365 | wider MOVED -> 1353-1365 | flake MOVED -> 1353-1365
 docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1296 (src/tui/shell.rs)
