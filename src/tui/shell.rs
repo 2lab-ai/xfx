@@ -4441,15 +4441,26 @@ impl Shell {
                 retry,
                 retry_at,
             } => {
-                if provider != self.provider || self.catalog_known != CatalogKnown::Loaded {
+                if provider != self.provider {
+                    return;
+                }
+                let due = match retry {
+                    Some(_) => retry_at,
+                    None => retry_at.max(Instant::now() + REFRESH_INTERVAL),
+                };
+                // An answer, whatever the band holds: activity may ask again
+                // once the runtime's clock says the next read is due
+                // ([`Self::note_catalog_activity`]). A band that holds no
+                // rows to keep asks then, and is told what the runtime holds.
+                self.catalog_nudged = false;
+                if let CatalogKnown::Unread(failed, _) = self.catalog_known {
+                    self.catalog_known = CatalogKnown::Unread(failed, due);
+                }
+                if self.catalog_known != CatalogKnown::Loaded {
                     return;
                 }
                 self.catalog_note = retry;
-                self.catalog_nudged = false;
-                self.catalog_due = Some(match retry {
-                    Some(_) => retry_at,
-                    None => retry_at.max(Instant::now() + REFRESH_INTERVAL),
-                });
+                self.catalog_due = Some(due);
                 let note = self.menu_note();
                 if let Some(menu) = self.model_menu.as_mut() {
                     menu.set_note(note);
@@ -45685,6 +45696,43 @@ mod tests {
         shell.route_bytes(b"hello\r");
         assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
         assert_eq!(catalog_asks(&mut shell), [], "asked inside the backoff");
+    }
+
+    #[test]
+    fn a_read_that_found_no_runtime_ends_the_menus_wait_and_activity_asks_again_past_its_hold() {
+        // The band's half of a read that could not start (the runtime's half:
+        // `a_read_that_finds_no_runtime_tells_the_band_its_failure_and_is_read_again_past_its_backoff`):
+        // the menu reading again behind a failure (`fetch_in_flight`,
+        // `model_cache_runtime.zig:1046-1050@481104fd`) is answered with
+        // upstream's `.runtime` failure (`:537-546`), says its sentence
+        // (`model_menu_presentation.zig:441`), and activity asks again once
+        // that failure's hold is over.
+        let ten_seconds_ago = Instant::now()
+            .checked_sub(Duration::from_secs(10))
+            .expect("a clock older than ten seconds");
+        let mut shell = shell(40, 120);
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), ten_seconds_ago));
+        shell.route_bytes(b"/model\r");
+        assert_eq!(catalog_asks(&mut shell), [("menu", true)]);
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(rows[2], "Loading models…", "{rows:?}");
+        shell.apply(unread_at(Some(CatalogRetry::Runtime), Instant::now()));
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(
+            rows[2], "Could not refresh model catalog; xfx retries automatically.",
+            "{rows:?}"
+        );
+        assert!(
+            !shell.shell.note_catalog_activity(Instant::now()),
+            "asked inside the new failure's hold"
+        );
+        assert!(
+            shell
+                .shell
+                .note_catalog_activity(Instant::now() + Duration::from_secs(6)),
+            "activity did not ask again past the hold"
+        );
+        assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
     }
 
     #[test]

@@ -1445,8 +1445,9 @@ struct PendingLoad {
     /// Fired by the drop.
     stop: Option<tokio::sync::oneshot::Sender<()>>,
     thread: Option<std::thread::JoinHandle<()>>,
-    /// The telling of a read that could not be given a thread: the answer is
-    /// that failure, told when the selector takes it.
+    /// The telling of a read that could not be given a thread, or a runtime
+    /// to run on: the answer is that failure, told when the selector takes
+    /// it.
     unstarted: Option<std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>>,
 }
 
@@ -1545,30 +1546,32 @@ impl PendingLoad {
             began: Instant::now(),
             outcome: std::sync::Arc::new(std::sync::OnceLock::new()),
         };
-        let began = view.began;
-        let outcome = std::sync::Arc::clone(&view.outcome);
         let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
         let (finished, done) = tokio::sync::oneshot::channel::<()>();
+        // Built here, before the thread: a read that can have no runtime is
+        // answered as one that can have no thread is -- its failure, told
+        // when the selector takes it -- rather than on a thread that could
+        // not tell it (`.runtime`, `model_cache_runtime.zig:537-546
+        // @481104fd`).
+        let runtime = match read_runtime(&fetcher) {
+            Ok(runtime) => runtime,
+            Err(err) => return Self::unstarted(view, done, told, finished, &err),
+        };
+        let outcome = std::sync::Arc::clone(&view.outcome);
         // Taken back if no thread can be had for it.
-        let work = std::sync::Arc::new(std::sync::Mutex::new(Some((fetcher, told, finished))));
+        let work = std::sync::Arc::new(std::sync::Mutex::new(Some((
+            fetcher, told, finished, runtime,
+        ))));
         let on_thread = std::sync::Arc::clone(&work);
         let thread = std::thread::Builder::new()
             .name("xfx-catalog".to_string())
             .spawn(move || {
-                let Some((fetcher, told, finished)) = on_thread
+                let Some((fetcher, told, finished, runtime)) = on_thread
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .take()
                 else {
                     return;
-                };
-                let runtime = match read_runtime(&fetcher) {
-                    Ok(runtime) => runtime,
-                    Err(err) => {
-                        let _ = outcome.set((unstartable(&err), Instant::now()));
-                        let _ = finished.send(());
-                        return;
-                    }
                 };
                 runtime.block_on(async move {
                     // A stop that was never sent -- its sender dropped -- is
@@ -1599,26 +1602,54 @@ impl PendingLoad {
             // No thread to be had: the answer is that failure, told when the
             // selector takes it ([`Self::answer`]).
             Err(err) => {
-                let unstarted = work
+                let taken = work
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .take()
-                    .map(|(_, told, finished)| {
-                        let failure = unstartable(&err);
-                        let telling = told(failure.0.clone(), failure.1, began);
-                        let _ = view.outcome.set((failure, began));
-                        let _ = finished.send(());
-                        Box::pin(telling)
-                            as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
-                    });
-                Self {
-                    view,
-                    done,
-                    stop: None,
-                    thread: None,
-                    unstarted,
+                    .take();
+                match taken {
+                    Some((_, told, finished, runtime)) => {
+                        // Let go without waiting: this thread may be running
+                        // a runtime of its own, inside which a runtime is not
+                        // to be dropped.
+                        runtime.shutdown_background();
+                        Self::unstarted(view, done, told, finished, &err)
+                    }
+                    None => Self {
+                        view,
+                        done,
+                        stop: None,
+                        thread: None,
+                        unstarted: None,
+                    },
                 }
             }
+        }
+    }
+
+    /// A read that could not start, for want of a thread or of a runtime:
+    /// its answer is that failure ([`unstartable`]), arrived as it began,
+    /// and its telling waits for the selector to take it ([`Self::answer`]).
+    fn unstarted<Told, Telling>(
+        view: LoadView,
+        done: tokio::sync::oneshot::Receiver<()>,
+        told: Told,
+        finished: tokio::sync::oneshot::Sender<()>,
+        err: &std::io::Error,
+    ) -> Self
+    where
+        Told: FnOnce(CatalogState, Option<CatalogRetry>, Instant) -> Telling + Send + 'static,
+        Telling: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let failure = unstartable(err);
+        let telling = told(failure.0.clone(), failure.1, view.began);
+        let _ = view.outcome.set((failure, view.began));
+        let _ = finished.send(());
+        Self {
+            view,
+            done,
+            stop: None,
+            thread: None,
+            unstarted: Some(Box::pin(telling)),
         }
     }
 
