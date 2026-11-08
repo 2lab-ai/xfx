@@ -1,0 +1,14 @@
+# round 2: p5-stop-in-catalog-wait, 40x120, fx v0.0.16 (fx-r2/) against xfx 889dcfaf (xfx-r2/), from sweep-head-r2's pairs.json, then cells.py raw (row 1 left out)
+head-r2 before: normalized-identical rows=[]
+head-r2 stopped: normalized-identical rows=[]
+head-r2 settled: normalized-identical rows=[]
+## cells.py fx-r2/fx-...-before.ansi xfx-r2/xfx-...-before.ansi
+0 rows differ in their cells (row 1 not compared)
+## cells.py fx-r2/fx-...-stopped.ansi xfx-r2/xfx-...-stopped.ansi
+row 5: fx [(23, 'f', ()), (24, 'x', ()), (25, ' ', ()), (26, 'd', ())]
+row 5: xfx [(23, 'x', ()), (24, 'f', ()), (25, 'x', ()), (26, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+## cells.py fx-r2/fx-...-settled.ansi xfx-r2/xfx-...-settled.ansi
+row 5: fx [(23, 'f', ()), (24, 'x', ()), (25, ' ', ()), (26, 'd', ())]
+row 5: xfx [(23, 'x', ()), (24, 'f', ()), (25, 'x', ()), (26, ' ', ())]
+1 rows differ in their cells (row 1 not compared)

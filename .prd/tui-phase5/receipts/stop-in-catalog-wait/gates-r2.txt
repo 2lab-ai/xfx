@@ -1,0 +1,28 @@
+# head 8b8d194467d4d5a392cc1f014a2e4b048b23a92e, tree: 0 tracked changes
+# slot taken 2026-11-08T19:40:39Z
+00 false rc=1 0s
+01 fmt rc=0 2s
+02 clippy rc=0 8s
+03 clippy-fault rc=0 6s
+04 test rc=0 115s
+05 test-fault-tui rc=0 23s
+06 test-fault-lib rc=0 60s
+07 check-no-stubs rc=0 8s
+08 check-no-secrets rc=0 33s
+09 test-check-no-secrets rc=0 65s
+10 test-gate-env rc=0 181s
+11 check-xfx-identity rc=0 3s
+12 check-preview-contract rc=0 13s
+13 test-preview-contract rc=0 77s
+14 check-tui-preflight-cost rc=0 77s
+15 check-usage-clock rc=0 0s
+16 fxcap-test-sweep rc=0 15s
+17 fxcap-test-capture rc=0 266s
+18 build-release rc=0 14s
+19 build-faulty rc=0 15s
+20 smoke rc=0 1s
+21 smoke-tui rc=0 71s
+# slot released 2026-11-08T19:58:12Z
+# tree after: 0 tracked changes
+exit=0
+# from the step logs: 04 test 5447 passed 0 failed; 05 test-fault-tui 195/0; 06 test-fault-lib 4554/0; 21 smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures

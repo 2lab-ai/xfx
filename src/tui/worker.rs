@@ -5778,7 +5778,10 @@ async fn image_refusal(
     }
     if turn.token.is_cancelled() {
         // The stop's one word, which the band compares against
-        // ([`bridge::TURN_CANCELLED`]).
+        // ([`bridge::TURN_CANCELLED`]), and nothing kept, as upstream keeps
+        // nothing of a turn stopped in this wait. Upstream's turn also says
+        // `request failed: Cancelled` here (its `try`, `orchestrator.zig:7508
+        // @481104fd`); this one does not (`docs/parity.md`, `/model`).
         return Some(bridge::TURN_CANCELLED.to_string());
     }
     if fresh {
@@ -6042,8 +6045,18 @@ async fn one_turn(
     // a launch whose profile carries one -- reads it now: once, raced against
     // the turn's own cancellation so a Ctrl-C does not wait out a slow
     // Gateway, and told to the UI, whose footer and columns read the same rows.
-    // A session in the default asks for nothing and costs no socket.
-    if !state.settings.effort.is_default() || state.settings.fast || state.settings.ultrafast {
+    // A session in the default asks for nothing and costs no socket. **So
+    // does a prompt with images**, whose route the catalog decides: upstream
+    // resolves it at the turn's start whatever the window, and that waits for
+    // a first load still on its way (`.loading`, `model_cache_runtime.zig:
+    // 855-866@481104fd`, from `orchestrator.zig:5885-5886`) -- here, rather
+    // than at the image route's read below, which then finds it settled, so
+    // a stop in it is the turn's end that keeps the prompt and its images.
+    if !images.is_empty()
+        || !state.settings.effort.is_default()
+        || state.settings.fast
+        || state.settings.ultrafast
+    {
         let fresh = tokio::select! {
             biased;
             () = turn.token.cancelled() => false,
@@ -6053,12 +6066,23 @@ async fn one_turn(
             let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
         }
     }
+    // **A stop that came while the catalog was waited for is the turn's end,
+    // not a refusal.** Upstream's wait ends on the turn's stop, and so does
+    // its turn, there or at the check right after it -- before anything is
+    // planned from the catalog, Ultra's and the image's refusals included --
+    // as a turn asked and stopped: interrupted, its prompt and its images
+    // kept (`resolveForRequest`, `model_cache_runtime.zig:855-865@481104fd`;
+    // `orchestrator.zig:5893-5919`, `:5923-5948`; `persistInterruptedTurnOnce`,
+    // `interruption.zig:198-223`). Here the machine below is what ends it so,
+    // sending nothing ([`crate::agent::TurnMachine::run_journaled`]): a turn
+    // stopped by now is refused nothing on its way there.
+    //
     // **Whether the model reads images, before anything is sent or written.**
     // A turn whose prompt -- or whose history, which every request re-sends --
     // carries one goes inline only to a model the catalog tags `vision` and
     // `file-input`; any other is refused here, with upstream's words, and no
     // request leaves (`visionPolicy`, `orchestrator.zig:5971-5986`, `:7147-7158`).
-    if carries_images {
+    if carries_images && !turn.token.is_cancelled() {
         if let Some(refusal) = image_refusal(state, events, turn).await {
             return Some(refusal);
         }
@@ -6096,6 +6120,9 @@ async fn one_turn(
     say_skills(&skills, events, turn).await;
     let options = match state.request_options() {
         Ok(options) => options,
+        // Stopped: nothing will be sent, so nothing is asked for, and the
+        // machine ends the turn as the stop (above).
+        Err(_) if turn.token.is_cancelled() => crate::gateway::protocol::RequestOptions::default(),
         Err(refusal) => return Some(refusal),
     };
     // Fast asked for and dropped because the catalog is down: said once, at
@@ -17388,10 +17415,18 @@ mod tests {
         state: Runtime,
         stop_after: Option<Duration>,
     ) -> Vec<(Duration, UiEvent)> {
+        first_of_two_and_a_stop(state, TurnWork::Submit("first".to_string()), stop_after)
+    }
+
+    /// [`two_prompts_and_a_stop`] with the first submission given: a prompt
+    /// with images attached, say.
+    fn first_of_two_and_a_stop(
+        state: Runtime,
+        first: TurnWork,
+        stop_after: Option<Duration>,
+    ) -> Vec<(Duration, UiEvent)> {
         let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(2);
-        work_tx
-            .try_send(TurnWork::Submit("first".to_string()))
-            .expect("room");
+        work_tx.try_send(first).expect("room");
         work_tx
             .try_send(TurnWork::Submit("second".to_string()))
             .expect("room");
@@ -17494,10 +17529,22 @@ mod tests {
                         }
                     }),
                     ends.len(),
+                    // The second turn's end: the stop quoted the first alone.
+                    ends.get(1).map(|(_, failure)| failure.clone()),
                 ));
             }
         }
+        // The second turn ends as it does without the stop, in each case: a
+        // stop that reached it would end it as the stop's own end.
+        for pair in got.chunks(2) {
+            assert_eq!(
+                pair[0].6, pair[1].6,
+                "{}: the second turn's end, with the stop and without it",
+                pair[0].0
+            );
+        }
         let cancelled = Some(Some(bridge::TURN_CANCELLED.to_string()));
+        let unknown = Some(Some(crate::image::CAPABILITY_UNKNOWN.to_string()));
         assert_eq!(
             got,
             [
@@ -17507,23 +17554,390 @@ mod tests {
                     vec![1, 2],
                     cancelled.clone(),
                     true,
-                    2
+                    2,
+                    Some(None),
                 ),
-                ("the turn's start", false, vec![1, 2], Some(None), true, 2),
-                ("the image route", true, vec![1, 2], cancelled, true, 2),
+                (
+                    "the turn's start",
+                    false,
+                    vec![1, 2],
+                    Some(None),
+                    true,
+                    2,
+                    Some(None),
+                ),
+                (
+                    "the image route",
+                    true,
+                    vec![1, 2],
+                    cancelled,
+                    true,
+                    2,
+                    unknown.clone(),
+                ),
                 // The wait out, the image route refuses the history's image
-                // it could not verify (`image_route.zig`'s unknown answer).
+                // it could not verify (`image_route.zig`'s unknown answer);
+                // the second turn's history carries it still.
                 (
                     "the image route",
                     false,
                     vec![1, 2],
-                    Some(Some(crate::image::CAPABILITY_UNKNOWN.to_string())),
+                    unknown.clone(),
                     true,
                     2,
+                    unknown,
                 ),
             ],
             "each: the starts, the first turn's end, whether it came when it should (with \
-             the stop: 300 ms to 1 s; without it: past the wait's 1.9 s), the ends"
+             the stop: 300 ms to 1 s; without it: past the wait's 1.9 s), the ends, the \
+             second turn's end"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // STOP-IN-CATALOG-WAIT: a stop in a turn's catalog wait ends it as a stop
+    // -----------------------------------------------------------------------
+
+    /// Where a turn's start waits for the catalog when the stop comes.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum CatalogWait {
+        /// Ultra on an OpenAI model, behind a failed catalog whose retry does
+        /// not land: upstream's turn resolves the capabilities whenever Ultra
+        /// is on (`orchestrator.zig:5885@481104fd`), and waits for the retry.
+        UltraRetry,
+        /// Ultra on an OpenAI model while the first load is on its way; it
+        /// lands 1.5 s in, with a row that does not offer Ultra.
+        UltraFirstLoad,
+        /// A prompt with an image, on a model whose window is known, behind a
+        /// failed catalog whose retry does not land: the prompt's images ask
+        /// (`:5886`).
+        PromptImageRetry,
+        /// A prompt with an image, on a model whose window is known and with
+        /// no level or speed, while the first load is on its way; it lands
+        /// 1.5 s in, with a row that reads images. The prompt's images ask
+        /// at the turn's start as the retry's do (`:5886`), and a load is
+        /// what upstream's resolve waits for first (`.loading`,
+        /// `model_cache_runtime.zig:855-866`).
+        PromptImageFirstLoad,
+        /// No Ultra, no image, on the default model, whose window nothing but
+        /// the catalog gives, behind a failed catalog whose retry does not
+        /// land: the turn that ends as a stop already, and what it records.
+        WindowRetry,
+    }
+
+    /// A runtime on a fresh conversation under `model` (as `XFX_MODEL`
+    /// names it), answered by a provider that answers twice.
+    fn under_model(model: &str) -> (tempfile::TempDir, tempfile::TempDir, Runtime) {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let env = Environment::new(
+            Some(home.path().to_path_buf()),
+            BTreeMap::from([("XFX_MODEL".to_string(), model.to_string())]),
+        );
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        let store = open_store(&config).expect("a store");
+        let conversation = open_conversation(
+            &store,
+            &config,
+            &config.model.clone(),
+            PermissionSession::new(config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("open a conversation");
+        let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+        state.conversation = Some(conversation);
+        state.provider = Some(Bundle {
+            id: ProviderId::Gateway,
+            stream: Box::new(ScriptedProvider::new(vec![answers("one"), answers("two")])),
+        });
+        (home, workspace, state)
+    }
+
+    /// A runtime waiting as `wait` says, the first prompt it is given, and
+    /// what holds the catalog's read back: a retry's gate, held until it is
+    /// dropped, or the thread that opens a first load's 1.5 s in.
+    fn waiting_in(
+        wait: CatalogWait,
+    ) -> (
+        tempfile::TempDir,
+        tempfile::TempDir,
+        Runtime,
+        TurnWork,
+        Option<tokio::sync::oneshot::Sender<()>>,
+    ) {
+        let model = match wait {
+            CatalogWait::UltraRetry | CatalogWait::UltraFirstLoad => "openai/gpt-6-astra",
+            CatalogWait::PromptImageRetry | CatalogWait::PromptImageFirstLoad => {
+                "anthropic/claude-sonnet-5"
+            }
+            CatalogWait::WindowRetry => crate::config::DEFAULT_MODEL,
+        };
+        let (home, workspace, mut state) = under_model(model);
+        assert_eq!(state.selector.model(), model);
+        state.settings.ultrafast =
+            matches!(wait, CatalogWait::UltraRetry | CatalogWait::UltraFirstLoad);
+        let (open, gate) = tokio::sync::oneshot::channel::<()>();
+        let (events, _received) = mpsc::channel(bridge::UI_EVENTS);
+        let held = if matches!(
+            wait,
+            CatalogWait::UltraFirstLoad | CatalogWait::PromptImageFirstLoad
+        ) {
+            let mut row = published(model);
+            row.facts.image_input = wait == CatalogWait::PromptImageFirstLoad;
+            state.selector.set_fetcher_for_test(Box::new(Gated {
+                entries: vec![row],
+                gate: Mutex::new(Some(gate)),
+            }));
+            on_a_runtime(async { begin_catalog_read(&mut state, &events) });
+            assert!(state.selector.is_loading(), "no first load on its way");
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(1_500));
+                let _ = open.send(());
+            });
+            None
+        } else {
+            state
+                .selector
+                .set_fetcher_for_test(Box::new(FailsThenGated {
+                    entries: vec![published(model)],
+                    asked: AtomicUsize::new(0),
+                    gate: Mutex::new(Some(gate)),
+                }));
+            on_a_runtime(state.load_catalog());
+            assert!(matches!(state.selector.catalog(), CatalogState::Failed(_)));
+            backdate_catalog(&mut state, Duration::from_secs(6));
+            retry_behind_failure(&mut state, &events);
+            Some(open)
+        };
+        let first = if matches!(
+            wait,
+            CatalogWait::PromptImageRetry | CatalogWait::PromptImageFirstLoad
+        ) {
+            assert!(state.context_window().is_some(), "the window waits too");
+            assert!(
+                state.settings.effort.is_default()
+                    && !state.settings.fast
+                    && !state.settings.ultrafast,
+                "a level or a speed waits too"
+            );
+            TurnWork::Attached {
+                prompt: "first".to_string(),
+                images: vec![crate::image::Image::new(
+                    1,
+                    std::path::PathBuf::from("shot.png"),
+                    crate::image::MediaType::Png,
+                    std::sync::Arc::from(&b"png"[..]),
+                )],
+                skills: Vec::new(),
+            }
+        } else {
+            TurnWork::Submit("first".to_string())
+        };
+        (home, workspace, state, first, held)
+    }
+
+    /// What a session's log says of its turns, in order: each prompt, the
+    /// images it carried, and how each turn concluded.
+    fn turns_logged(sessions: &std::path::Path, id: &SessionId) -> Vec<String> {
+        let log = sessions
+            .join(id.as_str())
+            .join(crate::session::store::EVENTS_FILE);
+        let Ok(bytes) = std::fs::read(&log) else {
+            return Vec::new();
+        };
+        String::from_utf8_lossy(&bytes)
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("a frame"))
+            .map(|frame| frame["event"].clone())
+            .filter_map(|event| match event["kind"].as_str() {
+                Some("user_message") => Some(format!(
+                    "asked {}",
+                    event["text"].as_str().unwrap_or_default()
+                )),
+                Some("images_attached") => Some(format!(
+                    "{} image(s)",
+                    event["images"].as_array().map_or(0, Vec::len)
+                )),
+                Some("turn_concluded") => {
+                    let outcome = &event["outcome"];
+                    Some(format!(
+                        "{} {}",
+                        outcome["kind"].as_str().unwrap_or_default(),
+                        outcome["terminal_reason"]
+                            .as_str()
+                            .or_else(|| outcome["finish_reason"].as_str())
+                            .unwrap_or_default()
+                    ))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one() {
+        // Upstream's turn resolves the model's capabilities before it plans
+        // the request -- for Ultra, an image in the prompt, a window only the
+        // catalog gives (`orchestrator.zig:5884-5891@481104fd`) -- and that
+        // wait, the first load's or a failed catalog's retry's, ends on the
+        // turn's stop (`resolveForRequest`, `model_cache_runtime.zig:855-865`):
+        // the turn ends interrupted, its prompt and images kept as asked and
+        // stopped (`orchestrator.zig:5893-5919`, `persistInterruptedTurnOnce`,
+        // `interruption.zig:198-223`), and it checks the stop once more after
+        // it (`orchestrator.zig:5923-5948`), before any request is planned --
+        // Ultra's refusal is a request's (`:7657`). So a Ctrl-C quoting the
+        // first of two prompts, 300 ms into the first's wait: the first ends
+        // at once as the stop's own end, its prompt (and its image) in the log
+        // with the stop's conclusion, as a stop in the default model's window
+        // wait already ends; the second starts as submission 2 and ends as it
+        // does without the stop, unless the stopped prompt's image is in its
+        // history. Without the stop, the first waits out its wait and is
+        // refused (Ultra, the image) or answered (the window).
+        let cancelled = Some(bridge::TURN_CANCELLED.to_string());
+        let ultra = Some(ULTRAFAST_UNAVAILABLE.to_string());
+        let unknown = Some(crate::image::CAPABILITY_UNKNOWN.to_string());
+        let stopped = |prompt: &str| {
+            vec![
+                format!("asked {prompt}"),
+                "interrupted cancelled".to_string(),
+            ]
+        };
+        let mut got = Vec::new();
+        let mut want = Vec::new();
+        for wait in [
+            CatalogWait::UltraRetry,
+            CatalogWait::UltraFirstLoad,
+            CatalogWait::PromptImageRetry,
+            CatalogWait::PromptImageFirstLoad,
+            CatalogWait::WindowRetry,
+        ] {
+            for stop in [Some(Duration::from_millis(300)), None] {
+                let (_home, _workspace, state, first, held) = waiting_in(wait);
+                let sessions = state.store.sessions_dir().to_path_buf();
+                let id = state
+                    .conversation
+                    .as_ref()
+                    .expect("a conversation")
+                    .recorder
+                    .id()
+                    .clone();
+                let log = first_of_two_and_a_stop(state, first, stop);
+                drop(held);
+                let starts: Vec<usize> = log
+                    .iter()
+                    .filter_map(|(_, event)| match event {
+                        UiEvent::TurnStarted { submission } => Some(*submission),
+                        _ => None,
+                    })
+                    .collect();
+                let ends: Vec<(Duration, Option<String>)> = log
+                    .iter()
+                    .filter_map(|(at, event)| match event {
+                        UiEvent::TurnEnded { failure } => Some((*at, failure.clone())),
+                        _ => None,
+                    })
+                    .collect();
+                let on_time = ends.first().is_some_and(|(at, _)| match stop {
+                    // After the stop, and long before the wait's end.
+                    Some(_) => {
+                        *at >= Duration::from_millis(300) && *at < Duration::from_millis(1_000)
+                    }
+                    None => *at >= Duration::from_millis(1_200),
+                });
+                got.push((
+                    wait,
+                    stop.is_some(),
+                    starts,
+                    ends.iter()
+                        .map(|(_, failure)| failure.clone())
+                        .collect::<Vec<_>>(),
+                    on_time,
+                    turns_logged(&sessions, &id),
+                ));
+                let (ended, logged) = match (wait, stop.is_some()) {
+                    (CatalogWait::UltraRetry | CatalogWait::UltraFirstLoad, true) => {
+                        (vec![cancelled.clone(), ultra.clone()], stopped("first"))
+                    }
+                    (CatalogWait::UltraRetry | CatalogWait::UltraFirstLoad, false) => {
+                        (vec![ultra.clone(), ultra.clone()], Vec::new())
+                    }
+                    // The stopped prompt's image is the second's history's:
+                    // the image route waits for the retry and cannot vouch.
+                    (CatalogWait::PromptImageRetry, true) => (
+                        vec![cancelled.clone(), unknown.clone()],
+                        vec![
+                            "asked first".to_string(),
+                            "1 image(s)".to_string(),
+                            "interrupted cancelled".to_string(),
+                        ],
+                    ),
+                    (CatalogWait::PromptImageRetry, false) => (
+                        vec![unknown.clone(), None],
+                        vec!["asked second".to_string(), "final stop".to_string()],
+                    ),
+                    // The first load lands with a row that reads images: the
+                    // second turn sends the stopped prompt's image in its
+                    // history, as it sends the answered one's.
+                    (CatalogWait::PromptImageFirstLoad, true) => (
+                        vec![cancelled.clone(), None],
+                        vec![
+                            "asked first".to_string(),
+                            "1 image(s)".to_string(),
+                            "interrupted cancelled".to_string(),
+                            "asked second".to_string(),
+                            "final stop".to_string(),
+                        ],
+                    ),
+                    (CatalogWait::PromptImageFirstLoad, false) => (
+                        vec![None, None],
+                        vec![
+                            "asked first".to_string(),
+                            "1 image(s)".to_string(),
+                            "final stop".to_string(),
+                            "asked second".to_string(),
+                            "final stop".to_string(),
+                        ],
+                    ),
+                    (CatalogWait::WindowRetry, true) => (
+                        vec![cancelled.clone(), None],
+                        [
+                            stopped("first"),
+                            vec!["asked second".to_string(), "final stop".to_string()],
+                        ]
+                        .concat(),
+                    ),
+                    (CatalogWait::WindowRetry, false) => (
+                        vec![None, None],
+                        vec![
+                            "asked first".to_string(),
+                            "final stop".to_string(),
+                            "asked second".to_string(),
+                            "final stop".to_string(),
+                        ],
+                    ),
+                };
+                want.push((wait, stop.is_some(), vec![1, 2], ended, true, logged));
+            }
+        }
+        // The second turn ends as it does without the stop -- the stop quoted
+        // the first alone -- in every case but the one whose first turn,
+        // without the stop, was refused and kept nothing, so the second's
+        // history differs by the stopped prompt's image.
+        for pair in got.chunks(2) {
+            if pair[0].0 != CatalogWait::PromptImageRetry {
+                assert_eq!(
+                    pair[0].3.get(1),
+                    pair[1].3.get(1),
+                    "{:?}: the second turn's end, with the stop and without it",
+                    pair[0].0
+                );
+            }
+        }
+        assert_eq!(
+            got, want,
+            "each: the starts, both turns' ends, whether the first came when it should (with \
+             the stop: 300 ms to 1 s; without it: past 1.2 s), what the log says of the turns"
         );
     }
 }

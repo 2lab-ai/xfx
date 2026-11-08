@@ -1,0 +1,19 @@
+# cmp_sweeps.py sweep-base pairs.json (base 9298583e) against sweep-head pairs.json (0b4d89be); then model-column-idle's
+# catalog reads in each run's gateway log (fx's and xfx's), and its two reruns on the head (sweep-head-idle-rerun{1,2}.md)
+model-column-idle/col-down: base normalized-identical -> head unresolved-defect
+model-column-idle/col-idle: base normalized-identical -> head unresolved-defect
+model-column-idle/col-typed: base normalized-identical -> head unresolved-defect
+p5-stop-in-catalog-wait/settled: base unresolved-defect -> head normalized-identical
+p5-stop-in-catalog-wait/stopped: base unresolved-defect -> head normalized-identical
+base: 63 / 73 pass; head: 62 / 73 pass; dropped: 3
+exit=1
+sweep-base fx model-column-idle reads: -> 503 (down) at=908ms -> 503 (down) at=7026ms 
+sweep-base xfx model-column-idle reads: -> 503 (down) at=1108ms -> 503 (down) at=7217ms 
+sweep-head fx model-column-idle reads: -> 503 (down) at=6529ms -> 200 at=12650ms 
+sweep-head xfx model-column-idle reads: -> 503 (down) at=864ms -> 503 (down) at=6964ms 
+sweep-head-idle1 fx model-column-idle reads: -> 503 (down) at=1266ms -> 503 (down) at=7356ms 
+sweep-head-idle1 xfx model-column-idle reads: -> 503 (down) at=903ms -> 503 (down) at=6965ms 
+sweep-head-idle2 fx model-column-idle reads: -> 503 (down) at=2258ms -> 503 (down) at=8354ms 
+sweep-head-idle2 xfx model-column-idle reads: -> 503 (down) at=937ms -> 503 (down) at=6998ms 
+rerun 1: Scenarios: 1 -- ran 1, failed 0, timeout 0. **pass = 3 / 3 = 100.0%**
+rerun 2: Scenarios: 1 -- ran 1, failed 0, timeout 0. **pass = 3 / 3 = 100.0%**

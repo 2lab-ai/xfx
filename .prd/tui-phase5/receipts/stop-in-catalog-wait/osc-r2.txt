@@ -1,0 +1,15 @@
+== fx-r2/fx-p5-stop-in-catalog-wait-40x120-stopped.wire
+  11;?
+  2;fx v0.0.16 | work
+  2;fx v0.0.16 | work
+  7501;state=idle:app=fx
+  7501;state=working:app=fx
+  2;say something
+  7501;state=idle:app=fx
+== xfx-r2/xfx-p5-stop-in-catalog-wait-40x120-stopped.wire
+  11;?
+  2;xfx v0.1.0 | work
+  7501;state=idle:app=xfx
+  7501;state=working:app=xfx
+  7501;state=idle:app=xfx
+  2;say something

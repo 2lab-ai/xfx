@@ -1,0 +1,39 @@
+# round 2: mutants.py on a git clone --no-local of 889dcfaf (mut/), each under suite-lock.sh, 600 s each; then stop-leaks-to-next-turn --join-only on mut/ and on ctl/ (9298583e, the join test as 85b13f84 left it)
+head prompt-images-first-load-not-waited: killed
+    test agent::machine::tests::a_turn_stopped_before_it_began_is_asked_and_stopped_and_measures_nothing ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... FAILED
+    thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one' (355527512) panicked at src/tui/worker.rs:17936:9:
+    test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 4535 filtered out; finished in 24.71s
+head ultra-refusal-not-yielded: killed
+    test agent::machine::tests::a_turn_stopped_before_it_began_is_asked_and_stopped_and_measures_nothing ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... FAILED
+    thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one' (355546832) panicked at src/tui/worker.rs:17934:9:
+    test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 4535 filtered out; finished in 25.77s
+head image-refusal-asked-when-stopped: killed
+    test agent::machine::tests::a_turn_stopped_before_it_began_is_asked_and_stopped_and_measures_nothing ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... FAILED
+    thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one' (355558236) panicked at src/tui/worker.rs:17937:9:
+    test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 4535 filtered out; finished in 22.68s
+head candidate-bare-return: killed
+    test agent::machine::tests::a_turn_stopped_before_it_began_is_asked_and_stopped_and_measures_nothing ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... FAILED
+    thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one' (355566437) panicked at src/tui/worker.rs:17937:9:
+    test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 4535 filtered out; finished in 22.60s
+head no-machine-guard: killed
+    test agent::machine::tests::a_turn_stopped_before_it_began_is_asked_and_stopped_and_measures_nothing ... FAILED
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+    thread 'agent::machine::tests::a_turn_stopped_before_it_began_is_asked_and_stopped_and_measures_nothing' (355575968) panicked at src/agent/machine.rs:2158:9:
+    test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 4535 filtered out; finished in 25.92s
+head stop-leaks-to-next-turn: killed
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... FAILED
+    thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number' (355586181) panicked at src/tui/worker.rs:17540:13:
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4537 filtered out; finished in 13.10s
+base-85b13f84 stop-leaks-to-next-turn: SURVIVED
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4535 filtered out; finished in 13.10s
+exit=0

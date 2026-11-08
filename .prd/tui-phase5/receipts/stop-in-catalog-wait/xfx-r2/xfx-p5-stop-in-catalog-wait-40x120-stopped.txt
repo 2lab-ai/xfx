@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-889dcfa [debug] · Run /help for commands
+
+┃ say something
+
+▪ Cancelled · What can xfx do differently?
+
+┃
+
+press ctrl+c again to exit
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
