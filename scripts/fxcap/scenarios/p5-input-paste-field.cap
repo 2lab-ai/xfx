@@ -1,0 +1,28 @@
+# U5 (9e0eab41): a paste whose end marker shares a read with more input, at a
+# question. First at a choice (fx's decision_prompt): a `1` and an Enter
+# behind an empty paste choose nothing. Then in the `Other` field: `keep`
+# typed, `new` pasted with an Enter behind it -- the paste is kept, the Enter
+# does not answer (app_input_runtime.zig:9718-9740@481104fd). An Enter of its
+# own then answers `keepnew`. The question is question-field.cap's.
+fx: env FX_AUTO_UPGRADE=0
+gateway question-field.json
+wait 3
+type ask me
+key Enter
+wait 2.5
+snap q
+type [200~[201~1
+wait 1.5
+snap choice-paste-enter
+key 3
+wait 0.4
+type keep
+wait 0.4
+snap field-keep
+type [200~new[201~
+wait 1.5
+snap field-paste-enter
+key Enter
+wait 2.5
+snap answered
+gwlog

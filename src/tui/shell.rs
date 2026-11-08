@@ -18778,46 +18778,50 @@ mod tests {
         );
     }
 
+    /// fx v0.0.16's warning for input behind a paste's end marker, spelled
+    /// out here rather than read from the code under test
+    /// (`input_paste_runtime.zig:190-196@481104fd`).
+    fn ignored_behind_the_paste() -> notice::Notice {
+        notice::Notice::warning(
+            "input",
+            "Input that arrived right after the paste was ignored.",
+        )
+    }
+
     #[test]
-    fn a_paste_with_input_behind_its_end_marker_in_one_delivery_is_refused_whole() {
-        // `app_input_runtime.zig:9862-9873` and `:9841-9860`: an Enter in the
-        // read that carried the end marker is not a key, the paste is not
-        // applied, and fx says so once under `input`. The Enter after it, in a
-        // delivery of its own, sends the draft as it was.
+    fn a_paste_with_input_behind_its_end_marker_in_one_delivery_is_kept_and_the_input_ignored() {
+        // `app_input_runtime.zig:9420-9431@481104fd`: an Enter in the read that
+        // carried the end marker is not a key, the paste is applied, and fx
+        // warns once under `input`. The Enter after it, in a delivery of its
+        // own, sends the draft with the paste in it.
         let mut shell = shell(24, 80);
         shell.route_bytes(b"prior");
         let _ = shell.document();
 
         shell.route_bytes(b"\x1b[200~new\x1b[201~\r");
-        assert_eq!(
-            shell.editor.text(),
-            "prior",
-            "the refused paste was applied"
-        );
+        assert_eq!(shell.editor.text(), "priornew", "the paste was not kept");
         assert!(
             shell.sent.try_recv().is_err(),
             "the Enter behind the end marker sent a prompt"
         );
         assert_eq!(
             shell.document(),
-            said(notice::Notice::error("input", PASTE_SUFFIX)),
-            "the refusal was not said in fx's words"
+            said(ignored_behind_the_paste()),
+            "the ignored input was not said in fx's words"
         );
 
-        // A second end marker and a slash command behind an empty paste: all
-        // of it is the paste's suffix, none of it a command.
+        // `:9399-9418`: a second end marker and a slash command behind an
+        // empty paste -- all of it is the paste's suffix, none of it a
+        // command, and the empty paste changes nothing.
         shell.route_bytes(b"\x1b[200~\x1b[201~/version\r\x1b[201~");
-        assert_eq!(shell.editor.text(), "prior");
+        assert_eq!(shell.editor.text(), "priornew");
         assert!(shell.sent.try_recv().is_err(), "a pasted /version ran");
-        assert_eq!(
-            shell.document(),
-            said(notice::Notice::error("input", PASTE_SUFFIX))
-        );
+        assert_eq!(shell.document(), said(ignored_behind_the_paste()));
 
         shell.route_bytes(&[0x0d]);
         assert!(
-            matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "prior"),
-            "the composer was not left as it was"
+            matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "priornew"),
+            "the composer did not keep the paste"
         );
     }
 
@@ -18826,44 +18830,44 @@ mod tests {
         // One write can be two reads -- a read takes at most `BURST_BYTES` --
         // so the Enter at the head of the second read is still behind the end
         // marker at the tail of the first. Only the readiness check that finds
-        // nothing ends the delivery (`event_loop.zig:44-72`).
+        // nothing ends the delivery (`event_loop.zig:94-119@481104fd`).
         let mut shell = shell(24, 80);
         shell.route_bytes(b"prior");
         let _ = shell.document();
         shell.route_read(b"\x1b[200~new\x1b[201~");
         shell.route_read(b"\r");
         shell.end_delivery();
-        assert_eq!(shell.editor.text(), "prior");
+        assert_eq!(shell.editor.text(), "priornew");
         assert!(
             shell.sent.try_recv().is_err(),
             "the second read's Enter sent"
         );
-        assert_eq!(
-            shell.document(),
-            said(notice::Notice::error("input", PASTE_SUFFIX))
-        );
+        assert_eq!(shell.document(), said(ignored_behind_the_paste()));
 
-        // The same bytes in two deliveries are a paste and then a key.
+        // The same bytes in two deliveries are a paste and then a key, and
+        // nothing is said about them.
         shell.route_read(b"\x1b[200~new\x1b[201~");
         shell.end_delivery();
-        assert_eq!(shell.editor.text(), "priornew", "a paste that stands");
+        assert_eq!(shell.editor.text(), "priornewnew", "a paste that stands");
         shell.route_read(b"\r");
         shell.end_delivery();
         assert!(
-            matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "priornew"),
+            matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "priornewnew"),
             "the Enter of its own did not submit"
         );
         assert!(shell
             .document()
             .iter()
-            .all(|row| !row.contains(PASTE_SUFFIX)));
+            .all(|row| !row.contains("right after the paste")));
     }
 
     #[test]
-    fn a_paste_past_the_budget_with_input_behind_it_says_the_limit_and_sends_nothing() {
-        // fx's overflowed capture settles as finished whatever followed it
-        // (`paste_framing.zig:165`, `:448-464`): the limit's sentence, not the
-        // suffix's -- and still nothing applied and nothing sent.
+    fn a_paste_past_the_budget_with_input_behind_it_says_the_limit_then_the_ignored_input() {
+        // fx v0.0.16 finishes the paste first -- an overflowed capture is the
+        // input-limit refusal (`input_paste_runtime.zig:189,210-235@481104fd`,
+        // `paste_framing.zig:427-443`) -- and warns about the input behind it
+        // after (`:190-196`): two notices, in that order, and still nothing
+        // applied and nothing sent.
         let mut shell = shell(24, 80);
         let typed = "x".repeat(500_000);
         assert!(
@@ -18884,10 +18888,9 @@ mod tests {
             shell.sent.try_recv().is_err(),
             "the Enter behind the marker sent"
         );
-        assert_eq!(
-            shell.document(),
-            said(notice::Notice::error("input", INPUT_LIMIT))
-        );
+        let mut both = said(notice::Notice::error("input", INPUT_LIMIT));
+        both.extend(said(ignored_behind_the_paste()));
+        assert_eq!(shell.document(), both);
     }
 
     #[test]
@@ -22427,10 +22430,10 @@ mod tests {
     }
 
     #[test]
-    fn a_paste_with_input_behind_its_end_marker_reaches_no_answer_and_answers_nothing() {
-        // fx's question owners (`app_input_runtime.zig:10160-10182`): a
-        // freeform answer keeps what it had, the Enter behind the marker does
-        // not take the choice, and the sentence is the composer's.
+    fn a_paste_with_input_behind_its_end_marker_reaches_the_answer_and_answers_nothing() {
+        // fx's question freeform owner (`app_input_runtime.zig:9718-9740
+        // @481104fd`): the answer keeps the paste, the Enter behind the
+        // marker does not take the choice, and the warning is the composer's.
         let mut fixture = shell(40, 120);
         asking_question(&mut fixture, a_batch());
         fixture.route_bytes(b"3");
@@ -22440,27 +22443,24 @@ mod tests {
         fixture.route_bytes(b"\x1b[200~new\x1b[201~\r");
         assert_eq!(
             fixture.marked(),
-            "    3) keep ",
-            "the refused paste reached the answer"
+            "    3) keepnew ",
+            "the paste did not reach the answer"
         );
         assert_eq!(
             fixture.controlled(),
             None,
             "the Enter behind the end marker answered"
         );
-        assert_eq!(
-            fixture.document(),
-            said(notice::Notice::error("input", PASTE_SUFFIX))
-        );
+        assert_eq!(fixture.document(), said(ignored_behind_the_paste()));
 
-        // An Enter of its own takes the answer as it was.
+        // An Enter of its own takes the answer with the paste in it.
         fixture.route_bytes(&[0x0d]);
         fixture.route_bytes(b"1");
         assert_eq!(
             fixture.controlled(),
             Some(TurnControl::QuestionAnswer {
                 id: QuestionId(1),
-                answers: vec!["keep".to_string(), "Yes".to_string()],
+                answers: vec!["keepnew".to_string(), "Yes".to_string()],
             })
         );
     }
@@ -22468,9 +22468,9 @@ mod tests {
     #[test]
     fn a_paste_with_input_behind_its_end_marker_says_so_at_a_choice_too() {
         // A question taking no text -- a choice marked, fx's `decision_prompt`
-        // (`paste_rt.beginPaste`, `input_paste_runtime.zig:106-107`) -- drops a
-        // paste whole either way; one with input behind its marker says so,
-        // and a `1` behind the marker is not the first choice.
+        // (`beginPaste`, `input_paste_runtime.zig:105-107@481104fd`) -- drops
+        // the paste's text either way; one with input behind its marker warns,
+        // and a `1` behind the marker is not the first choice (`:9686-9701`).
         let mut fixture = shell(40, 120);
         asking_question(&mut fixture, a_batch());
         let _ = fixture.document();
@@ -22482,10 +22482,7 @@ mod tests {
             "{}",
             fixture.marked()
         );
-        assert_eq!(
-            fixture.document(),
-            said(notice::Notice::error("input", PASTE_SUFFIX))
-        );
+        assert_eq!(fixture.document(), said(ignored_behind_the_paste()));
     }
 
     #[test]
@@ -37862,10 +37859,11 @@ mod tests {
     }
 
     #[test]
-    fn a_paste_with_input_behind_its_end_marker_reaches_no_draft_and_answers_nothing() {
-        // fx's amendment owner (`app_input_runtime.zig:10145-10158`): the draft
-        // keeps what it had, the Enter behind the marker is not the answer,
-        // and the sentence is the composer's, in the document above the panel.
+    fn a_paste_with_input_behind_its_end_marker_reaches_the_draft_and_answers_nothing() {
+        // fx's amendment owner (`app_input_runtime.zig:9703-9716@481104fd`):
+        // the draft keeps the paste, the Enter behind the marker is not the
+        // answer, and the warning is the composer's, in the document above
+        // the panel.
         let mut shell = shell(24, 80);
         asking(&mut shell);
         shell.route_bytes(b"\tkeep");
@@ -37873,8 +37871,8 @@ mod tests {
 
         shell.route_bytes(b"\x1b[200~new\x1b[201~\r");
         assert!(
-            !band(&shell).contains("keepnew"),
-            "the refused paste reached the draft: {:?}",
+            band(&shell).contains("keepnew"),
+            "the paste did not reach the draft: {:?}",
             band(&shell)
         );
         assert_eq!(
@@ -37882,12 +37880,9 @@ mod tests {
             None,
             "the Enter behind the end marker answered"
         );
-        assert_eq!(
-            shell.document(),
-            said(notice::Notice::error("input", PASTE_SUFFIX))
-        );
+        assert_eq!(shell.document(), said(ignored_behind_the_paste()));
 
-        // An Enter of its own answers, with the draft as it was.
+        // An Enter of its own answers, with the paste in the draft.
         delivered(&mut shell);
         shell.route_bytes(b"\r");
         assert_eq!(
@@ -37895,34 +37890,33 @@ mod tests {
             Some(TurnControl::Answer {
                 id: ApprovalId(1),
                 answer: ApprovalAnswer::Once,
-                feedback: Some("keep".to_string()),
+                feedback: Some("keepnew".to_string()),
             })
         );
     }
 
     #[test]
     fn a_paste_with_input_behind_its_end_marker_says_so_at_a_panel_with_no_draft() {
-        // fx's `decision_prompt` owner (`app_input_runtime.zig:10131-10143`): an
-        // approval with no amendment open takes no text, and the `1` and the
-        // Enter behind the marker are neither an answer nor a key.
+        // fx's `decision_prompt` owner (`app_input_runtime.zig:9689-9701
+        // @481104fd`): an approval with no amendment open takes no text, and
+        // the `1` and the Enter behind the marker are neither an answer nor a
+        // key.
         let mut shell = shell(24, 80);
         asking(&mut shell);
 
         shell.route_bytes(b"\x1b[200~\x1b[201~1\r");
         assert_eq!(shell.controlled(), None, "a `1` behind the marker answered");
         assert!(shell.panel.is_some(), "the question went away");
-        assert_eq!(
-            shell.document(),
-            said(notice::Notice::error("input", PASTE_SUFFIX))
-        );
+        assert_eq!(shell.document(), said(ignored_behind_the_paste()));
     }
 
     #[test]
-    fn an_oversized_paste_at_a_draft_with_input_behind_it_says_the_limit() {
-        // fx settles a capture that had already overflowed as finished whatever
-        // followed it (`paste_framing.zig:165`, its test `:448-464`), so the
-        // sentence is the limit's -- and nothing is applied or answered either
-        // way.
+    fn an_oversized_paste_at_a_draft_with_input_behind_it_says_the_limit_then_the_ignored_input() {
+        // fx v0.0.16 finishes the paste before it warns
+        // (`input_paste_runtime.zig:189-196@481104fd`), and an overflowed
+        // capture's finish is its limit refusal (`:210-235`), so the limit's
+        // sentence comes first and the warning after -- and nothing is
+        // applied or answered either way.
         let mut shell = shell(24, 80);
         asking(&mut shell);
         shell.route_bytes(b"\tkeep");
@@ -37934,13 +37928,12 @@ mod tests {
         bytes.extend(b"\x1b[201~\r");
 
         shell.route_bytes(&bytes);
-        assert_eq!(
-            shell.document(),
-            said(notice::Notice::error(
-                "input",
-                super::super::approval_amendment::INPUT_LIMIT
-            ))
-        );
+        let mut both = said(notice::Notice::error(
+            "input",
+            super::super::approval_amendment::INPUT_LIMIT,
+        ));
+        both.extend(said(ignored_behind_the_paste()));
+        assert_eq!(shell.document(), both);
         assert_eq!(
             shell.controlled(),
             None,
@@ -37954,10 +37947,10 @@ mod tests {
     }
 
     #[test]
-    fn a_refused_paste_on_the_review_plane_is_said_on_the_plane() {
-        // The plane owns every row while it is up, so the sentence is on its
-        // status row rather than behind it -- the rule every refusal at a
-        // question follows here.
+    fn a_paste_with_input_behind_it_on_the_review_plane_is_kept_and_said_on_the_plane() {
+        // The plane owns every row while it is up, so the warning is on its
+        // status row rather than behind it -- the rule every notice at a
+        // question follows here -- and the paste is in the draft.
         let mut shell = shell(40, 100);
         let started = turn_running(&mut shell, b"rewrite the notes\r");
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
@@ -37968,8 +37961,11 @@ mod tests {
 
         shell.route_bytes(b"\x1b[200~new\x1b[201~\r");
         let painted = unwrapped(&shell.screen_rows());
-        assert!(painted.contains(PASTE_SUFFIX), "{painted:?}");
-        assert!(!painted.contains("keepnew"), "{painted:?}");
+        assert!(
+            painted.contains("Input that arrived right after the paste was ignored."),
+            "{painted:?}"
+        );
+        assert!(painted.contains("keepnew"), "{painted:?}");
         assert_eq!(
             shell.controlled(),
             None,

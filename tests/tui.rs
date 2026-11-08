@@ -3359,13 +3359,13 @@ fn a_pasted_block_with_newlines_a_cancel_byte_and_an_escape_is_exactly_one_promp
 }
 
 #[test]
-fn a_paste_whose_end_marker_shares_a_read_with_enter_is_refused_and_submits_nothing() {
-    // fx c1db919's rule (`paste_framing.zig:93-108,160-167`,
-    // `input_paste_runtime.zig:179-193`): input that arrives behind a paste's
-    // end marker in the same delivery is the clipboard's, not the user's -- a
-    // copied `ESC[201~` followed by a newline would otherwise be a prompt
-    // nobody typed. The whole paste is refused, the bytes behind the marker are
-    // dropped without being read as keys, and fx says so under `input`
+fn a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing() {
+    // fx v0.0.16's rule (9e0eab41; `paste_framing.zig:58-68,102-107,159-165`,
+    // `input_paste_runtime.zig:168-198@481104fd`): input that arrives behind a
+    // paste's end marker in the same delivery is the clipboard's, not the
+    // user's -- a copied `ESC[201~` followed by a newline would otherwise be a
+    // prompt nobody typed. The paste is kept, the bytes behind the marker are
+    // dropped without being read as keys, and fx warns under `input`
     // (`fx-p5-input-paste-40x120-paste-enter`). One write, so one read.
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
         support::fake_gateway::content_only(&["MARKER-PRIOR"]),
@@ -3384,10 +3384,10 @@ fn a_paste_whose_end_marker_shares_a_read_with_enter_is_refused_and_submits_noth
         &session,
         (40, 120),
         &[
-            "\u{2717} input: Paste was not applied because extra input followed its end marker.",
-            "\u{2503} prior",
+            "! input: Input that arrived right after the paste was ignored.",
+            "\u{2503} priornew",
         ],
-        &["priornew"],
+        &["Paste was not applied"],
     );
     assert_eq!(
         gateway.request_count(),
@@ -3395,11 +3395,11 @@ fn a_paste_whose_end_marker_shares_a_read_with_enter_is_refused_and_submits_noth
         "the Enter behind the paste's end marker submitted the composer"
     );
 
-    // A key of its own is a key again: the composer is what it was, and the
-    // next Enter sends exactly that (`app_input_runtime.zig:9857-9859`).
+    // A key of its own is a key again: the composer holds the paste, and the
+    // next Enter sends exactly that (`app_input_runtime.zig:9420-9431`).
     session.type_bytes(b"\r");
     session.wait_for("MARKER-PRIOR");
-    assert_eq!(user_messages(&gateway.only_request().json()), ["prior"]);
+    assert_eq!(user_messages(&gateway.only_request().json()), ["priornew"]);
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
