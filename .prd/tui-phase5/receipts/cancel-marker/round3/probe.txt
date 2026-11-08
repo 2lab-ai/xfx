@@ -1,0 +1,29 @@
+# round3/render_cost_probe.rs on clones at 0978e02c (round 2's head) and 1d52413d (round 3's code head), one job: release, macOS,
+# one case a process, under the suite lock; ms per step, row bytes, peak RSS. raw_bytes: 9 (short), 8388608 (plain, c1), 6291456 (marks),
+# 8388613 (heavy), 8388606 (zw).
+# 0978e02c receipt(cancel-marker): round 2 -- the cancel scenario on one text, wording
+PROBE case=short row_bytes=68 bridge_ms=0.4 start_ms=0.3 rebuild_median_ms=0.0 rebuild_worst_ms=0.0 grid_matches_ms=0.2 grid_place_ms=0.1 ctrlo_open_ms=0.6 ctrlo_cached_ms=0.0 ctrlo_pageup_ms=0.0 ctrlo_join_ms=0.2 ctrlo_theme_ms=0.2 ctrlo_resize_ms=0.2 peak_rss_mib=9
+case short exit 0
+PROBE case=plain row_bytes=139 bridge_ms=32.5 start_ms=5.1 rebuild_median_ms=3.3 rebuild_worst_ms=3.5 grid_matches_ms=0.0 grid_place_ms=0.0 ctrlo_open_ms=917.2 ctrlo_cached_ms=0.0 ctrlo_pageup_ms=0.0 ctrlo_join_ms=962.2 ctrlo_theme_ms=980.7 ctrlo_resize_ms=939.7 peak_rss_mib=582
+case plain exit 0
+PROBE case=c1 row_bytes=139 bridge_ms=131.2 start_ms=7.2 rebuild_median_ms=3.3 rebuild_worst_ms=3.4 grid_matches_ms=0.0 grid_place_ms=0.0 ctrlo_open_ms=3612.3 ctrlo_cached_ms=0.0 ctrlo_pageup_ms=0.1 ctrlo_join_ms=3647.3 ctrlo_theme_ms=3657.1 ctrlo_resize_ms=3682.6 peak_rss_mib=1695
+case c1 exit 0
+PROBE case=marks row_bytes=139 bridge_ms=68.4 start_ms=6.7 rebuild_median_ms=3.3 rebuild_worst_ms=4.0 grid_matches_ms=0.0 grid_place_ms=0.0 ctrlo_open_ms=1806.7 ctrlo_cached_ms=0.0 ctrlo_pageup_ms=0.0 ctrlo_join_ms=1841.5 ctrlo_theme_ms=1905.8 ctrlo_resize_ms=1858.1 peak_rss_mib=519
+case marks exit 0
+PROBE case=heavy row_bytes=262172 bridge_ms=21.3 start_ms=6.9 rebuild_median_ms=4.8 rebuild_worst_ms=5.3 grid_matches_ms=4.2 grid_place_ms=4.2 ctrlo_open_ms=577.0 ctrlo_cached_ms=0.0 ctrlo_pageup_ms=0.1 ctrlo_join_ms=611.0 ctrlo_theme_ms=605.6 ctrlo_resize_ms=606.9 peak_rss_mib=570
+case heavy exit 0
+PROBE case=zw row_bytes=262171 bridge_ms=16.0 start_ms=7.3 rebuild_median_ms=5.3 rebuild_worst_ms=6.2 grid_matches_ms=5.2 grid_place_ms=5.2 ctrlo_open_ms=476.3 ctrlo_cached_ms=0.0 ctrlo_pageup_ms=0.1 ctrlo_join_ms=512.5 ctrlo_theme_ms=510.4 ctrlo_resize_ms=511.4 peak_rss_mib=568
+case zw exit 0
+# 1d52413d fix(tui): spell a whole argument in one pass, not a check and a second pass (T-U4
+PROBE case=short row_bytes=68 bridge_ms=0.5 start_ms=0.3 rebuild_median_ms=0.0 rebuild_worst_ms=0.1 grid_matches_ms=0.0 grid_place_ms=0.1 ctrlo_open_ms=0.5 ctrlo_cached_ms=0.0 ctrlo_pageup_ms=0.0 ctrlo_join_ms=0.1 ctrlo_theme_ms=0.0 ctrlo_resize_ms=0.0 peak_rss_mib=9
+case short exit 0
+PROBE case=plain row_bytes=139 bridge_ms=7.2 start_ms=3.8 rebuild_median_ms=0.0 rebuild_worst_ms=1.9 grid_matches_ms=0.0 grid_place_ms=0.0 ctrlo_open_ms=58.0 ctrlo_cached_ms=0.0 ctrlo_pageup_ms=0.0 ctrlo_join_ms=8.1 ctrlo_theme_ms=7.0 ctrlo_resize_ms=55.1 peak_rss_mib=118
+case plain exit 0
+PROBE case=c1 row_bytes=139 bridge_ms=64.9 start_ms=4.4 rebuild_median_ms=0.0 rebuild_worst_ms=1.9 grid_matches_ms=0.0 grid_place_ms=0.0 ctrlo_open_ms=228.9 ctrlo_cached_ms=0.0 ctrlo_pageup_ms=0.1 ctrlo_join_ms=36.4 ctrlo_theme_ms=40.8 ctrlo_resize_ms=206.1 peak_rss_mib=409
+case c1 exit 0
+PROBE case=marks row_bytes=139 bridge_ms=29.8 start_ms=3.3 rebuild_median_ms=0.0 rebuild_worst_ms=1.8 grid_matches_ms=0.0 grid_place_ms=0.0 ctrlo_open_ms=116.1 ctrlo_cached_ms=0.0 ctrlo_pageup_ms=0.0 ctrlo_join_ms=17.8 ctrlo_theme_ms=19.3 ctrlo_resize_ms=105.9 peak_rss_mib=238
+case marks exit 0
+PROBE case=heavy row_bytes=8388641 bridge_ms=4.9 start_ms=151.0 rebuild_median_ms=4.9 rebuild_worst_ms=82.9 grid_matches_ms=133.0 grid_place_ms=136.1 ctrlo_open_ms=92.5 ctrlo_cached_ms=0.0 ctrlo_pageup_ms=0.1 ctrlo_join_ms=8.9 ctrlo_theme_ms=6.6 ctrlo_resize_ms=85.0 peak_rss_mib=242
+case heavy exit 0
+PROBE case=zw row_bytes=8388634 bridge_ms=4.5 start_ms=241.7 rebuild_median_ms=4.8 rebuild_worst_ms=101.7 grid_matches_ms=170.9 grid_place_ms=168.5 ctrlo_open_ms=110.8 ctrlo_cached_ms=0.0 ctrlo_pageup_ms=0.1 ctrlo_join_ms=8.1 ctrlo_theme_ms=5.2 ctrlo_resize_ms=107.2 peak_rss_mib=236
+case zw exit 0

@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-9566916 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mrun it[0m
+
+  Let me run it.
+
+[38;5;255m●[39m [38;5;245m1 tool call · 1 command · 1 cancelled[39m
+[38;5;245m└ Cancelled [38;5;252mecho[38;5;245m keys[39m
+
+[38;5;252m▪[38;5;255m Cancelled[39m [38;5;252mecho[38;5;245m keys[39m · What can xfx do differently?
+
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m[38;5;255mStatus[0m
+
+[1m[38;5;252m  Session[0m           [38;5;245m1794084459972-c8d4453a5c1df7fc · saved[39m
+[1m[38;5;252m  Model[0m             [38;5;245mfake/model-a[39m
+[1m[38;5;252m  Auth[0m              [38;5;245mAI_GATEWAY_API_KEY[39m
+[1m[38;5;252m  Permissions[0m       [38;5;245mask[39m
+[1m[38;5;252m  Sandbox[0m           [38;5;245mnone[39m
+[1m[38;5;252m  Workspace[0m         [38;5;245m/private/tmp/claude-501/cm/th/fxsw.xlgguar9/341/fxcap.4yNt57/work[39m
+[1m[38;5;252m  Turns[0m             [38;5;245m1[39m
+[1m[38;5;252m  Session grants[0m    [38;5;245m0[39m
+[1m[38;5;252m  Step limit[0m        [38;5;245m25[39m
+[1m[38;5;252m  Ultrafast[0m         [38;5;245mnot requested[39m
+[1m[38;5;252m  Build[0m             [38;5;245mdebug · 95669160f161[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245mesc close[39m
+
+
+
+
+
+
+
+
+
+
+
+
+

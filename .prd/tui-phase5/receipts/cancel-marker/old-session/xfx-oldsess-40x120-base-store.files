@@ -1,0 +1,24 @@
+=== ~/.xfx/history.jsonl (264 bytes)
+{"schema_version":1,"timestamp_ms":1794077332973,"workspace_root":"<scratch>/work","text":"run cmd"}
+{"schema_version":1,"timestamp_ms":1794077341527,"workspace_root":"<scratch>/work","text":"/quit"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/sessions/1794077327013-81a01de7f4d5c46a/events.jsonl (2310 bytes)
+{"schema_version":1,"log_generation":"b05d44a013d98b1981846968829fed37","seq":1,"event_id":"c84066ff98c64b3e3bf178442096cfb6","timestamp_ms":1794077332977,"event":{"kind":"session_started","id":"1794077327013-81a01de7f4d5c46a","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"yolo","provider":"gateway"}}
+{"schema_version":1,"log_generation":"b05d44a013d98b1981846968829fed37","seq":2,"event_id":"2558cc7d9787a2ee1dec658c37a9eda6","timestamp_ms":1794077333000,"event":{"kind":"preferences_changed","model":null,"permission_mode":null,"effort":"auto","fast_mode":false,"ultrafast_mode":false}}
+{"schema_version":1,"log_generation":"b05d44a013d98b1981846968829fed37","seq":3,"event_id":"9595cf9b31703a838541e3531529f673","timestamp_ms":1794077333020,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"b05d44a013d98b1981846968829fed37","seq":4,"event_id":"144fe218d7534f1fef7c047e6ed5566a","timestamp_ms":1794077333034,"event":{"kind":"user_message","text":"run cmd"}}
+{"schema_version":1,"log_generation":"b05d44a013d98b1981846968829fed37","seq":5,"event_id":"e05113f4a2ef9c5853c23c6c08467ecf","timestamp_ms":1794077333048,"event":{"kind":"assistant_message","text":"","tool_calls":[{"id":"call_2_0","name":"terminal","input":{"action":"exec","command":"sleep 6 && echo \"x\" # note"}}]}}
+{"schema_version":1,"log_generation":"b05d44a013d98b1981846968829fed37","seq":6,"event_id":"a128ed0a334576dd944a643f909a3883","timestamp_ms":1794077335505,"event":{"kind":"tool_result","call_id":"call_2_0","tool":"terminal","ok":false,"output":"aborted by user","ending":{"kind":"cancelled"}}}
+{"schema_version":1,"log_generation":"b05d44a013d98b1981846968829fed37","seq":7,"event_id":"8d725e6bdebc635939644a1f916fcff5","timestamp_ms":1794077335522,"event":{"kind":"usage_recorded","input_tokens":null,"output_tokens":null,"turn_output_tokens":40}}
+{"schema_version":1,"log_generation":"b05d44a013d98b1981846968829fed37","seq":8,"event_id":"5e0cc39098e2cd43ba87e7d07e3b12ad","timestamp_ms":1794077335536,"event":{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"the turn was cancelled","terminal_reason":"cancelled"}}}
+
+=== ~/.xfx/sessions/1794077327013-81a01de7f4d5c46a/session.json (623 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1794077327013-81a01de7f4d5c46a","log_generation":"b05d44a013d98b1981846968829fed37","created_at_ms":1794077332977,"updated_at_ms":1794077335536,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"yolo","title":"run cmd","history_turns":1,"permission_grants":0,"total_input_tokens":0,"total_output_tokens":0,"last_event_seq":8,"event_log_bytes":2310,"event_log_sha256":"e1eee7b3b62580bdf32e20d0fdf1663523fe42ea39230b3c39273be9b9547422"}
+
+=== ~/.xfx/settings.json (32 bytes)
+{
+  "yolo_acknowledged": true
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

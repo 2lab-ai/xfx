@@ -1565,11 +1565,11 @@ mod tests {
         grid.place_row(3, &format!("{SUMMARY_DARK}     SQLite{RESET}"), &geometry);
         grid.set_kind(3, DocumentRow::Answer);
         grid.place_row(4, &format!("{SUMMARY_DARK}  5s (3 4){RESET}"), &geometry);
-        // A question's `■ Cancelled`: the mark in the outcome grey is not a
+        // A question's `▪ Cancelled`: the mark in the outcome grey is not a
         // tool group's stopped call, whatever its first cell looks like.
         grid.place_row(
             5,
-            &format!("{LABEL_DARK}\u{25a0}{RESET} Cancelled {SUMMARY_DARK}x{RESET}"),
+            &format!("{LABEL_DARK}\u{25aa}{RESET} Cancelled {SUMMARY_DARK}x{RESET}"),
             &geometry,
         );
         assert_eq!(grid.kind(3), DocumentRow::Answer);
@@ -1581,7 +1581,7 @@ mod tests {
         expected.place_row(4, &format!("{SUMMARY_LIGHT}  5s (3 4){RESET}"), &geometry);
         expected.place_row(
             5,
-            &format!("{LABEL_LIGHT}\u{25a0}{RESET} Cancelled {SUMMARY_LIGHT}x{RESET}"),
+            &format!("{LABEL_LIGHT}\u{25aa}{RESET} Cancelled {SUMMARY_LIGHT}x{RESET}"),
             &geometry,
         );
         assert_eq!(diffed(&grid, &expected), "");
@@ -1675,7 +1675,7 @@ mod tests {
             ("\u{25cf} 1 tool call \u{b7} 1 command", ToolGroup),
             ("\u{2514} Cancelled sleep 4", ToolGroup),
             ("", Plain),
-            ("\u{25a0} Cancelled sleep 4", ToolStopped),
+            ("\u{25aa} Cancelled sleep 4", ToolStopped),
             ("", Plain),
             ("  after", Plain),
         ]);

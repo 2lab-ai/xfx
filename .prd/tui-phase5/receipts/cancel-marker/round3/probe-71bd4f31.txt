@@ -1,0 +1,13 @@
+# round3/render_cost_probe.rs on a clone at 71bd4f31 (round 3 before its last fix, the one-pass spelling), release, macOS, one case a process, under the suite lock.
+PROBE case=short raw_bytes=9 row_bytes=68 bridge_ms=0.2 start_ms=0.1 rebuild_median_ms=0.0 rebuild_worst_ms=0.1 grid_matches_ms=0.0 grid_place_ms=0.0 ctrlo_open_ms=0.3 ctrlo_cached_ms=0.0 ctrlo_pageup_ms=0.0 ctrlo_join_ms=0.1 ctrlo_theme_ms=0.1 ctrlo_resize_ms=0.1 peak_rss_mib=9
+case short exit 0
+PROBE case=plain raw_bytes=8388608 row_bytes=139 bridge_ms=7.1 start_ms=3.9 rebuild_median_ms=0.0 rebuild_worst_ms=1.9 grid_matches_ms=0.0 grid_place_ms=0.0 ctrlo_open_ms=58.6 ctrlo_cached_ms=0.0 ctrlo_pageup_ms=0.0 ctrlo_join_ms=8.8 ctrlo_theme_ms=7.0 ctrlo_resize_ms=55.1 peak_rss_mib=118
+case plain exit 0
+PROBE case=c1 raw_bytes=8388608 row_bytes=139 bridge_ms=192.2 start_ms=5.5 rebuild_median_ms=0.0 rebuild_worst_ms=1.9 grid_matches_ms=0.0 grid_place_ms=0.0 ctrlo_open_ms=230.1 ctrlo_cached_ms=0.0 ctrlo_pageup_ms=0.1 ctrlo_join_ms=37.2 ctrlo_theme_ms=39.3 ctrlo_resize_ms=209.9 peak_rss_mib=417
+case c1 exit 0
+PROBE case=marks raw_bytes=6291456 row_bytes=139 bridge_ms=95.8 start_ms=3.8 rebuild_median_ms=0.0 rebuild_worst_ms=1.8 grid_matches_ms=0.0 grid_place_ms=0.0 ctrlo_open_ms=117.4 ctrlo_cached_ms=0.0 ctrlo_pageup_ms=0.0 ctrlo_join_ms=18.3 ctrlo_theme_ms=17.4 ctrlo_resize_ms=105.2 peak_rss_mib=216
+case marks exit 0
+PROBE case=heavy raw_bytes=8388613 row_bytes=8388641 bridge_ms=5.7 start_ms=149.8 rebuild_median_ms=5.0 rebuild_worst_ms=79.8 grid_matches_ms=136.7 grid_place_ms=135.8 ctrlo_open_ms=87.6 ctrlo_cached_ms=0.0 ctrlo_pageup_ms=0.1 ctrlo_join_ms=8.7 ctrlo_theme_ms=6.2 ctrlo_resize_ms=80.3 peak_rss_mib=242
+case heavy exit 0
+PROBE case=zw raw_bytes=8388606 row_bytes=8388634 bridge_ms=4.6 start_ms=242.4 rebuild_median_ms=4.9 rebuild_worst_ms=105.1 grid_matches_ms=166.6 grid_place_ms=170.6 ctrlo_open_ms=108.3 ctrlo_cached_ms=0.0 ctrlo_pageup_ms=0.1 ctrlo_join_ms=8.1 ctrlo_theme_ms=5.1 ctrlo_resize_ms=102.5 peak_rss_mib=236
+case zw exit 0

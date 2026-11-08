@@ -1,0 +1,80 @@
+# The 77 marker pairs (pairs.txt), base -> head, each scored with this branch's ledger (5a7c80dd): verdict, causes, how many
+# rows no cause covers, and `mark-row-differs` when a differing row holds U+25AA or U+25A0 (green.txt says whether the
+# marker cells themselves match).
+approvals/after-esc: base unresolved-defect causes=['amendment-card-after-stop'] uncaused=2 mark-row-differs -> head unresolved-defect causes=['amendment-card-after-stop'] uncaused=0
+approvals/after-esc.full: base unresolved-defect causes=['amendment-card-after-stop'] uncaused=2 mark-row-differs -> head unresolved-defect causes=['amendment-card-after-stop'] uncaused=0
+approvals-amend-limit/end: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt/cc-0.3: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt/cc-1.5: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt/cc-3.5: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt/end.full: base unresolved-defect causes=[] uncaused=4 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt/esc1: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt/esc2: base unresolved-defect causes=[] uncaused=4 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt/esc2-later: base unresolved-defect causes=[] uncaused=4 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt/mid2: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt/next: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt-cmd/cmd-cc: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt-cmd/cmd-cc-2: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt-cmd/cmd-done: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt-cmd/end.full: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt-next-cmd/next: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt-next-question/next: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt-question/end.full: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt-question/q-cc: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt2/cd-streaming: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt2/draft: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt2/draft-cc: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt2/draft-cc2: base unresolved-defect causes=[] uncaused=4 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt2/end.full: base unresolved-defect causes=[] uncaused=4 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt2/esc2: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+interrupt2/esc2-later: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+p5-input-question/q2-cancelled: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+p5-input-question/q6: base unresolved-defect causes=['question-cap-four'] uncaused=2 mark-row-differs -> head unresolved-defect causes=['question-cap-four'] uncaused=0
+p5-input-question/q6-after: base unresolved-defect causes=['question-cap-four'] uncaused=2 mark-row-differs -> head unresolved-defect causes=['question-cap-four'] uncaused=0 mark-row-differs
+p5-input-question/q6-after.full: base unresolved-defect causes=['question-cap-four'] uncaused=2 mark-row-differs -> head unresolved-defect causes=['question-cap-four'] uncaused=0 mark-row-differs
+p5-lifecycle-retry/r04-after-esc: base unresolved-defect causes=['retry-budget-lifecycle'] uncaused=0 mark-row-differs -> head unresolved-defect causes=['retry-budget-lifecycle'] uncaused=0 mark-row-differs
+p5-lifecycle-retry/r05-after-esc-4.5s: base unresolved-defect causes=['retry-budget-lifecycle'] uncaused=0 mark-row-differs -> head unresolved-defect causes=['retry-budget-lifecycle'] uncaused=0 mark-row-differs
+p5-mcp-live/cancel: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+p5-mcp-live/end: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+p5-mcp-live/failed: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+p5-panels-keys/approval-esc: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head approved-divergence-cascade causes=[] uncaused=0
+p5-panels-keys/end: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head approved-divergence-cascade causes=[] uncaused=0
+p5-toolstop-retint/dark: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+p5-toolstop-retint/dark-again: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+p5-toolstop-retint/light: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+p5-toolstop-retint-light/dark: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+p5-toolstop-retint-light/light: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+p5-toolstop-retint-light/light-again: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+p5-toolstop-retint-light-tc/dark: base unresolved-defect causes=['truecolor-grey-notation'] uncaused=0 mark-row-differs -> head unresolved-defect causes=['truecolor-grey-notation'] uncaused=0 mark-row-differs
+p5-toolstop-retint-light-tc/light: base unresolved-defect causes=['truecolor-grey-notation'] uncaused=0 mark-row-differs -> head unresolved-defect causes=['truecolor-grey-notation'] uncaused=0 mark-row-differs
+p5-toolstop-retint-light-tc/light-again: base unresolved-defect causes=['truecolor-grey-notation'] uncaused=0 mark-row-differs -> head unresolved-defect causes=['truecolor-grey-notation'] uncaused=0 mark-row-differs
+p5-toolstop-retint-tc/dark: base unresolved-defect causes=['truecolor-grey-notation'] uncaused=0 mark-row-differs -> head unresolved-defect causes=['truecolor-grey-notation'] uncaused=0 mark-row-differs
+p5-toolstop-retint-tc/dark-again: base unresolved-defect causes=['truecolor-grey-notation'] uncaused=0 mark-row-differs -> head unresolved-defect causes=['truecolor-grey-notation'] uncaused=0 mark-row-differs
+p5-toolstop-retint-tc/light: base unresolved-defect causes=['truecolor-grey-notation'] uncaused=0 mark-row-differs -> head unresolved-defect causes=['truecolor-grey-notation'] uncaused=0 mark-row-differs
+p5-transcript-cancel/cmd-esc: base unresolved-defect causes=[] uncaused=4 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+p5-transcript-cancel/cmd-running: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+p5-transcript-cancel/end.full: base unresolved-defect causes=[] uncaused=4 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+p5-transcript-cancel/esc: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+p5-transcript-cancel/full: base unresolved-defect causes=['cancel-page-edge', 'session-record', 'tool-schema'] uncaused=3 mark-row-differs -> head unresolved-defect causes=['cancel-page-edge', 'session-record', 'tool-schema'] uncaused=0 mark-row-differs
+p5-transcript-cancel/next: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+question-field/end.full: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+question-field/q2-cc: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+question-other/end.full: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+question-other/q2-esc: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+resume-tools/again-stopped: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+resume-tools/ctrl-o: base unresolved-defect causes=['full-transcript-shift', 'tool-schema'] uncaused=0 mark-row-differs -> head unresolved-defect causes=['full-transcript-shift', 'tool-schema'] uncaused=0
+resume-tools/live.full: base unresolved-defect causes=[] uncaused=4 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+resume-tools/long-later: base unresolved-defect causes=['grant-scope-push'] uncaused=0 mark-row-differs -> head unresolved-defect causes=['grant-scope-push'] uncaused=0 mark-row-differs
+resume-tools/resumed: base unresolved-defect causes=[] uncaused=4 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+resume-tools/resumed.full: base unresolved-defect causes=[] uncaused=4 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+rules-read-auto/listed: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+rules-read-auto/read-esc: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+rules-read-auto/remember-done: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+rules-read-auto/remember-prompt: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+rules-read-auto/remembered: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+toolgroup/again-stopped: base unresolved-defect causes=[] uncaused=2 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+toolgroup/end.full: base unresolved-defect causes=[] uncaused=4 mark-row-differs -> head normalized-identical causes=[] uncaused=0
+toolgroup/long-ask: base unresolved-defect causes=['approval-grant-scope', 'grant-scope-push'] uncaused=0 mark-row-differs -> head unresolved-defect causes=['approval-grant-scope', 'grant-scope-push'] uncaused=0 mark-row-differs
+toolgroup/long-later: base unresolved-defect causes=['grant-scope-push'] uncaused=0 mark-row-differs -> head unresolved-defect causes=['grant-scope-push'] uncaused=0 mark-row-differs
+toolgroup/long-running: base unresolved-defect causes=['grant-scope-push'] uncaused=0 mark-row-differs -> head unresolved-defect causes=['grant-scope-push'] uncaused=0 mark-row-differs
+toolgroup/long-stopped: base unresolved-defect causes=['grant-scope-push'] uncaused=0 mark-row-differs -> head unresolved-defect causes=['grant-scope-push'] uncaused=0 mark-row-differs

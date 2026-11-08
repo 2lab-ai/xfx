@@ -370,11 +370,11 @@ scenarios = ["p5-call-row-safe"]
 snaps = ["*"]
 fx_row = '[\u061c\u202e\u2066\u009b]|t\\x0du|\}s\\x0dt\.txt'
 xfx_row = 'n\\u\{202e\}o|o\\u\{061c\}p|p\\u\{061c\}q|q\\x1b7r|s\\u\{009b\}t|t\\x0du|u\*\.md|m\\u\{202e\}n|p\\x1b\[2Jq|r\\u\{009b\}s|s\\x0dt|t\.txt|Path not found|^[├└] (?:Matched|Failed)$'
-reason = "fx v0.0.16 spells a command's own row -- the transcript's tool row and Ctrl-O's heading -- with `encodeTerminalSafe` after projecting it onto one line (`formatRunCommandDetailBounded`, `src/core/tooling/tool_presentation.zig:432-447@481104fd`), and a file change's path the same way (`fileMutationDisplayPath`, `src/core/agent/runtime/tool_presentation.zig:736-753@481104fd`), but writes a read's, a list's or a pattern's row with the argument as the model sent it (`formatToolAction`, `src/core/app/app_agent_runtime.zig:1248-1310@481104fd`): its marks and C1 controls reach the terminal as themselves, its other controls are dropped and the row ends at its first line break (`normalizeCanonicalStatus`, `src/ui/transcript/tool_group_projection.zig:317-347@481104fd`), so an argument can reorder its row or hide its own tail -- `p5-call-row-safe`'s `Matched n<U+202E>o<U+2066>p<U+061C>q7rs<U+009B>t`, and the read's row cut at its carriage return, the terminal painting `   )` past it. xfx spells those rows as fx spells a command's, so they are longer and the read's carries its reason, which fx's never reaches -- spelled, where fx writes a tool's own `status_detail` as it is and encodes only its preflight and MCP reasons (`failureStatusDetail`, `src/core/agent/runtime/tool_presentation.zig:1457-1458@481104fd`); their bound is a file change's, 4 096 bytes, where fx's raw rows have none. The Arabic letter mark (U+061C), which fx writes as itself on every row, xfx names on each of a call's rows -- heading, arguments, result -- as `ctrl-o-command-marks` does: it reorders the row as the marks fx names do (`approval_view`'s `reorders`); 8 cells for each. The selectors name the pattern's and the path's rows only -- their headings, their argument and result rows, and what a narrow screen wraps of them, the verb a wrap leaves alone on its row included (`├ Matched`, `└ Failed`) -- and the scenario's command carries no U+061C, so its rows are compared with nothing set aside."
+reason = "fx v0.0.16 spells a command's own row -- the transcript's tool row and Ctrl-O's heading -- with `encodeTerminalSafe` after projecting it onto one line (`formatRunCommandDetailBounded`, `src/core/tooling/tool_presentation.zig:432-447@481104fd`), and a file change's path the same way (`fileMutationDisplayPath`, `src/core/agent/runtime/tool_presentation.zig:736-753@481104fd`), but writes a read's, a list's or a pattern's row with the argument as the model sent it (`formatToolAction`, `src/core/app/app_agent_runtime.zig:1248-1310@481104fd`): its marks and C1 controls reach the terminal as themselves, its other controls are dropped and the row ends at its first line break (`normalizeCanonicalStatus`, `src/ui/transcript/tool_group_projection.zig:317-347@481104fd`), so an argument can reorder its row or hide its own tail -- `p5-call-row-safe`'s `Matched n<U+202E>o<U+2066>p<U+061C>q7rs<U+009B>t`, and the read's row cut at its carriage return, the terminal painting `   )` past it. xfx spells those rows as fx spells a command's, so they are longer and the read's carries its reason, which fx's never reaches -- spelled, where fx writes a tool's own `status_detail` as it is and encodes only its preflight and MCP reasons (`failureStatusDetail`, `src/core/agent/runtime/tool_presentation.zig:1457-1458@481104fd`); on Ctrl-O, like fx's raw rows, they have no bound (only `write_file`'s and `edit_file`'s path is cut, at 4 096 bytes, as fx cuts it), and the transcript's own row keeps 65 536 columns of them, more than any screen shows (T-U4). The Arabic letter mark (U+061C), which fx writes as itself on every row, xfx names on each of a call's rows -- heading, arguments, result -- as `ctrl-o-command-marks` does: it reorders the row as the marks fx names do (`approval_view`'s `reorders`); 8 cells for each. The selectors name the pattern's and the path's rows only -- their headings, their argument and result rows, and what a narrow screen wraps of them, the verb a wrap leaves alone on its row included (`├ Matched`, `└ Failed`) -- and the scenario's command carries no U+061C, so its rows are compared with nothing set aside."
 owner = "CALLROW-SAFE"
 resolution = "fx spells every call's own row and names U+061C in a later pin, or the user takes fx's raw rows"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:749"]
+source = ["docs/parity.md:238", "src/tui/toolgroup.rs:889"]
 
 [[divergence]]
 id = "call-row-source-cut"
@@ -388,7 +388,7 @@ reason = "fx v0.0.16 reads a command's first 14 400 bytes to make its row and sa
 owner = "CALLROW-SAFE"
 resolution = "fx marks a command it read only in part in a later pin, or the user takes fx's unmarked row"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:797"]
+source = ["docs/parity.md:238", "src/tui/toolgroup.rs:966"]
 
 [[divergence]]
 id = "call-row-arabic-letter-mark"
@@ -402,7 +402,7 @@ reason = "CALLROW-SAFE's decision (`call-row-raw-argument`) in the one scenario 
 owner = "CALLROW-SAFE"
 resolution = "fx names U+061C on a command's row in a later pin, or the user takes fx's raw mark, as `call-row-raw-argument` resolves"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:911"]
+source = ["docs/parity.md:238", "src/tui/toolgroup.rs:1080"]
 
 [[divergence]]
 id = "status-notice-h1"
@@ -529,18 +529,6 @@ fx = ["src/tools/filesystem/edit_file.zig:1-275@c1db9191"]
 why = "fx v0.0.16 edits a file that is not UTF-8 and shows its stray bytes as `\\xNN` in the diff (9db199e4, `dupeValidUtf8`, `text_utils.zig:444-460@481104fd`); xfx refuses it (`edit_file cannot edit <path>: it is not UTF-8 text`), and its read before, `binary or non-utf8 file omitted`, is no read in full, so the read proof refuses first: `└ Failed bad.txt: edit_file will not replace ...` against fx's `└ Edited bad.txt +1 / -1`, a failed call's argument rows on Ctrl-O against fx's diff, and the rows under them shifted. T-U6 recorded it (docs/parity.md:158; .prd/tui-phase5/receipts/transcript-receipts/README.md, `refused`) with no ledger entry; named at train 2 so its sweep attributes every row, as subagent-tool names a deferred tool's."
 
 [[cause]]
-id = "cancelled-marker"
-kind = "unit"
-owner = "T-U4 cancelled marker"
-scenarios = ["*"]
-snaps = ["*"]
-fx_row = '^▪ Cancelled '
-xfx_row = '^■ Cancelled '
-xfx = ["src/tui/toolgroup.rs:710"]
-fx = ["src/ui/transcript/runtime.zig:618@481104fd"]
-why = "v0.0.16 marks a cancelled tool call `▪` where c1db919 and xfx mark it `■`; T-U4 owns the marker everywhere (.prd/tui-phase5/ssot.md, Wave 1)."
-
-[[cause]]
 id = "status-panel-scroll-window"
 kind = "decision"
 owner = "user decision /status Sandbox row"
@@ -606,6 +594,27 @@ scenarios = ["interrupt-recover*", "interrupt-retry"]
 snaps = ["*"]
 whole_snap = true
 why = "Stream-failure recovery: fx's `⚠ Provider unavailable · … retrying request in 1s` row, its attempt numbers out of 10 and its `✓ recovered` timing, where xfx retries three times at 250/500 ms and reports. K-recover ports the recovery; the retry budget (ssot.md:149, `gateway::DEFAULT_MAX_ATTEMPTS`, src/gateway/mod.rs:59) is its to settle against fx's ten (model_response_recovery.zig:3)."
+
+[[cause]]
+id = "retry-budget-lifecycle"
+kind = "unit"
+owner = "K-recover fix/tui-stream-recovery f11a23d2"
+scenarios = ["p5-lifecycle-retry"]
+snaps = ["r0[1-5]*"]
+fx_row = '^⚠ Provider unavailable · HTTP 502 · |^▪ Cancelled · What can xfx do differently\?$|^auto · model-a +esc again to interrupt$'
+xfx_row = '^✗ system: the Gateway returned HTTP 502: |^auto · model-a$'
+why = "Every request of the turn answers 502. fx backs off and is still retrying when Escape stops the turn (`⚠ Provider unavailable · HTTP 502 · … retrying request in Ns`), so its stop leaves `▪ Cancelled · What can fx do differently?`; xfx gives up after three attempts (`gateway::DEFAULT_MAX_ATTEMPTS`, src/gateway/mod.rs:59) before `r01` (2.1 s) and writes the failure, so its row 5 is `✗ system: the Gateway returned HTTP 502: …` from `r01` on, where fx's is the retry row and then the cancelled line, and the Escape that arms fx's `esc again to interrupt` finds no turn on xfx's (`r04a-esc-armed`). The retry budget K-recover owns for `interrupt-retry`. Named by T-U4: the deleted `cancelled-marker` took fx's `▪ Cancelled` row in `r04-after-esc` and `r05-after-esc-4.5s`, and these rows were otherwise uncaused (.prd/tui-phase5/receipts/cancel-marker/README.md)."
+
+[[cause]]
+id = "question-cap-four"
+kind = "unit"
+owner = "I-U6 ask_user_question to 20 (input cluster I11), not yet a branch"
+scenarios = ["p5-input-question"]
+snaps = ["q6", "q6-after", "q6-after.full"]
+rows = ["9-17"]
+fx_row = '^─+$|^  Q1 colour\?$|^    \d\) |^1–3 choose now .*Question 1 of 6$|^▪ Cancelled$|^$'
+xfx_row = '^  Six done\.$|^  <wall> \(|^┃$|^auto · model-a$|^$'
+why = "fx v0.0.16 asks up to 20 questions in a batch (`max_questions = 20`, `question_answer.zig:9@481104fd`), xfx still 4 (`MAX_QUESTIONS`, src/tools/question.rs:25): the scenario's six-question batch opens fx's panel (`Q1 colour? … Question 1 of 6`) and Escape leaves fx's `▪ Cancelled`, where xfx's tool refuses the batch and the turn goes on to `Six done.`. The first batch's `▪ Cancelled` row (row 5) is the same on both since T-U4. Named by T-U4: these rows were uncaused at the base (.prd/tui-phase5/receipts/cancel-marker/README.md)."
 
 [[cause]]
 id = "P1-carry-notice"
@@ -759,13 +768,36 @@ fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/a
 why = "`transcript-page-offset` for `p5-transcript-safe` and `p5-transcript-safetab`, four rows deep: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so the tail page starts later on fx (xfx's top rows, the record's `+5 more)` and `mcp: none`, are above fx's) and the page at the top ends four rows earlier (xfx's rows 33-36, the read's heading and its two rows and the blank under them, are below fx's). The read's rows are compared on the tail page."
 
 [[cause]]
+id = "cancel-page-edge"
+kind = "defect"
+owner = "session-record and tool-schema's owners: the page offset those two causes make, closed when both are"
+scenarios = ["p5-transcript-cancel"]
+snaps = ["full"]
+rows = ["1-2"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37424"]
+fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
+why = "`transcript-page-offset` for `p5-transcript-cancel`'s Ctrl-O page, read from the tail: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`action: run`, `yield_time_ms: 30000`; `tool-schema`), so xfx's page starts at its record's `* session:` row where fx's starts lower in its record (`skills: loading`). Every other row of the page is compared. Named by T-U4, which gave the scenario xfx's own turns (.prd/tui-phase5/receipts/cancel-marker/README.md)."
+
+[[cause]]
+id = "amendment-card-after-stop"
+kind = ["unit", "defect"]
+owner = "AMEND-CARD-ROW the blank row xfx keeps under an approval's amendment card that ends the document"
+scenarios = ["approvals"]
+snaps = ["after-esc", "after-esc.full"]
+rows = [15, 16]
+xfx_row = '^$'
+xfx = ["src/tui/shell.rs:9665"]
+fx = ["src/core/app/app_worker_runtime.zig:1026@c1db9191"]
+why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`write_user_prompt`, the cited line), xfx rides it under the open group (`trailer_rows`, src/tui/shell.rs:9665, each card through `queue_card`, :1658, which ends it on a blank row). After Escape stops the turn the group's cancelled line is drawn above the card on both, and fx's document then ends on the card with the composer right under it -- `fx-approvals-40x120-after-esc` rows 14-15, `┃ use capitals` (bold) then the composer's `┃` -- where xfx's keeps the card's blank row (row 15) and its composer and hint row stand one row lower (rows 16, 18 against fx's 15, 17). fx's card carries no row under it: wherever fx's document ends on a cancelled line or an answer, one blank row stands before the composer (`p5-transcript-cancel` `esc` rows 5-7, `interrupt2` `esc2` rows 36-38), and the card here is the one entry after that blank, with none of its own. Already so at the base (e6cde019's sweep: xfx row 15 `(blank)` uncaused; the pair was counted under the deleted `cancelled-marker`). AMEND-CARD-ROW: end such a card as fx does when nothing follows it in the document (.prd/tui-phase5/receipts/cancel-marker/README.md)."
+
+[[cause]]
 id = "call-row-page-edge"
 kind = "defect"
 owner = "unowned (follows tool-schema)"
 scenarios = ["p5-call-row-safe"]
 snaps = ["full"]
 rows = ["1-3"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/toolgroup.rs:749"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/toolgroup.rs:889"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191"]
 why = "`transcript-page-offset` for `p5-call-row-safe`'s tail page: fx's command entry has two argument rows xfx's has not (`tool-schema`), and xfx's spelled rows (`call-row-raw-argument`) take one more row than fx's at 40x120 and fewer at 40x60, so the page starts a row or three apart and the rows at its top (the `* network:` record's last line, the prompt's header and card, the blank between) are on one side only. Every other row of the page is compared."
 
@@ -924,16 +956,6 @@ fx_row = '^auto · model-a · fix the renderer loop, it redraw'
 xfx_row = '^auto · model-a · Fix the renderer loop$'
 fix = "the fake gateway keeps an unused connection open for fx's 30 s pool TTL (fakegw.ts idleTimeout), not a scenario file"
 why = "fx's title call goes out on the connection it warmed at launch, which the fake reset after 10 s idle, so fx keeps the derived title (receipts/w9/README.md:81-131): a property of the capture harness."
-
-[[cause]]
-id = "U7-cancelled-glyph"
-kind = "unit"
-owner = "U7 cancelled glyph (input cluster I10, transcript T6), not yet a branch"
-scenarios = ["p5-mcp-live"]
-snaps = ["cancel", "end", "failed"]
-fx_row = '^▪ Cancelled '
-xfx_row = '^■ Cancelled '
-why = "fx v0.0.16 marks a cancelled call `▪` (U+25AA, c29d5bfc); xfx still writes `■` (U+25A0). The glyph's cell only: read as `■`, `cancel` and `end` are the same (.prd/tui-phase5/receipts/mcp-toolgroup/README.md)."
 
 [[cause]]
 id = "U5-transcript-local-time"

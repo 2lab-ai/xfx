@@ -6201,7 +6201,7 @@ mod tests {
     /// [`a_command_running`], then a notice written under its open group and
     /// the turn's end stopping the command -- each a block of the group's,
     /// queued and none of them drained: the group's rows, the notice under
-    /// them, and the call's own `■ Cancelled` line.
+    /// them, and the call's own `▪ Cancelled` line.
     fn a_stopped_group_and_a_notice_queued(shell: &mut Fixture) {
         a_command_running(shell);
         a_notice_a_card_and_the_stop_queued(shell);
@@ -6271,10 +6271,10 @@ mod tests {
     /// comment, the notice's label and body, and the card's rail -- its text
     /// is bold in no colour, which no report moves.
     fn stopped_and_notice(band: &Band) -> [Option<u8>; 9] {
-        let line = "\u{25a0} Cancelled";
+        let line = "\u{25aa} Cancelled";
         [
             on_screen(band, "\u{2514} Cancelled ", "\u{2514}"),
-            on_screen(band, line, "\u{25a0}"),
+            on_screen(band, line, "\u{25aa}"),
             on_screen(band, line, "Cancelled"),
             on_screen(band, line, " 42 "),
             on_screen(band, line, "\"hi"),
@@ -7120,10 +7120,10 @@ mod tests {
             // And the rows that landed are in the palette in force all the
             // same: they were recoloured as they were written, not by a
             // recolour of the screen.
-            let line = &landed[landed.find("\u{25a0}").expect("the stopped line")..];
+            let line = &landed[landed.find("\u{25aa}").expect("the stopped line")..];
             assert_eq!(
                 [
-                    fg_of(&landed, "\u{25a0}"),
+                    fg_of(&landed, "\u{25aa}"),
                     fg_of(line, " 42 "),
                     fg_of(line, "# note"),
                     fg_of(&landed, " queued under"),

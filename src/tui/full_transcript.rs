@@ -99,9 +99,9 @@ use super::bridge::{self, UiEvent};
 use super::frame::clip;
 use super::input::Action;
 use super::notice::{Notice, Tone};
-use super::theme::{Mode, Palette};
+use super::theme::{DocumentRow, Mode, Palette};
 use super::toolgroup::ToolGroup;
-use super::transcript::{ellipsized, Gutter, Landed, Role, Transcript};
+use super::transcript::{ellipsized, recoloured, Gutter, Landed, Role, Transcript};
 use super::wrap;
 
 mod position;
@@ -1053,8 +1053,11 @@ enum Body {
     Notice(Notice),
     Usage(String),
     /// Rows the document was given already laid out: what a question batch
-    /// leaves behind (`super::question`'s `answered_rows`).
-    Block(Vec<String>),
+    /// leaves behind (`super::question`'s `answered_rows`), a cancelled turn's
+    /// line (`super::shell`'s `cancelled_line`) -- each with what the document
+    /// recorded it as, and the mode they were drawn in, so a theme report
+    /// recolours them here as it does there.
+    Block(Vec<(String, DocumentRow)>, Mode),
     /// Boxed: a call carries its arguments, its result and the change it made,
     /// and a record of one-line notices should not be as wide as that.
     Tool(Box<Call>),
@@ -1077,6 +1080,27 @@ struct Call {
     /// Drawn from a resumed session's log rather than run
     /// ([`FullTranscript::replay`]).
     replayed: bool,
+    /// Its heading as it was last laid out ([`FullTranscript::heading`]).
+    heading: RefCell<Option<Heading>>,
+}
+
+/// A call's heading laid out at one width: its rows wrapped under their rail
+/// and whether it fits one row -- and what it was laid out from, the block
+/// row it is (named by its block and index, so the text is not held twice).
+struct Heading {
+    block: Rc<Vec<String>>,
+    index: usize,
+    cols: u16,
+    rows: Rc<Vec<String>>,
+    fits: bool,
+}
+
+/// A tool group's expanded block as it was last built, and for what
+/// ([`FullTranscript::group_block`]).
+struct GroupBlock {
+    revision: u64,
+    palette: Palette,
+    rows: Rc<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1127,6 +1151,9 @@ pub(crate) struct FullTranscript {
     /// How many times anything in each tool group changed: a call's row is
     /// laid out from its whole group, since the header counts every call.
     groups: Vec<u64>,
+    /// Each group's expanded block, built once for its revision and palette
+    /// and shared by every call's entry in it.
+    blocks: RefCell<HashMap<usize, GroupBlock>>,
     /// Whether the next call joins the last group. Closed by the answer's
     /// text, a card and the turn's end -- what closes the transcript's own
     /// group -- and not by a notice, which the group carries under it.
@@ -1134,6 +1161,10 @@ pub(crate) struct FullTranscript {
     pending: HashMap<String, Pending>,
     revision: u64,
     view: Option<View>,
+    /// How many times a tool group's expanded block was built, and a call's
+    /// heading laid out: what a layout of the record costs, for the tests.
+    #[cfg(test)]
+    built: Cell<(usize, usize)>,
 }
 
 /// The screen, while it is up.
@@ -1244,10 +1275,13 @@ impl FullTranscript {
             entries: Vec::new(),
             calls: HashMap::new(),
             groups: Vec::new(),
+            blocks: RefCell::default(),
             group_open: false,
             pending: HashMap::new(),
             revision: 0,
             view: None,
+            #[cfg(test)]
+            built: Cell::default(),
         }
     }
 
@@ -1371,11 +1405,12 @@ impl FullTranscript {
         self.push(Body::Notice(notice.clone()));
     }
 
-    /// Rows laid out already -- a question batch's resolution -- which close
-    /// the group as any other block written into the document does.
-    pub(crate) fn block(&mut self, rows: &[String]) {
+    /// Rows laid out already -- a question batch's resolution, a cancelled
+    /// turn's line -- which close the group as any other block written into
+    /// the document does.
+    pub(crate) fn block(&mut self, rows: &[(String, DocumentRow)], drawn_in: Mode) {
         self.group_open = false;
-        self.push(Body::Block(rows.to_vec()));
+        self.push(Body::Block(rows.to_vec(), drawn_in));
     }
 
     /// The turn's summary under its answer.
@@ -1405,6 +1440,7 @@ impl FullTranscript {
             result: pending.result,
             change: pending.change,
             replayed: self.replaying,
+            heading: RefCell::default(),
         })));
         self.stamp = stamp;
         self.calls.insert(id.to_string(), self.entries.len() - 1);
@@ -1773,10 +1809,23 @@ impl FullTranscript {
             // (`metadataKind`, `full_transcript_screen.zig:5867-5895`), and a
             // question's resolution is not one of them. Its rows are the ones
             // written at the width of the moment; one wider than this screen
-            // runs on to the next row, as upstream's row walker lets it.
-            Body::Block(rows) => (
+            // runs on to the next row, as upstream's row walker lets it. In
+            // the palette now in force: upstream rewrites a question's
+            // resolution and a cancelled turn's line through its token table
+            // on a theme switch (`retintEntriesForTheme`, `store.zig:3722-3777`,
+            // `themeOwnsRawEntry` `:3802-3814`@481104fd), as a report recolours
+            // the document's rows (`super::transcript`'s `recoloured`).
+            Body::Block(rows, drawn_in) => (
                 None,
-                rows.iter().flat_map(|row| run_on(row, cols)).collect(),
+                rows.iter()
+                    .flat_map(|(row, kind)| {
+                        if *drawn_in == palette.mode {
+                            run_on(row, cols)
+                        } else {
+                            run_on(&recoloured(row, *kind, palette), cols)
+                        }
+                    })
+                    .collect(),
             ),
         }
     }
@@ -1808,7 +1857,10 @@ impl FullTranscript {
                         Body::Notice(_) => "semantic notice",
                         Body::Usage(_) => "raw",
                         Body::Tool(_) => "tool",
-                        _ => "questions",
+                        // A block: a question's resolution or a cancelled
+                        // turn's line, raw entries upstream
+                        // (`.question_resolution`, `.turn_cancellation`).
+                        _ => "raw",
                     };
                     let (_, rows) = self.content(entry, cols, palette);
                     (kind, rows.iter().map(|row| unpainted(row)).collect())
@@ -1835,6 +1887,92 @@ impl FullTranscript {
         (timeline, network)
     }
 
+    /// `group`'s expanded block in `palette` (`super::toolgroup`'s
+    /// `ToolGroup::expanded`), built from `members` -- every call in the group,
+    /// in order -- once for the group's revision and the palette, and shared by
+    /// every member's entry: each used to build the whole group again, every
+    /// member's argument spelled again, to read one row of it.
+    fn group_block(&self, group: usize, members: &[&Call], palette: Palette) -> Rc<Vec<String>> {
+        let revision = self.groups.get(group).copied().unwrap_or(0);
+        if let Some(kept) = self.blocks.borrow().get(&group) {
+            if kept.revision == revision && kept.palette == palette {
+                return Rc::clone(&kept.rows);
+            }
+        }
+        let mut built = ToolGroup::default();
+        for member in members {
+            built.start(member.id.clone(), member.shown.clone());
+            if let State::Finished {
+                ok,
+                detail,
+                outcome,
+                changes,
+            } = &member.state
+            {
+                built.finish(&member.id, *ok, detail, *outcome, *changes);
+            }
+        }
+        if members
+            .iter()
+            .any(|member| member.state == State::Cancelled)
+        {
+            built.cancel_running();
+        }
+        let rows = Rc::new(built.expanded(palette));
+        #[cfg(test)]
+        self.built.set((self.built.get().0 + 1, self.built.get().1));
+        self.blocks.borrow_mut().insert(
+            group,
+            GroupBlock {
+                revision,
+                palette,
+                rows: Rc::clone(&rows),
+            },
+        );
+        rows
+    }
+
+    /// `call`'s heading -- row `index` of its group's `block` -- laid out at
+    /// `cols`, from the call's own cache when it was laid out from the same
+    /// text at the same width: a call that joins the group, or a change to
+    /// another call, leaves it as it was, and only a heading whose own text
+    /// changed (its state, its connector, the palette) or a resize lays it out
+    /// again.
+    fn heading(
+        &self,
+        call: &Call,
+        block: &Rc<Vec<String>>,
+        index: usize,
+        cols: u16,
+    ) -> (Rc<Vec<String>>, bool) {
+        let text = block.get(index).map_or("", String::as_str);
+        let mut kept = call.heading.borrow_mut();
+        if let Some(heading) = kept.as_mut() {
+            let same = heading.cols == cols
+                && ((Rc::ptr_eq(&heading.block, block) && heading.index == index)
+                    || heading.block.get(heading.index).map(String::as_str) == Some(text));
+            if same {
+                // The old block is let go of: this one holds the same text.
+                heading.block = Rc::clone(block);
+                heading.index = index;
+                return (Rc::clone(&heading.rows), heading.fits);
+            }
+        }
+        let rows = Rc::new(tool_status::expanded_rows(text, cols));
+        #[cfg(test)]
+        self.built.set((self.built.get().0, self.built.get().1 + 1));
+        // Measured as the screen measures it (`tool_status`'s measure).
+        let fits = wrap::fits(text, cols);
+        *kept = Some(Heading {
+            block: Rc::clone(block),
+            index,
+            cols,
+            rows: Rc::clone(&rows),
+            fits,
+        });
+        (rows, fits)
+    }
+
     /// A call's rows: its group's header when it is the group's first, its own
     /// row as the group draws it, then what it was called with, what it
     /// returned and the change it made -- the change in place of its
@@ -1856,26 +1994,7 @@ impl FullTranscript {
         let Some(position) = visible.iter().position(|member| member.id == call.id) else {
             return Vec::new();
         };
-        let mut group = ToolGroup::default();
-        for member in &members {
-            group.start(member.id.clone(), member.shown.clone());
-            if let State::Finished {
-                ok,
-                detail,
-                outcome,
-                changes,
-            } = &member.state
-            {
-                group.finish(&member.id, *ok, detail, *outcome, *changes);
-            }
-        }
-        if members
-            .iter()
-            .any(|member| member.state == State::Cancelled)
-        {
-            group.cancel_running();
-        }
-        let block = group.expanded(palette);
+        let block = self.group_block(call.group, &members, palette);
         let mut rows = Vec::new();
         // Each row wrapped under its rail rather than cut at the edge
         // (`materializeExpandedOverride`, `tool_group_projection.zig:
@@ -1885,25 +2004,34 @@ impl FullTranscript {
                 rows.extend(tool_status::expanded_rows(header, cols));
             }
         }
-        let heading = block.get(1 + position).cloned().unwrap_or_default();
+        let (heading, heading_fits) = self.heading(call, &block, 1 + position, cols);
+        rows.extend(heading.iter().cloned());
         // An argument the heading already shows has no row of its own -- but
         // only one in the heading's first line, all the heading shows of a
         // status, and only while the heading fits one row: a short value
         // turns up inside a long command by chance, and a wrapped heading
         // must not hide more than a clipped one did
         // (`argumentVisibleInToolHeading`, `full_transcript_screen.zig:
-        // 6594-6619@481104fd`, 78424464).
-        let plain_heading = unpainted(&heading);
-        let first_line = plain_heading.split(['\n', '\r']).next().unwrap_or_default();
-        // Measured as the screen measures it (`tool_status`'s measure).
-        let heading_fits = wrap::width(&heading) <= cols;
-        rows.extend(tool_status::expanded_rows(&heading, cols));
+        // 6594-6619@481104fd`, 78424464). Read off the heading only when it
+        // fits and something could be in it.
+        let first_line = (heading_fits
+            && call.change.is_none()
+            && call.arguments.iter().any(|argument| argument.text))
+        .then(|| {
+            let plain = unpainted(block.get(1 + position).map_or("", String::as_str));
+            plain
+                .split(['\n', '\r'])
+                .next()
+                .unwrap_or_default()
+                .to_string()
+        });
         if call.change.is_none() {
             for argument in &call.arguments {
                 let shown_already = argument.text
                     && !argument.value.is_empty()
-                    && heading_fits
-                    && first_line.contains(argument.value.as_str());
+                    && first_line
+                        .as_deref()
+                        .is_some_and(|line| line.contains(argument.value.as_str()));
                 let exec = call.shown.presentation.activity == Activity::Command
                     && argument.name == "action"
                     && argument.value == "exec";
@@ -3907,7 +4035,7 @@ mod tests {
                 "\u{2514} Cancelled sleep 30",
             ]
         );
-        // The group's own `■ Cancelled …` line is the inline transcript's:
+        // The group's own `▪ Cancelled …` line is the inline transcript's:
         // upstream's full screen does not repeat it (`fx-approvals-cc-40x120-full`).
         assert!(!rows.iter().any(|row| row.contains("What can")));
     }
@@ -4398,10 +4526,13 @@ mod tests {
         // (`metadataKind`, `full_transcript_screen.zig:5867-5895`), so no header.
         let mut record = record();
         record.prompt("ask me");
-        record.block(&[
-            "  1) Which database?".to_string(),
-            "     SQLite".to_string(),
-        ]);
+        record.block(
+            &[
+                ("  1) Which database?".to_string(), DocumentRow::Plain),
+                ("     SQLite".to_string(), DocumentRow::Answer),
+            ],
+            Mode::Dark,
+        );
         let rows = screen(&record);
         assert_eq!(
             &rows[..5],
@@ -4427,11 +4558,17 @@ mod tests {
         let question = "  1) Which of the two storage engines should the nightly import job write its staging tables into before it runs the";
         let mut record = record();
         record.prompt("pick a storage engine");
-        record.block(&[
-            question.to_string(),
-            "     checks?".to_string(),
-            format!("{}     Postgres{} with the log", DARK.dim(), DARK.reset()),
-        ]);
+        record.block(
+            &[
+                (question.to_string(), DocumentRow::Plain),
+                ("     checks?".to_string(), DocumentRow::Plain),
+                (
+                    format!("{}     Postgres{} with the log", DARK.dim(), DARK.reset()),
+                    DocumentRow::Answer,
+                ),
+            ],
+            Mode::Dark,
+        );
         let rows = record_at(&record, 60);
         assert_eq!(
             &rows[3..7],
@@ -5215,6 +5352,86 @@ mod tests {
     }
 
     #[test]
+    fn a_heading_is_cut_only_where_fxs_own_bound_on_its_phrase_cuts_it() {
+        // T-U1+U2's review found the heading cut at 1 KB where fx shows it
+        // whole: fx never clips an expanded row (`formatExpandedChild`,
+        // `tool_group_projection.zig:786-787@481104fd`) and bounds only the
+        // phrase it is made of -- a command at 14 399 bytes
+        // (`formatRunCommandDetailBounded`, `src/core/tooling/
+        // tool_presentation.zig:432-447`, with `max_run_command_reflow_bytes`,
+        // `:22`), a file change's path at 4 096 (`fileMutationDisplayPath`,
+        // `src/core/agent/runtime/tool_presentation.zig:736-753`,
+        // `diff.max_encoded_label_bytes`), each cut back to leave room for
+        // `...` (`encodeTerminalSafe`). Every other argument fx writes raw at
+        // any length (`formatToolAction`, `src/core/app/app_agent_runtime.zig:
+        // 1248-1310`; `presentationLabelValue`, `src/core/tooling/
+        // tool_dispatch.zig:626-647`): xfx spells it (ledger
+        // `call-row-raw-argument`) and shows it whole too.
+        let heading = |shown: Shown| -> String {
+            let mut record = record();
+            record.tool_started("c", &shown);
+            record.tool_finished("c", true, "", Outcome::Finished, None);
+            let rows = plain(&record.rows(120, 20_000, DARK, ""));
+            let at = rows
+                .iter()
+                .position(|row| row.starts_with('\u{2514}'))
+                .expect("the heading");
+            let mut whole = rows[at].clone();
+            for row in &rows[at + 1..] {
+                let Some(rest) = row.strip_prefix("  ") else {
+                    break;
+                };
+                whole.push_str(rest);
+            }
+            whole
+        };
+        let write = |path: &str| {
+            crate::tools::mutate::WRITE_FILE.shown(&json!({"path": path, "content": "x"}))
+        };
+        let a = |count: usize| "a".repeat(count);
+        for (shown, expected) in [
+            (command(&a(14_399)), format!("\u{2514} Ran {}", a(14_399))),
+            (
+                command(&a(14_400)),
+                format!("\u{2514} Ran {}...", a(14_396)),
+            ),
+            (write(&a(4_096)), format!("\u{2514} Wrote {}", a(4_096))),
+            (write(&a(4_097)), format!("\u{2514} Wrote {}...", a(4_093))),
+            (
+                crate::tools::mutate::EDIT_FILE
+                    .shown(&json!({"path": a(4_097), "old_string": "x", "new_string": "y"})),
+                format!("\u{2514} Edited {}...", a(4_093)),
+            ),
+            // Past the old 1 KB cut and past a file change's bound: whole, as
+            // on fx -- a read's path, a pattern, a listed directory, a new folder's path.
+            (read(&a(3_000)), format!("\u{2514} Read {}", a(3_000))),
+            (read(&a(20_000)), format!("\u{2514} Read {}", a(20_000))),
+            (
+                read::GLOB_FILES.shown(&json!({"pattern": a(20_000)})),
+                format!("\u{2514} Matched {}", a(20_000)),
+            ),
+            (
+                read::LIST_FILES.shown(&json!({"path": a(20_000)})),
+                format!("\u{2514} Listed {}", a(20_000)),
+            ),
+            (
+                crate::tools::mutate::CREATE_FOLDER.shown(&json!({"path": a(20_000)})),
+                format!("\u{2514} Created {}", a(20_000)),
+            ),
+        ] {
+            let got = heading(shown);
+            assert!(
+                got == expected,
+                "{} bytes, ends {:?}, wanted {} ending {:?}",
+                got.len(),
+                &got[got.len().saturating_sub(12)..],
+                expected.len(),
+                &expected[expected.len() - 12..]
+            );
+        }
+    }
+
+    #[test]
     fn a_groups_rows_wrap_under_their_tree_rail_and_keep_the_commands_colours() {
         // `expanded rows wrap under their tree rail and keep command styling`
         // (`tool_group_projection.zig:2053-2131@481104fd`), at 24 columns.
@@ -5732,5 +5949,45 @@ mod tests {
             "{rows:#?}"
         );
         assert!(rows.contains(&"\u{2502}  cwd: .".to_string()), "{rows:#?}");
+    }
+
+    #[test]
+    fn ctrl_o_builds_a_groups_block_once_and_lays_each_heading_out_once_for_what_it_shows() {
+        // T-U4 round 3: each member's entry rebuilt the whole group and its
+        // block -- every member's whole argument spelled again -- to use one
+        // row of it, and laid its own heading out again on every change to
+        // the group. The block is the group's, built once for its revision
+        // and palette; a heading is laid out again only when its text or the
+        // width changes.
+        const LIGHT: Palette = Palette { mode: Mode::Light };
+        let mut record = record();
+        record.tool_started(
+            "big",
+            &read::GLOB_FILES.shown(&json!({ "pattern": "x".repeat(4000) })),
+        );
+        record.tool_started("ls", &command("ls -la src"));
+        record.tool_finished("ls", true, "", Outcome::Finished, None);
+        for index in 0..4 {
+            let id = format!("r{index}");
+            record.tool_started(&id, &read("a.txt"));
+            record.tool_finished(&id, true, "", Outcome::Finished, None);
+        }
+        let _ = record.measure(120, DARK);
+        assert_eq!(record.built.get(), (1, 6), "the first layout");
+        let _ = record.measure(120, DARK);
+        assert_eq!(record.built.get(), (1, 6), "laid out already");
+        // A call joins: the block again, and two headings -- the new call's,
+        // and the one that was last, whose connector it changed.
+        record.tool_started("late", &read("b.txt"));
+        let _ = record.measure(120, DARK);
+        assert_eq!(record.built.get(), (2, 8), "after a call joined");
+        // The other theme: the block again, and the one heading whose text
+        // has colours in it -- the command's words. A read's and a pattern's
+        // heading is the same text in both modes on this screen.
+        let _ = record.measure(120, LIGHT);
+        assert_eq!(record.built.get(), (3, 9), "after a theme switch");
+        // Narrower: every heading again, the block as it was.
+        let _ = record.measure(100, LIGHT);
+        assert_eq!(record.built.get(), (3, 16), "after a resize");
     }
 }

@@ -126,6 +126,25 @@ pub(crate) fn width(text: &str) -> u16 {
     u16::try_from(cells).unwrap_or(u16::MAX)
 }
 
+/// Whether `text` is no wider than `cols`: [`width`]`(text) <= cols`, looking
+/// no further than the cell past `cols`, so a row of megabytes that does not
+/// fit is not measured to its end to say so (a Ctrl-O heading,
+/// `super::full_transcript`).
+pub(crate) fn fits(text: &str, cols: u16) -> bool {
+    if cols == u16::MAX {
+        // [`width`] saturates there: everything fits.
+        return true;
+    }
+    let mut cells = 0usize;
+    for painted in painting(text) {
+        cells += cluster_cells(painted.cluster);
+        if cells > usize::from(cols) {
+            return false;
+        }
+    }
+    true
+}
+
 /// The grapheme cluster `text` begins with, or `None` when it is empty.
 ///
 /// `text.graphemes(true).next()`, and the same answer, reached without
@@ -1708,5 +1727,26 @@ mod tests {
         // it is: the whole string must fall through, not just the one byte.
         assert_eq!(width("a\nb"), 2);
         assert_eq!(width("ab\u{1b}[3"), 2, "an unfinished escape sequence");
+    }
+
+    #[test]
+    fn fits_answers_what_width_does_without_reading_past_the_cell_after_the_width() {
+        for (text, cols) in [
+            ("abc", 3),
+            ("abcd", 3),
+            ("", 0),
+            ("a", 0),
+            ("\u{d55c}\u{d55c}", 4),
+            ("\u{d55c}\u{d55c}", 3),
+            ("\u{1b}[38;5;245mab\u{1b}[0m", 2),
+            ("e\u{301}\u{301}x", 2),
+            ("e\u{301}\u{301}x", 1),
+        ] {
+            assert_eq!(fits(text, cols), width(text) <= cols, "{text:?} at {cols}");
+        }
+        // Where `width` saturates, everything fits, as it says.
+        let wide = "a".repeat(usize::from(u16::MAX) + 10);
+        assert!(fits(&wide, u16::MAX));
+        assert!(!fits(&wide, u16::MAX - 1));
     }
 }

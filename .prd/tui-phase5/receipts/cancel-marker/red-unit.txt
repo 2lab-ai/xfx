@@ -1,0 +1,162 @@
+# RED, unit (commit 6b3bd6af's tests): every expectation U+25AA and the plural table's test new, on the base's three
+# writers (U+25A0) and the base's plural rule extracted unchanged (`command` and `MCP call` only). The Ctrl-O heading
+# test of that commit expected the base's 4 096-byte cut on a read and passed; 0aa9a299 changed it (below).
+# cargo test --locked --lib tui:: --no-fail-fast  (base e6cde019 + the test changes; production writers untouched)
+test tui::event_loop::tests::a_block_landing_behind_a_resume_in_another_palette_owes_no_recolour_of_the_old_screen ... FAILED
+test tui::event_loop::tests::a_stopped_call_and_a_notice_queued_before_a_report_land_in_the_palette_the_report_set ... FAILED
+test tui::event_loop::tests::a_stopped_call_and_a_notice_queued_light_land_in_the_dark_palette_the_report_set ... FAILED
+test tui::event_loop::tests::a_stopped_call_queued_while_ctrl_o_is_up_lands_in_the_palette_the_report_set ... FAILED
+test tui::question::tests::a_refused_batch_leaves_one_row ... FAILED
+test tui::shell::tests::a_call_its_turn_ended_under_is_shown_cancelled ... FAILED
+test tui::shell::tests::a_cancel_that_waits_for_a_running_call_survives_a_prompt_typed_meanwhile ... FAILED
+test tui::shell::tests::a_ctrl_c_while_the_runtime_is_working_asks_it_to_stop_and_says_so ... FAILED
+test tui::shell::tests::a_ctrl_c_over_a_running_turn_takes_the_draft_first_and_nothing_else ... FAILED
+test tui::shell::tests::a_double_escape_over_a_running_turn_stops_it_and_the_row_warns_in_between ... FAILED
+test tui::shell::tests::a_retry_goes_with_the_turn_and_never_outlives_a_cancel ... FAILED
+test tui::shell::tests::a_stopped_turn_replays_as_upstreams_cancellation_and_a_failed_one_as_failed ... FAILED
+test tui::shell::tests::an_interrupt_says_that_the_queue_goes_with_the_turn ... FAILED
+test tui::shell::tests::an_interrupt_with_nothing_waiting_does_not_say_a_queue_was_dropped ... FAILED
+test tui::shell::tests::escape_and_ctrl_c_at_a_model_question_leave_cancelled_in_the_document ... FAILED
+test tui::shell::tests::escape_at_a_question_is_the_interrupt_that_cancels_the_turn ... FAILED
+test tui::shell::tests::stopping_the_turn_at_an_approval_cancels_the_call_it_was_asking_about ... FAILED
+test tui::shell::tests::stopping_the_turn_while_a_command_runs_settles_its_row_at_the_keystroke ... FAILED
+test tui::shell::tests::stopping_the_turn_while_a_file_call_runs_leaves_its_row_to_its_result ... FAILED
+test tui::shell::tests::the_cancelled_line_is_upstreams_marker_word_and_question_in_upstreams_greys ... FAILED
+test tui::toolgroup::tests::a_failed_stopped_or_refused_mcp_call_is_named_by_its_tool_alone ... FAILED
+test tui::toolgroup::tests::a_hostile_tool_name_is_written_out_on_every_row_it_reaches ... FAILED
+test tui::toolgroup::tests::a_kinds_word_for_more_than_one_call_is_upstreams_table ... FAILED
+test tui::toolgroup::tests::a_stopped_turn_cancels_what_was_running_and_says_so_under_the_group ... FAILED
+test tui::toolgroup::tests::the_groups_kinds_name_each_row_it_draws ... FAILED
+test result: FAILED. 2697 passed; 25 failed; 5 ignored; 0 measured; 1596 filtered out; finished in 14.00s
+--- tui::event_loop::tests::a_block_landing_behind_a_resume_in_another_palette_owes_no_recolour_of_the_old_screen at src/tui/event_loop.rs:6899:56
+    the stopped line
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--- tui::event_loop::tests::a_stopped_call_and_a_notice_queued_before_a_report_land_in_the_palette_the_report_set at src/tui/event_loop.rs:6090:9
+    assertion `left == right` failed: row, mark, Cancelled, argument, string, comment, label, notice, rail: "\u{1b}]2;hello\u{7}\u{1b}[?2026h\u{1b}[?25l\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;235m┃\u{1b}[0m \u{1b}[1mhello\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;235m●\u{1b}[0m \u{1b}[38;5;241m1 tool call · 1 command · 1 cancelled\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;241m└ Cancelled \u{1b}[38;5;241m\u{1b}[38;5;238mecho\u{1b}[39m\u{1b}[38;5;241m \u{1b}[38;5;241m\"hi\u{1b}[39m\u{1b}[38;5;241m\u{1b}[38;5;241m\"\u{1b}[39m\u{1b}[38;5;241m 42 \u{1b}[38;5;238m|\u{1b}[39m\u{1b}[38;5;241m \u{1b}[38;5;238mgrep\u{1b}[39m\u{1b}[38;5;241m hi \u{1b}[38;5;243m# note\u{1b}[39m\u{1b}[38;5;241m\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;238m■\u{1b}[0m\u{1b}[38;5;235m Cancelled\u{1b}[0m \u{1b}[38;5;247m\u{1b}[38;5;247m\u{1b}[38;5;238mecho\u{1b}[39m\u{1b}[38;5;247m \u{1b}[38;5;241m\"hi\u{1b}[39m\u{1b}[38;5;247m\u{1b}[38;5;241m\"\u{1b}[39m\u{1b}[38;5;247m 42 \u{1b}[38;5;238m|\u{1b}[39m\u{1b}[38;5;247m \u{1b}[38;5;238mgrep\u{1b}[39m\u{1b}[38;5;247m hi \u{1b}[38;5;247m# note\u{1b}[39m\u{1b}[38;5;247m\u{1b}[0m · What can xfx do differently?\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;238m! \u{1b}[0m\u{1b}[38;5;238mtool:\u{1b}[0m\u{1b}[38;5;241m read_file ok\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;235m┃\u{1b}[0m \u{1b}[1mkeep the header\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;247m  0s (↑2 ↓0)\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[22;1H\u{1b}[38;5;235m┃\u{1b}[0m \u{1b}[24;1H\u{1b}[38;5;241mrun `xfx setup` · \u{1b}[0m\u{1b}[38;5;238mauto\u{1b}[0m\u{1b}[38;5;241m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h"
+      left: [Some(241), None, None, None, None, None, Some(238), Some(241), Some(235)]
+     right: [Some(241), Some(238), Some(235), Some(247), Some(241), Some(247), Some(238), Some(241), Some(235)]
+--- tui::event_loop::tests::a_stopped_call_and_a_notice_queued_light_land_in_the_dark_palette_the_report_set at src/tui/event_loop.rs:6113:9
+    assertion `left == right` failed: row, mark, Cancelled, argument, string, comment, label, notice, rail: "\u{1b}]2;hello\u{7}\u{1b}[?2026h\u{1b}[?25l\u{1b}[20;1H\u{1b}[38;5;255m┃\u{1b}[0m\u{1b}[22;3H\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;255m●\u{1b}[0m \u{1b}[38;5;245m1 tool call · 1 command · 1 cancelled\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;245m└ Cancelled \u{1b}[38;5;245m\u{1b}[38;5;252mecho\u{1b}[39m\u{1b}[38;5;245m \u{1b}[38;5;250m\"hi\u{1b}[39m\u{1b}[38;5;245m\u{1b}[38;5;250m\"\u{1b}[39m\u{1b}[38;5;245m 42 \u{1b}[38;5;252m|\u{1b}[39m\u{1b}[38;5;245m \u{1b}[38;5;252mgrep\u{1b}[39m\u{1b}[38;5;245m hi \u{1b}[38;5;245m# note\u{1b}[39m\u{1b}[38;5;245m\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;252m■\u{1b}[0m\u{1b}[38;5;255m Cancelled\u{1b}[0m \u{1b}[38;5;245m\u{1b}[38;5;245m\u{1b}[38;5;252mecho\u{1b}[39m\u{1b}[38;5;245m \u{1b}[38;5;250m\"hi\u{1b}[39m\u{1b}[38;5;245m\u{1b}[38;5;250m\"\u{1b}[39m\u{1b}[38;5;245m 42 \u{1b}[38;5;252m|\u{1b}[39m\u{1b}[38;5;245m \u{1b}[38;5;252mgrep\u{1b}[39m\u{1b}[38;5;245m hi \u{1b}[38;5;243m# note\u{1b}[39m\u{1b}[38;5;245m\u{1b}[0m · What can xfx do differently?\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;252m! \u{1b}[0m\u{1b}[38;5;252mtool:\u{1b}[0m\u{1b}[38;5;250m read_file ok\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[1mkeep the header\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;245m  0s (↑2 ↓0)\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[22;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[24;1H\u{1b}[38;5;245mrun `xfx setup` · \u{1b}[0m\u{1b}[38;5;252mauto\u{1b}[0m\u{1b}[38;5;245m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h"
+      left: [Some(245), None, None, None, None, None, Some(252), Some(250), Some(255)]
+     right: [Some(245), Some(252), Some(255), Some(245), Some(250), Some(243), Some(252), Some(250), Some(255)]
+--- tui::event_loop::tests::a_stopped_call_queued_while_ctrl_o_is_up_lands_in_the_palette_the_report_set at src/tui/event_loop.rs:6276:13
+    assertion `left == right` failed: light first false: row, mark, Cancelled, argument, string, comment, label, notice, rail: "\u{1b}[?1049l\u{1b}]2;hello\u{7}\u{1b}[?2026h\u{1b}[?25l\u{1b}[22;1H\u{1b}[J\u{1b}[22;1H\u{1b}[38;5;235m┃\u{1b}[0m \u{1b}[23;1H\u{1b}[24;1H\u{1b}[38;5;241mrun `xfx setup` · \u{1b}[38;5;238mauto\u{1b}[38;5;241m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h\u{1b}[?2026h\u{1b}[?25l\u{1b}[17;1H\u{1b}[38;5;235m┃\u{1b}[19;1H●\u{1b}[0m \u{1b}[38;5;241m1 tool call · 1 command\u{1b}[20;1H└ Running \u{1b}[0m\u{1b}[38;5;238mecho\u{1b}[0m\u{1b}[38;5;241m \"hi\" 42 \u{1b}[0m\u{1b}[38;5;238m|\u{1b}[0m\u{1b}[38;5;241m \u{1b}[0m\u{1b}[38;5;238mgrep\u{1b}[0m\u{1b}[38;5;241m hi \u{1b}[0m\u{1b}[38;5;243m# note\u{1b}[0m\u{1b}[22;3H\u{1b}[19;1H\u{1b}[38;5;235m●\u{1b}[0m \u{1b}[38;5;241m1 tool call · 1 command · 1 cancelled\u{1b}[0m\u{1b}[K\u{1b}[20;1H\u{1b}[38;5;241m└ Cancelled \u{1b}[38;5;241m\u{1b}[38;5;238mecho\u{1b}[39m\u{1b}[38;5;241m \u{1b}[38;5;241m\"hi\u{1b}[39m\u{1b}[38;5;241m\u{1b}[38;5;241m\"\u{1b}[39m\u{1b}[38;5;241m 42 \u{1b}[38;5;238m|\u{1b}[39m\u{1b}[38;5;241m \u{1b}[38;5;238mgrep\u{1b}[39m\u{1b}[38;5;241m hi \u{1b}[38;5;243m# note\u{1b}[39m\u{1b}[38;5;241m\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;238m■\u{1b}[0m\u{1b}[38;5;235m Cancelled\u{1b}[0m \u{1b}[38;5;247m\u{1b}[38;5;247m\u{1b}[38;5;238mecho\u{1b}[39m\u{1b}[38;5;247m \u{1b}[38;5;241m\"hi\u{1b}[39m\u{1b}[38;5;247m\u{1b}[38;5;241m\"\u{1b}[39m\u{1b}[38;5;247m 42 \u{1b}[38;5;238m|\u{1b}[39m\u{1b}[38;5;247m \u{1b}[38;5;238mgrep\u{1b}[39m\u{1b}[38;5;247m hi \u{1b}[38;5;247m# note\u{1b}[39m\u{1b}[38;5;247m\u{1b}[0m · What can xfx do differently?\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;238m! \u{1b}[0m\u{1b}[38;5;238mtool:\u{1b}[0m\u{1b}[38;5;241m read_file ok\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;235m┃\u{1b}[0m \u{1b}[1mkeep the header\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;247m  0s (↑2 ↓0)\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[22;1H\u{1b}[38;5;235m┃\u{1b}[0m \u{1b}[24;1H\u{1b}[38;5;241mrun `xfx setup` · \u{1b}[0m\u{1b}[38;5;238mauto\u{1b}[0m\u{1b}[38;5;241m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h"
+      left: [Some(241), None, None, None, None, None, Some(238), Some(241), Some(235)]
+     right: [Some(241), Some(238), Some(235), Some(247), Some(241), Some(247), Some(238), Some(241), Some(235)]
+--- tui::question::tests::a_refused_batch_leaves_one_row at src/tui/question.rs:2873:9
+    assertion `left == right` failed
+      left: "\u{1b}[38;5;252m■\u{1b}[0m Cancelled"
+     right: "\u{1b}[38;5;252m▪\u{1b}[0m Cancelled"
+--- tui::shell::tests::a_call_its_turn_ended_under_is_shown_cancelled at src/tui/shell.rs:31831:9
+    assertion `left == right` failed
+      left: ["● 1 tool call · 1 write · 1 cancelled", "└ Cancelled file", "", "■ Cancelled file · What can xfx do differently?", "", "✗ system: the turn was cancelled", ""]
+     right: ["● 1 tool call · 1 write · 1 cancelled", "└ Cancelled file", "", "▪ Cancelled file · What can xfx do differently?", "", "✗ system: the turn was cancelled", ""]
+--- tui::shell::tests::a_cancel_that_waits_for_a_running_call_survives_a_prompt_typed_meanwhile at src/tui/shell.rs:22861:14
+    the turn's line
+--- tui::shell::tests::a_ctrl_c_while_the_runtime_is_working_asks_it_to_stop_and_says_so at src/tui/shell.rs:21809:9
+    assertion `left == right` failed
+      left: ["■ Cancelled · What can xfx do differently?", ""]
+     right: ["▪ Cancelled · What can xfx do differently?", ""]
+--- tui::shell::tests::a_ctrl_c_over_a_running_turn_takes_the_draft_first_and_nothing_else at src/tui/shell.rs:22338:9
+    assertion `left == right` failed
+      left: ["■ Cancelled · What can xfx do differently?", ""]
+     right: ["▪ Cancelled · What can xfx do differently?", ""]
+--- tui::shell::tests::a_double_escape_over_a_running_turn_stops_it_and_the_row_warns_in_between at src/tui/shell.rs:22237:9
+    assertion `left == right` failed
+      left: ["■ Cancelled · What can xfx do differently?", ""]
+     right: ["▪ Cancelled · What can xfx do differently?", ""]
+--- tui::shell::tests::a_retry_goes_with_the_turn_and_never_outlives_a_cancel at src/tui/shell.rs:22769:9
+    assertion `left == right` failed
+      left: ["■ Cancelled · What can xfx do differently?", ""]
+     right: ["▪ Cancelled · What can xfx do differently?", ""]
+--- tui::shell::tests::a_stopped_turn_replays_as_upstreams_cancellation_and_a_failed_one_as_failed at src/tui/shell.rs:28042:9
+    assertion `left == right` failed: ["* session resumed: and once more", "", "┃ and once more", "", "■ Cancelled · What can xfx do differently?", "", "┃ and then", "", "✗ system: failed", "", "┃ Cancel this held response.", ""]
+      left: ["┃ and once more", "", "■ Cancelled · What can xfx do differently?", "", "┃ and then", "", "✗ system: failed", "", "┃ Cancel this held response.", ""]
+     right: ["┃ and once more", "", "▪ Cancelled · What can xfx do differently?", "", "┃ and then", "", "✗ system: failed", "", "┃ Cancel this held response.", ""]
+--- tui::shell::tests::an_interrupt_says_that_the_queue_goes_with_the_turn at src/tui/shell.rs:21879:9
+    assertion `left == right` failed
+      left: ["■ Cancelled · What can xfx do differently?", "", "⊘ queue: dropping what was queued behind it as well.", ""]
+     right: ["▪ Cancelled · What can xfx do differently?", "", "⊘ queue: dropping what was queued behind it as well.", ""]
+--- tui::shell::tests::an_interrupt_with_nothing_waiting_does_not_say_a_queue_was_dropped at src/tui/shell.rs:21901:9
+    assertion `left == right` failed
+      left: ["■ Cancelled · What can xfx do differently?", ""]
+     right: ["▪ Cancelled · What can xfx do differently?", ""]
+--- tui::shell::tests::escape_and_ctrl_c_at_a_model_question_leave_cancelled_in_the_document at src/tui/shell.rs:21294:13
+    assertion `left == right` failed: [27]: ["■ Cancelled", ""]
+      left: ["■ Cancelled", ""]
+     right: ["▪ Cancelled", ""]
+--- tui::shell::tests::escape_at_a_question_is_the_interrupt_that_cancels_the_turn at src/tui/shell.rs:20483:9
+    the interrupt landed silently: ["■ Cancelled · What can xfx do differently?", "", "⊘ queue: dropping what was queued behind it as well.", ""]
+--- tui::shell::tests::stopping_the_turn_at_an_approval_cancels_the_call_it_was_asking_about at src/tui/shell.rs:31622:9
+    assertion `left == right` failed: [
+        "● 1 tool call · 1 edit · 1 cancelled",
+        "└ Cancelled file",
+        "",
+--- tui::shell::tests::stopping_the_turn_while_a_command_runs_settles_its_row_at_the_keystroke at src/tui/shell.rs:31736:9
+    assertion `left == right` failed: [
+        "● 1 tool call · 1 command · 1 cancelled",
+        "└ Cancelled sleep 30",
+        "",
+--- tui::shell::tests::stopping_the_turn_while_a_file_call_runs_leaves_its_row_to_its_result at src/tui/shell.rs:31805:14
+    the turn's line
+--- tui::shell::tests::the_cancelled_line_is_upstreams_marker_word_and_question_in_upstreams_greys at src/tui/shell.rs:21837:9
+    assertion `left == right` failed
+      left: ["\u{1b}[38;5;252m■\u{1b}[0m \u{1b}[38;5;255mCancelled\u{1b}[0m · What can xfx do differently?", ""]
+     right: ["\u{1b}[38;5;252m▪\u{1b}[0m \u{1b}[38;5;255mCancelled\u{1b}[0m · What can xfx do differently?", ""]
+--- tui::toolgroup::tests::a_failed_stopped_or_refused_mcp_call_is_named_by_its_tool_alone at src/tui/toolgroup.rs:1856:9
+    assertion `left == right` failed
+      left: ["● 1 tool call · 1 MCP call · 1 cancelled", "└ Cancelled mcp_web_echo", "", "■ Cancelled mcp_web_echo · What can xfx do differently?", ""]
+     right: ["● 1 tool call · 1 MCP call · 1 cancelled", "└ Cancelled mcp_web_echo", "", "▪ Cancelled mcp_web_echo · What can xfx do differently?", ""]
+--- tui::toolgroup::tests::a_hostile_tool_name_is_written_out_on_every_row_it_reaches at src/tui/toolgroup.rs:2053:13
+    assertion `left == right` failed
+      left: "■ Cancelled mcp_evil\\x1b[31m\\u{202e}x · What can xfx do differently?"
+     right: "▪ Cancelled mcp_evil\\x1b[31m\\u{202e}x · What can xfx do differently?"
+--- tui::toolgroup::tests::a_kinds_word_for_more_than_one_call_is_upstreams_table at src/tui/toolgroup.rs:2313:17
+    assertion `left == right` failed: subagent x2
+      left: "subagent"
+     right: "subagents"
+--- tui::toolgroup::tests::a_stopped_turn_cancels_what_was_running_and_says_so_under_the_group at src/tui/toolgroup.rs:1305:9
+    assertion `left == right` failed
+      left: ["● 1 tool call · 1 command · 1 cancelled", "└ Cancelled sleep 30", "", "■ Cancelled sleep 30 · What can xfx do differently?", ""]
+     right: ["● 1 tool call · 1 command · 1 cancelled", "└ Cancelled sleep 30", "", "▪ Cancelled sleep 30 · What can xfx do differently?", ""]
+--- tui::toolgroup::tests::the_groups_kinds_name_each_row_it_draws at src/tui/toolgroup.rs:1564:9
+    ["\u{1b}[38;5;255m●\u{1b}[0m \u{1b}[38;5;245m2 tool calls · 2 commands · 2 cancelled\u{1b}[0m", "\u{1b}[38;5;245m├ Cancelled \u{1b}[38;5;245m\u{1b}[38;5;252msleep\u{1b}[39m\u{1b}[38;5;245m 30\u{1b}[0m", "\u{1b}[38;5;245m└ Cancelled \u{1b}[38;5;245m\u{1b}[38;5;252msleep\u{1b}[39m\u{1b}[38;5;245m 31\u{1b}[0m", "", "\u{1b}[38;5;252m■\u{1b}[0m\u{1b}[38;5;255m Cancelled\u{1b}[0m \u{1b}[38;5;245m\u{1b}[38;5;245m\u{1b}[38;5;252msleep\u{1b}[39m\u{1b}[38;5;245m 30\u{1b}[0m · What can xfx do differently?", "", "\u{1b}[38;5;252m■\u{1b}[0m\u{1b}[38;5;255m Cancelled\u{1b}[0m \u{1b}[38;5;245m\u{1b}[38;5;245m\u{1b}[38;5;252msleep\u{1b}[39m\u{1b}[38;5;245m 31\u{1b}[0m · What can xfx do differently?", ""]
+
+# cargo test --locked --test tui -- escape_twice_stops_a_running_command_and_its_group_at_once_as_upstreams_does an_interrupt_drops_the_steer_that_was_waiting_rather_than_delivering_it
+test an_interrupt_drops_the_steer_that_was_waiting_rather_than_delivering_it ... FAILED
+test escape_twice_stops_a_running_command_and_its_group_at_once_as_upstreams_does ... FAILED
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 174 filtered out; finished in 23.66s
+--- an_interrupt_drops_the_steer_that_was_waiting_rather_than_delivering_it at tests/support/pty.rs:367:13
+    timed out waiting for ["▪ Cancelled sleep 30"] on the screen, ["┋ change tone"] off it; terminal so far:
+    [>4;2m[>1u[?2004h[?7l[?2031h[22;2t]11;?\[?996n[6n]2;xfx v0.1.0 | workspace[?2026h[?25l[1;1H[1;38;2;238;238;238mx𝒇x[0m[38;2;138;138;138m v0.1.0-e6cde01 [38;2;238;238;238m[debug][38;2;138;138;138m · Run /help for commands[0m[K[2;1H[K[2;1H[K[3;1H[K[3;1H[38;2;238;238;238m┃[0m [1mrun it[0m[K[4;1H[K[4;1H[K[5;1H[J[5;1H[38;2;208;208;208m• Thinking (0s)[0m[38;2;138;138;138m (↑2 ↓0)[7;1H[0m[38;2;238;238;238m┃[0m [9;1H[38;2;208;208;208mfull access[0m[38;2;138;138;138m · glm-5.2[0m        [38;2;208;208;208mFull access enabled: xfx permission checks disabled[0m[7;3H[?2026l[?25h[?2026h[?25l[5;1H[K[6;1H[K[7;1H[K[5;1H[38;2;238;238;238m●[0m [38;2;138;138;138m1 tool call · 1 command[0m[K[6;1H[38;2;138;138;138m└ Running [38;2;138;138;138m[38;5;252msleep[39m[38;2;138;138;138m 30[0m[K[7;1H[K[8;1H[38;2;208;208;208m• Running (0s)[0m[38;2;138;138;138m (↑2 ↓0)[9;1H[0m[K[10;1H[38;2;238;238;238m┃[0m [12;1H[38;2;208;208;208mfull access[0m[38;2;138;138;138m · glm-5.2[0m        [38;2;208;208;208mFull access enabled: xfx permission checks disabled[0m[10;3H[?2026l[?25h[?2026h[?25l[10;1H[38;2;138;138;138m┋ change tone[12;1H[0m[38;2;238;238;238m┃[0m [K[14;1H[38;2;208;208;208mfull access[0m[38;2;138;138;138m · glm-5.2[0m        [38;2;208;208;208mFull access enabled: xfx permission checks disabled[0m[12;3H[?2026l[?25h[?2026h[?25l[8;1H[K[9;1H[K[5;1H[38;2;238;238;238m●[0m [38;2;138;138;138m1 tool call · 1 command · 1 cancelled[0m[K[6;1H[38;2;138;138;138m└ Cancelled [38;2;138;138;138m[38;5;252msleep[39m[38;2;138;138;138m 30[0m[K[8;1H[38;2;208;208;208m■[0m[38;2;238;238;238m Cancelled[0m [38;2;138;138;138m[38;2;138;138;138m[38;5;252msleep[39m[38;2;138;138;138m 30[0m · What can xfx do differently?[K[9;1H[K[10;1H[K[10;1H[38;2;138;138;138m⊘ [0m[38;2;138;138;138mqueue:[0m[38;2;188;188;188m dropping what was queued behind it as well.[0m[K[11;1H[K[11;1H[K[14;1H[38;2;138;138;138mpress ctrl+c again to exit[0m[K[12;3H[?2026l[?25h[?2026h[?25l[14;1H[38;2;208;208;208mfull access[0m[38;2;138;138;138m · glm-5.2[0m        [38;2;208;208;208mFull access enabled: xfx permission checks disabled[0m[12;3H[?2026l[?25h[?2026h[?25l[14;22H[K[12;3H[?2026l[?25h
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--- escape_twice_stops_a_running_command_and_its_group_at_once_as_upstreams_does at tests/support/pty.rs:367:13
+    timed out waiting for ["└ Cancelled sleep 30", "▪ Cancelled sleep 30"] on the screen, ["Running sleep"] off it; terminal so far:
+    [>4;2m[>1u[?2004h[?7l[?2031h[22;2t]11;?\[?996n[6n]2;xfx v0.1.0 | workspace[?2026h[?25l[1;1H[1;38;2;238;238;238mx𝒇x[0m[38;2;138;138;138m v0.1.0-e6cde01 [38;2;238;238;238m[debug][38;2;138;138;138m · Run /help for commands[0m[K[2;1H[K[2;1H[K[3;1H[K[3;1H[38;2;238;238;238m┃[0m [1mrun cmd[0m[K[4;1H[K[4;1H[K[5;1H[J[5;1H[38;2;208;208;208m• Thinking (0s)[0m[38;2;138;138;138m (↑2 ↓0)[7;1H[0m[38;2;238;238;238m┃[0m [9;1H[38;2;208;208;208mfull access[0m[38;2;138;138;138m · glm-5.2[0m        [38;2;208;208;208mFull access enabled: xfx permission checks disabled[0m[7;3H[?2026l[?25h[?2026h[?25l[5;1H[K[6;1H[K[7;1H[K[5;1H[38;2;238;238;238m●[0m [38;2;138;138;138m1 tool call · 1 command[0m[K[6;1H[38;2;138;138;138m└ Running [38;2;138;138;138m[38;5;252msleep[39m[38;2;138;138;138m 30 [38;5;252m&[39m[38;2;138;138;138m [38;5;252mecho[39m[38;2;138;138;138m [38;5;252m$![39m[38;2;138;138;138m [38;5;252m>[39m[38;2;138;138;138m sleeper.pid[38;5;252m;[39m[38;2;138;138;138m [38;5;252mwait[39m[38;2;138;138;138m[0m[K[7;1H[K[8;1H[38;2;208;208;208m• Running (0s)[0m[38;2;138;138;138m (↑2 ↓0)[9;1H[0m[K[10;1H[38;2;238;238;238m┃[0m [12;1H[38;2;208;208;208mfull access[0m[38;2;138;138;138m · glm-5.2[0m        [38;2;208;208;208mFull access enabled: xfx permission checks disabled[0m[10;3H[?2026l[?25h[?2026h[?25l[12;30H                             [38;2;138;138;138mesc again to interrupt[0m[10;3H[?2026l[?25h[?2026h[?25l[8;1H[K[9;1H[K[5;1H[38;2;238;238;238m●[0m [38;2;138;138;138m1 tool call · 1 command · 1 cancelled[0m[K[6;1H[38;2;138;138;138m└ Cancelled [38;2;138;138;138m[38;5;252msleep[39m[38;2;138;138;138m 30 [38;5;252m&[39m[38;2;138;138;138m [38;5;252mecho[39m[38;2;138;138;138m [38;5;252m$![39m[38;2;138;138;138m [38;5;252m>[39m[38;2;138;138;138m sleeper.pid[38;5;252m;[39m[38;2;138;138;138m [38;5;252mwait[39m[38;2;138;138;138m[0m[K[8;1H[38;2;208;208;208m■[0m[38;2;238;238;238m Cancelled[0m [38;2;138;138;138m[38;2;138;138;138m[38;5;252msleep[39m[38;2;138;138;138m 30 [38;5;252m&[39m[38;2;138;138;138m [38;5;252mecho[39m[38;2;138;138;138m [38;5;252m$![39m[38;2;138;138;138m [38;5;252m>[39m[38;2;138;138;138m sleeper.pid[38;5;252m;[39m[38;2;138;138;138m [38;5;252mwait[39m[38;2;138;138;138m[0m · What can xfx do differentl…[0m[9;1H[K[12;30H[38;2;208;208;208mFull access enabled: xfx permission checks disabled[0m[10;3H[?2026l[?25h[?2026h[?25l[12;22H[K[10;3H[?2026l[?25h
+
+# RED, the argument bounds (0aa9a299's two tests, pasted into a clean clone at the base e6cde019, whose
+# `spelled` cuts every argument but a command at 4 096 bytes):
+# cargo test --locked --lib -- tui::full_transcript::tests::a_heading_is_cut_only_where_fxs_own_bound_on_its_phrase_cuts_it \
+#   tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape
+test tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape ... FAILED
+test tui::full_transcript::tests::a_heading_is_cut_only_where_fxs_own_bound_on_its_phrase_cuts_it ... FAILED
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4320 filtered out; finished in 0.03s
+--- tui::toolgroup::tests::a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape at src/tui/toolgroup.rs:2253:9
+    A\u{202e}A\u{202e}A\u{202e}A\u{202e}A...
+--- tui::full_transcript::tests::a_heading_is_cut_only_where_fxs_own_bound_on_its_phrase_cuts_it at src/tui/full_transcript.rs:5282:13
+    4105 bytes, ends "aaaaaaaaa...", wanted 20009 ending "aaaaaaaaaaaa"
+# The heading test: the 20 000-byte read path's heading is 4 105 bytes (`└ Read ` and 4 096 bytes ending `...`); the
+# long-argument test: the 5 000-character read path's row ends `A...` where it is wanted whole.
+
+# RED, a live cancel's line on Ctrl-O (95669160's test, pasted into a clean clone at the base e6cde019):
+# cargo test --locked --lib -- tui::shell::tests::a_turn_stopped_over_its_answer_leaves_its_cancelled_line_on_ctrl_o_too
+test tui::shell::tests::a_turn_stopped_over_its_answer_leaves_its_cancelled_line_on_ctrl_o_too ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4321 filtered out; finished in 0.01s
+--- tui::shell::tests::a_turn_stopped_over_its_answer_leaves_its_cancelled_line_on_ctrl_o_too at src/tui/shell.rs:44599:9
+    assertion `left == right` failed: [
+        "  2026-11-07 18:39:09.694 UTC · Prompt",
+        "┃ stream something",
+        "",
+      left: ["", "", ""]
+     right: ["", "▪ Cancelled · What can xfx do differently?", ""]
+# The three rows under the stopped prompt's card on Ctrl-O are blank: the line is not there at all.

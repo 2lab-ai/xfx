@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-9566916 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m [1medit the files[0m
+
+[38;5;255m●[39m [38;5;245m5 tool calls · 2 commands · 1 read · 1 write · 1 edit · 1 denied · 1 cancelled[39m
+[38;5;245m├ Read a.txt[39m
+[38;5;245m├ Edited a.txt +1 / -1[39m
+[38;5;245m├ Denied file[39m
+[38;5;245m├ Ran [38;5;252mecho[38;5;245m hi [38;5;252m>[38;5;245m out.txt [38;5;252m&&[38;5;245m [38;5;252mcat[38;5;245m out.txt[39m
+[38;5;245m└ Cancelled [38;5;252mecho[38;5;245m again[39m
+
+[38;5;252m▪[38;5;255m Cancelled[39m [38;5;252mecho[38;5;245m again[39m · What can xfx do differently?
+
+[38;5;255m┃[39m [1muse capitals[0m
+
+[38;5;255m┃[39m
+
+[38;5;245mask · model-a[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

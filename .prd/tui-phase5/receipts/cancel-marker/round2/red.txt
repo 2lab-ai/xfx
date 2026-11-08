@@ -1,0 +1,14 @@
+# RED, round 2: the RED commit ab1c67f8 alone (its tests, the round-1 code), on a throwaway clone:
+# cargo test --locked --lib -- <the three tests below>
+test tui::shell::tests::a_theme_report_recolours_ctrl_os_cancelled_lines_as_upstreams_token_table_does ... FAILED
+test tui::toolgroup::tests::the_transcripts_row_keeps_what_any_screen_can_show_and_ctrl_o_the_whole ... FAILED
+test tui::full_transcript::tests::a_heading_is_cut_only_where_fxs_own_bound_on_its_phrase_cuts_it ... ok
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4323 filtered out; finished in 0.08s
+--- tui::shell::tests::a_theme_report_recolours_ctrl_os_cancelled_lines_as_upstreams_token_table_does at src/tui/shell.rs:44672:13
+    "\u{1b}[38;5;238m▪\u{1b}[0m \u{1b}[38;5;235mCancelled\u{1b}[0m · What can xfx do differently?" in [
+        "\u{1b}[38;5;247m  2026-11-07 23:05:07.900 UTC · Prompt\u{1b}[0m",
+--- tui::toolgroup::tests::the_transcripts_row_keeps_what_any_screen_can_show_and_ctrl_o_the_whole at src/tui/toolgroup.rs:2411:17
+    the transcript's row keeps 196619 cells
+# The retint test's wanted row (light) and the row Ctrl-O still holds (dark):
+    "\u{1b}[38;5;238m▪\u{1b}[0m \u{1b}[38;5;235mCancelled\u{1b}[0m · What can xfx do differently?" in [
+    "\u{1b}[38;5;252m▪\u{1b}[0m \u{1b}[38;5;255mCancelled\u{1b}[0m · What can xfx do differently?",

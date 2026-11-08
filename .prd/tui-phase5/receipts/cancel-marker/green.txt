@@ -1,0 +1,85 @@
+# GREEN, captures: fx v0.0.16 (fx/) against xfx 95669160 (xfx/), 40x120, the 77 pairs of pairs.txt -- every pair the deleted
+# causes covered at the base and every base pair with a marker row in a differing row. marker_cells.py: each marker
+# row's glyph and `Cancelled` cells with their attributes. Made by: python3 -I -B marker_cells.py fx xfx $(cat pairs.txt)
+same approvals/after-esc: 1 marker row(s) 12
+same approvals/after-esc.full: 1 marker row(s) 12
+same approvals-amend-limit/end: 1 marker row(s) 9
+same interrupt/cc-0.3: 1 marker row(s) 5
+same interrupt/cc-1.5: 1 marker row(s) 5
+same interrupt/cc-3.5: 1 marker row(s) 5
+same interrupt/end.full: 2 marker row(s) 5, 15
+same interrupt/esc1: 1 marker row(s) 5
+same interrupt/esc2: 2 marker row(s) 5, 15
+same interrupt/esc2-later: 2 marker row(s) 5, 15
+same interrupt/mid2: 1 marker row(s) 5
+same interrupt/next: 1 marker row(s) 5
+same interrupt-cmd/cmd-cc: 1 marker row(s) 8
+same interrupt-cmd/cmd-cc-2: 1 marker row(s) 8
+same interrupt-cmd/cmd-done: 1 marker row(s) 8
+same interrupt-cmd/end.full: 1 marker row(s) 8
+same interrupt-next-cmd/next: 1 marker row(s) 8
+same interrupt-next-question/next: 1 marker row(s) 5
+same interrupt-question/end.full: 1 marker row(s) 5
+same interrupt-question/q-cc: 1 marker row(s) 5
+same interrupt2/cd-streaming: 1 marker row(s) 32
+same interrupt2/draft: 1 marker row(s) 32
+same interrupt2/draft-cc: 1 marker row(s) 32
+same interrupt2/draft-cc2: 2 marker row(s) 32, 36
+same interrupt2/end.full: 2 marker row(s) 45, 49
+same interrupt2/esc2: 1 marker row(s) 36
+same interrupt2/esc2-later: 1 marker row(s) 36
+same p5-input-question/q2-cancelled: 1 marker row(s) 5
+same p5-input-question/q6: 1 marker row(s) 5
+DIFFER p5-input-question/q6-after: 2 marker row(s) 5, 9
+    fx has 2 marker row(s), xfx 1 (5)
+DIFFER p5-input-question/q6-after.full: 2 marker row(s) 5, 9
+    fx has 2 marker row(s), xfx 1 (5)
+DIFFER p5-lifecycle-retry/r04-after-esc: 1 marker row(s) 5
+    fx has 1 marker row(s), xfx 0 (none)
+DIFFER p5-lifecycle-retry/r05-after-esc-4.5s: 1 marker row(s) 5
+    fx has 1 marker row(s), xfx 0 (none)
+same p5-mcp-live/cancel: 1 marker row(s) 19
+same p5-mcp-live/end: 1 marker row(s) 19
+same p5-mcp-live/failed: 1 marker row(s) 19
+same p5-panels-keys/approval-esc: 1 marker row(s) 10
+same p5-panels-keys/end: 1 marker row(s) 10
+same p5-toolstop-retint/dark: 1 marker row(s) 8
+same p5-toolstop-retint/dark-again: 1 marker row(s) 8
+same p5-toolstop-retint/light: 1 marker row(s) 8
+same p5-toolstop-retint-light/dark: 1 marker row(s) 8
+same p5-toolstop-retint-light/light: 1 marker row(s) 8
+same p5-toolstop-retint-light/light-again: 1 marker row(s) 8
+chars p5-toolstop-retint-light-tc/dark: 1 marker row(s) 8
+chars p5-toolstop-retint-light-tc/light: 1 marker row(s) 8
+chars p5-toolstop-retint-light-tc/light-again: 1 marker row(s) 8
+chars p5-toolstop-retint-tc/dark: 1 marker row(s) 8
+chars p5-toolstop-retint-tc/dark-again: 1 marker row(s) 8
+chars p5-toolstop-retint-tc/light: 1 marker row(s) 8
+same p5-transcript-cancel/cmd-esc: 2 marker row(s) 5, 18
+same p5-transcript-cancel/cmd-running: 1 marker row(s) 5
+same p5-transcript-cancel/end.full: 2 marker row(s) 5, 18
+same p5-transcript-cancel/esc: 1 marker row(s) 5
+same p5-transcript-cancel/full: 1 marker row(s) 17
+same p5-transcript-cancel/next: 1 marker row(s) 5
+same question-field/end.full: 1 marker row(s) 16
+same question-field/q2-cc: 1 marker row(s) 16
+same question-other/end.full: 1 marker row(s) 14
+same question-other/q2-esc: 1 marker row(s) 14
+same resume-tools/again-stopped: 1 marker row(s) 27
+same resume-tools/ctrl-o: 2 marker row(s) 31, 36
+same resume-tools/live.full: 2 marker row(s) 27, 34
+same resume-tools/long-later: 2 marker row(s) 20, 27
+same resume-tools/resumed: 2 marker row(s) 24, 28
+same resume-tools/resumed.full: 2 marker row(s) 24, 28
+same rules-read-auto/listed: 1 marker row(s) 13
+same rules-read-auto/read-esc: 1 marker row(s) 19
+same rules-read-auto/remember-done: 1 marker row(s) 19
+same rules-read-auto/remember-prompt: 1 marker row(s) 19
+same rules-read-auto/remembered: 1 marker row(s) 19
+same toolgroup/again-stopped: 1 marker row(s) 27
+same toolgroup/end.full: 2 marker row(s) 27, 34
+same toolgroup/long-ask: 1 marker row(s) 20
+same toolgroup/long-later: 2 marker row(s) 20, 27
+same toolgroup/long-running: 1 marker row(s) 20
+same toolgroup/long-stopped: 2 marker row(s) 20, 27
+pairs: 77, DIFFER: 4

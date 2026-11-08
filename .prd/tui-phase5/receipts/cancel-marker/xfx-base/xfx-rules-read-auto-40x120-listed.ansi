@@ -1,0 +1,40 @@
+
+[38;5;255m┃[39m [1mlook in notes.txt instead[0m
+
+  Told.
+
+[38;5;245m  7s (↑4 ↓80)[39m
+
+[38;5;255m┃[39m [1mread it[0m
+
+[38;5;255m●[39m [38;5;245m1 tool call · 1 read · 1 cancelled[39m
+[38;5;245m└ Cancelled secret.txt[39m
+
+[38;5;252m■[38;5;255m Cancelled[39m [38;5;245msecret.txt[39m · What can xfx do differently?
+
+[38;5;250m* permissions: saved-session permission rule updated[39m
+
+[38;5;255m┃[39m [1mread it now[0m
+
+[38;5;255m●[39m [38;5;245m1 tool call · 1 read[39m
+[38;5;245m└ Read secret.txt[39m
+
+  Remembered.
+
+[38;5;245m  0s (↑3 ↓80)[39m
+
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m[38;5;255mPermissions[0m
+
+[1m[38;5;252m  Mode[0m                [38;5;245mauto[39m
+[1m[38;5;252m  Configured rules[0m    [38;5;245m2[39m
+[1m[38;5;252m  [0m                    [38;5;245m• ask read → secret*[39m
+[1m[38;5;252m  [0m                    [38;5;245m• ask grep → *[39m
+[1m[38;5;252m  Session grants[0m      [38;5;245mnone[39m
+[1m[38;5;252m  Saved rules[0m         [38;5;245m1[39m
+[1m[38;5;252m  [0m                    [38;5;245m• 1 allow read_file secret.txt[39m
+[1m[38;5;252m  Change mode[0m         [38;5;245m/permissions ask, auto, full-access, or reset[39m
+[1m[38;5;252m  Remember[0m            [38;5;245m/permissions remember allow|deny <tool-name> <arguments-json>[39m
+[1m[38;5;252m  Revoke[0m              [38;5;245m/permissions revoke <rule-id>[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245mesc close[39m
