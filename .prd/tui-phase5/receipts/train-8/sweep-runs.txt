@@ -1,0 +1,33 @@
+# The train's three sweeps, as sweep.sh / sweep-f.sh printed them (each inside one hold of the suite lock; FX the v0.0.16 binary, SHORT_TMP a short scratch directory).
+# head: 387a0104 (the code of d57beb36), its own harness; its lock slot taken 2026-11-08 18:29:24Z, beside the gate.
+# head: build in head at 387a0104, exit 0; xfx sha256 88c14eeb472781d4218e72793b030e54e1169bd4abb43bfa7c99369ee6b1ffc0
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 5.46
+# head: sweep exit 0, 2348 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 5.48
+[235/237] xfx p5-ctrlo-wider-inline: ran (4s)
+[236/237] xfx p5-ctrlo-wider-ri: ran (4s)
+[237/237] fx (inventory): ran (30s)
+pass = 381 / 529 = 72.0%; unresolved 125, failed 0, timeout 0
+wrote <out>/scoreboard.md
+sweep wrapper exit 0
+
+# main: 58c92ba2, its own harness; started once the gate let its slot go (18:51Z) and another worker's job let one go.
+# main: build in main at 58c92ba2, exit 0; xfx sha256 6415a9e93bed5106f2b42d7dea7bdc2f1fe0c5081f0608e20a9f981dc7450fcc
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 5.88
+# main: sweep exit 0, 2338 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 3.42
+[235/237] xfx p5-ctrlo-wider-inline: ran (4s)
+[236/237] xfx p5-ctrlo-wider-ri: ran (4s)
+[237/237] fx (inventory): ran (30s)
+pass = 381 / 529 = 72.0%; unresolved 125, failed 0, timeout 0
+wrote <out>/scoreboard.md
+sweep wrapper exit 0
+
+# merge 3: c4bb4c7f, its own harness (FLAKE-MCPMODE-F's mcphttp.ts), the 14 mcphttp scenarios of selection-f.txt; started after the head sweep.
+# final: build in final at c4bb4c7f, exit 0; xfx sha256 9bb9db4c8d1de39d5eb543251ad5f546920e98f6b4be27983637f392f8796c6a
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 8.49
+# final: sweep exit 0, 249 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 3.00
+[27/29] xfx p5-mcp-discover-http-hostile: ran (9s)
+[28/29] xfx p5-mcp-discover-http-old2024: ran (9s)
+[29/29] fx (inventory): ran (31s)
+pass = 18 / 24 = 75.0%; unresolved 6, failed 0, timeout 0
+wrote <out>/scoreboard.md
+sweep-f wrapper exit 0

@@ -1,0 +1,42 @@
+# gates-f.sh at c4bb4c7f (merge 3, FLAKE-MCPMODE-F: scripts/fxcap/mcphttp.ts, scripts/fxcap/test_capture.py and its receipt), in a `git clone --no-local` at that commit,
+# one step after another, the whole script inside one hold of the machine's suite lock (suite-lock.sh bash gates-f.sh <clone> <scratch>/gatef-logs), 2026-11-08, ended 19:37:38Z.
+# The steps merge 3 touches: the two fxcap harness steps and the steps that read every tracked file. No Rust changed, so gates.txt's cargo, build and smoke steps stand.
+# Each step's exit is taken from `$?` on the line right after its command. Tree clean at the start and at the end. No step failed and none was run again.
+# head c4bb4c7f; tree clean: yes
+01 fmt                                exit 0     2s  load 2.63
+02 check-xfx-identity                 exit 0     1s  load 2.63
+03 check-no-stubs                     exit 0     8s  load 2.63
+04 check-no-secrets                   exit 0    34s  load 2.53
+05 test-check-no-secrets              exit 0    69s  load 2.42
+06 fxcap-test-sweep                   exit 0    16s  load 3.66
+07 fxcap-test-capture                 exit 0   284s  load 4.99
+# 7 steps, 0 failed; tree clean after: yes
+
+===== 01-fmt (last lines; test suites: every 'test result' line and every failure)
+
+===== 02-check-xfx-identity (last lines; test suites: every 'test result' line and every failure)
+check-xfx-identity: ok (15460 tracked file(s) scanned)
+===== 03-check-no-stubs (last lines; test suites: every 'test result' line and every failure)
+check-no-stubs: ok
+===== 04-check-no-secrets (last lines; test suites: every 'test result' line and every failure)
+check-no-secrets: ok (15460 tracked file(s) scanned)
+===== 05-test-check-no-secrets (last lines; test suites: every 'test result' line and every failure)
+test-check-no-secrets: ok grep-127           exit 1
+test-check-no-secrets: ok every-file         exit 1
+test-check-no-secrets: ok every-file-set     3472 of 3472 keys, each once
+test-check-no-secrets: ok nothing-tracked    exit 1
+test-check-no-secrets: ok only-a-symlink     exit 1
+test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
+===== 06-fxcap-test-sweep (last lines; test suites: every 'test result' line and every failure)
+OK
+...........................
+----------------------------------------------------------------------
+Ran 27 tests in 8.682s
+
+OK
+===== 07-fxcap-test-capture (last lines; test suites: every 'test result' line and every failure)
+............................................................................
+----------------------------------------------------------------------
+Ran 76 tests in 283.666s
+
+OK

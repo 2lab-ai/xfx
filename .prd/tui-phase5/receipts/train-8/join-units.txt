@@ -1,0 +1,30 @@
+## join check 1 on each side alone
+## grid-row-cost a3f90ef5, the join test unchanged: build exit 101, 5 errors
+    error[E0425]: cannot find value `TURN_CANCELLED` in module `super::super::bridge`
+         --> src/tui/event_loop.rs:15009:48
+    error[E0599]: no method named `start_turn` found for struct `event_loop::tests::Fixture` in the current scope
+         --> src/tui/event_loop.rs:14964:19
+    error[E0599]: no method named `ui_events_taken` found for struct `event_loop::tests::Fixture` in the current scope
+         --> src/tui/event_loop.rs:14999:19
+    error[E0599]: no method named `ui_events_taken` found for struct `event_loop::tests::Fixture` in the current scope
+         --> src/tui/event_loop.rs:15004:23
+    error[E0599]: no method named `ui_events_taken` found for struct `event_loop::tests::Fixture` in the current scope
+         --> src/tui/event_loop.rs:15011:19
+## grid-row-cost, the other side's half taken out: test exit 101; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4469 filtered out; finished in 6.85s
+    ---- tui::event_loop::tests::a_stops_held_rows_over_a_groups_long_rows_are_written_as_their_text_lays stdout ----
+    
+    thread 'tui::event_loop::tests::a_stops_held_rows_over_a_groups_long_rows_are_written_as_their_text_lays' (355195180) panicked at src/tui/event_loop.rs:15028:9:
+    assertion `left == right` failed: each: the long rows laid from their text before the stop; nothing held written while held; then the held read written, the late text only with a finish, and the long rows known by their text again
+      left: [("the stop's own end", true, true, false, true, false, true), ("a finished end", true, true, false, true, false, true), ("a drain that empties before the end", true, true, false, true, false, true)]
+     right: [("the stop's own end", true, false, false, true, false, true), ("a finished end", true, false, false, true, true, true), ("a drain that empties before the end", true, false, false, true, false, true)]
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    
+    
+## main 58c92ba2, the join test unchanged: build exit 101, 3 errors
+    error[E0599]: no method named `stale_laid_rows` found for reference `&grid::Grid` in the current scope
+         --> src/tui/event_loop.rs:15880:35
+    error[E0599]: no method named `longest_laid` found for reference `&grid::Grid` in the current scope
+         --> src/tui/event_loop.rs:15925:41
+    error[E0599]: no method named `longest_laid` found for reference `&grid::Grid` in the current scope
+         --> src/tui/event_loop.rs:15956:45
+## main, the other side's half taken out: test exit 0; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4536 filtered out; finished in 6.05s

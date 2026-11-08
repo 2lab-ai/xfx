@@ -1,0 +1,113 @@
+# head c4bb4c7f; sides: main 58c92ba2, grid-row-cost a3f90ef5, flake-mcpmode 2971aeff, flake-mcpmode-f 6a9a6a9d
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/bridge.rs:112-172
+    grid-row-cost MOVED -> 120-189 | flake-mcpmode MOVED -> 120-189 | flake-mcpmode-f MOVED -> 120-189
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:3108
+    grid-row-cost MOVED -> 3265 | flake-mcpmode MOVED -> 3265 | flake-mcpmode-f MOVED -> 3265
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:433
+    grid-row-cost MOVED -> 435 | flake-mcpmode MOVED -> 435 | flake-mcpmode-f MOVED -> 435
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/worker.rs:2376
+    grid-row-cost MOVED -> 2382 | flake-mcpmode MOVED -> 2382 | flake-mcpmode-f MOVED -> 2382
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/shell.rs:1593
+    grid-row-cost MOVED -> 1705 | flake-mcpmode MOVED -> 1705 | flake-mcpmode-f MOVED -> 1705
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/theme.rs:333
+    flake-mcpmode MOVED -> 350 | flake-mcpmode-f MOVED -> 350
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/bridge.rs:112-147
+    grid-row-cost MOVED -> 120-164 | flake-mcpmode MOVED -> 120-164 | flake-mcpmode-f MOVED -> 120-164
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/event_loop.rs:889-923
+    grid-row-cost MOVED -> 902-936 | flake-mcpmode MOVED -> 902-936 | flake-mcpmode-f MOVED -> 902-936
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/shell.rs:1117
+    grid-row-cost MOVED -> 1186 | flake-mcpmode MOVED -> 1186 | flake-mcpmode-f MOVED -> 1186
+tests/tui.rs: src/tui/shell.rs:2015
+    grid-row-cost MOVED -> 2148 | flake-mcpmode MOVED -> 2148 | flake-mcpmode-f MOVED -> 2148
+tests/tui.rs: src/tui/shell.rs:2703
+    grid-row-cost MOVED -> 2860 | flake-mcpmode MOVED -> 2860 | flake-mcpmode-f MOVED -> 2860
+# 191 references in 589 files; 11 moved or changed on some side that cites them
+
+# head c4bb4c7f; sides: main 58c92ba2, grid-row-cost a3f90ef5, flake-mcpmode 2971aeff, flake-mcpmode-f 6a9a6a9d
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1295-1307 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 1364-1376 | flake-mcpmode MOVED -> 1364-1376 | flake-mcpmode-f MOVED -> 1364-1376
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1296 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 1365 | flake-mcpmode MOVED -> 1365 | flake-mcpmode-f MOVED -> 1365
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1881-1905 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 2014-2038 | flake-mcpmode MOVED -> 2014-2038 | flake-mcpmode-f MOVED -> 2014-2038
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1900-1905 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 2033-2038 | flake-mcpmode MOVED -> 2033-2038 | flake-mcpmode-f MOVED -> 2033-2038
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1911 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 2044 | flake-mcpmode MOVED -> 2044 | flake-mcpmode-f MOVED -> 2044
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1924-1948 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 2057-2081 | flake-mcpmode MOVED -> 2057-2081 | flake-mcpmode-f MOVED -> 2057-2081
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2110-2113 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 2256-2259 | flake-mcpmode MOVED -> 2256-2259 | flake-mcpmode-f MOVED -> 2256-2259
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2114-2118 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 2260-2264 | flake-mcpmode MOVED -> 2260-2264 | flake-mcpmode-f MOVED -> 2260-2264
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2126 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 2272 | flake-mcpmode MOVED -> 2272 | flake-mcpmode-f MOVED -> 2272
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2126-2132 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 2272-2278 | flake-mcpmode MOVED -> 2272-2278 | flake-mcpmode-f MOVED -> 2272-2278
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2189 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 2335 | flake-mcpmode MOVED -> 2335 | flake-mcpmode-f MOVED -> 2335
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2565-2573 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 2722-2730 | flake-mcpmode MOVED -> 2722-2730 | flake-mcpmode-f MOVED -> 2722-2730
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2570-2573 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 2727-2730 | flake-mcpmode MOVED -> 2727-2730 | flake-mcpmode-f MOVED -> 2727-2730
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2589-2592 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 2746-2749 | flake-mcpmode MOVED -> 2746-2749 | flake-mcpmode-f MOVED -> 2746-2749
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:348 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 350 | flake-mcpmode MOVED -> 350 | flake-mcpmode-f MOVED -> 350
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:3965 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 4128 | flake-mcpmode MOVED -> 4128 | flake-mcpmode-f MOVED -> 4128
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: bridge.rs:427 (src/tui/bridge.rs)
+    grid-row-cost MOVED -> 470 | flake-mcpmode MOVED -> 470 | flake-mcpmode-f MOVED -> 470
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: bridge.rs:574 (src/tui/bridge.rs)
+    grid-row-cost MOVED -> 618 | flake-mcpmode MOVED -> 618 | flake-mcpmode-f MOVED -> 618
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: shell.rs:3108 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 3265 | flake-mcpmode MOVED -> 3265 | flake-mcpmode-f MOVED -> 3265
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: shell.rs:5379 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 5727 | flake-mcpmode MOVED -> 5727 | flake-mcpmode-f MOVED -> 5727
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: shell.rs:5816 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 6164 | flake-mcpmode MOVED -> 6164 | flake-mcpmode-f MOVED -> 6164
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: worker.rs:1287-1304 (src/tui/worker.rs)
+    grid-row-cost MOVED -> 1293-1310 | flake-mcpmode MOVED -> 1293-1310 | flake-mcpmode-f MOVED -> 1293-1310
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:907 (src/tui/approval.rs)
+    grid-row-cost MOVED -> 909 | flake-mcpmode MOVED -> 909 | flake-mcpmode-f MOVED -> 909
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:1246 (src/tui/event_loop.rs)
+    grid-row-cost MOVED -> 1271 | flake-mcpmode MOVED -> 1271 | flake-mcpmode-f MOVED -> 1271
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:619-620 (src/tui/event_loop.rs)
+    grid-row-cost MOVED -> 632-633 | flake-mcpmode MOVED -> 632-633 | flake-mcpmode-f MOVED -> 632-633
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:622 (src/tui/event_loop.rs)
+    grid-row-cost MOVED -> 635 | flake-mcpmode MOVED -> 635 | flake-mcpmode-f MOVED -> 635
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:889-923 (src/tui/event_loop.rs)
+    grid-row-cost MOVED -> 902-936 | flake-mcpmode MOVED -> 902-936 | flake-mcpmode-f MOVED -> 902-936
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1117 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 1186 | flake-mcpmode MOVED -> 1186 | flake-mcpmode-f MOVED -> 1186
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1220-1227 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 1289-1296 | flake-mcpmode MOVED -> 1289-1296 | flake-mcpmode-f MOVED -> 1289-1296
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1459-1541 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 1528-1653 | flake-mcpmode MOVED -> 1528-1653 | flake-mcpmode-f MOVED -> 1528-1653
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1532 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 1644 | flake-mcpmode MOVED -> 1644 | flake-mcpmode-f MOVED -> 1644
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1693-1695 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 1805-1807 | flake-mcpmode MOVED -> 1805-1807 | flake-mcpmode-f MOVED -> 1805-1807
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:3329 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 3486 | flake-mcpmode MOVED -> 3486 | flake-mcpmode-f MOVED -> 3486
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:5590-5597 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 5938-5945 | flake-mcpmode MOVED -> 5938-5945 | flake-mcpmode-f MOVED -> 5938-5945
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:5600-5602 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 5948-5950 | flake-mcpmode MOVED -> 5948-5950 | flake-mcpmode-f MOVED -> 5948-5950
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:664-677 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 666-679 | flake-mcpmode MOVED -> 666-679 | flake-mcpmode-f MOVED -> 666-679
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:863 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 884 | flake-mcpmode MOVED -> 884 | flake-mcpmode-f MOVED -> 884
+scripts/smoke-tui.sh: shell.rs:2597 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 2754 | flake-mcpmode MOVED -> 2754 | flake-mcpmode-f MOVED -> 2754
+src/tui/event_loop.rs: frame.rs:1615-1628 (src/tui/frame.rs)
+    main CHANGED | flake-mcpmode CHANGED | flake-mcpmode-f CHANGED
+src/tui/event_loop.rs: shell.rs:2706 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 2863 | flake-mcpmode MOVED -> 2863 | flake-mcpmode-f MOVED -> 2863
+src/tui/event_loop.rs: transcript.rs:136 (src/tui/transcript.rs)
+    flake-mcpmode MOVED -> 137 | flake-mcpmode-f MOVED -> 137
+src/tui/event_loop.rs: transcript.rs:505-531 (src/tui/transcript.rs)
+    flake-mcpmode MOVED -> 506-532 | flake-mcpmode-f MOVED -> 506-532
+src/tui/shell.rs: shell.rs:5816 (src/tui/shell.rs)
+    grid-row-cost MOVED -> 6164 | flake-mcpmode MOVED -> 6164 | flake-mcpmode-f MOVED -> 6164
+# 75 short references into changed files; 43 moved or changed on some side that cites them

@@ -1,0 +1,88 @@
+scripts/smoke-tui.sh cites src/tui/check.rs:1084 for what the oracle licenses (train 4: stale since 9acf15d1)
+  at the head: 4956:# licenses (`src/tui/check.rs:1084`), spelled out rather than imported for the
+  main src/tui/check.rs:1084: 
+tests/tui.rs cites src/tui/shell.rs:2015 for `Reason::ExternalDamage`
+  at the head: 9002:    // `Reason::ExternalDamage` (`src/tui/shell.rs:2015`) and answers nothing,
+  main src/tui/shell.rs:2015: .collect()
+tests/tui.rs cites src/tui/shell.rs:2703 for `resize_pending || screen != geometry`
+  at the head: 8962:    // (`src/tui/shell.rs:2703`) is `resize_pending || screen != geometry`, and
+  main src/tui/shell.rs:2703: // kept for the case to answer ([`super::credits_ask::Asks::by_hand`]).
+tests/tui.rs cites tests/tui.rs:1191 for a case that clears the line
+  at the head: 2483:    // (`tests/tui.rs:1191,1654,1777,2103,4607,4803` all clear the line
+  main tests/tui.rs:1191: // log, a history or a lock kept under it would change the sandbox's tree.
+scripts/smoke-tui.sh cites shell.rs:2597 for one `editor.insert()` call
+  at the head: 11193:    # through one `editor.insert()` call (`shell.rs:2597`), which is one
+  main src/tui/shell.rs:2597: pending_cut: None,
+src/tui/event_loop.rs cites event_loop.rs:972-975 for the frame after a refused append not run (at 063fc66e, 2026-10-06: `if !commit_document(..)? { return Ok(()) }`); STOP-NEXT-2's re-point of main's `:959-962`, the head's lines below
+  at the head: 12887:    // it must not run at all (`event_loop.rs:972-975`). Nothing here caches a
+  main src/tui/event_loop.rs:959: ) {
+  main src/tui/event_loop.rs:960: return match disposed(emit, failures, now) {
+  main src/tui/event_loop.rs:961: Some(fatal) => Err(fatal),
+  main src/tui/event_loop.rs:962: None => Ok(()),
+  head src/tui/event_loop.rs:972: // **Except what the primary plane already owed, which is paid before the
+  head src/tui/event_loop.rs:973: // plane changes hands.** One tick takes a *batch* of events
+  head src/tui/event_loop.rs:974: // ([`take_ui_events`]) and composes one frame afterwards, so the row a tool
+  head src/tui/event_loop.rs:975: // call put in the document and the question that follows it are both
+src/tui/event_loop.rs cites shell.rs:2706 for `InsertNewline`
+  at the head: 12786:        // Two `\n` (`InsertNewline`, `shell.rs:2706`) over three lines: this
+  main src/tui/shell.rs:2706: #[cfg(test)]
+src/tui/shell.rs cites shell.rs:5816 for how the too-small assertions read it
+  at the head: 22578:        // how the existing too-small assertions read it (`shell.rs:5816`,
+  main src/tui/shell.rs:5816: true
+src/tui/wrap.rs cites check.rs:1808-1813 for the check handing wrap a segmented ASCII run (main's `:1689-1694`, re-pointed by line)
+  at the head: 2181:    // `check.rs:1808-1813` already hand it a single already-segmented ASCII
+  main src/tui/check.rs:1689: /// What the terminal's metadata is, as decoded.
+  main src/tui/check.rs:1690: fn of(model: &TerminalModel) -> Self {
+  main src/tui/check.rs:1691: Self {
+  main src/tui/check.rs:1692: plane: model.plane,
+  main src/tui/check.rs:1693: cursor_visible: model.cursor_visible,
+  main src/tui/check.rs:1694: shown_title: model.shown_title.clone(),
+src/tui/event_loop.rs cites transcript.rs:136 for `MAX_TAIL_ROWS` (256)
+  at the head: 12228:    /// `transcript.rs:136`'s `MAX_TAIL_ROWS` (256, private to that module and
+  main src/tui/transcript.rs:136: if bytes == 0 {
+src/tui/event_loop.rs cites transcript.rs:505-531 for the transcript adopting only on `Landed::All`
+  at the head: 12884:    // (`transcript.rs:505-531` adopts only on `Landed::All`). So an append the
+  main src/tui/transcript.rs:505: }
+  main src/tui/transcript.rs:506: }
+  main src/tui/transcript.rs:507: }
+  main src/tui/transcript.rs:508: }
+  main src/tui/transcript.rs:509: 
+  main src/tui/transcript.rs:510: /// One thing the document was told, in the shape it was told it.
+  main src/tui/transcript.rs:511: ///
+  main src/tui/transcript.rs:512: /// **Logical rather than visual, and that is the whole point of the queue.** A
+  main src/tui/transcript.rs:513: /// `Push` carries the text itself -- normalized, and with a carried CRLF
+  main src/tui/transcript.rs:514: /// already resolved, because both of those are answers about the *stream* and
+  main src/tui/transcript.rs:515: /// the stream is gone by the time the rows are measured. Nothing here knows how
+  main src/tui/transcript.rs:516: /// wide the screen is; that question is asked once, at the moment the terminal
+  main src/tui/transcript.rs:517: /// is offered the rows ([`Transcript::emit_front`]).
+  main src/tui/transcript.rs:518: enum Op {
+  main src/tui/transcript.rs:519: /// This text arrived, and what it is. Never empty: an operation that adds
+  main src/tui/transcript.rs:520: /// no bytes would ask the terminal for nothing and is not queued at all.
+  main src/tui/transcript.rs:521: Push(String, Role),
+  main src/tui/transcript.rs:522: /// The same for a text made of runs that mean different things, with the
+  main src/tui/transcript.rs:523: /// runs beside it ([`Transcript::queue_push_runs`]). One operation, so the
+  main src/tui/transcript.rs:524: /// line it writes lands once rather than once per part.
+  main src/tui/transcript.rs:525: Runs(String, Roles),
+  main src/tui/transcript.rs:526: /// The line ended. Carries no bytes of its own and is queued anyway,
+  main src/tui/transcript.rs:527: /// because it is a **state transition**: the line it closes stops being
+  main src/tui/transcript.rs:528: /// rewritable, and the text after it starts a row of its own.
+  main src/tui/transcript.rs:529: EndLine,
+  main src/tui/transcript.rs:530: /// Lines from here on carry this gutter. Queued only at a line boundary
+  main src/tui/transcript.rs:531: /// ([`Transcript::queue_gutter`]), so no row already on the screen is
+src/tui/event_loop.rs cites frame.rs:1615-1628 for the escape `place()` writes once per document row
+  at the head: 12004:    /// escape `place()` (`frame.rs:1615-1628`) writes once per document row,
+  main src/tui/frame.rs:1615: }
+  main src/tui/frame.rs:1616: }
+  main src/tui/frame.rs:1617: for _ in 0..scroll - fresh {
+  main src/tui/frame.rs:1618: scroll_one(&mut self.buffer, geometry);
+  main src/tui/frame.rs:1619: self.target.scroll_up(1);
+  main src/tui/frame.rs:1620: }
+  main src/tui/frame.rs:1621: // A settled row is reused -- neither emitted nor re-placed onto
+  main src/tui/frame.rs:1622: // `target` -- only when every fact this frame carries about the
+  main src/tui/frame.rs:1623: // screen says the row is already sitting where it is about to be
+  main src/tui/frame.rs:1624: // placed again: undamaged, the same terminal size and the same
+  main src/tui/frame.rs:1625: // band top as the frame that landed last, and no extra blank scroll
+  main src/tui/frame.rs:1626: // ahead of it (`scroll != fresh` means `Transcript` handed back more
+  main src/tui/frame.rs:1627: // scroll than rows, which is not a screen this reasoning covers).
+  main src/tui/frame.rs:1628: // Row-by-row it still costs a real rendered-cell comparison
+12 references, each naming other code on main

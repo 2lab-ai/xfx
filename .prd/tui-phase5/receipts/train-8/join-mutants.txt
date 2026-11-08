@@ -1,0 +1,16 @@
+# c4bb4c7f Merge FLAKE-MCPMODE-F (fix/p5-flake-mcpmode-f @ 6a9a6a9d) into train 8; limit 600 s a mutant
+unchanged: exit 0; join ok; session ok
+G1 a row laid from any text answers for every text (GRID-ROW-COST's G1): KILLED; join FAILED; session FAILED
+    join said: the stop's own end, a long call started: a vector was refused: Some(Custom { kind: Other, error: "output check refused a cell the vector did not leave as intended at byte 18 (row 24, column 3)" }) / note: run with `RUST_
+    session said: a long call started: a vector was refused: Some(Custom { kind: Other, error: "output check refused a cell the vector did not leave as intended at byte 18 (row 24, column 3)" })
+G4 an erased row keeps its text (GRID-ROW-COST's G4): KILLED; join ok; session FAILED
+    session said: assertion `left == right` failed: collapse switched on: rows that are not what their text lays / left: [26, 27, 28, 29, 30] / right: []
+G7 a placement remembers no text (GRID-ROW-COST's G7): KILLED; join FAILED; session FAILED
+    join said: assertion `left == right` failed: each: the long rows laid from their text before the stop; nothing held written while held; then the held read written, the late text only with a finish, and the long rows known by their 
+    session said: no row on the screen was laid from a long call's text / note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+S1 the stop's held tool rows dropped, never written: KILLED; join FAILED; session ok
+    join said: assertion `left == right` failed: each: the long rows laid from their text before the stop; nothing held written while held; then the held read written, the late text only with a finish, and the long rows known by their 
+S2 a tool row read behind held text written at once, ahead of it: KILLED; join FAILED; session ok
+    join said: assertion `left == right` failed: each: the long rows laid from their text before the stop; nothing held written while held; then the held read written, the late text only with a finish, and the long rows known by their 
+# 5 of 5 killed; clone clean after: True
+# jobs-b done at 2026-11-08T19:39:21Z, load 3.75

@@ -1,0 +1,12 @@
+commit c4bb4c7f293c45f7f3ca20d20bf011e43d53cc9b
+Merge: 387a0104 6a9a6a9d
+
+Merge FLAKE-MCPMODE-F (fix/p5-flake-mcpmode-f @ 6a9a6a9d) into train 8
+
+Stacked on FLAKE-MCPMODE 2971aeff (merge 2): mcphttp keeps the read
+error a mode file failed with, the deadline tests (the malformed and
+hostile modes bound at 1800 ms), and the unit's receipt scripts with
+their local paths taken out.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+

@@ -1,0 +1,11 @@
+## join check 4: the network
+# net-clone at c4bb4c7f
+# logger pid 93495, 127.0.0.1:<ephemeral>; HTTPS_PROXY, https_proxy, HTTP_PROXY, http_proxy at it; NO_PROXY, no_proxy, ALL_PROXY, all_proxy unset
+## lib: `cargo test --locked --lib --no-fail-fast` exit 0, 86 s
+   test result: ok. 4543 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 45.47s
+   connections logged during it: 2
+     2 x CONNECT w.example:443 HTTP/1.1
+## tui: `cargo test --locked --test tui --no-fail-fast` exit 0, 28 s
+   test result: ok. 181 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.15s
+   connections logged during it: 0
+# logger 93495 ended (-15)

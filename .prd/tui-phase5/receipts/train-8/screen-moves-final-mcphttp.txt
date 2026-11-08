@@ -1,0 +1,3 @@
+snaps whose screen differs only in clock-like or run-local text: 25; otherwise: 0
+  of them, snaps where fx's screen moved at the same rows as xfx's: 0 snaps
+  snaps where xfx's screen moved alone or at other rows than fx's: 0

@@ -1,0 +1,164 @@
+# head 3bf99857; sides: main 58c92ba2, grid-row-cost a3f90ef5, flake-mcpmode 2971aeff, flake-mcpmode-f 6a9a6a9d
+docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:888]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:196]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+docs/parity.md:96	[scripts/fxcap/parity-ledger.toml:307]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+docs/parity.md:99	[scripts/fxcap/parity-ledger.toml:432]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+docs/parity.md:107	[scripts/fxcap/parity-ledger.toml:123]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+docs/parity.md:109	[scripts/fxcap/parity-ledger.toml:913]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+docs/parity.md:113	[scripts/fxcap/parity-ledger.toml:349]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+docs/parity.md:115	[scripts/fxcap/parity-ledger.toml:70, scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:236, scripts/fxcap/parity-ledger.toml:267, scripts/fxcap/parity-ledger.toml:280, scripts/fxcap/parity-ledger.toml:294, scripts/fxcap/parity-ledger.toml:321, scripts/fxcap/parity-ledger.toml:335, scripts/fxcap/parity-ledger.toml:418]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+docs/parity.md:118	[scripts/fxcap/parity-ledger.toml:61]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+docs/parity.md:120	[scripts/fxcap/parity-ledger.toml:182, scripts/fxcap/parity-ledger.toml:335]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+docs/parity.md:158	[scripts/fxcap/parity-ledger.toml:562, scripts/fxcap/parity-ledger.toml:573]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+docs/parity.md:160	[scripts/fxcap/parity-ledger.toml:776]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+docs/parity.md:172	[scripts/fxcap/parity-ledger.toml:877]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+docs/parity.md:177	[scripts/fxcap/parity-ledger.toml:740]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+docs/parity.md:210	[scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:321]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+docs/parity.md:216	[scripts/fxcap/parity-ledger.toml:712]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+docs/parity.md:237	[scripts/fxcap/parity-ledger.toml:450, scripts/fxcap/parity-ledger.toml:505, scripts/fxcap/parity-ledger.toml:519, scripts/fxcap/parity-ledger.toml:533]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+docs/parity.md:238	[scripts/fxcap/parity-ledger.toml:139, scripts/fxcap/parity-ledger.toml:363, scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:387, scripts/fxcap/parity-ledger.toml:391, scripts/fxcap/parity-ledger.toml:405, scripts/fxcap/parity-ledger.toml:463, scripts/fxcap/parity-ledger.toml:491, scripts/fxcap/parity-ledger.toml:788]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+docs/parity.md:243	[scripts/fxcap/parity-ledger.toml:250]
+    main* = row | grid-row-cost* = row | flake-mcpmode* = row | flake-mcpmode-f* = row
+scripts/check-xfx-identity.sh:5	[docs/parity.md:241]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+scripts/fxcap/capture.sh:315-317	[scripts/fxcap/parity-ledger.toml:85]
+    main* -> 317-319 MOVED | grid-row-cost -> 341-343 | flake-mcpmode -> 339-341 | flake-mcpmode-f -> 339-341
+scripts/fxcap/capture.sh:521	[scripts/fxcap/parity-ledger.toml:78]
+    main* -> 538 MOVED | grid-row-cost -> 598 | flake-mcpmode -> 581 | flake-mcpmode-f -> 581
+scripts/fxcap/capture.sh:952	[scripts/fxcap/parity-ledger.toml:147]
+    main* -> 973 MOVED | grid-row-cost -> 1058 | flake-mcpmode -> 1033 | flake-mcpmode-f -> 1033
+scripts/fxcap/cells.py:12-14	[scripts/fxcap/parity-ledger.toml:53]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/agent/machine.rs:78-85	[docs/parity.md:237]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/config/schema.rs:545-550	[docs/parity.md:93]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/gateway/mod.rs:59	[scripts/fxcap/parity-ledger.toml:640, scripts/fxcap/parity-ledger.toml:650, docs/parity.md:237]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/gateway/mod.rs:994-995	[docs/parity.md:237]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/image.rs:101	[scripts/fxcap/parity-ledger.toml:740]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/markdown/theme.rs:49	[scripts/fxcap/parity-ledger.toml:250]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/markdown/theme.rs:69	[scripts/fxcap/parity-ledger.toml:250]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/mcp/runtime.rs:90	[scripts/fxcap/parity-ledger.toml:1124]
+    main* = | grid-row-cost = | flake-mcpmode = | flake-mcpmode-f =
+src/mcp/transport.rs:1318-1320	[docs/parity.md:221]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/permission/authority.rs:38-41	[scripts/fxcap/parity-ledger.toml:866]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/permission/authority.rs:737	[scripts/fxcap/parity-ledger.toml:450]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/permission/authority.rs:1145-1149	[scripts/fxcap/parity-ledger.toml:866]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/permission/slash.rs:466	[scripts/fxcap/parity-ledger.toml:774]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/provider/mod.rs:116	[scripts/fxcap/parity-ledger.toml:762]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/proxy/server.rs:1583-1613	[docs/parity.md:114]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/session/store.rs:74	[docs/parity.md:48]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/session/store.rs:1000	[scripts/fxcap/parity-ledger.toml:670]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/sound.rs:37	[scripts/fxcap/parity-ledger.toml:911]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/tools/mcp.rs:422-428	[scripts/fxcap/parity-ledger.toml:1077, docs/parity.md:176]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/tools/mutate.rs:437-442	[scripts/fxcap/parity-ledger.toml:571, docs/parity.md:158]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/tools/question.rs:25	[scripts/fxcap/parity-ledger.toml:661]
+    main* = | grid-row-cost* = | flake-mcpmode = | flake-mcpmode-f =
+src/tools/question.rs:57-73	[docs/parity.md:242]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/tools/read.rs:1162	[scripts/fxcap/parity-ledger.toml:571, docs/parity.md:158]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/tools/spec.rs:214	[scripts/fxcap/parity-ledger.toml:868]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/tui/approval_view.rs:106	[scripts/fxcap/parity-ledger.toml:923]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/tui/approval_view.rs:685	[scripts/fxcap/parity-ledger.toml:774, scripts/fxcap/parity-ledger.toml:797, scripts/fxcap/parity-ledger.toml:809, scripts/fxcap/parity-ledger.toml:820, scripts/fxcap/parity-ledger.toml:831, scripts/fxcap/parity-ledger.toml:854, scripts/fxcap/parity-ledger.toml:899]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/tui/approval_view.rs:971-976	[scripts/fxcap/parity-ledger.toml:463]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/tui/approval_view.rs:1224	[scripts/fxcap/parity-ledger.toml:981]
+    main* = | grid-row-cost* = | flake-mcpmode changed | flake-mcpmode-f changed
+src/tui/frame.rs:2749	[scripts/fxcap/parity-ledger.toml:533]
+    main* -> 2757 MOVED | grid-row-cost* = | flake-mcpmode -> 2757 | flake-mcpmode-f -> 2757
+src/tui/full_transcript.rs:495	[scripts/fxcap/parity-ledger.toml:363]
+    main* = | grid-row-cost* = | flake-mcpmode -> 498 | flake-mcpmode-f -> 498
+src/tui/full_transcript.rs:3005	[scripts/fxcap/parity-ledger.toml:491, scripts/fxcap/parity-ledger.toml:981]
+    main* -> 3010 MOVED | grid-row-cost* = | flake-mcpmode -> 3548 | flake-mcpmode-f -> 3548
+src/tui/full_transcript.rs:3056	[scripts/fxcap/parity-ledger.toml:505, scripts/fxcap/parity-ledger.toml:519]
+    main* -> 3061 MOVED | grid-row-cost* = | flake-mcpmode -> 3599 | flake-mcpmode-f -> 3599
+src/tui/gesture.rs:162-164	[scripts/fxcap/parity-ledger.toml:1111]
+    main* = | grid-row-cost = | flake-mcpmode = | flake-mcpmode-f =
+src/tui/gesture.rs:176-188	[scripts/fxcap/parity-ledger.toml:1099, scripts/fxcap/parity-ledger.toml:1111]
+    main* = | grid-row-cost = | flake-mcpmode = | flake-mcpmode-f =
+src/tui/grid.rs:933	[scripts/fxcap/parity-ledger.toml:958]
+    main* -> 1088 MOVED | grid-row-cost* = | flake-mcpmode -> 1088 | flake-mcpmode-f -> 1088
+src/tui/layout.rs:91	[scripts/fxcap/parity-ledger.toml:946, scripts/fxcap/parity-ledger.toml:994]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/tui/mcp_menu.rs:786-791	[scripts/fxcap/parity-ledger.toml:1123]
+    main* = | grid-row-cost = | flake-mcpmode = | flake-mcpmode-f =
+src/tui/mcp_menu.rs:1500	[scripts/fxcap/parity-ledger.toml:432]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/tui/mod.rs:127-133	[scripts/fxcap/parity-ledger.toml:1086]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/tui/retry.rs:369-381	[docs/parity.md:237]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/tui/settings.rs:361	[scripts/fxcap/parity-ledger.toml:911]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/tui/shell.rs:187	[scripts/fxcap/parity-ledger.toml:44, scripts/fxcap/parity-ledger.toml:45]
+    main* = | grid-row-cost -> 189 | flake-mcpmode -> 189 | flake-mcpmode-f -> 189
+src/tui/shell.rs:1756	[scripts/fxcap/parity-ledger.toml:935]
+    main* = | grid-row-cost -> 1868 | flake-mcpmode -> 1868 | flake-mcpmode-f -> 1868
+src/tui/shell.rs:4333	[scripts/fxcap/parity-ledger.toml:1046]
+    main* = | grid-row-cost -> 4568 | flake-mcpmode -> 4568 | flake-mcpmode-f -> 4568
+src/tui/shell.rs:10194	[scripts/fxcap/parity-ledger.toml:843, scripts/fxcap/parity-ledger.toml:845]
+    main* = | grid-row-cost changed | flake-mcpmode changed | flake-mcpmode-f changed
+src/tui/shell.rs:13112	[scripts/fxcap/parity-ledger.toml:551]
+    main* = | grid-row-cost -> 13676 | flake-mcpmode -> 13682 | flake-mcpmode-f -> 13682
+src/tui/shell.rs:13423	[scripts/fxcap/parity-ledger.toml:505]
+    main* = | grid-row-cost -> 13987 | flake-mcpmode -> 13993 | flake-mcpmode-f -> 13993
+src/tui/shell.rs:16321	[scripts/fxcap/parity-ledger.toml:969]
+    main* = | grid-row-cost -> 17049 | flake-mcpmode -> 17055 | flake-mcpmode-f -> 17055
+src/tui/shell.rs:38615	[scripts/fxcap/parity-ledger.toml:786, scripts/fxcap/parity-ledger.toml:797, scripts/fxcap/parity-ledger.toml:809, scripts/fxcap/parity-ledger.toml:820, scripts/fxcap/parity-ledger.toml:831, scripts/fxcap/parity-ledger.toml:899]
+    main* = | grid-row-cost -> 39472 | flake-mcpmode -> 39600 | flake-mcpmode-f -> 39600
+src/tui/toolgroup.rs:922	[scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:854]
+    main* -> 940 MOVED | grid-row-cost -> 955 | flake-mcpmode -> 1142 | flake-mcpmode-f -> 1142
+src/tui/toolgroup.rs:999	[scripts/fxcap/parity-ledger.toml:391]
+    main* -> 1017 MOVED | grid-row-cost -> 1032 | flake-mcpmode -> 1219 | flake-mcpmode-f -> 1219
+src/tui/toolgroup.rs:1113	[scripts/fxcap/parity-ledger.toml:405]
+    main* -> 1131 MOVED | grid-row-cost -> 1146 | flake-mcpmode -> 1333 | flake-mcpmode-f -> 1333
+src/tui/usage_menu.rs:790	[scripts/fxcap/parity-ledger.toml:349]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+src/tui/wrap.rs:673-693	[scripts/fxcap/parity-ledger.toml:958]
+    main* = | grid-row-cost* = | flake-mcpmode changed | flake-mcpmode-f changed
+src/tui/wrap.rs:726	[scripts/fxcap/parity-ledger.toml:477]
+    main* = | grid-row-cost* = | flake-mcpmode -> 895 | flake-mcpmode-f -> 895
+tests/e2e/file-tool-paths.test.ts:1170-1179	[docs/parity.md:218]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+tests/tla/session_manager/system-design.md:1536-1560	[docs/parity.md:92]
+    main* = | grid-row-cost* = | flake-mcpmode* = | flake-mcpmode-f* =
+# 81 references; 10 (side, reference) pairs MOVED; * = the side's own text cites it

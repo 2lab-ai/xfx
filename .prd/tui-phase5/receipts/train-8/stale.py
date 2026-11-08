@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
-"""The references refs_all.py and refs_short.py still flag at the head outside
-the historical plans (`docs/superpowers/plans/`), each shown against `main`
-(690aa505): the citing line at the head, and the line or lines the reference
-names in `main`'s copy of the cited file. Each names other code on `main`
-already -- stale before this train -- so the merges did not move what it is
-about, and it is not re-pointed here.
+"""The references that name other code on `main` (58c92ba2) already -- stale
+before this train -- each shown against `main`: the citing line at the head,
+and the line or lines the reference names in `main`'s copy of the cited
+file. Train 7's stale.py with `main` moved to 58c92ba2.
 
-Train 7: train 6's eleven, one of them as STOP-NEXT-2 re-pointed it
-(`event_loop.rs:959-962` -> `:972-975`, by line mapping, in its round 2),
-shown also against the head's lines it now names.
+Train 7's eleven (its stale.txt), one of them -- `wrap.rs`'s `check.rs:1689-1694`
+-- re-pointed by this train's re-point commit to `:1808-1813`, where the same
+lines of main are at the head (GRID-ROW-COST moved them), so still naming
+what it named on main; and one more this train's scans flag:
+`event_loop.rs`'s `frame.rs:1615-1628`, for the escape `place()` writes, which
+names the reuse comment of `render_append_recorded` on main (`place` is
+`frame.rs:2749` there), and whose lines GRID-ROW-COST rewrote (its comment
+now names `Grid::row_holds`), so it cannot be mapped (refs_short.py:
+`CHANGED`). Left for REF-LINT, as train 7 left its eleven.
 
     python3 -I -B stale.py <repo> <head>
 """
 import subprocess
 import sys
 
-MAIN = "690aa505"
+MAIN = "58c92ba2"
 REFS = [
     # citing file, the text that cites, cited path, first, last, what the citation says the code is
     ("scripts/smoke-tui.sh", "src/tui/check.rs:1084", "src/tui/check.rs", 1084, 1084, "what the oracle licenses (train 4: stale since 9acf15d1)"),
@@ -28,11 +32,13 @@ REFS = [
      "STOP-NEXT-2's re-point of main's `:959-962`, the head's lines below"),
     ("src/tui/event_loop.rs", "shell.rs:2706", "src/tui/shell.rs", 2706, 2706, "`InsertNewline`"),
     ("src/tui/shell.rs", "shell.rs:5816", "src/tui/shell.rs", 5816, 5816, "how the too-small assertions read it"),
-    ("src/tui/wrap.rs", "check.rs:1689-1694", "src/tui/check.rs", 1689, 1694, "the check handing wrap a segmented ASCII run"),
+    ("src/tui/wrap.rs", "check.rs:1808-1813", "src/tui/check.rs", 1689, 1694, "the check handing wrap a segmented ASCII run (main's `:1689-1694`, re-pointed by line)"),
     # Train 6: two more, flagged because T-U4 moved main's lines under them;
     # each names other code on main (`MAX_TAIL_ROWS` is main's line 347).
     ("src/tui/event_loop.rs", "transcript.rs:136", "src/tui/transcript.rs", 136, 136, "`MAX_TAIL_ROWS` (256)"),
     ("src/tui/event_loop.rs", "transcript.rs:505-531", "src/tui/transcript.rs", 505, 531, "the transcript adopting only on `Landed::All`"),
+    # Train 8: GRID-ROW-COST rewrote lines inside this one's range.
+    ("src/tui/event_loop.rs", "frame.rs:1615-1628", "src/tui/frame.rs", 1615, 1628, "the escape `place()` writes once per document row"),
 ]
 
 
