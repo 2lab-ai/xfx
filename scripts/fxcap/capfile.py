@@ -162,7 +162,7 @@ TIMERS = (
         "src/core/app/app_permission_runtime.zig:21@481104fd",
         launch=re.compile(r'(?i)PERMISSION_MODE=(?:yolo|full-access)\b|"permission_mode"\s*:\s*"(?:yolo|full[- ]access)"'),
         # The cues, the menu and the full transcript keep the warning off the
-        # row (xfx `warning_shown`, src/tui/shell.rs:14603-14628, the full
+        # row (xfx `warning_shown`, src/tui/shell.rs:14745-14770, the full
         # transcript at :14621-14623; fx `dangerStatusText`,
         # src/ui/footer/input_presentation.zig:581-600, and
         # `yolo_warning_visible`, app_render_runtime.zig:1849-1850@481104fd),

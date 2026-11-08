@@ -1,0 +1,403 @@
+# fx v0.0.16 (481104fd) text for every fx citation SUBMIT-CARD-PREVIEW adds. Each block: the command (repo = the fx
+# upstream checkout, read through git show at the pin, never its working tree), then the lines with their numbers.
+# The behaviour is 70611a91 "Show a submitted prompt immediately on a full screen" (git show --stat 70611a91 in the same
+# checkout): "A multi-line prompt on a full screen previews its last line until the full card is written."
+
+## F1: the pending card is the newest rows that fit between the flow endpoint and the fixed content bottom, at least one; a mid-line endpoint takes the two-row separator
+
+### git -C fx-upstream show 481104fd:src/core/app/app_render_runtime.zig | sed -n '152,166p'
+  152  const PendingCardProjection = struct {
+  153      bytes: []u8,
+  154      row_count: u16,
+  155      paint_row_count: u16,
+  156      leading_advance_rows: u16,
+  157  
+  158      fn overlaps_flow_endpoint(self: PendingCardProjection, cursor_col: u16) bool {
+  159          return self.leading_advance_rows == 0 and cursor_col > 1;
+  160      }
+  161  
+  162      fn deinit(self: *PendingCardProjection, alloc: std.mem.Allocator) void {
+  163          alloc.free(self.bytes);
+  164          self.* = undefined;
+  165      }
+  166  };
+
+### git -C fx-upstream show 481104fd:src/core/app/app_render_runtime.zig | sed -n '209,277p'
+  209  // A mid-line flow endpoint always takes the canonical user-turn separator,
+  210  // even at the content bottom: the frame scrolls to reserve the card rows, so
+  211  // the preview starts on a fresh row instead of overwriting the endpoint.
+  212  fn pendingCardLeadingAdvanceRows(cursor_col: u16) u16 {
+  213      if (cursor_col == 1) return 0;
+  214      return render_engine.transcript_blocks.blockSeparatorNewlineCount(
+  215          .unknown_raw,
+  216          .user_turn,
+  217      );
+  218  }
+  219  
+  220  fn buildPendingCardProjection(
+  221      comptime App: type,
+  222      app: *App,
+  223      presentation_shell: *const transcript_runtime.TranscriptRuntime,
+  224      checkpoint: ?*build_checkpoint.BuildCheckpoint,
+  225  ) !?PendingCardProjection {
+  226      if (comptime !@hasField(App, "submission")) return null;
+  227      const pending = app.submission.pending orelse return null;
+  228      switch (pending.phase) {
+  229          .awaiting_frame, .awaiting_adoption => {},
+  230          .adopted, .awaiting_auth, .queued => return null,
+  231      }
+  232  
+  233      const spans = pending.draft.skill_display_spans;
+  234      const skill_tokens: []registered_entities.SkillTokenSpan = if (spans.len == 0)
+  235          &.{}
+  236      else
+  237          try app.alloc.alloc(registered_entities.SkillTokenSpan, spans.len);
+  238      defer if (skill_tokens.len > 0) app.alloc.free(skill_tokens);
+  239      for (spans, 0..) |span, index| {
+  240          skill_tokens[index] = .{
+  241              .raw_start = span.raw_start,
+  242              .raw_end = span.raw_end,
+  243              .name = span.name,
+  244              .path = span.path,
+  245              .display_source = span.display_source,
+  246              .owns_trailing_separator = span.owns_trailing_separator,
+  247          };
+  248      }
+  249  
+  250      const cursor_row = @min(
+  251          @max(presentation_shell.cursor_row, 1),
+  252          presentation_shell.layout.content_bottom,
+  253      );
+  254      const leading_advance_rows = pendingCardLeadingAdvanceRows(presentation_shell.cursor_col);
+  255      const available_rows = presentation_shell.layout.content_bottom - cursor_row + 1 -| leading_advance_rows;
+  256      const card = try user_message_card.buildUserPromptCardTailForTerminalPresentationInterruptible(
+  257          app.alloc,
+  258          pending.draft.prompt,
+  259          pending.draft.images,
+  260          presentation_shell.layout.cols,
+  261          skill_tokens,
+  262          @max(available_rows, 1),
+  263          checkpoint,
+  264      );
+  265      defer app.alloc.free(card);
+  266      if (card.len == 0) return null;
+  267      const bytes = try pendingCardTerminalWireBytes(app.alloc, card);
+  268      const rendered_line_count: u16 = @intCast(@min(
+  269          std.mem.count(u8, card, "\n"),
+  270          @as(usize, std.math.maxInt(u16)),
+  271      ));
+  272      const paint_row_count = rendered_line_count;
+  273      const row_count = rendered_line_count +| leading_advance_rows;
+  274      if (row_count == 0) {
+  275          app.alloc.free(bytes);
+  276          return error.EmptyPendingPromptCard;
+  277      }
+
+## F2: the content bottom is fixed at rows - 4, whatever the band holds
+
+### git -C fx-upstream show 481104fd:src/main.zig | sed -n '173,173p'
+  173  const footer_rows: u16 = 4;
+
+### git -C fx-upstream show 481104fd:src/ui/terminal/terminal.zig | sed -n '47,59p'
+   47  pub fn layoutFromSize(rows: u16, cols: u16, footer_rows: u16) !types.Layout {
+   48      if (rows <= footer_rows) return error.TerminalTooSmall;
+   49  
+   50      return .{
+   51          .rows = rows,
+   52          .cols = cols,
+   53          .content_bottom = rows - footer_rows,
+   54          .divider_top_row = rows - 3,
+   55          .input_row = rows - 2,
+   56          .divider_bottom_row = rows - 1,
+   57          .hint_row = rows,
+   58      };
+   59  }
+
+## F3: the tail builder keeps the newest max_rows visual rows of the card, with the card's own formatting (linked image badges)
+
+### git -C fx-upstream show 481104fd:src/ui/assistant/user_message_card.zig | sed -n '145,165p'
+  145  pub fn buildUserPromptCardTailForTerminalPresentationInterruptible(
+  146      alloc: std.mem.Allocator,
+  147      text: []const u8,
+  148      images: []const types.ImageAttachment,
+  149      cols: u16,
+  150      skill_tokens: []const visual_layout.SkillTokenSpan,
+  151      max_rows: usize,
+  152      checkpoint: ?*build_checkpoint.BuildCheckpoint,
+  153  ) ![]u8 {
+  154      // The pending-frame path retains only the newest rows that fit its current
+  155      // transcript band; canonical formatting remains shared with ordinary turns.
+  156      return buildUserPromptCardWithSkillTokensAndLinksInterruptible(
+  157          alloc,
+  158          text,
+  159          images,
+  160          cols,
+  161          skill_tokens,
+  162          true,
+  163          checkpoint,
+  164          max_rows,
+  165      );
+
+### git -C fx-upstream show 481104fd:src/ui/assistant/user_message_card.zig | sed -n '304,316p'
+  304  fn appendVisibleRow(
+  305      alloc: std.mem.Allocator,
+  306      rows: *std.ArrayList([]const u8),
+  307      content: []const u8,
+  308      max_rows: ?usize,
+  309  ) !void {
+  310      if (max_rows) |limit| {
+  311          if (limit == 0) return;
+  312          if (rows.items.len == limit) {
+  313              alloc.free(rows.orderedRemove(0));
+  314          }
+  315      }
+  316      try appendRow(alloc, rows, content);
+
+## F4: the frame reserves the tail's rows in the transcript flow; the canonical transcript gets the area left, at least the endpoint row, and scrolls to keep its endpoint in it
+
+### git -C fx-upstream show 481104fd:src/core/app/app_render_runtime.zig | sed -n '1264,1271p'
+ 1264              var pending_card = if (!render_reconciliation.alternate_screen_owns_rendering)
+ 1265                  try buildPendingCardProjection(App, app, presentation_shell, checkpoint)
+ 1266              else
+ 1267                  null;
+ 1268              const pending_submission_card = pending_card != null;
+ 1269              if (pending_card == null and !render_reconciliation.alternate_screen_owns_rendering) {
+ 1270                  pending_card = try buildPendingSteeringCardProjection(app.alloc, presentation_shell, steering, checkpoint);
+ 1271              }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_render_runtime.zig | sed -n '373,386p'
+  373  fn previewWithPendingCard(
+  374      preview: render_engine.frame_layout.TranscriptFlowPreview,
+  375      pending: ?PendingCardProjection,
+  376  ) render_engine.frame_layout.TranscriptFlowPreview {
+  377      const card = pending orelse return preview;
+  378      var next = preview;
+  379      next.natural_visual_rows +|= card.row_count;
+  380      next.cursor_row +|= card.row_count;
+  381      next.cursor_col = 1;
+  382      next.replaceable_row = next.cursor_row;
+  383      next.tail_kind = .user_turn;
+  384      next.replaceable_active = false;
+  385      next.trailing_boundary_blank_rows = 0;
+  386      next.footer_boundary_gap_rows = 0;
+
+### git -C fx-upstream show 481104fd:src/core/app/app_render_runtime.zig | sed -n '2112,2155p'
+ 2112              candidate: render_engine.frame_layout.FrameLayout,
+ 2113          ) !render_engine.frame_fixed_point.CandidatePreparation {
+ 2114              if (self.prepared_transcript.*) |*prepared| {
+ 2115                  prepared.deinit(self.app.alloc);
+ 2116                  self.prepared_transcript.* = null;
+ 2117              }
+ 2118              self.resolved_target.* = null;
+ 2119              self.scroll_facts = null;
+ 2120              if (!self.prepare_transcript or candidate.transcript_area.isEmpty()) return .{
+ 2121                  .inline_advance_rows = 0,
+ 2122                  .occupied_transcript_rows = candidate.transcript_area.height(),
+ 2123              };
+ 2124              const source = self.source orelse return error.MissingTranscriptPreparationSource;
+ 2125              const canonical_area = transcriptAreaBeforePendingTail(
+ 2126                  candidate.transcript_area,
+ 2127                  self.pending_tail_rows,
+ 2128              );
+ 2129  
+ 2130              self.prepared_transcript.* = try self.presentation_shell.prepareTranscriptSurfacePaintFromSourceForFrame(
+ 2131                  self.app.alloc,
+ 2132                  &self.app.metrics,
+ 2133                  source,
+ 2134                  canonical_area,
+ 2135                  self.footer_reservation_changed,
+ 2136              );
+ 2137              const prepared = &self.prepared_transcript.*.?;
+ 2138              const scroll_facts = try self.presentation_shell.prepareTranscriptScrollFactsForFrame(
+ 2139                  self.app.alloc,
+ 2140                  source,
+ 2141                  prepared,
+ 2142                  self.footer_reservation_changed,
+ 2143                  self.replay_displaced_footer_history,
+ 2144              );
+ 2145              self.scroll_facts = scroll_facts;
+ 2146              const canonical_occupied_rows = if (prepared.selection.last_visible_row >= canonical_area.top)
+ 2147                  prepared.selection.last_visible_row - canonical_area.top + 1
+ 2148              else
+ 2149                  0;
+ 2150              return .{
+ 2151                  .inline_advance_rows = scroll_facts.planned_rows,
+ 2152                  .occupied_transcript_rows = @min(
+ 2153                      canonical_occupied_rows +| self.pending_tail_rows,
+ 2154                      candidate.transcript_area.height(),
+ 2155                  ),
+
+### git -C fx-upstream show 481104fd:src/core/app/app_render_runtime.zig | sed -n '2230,2238p'
+ 2230  fn transcriptAreaBeforePendingTail(
+ 2231      area: render_engine.frame_layout.FrameRect,
+ 2232      tail_rows: u16,
+ 2233  ) render_engine.frame_layout.FrameRect {
+ 2234      if (area.isEmpty() or tail_rows == 0) return area;
+ 2235      // A tail taller than the band still leaves the flow endpoint row. Without
+ 2236      // it the frame seals no transcript transition, and adoption would rebase
+ 2237      // onto rows that never reached scrollback.
+ 2238      const canonical_rows = @max(area.height() -| tail_rows, 1);
+
+## F5: the paint: from the endpoint row plus the separator, cut to the transcript band less the blank row over the activity row; the trace line the captures read
+
+### git -C fx-upstream show 481104fd:src/core/app/app_render_runtime.zig | sed -n '168,192p'
+  168  const PendingCardPaintContext = struct {
+  169      bytes: []const u8,
+  170      row: u16,
+  171      max_rows: u16,
+  172  
+  173      fn init(
+  174          card: PendingCardProjection,
+  175          band: render_engine.paint_plan.FrameBand,
+  176          canonical_cursor_row: ?u16,
+  177          activity_visible: bool,
+  178      ) ?PendingCardPaintContext {
+  179          if (band.isEmpty()) return null;
+  180          const row = if (canonical_cursor_row) |base|
+  181              @max(base +| card.leading_advance_rows, band.top)
+  182          else
+  183              band.top;
+  184          if (row > band.bottom) return null;
+  185          const blank_rows: u16 = @intFromBool(activity_visible and band.bottom > row);
+  186          const bottom = band.bottom - blank_rows;
+  187          const max_rows = @min(card.paint_row_count, bottom - row + 1);
+  188          if (max_rows == 0) return null;
+  189          var lines = std.mem.splitScalar(u8, card.bytes, '\n');
+  190          for (0..card.paint_row_count - max_rows) |_| _ = lines.next();
+  191          return .{ .bytes = lines.rest(), .row = row, .max_rows = max_rows };
+  192      }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_render_runtime.zig | sed -n '1680,1727p'
+ 1680                  pending_card.?.overlaps_flow_endpoint(prepared.cursor.cursor_col)
+ 1681              else
+ 1682                  false;
+ 1683              var pending_paint_ctx = if (pending_preview_overlaps_flow) null else if (pending_card) |card|
+ 1684                  PendingCardPaintContext.init(
+ 1685                      card,
+ 1686                      footer_frame.paint.transcript_band,
+ 1687                      if (prepared_transcript) |*prepared| prepared.cursor.cursor_row else null,
+ 1688                      !footer_frame.paint.activity_band.isEmpty(),
+ 1689                  )
+ 1690              else
+ 1691                  null;
+ 1692              // A band too short for the preview below the flow endpoint defers it
+ 1693              // the same way: adoption writes the real card.
+ 1694              const pending_preview_deferred = pending_submission_card and
+ 1695                  prepared_transcript != null and pending_paint_ctx == null;
+ 1696              if (pending_paint_ctx) |paint_ctx| switch (transcript_body) {
+ 1697                  .paint => {},
+ 1698                  .retain => |retained_source| {
+ 1699                      const first_changed_row = paint_ctx.row;
+ 1700                      if (first_changed_row <= retained_source.source_area.top) {
+ 1701                          transcript_body = .paint;
+ 1702                      } else if (first_changed_row <= retained_source.source_area.bottom) {
+ 1703                          var narrowed = retained_source;
+ 1704                          narrowed.source_area.bottom = first_changed_row - 1;
+ 1705                          narrowed.occupied_last_row = @min(
+ 1706                              narrowed.occupied_last_row,
+ 1707                              narrowed.source_area.bottom,
+ 1708                          );
+ 1709                          transcript_body = .{ .retain = narrowed };
+ 1710                      }
+ 1711                  },
+ 1712              };
+ 1713              if (pending_paint_ctx) |paint_ctx| {
+ 1714                  debug_trace.logf(
+ 1715                      "frame_plan",
+ 1716                      "pending_prompt_tail start={d} paint_rows={d} layout_rows={d} bytes={d} transcript={d}..{d} body={s}",
+ 1717                      .{
+ 1718                          paint_ctx.row,
+ 1719                          paint_ctx.max_rows,
+ 1720                          pending_card.?.row_count,
+ 1721                          paint_ctx.bytes.len,
+ 1722                          footer_frame.paint.transcript_band.top,
+ 1723                          footer_frame.paint.transcript_band.bottom,
+ 1724                          @tagName(transcript_body),
+ 1725                      },
+ 1726                  );
+ 1727              }
+
+## F6: the endpoint row the tail is measured from is the last committed frame's
+
+### git -C fx-upstream show 481104fd:src/ui/transcript/runtime.zig | sed -n '9929,9932p'
+ 9929                  self.last_visible_transcript_tail_kind = transition.selection.tail_kind;
+ 9930                  self.last_viewport_selection = transition.selection;
+ 9931                  self.cursor_row = transition.cursor_row;
+ 9932                  self.cursor_col = transition.cursor_col;
+
+## F7: when the card is written: the frame that shows the preview commits, the submission is adopted, the card is written into the transcript, and the next frame shows it
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n '16,22p'
+   16  pub const PendingPhase = enum {
+   17      awaiting_frame,
+   18      awaiting_adoption,
+   19      adopted,
+   20      awaiting_auth,
+   21      queued,
+   22  };
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n '59,69p'
+   59      fn markFrameCommitted(self: *PendingSubmission) bool {
+   60          if (self.phase != .awaiting_frame) return false;
+   61          self.phase = .awaiting_adoption;
+   62          return true;
+   63      }
+   64  
+   65      fn markAdopted(self: *PendingSubmission) PendingPhaseError!void {
+   66          if (self.phase != .awaiting_adoption) return error.InvalidPendingPhase;
+   67          self.phase = .adopted;
+   68      }
+   69  
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n '289,307p'
+  289          pub fn noteCommittedFrame(app: *App) void {
+  290              if (comptime !@hasField(App, "submission")) return;
+  291              const pending = if (app.submission.pending) |*value| value else return;
+  292              if (!pending.markFrameCommitted()) return;
+  293              debug_trace.eventf(
+  294                  "input",
+  295                  "pending_prompt_frame_committed",
+  296                  .{ .turn_id = pending.draft.turn_id },
+  297                  "",
+  298                  .{},
+  299              );
+  300              adoptPendingSubmission(app) catch |err| {
+  301                  debug_trace.eventf(
+  302                      "input",
+  303                      "pending_prompt_adoption_retry",
+  304                      .{ .turn_id = pending.draft.turn_id },
+  305                      "err={s}",
+  306                      .{@errorName(err)},
+  307                  );
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n '572,584p'
+  572              const pending = &app.submission.pending.?;
+  573              if (pending.phase != .awaiting_adoption) return error.InvalidPendingPhase;
+  574              if (comptime !@hasDecl(App, "adoptPendingUserPrompt")) {
+  575                  return error.PendingAdoptionUnsupported;
+  576              }
+  577              try App.adoptPendingUserPrompt(app, &pending.draft);
+  578              try pending.markAdopted();
+  579              debug_trace.eventf(
+  580                  "input",
+  581                  "pending_prompt_adopted",
+  582                  .{ .turn_id = pending.draft.turn_id },
+  583                  "",
+  584                  .{},
+
+### git -C fx-upstream show 481104fd:src/main.zig | sed -n '1234,1243p'
+ 1234      pub fn adoptPendingUserPrompt(
+ 1235          self: *App,
+ 1236          draft: *const input_submit_runtime.PendingPromptDraft,
+ 1237      ) !void {
+ 1238          try self.writeUserPromptCardWithSkillBindings(
+ 1239              .{ .text = draft.prompt, .images = draft.images },
+ 1240              &.{},
+ 1241              draft.skill_display_spans,
+ 1242          );
+ 1243      }
+
+### git -C fx-upstream show 481104fd:src/main.zig | sed -n '1277,1279p'
+ 1277      pub fn notePendingFrameCommitted(self: *App) void {
+ 1278          InputSubmitRuntime.noteCommittedFrame(self);
+ 1279      }

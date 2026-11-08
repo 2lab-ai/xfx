@@ -1,12 +1,12 @@
 # python3 -I -B check.py <repo> . red   (the base's build, 58c92ba2, against fx v0.0.16)
-FAIL   p5-submit-preview-first block frame1: 2 rows differ, 1 set aside
-         set aside row 36: '• Thinking' | '• Thinking (0s) (↑298 ↓0)'
+FAIL   p5-submit-preview-first block frame1: 2 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Thinking' | '• Thinking (0s) (↑298 ↓0)'
          row 1: '𝒇x v0.0.16 · Run /help for commands' | '┃ tall prompt body 26'
          row 2: '' | '┃ tall prompt body 27'
-ok     p5-submit-preview-first block frame2: 0 rows differ, 1 set aside
-         set aside row 36: '• Thinking' | '• Generating (0s) (↑298 ↓1)'
-FAIL   p5-submit-preview-fresh block frame1: 8 rows differ, 1 set aside
-         set aside row 36: '• Thinking' | '• Thinking (0s) (↑298 ↓0)'
+ok     p5-submit-preview-first block frame2: 0 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Thinking' | '• Generating (0s) (↑298 ↓1)'
+FAIL   p5-submit-preview-fresh block frame1: 8 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Thinking' | '• Thinking (0s) (↑298 ↓0)'
          row 1: '┃ fresh line one' | '┃ tall prompt body 26'
          row 2: '┃ fresh line two' | '┃ tall prompt body 27'
          row 3: '┃ fresh line three' | '┃ tall prompt body 28'
@@ -15,16 +15,16 @@ FAIL   p5-submit-preview-fresh block frame1: 8 rows differ, 1 set aside
          row 6: '' | '┃ tall prompt body 31'
          row 7: '  1s (↑13 ↓40)' | '┃ tall prompt body 32'
          row 8: '' | '┃ tall prompt body 33'
-ok     p5-submit-preview-fresh block frame2: 0 rows differ, 1 set aside
-         set aside row 36: '• Thinking' | '• Generating (0s) (↑298 ↓1)'
-ok     p5-submit-preview-fresh three frame1: 0 rows differ, 2 set aside
-         set aside row 1: '𝒇x v0.0.16 · Run /help for commands' | 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands'
-         set aside row 7: '• Thinking' | '• Thinking (0s) (↑13 ↓0)'
-ok     p5-submit-preview-fresh three frame2: 0 rows differ, 2 set aside
-         set aside row 1: '𝒇x v0.0.16 · Run /help for commands' | 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands'
-         set aside row 7: '• Thinking (0s)' | '• Generating (0s) (↑13 ↓2)'
-FAIL   p5-submit-preview-full block frame1: 33 rows differ, 1 set aside
-         set aside row 36: '• Thinking' | '• Thinking (0s) (↑298 ↓0)'
+ok     p5-submit-preview-fresh block frame2: 0 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Thinking' | '• Generating (0s) (↑298 ↓1)'
+ok     p5-submit-preview-fresh three frame1: 0 of 41 rows differ, 2 set aside
+         set aside (banner) row 1: '𝒇x v0.0.16 · Run /help for commands' | 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands'
+         set aside (activity) row 7: '• Thinking' | '• Thinking (0s) (↑13 ↓0)'
+ok     p5-submit-preview-fresh three frame2: 0 of 41 rows differ, 2 set aside
+         set aside (banner) row 1: '𝒇x v0.0.16 · Run /help for commands' | 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands'
+         set aside (activity) row 7: '• Thinking (0s)' | '• Generating (0s) (↑13 ↓2)'
+FAIL   p5-submit-preview-full block frame1: 33 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Thinking' | '• Thinking (0s) (↑298 ↓0)'
          row 1: '  Filler line 25 of the first answer.' | '┃ tall prompt body 26'
          row 2: '' | '┃ tall prompt body 27'
          row 3: '  Filler line 26 of the first answer.' | '┃ tall prompt body 28'
@@ -58,10 +58,10 @@ FAIL   p5-submit-preview-full block frame1: 33 rows differ, 1 set aside
          row 31: '' | '┃ tall prompt body 56'
          row 32: '  1s (↑10 ↓40)' | '┃ tall prompt body 57'
          row 33: '' | '┃ tall prompt body 58'
-ok     p5-submit-preview-full block frame2: 0 rows differ, 1 set aside
-         set aside row 36: '• Thinking' | '• Generating (0s) (↑298 ↓2)'
-FAIL   p5-submit-preview-full five frame1: 16 rows differ, 1 set aside
-         set aside row 36: '• Thinking' | '  Thinking (0s) (↑16 ↓0)'
+ok     p5-submit-preview-full block frame2: 0 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Thinking' | '• Generating (0s) (↑298 ↓2)'
+FAIL   p5-submit-preview-full five frame1: 16 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Thinking' | '  Thinking (0s) (↑16 ↓0)'
          row 2: '  Filler line 17 of the first answer.' | '  Filler line 18 of the first answer.'
          row 4: '  Filler line 18 of the first answer.' | '  Filler line 19 of the first answer.'
          row 6: '  Filler line 19 of the first answer.' | '  Filler line 20 of the first answer.'
@@ -78,10 +78,10 @@ FAIL   p5-submit-preview-full five frame1: 16 rows differ, 1 set aside
          row 28: '  Filler line 30 of the first answer.' | '  0s (↑4 ↓40)'
          row 30: '  0s (↑4 ↓40)' | '┃ five line one'
          row 31: '' | '┃ five line two'
-ok     p5-submit-preview-full five frame2: 0 rows differ, 1 set aside
-         set aside row 36: '• Thinking' | '  Generating (0s) (↑16 ↓1)'
-FAIL   p5-submit-preview-full image frame1: 33 rows differ, 1 set aside
-         set aside row 36: '• Thinking' | '  Thinking (0s) (↑10 ↓0)'
+ok     p5-submit-preview-full five frame2: 0 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Thinking' | '  Generating (0s) (↑16 ↓1)'
+FAIL   p5-submit-preview-full image frame1: 33 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Thinking' | '  Thinking (0s) (↑10 ↓0)'
          row 1: '' | '  Filler line 22 of the first answer.'
          row 2: '  Filler line 22 of the first answer.' | ''
          row 3: '' | '  Filler line 23 of the first answer.'
@@ -115,20 +115,20 @@ FAIL   p5-submit-preview-full image frame1: 33 rows differ, 1 set aside
          row 31: '' | '* images: attached image: shot.png'
          row 32: '* images: attached image: shot.png' | ''
          row 33: '' | '┃ [Image 1]image line one'
-ok     p5-submit-preview-full image frame2: 0 rows differ, 1 set aside
-         set aside row 36: '• Thinking' | '  Generating (0s) (↑10 ↓2)'
-FAIL   p5-submit-preview-notice block frame1: 2 rows differ, 1 set aside
-         set aside row 36: '• Thinking' | '• Thinking (0s) (↑301 ↓0)'
+ok     p5-submit-preview-full image frame2: 0 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Thinking' | '  Generating (0s) (↑10 ↓2)'
+FAIL   p5-submit-preview-notice block frame1: 2 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Thinking' | '• Thinking (0s) (↑301 ↓0)'
          row 1: '* images: attached image: shot.png' | '┃ tall prompt body 26'
          row 2: '' | '┃ tall prompt body 27'
-ok     p5-submit-preview-notice block frame2: 0 rows differ, 1 set aside
-         set aside row 36: '• Thinking' | '• Generating (0s) (↑301 ↓1)'
-ok     p5-transcript-submit submit frame1: 0 rows differ, 1 set aside
-         set aside row 36: '• Thinking' | '  Thinking (0s) (↑4 ↓0)'
-ok     p5-transcript-submit submit frame2: 0 rows differ, 1 set aside
-         set aside row 36: '• Thinking (0s)' | '  Generating (0s) (↑4 ↓2)'
-FAIL   p5-transcript-submit-multi submit frame1: 17 rows differ, 1 set aside
-         set aside row 36: '• Thinking' | '  Thinking (0s) (↑13 ↓0)'
+ok     p5-submit-preview-notice block frame2: 0 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Thinking' | '• Generating (0s) (↑301 ↓1)'
+ok     p5-transcript-submit submit frame1: 0 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Thinking' | '  Thinking (0s) (↑4 ↓0)'
+ok     p5-transcript-submit submit frame2: 0 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Thinking (0s)' | '  Generating (0s) (↑4 ↓2)'
+FAIL   p5-transcript-submit-multi submit frame1: 17 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Thinking' | '  Thinking (0s) (↑13 ↓0)'
          row 2: '  Filler line 16 of the first answer.' | '  Filler line 17 of the first answer.'
          row 4: '  Filler line 17 of the first answer.' | '  Filler line 18 of the first answer.'
          row 6: '  Filler line 18 of the first answer.' | '  Filler line 19 of the first answer.'
@@ -146,8 +146,8 @@ FAIL   p5-transcript-submit-multi submit frame1: 17 rows differ, 1 set aside
          row 30: '  Filler line 30 of the first answer.' | '  0s (↑4 ↓40)'
          row 32: '  0s (↑4 ↓40)' | '┃ multi line one'
          row 33: '' | '┃ multi line two'
-ok     p5-transcript-submit-multi submit frame2: 0 rows differ, 1 set aside
-         set aside row 36: '• Thinking' | '  Generating (0s) (↑13 ↓2)'
+ok     p5-transcript-submit-multi submit frame2: 0 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Thinking' | '  Generating (0s) (↑13 ↓2)'
 ok     p5-submit-preview-first block.full whole: 60 card rows, once each, in order, rows 3-62
 ok     p5-submit-preview-fresh block.full whole: 60 card rows, once each, in order, rows 11-70
 ok     p5-submit-preview-full block.full whole: 60 card rows, once each, in order, rows 86-145

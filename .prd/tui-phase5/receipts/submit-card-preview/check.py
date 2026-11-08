@@ -13,19 +13,25 @@ The claims, for every wire pair fx's side holds:
 
   frame1   the screen once the first frame after Enter has landed, fx's
            against xfx's: every row the same, cell by cell with its styles,
-           but two kinds set aside and printed: a banner row (each product's
-           own) and the band's activity row -- fx writes `• Thinking` with the
-           prompt and xfx once the runtime says the turn started, its clock and
-           its counts its own (T7, `.prd/tui-phase5/receipts/transcript-
-           receipts/README.md`).
+           but three kinds set aside and printed: a banner row (each product's
+           own, or each build's), the band's activity row -- fx writes `•
+           Thinking` with the prompt and xfx once the runtime says the turn
+           started, its clock, its counts and its pulse its own (T7,
+           `.prd/tui-phase5/receipts/transcript-receipts/README.md`) -- and a
+           row that differs only in a turn's wall clock (`<n>s (`, the
+           ledger's `turn-wall-time`).
   frame2   the same for the second frame, the one that writes the card.
-  card     (with <base-side>) the head's second frame leaves the screen the
-           base's first frame left: the frame that writes the card is the
-           frame it was, a frame later -- every row, the activity row set
-           aside as above.
+  card     (with <base-side>) the frame that writes the card leaves the
+           screen the base's first frame left: the head's second frame where
+           its first is a preview, its first where it is not (a card that
+           fits) -- every row, the same three kinds set aside.
+  later    (with <base-side>) the frame after the card's leaves the screen
+           the base's frame after its card left, the same three kinds set
+           aside; whether its bytes are the base's is printed, not claimed
+           (they carry the activity row's clock and counts).
   snaps    (with <base-side>) every snap of the scenario, `.full` histories
-           included, the head's against the base's: every row the same, a
-           turn's wall clock (`<n>s (`) read as one.
+           included, the head's against the base's: every row the same, the
+           same three kinds set aside.
   whole    (a 60-line block) the `.full` history after it holds the card's 60
            rows -- `TALL_PROMPT_HEAD`, `tall prompt body 01`..`58`,
            `TALL_PROMPT_TAIL` -- once each, in order, one after another: no
@@ -52,24 +58,39 @@ def screen(path, fx):
     return cells.rows(path, fx)
 
 
+def aside(tx, ty):
+    """Why two rows that differ are set aside, or None."""
+    if BANNER.match(tx) and BANNER.match(ty):
+        return "banner"
+    if ACTIVITY.match(tx) and ACTIVITY.match(ty):
+        return "activity"
+    if WALL.sub("<s> (", tx) == WALL.sub("<s> (", ty):
+        return "wall clock"
+    return None
+
+
+def same_screen(a_path, b_path):
+    a, b = screen(a_path, False), screen(b_path, False)
+    return all(x == y or aside(cells.text_of(x), cells.text_of(y))
+               for x, y in zip(a + [[]] * (len(b) - len(a)), b + [[]] * (len(a) - len(b))))
+
+
 def compare(what, a_path, b_path, a_fx, b_fx):
     a, b = screen(a_path, a_fx), screen(b_path, b_fx)
-    aside, differ = [], []
+    kept, differ = [], []
     for i in range(max(len(a), len(b))):
         x = a[i] if i < len(a) else []
         y = b[i] if i < len(b) else []
         if x == y:
             continue
         tx, ty = cells.text_of(x), cells.text_of(y)
-        if (BANNER.match(tx) and BANNER.match(ty)) or (ACTIVITY.match(tx) and ACTIVITY.match(ty)):
-            aside.append((i + 1, tx, ty))
-            continue
-        differ.append((i + 1, tx, ty))
+        why = aside(tx, ty)
+        (kept if why else differ).append((i + 1, tx, ty, why))
     verdict = "ok" if not differ else "FAIL"
-    print("%-6s %s: %d rows differ, %d set aside" % (verdict, what, len(differ), len(aside)))
-    for row, tx, ty in aside:
-        print("         set aside row %d: %r | %r" % (row, tx, ty))
-    for row, tx, ty in differ:
+    print("%-6s %s: %d of %d rows differ, %d set aside" % (verdict, what, len(differ), max(len(a), len(b)), len(kept)))
+    for row, tx, ty, why in kept:
+        print("         set aside (%s) row %d: %r | %r" % (why, row, tx, ty))
+    for row, tx, ty, _ in differ:
         print("         row %d: %r | %r" % (row, tx, ty))
     if differ:
         failed.append(what)
@@ -92,21 +113,6 @@ def whole(what, path):
         failed.append(what)
 
 
-def snaps(what, a_path, b_path):
-    a, b = screen(a_path, False), screen(b_path, False)
-    differ = []
-    for i in range(max(len(a), len(b))):
-        x = a[i] if i < len(a) else []
-        y = b[i] if i < len(b) else []
-        if x != y and WALL.sub("<s> (", cells.text_of(x)) != WALL.sub("<s> (", cells.text_of(y)):
-            differ.append((i + 1, cells.text_of(x), cells.text_of(y)))
-    print("%-6s %s: %d of %d rows differ" % ("ok" if not differ else "FAIL", what, len(differ), max(len(a), len(b))))
-    for row, tx, ty in differ:
-        print("         row %d: %r | %r" % (row, tx, ty))
-    if differ:
-        failed.append(what)
-
-
 fx_dir = os.path.join(receipt, "fx")
 for before in sorted(glob.glob(os.path.join(fx_dir, "*-before*.wire"))):
     name = os.path.basename(before)
@@ -122,7 +128,17 @@ for before in sorted(glob.glob(os.path.join(fx_dir, "*-before*.wire"))):
     for k in (1, 2):
         compare("%s frame%d" % (unit, k), path("fx", k), path(side, k), True, False)
     if base:
-        compare("%s card" % unit, path(base, 1), path(side, 2), False, False)
+        # A pair whose card fits has no preview: its card is the first frame
+        # on both builds, and the frames line up one for one.
+        shift = 0 if same_screen(path(base, 1), path(side, 1)) else 1
+        compare("%s card" % unit, path(base, 1), path(side, 1 + shift), False, False)
+        # The frame after the card's, against the base's frame after its own:
+        # the screen it leaves, and whether its bytes are the base's.
+        later = path(side, 2 + shift), path(base, 2)
+        if all(os.path.exists(p) for p in later):
+            compare("%s later" % unit, later[1], later[0], False, False)
+            a, b = (open(p.replace(".ansi", ".bytes"), "rb").read() for p in later)
+            print("         its bytes: %s" % ("the base's" if a == b else "not the base's (%d against %d)" % (len(a), len(b))))
 
 for scenario in sorted({re.match(r"fx-(.+)-40x120-", os.path.basename(p)).group(1)
                         for p in glob.glob(os.path.join(fx_dir, "fx-*-40x120-*.wire"))}):
@@ -135,7 +151,7 @@ for scenario in sorted({re.match(r"fx-(.+)-40x120-", os.path.basename(p)).group(
             label = os.path.basename(snap)[len("xfx-%s-40x120-" % scenario): -len(".ansi")]
             if re.search(r"frame\d|wireend", label):
                 continue
-            snaps("%s %s snap" % (scenario, label), snap, os.path.join(receipt, side, os.path.basename(snap)))
+            compare("%s %s snap" % (scenario, label), snap, os.path.join(receipt, side, os.path.basename(snap)), False, False)
 
 print("\n%d claims failed: %s" % (len(failed), ", ".join(failed) if failed else "none"))
 sys.exit(1 if failed else 0)

@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-70b10aa [debug] · Run /help for commands
+
+┃ fresh line one
+┃ fresh line two
+┃ fresh line three
+
+  Short answer.
+
+  1s (↑13 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
