@@ -1,0 +1,27 @@
+# lint: capfile.py at HEAD
+== 884497c0 Merge pull request #80 from 2lab-ai/train/p5-1108a
+  332 scenarios; 0 races, in 0 scenarios
+  models2 lines: 1; in the old timed form: 0
+    h1-models2.cap: models2 h1-models-two.json
+== 0b432f9a docs(receipt): FLAKE-COPYEND round 2
+  313 scenarios; 79 races, in 20 scenarios
+    approvals, interrupt, interrupt-cmd, interrupt-help, interrupt-next-cmd, interrupt-recovered, interrupt-steer, interrupt-steer-retract, p5-effort-fork-effort-ctrlc, p5-mcp-live, p5-mcp-turn, p5-toolstop-retint, p5-toolstop-retint-light, p5-toolstop-retint-light-tc, p5-toolstop-retint-tc, p5-transcript-cancel, p5-transcript-records, p5-transcript-resize, permissions-midturn, settings-collapse
+  models2 lines: 1; in the old timed form: 1
+    h1-models2.cap: models2 h1-models-two.json 9000
+== e636db48 docs(receipt): L-U1+U2e -- a failed compaction's turn, a held prompt, the launch's idle
+  326 scenarios; 79 races, in 20 scenarios
+    approvals, interrupt, interrupt-cmd, interrupt-help, interrupt-next-cmd, interrupt-recovered, interrupt-steer, interrupt-steer-retract, p5-effort-fork-effort-ctrlc, p5-mcp-live, p5-mcp-turn, p5-toolstop-retint, p5-toolstop-retint-light, p5-toolstop-retint-light-tc, p5-toolstop-retint-tc, p5-transcript-cancel, p5-transcript-records, p5-transcript-resize, permissions-midturn, settings-collapse
+  models2 lines: 1; in the old timed form: 1
+    h1-models2.cap: models2 h1-models-two.json 9000
+== 2fefa1fb Merge fix/p5-flake-copyend @ 0b432f9a (FLAKE-COPYEND r2: the copy errand's end stops and joins every 
+  332 scenarios; 0 races, in 0 scenarios
+  models2 lines: 1; in the old timed form: 0
+    h1-models2.cap: models2 h1-models-two.json
+== 7d91f833 Merge feat/p5-osc-program-status @ e636db48 (L-U1+U2 r5: fx's OSC 7501 program-status reports and the
+  345 scenarios; 0 races, in 0 scenarios
+  models2 lines: 1; in the old timed form: 0
+    h1-models2.cap: models2 h1-models-two.json
+== 81a71203 fxcap: the references the train's merges moved, re-pointed
+  345 scenarios; 0 races, in 0 scenarios
+  models2 lines: 1; in the old timed form: 0
+    h1-models2.cap: models2 h1-models-two.json

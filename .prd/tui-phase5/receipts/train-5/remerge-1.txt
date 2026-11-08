@@ -1,0 +1,7 @@
+commit 2fefa1fbf8eda60f5e057dbe063ac83e122edff2
+parents 884497c0d9aa12e5d6b16c663d71dd315efffcb1 0b432f9a8e1a7eb3c6bd8b6399ee069196041ee2
+
+Merge fix/p5-flake-copyend @ 0b432f9a (FLAKE-COPYEND r2: the copy errand's end stops and joins every thread through a drop guard; the file copy's deadline case and /trace's end case state-based; FakeTool::GATE capped) into the 2026-11-08 train 5
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+

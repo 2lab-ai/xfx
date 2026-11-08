@@ -1,0 +1,40 @@
+# Train 5: p5-mcp-discover-stdio-modern with the OSC 7501 wire taken as it goes: at
+# launch with the server starting, once its startup is over, after `/mcp show`, after
+# the turn that calls its tool, and after `/quit`. What the program status says while an
+# MCP server starts in the 2026-07-28 era, on fx and on xfx. A scratch copy, not a
+# scenario of the repository. The rest is the twin's:
+# p5 mcp discover: a 2026-07-28 stdio server (p5-mcp-discover-stdio.ts `modern`). fx
+# v0.0.16 asks `server/discover` first (src/mcp/core/era.zig@481104fd), the server lists
+# 2026-07-28, and it is served in that era: no `initialize`, and every request carries the
+# 2026 `_meta`, which the fixture insists on. `/mcp show` says the version; one turn
+# searches and calls its tool twice; `home wire` is what the server was sent.
+fx: homefile .fx/mcp.json p5-mcp-discover-stdio-modern-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-discover-stdio-modern-profile.json
+gateway p5-mcp-turns.json
+fx: env FX_PERMISSION_MODE=full-access
+xfx: env XFX_PERMISSION_MODE=yolo
+# The full-access warning is up from the first frame for 4 s (capfile.py
+# TIMERS): `/mcp show` is typed once it has come and gone, so its `/` does
+# not take the warning's row and stop its clock (train 4, as FLAKE-HINT4's
+# p5-mcp-turn).
+until shown Full access
+wire m00-start
+wait 6
+until gone Full access
+wire m01-started
+type /mcp show fixture
+key Enter
+wait 3
+snap show
+wire m02-show
+type use the fixture echo tool
+key Enter
+wait 12
+snap turn
+wire m03-turn
+home wire
+keep
+type /quit
+key Enter
+wait 2
+wire m04-exit

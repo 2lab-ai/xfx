@@ -1,0 +1,55 @@
+# The head sweep's selection, one --only glob a line, each with why (the README's Sweep).
+# every p5-lifecycle-osc-* (L-U1+U2's 13, the only scenarios either unit added or edited)
+p5-lifecycle-osc-*
+# the copy and clipboard scenarios: every .cap typing /copy or /trace, or naming the clipboard or osascript
+copy
+recall-edge
+p5-panels-sweep-a
+p5-panels-sweep-b
+trace
+trace-nowhere
+titles-idle
+titles-rename
+titles-steer
+image-paste
+# the scenarios of the ledger entries the merges' re-points touched
+# inline-code-shade (docs/parity.md:241 -> :243)
+answered
+links
+rename
+reset
+reset-wire
+resume
+resume-launch
+resume-wire
+table-wrap
+usage
+usage-session
+# submit-multi-card-whole (shell.rs:12272 -> :12600)
+p5-transcript-submit-multi
+# transcript-page-offset, toolgroup-ctrlo-record-short, safe-page-edge, full-transcript-shift (shell.rs:37424 -> :37758)
+p5-transcript-anchor
+p5-transcript-anchormid
+p5-transcript-resize
+p5-transcript-records
+p5-transcript-question
+p5-toolgroup-ctrlo
+p5-toolgroup-ctrlo-tc
+p5-transcript-safe
+p5-transcript-safetab
+fulltranscript*
+read-failures
+resume-tools
+timeout
+# (session-record and stats-bytes name scenarios = ["*"], and the banner normalization every
+# scenario: a re-point changes a line number the sweep does not read, so they are not swept whole)
+# the scenarios L-U1+U2's own sweep moved, against its base (its gates.txt, "the parity sweep")
+image-composer
+p5-effort-fork-fork
+rules-read-auto
+interrupt-retry
+model-column-reask
+model-parked
+model-reask
+p5-input-model-fail
+resume-paging

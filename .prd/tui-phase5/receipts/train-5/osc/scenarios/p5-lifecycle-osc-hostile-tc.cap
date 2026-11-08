@@ -1,0 +1,33 @@
+# Train 5: p5-lifecycle-osc-hostile in a session that claims truecolor (COLORTERM=truecolor, as the
+# `-tc` twins on main): the frames osc.py reads, every grey as each product spells it
+# under truecolor. Captured from a scratch copy of the scenario directory
+# (FXCAP_SCENARIOS); not a scenario of the repository. The rest is the twin's:
+# Phase 5 L-U1 security: a command whose label carries bidi overrides and a
+# tab, and a question whose text carries ESC, BEL, an OSC, NEL, a CSI and a
+# bidi override -- on the wire only as base64 in `msg`, folded to one line
+# without a control character. Each product's own command tool.
+env COLORTERM=truecolor
+fx: gateway p5-lifecycle-osc-hostile-fx.json
+xfx: gateway p5-lifecycle-osc-hostile-xfx.json
+fx: seed p5-lifecycle-ask-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+xfx: env XFX_SOUND=off
+wait 4
+type run the command
+key Enter
+wait 3
+wire h00-permission
+key 1
+wait 3
+type ask me
+key Enter
+wait 3
+wire h01-question
+key 1
+wait 3
+keep
+type /quit
+key Enter
+wait 2
+wire h02-exit

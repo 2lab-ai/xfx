@@ -1,0 +1,26 @@
+# Train 5: p5-lifecycle-osc-compact in a session that claims truecolor (COLORTERM=truecolor, as the
+# `-tc` twins on main): the frames osc.py reads, every grey as each product spells it
+# under truecolor. Captured from a scratch copy of the scenario directory
+# (FXCAP_SCENARIOS); not a scenario of the repository. The rest is the twin's:
+# Phase 5 L-U1: OSC 7501 around a manual /compact. Nothing to compact first
+# (no report), then a real compaction (working, then done).
+env COLORTERM=truecolor
+gateway p5-lifecycle-compactok-turns.json
+work compact-ws
+xfx: env XFX_SOUND=off
+wait 4
+type /compact
+key Enter
+wait 2
+wire c00-noop
+type first question
+key Enter
+wait 3
+type second question
+key Enter
+wait 2.5
+wire c01-answered
+type /compact
+key Enter
+wait 4
+wire c02-compacted

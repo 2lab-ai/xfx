@@ -1,0 +1,33 @@
+# OSC 7501 x MCP-E: what can set working or blocked, on each side, and whether an MCP server's startup reaches it.
+# 1. No osc scenario uses MCP:
+$ grep -l -i mcp scripts/fxcap/scenarios/p5-lifecycle-osc-*   (at the train head)
+(exit 1 -- no file names MCP)
+
+# 2. xfx: Shell::status_activity, the program status's one reading (src/tui/shell.rs at the head):
+10133:    fn status_activity(&self) -> StatusActivity {
+#    blocked: an approval panel or screen's request, a rule change's confirmation, the model's question; working: a turn's activity, a prompt waiting, a manual /compact.
+#    Who sets each (every writer of the fields it reads):
+4723:                self.panel = Some(panel);
+4734:                self.alternate = Some(screen);
+9171:        self.ask = Some(panel);
+13454:                    self.rule_confirm = Some(RuleConfirm::new(confirmation));
+4102:                    self.activity.set(Work::Thinking);
+4205:                    self.activity.set(Work::Tool { name: tool });
+4221:                    self.activity.set(Work::Thinking);
+9326:            self.activity.set(Work::Generating);
+10911:            self.activity.begin(now);
+#    The approval panel is a turn's permission request (Asked::Inline/Alternate, answered with the turn's id); the activity is set by TurnStarted, ToolStart/ToolResult and a stream chunk inside a turn.
+#    What the MCP runtime reaches in the shell (settle_mcp, the status line's McpStatus): no field status_activity reads:
+7840:    fn settle_mcp(&mut self) {
+    (none of panel, alternate, rule_confirm, ask, activity, prompts, compaction in settle_mcp, 7840-7862: it writes each runtime notice and asks for a frame)
+
+# 3. fx v0.0.16 (481104fd): reportProgramStatus, src/core/app/app_worker_runtime.zig:
+481104fd:src/core/app/app_worker_runtime.zig:763:                reportProgramStatus(app, !cancellation_stops_turn and
+481104fd:src/core/app/app_worker_runtime.zig:770:        fn reportProgramStatus(app: *App, busy: bool) void {
+#    busy = stream.active or the worker processing or queued work; the worker processes a WorkItem, a prompt or a compaction (worker_runtime.zig):
+481104fd:src/core/agent/worker_runtime.zig:167:pub const WorkItem = union(enum) {
+481104fd:src/core/agent/worker_runtime.zig-168-    prompt: QueuedPrompt,
+481104fd:src/core/agent/worker_runtime.zig-169-    compact_context: ContextCompactionTask,
+481104fd:src/core/agent/worker_runtime.zig-170-};
+#    and fx's MCP runtime touches none of the approval prompt, the question prompt, the worker's processing or the program status:
+    481104fd:src/core/app/app_mcp_runtime.zig: 0 matches

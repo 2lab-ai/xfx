@@ -1,0 +1,18 @@
+# Train 5: p5-lifecycle-osc-term in a session that claims truecolor (COLORTERM=truecolor, as the
+# `-tc` twins on main): the frames osc.py reads, every grey as each product spells it
+# under truecolor. Captured from a scratch copy of the scenario directory
+# (FXCAP_SCENARIOS); not a scenario of the repository. The rest is the twin's:
+# Phase 5 L-U2: SIGTERM after a finished turn. The handler's abnormal restore
+# -- one write(2) of a constant -- clears the record, and nothing follows it.
+env COLORTERM=truecolor
+gateway p5-lifecycle-one-turn.json
+xfx: env XFX_SOUND=off
+keep
+wait 4
+type first question
+key Enter
+wait 3
+wire t00-done
+signal TERM
+wait 1
+wire t01-terminated

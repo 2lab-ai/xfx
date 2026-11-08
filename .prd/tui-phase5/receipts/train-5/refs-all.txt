@@ -1,0 +1,149 @@
+# head HEAD; sides: main 884497c0, FLAKE-COPYEND 0b432f9a, L-U1+U2 e636db48
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/approval.rs:552-585
+    main MOVED -> 557-590 | FLAKE-COPYEND MOVED -> 557-590
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:3108
+    main MOVED -> 3175 | FLAKE-COPYEND MOVED -> 3175
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:433
+    main MOVED -> 434 | FLAKE-COPYEND MOVED -> 434
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:499-522
+    main MOVED -> 504-527 | FLAKE-COPYEND MOVED -> 504-527
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:782
+    main MOVED -> 787 | FLAKE-COPYEND MOVED -> 787
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/shell.rs:1593
+    main MOVED -> 1654 | FLAKE-COPYEND MOVED -> 1654
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/theme.rs:333
+    FLAKE-COPYEND MOVED -> 336 | L-U1+U2 MOVED -> 336
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: scripts/smoke-tui.sh:2203
+    main MOVED -> 2369 | FLAKE-COPYEND MOVED -> 2373 | L-U1+U2 MOVED -> 2207
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/event_loop.rs:889-923
+    main MOVED -> 938-972 | FLAKE-COPYEND MOVED -> 938-972
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/shell.rs:1117
+    main MOVED -> 1175 | FLAKE-COPYEND MOVED -> 1175
+scripts/smoke-tui.sh: src/tui/check.rs:1084
+    main MOVED -> 1101 | FLAKE-COPYEND MOVED -> 1101
+tests/tui.rs: src/tui/shell.rs:2015
+    main MOVED -> 2076 | FLAKE-COPYEND MOVED -> 2076
+tests/tui.rs: src/tui/shell.rs:2703
+    main MOVED -> 2770 | FLAKE-COPYEND MOVED -> 2770
+tests/tui.rs: tests/tui.rs:1191
+    main MOVED -> 1304 | FLAKE-COPYEND MOVED -> 1304
+# 177 references in 580 files; 14 moved or changed on some side that cites them
+
+# head HEAD; sides: main 884497c0, FLAKE-COPYEND 0b432f9a, L-U1+U2 e636db48
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1295-1307 (src/tui/shell.rs)
+    main MOVED -> 1353-1365 | FLAKE-COPYEND MOVED -> 1353-1365
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1296 (src/tui/shell.rs)
+    main MOVED -> 1354 | FLAKE-COPYEND MOVED -> 1354
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1881-1905 (src/tui/shell.rs)
+    main MOVED -> 1942-1966 | FLAKE-COPYEND MOVED -> 1942-1966
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1900-1905 (src/tui/shell.rs)
+    main MOVED -> 1961-1966 | FLAKE-COPYEND MOVED -> 1961-1966
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1911 (src/tui/shell.rs)
+    main MOVED -> 1972 | FLAKE-COPYEND MOVED -> 1972
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1924-1948 (src/tui/shell.rs)
+    main MOVED -> 1985-2009 | FLAKE-COPYEND MOVED -> 1985-2009
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2110-2113 (src/tui/shell.rs)
+    main MOVED -> 2171-2174 | FLAKE-COPYEND MOVED -> 2171-2174
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2114-2118 (src/tui/shell.rs)
+    main MOVED -> 2175-2179 | FLAKE-COPYEND MOVED -> 2175-2179
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2126 (src/tui/shell.rs)
+    main MOVED -> 2187 | FLAKE-COPYEND MOVED -> 2187
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2126-2132 (src/tui/shell.rs)
+    main MOVED -> 2187-2193 | FLAKE-COPYEND MOVED -> 2187-2193
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2189 (src/tui/shell.rs)
+    main MOVED -> 2250 | FLAKE-COPYEND MOVED -> 2250
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2565-2573 (src/tui/shell.rs)
+    main MOVED -> 2632-2640 | FLAKE-COPYEND MOVED -> 2632-2640
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2570-2573 (src/tui/shell.rs)
+    main MOVED -> 2637-2640 | FLAKE-COPYEND MOVED -> 2637-2640
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2589-2592 (src/tui/shell.rs)
+    main MOVED -> 2656-2659 | FLAKE-COPYEND MOVED -> 2656-2659
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:348 (src/tui/shell.rs)
+    main MOVED -> 349 | FLAKE-COPYEND MOVED -> 349
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:3965 (src/tui/shell.rs)
+    main MOVED -> 4032 | FLAKE-COPYEND MOVED -> 4032
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: approval.rs:557-563 (src/tui/approval.rs)
+    main MOVED -> 562-568 | FLAKE-COPYEND MOVED -> 562-568
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: shell.rs:3108 (src/tui/shell.rs)
+    main MOVED -> 3175 | FLAKE-COPYEND MOVED -> 3175
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: shell.rs:5379 (src/tui/shell.rs)
+    main MOVED -> 5476 | FLAKE-COPYEND MOVED -> 5476
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: shell.rs:5816 (src/tui/shell.rs)
+    main MOVED -> 5913 | FLAKE-COPYEND MOVED -> 5913
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:318-365 (src/tui/approval.rs)
+    main MOVED -> 318-370 | FLAKE-COPYEND MOVED -> 318-370
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:345-349 (src/tui/approval.rs)
+    main MOVED -> 350-354 | FLAKE-COPYEND MOVED -> 350-354
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:354-356 (src/tui/approval.rs)
+    main MOVED -> 359-361 | FLAKE-COPYEND MOVED -> 359-361
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:458-483 (src/tui/approval.rs)
+    main MOVED -> 463-488 | FLAKE-COPYEND MOVED -> 463-488
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:460-472 (src/tui/approval.rs)
+    main MOVED -> 465-477 | FLAKE-COPYEND MOVED -> 465-477
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:519-527 (src/tui/approval.rs)
+    main MOVED -> 524-532 | FLAKE-COPYEND MOVED -> 524-532
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:624 (src/tui/approval.rs)
+    main MOVED -> 629 | FLAKE-COPYEND MOVED -> 629
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:640-650 (src/tui/approval.rs)
+    main MOVED -> 645-655 | FLAKE-COPYEND MOVED -> 645-655
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:715-718 (src/tui/approval.rs)
+    main MOVED -> 720-723 | FLAKE-COPYEND MOVED -> 720-723
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:741 (src/tui/approval.rs)
+    main MOVED -> 746 | FLAKE-COPYEND MOVED -> 746
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:743 (src/tui/approval.rs)
+    main MOVED -> 748 | FLAKE-COPYEND MOVED -> 748
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:907 (src/tui/approval.rs)
+    main MOVED -> 912 | FLAKE-COPYEND MOVED -> 912
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:274-289 (src/tui/approval_screen.rs)
+    main MOVED -> 279-294 | FLAKE-COPYEND MOVED -> 279-294
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:298-314 (src/tui/approval_screen.rs)
+    main MOVED -> 303-319 | FLAKE-COPYEND MOVED -> 303-319
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:304 (src/tui/approval_screen.rs)
+    main MOVED -> 309 | FLAKE-COPYEND MOVED -> 309
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:371-373 (src/tui/approval_screen.rs)
+    main MOVED -> 376-378 | FLAKE-COPYEND MOVED -> 376-378
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:374-375 (src/tui/approval_screen.rs)
+    main MOVED -> 379-380 | FLAKE-COPYEND MOVED -> 379-380
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:393 (src/tui/approval_screen.rs)
+    main MOVED -> 398 | FLAKE-COPYEND MOVED -> 398
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:406 (src/tui/approval_screen.rs)
+    main MOVED -> 411 | FLAKE-COPYEND MOVED -> 411
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:1246 (src/tui/event_loop.rs)
+    main MOVED -> 1445 | FLAKE-COPYEND MOVED -> 1445
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:619-620 (src/tui/event_loop.rs)
+    main MOVED -> 642-643 | FLAKE-COPYEND MOVED -> 642-643
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:622 (src/tui/event_loop.rs)
+    main MOVED -> 645 | FLAKE-COPYEND MOVED -> 645
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:889-923 (src/tui/event_loop.rs)
+    main MOVED -> 938-972 | FLAKE-COPYEND MOVED -> 938-972
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1117 (src/tui/shell.rs)
+    main MOVED -> 1175 | FLAKE-COPYEND MOVED -> 1175
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1220-1227 (src/tui/shell.rs)
+    main MOVED -> 1278-1285 | FLAKE-COPYEND MOVED -> 1278-1285
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1459-1541 (src/tui/shell.rs)
+    main MOVED -> 1517-1602 | FLAKE-COPYEND MOVED -> 1517-1602
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1532 (src/tui/shell.rs)
+    main MOVED -> 1593 | FLAKE-COPYEND MOVED -> 1593
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1693-1695 (src/tui/shell.rs)
+    main MOVED -> 1754-1756 | FLAKE-COPYEND MOVED -> 1754-1756
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:3329 (src/tui/shell.rs)
+    main MOVED -> 3396 | FLAKE-COPYEND MOVED -> 3396
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:5590-5597 (src/tui/shell.rs)
+    main MOVED -> 5687-5694 | FLAKE-COPYEND MOVED -> 5687-5694
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:5600-5602 (src/tui/shell.rs)
+    main MOVED -> 5697-5699 | FLAKE-COPYEND MOVED -> 5697-5699
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:664-677 (src/tui/shell.rs)
+    main MOVED -> 689-702 | FLAKE-COPYEND MOVED -> 689-702
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:863 (src/tui/shell.rs)
+    main MOVED -> 888 | FLAKE-COPYEND MOVED -> 888
+scripts/smoke-tui.sh: shell.rs:2597 (src/tui/shell.rs)
+    main MOVED -> 2664 | FLAKE-COPYEND MOVED -> 2664
+src/tui/event_loop.rs: event_loop.rs:959-962 (src/tui/event_loop.rs)
+    main MOVED -> 1008-1011 | FLAKE-COPYEND MOVED -> 1008-1011
+src/tui/event_loop.rs: shell.rs:2706 (src/tui/shell.rs)
+    main MOVED -> 2773 | FLAKE-COPYEND MOVED -> 2773
+src/tui/shell.rs: shell.rs:5816 (src/tui/shell.rs)
+    main MOVED -> 5913 | FLAKE-COPYEND MOVED -> 5913
+src/tui/wrap.rs: check.rs:1689-1694 (src/tui/check.rs)
+    main MOVED -> 1755-1760 | FLAKE-COPYEND MOVED -> 1755-1760
+# 76 short references into changed files; 58 moved or changed on some side that cites them
