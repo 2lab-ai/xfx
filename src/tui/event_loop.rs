@@ -6098,6 +6098,14 @@ mod tests {
             4,
             "reads joined, light",
         );
+        // A theme report recolours the long rows where they are, so what they
+        // were laid from no longer holds; the appends after it find the rows
+        // drawn in the new palette already on the screen, and from then on
+        // know it -- or every later append reads them whole again.
+        assert!(
+            band.shadow().longest_laid() > marks.len(),
+            "after a theme report, no long row on the screen is known to be laid from its text"
+        );
         shell.route_bytes(WENT_DARK);
         tick(&mut shell, &mut band, &mut out, &mut failures, now);
         held(&shell, &band, &failures, "the theme went dark");

@@ -1,0 +1,6 @@
+# RED for the re-laying after a theme report, at b6c192b9's code with one assertion added to the session test (debug, timeout 900).
+# cargo test --locked --lib -- a_groups_long_rows_stay_what_their_text_lays_through_scrolls_themes_and_a_resize
+test tui::event_loop::tests::a_groups_long_rows_stay_what_their_text_lays_through_scrolls_themes_and_a_resize ... FAILED
+thread 'tui::event_loop::tests::a_groups_long_rows_stay_what_their_text_lays_through_scrolls_themes_and_a_resize' (350862964) panicked at src/tui/event_loop.rs:6105:9:
+after a theme report, no long row on the screen is known to be laid from its text
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4468 filtered out; finished in 2.09s
