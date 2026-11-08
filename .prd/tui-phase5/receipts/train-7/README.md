@@ -640,6 +640,13 @@ train 6's 5366 at the same code as `fdc5ac0b` (the dispatcher's gate at
 `1755e9be`, train 6's README): +80, the same difference (1 + 31 + 45 + 3);
 with fault injection 5483 against 5403, +80.
 
+The file checks with the receipt in its final form (`gates-final.txt`, at
+`146f2494`): `cargo fmt --check`, `check-xfx-identity.sh`,
+`check-no-stubs.sh`, `check-no-secrets.sh` (15370 tracked files), each exit
+0 [measured]; the code has not changed since `c468f5e1`, so the gate's
+other steps stand. The two commits after `146f2494` change only
+`gates-final.txt` and this README.
+
 ## Sweep
 
 **Builds** (debug, as trains 4 to 6): the head `29786ced` (`x𝒇x
@@ -851,6 +858,8 @@ what it looks for and not its own text -- and the account's name:
   `screen-moves-*.txt`: pair by pair; `sweep-rerun.sh`, `sweep-rerun.md`,
   `compare-rerun.txt`, `compare-rerun-base.txt`: the moved pairs swept again
   after the spike.
+- `gates-final.txt`: `cargo fmt --check` and the three file checks with the
+  receipt in its final form (all exit 0).
 - `redacted.py`: every sweep-, gate- and run-derived file here went through
   `scripts/fxcap/redact.py`'s `Redactor.write`; `redaction-grep.txt`: the
   grep over this directory, its command and its count.
