@@ -45586,11 +45586,17 @@ mod tests {
     /// A finished turn that read [`WIDER_PATH`] -- its start, its arguments,
     /// its result and the result's text, each through the channel's
     /// `made_inert` as a live turn's are -- and answered with a code panel
-    /// labelled [`WIDER_LABEL`].
+    /// labelled [`WIDER_LABEL`]. Thirty short paragraphs come first, so the
+    /// record is taller than the screen at every width and which rows the
+    /// screen shows depends on where it stands.
     fn a_turn_that_read_a_wider_path(shell: &mut Fixture) {
         shell.route_bytes(b"read it\r");
         let _ = shell.picks_up();
         shell.apply(UiEvent::TurnStarted.made_inert());
+        let filler: String = (1..=30)
+            .map(|n| format!("Paragraph {n} before the read.\n\n"))
+            .collect();
+        shell.apply(UiEvent::Delta(filler).made_inert());
         shell.apply(
             tool_start("r1", "read_file", serde_json::json!({ "path": WIDER_PATH })).made_inert(),
         );
@@ -45647,6 +45653,11 @@ mod tests {
         let plain: Vec<String> = dark.iter().map(|row| colourless(row)).collect();
         let heading = format!("\u{2514} Read {WIDER_PATH}");
         assert!(plain.contains(&heading), "the heading, raw: {plain:#?}");
+        // The screen is at the tail of a record taller than it.
+        assert!(
+            !plain.iter().any(|row| row.contains("Paragraph 1 before")),
+            "{plain:#?}"
+        );
         assert!(
             plain.contains(&format!("\u{2502}  path: {WIDER_PATH_NAMED}")),
             "the argument row, named: {plain:#?}"
@@ -45692,10 +45703,24 @@ mod tests {
             "the heading, laid out again: {narrow_plain:#?}"
         );
         assert!(
+            !narrow_plain
+                .iter()
+                .any(|row| row.contains("Paragraph 1 before")),
+            "{narrow_plain:#?}"
+        );
+        assert!(
             narrow_plain
                 .iter()
                 .all(|row| super::super::wrap::width(row) <= 40),
             "{narrow_plain:#?}"
+        );
+        // Right after the resize, still open, row for row the session laid
+        // out from nothing at 40 columns: no row of the 120-column layout
+        // left, and the screen at the tail as a fresh one stands.
+        assert_eq!(
+            timeless(&narrow),
+            fresh_ctrl_o(40, LIGHT),
+            "light, 40, right after the resize"
         );
         // Opened again at that width, it is the session laid out from nothing.
         live.route_bytes(b"\x0f");
