@@ -146,10 +146,8 @@
 #   home <label>           every file under the run's HOME, as it stands now,
 #                          to <bin>-<scenario>-<size>-<label>.files: the path
 #                          relative to HOME, its size, and its bytes (locks
-#                          and logs by size only), the run's own directory
-#                          written as <scratch>, and the paths `@SCENARIOS@`
-#                          and `@BUN@` stand for as <scenarios> and <bun> --
-#                          what a settings write left
+#                          and logs by size only) -- what a settings write
+#                          left
 #   clip <label>           moves the bytes the fake pbcopy was last fed to
 #                          <bin>-<scenario>-<size>-<label>.clip, or says that
 #                          nothing was copied since the last clip
@@ -157,13 +155,12 @@
 #                          and the fake osascript exit 1
 #   clipfile <label>       moves the paths the fake osascript was handed as its
 #                          last argument -- a file copy, `/trace`'s -- to
-#                          <bin>-<scenario>-<size>-<label>.clipfile, the run's
-#                          directory written as <scratch>, or says none was
+#                          <bin>-<scenario>-<size>-<label>.clipfile, or says
+#                          none was
 #   reports <label>        copies every `/trace` report the binary wrote into
 #                          its own TMPDIR to
 #                          <bin>-<scenario>-<size>-<label>-<n>.md, oldest
-#                          first, the run's directory written as <scratch>,
-#                          and prints the mode each was written with
+#                          first, and prints the mode each was written with
 #   clipimage <file>|off   makes the fake osascript answer a clipboard-image
 #                          read (`-e` with `POSIX file "<path>"` and
 #                          `class PNGf`) by copying <file> (under scenarios/)
@@ -318,6 +315,41 @@
 # `$run/xfxtmp`), so what either writes there -- `/trace`'s report -- stays in
 # the run and is read out with `reports`.
 #
+# Every file a run writes into the out directory -- a snap's .txt and .ansi
+# (an OSC 8 link's target too), the gateway log and every request body, a
+# wire log, a title, a clipboard copy, a report -- is written with the run's
+# own roots as placeholders, the moment it is written, so nothing reads it
+# before (`expect`, the sweep's comparison) and a run that fails halfway
+# leaves none behind:
+#
+#   <work>       $run/work, the binary's working directory
+#   <scratch>    $run, the rest of the run: its HOME is <scratch>/home, its
+#                TMPDIR <scratch>/fxtmp or <scratch>/xfxtmp
+#   <scenarios>  the scenario directory, resolved (what `@SCENARIOS@` is)
+#   <bun>        the `bun` that runs fakegw.ts (what `@BUN@` is)
+#   <tmp>        this script's own TMPDIR, unless that is /tmp, /private/tmp
+#                or /var/tmp, which name no one
+#   <home>       this script's own HOME (the user's: no binary is given it)
+#
+# Each root is replaced byte for byte, as given and as resolved (macOS's /tmp
+# is /private/tmp), the longest first, and only where it stands whole: not
+# after or before a character a path name holds, so `/tmp` is not found in
+# `/private/tmp`, and `file:///...` is. fx's side and xfx's are rewritten by
+# the same rule, so a pair compares as it did: the two runs of a sweep unit
+# share one TMPDIR, so each root is as long on both sides. The two binaries'
+# own TMPDIRs are kept apart under <scratch> -- `fxtmp` is one byte shorter
+# than `xfxtmp`, and one placeholder for both would shorten xfx's rows by a
+# byte more than fx's -- so a row that names one keeps its width relative to
+# the other side's, as the ledger's `capture-tmpdir` reads it.
+#
+# The rewrite comes after the binary laid out its frame: a path it wrapped or
+# padded to its real width keeps that layout, and the stored row is shorter
+# where a placeholder stands. A claim about a path's width reads the `roots:`
+# line each run prints first, each placeholder's length in bytes on that run.
+# A root split across two rows is found only in its parts (a row that ends
+# `<tmp>/`, the next `fxcap.Ab12Cd/work`), and the ledger's `run-directory`
+# still masks the suffix such a part keeps.
+#
 # A line prefixed `fx: ` or `xfx: ` applies to that binary only. The two
 # products name their tools and settings differently (fx's `shell` with
 # `request.action: run` is xfx's `terminal` with `action: exec`,
@@ -348,6 +380,61 @@ path_scenarios='' path_bun='' fill_scenarios='' fill_bun='' filled=''
 # A path a placeholder can be written as: absolute, and every character one
 # that sed, JSON, a shell word and a typed line all carry as itself.
 writable='^/[A-Za-z0-9._/+-]+$'
+# The run's roots and their placeholders, in pairs (main sets them once the
+# run directory exists), for `scrub`.
+scrub_pairs=()
+
+# Each placeholder's length on this run, in bytes (the C locale's `${#}`),
+# for a claim about a path's width: a stored row is shorter by it where the
+# placeholder stands, both sides alike.
+roots_line() {
+  local LC_ALL=C line='roots:' pair
+  for (( pair = 0; pair < ${#scrub_pairs[@]}; pair += 2 )); do
+    [[ -z ${scrub_pairs[pair]} ]] || line+=" ${scrub_pairs[pair + 1]}=${#scrub_pairs[pair]}"
+  done
+  echo "$line bytes"
+}
+
+# Writes the run's roots as their placeholders in each file named, in place
+# (above): byte for byte, each root as given and as resolved, the longest
+# first, a root only where no path-name character stands on either side of
+# it. A file it cannot read or write fails the run.
+scrub() {
+  (( $# )) || return 0
+  /usr/bin/perl -e '
+    use strict;
+    use warnings;
+    use Cwd qw(abs_path);
+    my $n = shift @ARGV;
+    my @given = splice(@ARGV, 0, $n);
+    my (@roots, %seen);
+    while (@given) {
+      my ($root, $name) = splice(@given, 0, 2);
+      next unless length $root;
+      for my $r ($root, (-e $root ? (abs_path($root) // ()) : ())) {
+        (my $t = $r) =~ s{/+\z}{};
+        next if $t eq "" || $seen{$t}++;
+        push @roots, [$t, $name, scalar @roots];
+      }
+    }
+    @roots = sort { length($b->[0]) <=> length($a->[0]) || $a->[2] <=> $b->[2] } @roots;
+    my $edge = "A-Za-z0-9._~+-";
+    for my $file (@ARGV) {
+      open(my $in, "<:raw", $file) or die "scrub: cannot read $file: $!\n";
+      my $text = do { local $/; <$in> } // "";
+      close $in;
+      my $was = $text;
+      for my $root (@roots) {
+        my ($r, $name) = @$root;
+        $text =~ s/(?<![$edge])\Q$r\E(?![$edge])/$name/g;
+      }
+      next if $text eq $was;
+      open(my $out, ">:raw", $file) or die "scrub: cannot write $file: $!\n";
+      print {$out} $text or die "scrub: cannot write $file: $!\n";
+      close $out or die "scrub: cannot write $file: $!\n";
+    }
+  ' -- "${#scrub_pairs[@]}" ${scrub_pairs[@]+"${scrub_pairs[@]}"} "$@"
+}
 
 # fx's sound and upgrade guards (above), every one checked and every breach
 # named; the one line that says they held.
@@ -537,6 +624,16 @@ main() {
   local run port='' bin
   run=$(mktemp -d "${TMPDIR:-/tmp}/fxcap.XXXXXX")
   mkdir -p "$run/home" "$run/work"
+  # What `scrub` writes each of this run's roots as (the list at the top).
+  # A shared system TMPDIR names no one and is left as it is: fx's help text
+  # says /tmp, and keeps saying it.
+  scrub_pairs=("$run/work" '<work>' "$run" '<scratch>' "$path_scenarios" '<scenarios>' "$path_bun" '<bun>')
+  case ${TMPDIR:-} in
+    ''|/tmp|/tmp/|/private/tmp|/private/tmp/|/var/tmp|/var/tmp/) ;;
+    *) scrub_pairs+=("$TMPDIR" '<tmp>') ;;
+  esac
+  [[ -z ${HOME:-} || $HOME == / ]] || scrub_pairs+=("$HOME" '<home>')
+  roots_line
   case $which in
     fx) bin=${FX_BIN:?set FX_BIN to the reference fx binary} ;;
     xfx) bin=${XFX_BIN:-$root/target/debug/xfx} ;;
@@ -693,6 +790,7 @@ main() {
     # The port, for the sweep: this run's, and only it, is the same as the
     # other side's (sweep.py `run_rules`).
     printf '%s\n' "$mcpport" > "$out/$which-$scenario-$size-mcphttp.port"
+    scrub "$out/$which-$scenario-$size-mcphttp.port"
   fi
   # The placeholders, into every seeded file under HOME that names one and
   # every `env` value; and into every text file (`-I`: one with a NUL, a sparse
@@ -915,6 +1013,7 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         local name=$out/$which-$scenario-$size-$rest
         tmux -f /dev/null -S "$sock" capture-pane -p -t cap > "$name.txt"
         tmux -f /dev/null -S "$sock" capture-pane -e -p -t cap > "$name.ansi"
+        scrub "$name.txt" "$name.ansi"
         printf '%s\n' "$rest" >> "$run/snapped"
         echo "$name.txt"
         ;;
@@ -922,26 +1021,26 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         local name=$out/$which-$scenario-$size-$rest.full
         tmux -f /dev/null -S "$sock" capture-pane -p -S - -t cap > "$name.txt"
         tmux -f /dev/null -S "$sock" capture-pane -e -p -S - -t cap > "$name.ansi"
+        scrub "$name.txt" "$name.ansi"
         printf '%s\n' "$rest.full" >> "$run/snapped"
         echo "$name.txt"
         ;;
       gwlog)
         cp "$run/gateway.log" "$out/$which-$scenario-$size-gateway.log"; rm -rf "$out/$which-$scenario-$size-bodies"; cp -R "$run/bodies" "$out/$which-$scenario-$size-bodies"
-        [[ ! -f $run/mcphttp.log ]] || cp "$run/mcphttp.log" "$out/$which-$scenario-$size-mcphttp.log" ;;
+        local logged=("$out/$which-$scenario-$size-gateway.log") body
+        [[ ! -f $run/mcphttp.log ]] || { cp "$run/mcphttp.log" "$out/$which-$scenario-$size-mcphttp.log"; logged+=("$out/$which-$scenario-$size-mcphttp.log"); }
+        while IFS= read -r -d '' body; do logged+=("$body"); done < <(find "$out/$which-$scenario-$size-bodies" -type f -print0)
+        scrub "${logged[@]}" ;;
       # One name per line rather than a word-split `$(find)`, so a file
       # with a space in its name is listed whole.
       workls)
         (cd "$run/work" && find . -type f | sort | while IFS= read -r f; do
           echo "== $f"; head -c 2000 "$f"; echo
         done) > "$out/$which-$scenario-$size-work-$rest.txt"
+        scrub "$out/$which-$scenario-$size-work-$rest.txt"
         ;;
       home)
         local name=$out/$which-$scenario-$size-$rest.files
-        # The run's own directory, and the paths `@SCENARIOS@` and `@BUN@`
-        # wrote, by those names rather than as this machine's paths.
-        local redact=(-e "s#$run#<scratch>#g")
-        [[ $fill_scenarios == @SCENARIOS@ ]] || redact+=(-e "s#${fill_scenarios//./\\.}#<scenarios>#g")
-        [[ $fill_bun == @BUN@ ]] || redact+=(-e "s#${fill_bun//./\\.}#<bun>#g")
         (
           cd "$run/home"
           find . -type f ! -path '*/file-index/*' | LC_ALL=C sort | while IFS= read -r f; do
@@ -951,23 +1050,26 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
               # A binary file (an image fx copied) is named, not printed:
               # sed under a UTF-8 locale stops on it, and so did the run.
               *) if LC_ALL=C grep -Iq . "$f" 2>/dev/null || [[ ! -s $f ]]; then
-                   head -c 4000 "$f" | LC_ALL=C sed "${redact[@]}"; echo
+                   head -c 4000 "$f"; echo
                  else
                    echo "(binary)"
                  fi ;;
             esac
           done
         ) > "$name"
+        scrub "$name"
         echo "$name"
         ;;
       title)
         local name=$out/$which-$scenario-$size-$rest
         tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_title}' > "$name.title"
+        scrub "$name.title"
         echo "$name.title"
         ;;
       cursor)
         local name=$out/$which-$scenario-$size-$rest
         tmux -f /dev/null -S "$sock" display-message -p -t cap '#{cursor_x},#{cursor_y}' > "$name.cursor"
+        scrub "$name.cursor"
         echo "$name.cursor"
         ;;
       keep) tmux -f /dev/null -S "$sock" set-option -w -t cap remain-on-exit on > /dev/null ;;
@@ -975,6 +1077,7 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         local name=$out/$which-$scenario-$size-$rest
         if [[ -f $run/clipboard ]]; then
           mv "$run/clipboard" "$name.clip"
+          scrub "$name.clip"
           echo "$name.clip"
         else
           echo "clip $rest: nothing was copied"
@@ -988,6 +1091,7 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
           echo "bells=$( [[ -f $run/bells ]] && wc -l < "$run/bells" | tr -d ' ' || echo 0)"
           echo "clients=$(tmux -f /dev/null -S "$sock" list-clients | wc -l | tr -d ' ')"
         } > "$name"
+        scrub "$name"
         echo "$name: $(tr '\n' ' ' < "$name")"
         ;;
       wire)
@@ -996,6 +1100,7 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         # what the server has already handed it.
         sleep 0.3
         cp "$run/wire" "$name"
+        scrub "$name"
         echo "$name ($(wc -c < "$name" | tr -d ' ') bytes)"
         ;;
       relaunch)
@@ -1071,6 +1176,7 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         pid=$(binary_pid "$sock" "$run" "$jobctl" "$bin_real") || exit 1
         # lsof exits 1 when the pid has no internet socket at all.
         { echo "pid $pid"; "$lsof" -nP -a -p "$pid" -i 2>/dev/null | awk 'NR > 1 { print $5, $8, $9, $10 }' || true; } > "$name"
+        scrub "$name"
         echo "$name: $(( $(wc -l < "$name") - 1 )) socket(s)"
         # Every address on every line, the local and the remote: 127.0.0.1,
         # [::1], or `*` (a port listening on nothing yet).
@@ -1093,7 +1199,8 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
       clipfile)
         local name=$out/$which-$scenario-$size-$rest
         if [[ -f $run/clipboard-file ]]; then
-          LC_ALL=C sed "s#$run#<scratch>#g" "$run/clipboard-file" > "$name.clipfile"
+          cat "$run/clipboard-file" > "$name.clipfile"
+          scrub "$name.clipfile"
           rm -f "$run/clipboard-file"
           echo "$name.clipfile"
         else
@@ -1106,7 +1213,8 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         # two in one second are told apart by their order on disk.
         while IFS= read -r report; do
           n=$((n + 1))
-          LC_ALL=C sed "s#$run#<scratch>#g" "$report" > "$out/$which-$scenario-$size-$rest-$n.md"
+          cat "$report" > "$out/$which-$scenario-$size-$rest-$n.md"
+          scrub "$out/$which-$scenario-$size-$rest-$n.md"
           # The copy is the receipt's; the mode is the report's own.
           echo "$out/$which-$scenario-$size-$rest-$n.md (written mode $(stat -f %Lp "$report" 2>/dev/null || stat -c %a "$report"))"
         done < <(ls -tr "$tmp"/*-trace-*.md 2>/dev/null)

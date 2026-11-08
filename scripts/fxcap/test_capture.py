@@ -43,6 +43,9 @@ for _tool in ("tmux", "bun", "curl"):
     if not shutil.which(_tool):
         sys.exit("test-capture: %s is not on PATH; these tests need tmux, bun and curl and never skip" % _tool)
 BUN = shutil.which("bun")
+# The user's home as the password database has it: what a binary given no HOME
+# of the user's finds (`~user`), and what capture.sh is given as HOME here.
+HOMEDIR = __import__("pwd").getpwuid(os.getuid()).pw_dir
 
 _SCRATCH = []
 atexit.register(lambda: [shutil.rmtree(d, True) for d in _SCRATCH])
@@ -96,15 +99,23 @@ class Run:
         return self.file(label).replace("\n", "")
 
 
-def capture(cap, files=None, which="fx", binary="/bin/bash", size="30x200", scen_name="scenarios", timeout=120, stale=None):
+def capture(cap, files=None, which="fx", binary="/bin/bash", size="30x200", scen_name="scenarios", timeout=120, stale=None,
+            d=None, env=None):
     """capture.sh on a scenario `t` made of `cap` and `files` (relative path ->
     text, bytes, or `("link", target)` for a symbolic link), the binary a
     link to `binary` (or, for a binary that is not a link, that file
     itself). `stale` (file name -> text) is written into the out directory
-    before the run, as an earlier run would have left it."""
-    d = scratch()
+    before the run, as an earlier run would have left it. `d`, a directory
+    an earlier call made, runs this one in it as well, as the sweep runs a
+    unit's two sides in one TMPDIR (the out directory is the side's own);
+    `env` is more environment for capture.sh."""
+    if d is None:
+        d = scratch()
+        sub = d
+    else:
+        sub = tempfile.mkdtemp(prefix="side.", dir=d)
     scen = os.path.join(d, scen_name)
-    os.makedirs(scen)
+    os.makedirs(scen, exist_ok=True)
     write(os.path.join(scen, "t.cap"), cap)
     for rel, text in (files or {}).items():
         path = os.path.join(scen, rel)
@@ -115,17 +126,20 @@ def capture(cap, files=None, which="fx", binary="/bin/bash", size="30x200", scen
             write(path, text, "wb" if isinstance(text, bytes) else "w")
     if os.path.islink(binary) or binary.startswith("/bin/"):
         link = os.path.join(d, "bin", "it")
-        os.makedirs(os.path.dirname(link))
-        os.symlink(binary, link)
+        if not os.path.islink(link):
+            os.makedirs(os.path.dirname(link))
+            os.symlink(binary, link)
     else:
         link = binary
-    out = os.path.join(d, "out")
+    out = os.path.join(sub, "out")
     for name, text in (stale or {}).items():
         write(os.path.join(out, name), text)
+    extra = env
     env = dict(os.environ, FXCAP_SCENARIOS=scen, TMPDIR=d)
     for k in ("TMUX", "TMUX_PANE", "FX_BIN", "XFX_BIN"):
         env.pop(k, None)
     env["FX_BIN" if which == "fx" else "XFX_BIN"] = link
+    env.update(extra or {})
     # Bounded, whatever the harness under test does: its own process group,
     # killed whole at the deadline (bash, fakegw, mcphttp), and then each tmux
     # server it started, through the run's own socket (tmux leaves the group).
@@ -259,24 +273,26 @@ class Placeholders(unittest.TestCase):
         )
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         scen = os.path.realpath(r.scen)
-        # The run's own directory, as mktemp named it under TMPDIR (not
-        # resolved: /tmp and /var are links on macOS); `@SCENARIOS@` is resolved.
-        run = re.escape(os.path.dirname(r.scen)) + r"/fxcap\.\w+"
+        # Each placeholder reached the binary as the path it stands for, and
+        # the snap that stored what it printed names each path by its own
+        # placeholder (RunRoots): `@SCENARIOS@` is the resolved scenario
+        # directory, `@HOME@` the run's HOME.
         a = r.screen("a")
-        self.assertIn("env:%s/x:%s" % (scen, BUN), a)
-        self.assertRegex(a, r"typed:%s:%s:\d+" % (re.escape(scen), re.escape(BUN)))
-        self.assertIn("pasted-2:%s" % scen, a)
-        self.assertRegex(a, r"s=%s b=%s h=%s/home p=\d+ m=\d+" % (re.escape(scen), re.escape(BUN), run))
-        self.assertRegex(a, r"\d+ m=\d+%s/home" % run, "the `dir` copy's file, after the work file's")
-        # The `home` dump names the checkout and bun by placeholder, not by
-        # this machine's paths.
+        self.assertIn("env:<scenarios>/x:<bun>", a)
+        self.assertRegex(a, r"typed:<scenarios>:<bun>:\d+")
+        self.assertIn("pasted-2:<scenarios>", a)
+        self.assertRegex(a, r"s=<scenarios> b=<bun> h=<scratch>/home p=\d+ m=\d+")
+        self.assertRegex(a, r"\d+ m=\d+<scratch>/home", "the `dir` copy's file, after the work file's")
+        self.assertNotIn(scen, r.file("a"))
+        self.assertNotIn(BUN, r.file("a"))
+        # So does the `home` dump.
         home = r.file("h", ".files")
         self.assertRegex(home, r'\{"s=<scenarios> b=<bun> h=<scratch>/home p=\d+ m=\d+"\}')
         self.assertNotIn(scen, home)
         self.assertNotIn(BUN, home)
         work = r.file("work-w")
         self.assertIn("== ./raw.bin\n\x00@BUN@", work, "a file with a NUL is left as it is")
-        self.assertIn("relaunched:%s" % scen, r.screen("b"))
+        self.assertIn("relaunched:<scenarios>", r.screen("b"))
 
     def test_a_file_seeded_owner_only_stays_so(self):
         r = capture(
@@ -288,6 +304,123 @@ class Placeholders(unittest.TestCase):
         )
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         self.assertIn("mode:700 mode:700 mode:600", r.screen("a"))
+
+
+class RunRoots(unittest.TestCase):
+    """Every file a run writes into the out directory names the run's own
+    roots by placeholder -- `<work>`, `<scratch>`, `<scenarios>`, `<bun>`,
+    `<tmp>`, `<home>` -- however the binary printed them: a snap's text and
+    its colours, an OSC 8 link's target, a title, the wire, a request body,
+    the workspace and HOME dumps. fx's side and xfx's alike, so a pair reads
+    the same."""
+
+    # What the stub binary prints: its working directory (as `$PWD` says it
+    # and as `pwd -P` resolves it), its HOME and TMPDIR, the harness's own
+    # TMPDIR two levels up, the user's home (from the password database:
+    # the binary is given no HOME of its), the scenario directory, a link to
+    # a file in its workspace, a title, padding a path, and a request to the
+    # fake gateway with its directory in the body.
+    CAP = (
+        "keep\n"
+        "wait 1\n"
+        # One line, and one Enter: a shell given the next line while it runs
+        # this one echoes it at a moment of its own, and the two sides'
+        # screens would differ by when, not by what. `clear` takes the line's
+        # own echo away; `DO""NE` is on the screen only once it has run.
+        "type clear; echo \"$PWD\" > made.txt; echo \"$PWD\" > ~/note.txt; "
+        "printf 'cwd=%s real=%s home=%s tmp=%s\\n' \"$PWD\" \"$(pwd -P)\" \"$HOME\" \"$TMPDIR\"; "
+        "printf 'up=%s user=%s scen=%s\\n' \"$(dirname \"$(dirname \"$PWD\")\")\" \"$(eval echo ~\"$(id -un)\")\" @SCENARIOS@; "
+        "printf 'edge=%sx\\n' \"$PWD\"; "
+        "printf 'pad=[%70s] [%80s]\\n' \"$PWD\" \"$TMPDIR\"; "
+        "printf '\\033]8;;file://%s/shot.png\\033\\\\[link]\\033]8;;\\033\\\\\\n' \"$PWD\"; "
+        "printf '\\033]2;at %s\\007' \"$PWD\"; "
+        "curl -s -m 5 -o /dev/null -X POST --data \"{\\\"cwd\\\":\\\"$PWD\\\"}\" http://127.0.0.1:@PORT@/v4/ai/language-model; "
+        "echo DO\"\"NE\n"
+        "key Enter\n"
+        "until shown DONE\n"
+        "snap a\n"
+        "snapfull a\n"
+        "title t\n"
+        "wire w\n"
+        "gwlog\n"
+        "workls w\n"
+        "home h\n"
+    )
+
+    def roots(self, r):
+        """The paths this run's files must not hold: its run directory, the
+        harness's TMPDIR, the scenario directory, bun and the user's home,
+        each as given and as resolved."""
+        tmp = os.path.dirname(r.scen)
+        runs = glob.glob(os.path.join(tmp, "fxcap.*"))
+        self.assertEqual(len(runs), 1 if r.which == "fx" else 2, runs)
+        paths = set(runs) | {tmp, r.scen, BUN, HOMEDIR}
+        return {q for p in paths for q in (p, os.path.realpath(p))}
+
+    def every_file(self, r):
+        for top, _, names in os.walk(r.out):
+            for name in names:
+                path = os.path.join(top, name)
+                with open(path, "rb") as f:
+                    yield path, f.read()
+
+    def assert_written_by_placeholder(self, r):
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        roots = self.roots(r)
+        files = list(self.every_file(r))
+        kinds = {os.path.basename(p).split(".", 1)[-1] for p, _ in files}
+        for kind in ("txt", "ansi", "full.txt", "full.ansi", "title", "wire", "files", "log", "json"):
+            self.assertIn(kind, kinds, "the run wrote no .%s file" % kind)
+        for path, data in files:
+            for root in roots:
+                self.assertNotIn(root.encode(), data, "%s holds %s" % (path, root))
+        side = r.which
+        a = r.screen("a")
+        self.assertIn("cwd=<work> real=<work> home=<scratch>/home tmp=<scratch>/%stmp" % side, a)
+        self.assertIn("up=<tmp> user=<home> scen=<scenarios>", a)
+        # A root followed by a name character is not that root: `$PWD` then
+        # `x` is the run directory and `workx`.
+        self.assertIn("edge=<scratch>/workx", a)
+        # The link's target, in the .ansi; the title; the wire; the body.
+        self.assertIn("\x1b]8;;file://<work>/shot.png", r.file("a", ".ansi"))
+        self.assertEqual(r.file("t", ".title").strip(), "at <work>")
+        wire = r.file("w", ".wire")
+        self.assertIn("cwd=<work>", wire)
+        self.assertIn("file://<work>/shot.png", wire)
+        bodies = glob.glob(os.path.join(r.out, "%s-t-%s-bodies" % (side, r.size), "*"))
+        self.assertTrue(any('{"cwd":"<work>"}' in slurp(b) for b in bodies), bodies)
+        self.assertIn("== ./made.txt\n<work>\n", r.file("work-w"))
+        self.assertIn("<work>", r.file("h", ".files"))
+        # The `roots:` line says each placeholder's length on this run.
+        run = sorted(glob.glob(os.path.join(os.path.dirname(r.scen), "fxcap.*")), key=os.path.getmtime)[-1]
+        self.assertIn("roots: <work>=%d <scratch>=%d " % (len(run) + 5, len(run)), r.stdout)
+
+    def test_every_file_a_run_writes_names_its_roots_by_placeholder(self):
+        r = capture(self.CAP, env={"HOME": HOMEDIR})
+        self.assert_written_by_placeholder(r)
+
+    def test_both_sides_are_written_alike_and_keep_their_widths(self):
+        # The sweep's way: both sides in one TMPDIR, one after the other, so
+        # each run directory is as long as the other's.
+        fx = capture(self.CAP, env={"HOME": HOMEDIR})
+        d = os.path.dirname(fx.scen)
+        xfx = capture(self.CAP, which="xfx", d=d, env={"HOME": HOMEDIR})
+        self.assert_written_by_placeholder(xfx)
+        a, b = fx.file("a").split("\n"), xfx.file("a").split("\n")
+        self.assertEqual(len(a), len(b))
+        for x, y in zip(a, b):
+            if x.startswith("pad="):
+                # Padded to the real paths' widths: the same on both sides,
+                # and `<scratch>/fxtmp` one column further right than xfx's
+                # `<scratch>/xfxtmp`, as `fxtmp` is one byte shorter -- the
+                # widths the two binaries' rows had relative to each other.
+                self.assertEqual(x.index("]"), y.index("]"))
+                self.assertEqual(x.rindex("]"), y.rindex("]"))
+                self.assertEqual(x.index("<scratch>/fxtmp") - 1, y.index("<scratch>/xfxtmp"))
+            else:
+                # Each binary's own TMPDIR keeps its own name, as the
+                # ledger's `capture-tmpdir` reads it; nothing else differs.
+                self.assertEqual(x.replace("<scratch>/fxtmp", "<scratch>/xfxtmp"), y)
 
 
 class Confinement(unittest.TestCase):
