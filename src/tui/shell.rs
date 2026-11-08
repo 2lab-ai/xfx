@@ -5370,15 +5370,40 @@ impl Shell {
     /// has no such state -- a refresh that loses the marked path puts the mark
     /// back on the first row ([`FilePicker::settle`]) -- so its band rows are
     /// its file rows.
+    ///
+    /// And it is what the list's keys wait for: a frame that showed it trusts
+    /// it (`acknowledge`, `file_completion_state.zig:295`), and one that
+    /// landed without it does not (`distrustFilePicker`,
+    /// `app_render_runtime.zig:1024-1026`).
     pub(crate) fn file_picker_landed(&mut self) {
-        if self.geometry.panel > 0 && matches!(self.slot(), Some(Slot::Files(_))) {
+        let shown = self.geometry.panel > 0 && matches!(self.slot(), Some(Slot::Files(_)));
+        let Some(files) = self.file_picker.as_mut() else {
+            return;
+        };
+        if shown {
+            files.trust();
             self.file_rows_painted = self.geometry.panel;
+        } else {
+            files.distrust();
+        }
+    }
+
+    /// A frame did not show the `@` list -- it was refused or torn, or it was
+    /// a frame of the other plane -- so its keys wait for one that does
+    /// (`distrustFilePicker`, `app_render_runtime.zig:1002-1003`,
+    /// `:1024-1026@481104fd`; `filePickerEligible`,
+    /// `input_completion_runtime.zig:775-786`, `:798-799`).
+    pub(crate) fn file_picker_unseen(&mut self) {
+        if let Some(files) = self.file_picker.as_mut() {
+            files.distrust();
         }
     }
 
     /// A write the screen refused: it may have left half a frame.
     pub(crate) fn approval_write_failed(&mut self) {
         self.readiness.write_failed();
+        // And the `@` list it carried is not known to be on the screen.
+        self.file_picker_unseen();
         if let Some(menu) = self.mcp_menu.as_ref() {
             menu.forget_drawn();
         }
@@ -6117,6 +6142,12 @@ impl Shell {
         let Some(files) = self.file_picker.as_mut() else {
             return false;
         };
+        // From the screen's signal to the frame at its new size, the rows on
+        // it are not the ones the keys would act on (`resizeLifecyclePending`,
+        // `input_completion_runtime.zig:803@481104fd`).
+        if self.render.resize_pending() {
+            files.distrust();
+        }
         let page = i64::from(layout::input_row_limit(self.geometry.rows));
         let delta = match action {
             Action::Up | Action::ControlK => -1,
@@ -6124,7 +6155,7 @@ impl Shell {
             Action::PageUp => -page,
             Action::PageDown => page,
             Action::Tab => {
-                match files.marked().cloned() {
+                match files.chosen().cloned() {
                     Some(found) => self.complete_file(&found),
                     // Nothing to choose: a picker that could not read is
                     // asked to read again (`autocompleteFilePickerSelection`,
@@ -16357,6 +16388,10 @@ impl Shell {
         self.screen = (rows, cols);
         self.document_rows = u32::MAX;
         self.tail_unknown = true;
+        // The `@` list on the screen was the old size's, and the next one is
+        // not on it yet (`resizeLifecyclePending`, `terminal_dimensions_invalid`,
+        // `input_completion_runtime.zig:803-806@481104fd`).
+        self.file_picker_unseen();
         // And a handoff still owed -- deferred behind a question or a screen
         // no band fits on -- was measured against the rows the terminal has
         // just reflowed.
@@ -34186,6 +34221,9 @@ mod tests {
     /// `git`: in the macOS x86_64 preview build of 2026-11-06 the work-tree
     /// case, four starts of `git`, took about 17 s, and two cases that gave
     /// the index 5 s failed beside it.
+    ///
+    /// And then the frame that shows them, which the list's keys wait for
+    /// ([`Shell::file_picker_landed`]).
     fn listed(shell: &mut Fixture) {
         let deadline = Instant::now() + START_PATIENCE;
         while Instant::now() < deadline {
@@ -34195,6 +34233,7 @@ mod tests {
                 .as_ref()
                 .is_some_and(|files| files.shown() != file_picker::Shown::Loading)
             {
+                shell.file_picker_landed();
                 return;
             }
             std::thread::sleep(Duration::from_millis(2));
@@ -34314,7 +34353,9 @@ mod tests {
             ],
             "the published prefix is listed before the index is whole"
         );
-        // The mark is kept on its path as the list grows under it.
+        // The frame that shows them, which the Down waits for. The mark is
+        // kept on its path as the list grows under it.
+        shell.file_picker_landed();
         shell.route_bytes(b"\x1b[B");
         walk.send(Published::More(candidates(&["docs/", "docs/guide.md"])))
             .expect("the shell holds the walk");
@@ -34604,11 +34645,11 @@ mod tests {
             .expect("rows");
         shell.file_picker_landed();
         shell.route_bytes(b"\t");
-        assert_eq!(
-            shell.editor.text(),
-            format!("@{} ", first.path),
-            "the Down moved the bar"
-        );
+        let chosen = match first.kind {
+            super::super::file_index::Kind::Directory => format!("@{}/", first.path),
+            _ => format!("@{} ", first.path),
+        };
+        assert_eq!(shell.editor.text(), chosen, "the Down moved the bar");
 
         // A word nothing matches, and Enter in the same read: spent.
         shell.route_bytes(b"\x15@zzzz-not-here\r");

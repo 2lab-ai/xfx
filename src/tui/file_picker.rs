@@ -474,6 +474,13 @@ pub(crate) struct FilePicker {
     /// `file_completion_state.zig:293`), so a screen made shorter shows the
     /// mark and the next move scrolls from where the last one left this.
     window_start: usize,
+    /// Whether the last frame that landed showed this list, so the rows the
+    /// keys act on are rows the user has seen (`trusted`,
+    /// `file_completion_state.zig:104@481104fd`). False for a new word
+    /// (`reconcile`, `:175`); set by [`Self::trust`], cleared by
+    /// [`Self::distrust`]. While it is false the arrows are spent and
+    /// nothing is chosen (`:218-228`, `:239-240`).
+    trusted: bool,
 }
 
 impl FilePicker {
@@ -491,7 +498,23 @@ impl FilePicker {
             rows: Vec::new(),
             selected: 0,
             window_start: 0,
+            trusted: false,
         }
+    }
+
+    /// A frame that showed this list landed (`acknowledge`,
+    /// `file_completion_state.zig:295@481104fd`).
+    pub(crate) fn trust(&mut self) {
+        self.trusted = true;
+    }
+
+    /// What the screen shows is no longer known to be this list: a frame
+    /// was refused, or one landed without it, or the screen is about to
+    /// change size or be wiped (`distrust`, `file_completion_state.zig:
+    /// 141-143@481104fd`, from `app_render_runtime.zig:1002-1003`,
+    /// `:1024-1026` and `input_completion_runtime.zig:798-807`).
+    pub(crate) fn distrust(&mut self) {
+        self.trusted = false;
     }
 
     /// The word this list is for.
@@ -536,18 +559,21 @@ impl FilePicker {
             .rows
             .get(self.selected)
             .map(|found| (found.path.clone(), found.kind));
-        self.selected = marked
-            .and_then(|(path, kind)| {
-                rows.iter()
-                    .position(|found| found.path == path && found.kind == kind)
-            })
-            .unwrap_or(0);
-        if self.selected == 0 {
+        let kept = marked.and_then(|(path, kind)| {
+            rows.iter()
+                .position(|found| found.path == path && found.kind == kind)
+        });
+        self.selected = kept.unwrap_or(0);
+        // The window stays where the last move left it, the mark's path at
+        // its new place or not: the frame paints the rows that keep the mark
+        // in view, and the next move scrolls from here (`view` and
+        // `acknowledge`, `file_completion_state.zig:258-275`, `:292-293`). A
+        // mark whose path is gone starts it over, as fx's next move after a
+        // lost selection does (`:244-246`; fx says so on a status row first,
+        // which xfx does not have -- AT-STALE-SELECTION).
+        if kept.is_none() {
             self.window_start = 0;
         }
-        // The window stays where the last move left it: the frame paints the
-        // rows that keep the mark in view, and the next move scrolls from
-        // here (`acknowledge` keeps the start, `file_completion_state.zig:293`).
         self.rows = rows;
         self.shown = shown;
         true
@@ -561,7 +587,7 @@ impl FilePicker {
     /// `file_completion_state.zig:239-249`).
     pub(crate) fn step(&mut self, delta: i64, painted: u16) -> bool {
         let count = self.rows.len();
-        if count == 0 {
+        if !self.trusted || count == 0 {
             return false;
         }
         let count_i = i64::try_from(count).unwrap_or(i64::MAX);
@@ -591,13 +617,21 @@ impl FilePicker {
     }
 
     /// What Enter does to it (`submitFilePickerOnEnter`,
-    /// `input_completion_runtime.zig:955-973`).
+    /// `input_completion_runtime.zig:1034-1052@481104fd`): the chosen row,
+    /// or -- once a frame has shown `no matching files` -- the line as typed
+    /// (`acceptedEmpty`, `file_completion_state.zig:225-228`), or nothing.
     pub(crate) fn enter(&self) -> Enter {
-        match (self.marked(), self.shown) {
+        match (self.chosen(), self.shown) {
             (Some(found), _) => Enter::Accept(found.clone()),
-            (None, Shown::Empty) => Enter::Submit,
+            (None, Shown::Empty) if self.trusted => Enter::Submit,
             (None, _) => Enter::Wait,
         }
+    }
+
+    /// The row Tab and Enter put in: the marked one, once a frame has shown
+    /// it (`selected`, `file_completion_state.zig:218-223@481104fd`).
+    pub(crate) fn chosen(&self) -> Option<&Found> {
+        self.marked().filter(|_| self.trusted)
     }
 
     /// The rows the band gives the list on a screen `terminal_rows` tall with a
@@ -1009,9 +1043,11 @@ mod tests {
         assert_eq!(chosen.separator, None);
     }
 
+    /// A list with `rows`, which a frame has shown.
     fn picker(rows: &[Found]) -> FilePicker {
         let mut picker = FilePicker::open(query("@").expect("a query"));
         picker.settle(Lookup::Rows(rows.to_vec()));
+        picker.trust();
         picker
     }
 
@@ -1128,6 +1164,10 @@ mod tests {
             list.rows(7, 120, 6, DARK)[0],
             "      \u{1b}[38;5;245mno matching files\u{1b}[0m"
         );
+        // Until a frame has shown that, Enter waits (`acceptedEmpty`,
+        // `file_completion_state.zig:225-228@481104fd`).
+        assert_eq!(list.enter(), Enter::Wait);
+        list.trust();
         // `tests/e2e/tui-file-picker.test.ts:1142`: nothing matched, so Enter
         // sends the line as typed.
         assert_eq!(list.enter(), Enter::Submit);
@@ -1405,6 +1445,24 @@ mod tests {
         assert_eq!(plain(&list.rows(1, 40, 10, DARK)[0]), "./12.txt");
         list.step(1, 10);
         assert_eq!(mark_and_window(&list), (1, 1));
+    }
+
+    #[test]
+    fn a_refresh_that_loses_the_mark_starts_the_window_over() {
+        // fx's next move after a lost selection puts the bar on an end and
+        // the window on 0 (`navigate`, `file_completion_state.zig:244-246
+        // @481104fd`); xfx, with no stale state, starts the window over when
+        // the mark's path is gone.
+        let mut list = thirty();
+        for _ in 0..12 {
+            list.step(1, 10);
+        }
+        let without: Vec<Found> = (0..30)
+            .filter(|n| *n != 12)
+            .map(|n| file(&format!("./{n:02}.txt")))
+            .collect();
+        assert!(list.settle(Lookup::Rows(without)));
+        assert_eq!(mark_and_window(&list), (0, 0));
     }
 
     #[test]

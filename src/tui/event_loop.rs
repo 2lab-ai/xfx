@@ -2172,6 +2172,7 @@ fn paint_alternate(
                 // not on the screen.
                 Err(refusal) => {
                     shell.forget_mcp_drawn();
+                    shell.file_picker_unseen();
                     return match disposed(Emit::rejected(refusal), failures, now) {
                         Some(fatal) => Err(fatal),
                         None => Ok(()),
@@ -2192,6 +2193,7 @@ fn paint_alternate(
                 }
                 Err(emit) => {
                     shell.forget_mcp_drawn();
+                    shell.file_picker_unseen();
                     match disposed(emit, failures, now) {
                         Some(fatal) => Err(fatal),
                         None => Ok(()),
@@ -2221,6 +2223,8 @@ fn paint_alternate(
                 Ok(()) => {
                     band.frame_landed(&frame, &shell.geometry, cursor);
                     shell.approval_landed(Outcome::Painted);
+                    // A frame of the other plane: no `@` list on it.
+                    shell.file_picker_unseen();
                     let _ = shell.render.begin();
                     failures.succeeded();
                     // The matrix row for a panic while the **other** plane is
@@ -2288,6 +2292,7 @@ fn paint_alternate(
             // stops an unwritten repaint granting a question nobody has seen.
             if frame.bytes().is_empty() {
                 shell.approval_landed(Outcome::Unchanged);
+                shell.file_picker_unseen();
                 // Not reached while a recovery is pending: the force above
                 // drops the one cache that can make a repaint empty, so the
                 // tick that owes a verified write always has bytes to write.
@@ -2311,6 +2316,8 @@ fn paint_alternate(
                 Ok(()) => {
                     band.frame_landed(&frame, &shell.geometry, cursor);
                     shell.approval_landed(Outcome::Painted);
+                    // A frame of the other plane: no `@` list on it.
+                    shell.file_picker_unseen();
                     failures.succeeded();
                     Ok(())
                 }
