@@ -17602,6 +17602,13 @@ mod tests {
         /// failed catalog whose retry does not land: the prompt's images ask
         /// (`:5886`).
         PromptImageRetry,
+        /// A prompt with an image, on a model whose window is known and with
+        /// no level or speed, while the first load is on its way; it lands
+        /// 1.5 s in, with a row that reads images. The prompt's images ask
+        /// at the turn's start as the retry's do (`:5886`), and a load is
+        /// what upstream's resolve waits for first (`.loading`,
+        /// `model_cache_runtime.zig:855-866`).
+        PromptImageFirstLoad,
         /// No Ultra, no image, on the default model, whose window nothing but
         /// the catalog gives, behind a failed catalog whose retry does not
         /// land: the turn that ends as a stop already, and what it records.
@@ -17651,7 +17658,9 @@ mod tests {
     ) {
         let model = match wait {
             CatalogWait::UltraRetry | CatalogWait::UltraFirstLoad => "openai/gpt-6-astra",
-            CatalogWait::PromptImageRetry => "anthropic/claude-sonnet-5",
+            CatalogWait::PromptImageRetry | CatalogWait::PromptImageFirstLoad => {
+                "anthropic/claude-sonnet-5"
+            }
             CatalogWait::WindowRetry => crate::config::DEFAULT_MODEL,
         };
         let (home, workspace, mut state) = under_model(model);
@@ -17660,9 +17669,14 @@ mod tests {
             matches!(wait, CatalogWait::UltraRetry | CatalogWait::UltraFirstLoad);
         let (open, gate) = tokio::sync::oneshot::channel::<()>();
         let (events, _received) = mpsc::channel(bridge::UI_EVENTS);
-        let held = if wait == CatalogWait::UltraFirstLoad {
+        let held = if matches!(
+            wait,
+            CatalogWait::UltraFirstLoad | CatalogWait::PromptImageFirstLoad
+        ) {
+            let mut row = published(model);
+            row.facts.image_input = wait == CatalogWait::PromptImageFirstLoad;
             state.selector.set_fetcher_for_test(Box::new(Gated {
-                entries: vec![published(model)],
+                entries: vec![row],
                 gate: Mutex::new(Some(gate)),
             }));
             on_a_runtime(async { begin_catalog_read(&mut state, &events) });
@@ -17686,8 +17700,17 @@ mod tests {
             retry_behind_failure(&mut state, &events);
             Some(open)
         };
-        let first = if wait == CatalogWait::PromptImageRetry {
+        let first = if matches!(
+            wait,
+            CatalogWait::PromptImageRetry | CatalogWait::PromptImageFirstLoad
+        ) {
             assert!(state.context_window().is_some(), "the window waits too");
+            assert!(
+                state.settings.effort.is_default()
+                    && !state.settings.fast
+                    && !state.settings.ultrafast,
+                "a level or a speed waits too"
+            );
             TurnWork::Attached {
                 prompt: "first".to_string(),
                 images: vec![crate::image::Image::new(
@@ -17776,6 +17799,7 @@ mod tests {
             CatalogWait::UltraRetry,
             CatalogWait::UltraFirstLoad,
             CatalogWait::PromptImageRetry,
+            CatalogWait::PromptImageFirstLoad,
             CatalogWait::WindowRetry,
         ] {
             for stop in [Some(Duration::from_millis(300)), None] {
@@ -17842,6 +17866,29 @@ mod tests {
                         vec![unknown.clone(), None],
                         vec!["asked second".to_string(), "final stop".to_string()],
                     ),
+                    // The first load lands with a row that reads images: the
+                    // second turn sends the stopped prompt's image in its
+                    // history, as it sends the answered one's.
+                    (CatalogWait::PromptImageFirstLoad, true) => (
+                        vec![cancelled.clone(), None],
+                        vec![
+                            "asked first".to_string(),
+                            "1 image(s)".to_string(),
+                            "interrupted cancelled".to_string(),
+                            "asked second".to_string(),
+                            "final stop".to_string(),
+                        ],
+                    ),
+                    (CatalogWait::PromptImageFirstLoad, false) => (
+                        vec![None, None],
+                        vec![
+                            "asked first".to_string(),
+                            "1 image(s)".to_string(),
+                            "final stop".to_string(),
+                            "asked second".to_string(),
+                            "final stop".to_string(),
+                        ],
+                    ),
                     (CatalogWait::WindowRetry, true) => (
                         vec![cancelled.clone(), None],
                         [
@@ -17861,6 +17908,20 @@ mod tests {
                     ),
                 };
                 want.push((wait, stop.is_some(), vec![1, 2], ended, true, logged));
+            }
+        }
+        // The second turn ends as it does without the stop -- the stop quoted
+        // the first alone -- in every case but the one whose first turn,
+        // without the stop, was refused and kept nothing, so the second's
+        // history differs by the stopped prompt's image.
+        for pair in got.chunks(2) {
+            if pair[0].0 != CatalogWait::PromptImageRetry {
+                assert_eq!(
+                    pair[0].3.get(1),
+                    pair[1].3.get(1),
+                    "{:?}: the second turn's end, with the stop and without it",
+                    pair[0].0
+                );
             }
         }
         assert_eq!(
