@@ -1,0 +1,87 @@
+# Follow-up F: the 48 committed scenarios that use a writer or reader this unit changed, swept twice -- base 690aa505's
+# capture harness, then a2c0265a's -- with the same sweep.py (a2c0265a), fx v0.0.16 (8e6cda2e...) and one xfx build (a2c0265a, debug).
+# pairs.sh ran them (--jobs 2, each sweep under the suite lock); compare_pairs.py wrote the table.
+# base: base start 2026-11-08T17:06:51Z base rc=0 end 2026-11-08T17:24:07Z 
+#   pass = 164 / 214 = 76.6%; unresolved 41, failed 0, timeout 0
+#   97/97 runs 'ran' (48 scenarios x 2 binaries + fx's inventory)
+# head: head start 2026-11-08T17:24:07Z head rc=0 end 2026-11-08T17:41:11Z 
+#   pass = 164 / 214 = 76.6%; unresolved 41, failed 0, timeout 0
+#   97/97 runs 'ran' (48 scenarios x 2 binaries + fx's inventory)
+
+| Scenario | Changed verb(s) it uses | Snaps | Verdicts, base harness | Verdicts, head harness | Same verdict | Same rows |
+|---|---|---|---|---|---|---|
+| `credits-busy` | release | 2 | normalized-identical 2 | normalized-identical 2 | 2/2 | 2/2 |
+| `fulltranscript-notice` | release | 4 | normalized-identical 1, unresolved-defect 3 | normalized-identical 1, unresolved-defect 3 | 4/4 | 4/4 |
+| `h1-mcphttp` | mcphttp | 2 | unresolved-defect 2 | unresolved-defect 2 | 2/2 | 2/2 |
+| `h1-mcphttp-fail` | mcphttp | 3 | unresolved-defect 3 | unresolved-defect 3 | 3/3 | 3/3 |
+| `h1-mcphttp-methodnotfound` | mcphttp | 1 | unresolved-defect 1 | unresolved-defect 1 | 1/1 | 1/1 |
+| `h1-models2` | models2 | 2 | normalized-identical 1, unresolved-defect 1 | normalized-identical 1, unresolved-defect 1 | 2/2 | 2/2 |
+| `h1-rehomefile` | rehomefile | 2 | approved-divergence-cascade 1, normalized-identical 1 | approved-divergence-cascade 1, normalized-identical 1 | 2/2 | 1/2 |
+| `h1-usage` | clock, usage | 5 | normalized-identical 5 | normalized-identical 5 | 5/5 | 5/5 |
+| `h1-usage-codex` | clock, usage | 1 | unresolved-defect 1 | unresolved-defect 1 | 1/1 | 1/1 |
+| `h1-usage-grok` | clock, usage | 1 | unresolved-defect 1 | unresolved-defect 1 | 1/1 | 1/1 |
+| `image-paste` | clipimage | 7 | normalized-identical 7 | normalized-identical 7 | 7/7 | 7/7 |
+| `interrupt-steer` | release | 5 | normalized-identical 5 | normalized-identical 5 | 5/5 | 5/5 |
+| `model-busy` | release | 2 | normalized-identical 2 | normalized-identical 2 | 2/2 | 2/2 |
+| `model-busy-known` | release | 2 | normalized-identical 2 | normalized-identical 2 | 2/2 | 2/2 |
+| `notice-midstream` | release | 4 | normalized-identical 4 | normalized-identical 4 | 4/4 | 4/4 |
+| `notice-wire` | release | 3 | normalized-identical 3 | normalized-identical 3 | 3/3 | 3/3 |
+| `p5-effort-fork-effort-menu` | release | 18 | normalized-identical 18 | normalized-identical 18 | 18/18 | 18/18 |
+| `p5-effort-fork-fork-edge` | release | 11 | approved-divergence-cascade 1, normalized-identical 10 | approved-divergence-cascade 1, normalized-identical 10 | 11/11 | 10/11 |
+| `p5-lifecycle-osc-interrupt` | release | 0 |  |  | 0/0 | 0/0 |
+| `p5-lifecycle-osc-interruptnext` | release | 0 |  |  | 0/0 | 0/0 |
+| `p5-lifecycle-osc-states` | release | 0 |  |  | 0/0 | 0/0 |
+| `p5-mcp-discover-http-hostile` | mcphttp | 1 | normalized-identical 1 | normalized-identical 1 | 1/1 | 1/1 |
+| `p5-mcp-discover-http-malformed` | mcphttp | 1 | normalized-identical 1 | normalized-identical 1 | 1/1 | 1/1 |
+| `p5-mcp-discover-http-modern` | mcphttp | 2 | normalized-identical 2 | normalized-identical 2 | 2/2 | 2/2 |
+| `p5-mcp-discover-http-notimpl` | mcphttp | 2 | normalized-identical 2 | normalized-identical 2 | 2/2 | 2/2 |
+| `p5-mcp-discover-http-old2024` | mcphttp | 1 | normalized-identical 1 | normalized-identical 1 | 1/1 | 1/1 |
+| `p5-mcp-discover-http-ssefail` | mcphttp | 1 | normalized-identical 1 | normalized-identical 1 | 1/1 | 1/1 |
+| `p5-mcp-discover-http-ssehold` | mcphttp | 1 | normalized-identical 1 | normalized-identical 1 | 1/1 | 1/1 |
+| `p5-mcp-discover-http-sseidless` | mcphttp | 1 | normalized-identical 1 | normalized-identical 1 | 1/1 | 1/1 |
+| `p5-mcp-discover-http-ssestrid` | mcphttp | 1 | normalized-identical 1 | normalized-identical 1 | 1/1 | 1/1 |
+| `p5-mcp-live` | mcphttp | 6 | normalized-identical 3, unresolved-defect 3 | normalized-identical 3, unresolved-defect 3 | 6/6 | 6/6 |
+| `p5-mcp-rpcerror` | mcphttp | 1 | normalized-identical 1 | normalized-identical 1 | 1/1 | 1/1 |
+| `p5-panels-status-badsettings` | rehomefile | 3 | approved-divergence 2, approved-divergence-cascade 1 | approved-divergence 2, approved-divergence-cascade 1 | 3/3 | 2/3 |
+| `p5-session-early-prefs` | reseed | 5 | identical 2, normalized-identical 3 | identical 2, normalized-identical 3 | 5/5 | 5/5 |
+| `p5-transcript-cancel` | release | 7 | unresolved-defect 7 | unresolved-defect 7 | 7/7 | 7/7 |
+| `p5-transcript-submit` | release | 5 | identical 3, normalized-identical 2 | identical 3, normalized-identical 2 | 5/5 | 5/5 |
+| `p5-transcript-submit-multi` | release | 4 | identical 2, normalized-identical 2 | identical 2, normalized-identical 2 | 4/4 | 4/4 |
+| `p5-usage-budget` | clock, usage | 14 | normalized-identical 14 | normalized-identical 14 | 14/14 | 14/14 |
+| `p5-usage-cached` | clock, usage | 21 | normalized-identical 21 | normalized-identical 21 | 21/21 | 21/21 |
+| `p5-usage-many` | clock, usage | 5 | normalized-identical 5 | normalized-identical 5 | 5/5 | 5/5 |
+| `p5-usage-nokey` | clock, usage | 4 | approved-divergence 4 | approved-divergence 4 | 4/4 | 4/4 |
+| `p5-usage-turns` | clock, usage | 20 | normalized-identical 18, unresolved-defect 2 | normalized-identical 18, unresolved-defect 2 | 20/20 | 18/20 |
+| `provider` | release | 15 | normalized-identical 5, unresolved-defect 10 | normalized-identical 5, unresolved-defect 10 | 15/15 | 15/15 |
+| `provider-resume` | reseed | 6 | normalized-identical 2, unresolved-defect 4 | normalized-identical 2, unresolved-defect 4 | 6/6 | 6/6 |
+| `provider-resume-missing` | reseed | 3 | unresolved-defect 3 | unresolved-defect 3 | 3/3 | 3/3 |
+| `rename-midturn` | release | 3 | identical 1, normalized-identical 2 | identical 1, normalized-identical 2 | 3/3 | 3/3 |
+| `resume-empty` | release | 4 | normalized-identical 4 | normalized-identical 4 | 4/4 | 4/4 |
+| `streaming` | release | 2 | normalized-identical 2 | normalized-identical 2 | 2/2 | 2/2 |
+
+pairs 214; same verdict 214; same differing rows 209
+
+# The 5 pairs whose differing rows are not the same rows: same verdict; the rows hold the sweep's own random
+# TMPDIR name (the Workspace row) or /stats's ansi_bytes count, which moves on the fx side as on the xfx side
+# between two runs of the same binary -- run-to-run noise, not the harness:
+h1-rehomefile/status (approved-divergence-cascade, both): row(s) 10, 11 differ between the two sweeps
+  base: row 10 fx='  Workspace         <sweep-tmp>/fxsw.ap_4bzfo/013/fxcap.XXXXXX/work' xfx='  Sandbox           none'
+  base: row 11 fx='  Turns             0' xfx='  Workspace         <sweep-tmp>/fxsw.ap_4bzfo/013/fxcap.XXXXXX/work'
+  head: row 10 fx='  Workspace         <sweep-tmp>/fxsw.ik2yve80/013/fxcap.XXXXXX/work' xfx='  Sandbox           none'
+  head: row 11 fx='  Turns             0' xfx='  Workspace         <sweep-tmp>/fxsw.ik2yve80/013/fxcap.XXXXXX/work'
+p5-effort-fork-fork-edge/status-empty (approved-divergence-cascade, both): row(s) 12, 13 differ between the two sweeps
+  base: row 12 fx='  Workspace         <sweep-tmp>/fxsw.ap_4bzfo/035/fxcap.XXXXXX/work' xfx='  Sandbox           none'
+  base: row 13 fx='  Turns             0' xfx='  Workspace         <sweep-tmp>/fxsw.ap_4bzfo/035/fxcap.XXXXXX/work'
+  head: row 12 fx='  Workspace         <sweep-tmp>/fxsw.ik2yve80/035/fxcap.XXXXXX/work' xfx='  Sandbox           none'
+  head: row 13 fx='  Turns             0' xfx='  Workspace         <sweep-tmp>/fxsw.ik2yve80/035/fxcap.XXXXXX/work'
+p5-panels-status-badsettings/open (approved-divergence-cascade, both): row(s) 10, 11 differ between the two sweeps
+  base: row 10 fx='  Workspace         <sweep-tmp>/fxsw.ap_4bzfo/065/fxcap.XXXXXX/work' xfx='  Sandbox           none'
+  base: row 11 fx='  Turns             0' xfx='  Workspace         <sweep-tmp>/fxsw.ap_4bzfo/065/fxcap.XXXXXX/work'
+  head: row 10 fx='  Workspace         <sweep-tmp>/fxsw.ik2yve80/065/fxcap.XXXXXX/work' xfx='  Sandbox           none'
+  head: row 11 fx='  Turns             0' xfx='  Workspace         <sweep-tmp>/fxsw.ik2yve80/065/fxcap.XXXXXX/work'
+p5-usage-turns/credits (unresolved-defect, both): row(s) 27 differ between the two sweeps
+  base: row 27 fx='* stats: ansi_bytes=15585, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' xfx='* stats: ansi_bytes=9027, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+  head: row 27 fx='* stats: ansi_bytes=15652, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' xfx='* stats: ansi_bytes=9168, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-usage-turns/stats (unresolved-defect, both): row(s) 27 differ between the two sweeps
+  base: row 27 fx='* stats: ansi_bytes=15585, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' xfx='* stats: ansi_bytes=9027, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+  head: row 27 fx='* stats: ansi_bytes=15652, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' xfx='* stats: ansi_bytes=9168, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'

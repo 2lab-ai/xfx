@@ -1,4 +1,4 @@
-# The fake osascript's image read, now a cp (capture.sh:689 at 29fb72d8), driven end to end:
+# The fake osascript's image read, now a cp (capture.sh:706 at 29fb72d8), driven end to end:
 # scripts/fxcap/capture.sh <fx|xfx> image-paste 40x120 -- fx v0.0.16 (sha256 8e6cda2e...) and xfx built at 29fb72d8.
 # Before `clipimage` the read writes nothing (FileNotFound notices); after it, two badges and the same image.
 == fx: capture.sh exit 0

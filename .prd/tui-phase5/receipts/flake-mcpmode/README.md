@@ -6,7 +6,8 @@ GitHub-hosted) failed in the harness's own tests, in
 passed. The cause is in the harness, not in xfx: the test rewrote the mcphttp
 mode file in place (truncate, then write), and the fixture's held request
 read the file in between, found no word, and answered 500. Lines are at
-`main` @ `690aa505` unless marked "now" (the last code commit, `29fb72d8`).
+`main` @ `690aa505` unless marked "now" (`29fb72d8`, the PR's last code
+commit) or cited in § Follow-up F (at `a2c0265a`).
 
 Commits, in order:
 - `fd8ddfd1` RED: the three tests below, failing on base.
@@ -16,7 +17,11 @@ Commits, in order:
 - `760d7f85` RED, second pass of the sweep: `reseed` and `rehomefile`, and a
   HOME path that is a link.
 - `29fb72d8` the fix for it: `put_in_home`.
-- then this receipt in its final form and the gate.
+- `7266e29d`, `d9f07a81`, `2971aeff` this receipt and the gate; reviewed and
+  closed there.
+- Follow-up F (branch `fix/p5-flake-mcpmode-f`): `e85f1a59` the deadline
+  pins, `a2c0265a` mcphttp's read-error field, then this receipt and the
+  gate (§ Follow-up F).
 
 ## The failure
 
@@ -78,15 +83,22 @@ base; "now" is the fix.
 | the binary's settings, `reseed` | `reseed` verb `capture.sh:911-914`: `>` in place, then `chmod 600` | the binary, when it reads its settings | documented for "between an exit and a `relaunch`", but nothing holds a scenario to that; its one use (`p5-session-early-prefs.cap:29`) follows a `/quit` by 2 s | `put_in_home` (now `:932-937`), 0600 |
 | a HOME file, `rehomefile` | `rehomefile` verb `capture.sh:916-923`: `>` in place ("an existing file is written in place", its doc), then `chmod 600` | the running binary: "a settings file made malformed after launch" | rewritten in place under a running binary; and a HOME path that was a link was written through, to wherever it pointed (`confinement-red.txt`) | `put_in_home` (now `:938-946`), 0600; a link or a directory there is refused, exit 2 |
 | `put_in_home`'s refusal | -- | -- | -- | `mv` onto a link to a directory would move the file into that directory, so the helper refuses a link or a directory outright. It checks the leaf only: a `rehomefile .fx/settings.json` whose `~/.fx` is itself a link to a directory outside still lands there, as it did on base (`mkdir -p` and `>` follow it too); scenarios are the repo's own, and an intermediate link is left to the seeding confinement checks, not widened here |
-| clipboard image | `clipimage` verb `capture.sh:984`: `cp` onto the old file (in place); `off` = `rm` (`:983`) | fake osascript `capture.sh:686-689`: `[ -f ]`, then `cat > out` | an in-place copy could be read half written; an `off` between `-f` and `cat` left an empty image file | temp + `mv` (now `:1009`); the shim `cp`s (now `:689`), which writes nothing if the image is gone (driven end to end: `image-paste.txt`) |
+| clipboard image | `clipimage` verb `capture.sh:984`: `cp` onto the old file (in place); `off` = `rm` (`:983`) | fake osascript `capture.sh:686-689`: `[ -f ]`, then `cat > out` | an in-place copy could be read half written; an `off` between `-f` and `cat` left an empty image file | temp + `mv` (now `:1009`); the shim `cp`s (now `:706`), which writes nothing if the image is gone (driven end to end: `image-paste.txt`) |
 | `clipboard-fail` | `clipfail` `: >` / `rm` (`:1011-1012`) | shims' `[ -f ]` | a flag: create and unlink are atomic | unchanged |
 | `binpid` | `jobctl.pl:41` (`open '>'`, print) | `binary_pid`, `capture.sh:401-430` | the reader asks 20 times and takes a pid only if its parent is the pane and its executable the binary | unchanged |
 | `until`, `launched` | `: >` | `since` (`:432-434`), the mtime only | no content read | unchanged |
-| `turns.json`, seeded HOME files, `githead`, `pnghdr`, `sparsepng` | `capture.sh:581`, `:632-651`, `:511-528` | the gateway and the binary | written before the server or the binary starts | unchanged |
+| `turns.json`, `githead`, `pnghdr`, `sparsepng` | `capture.sh:581`, `:511-528` | the gateway and the binary | written before the server or the binary starts | unchanged |
+| seeded HOME files, the placeholder rewrite | `capture.sh:632-651` (`cat seed.tmp >` at `:648`, now `:665`) | the binary | written in place, but after the fake gateway and mcphttp start (`:590`, `:606`), neither of which reads HOME, and before the binary launches (`:748`) | unchanged |
 | `clipboard`, `clipboard-file` | the shims (the binary's side) | `snap`, `clipfile` (`:881-882`, `:989-991`) | read by the harness after; `mv` keeps the shim's inode | unchanged |
 | sweep job status | `sweep.py:225` | the sweep's report | written after the job ends | unchanged |
 | p5 stdio fixtures' modes | argv (`p5-mcp-discover-stdio.ts:52`) | -- | no file | unchanged |
 | `smoke-tui.sh` files | `:3473` notes before launch; `:3614`, `:3648`, `:4989`, `:5282` evidence | -- | not read while written | unchanged |
+
+Not in the table, all safe by construction: `rmhome` (an unlink is atomic);
+the append-only files -- `bells`, `wire`, `gateway.log`, `mcphttp.log`, which
+`held`, `bells`, `wire` and `gwlog` read, so a read is a whole earlier
+state; and FAKEGW_MODELS, FAKEGW_CREDITS and FAKEGW_TITLE, scenario files
+the gateway reads but nothing rewrites during a run.
 
 ## RED, deterministic (`fd8ddfd1`)
 
@@ -192,6 +204,80 @@ at that moment); `image-paste.txt` drives it end to end instead. And the
 tests' own `swap()`: reverting it to `write()` leaves the readers to catch
 the empty file, which they do.
 
+## Follow-up F (after review: gpt6 MUST none, opus APPROVE)
+
+Branch `fix/p5-flake-mcpmode-f` from `2971aeff`. Lines here are at
+`a2c0265a`.
+
+**The deadlines, pinned** (`e85f1a59`, tests only; both engines' first
+item). Nothing drove either 2 s give-up, so a mutant deleting it survived.
+Three tests, all passing on `2971aeff` already (`read-error-red.txt`'s
+header):
+- `McpHttp.test_a_mode_file_that_never_holds_a_mode_is_answered_unknown_at_the_deadline`:
+  `bogus` swapped into the mode file; the ping is answered `500 fixture
+  failing`, `mode=unknown(bogus) -> 500`, at least 2000 ms after it came
+  (the log line's two stamps) and within the client's 4 s.
+- `FakeGateway.test_a_usage_file_that_never_parses_is_answered_500_at_the_deadline`:
+  `not json` swapped into FAKEGW_USAGE; `500 fakegw: SyntaxError...`, at
+  least 2000 ms after it came (`at=` stamps), within 4 s.
+- `McpHttp.test_malformed_and_hostile_are_modes_and_answer_without_the_wait`:
+  both are modes (`mcphttp.ts:73`), answered 200 in under 1000 ms.
+
+**The read error, kept** (`a2c0265a`; gpt6's second item). `mode()`
+(`mcphttp.ts:77-98`) took every failed read for an empty word. It now keeps
+the last read's error code, and when the deadline answers `unknown(...)` the
+log line ends `mode-file=<code>` (`:275`). The mode, the status and the body
+are what `2971aeff` gave. Test:
+`McpHttp.test_a_mode_file_that_cannot_be_read_is_answered_unknown_with_its_error`
+removes the mode file under a ready server: `unknown() -> 500 ...
+mode-file=ENOENT`, then `ready -> 200` with no field once the file is back.
+It fails on `2971aeff` (`read-error-red.txt`). 6 lines of fixture code.
+
+**Mutants.** 18/18 killed on a copy of `a2c0265a` (`mutants-f.txt`): the
+14 above (the "one read" one moved to `mode()`'s new return), plus deleting
+mcphttp's deadline, deleting fakegw's deadline, dropping the kept read
+error, and holding `malformed`/`hostile` to the deadline. Each runs under
+`timeout 300`; a no-deadline mutant never answers, and its test's 4 s client
+timeout fails it (`ERROR ... in 4.1 s`).
+
+**The committed scenarios through the changed code, base harness vs head
+harness.** Every committed scenario with a line for a writer this unit
+changed (`reseed`, `rehomefile`, `clock`, `release`, `clipimage`) or a
+reader it changed (`usage`, `models2`, `mcphttp`): 48 scenarios
+(`scenarios.tsv`). Each was swept twice with this tree's `sweep.py`, fx
+v0.0.16 (`8e6cda2e...`) and one xfx build (`a2c0265a`, debug), `--jobs 2`,
+each sweep under the suite lock: once with `FXCAP_SWEEP_CAPTURE` naming base
+`690aa505`'s `capture.sh` (with its fakegw and mcphttp), once with
+`a2c0265a`'s. `pairs.sh` is the script that ran, its local binary paths
+made variables; it takes `cut -f1 scenarios.tsv` as its names, and
+`compare_pairs.py` reads both `pairs.json` files.
+
+Both sweeps: 97/97 runs `ran` (48 scenarios on each binary, and fx's
+inventory), `pass = 164 / 214`, unresolved 41, failed 0, timeout 0 --
+base 17:06:51Z-17:24:07Z, head 17:24:07Z-17:41:11Z, 2026-11-08. **Every one
+of the 214 snap pairs has the same verdict through both harnesses**
+(`pairs.txt`, per scenario). By the verb a scenario uses (a scenario with
+two verbs counts under both):
+
+| Verb | Scenarios | Snap pairs | Same verdict | Same differing rows |
+|---|---|---|---|---|
+| `reseed` | 3 | 14 | 14/14 | 14/14 |
+| `rehomefile` | 2 | 5 | 5/5 | 3/5 |
+| `clock` | 8 | 71 | 71/71 | 69/71 |
+| `release` | 19 | 91 | 91/91 | 90/91 |
+| `clipimage` | 1 | 7 | 7/7 | 7/7 |
+| `usage` | 8 | 71 | 71/71 | 69/71 |
+| `models2` | 1 | 2 | 2/2 | 2/2 |
+| `mcphttp` | 14 | 24 | 24/24 | 24/24 |
+
+The 5 pairs whose differing rows are not word for word the same keep their
+verdict. Their rows carry two kinds of run-to-run text: the sweep's own
+random TMPDIR name, on the Workspace row of `/status` (`h1-rehomefile/status`,
+`p5-panels-status-badsettings/open`, `p5-effort-fork-fork-edge/status-empty`);
+and `/stats`'s `ansi_bytes` (`p5-usage-turns/credits`, `/stats`), which moved
+on fx's side as on xfx's (fx 15585 -> 15652) between two runs of the same
+binary.
+
 ## Gate
 
 Every CI step, at `7266e29d` (the code of `29fb72d8` plus receipt text),
@@ -219,3 +305,6 @@ test` step's 2200 s is mostly the wait for a lock slot.
 - `before-red2.counts`, `after2.counts`, `after2-load.counts` -- the second
   pass's loops.
 - `gate.sh`, `gate.txt` -- the CI steps.
+- Follow-up F: `mutants-f.txt`; `read-error-red.txt`; `scenarios.tsv`,
+  `pairs.sh`, `compare_pairs.py`, `pairs.txt` (the base-vs-head sweeps);
+  `gate-f.txt`.
