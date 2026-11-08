@@ -8,7 +8,7 @@ import re
 import sys
 
 for path in sys.argv[1:]:
-    print(f"== {path.rsplit('/', 1)[-1]}")
+    print(f"== {'/'.join(path.split('/')[-2:])}")
     with open(path, "rb") as handle:
         data = handle.read()
     for match in re.finditer(rb"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)", data):

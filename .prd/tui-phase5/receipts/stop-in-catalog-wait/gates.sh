@@ -7,6 +7,7 @@ set -u
 W="$1"; L="$2"
 cd "$W" || exit 2
 export TMPDIR="${TMPDIR:?set TMPDIR to a scratch directory}/sicw-gate"
+mkdir -p "$TMPDIR" || exit 2
 unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
 mkdir -p "$L"
 step() {
