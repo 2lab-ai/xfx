@@ -3,7 +3,8 @@
 // Usage: bun mcphttp.ts <port> <mode-file>
 //
 // The mode is the first word of <mode-file>, read again for every request, so capture.sh changes
-// it mid-run by rewriting that file:
+// it mid-run by renaming a new file into place (a file read empty or half written is read again:
+// `mode` below):
 //   ready     answers as the legacy streamable HTTP server of fx's own e2e fixture does
 //             (vercel-labs/fx@481104fd tests/e2e/fixtures/mcp-legacy-remote.ts): POST
 //             `server/discover` 404, so fx falls back to `initialize`, which is answered with the
@@ -72,9 +73,22 @@ const modes = new Set(["ready", "methodnotfound", "hang", "fail", "rpcerror", "m
 const versions = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const session = "fxcap-session-1";
 
+// The mode file's first word. A read that finds no mode -- the file empty or half written by a
+// writer that truncates and then writes, or gone for a moment -- is read again every 10 ms, for up
+// to MODE_SETTLE_MS, before a word that is no mode is answered as `unknown(<word>)`: a held
+// request polls this, and one empty read used to end its hold with a 500 (FLAKE-MCPMODE,
+// registry #19). capture.sh's `mcphttp` verb renames the file into place, so it never takes a
+// retry; a writer by hand may.
+const MODE_SETTLE_MS = 2000;
 async function mode(): Promise<string> {
-  const word = (await Bun.file(modeFile).text()).trim().split(/\s+/)[0] ?? "";
-  return modes.has(word) ? word : `unknown(${word})`;
+  const until = Date.now() + MODE_SETTLE_MS;
+  for (;;) {
+    const text = await Bun.file(modeFile).text().catch(() => "");
+    const word = text.trim().split(/\s+/)[0] ?? "";
+    if (modes.has(word)) return word;
+    if (Date.now() >= until) return `unknown(${word})`;
+    await Bun.sleep(10);
+  }
 }
 
 const json = (frame: object, headers: Record<string, string> = {}) =>

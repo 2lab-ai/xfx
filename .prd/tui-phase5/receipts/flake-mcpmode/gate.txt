@@ -1,0 +1,32 @@
+head 7266e29d719b9f607b4309037a4fb1125852d1bf
+fmt                            rc=0    2s  cargo fmt --check
+clippy                         rc=0    5s  cargo clippy --locked --all-targets -- -D warnings
+clippy-fault                   rc=0    5s  cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+test                           rc=0 2200s  <local-path> cargo test --locked --no-fail-fast
+test-fault                     rc=0  105s  <local-path> cargo test --locked --features fault-injection --no-fail-fast
+check-no-secrets               rc=0   29s  ./scripts/check-no-secrets.sh
+check-no-stubs                 rc=0    9s  ./scripts/check-no-stubs.sh
+check-preview-contract         rc=0    3s  ./scripts/check-preview-contract.sh
+check-tui-preflight-cost       rc=0   77s  ./scripts/check-tui-preflight-cost.sh
+check-usage-clock              rc=0    0s  ./scripts/check-usage-clock.sh
+check-xfx-identity             rc=0    1s  ./scripts/check-xfx-identity.sh
+test-check-no-secrets          rc=0   83s  ./scripts/test-check-no-secrets.sh
+test-gate-env                  rc=0   81s  ./scripts/test-gate-env.sh
+test-preview-contract          rc=0   68s  ./scripts/test-preview-contract.sh
+fxcap-test-sweep               rc=0   34s  ./scripts/fxcap/test-sweep.sh
+fxcap-test-capture             rc=0  224s  <local-path> ./scripts/fxcap/test-capture.sh
+build-release                  rc=0   13s  cargo build --locked --release
+build-faulty                   rc=0   13s  cargo build --locked --release --features fault-injection --target-dir target/faulty
+smoke                          rc=0    2s  ./scripts/smoke.sh target/release/xfx <local-path>
+smoke-tui                      rc=0   64s  <local-path> ./scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <local-path>
+end 2026-11-08T16:31:06Z
+
+# results
+test: 15 binaries, 5327 passed, 0 failed, 7 ignored
+test-fault: 15 binaries, 5364 passed, 0 failed, 7 ignored
+fxcap-test-sweep: Ran 66 tests in 5.223s Ran 26 tests in 15.427s OK
+fxcap-test-capture: Ran 63 tests in 223.655s OK
+smoke: 47 check(s), 0 failure(s)
+smoke-tui: smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+check-no-secrets: check-no-secrets: ok (13518 tracked file(s) scanned)
+check-no-stubs: check-no-stubs: ok

@@ -1,0 +1,27 @@
+# The fake osascript's image read, now a cp (capture.sh:689 at 29fb72d8), driven end to end:
+# scripts/fxcap/capture.sh <fx|xfx> image-paste 40x120 -- fx v0.0.16 (sha256 8e6cda2e...) and xfx built at 29fb72d8.
+# Before `clipimage` the read writes nothing (FileNotFound notices); after it, two badges and the same image.
+== fx: capture.sh exit 0
+𝒇x v0.0.16 · Run /help for commands
+-- ctrl-v snap:
+✗ images: failed to paste clipboard image: FileNotFound
+✗ images: failed to paste clipboard image: FileNotFound
+┃ [Image 1][Image 2]
+-- images snap:
+✗ images: failed to paste clipboard image: FileNotFound
+✗ images: failed to paste clipboard image: FileNotFound
+* images: 2 pending
+   - image-1-3fd6e6be528c182d.bin (image/png)
+   - image-2-3fd6e6be528c182d.bin (image/png)
+== xfx: capture.sh exit 0
+x𝒇x v0.1.0-29fb72d [debug] · Run /help for commands
+-- ctrl-v snap:
+✗ images: failed to paste clipboard image: FileNotFound
+✗ images: failed to paste clipboard image: FileNotFound
+┃ [Image 1][Image 2]
+-- images snap:
+✗ images: failed to paste clipboard image: FileNotFound
+✗ images: failed to paste clipboard image: FileNotFound
+* images: 2 pending
+   - image-1-3fd6e6be528c182d.bin (image/png)
+   - image-2-3fd6e6be528c182d.bin (image/png)

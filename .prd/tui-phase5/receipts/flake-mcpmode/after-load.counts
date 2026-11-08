@@ -1,0 +1,50 @@
+# after under load: the fix 986b2812, 20 runs under the suite lock (one slot) with one 'yes > /dev/null' per core (18, load.sh); load average 34-54.
+# Spinners 2026-11-08T15:06:49Z-15:25:43Z, loop 15:07:07Z-15:22:16Z; other workers' suites held the other two lock slots (GRID-ROW-COST's sweep from 15:11:51Z, train 7's gate).
+test_a_fake_key_and_team_reach_no_line_of_the_log_and_no_body               passed 20/20
+test_a_file_a_verb_changes_mid_run_is_replaced_whole                        passed 20/20
+test_a_held_request_reads_past_a_mode_file_caught_empty                     passed 20/20
+test_a_held_stream_stops_after_its_events_until_a_line_lets_it_go           passed 20/20
+test_a_held_stream_whose_client_goes_stops_holding                          passed 20/20
+test_a_hold_a_stream_cannot_make_is_said                                    passed 20/20
+test_a_refused_turn_cuts_then_refuses_then_listens                          passed 20/20
+test_a_reset_turn_cuts_the_stream_and_the_port_listens_again                passed 20/20
+test_a_usage_file_or_second_catalog_caught_empty_is_read_again              passed 20/20
+test_clock                                                                  passed 20/20
+test_every_request_is_a_line_unknown_gets_too_and_never_a_header_value      passed 20/20
+test_fail_and_rpcerror                                                      passed 20/20
+test_hang_holds_until_the_mode_changes                                      passed 20/20
+test_held_waits_for_the_hold_and_release_lets_it_go                         passed 20/20
+test_it_listens_on_loopback_only                                            passed 20/20
+test_malformed_and_hostile_answer_discover_and_then_serve_as_ready          passed 20/20
+test_mcphttp_on_cue                                                         passed 20/20
+test_methodnotfound_answers_discover_with_the_rpc_error_and_then_serves     passed 20/20
+test_models2_and_modelsdelay                                                passed 20/20
+test_models2_swaps_the_catalog_with_the_times_logged                        passed 20/20
+test_modern_lists_2026_and_holds_every_request_to_its_meta_and_header       passed 20/20
+test_notimpl_answers_discover_404_with_the_rpc_error                        passed 20/20
+test_old2024_initializes_at_2024_11_05                                      passed 20/20
+test_ready                                                                  passed 20/20
+test_the_sse_modes_answer_discover_on_an_event_stream                       passed 20/20
+test_the_usage_routes_their_shapes_and_knobs                                passed 20/20
+test_usage_is_in_place_at_launch_and_swapped_on_cue                         passed 20/20
+# per run:
+run 1 rc=0 Ran 27 tests in 42.126s OK 
+run 2 rc=0 Ran 27 tests in 42.043s OK 
+run 3 rc=0 Ran 27 tests in 42.360s OK 
+run 4 rc=0 Ran 27 tests in 42.566s OK 
+run 5 rc=0 Ran 27 tests in 43.081s OK 
+run 6 rc=0 Ran 27 tests in 42.563s OK 
+run 7 rc=0 Ran 27 tests in 50.267s OK 
+run 8 rc=0 Ran 27 tests in 42.648s OK 
+run 9 rc=0 Ran 27 tests in 47.823s OK 
+run 10 rc=0 Ran 27 tests in 47.721s OK 
+run 11 rc=0 Ran 27 tests in 55.948s OK 
+run 12 rc=0 Ran 27 tests in 43.831s OK 
+run 13 rc=0 Ran 27 tests in 51.267s OK 
+run 14 rc=0 Ran 27 tests in 45.988s OK 
+run 15 rc=0 Ran 27 tests in 46.496s OK 
+run 16 rc=0 Ran 27 tests in 42.771s OK 
+run 17 rc=0 Ran 27 tests in 44.805s OK 
+run 18 rc=0 Ran 27 tests in 41.697s OK 
+run 19 rc=0 Ran 27 tests in 42.004s OK 
+run 20 rc=0 Ran 27 tests in 43.252s OK 

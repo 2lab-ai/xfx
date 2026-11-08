@@ -25,6 +25,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
@@ -62,6 +63,18 @@ def write(path, text, mode="w"):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, mode) as f:
         f.write(text)
+
+
+def swap(path, text):
+    """Replaces `path` with `text` whole, as capture.sh's verbs do: a file
+    beside it, renamed into place. For a file a running server reads (its
+    mode, a release, the usage answers): `write` truncates and then writes,
+    and a reader in between finds the file empty (FLAKE-MCPMODE, registry
+    #19: a held mcphttp request read its mode there and answered 500)."""
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".swap.")
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+    os.replace(tmp, path)
 
 
 def slurp(path):
@@ -357,6 +370,23 @@ class Confinement(unittest.TestCase):
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         self.assertRegex(r.file("h", ".files"), r'\{"p":\d+\}')
 
+    def test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory(self):
+        # `rehomefile` renames its file into place (FLAKE-MCPMODE): a HOME path
+        # that is a link to a file outside is refused, never written through,
+        # and one that is a link to a directory outside is refused, never
+        # moved into.
+        victim = self.sentinel("keep\n")
+        outside = os.path.dirname(victim)
+        for target in (victim, outside):
+            with self.subTest(target=os.path.basename(target)):
+                r = capture("wait 0.5\ntype ln -s '%s' ~/.linked; printf 'made-%%s\\n' it\nkey Enter\nuntil shown made-it\n"
+                            "rehomefile .linked new.json\nsnap never\n" % target, {"new.json": "{}\n"})
+                self.assertEqual(r.code, 2, r.stdout + r.stderr)
+                self.assertIn("refusing to replace", r.stderr)
+                self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-never.txt")), "the run stopped there")
+                self.assertEqual(slurp(victim), "keep\n")
+                self.assertEqual(sorted(os.listdir(outside)), ["sentinel"])
+
 
 class Verbs(unittest.TestCase):
     def test_resize(self):
@@ -507,6 +537,47 @@ class Verbs(unittest.TestCase):
         log = r.file("mcphttp", ".log")
         self.assertRegex(log, r"POST /mcp rpc=initialize id=2 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200")
         self.assertRegex(log, r"POST /mcp rpc=server/discover id=4 session=no version=- mcp-method=- mcp-name=- mode=methodnotfound -> 200")
+
+    def test_a_file_a_verb_changes_mid_run_is_replaced_whole(self):
+        # FLAKE-MCPMODE's class: a file the run changes while something reads
+        # it -- the binary's clock and settings (`reseed`, `rehomefile`), the
+        # fake gateway's usage answers, second catalog and releases,
+        # mcphttp's mode, the fake osascript's image --
+        # is renamed into place, so a reader finds it old or new and never
+        # half written. A descriptor opened on each before the verbs tells the
+        # two apart: after a rename it still reads the old file; a file
+        # rewritten in place shows it the new bytes.
+        names = ("$HOME/.fxcap-usage-clock", "$HOME/../usage.json", "$HOME/../models2.json",
+                 "$HOME/../gw-release", "$HOME/../mcphttp.mode", "$HOME/../clipimage",
+                 "$HOME/.fx/settings.json", "$HOME/.fxcap-rehome")
+        opened = " ".join('%d<"%s"' % (3 + i, n) for i, n in enumerate(names))
+        paths = " ".join('"%s"' % n for n in names)
+        # Each step waits for the shell's answer on the screen (`until`), not
+        # for a moment on the clock: the descriptors are open before any
+        # verb runs, and both reads are done before the snap, however late
+        # the shell runs. The typed `printf 'x-%s'` never shows `x-all` itself.
+        r = capture(
+            "clock 1\nusage u1.json\nmcphttp ready\nwait 1\nmodels2 m1.json\nrelease\nclipimage i1.png\n"
+            "reseed s1.json\nrehomefile .fxcap-rehome h1.json\n"
+            "type exec " + opened + "; printf 'opened-%s\\n' all\nkey Enter\nuntil shown opened-all\n"
+            "clock 2\nusage u2.json\nmodels2 m2.json\nrelease\nmcphttp fail\nclipimage i2.png\n"
+            "reseed s2.json\nrehomefile .fxcap-rehome h2.json\n"
+            "type for fd in 3 4 5 6 7 8 9 10; do printf 'fd%s=%s|' $fd \"$(tr '\\n' / <&$fd)\"; done; printf 'held-%s\\n' all\n"
+            "key Enter\nuntil shown held-all\n"
+            "type for f in " + paths + "; do printf 'now=%s|' \"$(tr '\\n' / < \"$f\")\"; done; printf 'now-%s\\n' all\n"
+            "key Enter\nuntil shown now-all\nsnap a\n",
+            {"u1.json": '{"u":1}\n', "u2.json": '{"u":2}\n', "m1.json": '{"m":1}\n', "m2.json": '{"m":2}\n',
+             "i1.png": "i1\n", "i2.png": "i2\n", "s1.json": '{"s":1}\n', "s2.json": '{"s":2}\n',
+             "h1.json": '{"h":1}\n', "h2.json": '{"h":2}\n'},
+        )
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        a = r.screen("a")
+        olds = ("1/", '{"u":1}/', '{"m":1}/', "release/", "ready/", "i1/", '{"s":1}/', '{"h":1}/')
+        news = ("2/", '{"u":2}/', '{"m":2}/', "release/release/", "fail/", "i2/", '{"s":2}/', '{"h":2}/')
+        for fd, (name, old, new) in enumerate(zip(names, olds, news), 3):
+            with self.subTest(file=name):
+                self.assertIn("now=%s|" % new, a, "the verb changed it")
+                self.assertIn("fd%d=%s|" % (fd, old), a, "a reader that had it open still reads the old file whole")
 
     def test_held_waits_for_the_hold_and_release_lets_it_go(self):
         # The stub's curl prints each event as it arrives: two before the hold, the rest after.
@@ -767,6 +838,15 @@ class Server:
     def lines(self):
         return slurp(self.log_path)
 
+    def wait_for(self, text, timeout=10):
+        """Until a line holding `text` is in the log: a request is logged
+        when it is answered, which load can put off."""
+        end = time.time() + timeout
+        while text not in self.lines():
+            if time.time() > end:
+                raise AssertionError("no %r in %d s: %s" % (text, timeout, self.lines()))
+            time.sleep(0.05)
+
     def ask(self, method, path, body=None, headers=None, timeout=5):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=timeout)
         try:
@@ -868,7 +948,7 @@ class FakeGateway(unittest.TestCase):
         self.assertTrue(self.quiet(s), "held: nothing after the second event")
         self.assertNotIn(b'"delta":"cc"', got)
         self.assertIn("hold 1 after 2 event(s)", g.lines())
-        write(release, "release\n")
+        swap(release, "release\n")
         rest = self.read_until(s, b"[DONE]")
         self.assertIn(b'"delta":"cc"', rest)
         self.assertIn(b'"type":"finish"', rest)
@@ -878,7 +958,7 @@ class FakeGateway(unittest.TestCase):
         self.read_until(s, b'"delta":"next"')
         self.assertTrue(self.quiet(s), "held: nothing after the first event")
         self.assertIn("hold 2 after 1 event(s)", g.lines())
-        write(release, "release\n", "a")
+        swap(release, slurp(release) + "release\n")
         self.assertIn(b'"delta":"last"', self.read_until(s, b"[DONE]"))
         self.assertIn("release 2", g.lines())
 
@@ -959,6 +1039,30 @@ class FakeGateway(unittest.TestCase):
         self.assertEqual(get("/v1/report?start_date=2026-10-12&end_date=2026-10-12"), (404, "not found"))
         self.assertEqual(get("/ai-gateway/usage-report"), (404, "not found"))
 
+    def test_a_usage_file_or_second_catalog_caught_empty_is_read_again(self):
+        # FLAKE-MCPMODE's class: fakegw reads the usage answers and the second
+        # catalog on every request, and a file rewritten in place is empty for
+        # a moment. Here each is empty when the request comes and for 400 ms
+        # after; the answer is the file written then, never the empty one (a
+        # usage read that fails to parse, a catalog with nothing in it).
+        d = scratch()
+        usage, second = os.path.join(d, "usage.json"), os.path.join(d, "models2.json")
+        write(usage, "")
+        write(second, "")
+        g = self.gw(FAKEGW_USAGE=usage, FAKEGW_MODELS2=second, FAKEGW_MODELS_DELAY_MS="0")
+        for path, file, text, want in (
+            ("/v1/report?start_date=2026-10-12&end_date=2026-10-12", usage, '{"/v1/report":{"rows":[{"n":1}]}}',
+             (200, b'{"results":[{"n":1}]}')),
+            ("/coding-agent/v1/models", second, '{"data":[{"id":"fake/two"}]}', (200, b'{"data":[{"id":"fake/two"}]}')),
+        ):
+            with self.subTest(path=path):
+                later = threading.Timer(0.4, swap, (file, text))
+                later.start()
+                self.addCleanup(later.cancel)
+                status, _, body = g.ask("GET", path)
+                later.join()
+                self.assertEqual((status, body), want)
+
     def test_a_fake_key_and_team_reach_no_line_of_the_log_and_no_body(self):
         # A key in the harness's own style (capture.sh's AI_GATEWAY_API_KEY is
         # `fake-key-not-real`) and a team, on every path that reads or names a
@@ -980,7 +1084,7 @@ class FakeGateway(unittest.TestCase):
         for path in ("/coding-agent/v1/models", "/coding-agent/v1/credits", "/v1/generation?id=g", "/codex/models", "/unknown?k=v"):
             g.ask("GET", path, headers=sent)
         # A bare status is that status and no rows, on the report too.
-        write(usage, json.dumps({"/v1/report": {"status": 429, "delayMs": 100}}))
+        swap(usage, json.dumps({"/v1/report": {"status": 429, "delayMs": 100}}))
         status, _, body = g.ask("GET", today, headers=sent)
         self.assertEqual((status, body), (429, b"fake status 429"))
         status, _, _ = g.ask("POST", "/v4/ai/language-model", body=json.dumps({"prompt": []}), headers=dict(sent, **{"content-type": "application/json"}))
@@ -1053,15 +1157,32 @@ class McpHttp(unittest.TestCase):
         s = self.server("hang")
         with self.assertRaises(socket.timeout):
             s.ask("POST", "/mcp", body='{"jsonrpc":"2.0","id":1,"method":"ping"}', timeout=0.8)
-        write(self.mode, "ready\n")
+        swap(self.mode, "ready\n")
         self.assertEqual(self.rpc(s, "ping", 2)[2], {"jsonrpc": "2.0", "id": 2, "result": {}})
-        time.sleep(0.2)
+        s.wait_for("rpc=ping id=1 ")
         self.assertRegex(s.lines(), r"rpc=ping id=1 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200")
+
+    def test_a_held_request_reads_past_a_mode_file_caught_empty(self):
+        # FLAKE-MCPMODE (registry #19, PR #82's sweep job): the mode file was
+        # rewritten in place, truncated and then written, and the held request
+        # read it in between: `mode=unknown() -> 500`. Here the file stays
+        # empty for 400 ms, so a request asking every 50 ms is sure to read
+        # it so; it is still answered in the mode written after, and no
+        # request is answered in a mode that is no mode.
+        s = self.server("hang")
+        with self.assertRaises(socket.timeout):
+            s.ask("POST", "/mcp", body='{"jsonrpc":"2.0","id":1,"method":"ping"}', timeout=0.8)
+        open(self.mode, "w").close()
+        time.sleep(0.4)
+        swap(self.mode, "ready\n")
+        s.wait_for("rpc=ping id=1 ")
+        self.assertRegex(s.lines(), r"rpc=ping id=1 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200")
+        self.assertNotIn("unknown(", s.lines())
 
     def test_fail_and_rpcerror(self):
         s = self.server("fail")
         self.assertEqual(s.ask("POST", "/mcp", body='{"jsonrpc":"2.0","id":1,"method":"initialize"}')[0::2], (500, b"fixture failing"))
-        write(self.mode, "rpcerror\n")
+        swap(self.mode, "rpcerror\n")
         self.assertEqual(self.rpc(s, "initialize", 2)[2]["error"], {"code": -32603, "message": "fixture refuses"})
         self.assertEqual(self.rpc(s, "notifications/initialized")[0], 202)
 
@@ -1104,7 +1225,7 @@ class McpHttp(unittest.TestCase):
         self.assertIsInstance(body["result"], str)
         self.assertIn("\x1b]0;", body["result"])
         self.assertEqual(self.rpc(s, "initialize", 2, {"protocolVersion": "2025-11-25"})[2]["result"]["protocolVersion"], "2025-11-25")
-        write(self.mode, "hostile\n")
+        swap(self.mode, "hostile\n")
         result = self.rpc(s, "server/discover", 3)[2]["result"]
         self.assertEqual(result["resultType"], "complete")
         self.assertNotIn("2026-07-28", [v for v in result["supportedVersions"]])
@@ -1114,7 +1235,7 @@ class McpHttp(unittest.TestCase):
 
     def test_the_sse_modes_answer_discover_on_an_event_stream(self):
         def events(mode):
-            write(self.mode, mode + "\n")
+            swap(self.mode, mode + "\n")
             msg = {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}}
             c = http.client.HTTPConnection("127.0.0.1", s.port, timeout=5)
             try:
@@ -1139,7 +1260,7 @@ class McpHttp(unittest.TestCase):
         # Anything but discover is the mode's plain server, and a mode that is
         # no SSE mode answers discover as before.
         self.assertEqual(self.rpc(s, "initialize", 2, {"protocolVersion": "2025-11-25"})[2]["result"]["protocolVersion"], "2025-11-25")
-        write(self.mode, "ready\n")
+        swap(self.mode, "ready\n")
         self.assertEqual(self.rpc(s, "server/discover", 3)[0::2], (404, None))
 
 

@@ -1,0 +1,26 @@
+# before, second pass: the RED commit 760d7f85, the four tests its capture.sh paths reach, 20 runs under the suite lock, no added load
+test_a_file_a_verb_changes_mid_run_is_replaced_whole                        passed 0/20
+test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory             passed 0/20
+test_clock                                                                  passed 20/20
+test_rehomefile                                                             passed 20/20
+# per run:
+run 1 rc=1 Ran 4 tests in 21.301s FAILED (failures=4) 
+run 2 rc=1 Ran 4 tests in 22.549s FAILED (failures=4) 
+run 3 rc=1 Ran 4 tests in 21.527s FAILED (failures=4) 
+run 4 rc=1 Ran 4 tests in 21.662s FAILED (failures=4) 
+run 5 rc=1 Ran 4 tests in 21.672s FAILED (failures=4) 
+run 6 rc=1 Ran 4 tests in 21.455s FAILED (failures=4) 
+run 7 rc=1 Ran 4 tests in 21.590s FAILED (failures=4) 
+run 8 rc=1 Ran 4 tests in 21.816s FAILED (failures=4) 
+run 9 rc=1 Ran 4 tests in 22.803s FAILED (failures=4) 
+run 10 rc=1 Ran 4 tests in 21.590s FAILED (failures=4) 
+run 11 rc=1 Ran 4 tests in 22.219s FAILED (failures=4) 
+run 12 rc=1 Ran 4 tests in 24.086s FAILED (failures=4) 
+run 13 rc=1 Ran 4 tests in 22.822s FAILED (failures=4) 
+run 14 rc=1 Ran 4 tests in 22.234s FAILED (failures=4) 
+run 15 rc=1 Ran 4 tests in 23.365s FAILED (failures=4) 
+run 16 rc=1 Ran 4 tests in 22.150s FAILED (failures=4) 
+run 17 rc=1 Ran 4 tests in 22.611s FAILED (failures=4) 
+run 18 rc=1 Ran 4 tests in 22.269s FAILED (failures=4) 
+run 19 rc=1 Ran 4 tests in 24.369s FAILED (failures=4) 
+run 20 rc=1 Ran 4 tests in 21.269s FAILED (failures=4) 

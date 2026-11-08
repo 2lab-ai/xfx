@@ -1,0 +1,15 @@
+KILLED   mcphttp: one read, no retry                             rc=1 Ran 1 test in 1.323s FAILED (failures=1) | FAIL: test_a_held_request_reads_past_a_mode_file_caught_empty
+KILLED   mcphttp: bound 0                                        rc=1 Ran 1 test in 1.314s FAILED (failures=1) | FAIL: test_a_held_request_reads_past_a_mode_file_caught_empty
+KILLED   fakegw: a read that does not parse is taken at once     rc=1 Ran 1 test in 0.932s FAILED (failures=2) | FAIL: test_a_usage_file_or_second_catalog_caught_empty_is_read_again
+KILLED   fakegw: models2 read as before (exists, then text)      rc=1 Ran 1 test in 0.933s FAILED (failures=1) | FAIL: test_a_usage_file_or_second_catalog_caught_empty_is_read_again
+KILLED   fakegw: ENOENT is a failed read, not absent             rc=1 Ran 2 tests in 4.568s FAILED (failures=2) | FAIL: test_the_usage_routes_their_shapes_and_knobs; FAIL: test_usage_is_in_place_at_launch_and_swapped_on_cue
+KILLED   capture.sh: clock in place                              rc=1 Ran 1 test in 2.310s FAILED (failures=1) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole
+KILLED   capture.sh: reseed in place                             rc=1 Ran 1 test in 2.444s FAILED (failures=1) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole
+KILLED   capture.sh: rehomefile in place                         rc=1 Ran 2 tests in 4.391s FAILED (failures=2) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole; FAIL: test_rehomefile
+KILLED   capture.sh: put_in_home without its link/directory refusal rc=1 Ran 1 test in 3.307s FAILED (failures=2) | FAIL: test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory
+KILLED   capture.sh: put_in_home refusing a directory only       rc=1 Ran 1 test in 2.860s FAILED (failures=2) | FAIL: test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory
+KILLED   capture.sh: release appended                            rc=1 Ran 1 test in 2.399s FAILED (failures=1) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole
+KILLED   capture.sh: clipimage copied in place                   rc=1 Ran 1 test in 3.010s FAILED (failures=1) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole
+KILLED   capture.sh: usage copied in place                       rc=1 Ran 1 test in 2.334s FAILED (failures=1) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole
+KILLED   capture.sh: mcphttp mode written in place               rc=1 Ran 1 test in 2.349s FAILED (failures=1) | FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole
+killed 14/14
