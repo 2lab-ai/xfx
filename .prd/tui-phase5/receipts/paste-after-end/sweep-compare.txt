@@ -1,0 +1,19 @@
+change p5-input-paste/paste-enter: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change p5-input-paste/paste-enter.full: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change p5-input-paste-amend/amend-keep: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-input-paste-amend/amend-paste-enter: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 6 -> 0
+change p5-input-paste-amend/answered: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 6 -> 0
+change p5-input-paste-amend/choice-paste-enter: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-input-paste-amend/end: unresolved-defect -> unresolved-defect; causes [] -> []; uncaused 7 -> 1
+change p5-input-paste-behind/paste-behind: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-input-paste-behind/paste-behind.full: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-input-paste-behind/version-behind: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-input-paste-field/answered: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-input-paste-field/choice-paste-enter: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-input-paste-field/field-keep: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-input-paste-field/field-paste-enter: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change paste-suffix/paste-enter: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change paste-suffix/paste-enter.full: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+base: 253 pairs, 189 pass, 35 with uncaused rows
+head: 253 pairs, 200 pass, 20 with uncaused rows
+drops: 0

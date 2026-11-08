@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ ask me
+
+! input: Input that arrived right after the paste was ignored.
+
+! input: Input that arrived right after the paste was ignored.
+
+  1) What should happen first?
+     keepnew
+
+  Got it.
+
+  6s (↑2 ↓80)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-712dd8d [debug] · Run /help for commands
+
+┃ ask me
+
+✗ input: Paste was not applied because extra input followed its end marker.
+
+✗ input: Paste was not applied because extra input followed its end marker.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  What should happen first?
+
+    1) Inspect repo state            Look around the workspace
+    2) Run tests
+    3) keep
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+type answer    ↑↓←→ cursor    shift+↑↓ options    tab questions    enter answer    esc cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

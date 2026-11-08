@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-1a76ea0 [debug] · Run /help for commands
+
+┃ edit the files
+
+● 3 tool calls · 1 read · 1 write · 1 edit · 1 cancelled
+├ Read a.txt
+├ Edited a.txt +1 / -1
+└ Cancelled file
+
+▪ Cancelled file · What can xfx do differently?
+
+! input: Input that arrived right after the paste was ignored.
+
+! input: Input that arrived right after the paste was ignored.
+
+┃ keepnew
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

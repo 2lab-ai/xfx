@@ -1,0 +1,74 @@
+# c078237f's tests on the base source (712dd8d1): cargo test --locked --lib -- tui::input::tests::an_enter_in_the_read tui::input::tests::a_printable_key_behind tui::input::tests::an_escape_sequence_behind tui::input::tests::a_second_paste_in tui::input::tests::a_paste_with_nothing_behind tui::input::tests::an_end_marker_split tui::input::tests::a_delivery_is_every_read tui::shell::tests::a_paste_with_input_behind tui::shell::tests::a_delivery_is_every_read_until tui::shell::tests::a_paste_past_the_budget_with_input tui::shell::tests::an_oversized_paste_at_a_draft_with_input tui::input::tests::the_paste_flag
+test tui::input::tests::a_paste_with_nothing_behind_its_end_marker_stands ... ok
+test tui::input::tests::the_paste_flag_is_set_from_the_start_marker_to_the_end_of_the_delivery ... ok
+test tui::input::tests::an_escape_sequence_behind_the_end_marker_is_counted_and_never_decoded ... FAILED
+test tui::input::tests::a_printable_key_behind_the_end_marker_is_dropped_rather_than_typed ... FAILED
+test tui::input::tests::an_enter_in_the_read_that_ended_a_paste_keeps_the_paste_and_is_never_a_key ... FAILED
+test tui::input::tests::a_delivery_is_every_read_up_to_the_drain_and_not_one_read ... FAILED
+test tui::input::tests::a_second_paste_in_the_delivery_that_ended_the_first_is_not_taken ... FAILED
+test tui::input::tests::an_end_marker_split_across_two_deliveries_is_the_marker_and_the_next_key_a_key ... FAILED
+test tui::shell::tests::a_delivery_is_every_read_until_the_terminal_is_drained ... FAILED
+test tui::shell::tests::a_paste_with_input_behind_its_end_marker_in_one_delivery_is_kept_and_the_input_ignored ... FAILED
+test tui::shell::tests::a_paste_with_input_behind_its_end_marker_says_so_at_a_panel_with_no_draft ... FAILED
+test tui::shell::tests::a_paste_with_input_behind_its_end_marker_says_so_at_a_choice_too ... FAILED
+test tui::shell::tests::a_paste_with_input_behind_its_end_marker_reaches_the_answer_and_answers_nothing ... FAILED
+test tui::shell::tests::a_paste_with_input_behind_its_end_marker_reaches_no_draft_and_answers_nothing ... ok
+test tui::shell::tests::a_paste_with_input_behind_its_end_marker_reaches_the_draft_and_answers_nothing ... FAILED
+test tui::shell::tests::a_paste_with_input_behind_it_on_the_review_plane_is_kept_and_said_on_the_plane ... FAILED
+test tui::shell::tests::an_oversized_paste_at_a_draft_with_input_behind_it_says_the_limit_then_the_ignored_input ... FAILED
+test tui::shell::tests::a_paste_past_the_budget_with_input_behind_it_says_the_limit_then_the_ignored_input ... FAILED
+thread 'tui::input::tests::an_escape_sequence_behind_the_end_marker_is_counted_and_never_decoded' (358067291) panicked at src/tui/input.rs:2873:9:
+assertion `left == right` failed: the sequence behind the marker was decoded
+  left: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119)]
+ right: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119), Action(PasteEnd)]
+thread 'tui::input::tests::a_printable_key_behind_the_end_marker_is_dropped_rather_than_typed' (358067287) panicked at src/tui/input.rs:2864:9:
+assertion `left == right` failed: the byte behind the marker was typed
+  left: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119)]
+ right: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119), Action(PasteEnd)]
+thread 'tui::input::tests::an_enter_in_the_read_that_ended_a_paste_keeps_the_paste_and_is_never_a_key' (358067290) panicked at src/tui/input.rs:2854:9:
+assertion `left == right` failed: the Enter got through, or the paste did not stand
+  left: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119)]
+ right: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119), Action(PasteEnd)]
+thread 'tui::input::tests::a_delivery_is_every_read_up_to_the_drain_and_not_one_read' (358067285) panicked at src/tui/input.rs:2971:9:
+assertion `left == right` failed: the Enter one read behind got through
+  left: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119)]
+ right: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119), Action(PasteEnd)]
+thread 'tui::input::tests::a_second_paste_in_the_delivery_that_ended_the_first_is_not_taken' (358067288) panicked at src/tui/input.rs:2910:9:
+assertion `left == right` failed: the second paste or its Enter was taken
+  left: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119)]
+ right: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119), Action(PasteEnd)]
+thread 'tui::input::tests::an_end_marker_split_across_two_deliveries_is_the_marker_and_the_next_key_a_key' (358067289) panicked at src/tui/input.rs:2961:9:
+assertion `left == right` failed: the Enter behind a split marker got through
+  left: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119)]
+ right: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119), Action(PasteEnd)]
+thread 'tui::shell::tests::a_delivery_is_every_read_until_the_terminal_is_drained' (358067293) panicked at src/tui/shell.rs:18840:9:
+assertion `left == right` failed
+  left: "prior"
+ right: "priornew"
+thread 'tui::shell::tests::a_paste_with_input_behind_its_end_marker_in_one_delivery_is_kept_and_the_input_ignored' (358067296) panicked at src/tui/shell.rs:18802:9:
+assertion `left == right` failed: the paste was not kept
+  left: "prior"
+ right: "priornew"
+thread 'tui::shell::tests::a_paste_with_input_behind_its_end_marker_says_so_at_a_panel_with_no_draft' (358067301) panicked at src/tui/shell.rs:37949:9:
+assertion `left == right` failed
+  left: ["✗ input: Paste was not applied because extra input followed its end marker.", ""]
+ right: ["! input: Input that arrived right after the paste was ignored.", ""]
+thread 'tui::shell::tests::a_paste_with_input_behind_its_end_marker_says_so_at_a_choice_too' (358067300) panicked at src/tui/shell.rs:22485:9:
+assertion `left == right` failed
+  left: ["✗ input: Paste was not applied because extra input followed its end marker.", ""]
+ right: ["! input: Input that arrived right after the paste was ignored.", ""]
+thread 'tui::shell::tests::a_paste_with_input_behind_its_end_marker_reaches_the_answer_and_answers_nothing' (358067298) panicked at src/tui/shell.rs:22444:9:
+assertion `left == right` failed: the paste did not reach the answer
+  left: "    3) keep "
+ right: "    3) keepnew "
+thread 'tui::shell::tests::a_paste_with_input_behind_its_end_marker_reaches_the_draft_and_answers_nothing' (358067299) panicked at src/tui/shell.rs:37873:9:
+thread 'tui::shell::tests::a_paste_with_input_behind_it_on_the_review_plane_is_kept_and_said_on_the_plane' (358067295) panicked at src/tui/shell.rs:38003:9:
+thread 'tui::shell::tests::an_oversized_paste_at_a_draft_with_input_behind_it_says_the_limit_then_the_ignored_input' (358067302) panicked at src/tui/shell.rs:37975:9:
+assertion `left == right` failed
+  left: ["✗ input: That edit exceeds the input limit and was not applied.", ""]
+ right: ["✗ input: That edit exceeds the input limit and was not applied.", "", "! input: Input that arrived right after the paste was ignored.", ""]
+thread 'tui::shell::tests::a_paste_past_the_budget_with_input_behind_it_says_the_limit_then_the_ignored_input' (358067294) panicked at src/tui/shell.rs:18893:9:
+assertion `left == right` failed
+  left: ["✗ input: That edit exceeds the local prompt safety limit and was not applied.", ""]
+ right: ["✗ input: That edit exceeds the local prompt safety limit and was not applied.", "", "! input: Input that arrived right after the paste was ignored.", ""]
+test result: FAILED. 3 passed; 15 failed; 0 ignored; 0 measured; 4520 filtered out; finished in 0.42s
