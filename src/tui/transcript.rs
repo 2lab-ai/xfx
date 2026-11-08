@@ -653,9 +653,10 @@ pub(crate) struct Transcript {
     /// is on the terminal, and a vector the screen refused must leave them
     /// owed exactly as a refused append always did ([`Landed::None`]).
     staged: Option<Staged>,
-    /// The long rows a block wrote last, each with the width it was cut for
-    /// and what it was cut to ([`Self::cut_for_screen`]).
-    kept_rows: RefCell<Vec<KeptRow>>,
+    /// The long rows the last write of a block cut, and the ones this write
+    /// has cut so far, each with the width it was cut for and what it was cut
+    /// to ([`Self::cut_for_screen`]).
+    kept_rows: RefCell<KeptRows>,
     /// How many times a block's row of [`KEPT_ROW_BYTES`] or more was cut
     /// for the screen: what writing a block again costs, for the tests.
     #[cfg(test)]
@@ -667,15 +668,36 @@ pub(crate) struct Transcript {
 /// can hold megabytes a screen shows ([`super::toolgroup`]'s inline argument).
 const KEPT_ROW_BYTES: usize = 64 * 1024;
 
-/// How many of those a transcript keeps: a block's call row in each mode,
-/// drawn and drawn again, and one more.
-const KEPT_ROWS: usize = 5;
+/// The long rows a block's writes cut: the last write's, and this one's.
+///
+/// **One generation, not a count.** A block with a long call row asks for it
+/// cut in the mode it is written in and in each mode its drawing is kept for
+/// (`Redraw::map`), two long rows a call; five kept rows were a group of three
+/// such calls asking for six, and every write of the block cut four of them
+/// again (GRID-ROW-COST). What a write cut replaces what the write before it
+/// cut ([`Transcript::turn_kept_rows`]), so every long row the block writes
+/// again is found however many it has, and a row the block stopped writing is
+/// let go by the write after.
+#[derive(Default)]
+struct KeptRows {
+    kept: Vec<KeptRow>,
+    cut: Vec<KeptRow>,
+}
 
-/// One long block row, the width it was cut for, and what it was cut to.
+/// One long block row, the width it was cut for, and what it was cut to --
+/// `None` for the row as it stands, which is what a row that fits is cut to
+/// ([`ellipsized`]), so a row of megabytes that paints a few cells is not kept
+/// twice.
 struct KeptRow {
     row: String,
     cols: u16,
-    written: String,
+    written: Option<String>,
+}
+
+impl KeptRow {
+    fn written(&self) -> String {
+        self.written.as_ref().unwrap_or(&self.row).clone()
+    }
 }
 
 /// The committed state [`Transcript::stage`] saved, and the operations taken
@@ -937,29 +959,33 @@ impl Transcript {
         if row.len() < KEPT_ROW_BYTES {
             return ellipsized(row, cols);
         }
-        let mut kept = self.kept_rows.borrow_mut();
-        if let Some(at) = kept
-            .iter()
-            .position(|kept| kept.cols == cols && kept.row == row)
-        {
-            let found = kept.remove(at);
-            let written = found.written.clone();
-            kept.insert(0, found);
+        let mut rows = self.kept_rows.borrow_mut();
+        let same = |kept: &KeptRow| kept.cols == cols && kept.row == row;
+        if let Some(found) = rows.cut.iter().find(|kept| same(kept)) {
+            return found.written();
+        }
+        if let Some(at) = rows.kept.iter().position(same) {
+            let found = rows.kept.swap_remove(at);
+            let written = found.written();
+            rows.cut.push(found);
             return written;
         }
         #[cfg(test)]
         self.cut_long.set(self.cut_long.get() + 1);
         let written = ellipsized(row, cols);
-        kept.insert(
-            0,
-            KeptRow {
-                row: row.to_string(),
-                cols,
-                written: written.clone(),
-            },
-        );
-        kept.truncate(KEPT_ROWS);
+        rows.cut.push(KeptRow {
+            row: row.to_string(),
+            cols,
+            written: (written != row).then(|| written.clone()),
+        });
         written
+    }
+
+    /// A block's write is made: what it cut is what the next write finds
+    /// ([`KeptRows`]).
+    fn turn_kept_rows(&self) {
+        let mut rows = self.kept_rows.borrow_mut();
+        rows.kept = std::mem::take(&mut rows.cut);
     }
 
     /// Queues a change of gutter for the lines that follow.
@@ -1180,6 +1206,7 @@ impl Transcript {
                 })
                 .collect()
         };
+        self.turn_kept_rows();
         let append = Append {
             scroll: written.len() - painted,
             rows: written,
@@ -4444,6 +4471,29 @@ mod tests {
             transcript.cut_long.get() - first,
             0,
             "the block was written again three times, and rows it had already cut were cut again"
+        );
+    }
+
+    #[test]
+    fn a_long_row_the_block_stopped_writing_is_let_go_by_the_write_after() {
+        // What the kept rows hold is what the last write of a block cut, and
+        // nothing older: a row of megabytes is not held for a block that no
+        // longer has it. Written with rows A and B, then with C alone, then
+        // with A: A is cut again, B never was since.
+        let long = |name: &str| format!("{name}a{}tail", "\u{301}".repeat(64 * 1024));
+        let mut transcript = Transcript::new(40);
+        for written in [&["A", "B"][..], &["C"], &["C"], &["A"]] {
+            let rows: Vec<String> = written.iter().map(|name| long(name)).collect();
+            transcript.queue_block(rows, Vec::new(), Vec::new(), Mode::Dark);
+            drain(&mut transcript, DARK_256);
+        }
+        assert_eq!(transcript.cut_long.get(), 4, "A, B, C, and A again");
+        let kept = transcript.kept_rows.borrow();
+        assert_eq!(kept.kept.len(), 1, "the last write's one row");
+        assert_eq!(kept.kept[0].row, long("A"));
+        assert!(
+            kept.cut.is_empty(),
+            "a write's cuts were left out of the turn"
         );
     }
 }

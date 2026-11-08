@@ -5993,6 +5993,139 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_groups_long_rows_stay_what_their_text_lays_through_scrolls_themes_and_a_resize() {
+        // GRID-ROW-COST: the frames keep, for each row they place, the text it
+        // was laid from, and an append that leaves a row in place is told it
+        // holds the text without reading it again. That holds only while
+        // every change to a row's cells forgets its text -- so a whole session
+        // of a group with long rows (one letter under 64 Ki marks, coloured
+        // as a tool row is) is held, after every tick, to two things: no
+        // vector was refused by the output check, and every row the shadow
+        // says was laid from a text holds what a fresh placement of it leaves.
+        // Through appends that leave the rows in place and scroll them, a
+        // theme report each way (a retint, then the group drawn again), a
+        // resize, the long calls finishing and the turn ending.
+        let mut shell = shell_of(30, 100);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        let held = |shell: &Fixture, band: &Band, failures: &FrameFailures, step: &str| {
+            assert!(
+                failures.first.is_none(),
+                "{step}: a vector was refused: {:?}",
+                failures.first
+            );
+            assert_eq!(
+                band.shadow().stale_laid_rows(&shell.geometry),
+                Vec::<u16>::new(),
+                "{step}: rows that are not what their text lays"
+            );
+        };
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.route_bytes(b"go\r");
+        shell.apply(UiEvent::TurnStarted.made_inert());
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        let marks = "\u{301}".repeat(64 * 1024);
+        for k in 0..2 {
+            shell.apply(
+                UiEvent::ToolStart {
+                    call_id: format!("g{k}"),
+                    tool: "glob_files".to_string(),
+                    shown: crate::tools::read::GLOB_FILES
+                        .shown(&serde_json::json!({ "pattern": format!("{k}a{marks}") })),
+                }
+                .made_inert(),
+            );
+            tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            held(&shell, &band, &failures, "a long call started");
+        }
+        let mut read = 0;
+        let mut reads = |shell: &mut Fixture,
+                         band: &mut Band,
+                         out: &mut FlakyScreen,
+                         failures: &mut FrameFailures,
+                         count: usize,
+                         step: &str| {
+            for _ in 0..count {
+                let id = format!("r{read}");
+                read += 1;
+                for event in [
+                    UiEvent::ToolStart {
+                        call_id: id.clone(),
+                        tool: "read_file".to_string(),
+                        shown: crate::tools::read::READ_FILE
+                            .shown(&serde_json::json!({ "path": "a.txt" })),
+                    },
+                    UiEvent::ToolResult {
+                        call_id: id.clone(),
+                        tool: "read_file".to_string(),
+                        ok: true,
+                        detail: String::new(),
+                        outcome: crate::tools::Outcome::Finished,
+                        changes: None,
+                    },
+                ] {
+                    shell.apply(event.made_inert());
+                    tick(shell, band, out, failures, now);
+                    held(shell, band, failures, step);
+                }
+            }
+        };
+        reads(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            4,
+            "reads joined",
+        );
+        shell.route_bytes(WENT_LIGHT);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        held(&shell, &band, &failures, "the theme went light");
+        reads(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            4,
+            "reads joined, light",
+        );
+        shell.route_bytes(WENT_DARK);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        held(&shell, &band, &failures, "the theme went dark");
+        adopt_resize(&mut shell, &mut band, || (30, 80));
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        held(&shell, &band, &failures, "a resize");
+        reads(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            12,
+            "reads scrolled the rows",
+        );
+        for k in 0..2 {
+            shell.apply(
+                UiEvent::ToolResult {
+                    call_id: format!("g{k}"),
+                    tool: "glob_files".to_string(),
+                    ok: true,
+                    detail: String::new(),
+                    outcome: crate::tools::Outcome::Finished,
+                    changes: None,
+                }
+                .made_inert(),
+            );
+            tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            held(&shell, &band, &failures, "a long call finished");
+        }
+        shell.apply(UiEvent::TurnEnded { failure: None }.made_inert());
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        held(&shell, &band, &failures, "the turn ended");
+    }
+
     /// A turn that runs one command whose words the shell highlighter paints
     /// -- a string, a number, an operator and a comment -- and then answers,
     /// which closes the group (`p5-toolgroup-retint`'s turn).

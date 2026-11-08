@@ -163,12 +163,17 @@ pub(crate) struct Band {
     /// One row of scratch space [`Grid::row_matches`] renders a candidate
     /// settled row into, reused across a whole append so only this row's own
     /// cell-vector storage is (re)allocated once, not once per row compared
-    /// -- narrower than "the check allocates nothing": [`Grid::place_row`]
-    /// still allocates a `String` per grapheme cluster it writes into
-    /// `scratch`, on every row it renders, matched or not. Disposable:
+    /// -- narrower than "the check allocates nothing": a row it places
+    /// there still allocates a `String` per grapheme cluster, on every row it
+    /// renders, matched or not (a row the grid placed itself from the same
+    /// text is answered without one, [`Grid::row_matches`]). Disposable:
     /// nothing ever reads it as a claim about the screen, only as the last
     /// thing [`Grid::row_matches`] rendered into it.
     scratch: Grid,
+    /// What the output check's replay of this band's appends laid for long
+    /// rows, kept for the next append ([`check::preflight_kept`]): the check's
+    /// own record, which nothing here reads.
+    replays: check::Replays,
     /// The window title this session wants, and `None` for a session that has
     /// not asked for one -- which is every session until [`Band::set_title`] is
     /// called, and therefore every test below.
@@ -391,6 +396,7 @@ impl Band {
             shadow: Grid::blank(0, 0),
             target: Grid::blank(0, 0),
             scratch: Grid::blank(0, 0),
+            replays: check::Replays::default(),
             title: None,
             shown_title: None,
             caret: None,
@@ -2662,7 +2668,7 @@ impl Band {
         // the rows that may be reached, and the exact number of scrolls, since
         // a row carried off the top of the screen is in native scrollback for
         // good.
-        check::preflight(
+        check::preflight_kept(
             &seed,
             &appended,
             &check::Declared::new(
@@ -2684,6 +2690,7 @@ impl Band {
                 },
                 footprint,
             ),
+            &mut self.replays,
         )
         .map_err(Emit::rejected)?;
         out.emit(&appended)?;
