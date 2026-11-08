@@ -1,0 +1,22 @@
+# cargo test --locked --lib a_prompt_taller_than_the_room_under_the_document (base 58c92ba2 + this test), timeout 600 s
+
+running 1 test
+test tui::event_loop::tests::a_prompt_taller_than_the_room_under_the_document_shows_its_newest_rows_for_one_frame ... FAILED
+
+failures:
+
+---- tui::event_loop::tests::a_prompt_taller_than_the_room_under_the_document_shows_its_newest_rows_for_one_frame stdout ----
+
+thread 'tui::event_loop::tests::a_prompt_taller_than_the_room_under_the_document_shows_its_newest_rows_for_one_frame' (356372729) panicked at src/tui/event_loop.rs:8994:17:
+assertion `left == right` failed: 3 lines, the frame that clears the composer, PREVIEW-LINE-1: "\u{1b}[?2026h\u{1b}[?25l\u{1b}[36;1H\u{1b}[K\u{1b}[37;1H\u{1b}[K\u{1b}[40;1H\n\u{1b}[37;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[1mPREVIEW-LINE-1\u{1b}[0m\u{1b}[K\u{1b}[40;1H\n\u{1b}[37;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[1mPREVIEW-LINE-2\u{1b}[0m\u{1b}[K\u{1b}[40;1H\n\u{1b}[37;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[1mPREVIEW-LINE-3\u{1b}[0m\u{1b}[K\u{1b}[40;1H\n\u{1b}[37;1H\u{1b}[K\u{1b}[38;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[40;1H\u{1b}[38;5;245mrun `xfx setup` · \u{1b}[0m\u{1b}[38;5;252mauto\u{1b}[0m\u{1b}[38;5;245m · glm-5.2\u{1b}[0m\u{1b}[38;3H\u{1b}[?2026l\u{1b}[?25h"
+  left: true
+ right: false
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::event_loop::tests::a_prompt_taller_than_the_room_under_the_document_shows_its_newest_rows_for_one_frame
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4536 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--lib`

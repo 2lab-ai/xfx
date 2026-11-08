@@ -8960,6 +8960,88 @@ mod tests {
     }
 
     #[test]
+    fn a_prompt_taller_than_the_room_under_the_document_shows_its_newest_rows_for_one_frame() {
+        // fx v0.0.16's pending card (70611a91): the frame that clears the
+        // composer paints only the newest rows of the card that fit between
+        // the document's last row and the fixed content bottom, `rows - 4`,
+        // and at least one (`buildPendingCardProjection`,
+        // `src/core/app/app_render_runtime.zig:220-277@481104fd`); the frame
+        // after that one commits writes the whole card
+        // (`noteCommittedFrame` -> `adoptPendingSubmission`,
+        // `src/core/app/input_submit_runtime.zig:289-307`, `:572-584`). On a
+        // full 40-row screen a three-line draft leaves the document's last
+        // row at 35, room for one row; a five-line one leaves it at 33, room
+        // for three (`fx-p5-submit-preview-full-40x120-five`, frame 1).
+        for (lines, shown) in [(3usize, 1usize), (5, 3)] {
+            let mut shell = shell_of(40, 120);
+            let mut band = Band::new();
+            let mut failures = FrameFailures::default();
+            let mut out = screen();
+            let now = Instant::now();
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                now,
+                Reconciled,
+            )
+            .expect("the first frame");
+            let words: Vec<String> = (1..=lines).map(|n| format!("PREVIEW-LINE-{n}")).collect();
+            shell.route_bytes(format!("\x1b[200~{}\x1b[201~", words.join("\n")).as_bytes());
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                now,
+                Reconciled,
+            )
+            .expect("the frame that shows the draft");
+
+            out.written.clear();
+            shell.route_bytes(b"\r");
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                now,
+                Reconciled,
+            )
+            .expect("the frame that clears the composer");
+            let first = String::from_utf8_lossy(&out.written).into_owned();
+            for (index, word) in words.iter().enumerate() {
+                assert_eq!(
+                    first.contains(word.as_str()),
+                    index >= lines - shown,
+                    "{lines} lines, the frame that clears the composer, {word}: {first:?}"
+                );
+            }
+
+            out.written.clear();
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                now,
+                Reconciled,
+            )
+            .expect("the frame after it");
+            let second = String::from_utf8_lossy(&out.written).into_owned();
+            for word in &words {
+                assert!(
+                    second.contains(&format!(
+                        "\u{1b}[38;5;255m\u{2503}\u{1b}[0m \u{1b}[1m{word}\u{1b}[0m"
+                    )),
+                    "{lines} lines, the frame after it did not write the card's {word}: {second:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn a_band_that_did_not_grow_scrolls_the_document_for_nothing() {
         // The bound, and it is the expensive direction to get wrong: a scroll
         // cannot be taken back -- what leaves the top of the screen is in the
