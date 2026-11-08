@@ -1,0 +1,35 @@
+# STOP-NEXT-2's code mutants (mutants.py): each on a --no-local clone, the whole TUI library suite (cargo test --locked --lib -- tui::),
+# 900 s each, in a suite-lock slot. TMPDIR=<short>.
+
+## first run, the clone at 7d5e3d4b
+# clone at 7d5e3d4bce733245cb3b5e0a171bb9e123d0bd8a, started 2026-11-08T12:10:07Z
+ 1  KILLED    R1: the stop's own compaction exempt while it unwinds (the base)         tui::shell::tests::a_second_press_while_the_first_ones_own_work_unwinds_stops_nothing_more 
+ 2  KILLED    R1: every pending switch exempt (the base)                               tui::shell::tests::a_second_press_while_the_first_ones_own_work_unwinds_stops_nothing_more 
+ 3  KILLED    R1: a switch the stop covers by one exempt (off by one)                  tui::shell::tests::a_second_press_while_the_first_ones_own_work_unwinds_stops_nothing_more 
+ 4  KILLED    7: a stop's own tick leads with the end's title (the base)               tui::event_loop::tests::a_stop_and_its_turns_end_in_one_tick_put_the_title_after_the_cancelled_frame 
+ 5  KILLED    7: a turn's stop marks no tick                                           tui::event_loop::tests::a_stop_and_its_turns_end_in_one_tick_put_the_title_after_the_cancelled_frame 
+ 6  SURVIVED  7: a compaction's stop marks no tick                                     exit 0
+ 7  KILLED    T1: a later title replaces the end's in the same frame (the base)        tui::event_loop::tests::a_model_title_after_a_stopped_end_in_one_tick_follows_the_ends_title_and_the_report 
+ 8  KILLED    T1, 7: a held title is taken anyway                                      tui::event_loop::tests::a_model_title_after_a_stopped_end_in_one_tick_follows_the_ends_title_and_the_report ; tui::event_loop::tests::a_stop_and_its_turns_end_in_one_tick_put_the_title_after_the_cancelled_frame ; tui::event_loop::tests::a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report 
+ 9  KILLED    T1, 7: a held title still counts as this tick's                          tui::event_loop::tests::a_model_title_after_a_stopped_end_in_one_tick_follows_the_ends_title_and_the_report 
+10  KILLED    T1, 7: no frame asked for a held title                                   tui::event_loop::tests::a_model_title_after_a_stopped_end_in_one_tick_follows_the_ends_title_and_the_report ; tui::event_loop::tests::a_stop_and_its_turns_end_in_one_tick_put_the_title_after_the_cancelled_frame ; tui::event_loop::tests::a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report 
+11  KILLED    T1, 7: a stop's tick never ends                                          tui::event_loop::tests::a_model_title_after_a_stopped_end_in_one_tick_follows_the_ends_title_and_the_report ; tui::event_loop::tests::a_stopped_turns_title_goes_out_ahead_of_the_next_prompts_working 
+12  KILLED    T1, 7: the loop never ends a tick                                        tui::event_loop::tests::a_model_title_after_a_stopped_end_in_one_tick_follows_the_ends_title_and_the_report ; tui::event_loop::tests::a_stop_and_its_turns_end_in_one_tick_put_the_title_after_the_cancelled_frame ; tui::event_loop::tests::a_stopped_turns_title_goes_out_ahead_of_the_next_prompts_working ; tui::event_loop::tests::a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report 
+13  KILLED    8: late text never kept (the base)                                       tui::event_loop::tests::a_covered_turn_that_finished_before_the_stop_presents_its_text ; tui::event_loop::tests::a_finished_turns_late_text_is_presented_with_its_end_in_one_drain ; tui::event_loop::tests::late_text_a_stop_holds_counts_against_the_drains_bound 
+14  KILLED    8: late text presented under the stop's own end                          tui::shell::tests::a_cancel_that_waits_for_a_running_call_survives_a_prompt_typed_meanwhile ; tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_is_that_turns ; tui::shell::tests::what_a_cancelled_turn_was_still_saying_never_reaches_the_screen 
+15  KILLED    8: an emptied drain keeps late text                                      tui::event_loop::tests::a_finished_turns_late_text_is_presented_with_its_end_in_one_drain 
+16  SURVIVED  8: every drain drops late text                                           exit 0
+17  SURVIVED  8: a drain cut at its bound counts as emptied                            exit 0
+18  KILLED    8: late text outside the drain's bound                                   tui::event_loop::tests::late_text_a_stop_holds_counts_against_the_drains_bound 
+# mutants rc=0 2026-11-08T12:15:45Z
+# unmutated rc=0 test result: ok. 2801 passed; 0 failed; 5 ignored; 0 measured; 1652 filtered out; finished in 9.40s
+# clone dirty files:        0
+
+## mutants-rerun: the three survivors, the clone at 2a6e8fa7 (the guard tests)
+# clone at 2a6e8fa71e02a8a08af07a22b5d89755701b2f21, started 2026-11-08T12:29:05Z
+ 6  KILLED    7: a compaction's stop marks no tick                                     tui::event_loop::tests::a_compactions_stop_and_its_turns_end_in_one_tick_put_the_title_on_the_next_tick 
+16  KILLED    8: every drain drops late text                                           tui::event_loop::tests::a_finished_turns_late_text_is_presented_with_its_end_in_one_drain 
+17  KILLED    8: a drain cut at its bound counts as emptied                            tui::event_loop::tests::a_finished_turns_late_text_is_presented_with_its_end_in_one_drain 
+# mutants rc=0 2026-11-08T12:30:01Z
+# unmutated rc=0 test result: ok. 2802 passed; 0 failed; 5 ignored; 0 measured; 1652 filtered out; finished in 9.63s
+# clone dirty files:        0

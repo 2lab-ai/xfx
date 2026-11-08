@@ -1,0 +1,507 @@
+# fx v0.0.16 (481104fd) text for every fx citation STOP-NEXT-2 adds. Each block: the command (repo = the fx upstream
+# checkout, read through git show at the pin, never its working tree), then the lines with their numbers. Citations
+# already quoted by STOP-NEXT or STOP-LATE-EVENT are read from ../stop-next/fx-src.txt and ../stop-late-event/fx-src.txt.
+
+## R1: a second press on the stop's own work only asks it to stop again -- a running compaction's cancel is requested
+## again; a provider preparation is cancelled again -- and no queued prompt is dropped
+
+### git -C fx-upstream show 481104fd:src/core/agent/worker_runtime.zig | sed -n '1002,1037p'
+ 1002      pub fn cancelContextCompaction(
+ 1003          self: *WorkerRuntime,
+ 1004          alloc: std.mem.Allocator,
+ 1005      ) bool {
+ 1006          self.worker_mutex.lockUncancelable(io_mod.getIo());
+ 1007          if (self.queued_context_compaction) |task| {
+ 1008              self.queued_context_compaction = null;
+ 1009              if (task.operation_id) |id| self.compaction_presentation.settle(id, .{ .outcome = .cancelled }, io_mod.milliTimestamp());
+ 1010              self.worker_cond.broadcast(io_mod.getIo());
+ 1011              self.worker_mutex.unlock(io_mod.getIo());
+ 1012              freeContextCompactionTask(alloc, task);
+ 1013              debug_trace.eventf(
+ 1014                  "context_compaction",
+ 1015                  "cancelled",
+ 1016                  .{},
+ 1017                  "phase=queued",
+ 1018                  .{},
+ 1019              );
+ 1020              return true;
+ 1021          }
+ 1022          if (self.active_context_compaction) {
+ 1023              self.worker_cancel_requested.store(true, .seq_cst);
+ 1024              self.stopCompactionActivityLocked();
+ 1025              self.worker_cond.broadcast(io_mod.getIo());
+ 1026              self.worker_mutex.unlock(io_mod.getIo());
+ 1027              debug_trace.eventf(
+ 1028                  "context_compaction",
+ 1029                  "cancel_requested",
+ 1030                  .{},
+ 1031                  "phase=running",
+ 1032                  .{},
+ 1033              );
+ 1034              return true;
+ 1035          }
+ 1036          self.worker_mutex.unlock(io_mod.getIo());
+ 1037          return false;
+
+### git -C fx-upstream show 481104fd:src/core/auth/auth_runtime.zig | sed -n '2052,2056p'
+ 2052      pub fn cancelProviderPreparation(self: *Self) bool {
+ 2053          const task = self.provider_preparation orelse return false;
+ 2054          task.requestCancel();
+ 2055          return true;
+ 2056      }
+
+## R4: the press is gated on stream state the UI sets when it drains a turn's start; a press with no active operation
+## cancels nothing
+
+### git -C fx-upstream show 481104fd:src/core/app/app_input_runtime.zig | sed -n '1510,1547p'
+ 1510  
+ 1511          fn handleSemanticCtrlC(app: *App) !void {
+ 1512              if (exitModelPickerShortcutIfActive(app)) return;
+ 1513              if (exitMcpHostMenuIfActive(app)) return;
+ 1514              if (app.stream.active and draftHasState(app)) {
+ 1515                  clearDraftState(app, "ctrl_c");
+ 1516                  app.shell.render_requests.request(.footer);
+ 1517                  return;
+ 1518              }
+ 1519  
+ 1520              const now = io_mod.milliTimestamp();
+ 1521              const transition = gesture_state.pressCtrlCExit(
+ 1522                  app.input_runtime.gestures,
+ 1523                  now,
+ 1524              );
+ 1525              app.input_runtime.gestures = transition.next;
+ 1526              if (transition.result == .activated) {
+ 1527                  debug_trace.logf("shutdown", "ctrl_c_exit_activated", .{});
+ 1528                  app_session_runtime.Runtime(App).requestResumeHandoff(app);
+ 1529                  app.should_exit = true;
+ 1530                  return;
+ 1531              }
+ 1532  
+ 1533              debug_trace.logf("input", "ctrl_c_exit_hint_armed", .{});
+ 1534  
+ 1535              if (interrupt_rt.hasActiveOperation(app)) {
+ 1536                  try interrupt_rt.cancelActiveOperation(app);
+ 1537                  app.shell.render_requests.request(.footer);
+ 1538                  return;
+ 1539              }
+ 1540  
+ 1541              if (comptime @hasDecl(App, "cancelPendingSubmission")) {
+ 1542                  if (App.cancelPendingSubmission(app)) return;
+ 1543              }
+ 1544  
+ 1545              if (draftHasState(app)) clearDraftState(app, "ctrl_c");
+ 1546              app.shell.render_requests.request(.footer);
+ 1547          }
+
+### git -C fx-upstream show 481104fd:src/core/app/input_interrupt_runtime.zig | sed -n '12,21p'
+   12  fn cancellationTarget(
+   13      stream_active: bool,
+   14      compaction_status: worker_runtime.ContextCompactionStatus,
+   15  ) CancellationTarget {
+   16      if (stream_active) return .agent_turn;
+   17      return switch (compaction_status) {
+   18          .idle => .none,
+   19          .queued, .running => .context_compaction,
+   20      };
+   21  }
+
+### git -C fx-upstream show 481104fd:src/core/app/input_interrupt_runtime.zig | sed -n '178,187p'
+  178          fn activeCancellationTarget(app: *App) CancellationTarget {
+  179              const status = if (comptime @hasDecl(
+  180                  @TypeOf(app.worker),
+  181                  "contextCompactionStatus",
+  182              ))
+  183                  app.worker.contextCompactionStatus()
+  184              else
+  185                  worker_runtime.ContextCompactionStatus.idle;
+  186              return cancellationTarget(app.stream.active, status);
+  187          }
+
+## (the stop's keystroke clears the stream: input_interrupt_runtime.zig:132, quoted in ../stop-next/fx-src.txt; the drain
+## sets it at begin_prompt: app_worker_runtime.zig:965-975, idem)
+
+## Item 7: a pass collects its facts (the worker's events drained, the status reported) before it handles keys, and
+## commits its frame after them
+
+### git -C fx-upstream show 481104fd:src/ui/event_loop.zig | sed -n '77,117p'
+   77      var buf: [128]u8 = undefined;
+   78  
+   79      while (!should_exit.*) {
+   80          try callbacks.collect_facts(callbacks.ctx);
+   81          if (should_exit.*) return .requested_exit;
+   82  
+   83          while (callbacks.next_collected_byte(callbacks.ctx)) |byte| {
+   84              try callbacks.handle_byte(callbacks.ctx, byte);
+   85              if (should_exit.*) return .requested_exit;
+   86          }
+   87  
+   88          const timeout_ms = if (callbacks.poll_timeout_ms) |resolve|
+   89              resolve(callbacks.ctx, poll_timeout_ms)
+   90          else
+   91              poll_timeout_ms;
+   92          var poll_result = try terminal.pollInput(timeout_ms);
+   93          var input_reads: usize = 0;
+   94          while (poll_result.readable and input_reads < max_input_reads_per_fact_collection) : (input_reads += 1) {
+   95              const read_len = try terminal.read(&buf);
+   96              if (read_len == 0) {
+   97                  if (input_reads > 0) attemptFinalFrameCommit(callbacks, "eof");
+   98                  return .input_closed;
+   99              }
+  100  
+  101              record_tape.recordStdin(buf[0..read_len]);
+  102              for (buf[0..read_len]) |byte| {
+  103                  try callbacks.handle_byte(callbacks.ctx, byte);
+  104                  if (should_exit.*) return .requested_exit;
+  105              }
+  106              poll_result = try terminal.pollInput(0);
+  107          }
+  108  
+  109          if (poll_result.readable) {
+  110              try callbacks.commit_frame(callbacks.ctx);
+  111              continue;
+  112          }
+  113          if (poll_result.closed()) {
+  114              if (input_reads > 0) attemptFinalFrameCommit(callbacks, "hangup");
+  115              return .input_closed;
+  116          }
+  117  
+
+## T1: each title is written when it is set
+
+### git -C fx-upstream show 481104fd:src/core/app/app_session_runtime.zig | sed -n '2965,2987p'
+ 2965          pub fn syncTerminalTitleWith(
+ 2966              app: *App,
+ 2967              provider: host_capability.TerminalTitle,
+ 2968          ) void {
+ 2969              if (comptime !provider_runtime.supported(App)) return;
+ 2970              if (cachedSessionTitle(app)) |title| {
+ 2971                  provider.set(title);
+ 2972                  return;
+ 2973              }
+ 2974              const basename = if (comptime @hasField(App, "workspace_root"))
+ 2975                  std.Io.Dir.path.basename(app.workspace_root)
+ 2976              else
+ 2977                  "";
+ 2978              const folder = if (basename.len == 0) "workspace" else basename;
+ 2979              const prefix = "fx v" ++ build_options.app_version ++ " | ";
+ 2980              var label_buffer: [prefix.len + std.Io.Dir.max_path_bytes]u8 = undefined;
+ 2981              const label = std.mem.print(&label_buffer, "{s}{s}", .{ prefix, folder }) catch |err| {
+ 2982                  debug_trace.logf("session", "terminal title workspace omitted err={s}", .{@errorName(err)});
+ 2983                  provider.set("fx v" ++ build_options.app_version);
+ 2984                  return;
+ 2985              };
+ 2986              provider.set(label);
+ 2987          }
+
+## Item 8: batchSegmentIsInterrupted, takeEventBatch, cancelledEventAdmission and finishProcessing are quoted in
+## ../stop-next/fx-src.txt and ../stop-late-event/fx-src.txt (app_worker_runtime.zig:301-389, worker_runtime.zig:923-937,
+## :1541-1563); the keystroke clears the pacer, input_interrupt_runtime.zig:107 (idem)
+
+## STOP-NEXT-3, item 10a: submit returns while a pending submission exists; it ends at the drain of the turn's start
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n '637,689p'
+  637          }
+  638  
+  639          pub fn submit(app: *App, max_prompt_history: usize) !void {
+  640              if (comptime @hasField(App, "worker")) {
+  641                  if (comptime @hasDecl(@TypeOf(app.worker), "compactionActivitySnapshot")) {
+  642                      const observed = app.worker.compactionActivitySnapshot();
+  643                      if (observed.operation) |op| {
+  644                          if (app.worker.dismissCompactionActivity(op.id, observed.revision)) app.shell.render_requests.request(.footer);
+  645                      }
+  646                  }
+  647              }
+  648              if (comptime @hasField(App, "submission")) {
+  649                  if (app.submission.compaction_pending and !pendingAuthRoutesLocalCommand(app)) return;
+  650                  if (app.submission.pending) |pending| {
+  651                      const route_local_command = pending.phase == .awaiting_auth and
+  652                          pendingAuthRoutesLocalCommand(app);
+  653                      if (!route_local_command and
+  654                          pending.phase == .awaiting_auth and
+  655                          app.input_runtime.edit_state.input.items.len == 0)
+  656                      {
+  657                          if (comptime @hasDecl(App, "retryPendingPromptCredential")) {
+  658                              switch (try App.retryPendingPromptCredential(app)) {
+  659                                  .pending => {
+  660                                      app.submission.retry_after_auth = false;
+  661                                      app.submission.pending.?.phase = .adopted;
+  662                                      app.shell.render_requests.request(.footer);
+  663                                  },
+  664                                  .current => {
+  665                                      const resumed = resumePendingPromptAfterAuth(app, "submit");
+  666                                      std.debug.assert(resumed);
+  667                                  },
+  668                                  .rejected => {},
+  669                              }
+  670                          } else if (try preflightPrompt(app)) {
+  671                              const resumed = resumePendingPromptAfterAuth(app, "submit");
+  672                              std.debug.assert(resumed);
+  673                          }
+  674                          return;
+  675                      }
+  676                      if (route_local_command) {
+  677                          debug_trace.eventf(
+  678                              "input",
+  679                              "pending_prompt_auth_command_routed",
+  680                              .{ .turn_id = pending.draft.turn_id },
+  681                              "",
+  682                              .{},
+  683                          );
+  684                      } else {
+  685                          debug_trace.eventf(
+  686                              "input",
+  687                              "prompt_submit_deferred_for_pending",
+  688                              .{ .turn_id = pending.draft.turn_id },
+  689                              "phase={s}",
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n '400,426p'
+  400                      "phase={s}",
+  401                      .{@tagName(pending.phase)},
+  402                  );
+  403                  return;
+  404              }
+  405              app.worker.releaseTurnStartHold();
+  406              debug_trace.eventf(
+  407                  "input",
+  408                  "pending_prompt_queued",
+  409                  .{ .turn_id = pending.draft.turn_id },
+  410                  "",
+  411                  .{},
+  412              );
+  413          }
+  414  
+  415          pub fn acceptPresentedPrompt(app: *App, turn_id: u64) !void {
+  416              if (comptime !@hasField(App, "submission")) {
+  417                  return error.PendingSubmissionUnsupported;
+  418              }
+  419              const pending = app.submission.pending orelse return error.MissingPendingSubmission;
+  420              if (pending.phase != .queued) return error.InvalidPendingPhase;
+  421              if (pending.draft.turn_id != turn_id) return error.PendingTurnIdMismatch;
+  422              clearPendingSubmissionWithSnapshots(
+  423                  app,
+  424                  "worker_begin_presented",
+  425                  .preserve,
+  426              );
+
+### git -C fx-upstream show 481104fd:src/main.zig | sed -n '1263,1270p'
+ 1263          if (!try self.snapshotAndQueuePrompt(
+ 1264              draft.prompt,
+ 1265              skill_tokens,
+ 1266              null,
+ 1267              draft.images,
+ 1268              draft.turn_id,
+ 1269              true,
+ 1270          )) return error.PendingPromptQueueRejected;
+
+### git -C fx-upstream show 481104fd:src/main.zig | sed -n '1434,1442p'
+ 1434      fn snapshotAndQueuePrompt(
+ 1435          self: *App,
+ 1436          prompt: []const u8,
+ 1437          skill_tokens: []const registered_entities.SkillTokenSpan,
+ 1438          recovery_checkpoint: ?*const session_codec.RecoveryCheckpoint,
+ 1439          prompt_images: ?[]const types.ImageAttachment,
+ 1440          turn_id: u64,
+ 1441          user_prompt_already_presented: bool,
+ 1442      ) !bool {
+
+## STOP-NEXT-3, item 9: how a failed turn is kept, by failure path
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '5319,5330p'
+ 5319      // Committing the saved turn also closes its durable checkpoint, so a
+ 5320      // separate clear first would end the turn twice in a libfx journal.
+ 5321      const kept_work = runtime_interruption.persistFailedTurnWorkOnce(
+ 5322          deps,
+ 5323          finalization,
+ 5324          job,
+ 5325          partial_assistant,
+ 5326          interrupted_persisted,
+ 5327          trace_ctx,
+ 5328          current_turn_messages,
+ 5329          terminal_materializing,
+ 5330      ) catch |err| {
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '6113,6128p'
+ 6113                  return secondary_err;
+ 6114              };
+ 6115          } else if (!stop_state.terminal_materializing and
+ 6116              finalization.state == .open)
+ 6117          {
+ 6118              _ = runtime_finalization.finishExecutionOnlyFailureIfNeeded(
+ 6119                  deps,
+ 6120                  finalization,
+ 6121                  arena,
+ 6122                  job,
+ 6123                  within_turn_suffix.items,
+ 6124                  &summary_accumulator,
+ 6125                  &finish_trace,
+ 6126                  &stop_state.terminal_materializing,
+ 6127                  "error",
+ 6128              ) catch |secondary_err| {
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '8389,8400p'
+ 8389                  if (std.mem.trim(u8, failed_assistant_source, " \t\r\n").len > 0) {
+ 8390                      if (stop_state.retained_candidate == null) {
+ 8391                          try runtime_interruption.persistFailedPartialTurnOnce(
+ 8392                              deps,
+ 8393                              finalization,
+ 8394                              job,
+ 8395                              failed_assistant_source,
+ 8396                              &interrupted_persisted,
+ 8397                              step_ctx,
+ 8398                              within_turn_suffix.items,
+ 8399                              &stop_state.terminal_materializing,
+ 8400                          );
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '9246,9260p'
+ 9246                      restorePromptAfterTerminalFailure(deps, job, config);
+ 9247                      const failed_assistant_source = stream_ctx.interruption_source_or("");
+ 9248                      if (stop_state.retained_candidate == null and
+ 9249                          std.mem.trim(u8, failed_assistant_source, " \t\r\n").len > 0)
+ 9250                      {
+ 9251                          try runtime_interruption.persistFailedPartialTurnOnce(
+ 9252                              deps,
+ 9253                              finalization,
+ 9254                              job,
+ 9255                              failed_assistant_source,
+ 9256                              &interrupted_persisted,
+ 9257                              step_ctx,
+ 9258                              within_turn_suffix.items,
+ 9259                              &stop_state.terminal_materializing,
+ 9260                          );
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '9443,9455p'
+ 9443              if (try runtime_finalization.finishExecutionOnlyFailureIfNeeded(
+ 9444                  deps,
+ 9445                  finalization,
+ 9446                  arena,
+ 9447                  job,
+ 9448                  within_turn_suffix.items,
+ 9449                  &summary_accumulator,
+ 9450                  &finish_trace,
+ 9451                  &stop_state.terminal_materializing,
+ 9452                  "http_error",
+ 9453              )) return;
+ 9454              try finalization.finish(.failed, null, null);
+ 9455              finish_trace.finish("http_error");
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/finalization.zig | sed -n '226,259p'
+  226  pub fn finishExecutionOnlyFailureIfNeeded(
+  227      deps: *const AgentRuntimeDeps,
+  228      finalization: *TurnFinalizationGuard,
+  229      arena: Allocator,
+  230      job: QueuedPrompt,
+  231      current_turn_messages: []const ChatMessage,
+  232      summary: *TurnSummaryAccumulator,
+  233      finish_trace: *PromptFinishTrace,
+  234      terminal_materializing: *bool,
+  235      trace_outcome: []const u8,
+  236  ) !bool {
+  237      const execution = try execution_memory.buildExecutionMemory(
+  238          arena,
+  239          current_turn_messages,
+  240      );
+  241      if (execution.isEmpty()) return false;
+  242  
+  243      terminal_materializing.* = true;
+  244      try finishAssistantTerminalWithExecution(
+  245          deps,
+  246          finalization,
+  247          job,
+  248          execution,
+  249          summary,
+  250          "",
+  251          .failed,
+  252          null,
+  253          finish_trace,
+  254          trace_outcome,
+  255          null,
+  256          null,
+  257      );
+  258      return true;
+  259  }
+
+## STOP-NEXT-3, a press on a pending submission: Ctrl-C takes it back (app_input_runtime.zig:1541-1543, above) and returns
+## before the stop; taking it back writes nothing into the transcript
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n '429,486p'
+  429         pub fn cancelPendingSubmission(app: *App) bool {
+  430             if (comptime !@hasField(App, "submission")) return false;
+  431             if (app.submission.compaction_pending) {
+  432                 clear_context_compaction(app, "cancelled");
+  433                 app.shell.render_requests.request(.footer);
+  434                 return true;
+  435             }
+  436             const pending = app.submission.pending orelse return false;
+  437             if (pending.phase == .queued) {
+  438                 if (comptime !@hasDecl(@TypeOf(app.worker), "removeQueuedPrompt")) {
+  439                     return false;
+  440                 }
+  441                 const carried_stale_note = if (comptime @hasDecl(@TypeOf(app.worker), "queuedPromptCarriesStaleShellHandles"))
+  442                     app.worker.queuedPromptCarriesStaleShellHandles(pending.draft.turn_id)
+  443                 else
+  444                     false;
+  445                 if (!app.worker.removeQueuedPrompt(
+  446                     std.heap.c_allocator,
+  447                     pending.draft.turn_id,
+  448                     pending.draft.images,
+  449                 )) {
+  450                     if (comptime @hasDecl(@TypeOf(app.worker), "activeTurnId") and
+  451                         @hasDecl(@TypeOf(app.worker), "requestCancel"))
+  452                     {
+  453                         if (app.worker.activeTurnId() == pending.draft.turn_id) {
+  454                             app.worker.requestCancel();
+  455                             debug_trace.eventf(
+  456                                 "input",
+  457                                 "pending_prompt_active_cancel_requested",
+  458                                 .{ .turn_id = pending.draft.turn_id },
+  459                                 "",
+  460                                 .{},
+  461                             );
+  462                             app.shell.render_requests.request(.footer);
+  463                             return true;
+  464                         }
+  465                     }
+  466                     debug_trace.eventf(
+  467                         "input",
+  468                         "pending_prompt_cancel_missed",
+  469                         .{ .turn_id = pending.draft.turn_id },
+  470                         "phase={s}",
+  471                         .{@tagName(pending.phase)},
+  472                     );
+  473                     return false;
+  474                 }
+  475                 // The removed prompt never ran, so the next one tells the
+  476                 // model its earlier shell handles are gone.
+  477                 if (carried_stale_note) {
+  478                     if (comptime @hasField(App, "session") and @hasDecl(@TypeOf(app.session), "returnStaleShellHandles")) {
+  479                         app.session.returnStaleShellHandles(pending.draft.turn_id);
+  480                     }
+  481                 }
+  482             }
+  483             clearPendingSubmission(app, "ctrl_c_pending_submission");
+  484             app.shell.render_requests.request(.transcript);
+  485             app.shell.render_requests.request(.footer);
+  486             return true;
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n '549,569p'
+  549         fn clearPendingSubmissionWithSnapshots(
+  550             app: *App,
+  551             reason: []const u8,
+  552             snapshot_cleanup: PendingSnapshotCleanup,
+  553         ) void {
+  554             if (comptime !@hasField(App, "submission")) return;
+  555             var pending = app.submission.pending orelse return;
+  556             app.submission.pending = null;
+  557             if (pending.ownsTurnStartHold()) app.worker.releaseTurnStartHold();
+  558             if (snapshot_cleanup == .discard) {
+  559                 image_attachments.discardImageSnapshots(app.alloc, pending.draft.images);
+  560             }
+  561             debug_trace.eventf(
+  562                 "input",
+  563                 "pending_prompt_cleared",
+  564                 .{ .turn_id = pending.draft.turn_id },
+  565                 "reason={s} phase={s}",
+  566                 .{ reason, @tagName(pending.phase) },
+  567             );
+  568             pending.deinit(app.alloc);
+  569         }

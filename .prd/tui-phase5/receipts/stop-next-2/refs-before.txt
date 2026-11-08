@@ -1,0 +1,15 @@
+MOVED scripts/fxcap/parity-ledger.toml:507 src/tui/shell.rs:12865 -> :12959 (frame d2459a37): 'fn send(&mut self, prompt: String, text: &str) -> bool {'
+MOVED scripts/fxcap/parity-ledger.toml:723 src/tui/shell.rs:38150 -> :38274 (frame d2459a37): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:734 src/tui/shell.rs:38150 -> :38274 (frame d2459a37): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:746 src/tui/shell.rs:38150 -> :38274 (frame d2459a37): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:757 src/tui/shell.rs:38150 -> :38274 (frame d2459a37): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:813 src/tui/shell.rs:38150 -> :38274 (frame d2459a37): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:849 src/tui/shell.rs:1700 -> :1719 (frame d2459a37): '"ansi_bytes={}, redraws={}, debounced_resizes={}, footer_updates=0, st'
+MOVED scripts/fxcap/capfile.py:159 src/tui/shell.rs:14341-14366 -> :14435-14460 (frame d2459a37): "fn warning_shown(&self) -> Option<&'static str> {"
+MOVED src/tui/event_loop.rs:12607 src/tui/shell.rs:2706 -> :2728 (frame d2459a37): '// reset (`fx-skills-40x120-dollar-enter`: `\\e[1m\\e[38;5;255mdemo\\e[0m'
+MOVED src/tui/event_loop.rs:12708 src/tui/event_loop.rs:959-962 -> :970-973 (frame d2459a37): '// **Except what the primary plane already owed, which is paid before '
+MOVED src/tui/shell.rs:10291 src/tui/worker.rs:3840 -> :3846 (frame d2459a37): 'bridge::send_terminal(events, UiEvent::TurnEnded { failure }).await;'
+MOVED src/tui/shell.rs:22318 src/tui/shell.rs:5816 -> :5867 (frame d2459a37): '/// of models under it and Left does nothing; Enter opens the list on'
+LOST  docs/parity.md:241 src/tui/worker.rs:3840 (no frame holds this line)
+LOST  docs/parity.md:241 src/tui/worker.rs:3524 (no frame holds this line)
+refs into changed files: 43 hold, 12 moved, 2 lost; 142 into unchanged files; 128 names not resolved to one file

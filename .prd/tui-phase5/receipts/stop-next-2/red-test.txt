@@ -1,0 +1,57 @@
+# The tests of dac51b53 over 24fbc062's code (dac51b53 adds tests only), in the worktree, tree clean (tracked).
+# TMPDIR=<short> cargo test --locked --lib -- <the names>
+
+
+running 7 tests
+test tui::shell::tests::a_press_after_the_runtime_took_a_turn_typed_after_the_stop_waits_for_its_start ... ok
+test tui::shell::tests::a_second_press_while_the_first_ones_own_work_unwinds_stops_nothing_more ... FAILED
+test tui::shell::tests::a_prompt_queued_at_once_writes_no_card_before_its_turn_starts ... ok
+test tui::event_loop::tests::a_stop_and_its_turns_end_in_one_tick_put_the_title_after_the_cancelled_frame ... FAILED
+test tui::event_loop::tests::a_model_title_after_a_stopped_end_in_one_tick_follows_the_ends_title_and_the_report ... FAILED
+test tui::event_loop::tests::a_covered_turn_that_finished_before_the_stop_presents_its_text ... FAILED
+test tui::event_loop::tests::a_finished_turns_late_text_is_presented_with_its_end_in_one_drain ... FAILED
+
+failures:
+
+---- tui::shell::tests::a_second_press_while_the_first_ones_own_work_unwinds_stops_nothing_more stdout ----
+
+thread 'tui::shell::tests::a_second_press_while_the_first_ones_own_work_unwinds_stops_nothing_more' (342825075) panicked at src/tui/shell.rs:46079:9:
+assertion `left == right` failed: each: the second press's stop, the `Cancelled` lines it wrote, the prompts still waiting
+  left: [("/compact", Some(Cancel { through: 2 }), 0, [], true), ("a provider switch", Some(Cancel { through: 2 }), 1, [], true)]
+ right: [("/compact", None, 0, [2], true), ("a provider switch", None, 0, [2], true)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::event_loop::tests::a_stop_and_its_turns_end_in_one_tick_put_the_title_after_the_cancelled_frame stdout ----
+
+thread 'tui::event_loop::tests::a_stop_and_its_turns_end_in_one_tick_put_the_title_after_the_cancelled_frame' (342825072) panicked at src/tui/event_loop.rs:14309:9:
+idle, the Cancelled frame, the title: "\u{1b}]2;go\u{7}\u{1b}]7501;state=idle:app=xfx\u{1b}\\\u{1b}[?2026h\u{1b}[?25l\u{1b}[20;1H\u{1b}[K\u{1b}[20;1H\u{1b}[38;5;252m■\u{1b}[0m \u{1b}[38;5;255mCancelled\u{1b}[0m · What can xfx do differently?\u{1b}[K\u{1b}[21;1H\u{1b}[K\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\u{1b}[38;5;245mpress ctrl+c again to exit\u{1b}[0m\u{1b}[K\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h"
+
+---- tui::event_loop::tests::a_model_title_after_a_stopped_end_in_one_tick_follows_the_ends_title_and_the_report stdout ----
+
+thread 'tui::event_loop::tests::a_model_title_after_a_stopped_end_in_one_tick_follows_the_ends_title_and_the_report' (342825071) panicked at src/tui/event_loop.rs:14276:9:
+the stopped turn's title, working, the model's title: "\u{1b}]7501;state=working:app=xfx\u{1b}\\\u{1b}]2;Named\u{7}\u{1b}[?2026h\u{1b}[?25l\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[19;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[1mafter\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[19;1H\u{1b}[K\u{1b}[20;1H\u{1b}[38;5;252m• Thinking (0s)\u{1b}[0m\u{1b}[38;5;245m (↑2 ↓0)\u{1b}[0m\u{1b}[K\u{1b}[22;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[24;1H\u{1b}[38;5;245mrun `xfx setup` · \u{1b}[0m\u{1b}[38;5;252mauto\u{1b}[0m\u{1b}[38;5;245m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h"
+
+---- tui::event_loop::tests::a_covered_turn_that_finished_before_the_stop_presents_its_text stdout ----
+
+thread 'tui::event_loop::tests::a_covered_turn_that_finished_before_the_stop_presents_its_text' (342825069) panicked at src/tui/event_loop.rs:14416:9:
+the covered turn's text was dropped: "\u{1b}]7501;state=done:app=xfx\u{1b}\\\u{1b}]2;first\u{7}\u{1b}[?2026h\u{1b}[?25l\u{1b}[20;1H\u{1b}[K\u{1b}[20;1H\u{1b}[38;5;245m  0s (↑2 ↓0)\u{1b}[0m\u{1b}[K\u{1b}[21;1H\u{1b}[K\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[1msecond\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;245m  0s (↑2 ↓0)\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[22;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[24;1H\u{1b}[38;5;245mpress ctrl+c again to exit\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h"
+
+---- tui::event_loop::tests::a_finished_turns_late_text_is_presented_with_its_end_in_one_drain stdout ----
+
+thread 'tui::event_loop::tests::a_finished_turns_late_text_is_presented_with_its_end_in_one_drain' (342825070) panicked at src/tui/event_loop.rs:14377:9:
+assertion `left == right` failed: each: the late text, the Cancelled line above the summary, the text between them
+  left: [("one drain", false, true, true), ("two drains", false, true, true), ("a cut drain", false, true, true)]
+ right: [("one drain", true, true, true), ("two drains", false, true, true), ("a cut drain", true, true, true)]
+
+
+failures:
+    tui::event_loop::tests::a_covered_turn_that_finished_before_the_stop_presents_its_text
+    tui::event_loop::tests::a_finished_turns_late_text_is_presented_with_its_end_in_one_drain
+    tui::event_loop::tests::a_model_title_after_a_stopped_end_in_one_tick_follows_the_ends_title_and_the_report
+    tui::event_loop::tests::a_stop_and_its_turns_end_in_one_tick_put_the_title_after_the_cancelled_frame
+    tui::shell::tests::a_second_press_while_the_first_ones_own_work_unwinds_stops_nothing_more
+
+test result: FAILED. 2 passed; 5 failed; 0 ignored; 0 measured; 4450 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `--lib`
+rc=101
