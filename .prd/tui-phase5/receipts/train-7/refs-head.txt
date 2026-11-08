@@ -1,0 +1,164 @@
+# head 8fe79cbc; sides: train6 fdc5ac0b, launch-settle-f 2f1c80e7, t-u4-f a8c7a87d, models-reask 66854557, stop-next-2 f8d625c3
+docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:888]
+    train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
+docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:196]
+    train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
+docs/parity.md:96	[scripts/fxcap/parity-ledger.toml:307]
+    train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
+docs/parity.md:99	[scripts/fxcap/parity-ledger.toml:432]
+    train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
+docs/parity.md:107	[scripts/fxcap/parity-ledger.toml:123]
+    train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
+docs/parity.md:109	[scripts/fxcap/parity-ledger.toml:913]
+    train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
+docs/parity.md:113	[scripts/fxcap/parity-ledger.toml:349]
+    train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
+docs/parity.md:115	[scripts/fxcap/parity-ledger.toml:70, scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:236, scripts/fxcap/parity-ledger.toml:267, scripts/fxcap/parity-ledger.toml:280, scripts/fxcap/parity-ledger.toml:294, scripts/fxcap/parity-ledger.toml:321, scripts/fxcap/parity-ledger.toml:335, scripts/fxcap/parity-ledger.toml:418]
+    train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
+docs/parity.md:118	[scripts/fxcap/parity-ledger.toml:61]
+    train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
+docs/parity.md:120	[scripts/fxcap/parity-ledger.toml:182, scripts/fxcap/parity-ledger.toml:335]
+    train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
+docs/parity.md:158	[scripts/fxcap/parity-ledger.toml:562, scripts/fxcap/parity-ledger.toml:573]
+    train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
+docs/parity.md:160	[scripts/fxcap/parity-ledger.toml:776]
+    train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
+docs/parity.md:172	[scripts/fxcap/parity-ledger.toml:877]
+    train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
+docs/parity.md:177	[scripts/fxcap/parity-ledger.toml:740]
+    train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
+docs/parity.md:210	[scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:321]
+    train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
+docs/parity.md:216	[scripts/fxcap/parity-ledger.toml:712]
+    train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
+docs/parity.md:237	[scripts/fxcap/parity-ledger.toml:450, scripts/fxcap/parity-ledger.toml:505, scripts/fxcap/parity-ledger.toml:519, scripts/fxcap/parity-ledger.toml:533]
+    train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
+docs/parity.md:238	[scripts/fxcap/parity-ledger.toml:139, scripts/fxcap/parity-ledger.toml:363, scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:387, scripts/fxcap/parity-ledger.toml:391, scripts/fxcap/parity-ledger.toml:405, scripts/fxcap/parity-ledger.toml:463, scripts/fxcap/parity-ledger.toml:491, scripts/fxcap/parity-ledger.toml:788]
+    train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
+docs/parity.md:243	[scripts/fxcap/parity-ledger.toml:250]
+    train6* = row | launch-settle-f -> 245 | t-u4-f -> 245 | models-reask* = row | stop-next-2* = row
+scripts/check-xfx-identity.sh:5	[docs/parity.md:241]
+    train6* = | launch-settle-f = | t-u4-f = | models-reask* = | stop-next-2* =
+scripts/fxcap/capture.sh:315-317	[scripts/fxcap/parity-ledger.toml:85]
+    train6 -> 339-341 | launch-settle-f = | t-u4-f -> 339-341 | models-reask -> 339-341 | stop-next-2 -> 339-341
+scripts/fxcap/capture.sh:521	[scripts/fxcap/parity-ledger.toml:78]
+    train6 -> 581 | launch-settle-f = | t-u4-f -> 581 | models-reask -> 581 | stop-next-2 -> 581
+scripts/fxcap/capture.sh:952	[scripts/fxcap/parity-ledger.toml:147]
+    train6 -> 1033 | launch-settle-f = | t-u4-f -> 1033 | models-reask -> 1033 | stop-next-2 -> 1033
+scripts/fxcap/cells.py:12-14	[scripts/fxcap/parity-ledger.toml:53]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/agent/machine.rs:78-85	[docs/parity.md:237]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/config/schema.rs:545-550	[docs/parity.md:93]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/gateway/mod.rs:59	[scripts/fxcap/parity-ledger.toml:640, scripts/fxcap/parity-ledger.toml:650, docs/parity.md:237]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/gateway/mod.rs:994-995	[docs/parity.md:237]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/image.rs:101	[scripts/fxcap/parity-ledger.toml:740]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/markdown/theme.rs:49	[scripts/fxcap/parity-ledger.toml:250]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/markdown/theme.rs:69	[scripts/fxcap/parity-ledger.toml:250]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/mcp/runtime.rs:90	[scripts/fxcap/parity-ledger.toml:1124]
+    train6 = | launch-settle-f* = | t-u4-f = | models-reask = | stop-next-2 =
+src/mcp/transport.rs:1318-1320	[docs/parity.md:221]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/permission/authority.rs:38-41	[scripts/fxcap/parity-ledger.toml:866]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/permission/authority.rs:737	[scripts/fxcap/parity-ledger.toml:450]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/permission/authority.rs:1145-1149	[scripts/fxcap/parity-ledger.toml:866]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/permission/slash.rs:466	[scripts/fxcap/parity-ledger.toml:774]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/provider/mod.rs:116	[scripts/fxcap/parity-ledger.toml:762]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/proxy/server.rs:1583-1613	[docs/parity.md:114]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/session/store.rs:74	[docs/parity.md:48]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/session/store.rs:1000	[scripts/fxcap/parity-ledger.toml:670]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/sound.rs:37	[scripts/fxcap/parity-ledger.toml:911]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/tools/mcp.rs:422-428	[scripts/fxcap/parity-ledger.toml:1077, docs/parity.md:176]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/tools/mutate.rs:437-442	[scripts/fxcap/parity-ledger.toml:571, docs/parity.md:158]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/tools/question.rs:25	[scripts/fxcap/parity-ledger.toml:661]
+    train6* = | launch-settle-f = | t-u4-f* = | models-reask = | stop-next-2 =
+src/tools/question.rs:57-73	[docs/parity.md:242]
+    train6* = | launch-settle-f = | t-u4-f = | models-reask* = | stop-next-2* =
+src/tools/read.rs:1162	[scripts/fxcap/parity-ledger.toml:571, docs/parity.md:158]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/tools/spec.rs:214	[scripts/fxcap/parity-ledger.toml:868]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/tui/approval_view.rs:106	[scripts/fxcap/parity-ledger.toml:923]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/tui/approval_view.rs:685	[scripts/fxcap/parity-ledger.toml:774, scripts/fxcap/parity-ledger.toml:797, scripts/fxcap/parity-ledger.toml:809, scripts/fxcap/parity-ledger.toml:820, scripts/fxcap/parity-ledger.toml:831, scripts/fxcap/parity-ledger.toml:854, scripts/fxcap/parity-ledger.toml:899]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/tui/approval_view.rs:971-976	[scripts/fxcap/parity-ledger.toml:463]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/tui/approval_view.rs:1224	[scripts/fxcap/parity-ledger.toml:981]
+    train6* = | launch-settle-f changed | t-u4-f changed | models-reask changed | stop-next-2 changed
+src/tui/frame.rs:2749	[scripts/fxcap/parity-ledger.toml:533]
+    train6* = | launch-settle-f = | t-u4-f = | models-reask = | stop-next-2 =
+src/tui/full_transcript.rs:495	[scripts/fxcap/parity-ledger.toml:363]
+    train6* = | launch-settle-f -> 498 | t-u4-f -> 498 | models-reask -> 498 | stop-next-2 -> 498
+src/tui/full_transcript.rs:3005	[scripts/fxcap/parity-ledger.toml:491, scripts/fxcap/parity-ledger.toml:981]
+    train6* = | launch-settle-f -> 3523 | t-u4-f -> 3395 | models-reask -> 3523 | stop-next-2 -> 3523
+src/tui/full_transcript.rs:3056	[scripts/fxcap/parity-ledger.toml:505, scripts/fxcap/parity-ledger.toml:519]
+    train6* = | launch-settle-f -> 3574 | t-u4-f -> 3446 | models-reask -> 3574 | stop-next-2 -> 3574
+src/tui/gesture.rs:162-164	[scripts/fxcap/parity-ledger.toml:1111]
+    train6 = | launch-settle-f* = | t-u4-f = | models-reask = | stop-next-2 =
+src/tui/gesture.rs:176-188	[scripts/fxcap/parity-ledger.toml:1099, scripts/fxcap/parity-ledger.toml:1111]
+    train6 = | launch-settle-f* = | t-u4-f = | models-reask = | stop-next-2 =
+src/tui/grid.rs:933	[scripts/fxcap/parity-ledger.toml:958]
+    train6* = | launch-settle-f = | t-u4-f = | models-reask = | stop-next-2 =
+src/tui/layout.rs:91	[scripts/fxcap/parity-ledger.toml:946, scripts/fxcap/parity-ledger.toml:994]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/tui/mcp_menu.rs:786-791	[scripts/fxcap/parity-ledger.toml:1123]
+    train6 = | launch-settle-f* = | t-u4-f = | models-reask = | stop-next-2 =
+src/tui/mcp_menu.rs:1500	[scripts/fxcap/parity-ledger.toml:432]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/tui/mod.rs:127-133	[scripts/fxcap/parity-ledger.toml:1086]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/tui/retry.rs:369-381	[docs/parity.md:237]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/tui/settings.rs:361	[scripts/fxcap/parity-ledger.toml:911]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/tui/shell.rs:187	[scripts/fxcap/parity-ledger.toml:44, scripts/fxcap/parity-ledger.toml:45]
+    train6 -> 189 | launch-settle-f -> 190 | t-u4-f -> 190 | models-reask* = | stop-next-2 -> 189
+src/tui/shell.rs:1756	[scripts/fxcap/parity-ledger.toml:935]
+    train6 -> 1868 | launch-settle-f -> 1929 | t-u4-f -> 1929 | models-reask -> 1847 | stop-next-2 -> 1777
+src/tui/shell.rs:4333	[scripts/fxcap/parity-ledger.toml:1046]
+    train6 -> 4568 | launch-settle-f -> 4683 | t-u4-f -> 4683 | models-reask -> 4541 | stop-next-2 -> 4359
+src/tui/shell.rs:10194	[scripts/fxcap/parity-ledger.toml:843, scripts/fxcap/parity-ledger.toml:845]
+    train6 changed | launch-settle-f -> 10958 | t-u4-f -> 10958 | models-reask -> 10574 | stop-next-2 -> 10265
+src/tui/shell.rs:13112	[scripts/fxcap/parity-ledger.toml:551]
+    train6 -> 13676 | launch-settle-f -> 14010 | t-u4-f -> 14010 | models-reask -> 13602 | stop-next-2 -> 13192
+src/tui/shell.rs:13423	[scripts/fxcap/parity-ledger.toml:505]
+    train6 -> 13987 | launch-settle-f -> 14321 | t-u4-f -> 14321 | models-reask -> 13913 | stop-next-2 -> 13509
+src/tui/shell.rs:16321	[scripts/fxcap/parity-ledger.toml:969]
+    train6 -> 17049 | launch-settle-f -> 17389 | t-u4-f -> 17389 | models-reask -> 16886 | stop-next-2 -> 16483
+src/tui/shell.rs:38615	[scripts/fxcap/parity-ledger.toml:786, scripts/fxcap/parity-ledger.toml:797, scripts/fxcap/parity-ledger.toml:809, scripts/fxcap/parity-ledger.toml:820, scripts/fxcap/parity-ledger.toml:831, scripts/fxcap/parity-ledger.toml:899]
+    train6 -> 39472 | launch-settle-f -> 39934 | t-u4-f -> 39934 | models-reask -> 39353 | stop-next-2 -> 38996
+src/tui/toolgroup.rs:922	[scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:854]
+    train6 -> 955 | launch-settle-f -> 1124 | t-u4-f -> 930 | models-reask -> 1124 | stop-next-2 -> 1116
+src/tui/toolgroup.rs:999	[scripts/fxcap/parity-ledger.toml:391]
+    train6 -> 1032 | launch-settle-f -> 1201 | t-u4-f -> 1007 | models-reask -> 1201 | stop-next-2 -> 1193
+src/tui/toolgroup.rs:1113	[scripts/fxcap/parity-ledger.toml:405]
+    train6 -> 1146 | launch-settle-f -> 1315 | t-u4-f -> 1121 | models-reask -> 1315 | stop-next-2 -> 1307
+src/tui/usage_menu.rs:790	[scripts/fxcap/parity-ledger.toml:349]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+src/tui/wrap.rs:673-693	[scripts/fxcap/parity-ledger.toml:958]
+    train6* = | launch-settle-f changed | t-u4-f changed | models-reask changed | stop-next-2 changed
+src/tui/wrap.rs:726	[scripts/fxcap/parity-ledger.toml:477]
+    train6* = | launch-settle-f -> 895 | t-u4-f -> 876 | models-reask -> 895 | stop-next-2 -> 895
+tests/e2e/file-tool-paths.test.ts:1170-1179	[docs/parity.md:218]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+tests/tla/session_manager/system-design.md:1536-1560	[docs/parity.md:92]
+    train6* = | launch-settle-f* = | t-u4-f* = | models-reask* = | stop-next-2* =
+# 81 references; 0 (side, reference) pairs MOVED; * = the side's own text cites it

@@ -1,0 +1,175 @@
+# token_check.py (train 6's, train 7's two numbers-only rules added) over the four merges, at the head 8fe79cbc
+merge 3e80798f: ours fdc5ac0b, theirs 2f1c80e7, base 7589ec42 -- OK
+  parity row '`/resume`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row '`/allowlist`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row 'transport-owned retry and team routing': changed by ours; 49 tokens added, 0 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours; 438 tokens added, 15 deleted, all as expected, in order
+  parity row 'full transcript (`C-o`)': changed by ours; 301 tokens added, 17 deleted, all as expected, in order
+  parity row 'terminal program status (OSC 7501)': changed by ours; 1164 tokens added, 0 deleted, all as expected, in order
+  parity row "a question's line breaks in a program status message": changed by ours; 106 tokens added, 0 deleted, all as expected, in order
+  parity row 'A program status report (OSC 7501)': changed by ours; 82 tokens added, 0 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause U7-cancelled-glyph: deleted by ours, kept so
+  ledger cause amendment-card-after-stop: added by ours, kept so
+  ledger cause answer-modifier-sequence-wider: added by ours, kept so
+  ledger cause call-row-page-edge: changed by ours, kept so
+  ledger cause cancel-page-edge: added by ours, kept so
+  ledger cause cancelled-marker: deleted by ours, kept so
+  ledger cause composer-drawn-wider: added by ours, kept so
+  ledger cause ctrl-o-drawn-wider-raw: deleted by ours, kept so
+  ledger cause esc-clear-armed-through-an-edit: added by theirs, kept so
+  ledger cause esc-clear-hint-over-empty-composer: added by theirs, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause mcp-tools-at-a-reconnect: added by theirs, kept so
+  ledger cause question-cap-four: added by ours, kept so
+  ledger cause resize-document-repaint: added by ours, kept so
+  ledger cause retry-budget-lifecycle: added by ours, kept so
+  ledger cause ri-run-pairing: added by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause stats-bytes: changed by ours, kept so
+  ledger cause submit-multi-card-whole: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger divergence answer-drawn-wider-named: added by ours, kept so
+  ledger divergence answer-label-and-modifier-named: added by ours, kept so
+  ledger divergence call-row-arabic-letter-mark: changed by ours, kept so
+  ledger divergence call-row-raw-argument: changed by ours, kept so
+  ledger divergence call-row-source-cut: changed by ours, kept so
+  ledger divergence ctrl-o-command-marks: changed by ours, kept so
+  ledger divergence ctrl-o-drawn-wider-named: added by ours, kept so
+  ledger divergence filler-modifier-count: changed by ours, kept so
+  ledger divergence inline-band-row-anchor: added by ours, kept so
+  ledger divergence inline-code-shade: changed by ours, kept so
+  ledger normalization banner: changed by ours, kept so
+  ledger comments: 2 added, 0 deleted, all as expected
+merge a0e68952: ours 3e80798f, theirs a8c7a87d, base 5a7bb465 -- OK
+  parity row 'transport-owned retry and team routing': changed by ours; 49 tokens added, 0 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours; 433 tokens added, 10 deleted, all as expected, in order
+  parity row 'full transcript (`C-o`)': changed by ours; 247 tokens added, 15 deleted, all as expected, in order
+  parity row 'terminal program status (OSC 7501)': changed by ours; 1164 tokens added, 0 deleted, all as expected, in order
+  parity row "a question's line breaks in a program status message": changed by ours; 106 tokens added, 0 deleted, all as expected, in order
+  parity row 'A program status report (OSC 7501)': changed by ours; 82 tokens added, 0 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause amendment-card-after-stop: changed by ours, kept so
+  ledger cause answer-modifier-sequence-wider: added by ours, kept so
+  ledger cause call-row-page-edge: changed by theirs, kept so
+  ledger cause cancel-page-edge: changed by ours, kept so
+  ledger cause composer-drawn-wider: added by ours, kept so
+  ledger cause ctrl-o-drawn-wider-raw: deleted by ours, kept so
+  ledger cause esc-clear-armed-through-an-edit: added by ours, kept so
+  ledger cause esc-clear-hint-over-empty-composer: added by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause mcp-tools-at-a-reconnect: added by ours, kept so
+  ledger cause resize-document-repaint: added by ours, kept so
+  ledger cause ri-run-pairing: added by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause stats-bytes: changed by ours, kept so
+  ledger cause submit-multi-card-whole: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger divergence answer-drawn-wider-named: added by ours, kept so
+  ledger divergence answer-label-and-modifier-named: added by ours, kept so
+  ledger divergence call-row-arabic-letter-mark: changed by theirs, kept so
+  ledger divergence call-row-raw-argument: changed by theirs, kept so
+  ledger divergence call-row-source-cut: changed by theirs, kept so
+  ledger divergence ctrl-o-command-marks: changed by ours, kept so
+  ledger divergence ctrl-o-drawn-wider-named: added by ours, kept so
+  ledger divergence filler-modifier-count: changed by ours, kept so
+  ledger divergence inline-band-row-anchor: added by ours, kept so
+  ledger divergence inline-code-shade: changed by ours, kept so
+  ledger normalization banner: changed by ours, kept so
+  ledger comments: 2 added, 0 deleted, all as expected
+merge 50cabfa6: ours a0e68952, theirs 66854557, base 690aa505 -- OK
+  parity row '`/resume`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row '`/model`': changed by theirs; 657 tokens added, 36 deleted, all as expected, in order
+  parity row '`/allowlist`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours; 420 tokens added, 14 deleted, all as expected, in order
+  parity row 'full transcript (`C-o`)': changed by ours; 301 tokens added, 17 deleted, all as expected, in order
+  parity row 'terminal program status (OSC 7501)': changed by theirs; 2 tokens added, 2 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause U7-cancelled-glyph: deleted by ours, kept so
+  ledger cause activity-tokens-before-request: added by theirs, kept so
+  ledger cause amendment-card-after-stop: added by ours, kept so
+  ledger cause answer-modifier-sequence-wider: added by ours, kept so
+  ledger cause call-row-page-edge: changed by ours, kept so
+  ledger cause cancel-page-edge: added by ours, kept so
+  ledger cause cancelled-marker: deleted by ours, kept so
+  ledger cause catalog-window: changed by theirs, kept so
+  ledger cause composer-drawn-wider: added by ours, kept so
+  ledger cause ctrl-o-drawn-wider-raw: deleted by ours, kept so
+  ledger cause esc-clear-armed-through-an-edit: added by ours, kept so
+  ledger cause esc-clear-hint-over-empty-composer: added by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause mcp-tools-at-a-reconnect: added by ours, kept so
+  ledger cause question-cap-four: added by ours, kept so
+  ledger cause resize-document-repaint: added by ours, kept so
+  ledger cause retry-budget-lifecycle: added by ours, kept so
+  ledger cause ri-run-pairing: added by ours, kept so
+  ledger cause safe-page-edge: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause session-record: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause stats-bytes: changed by theirs, kept so
+  ledger cause submit-multi-card-whole: changed by theirs, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause transcript-page-offset: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger divergence answer-drawn-wider-named: added by ours, kept so
+  ledger divergence answer-label-and-modifier-named: added by ours, kept so
+  ledger divergence call-row-arabic-letter-mark: changed by ours, kept so
+  ledger divergence call-row-raw-argument: changed by ours, kept so
+  ledger divergence call-row-source-cut: changed by ours, kept so
+  ledger divergence ctrl-o-command-marks: changed by ours, kept so
+  ledger divergence ctrl-o-drawn-wider-named: added by ours, kept so
+  ledger divergence filler-modifier-count: changed by ours, kept so
+  ledger divergence inline-band-row-anchor: added by ours, kept so
+  ledger normalization banner: changed by theirs, kept so
+  ledger comments: 2 added, 0 deleted, all as expected
+merge c080f5a5: ours 50cabfa6, theirs f8d625c3, base 690aa505 -- OK
+  parity row 'terminal program status (OSC 7501)': '(`worker.rs:3835`,' re-pointed by both sides (ours '(`worker.rs:3856`,', theirs '(`worker.rs:3846`,'), M '(`worker.rs:3867`,' -- compared as '(`worker.rs:N`,'
+  parity row 'terminal program status (OSC 7501)': '`:3524`)' re-pointed by both sides (ours '`:3544`)', theirs '`:3530`)'), M '`:3550`)' -- compared as '`:N`)'
+  parity row '`/resume`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row '`/model`': changed by ours; 657 tokens added, 36 deleted, all as expected, in order
+  parity row '`/allowlist`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours; 420 tokens added, 14 deleted, all as expected, in order
+  parity row 'full transcript (`C-o`)': changed by ours; 301 tokens added, 17 deleted, all as expected, in order
+  parity row 'terminal program status (OSC 7501)': changed by theirs; 1223 tokens added, 14 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause U7-cancelled-glyph: deleted by ours, kept so
+  ledger cause activity-tokens-before-request: added by ours, kept so
+  ledger cause amendment-card-after-stop: added by ours, kept so
+  ledger cause answer-modifier-sequence-wider: added by ours, kept so
+  ledger cause call-row-page-edge: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause cancel-page-edge: added by ours, kept so
+  ledger cause cancelled-marker: deleted by ours (theirs changed only its path:line numbers), kept so
+  ledger cause catalog-window: changed by ours, kept so
+  ledger cause composer-drawn-wider: added by ours, kept so
+  ledger cause ctrl-o-drawn-wider-raw: deleted by ours, kept so
+  ledger cause esc-clear-armed-through-an-edit: added by ours, kept so
+  ledger cause esc-clear-hint-over-empty-composer: added by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause mcp-tools-at-a-reconnect: added by ours, kept so
+  ledger cause question-cap-four: added by ours, kept so
+  ledger cause resize-document-repaint: added by ours, kept so
+  ledger cause retry-budget-lifecycle: added by ours, kept so
+  ledger cause ri-run-pairing: added by ours, kept so
+  ledger cause safe-page-edge: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause session-record: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause stats-bytes: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause submit-multi-card-whole: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause transcript-page-offset: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger divergence answer-drawn-wider-named: added by ours, kept so
+  ledger divergence answer-label-and-modifier-named: added by ours, kept so
+  ledger divergence call-row-arabic-letter-mark: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger divergence call-row-raw-argument: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger divergence call-row-source-cut: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger divergence ctrl-o-command-marks: changed by ours, kept so
+  ledger divergence ctrl-o-drawn-wider-named: added by ours, kept so
+  ledger divergence filler-modifier-count: changed by ours, kept so
+  ledger divergence inline-band-row-anchor: added by ours, kept so
+  ledger normalization banner: changed by ours, kept so
+  ledger comments: 2 added, 0 deleted, all as expected
+# exit 0
+
+# the same script over train 6's five merges (regression):
+# identical to train 6's token-check.txt, its comment and blank lines aside

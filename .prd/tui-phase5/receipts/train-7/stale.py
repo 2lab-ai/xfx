@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""The references refs_all.py and refs_short.py still flag at the head outside
+the historical plans (`docs/superpowers/plans/`), each shown against `main`
+(690aa505): the citing line at the head, and the line or lines the reference
+names in `main`'s copy of the cited file. Each names other code on `main`
+already -- stale before this train -- so the merges did not move what it is
+about, and it is not re-pointed here.
+
+Train 7: train 6's eleven, one of them as STOP-NEXT-2 re-pointed it
+(`event_loop.rs:959-962` -> `:972-975`, by line mapping, in its round 2),
+shown also against the head's lines it now names.
+
+    python3 -I -B stale.py <repo> <head>
+"""
+import subprocess
+import sys
+
+MAIN = "690aa505"
+REFS = [
+    # citing file, the text that cites, cited path, first, last, what the citation says the code is
+    ("scripts/smoke-tui.sh", "src/tui/check.rs:1084", "src/tui/check.rs", 1084, 1084, "what the oracle licenses (train 4: stale since 9acf15d1)"),
+    ("tests/tui.rs", "src/tui/shell.rs:2015", "src/tui/shell.rs", 2015, 2015, "`Reason::ExternalDamage`"),
+    ("tests/tui.rs", "src/tui/shell.rs:2703", "src/tui/shell.rs", 2703, 2703, "`resize_pending || screen != geometry`"),
+    ("tests/tui.rs", "tests/tui.rs:1191", "tests/tui.rs", 1191, 1191, "a case that clears the line"),
+    ("scripts/smoke-tui.sh", "shell.rs:2597", "src/tui/shell.rs", 2597, 2597, "one `editor.insert()` call"),
+    ("src/tui/event_loop.rs", "event_loop.rs:972-975", "src/tui/event_loop.rs", 959, 962,
+     "the frame after a refused append not run (at 063fc66e, 2026-10-06: `if !commit_document(..)? { return Ok(()) }`); "
+     "STOP-NEXT-2's re-point of main's `:959-962`, the head's lines below"),
+    ("src/tui/event_loop.rs", "shell.rs:2706", "src/tui/shell.rs", 2706, 2706, "`InsertNewline`"),
+    ("src/tui/shell.rs", "shell.rs:5816", "src/tui/shell.rs", 5816, 5816, "how the too-small assertions read it"),
+    ("src/tui/wrap.rs", "check.rs:1689-1694", "src/tui/check.rs", 1689, 1694, "the check handing wrap a segmented ASCII run"),
+    # Train 6: two more, flagged because T-U4 moved main's lines under them;
+    # each names other code on main (`MAX_TAIL_ROWS` is main's line 347).
+    ("src/tui/event_loop.rs", "transcript.rs:136", "src/tui/transcript.rs", 136, 136, "`MAX_TAIL_ROWS` (256)"),
+    ("src/tui/event_loop.rs", "transcript.rs:505-531", "src/tui/transcript.rs", 505, 531, "the transcript adopting only on `Landed::All`"),
+]
+
+
+def git(repo, *args):
+    return subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True, text=True).stdout
+
+
+def main():
+    repo, head = sys.argv[1], sys.argv[2]
+    for citing, text, path, a, z, says in REFS:
+        hit = [l for l in git(repo, "grep", "-n", "-F", text, head, "--", citing).splitlines()]
+        cited = git(repo, "show", f"{MAIN}:{path}").splitlines()[a - 1:z]
+        print(f"{citing} cites {text} for {says}")
+        for line in hit:
+            print(f"  at the head: {line.split(':', 2)[2].strip()[:110]}")
+        for k, line in enumerate(cited):
+            print(f"  main {path}:{a + k}: {line.strip()[:110]}")
+        if text == "event_loop.rs:972-975":
+            for k, line in enumerate(git(repo, "show", f"{head}:{path}").splitlines()[971:975]):
+                print(f"  head {path}:{972 + k}: {line.strip()[:110]}")
+    print(f"{len(REFS)} references, each naming other code on main")
+
+
+main()

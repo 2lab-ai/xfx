@@ -1,0 +1,179 @@
+commit 50cabfa676733348e492c19ea414566711d4cd25
+Merge: a0e68952 66854557
+
+Merge MODELS-REASK feat/p5-models-reask @ 66854557 into train/p5-1108d
+
+MODELS-REASK (from main 690aa505): fx v0.0.16's model-catalog re-ask
+and retry -- one rule in the selector (LoadClock::due, its backoff 5 s
+doubling to 5 min), /model reading again over rows five seconds after
+the last read began, "retries automatically", a turn waiting up to 2 s
+once for a failed catalog's retry, the image route waiting up to 2 s
+once a turn, PendingLoad::unstarted, activity_due.
+
+Conflicts, both sides' meaning kept:
+- src/tui/shell.rs, the end of mod tests, where both appended: train
+  6's tests (T-U4's, CTRLO-WIDER's, ARGROW-CACHE's and the train's
+  joins), then MODELS-REASK's section. Every line either side changed
+  since its base is in the result.
+- scripts/fxcap/parity-ledger.toml, five xfx references in reference
+  numbers alone: train 6's src/tui/shell.rs:37764 and MODELS-REASK's
+  :38002 for main's :37758 (the session record's tools line, a test's
+  expected rows). Resolved to :38014, where that line is in the merged
+  file. (MODELS-REASK's :38002 named a comment six lines above it on
+  its own branch.)
+
+One build conflict, resolved here so the merge compiles: train 6's
+FLAKE-CATALOG-EVENT test
+a_title_runtime_answers_a_forced_catalog_read_from_its_stand_in
+(src/tui/worker.rs) called telling(provider, events) and compared a
+CatalogLoaded without `due`; MODELS-REASK gave telling the held
+catalog and the clock, and CatalogLoaded its `due`. The test now hands
+telling the selector's catalog and clock, as CatalogAsks::asked_at
+does, and asserts the stand-in's answer (the Gateway, no rows) with
+`due` left out of the comparison.
+
+
+diff --git a/scripts/fxcap/parity-ledger.toml b/scripts/fxcap/parity-ledger.toml
+remerge CONFLICT (content): Merge conflict in scripts/fxcap/parity-ledger.toml
+index b1475340..76281560 100644
+--- a/scripts/fxcap/parity-ledger.toml
++++ b/scripts/fxcap/parity-ledger.toml
+@@ -783,11 +783,7 @@ scenarios = ["*"]
+ snaps = ["*"]
+ fx_row = '^  (?:system prompt: |skills: |tools: \d+ advertised|mcp: none$)|^  more\)$|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
+ xfx_row = '^  tools: \d+ advertised|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
+-<<<<<<< a0e68952 (Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d)
+-xfx = ["src/tui/shell.rs:37764"]
+-=======
+-xfx = ["src/tui/shell.rs:38002"]
+->>>>>>> 66854557 (docs(receipt): models-reask round 2 -- the reviews' fixes, RED/GREEN, mutants, sweeps and checks)
++xfx = ["src/tui/shell.rs:38014"]
+ fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/app/app_bootstrap_runtime.zig:90@c1db9191"]
+ why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:238). The tool list's later rows are matched at any width: rows of tool names alone, each ending `,` or `+N more)` (`  write_file, shell, …, +6 more)` at 80 columns, `p5-transcript-tools`; `  edit_file, write_file, shell, subagent, capability_search,` / `  +6 more)` at 60, `p5-transcript-question`)."
+ 
+@@ -798,11 +794,7 @@ owner = "unowned (follows tool-schema and session-record)"
+ scenarios = ["p5-transcript-anchor", "p5-transcript-anchormid", "p5-transcript-resize", "p5-transcript-records", "p5-transcript-question"]
+ snaps = ["full-*"]
+ rows = ["1-2", "35-37"]
+-<<<<<<< a0e68952 (Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d)
+-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37764"]
+-=======
+-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:38002"]
+->>>>>>> 66854557 (docs(receipt): models-reask round 2 -- the reviews' fixes, RED/GREEN, mutants, sweeps and checks)
++xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:38014"]
+ fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
+ why = "Rows only one side has push the other side's rows off a Ctrl-O page by two: fx's command entry has two argument rows xfx's `terminal` has not (`tool-schema`), so a page counted from the tail starts two rows later on fx; fx's `* session:` record has two lines xfx's has not (`session-record`), so a page counted from the top ends two rows earlier, and a record shorter than the screen leaves xfx two more blank rows. Only the two rows at each edge of the record (and the footer's blank row under it); every other row of these pages is compared, cell by cell with its styles, against the other side's document joined from its windows (.prd/tui-phase5/receipts/transcript-wrap/check.py)."
+ 
+@@ -814,11 +806,7 @@ scenarios = ["p5-toolgroup-ctrlo", "p5-toolgroup-ctrlo-tc"]
+ snaps = ["full-*"]
+ rows = ["34-37"]
+ xfx_row = '^\s*$'
+-<<<<<<< a0e68952 (Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d)
+-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37764"]
+-=======
+-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:38002"]
+->>>>>>> 66854557 (docs(receipt): models-reask round 2 -- the reviews' fixes, RED/GREEN, mutants, sweeps and checks)
++xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:38014"]
+ fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
+ why = "TG-REDRAW's Ctrl-O pages hold the whole record, read from the top: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so xfx's record ends four rows higher and leaves rows 34-37 blank where fx's turn summary still stands. xfx's blank rows there only (`xfx_row`): no fx row and no xfx row with text is this cause's, and every other row of these pages is compared, the tool group's two rows among them (.prd/tui-phase5/receipts/toolgroup-redraw/)."
+ 
+@@ -829,11 +817,7 @@ owner = "unowned (follows tool-schema and session-record)"
+ scenarios = ["p5-transcript-safe", "p5-transcript-safetab"]
+ snaps = ["full", "full-pgup"]
+ rows = ["1-2", "33-36"]
+-<<<<<<< a0e68952 (Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d)
+-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37764"]
+-=======
+-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:38002"]
+->>>>>>> 66854557 (docs(receipt): models-reask round 2 -- the reviews' fixes, RED/GREEN, mutants, sweeps and checks)
++xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:38014"]
+ fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
+ why = "`transcript-page-offset` for `p5-transcript-safe` and `p5-transcript-safetab`, four rows deep: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so the tail page starts later on fx (xfx's top rows, the record's `+5 more)` and `mcp: none`, are above fx's) and the page at the top ends four rows earlier (xfx's rows 33-36, the read's heading and its two rows and the blank under them, are below fx's). The read's rows are compared on the tail page."
+ 
+@@ -912,11 +896,7 @@ owner = "unowned (follows session-record and tool-schema)"
+ scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout"]
+ snaps = ["*ctrl-o*", "full*"]
+ whole_snap = true
+-<<<<<<< a0e68952 (Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d)
+-xfx = ["src/tui/shell.rs:37764", "src/tui/approval_view.rs:685"]
+-=======
+-xfx = ["src/tui/shell.rs:38002", "src/tui/approval_view.rs:685"]
+->>>>>>> 66854557 (docs(receipt): models-reask round 2 -- the reviews' fixes, RED/GREEN, mutants, sweeps and checks)
++xfx = ["src/tui/shell.rs:38014", "src/tui/approval_view.rs:685"]
+ fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/execution/command_environment.zig:128@c1db9191"]
+ why = "Every Ctrl-O row under fx's taller session record and its shell calls' argument rows stands lower than xfx's, so a page shows other entries; what else differs on these pages is read only once those two are fixed."
+ 
+diff --git a/src/tui/shell.rs b/src/tui/shell.rs
+remerge CONFLICT (content): Merge conflict in src/tui/shell.rs
+index 610ea0c0..c0185715 100644
+--- a/src/tui/shell.rs
++++ b/src/tui/shell.rs
+@@ -45700,7 +45700,6 @@ mod tests {
+         assert_eq!(status_of(&mut shell).as_deref(), Some("done"));
+     }
+ 
+-<<<<<<< a0e68952 (Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d)
+     #[test]
+     fn a_turn_stopped_over_its_answer_leaves_its_cancelled_line_on_ctrl_o_too() {
+         // fx v0.0.16 appends the turn's lifecycle line to the transcript it
+@@ -46489,7 +46488,8 @@ mod tests {
+         );
+         fresh.route_bytes(b"\x0f");
+         shown_and_whole(&fresh)
+-=======
++    }
++
+     // -----------------------------------------------------------------------
+     // MODELS-REASK: when the band asks the runtime for the catalog again
+     // -----------------------------------------------------------------------
+@@ -46819,6 +46819,5 @@ mod tests {
+         shell.settle_column(Instant::now() + Duration::from_secs(4));
+         assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
+         assert_eq!(column(&shell)[0], "         unable to load models");
+->>>>>>> 66854557 (docs(receipt): models-reask round 2 -- the reviews' fixes, RED/GREEN, mutants, sweeps and checks)
+     }
+ }
+diff --git a/src/tui/worker.rs b/src/tui/worker.rs
+index d8b34fb9..5e0bac80 100644
+--- a/src/tui/worker.rs
++++ b/src/tui/worker.rs
+@@ -15721,7 +15721,12 @@ mod tests {
+         let started = state
+             .selector
+             .reader()
+-            .begin(telling(state.config.provider, events_tx))
++            .begin(telling(
++                state.config.provider,
++                events_tx,
++                state.selector.catalog().clone(),
++                state.selector.clock(),
++            ))
+             .expect("the fixture has a catalog to read");
+         let told = on_a_runtime(async {
+             tokio::time::timeout(TEST_DRAIN, events_rx.recv())
+@@ -15730,12 +15735,19 @@ mod tests {
+                 .flatten()
+         });
+         drop(started);
+-        assert_eq!(
+-            told,
+-            Some(UiEvent::CatalogLoaded {
+-                provider: ProviderId::Gateway,
+-                entries: Vec::new(),
+-            })
++        // MODELS-REASK's answer carries when activity next owes the catalog
++        // a read (`due`), counted from the read's start; the stand-in's part
++        // is the provider and its rows, none.
++        assert!(
++            matches!(
++                &told,
++                Some(UiEvent::CatalogLoaded {
++                    provider: ProviderId::Gateway,
++                    entries,
++                    ..
++                }) if entries.is_empty()
++            ),
++            "{told:?}"
+         );
+     }
+ 

@@ -1,0 +1,52 @@
+commit a0e689525d2aa694211a8e5c97be477cafbb0c6f
+Merge: 3e80798f a8c7a87d
+
+Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d
+
+T-U4-F (stacked on T-U4 5a7bb465, which train 6 holds): the transcript
+row's cut ends a unit before a spelling's backslash that a Prepend
+character (UAX #29 GB9b) took into its cluster (unit_at, inline in
+src/tui/toolgroup.rs); the spelled-input docs.
+
+One conflict, both sides' meaning kept: src/tui/toolgroup.rs, the end of
+mod tests, where both appended a test -- train 6's join test
+the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width
+and T-U4-F's a_unit_ends_before_a_spelling_whatever_joins_its_backslash.
+Resolved: train 6's, then T-U4-F's. unit_at and inline are T-U4-F's
+(train 6 changed neither). ARGROW-CACHE's fast paths are in wrap.rs
+(painting walks clusters with first_cluster; cluster_cells counts a
+one-byte printable cluster at once), which inline reaches through
+wrap::width for each unit; neither side changed them here.
+
+
+diff --git a/src/tui/toolgroup.rs b/src/tui/toolgroup.rs
+remerge CONFLICT (content): Merge conflict in src/tui/toolgroup.rs
+index 3ae28490..58c0e8da 100644
+--- a/src/tui/toolgroup.rs
++++ b/src/tui/toolgroup.rs
+@@ -2738,7 +2738,6 @@ mod tests {
+     }
+ 
+     #[test]
+-<<<<<<< 3e80798f (Merge LAUNCH-SETTLE-F fix/p5-launch-settle-f @ 2f1c80e7 into train/p5-1108d)
+     fn the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width() {
+         // Train 6, join check 1 (T-U4 x CTRLO-WIDER). CTRLO-WIDER names the
+         // scalars a terminal draws wider than xfx and fx count them on
+@@ -2830,7 +2829,9 @@ mod tests {
+                 spelled.len()
+             );
+         }
+-=======
++    }
++
++    #[test]
+     fn a_unit_ends_before_a_spelling_whatever_joins_its_backslash() {
+         // T-U4-F: a character UAX #29 calls Prepend (GB9b: U+0600-0605,
+         // U+06DD, U+070F, ...) joins the character after it into one cluster,
+@@ -2863,6 +2864,5 @@ mod tests {
+         );
+         // A `\` that starts no spelling stays in the cluster that took it.
+         assert_eq!(unit_at("\u{600}\\q"), "\u{600}\\".len());
+->>>>>>> a8c7a87d (docs(tui): inline's cut can fall inside a cluster before an absorbed spelling (T-U4-F))
+     }
+ }
