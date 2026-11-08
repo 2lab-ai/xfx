@@ -121,21 +121,21 @@ const INLINE_CELLS: usize = u16::MAX as usize + 1;
 /// [`CUT`].
 ///
 /// A unit is one of `target`'s grapheme clusters, or a spelling it already
-/// holds (`\xNN`, `\u{N}`, [`spelling_at`]) with whatever joins that
-/// spelling's last character -- the channel's argument is spelled
-/// (`super::bridge`'s `spelled_shown`), and spelling it again changes nothing
-/// -- so the cut never falls inside a cluster or a spelling.
+/// holds (`\xNN`, `\u{N}`, [`spelling_at`]) with whatever joins its last
+/// character, so the cut never falls inside a spelling, and inside a cluster
+/// only before a spelling's `\` that a Prepend character took in (UAX #29
+/// GB9b, [`unit_at`]). That is past 65 536 columns, in a cell no screen
+/// shows: a screen of up to 65 534 columns cuts the kept row and the whole
+/// at the same cell and draws them the same (the equality test, at 40, 120,
+/// 1000 and 65 534 columns).
 ///
-/// **`target` is the channel's, spelled**, wherever a session gives one
-/// (`super::bridge`'s `made_inert` spells every call's `Shown`, a turn's and
-/// a resumed session's): its units are then the clusters of the spelled
-/// text, and a raw cluster the channel spelled in pieces -- a ZWJ family,
-/// its joiners written out -- may be cut between them. Raw text, which only
-/// a test hands it, is spelled here unit by unit and cut between its raw
-/// clusters, but a raw cluster that spells wider than `u16::MAX` cells is
-/// measured at that (`super::wrap::width` saturates) and kept whole. No
-/// assertion stands for this: the raw path is what the row's own spelling
-/// tests drive.
+/// **`target` is the channel's, spelled** wherever a session gives one
+/// (`super::bridge`'s `made_inert`, a turn's calls and a resumed session's),
+/// and spelling it again changes nothing: its units are the spelled text's
+/// clusters, so a ZWJ family spelled in pieces may be cut between them. Raw
+/// text, which only the row's own spelling tests give it (so no assertion),
+/// is cut between raw clusters; a raw cluster spelled wider than `u16::MAX`
+/// cells is measured at that (`super::wrap::width` saturates), kept whole.
 fn inline(target: &str) -> String {
     let mut out = String::new();
     let mut cells = 0usize;
