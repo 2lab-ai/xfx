@@ -67,6 +67,11 @@ pub(crate) struct Geometry {
     /// composer's rows, when the document does not end on one of its own:
     /// one, or none ([`Geometry::gapped`]).
     pub(crate) gap: u16,
+    /// The rows at the band's top that show a submitted prompt's newest card
+    /// rows, the blank row under them included, for the one frame before the
+    /// card itself is written ([`Geometry::previewed`]): none at any other
+    /// time.
+    pub(crate) preview: u16,
     /// How many rows the menu or question occupies, and `0` when there is none.
     ///
     /// A count rather than a first/last pair, because the panel's rows are the
@@ -87,9 +92,31 @@ impl Geometry {
     ///
     /// The activity row while a turn is running, and the composer's first row
     /// otherwise -- or the blank row above a panel that has taken the
-    /// composer's, while the band has one ([`Self::gapped`]).
+    /// composer's, while the band has one ([`Self::gapped`]) -- or the first
+    /// row of a submitted prompt's preview above all of them, while it has
+    /// one ([`Self::previewed`]).
     pub(crate) fn band_top(&self) -> u16 {
-        self.activity.unwrap_or(self.input_first) - self.gap
+        self.activity.unwrap_or(self.input_first) - self.gap - self.preview
+    }
+
+    /// The same band, anchored, with `rows` at its top for a submitted
+    /// prompt's newest card rows and the blank row under them -- what upstream
+    /// paints into the transcript band under the flow endpoint for the frame
+    /// that clears the composer, before the card is written
+    /// (`PendingCardPaintContext`, `src/core/app/app_render_runtime.zig:
+    /// 168-207@481104fd`) -- in place of any it had: `0` takes them away.
+    /// `None` when they would leave no document row.
+    pub(crate) fn previewed(&self, rows: u16) -> Option<Geometry> {
+        let anchored = self.floated(u32::MAX);
+        let top = anchored.activity.unwrap_or(anchored.input_first);
+        let content_bottom = top
+            .checked_sub(anchored.gap + rows + 1)
+            .filter(|bottom| *bottom > 0)?;
+        Some(Geometry {
+            preview: rows,
+            content_bottom,
+            ..anchored
+        })
     }
 
     /// The same band with the blank row upstream keeps between the document
@@ -127,7 +154,7 @@ impl Geometry {
         let gap = u16::from(owed && top > 2);
         Geometry {
             gap,
-            content_bottom: top - gap - 1,
+            content_bottom: top.saturating_sub(gap + anchored.preview + 1).max(1),
             ..anchored
         }
     }
@@ -316,6 +343,7 @@ fn solve_padded(
         activity,
         activity_padding,
         gap: 0,
+        preview: 0,
         panel,
         divider,
         input_first,

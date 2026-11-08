@@ -504,7 +504,9 @@ where
     // And what the pacer still holds, for the exit whose drain carried nothing
     // at all. Phase 1 never repaints a document row, so this is the last moment
     // those bytes can reach the terminal.
-    if painting && broken.is_none() && shell.paced_backlog() > 0 {
+    // And a card the band is still previewing: the exit's own frame writes it
+    // (`Shell::flush_paced`), as nothing else would.
+    if painting && broken.is_none() && (shell.paced_backlog() > 0 || shell.previewing()) {
         match reconcile(shell, band) {
             Ok(token) => {
                 if let Err(err) = flushed(shell, band, out, failures, Instant::now(), token) {
@@ -1512,6 +1514,9 @@ fn landed_band(shell: &mut Shell, failures: &mut FrameFailures, ready: &BandAtte
         Built::Frame => Outcome::Painted,
         Built::Unchanged => Outcome::Unchanged,
     });
+    // A submitted card's preview has been on the screen for its frame: the
+    // card is the next frame's to write (`Shell::preview_landed`).
+    shell.preview_landed();
     // `/stats`'s `redraws`: a whole repaint that **landed**. A damaged attempt
     // that was refused is restored and counted by the tick that finally lands
     // it, so a screen that refused three times is still one repaint.
@@ -9038,6 +9043,68 @@ mod tests {
                     "{lines} lines, the frame after it did not write the card's {word}: {second:?}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn an_exit_before_the_preview_lands_still_writes_the_card() {
+        // The band clears from its top on the way out, and that is the
+        // preview's first row: a session that leaves in the tick its Enter
+        // was read in -- the preview's frame never written -- would leave the
+        // terminal with no card at all, so the exit's own frame writes it.
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the first frame");
+        shell.route_bytes(b"\x1b[200~EXIT-ONE\nEXIT-TWO\nEXIT-THREE\x1b[201~");
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the frame that shows the draft");
+        shell.route_bytes(b"\r");
+        assert!(
+            shell.previewing(),
+            "a three-line card on a full screen was not previewed, so this case proves nothing"
+        );
+
+        out.written.clear();
+        let asked = std::cell::Cell::new(0usize);
+        let broken = shut_down(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            true,
+            Shutdown {
+                reconcile: |_, _| Ok(Reconciled),
+                drain: |_taken| {},
+                size: sized((40, 120), &asked),
+            },
+        );
+        assert!(broken.is_none(), "the screen refused: {broken:?}");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        for word in ["EXIT-ONE", "EXIT-TWO", "EXIT-THREE"] {
+            assert!(
+                written.contains(&format!(
+                    "\u{1b}[38;5;255m\u{2503}\u{1b}[0m \u{1b}[1m{word}\u{1b}[0m"
+                )),
+                "the exit left without the card's {word}: {written:?}"
+            );
         }
     }
 

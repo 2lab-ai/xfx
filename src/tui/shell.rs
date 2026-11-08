@@ -1321,6 +1321,19 @@ pub(crate) struct Shell {
     /// this says so ([`Shell::write_card`]); the composer under it does not
     /// (`fx-p5-effort-fork-fork-empty-…-forked`, `-fork-continue-…-continued`).
     raw_gap: bool,
+    /// The newest rows of a card submitted taller than the room the document
+    /// has left, shown at the band's top ([`Geometry::previewed`]) for the one
+    /// frame before the card itself is written: upstream paints the pending
+    /// card's tail into the frame that clears the composer and writes the card
+    /// once that frame has committed (`buildPendingCardProjection`,
+    /// `src/core/app/app_render_runtime.zig:220-277@481104fd`;
+    /// `noteCommittedFrame`, `src/core/app/input_submit_runtime.zig:289-307`).
+    /// While the band shows them the document is held -- the card is queued
+    /// and nothing of it is written -- until that frame has landed
+    /// ([`Self::preview_landed`]). Rows of the band, never of the document: a
+    /// carry or a resize between the two frames moves no preview row into
+    /// the terminal's scrollback.
+    preview: Option<Vec<String>>,
     /// `/effort`'s menu, while it is up ([`super::effort_menu`]).
     ///
     /// The slot's occupant upstream ranks after `/model`'s menu
@@ -2296,6 +2309,12 @@ fn index_roots(primary: &std::path::Path, access: &WorkspaceAccess) -> Vec<std::
 const BOLD: &str = "\u{1b}[1m";
 const RESET: &str = "\u{1b}[0m";
 
+/// Upstream's fixed footer: the rows its layout's content bottom is measured
+/// above, whatever the band holds (`footer_rows`, `src/main.zig:173@481104fd`;
+/// `layoutFromSize`, `src/ui/terminal/terminal.zig:47-59`), and so the bottom
+/// a submitted card's preview is cut at ([`Shell::preview_room`]).
+const UPSTREAM_FOOTER_ROWS: u16 = 4;
+
 /// What the band's elastic slot is holding.
 ///
 /// What opened a saved session the screen replays ([`Shell::hydrate_as`]):
@@ -2605,6 +2624,7 @@ impl Shell {
             fork_prompt: None,
             fork_prompt_held: None,
             raw_gap: false,
+            preview: None,
             effort_menu: None,
             gateway_note: crate::provider::model::gateway_catalog_note(config.credential.as_ref()),
             statusline: config.statusline,
@@ -2720,6 +2740,17 @@ impl Shell {
     /// by one.
     pub(crate) fn band_rows(&self) -> Vec<String> {
         let mut rows = Vec::with_capacity(usize::from(self.geometry.band_rows()));
+        // A submitted card's newest rows and the blank row under them, while
+        // the band has them ([`Self::preview`]): as many as the geometry gave.
+        let preview = self.preview.as_deref().unwrap_or_default();
+        let shown = usize::from(self.geometry.preview.saturating_sub(1));
+        rows.extend(
+            preview[preview.len().saturating_sub(shown)..]
+                .iter()
+                .cloned()
+                .chain(std::iter::repeat(String::new()))
+                .take(usize::from(self.geometry.preview)),
+        );
         // The blank row above a panel that has taken the composer's, under a
         // document that does not end on one ([`layout::Geometry::gapped`]):
         // the band's own, so it is written blank rather than left with
@@ -4130,7 +4161,37 @@ impl Shell {
     /// holding is deliberately **not** counted -- it is not a row yet, and it
     /// waits for its own release whichever plane the session is on.
     pub(crate) fn owes_document(&self) -> bool {
-        self.departing.as_ref().is_some_and(Transcript::owes) || self.transcript.owes()
+        !self.previewing()
+            && (self.departing.as_ref().is_some_and(Transcript::owes) || self.transcript.owes())
+    }
+
+    /// Whether the band is showing a submitted card's newest rows, so the
+    /// document -- the card first -- waits for the frame that shows them
+    /// ([`Self::preview`]).
+    pub(crate) fn previewing(&self) -> bool {
+        self.geometry.preview > 0
+    }
+
+    /// A band frame landed. One that showed a card's preview was the frame
+    /// that clears the composer, so the preview goes, the band gives its rows
+    /// back, and the card the document was holding is written by the next
+    /// frame, as upstream's is once its preview's frame commits
+    /// (`noteCommittedFrame` -> `adoptPendingSubmission` ->
+    /// `adoptPendingUserPrompt`, `src/core/app/input_submit_runtime.zig:
+    /// 289-307`, `:572-584`, `src/main.zig:1234-1243@481104fd`).
+    pub(crate) fn preview_landed(&mut self) {
+        if self.previewing() {
+            self.drop_preview();
+        }
+    }
+
+    /// The preview taken away and the band solved without it: the document
+    /// is no longer held.
+    fn drop_preview(&mut self) {
+        if self.preview.take().is_some() || self.previewing() {
+            self.refit();
+            self.render.request(Reason::Transcript);
+        }
     }
 
     /// Offers the oldest thing the document is owed to the terminal, measured
@@ -4151,6 +4212,11 @@ impl Shell {
         &mut self,
         emit: impl FnOnce(&Append) -> Landed<E>,
     ) -> Option<Result<(), E>> {
+        // Nothing while the band shows a submitted card's preview: the card is
+        // written by the frame after the one that shows it ([`Self::preview`]).
+        if self.previewing() {
+            return None;
+        }
         // A handed-off document's last rows first ([`Self::departing`]); once
         // they have landed the handoff is measured against them, and nothing
         // of the new document is offered before the handoff has run.
@@ -9895,6 +9961,9 @@ impl Shell {
     /// taken, and once more after the drain, for the session that had nothing
     /// left to drain and a queue to empty anyway.
     pub(crate) fn flush_paced(&mut self) {
+        // A card the band is previewing is written now too: the exit clears
+        // the band from its top, and that is the preview's first row.
+        self.drop_preview();
         self.finish_saves();
         let before = self.pacer.pending();
         if let Some(chunk) = self.pacer.drain() {
@@ -13209,6 +13278,9 @@ impl Shell {
         // (`installPendingSubmission`, `input_submit_runtime.zig:1136-1149@481104fd`).
         let behind =
             self.tally.started.is_some() || self.pacer.pending() > 0 || self.full.is_open();
+        // Measured against the screen the last frame left, before the draft
+        // goes and the band shrinks ([`Self::preview_room`]).
+        let room = self.preview_room();
         match self.work.submit(work) {
             Ok(()) => {
                 self.ask_for_title(excerpt.as_deref(), Some(self.work.accepted()));
@@ -13254,6 +13326,9 @@ impl Shell {
                     self.render.request(Reason::Footer);
                 }
                 if let Some((card, links, runs)) = echoed {
+                    if let Some(room) = room {
+                        self.preview_card(&card, &links, &runs, room);
+                    }
                     self.echo(&card, links, runs);
                 }
                 self.gestures.submitted();
@@ -13366,23 +13441,16 @@ impl Shell {
         self.mark(Mark::Card(text.to_string(), links, skills));
     }
 
-    /// The card [`Mark::Card`] asks for.
-    fn write_card(&mut self, text: &str, links: &BadgeLinks, skills: &SkillRuns) {
-        self.finish_document_line();
-        if std::mem::take(&mut self.raw_gap) && !self.transcript.ends_blank() {
-            self.end_transcript_line();
-        }
-        if self.transcript.queue_gutter(Gutter::Rail) {
-            self.owed();
-        }
+    /// What a card's rail is in front of: each line of `text` in bold, its
+    /// badges linked and its skill tokens in the card's accent.
+    fn card_body(&self, text: &str, links: &BadgeLinks, skills: &SkillRuns) -> String {
         // Bold opened on every line rather than once around the text: a hard
         // break ends a row's attributes here, as upstream's card re-applies
         // its style per row (`user_message_card.zig:365,374`). A skill run is
         // handed to the line it is on, measured from that line's start.
         let accent = self.palette.notice_label();
         let mut at = 0usize;
-        let card = text
-            .split('\n')
+        text.split('\n')
             .map(|line| {
                 let runs: Vec<std::ops::Range<usize>> = skills
                     .iter()
@@ -13396,7 +13464,81 @@ impl Shell {
                 )
             })
             .collect::<Vec<_>>()
-            .join("\n");
+            .join("\n")
+    }
+
+    /// How many of a card's newest rows upstream's frame that clears the
+    /// composer would show, measured before the composer is cleared: `None`
+    /// when this card is written at once.
+    ///
+    /// Upstream's pending card is the newest rows that fit between the flow
+    /// endpoint and its fixed content bottom, `rows - 4`, and at least one
+    /// (`buildPendingCardProjection`, `src/core/app/app_render_runtime.zig:
+    /// 250-264@481104fd`, `footer_rows`, `src/main.zig:173`) -- here, below
+    /// the document's last row, the blank one a card starts under. Its frame
+    /// keeps the endpoint's row and the blank row under it on the screen
+    /// (`transcriptAreaBeforePendingTail`, `:2230-2238`), and the blank row
+    /// over the activity row under it (`PendingCardPaintContext.init`,
+    /// `:174-192`): with the band of a turn that has started, the rows above
+    /// the content bottom that leaves, less those three. (The frame trace's
+    /// `pending_prompt_tail start=3 paint_rows=32 layout_rows=36` for a
+    /// 60-line first prompt; `.prd/tui-phase5/receipts/submit-card-preview/`.)
+    ///
+    /// Only a card that starts on the row under a blank one the document has
+    /// already been given, with nothing of the document still owed: that is
+    /// the row upstream's preview is measured from, and anything else -- a
+    /// line still open, a fork's line that a card opens a blank row under
+    /// ([`Self::raw_gap`]) -- is written at once.
+    fn preview_room(&self) -> Option<usize> {
+        if self.transcript.owes()
+            || self.departing.is_some()
+            || self.transcript.open_line()
+            || !self.transcript.ends_blank()
+            || self.raw_gap
+            || self.group.drawn()
+        {
+            return None;
+        }
+        let (rows, cols) = (self.geometry.rows, self.geometry.cols);
+        let document = u16::try_from(self.document_rows)
+            .unwrap_or(u16::MAX)
+            .min(self.geometry.content_bottom);
+        let tail = rows
+            .saturating_sub(UPSTREAM_FOOTER_ROWS)
+            .saturating_sub(document)
+            .max(1);
+        let running = layout::solve_with(rows, cols, 1, true)?.content_bottom;
+        Some(usize::from(tail.min(running.saturating_sub(3))))
+    }
+
+    /// Shows the newest `room` rows of a card about to be written at the
+    /// band's top until the frame that shows them has landed, when the card
+    /// has more rows than that ([`Self::preview`]).
+    fn preview_card(&mut self, text: &str, links: &BadgeLinks, skills: &SkillRuns, room: usize) {
+        let body = self.card_body(text, links, skills);
+        let mut rows =
+            super::transcript::pushed_rows(&body, self.geometry.cols, Gutter::Rail, self.palette);
+        if room == 0 || rows.len() <= room {
+            return;
+        }
+        let shown = rows.split_off(rows.len() - room);
+        self.preview = Some(shown);
+        self.refit();
+        if !self.previewing() {
+            self.preview = None;
+        }
+    }
+
+    /// The card [`Mark::Card`] asks for.
+    fn write_card(&mut self, text: &str, links: &BadgeLinks, skills: &SkillRuns) {
+        self.finish_document_line();
+        if std::mem::take(&mut self.raw_gap) && !self.transcript.ends_blank() {
+            self.end_transcript_line();
+        }
+        if self.transcript.queue_gutter(Gutter::Rail) {
+            self.owed();
+        }
+        let card = self.card_body(text, links, skills);
         self.write_transcript_as(&card, Role::Plain);
         self.end_transcript_line();
         if self.transcript.queue_gutter(Gutter::None) {
@@ -15815,6 +15957,17 @@ impl Shell {
     /// every block written after the document asks it ([`Transcript::ends_blank`]):
     /// the rows a frame is about to land are the tail the band sits under.
     fn placed(&self, geometry: Geometry) -> Geometry {
+        // A submitted card's preview at the band's top, when the screen has
+        // the rows for it and a document row besides; none otherwise, and the
+        // card is written at once ([`Self::preview`]).
+        let preview = self
+            .preview
+            .as_ref()
+            .and_then(|rows| u16::try_from(rows.len() + 1).ok());
+        let geometry = preview
+            .and_then(|rows| geometry.previewed(rows))
+            .or_else(|| geometry.previewed(0))
+            .unwrap_or(geometry);
         geometry
             .gapped(self.transcript.ends_blank())
             .floated(self.document_rows)
@@ -16325,6 +16478,9 @@ impl Shell {
         self.screen = (rows, cols);
         self.document_rows = u32::MAX;
         self.tail_unknown = true;
+        // A card's preview was cut for the screen that is gone; the card is
+        // written whole by the frame this owes ([`Self::preview`]).
+        self.preview = None;
         // And a handoff still owed -- deferred behind a question or a screen
         // no band fits on -- was measured against the rows the terminal has
         // just reflowed.
@@ -16888,6 +17044,34 @@ mod tests {
             "a fresh session did not ask for its first frame, so the band \
              would appear only once something else changed"
         );
+    }
+
+    #[test]
+    fn a_cards_preview_is_upstreams_tail_cut_to_the_frame_that_clears_the_composer() {
+        // fx v0.0.16's numbers on a 40-row screen, each read off a capture's
+        // frame after Enter or its frame trace
+        // (`.prd/tui-phase5/receipts/submit-card-preview/`): the rows below
+        // the document's last row and above `rows - 4`, at least one, and no
+        // more than the running band's content bottom less three.
+        for (composer, document, room, what) in [
+            (3, u32::MAX, 1, "three lines on a full screen"),
+            (5, u32::MAX, 3, "five lines on a full screen"),
+            (2, u32::MAX, 1, "an image and two lines on a full screen"),
+            (1, u32::MAX, 1, "a pasted block on a full screen"),
+            (1, 2, 32, "a pasted block under the welcome alone"),
+            (1, 4, 32, "a pasted block under the welcome and a notice"),
+            (1, 10, 26, "a pasted block under a short first turn"),
+        ] {
+            let mut shell = shell(40, 120);
+            shell.geometry = crate::tui::layout::solve(40, 120, composer).expect("a band");
+            shell.document_rows = document;
+            assert_eq!(shell.preview_room(), Some(room), "{what}");
+        }
+        // And none for a card that does not start under a blank row the
+        // document already has: a line still open, or anything still owed.
+        let mut shell = shell(40, 120);
+        shell.write_transcript_as("an open line", Role::Plain);
+        assert_eq!(shell.preview_room(), None, "an open line, still owed");
     }
 
     /// `/mcp`'s menu over a real runtime: a scratch home and workspace, the
