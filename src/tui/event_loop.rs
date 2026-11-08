@@ -14328,6 +14328,47 @@ mod tests {
     }
 
     #[test]
+    fn a_compactions_stop_and_its_turns_end_in_one_tick_put_the_title_on_the_next_tick() {
+        // Item 7 for the other stop. Ctrl-C on a turn's automatic compaction
+        // stops the compaction and the turn with it (`cancelActiveOperation`,
+        // `input_interrupt_runtime.zig:77-90@481104fd`); the turn's end is
+        // drained on a pass after the keystroke's, as any stopped turn's is
+        // (`src/ui/event_loop.zig:77-117`), and the stopped compaction's turn
+        // titles the session (`persistCompactionInterruptedTurnOnce`,
+        // `orchestrator.zig:7847-7862`). Read in the keystroke's own tick
+        // here, the title is held past that tick's frame: `idle` on it, the
+        // title on the next.
+        let (mut shell, mut band, mut out) = status_running(b"go\r");
+        shell.apply(UiEvent::Compaction(crate::tui::compaction::Update::Began {
+            automatic: true,
+        }));
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        let before = out.vectors.len();
+        shell.route_bytes(&[0x03]);
+        shell.apply(UiEvent::Compaction(
+            crate::tui::compaction::Update::Settled(crate::tui::compaction::Feedback::Cancelled),
+        ));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.handle.give_back();
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        let first = out.vectors[before..].concat();
+        status_tick(&mut shell, &mut band, &mut out);
+        let wire = out.vectors[before..].concat();
+        let idle = find(&wire, IDLE.as_bytes());
+        let title = find(&wire, b"\x1b]2;go\x07");
+        assert!(
+            find(&first, b"\x1b]2;go\x07").is_none()
+                && idle.is_some()
+                && title.is_some()
+                && idle < title,
+            "idle on the keystroke's tick, the title on the next: {:?}",
+            String::from_utf8_lossy(&wire)
+        );
+    }
+
+    #[test]
     fn a_finished_turns_late_text_is_presented_with_its_end_in_one_drain() {
         // Item 8. Upstream's drain presents a batch that holds the turn's own
         // completed finish, or that its worker had already let go of
@@ -14340,7 +14381,8 @@ mod tests {
         // finished end is presented -- below the keystroke's `Cancelled` line,
         // above the summary -- and text whose drain emptied the channel before
         // the end came is dropped. A drain cut short by its bound
-        // (`bridge::UI_EVENTS`) is no batch boundary.
+        // (`bridge::UI_EVENTS`) is no batch boundary: text read in it is
+        // presented with the end the next drain reads.
         let mut got = Vec::new();
         for case in ["one drain", "two drains", "a cut drain"] {
             let (mut shell, mut band, mut out) = status_running(b"first question\r");
@@ -14348,16 +14390,17 @@ mod tests {
             shell.route_bytes(&[0x03]);
             status_tick(&mut shell, &mut band, &mut out);
             let (events, mut receiver) = tokio::sync::mpsc::channel(4 * bridge::UI_EVENTS);
+            events
+                .try_send(UiEvent::Delta("LATE-ANSWER\n".to_string()))
+                .expect("room");
             if case == "a cut drain" {
+                // The text is in the drain the bound cuts, the end in the next.
                 for _ in 0..bridge::UI_EVENTS {
                     events
                         .try_send(UiEvent::Delta(" ".to_string()))
                         .expect("room");
                 }
             }
-            events
-                .try_send(UiEvent::Delta("LATE-ANSWER\n".to_string()))
-                .expect("room");
             if case == "two drains" {
                 take_ui_events(&mut shell, &mut receiver);
             }
