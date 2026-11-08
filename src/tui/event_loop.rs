@@ -1096,8 +1096,10 @@ fn commit_counted(
 ///   upstream's turn sets its title after it reported `done`
 ///   (`osc/w02-done`).
 /// * **After a title the band already owed when the tick began** -- the
-///   launch's ([`launch_title`]), or one an earlier frame did not land -- and
-///   that the tick's own events did not replace. Upstream writes a title the
+///   launch's ([`launch_title`]), one an earlier frame did not land, or one a
+///   stopped turn's end gave the session, which upstream sets on a pass
+///   before the next prompt's `working` ([`Shell::take_leading_title`]) --
+///   and that the tick's own events did not replace. Upstream writes a title the
 ///   moment it is set, so that one is on its wire before this tick's report:
 ///   the report rides the frame's lead, after the title and ahead of its
 ///   `?2026h` ([`commit_primary`]), so the band stays the title's only writer.
@@ -1141,6 +1143,11 @@ fn commit_tick(
     now: Instant,
     reconciled: Reconciled,
 ) -> io::Result<()> {
+    // A title a stopped turn's end gave the session is the band's before the
+    // report is taken, so the report follows it ([`Shell::take_leading_title`]).
+    if let Some(title) = shell.take_leading_title() {
+        band.set_title(title);
+    }
     let resumed = shell.take_program_status_resume();
     let keyed = shell.take_status_moved_by_input();
     let after_frame = resumed || keyed == super::shell::Keyed::AfterFrame;

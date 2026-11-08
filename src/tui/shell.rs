@@ -1054,14 +1054,26 @@ pub(crate) struct Shell {
     /// and so are the cancelled work starting late rather than a new turn
     /// ([`UiEvent::TurnStarted`]).
     cancel_covers: usize,
-    /// The cancel in effect is the user's stop of a turn ([`Self::cancel_turn_with`]),
-    /// not a compaction's ending or its stop, so the turn's end says what the
+    /// The cancel in effect includes the user's stop of a turn
+    /// ([`Self::cancel_turn_with`]), so -- unless a compaction ended the turn
+    /// ([`Self::compaction_ended_turn`]) -- the turn's end says what the
     /// turn came to: its stop ([`bridge::TURN_CANCELLED`]), a failure after
     /// it, or a finish the runtime had already reached when the stop came
     /// ([`UiEvent::TurnEnded`]). Upstream's stop does not rewrite a turn
     /// that finished first: the second finish is ignored
     /// (`finalization.zig:126-136@481104fd`).
     stop_reads_end: bool,
+    /// An automatic compaction ended the turn in hand -- it settled with
+    /// anything but a success or nothing to do, or the user stopped it
+    /// ([`Self::compaction_update`], [`Self::stop_compaction`]) -- so that
+    /// turn's end is the compaction's and says nothing more, whatever stop
+    /// comes after it ([`UiEvent::TurnEnded`]). A flag of its own rather than
+    /// a [`Self::stop_reads_end`] cleared, because a Ctrl-C pressed after the
+    /// compaction settled and before the end is read stops the turn again
+    /// ([`Self::cancel_turn_with`]): upstream's keystroke returns there, its
+    /// worker's cancel already requested (`input_interrupt_runtime.zig:94`),
+    /// and the turn finishes as the compaction left it.
+    compaction_ended_turn: bool,
     /// What the activity row says about the turn's recovery, while it says
     /// anything ([`super::retry::Row`]).
     ///
@@ -1516,6 +1528,10 @@ pub(crate) struct Shell {
     /// wants now ([`Self::take_title`]). `true` at launch, so the first frame
     /// carries one.
     title_owed: bool,
+    /// Whether the title owed is one a stopped turn's end gave the session,
+    /// which goes out ahead of the tick's report
+    /// ([`Self::take_leading_title`]).
+    title_leads: bool,
     /// The directory the session works in, whose last component the window
     /// title names until the session has a title of its own.
     workspace: std::path::PathBuf,
@@ -2426,6 +2442,7 @@ impl Shell {
             cancel_owed: None,
             cancel_covers: 0,
             stop_reads_end: false,
+            compaction_ended_turn: false,
             retry: None,
             compaction: None,
             activity: Activity::new(),
@@ -2535,6 +2552,7 @@ impl Shell {
             titled_by_user: false,
             turn_title: None,
             title_owed: true,
+            title_leads: false,
             workspace: config.workspace_root.clone(),
             document_rows: 0,
             fatal: None,
@@ -4114,6 +4132,7 @@ impl Shell {
                 } else {
                     self.cancelling = false;
                     self.stop_reads_end = false;
+                    self.compaction_ended_turn = false;
                     self.cancel_owed = None;
                 }
                 if !self.cancelling {
@@ -4475,8 +4494,11 @@ impl Shell {
                 // it, `app_worker_runtime.zig:386`).
                 let stopped = self.cancelling;
                 let reads_end = std::mem::take(&mut self.stop_reads_end) && stopped;
+                let compactions = std::mem::take(&mut self.compaction_ended_turn) && stopped;
                 let quiet = stopped
-                    && (!reads_end || failure.as_deref() == Some(super::bridge::TURN_CANCELLED));
+                    && (compactions
+                        || !reads_end
+                        || failure.as_deref() == Some(super::bridge::TURN_CANCELLED));
                 let ran = self.tally.started.is_some();
                 let outcome = (ran && !noted).then(|| {
                     if quiet {
@@ -4562,8 +4584,12 @@ impl Shell {
                         // `]2;first question` after the stopped turn shows.
                         // Not one a compaction failed (`noted`): a turn that
                         // failed titles nothing ([`Self::title_session`]).
+                        // Ahead of the tick's report, as upstream's is on
+                        // the pass before the next prompt's `working`
+                        // ([`Self::take_leading_title`]).
                         if quiet && ran && !noted {
                             self.title_session();
+                            self.title_leads = self.title_owed;
                         }
                     }
                 }
@@ -10080,6 +10106,7 @@ impl Shell {
         if self.cancelling && self.work.outstanding() == 0 && self.tally.started.is_none() {
             self.cancelling = false;
             self.stop_reads_end = false;
+            self.compaction_ended_turn = false;
             self.cancel_owed = None;
             self.cancel_covers = 0;
         }
@@ -11183,7 +11210,7 @@ impl Shell {
                     // conclusion adds nothing (`compactionErrorHandled`,
                     // `app_process_runtime.zig:10-17`, `:55-56`).
                     self.cancelling = true;
-                    self.stop_reads_end = false;
+                    self.compaction_ended_turn = true;
                     // And unless the user stopped it, the turn failed, and that
                     // is its result now ([`Self::compaction_failed`]).
                     if feedback != compaction::Feedback::Cancelled && self.tally.started.is_some() {
@@ -11216,7 +11243,7 @@ impl Shell {
             // manual compaction ends no turn, so it owes the next one nothing.
             self.sound.interrupted();
             self.cancelling = true;
-            self.stop_reads_end = false;
+            self.compaction_ended_turn = true;
             self.retry = None;
         }
         if waiting {
@@ -14856,6 +14883,7 @@ impl Shell {
         // conversation being dropped, and so does its line.
         self.cancelling = false;
         self.stop_reads_end = false;
+        self.compaction_ended_turn = false;
         self.cancel_owed = None;
         self.cancel_covers = 0;
         // So is a failed automatic compaction's turn: its result was reported
@@ -15029,6 +15057,7 @@ impl Shell {
     /// Asked for once per change rather than per frame, so a frame that changes
     /// nothing about the title allocates nothing for it.
     pub(crate) fn take_title(&mut self) -> Option<String> {
+        self.title_leads = false;
         if !std::mem::take(&mut self.title_owed) {
             return None;
         }
@@ -15042,6 +15071,27 @@ impl Shell {
     /// the band ([`Self::take_title`]) -- one the tick's own events asked for.
     pub(crate) fn owes_title(&self) -> bool {
         self.title_owed
+    }
+
+    /// The title a stopped turn's end gave the session, for the band to
+    /// write **ahead of** the tick's report rather than behind it.
+    ///
+    /// Upstream commits a stopped turn `.interrupted` when it drains the
+    /// turn's end and sets the session's title there
+    /// (`ensureCachedSessionTitle`, `app_session_runtime.zig:2766-2769@481104fd`),
+    /// on a pass before the one whose worker takes the next prompt and
+    /// reports `working` (`p5-lifecycle-osc-stopnext`: `idle`, the
+    /// `Cancelled` frame, `OSC 2`, `working`). xfx reads that end and the
+    /// next prompt's work in one tick, so the title is the band's before the
+    /// report is taken, as a title it already owed when the tick began is
+    /// (`super::event_loop`'s `commit_tick`). A finished turn's title is
+    /// not one: upstream sets it after it reported `done` (`osc/w02-done`),
+    /// and it stays the frame's, behind the report.
+    pub(crate) fn take_leading_title(&mut self) -> Option<String> {
+        if !self.title_leads {
+            return None;
+        }
+        self.take_title()
     }
 
     /// Gives the session its title, from the prompt of the turn that just
