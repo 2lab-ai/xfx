@@ -58,14 +58,16 @@ told while the ending was unread, and the ending was read in the tick that read 
    (`:11597`) and the row says `Stopping compaction` (`:11603`).
 2. The runtime is in `run_compact` (`worker.rs:3892`), racing the body against the control
    channel. The cancel is `stop(through)` (`:5664`): `turn.cancel()`, `queue.abandon(through)`
-   (`:3903-3904`). The body is polled to its end (`:5734`); the notes request ends
-   `ProviderError::Cancelled` -> `Failure::Cancelled` (`compact.rs:2975`) -> `Feedback::Cancelled`
-   (`worker.rs:4112`).
+   (`:3903-3904`). The body is polled to its end (`:5734`). Its feedback is `Cancelled` either
+   way: the notes request stopped (`ProviderError::Cancelled` -> `Failure::Cancelled`,
+   `compact.rs:2974-2975`, -> `Feedback::Cancelled`, `worker.rs:4112`), or finished with the token
+   already cancelled (`worker.rs:4069-4072`).
 3. `run_compact` sends `UiEvent::Compaction(Update::Settled(feedback))` through `send_terminal`
    (`:3910`; `bridge.rs:1519`), **then** `turn_loop` gives the place back
    (`queue.outstanding.fetch_sub`, `worker.rs:3550`). Sent first, given back second.
 4. The UI thread's loop, every tick (`event_loop.rs:255-291`): wait up to `TICK` = 8 ms for
-   stdin (`:84`, `:256`; nothing the runtime sends wakes it), read the keys (`:275`),
+   stdin or the self-pipe (`:84`, `:256-260`; only a signal handler writes the pipe,
+   `signals.rs:310`, `:671`, so nothing the runtime sends wakes the loop), read the keys (`:275`),
    `settle_input` (`:282`), drain the events (`take_ui_events`, `:285`, `:351`; `shell.apply`,
    `:385`), `settle_band` (`:291`).
 5. `settle_band`, at the base: once `outstanding() == 0`, a compaction still `stopped()` is
@@ -96,7 +98,7 @@ The tick that tells it early is always the same. What differs is what comes next
 - **a stopped automatic compaction, then a prompt**: the same, and the re-inserted one is
   treated as manual (`automatic` reads `false` from no compaction, `:11538`).
 
-Each of the five is a case of the RED test. A line typed while the row still says
+Each of the five is a case of the RED test (three at `2e724248`, two more at `bd0ee247`). A line typed while the row still says
 `Stopping compaction` is not one of them: the sentence that comes after it is the
 compaction's real ending, and fx does the same (below).
 
@@ -200,7 +202,7 @@ Round 2, at `ed0e4e3a` (`mutants.txt`):
 | M1 no "nothing in hand" gate | killed | the RED test; the drain-boundary test |
 | M2 no "emptied" gate | killed | the drain-boundary test ("a drain cut short") |
 | M3 count read after the drain | killed | the drain-boundary test ("given back during the drain") |
-| M4 the base's settle-time inference back | killed | the RED test; both shell tests |
+| M4 the base's settle-time inference back | killed | the RED test; two of the shell tests |
 | M5 no inference at all | killed | the three shell tests |
 | M6 settle any running compaction, not only a stopped one | survived: equivalent | -- |
 | M7 no program-status note | killed | the status test |
@@ -237,7 +239,12 @@ reads (`../osc-program-status/fx/`).
 
 ## Gate (`gate.txt`)
 
-Run at this commit; `gate.txt` lands in the next commit.
+`../train-7/gates.sh`, unchanged, at `4057117a` (the first receipt commit; the product code is
+`ed0e4e3a`'s), the tree clean before and after, in one hold of the suite lock: **20 steps, 0
+failed**. fmt, clippy and clippy with the fault injector; `cargo test` (5,449 passed, 0 failed,
+15 binaries) and with the fault injector (5,486 passed, 0 failed); every `check-*.sh` and
+`test-*.sh`; fxcap `test-sweep` and `test-capture`; both release builds; `smoke` and `smoke-tui`.
+This unit's four tests and the original one pass in both test runs.
 
 ## A neighbour looked at
 
@@ -246,6 +253,35 @@ of the same race on a stopped turn's end (`TurnStarted` and `TurnEnded` sent, th
 back, between a tick's drain and its settle) wrote the same transcript both ways: `first
 question`, `▪ Cancelled · …`, nothing more (`probe-turn.txt`). Nothing to fix there from this
 schedule.
+
+### Observation, not changed here: a prompt queued behind a compaction the stop dropped (`probe-prompt-behind.txt`, `probe-window.txt`)
+
+`/compact`, Ctrl-C before the runtime takes it, and a prompt typed before the runtime has dropped
+it (typed fast, or while other work ahead of the compaction still runs). The drop leaves the
+prompt in hand, so nothing is in hand only once that prompt's turn is over. Until then the row says
+`Stopping compaction (Ns)` over the prompt's turn (a running compaction's row takes the turn's,
+`tick_activity`), and the sentence comes when the turn ends. The probe shows it at `0cc9b34c`;
+the base's settle needs `outstanding() == 0` as well (`shell.rs:10477`), so the base does the
+same. fx's worker settles the dropped one at once (`cancelContextCompaction`,
+`worker_runtime.zig:1007-1009@481104fd`).
+
+While other work is in hand the band cannot tell "dropped" from "taken, its ending on the way".
+The runtime has to say it: `Queue::abandon` (`worker.rs:3731-3742`) would send
+`Settled(Cancelled)` for a `TurnWork::Compact` it drops, before it gives that place back, and the
+band's inference would go entirely. `abandon` runs inside the race's stop closure, which cannot
+await (`worker.rs:3903-3904`, `:5664`), so that changes its contract at every call site. It is a
+unit of its own.
+
+This fix widens that case by one tick, and it is the one way it is worse than the base. A
+compaction the stop dropped is now told at the next drain rather than at the tick's settle. If
+the drop lands between a tick's drain and its settle, and a line is submitted in the very next
+tick, before its drain, the base had already said the sentence and the line took it away. Now
+that line puts work in hand before the drain that would have told it, and the row says
+`Stopping compaction` over that line's turn. The line has to be read within one tick (8 ms) of
+the drop, so a pasted or scripted Enter, not a typed one. The band cannot do better while it
+infers: at that settle a dropped compaction and a taken one whose ending is on the way look the
+same, and telling the dropped one there is this unit's bug. The runtime-side change above closes
+both cases.
 
 ## Files
 
@@ -257,6 +293,7 @@ schedule.
 - `sweeps.sh` (base and head; head2 is the same loop with the side `head2`), `sweep-base.md`,
   `sweep-head.md`, `sweep-head2.md`, `pairs_compare.py`, `pairs.txt`, `osc.txt`: the compaction
   sweep.
-- `probe-prompt-behind.txt`: the observation below the neighbour.
+- `probe-prompt-behind.txt`, `probe-window.txt`: the observation below the neighbour.
 - `probe-turn.txt`: the neighbour's probe.
-- `gate.txt`: the gate, every CI step, under the suite lock.
+- `gate.txt`: the gate, every CI step, under the suite lock; step logs stayed in the scratch
+  directory.
