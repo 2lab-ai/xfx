@@ -266,3 +266,15 @@ the interrupted turn keeps the prompt and its images (F4,
 - The added lines were checked for local paths (`git diff -U0 | grep '^+'`
   for `/Users`, the user name and `/private/`): none. The receipt was
   scanned with `LC_ALL=C grep -rla`: nothing.
+- **Gate (`gates-r2.txt`).** `gates.sh` ran at `8b8d1944` (a clean tree
+  before and after, one lock slot). Every step reads rc=0, and step 00
+  (`false`) reads rc=1:
+  - fmt, clippy (8 s), clippy with fault-injection;
+  - `cargo test --all-targets` (5447 passed, 0 failed, 115 s); with
+    fault-injection, the `tui` test (195) and the lib (4554);
+  - check-no-stubs, check-no-secrets, test-check-no-secrets,
+    test-gate-env, check-xfx-identity, check-preview-contract,
+    test-preview-contract, check-tui-preflight-cost, check-usage-clock;
+  - fxcap test-sweep and test-capture;
+  - both release builds, smoke, and smoke-tui (37 scenarios + the oracle,
+    1168 checks, 0 failures).
