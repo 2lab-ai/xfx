@@ -1,0 +1,48 @@
+# provider-carry-back-stop at 40x120: one capture per binary (capture.sh, TMPDIR /private/tmp/claude-501), the files in fx/, xfx/, base-xfx/
+# fx    : v0.0.16 release, sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
+# xfx   : built at 3899a8ba, sha256 8af7b8ecfafcb463f4083d1b90834c1080c4e4d0e950829cdabdc80f5b46a6a7, row 1: x𝒇x v0.1.0-3899a8b [debug] · Run /help for commands
+# base  : built at 05a0a857, sha256 7ab7a35b042029c4c3223966d3c4af80d25f69775d044e62699aa1b79f46cdea, row 1: x𝒇x v0.1.0-05a0a85 [debug] · Run /help for commands
+
+## turn1: base-xfx vs xfx, rows 2.. (diff base head)
+(identical)
+
+## stopped: base-xfx vs xfx, rows 2.. (diff base head)
+(identical)
+
+## next: base-xfx vs xfx, rows 2.. (diff base head)
+20a21,23
+> ! session: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that
+>   reasoning was not carried over
+> 
+37,39d39
+< 
+< 
+< 
+
+## next: fx vs xfx, rows 2.. (diff fx head)
+11,12d10
+< * auth: Switched credential to AI_GATEWAY_API_KEY.
+< 
+14a13,14
+> * provider: Switched to Vercel AI Gateway with fake/model-a.
+> 
+17c17
+< * provider: Provider preparation cancelled. The current provider is unchanged.
+---
+> ▪ Cancelled · What can xfx do differently?
+20a21,23
+> ! session: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that
+>   reasoning was not carried over
+> 
+27,30c30
+< auto · gpt-5.6-sol · read the notes and tell me what  · 1k/272k 0%
+< 
+< 
+< 
+---
+> auto · model-a · read the notes and tell me what  · 1k
+
+## completion requests in each gateway log (the stopped prompt sent none; the next prompt's is the only one after the switch)
+fx/fx-provider-carry-back-stop-40x120-gateway.log: 3 requests: codex /codex/responses -> tool read_file;codex /codex/responses -> text;GET /coding-agent/v1/models bearer=yes at=33954ms;GET /coding-agent/v1/models -> 200 at=43959ms;codex /codex/responses -> text;
+xfx/xfx-provider-carry-back-stop-40x120-gateway.log: 3 requests: llmux /v1/messages -> tool read_file;llmux /v1/messages -> text;GET /coding-agent/v1/models bearer=yes at=25914ms;GET /coding-agent/v1/models -> 200 at=35917ms;completion /v4/ai/language-model -> text;
+base-xfx/xfx-provider-carry-back-stop-40x120-gateway.log: 3 requests: llmux /v1/messages -> tool read_file;llmux /v1/messages -> text;GET /coding-agent/v1/models bearer=yes at=26231ms;GET /coding-agent/v1/models -> 200 at=36233ms;completion /v4/ai/language-model -> text;

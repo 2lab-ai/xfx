@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-05a0a85 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mread the notes and tell me what they say[0m
+
+[38;5;255m●[39m [38;5;245m1 tool call · 1 read[39m
+[38;5;245m└ Read notes.txt[39m
+
+  The notes say the meeting moved to Thursday.
+
+[38;5;245m  0s (↑10 ↓80)[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a · read the notes and tell me what  · 1k/200k 0%[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

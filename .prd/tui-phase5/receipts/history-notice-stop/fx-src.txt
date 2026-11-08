@@ -1,0 +1,291 @@
+# fx v0.0.16 (481104fd) text for every fx citation HISTORY-NOTICE-STOP makes. Each block: the command (repo = the fx
+# upstream checkout, read through git show at the pin, never its working tree), then the lines with their numbers.
+
+## H1: fx says nothing about history it cannot carry. A step's sealed replay that does not match the provider and
+## model is dropped from the request (projectProviderReplay), and the encoder logs a debug trace, not a notice.
+
+### git -C fx-upstream show 481104fd:src/core/shared/types.zig | sed -n 1667,1680p
+ 1667  /// Returns a caller-owned shallow projection only when incompatible replay exists.
+ 1668  pub fn projectProviderReplay(
+ 1669      alloc: std.mem.Allocator,
+ 1670      messages: []const ChatMessage,
+ 1671      source: @import("../config/model_provider.zig").ProviderSelection,
+ 1672  ) !?[]ChatMessage {
+ 1673      var projected: ?[]ChatMessage = null;
+ 1674      errdefer if (projected) |owned| alloc.free(owned);
+ 1675      for (messages, 0..) |message, index| {
+ 1676          const replay = message.provider_replay orelse continue;
+ 1677          if (replay.matches(source)) continue;
+ 1678          if (projected == null) projected = try alloc.dupe(ChatMessage, messages);
+ 1679          projected.?[index].provider_replay = null;
+ 1680      }
+
+### git -C fx-upstream show 481104fd:src/builtins/gateway.zig | sed -n 178,180p
+  178      const projected = try shared_types.projectProviderReplay(alloc, request.messages, .{ .provider = .gateway, .model = request.model });
+  179      defer if (projected) |messages| alloc.free(messages);
+  180      if (projected != null) debug_trace.logf("gateway", "provider_replay_omitted provider=gateway reason=source_mismatch", .{});
+
+## H2: an image blob the log names that is gone or damaged makes the session invalid: no notice, no turn.
+
+### git -C fx-upstream show 481104fd:src/core/session/session_adapter.zig | sed -n 2870,2891p
+ 2870      /// (D89). A fork reads the blobs it hard-linked here too.
+ 2871      fn decodeUser(src: Source, pa: Allocator, data: []const u8) !session_event.ConversationUser {
+ 2872          const wire = try std.json.parseFromSliceLeaky(WireUser, pa, data, .{ .allocate = .alloc_if_needed });
+ 2873          const images = try wire.toImages(pa);
+ 2874          for (wire.images, images) |image, *out| {
+ 2875              const hash = image.blob orelse continue;
+ 2876              out.blob_path = src.store.manager.blobPath(pa, src.id, hash) catch |err| return imageBlobFailed(src, image.id, err);
+ 2877          }
+ 2878          return .{ .text = wire.text, .images = images, .work_id = wire.work_id };
+ 2879      }
+ 2880  
+ 2881      /// An image blob the log names that is gone or misnamed damages the
+ 2882      /// session, as a piece's blob does (D39). One whose bytes were damaged is
+ 2883      /// found by `verify`, and by any reader, which checks them against the
+ 2884      /// image's digest (D89).
+ 2885      fn imageBlobFailed(src: Source, image_id: usize, err: sm.BlobError) (sm.BlobError || error{InvalidSessionFormat}) {
+ 2886          return switch (err) {
+ 2887              error.NotFound, error.Corrupt, error.InvalidArgument => {
+ 2888                  debug_trace.logf("session", "event=sessions_v2_prompt_image_unreadable session={s} image={d} err={s}", .{ src.id, image_id, @errorName(err) });
+ 2889                  return error.InvalidSessionFormat;
+ 2890              },
+ 2891              else => |e| e,
+
+## H3: fx's one notice said once a session, a source limit's [context] line: the session's ledger, and the TUI's and
+## ask's push, which claim it first and then hand it on (claimed at the push, not when it is painted).
+
+### git -C fx-upstream show 481104fd:src/core/session/session.zig | sed -n 1551,1561p
+ 1551      /// Returns true once for each distinct source-limit notice in this live
+ 1552      /// session. Size and limit are part of the rendered notice, so either
+ 1553      /// changing makes the updated condition visible again.
+ 1554      pub fn claimContextNotice(self: *SessionRuntime, alloc: Allocator, notice: []const u8) !bool {
+ 1555          self.context_notice_lock.lockUncancelable(io_mod.getIo());
+ 1556          defer self.context_notice_lock.unlock(io_mod.getIo());
+ 1557          const result = try self.context_notice_hashes.getOrPut(
+ 1558              alloc,
+ 1559              std.hash.Wyhash.hash(0, notice),
+ 1560          );
+ 1561          return !result.found_existing;
+
+### git -C fx-upstream show 481104fd:src/core/app/app_callbacks.zig | sed -n 1294,1307p
+ 1294          fn agentPushContextNotice(ctx: *anyopaque, text: []const u8) !void {
+ 1295              const app: *App = @ptrCast(@alignCast(ctx));
+ 1296              if (comptime @hasDecl(@TypeOf(app.session), "claimContextNotice")) {
+ 1297                  if (!try app.session.claimContextNotice(std.heap.c_allocator, text)) return;
+ 1298              }
+ 1299              const body = try types.renderContextNoticeBody(std.heap.c_allocator, text);
+ 1300              defer std.heap.c_allocator.free(body);
+ 1301              try app_worker_runtime.Runtime(App).pushSemanticNotice(app, .{
+ 1302                  .topic = "context",
+ 1303                  .tone = .warning,
+ 1304                  .body = body,
+ 1305                  .visibility = .full_only,
+ 1306              });
+ 1307          }
+
+### git -C fx-upstream show 481104fd:src/core/cli/cli_ask.zig | sed -n 3216,3228p
+ 3216  fn pushContextNotice(raw_ctx: *anyopaque, text: []const u8) !void {
+ 3217      const ctx: *AskContext = @ptrCast(@alignCast(raw_ctx));
+ 3218      if (!try ctx.session.claimContextNotice(ctx.alloc, text)) return;
+ 3219      if (ctx.presenter) |presenter| {
+ 3220          const body = try types.renderContextNoticeBody(ctx.alloc, text);
+ 3221          defer ctx.alloc.free(body);
+ 3222          return presenter.pushNotice(.{
+ 3223              .topic = "context",
+ 3224              .tone = .warning,
+ 3225              .body = body,
+ 3226              .visibility = .full_only,
+ 3227          });
+ 3228      }
+
+### git -C fx-upstream show 481104fd:src/acp/prompt.zig | sed -n 3219,3227p
+ 3219  fn pushContextNotice(raw_ctx: *anyopaque, text: []const u8) !void {
+ 3220      const ctx: *AcpContext = @ptrCast(@alignCast(raw_ctx));
+ 3221      const session = if (ctx.state.active_session) |*active| active else return;
+ 3222      if (!try session.session_rt.claimContextNotice(ctx.alloc, text)) return;
+ 3223      // ACP v1 Session Notices where the client shows them;
+ 3224      // otherwise a message, as ACP allows.
+ 3225      if (ctx.state.client_notices) return ctx.sendNotice(text) catch {};
+ 3226      try pushSystemNotice(raw_ctx, text);
+ 3227  }
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/deps.zig | sed -n 284,286p
+  284      /// Source-limit notices use a session-scoped deduplicating path when the
+  285      /// host provides one; ordinary system notices remain unaffected.
+  286      push_context_notice: ?*const fn (ctx: *anyopaque, text: []const u8) anyerror!void = null,
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/deps.zig | sed -n 315,318p
+  315      pub fn pushContextNotice(self: *const AgentRuntimeDeps, text: []const u8) !void {
+  316          if (self.push_context_notice) |push| return push(self.ctx, text);
+  317          return self.push_system_notice(self.ctx, text);
+  318      }
+
+## H4: the turn-start claimer runs only past the turn's stop checks: the capability resolve's Cancelled and the
+## cancel flag right after it both persist the turn interrupted and return before prepareSkillCatalog.
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n 5772,5791p
+ 5772  fn prepareSkillCatalog(
+ 5773      alloc: Allocator,
+ 5774      deps: *const AgentRuntimeDeps,
+ 5775      config: Config,
+ 5776      context_window: ?u32,
+ 5777  ) !?skill_runtime.BoundedPromptSection {
+ 5778      if (config.skill_catalog.skills.len == 0 and config.skill_catalog.diagnostics.len == 0) return null;
+ 5779      var section = try skill_runtime.buildSkillPrompt(
+ 5780          alloc,
+ 5781          config.skill_catalog.skills,
+ 5782          config.skill_catalog.diagnostics,
+ 5783          config.context_limits,
+ 5784          context_window,
+ 5785          config.workspace_root,
+ 5786      );
+ 5787      errdefer section.deinit(alloc);
+ 5788      if (section.notice) |notice| try deps.pushContextNotice(notice);
+ 5789      if (section.diagnostic_notice) |notice| try deps.pushContextNotice(notice);
+ 5790      return section;
+ 5791  }
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n 5884,5950p
+ 5884      var request_capabilities = deps.available_model_capabilities(deps.ctx, job.model);
+ 5885      if (config.ultrafast_mode or requiresResolvedRequestCapabilities(
+ 5886          job.images.len > 0 or job.authorized_image_catalog.len > 0,
+ 5887          vision_fallback_available,
+ 5888          config.effort,
+ 5889          config.fast_mode,
+ 5890          request_capabilities,
+ 5891      )) {
+ 5892          resolve_capabilities: while (true) {
+ 5893              request_capabilities = deps.resolve_model_capabilities(deps.ctx, arena, job.model) catch |err| {
+ 5894                  if (err != error.Cancelled) return err;
+ 5895                  if (try append_immediate_steering_after_cancel(
+ 5896                      deps,
+ 5897                      arena,
+ 5898                      &within_turn_suffix,
+ 5899                      turn_id,
+ 5900                      "",
+ 5901                  )) continue :resolve_capabilities;
+ 5902                  runtime_telemetry.traceCancelObserved(finish_trace.ctx, false);
+ 5903                  var terminal_materializing = false;
+ 5904                  try runtime_interruption.persistInterruptedTurnOnce(
+ 5905                      deps,
+ 5906                      finalization,
+ 5907                      job,
+ 5908                      null,
+ 5909                      null,
+ 5910                      completed_tool_names.items,
+ 5911                      &interrupted_persisted,
+ 5912                      finish_trace.ctx,
+ 5913                      within_turn_suffix.items,
+ 5914                      null,
+ 5915                      &terminal_materializing,
+ 5916                  );
+ 5917                  finish_trace.finish("interrupted");
+ 5918                  return;
+ 5919              };
+ 5920              break :resolve_capabilities;
+ 5921          }
+ 5922      }
+ 5923      if (config.cancel_flag.load(.seq_cst)) {
+ 5924          if (!try append_immediate_steering_after_cancel(
+ 5925              deps,
+ 5926              arena,
+ 5927              &within_turn_suffix,
+ 5928              turn_id,
+ 5929              "",
+ 5930          )) {
+ 5931              runtime_telemetry.traceCancelObserved(finish_trace.ctx, false);
+ 5932              var terminal_materializing = false;
+ 5933              try runtime_interruption.persistInterruptedTurnOnce(
+ 5934                  deps,
+ 5935                  finalization,
+ 5936                  job,
+ 5937                  null,
+ 5938                  null,
+ 5939                  completed_tool_names.items,
+ 5940                  &interrupted_persisted,
+ 5941                  finish_trace.ctx,
+ 5942                  within_turn_suffix.items,
+ 5943                  null,
+ 5944                  &terminal_materializing,
+ 5945              );
+ 5946              finish_trace.finish("interrupted");
+ 5947              return;
+ 5948          }
+ 5949      }
+ 5950      var skill_section = try prepareSkillCatalog(arena, deps, config, request_capabilities.context_window);
+
+## H5: a cancelled turn's drain drops a semantic notice, so a [context] line claimed and pushed by a turn that is
+## then stopped is never painted.
+
+### git -C fx-upstream show 481104fd:src/core/app/app_worker_runtime.zig | sed -n 339,354p
+  339          fn cancelledEventAdmission(
+  340              presenter: activity_runtime.LifecyclePresenter,
+  341              event: WorkerEvent,
+  342              batch_events: []const WorkerEvent,
+  343          ) CancelledEventAdmission {
+  344              return switch (event) {
+  345                  .assistant_presentation,
+  346                  .open_model_picker,
+  347                  .semantic_notice,
+  348                  .full_detail_record,
+  349                  .command_output,
+  350                  .turn_token_update,
+  351                  .turn_phase_update,
+  352                  .diff_block,
+  353                  .restore_failed_prompt,
+  354                  => .drop,
+
+## H6: the turn-start rule asks for a prompt's images whatever the provider (the comment at src/tui/worker.rs).
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n 5658,5670p
+ 5658  fn requiresResolvedRequestCapabilities(
+ 5659      has_images: bool,
+ 5660      vision_policy_needs_capabilities: bool,
+ 5661      effort: types.ReasoningEffort,
+ 5662      fast_mode: bool,
+ 5663      available: model_capabilities.Capabilities,
+ 5664  ) bool {
+ 5665      return has_images or
+ 5666          available.context_window == null or
+ 5667          (vision_policy_needs_capabilities and available.image_input_support == .unknown) or
+ 5668          (!effort.isDefault() and !model_capabilities.reasoningEffortSupported(available, effort)) or
+ 5669          (fast_mode and !available.supports_fast_mode);
+ 5670  }
+
+## H7: fx's provider switch is a preparation that waits; a stop during it cancels the switch (provider-carry-back-stop's
+## fx side; not this unit's, named in the README).
+
+### git -C fx-upstream show 481104fd:src/core/app/app_auth_runtime.zig | sed -n 1225,1257p
+ 1225          fn beginPreparation(app: *App, input: auth_runtime.ProviderPreparationInput) !void {
+ 1226              app.auth.beginProviderPreparation(app.alloc, input) catch |err| {
+ 1227                  debug_trace.logf("provider", "preparation start failed err={s}", .{@errorName(err)});
+ 1228                  try app.writeDomainNotice(.{
+ 1229                      .topic = "provider",
+ 1230                      .tone = .@"error",
+ 1231                      .body = "Could not start provider preparation. The current provider is unchanged.",
+ 1232                  }, true);
+ 1233                  return;
+ 1234              };
+ 1235              const body = try app.alloc.print("Preparing {s}.", .{provider_catalog.label(input.target())});
+ 1236              defer app.alloc.free(body);
+ 1237              try app.writeDomainNotice(.{
+ 1238                  .topic = "provider",
+ 1239                  .tone = .neutral,
+ 1240                  .body = body,
+ 1241              }, true);
+ 1242          }
+ 1243  
+ 1244          pub fn collectProviderPreparationFacts(app: *App) !void {
+ 1245              if (comptime !@hasDecl(@TypeOf(app.auth), "takeProviderPreparation") or host_target.is_wasm) return;
+ 1246              if (pendingPromptNeedsAdoption(app)) return;
+ 1247              const task = app.auth.takeProviderPreparation() orelse return;
+ 1248              defer task.deinit();
+ 1249              if (task.cancel_requested.load(.seq_cst)) {
+ 1250                  holdPromptAfterPreparationFailure(app);
+ 1251                  try app.writeDomainNotice(.{
+ 1252                      .topic = "provider",
+ 1253                      .tone = .neutral,
+ 1254                      .body = "Provider preparation cancelled. The current provider is unchanged.",
+ 1255                  }, true);
+ 1256                  return;
+ 1257              }
