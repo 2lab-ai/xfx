@@ -1334,6 +1334,10 @@ pub(crate) struct Shell {
     /// carry or a resize between the two frames moves no preview row into
     /// the terminal's scrollback.
     preview: Option<Vec<String>>,
+    /// A preview's frame has landed and the card behind it is owed: the
+    /// tick writes the card's frame next, before it reads anything or takes
+    /// a resize ([`Self::take_preview_shown`]).
+    preview_shown: bool,
     /// `/effort`'s menu, while it is up ([`super::effort_menu`]).
     ///
     /// The slot's occupant upstream ranks after `/model`'s menu
@@ -2625,6 +2629,7 @@ impl Shell {
             fork_prompt_held: None,
             raw_gap: false,
             preview: None,
+            preview_shown: false,
             effort_menu: None,
             gateway_note: crate::provider::model::gateway_catalog_note(config.credential.as_ref()),
             statusline: config.statusline,
@@ -4183,7 +4188,27 @@ impl Shell {
     pub(crate) fn preview_landed(&mut self) {
         if self.previewing() {
             self.drop_preview();
+            self.preview_shown = true;
         }
+    }
+
+    /// Whether a preview's frame landed since the last ask, so the card owes
+    /// its frame now: fx builds it as soon as the preview's frame has
+    /// committed, 1-2 ms later, with nothing read and no resize taken between
+    /// the two (`pending_prompt_frame_committed`, then the next `build`;
+    /// `.prd/tui-phase5/receipts/submit-card-preview/fx-trace.txt`). A
+    /// screen that changed size between them would hold the preview's rows
+    /// where no frame of this phase repaints them.
+    pub(crate) fn take_preview_shown(&mut self) -> bool {
+        std::mem::take(&mut self.preview_shown)
+    }
+
+    /// The preview given up before its frame showed it: a question takes
+    /// the plane, and the card the document was holding is owed before the
+    /// plane changes hands, written whole as it was before there was a
+    /// preview (`super::event_loop`'s `commit_frame`).
+    pub(crate) fn give_up_preview(&mut self) {
+        self.drop_preview();
     }
 
     /// The preview taken away and the band solved without it: the document

@@ -996,6 +996,13 @@ fn commit_frame_led(
     // them. So the rows are paid, and then the band frame they moved.
     let taking_the_plane =
         !band.on_alternate() && shell.screen_owner() == super::shell::ScreenOwner::Alternate;
+    // A card held behind a preview its frame has not shown is owed too: it
+    // is paid whole before the plane changes hands, as it was before there
+    // was a preview, rather than left under the question
+    // (`Shell::give_up_preview`).
+    if taking_the_plane && shell.previewing() {
+        shell.give_up_preview();
+    }
     if band.on_alternate() || taking_the_plane {
         // Not on a screen no band fits on: there, `blind` says the row numbers
         // are claims about a screen that may not exist, and an append is a
@@ -1186,6 +1193,13 @@ fn commit_tick(
         }
     }
     commit_frame_led(shell, band, out, failures, now, reconciled, &mut lead)?;
+    // The card a preview's frame just showed, in the frame after it and in
+    // this tick, as fx builds it the moment its preview's frame commits: no
+    // read and no resize between the two (`Shell::take_preview_shown`). The
+    // facts this tick reconciled are the ones the card is written against.
+    if shell.take_preview_shown() {
+        commit_frame_led(shell, band, out, failures, now, Reconciled, &mut None)?;
+    }
     if let Some(report) = lead {
         write_program_status(&report, out, failures, now)?;
     }
@@ -9261,6 +9275,16 @@ mod tests {
     /// behind the card's rail, in the history and on the screen together,
     /// and on no other row.
     fn card_once(terminal: &Terminal, words: &[String], what: &str) {
+        card_at_most_once(terminal, words, 0, what);
+    }
+
+    /// [`card_once`], with up to `lost` of the card's last rows gone: the rows
+    /// a resize's band repaint covers when tmux keeps its cursor's row as the
+    /// screen's last ([`Terminal::resize`]). Any document's last rows go the
+    /// same way under that resize, with no preview anywhere -- a one-row card
+    /// under a filled screen loses its row -- and that is the band's resize,
+    /// not the preview's.
+    fn card_at_most_once(terminal: &Terminal, words: &[String], lost: usize, what: &str) {
         let rows = terminal.everything();
         let carrying: Vec<(usize, &String)> = rows
             .iter()
@@ -9272,9 +9296,11 @@ mod tests {
             .map(|word| format!("\u{2503} {word}"))
             .collect();
         let found: Vec<String> = carrying.iter().map(|(_, row)| (*row).clone()).collect();
-        assert_eq!(
-            found, expected,
-            "{what}: the card's rows, history and screen: {rows:#?}"
+        assert!(
+            found.len() + lost >= expected.len()
+                && found.len() <= expected.len()
+                && found[..] == expected[..found.len()],
+            "{what}: the card's rows, history and screen (up to {lost} of its last lost): {rows:#?}"
         );
         let first = carrying[0].0;
         assert!(
@@ -9503,7 +9529,10 @@ mod tests {
                     &mut terminal,
                 );
             }
-            card_once(&terminal, &words, &format!("{rows}x{cols}"));
+            // A shorter screen: the band repaint after the resize covers the
+            // card's last row, as it covers any document's.
+            let lost = usize::from(rows < 40);
+            card_at_most_once(&terminal, &words, lost, &format!("{rows}x{cols}"));
         }
     }
 
