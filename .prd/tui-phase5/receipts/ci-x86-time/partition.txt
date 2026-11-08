@@ -7,4 +7,4 @@ x86 setup steps in both parts: true
 x86 parts' non-setup steps, sorted, == the unsplit row's: true
 steps in both parts beyond setup: []
   checks: Formatting | Lints | Tests | Tests, with the fault injector | No stubs, and the parity ledger reconciles | No credentials in tracked files | One product name in tracked files | The preview publication contract holds
-  release: The output check still fits inside a frame's budget | A release build ignores the pinned usage clock | Build the binary the restoration matrix drives | Release build | Smoke the release binary | Smoke the TUI on a real terminal
+  release: The output check still fits inside a frame's budget | A release build ignores the pinned usage clock | Release build | Smoke the release binary | Build the binary the restoration matrix drives | Smoke the TUI on a real terminal

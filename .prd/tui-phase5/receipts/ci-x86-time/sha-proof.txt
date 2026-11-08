@@ -1,52 +1,53 @@
-head d2ef642a1a43303184cd0e889fda6d608864893e
+head 8693d1b461f3cb5eed891ea28177d09877bb2362
+host aarch64-apple-darwin, rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)
 
-## 1. fresh target/, the release part order
+## 2. fresh target/, in the release part order
    Compiling proc-macro2 v1.0.107
-   Compiling quote v1.0.47
    Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
    Compiling libc v0.2.189
    Compiling stable_deref_trait v1.2.1
    Compiling bytes v1.12.1
    Compiling pin-project-lite v0.2.17
    Compiling futures-core v0.3.34
    Compiling itoa v1.0.18
-   Compiling once_cell v1.21.4
    Compiling cfg-if v1.0.4
    Compiling shlex v2.0.1
    Compiling find-msvc-tools v0.1.11
+   Compiling once_cell v1.21.4
    Compiling writeable v0.6.4
    Compiling litemap v0.8.3
    Compiling smallvec v1.15.2
-   Compiling slab v0.4.12
-   Compiling icu_properties_data v2.3.0
    Compiling utf8_iter v1.0.4
    Compiling icu_normalizer_data v2.3.0
-   Compiling percent-encoding v2.3.2
+   Compiling slab v0.4.12
+   Compiling icu_properties_data v2.3.0
+   Compiling hashbrown v0.17.1
+   Compiling version_check v0.9.5
+   Compiling cc v1.4.3
    Compiling equivalent v1.0.2
    Compiling zeroize v1.9.0
-   Compiling cc v1.4.3
-   Compiling version_check v0.9.5
-   Compiling hashbrown v0.17.1
+   Compiling percent-encoding v2.3.2
    Compiling tracing-core v0.1.36
+   Compiling untrusted v0.9.0
+   Compiling futures-sink v0.3.34
+   Compiling serde_core v1.0.229
    Compiling memchr v2.8.3
    Compiling futures-task v0.3.34
    Compiling httparse v1.10.1
-   Compiling futures-sink v0.3.34
    Compiling rustls-pki-types v1.15.1
-   Compiling serde_core v1.0.229
-   Compiling untrusted v0.9.0
-   Compiling try-lock v0.2.5
-   Compiling futures-util v0.3.34
-   Compiling fnv v1.0.7
-   Compiling rustls v0.23.43
    Compiling typenum v1.20.1
-   Compiling generic-array v0.14.7
    Compiling tower-service v0.3.3
+   Compiling generic-array v0.14.7
+   Compiling futures-util v0.3.34
    Compiling atomic-waker v1.1.2
+   Compiling crossbeam-utils v0.8.22
+   Compiling rustls v0.23.43
    Compiling http v1.5.0
    Compiling tracing v0.1.44
    Compiling indexmap v2.14.0
-   Compiling crossbeam-utils v0.8.22
+   Compiling try-lock v0.2.5
+   Compiling fnv v1.0.7
    Compiling want v0.3.1
    Compiling form_urlencoded v1.2.2
    Compiling futures-channel v0.3.34
@@ -56,23 +57,23 @@ head d2ef642a1a43303184cd0e889fda6d608864893e
    Compiling bitflags v2.13.1
    Compiling utf8parse v0.2.2
    Compiling aho-corasick v1.1.5
-   Compiling anstyle-parse v1.0.0
    Compiling sync_wrapper v1.0.2
-   Compiling ring v0.17.14
-   Compiling rustix v1.1.4
+   Compiling anstyle-parse v1.0.0
    Compiling getrandom v0.4.3
-   Compiling colorchoice v1.0.5
-   Compiling http-body v1.1.0
-   Compiling anstyle v1.0.14
    Compiling zmij v1.0.23
+   Compiling ring v0.17.14
    Compiling log v0.4.33
    Compiling ipnet v2.12.1
+   Compiling http-body v1.1.0
+   Compiling colorchoice v1.0.5
+   Compiling anstyle v1.0.14
    Compiling tower-layer v0.3.3
    Compiling base64 v0.22.1
-   Compiling is_terminal_polyfill v1.70.2
-   Compiling anstyle-query v1.1.5
    Compiling crossbeam-deque v0.8.7
    Compiling regex-syntax v0.8.11
+   Compiling rustix v1.1.4
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle-query v1.1.5
    Compiling anstream v1.0.0
    Compiling bstr v1.13.1
    Compiling webpki-roots v1.0.9
@@ -80,32 +81,175 @@ head d2ef642a1a43303184cd0e889fda6d608864893e
    Compiling same-file v1.0.6
    Compiling strsim v0.11.1
    Compiling heck v0.5.0
-   Compiling clap_lex v1.1.0
-   Compiling regex-automata v0.4.18
-   Compiling serde_json v1.0.151
    Compiling syn v3.0.3
    Compiling syn v2.0.119
    Compiling errno v0.3.14
-   Compiling signal-hook-registry v1.4.8
    Compiling mio v1.2.2
+   Compiling signal-hook-registry v1.4.8
    Compiling socket2 v0.6.5
    Compiling getrandom v0.2.17
-   Compiling synstructure v0.13.2
+   Compiling regex-automata v0.4.18
+   Compiling serde_json v1.0.151
+   Compiling clap_lex v1.1.0
    Compiling cpufeatures v0.2.17
    Compiling clap_builder v4.6.6
    Compiling walkdir v2.5.0
    Compiling block-buffer v0.10.4
    Compiling crypto-common v0.1.7
    Compiling digest v0.10.7
-   Compiling globset v0.4.20
-   Compiling zerofrom-derive v0.1.7
-   Compiling yoke-derive v0.8.2
    Compiling http-body-util v0.1.5
    Compiling fastrand v2.5.0
+   Compiling synstructure v0.13.2
    Compiling xfx v0.1.0
    Compiling sha2 v0.10.9
    Compiling unicode-segmentation v1.13.3
    Compiling unicode-width v0.2.2
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling zerofrom v0.1.8
+   Compiling globset v0.4.20
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling tokio-macros v2.7.2
+   Compiling serde_derive v1.0.229
+   Compiling clap_derive v4.6.4
+   Compiling tokio v1.53.1
+   Compiling ignore v0.4.33
+   Compiling async-trait v0.1.92
+   Compiling clap v4.6.6
+   Compiling tempfile v3.27.0
+   Compiling rustls-webpki v0.103.14
+   Compiling yoke v0.8.3
+   Compiling serde_urlencoded v0.7.1
+   Compiling tokio-util v0.7.19
+   Compiling tower v0.5.3
+   Compiling h2 v0.4.18
+   Compiling hyper v1.11.0
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling hyper-util v0.1.20
+   Compiling tokio-rustls v0.26.4
+   Compiling hyper-rustls v0.27.9
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling icu_locale_core v2.3.0
+   Compiling icu_provider v2.3.1
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling tower-http v0.6.11
+   Compiling reqwest v0.12.28
+    Finished `release` profile [optimized] target(s)
+   Compiling xfx v0.1.0
+    Finished `release` profile [optimized] target(s)
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling libc v0.2.189
+   Compiling stable_deref_trait v1.2.1
+   Compiling pin-project-lite v0.2.17
+   Compiling bytes v1.12.1
+   Compiling futures-core v0.3.34
+   Compiling itoa v1.0.18
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.11
+   Compiling once_cell v1.21.4
+   Compiling cfg-if v1.0.4
+   Compiling smallvec v1.15.2
+   Compiling writeable v0.6.4
+   Compiling litemap v0.8.3
+   Compiling icu_normalizer_data v2.3.0
+   Compiling slab v0.4.12
+   Compiling icu_properties_data v2.3.0
+   Compiling utf8_iter v1.0.4
+   Compiling equivalent v1.0.2
+   Compiling zeroize v1.9.0
+   Compiling percent-encoding v2.3.2
+   Compiling version_check v0.9.5
+   Compiling cc v1.4.3
+   Compiling hashbrown v0.17.1
+   Compiling tracing-core v0.1.36
+   Compiling serde_core v1.0.229
+   Compiling memchr v2.8.3
+   Compiling futures-task v0.3.34
+   Compiling httparse v1.10.1
+   Compiling futures-sink v0.3.34
+   Compiling untrusted v0.9.0
+   Compiling rustls-pki-types v1.15.1
+   Compiling atomic-waker v1.1.2
+   Compiling futures-util v0.3.34
+   Compiling crossbeam-utils v0.8.22
+   Compiling rustls v0.23.43
+   Compiling generic-array v0.14.7
+   Compiling try-lock v0.2.5
+   Compiling http v1.5.0
+   Compiling tracing v0.1.44
+   Compiling typenum v1.20.1
+   Compiling fnv v1.0.7
+   Compiling tower-service v0.3.3
+   Compiling indexmap v2.14.0
+   Compiling want v0.3.1
+   Compiling form_urlencoded v1.2.2
+   Compiling futures-channel v0.3.34
+   Compiling bitflags v2.13.1
+   Compiling utf8parse v0.2.2
+   Compiling serde v1.0.229
+   Compiling crossbeam-epoch v0.9.20
+   Compiling subtle v2.6.1
+   Compiling anstyle-parse v1.0.0
+   Compiling aho-corasick v1.1.5
+   Compiling sync_wrapper v1.0.2
+   Compiling ipnet v2.12.1
+   Compiling colorchoice v1.0.5
+   Compiling anstyle v1.0.14
+   Compiling tower-layer v0.3.3
+   Compiling http-body v1.1.0
+   Compiling base64 v0.22.1
+   Compiling crossbeam-deque v0.8.7
+   Compiling regex-syntax v0.8.11
+   Compiling rustix v1.1.4
+   Compiling ring v0.17.14
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle-query v1.1.5
+   Compiling getrandom v0.4.3
+   Compiling zmij v1.0.23
+   Compiling log v0.4.33
+   Compiling anstream v1.0.0
+   Compiling webpki-roots v1.0.9
+   Compiling bstr v1.13.1
+   Compiling heck v0.5.0
+   Compiling serde_json v1.0.151
+   Compiling clap_lex v1.1.0
+   Compiling strsim v0.11.1
+   Compiling ryu v1.0.23
+   Compiling same-file v1.0.6
+   Compiling regex-automata v0.4.18
+   Compiling clap_builder v4.6.6
+   Compiling walkdir v2.5.0
+   Compiling syn v3.0.3
+   Compiling syn v2.0.119
+   Compiling errno v0.3.14
+   Compiling socket2 v0.6.5
+   Compiling signal-hook-registry v1.4.8
+   Compiling mio v1.2.2
+   Compiling getrandom v0.2.17
+   Compiling cpufeatures v0.2.17
+   Compiling http-body-util v0.1.5
+   Compiling xfx v0.1.0
+   Compiling fastrand v2.5.0
+   Compiling unicode-width v0.2.2
+   Compiling unicode-segmentation v1.13.3
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling globset v0.4.20
+   Compiling sha2 v0.10.9
+   Compiling synstructure v0.13.2
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
    Compiling zerofrom v0.1.8
    Compiling zerovec-derive v0.11.6
    Compiling displaydoc v0.2.7
@@ -114,8 +258,8 @@ head d2ef642a1a43303184cd0e889fda6d608864893e
    Compiling clap_derive v4.6.4
    Compiling async-trait v0.1.92
    Compiling tokio v1.53.1
-   Compiling ignore v0.4.33
    Compiling clap v4.6.6
+   Compiling ignore v0.4.33
    Compiling tempfile v3.27.0
    Compiling yoke v0.8.3
    Compiling rustls-webpki v0.103.14
@@ -134,38 +278,17 @@ head d2ef642a1a43303184cd0e889fda6d608864893e
    Compiling icu_collections v2.3.0
    Compiling icu_locale_core v2.3.0
    Compiling icu_provider v2.3.1
-   Compiling icu_normalizer v2.3.0
    Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
    Compiling idna_adapter v1.2.2
    Compiling idna v1.1.0
    Compiling url v2.5.8
    Compiling tower-http v0.6.11
    Compiling reqwest v0.12.28
-    Finished `release` profile [optimized] target(s)
-   Compiling xfx v0.1.0
-    Finished `release` profile [optimized] target(s)
+    Finished `test` profile [unoptimized + debuginfo] target(s)
    Compiling rustix v1.1.4
    Compiling xfx v0.1.0
     Finished `release` profile [optimized] target(s)
-
-SAME  2a release lib tests, default: after the debug steps vs none
-      4f917461e5441e806043741ea6b2e8249623136f54f0bfec6529676dec33781b  target-gate/release/deps/xfx-4175760b79a9af58
-      4f917461e5441e806043741ea6b2e8249623136f54f0bfec6529676dec33781b  target/release/deps/xfx-4175760b79a9af58
-SAME  2b release lib tests, fault-injection: after the debug steps vs none
-      66c3de19d45ad2361e6f77c033b991063c94ca35a5cedc1078a15c4ffb20a2bb  target-gate/release/deps/xfx-91225d10255a779c
-      66c3de19d45ad2361e6f77c033b991063c94ca35a5cedc1078a15c4ffb20a2bb  target/release/deps/xfx-91225d10255a779c
-SAME  3 release binary: after a fault-injection build (gate) vs none before it
-      176447904ef28d6587b51ab0e518e7a27efcd719411a89ac133859f1aeb66dba  target-gate/release/xfx
-      176447904ef28d6587b51ab0e518e7a27efcd719411a89ac133859f1aeb66dba  target/release-built-first
-
-## 4. new-way fault-injection build in the fresh target/
-   Compiling xfx v0.1.0
-    Finished `release` profile [optimized] target(s)
-SAME  4 fault-injection binary: gate copy vs rebuilt in shared target/
-      1e8a41dea5d9428f19bcd467184081005a68cedac285623c09c4329b98de7f06  target-gate/faulty/xfx
-      1e8a41dea5d9428f19bcd467184081005a68cedac285623c09c4329b98de7f06  target/release/xfx
-
-## 5. old-way fault-injection build, --target-dir target/faulty
    Compiling proc-macro2 v1.0.107
    Compiling quote v1.0.47
    Compiling unicode-ident v1.0.24
@@ -177,95 +300,258 @@ SAME  4 fault-injection binary: gate copy vs rebuilt in shared target/
    Compiling itoa v1.0.18
    Compiling shlex v2.0.1
    Compiling find-msvc-tools v0.1.11
+   Compiling writeable v0.6.4
    Compiling litemap v0.8.3
    Compiling smallvec v1.15.2
    Compiling once_cell v1.21.4
-   Compiling writeable v0.6.4
-   Compiling utf8_iter v1.0.4
+   Compiling icu_properties_data v2.3.0
    Compiling cfg-if v1.0.4
+   Compiling utf8_iter v1.0.4
    Compiling icu_normalizer_data v2.3.0
    Compiling slab v0.4.12
-   Compiling icu_properties_data v2.3.0
-   Compiling hashbrown v0.17.1
-   Compiling equivalent v1.0.2
-   Compiling cc v1.4.3
-   Compiling zeroize v1.9.0
-   Compiling percent-encoding v2.3.2
    Compiling version_check v0.9.5
-   Compiling tracing-core v0.1.36
+   Compiling hashbrown v0.17.1
+   Compiling cc v1.4.3
+   Compiling equivalent v1.0.2
+   Compiling percent-encoding v2.3.2
+   Compiling zeroize v1.9.0
    Compiling futures-sink v0.3.34
    Compiling untrusted v0.9.0
+   Compiling tracing-core v0.1.36
    Compiling serde_core v1.0.229
    Compiling memchr v2.8.3
    Compiling futures-task v0.3.34
-   Compiling rustls-pki-types v1.15.1
    Compiling httparse v1.10.1
+   Compiling rustls-pki-types v1.15.1
    Compiling atomic-waker v1.1.2
    Compiling tower-service v0.3.3
-   Compiling futures-util v0.3.34
-   Compiling crossbeam-utils v0.8.22
    Compiling fnv v1.0.7
    Compiling generic-array v0.14.7
-   Compiling rustls v0.23.43
+   Compiling futures-util v0.3.34
+   Compiling crossbeam-utils v0.8.22
    Compiling try-lock v0.2.5
+   Compiling rustls v0.23.43
+   Compiling typenum v1.20.1
    Compiling http v1.5.0
    Compiling tracing v0.1.44
-   Compiling typenum v1.20.1
-   Compiling indexmap v2.14.0
    Compiling want v0.3.1
    Compiling form_urlencoded v1.2.2
    Compiling futures-channel v0.3.34
+   Compiling indexmap v2.14.0
+   Compiling crossbeam-epoch v0.9.20
    Compiling serde v1.0.229
    Compiling subtle v2.6.1
    Compiling utf8parse v0.2.2
-   Compiling crossbeam-epoch v0.9.20
    Compiling aho-corasick v1.1.5
    Compiling sync_wrapper v1.0.2
    Compiling anstyle-parse v1.0.0
-   Compiling log v0.4.33
    Compiling colorchoice v1.0.5
-   Compiling ring v0.17.14
-   Compiling anstyle v1.0.14
    Compiling zmij v1.0.23
-   Compiling ipnet v2.12.1
    Compiling base64 v0.22.1
+   Compiling anstyle v1.0.14
+   Compiling log v0.4.33
+   Compiling ring v0.17.14
+   Compiling ipnet v2.12.1
    Compiling http-body v1.1.0
+   Compiling is_terminal_polyfill v1.70.2
    Compiling bitflags v2.13.1
+   Compiling anstyle-query v1.1.5
    Compiling tower-layer v0.3.3
    Compiling crossbeam-deque v0.8.7
    Compiling regex-syntax v0.8.11
-   Compiling is_terminal_polyfill v1.70.2
-   Compiling anstyle-query v1.1.5
    Compiling anstream v1.0.0
    Compiling bstr v1.13.1
    Compiling webpki-roots v1.0.9
-   Compiling syn v3.0.3
-   Compiling syn v2.0.119
+   Compiling rustix v1.1.4
+   Compiling same-file v1.0.6
+   Compiling ryu v1.0.23
    Compiling heck v0.5.0
    Compiling clap_lex v1.1.0
    Compiling strsim v0.11.1
    Compiling serde_json v1.0.151
-   Compiling rustix v1.1.4
-   Compiling same-file v1.0.6
-   Compiling ryu v1.0.23
    Compiling walkdir v2.5.0
+   Compiling clap_builder v4.6.6
+   Compiling regex-automata v0.4.18
+   Compiling http-body-util v0.1.5
+   Compiling syn v3.0.3
+   Compiling syn v2.0.119
    Compiling errno v0.3.14
-   Compiling mio v1.2.2
    Compiling signal-hook-registry v1.4.8
+   Compiling mio v1.2.2
    Compiling socket2 v0.6.5
    Compiling getrandom v0.2.17
-   Compiling regex-automata v0.4.18
    Compiling cpufeatures v0.2.17
-   Compiling clap_builder v4.6.6
-   Compiling http-body-util v0.1.5
+   Compiling xfx v0.1.0
+   Compiling globset v0.4.20
+   Compiling synstructure v0.13.2
    Compiling crypto-common v0.1.7
    Compiling block-buffer v0.10.4
    Compiling digest v0.10.7
-   Compiling xfx v0.1.0
-   Compiling synstructure v0.13.2
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
    Compiling sha2 v0.10.9
    Compiling unicode-width v0.2.2
+   Compiling zerofrom v0.1.8
    Compiling unicode-segmentation v1.13.3
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling tokio-macros v2.7.2
+   Compiling serde_derive v1.0.229
+   Compiling clap_derive v4.6.4
+   Compiling tokio v1.53.1
+   Compiling async-trait v0.1.92
+   Compiling clap v4.6.6
+   Compiling ignore v0.4.33
+   Compiling rustls-webpki v0.103.14
+   Compiling yoke v0.8.3
+   Compiling tokio-util v0.7.19
+   Compiling tower v0.5.3
+   Compiling h2 v0.4.18
+   Compiling serde_urlencoded v0.7.1
+   Compiling hyper v1.11.0
+   Compiling hyper-util v0.1.20
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling tokio-rustls v0.26.4
+   Compiling hyper-rustls v0.27.9
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling icu_locale_core v2.3.0
+   Compiling icu_provider v2.3.1
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling tower-http v0.6.11
+   Compiling reqwest v0.12.28
+    Finished `release` profile [optimized] target(s)
+
+## 3. one-job order (gate) vs release part order (fresh)
+SAME  2a release lib tests, default (output cost; usage clock's release run)
+      79a84f1ba042216b82b0d73459e1555b955c2c5ebbcb8e0a23dfbf89d11bc970  target-gate/release/deps/xfx-4175760b79a9af58
+      79a84f1ba042216b82b0d73459e1555b955c2c5ebbcb8e0a23dfbf89d11bc970  target/release/deps/xfx-4175760b79a9af58
+SAME  2b release lib tests, fault-injection (output cost; usage clock's run)
+      09cabd8148b1abaaa986ac47449ba6c1b59ca963c2597ef2e5965cb73e424e0b  target-gate/release/deps/xfx-91225d10255a779c
+      09cabd8148b1abaaa986ac47449ba6c1b59ca963c2597ef2e5965cb73e424e0b  target/release/deps/xfx-91225d10255a779c
+TOKEN 2c debug lib tests, default (usage clock's debug run): built by cargo test --all-targets vs by --lib alone
+      f437ae5be85b3dabefc655cf8963549dcde0202015ce674615e68cffea22d2e5  target-gate/debug/deps/xfx-aa4745569a132798
+      de9280b427a7a93b8d44706e21acd6f6c63ebfd9a96b4042a9e27e511b37dda4  target/debug/deps/xfx-aa4745569a132798
+      differing bytes in the code signature: 477
+      differing bytes in 256 object-file names, only in their per-build token: 1280
+      differing bytes anywhere else (code, data, other strings): 0
+SAME  3  target/release/xfx (smoke, smoke-tui)
+      eaafec305e7f05321a06a574cf0d88ce9040ae5439d9453ea5ffbcda885933f1  target-gate/release/xfx
+      eaafec305e7f05321a06a574cf0d88ce9040ae5439d9453ea5ffbcda885933f1  target/release/xfx
+SAME  4  target/faulty/release/xfx (smoke-tui --faulty)
+      223e0057cc2bbb3906f343b5149c7a6467659d1e351a3005e9b13c49aba723ba  target-gate/faulty/release/xfx
+      223e0057cc2bbb3906f343b5149c7a6467659d1e351a3005e9b13c49aba723ba  target/faulty/release/xfx
+
+## 4. control: the debug lib tests built twice, fresh, the same way
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling libc v0.2.189
+   Compiling stable_deref_trait v1.2.1
+   Compiling bytes v1.12.1
+   Compiling pin-project-lite v0.2.17
+   Compiling futures-core v0.3.34
+   Compiling itoa v1.0.18
+   Compiling cfg-if v1.0.4
+   Compiling once_cell v1.21.4
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.11
+   Compiling writeable v0.6.4
+   Compiling litemap v0.8.3
+   Compiling smallvec v1.15.2
+   Compiling icu_normalizer_data v2.3.0
+   Compiling slab v0.4.12
+   Compiling icu_properties_data v2.3.0
+   Compiling utf8_iter v1.0.4
+   Compiling percent-encoding v2.3.2
+   Compiling cc v1.4.3
+   Compiling equivalent v1.0.2
+   Compiling zeroize v1.9.0
+   Compiling version_check v0.9.5
+   Compiling hashbrown v0.17.1
+   Compiling tracing-core v0.1.36
+   Compiling serde_core v1.0.229
+   Compiling memchr v2.8.3
+   Compiling futures-task v0.3.34
+   Compiling httparse v1.10.1
+   Compiling futures-sink v0.3.34
+   Compiling untrusted v0.9.0
+   Compiling rustls-pki-types v1.15.1
+   Compiling futures-util v0.3.34
+   Compiling fnv v1.0.7
+   Compiling crossbeam-utils v0.8.22
+   Compiling rustls v0.23.43
+   Compiling typenum v1.20.1
+   Compiling generic-array v0.14.7
+   Compiling tracing v0.1.44
+   Compiling http v1.5.0
+   Compiling indexmap v2.14.0
+   Compiling try-lock v0.2.5
+   Compiling tower-service v0.3.3
+   Compiling atomic-waker v1.1.2
+   Compiling form_urlencoded v1.2.2
+   Compiling want v0.3.1
+   Compiling futures-channel v0.3.34
+   Compiling utf8parse v0.2.2
+   Compiling serde v1.0.229
+   Compiling crossbeam-epoch v0.9.20
+   Compiling subtle v2.6.1
+   Compiling bitflags v2.13.1
+   Compiling anstyle-parse v1.0.0
+   Compiling aho-corasick v1.1.5
+   Compiling sync_wrapper v1.0.2
+   Compiling rustix v1.1.4
+   Compiling http-body v1.1.0
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle-query v1.1.5
+   Compiling getrandom v0.4.3
+   Compiling ring v0.17.14
+   Compiling crossbeam-deque v0.8.7
+   Compiling regex-syntax v0.8.11
+   Compiling zmij v1.0.23
+   Compiling ipnet v2.12.1
+   Compiling colorchoice v1.0.5
+   Compiling anstyle v1.0.14
+   Compiling base64 v0.22.1
+   Compiling log v0.4.33
+   Compiling tower-layer v0.3.3
+   Compiling anstream v1.0.0
+   Compiling bstr v1.13.1
+   Compiling regex-automata v0.4.18
+   Compiling webpki-roots v1.0.9
+   Compiling serde_json v1.0.151
+   Compiling clap_lex v1.1.0
+   Compiling same-file v1.0.6
+   Compiling strsim v0.11.1
+   Compiling ryu v1.0.23
+   Compiling heck v0.5.0
+   Compiling clap_builder v4.6.6
+   Compiling walkdir v2.5.0
+   Compiling http-body-util v0.1.5
+   Compiling fastrand v2.5.0
+   Compiling xfx v0.1.0
+   Compiling unicode-segmentation v1.13.3
+   Compiling unicode-width v0.2.2
+   Compiling syn v3.0.3
+   Compiling syn v2.0.119
+   Compiling errno v0.3.14
+   Compiling socket2 v0.6.5
+   Compiling signal-hook-registry v1.4.8
+   Compiling mio v1.2.2
+   Compiling getrandom v0.2.17
+   Compiling globset v0.4.20
+   Compiling cpufeatures v0.2.17
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling synstructure v0.13.2
    Compiling zerofrom-derive v0.1.7
    Compiling yoke-derive v0.8.2
    Compiling zerofrom v0.1.8
@@ -275,47 +561,40 @@ SAME  4 fault-injection binary: gate copy vs rebuilt in shared target/
    Compiling serde_derive v1.0.229
    Compiling clap_derive v4.6.4
    Compiling async-trait v0.1.92
-   Compiling globset v0.4.20
    Compiling tokio v1.53.1
-   Compiling ignore v0.4.33
    Compiling clap v4.6.6
-   Compiling yoke v0.8.3
+   Compiling ignore v0.4.33
    Compiling rustls-webpki v0.103.14
-   Compiling zerovec v0.11.8
-   Compiling zerotrie v0.2.5
+   Compiling tempfile v3.27.0
+   Compiling yoke v0.8.3
+   Compiling serde_urlencoded v0.7.1
    Compiling tokio-util v0.7.19
    Compiling tower v0.5.3
-   Compiling serde_urlencoded v0.7.1
    Compiling h2 v0.4.18
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
    Compiling hyper v1.11.0
+   Compiling tokio-rustls v0.26.4
+   Compiling hyper-util v0.1.20
+   Compiling hyper-rustls v0.27.9
    Compiling tinystr v0.8.4
    Compiling potential_utf v0.1.6
    Compiling icu_collections v2.3.0
    Compiling icu_locale_core v2.3.0
-   Compiling hyper-util v0.1.20
-   Compiling tokio-rustls v0.26.4
    Compiling icu_provider v2.3.1
-   Compiling icu_properties v2.3.0
    Compiling icu_normalizer v2.3.0
-   Compiling hyper-rustls v0.27.9
+   Compiling icu_properties v2.3.0
    Compiling idna_adapter v1.2.2
    Compiling idna v1.1.0
    Compiling url v2.5.8
    Compiling tower-http v0.6.11
    Compiling reqwest v0.12.28
-    Finished `release` profile [optimized] target(s)
-DIFF  5 fault-injection binary, old (target/faulty/release/xfx) vs new (target-gate/faulty/xfx): sizes 11650144 / 11650144
-      differing bytes: 46, in 1945-1958 1960-1960 11559809-11559831 11559833-11559840
-      LC_UUID is bytes 1945-1960
-      code signature is bytes 11559665-11650144
-      differing bytes outside LC_UUID and the code signature: 0
-      LC_UUID old 1042C7E0-BC19-3D9E-9E2A-27D76534F3D5
-      LC_UUID new AA141C5F-7640-3722-B4C2-4FFEDD36F3A4
+    Finished `test` profile [unoptimized + debuginfo] target(s)
+TOKEN 4c debug lib tests, default: two fresh builds, same command, same path
+      de9280b427a7a93b8d44706e21acd6f6c63ebfd9a96b4042a9e27e511b37dda4  target-fresh1/debug/deps/xfx-aa4745569a132798
+      05276ff1e3ab90f0cb78cc79382bc55d9c20282dc487e4c873558019061c4c94  target/debug/deps/xfx-aa4745569a132798
+      differing bytes in the code signature: 477
+      differing bytes in 256 object-file names, only in their per-build token: 1280
+      differing bytes anywhere else (code, data, other strings): 0
 
-## 6. re-run: release build again, every unit fresh
-    Finished `release` profile [optimized] target(s)
-SAME  6 target/release/xfx is the release binary again
-      176447904ef28d6587b51ab0e518e7a27efcd719411a89ac133859f1aeb66dba  target/release/xfx
-      176447904ef28d6587b51ab0e518e7a27efcd719411a89ac133859f1aeb66dba  target/release-built-first
-
-0 mismatch(es) among the SAME checks
+0 mismatch(es)

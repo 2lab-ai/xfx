@@ -6,14 +6,29 @@ tags: [xfx, ci, phase5]
 
 # CI-X86-TIME: the x86_64 macOS gate row against its 60-minute timeout
 
-Branch `ci/p5-x86-time` on main `f096c163`, two commits:
+Branch `ci/p5-x86-time` on main `f096c163`. What it changes, net of main, is
+`.github/workflows/ci.yml` only: the x86_64 macOS row of the gate job runs as
+two jobs, `checks` and `release`. Every step's `run:` text and the steps'
+order are main's.
 
-- `29aeb854` builds the fault-injection binary in the shared target directory
-  (the one duplicated build the row had).
-- `d2ef642a` splits the x86_64 macOS row into two jobs, `checks` and
-  `release` (the rest of the time cannot be shared in one job).
+| commit | what |
+|---|---|
+| `29aeb854` | round 1: built the fault-injection binary in the shared target dir (**reverted**) |
+| `d2ef642a` | the split: a `part` matrix key, 14 `if:` guards, 2 failure-upload guards, the job name |
+| `5709934e` | round 1 receipts |
+| `8693d1b4` | round 2: reverts `29aeb854`; the split is reapplied to main's step text |
+| this commit | round 2 receipts |
 
-Each commit can be pushed alone; the second one sits on top of the first one.
+## Round 2: the reviews and what changed
+
+| review item | done | evidence |
+|---|---|---|
+| gpt6 MUST: the restoration smoke drove a fault-injection binary 46 bytes different from the old one | `8693d1b4` reverts the dedupe (dispatcher's decision). The faulty build is again `--target-dir target/faulty`, after the release build and smoke, and smoke-tui takes `target/faulty/release/xfx`, as on main. CONTRIBUTING.md is main's again | `git diff f096c163 -- CONTRIBUTING.md` is empty; sha-proof row 4 |
+| opus MUST: "actionlint passes" had no output on file | actionlint 1.7.12 run on the final `ci.yml` and on every workflow | `actionlint.txt` (both exit 0) |
+| opus SHOULD a: the debug `--lib` tests check-usage-clock.sh runs are compiled fresh in the `release` part | rows 2c and 4c. That binary is never the same bytes twice: its object-file names carry a per-build token. 2c differs only in those tokens and the code signature, exactly as two identical fresh builds do (4c) | `sha-proof.txt` rows 2c, 4c |
+| opus SHOULD b: name the host; there is no x86 "before" digest | both said below | `sha-proof.txt` line 2 |
+| gpt6 NTH: "the other rows do not change" overstated | now "partition membership unchanged" | below |
+| gpt6 MUST (plausible): a renamed required check | the dispatcher's check: main has no protection, rulesets or branch rules | `branch-protection.txt` |
 
 ## Where the row's time went
 
@@ -32,168 +47,201 @@ is in `ci-82-x86-compile-lines.txt`. The job's other runs: #78 41.5, #79 44.7,
 | The output check still fits inside a frame's budget | 17.5 | release test-mode deps + xfx `--lib` tests default (10.1 incl. deps) + fault-injection (7.4) |
 | A release build ignores the pinned usage clock | 0.0 | nothing: reuses the debug and both release `--lib` test builds |
 | Release build | 2.8 | rustix + xfx (2 crates) |
-| Build the binary the restoration matrix drives | 5.0 | **137 crates**: every release dep again (2.5), then xfx (2.5) |
+| Build the binary the restoration matrix drives | 5.0 | 137 crates: every release dep again in `target/faulty` (2.5), then xfx (2.5) |
 | Smoke the TUI on a real terminal | 1.6 | nothing |
 
-## Every cargo invocation, and which ones share work
+The only compilation repeated in one job is the fault-injection build's
+dependencies: 137 crates that `target/release` already holds, rebuilt in its
+own `--target-dir`. Round 1 removed it. Round 2 restores it, because the
+fault-injection binary's bytes depend on that directory's path (round 1,
+below). Nothing else repeats:
+- the output-cost step's two release builds are two feature sets, and
+  check-usage-clock.sh already reuses both;
+- rustix is built twice per profile because of a dev-dependency feature
+  (`pty`), so the shipped binary's rustix is a different unit;
+- clippy's check-mode rmeta shares no unit with test builds;
+- the debug default and fault-injection builds are different feature sets.
 
-| step | invocation | profile | features | units | target dir |
-|---|---|---|---|---|---|
-| Lints | `clippy --all-targets` | dev, check | default | rmeta of lib, bin, tests | `target/debug` |
-| Tests | `test --all-targets` | dev/test | default | lib, bin, lib tests, bin tests, integration tests | `target/debug` |
-| FI | `clippy --all-targets --features fault-injection` | dev, check | fi | rmeta (xfx only, deps reused) | `target/debug` |
-| FI | `test --features fault-injection --test tui` | test | fi | lib, bin, `tui` | `target/debug` |
-| FI | `test --lib --features fault-injection` | test | fi | lib tests | `target/debug` |
-| output cost | `test --release --lib` and `... --features fault-injection` | release | default, fi | lib tests | `target/release` |
-| usage clock | `test --lib`, `--release --lib`, `--release --lib --features fault-injection` | | | all three reuse the builds above | |
-| Release build | `build --release` | release | default | lib, bin | `target/release` |
-| faulty build (before) | `build --release --features fault-injection --target-dir target/faulty` | release | fi | **all deps**, lib, bin | `target/faulty/release` |
-
-What was duplicated, and what only looks duplicated:
-
-1. **Duplicated: the faulty build's dependencies.** `fault-injection = []`
-   turns on no dependency feature, so its release dependencies are the units
-   the output-cost step had already compiled into `target/release`. Its own
-   `--target-dir` compiled all 137 again (14:24:06 to 14:26:35, 2.5 min).
-   Fixed in `29aeb854`.
-2. **Not duplicated: the output-cost step's two release builds.** They are
-   two feature sets, so they are two different test binaries.
-   check-usage-clock.sh already reuses both (the step takes 2 s). Dropping one
-   would change the check's scope.
-3. **Not duplicated: rustix, compiled twice per profile.** The lib tests turn
-   on rustix's dev-dependency `pty` feature. Resolver 2 keeps dev-dependency
-   features out of a non-test build, so the shipped binary's rustix is a
-   different unit. Unifying them would change the shipped bytes.
-4. **Not duplicated: clippy against test.** Clippy produces check-mode rmeta
-   and test produces machine code, so no unit is shared.
-5. **Not duplicated: the debug default against the debug fault-injection
-   builds.** They are different feature sets; only the dependencies are
-   shared, and Cargo shares those already.
-
-So one job cannot get much under ~50 minutes of the 60. xfx's own compile is
-about 31 of them, and it grows with every train. (That is an estimate: the
-output-cost step hides its compile lines, so its dependency share is taken as
-the 2.5 minutes the old faulty build spent on the same units.) That is why
-`d2ef642a` splits the row.
+So one job stays at about 53 of its 60 minutes, and xfx's own compile (about
+31 of them, an estimate: the output-cost step hides its compile lines) grows
+with every train. The split is what changes that.
 
 ## The plan, step by step (x86_64 macOS row; minutes from #82, after = expected)
 
-| step | before (1 job) | after 29aeb854 (1 job) | after d2ef642a: `checks` | after d2ef642a: `release` |
-|---|---:|---:|---:|---:|
-| set up, checkout, assert, toolchain, target | 1.0 | 1.0 | 1.0 | 1.0 |
-| Formatting | 0.1 | 0.1 | 0.1 | |
-| Lints | 3.2 | 3.2 | 3.2 | |
-| Tests | 9.0 | 9.0 | 9.0 | |
-| Tests, with the fault injector | 9.2 | 9.2 | 9.2 | |
-| No stubs | 0.7 | 0.7 | 0.7 | |
-| No credentials | 2.6 | 2.6 | 2.6 | |
-| identity, preview contract | 0.2 | 0.2 | 0.2 | |
-| output cost | 17.5 | 17.5 | | 17.5 |
-| usage clock | 0.0 | 0.0 | | ~4 (its debug `--lib` build, [estimate]: fault-injection `--lib` compiled in 2.7, deps ~1) |
-| faulty build | 5.0 | ~2.5 (xfx + rustix; 137 → 2 crates) | | ~2.5 |
-| Release build | 2.8 | ~2.7 (rustix moved to the step above) | | ~2.7 |
-| smoke, smoke-tui | 1.7 | 1.7 | | 1.7 |
-| **job** | **53.1** | **~50.6** | **~26** | **~29.5** |
+| step | before (1 job) | `checks` | `release` |
+|---|---:|---:|---:|
+| set up, checkout, assert, toolchain, target | 1.0 | 1.0 | 1.0 |
+| Formatting | 0.1 | 0.1 | |
+| Lints | 3.2 | 3.2 | |
+| Tests | 9.0 | 9.0 | |
+| Tests, with the fault injector | 9.2 | 9.2 | |
+| No stubs | 0.7 | 0.7 | |
+| No credentials | 2.6 | 2.6 | |
+| identity, preview contract | 0.2 | 0.2 | |
+| output cost | 17.5 | | 17.5 |
+| usage clock | 0.0 | | ~4 (estimate: its debug `--lib` build, which the Tests step used to supply; fault-injection `--lib` compiled in 2.7, deps ~1) |
+| Release build | 2.8 | | 2.8 |
+| Smoke the release binary | 0.1 | | 0.1 |
+| fault-injection build | 5.0 | | 5.0 |
+| Smoke the TUI | 1.6 | | 1.6 |
+| **job** | **53.1** | **~26** | **~32** |
 
-The fault-injection binary's 2.5 minutes are measured: its xfx compile ran
-14:26:18 to 14:29:08, while its 135 other crates finished by 14:26:35. The
-usage-clock figure is an estimate; the dispatcher's CI push measures it.
-
-The other three rows do not change. Rows without `part` run every step in one
-job, and `partition.txt` lists the steps each row and part runs.
+Partition membership is unchanged on every row. Each of the other three rows
+runs the same steps as before, in the same order, with the same `run:` text.
+Their steps now carry `if: matrix.part != …` guards, which are true on a row
+with no `part`. On the x86 row, the four setup steps run in both parts, and
+the other 14 steps run in exactly one part. The two `script_tests` steps run
+on neither part, as they ran on no x86 job before. `partition.txt` lists the
+steps for each row and part.
 
 ## The same bytes
 
-`sha-proof.sh` runs right after the local gate and writes `sha-proof.txt`.
-Mach-O binaries carry a linker UUID that changes with the target directory's
-path, so two builds can only match byte for byte at the same path. Every
-comparison is therefore made at `target/`, the path CI uses, except row 5,
-which cannot be.
+The `release` part builds everything it runs in a fresh `target/`, with none
+of the `checks` part's debug steps before it. `sha-proof.sh` runs right after
+the local gate. It moves the gate's `target/` aside, rebuilds a fresh
+`target/` in the `release` part's order, and compares each binary that a
+release-part check drives (`sha-proof.txt`). It compares at `target/`, the
+path CI uses, because Mach-O binaries carry a linker UUID that follows the
+target directory's path.
 
-| # | binary | compared | result |
-|---|---|---|---|
-| 2a | release lib tests, default (output cost, usage clock) | built after every debug step (one job) vs with none before it (the `release` part) | same sha256 |
-| 2b | release lib tests, fault-injection | same as 2a | same sha256 |
-| 3 | `target/release/xfx` (smoke, smoke-tui) | built right after the fault-injection build (new order) vs with none before it (old order) | same sha256 |
-| 4 | `target/faulty/xfx` | the gate's copy vs the new-way build redone in a fresh `target/` | same sha256 |
-| 5 | fault-injection binary | old `--target-dir target/faulty` vs new shared dir | 46 bytes differ, all inside `LC_UUID` (bytes 1945-1960) and the code signature; 0 bytes outside them, so the code, data and strings are the same |
-| 6 | `target/release/xfx`, re-run | a second plain release build after a fault-injection build, with every unit fresh | same sha256: Cargo re-links a fresh unit, so CONTRIBUTING's local order is safe to run twice |
+| # | binary (the check that drives it) | one-job order vs `release` part order |
+|---|---|---|
+| 2a | release lib tests, default (output cost; usage clock's release run) | same sha256 |
+| 2b | release lib tests, fault-injection (output cost; usage clock's run) | same sha256 |
+| 2c | debug lib tests, default (usage clock's debug run): built by `cargo test --all-targets` vs by `cargo test --lib` alone | same except per-build tokens: see below |
+| 3 | `target/release/xfx` (smoke, smoke-tui) | same sha256 |
+| 4 | `target/faulty/release/xfx` (smoke-tui `--faulty`) | same sha256 |
+| 4c | control: debug lib tests built twice, fresh, same command, same path | same except per-build tokens, as 2c |
 
-On CI, every run checks it as well. The Release build step fails if
-`target/release/xfx` has the fault-injection copy's bytes (`cmp`), and it
-prints both digests. Smoke the TUI prints them again before it drives them.
-In the local gate both steps printed `1764…6dba` (release) and `1e8a…7f06`
-(fault-injection), the same digests as rows 3 and 4.
+**Row 2c, exactly what differs.** The debug lib test binary is never the same
+bytes twice. Its debug map (the unstripped symbol table) names each of its
+256 object files `xfx-<hash>.<cgu>.<token>.rcgu.o`, and the 7-character
+`<token>` is new in every build. Two fresh builds made the same way, at the
+same path (row 4c), differ in exactly that. `objname-diff.py` counts every
+differing byte of 2c and 4c in three groups:
+- the code signature, which hashes the pages holding those names;
+- those 256 names, which differ only in `<token>`;
+- anywhere else: code, data, other strings. That group is 0 in both pairs.
+
+So in the old single job too, this binary's bytes changed on every run. Its
+code and data are the same in the `release` part as after
+`cargo test --all-targets`.
+
+- **Host:** these digests come from aarch64-apple-darwin, which is this
+  machine. CI's x86_64-apple-darwin row builds the same Cargo units on a
+  different machine, so the digests differ there.
+- **No x86 "before":** neither old job printed a digest, so there is no
+  x86_64 "before" digest to compare with. What carries over is the argument:
+  the commands, their target directory and their predecessors' profile
+  directories are as above.
+- **The `checks` part:** it runs the old job's first steps, unchanged and in
+  the same order, so its binaries are built exactly as before.
 
 ## Cache: not adopted
 
-A dependency cache (actions/cache or Swatinem/rust-cache) would save the
-dependency compiles only: ~1.5 min check-mode (13:38:55 to 13:40:22), ~1 min
-debug test mode (13:42:03 to 13:43:04), and ~2.5 min release test mode. That
-is ~5 min gross per single job. Restoring and saving a `target/` of three
-profiles' dependencies on macOS costs part of that back. It cannot help with
-xfx's own ~31 minutes, which change with every commit, and the split already
-leaves each part ~30 minutes of headroom.
+A dependency cache (actions/cache or Swatinem/rust-cache) would save only the
+dependency compiles: about 1.5 min check-mode (13:38:55 to 13:40:22), about
+1 min debug test-mode (13:42:03 to 13:43:04) and about 2.5 min release
+test-mode. That is about 5 min gross per job. Restoring and saving a `target/`
+that holds three profiles' dependencies costs part of that back on macOS. A
+cache cannot help with xfx's own ~31 minutes, which change with every commit.
+The split already leaves each part about 30 minutes of headroom.
 
-If one is ever added, the key and the safety argument are:
-
+If one is ever added:
 - **Key:** OS, target, the full `rustc -vV` output (the toolchain step
   installs a floating `stable`), and `hashFiles('Cargo.lock')`.
-- **Contents:** registry and dependency artifacts only. The workspace crate is
-  never cached (rust-cache's default cleans it), so every check still compiles
-  and tests xfx from the checkout.
+- **Contents:** the registry and dependency artifacts only. The workspace
+  crate is never cached (rust-cache cleans it by default), so every check
+  still compiles and tests xfx from the checkout.
 - **Why a stale entry cannot pass a broken build:** Cargo fingerprints every
-  dependency unit by package id (name, version and source, whose checksum
-  Cargo.lock pins), features, profile, target and rustc version, and by the
+  dependency unit by its package id (name, version and source, whose checksum
+  Cargo.lock pins), its features, profile, target and rustc version, and the
   fingerprints of its own dependencies. An artifact restored for anything
   else is rebuilt, not reused.
 - **What a fingerprint does not cover:** a poisoned artifact with a matching
-  fingerprint. A pull request's run reads the caches the default branch wrote
-  (and its own); it cannot write the default branch's. So the cache adds the
-  default branch's runs, and the cache action itself, to what the gate
-  trusts.
+  fingerprint. A pull request's run reads the caches the default branch wrote,
+  and its own; it cannot write the default branch's. So a cache adds the
+  default branch's runs, and the cache action itself, to what the gate trusts.
 
-## Local gate
+## The renamed x86 job contexts
 
-Head `d2ef642a`, every step of `ci.yml`'s gate job in file order (a row with
-no `part`, which is also the order of `29aeb854`'s single job). It ran under
-the machine's suite lock, with `TMPDIR`, `RUNNER_TEMP` and
-`COMMIT_UNDER_TEST` set as CI sets them. `gate.txt` is the log, filtered to
-step, result, check and compile lines.
+Two new names, `gate (x86_64-apple-darwin, checks)` and
+`gate (x86_64-apple-darwin, release)`, replace `gate (x86_64-apple-darwin)`.
+The other three names do not change. Nothing in the tree reads a job name:
+there is no `needs:`, no `workflow_run` and no name lookup in any workflow or
+script. Checked by the dispatcher in round 2: main has no branch protection,
+no rulesets and no branch rules (`gh api`: 404, `[]`, `[]`). So the new names
+need no migration. `branch-protection.txt` is the same read, made from this
+worktree.
+
+## Local gate (round 2)
+
+Head `8693d1b4`, every step of `ci.yml`'s gate job in file order (a row
+with no `part`; the x86 parts run its first 12 and its last 10 steps, the
+four setup steps in both). Run under the machine's suite lock from an empty
+`target/`, with `TMPDIR`, `RUNNER_TEMP` and `COMMIT_UNDER_TEST` set as CI
+sets them. `gate.txt` is the log, filtered to step, result, check and compile
+lines.
 
 | step | name | status | s |
 |---|---|---:|---:|
 | 01 | Confirm the checkout is the commit under test | 0 | 0 |
 | 02 | Confirm the runner really is this target | 0 | 0 |
 | 03 | Formatting | 0 | 1 |
-| 04 | Lints | 0 | 23 |
-| 05 | Tests | 0 | 126 |
-| 06 | Tests, with the fault injector | 0 | 108 |
-| 07 | No stubs, and the parity ledger reconciles | 0 | 9 |
-| 08 | No credentials in tracked files | 0 | 30 |
-| 09 | No gate takes its options, repository or config from the environment | 0 | 248 |
-| 10 | One product name in tracked files | 0 | 1 |
-| 11 | The preview publication contract holds | 0 | 3 |
-| 12 | The preview contract catches every mutant it exists for | 0 | 62 |
-| 13 | The output check still fits inside a frame's budget | 0 | 88 |
-| 14 | A release build ignores the pinned usage clock | 0 | 1 |
-| 15 | Build the binary the restoration matrix drives | 0 | 15 |
-| 16 | Release build | 0 | 14 |
-| 17 | Smoke the release binary | 0 | 2 |
-| 18 | Smoke the TUI on a real terminal | 0 | 63 |
+| 04 | Lints | 0 | 27 |
+| 05 | Tests | 0 | 130 |
+| 06 | Tests, with the fault injector | 0 | 111 |
+| 07 | No stubs, and the parity ledger reconciles | 0 | 8 |
+| 08 | No credentials in tracked files | 0 | 31 |
+| 09 | No gate takes its options, repository or config from the environment | 0 | 190 |
+| 10 | One product name in tracked files | 0 | 2 |
+| 11 | The preview publication contract holds | 0 | 5 |
+| 12 | The preview contract catches every mutant it exists for | 0 | 53 |
+| 13 | The output check still fits inside a frame's budget | 0 | 79 |
+| 14 | A release build ignores the pinned usage clock | 0 | 0 |
+| 15 | Release build | 0 | 14 |
+| 16 | Smoke the release binary | 0 | 2 |
+| 17 | Build the binary the restoration matrix drives | 0 | 22 |
+| 18 | Smoke the TUI on a real terminal | 0 | 64 |
 
 - `test result` lines: 10032 passed, 0 failed. The lib suites ran 4449
   (default) and 4472 (fault-injection).
 - `smoke.sh`: 47 checks, 0 failures. `smoke-tui`: 37 scenarios plus the
-  oracle, 1168 checks, 0 failures.
+  oracle, 1168 checks, 0 failures, driving `target/release/xfx` and
+  `target/faulty/release/xfx`.
 - `test-gate-env`: ok (62 cases). `test-preview-contract`: ok (24 mutants).
-- `actionlint` 1.7.12, the version `preview.yml` pins, passes `ci.yml`.
-- Step 15 compiled 2 crates (rustix, xfx). The old-way build in
-  `sha-proof.txt` section 5 compiled 137, the same count as CI's old step on
-  #82.
+- Step 17, the fault-injection build in its own `--target-dir`, compiled 137
+  crates, as on #82.
+- `actionlint.txt`: actionlint 1.7.12 (the version `preview.yml` pins), exit
+  0 on `ci.yml` and exit 0 on every workflow, at the `ci.yml` whose sha256 it
+  records.
 
-Files: `extract-steps.rb` writes each `run:` step of `ci.yml`'s gate job to a
-file, in order. It skips `uses:` steps and the toolchain install, which would
-change this machine's default toolchain. `run-steps.sh` runs each file under
-`bash -e`, as a GitHub run step does. `gate.txt` is the redacted log.
-`partition.rb` produces `partition.txt`.
+## Round 1 (superseded by round 2)
+
+`29aeb854` built the fault-injection binary in the shared `target/` first,
+copied it to `target/faulty/xfx` and then ran the plain release build. That
+saved the 137-crate rebuild (2.5 min). `sha-proof-r1.txt` (from
+`sha-proof-r1.sh` and `locate-diff.py`) found two things:
+- the release binary and both release lib test binaries had the same bytes
+  in either order;
+- the fault-injection binary differed from the old one in 46 bytes, all
+  inside `LC_UUID` and the code signature, which follow the target
+  directory's path.
+
+Under the exact-bytes bar that difference counts, and the dedupe was worth
+about 2.5 minutes against the split's ~25, so round 2 reverts it.
+`gate-r1.txt` is round 1's local gate at `d2ef642a` (18 of 18 steps passed).
+
+## Files
+
+- `extract-steps.rb` writes each `run:` step of `ci.yml`'s gate job to its
+  own file, in order. It skips `uses:` steps and the toolchain install, which
+  would change this machine's default toolchain.
+- `run-steps.sh` runs each of those files under `bash -e`, as a GitHub run
+  step does.
+- `partition.rb` writes `partition.txt`.
+- `sha-proof.sh` writes `sha-proof.txt` and uses `objname-diff.py`.
+- `actionlint.txt` and `branch-protection.txt` are command output.
+- `ci-82-x86-*.txt` come from GitHub's jobs API and the job log of #82.
+- Round 1: `sha-proof-r1.sh` writes `sha-proof-r1.txt` and uses
+  `locate-diff.py`; `gate-r1.txt` is that round's gate log.

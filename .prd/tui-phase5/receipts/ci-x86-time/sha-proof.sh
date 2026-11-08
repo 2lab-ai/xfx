@@ -1,24 +1,25 @@
 #!/bin/bash
-# usage: sha-proof.sh   (from the worktree, right after the local gate, which
-#                        left target/ as the one-job CI sequence leaves it)
+# usage: sha-proof.sh   (round 2; from the worktree, right after the local
+#                        gate, which left target/ as the one-job order leaves it)
 #
-# Shows each check drives the bytes it drove before the change. Mach-O
-# binaries carry a linker UUID derived from the link's inputs, including the
-# object files' paths, so two builds compare byte for byte only at the same
-# target-directory path. Every comparison but (5) is therefore made at
-# target/, the path CI uses; (5) cannot be, since the old fault-injection build
-# used a directory of its own, and its difference is located instead.
+# The x86_64 macOS row's `release` part builds everything it runs in a fresh
+# target/, with none of the `checks` part's debug steps before it. This shows
+# each binary a release-part check drives has the bytes the one-job order gave
+# it. Mach-O binaries carry a linker UUID that follows the target directory's
+# path (round 1), so every comparison is made at target/, the path CI uses.
 #
-#   1. the gate's target/ is moved to target-gate/; a fresh target/ is built
-#      in the order the `release` part runs, with no debug step before it
-#   2. release lib tests (output cost, usage clock), default and
-#      fault-injection: after every debug step (one job) vs with none (part)
-#   3. release binary: built right after a fault-injection build (new) vs
-#      with none before it (old order), both at target/
-#   4. fault-injection binary, new way, rebuilt in the fresh target/: the same
-#      bytes as the gate's copy (the copy is the build output, deterministic)
-#   5. fault-injection binary: own --target-dir (old) vs shared dir (new)
-#   6. re-run: a fresh release unit is re-linked to target/release/xfx
+#   1. note every binary the gate built; move target/ to target-gate/
+#   2. build a fresh target/ in the release part's order:
+#        release --lib tests, default and fault-injection  (output cost)
+#        debug --lib tests                                  (usage clock, debug)
+#        release build                                      (smoke, smoke-tui)
+#        fault-injection build, --target-dir target/faulty  (smoke-tui)
+#   3. compare each pair by sha256
+#   4. the debug lib tests are never the same bytes twice: an unstripped build
+#      names each object file with a per-build token in its debug map. So 2c
+#      is held to what two fresh builds of it share -- everything but those
+#      tokens and the code signature -- and a control pair (two fresh builds,
+#      same command, same path) shows the same difference.
 set -u
 unset GREP_OPTIONS
 fails=0
@@ -34,60 +35,60 @@ same() { # same <label> <a> <b>
 		fails=$((fails + 1))
 	fi
 }
-exe() { # exe <target-dir> [features...] -> path of the release lib test binary
-	local dir=$1
+# exe <profile-flag-or-empty> [features...] -> the lib test binary's path.
+# Refuses a lookup that had to compile: that would mean the binary looked up
+# was not the one the gate (or step 2) built.
+exe() {
+	local release=$1 out
 	shift
-	cargo test --locked --release --lib --no-run --target-dir "$dir" "$@" 2>&1 |
-		sed -n 's/^ *Executable unittests src\/lib.rs (\(.*\))$/\1/p'
+	out="$(cargo test --locked $release --lib --no-run "$@" 2>&1)"
+	if printf '%s\n' "$out" | grep -q '^ *Compiling '; then
+		printf 'LOOKUP COMPILED (%s %s): not the binary already built\n' "$release" "$*" >&2
+		fails=$((fails + 1))
+	fi
+	printf '%s\n' "$out" | sed -n 's/^ *Executable unittests src\/lib.rs (\(.*\))$/\1/p'
 }
 quiet() { "$@" 2>&1 | grep -E '^ *(Compiling|Finished)' | sed -E 's/ in [0-9.]+s$//; s/ \(\/[^)]*\)//'; }
 
-head="$(git rev-parse HEAD)"
-printf 'head %s\n\n' "$head"
+printf 'head %s\n' "$(git rev-parse HEAD)"
+printf 'host %s, %s\n\n' "$(rustc -vV | sed -n 's/^host: //p')" "$(rustc --version)"
 [ -d target-gate ] && { echo "target-gate exists; refusing to overwrite" >&2; exit 2; }
 
-gate_default="$(exe target)"
-gate_faulty="$(exe target --features fault-injection)"
+gate_release="$(exe --release)"
+gate_release_fi="$(exe --release --features fault-injection)"
+gate_debug="$(exe '')"
 mv target target-gate
-gate_default="target-gate/${gate_default#target/}"
-gate_faulty="target-gate/${gate_faulty#target/}"
+g() { printf 'target-gate/%s' "${1#target/}"; }
 
-echo '## 1. fresh target/, the release part order'
+echo '## 2. fresh target/, in the release part order'
 quiet cargo test --locked --release --lib --no-run
 quiet cargo test --locked --release --lib --no-run --features fault-injection
-fresh_default="$(exe target)"
-fresh_faulty="$(exe target --features fault-injection)"
+quiet cargo test --locked --lib --no-run
 quiet cargo build --locked --release
-cp target/release/xfx target/release-built-first
-echo
-same "2a release lib tests, default: after the debug steps vs none" "$gate_default" "$fresh_default"
-same "2b release lib tests, fault-injection: after the debug steps vs none" "$gate_faulty" "$fresh_faulty"
-same "3 release binary: after a fault-injection build (gate) vs none before it" target-gate/release/xfx target/release-built-first
-echo
-echo '## 4. new-way fault-injection build in the fresh target/'
-quiet cargo build --locked --release --features fault-injection
-same "4 fault-injection binary: gate copy vs rebuilt in shared target/" target-gate/faulty/xfx target/release/xfx
-echo
-echo '## 5. old-way fault-injection build, --target-dir target/faulty'
 quiet cargo build --locked --release --features fault-injection --target-dir target/faulty
-old=target/faulty/release/xfx
-new=target-gate/faulty/xfx
-if cmp -s "$old" "$new"; then
-	printf 'SAME  5 fault-injection binary, old vs new\n'
-else
-	printf 'DIFF  5 fault-injection binary, old (%s) vs new (%s): sizes %s / %s\n' "$old" "$new" \
-		"$(wc -c <"$old" | tr -d ' ')" "$(wc -c <"$new" | tr -d ' ')"
-	diffs="${TMPDIR:-/tmp}/sha-proof-diff.$$"
-	cmp -l "$old" "$new" | awk '{print $1}' >"$diffs"
-	python3 -I "$(dirname "$0")/locate-diff.py" "$new" "$diffs" || fails=$((fails + 1))
-	rm -f "$diffs"
-	otool -l "$old" | awk '/cmd LC_UUID/{u=1} u&&/uuid/{print "      LC_UUID old " $2; u=0}'
-	otool -l "$new" | awk '/cmd LC_UUID/{u=1} u&&/uuid/{print "      LC_UUID new " $2; u=0}'
-fi
+fresh_release="$(exe --release)"
+fresh_release_fi="$(exe --release --features fault-injection)"
+fresh_debug="$(exe '')"
 echo
-echo '## 6. re-run: release build again, every unit fresh'
-quiet cargo build --locked --release
-same "6 target/release/xfx is the release binary again" target/release/xfx target/release-built-first
+echo '## 3. one-job order (gate) vs release part order (fresh)'
+same "2a release lib tests, default (output cost; usage clock's release run)" "$(g "$gate_release")" "$fresh_release"
+same "2b release lib tests, fault-injection (output cost; usage clock's run)" "$(g "$gate_release_fi")" "$fresh_release_fi"
+objects() { # objects <label> <a> <b>: same, or differing only in object-file tokens
+	if cmp -s "$2" "$3"; then
+		same "$1" "$2" "$3"
+		return
+	fi
+	printf 'TOKEN %s\n      %s  %s\n      %s  %s\n' "$1" "$(digest "$2")" "$2" "$(digest "$3")" "$3"
+	python3 -I "$(dirname "$0")/objname-diff.py" "$2" "$3" || fails=$((fails + 1))
+}
+objects "2c debug lib tests, default (usage clock's debug run): built by cargo test --all-targets vs by --lib alone" "$(g "$gate_debug")" "$fresh_debug"
+same "3  target/release/xfx (smoke, smoke-tui)" target-gate/release/xfx target/release/xfx
+same "4  target/faulty/release/xfx (smoke-tui --faulty)" target-gate/faulty/release/xfx target/faulty/release/xfx
 echo
-printf '%d mismatch(es) among the SAME checks\n' "$fails"
+echo '## 4. control: the debug lib tests built twice, fresh, the same way'
+mv target target-fresh1
+quiet cargo test --locked --lib --no-run
+objects "4c debug lib tests, default: two fresh builds, same command, same path" "target-fresh1/${fresh_debug#target/}" "$fresh_debug"
+echo
+printf '%d mismatch(es)\n' "$fails"
 [ "$fails" -eq 0 ]
