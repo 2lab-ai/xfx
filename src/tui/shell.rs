@@ -14304,15 +14304,26 @@ impl Shell {
                 menu.failed(retry);
                 menu
             }
-            // Never answered, or failed and past its hold -- in which case
-            // the cache reads it again behind the failure, and the menu says
-            // `Loading models…` while it does (`:1049`). Asked as a control
-            // message, so the read starts at once, a turn running or not, as
-            // upstream's starts one on a thread of its own (`startWarmup`,
-            // `:519-551`).
-            CatalogKnown::Unasked | CatalogKnown::Unread(..) => {
+            // Never answered: the first load, which every reader waits on
+            // (`.loading`, `model_cache_runtime.zig:633-634`). Asked as a
+            // control message, so the read starts at once, a turn running or
+            // not, as upstream's starts one on a thread of its own
+            // (`startWarmup`, `:519-551`).
+            CatalogKnown::Unasked => {
                 self.work.control(TurnControl::Catalog(CatalogAsk::MENU));
                 self.catalog_known = CatalogKnown::Asked;
+                ModelMenu::loading(query)
+            }
+            // Failed and past its hold: the cache reads it again behind the
+            // failure, and the menu says `Loading models…` while it does
+            // (`fetch_in_flight`, `:1049`) -- but the catalog is still the
+            // failure for every other reader (`:485-486`): the column says
+            // `unable to load models` (`isModelCacheLoading`, `src/main.zig:
+            // 2047-2050`), so the band's state stays [`CatalogKnown::Unread`]
+            // until the answer lands.
+            CatalogKnown::Unread(..) => {
+                self.work.control(TurnControl::Catalog(CatalogAsk::MENU));
+                self.catalog_nudged = true;
                 ModelMenu::loading(query)
             }
         };
@@ -14396,12 +14407,14 @@ impl Shell {
     /// `src/main.zig:2043-2045`, `:2167-2169`) -- activity, which reads a
     /// failure again once its backoff is over (`beginLoad`,
     /// `model_cache_runtime.zig:617`, `:621-622`), and rows once they are the
-    /// refresh interval old or a refresh of them failed. Over a failure the
-    /// same frame says `loading models...` (`isModelCacheLoading`,
-    /// `app_render_runtime.zig:752`); over rows it lists them meanwhile. So
-    /// here: called as a frame is about to be committed (`super::event_loop`'s
-    /// `commit_counted`), and acting only when one is owed -- the column in
-    /// the band's slot, on its models stage, over a catalog a read is due for.
+    /// refresh interval old or a refresh of them failed. Either way the
+    /// column goes on saying what it said until the answer lands -- `unable
+    /// to load models` over a failure, whose retry leaves the cache's state
+    /// `.failed` (`isModelCacheLoading`, `app_render_runtime.zig:752`), or the
+    /// rows. So here: called as a frame is about to be committed
+    /// (`super::event_loop`'s `commit_counted`), and acting only when one is
+    /// owed -- the column in the band's slot, on its models stage, over a
+    /// catalog a read is due for ([`Self::note_catalog_activity`]).
     ///
     /// **No clock of its own.** What paints the column paints it again: an
     /// edit, the catalog's answer, a resize, and while a turn or a compaction
@@ -14427,18 +14440,12 @@ impl Shell {
         if query.stage != model_column::Stage::Model {
             return;
         }
-        match self.catalog_known {
-            CatalogKnown::Unread(_, retry_at) if now >= retry_at => {
-                self.work.control(TurnControl::Catalog(CatalogAsk::AWAITED));
-                self.catalog_known = CatalogKnown::Asked;
-                // The column says `loading models...` now, in this frame.
-                self.render.request(Reason::Modal);
-            }
-            CatalogKnown::Loaded => {
-                let _ = self.note_catalog_activity(now);
-            }
-            CatalogKnown::Unasked | CatalogKnown::Asked | CatalogKnown::Unread(..) => {}
-        }
+        // Behind a failure the column goes on saying `unable to load models`
+        // while the read is on its way, as upstream's does: a retry leaves
+        // the cache's state `.failed` (`model_cache_runtime.zig:633-634`),
+        // and its column reads that state (`app_render_runtime.zig:752-753`,
+        // `picker_presentation.zig:914-921`).
+        let _ = self.note_catalog_activity(now);
     }
 
     /// Asks for `query`, typed after `/model`, with the router form's meaning
@@ -30189,14 +30196,15 @@ mod tests {
     }
 
     #[test]
-    fn the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_a_second_has_passed(
-    ) {
+    fn the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_its_hold_is_over()
+    {
         // Upstream's column lists its models through `ensureModelCache` in
         // every frame that draws it (`footerContext`,
-        // `app_render_runtime.zig:561-563`), which loads again a second after
-        // the failed load began (`beginLoad`, `model_cache_runtime.zig:441-442`)
-        // and says `loading models...` in that same frame (`:745-746`); a tick
-        // that owes no frame draws nothing and asks nothing (`:928-929`).
+        // `app_render_runtime.zig:559-568@481104fd`), which loads again once
+        // the failure's backoff is over (`beginLoad`,
+        // `model_cache_runtime.zig:617`, `:621`) behind the failure, which the
+        // column goes on saying (`:633-634`, `app_render_runtime.zig:752-753`);
+        // a tick that owes no frame draws nothing and asks nothing.
         let mut shell = shell(40, 120);
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
@@ -30205,12 +30213,12 @@ mod tests {
         });
         shell.route_bytes(b"/model ");
         assert_eq!(column(&shell)[0], "         unable to load models");
-        // A frame inside the second: asks nothing.
+        // A frame inside the hold: asks nothing.
         assert!(shell.render.owed());
         shell.settle_column(Instant::now());
-        assert!(shell.controlled().is_none(), "asked inside the floor");
+        assert!(shell.controlled().is_none(), "asked inside the hold");
         let _ = shell.render.begin();
-        // Past the second, an idle tick -- no frame owed -- asks nothing:
+        // Past the hold, an idle tick -- no frame owed -- asks nothing:
         // there is no clock of the column's own.
         shell.shell.catalog_known =
             CatalogKnown::Unread(Some(CatalogRetry::Unreachable), failed_long_ago());
@@ -30219,19 +30227,17 @@ mod tests {
         assert!(shell.controlled().is_none(), "an idle tick asked");
         // The activity row's tick turning over while a turn works -- a frame
         // upstream draws every 50 ms, though no row of this band changed and
-        // none is owed -- asks, once, and asks for the frame that says so.
+        // none is owed -- asks, once; and the column goes on saying the
+        // failure while the read is on its way.
         shell.shell.animation_turned = true;
         assert!(!shell.render.owed());
         shell.settle_column(Instant::now());
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+            Some(TurnControl::Catalog(CatalogAsk::ACTIVITY))
         );
-        assert!(
-            shell.render.owed(),
-            "the frame that says so was not asked for"
-        );
-        assert_eq!(column(&shell)[0], "         loading models...");
+        assert_eq!(column(&shell)[0], "         unable to load models");
+        shell.shell.animation_turned = true;
         shell.settle_column(Instant::now());
         assert!(shell.controlled().is_none(), "asked twice for one read");
         // The read lands, and the column lists it.
@@ -45700,10 +45706,13 @@ mod tests {
         shell.settle_column(Instant::now());
         assert_eq!(catalog_asks(&mut shell), [], "asked inside the backoff");
         assert_eq!(column(&shell)[0], "         unable to load models");
-        // Past it, the frame asks, waiting on the answer.
+        // Past it, the frame asks -- and the column goes on saying the
+        // failure while the read is on its way: upstream's retry leaves the
+        // cache `.failed` (`model_cache_runtime.zig:633-634`), which its
+        // column reads (`app_render_runtime.zig:752-753`).
         shell.shell.animation_turned = true;
         shell.settle_column(Instant::now() + Duration::from_secs(4));
-        assert_eq!(catalog_asks(&mut shell), [("activity", true)]);
-        assert_eq!(column(&shell)[0], "         loading models...");
+        assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
+        assert_eq!(column(&shell)[0], "         unable to load models");
     }
 }

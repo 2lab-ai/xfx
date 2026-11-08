@@ -7431,7 +7431,7 @@ mod tests {
         assert_eq!(
             shell._control.try_recv().ok(),
             Some(crate::tui::bridge::TurnControl::Catalog(
-                crate::tui::bridge::CatalogAsk::AWAITED
+                crate::tui::bridge::CatalogAsk::ACTIVITY
             ))
         );
         // The tick after it owes nothing, paints nothing and asks nothing.
