@@ -15591,4 +15591,252 @@ mod tests {
         assert_eq!(direct_colours(&server), Vec::<String>::new(), "{server:?}");
         runtime.shutdown();
     }
+
+    // -----------------------------------------------------------------------
+    // Train 7, join check 1 (a): MODELS-REASK's catalog answer x STOP-NEXT-2's
+    // stop window
+    // -----------------------------------------------------------------------
+
+    /// The catalog row the join's answer lists.
+    fn joined_row() -> crate::provider::model::CatalogEntry {
+        crate::provider::model::CatalogEntry {
+            id: "vendor/joined".to_string(),
+            aliases: Vec::new(),
+            name: None,
+            efforts: Vec::new(),
+            max_context: None,
+            facts: crate::provider::model::ModelFacts::default(),
+        }
+    }
+
+    /// The program status reports and window titles `wire` holds, in order.
+    fn reports_and_titles(wire: &[u8]) -> Vec<String> {
+        let text = String::from_utf8_lossy(wire);
+        let mut found = Vec::new();
+        let mut rest: &str = &text;
+        loop {
+            let report = rest.find("\u{1b}]7501;");
+            let title = rest.find("\u{1b}]2;");
+            let at = match (report, title) {
+                (Some(r), Some(t)) => r.min(t),
+                (Some(r), None) => r,
+                (None, Some(t)) => t,
+                (None, None) => break,
+            };
+            let tail = &rest[at..];
+            let end = if tail.starts_with("\u{1b}]7501;") {
+                tail.find("\u{1b}\\").map(|e| e + 2)
+            } else {
+                tail.find('\u{7}').map(|e| e + 1)
+            }
+            .unwrap_or(tail.len());
+            found.push(tail[..end].to_string());
+            rest = &tail[end..];
+        }
+        found
+    }
+
+    /// Every control message the shell has sent since the last call.
+    fn controls(shell: &mut Fixture) -> Vec<crate::tui::bridge::TurnControl> {
+        let mut sent = Vec::new();
+        while let Ok(message) = shell._control.try_recv() {
+            sent.push(message);
+        }
+        sent
+    }
+
+    #[test]
+    fn a_catalog_answer_read_in_a_stops_window_reaches_the_band_and_leaves_the_stop_as_it_was() {
+        // MODELS-REASK: a prompt past a failed catalog's hold asks the
+        // runtime to read it again (`noteModelCatalogActivity`,
+        // `src/main.zig:1225-1232@481104fd`), and `/model` over the failure
+        // says `Loading models…` until the answer lands (`refreshMenuLocked`,
+        // `model_cache_runtime.zig:1046-1050`); the answer is told by the
+        // read's own thread, whatever the work is doing. STOP-NEXT-2: after a
+        // Ctrl-C the stopped turn's text is held for its end (`Shell::late`),
+        // dropped with the stop's own end or an emptied drain, presented with
+        // a finish; and the stop reports `idle`, its `Cancelled` frame, then
+        // the title. The catalog's answer is neither text nor a row: read in
+        // the stop's window -- with the stop's own end, with a finish, in a
+        // drain that empties before the end, or in the keystroke's own tick --
+        // it reaches the band at once (the menu lists its row, and activity
+        // may ask again: `catalog_nudged` cleared), and every report, title
+        // and `Cancelled` line the stop writes is what it writes without it.
+        let row = joined_row();
+        let mut got = Vec::new();
+        for case in [
+            "with the stop's own end",
+            "with a finished end",
+            "in a drain that empties before the end",
+            "in the keystroke's own tick",
+        ] {
+            let mut runs = Vec::new();
+            for answered in [false, true] {
+                let mut shell = shell_of(40, 120);
+                let mut band = Band::new();
+                let mut out = StatusScreen::default();
+                shell.apply(UiEvent::CatalogUnread {
+                    provider: crate::provider::ProviderId::Gateway,
+                    retry: Some(crate::provider::model::CatalogRetry::Unreachable),
+                    retry_at: Instant::now()
+                        .checked_sub(Duration::from_secs(60))
+                        .expect("a clock older than a minute"),
+                });
+                launch_title(&mut shell, &mut band);
+                status_tick(&mut shell, &mut band, &mut out);
+                shell.route_bytes(b"go\r");
+                status_tick(&mut shell, &mut band, &mut out);
+                shell.start_turn();
+                shell.settle_band(Instant::now());
+                status_tick(&mut shell, &mut band, &mut out);
+                // The prompt asked, and the ask is pending: the runtime reads
+                // beside the turn and tells its answer when it lands.
+                let asked = controls(&mut shell);
+                assert!(
+                    asked.contains(&crate::tui::bridge::TurnControl::Catalog(
+                        crate::tui::bridge::CatalogAsk::ACTIVITY
+                    )),
+                    "{case}: the prompt asked nothing: {asked:?}"
+                );
+                let before = out.vectors.len();
+                let own_tick = case == "in the keystroke's own tick";
+                shell.route_bytes(&[0x03]);
+                if !own_tick {
+                    status_tick(&mut shell, &mut band, &mut out);
+                }
+                // `/model` while the stopped turn unwinds: over the failure,
+                // `Loading models…`, and asked again.
+                shell.route_bytes(b"/model\r");
+                if !own_tick {
+                    status_tick(&mut shell, &mut band, &mut out);
+                }
+                let loading = holds(&out.vectors[before..].concat(), "Loading models".as_bytes());
+                let stop = controls(&mut shell);
+                let (events, mut receiver) = tokio::sync::mpsc::channel(bridge::UI_EVENTS);
+                events
+                    .try_send(UiEvent::Delta("LATE-ANSWER\n".to_string()))
+                    .expect("room");
+                if answered {
+                    events
+                        .try_send(UiEvent::CatalogLoaded {
+                            provider: crate::provider::ProviderId::Gateway,
+                            entries: vec![row.clone()],
+                            // Activity is owed the next read at once.
+                            due: Instant::now(),
+                        })
+                        .expect("room");
+                }
+                let mut before_the_end = false;
+                if case == "in a drain that empties before the end" {
+                    take_ui_events(&mut shell, &mut receiver);
+                    shell.settle_band(Instant::now());
+                    status_tick(&mut shell, &mut band, &mut out);
+                    before_the_end = holds(&out.vectors[before..].concat(), b"vendor/joined");
+                }
+                let end = if case == "with a finished end"
+                    || case == "in a drain that empties before the end"
+                {
+                    None
+                } else {
+                    Some(super::super::bridge::TURN_CANCELLED.to_string())
+                };
+                events
+                    .try_send(UiEvent::TurnEnded { failure: end })
+                    .expect("room");
+                for _ in 0..3 {
+                    take_ui_events(&mut shell, &mut receiver);
+                }
+                shell.handle.give_back();
+                shell.flush_paced();
+                for _ in 0..3 {
+                    shell.settle_band(Instant::now());
+                    status_tick(&mut shell, &mut band, &mut out);
+                }
+                let wire = out.vectors[before..].concat();
+                let shown = holds(&wire, b"vendor/joined");
+                // Activity after it: the menu closed, a prompt submitted.
+                shell.route_bytes(b"\x1b");
+                shell.settle_input(Instant::now() + Duration::from_millis(60));
+                let _ = controls(&mut shell);
+                shell.route_bytes(b"next\r");
+                let after = controls(&mut shell);
+                let asks_again = after.contains(&crate::tui::bridge::TurnControl::Catalog(
+                    crate::tui::bridge::CatalogAsk::ACTIVITY,
+                ));
+                let order = reports_and_titles(&wire);
+                let idle = find(&wire, IDLE.as_bytes());
+                let cancelled = find(&wire, b"Cancelled");
+                let title = find(&wire, b"\x1b]2;go\x07");
+                runs.push((
+                    order,
+                    wire.windows(b"Cancelled".len())
+                        .filter(|w| *w == b"Cancelled")
+                        .count(),
+                    holds(&wire, b"LATE-ANSWER"),
+                    matches!((idle, cancelled, title), (Some(i), Some(c), Some(t)) if i < c && c < t),
+                    stop.iter()
+                        .filter(|m| matches!(m, crate::tui::bridge::TurnControl::Cancel { .. }))
+                        .count(),
+                    (
+                        // With the answer: whether a frame said `Loading
+                        // models…` before it came (none comes between
+                        // `/model` and the answer in the keystroke's own
+                        // tick); without it, whether any did.
+                        if answered {
+                            loading
+                        } else {
+                            holds(&wire, "Loading models".as_bytes())
+                        },
+                        shown,
+                        before_the_end,
+                        asks_again,
+                    ),
+                ));
+            }
+            let (without, with) = (&runs[0], &runs[1]);
+            got.push((
+                case,
+                // The stop's reports and titles, its Cancelled lines, its
+                // late text and its one stop: as without the answer.
+                with.0 == without.0,
+                with.1 == without.1,
+                with.2 == without.2,
+                with.3 && without.3,
+                with.4 == 1 && without.4 == 1,
+                // Without the answer: `Loading models…`, no row, no ask.
+                without.5,
+                // With it: the row, before the end where the drain came
+                // first, and activity asks again.
+                with.5,
+            ));
+            assert!(
+                with.0 == without.0,
+                "{case}: the reports and titles moved: {:?} against {:?}",
+                with.0,
+                without.0
+            );
+        }
+        let before_the_end = |case: &str| case == "in a drain that empties before the end";
+        let framed = |case: &str| case != "in the keystroke's own tick";
+        assert_eq!(
+            got,
+            got.iter()
+                .map(|(case, ..)| (
+                    *case,
+                    true,
+                    true,
+                    true,
+                    true,
+                    true,
+                    (true, false, false, false),
+                    (framed(case), true, before_the_end(case), true),
+                ))
+                .collect::<Vec<_>>(),
+            "each: the stop as without the answer (reports and titles, Cancelled lines, late \
+             text, idle < Cancelled < title, one stop); without the answer the menu says \
+             `Loading models…` and nothing asks again; with it the menu said so until the \
+             answer (when a frame came between), the row is shown (before the end when its \
+             drain came first) and activity asks again"
+        );
+    }
 }

@@ -17295,4 +17295,235 @@ mod tests {
         assert!(waited.is_ok());
         assert!(state.selector.entry("zai/glm-5.2").is_some());
     }
+
+    // -----------------------------------------------------------------------
+    // Train 7, join check 1 (b): MODELS-REASK's catalog waits x STOP-NEXT-2's
+    // stop
+    // -----------------------------------------------------------------------
+
+    /// A runtime whose catalog failed and whose retry -- the one a submitted
+    /// prompt starts -- is on its way and does not land while the returned
+    /// sender is held (its gate opens when the sender goes), answered by a provider
+    /// that answers twice: the turn's start waits for that retry when the
+    /// model in force has no window without the catalog (`recording`'s), the
+    /// image route at the first request when `history_image` puts an image
+    /// in the history and the model's window is known.
+    fn retry_never_lands(
+        history_image: bool,
+    ) -> (
+        tempfile::TempDir,
+        tempfile::TempDir,
+        Runtime,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        let (home, workspace, mut state) = if history_image {
+            let home = tempfile::tempdir().expect("a home");
+            let workspace = tempfile::tempdir().expect("a workspace");
+            let env = Environment::new(
+                Some(home.path().to_path_buf()),
+                BTreeMap::from([(
+                    "XFX_MODEL".to_string(),
+                    "anthropic/claude-sonnet-5".to_string(),
+                )]),
+            );
+            let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+            let store = open_store(&config).expect("a store");
+            let conversation = open_conversation(
+                &store,
+                &config,
+                &config.model.clone(),
+                PermissionSession::new(config.permission_mode),
+                None,
+                &CancelToken::new(),
+            )
+            .expect("open a conversation");
+            let mut state =
+                Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+            state.conversation = Some(conversation);
+            let mut seeing = published(state.selector.model());
+            seeing.facts.image_input = true;
+            state
+                .selector
+                .set_catalog_for_test(CatalogState::Loaded(vec![seeing]));
+            let image = crate::image::Image::new(
+                1,
+                std::path::PathBuf::from("shot.png"),
+                crate::image::MediaType::Png,
+                std::sync::Arc::from(&b"png"[..]),
+            );
+            one_turn_with_images(
+                &mut state,
+                "look",
+                vec![image],
+                Box::new(ScriptedProvider::new(vec![answers("seen")])),
+            );
+            (home, workspace, state)
+        } else {
+            recording()
+        };
+        let (open, gate) = tokio::sync::oneshot::channel::<()>();
+        state
+            .selector
+            .set_fetcher_for_test(Box::new(FailsThenGated {
+                entries: vec![published(state.selector.model())],
+                asked: AtomicUsize::new(0),
+                gate: Mutex::new(Some(gate)),
+            }));
+        let (events, _received) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(state.load_catalog());
+        assert!(matches!(state.selector.catalog(), CatalogState::Failed(_)));
+        backdate_catalog(&mut state, Duration::from_secs(6));
+        retry_behind_failure(&mut state, &events);
+        state.provider = Some(Bundle {
+            id: ProviderId::Gateway,
+            stream: Box::new(ScriptedProvider::new(vec![answers("one"), answers("two")])),
+        });
+        (home, workspace, state, open)
+    }
+
+    /// Two prompts through the real loop, submissions 1 and 2, and -- when
+    /// `stop_after` says when -- a Ctrl-C quoting 1 sent into the first:
+    /// every event the band was told, with when, until the second turn ended.
+    fn two_prompts_and_a_stop(
+        state: Runtime,
+        stop_after: Option<Duration>,
+    ) -> Vec<(Duration, UiEvent)> {
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(2);
+        work_tx
+            .try_send(TurnWork::Submit("first".to_string()))
+            .expect("room");
+        work_tx
+            .try_send(TurnWork::Submit("second".to_string()))
+            .expect("room");
+        drop(work_tx);
+        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+        let (events, mut seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        let outstanding = AtomicUsize::new(2);
+        let started = Instant::now();
+        let stopper = std::thread::spawn(move || {
+            if let Some(after) = stop_after {
+                std::thread::sleep(after);
+                let _ = control_tx.send(TurnControl::Cancel { through: 1 });
+            }
+            // Held until the loop has run out of work: a closed control
+            // channel is no stop.
+            std::thread::sleep(Duration::from_secs(8));
+        });
+        let log = on_a_runtime(async {
+            let run = turn_loop(
+                state,
+                &events,
+                &mut work_rx,
+                &mut changes,
+                ControlChannel::new(control_rx),
+                Cancellation::new(CancelToken::new()),
+                &outstanding,
+            );
+            let watch = async {
+                let mut log = Vec::new();
+                let mut ends = 0;
+                while ends < 2 {
+                    match tokio::time::timeout(TEST_DRAIN, seen.recv()).await {
+                        Ok(Some(event)) => {
+                            if matches!(event, UiEvent::TurnEnded { .. }) {
+                                ends += 1;
+                            }
+                            log.push((started.elapsed(), event));
+                        }
+                        _ => break,
+                    }
+                }
+                log
+            };
+            let (_, log) = tokio::join!(run, watch);
+            log
+        });
+        drop(stopper);
+        log
+    }
+
+    #[test]
+    fn a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number() {
+        // MODELS-REASK: a turn whose request is planned from the catalog
+        // waits up to two seconds for a failed catalog's retry, at its start
+        // or at the image route's first request (`resolveForRequest`,
+        // `model_cache_runtime.zig:843-866@481104fd`), "raced against the
+        // turn's own cancellation, as upstream's wait is" (`:857-865`).
+        // STOP-NEXT-2: a stop quotes the submissions it covers
+        // (`TurnControl::Cancel { through }`), and each start names its own
+        // (`UiEvent::TurnStarted { submission }`), so the band tells the turn
+        // it stopped from one typed after it. A Ctrl-C quoting the first of
+        // two prompts, 300 ms into the first's wait for a retry that never
+        // lands: the first ends at once, not two seconds later, as the stop's
+        // own end; the second starts as submission 2 and runs. Without the
+        // stop, the first waits its two seconds -- the wait the stop cut --
+        // and ends as MODELS-REASK ends it.
+        let mut got = Vec::new();
+        for (case, history_image) in [("the turn's start", false), ("the image route", true)] {
+            for stop in [Some(Duration::from_millis(300)), None] {
+                let (_home, _workspace, state, open) = retry_never_lands(history_image);
+                let log = two_prompts_and_a_stop(state, stop);
+                drop(open);
+                let starts: Vec<usize> = log
+                    .iter()
+                    .filter_map(|(_, event)| match event {
+                        UiEvent::TurnStarted { submission } => Some(*submission),
+                        _ => None,
+                    })
+                    .collect();
+                let ends: Vec<(Duration, Option<String>)> = log
+                    .iter()
+                    .filter_map(|(at, event)| match event {
+                        UiEvent::TurnEnded { failure } => Some((*at, failure.clone())),
+                        _ => None,
+                    })
+                    .collect();
+                let first = ends.first().cloned();
+                got.push((
+                    case,
+                    stop.is_some(),
+                    starts,
+                    first.as_ref().map(|(_, failure)| failure.clone()),
+                    first.as_ref().is_some_and(|(at, _)| {
+                        if stop.is_some() {
+                            // After the stop, and long before the wait's end.
+                            *at >= Duration::from_millis(300) && *at < Duration::from_millis(1_000)
+                        } else {
+                            *at >= Duration::from_millis(1_900)
+                        }
+                    }),
+                    ends.len(),
+                ));
+            }
+        }
+        let cancelled = Some(Some(bridge::TURN_CANCELLED.to_string()));
+        assert_eq!(
+            got,
+            [
+                (
+                    "the turn's start",
+                    true,
+                    vec![1, 2],
+                    cancelled.clone(),
+                    true,
+                    2
+                ),
+                ("the turn's start", false, vec![1, 2], Some(None), true, 2),
+                ("the image route", true, vec![1, 2], cancelled, true, 2),
+                // The wait out, the image route refuses the history's image
+                // it could not verify (`image_route.zig`'s unknown answer).
+                (
+                    "the image route",
+                    false,
+                    vec![1, 2],
+                    Some(Some(crate::image::CAPABILITY_UNKNOWN.to_string())),
+                    true,
+                    2,
+                ),
+            ],
+            "each: the starts, the first turn's end, whether it came when it should (with \
+             the stop: 300 ms to 1 s; without it: past the wait's 1.9 s), the ends"
+        );
+    }
 }

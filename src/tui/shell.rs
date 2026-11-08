@@ -48559,4 +48559,132 @@ mod tests {
         assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
         assert_eq!(column(&shell)[0], "         unable to load models");
     }
+
+    // -----------------------------------------------------------------------
+    // Train 7, join check 1 (b), the band's half: MODELS-REASK's asks around
+    // STOP-NEXT-2's stop
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn catalog_asks_around_a_stop_leave_its_count_and_the_next_start_its_own() {
+        // MODELS-REASK's asks are control messages and take no place among
+        // the submissions (`TurnControl::Catalog`); STOP-NEXT's count is the
+        // work handle's (`accepted`), and a stop quotes it
+        // (`TurnControl::Cancel { through }`). One schedule, with and
+        // without a failed catalog behind it: `go`, a Ctrl-C, a `/model`
+        // while the stopped turn unwinds (closed with Escape: a Ctrl-C is no
+        // key of its menu), `next`, the stopped turn's own end, then the
+        // runtime's start for submission 2 -- which a stop inside a catalog
+        // wait does not hold back (the worker's
+        // `a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number`)
+        // -- its answer and its finish. `/model` asks for the catalog either
+        // way (the first load, or the failure past its hold), and with the
+        // failure `go` asks too; nothing else does. The stop
+        // quotes 1 and `next` is 2 either way, and every report, `next`'s
+        // answer and `done`, and the one `Cancelled` line are the same:
+        // STOP-NEXT-2 reads `next`'s start as a turn of its own.
+        let mut runs = Vec::new();
+        for failed in [false, true] {
+            let mut shell = shell(40, 120);
+            if failed {
+                shell.apply(UiEvent::CatalogUnread {
+                    provider: ProviderId::Gateway,
+                    retry: Some(CatalogRetry::Unreachable),
+                    retry_at: failed_long_ago(),
+                });
+            }
+            let mut sent = Vec::new();
+            let mut sent_now = |shell: &mut Fixture| {
+                while let Some(message) = shell.controlled() {
+                    sent.push(message);
+                }
+            };
+            let _started = turn_running(&mut shell, b"go\r");
+            sent_now(&mut shell);
+            let mut wire = vec![status_of(&mut shell)];
+            shell.route_bytes(&[0x03]);
+            sent_now(&mut shell);
+            shell.settle_band(Instant::now());
+            wire.push(status_of(&mut shell));
+            shell.route_bytes(b"/model\r");
+            sent_now(&mut shell);
+            shell.route_bytes(b"\x1b");
+            shell.settle_input(Instant::now() + Duration::from_millis(60));
+            assert!(shell.model_menu.is_none(), "Escape left the menu open");
+            shell.route_bytes(b"next\r");
+            sent_now(&mut shell);
+            shell.settle_band(Instant::now());
+            wire.push(status_of(&mut shell));
+            let accepted = shell.work.accepted();
+            shell.apply(UiEvent::TurnEnded {
+                failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+            });
+            shell.work.give_back();
+            shell.settle_band(Instant::now());
+            wire.push(status_of(&mut shell));
+            shell.apply(UiEvent::TurnStarted { submission: 2 });
+            shell.settle_band(Instant::now());
+            wire.push(status_of(&mut shell));
+            shell.apply(UiEvent::Delta("MARKER-NEXT\n".to_string()));
+            shell.apply(UiEvent::TurnEnded { failure: None });
+            shell.work.give_back();
+            shell.settle_band(Instant::now());
+            wire.push(status_of(&mut shell));
+            let written = shell.released();
+            let text = written.join("\n");
+            let card = written.iter().position(|row| row.contains("next"));
+            let answer = written.iter().position(|row| row.contains("MARKER-NEXT"));
+            runs.push((
+                sent,
+                (
+                    accepted,
+                    wire,
+                    card.is_some() && answer.is_some() && card < answer,
+                    text.matches("\u{25aa} Cancelled").count(),
+                    text.contains("system"),
+                ),
+            ));
+        }
+        let (without, with) = (&runs[0], &runs[1]);
+        assert_eq!(
+            with.1, without.1,
+            "the count, the reports, `next`'s card above its answer, the `Cancelled` \
+             lines and a `system` line, with the catalog's asks and without them"
+        );
+        assert_eq!(
+            (&without.0, &with.0),
+            (
+                &vec![
+                    TurnControl::Cancel { through: 1 },
+                    TurnControl::Catalog(CatalogAsk::MENU),
+                ],
+                &vec![
+                    TurnControl::Catalog(CatalogAsk::ACTIVITY),
+                    TurnControl::Cancel { through: 1 },
+                    TurnControl::Catalog(CatalogAsk::MENU),
+                ],
+            ),
+            "the control messages, without the failed catalog and with it"
+        );
+        // And what both say: submission 2, `next` a turn of its own --
+        // `working` once the stopped turn's end lets its stop go, its answer
+        // presented, `done` -- and one `Cancelled` line.
+        assert_eq!(
+            with.1,
+            (
+                2,
+                vec![
+                    Some("working".to_string()),
+                    Some("idle".to_string()),
+                    None,
+                    Some("working".to_string()),
+                    None,
+                    Some("done".to_string()),
+                ],
+                true,
+                1,
+                false,
+            )
+        );
+    }
 }
