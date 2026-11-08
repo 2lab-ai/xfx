@@ -963,3 +963,40 @@ scenarios = ["p5-lifecycle-relhome-resume"]
 snaps = ["r00-resume.full"]
 rows = ["2-3", 41]
 why = "fx takes the terminal before it opens the session `--resume` names and refuses after its restore, which ends `ESC[1;1H ESC[J ... \\r\\n` and leaves a blank row above `fx: HomeNotSet` (the wire, .prd/tui-phase5/receipts/tui-unsaved/README.md); xfx opens the session before the terminal is touched and refuses on the shell row it was given (src/tui/mod.rs:127-133). The same row for any refused resume, a missing id on an ordinary HOME too, so not this unit's: the words match. Row 41 is the same shift at the other end: aligned, xfx's capture keeps one blank row more under its refusal (rows added at train 2, whose sweep found it; L-U3's own harness classifies the pair the same way)."
+
+# LAUNCH-SETTLE r2: the differences its conversions wait out, kept on snaps of
+# their own (receipts/launch-settle/README.md, "Differences kept").
+
+[[cause]]
+id = "esc-clear-armed-through-an-edit"
+kind = "unit"
+owner = "ESC-HINT-KEY"
+scenarios = ["p5-esc-clear"]
+snaps = ["b-edit-escape"]
+fx_row = '^┃ beta twoxzz9\s*$'
+xfx_row = '^┃ zz9\s*$'
+xfx = ["src/tui/gesture.rs:176-188"]
+fx = ["src/core/app/app_input_runtime.zig:855-859@481104fd"]
+why = "Escape, an edit, Escape inside the 500 ms window, at a prompt with a draft. fx disarms the clear on any byte that is not Escape (`disarmEscapeClear`), so its second Escape arms it again and the draft `beta twox` stays; xfx's `other_key` leaves the clear armed through the edit, so its second Escape clears the draft. The marker `zz9` typed after shows each draft. ESC-HINT-KEY owns the clear gesture's keys and its window's boundary (xfx `armed` is `<`, gesture.rs:241-243; fx `<=`, gesture_state.zig:79,139@481104fd)."
+
+[[cause]]
+id = "esc-clear-hint-over-empty-composer"
+kind = "unit"
+owner = "ESC-HINT-KEY"
+scenarios = ["p5-esc-clear"]
+snaps = ["c-deleted"]
+xfx_row = 'esc again to clear\s*$'
+xfx = ["src/tui/gesture.rs:162-164", "src/tui/gesture.rs:176-188"]
+fx = ["src/core/app/app_input_runtime.zig:855-859@481104fd"]
+why = "Escape, then the two-character draft deleted, inside the window. fx's Backspace disarms the clear and takes the hint down at once; xfx keeps the clear armed and its row says `esc again to clear` over the empty composer until the 500 ms run out -- what its own rule at gesture.rs:162-164 says a row should not advertise. Same owner and scope as esc-clear-armed-through-an-edit."
+
+[[cause]]
+id = "mcp-tools-at-a-reconnect"
+kind = "unit"
+owner = "MCP-HOLD"
+scenarios = ["p5-mcp-fail-held"]
+snaps = ["held"]
+fx_row = '^  Loading tools…\s*$'
+xfx_row = "^  Its tools couldn't load: "
+xfx = ["src/tui/mcp_menu.rs:786-791"]
+why = "A failing stdio server's screen, opened near 9 s, between its tries near 7 and 15 s (1 s backoff doubling, src/mcp/runtime.rs:90). xfx answers the screen's tools request at once from the last try's failure (`Found::Failed`): `Its tools couldn't load: …`. fx shows `Loading tools…` until its next try (p5-mcp-fail's server-1 waited 16.0 s for it, receipts/launch-settle/conversions.txt) -- fx's side read from the captures, not traced in its source. MCP-HOLD's scope, re-scoped: a tools request at a reconnect, which fx holds until the next try and xfx answers from the last failure."

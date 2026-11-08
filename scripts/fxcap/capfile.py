@@ -131,14 +131,15 @@ class Timer:
     lasts. Such a line inside the window is refused as a snap is; one before
     it stops the check's clock too (`races`).
 
-    `settle`, for a timer `keys` arm, is how long after the key an `absent`
-    must wait before its word counts: sooner, the binary may not have drawn
-    the row yet. It is a measured allowance (the longest key-to-row time seen,
-    with room for a loaded machine), not a bound either binary promises. A
-    timer only a launch arms has none: the check knows it is armed, so an
-    `absent` that passes there looked before it was drawn (or the binary
-    failed to arm it, which a snap pair shows), and only the screen showing
-    the row (`until shown`) and then not counts it gone (`races`)."""
+    `settle`, for a timer `keys` arm, is how long after the key an `until
+    gone` or an `absent` must wait before its word counts: sooner, the binary
+    may not have drawn the row yet. It is a measured allowance (the longest
+    key-to-row time seen, with room for a loaded machine), not a bound either
+    binary promises. A timer only a launch arms has none: the check knows it
+    is armed, so a look that finds it gone there may have come before it was
+    drawn (or the binary failed to arm it, which a snap pair shows), and only
+    the screen showing the row (`until shown`) and then not counts it gone
+    (`races`)."""
 
     def __init__(self, name, seconds, text, xfx, fx, launch=None, keys=(), disarms=False, pauses=None, settle=None):
         self.name, self.seconds, self.text, self.xfx, self.fx = name, seconds, text, xfx, fx
@@ -248,14 +249,11 @@ def races(reading):
     - `until gone <text>` and `absent <text>`: the row is not up, so nothing
       is armed until it is armed again -- `absent` fails the run when it is.
       Not while the row is paused (below): gone then is hidden, not spent.
-      An `absent` counts only where the row would be drawn by now if it were
+      Either counts only where the row would be drawn by now if it were
       armed: once an `until shown` has seen it, or from the timer's `settle`
       on after the key that armed it -- and never over a row a launch armed
-      that no `until shown` has seen since. capture.sh starts a scenario's
-      clock at the binary's first frame, which the full-access warning's own
-      clock starts at too, so an `until gone` there waits it out; an `absent`
-      would only say the row was not on one look, which is what a look
-      taken before the binary drew it says too.
+      that no `until shown` has seen since. A look that finds the row gone
+      there says what a look taken before the binary drew it says too.
 
     A line the timer `pauses` on, before its window, takes the row while it
     is surely up, for a time the .cap does not say: from there lo stops
@@ -295,7 +293,7 @@ def races(reading):
                 clock, frozen, seen = (0.0, clock[1] if clock else since_input[1]), False, True
             elif clock is None:
                 pass
-            elif names and not frozen and (verb != "absent" or seen or (by_key and clock[0] >= timer.settle)):
+            elif names and not frozen and (seen or (by_key and clock[0] >= timer.settle)):
                 clock = None
             elif verb in ("wait",) or verb in SPENDS:
                 clock = _spend(clock, verb, rest, frozen)
@@ -311,6 +309,23 @@ def races(reading):
                 )
             since_input = (0.0, 0.0) if verb in INPUTS else _spend(since_input, verb, rest)
     return out
+
+
+# Verbs only the harness's own tests (test_capture.py) may use: `nodraw`
+# skips capture.sh's launch wait, for a stub binary that draws nothing, so a
+# scenario's first key could race fx's or xfx's start again (registry #19,
+# 15th sighting).
+HARNESS_ONLY = ("nodraw",)
+
+
+def harness_only(reading):
+    """Every line of this reading whose verb is one only the harness's own
+    tests may use, one line each: the scenario, the binary, the line."""
+    return [
+        "%s (%s): `%s` is for test_capture.py's stub binaries (capfile.py HARNESS_ONLY), not a scenario" % (reading.name, reading.which, line)
+        for line in reading.lines
+        if line.partition(" ")[0] in HARNESS_ONLY
+    ]
 
 
 def regular_inside(path, directory):

@@ -1,0 +1,50 @@
+# The Escape-clear gesture at an idle prompt with a draft, on screen states
+# rather than on its 500 ms window (xfx src/tui/gesture.rs:70 CLEAR_WINDOW,
+# fx src/core/input/gesture_state.zig:4@481104fd). LAUNCH-SETTLE took this
+# gesture out of p5-mcp-menu-old, whose ending timed it with `wait 0.5`, on
+# the window's edge; this scenario keeps it, each case well inside the window:
+# every key after the first Escape is sent once the hint is on the screen,
+# tens of milliseconds into its 500 ms.
+# (a) Escape, then Escape inside the window: the second clears the draft.
+type alpha one
+until shown alpha one
+key Escape
+until shown esc again to clear
+key Escape
+until gone esc again to clear
+snap a-cleared
+# (b) Escape, an edit, Escape inside the window. fx disarms the clear on any
+# byte that is not Escape (src/core/app/app_input_runtime.zig:855-859
+# @481104fd), so its second Escape arms it again and the draft stays; xfx
+# keeps it armed through the edit (gesture.rs:176-188, `other_key`), so its
+# second Escape clears the draft. That Escape is left alone a second -- a key
+# typed straight after it could be read with it as one Alt key -- and then a
+# marker is typed, which both put on the composer (fx after its draft, xfx on
+# an empty one) and which takes fx's armed hint down: the snap holds no timer
+# on either.
+key C-u
+type beta two
+until shown beta two
+key Escape
+until shown esc again to clear
+type x
+key Escape
+wait 1
+type zz9
+until shown zz9
+snap b-edit-escape
+# (c) Escape, then the draft deleted. fx takes the hint down at the key; xfx
+# keeps it until its 500 ms run out, over an empty composer, which its own
+# rule says it should not show (gesture.rs:162-164).
+key C-u
+until gone zz9
+type qq
+until shown qq
+key Escape
+until shown esc again to clear
+key BSpace
+key BSpace
+until gone ┃ q
+snap c-deleted
+until gone esc again to clear
+snap c-later
