@@ -169,11 +169,12 @@ fn unit_at(rest: &str) -> usize {
         // Its last character is `}` or a hex digit, and a mark after it joins
         // it, so the cluster that character starts is the spelling's end.
         Some(len) => len - 1 + cluster(&rest[len - 1..]),
+        // `rest` starts with no spelling, so a `\` that starts one is past
+        // the cluster's first character and the unit is never empty.
         None => {
             let whole = cluster(rest);
             rest[..whole]
                 .char_indices()
-                .skip(1)
                 .find(|&(at, character)| character == '\\' && spelling_at(&rest[at..]).is_some())
                 .map_or(whole, |(at, _)| at)
         }
