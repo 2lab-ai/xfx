@@ -1,5 +1,5 @@
-"""LAUNCH-SETTLE's mutants: each one change to the harness or the check, made
-on a throwaway copy, and the test that must fail on it.
+"""LAUNCH-SETTLE's mutants: each one change to the harness, the check or the
+sweep, made on a throwaway copy, and the test that must fail on it.
 
 usage: python3 -I mutants.py <clone> > mutants.txt
 
@@ -70,7 +70,7 @@ MUTANTS = [
      """        printf '%s\\n' "$rest" >> "$run/snapped"\n""",
      CAPTURE + ["Verbs.test_expect_reads_only_a_frame_this_run_wrote"]),
     ("C1 `absent` counts over a launch-armed timer (the base rule)", CHECK,
-     '(verb != "absent" or seen or (by_key and clock[0] >= timer.settle))',
+     '(seen or (by_key and clock[0] >= timer.settle))',
      '(verb != "absent" or clock[0] >= (timer.settle or 3.0))',
      SWEEP + ["Capfile.test_absent_says_a_ctrl_c_armed_nothing"]),
     ("C2 an `until shown` does not count as seen", CHECK,
@@ -85,13 +85,26 @@ MUTANTS = [
      '                clock, frozen, by_key = (0.0, 0.0) if at_launch else None, False, False\n',
      SWEEP + ["Capfile.test_absent_says_a_ctrl_c_armed_nothing"]),
     ("C5 a paused row's `absent` counts once seen", CHECK,
-     'elif names and not frozen and (verb != "absent" or seen',
-     'elif names and (not frozen or seen) and (verb != "absent" or seen',
+     'elif names and not frozen and (seen or',
+     'elif names and (not frozen or seen) and (seen or',
      SWEEP + ["Capfile.test_absent_says_a_ctrl_c_armed_nothing"]),
     ("C6 the warning keeps a settle", CHECK,
      '        pauses=re.compile(r"^key .*\\b(?:C-c|C-o|Escape)\\b|^type /"),\n    ),',
      '        pauses=re.compile(r"^key .*\\b(?:C-c|C-o|Escape)\\b|^type /"),\n        settle=3.0,\n    ),',
      SWEEP + ["Capfile.test_settle_is_an_allowance_for_a_key_only"]),
+    # Round 2 (the reviews of a0f7edef).
+    ("C7 `until gone` counts over an unseen timer (round 1's rule)", CHECK,
+     '(seen or (by_key and clock[0] >= timer.settle))',
+     '(verb != "absent" or seen or (by_key and clock[0] >= timer.settle))',
+     SWEEP + ["Capfile.test_absent_says_a_ctrl_c_armed_nothing"]),
+    ("C8 `harness_only` names nothing", CHECK,
+     '        if line.partition(" ")[0] in HARNESS_ONLY\n',
+     '        if False\n',
+     SWEEP + ["Capfile.test_nodraw_is_the_harness_tests_own"]),
+    ("C9 the sweep runs a scenario with `nodraw`", FX + "sweep.py",
+     '    if stubs:\n        raise Refusal(',
+     '    if False:\n        raise Refusal(',
+     SWEEP + ["Sweep.test_a_scenario_with_nodraw_runs_nothing"]),
 ]
 
 

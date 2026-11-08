@@ -1,4 +1,5 @@
 """Each changed Capfile case through one capfile.py: the races it finds.
+`want` is the rule at the head.
 
 usage: python3 -I capfile_cases.py <scripts/fxcap dir>
 """
@@ -20,7 +21,11 @@ CASES = [
     ("hint seen, absent at once", "key C-c\nuntil shown press ctrl+c again to exit\nabsent press ctrl+c again to exit\nwait 2.5\nsnap after\n", "none"),
     ("hint, absent at 1.25 s (settle 1.0)", "key C-c\nwait 1.25\nabsent press ctrl+c again to exit\nwait 1.25\nsnap after\n", "none"),
     ("hint, absent at 0.5 s (inside settle)", "key C-c\nwait 0.5\nabsent press ctrl+c again to exit\nwait 2\nsnap after\n", "race"),
-    ("launch-armed, until gone at 3.5 s", YOLO + "wait 3.5\nuntil gone Full access\nsnap start\n", "none"),
+    # Round 2 (gpt6 r2 NTH): `until gone` held to absent's rule.
+    ("launch-armed, until gone at 3.5 s, unseen", YOLO + "wait 3.5\nuntil gone Full access\nsnap start\n", "race"),
+    ("launch-armed, until gone at 3.5 s after an until shown", YOLO + "until shown Full access\nwait 3.5\nuntil gone Full access\nsnap start\n", "none"),
+    ("hint, until gone at once (inside settle)", "key C-c\nuntil gone press ctrl+c again to exit\nwait 1\nsnap after\n", "race"),
+    ("hint, until gone at 1.5 s", "key C-c\nwait 1.5\nuntil gone press ctrl+c again to exit\nwait 1\nsnap after\n", "none"),
 ]
 for name, cap, want in CASES:
     d = tempfile.mkdtemp(prefix="cases.")

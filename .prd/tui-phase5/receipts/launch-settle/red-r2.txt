@@ -1,0 +1,40 @@
+# Round 2 RED at 50b4d605: its test_sweep.py over a0f7edef's capfile.py and sweep.py.
+.....FF.....E...F
+======================================================================
+ERROR: test_nodraw_is_the_harness_tests_own (__main__.Capfile.test_nodraw_is_the_harness_tests_own)
+----------------------------------------------------------------------
+AttributeError: module 'capfile' has no attribute 'harness_only'
+
+======================================================================
+FAIL: test_a_snap_inside_the_warnings_window_is_refused (__main__.Capfile.test_a_snap_inside_the_warnings_window_is_refused) (cap='fx: env FX_PERMISSION_MODE=yolo\nxfx: env XFX_PERMISSION_MODE=yolo\nwait 4\nuntil gone Full access\nsnap start\n')
+----------------------------------------------------------------------
+AssertionError: Lists differ: [] != [('fx', 'snap start'), ('xfx', 'snap start')]
+
+Second list contains 2 additional elements.
+First extra element 0:
+('fx', 'snap start')
+
+- []
++ [('fx', 'snap start'), ('xfx', 'snap start')]
+
+======================================================================
+FAIL: test_absent_says_a_ctrl_c_armed_nothing (__main__.Capfile.test_absent_says_a_ctrl_c_armed_nothing)
+----------------------------------------------------------------------
+AssertionError: Lists differ: [] != [('fx', 'snap a'), ('xfx', 'snap a')]
+
+Second list contains 2 additional elements.
+First extra element 0:
+('fx', 'snap a')
+
+- []
++ [('fx', 'snap a'), ('xfx', 'snap a')]
+
+======================================================================
+FAIL: test_a_scenario_with_nodraw_runs_nothing (__main__.Sweep.test_a_scenario_with_nodraw_runs_nothing)
+----------------------------------------------------------------------
+AssertionError: 0 != 2 : 
+
+----------------------------------------------------------------------
+Ran 17 tests in 6.410s
+
+FAILED (failures=3, errors=1)
