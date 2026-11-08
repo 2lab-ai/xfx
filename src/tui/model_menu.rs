@@ -1047,7 +1047,7 @@ mod tests {
             shown(&menu, 120, 40)[0],
             "Models 0  All  [Anthropic]  OpenAI  xAI  Others"
         );
-        // On All the search finds grok -- by its vendor's name too.
+        // On All the search finds grok -- by the vendor at the front of its id too.
         menu.cycle(false);
         assert_eq!(menu.selected(), Some("xai/grok-4.7"));
         menu.set_query("XAI");
