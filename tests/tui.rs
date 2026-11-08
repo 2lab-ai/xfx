@@ -13221,10 +13221,10 @@ fn a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_res
     // once the session has exited (`settled_text`), so none depends on when
     // this thread looks.
     //
-    // - After the last heartbeat, no frame and exactly one report: the
-    //   restore's own clear, at its place in the restore -- xfx writes the
-    //   clear nowhere else (`term.rs`'s four restore literals), so a second
-    //   clear is as wrong as any other report. Every heartbeat is written
+    // - After the last heartbeat, no frame and no report but the ones the
+    //   restore carries, at their places in it -- its clear, the only one:
+    //   xfx writes the clear nowhere else (`term.rs`'s four restore
+    //   literals), so a second clear is as wrong as any other report. Every heartbeat is written
     //   before the tool dies, the copy's end returns only after it has
     //   reaped the tool, and the pty keeps the writes in the order they were
     //   made -- so anything xfx writes after the copy's end lands after every
@@ -13250,7 +13250,6 @@ fn a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_res
     // clock any order is read from.
     use support::fake_clipboard::BEAT;
     const REPORT: &str = "\u{1b}]7501;";
-    const CLEAR: &str = "\u{1b}]7501;state=clear\u{1b}\\";
     const FRAME_OPEN: &str = "\u{1b}[?2026h";
     let alive = |pid: i32| {
         rustix::process::Pid::from_raw(pid)
@@ -13310,8 +13309,12 @@ fn a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_res
         "a frame or a report after the restore: {:?}",
         &text[restore..]
     );
-    // The restore's own clear: the one report it carries (`term.rs`).
-    let restore_clear = restore + RESTORE.find(CLEAR).expect("the restore carries the clear");
+    // The reports the restore itself carries, at their places in it: its
+    // program status clear (`term.rs`), the only one.
+    let restore_reports: Vec<usize> = RESTORE
+        .match_indices(REPORT)
+        .map(|(at, _)| restore + at)
+        .collect();
     let beat = text.rfind(BEAT).expect("the copy's tool never beat") + BEAT.len();
     let after_beat = &text[beat..];
     let reports: Vec<usize> = after_beat
@@ -13319,9 +13322,9 @@ fn a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_res
         .map(|(at, _)| beat + at)
         .collect();
     assert!(
-        !after_beat.contains(FRAME_OPEN) && reports == [restore_clear],
-        "after the copy's tool last beat, something but the restore's own clear \
-         (reports at {reports:?}, the restore's clear at {restore_clear}): {after_beat:?}"
+        !after_beat.contains(FRAME_OPEN) && reports == restore_reports,
+        "after the copy's tool last beat, a frame or a report that is not the restore's own \
+         (reports at {reports:?}, the restore's at {restore_reports:?}): {after_beat:?}"
     );
 }
 
