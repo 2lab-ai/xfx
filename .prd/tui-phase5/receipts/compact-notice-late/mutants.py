@@ -60,7 +60,7 @@ MUTANTS = [
             self.program_status"""),
 ]
 
-env = dict(os.environ, TMPDIR="/private/tmp/claude-501/cnl", CARGO_TARGET_DIR=os.path.join(clone, "target"))
+env = dict(os.environ, TMPDIR="<tmp>", CARGO_TARGET_DIR=os.path.join(clone, "target"))
 
 def run(cmd, limit):
     try:

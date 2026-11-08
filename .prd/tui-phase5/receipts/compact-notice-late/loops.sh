@@ -4,7 +4,7 @@
 # core), one build after the other. Run under SUITE_LOCK_EXCLUSIVE=1.
 set -u
 label=$1 fi=$2 plain=$3 n=$4
-export TMPDIR=/private/tmp/claude-501/cnl
+export TMPDIR=<tmp>
 cd <repo>
 echo "# $label  $(date -u +%FT%TZ)  cores=$(sysctl -n hw.ncpu)"
 echo "## fault-injection build"

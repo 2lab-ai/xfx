@@ -1,4 +1,4 @@
-# ../train-7/gates.sh (unchanged), in one hold of the suite lock: suite-lock.sh gates.sh <repo> <log-dir> <smoke-dir>, TMPDIR=/private/tmp/claude-501/cnl
+# ../train-7/gates.sh (unchanged), in one hold of the suite lock: suite-lock.sh gates.sh <repo> <log-dir> <smoke-dir>, TMPDIR=<tmp>
 # head 4057117a; tree clean: yes
 01 fmt                                exit 0     1s  load 4.96
 02 clippy                             exit 0     5s  load 4.96

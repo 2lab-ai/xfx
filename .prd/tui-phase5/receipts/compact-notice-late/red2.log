@@ -1,0 +1,33 @@
+# RED, round 2, at 51d91447 (round 1's head ed0e4e3a + receipts + these tests)
+$ cargo test --locked --lib -- a_compaction_a_stop_drops_before_it_began_is_told_how_it_ended a_line_after_a_stop_that_dropped_the_compaction_has_its_turn_to_itself
+
+running 2 tests
+test tui::worker::tests::a_compaction_a_stop_drops_before_it_began_is_told_how_it_ended ... FAILED
+test tui::event_loop::tests::a_line_after_a_stop_that_dropped_the_compaction_has_its_turn_to_itself ... FAILED
+
+failures:
+
+---- tui::worker::tests::a_compaction_a_stop_drops_before_it_began_is_told_how_it_ended stdout ----
+
+thread 'tui::worker::tests::a_compaction_a_stop_drops_before_it_began_is_told_how_it_ended' (358910245) panicked at src/tui/worker.rs:10140:9:
+assertion `left == right` failed: each: (the stop, what the band was told, the places still held)
+  left: [("a cancel", [], 0), ("a reset", ["the fence"], 0)]
+ right: [("a cancel", ["the compaction's end"], 0), ("a reset", ["the compaction's end", "the fence"], 0)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::event_loop::tests::a_line_after_a_stop_that_dropped_the_compaction_has_its_turn_to_itself stdout ----
+
+thread 'tui::event_loop::tests::a_line_after_a_stop_that_dropped_the_compaction_has_its_turn_to_itself' (358910244) panicked at src/tui/event_loop.rs:16073:9:
+assertion `left == right` failed: each: (`Stopping compaction`, the sentence) during the line's turn, then after it
+  left: [("the line in the tick after the drop", (true, false), (false, true)), ("the line with the stop", (true, false), (false, true))]
+ right: [("the line in the tick after the drop", (false, false), (false, false)), ("the line with the stop", (false, false), (false, false))]
+
+
+failures:
+    tui::event_loop::tests::a_line_after_a_stop_that_dropped_the_compaction_has_its_turn_to_itself
+    tui::worker::tests::a_compaction_a_stop_drops_before_it_began_is_told_how_it_ended
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4539 filtered out; finished in 0.09s
+
+error: test failed, to rerun pass `--lib`
+exit: 101
