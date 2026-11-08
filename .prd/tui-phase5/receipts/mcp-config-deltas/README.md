@@ -90,10 +90,10 @@ reads every `note:` row of `cap/fx/fx-p5-mcp-config-vars-40x120-list.txt`
 ## Reproduce
 
 ```
-FX_BIN=<fx v0.0.16> TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh fx  p5-mcp-config-vars    40x120 <out>
-                    TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh xfx p5-mcp-config-vars    40x120 <out>
-FX_BIN=<fx v0.0.16> TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh fx  p5-mcp-config-ignored 40x120 <out>
-                    TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh xfx p5-mcp-config-ignored 40x120 <out>
+FX_BIN=<fx v0.0.16> TMPDIR=<tmp> scripts/fxcap/capture.sh fx  p5-mcp-config-vars    40x120 <out>
+                    TMPDIR=<tmp> scripts/fxcap/capture.sh xfx p5-mcp-config-vars    40x120 <out>
+FX_BIN=<fx v0.0.16> TMPDIR=<tmp> scripts/fxcap/capture.sh fx  p5-mcp-config-ignored 40x120 <out>
+                    TMPDIR=<tmp> scripts/fxcap/capture.sh xfx p5-mcp-config-ignored 40x120 <out>
 cargo test --locked --lib mcp::config
 ```
 

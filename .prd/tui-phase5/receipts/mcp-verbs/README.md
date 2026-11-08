@@ -199,7 +199,7 @@ directory only):
 ## Reproduce
 
 ```
-FX_BIN=<fx v0.0.16> TMPDIR=/private/tmp/claude-501 scripts/fxcap/sweep.sh --fx <fx v0.0.16> \
+FX_BIN=<fx v0.0.16> TMPDIR=<tmp> scripts/fxcap/sweep.sh --fx <fx v0.0.16> \
   --pin-sha 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2 \
   --only p5-mcp-empty --only p5-mcp-verbs --jobs 2 --out <dir outside the repo>
 python3 -I .prd/tui-phase5/receipts/mcp-verbs/notices.py <fx end.full.txt> <xfx end.full.txt>

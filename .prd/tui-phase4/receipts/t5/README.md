@@ -7,7 +7,7 @@ FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> 40x120
 XFX_BIN=<xfx b12eb45 debug>       scripts/fxcap/capture.sh xfx <scenario> 40x120 <dir>
 ```
 
-with `TMPDIR=/private/tmp/claude-501`, for `links` and `links-image`
+with `TMPDIR=<tmp>`, for `links` and `links-image`
 (`scripts/fxcap/scenarios/`). The xfx binary is `target/debug/xfx` built at
 `b12eb45` -- this branch with `plan/tui-phase4` at `1fc2ea4` merged; its
 banner says `v0.1.0-b12eb45 [debug]`. fx is the c1db919 build (banner
@@ -27,7 +27,7 @@ with the chime names still directories).
   workspace `image-ws/`): `/image shot.png`, a prompt that sends it, `/quit`,
   and a relaunch that resumes it.
 
-**Sanitized**: the run directory (`/private/tmp/claude-501/fxcap.XXXXXX`) is
+**Sanitized**: the run directory (`/private/tmp/claude-<uid>/fxcap.XXXXXX`) is
 written as `<scratch>`; it is in both binaries' badge links
 (`file://<scratch>/work/shot.png`). Every file was then scanned for `fxcap.`,
 `/private/`, `/var/folders`, `claude-501`, `/Users/`, `AI_GATEWAY` and the

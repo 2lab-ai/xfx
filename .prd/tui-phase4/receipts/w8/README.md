@@ -3,8 +3,8 @@
 Five scenarios, each run at 40x120 on both binaries with the repo's own driver:
 
 ```
-TMPDIR=/private/tmp/claude-501 FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> 40x120 <dir>
-TMPDIR=/private/tmp/claude-501                                    scripts/fxcap/capture.sh xfx <scenario> 40x120 <dir>
+TMPDIR=<tmp> FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> 40x120 <dir>
+TMPDIR=<tmp>                                    scripts/fxcap/capture.sh xfx <scenario> 40x120 <dir>
 ```
 
 for `allowlist`, `allowlist2`, `allowlist3`, `allowlist-turn` and

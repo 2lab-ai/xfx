@@ -5,8 +5,8 @@ research's `p5-input-paste.cap`, its keystrokes copied byte for byte -- run at
 40x120 on both binaries with the repo's driver, unmodified:
 
 ```
-FX_BIN=<fx c1db919 build, 0.0.13> TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh fx  paste-suffix 40x120 .prd/tui-phase4/receipts/x1
-                                  TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh xfx paste-suffix 40x120 .prd/tui-phase4/receipts/x1
+FX_BIN=<fx c1db919 build, 0.0.13> TMPDIR=<tmp> scripts/fxcap/capture.sh fx  paste-suffix 40x120 .prd/tui-phase4/receipts/x1
+                                  TMPDIR=<tmp> scripts/fxcap/capture.sh xfx paste-suffix 40x120 .prd/tui-phase4/receipts/x1
 ```
 
 It types `prior`, then **one** `type` of `ESC[200~new ESC[201~ CR`: one write,

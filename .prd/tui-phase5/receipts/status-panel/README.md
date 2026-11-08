@@ -86,7 +86,7 @@ at `cbea384e`, except `p5-panels-status-short` at 24x50, taken with
 row under it (`xfx-debug-banner-wrap`, whose fix this is); a release build's
 fits. Every 40x120 and 14x120 verdict is the one round 1 recorded; the six
 24x50 pairs changed as the table says.
-Sanitized: `/private/tmp/claude-501` is `<tmp>` (`scripts/fxcap/redact.py`).
+Sanitized: `/private/tmp/claude-<uid>` is `<tmp>` (`scripts/fxcap/redact.py`).
 `pairs.py` runs the sweep's own classification (`ledger.classify`,
 `ledger.cascade`, `sweep.attribute`) against the v0.0.16 pin.
 

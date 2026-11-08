@@ -49,7 +49,7 @@ keys typed while the binary starts. It is `TCSANOW` now, as fx's is
 (`src/ui/shell_runtime.zig:128`). A throwaway run still came first here, so the
 take is the same as the earlier ones.
 
-Sanitized: the run directory `/private/tmp/claude-501/fxcap.XXXXXX` is written
+Sanitized: the run directory `/private/tmp/claude-<uid>/fxcap.XXXXXX` is written
 as `<scratch>` in every file here. It appears in the `copy-fail` screens (the
 saved path) and in the reports and `.clipfile`s.
 

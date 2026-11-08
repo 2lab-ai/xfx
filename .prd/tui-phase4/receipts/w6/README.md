@@ -6,7 +6,7 @@ run in the harness's `auto` mode. The xfx captures were taken at `ba90ad2` (this
 `plan/tui-phase4` at `2b5967f` merged in); fx is the `c1db919` build.
 
 ```
-export TMPDIR=/private/tmp/claude-501
+export TMPDIR=<tmp>
 FX_BIN=<fx c1db919 build> scripts/fxcap/capture.sh fx  undo        40x120 <out>
 scripts/fxcap/capture.sh                            xfx undo        40x120 <out>
 FX_BIN=<fx c1db919 build> scripts/fxcap/capture.sh fx  undo-empty  40x120 <out>
@@ -15,7 +15,7 @@ FX_BIN=<fx c1db919 build> scripts/fxcap/capture.sh fx  undo-resume 40x120 <out>
 scripts/fxcap/capture.sh                            xfx undo-resume 40x120 <out>
 ```
 
-The run directory (`/private/tmp/claude-501/fxcap.XXXXXX`) is written `<scratch>` in every file here;
+The run directory (`/private/tmp/claude-<uid>/fxcap.XXXXXX`) is written `<scratch>` in every file here;
 nothing else was changed. `*-work-<label>.txt` is the workspace's files at that point (`workls`).
 
 The turns (`undo-turns.json`, one file for both): `write one please` → `write_file a.txt` = `one\n`,

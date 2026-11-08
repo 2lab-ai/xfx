@@ -105,7 +105,7 @@ the work-tree case calls `discover` without `load`.
 On the base, `0b16d7e5` with `delay.patch`:
 
 ```
-TMPDIR=/private/tmp/claude-501/flake-filelist timeout -k 10 600 \
+TMPDIR=<tmp>/flake-filelist timeout -k 10 600 \
   cargo test --locked --lib -- --exact \
   tui::shell::tests::a_choice_in_the_middle_of_a_line_reuses_the_space_after_it \
   tui::shell::tests::a_directory_choice_keeps_the_list_up_on_that_directory
@@ -253,7 +253,7 @@ The first round's gates, then FLAKE-FILELISTb's.
 
 Run once on the fix, `5898145e`, with this receipt committed above it
 before this table was added (that commit was then amended),
-`TMPDIR=/private/tmp/claude-501/flake-filelist`. The suites ran only when no
+`TMPDIR=<tmp>/flake-filelist`. The suites ran only when no
 other worker's xfx lib suite was running on this machine.
 
 | gate | result |

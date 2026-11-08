@@ -7,7 +7,7 @@ FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> 40x120
                                   scripts/fxcap/capture.sh xfx <scenario> 40x120 <dir>
 ```
 
-with `TMPDIR=/private/tmp/claude-501`.
+with `TMPDIR=<tmp>`.
 
 - `skills.cap` (turns `skills-turn.json`): `/skills` and its menu, Down,
   Escape, `list`, `show demo`, `show nope`, `path`, `create made`,
@@ -28,8 +28,12 @@ c1db919 build (banner `v0.0.13`). xfx is `target/debug/xfx` built at
 `v0.1.0-0e78888`). An earlier set, taken before the merge (`8891d04`), gave
 the same verdicts row for row once the two fixes below were in.
 
-Sanitized: each run directory's random suffix is written as `XXXXXX`
-(`/private/tmp/claude-501/fxcap.XXXXXX`), the same length, so no row moves. No
+Sanitized: each run directory's random suffix was written as `XXXXXX`
+(`/private/tmp/claude-<uid>/fxcap.XXXXXX`), the same length, so no row moved.
+Since LOCAL-PATHS (2026-11-09) the whole run directory is written `<scratch>`
+(`<work>` for its `work`): a row that holds it is shorter, on both sides alike,
+and stays where it was; every pair reads as it did
+(`.prd/tui-phase5/receipts/local-paths/verify.txt`). No
 home path, key or bearer appears in any file. The fake key
 (`fake-key-not-real`) appears nowhere.
 

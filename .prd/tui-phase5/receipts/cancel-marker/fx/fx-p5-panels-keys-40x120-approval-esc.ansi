@@ -16,7 +16,7 @@
 [1m[38;5;252m  Model[0m             [38;5;245mfake/model-a[39m
 [1m[38;5;252m  Auth[0m              [38;5;245mAI_GATEWAY_API_KEY[39m
 [1m[38;5;252m  Permissions[0m       [38;5;245mask[39m
-[1m[38;5;252m  Workspace[0m         [38;5;245m/private/tmp/claude-501/cm/th/fxsw.xlgguar9/341/fxcap.Efvzqi/work[39m
+[1m[38;5;252m  Workspace[0m         [38;5;245m<work>[39m
 [1m[38;5;252m  Turns[0m             [38;5;245m1[39m
 [1m[38;5;252m  Session grants[0m    [38;5;245m0[39m
 [1m[38;5;252m  Step limit[0m        [38;5;245munlimited[39m

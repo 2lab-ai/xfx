@@ -4,7 +4,7 @@ Two scenarios, each driven identically on both binaries by `scripts/fxcap/captur
 (isolated tmux socket, empty `HOME`, fake key, loopback fake gateway, desktop shims):
 
 ```
-export TMPDIR=/private/tmp/claude-501
+export TMPDIR=<tmp>
 FX_BIN=<fx c1db919 build> scripts/fxcap/capture.sh fx  approvals     40x120 <out>
 XFX_BIN=target/release/xfx scripts/fxcap/capture.sh xfx approvals     40x120 <out>
 FX_BIN=<fx c1db919 build> scripts/fxcap/capture.sh fx  approvals-big 40x120 <out>

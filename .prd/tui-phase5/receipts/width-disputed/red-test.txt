@@ -1,4 +1,4 @@
-# TMPDIR=/private/tmp/claude-501/tr cargo test --locked --lib tui::wrap::tests::the_soft_hyphen
+# TMPDIR=<tmp>/tr cargo test --locked --lib tui::wrap::tests::the_soft_hyphen
 # on 8837634a's code with only this test added (before the fix); (code point, (painter alone, painter between letters), markdown port, fx)
 
 running 1 test

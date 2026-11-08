@@ -11,7 +11,7 @@
 ● 4 tool calls · 3 read · 1 list · 4 failed
 ├ Failed src
 │  {"error":{"type":"tool_execution_failed","tool_name":"read_file","message":"read_file requires a regular file","detai
-│  ls":{"field":"path","path":"/private/tmp/claude-501/fxcap.DJFnXq/work/src","error":"NotRegularFile"},"suggestion":"Us
+│  ls":{"field":"path","path":"<work>/src","error":"NotRegularFile"},"suggestion":"Us
 │  e glob_files to inspect directory contents, then choose a regular file."}}
 
   2026-10-07 04:51:36.086 UTC · Tool

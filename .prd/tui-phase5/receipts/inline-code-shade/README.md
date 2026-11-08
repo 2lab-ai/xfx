@@ -80,8 +80,8 @@ at `d314549e`.
 ## Captures
 
 ```
-FX_BIN=<fx v0.0.16> TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh fx  <scenario> 40x120 fx/
-XFX_BIN=<xfx>       TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh xfx <scenario> 40x120 red/ | xfx/
+FX_BIN=<fx v0.0.16> TMPDIR=<tmp> scripts/fxcap/capture.sh fx  <scenario> 40x120 fx/
+XFX_BIN=<xfx>       TMPDIR=<tmp> scripts/fxcap/capture.sh xfx <scenario> 40x120 red/ | xfx/
 ```
 
 `capture.sh` runs fx with `FX_AUTO_UPGRADE=0` and checks its bytes after the
@@ -275,7 +275,7 @@ but this unit's own `p5-inline-code-*`.
 | `src/ui/terminal/theme_monitor.zig:253` | `fn settleNotificationFallback` |
 | `src/ui/render.zig:917` | test: `"run \x1b[38;5;235mzig build\x1b[39m now\n"` |
 
-## Gates (at T-U3b's code head, one at a time after the idle wait, `TMPDIR=/private/tmp/claude-501/ics`)
+## Gates (at T-U3b's code head, one at a time after the idle wait, `TMPDIR=<tmp>/ics`)
 
 | gate | result |
 |---|---|

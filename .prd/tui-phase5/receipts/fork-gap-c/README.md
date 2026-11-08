@@ -154,7 +154,7 @@ loading} 2/0/2 each, effort-nolevels 5/0/5, effort-short 3/0/3, slash-rank
 `p5-panels-*` and `p5-permissions-*` pairs keep the FK-GAP receipt's
 counts.
 
-**Gates** at `8aead681`, `TMPDIR=/private/tmp/claude-501/fsg`:
+**Gates** at `8aead681`, `TMPDIR=<tmp>/fsg`:
 
 | gate | result |
 |---|---|

@@ -127,10 +127,10 @@ Both engines' findings (`.../p5/MCP-C/reviews/gpt6.md`, opus's in the brief):
 ## Reproduce
 
 ```
-FX_BIN=<fx v0.0.16> TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh fx  p5-mcp-config 40x120 <out>
-FX_BIN=<fx v0.0.16> TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh fx  p5-mcp-verbs  40x120 <out>
-FX_BIN=<fx v0.0.16> TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh fx  p5-mcp-notes  40x120 <out>
-                    TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh xfx p5-mcp-notes  40x120 <out>
+FX_BIN=<fx v0.0.16> TMPDIR=<tmp> scripts/fxcap/capture.sh fx  p5-mcp-config 40x120 <out>
+FX_BIN=<fx v0.0.16> TMPDIR=<tmp> scripts/fxcap/capture.sh fx  p5-mcp-verbs  40x120 <out>
+FX_BIN=<fx v0.0.16> TMPDIR=<tmp> scripts/fxcap/capture.sh fx  p5-mcp-notes  40x120 <out>
+                    TMPDIR=<tmp> scripts/fxcap/capture.sh xfx p5-mcp-notes  40x120 <out>
 cargo test --locked --lib mcp::config
 ```
 
