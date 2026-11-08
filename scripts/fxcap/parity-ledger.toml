@@ -650,15 +650,15 @@ xfx_row = '^✗ system: the Gateway returned HTTP 502: |^auto · model-a$'
 why = "Every request of the turn answers 502. fx backs off and is still retrying when Escape stops the turn (`⚠ Provider unavailable · HTTP 502 · … retrying request in Ns`), so its stop leaves `▪ Cancelled · What can fx do differently?`; xfx gives up after three attempts (`gateway::DEFAULT_MAX_ATTEMPTS`, src/gateway/mod.rs:59) before `r01` (2.1 s) and writes the failure, so its row 5 is `✗ system: the Gateway returned HTTP 502: …` from `r01` on, where fx's is the retry row and then the cancelled line, and the Escape that arms fx's `esc again to interrupt` finds no turn on xfx's (`r04a-esc-armed`). The retry budget K-recover owns for `interrupt-retry`. Named by T-U4: the deleted `cancelled-marker` took fx's `▪ Cancelled` row in `r04-after-esc` and `r05-after-esc-4.5s`, and these rows were otherwise uncaused (.prd/tui-phase5/receipts/cancel-marker/README.md)."
 
 [[cause]]
-id = "question-cap-four"
+id = "question-resume-replay"
 kind = "unit"
-owner = "I-U6 ask_user_question to 20 (input cluster I11), not yet a branch"
-scenarios = ["p5-input-question"]
-snaps = ["q6", "q6-after", "q6-after.full"]
-rows = ["9-17"]
-fx_row = '^─+$|^  Q1 colour\?$|^    \d\) |^1–3 choose now .*Question 1 of 6$|^▪ Cancelled$|^$'
-xfx_row = '^  Six done\.$|^  <wall> \(|^┃$|^auto · model-a$|^$'
-why = "fx v0.0.16 asks up to 20 questions in a batch (`max_questions = 20`, `question_answer.zig:9@481104fd`), xfx still 4 (`MAX_QUESTIONS`, src/tools/question.rs:25): the scenario's six-question batch opens fx's panel (`Q1 colour? … Question 1 of 6`) and Escape leaves fx's `▪ Cancelled`, where xfx's tool refuses the batch and the turn goes on to `Six done.`. The first batch's `▪ Cancelled` row (row 5) is the same on both since T-U4. Named by T-U4: these rows were uncaused at the base (.prd/tui-phase5/receipts/cancel-marker/README.md)."
+owner = "QUESTION-RESUME a resume replays a question batch's resolutions (docs/parity.md:162), not yet a branch"
+scenarios = ["p5-input-question20"]
+snaps = ["resumed", "resumed.full"]
+whole_snap = true
+# The I-U6 receipt (.prd/tui-phase5/receipts/questions-20/): every snap of the
+# batch itself is identical at 40x120, 24x80 and 14x72; the resume is this.
+why = "fx v0.0.16 replays a resumed session's answered `ask_user_question` batch as its resolutions, `  N) <question>` with the answer under it, decoding the saved document of 1 to 20 questions (`writeAnsweredQuestionResult`, `app_session_runtime.zig:4589-4607`; `decodeJson`, `question_answer.zig:43-74@481104fd`). xfx's replay writes nothing for the call (src/tui/hydration.rs builds its ToolStart and ToolResult, and ToolGroup::start returns early for Activity::Ask, src/tui/toolgroup.rs:511-513), at any count: the receipt's two-question probe shows the same. So `resumed` lacks the twenty resolutions fx shows above `  Twenty done.`, and `resumed.full` has them only in the first run's scrollback."
 
 [[cause]]
 id = "P1-carry-notice"

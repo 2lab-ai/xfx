@@ -4170,10 +4170,33 @@ fn twenty_questions_are_one_panel_and_their_answers_reach_the_next_request_in_or
     on_screen(&session, (40, 120), &["Pick 1?", "Question 1 of 20"], &[]);
     session.type_bytes(b"\t\t\t\t\t\t\t\t\t");
     on_screen(&session, (40, 120), &["Pick 10?", "Question 10 of 20"], &[]);
-    // Back to the first, and the batch answered from there: odd questions
-    // keep, even ones change.
+    // A narrow screen keeps the page, and the counter is back once the row
+    // has room for it again (fx's own e2e of the full batch,
+    // `tui-decision-prompts.test.ts`, 28cf53b5). Read off what arrives after
+    // each resize: the cells are rebuilt at one size only.
+    let after = |text: &str, mark: usize| {
+        String::from_utf8_lossy(&text.as_bytes()[mark.min(text.len())..]).into_owned()
+    };
+    let mark = session.text().len();
+    resize(&pty, &session, 24, 48);
+    session.wait_until("page 10 kept at 48 columns", |text| {
+        let text = after(text, mark);
+        text.contains("Pick 10?") && text.contains("Change 10")
+    });
+    let mark = session.text().len();
+    resize(&pty, &session, 40, 120);
+    session.wait_until("the counter back at 120 columns", |text| {
+        after(text, mark).contains("Question 10 of 20")
+    });
+    // Past the last back to the first, and the batch answered from there: odd
+    // questions keep, even ones change.
     session.type_bytes(b"\t\t\t\t\t\t\t\t\t\t\t");
-    on_screen(&session, (40, 120), &["Pick 1?", "Question 1 of 20"], &[]);
+    on_screen(
+        &session,
+        (40, 120),
+        &["Pick 1?", "Question 1 of 20"],
+        &["Pick 10?"],
+    );
     session.type_bytes(b"12121212121212121212");
     session.wait_for("MARKER-TWENTY");
     session.type_bytes(b"/quit\r");
