@@ -180,9 +180,11 @@ build (`e4c678eb`, sha256 `6e313514…`). The comparison is
 one at a time, in one suite-lock slot: fmt, both clippy runs, the full
 `cargo test`, both fault-injection runs, every `check-*`/`test-*` script,
 the release build, `smoke.sh`, the faulty build and `smoke-tui.sh`. It runs
-on `be6fd7f9`, the commit before the one that adds `gates.txt`; that
-commit changes nothing but `gates.txt` and this paragraph. Step 00 is
-`false` and reads `rc=1`.
+on `be6fd7f9`. The commits after it are docs only: `5c8d28ac` (`gates.txt`,
+this paragraph), `d61e2515` (F8 in `fx-src.txt`, the README) and the one
+that adds this sentence. On that last head the three tracked-file scanners
+ran again, outside the lock; their lines are at the end of `gates.txt`.
+Step 00 is `false` and reads `rc=1`.
 
 All 21 steps read `rc=0`. Step 04 ran 5451 tests, step 06 ran 4558 and
 step 05 ran 195, with 0 failed in each. An earlier run, on `93c11c9f`,
@@ -207,10 +209,29 @@ after Enter; `4139bd68` fixed them.
   `width-disputed`, `tc-notation`) are records of their own commits and
   are left as they were.
 
-## Not captured on fx
+## Where xfx previews less than fx
 
-xfx writes these at once, and fx's path for them was not captured:
+fx's pending path is shut only by an open stream, paced output, Ctrl-O, or
+a turn start the worker will not hold (F8). xfx also writes the card whole
+at once in the cases below. That is a narrowing, xfx doing less than fx: no
+capture was taken of fx's frame for them, and `preview_room` would have to
+guess where fx measures from. `docs/parity.md` names them. No ledger row
+exists for them, because no scenario reaches them.
 
 - a card after a fork's `original session` line;
+- a card under a row that is not blank;
 - a card submitted while the document still owes rows;
-- a resize between the two frames.
+- a resize between the two frames, which drops the preview.
+
+The room's last term, the running band's content bottom less three, comes
+from fx's trace and captures at 40 rows only (`fx-trace.txt`). At other
+heights it is the same derivation from `layout::solve_with`, not a
+measurement.
+
+## Local paths in the captures
+
+The image scenarios' card badges link to the run's file. 78 cells hold
+`/private/tmp/claude-501/fxcap.<run>/work/shot.png` as an OSC 8 target, on
+fx's side and on xfx's alike. That is the harness's temp folder, which the
+common brief allows (`main` already carries it). It is left in place,
+because redacting it would change the bytes compared against fx's.
