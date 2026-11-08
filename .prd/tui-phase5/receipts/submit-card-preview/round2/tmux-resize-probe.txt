@@ -1,0 +1,29 @@
+# bash tmux-resize-probe.sh <scratch dir>   (tmux 3.7b)
+== 40x120, rows 36-40
+36|line 57
+37|line 58
+38|composer
+39|line 60
+40|hint
+== 24x120, rows 1-2 and 19-24
+ 1|line 36
+ 2|line 37
+19|line 54
+20|line 55
+21|line 56
+22|line 57
+23|line 58
+24|composer
+== 40x100, rows 1-2 and 34-40
+ 1|line 20
+ 2|line 21
+34|line 53
+35|line 54
+36|line 55
+37|line 56
+38|line 57
+39|line 58
+40|composer
+
+# Read: shrinking 40 -> 24 dropped the two rows under the cursor (line 60, hint) and moved 14 rows off the top into the
+# history; growing back brought rows from the history to the top. Terminal in the event_loop tests models exactly this.

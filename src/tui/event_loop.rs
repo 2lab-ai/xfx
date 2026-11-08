@@ -9046,6 +9046,516 @@ mod tests {
         }
     }
 
+    /// A terminal with a history, for what a preview leaves behind: the
+    /// rows on the screen, the rows scrolled off its top, and the alternate
+    /// buffer `?1049` saves the screen behind.
+    ///
+    /// A resize is tmux's, the terminal every capture of this crate runs in,
+    /// as measured (`.prd/tui-phase5/receipts/submit-card-preview/round2/
+    /// tmux-resize-probe.txt`): a shorter screen drops the rows under the
+    /// cursor first, then moves rows off the top into the history; a taller
+    /// one brings rows back from the history to the top; a narrower one cuts
+    /// rows, and none of xfx's rows is a wrapped one for it to reflow.
+    struct Terminal {
+        rows: usize,
+        cols: usize,
+        lines: Vec<Vec<char>>,
+        history: Vec<String>,
+        row: usize,
+        col: usize,
+        saved: Option<(Vec<Vec<char>>, usize, usize)>,
+        fed: usize,
+    }
+
+    impl Terminal {
+        fn new(rows: u16, cols: u16) -> Self {
+            Self {
+                rows: usize::from(rows),
+                cols: usize::from(cols),
+                lines: vec![Vec::new(); usize::from(rows)],
+                history: Vec::new(),
+                row: 0,
+                col: 0,
+                saved: None,
+                fed: 0,
+            }
+        }
+
+        /// Everything `written` holds past what this terminal has read.
+        fn catch_up(&mut self, written: &[u8]) {
+            let new = written[self.fed..].to_vec();
+            self.fed = written.len();
+            self.feed(&String::from_utf8_lossy(&new));
+        }
+
+        fn feed(&mut self, text: &str) {
+            let chars: Vec<char> = text.chars().collect();
+            let mut at = 0;
+            while at < chars.len() {
+                let c = chars[at];
+                at += 1;
+                match c {
+                    '\u{1b}' => at = self.escape(&chars, at),
+                    '\n' => self.linefeed(),
+                    '\r' => self.col = 0,
+                    '\u{8}' => self.col = self.col.saturating_sub(1),
+                    c if c.is_control() => {}
+                    c => self.put(c),
+                }
+            }
+        }
+
+        fn escape(&mut self, chars: &[char], at: usize) -> usize {
+            match chars.get(at) {
+                Some('[') => {
+                    let mut end = at + 1;
+                    while end < chars.len() && !('\u{40}'..='\u{7e}').contains(&chars[end]) {
+                        end += 1;
+                    }
+                    let params: String = chars[at + 1..end.min(chars.len())].iter().collect();
+                    if let Some(&last) = chars.get(end) {
+                        self.csi(&params, last);
+                    }
+                    end + 1
+                }
+                Some(']') => {
+                    let mut end = at + 1;
+                    while end < chars.len() {
+                        if chars[end] == '\u{7}' {
+                            return end + 1;
+                        }
+                        if chars[end] == '\u{1b}' && chars.get(end + 1) == Some(&'\\') {
+                            return end + 2;
+                        }
+                        end += 1;
+                    }
+                    end
+                }
+                Some(_) => at + 1,
+                None => at,
+            }
+        }
+
+        fn csi(&mut self, params: &str, last: char) {
+            let numbers: Vec<usize> = params
+                .trim_start_matches(['?', '>', '<', '='])
+                .split(';')
+                .map(|n| n.parse().unwrap_or(0))
+                .collect();
+            let first = numbers.first().copied().unwrap_or(0);
+            match last {
+                'H' | 'f' => {
+                    self.row = first.max(1).min(self.rows) - 1;
+                    self.col = numbers.get(1).copied().unwrap_or(1).max(1).min(self.cols) - 1;
+                }
+                'G' => self.col = first.max(1).min(self.cols) - 1,
+                'C' => self.col = (self.col + first.max(1)).min(self.cols - 1),
+                'K' => {
+                    let line = &mut self.lines[self.row];
+                    if first == 2 {
+                        line.clear();
+                    } else {
+                        line.truncate(self.col);
+                    }
+                }
+                'J' => {
+                    if first == 2 || first == 3 {
+                        self.lines.iter_mut().for_each(Vec::clear);
+                    } else {
+                        self.lines[self.row].truncate(self.col);
+                        self.lines[self.row + 1..].iter_mut().for_each(Vec::clear);
+                    }
+                }
+                'X' => {
+                    for offset in 0..first.max(1) {
+                        if let Some(cell) = self.lines[self.row].get_mut(self.col + offset) {
+                            *cell = ' ';
+                        }
+                    }
+                }
+                'h' if params == "?1049" => {
+                    let screen = std::mem::replace(&mut self.lines, vec![Vec::new(); self.rows]);
+                    self.saved = Some((screen, self.row, self.col));
+                }
+                'l' if params == "?1049" => {
+                    if let Some((screen, row, col)) = self.saved.take() {
+                        self.lines = screen;
+                        self.row = row;
+                        self.col = col;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        fn put(&mut self, c: char) {
+            let line = &mut self.lines[self.row];
+            while line.len() < self.col {
+                line.push(' ');
+            }
+            if self.col < line.len() {
+                line[self.col] = c;
+            } else {
+                line.push(c);
+            }
+            if self.col + 1 < self.cols {
+                self.col += 1;
+            }
+        }
+
+        fn linefeed(&mut self) {
+            if self.row + 1 < self.rows {
+                self.row += 1;
+                return;
+            }
+            let top = self.lines.remove(0);
+            if self.saved.is_none() {
+                self.history.push(top.into_iter().collect());
+            }
+            self.lines.push(Vec::new());
+        }
+
+        fn resize(&mut self, rows: u16, cols: u16) {
+            let (rows, cols) = (usize::from(rows), usize::from(cols));
+            if rows < self.rows {
+                let mut cut = self.rows - rows;
+                let below = (self.rows - 1 - self.row).min(cut);
+                self.lines.truncate(self.rows - below);
+                cut -= below;
+                for line in self.lines.drain(..cut) {
+                    self.history.push(line.into_iter().collect());
+                }
+                self.row -= cut;
+            } else {
+                for _ in 0..(rows - self.rows) {
+                    match self.history.pop() {
+                        Some(line) => {
+                            self.lines.insert(0, line.chars().collect());
+                            self.row += 1;
+                        }
+                        None => self.lines.push(Vec::new()),
+                    }
+                }
+            }
+            for line in &mut self.lines {
+                line.truncate(cols);
+            }
+            self.rows = rows;
+            self.cols = cols;
+            self.col = self.col.min(cols - 1);
+        }
+
+        /// The history and then the screen, each row as its text.
+        fn everything(&self) -> Vec<String> {
+            let mut rows = self.history.clone();
+            rows.extend(
+                self.lines
+                    .iter()
+                    .map(|line| line.iter().collect::<String>()),
+            );
+            rows.iter().map(|row| row.trim_end().to_string()).collect()
+        }
+    }
+
+    /// Asserts that `words` stand once each, in order, on rows of their own
+    /// behind the card's rail, in the history and on the screen together,
+    /// and on no other row.
+    fn card_once(terminal: &Terminal, words: &[String], what: &str) {
+        let rows = terminal.everything();
+        let carrying: Vec<(usize, &String)> = rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| words.iter().any(|word| row.contains(word.as_str())))
+            .collect();
+        let expected: Vec<String> = words
+            .iter()
+            .map(|word| format!("\u{2503} {word}"))
+            .collect();
+        let found: Vec<String> = carrying.iter().map(|(_, row)| (*row).clone()).collect();
+        assert_eq!(
+            found, expected,
+            "{what}: the card's rows, history and screen: {rows:#?}"
+        );
+        let first = carrying[0].0;
+        assert!(
+            carrying
+                .iter()
+                .enumerate()
+                .all(|(n, (at, _))| *at == first + n),
+            "{what}: the card's rows are not one after another: {rows:#?}"
+        );
+    }
+
+    /// A 40x120 session whose screen a turn's answer has filled, the frame
+    /// that shows it landed, and `lines` pasted into the composer and shown.
+    fn full_with_draft(lines: &[String]) -> (Fixture, Band, FrameFailures, FlakyScreen, Terminal) {
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let mut terminal = Terminal::new(40, 120);
+        let now = Instant::now();
+        shell.apply(UiEvent::Delta("FILLER\n\n".repeat(30)));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        for _ in 0..2 {
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                now,
+                Reconciled,
+            )
+            .expect("a frame of the answer");
+        }
+        shell.route_bytes(format!("\x1b[200~{}\x1b[201~", lines.join("\n")).as_bytes());
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the frame that shows the draft");
+        terminal.catch_up(&out.written);
+        (shell, band, failures, out, terminal)
+    }
+
+    /// Frames until one writes nothing, each read by `terminal`.
+    fn settle(
+        shell: &mut Fixture,
+        band: &mut Band,
+        failures: &mut FrameFailures,
+        out: &mut FlakyScreen,
+        terminal: &mut Terminal,
+    ) {
+        for _ in 0..6 {
+            let before = out.written.len();
+            commit_frame(shell, band, out, failures, Instant::now(), Reconciled).expect("a frame");
+            terminal.catch_up(&out.written);
+            if out.written.len() == before {
+                return;
+            }
+        }
+    }
+
+    #[test]
+    fn a_painted_preview_leaves_the_card_once_across_a_resize_before_the_card() {
+        // The preview's frame has landed -- its row is on the screen -- and
+        // the screen changes size before the frame that writes the card:
+        // shorter, and narrower. The card is on the terminal once, every row
+        // in order, and nothing of the preview is left beside it, in the
+        // history or on the screen.
+        for (rows, cols, what) in [(24, 120, "shorter"), (40, 100, "narrower")] {
+            let words: Vec<String> = ["RESIZE-ONE", "RESIZE-TWO", "RESIZE-THREE"]
+                .map(String::from)
+                .to_vec();
+            let (mut shell, mut band, mut failures, mut out, mut terminal) =
+                full_with_draft(&words);
+            shell.route_bytes(b"\r");
+            assert!(
+                shell.previewing(),
+                "{what}: no preview, so this case proves nothing"
+            );
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                Instant::now(),
+                Reconciled,
+            )
+            .expect("the preview's frame");
+            terminal.catch_up(&out.written);
+            assert!(
+                terminal
+                    .everything()
+                    .iter()
+                    .any(|row| row == "\u{2503} RESIZE-THREE")
+                    && !terminal
+                        .everything()
+                        .iter()
+                        .any(|row| row.contains("RESIZE-ONE")),
+                "{what}: the preview is not what the screen shows: {:#?}",
+                terminal.everything()
+            );
+            terminal.resize(rows, cols);
+            adopt_resize(&mut shell, &mut band, || (rows, cols));
+            settle(
+                &mut shell,
+                &mut band,
+                &mut failures,
+                &mut out,
+                &mut terminal,
+            );
+            card_once(&terminal, &words, what);
+        }
+    }
+
+    /// One tick's commit, as the session's loop makes it ([`commit_counted`]),
+    /// each byte read by `terminal`.
+    fn loop_tick(
+        shell: &mut Fixture,
+        band: &mut Band,
+        failures: &mut FrameFailures,
+        out: &mut FlakyScreen,
+        terminal: &mut Terminal,
+    ) {
+        commit_counted(shell, band, out, failures, Instant::now(), Reconciled).expect("a tick");
+        terminal.catch_up(&out.written);
+    }
+
+    #[test]
+    fn the_tick_that_shows_a_preview_writes_the_card_in_the_next_frame() {
+        // fx builds the frame that writes the card as soon as the preview's
+        // frame has committed, with no read and no resize between the two
+        // (`fx-trace.txt`: `pending_prompt_frame_committed`, then the next
+        // `build` 1-2 ms later). So does xfx: one tick writes the preview's
+        // frame and then the card's -- two updates, the preview the first.
+        let words: Vec<String> = ["TICK-ONE", "TICK-TWO", "TICK-THREE"]
+            .map(String::from)
+            .to_vec();
+        let (mut shell, mut band, mut failures, mut out, mut terminal) = full_with_draft(&words);
+        out.written.clear();
+        terminal.fed = 0;
+        shell.route_bytes(b"\r");
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        let updates: Vec<&str> = written.split("\u{1b}[?2026h").skip(1).collect();
+        assert!(updates.len() >= 2, "the tick wrote one update: {written:?}");
+        assert!(
+            updates[0].contains("TICK-THREE") && !updates[0].contains("TICK-ONE"),
+            "the tick's first update is not the preview: {:?}",
+            updates[0]
+        );
+        assert!(
+            updates[1..]
+                .iter()
+                .any(|update| update.contains("TICK-ONE")),
+            "the tick did not write the card after its preview: {written:?}"
+        );
+        assert!(
+            !shell.owes_document(),
+            "the card is still owed after the tick"
+        );
+    }
+
+    #[test]
+    fn a_tall_preview_leaves_the_card_once_across_a_resize_after_its_tick() {
+        // A first prompt of 60 lines under two rows of document: the
+        // preview is 32 rows, most of the screen. The screen shrinks after
+        // the tick that showed it: what the terminal moves into its history
+        // and what the card's frame writes leave the card there once, in
+        // order, and no row of the preview beside it.
+        for (rows, cols) in [(24, 120), (30, 120), (40, 100)] {
+            let words: Vec<String> = (1..=60)
+                .map(|n| format!("TALL-PREVIEW-ROW-{n:02}"))
+                .collect();
+            let mut shell = shell_of(40, 120);
+            shell.with_document_rows(2);
+            let mut band = Band::new();
+            let mut failures = FrameFailures::default();
+            let mut out = screen();
+            let mut terminal = Terminal::new(40, 120);
+            loop_tick(
+                &mut shell,
+                &mut band,
+                &mut failures,
+                &mut out,
+                &mut terminal,
+            );
+            shell.route_bytes(format!("\x1b[200~{}\x1b[201~", words.join("\n")).as_bytes());
+            loop_tick(
+                &mut shell,
+                &mut band,
+                &mut failures,
+                &mut out,
+                &mut terminal,
+            );
+            shell.route_bytes(b"\r");
+            assert!(
+                shell.previewing(),
+                "{rows}x{cols}: no preview, so this case proves nothing"
+            );
+            loop_tick(
+                &mut shell,
+                &mut band,
+                &mut failures,
+                &mut out,
+                &mut terminal,
+            );
+            terminal.resize(rows, cols);
+            adopt_resize(&mut shell, &mut band, || (rows, cols));
+            for _ in 0..4 {
+                loop_tick(
+                    &mut shell,
+                    &mut band,
+                    &mut failures,
+                    &mut out,
+                    &mut terminal,
+                );
+            }
+            card_once(&terminal, &words, &format!("{rows}x{cols}"));
+        }
+    }
+
+    #[test]
+    fn a_question_that_takes_the_plane_before_the_preview_lands_gets_the_card_first() {
+        // The barrier ahead of `1049h` pays what the primary plane owes
+        // (`commit_frame`): a card held behind a preview its frame never
+        // showed is owed too. Written whole before the plane changes hands,
+        // as it was before there was a preview -- not left under the
+        // question until it is answered.
+        let words: Vec<String> = ["PLANE-ONE", "PLANE-TWO", "PLANE-THREE"]
+            .map(String::from)
+            .to_vec();
+        let (mut shell, mut band, mut failures, mut out, _terminal) = full_with_draft(&words);
+        shell.route_bytes(b"\r");
+        assert!(
+            shell.previewing(),
+            "no preview, so this case proves nothing"
+        );
+        shell.apply(a_change_too_big_for_the_band());
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Alternate,
+            "the question did not take the plane, so this case proves nothing"
+        );
+        out.written.clear();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame that takes the plane");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        let taken = written
+            .find("\u{1b}[?1049h")
+            .unwrap_or_else(|| panic!("the plane was not taken: {written:?}"));
+        for word in &words {
+            let at = written.find(&format!("\u{2503}\u{1b}[0m \u{1b}[1m{word}\u{1b}[0m"));
+            assert!(
+                at.is_some_and(|at| at < taken),
+                "the card's {word} was not written before the plane changed hands: {written:?}"
+            );
+        }
+        assert!(
+            !shell.previewing(),
+            "the preview outlived the plane's change"
+        );
+    }
+
     #[test]
     fn a_card_is_held_from_the_document_while_its_preview_is_up() {
         // Whatever path asks: a frame whose band carries the document up

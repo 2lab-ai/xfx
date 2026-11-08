@@ -15943,6 +15943,14 @@ impl Shell {
         self
     }
 
+    /// The document reaching `rows` rows down the screen, as if that many had
+    /// landed, and the band floated under them.
+    #[cfg(test)]
+    pub(crate) fn with_document_rows(&mut self, rows: u32) {
+        self.document_rows = rows;
+        self.refloat();
+    }
+
     /// The band, moved to sit under the document as it now stands -- and
     /// given or relieved of the blank row above a panel that has taken the
     /// composer's, by how the document now ends ([`Self::placed`]): rows that
