@@ -1,0 +1,32 @@
+# TMPDIR=/private/tmp/claude-501 suite-lock.sh gates.sh <worktree> <log dir>   (one slot, every step in turn)
+# head be6fd7f9847a25f5b112980b6ad3a1d36abe28d4, tree: 0 tracked changes
+# slot taken 2026-11-08T20:45:02Z
+00 false rc=1 0s
+01 fmt rc=0 2s
+02 clippy rc=0 5s
+03 clippy-fault rc=0 6s
+04 test rc=0 105s
+05 test-fault-tui rc=0 28s
+06 test-fault-lib rc=0 54s
+07 check-no-stubs rc=0 8s
+08 check-no-secrets rc=0 37s
+09 test-check-no-secrets rc=0 65s
+10 test-gate-env rc=0 171s
+11 check-xfx-identity rc=0 1s
+12 check-preview-contract rc=0 2s
+13 test-preview-contract rc=0 51s
+14 check-tui-preflight-cost rc=0 67s
+15 check-usage-clock rc=0 1s
+16 fxcap-test-sweep rc=0 15s
+17 fxcap-test-capture rc=0 275s
+18 build-release rc=0 17s
+19 smoke rc=0 2s
+20 build-faulty rc=0 30s
+21 smoke-tui rc=0 67s
+# done 2026-11-08T21:01:51Z
+exit 0
+
+# step 04's and 06's test counts
+04 test: 5451 passed, 0 failed, 7 ignored
+06 test-fault-lib: 4558 passed, 0 failed, 7 ignored
+05 test-fault-tui: 195 passed, 0 failed, 0 ignored

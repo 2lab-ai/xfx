@@ -177,8 +177,14 @@ build (`e4c678eb`, sha256 `6e313514…`). The comparison is
 one at a time, in one suite-lock slot: fmt, both clippy runs, the full
 `cargo test`, both fault-injection runs, every `check-*`/`test-*` script,
 the release build, `smoke.sh`, the faulty build and `smoke-tui.sh`. It runs
-on the commit that adds this README. `gates.txt` (the next commit) holds
-each step's exit status and time. Step 00 is `false` and must read `rc=1`.
+on `be6fd7f9`, the commit before the one that adds `gates.txt`; that
+commit changes nothing but `gates.txt` and this paragraph. Step 00 is
+`false` and reads `rc=1`.
+
+All 21 steps read `rc=0`. Step 04 ran 5451 tests, step 06 ran 4558 and
+step 05 ran 195, with 0 failed in each. An earlier run, on `93c11c9f`,
+failed step 04 with two older shell tests that read the document right
+after Enter; `4139bd68` fixed them.
 
 ## Ledger, docs, references
 
