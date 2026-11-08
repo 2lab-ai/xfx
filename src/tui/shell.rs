@@ -1559,8 +1559,9 @@ pub(crate) struct Shell {
     title_owed: bool,
     /// The title a stopped turn's end gave the session, which goes out ahead
     /// of the tick's report ([`Self::take_leading_title`]) -- the string, as
-    /// it was then, so a title asked for after it in the same tick does not
-    /// replace it but follows it.
+    /// it was then, so a title asked for after it does not replace it but
+    /// follows it: in the same tick, or, when the stop's own tick holds it
+    /// back, in the next.
     title_leads: Option<String>,
     /// The title owed waits past this tick's frame and goes out with the
     /// next tick's ([`Self::take_leading_title`], [`Self::tick_committed`]).
@@ -15360,7 +15361,9 @@ impl Shell {
     ///   a pass collects its facts (`src/ui/event_loop.zig:77-117@481104fd`),
     ///   so the end is drained on a pass after the keystroke's: `idle`, the
     ///   `Cancelled` frame, then the title (`stop-late-event/osc-stopnext.txt`,
-    ///   @1256, @1340, @1404). The title waits past this tick's frame.
+    ///   @1256, @1340, @1404). The title waits past this tick's frame, kept
+    ///   as the end gave it, and leads the next tick's as below -- ahead of a
+    ///   title asked for after it, in this tick or the next.
     /// * **Another title was asked for after the end, in this tick** -- a
     ///   model naming the session. Upstream writes each title when it is set
     ///   (`syncTerminalTitleWith`, `app_session_runtime.zig:2965-2987`), the
@@ -15369,6 +15372,7 @@ impl Shell {
     pub(crate) fn take_leading_title(&mut self) -> Option<String> {
         let lead = self.title_leads.take()?;
         if self.stop_in_tick {
+            self.title_leads = Some(lead);
             self.title_held = true;
             return None;
         }
