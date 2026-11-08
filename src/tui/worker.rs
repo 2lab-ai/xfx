@@ -16227,6 +16227,47 @@ mod tests {
     }
 
     #[test]
+    fn a_prompt_over_a_held_catalog_reads_it_again_only_once_it_is_five_minutes_old() {
+        // The trigger decides a read over rows (`beginLoad`,
+        // `model_cache_runtime.zig:612-614`, `:623@481104fd`): six seconds
+        // after the last read began the menu's reads them again
+        // (`picker_revalidate_floor_ms`) and a submitted prompt's does not --
+        // activity waits for the refresh interval (`builtins/gateway.zig:
+        // 2348`, five minutes).
+        let (_home, _workspace, mut state) = recording();
+        let asked = Arc::new(AtomicUsize::new(0));
+        state.selector.set_fetcher_for_test(Box::new(InTurn {
+            answers: Mutex::new(
+                vec![
+                    vec![published("anthropic/claude-opus-5")],
+                    vec![published("anthropic/claude-opus-5")],
+                    vec![published("anthropic/claude-opus-5")],
+                ]
+                .into(),
+            ),
+            asked: Arc::clone(&asked),
+        }));
+        let (events, _received) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(state.load_catalog());
+        backdate_catalog(&mut state, Duration::from_secs(6));
+        on_a_runtime(ask_with(&mut state, &events, Ask::Prompt));
+        on_a_runtime(state.selector.settle_load());
+        assert_eq!(
+            asked.load(Ordering::SeqCst),
+            1,
+            "a prompt read rows six seconds old"
+        );
+        on_a_runtime(ask_with(&mut state, &events, Ask::Revalidate));
+        on_a_runtime(state.selector.settle_load());
+        assert_eq!(asked.load(Ordering::SeqCst), 2, "the menu did not");
+        // Five minutes on, the prompt's does.
+        backdate_catalog(&mut state, Duration::from_secs(5 * 60));
+        on_a_runtime(ask_with(&mut state, &events, Ask::Prompt));
+        on_a_runtime(state.selector.settle_load());
+        assert_eq!(asked.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
     fn a_turn_waits_two_seconds_at_most_for_the_retry_behind_a_failed_catalog() {
         // `resolveForRequest` (`model_cache_runtime.zig:843-866@481104fd`;
         // `failed_catalog_retry_wait_ms`, `:45-47`; 65846154): "A request
