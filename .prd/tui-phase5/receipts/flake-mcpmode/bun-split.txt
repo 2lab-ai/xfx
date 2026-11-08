@@ -1,0 +1,6 @@
+$ bun --version
+1.3.14
+$ bun -e 'console.log(JSON.stringify("".trim().split(/\s+/)))'
+[""]
+$ bun -e 'try { await Bun.file("<missing>").text() } catch (e) { console.log(e.code) }'
+ENOENT

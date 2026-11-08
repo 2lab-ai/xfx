@@ -1,0 +1,65 @@
+# The RED commit fd8ddfd1 (base 690aa505's harness plus the three tests), run 1 of the 20 in before-red.counts:
+# every FAIL block, the summary first.
+Ran 27 tests in 43.147s
+FAILED (failures=6)
+FAIL: test_a_held_request_reads_past_a_mode_file_caught_empty (__main__.McpHttp.test_a_held_request_reads_past_a_mode_file_caught_empty)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<red-tree>/scripts/fxcap/test_capture.py", line 1018, in test_a_held_request_reads_past_a_mode_file_caught_empty
+    self.assertRegex(s.lines(), r"rpc=ping id=1 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200")
+AssertionError: Regex didn't match: 'rpc=ping id=1 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200' not found in '[mcphttp] listening 56009\n[mcphttp] +103ms POST /mcp rpc=ping id=1 session=no version=- mcp-method=- mcp-name=- mode=unknown() -> 500 +925ms\n'
+
+======================================================================
+FAIL: test_a_usage_file_or_second_catalog_caught_empty_is_read_again (__main__.FakeGateway.test_a_usage_file_or_second_catalog_caught_empty_is_read_again) (path='/v1/report?start_date=2026-10-12&end_date=2026-10-12')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<red-tree>/scripts/fxcap/test_capture.py", line 900, in test_a_usage_file_or_second_catalog_caught_empty_is_read_again
+    self.assertEqual((status, body), want)
+AssertionError: Tuples differ: (500, b'fakegw: SyntaxError: JSON Parse error: Unexpected EOF') != (200, b'{"results":[{"n":1}]}')
+
+First differing element 0:
+500
+200
+
+- (500, b'fakegw: SyntaxError: JSON Parse error: Unexpected EOF')
++ (200, b'{"results":[{"n":1}]}')
+
+======================================================================
+FAIL: test_a_usage_file_or_second_catalog_caught_empty_is_read_again (__main__.FakeGateway.test_a_usage_file_or_second_catalog_caught_empty_is_read_again) (path='/coding-agent/v1/models')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<red-tree>/scripts/fxcap/test_capture.py", line 900, in test_a_usage_file_or_second_catalog_caught_empty_is_read_again
+    self.assertEqual((status, body), want)
+AssertionError: Tuples differ: (200, b'') != (200, b'{"data":[{"id":"fake/two"}]}')
+
+First differing element 1:
+b''
+b'{"data":[{"id":"fake/two"}]}'
+
+- (200, b'')
++ (200, b'{"data":[{"id":"fake/two"}]}')
+
+======================================================================
+FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole (__main__.Verbs.test_a_file_a_verb_changes_mid_run_is_replaced_whole) (file='$HOME/.fxcap-usage-clock')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<red-tree>/scripts/fxcap/test_capture.py", line 544, in test_a_file_a_verb_changes_mid_run_is_replaced_whole
+    self.assertIn("fd%d=%s|" % (fd, old), a, "a reader that had it open still reads the old file whole")
+AssertionError: 'fd3=1/|' not found in 'The default interactive shell is now zsh.To update your account to use zsh, please run `chsh -s /bin/zsh`.For more details, please visit https://support.apple.com/kb/HT208050.it-3.2$ exec 3<"$HOME/.fxcap-usage-clock" 4<"$HOME/../usage.json" 5<"$HOME/../models2.json" 6<"$HOME/../gw-release" 7<"$HOME/../mcphttp.mode" 8<"$HOME/../clipimage"; printf \'opened-%s\\n\' allopened-allit-3.2$ for fd in 3 4 5 6 7 8; do printf \'fd%s=%s|\' $fd "$(tr \'\\n\' / <&$fd)"; done; printf \'held-%s\\n\' allfd3=2/|fd4={"u":1}/|fd5={"m":1}/|fd6=release/release/|fd7=ready/|fd8=i2/|held-allit-3.2$ for f in "$HOME/.fxcap-usage-clock" "$HOME/../usage.json" "$HOME/../models2.json" "$HOME/../gw-release" "$HOME/../mcphttp.mode" "$HOME/../clipimage"; do printf \'now=%s|\' "$(tr \'\\n\' / < "$f")"; done; printf \'now-%s\\n\' allnow=2/|now={"u":2}/|now={"m":2}/|now=release/release/|now=fail/|now=i2/|now-allit-3.2$' : a reader that had it open still reads the old file whole
+
+======================================================================
+FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole (__main__.Verbs.test_a_file_a_verb_changes_mid_run_is_replaced_whole) (file='$HOME/../gw-release')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<red-tree>/scripts/fxcap/test_capture.py", line 544, in test_a_file_a_verb_changes_mid_run_is_replaced_whole
+    self.assertIn("fd%d=%s|" % (fd, old), a, "a reader that had it open still reads the old file whole")
+AssertionError: 'fd6=release/|' not found in 'The default interactive shell is now zsh.To update your account to use zsh, please run `chsh -s /bin/zsh`.For more details, please visit https://support.apple.com/kb/HT208050.it-3.2$ exec 3<"$HOME/.fxcap-usage-clock" 4<"$HOME/../usage.json" 5<"$HOME/../models2.json" 6<"$HOME/../gw-release" 7<"$HOME/../mcphttp.mode" 8<"$HOME/../clipimage"; printf \'opened-%s\\n\' allopened-allit-3.2$ for fd in 3 4 5 6 7 8; do printf \'fd%s=%s|\' $fd "$(tr \'\\n\' / <&$fd)"; done; printf \'held-%s\\n\' allfd3=2/|fd4={"u":1}/|fd5={"m":1}/|fd6=release/release/|fd7=ready/|fd8=i2/|held-allit-3.2$ for f in "$HOME/.fxcap-usage-clock" "$HOME/../usage.json" "$HOME/../models2.json" "$HOME/../gw-release" "$HOME/../mcphttp.mode" "$HOME/../clipimage"; do printf \'now=%s|\' "$(tr \'\\n\' / < "$f")"; done; printf \'now-%s\\n\' allnow=2/|now={"u":2}/|now={"m":2}/|now=release/release/|now=fail/|now=i2/|now-allit-3.2$' : a reader that had it open still reads the old file whole
+
+======================================================================
+FAIL: test_a_file_a_verb_changes_mid_run_is_replaced_whole (__main__.Verbs.test_a_file_a_verb_changes_mid_run_is_replaced_whole) (file='$HOME/../clipimage')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<red-tree>/scripts/fxcap/test_capture.py", line 544, in test_a_file_a_verb_changes_mid_run_is_replaced_whole
+    self.assertIn("fd%d=%s|" % (fd, old), a, "a reader that had it open still reads the old file whole")
+AssertionError: 'fd8=i1/|' not found in 'The default interactive shell is now zsh.To update your account to use zsh, please run `chsh -s /bin/zsh`.For more details, please visit https://support.apple.com/kb/HT208050.it-3.2$ exec 3<"$HOME/.fxcap-usage-clock" 4<"$HOME/../usage.json" 5<"$HOME/../models2.json" 6<"$HOME/../gw-release" 7<"$HOME/../mcphttp.mode" 8<"$HOME/../clipimage"; printf \'opened-%s\\n\' allopened-allit-3.2$ for fd in 3 4 5 6 7 8; do printf \'fd%s=%s|\' $fd "$(tr \'\\n\' / <&$fd)"; done; printf \'held-%s\\n\' allfd3=2/|fd4={"u":1}/|fd5={"m":1}/|fd6=release/release/|fd7=ready/|fd8=i2/|held-allit-3.2$ for f in "$HOME/.fxcap-usage-clock" "$HOME/../usage.json" "$HOME/../models2.json" "$HOME/../gw-release" "$HOME/../mcphttp.mode" "$HOME/../clipimage"; do printf \'now=%s|\' "$(tr \'\\n\' / < "$f")"; done; printf \'now-%s\\n\' allnow=2/|now={"u":2}/|now={"m":2}/|now=release/release/|now=fail/|now=i2/|now-allit-3.2$' : a reader that had it open still reads the old file whole
+
