@@ -9047,6 +9047,40 @@ mod tests {
     }
 
     #[test]
+    fn a_card_is_held_from_the_document_while_its_preview_is_up() {
+        // Whatever path asks: a frame whose band carries the document up
+        // stages the document whatever `owes_document` says (`commit_primary`,
+        // `owes_document_write`), and the card must not be written under its
+        // own preview there either. Under the runtime that is every frame
+        // that clears the composer: the turn's row arrives with the Enter and
+        // the band grows past the rows the composer gave back
+        // (`p5-submit-preview-*`, two carried rows in frame 1).
+        let mut shell = shell_of(40, 120);
+        shell.route_bytes(b"\x1b[200~HELD-ONE\nHELD-TWO\nHELD-THREE\x1b[201~");
+        shell.route_bytes(b"\r");
+        shell.start_turn();
+        assert!(
+            shell.previewing(),
+            "no preview, so this case proves nothing"
+        );
+        assert!(!shell.owes_document(), "the document owes a held card");
+        let mut offered = false;
+        let emitted = shell.emit_document_front(|_append| {
+            offered = true;
+            Landed::<std::convert::Infallible>::All
+        });
+        assert!(
+            emitted.is_none() && !offered,
+            "the card was offered to the terminal under its own preview"
+        );
+        shell.preview_landed();
+        assert!(
+            shell.owes_document(),
+            "the card is not owed once the preview has gone"
+        );
+    }
+
+    #[test]
     fn a_resize_before_the_preview_lands_writes_the_card_whole() {
         // The preview's rows were cut for the screen that is gone: the frame
         // a resize owes writes the card with no preview in front of it.

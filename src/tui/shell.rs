@@ -2741,12 +2741,13 @@ impl Shell {
     pub(crate) fn band_rows(&self) -> Vec<String> {
         let mut rows = Vec::with_capacity(usize::from(self.geometry.band_rows()));
         // A submitted card's newest rows and the blank row under them, while
-        // the band has them ([`Self::preview`]): as many as the geometry gave.
-        let preview = self.preview.as_deref().unwrap_or_default();
-        let shown = usize::from(self.geometry.preview.saturating_sub(1));
+        // the band has them ([`Self::preview`]): the geometry gives the band
+        // every one of them or none (`placed`), and a row it gave that the
+        // preview no longer has is written blank.
         rows.extend(
-            preview[preview.len().saturating_sub(shown)..]
+            self.preview
                 .iter()
+                .flatten()
                 .cloned()
                 .chain(std::iter::repeat(String::new()))
                 .take(usize::from(self.geometry.preview)),
@@ -17069,6 +17070,13 @@ mod tests {
         // And none for a card that does not start under a blank row the
         // document already has: anything still owed, a line that does not end
         // blank, a fork's line a card opens a blank row under.
+        let mut owed = shell(40, 120);
+        owed.end_transcript_line();
+        assert!(
+            owed.transcript.owes() && owed.transcript.ends_blank(),
+            "a blank row still owed is what this case is about"
+        );
+        assert_eq!(owed.preview_room(), None, "a blank row still owed");
         let mut open = shell(40, 120);
         open.write_transcript_as("an open line", Role::Plain);
         assert_eq!(open.preview_room(), None, "an open line, still owed");

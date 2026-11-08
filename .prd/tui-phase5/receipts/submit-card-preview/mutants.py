@@ -6,7 +6,7 @@ changed, on a throwaway clone, and the unit's tests run against it.
 
 <clone-dir> is made with `git clone --no-local <repo>` and checked out at
 <head>; nothing is written into <repo>. Each mutant edits one file of the
-clone (its text must occur exactly once), runs the five tests below with a
+clone (its text must occur exactly once), runs the six tests below with a
 600 s limit (CARGO_TARGET_DIR=<target-dir>), and puts the file back. A
 mutant is killed when the run fails; the unmutated clone runs first and must
 pass.
@@ -22,6 +22,7 @@ TESTS = [
     "a_resize_before_the_preview_lands",
     "a_cards_preview_is_upstreams",
     "a_preview_takes_rows_from_the_band_s_top",
+    "a_card_is_held_from_the_document_while_its_preview_is_up",
 ]
 SHELL, LOOP, LAYOUT = "src/tui/shell.rs", "src/tui/event_loop.rs", "src/tui/layout.rs"
 MUTANTS = [
@@ -42,12 +43,15 @@ MUTANTS = [
      "            || self.raw_gap\n", ""),
     ("the band: no preview rows", SHELL,
      ".and_then(|rows| geometry.previewed(rows))", ".and_then(|_| geometry.previewed(0))"),
-    ("the band: the oldest rows, not the newest", SHELL,
-     "preview[preview.len().saturating_sub(shown)..]", "preview[0..]"),
+    ("the preview: the oldest rows, not the newest", SHELL,
+     "let shown = rows.split_off(rows.len() - room);", "rows.truncate(room);\n        let shown = rows;"),
+    ("the hold: the held card counted as owed", SHELL,
+     "        !self.previewing()\n            && (", "        (true)\n            && ("),
     ("the hold: the card written in the preview's frame", SHELL,
      "        if self.previewing() {\n            return None;\n        }\n", ""),
     ("the landing: the preview never let go", LOOP,
-     "    shell.preview_landed();\n", ""),
+     "next frame's to write (`Shell::preview_landed`).\n    shell.preview_landed();\n",
+     "next frame's to write (`Shell::preview_landed`).\n"),
     ("the landing: the band not solved again", SHELL,
      "        if self.preview.take().is_some() || self.previewing() {\n            self.refit();",
      "        if self.preview.take().is_some() || self.previewing() {"),
