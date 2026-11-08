@@ -3781,7 +3781,12 @@ async fn run_turn(
     // holds when it hears the turn is over ([`super::shell`]'s `TurnEnded`).
     let steering = state.steering.clone();
     steering.open();
-    let _ = bridge::send_ui(events, &turn.token, UiEvent::TurnStarted).await;
+    // With its number: `turn_loop` has just taken it (`Queue::took`), so
+    // `taken` is this item's place among everything submitted.
+    let started = UiEvent::TurnStarted {
+        submission: queue.taken,
+    };
+    let _ = bridge::send_ui(events, &turn.token, started).await;
     // The title answers, held by the turn while it holds the runtime: the
     // first prompt's question is asked as it is submitted, and an answer that
     // waited for the turn to end would keep the window on the workspace's
@@ -7859,6 +7864,64 @@ mod tests {
     const PARKED_POLLS: usize = 8;
 
     #[test]
+    fn a_turns_start_names_its_submission_past_the_work_a_stop_dropped() {
+        // The number a start carries is the work item's place among
+        // everything the UI submitted -- the count a stop quotes -- so the
+        // band can tell a turn the runtime took before it read a stop from
+        // one typed after it (`super::shell`'s `TurnStarted`). Three items:
+        // a listing (no turn), a prompt a stop drops unstarted, and a prompt
+        // after the stop. The stop is in the control channel before the loop
+        // runs, so the loop reads it first (`biased`), after taking nothing:
+        // it drops items 1 and 2, and the one turn that starts is item 3's.
+        let (_home, _workspace, state) = recording();
+        assert!(
+            Bundle::select(&state.config, &CancelToken::new()).is_err(),
+            "the fixture would reach a real endpoint"
+        );
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(3);
+        work_tx.try_send(TurnWork::Sessions).expect("room");
+        work_tx
+            .try_send(TurnWork::Submit("dropped".to_string()))
+            .expect("room");
+        work_tx
+            .try_send(TurnWork::Submit("after the stop".to_string()))
+            .expect("room");
+        drop(work_tx);
+        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        control_tx
+            .send(TurnControl::Cancel { through: 2 })
+            .expect("open");
+        let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+        let (events, mut seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        let outstanding = AtomicUsize::new(3);
+        on_a_runtime(async {
+            tokio::time::timeout(
+                TEST_DRAIN,
+                turn_loop(
+                    state,
+                    &events,
+                    &mut work_rx,
+                    &mut changes,
+                    ControlChannel::new(control_rx),
+                    Cancellation::new(CancelToken::new()),
+                    &outstanding,
+                ),
+            )
+            .await
+            .expect("the loop never ran out of work")
+        });
+        drop(events);
+        let mut starts = Vec::new();
+        while let Ok(event) = seen.try_recv() {
+            if let UiEvent::TurnStarted { submission } = event {
+                starts.push(submission);
+            }
+        }
+        assert_eq!(starts, [3], "the turns that said they started");
+        assert_eq!(outstanding.load(Ordering::Acquire), 0, "a place was kept");
+    }
+
+    #[test]
     fn a_concluded_turn_reaches_the_ui_through_a_channel_that_had_no_room_for_it() {
         // The third arm of the drain protocol, at the real `run_turn` rather
         // than at a second copy of `bridge::send_terminal`: the turn has
@@ -7932,7 +7995,7 @@ mod tests {
             );
             assert_eq!(
                 seen.recv().await,
-                Some(UiEvent::TurnStarted),
+                Some(UiEvent::TurnStarted { submission: 1 }),
                 "the event the drain frees a permit by taking"
             );
 
@@ -8025,7 +8088,10 @@ mod tests {
             }
             // `TurnStarted` holds the one permit: the conclusion is not sent.
             let published = reply.get();
-            assert_eq!(seen.recv().await, Some(UiEvent::TurnStarted));
+            assert_eq!(
+                seen.recv().await,
+                Some(UiEvent::TurnStarted { submission: 1 })
+            );
             turn.await;
             (published, seen.try_recv())
         });

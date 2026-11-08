@@ -129,7 +129,16 @@ pub(crate) enum UiEvent {
     /// concluded turn holds is given back *after* its conclusion is sent
     /// (`super::worker`'s `turn_loop`), so a UI counting places would read
     /// either number depending on which thread ran last.
-    TurnStarted,
+    ///
+    /// `submission` is which piece of work this turn is: its place among
+    /// everything the UI ever submitted, counted from 1 -- the runtime's
+    /// `Queue::taken` once it has taken the item, which is the UI's
+    /// `WorkHandle::accepted` once it submitted it, the work channel having
+    /// one sender (`super::worker`). A stop quotes the same count
+    /// (`TurnControl::Cancel`'s `through`), so the UI can tell a turn the
+    /// runtime took before it read a stop, and stops, from one typed after it
+    /// -- without guessing from what it still holds.
+    TurnStarted { submission: usize },
     /// A fragment of the answer, in arrival order.
     Delta(String),
     /// A sentence the runtime adds to the answer about how it is being served
@@ -486,8 +495,9 @@ impl UiEvent {
     /// which hand it events the way the channel does.
     pub(crate) fn made_inert(self) -> Self {
         match self {
-            // No text at all: what it carries is the fact that it arrived.
-            Self::TurnStarted => Self::TurnStarted,
+            // No text at all: what it carries is the fact that it arrived,
+            // and a count.
+            Self::TurnStarted { submission } => Self::TurnStarted { submission },
             Self::Delta(text) => Self::Delta(inert_owned(text)),
             Self::Operational(text) => Self::Operational(inert_owned(text)),
             // `call_id` and `tool` are the registry's and the provider's, and
@@ -2248,7 +2258,7 @@ mod tests {
             UiEvent::Notice(super::super::notice::Notice::neutral("", "n")),
             // A turn beginning is the *opposite* of one ending, and a drain
             // loop that stopped at it would leave before the answer.
-            UiEvent::TurnStarted,
+            UiEvent::TurnStarted { submission: 1 },
         ] {
             assert!(!event.is_terminal(), "{event:?} ended the turn");
         }

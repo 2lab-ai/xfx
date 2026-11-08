@@ -3913,7 +3913,7 @@ mod tests {
             let mut shell = if floating_band { floating() } else { shell() };
             let mut band = Band::new();
             let _ = vectors_of(&mut shell, &mut band);
-            shell.apply(UiEvent::TurnStarted);
+            shell.start_turn();
             let _ = vectors_of(&mut shell, &mut band);
             for chunk in [
                 "STREAM-HEAD the first line of a streamed answer, long enough that it ",
@@ -3955,7 +3955,7 @@ mod tests {
         // that starts or ends rewrites its rows where they stand.
         let mut shell = floating();
         let mut band = Band::new();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("Looking first.\n".to_string()));
         shell.flush_paced();
         let _ = vectors_of(&mut shell, &mut band);
@@ -4041,7 +4041,7 @@ mod tests {
         let mut shell = shell();
         let mut band = Band::new();
         let _ = vectors_of(&mut shell, &mut band);
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         let _ = vectors_of(&mut shell, &mut band);
         let words: Vec<String> = (0..60).map(|n| format!("word{n} ")).collect();
         let mut per_tick = Vec::new();
@@ -4213,7 +4213,7 @@ mod tests {
         let now = Instant::now();
         shell.route_bytes(b"look\r");
         committed(&mut shell, &mut band);
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         for event in a_call("call-1", "a.txt")
             .into_iter()
             .chain(a_call("call-2", "b.txt"))
@@ -4277,7 +4277,7 @@ mod tests {
         let now = Instant::now();
         shell.route_bytes(b"look\r");
         committed(&mut shell, &mut band);
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         for event in a_call("call-1", "a.txt")
             .into_iter()
             .chain(a_call("call-2", "b.txt"))
@@ -4334,7 +4334,7 @@ mod tests {
         committed(&mut shell, &mut band);
         shell.route_bytes(b"run it\r");
         committed(&mut shell, &mut band);
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.settle_band(now);
         committed(&mut shell, &mut band);
 
@@ -5771,7 +5771,7 @@ mod tests {
         let now = Instant::now();
         tick(&mut shell, &mut band, &mut out, &mut failures, now);
         shell.route_bytes(b"ask me\r");
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Question(super::super::question::QuestionRequest {
             id: super::super::question::QuestionId(1),
             entries: vec![QuestionEntry {
@@ -5849,7 +5849,7 @@ mod tests {
     ) {
         tick(shell, band, out, failures, now);
         shell.route_bytes(b"hello\r");
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
     }
 
     #[test]
@@ -6757,7 +6757,7 @@ mod tests {
 
         // And a table drawn light keeps its light shade on a dark screen.
         shell.route_bytes(b"again\r");
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta(
             "| Step | Command |\n|---|---|\n| lint | `zig fmt` |\n\nDone.\n".to_string(),
         ));
@@ -7111,7 +7111,7 @@ mod tests {
                 tick(&mut shell, &mut band, &mut out, &mut failures, now);
             }
             shell.route_bytes(b"next\r");
-            shell.apply(UiEvent::TurnStarted);
+            shell.start_turn();
             a_command_running(&mut shell);
             shell.apply(UiEvent::Notice(super::super::notice::Notice::warning(
                 "tool",
@@ -8898,7 +8898,7 @@ mod tests {
         );
 
         // And now the runtime says the turn started, so the band grows onto it.
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.settle_band(now);
         let running_top = shell.geometry.band_top();
         assert_eq!(
@@ -12601,7 +12601,7 @@ mod tests {
         rig.assert_idle("the multirow draft");
 
         // --- TurnStarted: the activity row grows the band ---------------------
-        rig.apply(UiEvent::TurnStarted);
+        rig.start_turn();
         let written = rig.land();
         assert!(!written.is_empty(), "the turn's own row painted nothing");
         assert_document_not_reemitted("the started turn", &written, markers);
@@ -13202,7 +13202,7 @@ mod tests {
         )
         .expect("the first frame");
         shell.route_bytes(b"run it\r");
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Notice(super::super::notice::Notice::warning(
             "session",
             "a warning",
@@ -13549,7 +13549,7 @@ mod tests {
         assert_eq!(out.reports(), [IDLE]);
         shell.route_bytes(b"go\r");
         status_tick(&mut shell, &mut band, &mut out);
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         status_tick(&mut shell, &mut band, &mut out);
         assert_eq!(
             out.reports(),
@@ -13636,7 +13636,7 @@ mod tests {
         status_tick(&mut shell, &mut band, &mut out);
         shell.route_bytes(b"go\r");
         status_tick(&mut shell, &mut band, &mut out);
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         status_tick(&mut shell, &mut band, &mut out);
         let before = out.vectors.len();
         shell.apply(UiEvent::TurnEnded { failure: None });
@@ -13713,7 +13713,7 @@ mod tests {
             &out.vectors[before..]
         );
         let started = out.vectors.len();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         // The loop settles the band before it commits (`session`).
         shell.settle_band(Instant::now());
         status_tick(&mut shell, &mut band, &mut out);
@@ -13738,7 +13738,7 @@ mod tests {
         status_tick(&mut shell, &mut band, &mut out);
         let before = out.vectors.len();
         shell.route_bytes(b"again\r");
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.settle_band(Instant::now());
         status_tick(&mut shell, &mut band, &mut out);
         let tick = &out.vectors[before..];
@@ -13765,7 +13765,7 @@ mod tests {
         status_tick(&mut shell, &mut band, &mut out);
         shell.route_bytes(b"go\r");
         status_tick(&mut shell, &mut band, &mut out);
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         status_tick(&mut shell, &mut band, &mut out);
         let before = out.vectors.len();
         shell.route_bytes(&[0x03]);
@@ -13806,7 +13806,7 @@ mod tests {
             status_tick(&mut shell, &mut band, &mut out);
             shell.route_bytes(b"go\r");
             status_tick(&mut shell, &mut band, &mut out);
-            shell.apply(UiEvent::TurnStarted);
+            shell.start_turn();
             status_tick(&mut shell, &mut band, &mut out);
             shell.route_bytes(&[0x03]);
             status_tick(&mut shell, &mut band, &mut out);
@@ -13822,7 +13822,7 @@ mod tests {
                 shell.settle_band(Instant::now());
                 status_tick(&mut shell, &mut band, &mut out);
             }
-            shell.apply(UiEvent::TurnStarted);
+            shell.start_turn();
             for _ in 0..2 {
                 shell.settle_band(Instant::now());
                 status_tick(&mut shell, &mut band, &mut out);
@@ -13871,7 +13871,7 @@ mod tests {
             status_tick(&mut shell, &mut band, &mut out);
             shell.route_bytes(b"go\r");
             status_tick(&mut shell, &mut band, &mut out);
-            shell.apply(UiEvent::TurnStarted);
+            shell.start_turn();
             status_tick(&mut shell, &mut band, &mut out);
             shell.route_bytes(&[0x03]);
             status_tick(&mut shell, &mut band, &mut out);
@@ -13885,7 +13885,7 @@ mod tests {
                 shell.settle_band(Instant::now());
                 status_tick(&mut shell, &mut band, &mut out);
             }
-            shell.apply(UiEvent::TurnStarted);
+            shell.start_turn();
             for _ in 0..2 {
                 shell.settle_band(Instant::now());
                 status_tick(&mut shell, &mut band, &mut out);
@@ -13921,7 +13921,7 @@ mod tests {
             status_tick(&mut shell, &mut band, &mut out);
             shell.route_bytes(b"go\r");
             status_tick(&mut shell, &mut band, &mut out);
-            shell.apply(UiEvent::TurnStarted);
+            shell.start_turn();
             shell.settle_band(Instant::now());
             status_tick(&mut shell, &mut band, &mut out);
             assert_eq!(out.reports(), [IDLE, WORKING], "same tick {same_tick}");
@@ -13934,7 +13934,7 @@ mod tests {
                 status_tick(&mut shell, &mut band, &mut out);
             }
             let before = out.vectors.len();
-            shell.apply(UiEvent::TurnStarted);
+            shell.start_turn();
             for _ in 0..2 {
                 shell.settle_band(Instant::now());
                 status_tick(&mut shell, &mut band, &mut out);
@@ -13978,7 +13978,7 @@ mod tests {
         status_tick(&mut shell, &mut band, &mut out);
         shell.route_bytes(b"go\r");
         status_tick(&mut shell, &mut band, &mut out);
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.settle_band(Instant::now());
         status_tick(&mut shell, &mut band, &mut out);
         let steering = shell.handle.steering();
@@ -14008,7 +14008,7 @@ mod tests {
         shell.settle_band(Instant::now());
         status_tick(&mut shell, &mut band, &mut out);
         let ended = out.vectors.len();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.settle_band(Instant::now());
         status_tick(&mut shell, &mut band, &mut out);
         let shown: Vec<_> = out.vectors[before..]
@@ -14039,7 +14039,7 @@ mod tests {
         status_tick(&mut shell, &mut band, &mut out);
         shell.route_bytes(b"first\r");
         status_tick(&mut shell, &mut band, &mut out);
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.settle_band(Instant::now());
         status_tick(&mut shell, &mut band, &mut out);
         shell.route_bytes(b"second\r");
@@ -14101,7 +14101,7 @@ mod tests {
             );
             let before = out.vectors.len();
             match exit {
-                Exit::Start => shell.apply(UiEvent::TurnStarted),
+                Exit::Start => shell.start_turn(),
                 Exit::Stop => shell.route_bytes(&[0x03]),
                 Exit::Reset => shell.route_bytes(b"/new\r"),
                 Exit::Replace => shell.apply(UiEvent::Resumed(one_saved_turn())),
@@ -14168,7 +14168,7 @@ mod tests {
             out.vectors[first]
         );
         let started = out.vectors.len();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.settle_band(Instant::now());
         status_tick(&mut shell, &mut band, &mut out);
         let tick = &out.vectors[started..];
@@ -14234,7 +14234,7 @@ mod tests {
         );
         let before = out.vectors.len();
         shell.apply(UiEvent::SessionTitled("second".into()));
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         tick(&mut shell, &mut band, &mut out);
         let tick = &out.vectors[before..];
         let report = tick
@@ -14277,7 +14277,7 @@ mod tests {
         );
         shell.route_bytes(b"go\r");
         status_tick(&mut shell, &mut band, &mut out);
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         status_tick(&mut shell, &mut band, &mut out);
         assert_eq!(
             out.reports(),
@@ -14318,7 +14318,7 @@ mod tests {
         status_tick(&mut shell, &mut band, &mut out);
         shell.route_bytes(b"go\r");
         status_tick(&mut shell, &mut band, &mut out);
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::TurnEnded { failure: None });
         status_tick(&mut shell, &mut band, &mut out);
         let done = "\u{1b}]7501;state=done:app=xfx\u{1b}\\";

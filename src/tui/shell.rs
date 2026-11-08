@@ -1479,28 +1479,30 @@ pub(crate) struct Shell {
     trailer: Vec<Trailed>,
     /// What the summary under the turn's answer will say ([`Tally`]).
     tally: Tally,
-    /// The token estimate of every prompt that was sent and whose turn has
-    /// not started yet, oldest first: a prompt may wait behind another turn,
-    /// and the summary counts the prompt of the turn it is under.
+    /// Every prompt that was sent and whose turn has not started yet, oldest
+    /// first ([`WaitingPrompt`]): a prompt may wait behind another turn, and the
+    /// summary counts the prompt of the turn it is under.
+    ///
+    /// Each by its number among the runtime's work, which its start repeats.
     ///
     /// Beside each, the title that prompt would give a session it opened
     /// ([`title_of`], the store's own rule, so the window says what a listing
     /// of the session says): which prompt opens the session is only known
     /// when its turn starts.
     ///
-    /// The third is the prompt's card while it is **waiting**: a prompt
-    /// submitted while the runtime had work in hand is shown in the band
+    /// Then the prompt's card while it is **waiting**: a prompt submitted
+    /// while the runtime had work in hand is shown in the band
     /// ([`Self::banner_rows`]) and its card is written when its turn starts,
     /// as upstream delivers a steer (`fx-steer-40x120-steer-done`) -- never at
     /// the keystroke, in the middle of the answer it was typed under.
     ///
-    /// The fourth says upstream would have queued the prompt at once rather
-    /// than hold it as a pending submission: a turn that had started was
-    /// still in hand -- running, or stopped and not yet ended -- the last
-    /// answer was still being paced out, or the full transcript was open. Its
-    /// `working` is then not held for the frame that shows its turn
+    /// And whether upstream would have queued the prompt at once rather than
+    /// hold it as a pending submission: a turn that had started was still in
+    /// hand -- running, or stopped and not yet ended -- the last answer was
+    /// still being paced out, or the full transcript was open. Its `working`
+    /// is then not held for the frame that shows its turn
     /// ([`Self::take_status_moved_by_input`]).
-    prompts: VecDeque<(u64, Option<String>, Option<WaitingCard>, bool)>,
+    prompts: VecDeque<WaitingPrompt>,
     /// The prompts sent into the running turn and not yet taken by it
     /// ([`crate::agent::steering`]), oldest first: the number the runtime
     /// knows each by, the prompt as the model is given it, and its card.
@@ -1903,6 +1905,26 @@ type SkillRuns = Vec<std::ops::Range<usize>>;
 /// A prompt's card while it waits for its turn: the prompt as it is sent, its
 /// images, and its skill tokens ([`Shell::prompts`]).
 type WaitingCard = (String, BadgeLinks, SkillRuns);
+
+/// A prompt the runtime has taken and not yet started ([`Shell::prompts`]).
+#[derive(Debug, Default)]
+struct WaitingPrompt {
+    /// Which piece of work it is, counted as the runtime counts it: what
+    /// [`super::worker::WorkHandle::accepted`] said once it was taken, which
+    /// its turn's start repeats ([`UiEvent::TurnStarted`]).
+    #[cfg_attr(not(test), allow(dead_code))]
+    submission: usize,
+    /// The token estimate the turn's summary counts for it.
+    estimate: u64,
+    /// The title the prompt would give a session it opened ([`title_of`]).
+    title: Option<String>,
+    /// Its card while it is shown waiting in the band, written when its turn
+    /// starts.
+    card: Option<WaitingCard>,
+    /// Upstream would have queued it at once rather than hold it as a
+    /// pending submission ([`Shell::take_status_moved_by_input`]).
+    queued_at_once: bool,
+}
 
 /// [`BadgeLinks`] for these images.
 fn badge_links<'a>(images: impl IntoIterator<Item = (u32, &'a std::path::Path)>) -> BadgeLinks {
@@ -4045,6 +4067,27 @@ impl Shell {
     /// here rather than falling into a wildcard that drops it -- and a dropped
     /// event is a tool that ran invisibly or a turn that ended without saying
     /// so.
+    /// What the runtime says when it starts the oldest prompt still
+    /// waiting, which is the turn its loop takes next when nothing was
+    /// dropped: for a case about what follows a start rather than about
+    /// which turn a start is. A case about that names the number itself.
+    #[cfg(test)]
+    pub(crate) fn turn_starts(&self) -> UiEvent {
+        UiEvent::TurnStarted {
+            submission: self
+                .prompts
+                .front()
+                .map_or(self.work.accepted(), |prompt| prompt.submission),
+        }
+    }
+
+    /// [`Self::apply`]s [`Self::turn_starts`].
+    #[cfg(test)]
+    pub(crate) fn start_turn(&mut self) {
+        let started = self.turn_starts();
+        self.apply(started);
+    }
+
     pub(crate) fn apply(&mut self, event: UiEvent) {
         // What an `/effort ` column is showing the levels of, read only while
         // the composer is such a line: every other event costs a prefix check.
@@ -4116,7 +4159,7 @@ impl Shell {
             // and the *moment* is the next settle's, so the row is timed by the
             // same clock every other row of the band is settled against
             // ([`Self::tick_activity`]).
-            UiEvent::TurnStarted => {
+            UiEvent::TurnStarted { .. } => {
                 // A new turn must not report an earlier turn's result once it
                 // settles (`noteTurnStarted`, `app_worker_runtime.zig:972`).
                 self.program_status.turn_started();
@@ -4139,8 +4182,13 @@ impl Shell {
                 if !self.cancelling {
                     self.activity.set(Work::Thinking);
                 }
-                let (input, title, card, _) = self.prompts.pop_front().unwrap_or_default();
-                self.tally.begin(Instant::now(), input);
+                let WaitingPrompt {
+                    estimate,
+                    title,
+                    card,
+                    ..
+                } = self.prompts.pop_front().unwrap_or_default();
+                self.tally.begin(Instant::now(), estimate);
                 self.turn_title = title;
                 // The waiting prompt is delivered: its card goes into the
                 // document behind whatever the last turn still has to say,
@@ -10323,8 +10371,11 @@ impl Shell {
         // Queued work, while the runtime still holds a place for it: a prompt
         // its loop dropped on reading a stop (`Taken::Abandon`) says nothing
         // and leaves its entry here (STOP-NEXT), and is no work at all.
-        let behind_a_turn =
-            self.work.outstanding() > 0 && self.prompts.front().is_some_and(|prompt| prompt.3);
+        let behind_a_turn = self.work.outstanding() > 0
+            && self
+                .prompts
+                .front()
+                .is_some_and(|prompt| prompt.queued_at_once);
         if working && !self.activity.working() && !compacting && !behind_a_turn {
             self.status_held = true;
             return Keyed::NotYet;
@@ -12819,18 +12870,25 @@ impl Shell {
                 self.edited(None);
                 let mut estimate = Estimator::default();
                 estimate.consume(&sent);
+                let submission = self.work.accepted();
                 if waits {
-                    self.prompts.push_back((
-                        estimate.estimate(),
+                    self.prompts.push_back(WaitingPrompt {
+                        submission,
+                        estimate: estimate.estimate(),
                         title,
-                        Some((card, links, runs)),
-                        behind,
-                    ));
+                        card: Some((card, links, runs)),
+                        queued_at_once: behind,
+                    });
                     self.refit();
                     self.render.request(Reason::Footer);
                 } else {
-                    self.prompts
-                        .push_back((estimate.estimate(), title, None, behind));
+                    self.prompts.push_back(WaitingPrompt {
+                        submission,
+                        estimate: estimate.estimate(),
+                        title,
+                        card: None,
+                        queued_at_once: behind,
+                    });
                     self.echo(&card, links, runs);
                 }
                 self.gestures.submitted();
@@ -12891,12 +12949,13 @@ impl Shell {
                     // automatic compaction's `error` -- rather than `working`:
                     // the steer's `working` is then the tick's own, not held
                     // for its turn's start.
-                    self.prompts.push_back((
-                        estimate.estimate(),
-                        title_of(&prompt),
-                        Some((card, BadgeLinks::new(), SkillRuns::new())),
-                        true,
-                    ));
+                    self.prompts.push_back(WaitingPrompt {
+                        submission: self.work.accepted(),
+                        estimate: estimate.estimate(),
+                        title: title_of(&prompt),
+                        card: Some((card, BadgeLinks::new(), SkillRuns::new())),
+                        queued_at_once: true,
+                    });
                 }
                 Err(rejected) => {
                     if self.editor.is_empty() {
@@ -14962,7 +15021,7 @@ impl Shell {
         match event {
             // The old conversation's words and numbers, on a screen that is no
             // longer about it.
-            UiEvent::TurnStarted
+            UiEvent::TurnStarted { .. }
             | UiEvent::Delta(_)
             | UiEvent::Operational(_)
             | UiEvent::ToolStart { .. }
@@ -15686,10 +15745,12 @@ impl Shell {
             .steers
             .iter()
             .map(|(_, _, card)| Some((card.as_str(), &none)));
-        let waiting = self
-            .prompts
-            .iter()
-            .map(|(_, _, card, _)| card.as_ref().map(|(card, links, _)| (card.as_str(), links)));
+        let waiting = self.prompts.iter().map(|prompt| {
+            prompt
+                .card
+                .as_ref()
+                .map(|(card, links, _)| (card.as_str(), links))
+        });
         for card in steers.chain(waiting) {
             let Some((card, links)) = card else {
                 continue;
@@ -19814,7 +19875,7 @@ mod tests {
     /// asserting against a row that is not there yet.
     fn turn_running(shell: &mut Fixture, bytes: &[u8]) -> Instant {
         shell.route_bytes(bytes);
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         let started = Instant::now();
         shell.settle_band(started);
         let _ = shell.document();
@@ -19835,7 +19896,7 @@ mod tests {
 
         // `turn_running`, with the document it hands over kept.
         shell.route_bytes(b"ask something\r");
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         let started = Instant::now();
         shell.settle_band(started);
         let document = shell.document();
@@ -19986,7 +20047,7 @@ mod tests {
         );
 
         shell.apply(UiEvent::TurnEnded { failure: None });
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         let _ = shell.document();
         shell.settle_band(started + Duration::from_secs(3));
 
@@ -22463,10 +22524,45 @@ mod tests {
         shell.route_bytes(prompt.as_bytes());
         shell.route_bytes(b"\r");
         let _taken = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.settle_band(Instant::now());
         let _ = shell.take_pending();
         shell
+    }
+
+    #[test]
+    fn a_waiting_prompt_is_numbered_as_the_runtime_numbers_its_turn() {
+        // The band's half of the count a start carries
+        // (`super::worker`'s `a_turns_start_names_its_submission_past_the_work_a_stop_dropped`):
+        // each prompt is the submission `accepted` counted once the channel
+        // took it, and a steer the turn did not take is numbered when it is
+        // handed on.
+        let mut shell = running("first");
+        shell.route_bytes(b"second\r");
+        let numbers = |shell: &Fixture| -> Vec<usize> {
+            shell.prompts.iter().map(|p| p.submission).collect()
+        };
+        assert_eq!(
+            (numbers(&shell), shell.work.accepted()),
+            (vec![2], 2),
+            "the prompt behind the turn, and the count"
+        );
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        let _ = shell.picks_up();
+        shell.start_turn();
+        shell.route_bytes(b"third\r");
+        assert_eq!(numbers(&shell), [3], "the prompt behind the second turn");
+        let steering = shell.work.steering();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        let _ = shell.picks_up();
+        steering.open();
+        shell.start_turn();
+        shell.route_bytes(b"steered\r");
+        steering.close();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(numbers(&shell), [4], "the steer handed on as a prompt");
     }
 
     #[test]
@@ -23030,7 +23126,7 @@ mod tests {
         shell.route_bytes(&[0x03]);
         shell.route_bytes(b"second\r");
         let _second = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
         let shown = shell.released();
         assert!(
@@ -23345,7 +23441,7 @@ mod tests {
         shell.apply(UiEvent::TurnEnded {
             failure: Some("the turn was cancelled".to_string()),
         });
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
         shell.apply(UiEvent::TurnEnded { failure: None });
         let written = shell.released();
@@ -23379,7 +23475,7 @@ mod tests {
         shell.settle_band(Instant::now());
 
         shell.route_bytes(b"second\r");
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
         let written = shell.released();
         assert!(
@@ -23400,7 +23496,7 @@ mod tests {
             "the press was not answered from the running column"
         );
         shell.route_bytes(b"second\r");
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
         let written = shell.released();
         assert!(
@@ -23451,7 +23547,7 @@ mod tests {
 
         shell.apply(UiEvent::Delta("and the rest\n".to_string()));
         shell.apply(UiEvent::TurnEnded { failure: None });
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
         shell.apply(UiEvent::TurnEnded { failure: None });
         let written = shell.released();
@@ -26987,7 +27083,7 @@ mod tests {
         queued.route_bytes(b"asked before the new session\r");
         queued.route_bytes(b"/new\r");
         let _ = queued.picks_up();
-        queued.apply(UiEvent::TurnStarted);
+        queued.start_turn();
         queued.apply(UiEvent::TurnEnded { failure: None });
         assert_eq!(
             queued.take_title(),
@@ -27385,7 +27481,7 @@ mod tests {
         let mut live = shell(40, 120);
         live.route_bytes(b"show me the links\r");
         let _ = live.picks_up();
-        live.apply(UiEvent::TurnStarted);
+        live.start_turn();
         live.apply(UiEvent::Delta(LINKED_ANSWER.to_string()));
         live.apply(UiEvent::Usage { input: Some(6) });
         live.apply(UiEvent::TurnEnded { failure: None });
@@ -27518,7 +27614,7 @@ mod tests {
         ] {
             live.route_bytes(format!("{prompt}\r").as_bytes());
             let _ = live.picks_up();
-            live.apply(UiEvent::TurnStarted);
+            live.start_turn();
             live.apply(UiEvent::Delta(answer.to_string()));
             live.apply(UiEvent::Output(Progress::Settled(40)));
             live.apply(UiEvent::Usage { input: Some(6) });
@@ -27596,7 +27692,7 @@ mod tests {
         shell.route_bytes(b"MARKER-OLD prompt\r");
         let _ = shell.picks_up();
         shell.work.give_back();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("MARKER-OLD answer".to_string()));
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.shell.flush_paced();
@@ -27692,7 +27788,7 @@ mod tests {
         let mut live = shell(40, 120);
         live.route_bytes(b"run them\r");
         let _ = live.picks_up();
-        live.apply(UiEvent::TurnStarted);
+        live.start_turn();
         live.apply(tool_start("c1", "terminal", echo("echo hi")));
         live.apply(tool_ended(
             "c1",
@@ -27954,7 +28050,7 @@ mod tests {
         let mut live = shell(40, 120);
         live.route_bytes(b"fix\r");
         let _ = live.picks_up();
-        live.apply(UiEvent::TurnStarted);
+        live.start_turn();
         live.apply(UiEvent::Delta("Looking.".to_string()));
         let endings = [
             (
@@ -28287,7 +28383,7 @@ mod tests {
         let mut live = shell(40, 300);
         live.route_bytes(b"read\r");
         let _ = live.picks_up();
-        live.apply(UiEvent::TurnStarted.made_inert());
+        live.start_turn();
         live.apply(
             tool_start("r", "read_file", serde_json::json!({"path": "gone.txt"})).made_inert(),
         );
@@ -28315,7 +28411,7 @@ mod tests {
         let mut narrow = shell(40, 120);
         narrow.route_bytes(b"read\r");
         let _ = narrow.picks_up();
-        narrow.apply(UiEvent::TurnStarted);
+        narrow.start_turn();
         narrow.apply(
             tool_start("r", "read_file", serde_json::json!({"path": "gone.txt"})).made_inert(),
         );
@@ -28419,7 +28515,7 @@ mod tests {
             let mut live = shell(40, 300);
             live.route_bytes(b"echo\r");
             let _ = live.picks_up();
-            live.apply(UiEvent::TurnStarted.made_inert());
+            live.start_turn();
             live.apply(
                 UiEvent::ToolStart {
                     call_id: "m".to_string(),
@@ -31371,7 +31467,7 @@ mod tests {
         // The fence, and what follows it is the new conversation's: the turn
         // the prompt typed straight away started.
         shell.apply(UiEvent::Fresh { through: 1 });
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("a fresh answer".to_string()));
         shell.shell.flush_paced();
         assert_eq!(
@@ -31593,7 +31689,7 @@ mod tests {
             // The new session's first turn, and its first call: the group is
             // that call alone.
             shell.apply(UiEvent::Fresh { through: 1 });
-            shell.apply(UiEvent::TurnStarted);
+            shell.start_turn();
             shell.apply(tool_start(
                 "call_2",
                 "read_file",
@@ -31629,7 +31725,7 @@ mod tests {
         let _ = shell.document();
 
         shell.apply(UiEvent::Fresh { through: 0 });
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("dropped by the second reset".to_string()));
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.shell.flush_paced();
@@ -31749,7 +31845,7 @@ mod tests {
     #[test]
     fn the_answer_arrives_as_deltas_and_lands_in_the_document() {
         let mut shell = shell(24, 80);
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("MARKER-TURN-".to_string()));
         shell.apply(UiEvent::Delta("ONE".to_string()));
         shell.apply(UiEvent::TurnEnded { failure: None });
@@ -35049,7 +35145,7 @@ mod tests {
             .any(|row| row.starts_with("* provider: Provider switching is unavailable")));
 
         // The turn starts and ends: nothing is running or waiting any more.
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::TurnEnded { failure: None });
         let _ = shell.released();
         shell.route_bytes(b"/provider\r");
@@ -37954,7 +38050,7 @@ mod tests {
         let mut shell = shell(40, 120);
         shell.route_bytes(b"look\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("Looking.".to_string()));
         shell.apply(tool_start(
             "c1",
@@ -38089,7 +38185,7 @@ mod tests {
     fn a_turn_that_ran_a_command(shell: &mut Fixture) {
         shell.route_bytes(b"run the loop\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         let input = serde_json::json!({"action": "exec", "command": "echo boom; exit 3"});
         shell.apply(UiEvent::ToolDetail {
             call_id: "c1".into(),
@@ -38216,7 +38312,7 @@ mod tests {
         let mut shell = shell(40, 80);
         shell.route_bytes(b"a prompt\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Notice(notice::Notice::warning(
             "session",
             "two lines\nof it",
@@ -38756,10 +38852,7 @@ mod tests {
         // The summary's `↑` counts the tokens, as upstream's composer holds
         // them: 12 here, where the badges alone would be 11
         // (`fx-image-40x120-sent`, `0s (↑12 ↓40)`).
-        assert_eq!(
-            shell.prompts.back().map(|(estimate, ..)| *estimate),
-            Some(12)
-        );
+        assert_eq!(shell.prompts.back().map(|prompt| prompt.estimate), Some(12));
         assert!(images
             .iter()
             .all(|image| &*image.bytes == crate::image::fixture::SHOT_PNG));
@@ -40331,7 +40424,7 @@ mod tests {
         shell.work.publish_credits(Ok(a_credits_question()));
         shell.route_bytes(b"first\r");
         shell.route_bytes(b"second\r");
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.document();
         shell.route_bytes(b"/credits\r");
         assert_eq!(shell.credit_asks.asked(), 1, "/credits waited");
@@ -42746,7 +42839,7 @@ mod tests {
         // `$demo` (`TurnSummaryAccumulator.init` over `job.prompt`,
         // `telemetry.zig:87-96`, `orchestrator.zig:5482-5485`): `↑4` in
         // `fx-skills-40x120-sent`, where the name alone would be 3.
-        assert_eq!(shell.prompts.front().map(|prompt| prompt.0), Some(4));
+        assert_eq!(shell.prompts.front().map(|prompt| prompt.estimate), Some(4));
         let work = shell.work.clone();
         assert_eq!(
             skills,
@@ -43093,7 +43186,7 @@ mod tests {
         let mut shell = skilled();
         shell.route_bytes(b"first\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         assert!(shell.activity.working());
         dollar_word_without_a_menu(&mut shell, "dem");
         assert!(shell.ghost().is_some());
@@ -44006,7 +44099,7 @@ mod tests {
         recall_until(&mut shell, "hello");
         shell.route_bytes(b"\r");
         assert!(matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "hello"));
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
         assert!(
             shell.fork_menu.is_none(),
@@ -45098,7 +45191,7 @@ mod tests {
         shell.route_bytes(b"edit the notes\r");
         assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         assert_eq!(status_of(&mut shell), None);
 
         shell.apply(UiEvent::Approval(question(asked())));
@@ -45136,7 +45229,7 @@ mod tests {
                 .submit(TurnWork::Submit("again".into()))
                 .expect("a place");
             let _ = shell.picks_up();
-            shell.apply(UiEvent::TurnStarted);
+            shell.start_turn();
             assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
             shell.apply(UiEvent::TurnEnded {
                 failure: Some("request failed: ConnectionRefused".into()),
@@ -45152,7 +45245,7 @@ mod tests {
         assert_eq!(status_of(&mut shell).as_deref(), Some("idle"));
         shell.route_bytes(b"first\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.work.give_back();
         let _ = status_of(&mut shell);
@@ -45164,7 +45257,7 @@ mod tests {
             .submit(TurnWork::Submit("second".into()))
             .expect("a place");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
         shell.route_bytes(&[0x03]);
         assert_eq!(status_of(&mut shell).as_deref(), Some("idle"));
@@ -45183,7 +45276,7 @@ mod tests {
         let _ = status_of(&mut winding);
         winding.route_bytes(b"read it\r");
         let _ = winding.picks_up();
-        winding.apply(UiEvent::TurnStarted);
+        winding.start_turn();
         winding.apply(tool_start(
             "c1",
             "read_file",
@@ -45213,7 +45306,7 @@ mod tests {
             .submit(TurnWork::Submit("third".into()))
             .expect("a place");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.work.give_back();
         assert_eq!(status_of(&mut shell).as_deref(), Some("done"));
@@ -45250,7 +45343,7 @@ mod tests {
             .expect("a place");
         let _ = shell.picks_up();
         shell.settle_band(Instant::now());
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
     }
 
@@ -45685,7 +45778,7 @@ mod tests {
         );
         shell.route_bytes(b"first\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.work.give_back();
         assert_eq!(status_of(&mut shell).as_deref(), Some("done"));
@@ -45729,7 +45822,7 @@ mod tests {
         let _ = status_of(&mut shell);
         shell.route_bytes(b"third question\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
         shell.apply(UiEvent::Compaction(compaction::Update::Began {
             automatic: true,
@@ -45770,7 +45863,7 @@ mod tests {
         let _ = status_of(&mut shell);
         shell.route_bytes(b"third question\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
         shell.apply(UiEvent::Compaction(compaction::Update::Began {
             automatic: true,
@@ -45801,7 +45894,7 @@ mod tests {
         // One the user stopped is the turn's interrupt: idle.
         shell.route_bytes(b"fourth question\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
         shell.apply(UiEvent::Compaction(compaction::Update::Began {
             automatic: true,
@@ -45840,7 +45933,7 @@ mod tests {
             let _ = status_of(&mut shell);
             shell.route_bytes(b"third question\r");
             let _ = shell.picks_up();
-            shell.apply(UiEvent::TurnStarted);
+            shell.start_turn();
             assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
             shell.apply(UiEvent::Compaction(compaction::Update::Began {
                 automatic: true,
@@ -45903,7 +45996,7 @@ mod tests {
             let _ = status_of(&mut shell);
             shell.route_bytes(b"a question\r");
             let _ = shell.picks_up();
-            shell.apply(UiEvent::TurnStarted);
+            shell.start_turn();
             assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
             shell.apply(UiEvent::Compaction(compaction::Update::Began {
                 automatic: true,
