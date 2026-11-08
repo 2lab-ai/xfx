@@ -69,9 +69,10 @@ snap d-key
 # draft, a snap after it sees the row gone on xfx and still up on fx (fx
 # showed it 0.6 s after the Escape). This ending used to time both with
 # `wait 0.5`, on the window's edge each time (LAUNCH-SETTLE). Now it
-# waits for the row, then takes the draft away a character at a time,
-# which takes the row down on both at once: `closed` and `end` read an
-# empty prompt with no timer up.
+# waits for the row, takes the draft away a character at a time, and
+# waits for the row to go (fx takes it down at the Backspace, xfx when its
+# 500 ms run out): `closed` and `end` read an empty prompt with no timer
+# up.
 key Escape
 until shown esc again to clear
 key BSpace
