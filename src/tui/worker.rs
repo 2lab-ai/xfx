@@ -14774,6 +14774,15 @@ mod tests {
 
     /// A runtime on the Gateway with a key and nothing asked in it yet, its
     /// desk publishing where to ask and answered by `answer` from the excerpt.
+    ///
+    /// **Its catalog has answered already, from a stand-in in this process.**
+    /// The key alone would make the selector's catalog the remote Gateway's
+    /// (`crate::provider::model::catalog_for`, at the endpoint the process
+    /// environment names), unread: `turn_loop`'s first tick would begin
+    /// reading it on a thread of its own ([`begin_catalog_read`]) and tell
+    /// the band its answer whenever it came -- an event no title case sends,
+    /// racing the case's own shutdown (registry #19), from a socket a unit
+    /// test has no business opening.
     fn titled_runtime(
         answer: impl Fn(&str) -> super::super::titles::Outcome + Send + Sync + 'static,
     ) -> (tempfile::TempDir, tempfile::TempDir, Runtime) {
@@ -14790,6 +14799,14 @@ mod tests {
         assert_eq!(config.provider, ProviderId::Gateway);
         let store = open_store(&config).expect("a store");
         let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        // The stand-in first, which leaves nothing loaded; then the answer.
+        state.selector.set_fetcher_for_test(Box::new(Answering {
+            entries: Vec::new(),
+            asked: Arc::default(),
+        }));
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(Vec::new()));
         let (desk, answers) = super::super::titles::TitleDesk::answering(true, answer);
         state.titles = desk;
         state.title_answers = Some(answers);
