@@ -1,0 +1,55 @@
+# HISTORY-NOTICE-STOP: provider-carry-back with the first turn after the switch
+# stopped before its request. The conversation starts on the provider that
+# seals its reasoning (fx on codex, xfx on llmux), reads a file and answers,
+# then `/provider` moves to the Gateway, whose catalog answers 10 s after it
+# is asked: the next prompt waits at its start for that first load (a window
+# nobody else gives, `orchestrator.zig:5665-5666@481104fd`), and Ctrl-C lands
+# 0.7 s into the wait. Upstream ends that turn interrupted and sends nothing
+# (`:5893-5919`); the prompt after it, once the catalog is in, is answered.
+# xfx says once per conversation that the llmux reasoning was not carried
+# (src/session/store.rs; fx drops it silently, `projectProviderReplay`,
+# `types.zig:1668-1680`): the stopped turn shows nothing, so the turn after it
+# says it. The turns file has no answer for the stopped turn: a request it
+# sent would take the next turn's.
+fx: seed provider-carry-back-fx.json
+xfx: seed provider-carry-back-xfx.json
+fx: homefile .fx/chatgpt-auth.json provider-carry-chatgpt-auth.json
+fx: env FX_E2E_OPENAI_CODEX_MODELS_URL=http://127.0.0.1:@PORT@/codex/models FX_E2E_OPENAI_CODEX_RESPONSES_URL=http://127.0.0.1:@PORT@/codex/responses
+xfx: env XFX_SOUND=off
+nomodel
+modelsdelay 10000
+gateway provider-carry-back-stop-turns.json
+work provider-carry-ws
+wait 6
+type read the notes and tell me what they say
+key Enter
+wait 15
+snap turn1
+type /provider
+key Enter
+wait 4
+key Enter
+wait 3
+fx: key Down
+fx: wait 1
+fx: key Enter
+fx: wait 3
+fx: key Enter
+wait 2
+type what day was it again?
+key Enter
+wait 0.7
+key C-c
+wait 1
+snap stopped
+until gone press ctrl+c again to exit
+wait 9
+type and after the stop?
+key Enter
+wait 15
+snap next
+home end
+gwlog
+type /quit
+key Enter
+wait 3

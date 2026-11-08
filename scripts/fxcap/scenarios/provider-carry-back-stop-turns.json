@@ -1,0 +1,5 @@
+[
+ {"thinking":{"text":"SEALED-THOUGHT: read the file first.","signature":"SEALED-SIGNATURE-1"},"tool":{"id":"toolu_01","name":"read_file","input":{"path":"notes.txt"}}},
+ {"delayMs":50,"chunks":["The notes say the meeting ","moved to Thursday."]},
+ {"delayMs":50,"chunks":["MARKER-AFTER-STOP: still Thursday."]}
+]
