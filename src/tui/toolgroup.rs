@@ -125,6 +125,17 @@ const INLINE_CELLS: usize = u16::MAX as usize + 1;
 /// spelling's last character -- the channel's argument is spelled
 /// (`super::bridge`'s `spelled_shown`), and spelling it again changes nothing
 /// -- so the cut never falls inside a cluster or a spelling.
+///
+/// **`target` is the channel's, spelled**, wherever a session gives one
+/// (`super::bridge`'s `made_inert` spells every call's `Shown`, a turn's and
+/// a resumed session's): its units are then the clusters of the spelled
+/// text, and a raw cluster the channel spelled in pieces -- a ZWJ family,
+/// its joiners written out -- may be cut between them. Raw text, which only
+/// a test hands it, is spelled here unit by unit and cut between its raw
+/// clusters, but a raw cluster that spells wider than `u16::MAX` cells is
+/// measured at that (`super::wrap::width` saturates) and kept whole. No
+/// assertion stands for this: the raw path is what the row's own spelling
+/// tests drive.
 fn inline(target: &str) -> String {
     let mut out = String::new();
     let mut cells = 0usize;
@@ -144,7 +155,13 @@ fn inline(target: &str) -> String {
 }
 
 /// How many bytes of `rest` its first unit takes ([`inline`]): a spelling and
-/// what joins its last character, or one grapheme cluster.
+/// what joins its last character, or one grapheme cluster -- ended before a
+/// spelling it took in.
+///
+/// A character UAX #29 calls Prepend (GB9b: U+0600-0605, U+06DD, U+070F,
+/// ...) joins the character after it, a spelling's `\` too, and no spelling
+/// names one: so a cluster that took in a `\` starting a spelling ends
+/// before it, and the spelling is the next unit.
 fn unit_at(rest: &str) -> usize {
     use unicode_segmentation::UnicodeSegmentation;
     let cluster = |text: &str| text.graphemes(true).next().map_or(text.len(), str::len);
@@ -152,7 +169,14 @@ fn unit_at(rest: &str) -> usize {
         // Its last character is `}` or a hex digit, and a mark after it joins
         // it, so the cluster that character starts is the spelling's end.
         Some(len) => len - 1 + cluster(&rest[len - 1..]),
-        None => cluster(rest),
+        None => {
+            let whole = cluster(rest);
+            rest[..whole]
+                .char_indices()
+                .skip(1)
+                .find(|&(at, character)| character == '\\' && spelling_at(&rest[at..]).is_some())
+                .map_or(whole, |(at, _)| at)
+        }
     }
 }
 
@@ -2560,7 +2584,10 @@ mod tests {
                 );
             }
             // What it keeps is the argument up to the end of one of its
-            // clusters, and no further than the widest screen shows.
+            // clusters, and no further than the widest screen shows. Its
+            // *raw* clusters: these arguments reach the group unspelled, as
+            // only a test hands one; through the channel the units are the
+            // spelled text's (the next test).
             let kept = strip(&rows[1]);
             let kept = kept.strip_prefix("\u{2514} Matching ").expect("the row");
             let (kept, cut) = match kept.strip_suffix("...") {
