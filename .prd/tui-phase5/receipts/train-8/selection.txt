@@ -1,0 +1,80 @@
+# Train 8's sweep selection, one --only glob or name a line (sweep.py's
+# --only), each group with why (the README's Sweep).
+#
+# The brief's first group: the ctrl-o, transcript and toolgroup scenarios --
+# GRID-ROW-COST's own selection (ARGROW-CACHE's, train 6's: every
+# p5-transcript-*, the cancel scenarios, every p5-ctrlo-wider-* and
+# p5-toolgroup-*, the wraps, the resize, fulltranscript*, toolgroup*,
+# p5-inline-code-*), and train 7's *ctrlo*.
+p5-transcript-*
+interrupt*
+question*
+compact-cancel
+p5-ctrlo-wider-*
+p5-toolgroup-*
+prose-wrap
+table-wrap
+card-wrap
+cmd-wrap
+composer-wrap
+notice-wrap
+h1-resize
+fulltranscript*
+toolgroup*
+p5-inline-code-*
+*ctrlo*
+# The brief's second group: every scenario FLAKE-MCPMODE's receipt lists
+# (scenarios.tsv on fix/p5-flake-mcpmode-f @ b7561e7c: each committed
+# scenario with a line for a writer or a reader that unit changed).
+credits-busy
+fulltranscript-notice
+h1-mcphttp
+h1-mcphttp-fail
+h1-mcphttp-methodnotfound
+h1-models2
+h1-rehomefile
+h1-usage
+h1-usage-codex
+h1-usage-grok
+image-paste
+interrupt-steer
+model-busy
+model-busy-known
+notice-midstream
+notice-wire
+p5-effort-fork-effort-menu
+p5-effort-fork-fork-edge
+p5-lifecycle-osc-interrupt
+p5-lifecycle-osc-interruptnext
+p5-lifecycle-osc-states
+p5-mcp-discover-http-hostile
+p5-mcp-discover-http-malformed
+p5-mcp-discover-http-modern
+p5-mcp-discover-http-notimpl
+p5-mcp-discover-http-old2024
+p5-mcp-discover-http-ssefail
+p5-mcp-discover-http-ssehold
+p5-mcp-discover-http-sseidless
+p5-mcp-discover-http-ssestrid
+p5-mcp-live
+p5-mcp-rpcerror
+p5-panels-status-badsettings
+p5-session-early-prefs
+p5-transcript-cancel
+p5-transcript-submit
+p5-transcript-submit-multi
+p5-usage-budget
+p5-usage-cached
+p5-usage-many
+p5-usage-nokey
+p5-usage-turns
+provider
+provider-resume
+provider-resume-missing
+rename-midturn
+resume-empty
+streaming
+# The brief's third group: every scenario whose ledger entries the merges
+# touched -- none: neither merge changed scripts/fxcap/parity-ledger.toml
+# (git diff 58c92ba2 056b1b01 -- scripts/fxcap/parity-ledger.toml is empty);
+# the re-point commit changed reference numbers only, which no sweep reads.
