@@ -3406,6 +3406,60 @@ fn a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing
 }
 
 #[test]
+fn an_enter_one_read_behind_a_paste_s_end_marker_is_behind_it_too() {
+    // A read takes at most 128 bytes (`BURST_BYTES`), so one write of 129
+    // whose paste ends on its 128th byte is two reads: the end marker at the
+    // tail of the first, the Enter alone in the second. It is one delivery
+    // all the same -- upstream settles a paste only once a readiness check
+    // finds nothing more to read (`event_loop.zig:94-119@481104fd`) -- so the
+    // Enter is behind the marker, ignored, and nothing is sent. A loop that
+    // settled after every read would send the draft.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-TWO-READS"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"prior");
+    on_screen(&session, (40, 120), &["\u{2503} prior"], &[]);
+    let body = "w".repeat(128 - 12);
+    let mut bytes = b"\x1b[200~".to_vec();
+    bytes.extend(body.as_bytes());
+    bytes.extend(b"\x1b[201~\r");
+    assert_eq!(
+        bytes.len(),
+        129,
+        "the end marker does not end the first read"
+    );
+    session.type_bytes(&bytes);
+    on_screen(
+        &session,
+        (40, 120),
+        &["! input: Input that arrived right after the paste was ignored."],
+        &[],
+    );
+    assert_eq!(
+        gateway.request_count(),
+        0,
+        "the Enter one read behind the end marker submitted the composer"
+    );
+
+    session.type_bytes(b"\r");
+    session.wait_for("MARKER-TWO-READS");
+    assert_eq!(
+        user_messages(&gateway.only_request().json()),
+        [format!("prior{body}")]
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
 fn a_very_large_paste_collapses_on_screen_and_expands_on_submit() {
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
         support::fake_gateway::content_only(&["MARKER-BIG"]),
