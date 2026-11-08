@@ -20,9 +20,10 @@
 #   Enter takes the marked row of the ranked list.
 # - c-*: the `/model <query>` column ranks the same way and Enter takes its
 #   first row (modelCompletions, :897-913). A space typed there is not
-#   inserted unless it follows a model's exact id (advanceModelPickerOnSpace,
-#   input_completion_runtime.zig:1210-1219), so `anthropic opus` typed reads
-#   `anthropicopus` (fuzzy); the c-paste-* snaps paste the line, spaces kept.
+#   inserted unless it follows a model's exact id (app_input_runtime.zig:
+#   1355-1363, advanceModelPickerOnSpace, input_completion_runtime.zig:
+#   1210-1219), so `anthropic opus` typed reads `anthropicopus` (fuzzy); the
+#   c-paste-* snaps paste the line, spaces kept.
 fx: env FX_AUTO_UPGRADE=0
 models p5-input-model-rank.json
 wait 4
