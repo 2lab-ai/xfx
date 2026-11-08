@@ -212,7 +212,26 @@ in a row on their own.
 
 ## Mutants (`mutants.txt`)
 
-SWEEP_AND_MUTANTS
+`mutants.py` ran each mutant on a `git clone --no-local` throwaway of this
+branch (no remote), one at a time, with the file restored after each, under the
+suite lock. The tests per mutant: `cargo test --lib question`, then
+`--test tool_loop`, then the two pty tests, each with a 900 s timeout; the first
+run that fails kills it. **13 of 13 killed** (`mutants.txt`, with the tests that
+caught each):
+
+| mutant | killed by |
+|---|---|
+| M1-M3 the cap at 4, 21, 19 | the cap test, the refusals, the worst-case bound, the full batch |
+| M4 the parser's bound `>=` | the refusals at 0/21, the full batch |
+| M5 the refusal's words at 4 | the cap test, the refusals, the execute-side test |
+| M6 the description at `1 to 4` | the cap test |
+| M7 the schema's `maxItems` at 4 | the cap test |
+| M8 the `questions` property at `1 to 4` | the cap test |
+| M9 the worst-case bound at 36 977 | the worst-case test |
+| M10 the counter's air 2 -> 1 | the counter at 120/80/72 |
+| M11 Tab stops at the last page | the 20-page walk, the draft-keeping Tab test |
+| M12 Left wraps past the first | the 20-page walk, two Left tests |
+| M13 the resolution indent fixed at 5 | the two-digit hang |
 
 ## Sweep (`sweep-base.md`, `sweep-head.md`, `sweep-diff.txt`)
 
@@ -254,4 +273,6 @@ GATE_SECTION
 - `probe/`: the two-question resume probe, both binaries.
 - `red.txt`, `green.txt`: the pairs, the wire, the tests.
 - `fx-src.txt`: every fx line cited above.
-- `mutants.txt`, `sweep-*.md`, `sweep-diff.txt`, `gate.txt`.
+- `mutants.py`, `mutants.txt`; `sweep-base.md`, `sweep-head.md`, `sweep-diff.txt`;
+  `refs.txt` (every `path:line` the ledger and `docs/parity.md` cite, checked at
+  the head against the base: none moved); `gate.txt`.
