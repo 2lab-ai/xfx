@@ -1,5 +1,5 @@
-commit 50cabfa676733348e492c19ea414566711d4cd25
-Merge: a0e68952 66854557
+commit 460785537658436086c0eff4702c0c9a3d3cfae2
+Merge: 1661d59d 66854557
 
 Merge MODELS-REASK feat/p5-models-reask @ 66854557 into train/p5-1108d
 
@@ -32,17 +32,19 @@ telling the selector's catalog and clock, as CatalogAsks::asked_at
 does, and asserts the stand-in's answer (the Gateway, no rows) with
 `due` left out of the comparison.
 
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
 
 diff --git a/scripts/fxcap/parity-ledger.toml b/scripts/fxcap/parity-ledger.toml
 remerge CONFLICT (content): Merge conflict in scripts/fxcap/parity-ledger.toml
-index b1475340..76281560 100644
+index bc252aa1..76281560 100644
 --- a/scripts/fxcap/parity-ledger.toml
 +++ b/scripts/fxcap/parity-ledger.toml
 @@ -783,11 +783,7 @@ scenarios = ["*"]
  snaps = ["*"]
  fx_row = '^  (?:system prompt: |skills: |tools: \d+ advertised|mcp: none$)|^  more\)$|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
  xfx_row = '^  tools: \d+ advertised|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
--<<<<<<< a0e68952 (Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d)
+-<<<<<<< 1661d59d (Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d)
 -xfx = ["src/tui/shell.rs:37764"]
 -=======
 -xfx = ["src/tui/shell.rs:38002"]
@@ -55,7 +57,7 @@ index b1475340..76281560 100644
  scenarios = ["p5-transcript-anchor", "p5-transcript-anchormid", "p5-transcript-resize", "p5-transcript-records", "p5-transcript-question"]
  snaps = ["full-*"]
  rows = ["1-2", "35-37"]
--<<<<<<< a0e68952 (Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d)
+-<<<<<<< 1661d59d (Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d)
 -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37764"]
 -=======
 -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:38002"]
@@ -68,7 +70,7 @@ index b1475340..76281560 100644
  snaps = ["full-*"]
  rows = ["34-37"]
  xfx_row = '^\s*$'
--<<<<<<< a0e68952 (Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d)
+-<<<<<<< 1661d59d (Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d)
 -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37764"]
 -=======
 -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:38002"]
@@ -81,7 +83,7 @@ index b1475340..76281560 100644
  scenarios = ["p5-transcript-safe", "p5-transcript-safetab"]
  snaps = ["full", "full-pgup"]
  rows = ["1-2", "33-36"]
--<<<<<<< a0e68952 (Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d)
+-<<<<<<< 1661d59d (Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d)
 -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37764"]
 -=======
 -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:38002"]
@@ -94,7 +96,7 @@ index b1475340..76281560 100644
  scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout"]
  snaps = ["*ctrl-o*", "full*"]
  whole_snap = true
--<<<<<<< a0e68952 (Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d)
+-<<<<<<< 1661d59d (Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d)
 -xfx = ["src/tui/shell.rs:37764", "src/tui/approval_view.rs:685"]
 -=======
 -xfx = ["src/tui/shell.rs:38002", "src/tui/approval_view.rs:685"]
@@ -105,14 +107,14 @@ index b1475340..76281560 100644
  
 diff --git a/src/tui/shell.rs b/src/tui/shell.rs
 remerge CONFLICT (content): Merge conflict in src/tui/shell.rs
-index 610ea0c0..c0185715 100644
+index 30db3537..c0185715 100644
 --- a/src/tui/shell.rs
 +++ b/src/tui/shell.rs
 @@ -45700,7 +45700,6 @@ mod tests {
          assert_eq!(status_of(&mut shell).as_deref(), Some("done"));
      }
  
--<<<<<<< a0e68952 (Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d)
+-<<<<<<< 1661d59d (Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d)
      #[test]
      fn a_turn_stopped_over_its_answer_leaves_its_cancelled_line_on_ctrl_o_too() {
          // fx v0.0.16 appends the turn's lifecycle line to the transcript it

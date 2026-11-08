@@ -1,4 +1,4 @@
-commit 3e80798f3a2d10569eecc32010f5caec8087f533
+commit 04ef61b02a8f4dd16441faa5aadfc7d6d6de40d2
 Merge: fdc5ac0b 2f1c80e7
 
 Merge LAUNCH-SETTLE-F fix/p5-launch-settle-f @ 2f1c80e7 into train/p5-1108d
@@ -9,4 +9,6 @@ launch and relaunch wait until the binary reaches its state (its first
 frame; test_capture.py's /bin/sh vs /bin/cat race), absent never speaks
 for a launch-armed timer, per-side expect pins on the divergence snaps,
 test_sweep's discrimination cases. No conflict.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 

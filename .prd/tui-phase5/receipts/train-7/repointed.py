@@ -31,9 +31,9 @@ ROWS = [
     ("ledger resize-document-repaint (source)", "src/tui/shell.rs", 15607, "fdc5ac0b", 16321, 1, 2, None),
     ("ledger cancel-page-edge (xfx)", "src/tui/shell.rs", 37764, "fdc5ac0b", 38615, 1, 2, None),
     ("shell.rs comment (STOP-NEXT-2's `TurnEnded`, `worker.rs:3846`)", "src/tui/worker.rs", 3846, "f8d625c3", 3867, 1, 2, None),
-    # -- set by merge 3 (50cabfa6), then moved by merge 4 --
+    # -- set by merge 3 (46078553), then moved by merge 4 --
     ("merge 3: ledger session-record and four more (xfx), at merge 3", "src/tui/shell.rs", 37758, "690aa505", 38014, 1, 2, None),
-    # -- set by merge 4 (c080f5a5), at the head --
+    # -- set by merge 4 (54e3196b), at the head --
     ("merge 4: ledger session-record, transcript-page-offset, toolgroup-ctrlo-record-short, safe-page-edge, full-transcript-shift (xfx)",
      "src/tui/shell.rs", 37758, "690aa505", 38615, 1, 2, None),
     ("merge 4: ledger submit-multi-card-whole (why: `fn send`)", "src/tui/shell.rs", 12600, "690aa505", 13112, 1, 2, None),
@@ -57,7 +57,7 @@ def show(repo, commit, path):
 
 def main():
     repo, head = sys.argv[1], sys.argv[2]
-    merge3 = "50cabfa6"
+    merge3 = "46078553"
     ok = 0
     for who, path, was, frame, now, n, ctx, same in ROWS:
         at = merge3 if who.startswith("merge 3:") else head

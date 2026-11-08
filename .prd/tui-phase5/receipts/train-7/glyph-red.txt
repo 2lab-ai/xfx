@@ -1,5 +1,6 @@
-# The ten lines of STOP-NEXT-2's tests that count or find the turn's Cancelled line, at merge 4 c080f5a5 (before f8190f8c changed U+25A0 to U+25AA in them),
-# a git clone --no-local of the train checked out there, in one hold of the suite lock:
+# The ten lines of STOP-NEXT-2's tests that count or find the turn's Cancelled line, at merge 4 (before 06189ce8 changed U+25A0 to U+25AA in them),
+# a git clone --no-local of the train checked out there, in one hold of the suite lock. The run was at c080f5a5, merge 4 before the branch's messages
+# took their Co-Authored-By trailer (git filter-branch --msg-filter); its tree is 54e3196b's, 1df1c437:
 #   cargo test --locked --lib -- <the nine tests by name>
 # 8 fail (each its count 0 where 1 was expected, or no line found); a_cancel_that_waited_for_a_call_leaves_a_held_call_still_running_its_own_line passes vacuously (it asserts the line is absent).
 test tui::shell::tests::a_stopped_turn_whose_end_carries_a_real_failure_reports_it_as_upstream_does ... FAILED

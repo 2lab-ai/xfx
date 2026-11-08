@@ -1,4 +1,4 @@
-# head 49966594; sides: train6 fdc5ac0b, launch-settle-f 2f1c80e7, t-u4-f a8c7a87d, models-reask 66854557, stop-next-2 f8d625c3
+# head 85b13f84; sides: train6 fdc5ac0b, launch-settle-f 2f1c80e7, t-u4-f a8c7a87d, models-reask 66854557, stop-next-2 f8d625c3
 docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/approval.rs:552-585
     launch-settle-f MOVED -> 557-590 | t-u4-f MOVED -> 557-590
 docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/bridge.rs:112-172

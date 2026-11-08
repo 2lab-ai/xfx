@@ -1,5 +1,5 @@
-# token_check.py (train 6's, train 7's two numbers-only rules added) over the four merges, at the head 8fe79cbc
-merge 3e80798f: ours fdc5ac0b, theirs 2f1c80e7, base 7589ec42 -- OK
+# token_check.py (train 6's, with train 7's numbers-only rules) over the four merges
+merge 04ef61b0: ours fdc5ac0b, theirs 2f1c80e7, base 7589ec42 -- OK
   parity row '`/resume`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
   parity row '`/allowlist`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
   parity row 'transport-owned retry and team routing': changed by ours; 49 tokens added, 0 deleted, all as expected, in order
@@ -43,7 +43,7 @@ merge 3e80798f: ours fdc5ac0b, theirs 2f1c80e7, base 7589ec42 -- OK
   ledger divergence inline-code-shade: changed by ours, kept so
   ledger normalization banner: changed by ours, kept so
   ledger comments: 2 added, 0 deleted, all as expected
-merge a0e68952: ours 3e80798f, theirs a8c7a87d, base 5a7bb465 -- OK
+merge 1661d59d: ours 04ef61b0, theirs a8c7a87d, base 5a7bb465 -- OK
   parity row 'transport-owned retry and team routing': changed by ours; 49 tokens added, 0 deleted, all as expected, in order
   parity row 'full-screen TUI': changed by ours; 433 tokens added, 10 deleted, all as expected, in order
   parity row 'full transcript (`C-o`)': changed by ours; 247 tokens added, 15 deleted, all as expected, in order
@@ -81,7 +81,7 @@ merge a0e68952: ours 3e80798f, theirs a8c7a87d, base 5a7bb465 -- OK
   ledger divergence inline-code-shade: changed by ours, kept so
   ledger normalization banner: changed by ours, kept so
   ledger comments: 2 added, 0 deleted, all as expected
-merge 50cabfa6: ours a0e68952, theirs 66854557, base 690aa505 -- OK
+merge 46078553: ours 1661d59d, theirs 66854557, base 690aa505 -- OK
   parity row '`/resume`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
   parity row '`/model`': changed by theirs; 657 tokens added, 36 deleted, all as expected, in order
   parity row '`/allowlist`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
@@ -124,7 +124,7 @@ merge 50cabfa6: ours a0e68952, theirs 66854557, base 690aa505 -- OK
   ledger divergence inline-band-row-anchor: added by ours, kept so
   ledger normalization banner: changed by theirs, kept so
   ledger comments: 2 added, 0 deleted, all as expected
-merge c080f5a5: ours 50cabfa6, theirs f8d625c3, base 690aa505 -- OK
+merge 54e3196b: ours 46078553, theirs f8d625c3, base 690aa505 -- OK
   parity row 'terminal program status (OSC 7501)': '(`worker.rs:3835`,' re-pointed by both sides (ours '(`worker.rs:3856`,', theirs '(`worker.rs:3846`,'), M '(`worker.rs:3867`,' -- compared as '(`worker.rs:N`,'
   parity row 'terminal program status (OSC 7501)': '`:3524`)' re-pointed by both sides (ours '`:3544`)', theirs '`:3530`)'), M '`:3550`)' -- compared as '`:N`)'
   parity row '`/resume`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order

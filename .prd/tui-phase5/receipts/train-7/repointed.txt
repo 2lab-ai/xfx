@@ -1,41 +1,41 @@
-SAME  scripts/fxcap/capture.sh:291-293@fdc5ac0b -> :315-317@8fe79cbc (+-2 lines)  [ledger (capture.sh's TMPDIR comment)]
+SAME  scripts/fxcap/capture.sh:291-293@fdc5ac0b -> :315-317@c468f5e1 (+-2 lines)  [ledger (capture.sh's TMPDIR comment)]
     first: # Each binary gets a TMPDIR inside the run (fx `$run/fxtmp`, xfx
-SAME  scripts/fxcap/capture.sh:462@fdc5ac0b -> :521@8fe79cbc (+-2 lines)  [ledger (capture.sh's run directory)]
+SAME  scripts/fxcap/capture.sh:462@fdc5ac0b -> :521@c468f5e1 (+-2 lines)  [ledger (capture.sh's run directory)]
     first: run=$(mktemp -d "${TMPDIR:-/tmp}/fxcap.XXXXXX")
-SAME  scripts/fxcap/capture.sh:878@fdc5ac0b -> :952@8fe79cbc (+-2 lines)  [ledger (capture.sh's remain-on-exit)]
+SAME  scripts/fxcap/capture.sh:878@fdc5ac0b -> :952@c468f5e1 (+-2 lines)  [ledger (capture.sh's remain-on-exit)]
     first: keep) tmux -f /dev/null -S "$sock" set-option -w -t cap remain-on-exit on > /dev/null ;;
-SAME  src/tui/shell.rs:4131@66854557 -> :4333@8fe79cbc (both hold 'self.tally.begin(Instant::now(), ')  [ledger model-parked's cause (why: `tally.begin`)]
+SAME  src/tui/shell.rs:4131@66854557 -> :4333@c468f5e1 (both hold 'self.tally.begin(Instant::now(), ')  [ledger model-parked's cause (why: `tally.begin`)]
     first: self.tally.begin(Instant::now(), estimate);
-SAME  src/tui/shell.rs:9762@fdc5ac0b -> :10194@8fe79cbc (+-2 lines)  [ledger amendment-card-after-stop (xfx, why)]
+SAME  src/tui/shell.rs:9762@fdc5ac0b -> :10194@c468f5e1 (+-2 lines)  [ledger amendment-card-after-stop (xfx, why)]
     first: fn trailer_rows(&self) -> Vec<String> {
-SAME  src/tui/shell.rs:12859@fdc5ac0b -> :13423@8fe79cbc (+-2 lines)  [ledger answer-drawn-wider-named (source)]
+SAME  src/tui/shell.rs:12859@fdc5ac0b -> :13423@c468f5e1 (+-2 lines)  [ledger answer-drawn-wider-named (source)]
     first: let event = full_transcript::shown_event(event);
-SAME  src/tui/shell.rs:15607@fdc5ac0b -> :16321@8fe79cbc (+-2 lines)  [ledger resize-document-repaint (source)]
+SAME  src/tui/shell.rs:15607@fdc5ac0b -> :16321@c468f5e1 (+-2 lines)  [ledger resize-document-repaint (source)]
     first: pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Resize {
-SAME  src/tui/shell.rs:37764@fdc5ac0b -> :38615@8fe79cbc (+-2 lines)  [ledger cancel-page-edge (xfx)]
+SAME  src/tui/shell.rs:37764@fdc5ac0b -> :38615@c468f5e1 (+-2 lines)  [ledger cancel-page-edge (xfx)]
     first: "  tools: {} advertised ({},",
-SAME  src/tui/worker.rs:3846@f8d625c3 -> :3867@8fe79cbc (+-2 lines)  [shell.rs comment (STOP-NEXT-2's `TurnEnded`, `worker.rs:3846`)]
+SAME  src/tui/worker.rs:3846@f8d625c3 -> :3867@c468f5e1 (+-2 lines)  [shell.rs comment (STOP-NEXT-2's `TurnEnded`, `worker.rs:3846`)]
     first: bridge::send_terminal(events, UiEvent::TurnEnded { failure }).await;
-SAME  src/tui/shell.rs:37758@690aa505 -> :38014@50cabfa6 (+-2 lines)  [merge 3: ledger session-record and four more (xfx), at merge 3]
+SAME  src/tui/shell.rs:37758@690aa505 -> :38014@46078553 (+-2 lines)  [merge 3: ledger session-record and four more (xfx), at merge 3]
     first: "  tools: {} advertised ({},",
-SAME  src/tui/shell.rs:37758@690aa505 -> :38615@8fe79cbc (+-2 lines)  [merge 4: ledger session-record, transcript-page-offset, toolgroup-ctrlo-record-short, safe-page-edge, full-transcript-shift (xfx)]
+SAME  src/tui/shell.rs:37758@690aa505 -> :38615@c468f5e1 (+-2 lines)  [merge 4: ledger session-record, transcript-page-offset, toolgroup-ctrlo-record-short, safe-page-edge, full-transcript-shift (xfx)]
     first: "  tools: {} advertised ({},",
-SAME  src/tui/shell.rs:12600@690aa505 -> :13112@8fe79cbc (+-2 lines)  [merge 4: ledger submit-multi-card-whole (why: `fn send`)]
+SAME  src/tui/shell.rs:12600@690aa505 -> :13112@c468f5e1 (+-2 lines)  [merge 4: ledger submit-multi-card-whole (why: `fn send`)]
     first: fn send(&mut self, prompt: String, text: &str) -> bool {
-SAME  src/tui/shell.rs:1644@690aa505 -> :1756@8fe79cbc (+-2 lines)  [merge 4: ledger stats-bytes (xfx)]
+SAME  src/tui/shell.rs:1644@690aa505 -> :1756@c468f5e1 (+-2 lines)  [merge 4: ledger stats-bytes (xfx)]
     first: "ansi_bytes={}, redraws={}, debounced_resizes={}, footer_updates=0, stream_chunks=0",
-SAME  src/tui/toolgroup.rs:914@a8c7a87d -> :922@8fe79cbc (+-2 lines)  [merge 4: ledger call-row-raw-argument (source), call-row-page-edge (xfx): T-U4's `spelled`]
+SAME  src/tui/toolgroup.rs:914@a8c7a87d -> :922@c468f5e1 (+-2 lines)  [merge 4: ledger call-row-raw-argument (source), call-row-page-edge (xfx): T-U4's `spelled`]
     first: pub(crate) fn spelled(target: &str, presentation: Presentation) -> String {
-SAME  src/tui/toolgroup.rs:797@690aa505 -> :999@8fe79cbc (+-2 lines)  [merge 4: ledger call-row-source-cut (source): `command_spelled`]
+SAME  src/tui/toolgroup.rs:797@690aa505 -> :999@c468f5e1 (+-2 lines)  [merge 4: ledger call-row-source-cut (source): `command_spelled`]
     first: fn command_spelled(target: &str, max: usize, mark_unread: bool) -> String {
-SAME  src/tui/toolgroup.rs:911@690aa505 -> :1113@8fe79cbc (+-2 lines)  [merge 4: ledger call-row-arabic-letter-mark (source): the U+061C arm]
+SAME  src/tui/toolgroup.rs:911@690aa505 -> :1113@c468f5e1 (+-2 lines)  [merge 4: ledger call-row-arabic-letter-mark (source): the U+061C arm]
     first: if character == '\u{061c}' {
-SAME  src/tui/worker.rs:3835@690aa505 -> :3867@8fe79cbc (+-2 lines)  [merge 4: parity 'terminal program status (OSC 7501)': the end sent]
+SAME  src/tui/worker.rs:3835@690aa505 -> :3867@c468f5e1 (+-2 lines)  [merge 4: parity 'terminal program status (OSC 7501)': the end sent]
     first: bridge::send_terminal(events, UiEvent::TurnEnded { failure }).await;
-SAME  src/tui/worker.rs:3524@690aa505 -> :3550@8fe79cbc (+-2 lines)  [merge 4: parity 'terminal program status (OSC 7501)': the place given back]
+SAME  src/tui/worker.rs:3524@690aa505 -> :3550@c468f5e1 (+-2 lines)  [merge 4: parity 'terminal program status (OSC 7501)': the place given back]
     first: queue.outstanding.fetch_sub(1, Ordering::Release);
-SAME  src/tui/shell.rs:14033-14058@690aa505 -> :14603-14628@8fe79cbc (+-2 lines)  [merge 4: capfile.py TIMERS, `warning_shown`]
+SAME  src/tui/shell.rs:14033-14058@690aa505 -> :14603-14628@c468f5e1 (+-2 lines)  [merge 4: capfile.py TIMERS, `warning_shown`]
     first: fn warning_shown(&self) -> Option<&'static str> {
-SAME  src/tui/shell.rs:14051-14053@690aa505 -> :14621-14623@8fe79cbc (+-2 lines)  [merge 4: capfile.py TIMERS, the full transcript]
+SAME  src/tui/shell.rs:14051-14053@690aa505 -> :14621-14623@c468f5e1 (+-2 lines)  [merge 4: capfile.py TIMERS, the full transcript]
     first: if self.owner != ScreenOwner::Primary {
 # 20 of 20 the same code

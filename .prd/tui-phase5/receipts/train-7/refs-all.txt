@@ -1,4 +1,4 @@
-# head 8fe79cbc; sides: train6 fdc5ac0b, launch-settle-f 2f1c80e7, t-u4-f a8c7a87d, models-reask 66854557, stop-next-2 f8d625c3
+# head c468f5e1; sides: train6 fdc5ac0b, launch-settle-f 2f1c80e7, t-u4-f a8c7a87d, models-reask 66854557, stop-next-2 f8d625c3
 docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/approval.rs:552-585
     launch-settle-f MOVED -> 557-590 | t-u4-f MOVED -> 557-590
 docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/bridge.rs:112-172
@@ -35,7 +35,7 @@ tests/tui.rs: tests/tui.rs:1191
     launch-settle-f MOVED -> 1304 | t-u4-f MOVED -> 1304
 # 191 references in 589 files; 17 moved or changed on some side that cites them
 
-# head 8fe79cbc; sides: train6 fdc5ac0b, launch-settle-f 2f1c80e7, t-u4-f a8c7a87d, models-reask 66854557, stop-next-2 f8d625c3
+# head c468f5e1; sides: train6 fdc5ac0b, launch-settle-f 2f1c80e7, t-u4-f a8c7a87d, models-reask 66854557, stop-next-2 f8d625c3
 docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1295-1307 (src/tui/shell.rs)
     train6 MOVED -> 1364-1376 | launch-settle-f MOVED -> 1422-1434 | t-u4-f MOVED -> 1422-1434 | models-reask MOVED -> 1343-1355 | stop-next-2 MOVED -> 1316-1328
 docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1296 (src/tui/shell.rs)

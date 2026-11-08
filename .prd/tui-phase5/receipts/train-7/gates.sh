@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Train 6's gate: every CI step the brief lists, at the checkout's head, one
-# after another -- train 5's gates.sh, unchanged but for this comment. The whole
+# Train 7's gate: every CI step the brief lists, at the checkout's head, one
+# after another -- train 5's and 6's gates.sh, unchanged but for this comment. The whole
 # script runs inside one hold of the machine's suite lock
 # (`suite-lock.sh gates.sh ...`), so every step runs under it and none
 # overlaps another of this gate's. Each step's output goes to

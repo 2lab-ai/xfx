@@ -1,4 +1,4 @@
-# head 49966594; sides: train6 fdc5ac0b, launch-settle-f 2f1c80e7, t-u4-f a8c7a87d, models-reask 66854557, stop-next-2 f8d625c3
+# head 85b13f84; sides: train6 fdc5ac0b, launch-settle-f 2f1c80e7, t-u4-f a8c7a87d, models-reask 66854557, stop-next-2 f8d625c3
 docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:888]
     train6* = row | launch-settle-f* = row | t-u4-f* = row | models-reask* = row | stop-next-2* = row
 docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:196]
