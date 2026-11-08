@@ -1105,12 +1105,16 @@ class McpHttp(unittest.TestCase):
 
     def test_malformed_and_hostile_are_modes_and_answer_without_the_wait(self):
         # The two modes whose answers are garbage are still modes: read once,
-        # answered at once, never held to the deadline.
+        # answered at once, never held to the deadline. The bound sits just
+        # under the deadline, not near the few ms an answer takes: a request
+        # held to the deadline takes at least SETTLE_MS, so this still tells
+        # the two apart, and a scheduling stall on a loaded runner (registry
+        # #19's class) has 1.8 s of room instead of none.
         for mode in ("malformed", "hostile"):
             with self.subTest(mode=mode):
                 s = self.server(mode)
                 self.assertEqual(self.rpc(s, "server/discover", 1)[0], 200)
-                self.assertLess(self.answered(s, "server/discover id=1"), self.SETTLE_MS / 2)
+                self.assertLess(self.answered(s, "server/discover id=1"), self.SETTLE_MS - 200)
                 self.assertRegex(s.lines(), r"rpc=server/discover id=1 .* mode=%s -> 200 \+\d+ms\n" % mode)
 
     def test_fail_and_rpcerror(self):
