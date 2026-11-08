@@ -6081,6 +6081,12 @@ mod tests {
             4,
             "reads joined",
         );
+        // The case's own premise: the long rows are on the screen, laid from
+        // their text, and the appends above left them where they are.
+        assert!(
+            band.shadow().longest_laid() > marks.len(),
+            "no row on the screen was laid from a long call's text"
+        );
         shell.route_bytes(WENT_LIGHT);
         tick(&mut shell, &mut band, &mut out, &mut failures, now);
         held(&shell, &band, &failures, "the theme went light");

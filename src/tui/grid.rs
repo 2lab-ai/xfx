@@ -939,6 +939,19 @@ impl Grid {
             .collect()
     }
 
+    /// The longest text a row of this grid was laid from and still holds, in
+    /// bytes: what says a case's rows really went through the remembered
+    /// answer ([`Grid::row_matches`]).
+    #[cfg(test)]
+    pub(crate) fn longest_laid(&self) -> usize {
+        self.records
+            .iter()
+            .filter_map(|record| record.laid.as_ref())
+            .map(|laid| laid.text.len())
+            .max()
+            .unwrap_or(0)
+    }
+
     /// Whether row `line`'s first cell is `grapheme`.
     fn opens_with(&self, line: u16, grapheme: &str) -> bool {
         matches!(self.cell(line, 1), Some(Cell::Lead { grapheme: first, .. }) if first == grapheme)
