@@ -1,0 +1,52 @@
+# head HEAD; sides: main 690aa505, gitenv 4db63171, tu4 5a7bb465, wider 1824e868, flake 709786bb
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/approval.rs:552-585
+    gitenv MOVED -> 557-590 | tu4 MOVED -> 557-590 | wider MOVED -> 557-590 | flake MOVED -> 557-590
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:3108
+    gitenv MOVED -> 3175 | tu4 MOVED -> 3175 | wider MOVED -> 3175 | flake MOVED -> 3175
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:433
+    gitenv MOVED -> 434 | tu4 MOVED -> 434 | wider MOVED -> 434 | flake MOVED -> 434
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:499-522
+    gitenv MOVED -> 504-527 | tu4 MOVED -> 504-527 | wider MOVED -> 504-527 | flake MOVED -> 504-527
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:782
+    gitenv MOVED -> 787 | tu4 MOVED -> 787 | wider MOVED -> 787 | flake MOVED -> 787
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/shell.rs:1593
+    gitenv MOVED -> 1654 | tu4 MOVED -> 1654 | wider MOVED -> 1654 | flake MOVED -> 1654
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/theme.rs:333
+    main MOVED -> 350 | gitenv MOVED -> 350 | wider MOVED -> 350 | flake MOVED -> 350
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: scripts/smoke-tui.sh:2203
+    gitenv MOVED -> 2369 | tu4 MOVED -> 2369 | wider MOVED -> 2369 | flake MOVED -> 2369
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/event_loop.rs:889-923
+    gitenv MOVED -> 938-972 | tu4 MOVED -> 938-972 | wider MOVED -> 938-972 | flake MOVED -> 938-972
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/shell.rs:1117
+    gitenv MOVED -> 1175 | tu4 MOVED -> 1175 | wider MOVED -> 1175 | flake MOVED -> 1175
+scripts/fxcap/capfile.py: src/tui/shell.rs:14033-14058
+    main MOVED -> 14039-14064
+scripts/fxcap/parity-ledger.toml: src/tui/full_transcript.rs:2615
+    wider MOVED -> 2743
+scripts/fxcap/parity-ledger.toml: src/tui/full_transcript.rs:2666
+    wider MOVED -> 2794
+scripts/fxcap/parity-ledger.toml: src/tui/full_transcript.rs:492
+    main MOVED -> 495 | gitenv MOVED -> 495 | tu4 MOVED -> 495 | flake MOVED -> 495
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:12531
+    wider MOVED -> 12859
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:15273
+    wider MOVED -> 15607
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:37424
+    gitenv MOVED -> 37764 | tu4 MOVED -> 37764 | wider MOVED -> 37758 | flake MOVED -> 37764
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:37758
+    main MOVED -> 37764
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:9665
+    tu4 MOVED -> 9762
+scripts/fxcap/parity-ledger.toml: src/tui/wrap.rs:593-604
+    wider MOVED -> 612-623
+scripts/fxcap/parity-ledger.toml: src/tui/wrap.rs:622
+    main MOVED -> 656 | gitenv MOVED -> 656 | tu4 MOVED -> 628 | wider MOVED -> 641 | flake MOVED -> 656
+scripts/smoke-tui.sh: src/tui/check.rs:1084
+    gitenv MOVED -> 1101 | tu4 MOVED -> 1101 | wider MOVED -> 1101 | flake MOVED -> 1101
+tests/tui.rs: src/tui/shell.rs:2015
+    gitenv MOVED -> 2076 | tu4 MOVED -> 2076 | wider MOVED -> 2076 | flake MOVED -> 2076
+tests/tui.rs: src/tui/shell.rs:2703
+    gitenv MOVED -> 2770 | tu4 MOVED -> 2770 | wider MOVED -> 2770 | flake MOVED -> 2770
+tests/tui.rs: tests/tui.rs:1191
+    gitenv MOVED -> 1304 | tu4 MOVED -> 1304 | wider MOVED -> 1304 | flake MOVED -> 1304
+# 186 references in 588 files; 25 moved or changed on some side that cites them

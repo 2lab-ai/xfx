@@ -1,0 +1,11 @@
+commit a09e39c1d4b2df1cb0b90bb466e8c7a979667f6f
+parents 690aa505daded729b841331a34d1798e3be21964 4db631719a3459a768875f09b3901f721ebe45fe
+
+Merge GATE-GITENV(+F) fix/p5-gate-gitenv-f @ 4db63171 into train/p5-1108c
+
+GATE-GITENV (fix/p5-gate-gitenv @ 2cd3c844) and its follow-up
+GATE-GITENV-F (4db63171): the gate scripts drop git's environment and
+judge by the checkout's own repository, the batched secrets check, a
+tracked file there as another type refused, and CI running the gate
+scripts' own tests on one row per OS. No conflict.
+

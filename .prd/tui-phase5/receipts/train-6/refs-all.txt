@@ -1,0 +1,153 @@
+# head HEAD; sides: main 690aa505, gitenv 4db63171, tu4 5a7bb465, wider 1824e868, flake 709786bb
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/approval.rs:552-585
+    gitenv MOVED -> 557-590 | tu4 MOVED -> 557-590 | wider MOVED -> 557-590 | flake MOVED -> 557-590
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:3108
+    gitenv MOVED -> 3175 | tu4 MOVED -> 3175 | wider MOVED -> 3175 | flake MOVED -> 3175
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:433
+    gitenv MOVED -> 434 | tu4 MOVED -> 434 | wider MOVED -> 434 | flake MOVED -> 434
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:499-522
+    gitenv MOVED -> 504-527 | tu4 MOVED -> 504-527 | wider MOVED -> 504-527 | flake MOVED -> 504-527
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:782
+    gitenv MOVED -> 787 | tu4 MOVED -> 787 | wider MOVED -> 787 | flake MOVED -> 787
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/shell.rs:1593
+    gitenv MOVED -> 1654 | tu4 MOVED -> 1654 | wider MOVED -> 1654 | flake MOVED -> 1654
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/theme.rs:333
+    main MOVED -> 350 | gitenv MOVED -> 350 | wider MOVED -> 350 | flake MOVED -> 350
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: scripts/smoke-tui.sh:2203
+    gitenv MOVED -> 2369 | tu4 MOVED -> 2369 | wider MOVED -> 2369 | flake MOVED -> 2369
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/event_loop.rs:889-923
+    gitenv MOVED -> 938-972 | tu4 MOVED -> 938-972 | wider MOVED -> 938-972 | flake MOVED -> 938-972
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/shell.rs:1117
+    gitenv MOVED -> 1175 | tu4 MOVED -> 1175 | wider MOVED -> 1175 | flake MOVED -> 1175
+scripts/smoke-tui.sh: src/tui/check.rs:1084
+    gitenv MOVED -> 1101 | tu4 MOVED -> 1101 | wider MOVED -> 1101 | flake MOVED -> 1101
+tests/tui.rs: src/tui/shell.rs:2015
+    gitenv MOVED -> 2076 | tu4 MOVED -> 2076 | wider MOVED -> 2076 | flake MOVED -> 2076
+tests/tui.rs: src/tui/shell.rs:2703
+    gitenv MOVED -> 2770 | tu4 MOVED -> 2770 | wider MOVED -> 2770 | flake MOVED -> 2770
+tests/tui.rs: tests/tui.rs:1191
+    gitenv MOVED -> 1304 | tu4 MOVED -> 1304 | wider MOVED -> 1304 | flake MOVED -> 1304
+# 185 references in 588 files; 14 moved or changed on some side that cites them
+
+# head HEAD; sides: main 690aa505, gitenv 4db63171, tu4 5a7bb465, wider 1824e868, flake 709786bb
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1295-1307 (src/tui/shell.rs)
+    gitenv MOVED -> 1353-1365 | tu4 MOVED -> 1353-1365 | wider MOVED -> 1353-1365 | flake MOVED -> 1353-1365
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1296 (src/tui/shell.rs)
+    gitenv MOVED -> 1354 | tu4 MOVED -> 1354 | wider MOVED -> 1354 | flake MOVED -> 1354
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1881-1905 (src/tui/shell.rs)
+    gitenv MOVED -> 1942-1966 | tu4 MOVED -> 1942-1966 | wider MOVED -> 1942-1966 | flake MOVED -> 1942-1966
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1900-1905 (src/tui/shell.rs)
+    gitenv MOVED -> 1961-1966 | tu4 MOVED -> 1961-1966 | wider MOVED -> 1961-1966 | flake MOVED -> 1961-1966
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1911 (src/tui/shell.rs)
+    gitenv MOVED -> 1972 | tu4 MOVED -> 1972 | wider MOVED -> 1972 | flake MOVED -> 1972
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1924-1948 (src/tui/shell.rs)
+    gitenv MOVED -> 1985-2009 | tu4 MOVED -> 1985-2009 | wider MOVED -> 1985-2009 | flake MOVED -> 1985-2009
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2110-2113 (src/tui/shell.rs)
+    gitenv MOVED -> 2171-2174 | tu4 MOVED -> 2171-2174 | wider MOVED -> 2171-2174 | flake MOVED -> 2171-2174
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2114-2118 (src/tui/shell.rs)
+    gitenv MOVED -> 2175-2179 | tu4 MOVED -> 2175-2179 | wider MOVED -> 2175-2179 | flake MOVED -> 2175-2179
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2126 (src/tui/shell.rs)
+    gitenv MOVED -> 2187 | tu4 MOVED -> 2187 | wider MOVED -> 2187 | flake MOVED -> 2187
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2126-2132 (src/tui/shell.rs)
+    gitenv MOVED -> 2187-2193 | tu4 MOVED -> 2187-2193 | wider MOVED -> 2187-2193 | flake MOVED -> 2187-2193
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2189 (src/tui/shell.rs)
+    gitenv MOVED -> 2250 | tu4 MOVED -> 2250 | wider MOVED -> 2250 | flake MOVED -> 2250
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2565-2573 (src/tui/shell.rs)
+    gitenv MOVED -> 2632-2640 | tu4 MOVED -> 2632-2640 | wider MOVED -> 2632-2640 | flake MOVED -> 2632-2640
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2570-2573 (src/tui/shell.rs)
+    gitenv MOVED -> 2637-2640 | tu4 MOVED -> 2637-2640 | wider MOVED -> 2637-2640 | flake MOVED -> 2637-2640
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2589-2592 (src/tui/shell.rs)
+    gitenv MOVED -> 2656-2659 | tu4 MOVED -> 2656-2659 | wider MOVED -> 2656-2659 | flake MOVED -> 2656-2659
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:348 (src/tui/shell.rs)
+    gitenv MOVED -> 349 | tu4 MOVED -> 349 | wider MOVED -> 349 | flake MOVED -> 349
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:3965 (src/tui/shell.rs)
+    gitenv MOVED -> 4032 | tu4 MOVED -> 4032 | wider MOVED -> 4032 | flake MOVED -> 4032
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: approval.rs:557-563 (src/tui/approval.rs)
+    gitenv MOVED -> 562-568 | tu4 MOVED -> 562-568 | wider MOVED -> 562-568 | flake MOVED -> 562-568
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: shell.rs:3108 (src/tui/shell.rs)
+    gitenv MOVED -> 3175 | tu4 MOVED -> 3175 | wider MOVED -> 3175 | flake MOVED -> 3175
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: shell.rs:5379 (src/tui/shell.rs)
+    gitenv MOVED -> 5476 | tu4 MOVED -> 5476 | wider MOVED -> 5476 | flake MOVED -> 5476
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: shell.rs:5816 (src/tui/shell.rs)
+    gitenv MOVED -> 5913 | tu4 MOVED -> 5913 | wider MOVED -> 5913 | flake MOVED -> 5913
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:318-365 (src/tui/approval.rs)
+    gitenv MOVED -> 318-370 | tu4 MOVED -> 318-370 | wider MOVED -> 318-370 | flake MOVED -> 318-370
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:345-349 (src/tui/approval.rs)
+    gitenv MOVED -> 350-354 | tu4 MOVED -> 350-354 | wider MOVED -> 350-354 | flake MOVED -> 350-354
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:354-356 (src/tui/approval.rs)
+    gitenv MOVED -> 359-361 | tu4 MOVED -> 359-361 | wider MOVED -> 359-361 | flake MOVED -> 359-361
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:458-483 (src/tui/approval.rs)
+    gitenv MOVED -> 463-488 | tu4 MOVED -> 463-488 | wider MOVED -> 463-488 | flake MOVED -> 463-488
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:460-472 (src/tui/approval.rs)
+    gitenv MOVED -> 465-477 | tu4 MOVED -> 465-477 | wider MOVED -> 465-477 | flake MOVED -> 465-477
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:519-527 (src/tui/approval.rs)
+    gitenv MOVED -> 524-532 | tu4 MOVED -> 524-532 | wider MOVED -> 524-532 | flake MOVED -> 524-532
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:624 (src/tui/approval.rs)
+    gitenv MOVED -> 629 | tu4 MOVED -> 629 | wider MOVED -> 629 | flake MOVED -> 629
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:640-650 (src/tui/approval.rs)
+    gitenv MOVED -> 645-655 | tu4 MOVED -> 645-655 | wider MOVED -> 645-655 | flake MOVED -> 645-655
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:715-718 (src/tui/approval.rs)
+    gitenv MOVED -> 720-723 | tu4 MOVED -> 720-723 | wider MOVED -> 720-723 | flake MOVED -> 720-723
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:741 (src/tui/approval.rs)
+    gitenv MOVED -> 746 | tu4 MOVED -> 746 | wider MOVED -> 746 | flake MOVED -> 746
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:743 (src/tui/approval.rs)
+    gitenv MOVED -> 748 | tu4 MOVED -> 748 | wider MOVED -> 748 | flake MOVED -> 748
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:907 (src/tui/approval.rs)
+    gitenv MOVED -> 912 | tu4 MOVED -> 912 | wider MOVED -> 912 | flake MOVED -> 912
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:274-289 (src/tui/approval_screen.rs)
+    gitenv MOVED -> 279-294 | tu4 MOVED -> 279-294 | wider MOVED -> 279-294 | flake MOVED -> 279-294
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:298-314 (src/tui/approval_screen.rs)
+    gitenv MOVED -> 303-319 | tu4 MOVED -> 303-319 | wider MOVED -> 303-319 | flake MOVED -> 303-319
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:304 (src/tui/approval_screen.rs)
+    gitenv MOVED -> 309 | tu4 MOVED -> 309 | wider MOVED -> 309 | flake MOVED -> 309
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:371-373 (src/tui/approval_screen.rs)
+    gitenv MOVED -> 376-378 | tu4 MOVED -> 376-378 | wider MOVED -> 376-378 | flake MOVED -> 376-378
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:374-375 (src/tui/approval_screen.rs)
+    gitenv MOVED -> 379-380 | tu4 MOVED -> 379-380 | wider MOVED -> 379-380 | flake MOVED -> 379-380
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:393 (src/tui/approval_screen.rs)
+    gitenv MOVED -> 398 | tu4 MOVED -> 398 | wider MOVED -> 398 | flake MOVED -> 398
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:406 (src/tui/approval_screen.rs)
+    gitenv MOVED -> 411 | tu4 MOVED -> 411 | wider MOVED -> 411 | flake MOVED -> 411
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:1246 (src/tui/event_loop.rs)
+    gitenv MOVED -> 1445 | tu4 MOVED -> 1445 | wider MOVED -> 1445 | flake MOVED -> 1445
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:619-620 (src/tui/event_loop.rs)
+    gitenv MOVED -> 642-643 | tu4 MOVED -> 642-643 | wider MOVED -> 642-643 | flake MOVED -> 642-643
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:622 (src/tui/event_loop.rs)
+    gitenv MOVED -> 645 | tu4 MOVED -> 645 | wider MOVED -> 645 | flake MOVED -> 645
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:889-923 (src/tui/event_loop.rs)
+    gitenv MOVED -> 938-972 | tu4 MOVED -> 938-972 | wider MOVED -> 938-972 | flake MOVED -> 938-972
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1117 (src/tui/shell.rs)
+    gitenv MOVED -> 1175 | tu4 MOVED -> 1175 | wider MOVED -> 1175 | flake MOVED -> 1175
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1220-1227 (src/tui/shell.rs)
+    gitenv MOVED -> 1278-1285 | tu4 MOVED -> 1278-1285 | wider MOVED -> 1278-1285 | flake MOVED -> 1278-1285
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1459-1541 (src/tui/shell.rs)
+    gitenv MOVED -> 1517-1602 | tu4 MOVED -> 1517-1602 | wider MOVED -> 1517-1602 | flake MOVED -> 1517-1602
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1532 (src/tui/shell.rs)
+    gitenv MOVED -> 1593 | tu4 MOVED -> 1593 | wider MOVED -> 1593 | flake MOVED -> 1593
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1693-1695 (src/tui/shell.rs)
+    gitenv MOVED -> 1754-1756 | tu4 MOVED -> 1754-1756 | wider MOVED -> 1754-1756 | flake MOVED -> 1754-1756
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:3329 (src/tui/shell.rs)
+    gitenv MOVED -> 3396 | tu4 MOVED -> 3396 | wider MOVED -> 3396 | flake MOVED -> 3396
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:5590-5597 (src/tui/shell.rs)
+    gitenv MOVED -> 5687-5694 | tu4 MOVED -> 5687-5694 | wider MOVED -> 5687-5694 | flake MOVED -> 5687-5694
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:5600-5602 (src/tui/shell.rs)
+    gitenv MOVED -> 5697-5699 | tu4 MOVED -> 5697-5699 | wider MOVED -> 5697-5699 | flake MOVED -> 5697-5699
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:664-677 (src/tui/shell.rs)
+    gitenv MOVED -> 689-702 | tu4 MOVED -> 689-702 | wider MOVED -> 689-702 | flake MOVED -> 689-702
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:863 (src/tui/shell.rs)
+    gitenv MOVED -> 888 | tu4 MOVED -> 888 | wider MOVED -> 888 | flake MOVED -> 888
+scripts/smoke-tui.sh: shell.rs:2597 (src/tui/shell.rs)
+    gitenv MOVED -> 2664 | tu4 MOVED -> 2664 | wider MOVED -> 2664 | flake MOVED -> 2664
+src/tui/event_loop.rs: event_loop.rs:959-962 (src/tui/event_loop.rs)
+    gitenv MOVED -> 1008-1011 | tu4 MOVED -> 1008-1011 | wider MOVED -> 1008-1011 | flake MOVED -> 1008-1011
+src/tui/event_loop.rs: shell.rs:2706 (src/tui/shell.rs)
+    gitenv MOVED -> 2773 | tu4 MOVED -> 2773 | wider MOVED -> 2773 | flake MOVED -> 2773
+src/tui/event_loop.rs: transcript.rs:136 (src/tui/transcript.rs)
+    main MOVED -> 137 | gitenv MOVED -> 137 | wider MOVED -> 137 | flake MOVED -> 137
+src/tui/event_loop.rs: transcript.rs:505-531 (src/tui/transcript.rs)
+    main MOVED -> 506-532 | gitenv MOVED -> 506-532 | wider MOVED -> 506-532 | flake MOVED -> 506-532
+src/tui/shell.rs: shell.rs:5816 (src/tui/shell.rs)
+    gitenv MOVED -> 5913 | tu4 MOVED -> 5913 | wider MOVED -> 5913 | flake MOVED -> 5913
+src/tui/wrap.rs: check.rs:1689-1694 (src/tui/check.rs)
+    gitenv MOVED -> 1755-1760 | tu4 MOVED -> 1755-1760 | wider MOVED -> 1755-1760 | flake MOVED -> 1755-1760
+# 73 short references into changed files; 60 moved or changed on some side that cites them

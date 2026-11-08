@@ -1,0 +1,60 @@
+  self-test parity, a token a side added, dropped: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('transport-owned retry and team routing') as the other side has it: found
+  self-test parity, a row a side changed ('full-screen TUI') as the other side has it: found
+  self-test parity, a row a side added ('terminal program status (OSC 7501)') dropped: found
+  self-test parity, a row a side added ("a question's line breaks in a program st") dropped: found
+  self-test parity, a row a side added ('A program status report (OSC 7501)') dropped: found
+self-test a09e39c1: 7 of 7 found
+rc=0
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (retry-budget-lifecycle) dropped: found
+  self-test ledger, a deleted entry (cancelled-marker) back: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`/resume`') as the other side has it: found
+  self-test parity, a row a side changed ('`/allowlist`') as the other side has it: found
+  self-test parity, a row a side changed ('transport-owned retry and team routing') as the other side has it: found
+  self-test parity, a row a side changed ('full transcript (`C-o`)') as the other side has it: found
+  self-test parity, a row a side added ('terminal program status (OSC 7501)') dropped: found
+  self-test parity, a row a side added ("a question's line breaks in a program st") dropped: found
+  self-test parity, a row a side added ('A program status report (OSC 7501)') dropped: found
+  self-test parity, a row both sides changed ('full-screen TUI') as ours has it: found
+  self-test parity, a row both sides changed ('full-screen TUI') as theirs has it: found
+  self-test parity, a row both sides changed ('full-screen TUI'), two tokens of a side's clause swapped: found
+self-test 7fa4cc27: 15 of 15 found
+rc=0
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (ctrl-o-drawn-wider-named) dropped: found
+  self-test ledger, a deleted entry (ctrl-o-drawn-wider-raw) back: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`/resume`') as the other side has it: found
+  self-test parity, a row a side changed ('`/allowlist`') as the other side has it: found
+  self-test parity, a row a side changed ('transport-owned retry and team routing') as the other side has it: found
+  self-test parity, a row a side added ('terminal program status (OSC 7501)') dropped: found
+  self-test parity, a row a side added ("a question's line breaks in a program st") dropped: found
+  self-test parity, a row a side added ('A program status report (OSC 7501)') dropped: found
+  self-test parity, a row both sides changed ('full-screen TUI') as ours has it: found
+  self-test parity, a row both sides changed ('full-screen TUI') as theirs has it: found
+  self-test parity, a row both sides changed ('full-screen TUI'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('full transcript (`C-o`)') as ours has it: found
+  self-test parity, a row both sides changed ('full transcript (`C-o`)') as theirs has it: found
+  self-test parity, a row both sides changed ('full transcript (`C-o`)'), two tokens of a side's clause swapped: found
+self-test d55e2317: 17 of 17 found
+rc=0
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (ctrl-o-drawn-wider-named) dropped: found
+  self-test ledger, a deleted entry (ctrl-o-drawn-wider-raw) back: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`/resume`') as the other side has it: found
+  self-test parity, a row a side changed ('`/allowlist`') as the other side has it: found
+  self-test parity, a row a side changed ('transport-owned retry and team routing') as the other side has it: found
+  self-test parity, a row a side changed ('full-screen TUI') as the other side has it: found
+  self-test parity, a row a side changed ('full transcript (`C-o`)') as the other side has it: found
+  self-test parity, a row a side added ('terminal program status (OSC 7501)') dropped: found
+  self-test parity, a row a side added ("a question's line breaks in a program st") dropped: found
+  self-test parity, a row a side added ('A program status report (OSC 7501)') dropped: found
+self-test 5f601851: 13 of 13 found
+rc=0
