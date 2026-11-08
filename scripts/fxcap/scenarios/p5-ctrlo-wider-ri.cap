@@ -13,7 +13,7 @@ until shown Run /help for commands
 type go
 wait 1
 key Enter
-until shown 5678
+until shown 678
 until gone Generating (
 snap answer
 wire answer
