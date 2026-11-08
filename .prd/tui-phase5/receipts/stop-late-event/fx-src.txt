@@ -1,0 +1,342 @@
+# fx v0.0.16 (481104fd) text for every fx citation STOP-LATE-EVENT adds.
+# Each block: the command (repo = the fx upstream checkout, read through git show at the pin, never its
+# working tree), then the lines with their numbers.
+
+## Item 1: a stopped turn ends .interrupted and returns -- no error report, no system line
+## (three of its cancel paths, each persistCancelledTurn then return: :7233 at the top of a step, :8261 after
+## the stream is flushed, :8849 after the step's pending calls are finished as cancelled)
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '7225,7236p'
+ 7225              if (try append_immediate_steering_after_cancel(
+ 7226                  deps,
+ 7227                  arena,
+ 7228                  &within_turn_suffix,
+ 7229                  turn_id,
+ 7230                  "",
+ 7231              )) continue :agent_steps_loop;
+ 7232              runtime_telemetry.traceCancelObserved(step_ctx, false);
+ 7233              try persistCancelledTurn(deps, finalization, job, null, completed_tool_names.items, &interrupted_persisted, step_ctx, within_turn_suffix.items, stop_state.retained_candidate, &stop_state.terminal_materializing);
+ 7234              finish_trace.finish("interrupted");
+ 7235              return;
+ 7236          }
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '8259,8263p'
+ 8259                          continue :agent_steps_loop;
+ 8260                      }
+ 8261                      try persistCancelledTurn(deps, finalization, job, interruption_source, completed_tool_names.items, &interrupted_persisted, step_ctx, within_turn_suffix.items, stop_state.retained_candidate, &stop_state.terminal_materializing);
+ 8262                      finish_trace.finish("interrupted");
+ 8263                      return;
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '8847,8851p'
+ 8847                              continue :agent_steps_loop;
+ 8848                          }
+ 8849                          try persistCancelledTurn(deps, finalization, job, interruption_source, completed_tool_names.items, &interrupted_persisted, step_ctx, within_turn_suffix.items, stop_state.retained_candidate, &stop_state.terminal_materializing);
+ 8850                          finish_trace.finish("interrupted");
+ 8851                          return;
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/interruption.zig | sed -n '196,223p'
+  196  
+  197      persisted.* = true;
+  198      const turn: HistoryTurn = .{ .interrupted = .{
+  199          .user = .{ .text = job.prompt, .images = job.images },
+  200          .assistant = if (partial_assistant) |text| if (text.len > 0) @constCast(text) else null else null,
+  201          .tool_call = durable_active_tool_call,
+  202          .completed_tool_names = completed_tool_names,
+  203          .execution = execution,
+  204          .cancelled_command = cancelled_command,
+  205          .cancellation_origin = cancellation_origin,
+  206      } };
+  207  
+  208      var propagation_error: ?anyerror = null;
+  209      hooks.propagate_history_turn(hooks.ctx, turn) catch |err| {
+  210          propagation_error = err;
+  211      };
+  212      try traceInterruptedPersistence(
+  213          job,
+  214          partial_assistant,
+  215          active_tool_call,
+  216          completed_tool_names,
+  217          trace_ctx,
+  218      );
+  219      try finalization.finish(.interrupted, null, .{
+  220          .turn = try types.dupeHistoryTurn(std.heap.c_allocator, turn),
+  221      });
+  222      debug_trace.eventf("interrupt", "finish_event_emitted", trace_ctx, "outcome_kind=interrupted", .{});
+  223      if (propagation_error) |err| return err;
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/finalization.zig | sed -n '120,148p'
+  120      pub fn finish(
+  121          self: *TurnFinalizationGuard,
+  122          outcome: types.TurnPresentationOutcome,
+  123          disposition: ?types.ProviderCompletionDisposition,
+  124          finished_prompt: ?types.FinishedPrompt,
+  125      ) !void {
+  126          if (self.state != .open) {
+  127              if (finished_prompt) |finished| {
+  128                  types.freeFinishedPrompt(std.heap.c_allocator, finished);
+  129              }
+  130              debug_trace.logf(
+  131                  "agent",
+  132                  "duplicate turn finalization ignored turn_id={d} state={s}",
+  133                  .{ self.turn_id, @tagName(self.state) },
+  134              );
+  135              return;
+  136          }
+  137  
+  138          self.cleanup_agent_terminal_leases();
+  139  
+  140          self.deps.finalize_turn(self.deps.ctx, self.turn_id, outcome, disposition) catch |err| {
+  141              self.state = .fatal;
+  142              if (finished_prompt) |finished| {
+  143                  types.freeFinishedPrompt(std.heap.c_allocator, finished);
+  144              }
+  145              return err;
+  146          };
+  147          self.state = .emitted;
+  148          self.outcome = outcome;
+
+### git -C fx-upstream show 481104fd:src/core/app/app_callbacks.zig | sed -n '838,844p'
+  838          fn agentFinalizeTurn(ctx: *anyopaque, turn_id: u64, outcome: types.TurnPresentationOutcome, _: ?types.ProviderCompletionDisposition) !void {
+  839              const app: *App = @ptrCast(@alignCast(ctx));
+  840              try app.worker.pushTurnFinished(std.heap.c_allocator, .{
+  841                  .turn_id = turn_id,
+  842                  .outcome = outcome,
+  843              });
+  844          }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_worker_runtime.zig | sed -n '1289,1294p'
+ 1289                  app.alloc,
+ 1290                  lifecycle,
+ 1291              );
+ 1292              if (comptime @hasField(App, "program_status")) {
+ 1293                  if (lifecycle == .turn_finished) app.program_status.noteTurnFinished(lifecycle.turn_finished.outcome);
+ 1294              }
+
+### git -C fx-upstream show 481104fd:src/ui/terminal/program_status.zig | sed -n '57,76p'
+   57      /// A new turn must not report an earlier turn's result once it settles.
+   58      pub fn noteTurnStarted(self: *Reporter) void {
+   59          self.settle(.idle);
+   60      }
+   61  
+   62      pub fn noteTurnFinished(self: *Reporter, outcome: types.TurnPresentationOutcome) void {
+   63          self.settle(switch (outcome) {
+   64              .completed => .done,
+   65              .failed => .@"error",
+   66              // A cancelled or paused turn, usually paused by the user during a
+   67              // recovery, waits for the next instruction. The protocol reports
+   68              // that as idle.
+   69              .interrupted, .paused => .idle,
+   70          });
+   71      }
+   72  
+   73      /// Records a request failure that ended without a turn outcome.
+   74      pub fn noteFailure(self: *Reporter) void {
+   75          self.settle(.@"error");
+   76      }
+
+## ... whereas only an error out of processQueuedWork pushes 'request failed' under system (noteFailure)
+
+### git -C fx-upstream show 481104fd:src/core/app/app_process_runtime.zig | sed -n '150,170p'
+  150          fn workerLoop(app: *App) !void {
+  151              while (true) {
+  152                  const work = (try app.worker.waitAndTakeNextWork(std.heap.c_allocator)) orelse return;
+  153  
+  154                  defer worker_runtime.freeWorkItem(std.heap.c_allocator, work);
+  155                  defer app.worker.finishProcessing();
+  156                  var failure_provenance: ?compaction_activity.ErrorProvenance = null;
+  157                  app.processQueuedWork(work, &failure_provenance) catch |err| {
+  158                      settleCompactionWorkFailure(&app.worker, work, err);
+  159                      if (compactionErrorHandled(work, failure_provenance, err)) {
+  160                          compactor.traceLog(true, "interactive error retained err={s}", .{@errorName(err)});
+  161                      } else if (err != error.RouteRecoveryStopped) {
+  162                          const body = try formatErrorBody(std.heap.c_allocator, "request failed", err);
+  163                          defer std.heap.c_allocator.free(body);
+  164                          try app.worker.pushEvent(std.heap.c_allocator, .{ .error_text = .{
+  165                              .topic = "system",
+  166                              .tone = .@"error",
+  167                              .body = body,
+  168                          } });
+  169                      }
+  170                  };
+
+### git -C fx-upstream show 481104fd:src/core/app/app_worker_runtime.zig | sed -n '1206,1218p'
+ 1206                      },
+ 1207                      .error_text => |notice| {
+ 1208                          if (!try requireAssistantTextDrain(handlers)) {
+ 1209                              try retainClaimedEventAndSuffix(app, &batch, "assistant_text_drain_blocked");
+ 1210                              drain_owns_current = false;
+ 1211                              break :events;
+ 1212                          }
+ 1213                          resetStream(app, false);
+ 1214                          if (comptime @hasField(App, "program_status")) {
+ 1215                              if (notice.tone == .@"error") app.program_status.noteFailure();
+ 1216                          }
+ 1217                          app.shell.render_requests.request(.footer);
+ 1218                          try handlers.error_text(handlers.ctx, notice);
+
+## A prompt that returns normally is finished .completed only when nothing finished it first
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '5616,5632p'
+ 5616      processQueuedPromptInner(deps, semantic_presentation, effective_lifecycle, effective_config, effective_job, &finalization, agent) catch |err| {
+ 5617          observed_error = err;
+ 5618          if (finalization.state == .open) {
+ 5619              finalization.finish(.failed, null, null) catch |finalization_err| {
+ 5620                  observed_error = finalization_err;
+ 5621                  if (deps.compaction_failure) |out| out.* = null;
+ 5622                  return finalization_err;
+ 5623              };
+ 5624          }
+ 5625          return err;
+ 5626      };
+ 5627      if (finalization.state == .open) {
+ 5628          finalization.finish(.completed, null, null) catch |err| {
+ 5629              observed_error = err;
+ 5630              return err;
+ 5631          };
+ 5632      }
+
+## Item 2: a prompt sent while a turn streams or the worker is busy is queued at once, not held as a pending submission
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n '1103,1121p'
+ 1103          fn enqueuePromptForSubmit(
+ 1104              app: *App,
+ 1105              prompt: []const u8,
+ 1106              skill_tokens: []const registered_entities.SkillTokenSpan,
+ 1107          ) !PromptAdmission {
+ 1108              // Sending a prompt clears MCP notices the user has seen.
+ 1109              if (comptime @hasField(App, "mcp") and @hasDecl(@FieldType(App, "mcp"), "dismissHostStatus")) app.mcp.dismissHostStatus();
+ 1110              switch (try installPendingSubmission(app, prompt, skill_tokens)) {
+ 1111                  .installed => return .pending,
+ 1112                  .unavailable => {},
+ 1113              }
+ 1114              if (!try preflightPrompt(app)) return .rejected;
+ 1115              const accepted = if (comptime @hasDecl(App, "enqueuePromptWithSkillBindings"))
+ 1116                  try App.enqueuePromptWithSkillBindings(app, prompt, skill_tokens)
+ 1117              else
+ 1118                  try App.enqueuePrompt(app, prompt);
+ 1119              if (!accepted) return .rejected;
+ 1120              return .enqueued;
+ 1121          }
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n '1123,1160p'
+ 1123          fn installPendingSubmission(
+ 1124              app: *App,
+ 1125              prompt: []const u8,
+ 1126              skill_tokens: []const registered_entities.SkillTokenSpan,
+ 1127          ) !PendingInstall {
+ 1128              if (comptime !@hasField(App, "submission") or
+ 1129                  !@hasField(App, "worker") or
+ 1130                  !@hasDecl(@TypeOf(app.worker), "tryHoldTurnStart") or
+ 1131                  !@hasDecl(@TypeOf(app.worker), "releaseTurnStartHold"))
+ 1132              {
+ 1133                  return .unavailable;
+ 1134              }
+ 1135              if (comptime @hasField(App, "stream")) {
+ 1136                  if (app.stream.active) return .unavailable;
+ 1137              }
+ 1138              if (comptime @hasField(App, "pacer") and
+ 1139                  @hasDecl(@TypeOf(app.pacer), "hasPending"))
+ 1140              {
+ 1141                  if (app.pacer.hasPending()) return .unavailable;
+ 1142              }
+ 1143              if (comptime @hasField(App, "shell") and
+ 1144                  @hasDecl(@TypeOf(app.shell), "fullTranscriptActive"))
+ 1145              {
+ 1146                  if (app.shell.fullTranscriptActive()) return .unavailable;
+ 1147              }
+ 1148              std.debug.assert(app.submission.pending == null);
+ 1149              if (!app.worker.tryHoldTurnStart()) return .unavailable;
+ 1150              errdefer app.worker.releaseTurnStartHold();
+ 1151  
+ 1152              const draft = try buildPendingPromptDraft(
+ 1153                  app.alloc,
+ 1154                  debug_trace.nextTurnId(),
+ 1155                  prompt,
+ 1156                  app.pending_images.items,
+ 1157                  skill_tokens,
+ 1158              );
+ 1159              app.submission.pending = PendingSubmission.init(draft);
+ 1160              app.shell.render_requests.request(.transcript);
+
+### git -C fx-upstream show 481104fd:src/core/agent/worker_runtime.zig | sed -n '1273,1284p'
+ 1273      pub fn tryHoldTurnStart(self: *WorkerRuntime) bool {
+ 1274          self.worker_mutex.lockUncancelable(io_mod.getIo());
+ 1275          defer self.worker_mutex.unlock(io_mod.getIo());
+ 1276          if (self.worker_processing or self.queuedWorkCountLocked() > 0 or
+ 1277              self.turn_start_held or self.session_transition_held)
+ 1278          {
+ 1279              return false;
+ 1280          }
+ 1281          self.turn_start_held = true;
+ 1282          debug_trace.logf("worker", "turn start hold acquired", .{});
+ 1283          return true;
+ 1284      }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_render_runtime.zig | sed -n '286,290p'
+  286  fn pendingPromptActivityVisible(app: anytype) bool {
+  287      if (comptime !@hasField(@TypeOf(app.*), "submission")) return false;
+  288      const pending = app.submission.pending orelse return false;
+  289      return pending.phase != .awaiting_auth;
+  290  }
+
+## ... and the stop stays requested until the worker takes the next item; nothing is busy while it is
+
+### git -C fx-upstream show 481104fd:src/core/app/app_worker_runtime.zig | sed -n '734,738p'
+  734              const cancellation_stops_turn = snapshot.cancel_requested and
+  735                  !snapshot.cancel_continues_turn;
+  736              const visible_worker_active = app.stream.active and
+  737                  !cancellation_stops_turn and
+  738                  (snapshot.processing or
+
+### git -C fx-upstream show 481104fd:src/core/app/app_worker_runtime.zig | sed -n '762,765p'
+  762              if (comptime @hasField(App, "program_status")) {
+  763                  reportProgramStatus(app, !cancellation_stops_turn and
+  764                      (app.stream.active or snapshot.processing or snapshot.queued_count > 0));
+  765              }
+
+### git -C fx-upstream show 481104fd:src/core/agent/worker_runtime.zig | sed -n '1508,1513p'
+ 1508          var job = self.queued_prompts.orderedRemove(0);
+ 1509          if (transfer_history) self.queued_history = &.{};
+ 1510          job.history = job_history;
+ 1511          self.steering_cancel_turn_id = null;
+ 1512          self.worker_cancel_requested.store(false, .seq_cst);
+ 1513          self.worker_recovery_pause_requested.store(false, .seq_cst);
+
+### git -C fx-upstream show 481104fd:src/core/agent/worker_runtime.zig | sed -n '1541,1563p'
+ 1541      pub fn finishProcessing(self: *WorkerRuntime) void {
+ 1542          debug_trace.logf("worker", "finish processing queued={d}", .{self.queuedPromptCount()});
+ 1543          self.worker_mutex.lockUncancelable(io_mod.getIo());
+ 1544          // Close steering admission without moving entries, preserving the exact
+ 1545          // order in which steering and ordinary prompts were submitted.
+ 1546          const finished_turn_id = self.active_turn_id;
+ 1547          self.finishCompactionActivityLocked(finished_turn_id);
+ 1548          for (self.queued_prompts.items) |*prompt| {
+ 1549              if (prompt.delivery.activeTurnId() == finished_turn_id) {
+ 1550                  prompt.delivery = .continuation;
+ 1551                  debug_trace.eventf("worker", "steering_deferred_to_next_turn", .{ .turn_id = finished_turn_id }, "queued_turn_id={d} prompt_bytes={d}", .{ prompt.turn_id, prompt.prompt.len });
+ 1552              }
+ 1553          }
+ 1554          self.worker_processing = false;
+ 1555          self.active_turn_id = 0;
+ 1556          self.steering_cancel_turn_id = null;
+ 1557          self.clearActiveToolCallsLocked();
+ 1558          self.tool_phase_step_id = null;
+ 1559          self.active_context_compaction = false;
+ 1560          self.worker_connectivity_wait_active.store(false, .seq_cst);
+ 1561          self.worker_cond.broadcast(io_mod.getIo());
+ 1562          self.worker_mutex.unlock(io_mod.getIo());
+ 1563      }
+
+## A steer the turn did not take is already queued work, deferred to the next turn
+
+### git -C fx-upstream show 481104fd:src/core/agent/worker_runtime.zig | sed -n '1546,1553p'
+ 1546          const finished_turn_id = self.active_turn_id;
+ 1547          self.finishCompactionActivityLocked(finished_turn_id);
+ 1548          for (self.queued_prompts.items) |*prompt| {
+ 1549              if (prompt.delivery.activeTurnId() == finished_turn_id) {
+ 1550                  prompt.delivery = .continuation;
+ 1551                  debug_trace.eventf("worker", "steering_deferred_to_next_turn", .{ .turn_id = finished_turn_id }, "queued_turn_id={d} prompt_bytes={d}", .{ prompt.turn_id, prompt.prompt.len });
+ 1552              }
+ 1553          }
+
+## Item 3: a manual compaction and a prompt are work (busy): app_worker_runtime.zig:762-765 above

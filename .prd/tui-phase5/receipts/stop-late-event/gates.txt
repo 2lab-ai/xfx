@@ -1,0 +1,116 @@
+# STOP-LATE-EVENT gate at e27f9bcf5f1c5197d19ca23946908f41450b6b31, every step of ci.yml and sweep.yml's two test scripts, one at a time, TMPDIR=<local-path>;
+# the whole run inside one suite-lock slot (taken 02:18:39Z, released 03:02:54Z, with the sweeps and the mutants before it).
+
+## the steps (number, name, exit, seconds)
+01 fmt rc=0 1s
+02 clippy rc=0 15s
+03 clippy-fault rc=0 17s
+04 test rc=0 257s
+05 test-fault-tui rc=0 67s
+06 test-fault-lib rc=0 84s
+07 check-no-stubs rc=0 12s
+08 check-no-secrets rc=0 29s
+09 test-check-no-secrets rc=0 83s
+10 test-gate-env rc=0 85s
+11 check-xfx-identity rc=0 1s
+12 check-preview-contract rc=0 2s
+13 test-preview-contract rc=0 57s
+14 check-tui-preflight-cost rc=0 90s
+15 check-usage-clock rc=0 3s
+16 fxcap-test-sweep rc=0 40s
+17 fxcap-test-capture rc=1 271s
+18 build-release rc=0 13s
+19 build-faulty rc=0 35s
+20 status-release rc=0 2s
+21 status-faulty rc=0 3s
+22 smoke rc=0 3s
+23 smoke-tui rc=0 66s
+done
+
+## cargo test totals (sum of each binary's 'test result' line)
+04-test: 14 binaries, 5272 passed, 0 failed, 7 ignored
+05-test-fault-tui: 1 binaries, 192 passed, 0 failed, 0 ignored
+06-test-fault-lib: 1 binaries, 4382 passed, 0 failed, 7 ignored
+
+## each script's last line
+07-check-no-stubs.log: check-no-stubs: ok
+08-check-no-secrets.log: check-no-secrets: ok (12840 tracked file(s) scanned)
+09-test-check-no-secrets.log: test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
+10-test-gate-env.log: test-gate-env: ok (5 cases)
+11-check-xfx-identity.log: check-xfx-identity: ok (12840 tracked file(s) scanned)
+12-check-preview-contract.log: check-preview-contract: ok (.github/workflows/preview.yml)
+13-test-preview-contract.log: test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+14-check-tui-preflight-cost.log: check-tui-preflight-cost: ok
+15-check-usage-clock.log: check-usage-clock: ok
+16-fxcap-test-sweep.log: Ran 50 tests in 5.154s Ran 26 tests in 31.882s 2 x OK
+22-smoke.log: 47 check(s), 0 failure(s)
+23-smoke-tui.log: smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+20/21 xfx status, release and faulty: [status] build_revision=e27f9bcf5f1c [status] build_revision=e27f9bcf5f1c 
+
+## 17 fxcap-test-capture: 41 of 42 OK; the failure
+ERROR: test_models2_and_modelsdelay (__main__.Verbs.test_models2_and_modelsdelay)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/scripts/fxcap/test_capture.py", line 455, in test_models2_and_modelsdelay
+    self.assertLess(a.index('{"data":[{"id":"fake/one"}]}'), a.index('{"data":[{"id":"fake/two"}]}'))
+                    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: substring not found
+
+----------------------------------------------------------------------
+Ran 42 tests in 268.080s
+
+FAILED (errors=1)
+
+## its one test alone, three runs, under the lock (17b)
+== run 1 03:04:40
+----------------------------------------------------------------------
+Ran 1 test in 7.518s
+
+OK
+== run 2 03:04:48
+----------------------------------------------------------------------
+Ran 1 test in 11.337s
+
+FAILED (errors=1)
+== run 3 03:04:59
+----------------------------------------------------------------------
+Ran 1 test in 8.160s
+
+OK
+
+## the same on the base's --no-local clone (e636db48), three runs, under the lock (17c)
+== run 1 03:05:19
+----------------------------------------------------------------------
+Ran 1 test in 7.563s
+
+OK
+== run 2 03:05:27
+----------------------------------------------------------------------
+Ran 1 test in 7.579s
+
+OK
+== run 3 03:05:35
+----------------------------------------------------------------------
+Ran 1 test in 7.518s
+
+OK
+
+## then five interleaved pairs, head worktree / base clone, one after another under the lock (17d)
+run 1 head FAILED (errors=1)
+run 1 base FAILED (errors=1)
+run 2 head FAILED (errors=1)
+run 2 base FAILED (errors=1)
+run 3 head FAILED (errors=1)
+run 3 base FAILED (errors=1)
+run 4 head FAILED (errors=1)
+run 4 base FAILED (errors=1)
+run 5 head FAILED (errors=1)
+run 5 base FAILED (errors=1)
+
+## what the test runs: capture.sh with the binary a link to /bin/bash (scripts/fxcap/test_capture.py capture(), binary="/bin/bash"),
+## so no xfx code is in it; and the harness files are the same at base and head:
+## git diff --stat e636db48 e27f9bcf -- scripts/fxcap/test_capture.py scripts/fxcap/capture.sh scripts/fxcap/fakegw.ts
+(empty: unchanged)
+## The test types a curl at 0.5 s and at 5.0+0.8 s against a catalog swapped at 5000 ms; under this machine's load
+## one of the two answers is missing from the snap (`substring not found`; which one is not recorded) on either build alike:
+## registry #19's load class, not this unit.
