@@ -7891,7 +7891,7 @@ mod tests {
         // One finished line, three distinct marker blocks so a partial loss
         // names exactly what went missing. At the fixture's 80-column start
         // this single (space-free) word hard-wraps at cols 80 -- word rule
-        // `wrap.rs:232-240` -- into exactly `"A"*40 + "B"*40` and `"C"*10`,
+        // `wrap.rs:293-301` -- into exactly `"A"*40 + "B"*40` and `"C"*10`,
         // with no clipping yet: 80 columns holds 80 cells.
         let a = "A".repeat(40);
         let b = "B".repeat(40);
