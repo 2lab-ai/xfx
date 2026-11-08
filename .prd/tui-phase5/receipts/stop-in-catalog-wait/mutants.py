@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""STOP-IN-CATALOG-WAIT's mutants, each on a throwaway clone (`git clone
+"""STOP-IN-CATALOG-WAIT's mutants (rounds 1 and 2), each on a throwaway clone (`git clone
 --no-local`), never on the worktree.
 
     python3 -I -B mutants.py <clone> <label> <mutant>...
@@ -43,7 +43,17 @@ EFFORT_END = (
     "    // **A stop that came while the catalog was waited for is the turn's end,\n"
 )
 
+FIRST_LOAD = (
+    "    if !images.is_empty()\n"
+    "        || !state.settings.effort.is_default()\n"
+)
+
 MUTANTS = {
+    # Round 2: a prompt's images no longer wait for a first load at the
+    # turn's start (the image route's read waits for it instead).
+    "prompt-images-first-load-not-waited": [
+        (W, FIRST_LOAD, "    if !state.settings.effort.is_default()\n")
+    ],
     # Ultra's refusal no longer yields to the stop.
     "ultra-refusal-not-yielded": [(W, ARM, "")],
     # The image refusal is asked of a stopped turn.

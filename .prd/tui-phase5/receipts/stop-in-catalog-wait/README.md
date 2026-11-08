@@ -190,3 +190,79 @@ directory. `063058fb` makes it.
 
 The receipt was scanned for local paths with `LC_ALL=C grep -rla` (binary
 captures included), and the scan found nothing.
+
+## Round 2
+
+gpt6 and opus found the same MUST
+(`workflow/…/STOP-IN-CATALOG-WAIT/reviews/`, outside this repo). A prompt
+with images, on a model whose window is known (the Gateway fallback, e.g.
+`anthropic/claude-sonnet-5`), with the default level and no Fast or Ultra,
+still kept nothing when stopped during the **first load**. Nothing at the
+turn's start waited for that load:
+
+- the prompt-image wait handles only a failed catalog's retry;
+- `await_catalog_for_window` returns once the window is known;
+- the effort's read is skipped in the default settings.
+
+So the load was awaited in `image_refusal`'s read, and a stop there returned
+before the machine. fx resolves the prompt's images at the turn's start
+whatever the window (F1, `orchestrator.zig:5885-5886`). That resolve waits on
+`.loading` and ends on the stop (F2, `model_cache_runtime.zig:855-866`), and
+the interrupted turn keeps the prompt and its images (F4,
+`interruption.zig:198-206`).
+
+| commit | what |
+|---|---|
+| `f7014f8e` | round 2 RED, test only (`red-r2.txt`) |
+| `889dcfaf` | the fix and `docs/parity.md` -- **round 2's code head** |
+| (this one) | this section, its files and the gate |
+
+- **RED (`red-r2.txt`, at `f7014f8e`).** `CatalogWait::PromptImageFirstLoad`
+  is the `Gated` first load, landing 1.5 s in with a row that reads images,
+  on `anthropic/claude-sonnet-5` (window known, no level or speed). The first
+  prompt is `TurnWork::Attached` with an image. With the stop, the log says
+  `asked second`, `final stop` and nothing of the first. Expected:
+  `asked first`, `1 image(s)`, `interrupted cancelled`, then the second
+  turn. The other nine arms are as in round 1. The test now also compares
+  each second turn's end with its no-stop control. The one exception is
+  `PromptImageRetry`: without the stop its first turn is refused and kept
+  nothing, so its second turn's history differs on purpose.
+- **The fix (`889dcfaf`).** In `one_turn`, a prompt with images reads the
+  catalog at the turn's start, in the same read the effort uses, raced
+  against the stop and told to the UI. `image_refusal`'s read then finds it
+  settled, and a stop during the wait goes to the machine, which keeps the
+  prompt and its images. The history's images keep the image route's own,
+  later wait: the quiet stop round 1 documented (fx F7). The `docs/parity.md`
+  `/model` sentence now names the prompt's images.
+- **GREEN.** `green-unit-r2.txt`: the four tests pass at `889dcfaf`.
+  `green-r2.txt`: `p5-stop-in-catalog-wait`'s three pairs are
+  `normalized-identical` (row 5, the product name) against the binary built
+  at `889dcfaf` (`xfx-r2/`, row 1 `v0.1.0-889dcfa`; `fx-r2/` from the same
+  sweep). `osc-r2.txt` gives the same status sequence and title as fx.
+- **Mutants (`mutants-r2.txt`).** Every mutant was rerun on a
+  `git clone --no-local` copy of `889dcfaf`, under the lock, 600 s each.
+  - The new `prompt-images-first-load-not-waited` (the prompt's images
+    dropped from the turn-start read) is killed.
+  - Round 1's five give the same results as before: four killed, and
+    `stop-leaks-to-next-turn` killed on the head but surviving `ctl/`, the
+    join test as `85b13f84` left it.
+  - Each mutant's panic line is the shifted `assert_eq!(got, want)`, or the
+    join test's second-turn check for the stop leak.
+- **Sweep (`sweep-head-r2.md`, `sweep-compare-r2.txt`).** The same 18
+  scenarios were run against round 1's base run: head 62/73, base 63/73.
+  This unit's two pairs are gained. `model-column-idle`'s three are lost,
+  this time by xfx's late launch read: 4126 ms, so its second read
+  (10225 ms) landed after the 9 s outage while fx's (909, 7009 ms) did not.
+  That is the same FLAKE-MODELSDOWN skew as round 1, in the other direction.
+  Two reruns on the head pass 3/3 with both sides inside the outage
+  (`sweep-head-r2-idle-rerun1.md`, `-rerun2.md`).
+- **Not fixed here, named as queue unit HISTORY-NOTICE-STOP** (opus SHOULD
+  (a); it was already true before this unit). A turn stopped before its
+  request still uses up the conversation's once-only history notices.
+  `Conversation::unsaid` marks a notice said when it is filtered
+  (`src/interactive.rs:1181-1186`), while `one_turn`'s `send_ui` refuses
+  the stopped turn's token (`src/tui/worker.rs:6194-6205`). The notice is
+  then never shown.
+- The added lines were checked for local paths (`git diff -U0 | grep '^+'`
+  for `/Users`, the user name and `/private/`): none. The receipt was
+  scanned with `LC_ALL=C grep -rla`: nothing.
