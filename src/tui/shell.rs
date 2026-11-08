@@ -1924,9 +1924,11 @@ struct WaitingPrompt {
     estimate: u64,
     /// The title the prompt would give a session it opened ([`title_of`]).
     title: Option<String>,
-    /// Its card while it is shown waiting in the band, written when its turn
-    /// starts.
+    /// Its card, written when its turn starts -- `None` for one written at
+    /// the keystroke.
     card: Option<WaitingCard>,
+    /// Whether the band shows the card while it waits ([`Shell::banner_rows`]).
+    shown: bool,
     /// Upstream would have queued it at once rather than hold it as a
     /// pending submission ([`Shell::take_status_moved_by_input`]).
     queued_at_once: bool,
@@ -12896,8 +12898,8 @@ impl Shell {
         // Whether it will wait behind a turn that is running -- the turn the
         // activity row is about, as upstream's steer waits on an active
         // operation. Work the session has stopped or reset is not one: a
-        // prompt typed after it goes out as soon as that work unwinds, and its
-        // card is written at once, as it always was.
+        // prompt typed after it goes out as soon as that work unwinds, and is
+        // not shown waiting (below).
         let waits = self.activity.working();
         // Whether upstream would queue this prompt at once rather than hold it
         // as a pending submission ([`Self::prompts`]' fourth): a turn that
@@ -12919,25 +12921,38 @@ impl Shell {
                 self.edited(None);
                 let mut estimate = Estimator::default();
                 estimate.consume(&sent);
+                // A prompt upstream queues at once with no turn of its own
+                // running -- typed under a stop whose turn has not ended, or
+                // while the last answer is paced out, or from under the full
+                // transcript -- shows nothing of itself until its worker
+                // takes it: the band lists only steering prompts
+                // (`snapshotSteeringPresentation`, `worker_runtime.zig:
+                // 1749-1792@481104fd`) and the card is the `begin_prompt` the
+                // take pushes (`takeNextPromptLocked`, `:1484-1505`), so the
+                // `Cancelled` frame of a stop typed with a prompt in one read
+                // has nothing of it (`p5-lifecycle-osc-stopnext`, fx's three
+                // runs). Its card waits for its turn, unshown. Any other
+                // prompt not behind a running turn is upstream's pending
+                // submission, whose card is drawn at once.
                 let submission = self.work.accepted();
+                let (card, echoed) = if waits || behind {
+                    (Some((card, links, runs)), None)
+                } else {
+                    (None, Some((card, links, runs)))
+                };
+                self.prompts.push_back(WaitingPrompt {
+                    submission,
+                    estimate: estimate.estimate(),
+                    title,
+                    card,
+                    shown: waits,
+                    queued_at_once: behind,
+                });
                 if waits {
-                    self.prompts.push_back(WaitingPrompt {
-                        submission,
-                        estimate: estimate.estimate(),
-                        title,
-                        card: Some((card, links, runs)),
-                        queued_at_once: behind,
-                    });
                     self.refit();
                     self.render.request(Reason::Footer);
-                } else {
-                    self.prompts.push_back(WaitingPrompt {
-                        submission,
-                        estimate: estimate.estimate(),
-                        title,
-                        card: None,
-                        queued_at_once: behind,
-                    });
+                }
+                if let Some((card, links, runs)) = echoed {
                     self.echo(&card, links, runs);
                 }
                 self.gestures.submitted();
@@ -13003,6 +13018,7 @@ impl Shell {
                         estimate: estimate.estimate(),
                         title: title_of(&prompt),
                         card: Some((card, BadgeLinks::new(), SkillRuns::new())),
+                        shown: true,
                         queued_at_once: true,
                     });
                 }
@@ -15793,12 +15809,15 @@ impl Shell {
             .steers
             .iter()
             .map(|(_, _, card)| Some((card.as_str(), &none)));
-        let waiting = self.waiting_prompts().map(|prompt| {
-            prompt
-                .card
-                .as_ref()
-                .map(|(card, links, _)| (card.as_str(), links))
-        });
+        let waiting = self
+            .waiting_prompts()
+            .filter(|prompt| prompt.shown)
+            .map(|prompt| {
+                prompt
+                    .card
+                    .as_ref()
+                    .map(|(card, links, _)| (card.as_str(), links))
+            });
         for card in steers.chain(waiting) {
             let Some((card, links)) = card else {
                 continue;
@@ -38431,12 +38450,18 @@ mod tests {
         assert!(shell.sent.try_recv().is_err(), "nothing was submitted yet");
 
         // Enter submits it, from behind the screen, and the screen shows the
-        // prompt it sent as soon as the document is given it.
+        // prompt it sent as soon as the document is given it: when its turn
+        // starts, as upstream queues a prompt typed under the full transcript
+        // at once (`installPendingSubmission`,
+        // `input_submit_runtime.zig:1143-1147@481104fd`) and writes its card
+        // when its worker takes it (`takeNextPromptLocked`,
+        // `worker_runtime.zig:1484-1505`).
         shell.route_bytes(b"\r");
         assert!(
             matches!(shell.sent.try_recv(), Ok(TurnWork::Submit(_))),
             "Enter behind the screen did not submit"
         );
+        shell.start_turn();
         assert!(shell.full.is_open());
         assert!(
             full_screen(&shell)
