@@ -1173,6 +1173,113 @@ mod tests {
     }
 
     #[test]
+    fn the_height_is_fxs_for_every_screen_composer_and_waiting_prompt() {
+        // `filePickerReservedRows` over terminal rows 6-24, 30 and 40, a
+        // composer zero to three rows past its first, and no waiting prompt,
+        // one of one row or one of two (each with the blank under it): the
+        // receipt's `height-table.txt`, from its line-for-line transcription
+        // of `picker_presentation.zig:647-666@481104fd` (`height_table.py`).
+        const ROWS: [u16; 21] = [
+            6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 30, 40,
+        ];
+        let table: [(u16, u16, [u16; 21]); 12] = [
+            (
+                0,
+                0,
+                [
+                    1, 2, 3, 4, 5, 6, 6, 6, 6, 6, 6, 7, 8, 9, 10, 10, 10, 10, 10, 10, 10,
+                ],
+            ),
+            (
+                1,
+                0,
+                [
+                    1, 1, 2, 3, 4, 5, 6, 6, 6, 6, 6, 6, 7, 8, 9, 10, 10, 10, 10, 10, 10,
+                ],
+            ),
+            (
+                2,
+                0,
+                [
+                    1, 1, 1, 2, 3, 4, 5, 6, 6, 6, 6, 6, 6, 7, 8, 9, 10, 10, 10, 10, 10,
+                ],
+            ),
+            (
+                3,
+                0,
+                [
+                    1, 1, 1, 1, 2, 3, 4, 5, 6, 6, 6, 6, 6, 6, 7, 8, 9, 10, 10, 10, 10,
+                ],
+            ),
+            (
+                0,
+                2,
+                [
+                    1, 1, 1, 2, 3, 4, 5, 6, 6, 6, 6, 6, 6, 7, 8, 9, 10, 10, 10, 10, 10,
+                ],
+            ),
+            (
+                1,
+                2,
+                [
+                    1, 1, 1, 1, 2, 3, 4, 5, 6, 6, 6, 6, 6, 6, 7, 8, 9, 10, 10, 10, 10,
+                ],
+            ),
+            (
+                2,
+                2,
+                [
+                    1, 1, 1, 1, 1, 2, 3, 4, 5, 6, 6, 6, 6, 6, 6, 7, 8, 9, 10, 10, 10,
+                ],
+            ),
+            (
+                3,
+                2,
+                [
+                    1, 1, 1, 1, 1, 1, 2, 3, 4, 5, 6, 6, 6, 6, 6, 6, 7, 8, 9, 10, 10,
+                ],
+            ),
+            (
+                0,
+                3,
+                [
+                    1, 1, 1, 1, 2, 3, 4, 5, 6, 6, 6, 6, 6, 6, 7, 8, 9, 10, 10, 10, 10,
+                ],
+            ),
+            (
+                1,
+                3,
+                [
+                    1, 1, 1, 1, 1, 2, 3, 4, 5, 6, 6, 6, 6, 6, 6, 7, 8, 9, 10, 10, 10,
+                ],
+            ),
+            (
+                2,
+                3,
+                [
+                    1, 1, 1, 1, 1, 1, 2, 3, 4, 5, 6, 6, 6, 6, 6, 6, 7, 8, 9, 10, 10,
+                ],
+            ),
+            (
+                3,
+                3,
+                [
+                    1, 1, 1, 1, 1, 1, 1, 2, 3, 4, 5, 6, 6, 6, 6, 6, 6, 7, 8, 10, 10,
+                ],
+            ),
+        ];
+        for (extra, banner, heights) in table {
+            for (rows, height) in ROWS.iter().zip(heights) {
+                assert_eq!(
+                    FilePicker::height(*rows, extra, banner),
+                    height,
+                    "{rows} rows, composer +{extra}, banner {banner}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn below_six_rows_the_list_takes_what_the_screen_has_and_never_none() {
         // `activeListPickerReservedRows`, `picker_presentation.zig:647-652`:
         // the floor the grown height never goes under.
