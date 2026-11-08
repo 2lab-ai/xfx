@@ -3,7 +3,7 @@
 # swept with its own tree's harness, scenarios and ledger, under the selection.
 # usage: FX=<fx v0.0.16> SHORT_TMP=<a short scratch dir> \
 #        suite-lock.sh sweep.sh <name> <tree-whose-harness-runs> <clone-to-build> <out>
-# (as run: the oracle under the repository's .worktrees/.fxref, and a short
+# (as run: the oracle in an ignored directory of the checkout, and a short
 # directory under the machine's scratch root, so tmux's socket paths fit)
 set -u
 name=$1 tree=$2 clone=$3 out=$4
