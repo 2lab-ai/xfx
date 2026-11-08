@@ -13319,9 +13319,6 @@ impl Shell {
         // (`installPendingSubmission`, `input_submit_runtime.zig:1136-1149@481104fd`).
         let behind =
             self.tally.started.is_some() || self.pacer.pending() > 0 || self.full.is_open();
-        // Measured against the screen the last frame left, before the draft
-        // goes and the band shrinks ([`Self::preview_room`]).
-        let room = self.preview_room();
         match self.work.submit(work) {
             Ok(()) => {
                 self.ask_for_title(excerpt.as_deref(), Some(self.work.accepted()));
@@ -13367,7 +13364,10 @@ impl Shell {
                     self.render.request(Reason::Footer);
                 }
                 if let Some((card, links, runs)) = echoed {
-                    if let Some(room) = room {
+                    // Measured against the band the last landed frame
+                    // painted, whatever the draft's going did to this one
+                    // ([`Self::preview_room`]).
+                    if let Some(room) = self.preview_room() {
                         self.preview_card(&card, &links, &runs, room);
                     }
                     self.echo(&card, links, runs);
