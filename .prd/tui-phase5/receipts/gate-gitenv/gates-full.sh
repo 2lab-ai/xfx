@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# GATE-GITENV round 2d: the full gate list, one at a time, in the worktree at
+# GATE-GITENV round 2d and F: the full gate list, one at a time, in the worktree at
 # its head: every step ci.yml's gate job runs, in its order, plus the local
 # gates it no longer runs on their own (test-check-no-secrets.sh) and the
 # fxcap suites (test-sweep.sh, test-capture.sh). Each with its last lines,
@@ -29,6 +29,7 @@ if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
 fi
 uname -sm; bash --version | head -1; git --version; rustc --version; cargo --version
 printf 'TMPDIR=%s\n' "${TMPDIR-unset}"
+bash "$(dirname "${BASH_SOURCE[0]}")/lock-line.sh" "$PPID"
 log="$(mktemp "${TMPDIR:-/tmp}/xfx-gates-full.XXXXXX")"
 trap 'rm -f "$log"' EXIT
 failed=0

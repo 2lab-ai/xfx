@@ -31,6 +31,7 @@ redactor = Redactor({
     "<copy>": "<copy>",
     "<smoke>": "<smoke>",
     "<smoke>": "<smoke>",
+    "<smoke>": "<smoke>",
 })
 
 files = {
@@ -98,6 +99,22 @@ files = {
     "test-capture-r2d-head.txt": pathlib.Path("<smoke>/logs/21.log"),
     "test-capture-r2d-base.txt": scratch / "r2d/test-capture-base.log",
     "gates-rerun.sh": scratch / "tools/gates-rerun.sh",
+    # GATE-GITENV-F
+    "runs-f-macos.txt": scratch / "rf/runs-f-macos.log",
+    "runs-f-linux.txt": scratch / "rf/runs-f-linux.log",
+    "mutants-f-linux.txt": scratch / "rf/mutants-f-linux.out",
+    "mutants-f-macos.txt": scratch / "rf/mutants-f-macos.out",
+    "step-inventory.txt": scratch / "rf/step-inventory.log",
+    "fxcap-diff-r2d.txt": scratch / "rf/fxcap-diff-r2d.log",
+    "gates-full-f.txt": scratch / "rf/gates-full.log",
+    "gates-receipt-f.txt": scratch / "rf/gates-receipt.log",
+    "runs-f.sh": scratch / "tools/runs-f.sh",
+    "mutants-f.py": scratch / "tools/mutants-f.py",
+    "mutants-f-inner.sh": scratch / "tools/mutants-f-inner.sh",
+    "linux-f.sh": scratch / "tools/linux-f.sh",
+    "mac-f.sh": scratch / "tools/mac-f.sh",
+    "lock-line.sh": scratch / "tools/lock-line.sh",
+    "step-inventory.rb": scratch / "tools/step-inventory.rb",
     "gates-receipt-r2d.txt": scratch / "r2d/gates-receipt.log",
     "ci-checkout-probe.sh": scratch / "tools/ci-checkout-probe.sh",
     "runs-r2d.sh": scratch / "tools/runs-r2d.sh",

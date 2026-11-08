@@ -20,6 +20,10 @@ A claim with no log is marked *(not measured here)* with its source.
 - **Round 2d:** the tests at `3241b7da` (on `978ef4bf`), the fix at
   `84e7ca74`, one more case at `96d1f424`. Line numbers in the round 2d
   section are at `96d1f424`.
+- **GATE-GITENV-F:** on branch `fix/p5-gate-gitenv-f`. origin/main
+  `884497c0` (train 4) is merged into `2cd3c844` at `621c9504`. The tests
+  are at `4151a1d9`, the fix at `10bee91a`, the CI change at `a41695bf`.
+  Line numbers in the F section are at `a41695bf`.
 
 **The goal:** no environment or config a caller inherits can make a CI gate
 read anything but the repository it is checking, pass a violation, or write
@@ -480,10 +484,11 @@ adds `identity-submodule`)*. A copy with no `.git` fails the second command
 and is refused by name. The refusal prints the repository git found.
 
 An entry with both bits is now listed under both refusals (`:275-279`).
-Setting the two bits takes two `update-index` calls: one call with both
-options set only the last. *(Not measured in 2c, whose source was a manual
-run noted in `identity-both-bits`'s comment; round 2d's
-`discovery-probe.sh` logs it: one call gives `h`, two give `s`.)*
+Setting the two bits takes two `update-index` calls: one call with
+`--skip-worktree --assume-unchanged`, in that order, set only
+assume-unchanged (`h`). *(Not measured in 2c, whose source was a manual run
+noted in `identity-both-bits`'s comment. Round 2d's `discovery-probe.sh`
+logs it, in that order only: one call gives `h`, two give `s`.)*
 
 | at `16c115c1` | macOS | Linux |
 |---|---|---|
@@ -661,6 +666,124 @@ that passed:
   - `identity-ceiling-instead` → symlink, colon and miscased;
   - `identity-own-check-by-path` → `identity-own-miscased`.
 
+## GATE-GITENV-F
+
+### One row per OS for the script tests
+
+PR #80's x86_64 macOS row took 47m29s of its 60-minute timeout. Its steps
+included the standalone `test-check-no-secrets.sh` (337 s) and
+`test-gate-env.sh` at 5 cases (173 s) *(the coordinator's numbers from that
+run, not measured here)*. This branch's `test-gate-env.sh` has 62 cases on macOS
+and runs the secrets test nested. At 48 cases it took 265 to 486 s locally
+on arm64 macOS (`row-time.txt`, round 2b). At the coordinator's measured
+Intel-to-local ratio of about 2.9 for that step *(not measured here)*, the
+x86_64 macOS row would have reached or passed its timeout.
+
+These are the tests of the gate scripts themselves: `test-gate-env.sh`
+(with `test-check-no-secrets.sh` nested in it) and
+`test-preview-contract.sh`. They exercise the OS's bash, grep, git and
+getconf, and build nothing for the target. So `ci.yml` runs them on one row
+per OS, the rows marked `script_tests` (`ci.yml:53-70`, `:155`, `:173`):
+- aarch64 macOS, for bash 3.2 and BSD grep;
+- x86_64 Linux, for GNU grep.
+
+x86_64 macOS and aarch64 Linux no longer run them. Every `check-*.sh` gate
+still runs on all four rows, and so does `cargo test`, which runs the
+identity gate too.
+
+`test-gate-env.sh`'s new case `ci-script-tests-per-os` (`:679-718`) holds
+the rule. Each of the three scripts must reach a macOS row and a Linux row,
+the secrets test through `test-gate-env.sh`. A step condition the case
+cannot read fails it.
+
+**Steps per row** (`step-inventory.txt`, from each commit's `ci.yml`):
+
+| row | main `884497c0` | `621c9504` (GATE-GITENV) | `a41695bf` |
+|---|---|---|---|
+| x86_64 Linux | 21 of 23 | 20 of 22 | 20 of 22 |
+| aarch64 Linux | 21 of 23 | 20 of 22 | **18 of 22**: no test-gate-env, no test-preview-contract |
+| aarch64 macOS | 21 of 23 | 20 of 22 | 20 of 22 |
+| x86_64 macOS | 21 of 23 | 20 of 22 | **18 of 22**: no test-gate-env, no test-preview-contract |
+
+The two steps not run on every row in every column are the evidence uploads
+that run `if: failure()`. Main's 23rd step is the standalone
+`test-check-no-secrets.sh`, gone since 2b. No CI run of this branch was
+measured, so the time the x86_64 macOS row saves is #80's two steps and
+`test-preview-contract.sh`, *(not measured here)*.
+
+README and CONTRIBUTING say which rows run the script tests. They also say
+that `cargo test` runs the identity gate: a tracked file deleted and not
+committed, or renamed with a plain `mv`, fails
+`the_tracked_tree_carries_only_the_current_product_name` with "tracked
+files missing from the working tree", naming it.
+
+### A tracked file there as another type
+
+Opus's 2d review: a tracked file replaced by a directory, or by a symlink,
+passed `ls-files -d`, since `lstat` finds an entry, and `git grep` passed
+over it. RED at `4151a1d9`, against the gates at `621c9504`:
+`identity-file-became-dir` and `identity-file-became-symlink` exit 0
+(`runs-f-*.txt`). The symlink points at a file carrying the residue, so the
+skip is the grep's.
+
+**The fix** (`check-xfx-identity.sh:309-326`): the listing is `git
+diff-files --name-only -z --diff-filter=DT` in place of `ls-files -d`. `D`
+covers a path that is gone or is now a directory; `T` covers a file whose
+type changed, now a symlink. A failure, or anything on its standard error,
+is a failed listing as before. A file under a directory the scan cannot
+search gives `Permission denied` there, which `identity-unsearchable-dir`
+now requires.
+
+The refusal's remedy is scoped. Restore or remove the files, unless none of
+them belongs here, in which case the root's `.git` names another
+repository. There, `git restore` would write `vendor/xfx/vendor/xfx/...`.
+
+`test-gate-env.sh` (`runs-f-*.txt`), each run under `suite-lock.sh` (the
+logs' first line is the slot held):
+
+| at | macOS | Linux (two miscased cases skipped) |
+|---|---|---|
+| `621c9504` | 59 pass | 57 pass |
+| `4151a1d9` (the new cases, the gates at `621c9504`) | `2 problem(s), 60 case(s) passed` | `2 problem(s), 58 case(s) passed` |
+| `a41695bf` | 62 pass | 60 pass |
+
+The two problems are `identity-file-became-dir` and
+`identity-file-became-symlink`, both exit 0. `ci-script-tests-per-os`
+passes at `4151a1d9` too, where every row ran the script tests: it holds
+the coverage, and the mutants below show it does. The CI-style checkout
+and a linked worktree of it pass the identity gate at `a41695bf` (12 997
+files, both platforms).
+
+Mutants, each on a `--no-local` clone at `a41695bf`, after a control run
+that passed, under `suite-lock.sh`:
+- `mutants-f-linux.txt` (Linux): 30 mutants, 29 ran (as before,
+  `identity-own-check-by-path` needs a case-folding file system), 29 of 29
+  caught, each by exactly its own cases. New in F:
+  - `identity-missing-by-ls-files` (2d's listing back) →
+    `identity-file-became-dir`, `-symlink`;
+  - `identity-missing-without-typechange` (`--diff-filter=D`) →
+    `identity-file-became-symlink`;
+  - `ci-script-tests-off-macos` and `ci-script-tests-off-linux` (the flag
+    taken off the macOS row, or the Linux row) →
+    `ci-script-tests-per-os`;
+  - `identity-skips-missing-files` now also fails both new cases.
+- `mutants-f-macos.txt` (macOS, case folded): 4 of 4, the ones the
+  miscased cases decide.
+
+**The full gate list** (`gates-full-f.txt`, `gates-full.sh` in the worktree
+at `a41695bf`): every step of ci.yml's gate job, plus
+`test-check-no-secrets.sh`, `fxcap/test-sweep.sh` and
+`fxcap/test-capture.sh`, one at a time. The log's eighth line is the
+`suite-lock.sh` slot it held. All 22 exit 0:
+- `cargo fmt --check`, both clippy runs, `cargo test --all-targets` and the
+  two fault-injection test runs (190 and 4 390 passed);
+- every `check-*.sh` (12 997 files for the two tree scans), and every
+  `test-*.sh`: `test-gate-env` 62 cases, `test-preview-contract` 24
+  mutants, `test-check-no-secrets` 13 cases;
+- both release builds, `smoke.sh` (47 checks), `smoke-tui.sh`,
+  `fxcap/test-sweep.sh` (67 and 27 tests) and `fxcap/test-capture.sh` (59
+  tests, train 4's), and actionlint over five workflows.
+
 ## Gates
 
 `gates-code.txt` (`gates.sh`, the worktree at `fff83c06`), all exit 0:
@@ -682,7 +805,9 @@ gate job in its order, plus `test-check-no-secrets.sh`, `fxcap/test-sweep.sh`
 and `fxcap/test-capture.sh`, one at a time, in the worktree at `96d1f424`.
 The machine is shared by several workers.
 - **Under `suite-lock.sh`** (`gates-full-r2d.txt`), which bounds the
-  machine's heavy jobs, 21 of 22 exit 0:
+  machine's heavy jobs, 21 of 22 exit 0. *(That log has no lock line: the
+  run was started as `suite-lock.sh bash gates-full.sh ...`, and the
+  command line is not in the log. F's gate log prints the slot it holds.)*
   - `cargo fmt --check`, both clippy runs, `cargo test --all-targets` and
     the two fault-injection test runs (190 and 4 275 passed);
   - every `check-*.sh` and `test-*.sh` (`test-gate-env` 59 cases,
@@ -695,8 +820,9 @@ The machine is shared by several workers.
   (`test-capture-r2d-head.txt`, `test-capture-r2d-base.txt`). The error is
   `ValueError: substring not found` for the second catalog in the screen.
   No file under `scripts/fxcap/` that test or `capture.sh` uses changed in
-  this unit (`git diff --stat 45d99f52 96d1f424 -- scripts/fxcap/` lists
-  only the sweep's four files). It is not this unit's, and not fixed here.
+  this unit: `git diff --stat 45d99f52 96d1f424 -- scripts/fxcap/` lists
+  only the sweep's four files (`fxcap-diff-r2d.txt`, run at F). It is not
+  this unit's, and not fixed here.
 - **Before the lock existed** (`gates-full-r2d-unlocked.txt`), three gates
   failed under the load of other suites:
   - the fault-injection tui run (18 of 190);
@@ -727,8 +853,9 @@ Round 2c, the four tree-reading gates (`check-no-secrets`,
   `runs-r2b.sh`, `mutants-r2b.py`, `row-time.sh`, `row-time-rounds.sh`
   (round 2b); `discovery-probe.sh`, `runs-r2c.sh`, `mutants-r2c.py` (round
   2c); `ci-checkout-probe.sh`, `runs-r2d.sh`, `mutants-r2d.py`,
-  `gates-full.sh`, `gates-rerun.sh` (round 2d); `gates.sh` and
-  `publish.py`.
+  `gates-full.sh`, `gates-rerun.sh` (round 2d); `runs-f.sh`, `linux-f.sh`,
+  `mac-f.sh`, `mutants-f.py`, `mutants-f-inner.sh`, `lock-line.sh`,
+  `step-inventory.rb` (F); `gates.sh` and `publish.py`.
 - **Logs:** the `.txt` files. Round 2 rewrote `inventory.txt` and
   `gates-code.txt` at `fff83c06`; round 1's are in git at `2c8fbc64`.
   `r2-base-macos.txt` ran an earlier `r2-probes.sh`, before its index-bit,

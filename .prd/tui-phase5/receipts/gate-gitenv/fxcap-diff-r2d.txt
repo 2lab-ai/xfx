@@ -1,0 +1,9 @@
+== git diff --stat 45d99f52 96d1f424 -- scripts/fxcap/   (run at GATE-GITENV-F, a41695bf)
+ scripts/fxcap/ci_sweep.py      |  7 ++++++-
+ scripts/fxcap/sweep.py         | 12 +++++++++++-
+ scripts/fxcap/test_ci_sweep.py | 40 ++++++++++++++++++++++++++++++++++++++++
+ scripts/fxcap/test_sweep.py    | 33 +++++++++++++++++++++++++++++++++
+ 4 files changed, 90 insertions(+), 2 deletions(-)
+
+== the files test_capture.py and capture.sh are, among them
+none
