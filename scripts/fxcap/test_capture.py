@@ -331,6 +331,7 @@ class RunRoots(unittest.TestCase):
         "printf 'cwd=%s real=%s home=%s tmp=%s\\n' \"$PWD\" \"$(pwd -P)\" \"$HOME\" \"$TMPDIR\"; "
         "printf 'up=%s user=%s scen=%s\\n' \"$(dirname \"$(dirname \"$PWD\")\")\" \"$(eval echo ~\"$(id -un)\")\" @SCENARIOS@; "
         "printf 'edge=%sx\\n' \"$PWD\"; "
+        "printf '\\033[38;5;245m%s\\033[39m\\n' \"$PWD\"; "
         "printf 'pad=[%70s] [%80s]\\n' \"$PWD\" \"$TMPDIR\"; "
         "printf '\\033]8;;file://%s/shot.png\\033\\\\[link]\\033]8;;\\033\\\\\\n' \"$PWD\"; "
         "printf '\\033]2;at %s\\007' \"$PWD\"; "
@@ -381,7 +382,9 @@ class RunRoots(unittest.TestCase):
         # A root followed by a name character is not that root: `$PWD` then
         # `x` is the run directory and `workx`.
         self.assertIn("edge=<scratch>/workx", a)
-        # The link's target, in the .ansi; the title; the wire; the body.
+        # A coloured path, right after its SGR sequence's `m`; the link's
+        # target, in the .ansi; the title; the wire; the body.
+        self.assertIn("m<work>\x1b[39m", r.file("a", ".ansi"))
         self.assertIn("\x1b]8;;file://<work>/shot.png", r.file("a", ".ansi"))
         self.assertEqual(r.file("t", ".title").strip(), "at <work>")
         wire = r.file("w", ".wire")

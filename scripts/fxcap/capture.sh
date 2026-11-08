@@ -332,9 +332,12 @@
 #   <home>       this script's own HOME (the user's: no binary is given it)
 #
 # Each root is replaced byte for byte, as given and as resolved (macOS's /tmp
-# is /private/tmp), the longest first, and only where it stands whole: not
-# after or before a character a path name holds, so `/tmp` is not found in
-# `/private/tmp`, and `file:///...` is. fx's side and xfx's are rewritten by
+# is /private/tmp), the longest first, and only where it ends whole: no
+# character a path name holds follows it, so `<run>/work` is not found in
+# `<run>/workx`. What precedes it is not read -- a coloured path follows its
+# SGR sequence's `m` -- and the longest-first order is what keeps a root out
+# of a longer one (`/tmp/x` in `/private/tmp/x` is the longer one's). fx's
+# side and xfx's are rewritten by
 # the same rule, so a pair compares as it did: the two runs of a sweep unit
 # share one TMPDIR, so each root is as long on both sides. The two binaries'
 # own TMPDIRs are kept apart under <scratch> -- `fxtmp` is one byte shorter
@@ -397,8 +400,8 @@ roots_line() {
 
 # Writes the run's roots as their placeholders in each file named, in place
 # (above): byte for byte, each root as given and as resolved, the longest
-# first, a root only where no path-name character stands on either side of
-# it. A file it cannot read or write fails the run.
+# first, a root only where no path-name character follows it. A file it
+# cannot read or write fails the run.
 scrub() {
   (( $# )) || return 0
   /usr/bin/perl -e '
@@ -426,7 +429,7 @@ scrub() {
       my $was = $text;
       for my $root (@roots) {
         my ($r, $name) = @$root;
-        $text =~ s/(?<![$edge])\Q$r\E(?![$edge])/$name/g;
+        $text =~ s/\Q$r\E(?![$edge])/$name/g;
       }
       next if $text eq $was;
       open(my $out, ">:raw", $file) or die "scrub: cannot write $file: $!\n";
