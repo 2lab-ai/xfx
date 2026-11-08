@@ -1373,9 +1373,9 @@ mod tests {
 
         let plan = MutationPlan::new(
             MutationKind::Edit,
-            // The long absolute path a real workspace has.
+            // As long as the absolute path a macOS temporary workspace has.
             std::path::PathBuf::from(
-                "/private/var/folders/f4/mj8750512wdb85799rpkct880000gn/T/.tmpqwGs5r/workspace/notes.txt",
+                "/scratch/workdir/tmp/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/T/.tmpqwGs5r/workspace/notes.txt",
             ),
             "notes.txt".to_string(),
             TargetScope::PrimaryWorkspace,

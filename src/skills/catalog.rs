@@ -555,7 +555,7 @@ mod tests {
     /// fx-skills-40x120-bodies/001-completion.json`), so the block is checked
     /// against the bytes upstream sent, namespace included.
     fn captured() -> Vec<Skill> {
-        let base = "/private/tmp/claude-501/fxcap.BElQiS";
+        let base = "/scratch/workdir/claude/fxcap.BElQiS";
         vec![
             skill(
                 "demo",
@@ -586,9 +586,9 @@ mod tests {
             "Skills provide task instructions. Use named skills and clearly matching skills before substantive work.\n\
 Read selected skills completely, including required references. Descriptions may be shortened; metadata is not loaded instructions.\n\
 <available_skills>\n\
-Root 0: /private/tmp/claude-501/fxcap.BElQiS/work/.fx/skills\n\
-Root 1: /private/tmp/claude-501/fxcap.BElQiS/work/skills\n\
-Root 2: /private/tmp/claude-501/fxcap.BElQiS/home/.fx/skills\n\
+Root 0: /scratch/workdir/claude/fxcap.BElQiS/work/.fx/skills\n\
+Root 1: /scratch/workdir/claude/fxcap.BElQiS/work/skills\n\
+Root 2: /scratch/workdir/claude/fxcap.BElQiS/home/.fx/skills\n\
 - demo: Demo workspace skill for the capture (location: skill:779085e8a24f238b:0/demo)\n\
 - release-notes: Write release notes from the git log (location: skill:779085e8a24f238b:1/release-notes)\n\
 - foo: A skill installed from a local directory (location: skill:779085e8a24f238b:2/foo)\n\

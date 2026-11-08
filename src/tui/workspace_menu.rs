@@ -417,7 +417,7 @@ mod tests {
     #[test]
     fn the_empty_picker_is_upstreams_at_120_columns() {
         // `cap/fx-workspace-40x120-bare`, rows 10-16.
-        let primary = Path::new("/private/tmp/claude-501/fxcap.C4kWG0/work");
+        let primary = Path::new("/scratch/workdir/claude/fxcap.C4kWG0/work");
         let menu = Menu::open();
         assert_eq!(Menu::height(40, &[]), 6);
         let rows = menu.rows(120, 6, primary, &[], PALETTE);
@@ -458,8 +458,8 @@ mod tests {
     #[test]
     fn a_saved_directory_is_a_choice_between_add_and_clear() {
         // `cap/fx-workspace2-40x120-picker-one` and `-picker-down1`.
-        let primary = Path::new("/private/tmp/claude-501/fxcap.6JMQe1/work");
-        let entries = [entry("/private/tmp/claude-501/fxcap.6JMQe1/extra", true)];
+        let primary = Path::new("/scratch/workdir/claude/fxcap.6JMQe1/work");
+        let entries = [entry("/scratch/workdir/claude/fxcap.6JMQe1/extra", true)];
         let mut menu = Menu::open();
         assert_eq!(Menu::height(40, &entries), 8);
         let rows = |menu: &Menu| -> Vec<String> {
@@ -478,7 +478,7 @@ mod tests {
                     " ".repeat(32)
                 ),
                 format!(
-                    "  /private/tmp/claude-501/fxcap.6JMQe1/extra{}Active \u{b7} Saved",
+                    "  /scratch/workdir/claude/fxcap.6JMQe1/extra{}Active \u{b7} Saved",
                     " ".repeat(4)
                 ),
                 format!(
@@ -491,7 +491,7 @@ mod tests {
         assert!(rows(&menu)[6].starts_with("\u{276f} /private/tmp"));
         assert_eq!(
             menu.command(&entries),
-            "/workspace remove /private/tmp/claude-501/fxcap.6JMQe1/extra"
+            "/workspace remove /scratch/workdir/claude/fxcap.6JMQe1/extra"
         );
         assert_eq!(menu.marked_row(8, &entries), 6);
         menu.step(true, &entries);
