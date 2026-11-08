@@ -366,6 +366,23 @@ class Confinement(unittest.TestCase):
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         self.assertRegex(r.file("h", ".files"), r'\{"p":\d+\}')
 
+    def test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory(self):
+        # `rehomefile` renames its file into place (FLAKE-MCPMODE): a HOME path
+        # that is a link to a file outside is refused, never written through,
+        # and one that is a link to a directory outside is refused, never
+        # moved into.
+        victim = self.sentinel("keep\n")
+        outside = os.path.dirname(victim)
+        for target in (victim, outside):
+            with self.subTest(target=os.path.basename(target)):
+                r = capture("wait 0.5\ntype ln -s '%s' ~/.linked; printf 'made-%%s\\n' it\nkey Enter\nuntil shown made-it\n"
+                            "rehomefile .linked new.json\nsnap never\n" % target, {"new.json": "{}\n"})
+                self.assertEqual(r.code, 2, r.stdout + r.stderr)
+                self.assertIn("refusing to replace", r.stderr)
+                self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-never.txt")), "the run stopped there")
+                self.assertEqual(slurp(victim), "keep\n")
+                self.assertEqual(sorted(os.listdir(outside)), ["sentinel"])
+
 
 class Verbs(unittest.TestCase):
     def test_resize(self):
@@ -509,14 +526,16 @@ class Verbs(unittest.TestCase):
 
     def test_a_file_a_verb_changes_mid_run_is_replaced_whole(self):
         # FLAKE-MCPMODE's class: a file the run changes while something reads
-        # it -- the binary's clock, the fake gateway's usage answers, second
-        # catalog and releases, mcphttp's mode, the fake osascript's image --
+        # it -- the binary's clock and settings (`reseed`, `rehomefile`), the
+        # fake gateway's usage answers, second catalog and releases,
+        # mcphttp's mode, the fake osascript's image --
         # is renamed into place, so a reader finds it old or new and never
         # half written. A descriptor opened on each before the verbs tells the
         # two apart: after a rename it still reads the old file; a file
         # rewritten in place shows it the new bytes.
         names = ("$HOME/.fxcap-usage-clock", "$HOME/../usage.json", "$HOME/../models2.json",
-                 "$HOME/../gw-release", "$HOME/../mcphttp.mode", "$HOME/../clipimage")
+                 "$HOME/../gw-release", "$HOME/../mcphttp.mode", "$HOME/../clipimage",
+                 "$HOME/.fx/settings.json", "$HOME/.fxcap-rehome")
         opened = " ".join('%d<"%s"' % (3 + i, n) for i, n in enumerate(names))
         paths = " ".join('"%s"' % n for n in names)
         # Each step waits for the shell's answer on the screen (`until`), not
@@ -525,19 +544,22 @@ class Verbs(unittest.TestCase):
         # the shell runs. The typed `printf 'x-%s'` never shows `x-all` itself.
         r = capture(
             "clock 1\nusage u1.json\nmcphttp ready\nwait 1\nmodels2 m1.json\nrelease\nclipimage i1.png\n"
+            "reseed s1.json\nrehomefile .fxcap-rehome h1.json\n"
             "type exec " + opened + "; printf 'opened-%s\\n' all\nkey Enter\nuntil shown opened-all\n"
             "clock 2\nusage u2.json\nmodels2 m2.json\nrelease\nmcphttp fail\nclipimage i2.png\n"
-            "type for fd in 3 4 5 6 7 8; do printf 'fd%s=%s|' $fd \"$(tr '\\n' / <&$fd)\"; done; printf 'held-%s\\n' all\n"
+            "reseed s2.json\nrehomefile .fxcap-rehome h2.json\n"
+            "type for fd in 3 4 5 6 7 8 9 10; do printf 'fd%s=%s|' $fd \"$(tr '\\n' / <&$fd)\"; done; printf 'held-%s\\n' all\n"
             "key Enter\nuntil shown held-all\n"
             "type for f in " + paths + "; do printf 'now=%s|' \"$(tr '\\n' / < \"$f\")\"; done; printf 'now-%s\\n' all\n"
             "key Enter\nuntil shown now-all\nsnap a\n",
             {"u1.json": '{"u":1}\n', "u2.json": '{"u":2}\n', "m1.json": '{"m":1}\n', "m2.json": '{"m":2}\n',
-             "i1.png": "i1\n", "i2.png": "i2\n"},
+             "i1.png": "i1\n", "i2.png": "i2\n", "s1.json": '{"s":1}\n', "s2.json": '{"s":2}\n',
+             "h1.json": '{"h":1}\n', "h2.json": '{"h":2}\n'},
         )
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         a = r.screen("a")
-        olds = ("1/", '{"u":1}/', '{"m":1}/', "release/", "ready/", "i1/")
-        news = ("2/", '{"u":2}/', '{"m":2}/', "release/release/", "fail/", "i2/")
+        olds = ("1/", '{"u":1}/', '{"m":1}/', "release/", "ready/", "i1/", '{"s":1}/', '{"h":1}/')
+        news = ("2/", '{"u":2}/', '{"m":2}/', "release/release/", "fail/", "i2/", '{"s":2}/', '{"h":2}/')
         for fd, (name, old, new) in enumerate(zip(names, olds, news), 3):
             with self.subTest(file=name):
                 self.assertIn("now=%s|" % new, a, "the verb changed it")
