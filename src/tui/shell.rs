@@ -44597,14 +44597,14 @@ mod tests {
     }
 
     #[test]
-    fn a_theme_report_recolours_ctrl_os_cancelled_lines_as_upstreams_token_table_does() {
+    fn a_theme_report_recolours_ctrl_os_stopped_turn_line_and_refused_batch_row() {
         // fx v0.0.16 rewrites a cancelled turn's line and a question's
         // resolution through its token table on a theme switch
-        // (`retintEntriesForTheme`, `src/ui/transcript/store.zig:3722-3760`,
-        // `themeOwnsRawEntry` holding `.question_resolution` and
-        // `.turn_cancellation`, `:3802-3812`), and Ctrl-O lays those same
-        // entries out: after the switch both are in the new theme's greys
-        // there, as they are in the document.
+        // (`retintEntriesForTheme`, `src/ui/transcript/store.zig:3722-3777`,
+        // `themeOwnsRawEntry` `:3802-3814`), and Ctrl-O lays them out. Here a
+        // stopped turn's line and a refused batch's row: after the switch in
+        // the new theme's greys there, as in the document. An answered
+        // batch's rows are not checked here (fx's table makes them 247/250).
         let mut stopped = shell(40, 120);
         stopped.route_bytes(b"stream something\r");
         let _taken = stopped.picks_up();
