@@ -10446,8 +10446,8 @@ impl Shell {
         // started turn's end still in the channel -- and a stopped turn's end
         // says `the turn was cancelled`. A cancel taken here would leave that
         // end to read as the turn's failure: an `error` report after the
-        // stop's `idle` and a `✗ system:` line under the `■ Cancelled` one --
-        // or, with a call still running, `working` again and no `■ Cancelled`
+        // stop's `idle` and a `✗ system:` line under the `▪ Cancelled` one --
+        // or, with a call still running, `working` again and no `▪ Cancelled`
         // line at all ([`Self::cancel_owed`]). Upstream's stopped turn is
         // finished `.interrupted` and returns (`interruption.zig:219`,
         // `orchestrator.zig:7233-7235@481104fd`), so its result is `idle`
@@ -12704,7 +12704,7 @@ impl Shell {
     /// **Not while a stop is still requested** ([`Self::stop_requested`]):
     /// upstream's keystroke returns there, so a second Ctrl-C after the
     /// first, or one after an automatic compaction's stop, writes no second
-    /// `■ Cancelled` line and sends no second stop -- which would drop the
+    /// `▪ Cancelled` line and sends no second stop -- which would drop the
     /// prompts typed since the first (`input_interrupt_runtime.zig:94@481104fd`).
     /// Work typed since that stop is stopped ahead of that check, as
     /// upstream's compaction and provider preparation are (`:69-90`): a
@@ -46102,7 +46102,7 @@ mod tests {
         // `request failed` follows it (`interruption.zig:219`,
         // `orchestrator.zig:7233-7235`, `app_process_runtime.zig:157-169@481104fd`)
         // and its result is `idle` (`program_status.zig:62-69`): one `idle`
-        // on the wire and one `■ Cancelled` line in the document, however late
+        // on the wire and one `▪ Cancelled` line in the document, however late
         // the end is read.
         let mut shell = running("stream please");
         let mut wire = vec![status_of(&mut shell)];
@@ -46124,7 +46124,7 @@ mod tests {
             (
                 wire,
                 text.contains("system"),
-                text.matches("\u{25a0} Cancelled").count()
+                text.matches("\u{25aa} Cancelled").count()
             ),
             (
                 vec![
@@ -46177,7 +46177,7 @@ mod tests {
                 (
                     wire,
                     text.contains("system: the session log could not be written: disk full"),
-                    text.matches("\u{25a0} Cancelled").count()
+                    text.matches("\u{25aa} Cancelled").count()
                 ),
                 (
                     vec![
@@ -46221,7 +46221,7 @@ mod tests {
             (
                 wire,
                 after.iter().any(|row| row.starts_with("  0s")),
-                after.join("\n").matches("\u{25a0} Cancelled").count(),
+                after.join("\n").matches("\u{25aa} Cancelled").count(),
                 shell.session_title.as_deref()
             ),
             (
@@ -46451,7 +46451,7 @@ mod tests {
             .collect();
         let at = |needle: &str| rows.iter().position(|row| row.contains(needle));
         let (cancelled, first, summary) = (
-            at("\u{25a0} Cancelled \u{b7}"),
+            at("\u{25aa} Cancelled \u{b7}"),
             at("FIRST-PART"),
             at("0s ("),
         );
@@ -46503,7 +46503,7 @@ mod tests {
         let has = |needle: &str| rows.iter().any(|row| row.contains(needle));
         assert_eq!(
             (
-                has("\u{25a0} Cancelled \u{b7}"),
+                has("\u{25aa} Cancelled \u{b7}"),
                 has("later.txt"),
                 has("FIRST-PART")
             ),
@@ -46532,7 +46532,7 @@ mod tests {
         let after = shell.released();
         let cancelled = after
             .iter()
-            .position(|row| row.contains("\u{25a0} Cancelled"))
+            .position(|row| row.contains("\u{25aa} Cancelled"))
             .unwrap_or_else(|| panic!("no Cancelled line: {after:?}"));
         let summary = after
             .iter()
@@ -46602,7 +46602,7 @@ mod tests {
                 wire,
                 text.contains("MARKER-SECOND"),
                 text.contains("system"),
-                text.matches("\u{25a0} Cancelled").count(),
+                text.matches("\u{25aa} Cancelled").count(),
                 summary.is_some() && card.is_some() && summary < card,
             ),
             (
@@ -46684,7 +46684,7 @@ mod tests {
         let written = shell.released().join("\n");
         let mut got = vec![(
             "a second stop",
-            written.matches("\u{25a0} Cancelled").count(),
+            written.matches("\u{25aa} Cancelled").count(),
             again.is_some(),
             shell.prompts.len(),
         )];
@@ -46706,7 +46706,7 @@ mod tests {
             let written = shell.released().join("\n");
             got.push((
                 label,
-                written.matches("\u{25a0} Cancelled").count(),
+                written.matches("\u{25aa} Cancelled").count(),
                 again.is_some(),
                 0,
             ));
@@ -47109,7 +47109,7 @@ mod tests {
     #[test]
     fn a_stopped_turn_with_a_call_running_keeps_its_line_and_its_idle_through_a_late_end() {
         // The same window with a file call still running at the stop: the
-        // turn's row and its `■ Cancelled` line wait for the turn's end
+        // turn's row and its `▪ Cancelled` line wait for the turn's end
         // (`cancel_owed`), and a settle between the place and the end must
         // neither put the turn back to work nor take that line away.
         let mut shell = running("read it");
@@ -47136,7 +47136,7 @@ mod tests {
             (
                 wire,
                 text.contains("system"),
-                text.contains("\u{25a0} Cancelled \u{b7} What can xfx")
+                text.contains("\u{25aa} Cancelled \u{b7} What can xfx")
             ),
             (
                 vec![
