@@ -19126,6 +19126,21 @@ mod tests {
             );
         }
         rows.push(String::new());
+        // On a full screen the frame that clears the composer shows only the
+        // card's newest row at the band's top, as upstream's does, and the
+        // card is written once that frame has landed ([`Shell::preview`]).
+        assert!(shell.previewing(), "a 24-row card was written at once");
+        assert!(
+            shell.band_rows()[0]
+                .ends_with(&format!("{RAIL}{RESET} {BOLD}{}{RESET}", "z".repeat(42))),
+            "the preview is not the card's last row: {:?}",
+            shell.band_rows()[0]
+        );
+        assert!(
+            shell.document().is_empty(),
+            "the card was written under its preview"
+        );
+        shell.preview_landed();
         assert_eq!(
             shell.document(),
             rows,
@@ -20400,6 +20415,16 @@ mod tests {
             "the kill took a whole draft"
         );
         shell.route_bytes(&[0x0d]);
+        // The frame that clears the composer shows the three-line card's
+        // newest row and the blank row under it at the band's top, as
+        // upstream's does on a full screen ([`Shell::preview`]); the band
+        // gives them back once that frame has landed.
+        assert_eq!(
+            shell.band_rows().len(),
+            5,
+            "the preview, its blank row, composer, rule, hint"
+        );
+        shell.preview_landed();
         assert_eq!(shell.band_rows().len(), 3, "composer, rule, hint");
         assert_eq!(
             (shell.geometry.input_first, shell.geometry.content_bottom),
