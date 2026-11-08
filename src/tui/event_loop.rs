@@ -6003,9 +6003,10 @@ mod tests {
         // as a tool row is) is held, after every tick, to two things: no
         // vector was refused by the output check, and every row the shadow
         // says was laid from a text holds what a fresh placement of it leaves.
-        // Through appends that leave the rows in place and scroll them, a
-        // theme report each way (a retint, then the group drawn again), a
-        // resize, the long calls finishing and the turn ending.
+        // Through appends that leave the rows in place and scroll them, Ctrl-O
+        // opened and closed over them, a theme report each way (a retint,
+        // then the group drawn again), a resize, the long calls finishing, the
+        // turn ending, and collapse switched on.
         let mut shell = shell_of(30, 100);
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
@@ -6087,6 +6088,16 @@ mod tests {
             band.shadow().longest_laid() > marks.len(),
             "no row on the screen was laid from a long call's text"
         );
+        // Ctrl-O over the group and back: the plane is taken and given back,
+        // and the primary screen's frame is planned from the shadow it saved.
+        shell.route_bytes(b"\x0f");
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(band.on_alternate(), "Ctrl-O did not take the plane");
+        shell.route_bytes(b"\x0f");
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(!band.on_alternate(), "Ctrl-O did not give the plane back");
+        held(&shell, &band, &failures, "Ctrl-O opened and closed");
         shell.route_bytes(WENT_LIGHT);
         tick(&mut shell, &mut band, &mut out, &mut failures, now);
         held(&shell, &band, &failures, "the theme went light");
@@ -6138,6 +6149,21 @@ mod tests {
         shell.apply(UiEvent::TurnEnded { failure: None }.made_inert());
         tick(&mut shell, &mut band, &mut out, &mut failures, now);
         held(&shell, &band, &failures, "the turn ended");
+        // Collapse switched on: the closed group's call rows are taken off the
+        // screen where they stand, and every row under them moves up
+        // (`Grid::remove_rows` on the shadow), with what it was laid from.
+        let before = shell.document_rows();
+        shell.route_bytes(b"/settings\r");
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.route_bytes(b"\x1b[B\x1b[B\x1b[B\x1b[B\x1b[C");
+        assert!(shell.owes_collapse(), "the switch owed the screen nothing");
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(!shell.owes_collapse(), "the collapse is still owed");
+        assert!(
+            shell.document_rows() < before,
+            "the collapse took no row off the screen"
+        );
+        held(&shell, &band, &failures, "collapse switched on");
     }
 
     /// A turn that runs one command whose words the shell highlighter paints
