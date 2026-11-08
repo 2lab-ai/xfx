@@ -1,7 +1,7 @@
 """LOCAL-PATHS: writes the harness's scratch root out of every tracked file,
 once, and says what it wrote where.
 
-usage: python3 -I .prd/tui-phase5/receipts/local-paths/scrub.py [--apply] <manifest.tsv>
+usage: python3 -I .prd/tui-phase5/receipts/local-paths/scrub.py [--apply] [--round-2] <manifest.tsv>
 
 Without --apply it changes nothing and writes the manifest of what it would
 change. It matches the shape of a harness root -- `/tmp/claude-<digits>`,
@@ -26,12 +26,29 @@ Two ways of writing a root, as the file's own sentences need:
 A line marked `local-path-ok` is a fixture that keeps its path on purpose and
 is left as it is. The manifest has one row per changed file: its path, then
 how many roots were written each way (described, work, scratch, tmp).
+
+Round 2 (LOCAL-PATHS review) added two passes, run after the line rules:
+
+- **split**: a root a frame broke across rows, or a colour change splits, is
+  found in the frame's visible text (`scripts/fxcap/roots.py`'s `View`: control
+  sequences set aside, rows joined across their edge gutters) and written as
+  capture.sh writes it now, the placeholder where its first character stood;
+- **tail**: a quoted row (a comparison report quotes rows `'...'`) that opens
+  with the tail of a harness root -- any end of `/private/tmp/claude-<digits>`
+  -- running into a run directory is written from its start as `<work>` or
+  `<scratch>`.
+
+Their counts are the manifest's `split` and `tail` columns.
 """
 
 import os
 import re
 import subprocess
 import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "..", "..", "scripts", "fxcap"))
+import roots  # noqa: E402
 
 EDGE = rb"A-Za-z0-9._~+-"
 ROOT = rb"(?P<private>/private)?/tmp/claude-[0-9]+(?![0-9])"
@@ -42,6 +59,17 @@ RULES = (
     ("tmp", re.compile(ROOT), b"<tmp>"),
 )
 GENERIC = rb"\g<private>/tmp/claude-<uid>"
+# Every end of a harness root's head, the longest first, for a quoted tail.
+HEAD = "/private/tmp/claude-"
+TAIL = re.compile(
+    rb"(?<=')(?P<lead>\s*)(?:%s)?[0-9]*(?:/[A-Za-z0-9._+-]+)*?/fxcap\.[A-Za-z0-9]{6}(?P<work>/work)?(?![A-Za-z0-9._~+-])"
+    % b"|".join(re.escape(HEAD[i:]).encode() for i in range(len(HEAD)))
+)
+SPLIT = (
+    (b"<work>", re.compile(ROOT + RUN + rb"/work")),
+    (b"<scratch>", re.compile(ROOT + RUN)),
+    (b"<tmp>", re.compile(ROOT)),
+)
 MARK = b"local-path-ok"
 
 # (file, a phrase of the line): the sentences that name the root as a thing.
@@ -75,8 +103,54 @@ def tracked(root):
     return [p.decode() for p in out.split(b"\0") if p]
 
 
+def marked_ranges(data):
+    """The byte ranges of the lines marked `local-path-ok`."""
+    out, pos = [], 0
+    for line in data.splitlines(keepends=True):
+        if MARK in line:
+            out.append((pos, pos + len(line)))
+        pos += len(line)
+    return out
+
+
+def split_pass(data):
+    """The roots a row's end or a colour change splits, in the visible text;
+    none that touches a marked line."""
+    view = roots.View(data)
+    marked = marked_ranges(data)
+    edits, taken = [], []
+    for name, rule in SPLIT:
+        for m in rule.finditer(view.text):
+            a, b = m.span()
+            if not view.ends_whole(b) or any(a < y and x < b for x, y in taken):
+                continue
+            spans = view.spans(a, b)
+            if any(x < my and mx < y for x, y in spans for mx, my in marked):
+                continue
+            taken.append((a, b))
+            edits.append((spans[0][0], spans[0][1], name))
+            edits.extend((x, y, b"") for x, y in spans[1:])
+    if not edits:
+        return data, 0
+    out, pos = bytearray(), 0
+    for x, y, new in sorted(edits):
+        out += data[pos:x] + new
+        pos = y
+    return bytes(out + data[pos:]), len(taken)
+
+
+def tail_pass(data):
+    out, n = [], 0
+    for line in data.splitlines(keepends=True):
+        if MARK not in line:
+            line, k = TAIL.subn(lambda m: m.group("lead") + (b"<work>" if m.group("work") else b"<scratch>"), line)
+            n += k
+        out.append(line)
+    return b"".join(out), n
+
+
 def scrub(path, data, described):
-    counts = {"described": 0, "work": 0, "scratch": 0, "tmp": 0}
+    counts = {"described": 0, "work": 0, "scratch": 0, "tmp": 0, "split": 0, "tail": 0}
     out = []
     for line in data.splitlines(keepends=True):
         if MARK in line:
@@ -91,13 +165,19 @@ def scrub(path, data, described):
             line, n = rule.subn(placeholder, line)
             counts[name] += n
         out.append(line)
-    return b"".join(out), counts
+    data = b"".join(out)
+    marked = [line for line in data.splitlines() if MARK in line]
+    data, counts["split"] = split_pass(data)
+    data, counts["tail"] = tail_pass(data)
+    if [line for line in data.splitlines() if MARK in line] != marked:
+        raise SystemExit("%s: a marked line changed" % path)
+    return data, counts
 
 
 def main():
     args = sys.argv[1:]
     apply = "--apply" in args
-    args = [a for a in args if a != "--apply"]
+    args = [a for a in args if a not in ("--apply", "--round-2")]
     if len(args) != 1:
         sys.exit(__doc__)
     manifest = args[0]
@@ -105,14 +185,16 @@ def main():
     described = {}
     for f, phrase in DESCRIBED:
         described.setdefault(f, []).append(phrase.encode())
-    rows, totals, seen = [], {"described": 0, "work": 0, "scratch": 0, "tmp": 0}, set()
+    rows, totals, seen = [], {"described": 0, "work": 0, "scratch": 0, "tmp": 0, "split": 0, "tail": 0}, set()
     for rel in tracked(root):
         path = os.path.join(root, rel)
         if os.path.islink(path) or not os.path.isfile(path):
             continue
         with open(path, "rb") as f:
             data = f.read()
-        new, counts = scrub(rel, data, described.get(rel, []))
+        # Round 2 reads a tree round 1 already wrote: its described lines hold
+        # no root any more.
+        new, counts = scrub(rel, data, [] if "--round-2" in sys.argv else described.get(rel, []))
         if counts["described"]:
             seen.add(rel)
         if new == data:
@@ -124,13 +206,14 @@ def main():
             with open(path, "wb") as f:
                 f.write(new)
     missing = sorted(set(described) - seen)
-    if missing:
+    if missing and "--round-2" not in sys.argv:
         sys.exit("described lines not found: %s" % ", ".join(missing))
     with open(manifest, "w", encoding="utf-8") as f:
-        f.write("file\tdescribed\twork\tscratch\ttmp\n")
+        keys = ("described", "work", "scratch", "tmp", "split", "tail")
+        f.write("file\t" + "\t".join(keys) + "\n")
         for rel, c in rows:
-            f.write("%s\t%d\t%d\t%d\t%d\n" % (rel, c["described"], c["work"], c["scratch"], c["tmp"]))
-        f.write("TOTAL %d files\t%d\t%d\t%d\t%d\n" % ((len(rows),) + tuple(totals[k] for k in ("described", "work", "scratch", "tmp"))))
+            f.write(rel + "".join("\t%d" % c[k] for k in keys) + "\n")
+        f.write("TOTAL %d files" % len(rows) + "".join("\t%d" % totals[k] for k in keys) + "\n")
     print("%s %d files: %s" % ("rewrote" if apply else "would rewrite", len(rows), totals))
 
 

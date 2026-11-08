@@ -9,7 +9,7 @@ p5-mcp-live full: 23 differing rows left, 0 new
     left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt' / xfx ''
     left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool' / xfx '  finish: tool_calls'
     left: fx 'cause root "<local-path>' / xfx ''
-    left: fx '027/fxcap.XXXXXX<local-path>" could not be read, so an unknown' / xfx '","server":"web","description":"Echo the text back (fxcap HTTP fixture'
+    left: fx '<scratch><local-path>" could not be read, so an unknown' / xfx '","server":"web","description":"Echo the text back (fxcap HTTP fixture'
     left: fx '  finish: stop' / xfx '* network: provider: gateway · model: fake/model-a · <ms>'
     left: fx ' so an unknown number of skills may be missing; fix access to the root' / xfx '┃ use the web echo tool'
     left: fx 'de-h4/fxsw.ho56p0v7/027/fxcap.XXXXXX<local-path>" could not be' / xfx '● 2 tool calls · 1 read · 1 MCP call'

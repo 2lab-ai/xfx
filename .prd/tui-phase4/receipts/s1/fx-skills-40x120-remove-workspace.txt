@@ -16,8 +16,8 @@
 
 * skills: Removed skill 'made'.
 
-* skills: Skill 'demo' comes from workspace .fx/skills, not the fx managed install root. Remove it from /private/tmp/
-  claude-501/fxcap.XXXXXX/work/.fx/skills/demo.
+* skills: Skill 'demo' comes from workspace .fx/skills, not the fx managed install root. Remove it from <work>
+  /.fx/skills/demo.
 
 ┃
 

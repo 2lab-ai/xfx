@@ -15,8 +15,8 @@ x𝒇x v0.1.0-0e78888 [debug] · Run /help for commands
 
 * skills: Removed skill 'made'.
 
-* skills: Skill 'demo' comes from workspace .xfx/skills, not the xfx managed install root. Remove it from /private/tmp/
-  claude-501/fxcap.XXXXXX/work/.xfx/skills/demo.
+* skills: Skill 'demo' comes from workspace .xfx/skills, not the xfx managed install root. Remove it from <work>
+  /.xfx/skills/demo.
 
 ┃
 
