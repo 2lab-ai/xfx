@@ -655,10 +655,10 @@ kind = "unit"
 owner = "QUESTION-RESUME a resume replays a question batch's resolutions (docs/parity.md:162), not yet a branch"
 scenarios = ["p5-input-question20"]
 snaps = ["resumed", "resumed.full"]
-whole_snap = true
-# The I-U6 receipt (.prd/tui-phase5/receipts/questions-20/): every snap of the
-# batch itself is identical at 40x120, 24x80 and 14x72; the resume is this.
-why = "fx v0.0.16 replays a resumed session's answered `ask_user_question` batch as its resolutions, `  N) <question>` with the answer under it, decoding the saved document of 1 to 20 questions (`writeAnsweredQuestionResult`, `app_session_runtime.zig:4589-4607`; `decodeJson`, `question_answer.zig:43-74@481104fd`). xfx's replay writes nothing for the call (src/tui/hydration.rs builds its ToolStart and ToolResult, and ToolGroup::start returns early for Activity::Ask, src/tui/toolgroup.rs:511-513), at any count: the receipt's two-question probe shows the same. So `resumed` lacks the twenty resolutions fx shows above `  Twenty done.`, and `resumed.full` has them only in the first run's scrollback."
+fx_row = '^  \d+\) Pick \d+\?$|^ +(?:Keep|Change) \d+$|^  Twenty done\.$|^  <wall> \(↑3 ↓80\)$|^┃(?: ask twenty)?$|^\* session resumed: ask twenty$|^auto · model-a$|^$'
+xfx_row = '^  \d+\) Pick \d+\?$|^ +(?:Keep|Change) \d+$|^  Twenty done\.$|^  <wall> \(↑3 ↓80\)$|^┃(?: ask twenty)?$|^\* session resumed: ask twenty$|^auto · model-a$|^$'
+# I-U6 receipt (.prd/tui-phase5/receipts/questions-20/): the batch's snaps match at 3 sizes.
+why = "fx v0.0.16 replays a resumed session's answered `ask_user_question` batch as its resolutions, `  N) <question>` with the answer under it, decoding the saved document of 1 to 20 questions (`writeAnsweredQuestionResult`, `app_session_runtime.zig:4589-4607`; `decodeJson`, `question_answer.zig:43-74@481104fd`). xfx's replay writes nothing for the call (src/tui/hydration.rs builds its ToolStart and ToolResult, and ToolGroup::start returns early for Activity::Ask, src/tui/toolgroup.rs:511-513), at any count: the receipt's two-question probe shows the same. So `resumed` lacks the twenty resolutions fx shows above `  Twenty done.`, and in `resumed.full` the first run's scrollback (resolutions 1 to 9, the same on both) is followed on xfx by the resume notice and the closing text alone, where fx replays all twenty."
 
 [[cause]]
 id = "P1-carry-notice"

@@ -12,15 +12,20 @@ base is `main` at `712dd8d1`.
 | `eeed1e88` | RED: the tests, the two new scenarios, `fx/`, `red/`, `probe/`, `red.txt` |
 | `eef9fd5f` | **the code head**: the cap, the description, the refusal, the worst-case bound, the panel tests, `docs/parity.md` |
 | `dc2410c6` | a resize step in the 20-question pty test; the ledger's cause swapped |
-| the receipt commit | this file, `xfx/`, `green.txt`, `fx-src.txt`, the sweeps, the mutants, the gate; three test comments' fx line numbers |
+| `297c2523` | this file, `xfx/`, `green.txt`, `fx-src.txt`, the sweeps; comment-only edits in `src/` and `tests/` (below) |
+| `803aaa5f` | `mutants.py`, `mutants.txt` -- **the gate ran here** |
+| the last commit | `gate.txt`, `src-after-code-head.diff`, `sweep-head-rescore.md`; the ledger cause's row selectors |
 
 The xfx captures in `xfx/` are from the binary built at `eef9fd5f` (row 1:
 `x𝒇x v0.1.0-eef9fd5 [debug]`, sha256 `753fd4b5ceb2…`); those in `red/` and
 `probe/` from the base (`v0.1.0-712dd8d`, `90f8098de8e6…`). fx is the v0.0.16
 release, sha256 `8e6cda2e…`, run with `FX_AUTO_UPGRADE=0`; `capture.sh`
 checked after every run that its bytes had not changed. The commits after the
-code head change tests, test comments and the ledger only, so they do not
-change what the binary does.
+code head change tests, comments and the ledger only, so they do not change
+what the binary does: `src-after-code-head.diff` is `git diff eef9fd5f
+803aaa5f -- src`, five lines, each a `//` or `///` comment: three references
+to `mod.rs:145` re-pointed to `:346`, where `Registry::execute` clips, and two
+fx test ranges read again at the pin.
 
 ## How it was captured
 
@@ -207,8 +212,12 @@ in a row on their own.
   cap's, and porting the replay -- a decoder, a replay step, the inert pass for
   strings read back from the session file, Ctrl-O's detail -- is its own unit:
   **QUESTION-RESUME**, queued. The ledger's `question-resume-replay` cause
-  (`whole_snap`, `resumed` and `resumed.full` of `p5-input-question20`) takes the
-  place, line for line, of `question-cap-four`, which this unit retires.
+  (`resumed` and `resumed.full` of `p5-input-question20`, the rows those snaps
+  hold -- resolutions, the closing text, the summary, the composer, the resume
+  notice, blanks -- on each side) takes the place, line for line, of
+  `question-cap-four`, which this unit retires. `sweep-head-rescore.md` is the
+  head sweep rescored with that ledger: the same 51 / 76, both `resumed` pairs
+  under the cause with no row left unattributed.
 
 ## Mutants (`mutants.txt`)
 
@@ -263,7 +272,28 @@ at both, compared:
 
 ## Gate (`gate.txt`)
 
-GATE_SECTION
+`gate.txt`: every step of `.github/workflows/ci.yml`'s native row, in its
+order, plus `sweep.yml`'s two harness tests, at `803aaa5f` (the code of
+`eef9fd5f`), the whole run under one suite-lock slot, `TMPDIR` short. All 20
+exit 0:
+
+| step | result |
+|---|---|
+| `cargo fmt --check` | ok |
+| `cargo clippy --locked --all-targets -- -D warnings` | ok |
+| `cargo test --locked --all-targets --no-fail-fast` | 5452 passed, 0 failed |
+| `cargo clippy … --features fault-injection -- -D warnings` | ok |
+| `cargo test --locked --features fault-injection --test tui` | 197 passed, 0 failed |
+| `cargo test --locked --lib --features fault-injection` | 4557 passed, 0 failed |
+| `check-no-stubs`, `check-no-secrets`, `test-gate-env` (62 cases), `check-xfx-identity` | ok |
+| `check-preview-contract`, `test-preview-contract`, `check-tui-preflight-cost`, `check-usage-clock` | ok |
+| `cargo build --release`; `smoke.sh` | 47 checks, 0 failures |
+| `cargo build --release --features fault-injection`; `smoke-tui.sh` | 37 scenarios + the oracle, 1168 checks, 0 failures (`23-question-panel`, `23b-question-cancelled` ok) |
+| `scripts/fxcap/test-sweep.sh`, `test-capture.sh` | OK |
+
+The registry and help counts do not move: no tool, command or key is added or
+removed (12 tools, `docs/parity.md`'s Tools section); `check-no-stubs` passes
+unchanged.
 
 ## Files
 
@@ -275,4 +305,5 @@ GATE_SECTION
 - `fx-src.txt`: every fx line cited above.
 - `mutants.py`, `mutants.txt`; `sweep-base.md`, `sweep-head.md`, `sweep-diff.txt`;
   `refs.txt` (every `path:line` the ledger and `docs/parity.md` cite, checked at
-  the head against the base: none moved); `gate.txt`.
+  the head against the base: none moved); `gate.txt`; `src-after-code-head.diff`;
+  `sweep-head-rescore.md`.
