@@ -16749,6 +16749,135 @@ mod tests {
         );
     }
 
+    /// One turn with `images` attached, answered by `provider`.
+    fn one_turn_with_images(
+        state: &mut Runtime,
+        prompt: &str,
+        images: Vec<crate::image::Image>,
+        provider: Box<dyn crate::gateway::Provider>,
+    ) -> Ended {
+        state.provider = Some(Bundle {
+            id: ProviderId::Gateway,
+            stream: provider,
+        });
+        let (events_tx, _events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(1);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+        on_a_runtime(run_turn(
+            state,
+            prompt.to_string(),
+            (images, Vec::new()),
+            &events_tx,
+            &cancel,
+            &control,
+            &mut queue,
+        ))
+    }
+
+    #[test]
+    fn the_historys_images_wait_at_the_image_route_and_not_at_the_turns_start() {
+        // Upstream's turn start resolves capabilities for this turn's own
+        // images (`job.images`, `orchestrator.zig:5884-5886@481104fd`); the
+        // history's are the image route's, at the first request, once a turn
+        // (`image_route.zig:180-184`; `:7502-7509`): one two-second window
+        // for a retry that never lands, not two.
+        // A model whose window xfx knows without a catalog, so nothing else
+        // in the turn waits on one.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let env = Environment::new(
+            Some(home.path().to_path_buf()),
+            BTreeMap::from([(
+                "XFX_MODEL".to_string(),
+                "anthropic/claude-sonnet-5".to_string(),
+            )]),
+        );
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        let store = open_store(&config).expect("a store");
+        let conversation = open_conversation(
+            &store,
+            &config,
+            &config.model.clone(),
+            PermissionSession::new(config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("open a conversation");
+        let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+        state.conversation = Some(conversation);
+        assert!(
+            state.context_window().is_some(),
+            "the window needs the catalog"
+        );
+        let mut seeing = published(state.selector.model());
+        seeing.facts.image_input = true;
+        // A first turn whose image the model reads, kept in the history.
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![seeing.clone()]));
+        let image = crate::image::Image::new(
+            1,
+            std::path::PathBuf::from("shot.png"),
+            crate::image::MediaType::Png,
+            std::sync::Arc::from(&b"png"[..]),
+        );
+        one_turn_with_images(
+            &mut state,
+            "look",
+            vec![image],
+            Box::new(ScriptedProvider::new(vec![answers("seen")])),
+        );
+        assert!(
+            state
+                .conversation
+                .as_ref()
+                .expect("open")
+                .recorder
+                .state()
+                .turns
+                .iter()
+                .any(|turn| !turn.images.is_empty()),
+            "the first turn kept no image"
+        );
+        // The catalog has failed since, and its retry never lands.
+        let (_open, gate) = tokio::sync::oneshot::channel::<()>();
+        state
+            .selector
+            .set_fetcher_for_test(Box::new(FailsThenGated {
+                entries: vec![seeing],
+                asked: AtomicUsize::new(0),
+                gate: Mutex::new(Some(gate)),
+            }));
+        let (events, _received) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(state.load_catalog());
+        backdate_catalog(&mut state, Duration::from_secs(6));
+        retry_behind_failure(&mut state, &events);
+        let started = Instant::now();
+        one_turn_with_images(
+            &mut state,
+            "again",
+            Vec::new(),
+            Box::new(ScriptedProvider::new(vec![answers("again")])),
+        );
+        let took = started.elapsed();
+        assert!(
+            took >= Duration::from_millis(1_900),
+            "the history's images did not wait for the retry: {took:?}"
+        );
+        assert!(
+            took < Duration::from_millis(3_500),
+            "waited twice for the history's images: {took:?}"
+        );
+    }
+
     #[test]
     fn a_turn_waits_two_seconds_at_most_for_the_retry_behind_a_failed_catalog() {
         // `resolveForRequest` (`model_cache_runtime.zig:843-866@481104fd`;
