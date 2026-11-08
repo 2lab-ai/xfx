@@ -45,11 +45,14 @@ to a file in this folder.
    (`:5923-5948`). Each persists the turn interrupted and returns (H4). A
    turn stopped in its catalog wait therefore leaves the line unclaimed,
    and the next turn claims and shows it.
-4. **fx can still lose a claimed line, in a race.** A cancelled turn's drain
-   drops `.semantic_notice` (H5: `app_worker_runtime.zig:344-354`). A stop
-   that lands after `:5950`'s claim and before the drain paints the event
-   loses the line for the rest of the session. That is not "a turn stopped
-   before its request", and xfx does not copy it (below).
+4. **fx can still lose a claimed line, in a race (code-traced, not
+   captured).** The TUI's push queues the line as a `.semantic_notice`
+   worker event (H5: `pushSemanticNotice`, `app_worker_runtime.zig:649-651`).
+   The drain runs every event of an interrupted segment through
+   `cancelledEventAdmission` (`:922-950`), which drops it (`:344-354`). A
+   stop that lands after `:5950`'s claim and before the drain paints the
+   event loses the line for the rest of the session. That is not "a turn
+   stopped before its request", and xfx does not copy it (below).
 
 **Decision: fix, not keep.** The brief's keep branch is "fx can observably
 lose the notice too". fx has no history notice to lose. Its one

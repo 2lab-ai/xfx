@@ -215,7 +215,10 @@
  5950      var skill_section = try prepareSkillCatalog(arena, deps, config, request_capabilities.context_window);
 
 ## H5: a cancelled turn's drain drops a semantic notice, so a [context] line claimed and pushed by a turn that is
-## then stopped is never painted.
+## then stopped is never painted: the TUI's push (H3, app_callbacks.zig:1301) is pushSemanticNotice, which queues a
+## .semantic_notice worker event (:649-651, through pushEvent :533-541); the drain runs every event of an interrupted
+## segment through cancelledEventAdmission (:922-950), whose arm drops .semantic_notice (:344-354). Code-traced; no
+## capture shows it.
 
 ### git -C fx-upstream show 481104fd:src/core/app/app_worker_runtime.zig | sed -n 339,354p
   339          fn cancelledEventAdmission(
@@ -234,6 +237,53 @@
   352                  .diff_block,
   353                  .restore_failed_prompt,
   354                  => .drop,
+
+### git -C fx-upstream show 481104fd:src/core/app/app_worker_runtime.zig | sed -n 649,651p
+  649          pub fn pushSemanticNotice(app: *App, notice: types.SemanticNotice) !void {
+  650              try pushEvent(app, .{ .semantic_notice = notice });
+  651          }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_worker_runtime.zig | sed -n 533,541p
+  533          pub fn pushEvent(app: *App, event: WorkerEvent) !void {
+  534              if (comptime @hasDecl(App, "pushWorkerEvent")) {
+  535                  const owned = try worker_runtime.dupeWorkerEvent(std.heap.c_allocator, event);
+  536                  errdefer worker_runtime.freeWorkerEvent(std.heap.c_allocator, owned);
+  537                  try app.pushWorkerEvent(owned);
+  538                  return;
+  539              }
+  540              try app.worker.pushEvent(std.heap.c_allocator, event);
+  541          }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_worker_runtime.zig | sed -n 922,950p
+  922              var interrupted_segment = batchSegmentIsInterrupted(batch.events.items, taken.cancelled_turn_id);
+  923              var first_event = true;
+  924  
+  925              events: while (batch.claim()) |event| {
+  926                  if (!first_event) switch (event) {
+  927                      .begin_prompt, .begin_prompt_with_skill_bindings, .begin_presented_prompt => {
+  928                          interrupted_segment = batchSegmentIsInterrupted(batch.claimedAndRemaining(), taken.cancelled_turn_id);
+  929                      },
+  930                      else => {},
+  931                  };
+  932                  first_event = false;
+  933                  var drain_owns_current = true;
+  934                  defer if (drain_owns_current) {
+  935                      worker_runtime.freeWorkerEvent(batch.alloc, event);
+  936                  };
+  937                  if (interrupted_segment) {
+  938                      switch (cancelledEventAdmission(
+  939                          handlers.tool_lifecycle,
+  940                          event,
+  941                          batch.claimedAndRemaining(),
+  942                      )) {
+  943                          .admit => {},
+  944                          .drop => {
+  945                              debug_trace.logf(
+  946                                  "worker",
+  947                                  "cancelled worker event dropped kind={s}",
+  948                                  .{@tagName(event)},
+  949                              );
+  950                              continue;
 
 ## H6: the turn-start rule asks for a prompt's images whatever the provider (the comment at src/tui/worker.rs).
 
