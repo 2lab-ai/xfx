@@ -5057,9 +5057,15 @@ mod tests {
                     "{cols} columns: a kept replay laid other cells"
                 );
                 assert_eq!(read, 0, "{cols} columns: the kept row was read again");
-                // Twice in one vector is found too.
+                // Twice in one vector is found too, and a row found is kept
+                // for the vector after: a block declares it in every one.
                 let (twice, read) = laid(&row, cols, &geometry, Some(&mut replays));
-                assert_eq!((twice, read), (fresh, 0));
+                assert_eq!((twice, read), (fresh.clone(), 0));
+                for _ in 0..2 {
+                    replays.turn();
+                    let (later, read) = laid(&row, cols, &geometry, Some(&mut replays));
+                    assert_eq!((later, read), (fresh.clone(), 0), "{cols} columns");
+                }
             }
         }
     }
