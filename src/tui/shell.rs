@@ -1070,9 +1070,15 @@ pub(crate) struct Shell {
     /// worker's next take clears (`:1512`) -- so a second Ctrl-C writes no
     /// second line and stops nothing more ([`Self::cancel_turn`]). Only the
     /// Ctrl-C and Escape-pair stop of a turn is held by it: a manual
-    /// compaction and a provider switch are stopped ahead of the check
-    /// (`:69-90`), and an approval's or a question's Escape is a stop of its
-    /// own (`cancelApprovalTurn`).
+    /// compaction, a provider switch, a `/resume` or a fork typed since the
+    /// stop is stopped ahead of the check (`:69-90`;
+    /// [`Self::work_typed_since_the_stop`]), and an approval's or a
+    /// question's Escape is a stop of its own (`cancelApprovalTurn`). Read
+    /// against the start this side has read, not the runtime's take:
+    /// upstream's press is cancelled by stream state its UI sets when it
+    /// drains the next turn's `begin_prompt` (`app_worker_runtime.zig:965-975`),
+    /// so until then it finds no operation to cancel either
+    /// (`activeCancellationTarget`, `input_interrupt_runtime.zig:178-187`).
     stop_requested: bool,
     /// The cancel in effect includes the user's stop of a turn
     /// ([`Self::cancel_turn_with`]), so -- unless a compaction ended the turn
@@ -12477,18 +12483,35 @@ impl Shell {
     /// first, or one after an automatic compaction's stop, writes no second
     /// `■ Cancelled` line and sends no second stop -- which would drop the
     /// prompts typed since the first (`input_interrupt_runtime.zig:94@481104fd`).
-    /// A manual compaction and a provider switch are stopped ahead of that
-    /// check, as upstream's compaction and provider preparation are
-    /// (`:69-90`).
+    /// Work typed since that stop is stopped ahead of that check, as
+    /// upstream's compaction and provider preparation are (`:69-90`): a
+    /// manual compaction no press has stopped yet, or a provider switch, a
+    /// `/resume` or a fork the stop's count does not cover. **Not the stop's
+    /// own work while it unwinds**: a second press there only asks the same
+    /// work to stop again (`cancelContextCompaction`,
+    /// `worker_runtime.zig:1002-1035`; `cancelProviderPreparation`,
+    /// `auth_runtime.zig:2052-2056`), and would otherwise quote the count
+    /// again and drop what was typed between the presses.
     fn cancel_turn(&mut self) {
-        let manual = self
-            .compaction
-            .as_ref()
-            .is_some_and(|compaction| compaction.active() && !compaction.automatic());
-        if self.stop_requested && !manual && !self.work.switch_pending() {
+        if self.stop_requested && !self.work_typed_since_the_stop() {
             return;
         }
         self.cancel_turn_with(false);
+    }
+
+    /// Whether work a stop still requested did not cover is in hand: a
+    /// manual compaction no press has stopped, or a switch -- a provider
+    /// switch, a `/resume`, a fork -- numbered past the stop's count
+    /// ([`Self::cancel_turn`]).
+    fn work_typed_since_the_stop(&self) -> bool {
+        let compaction = self.compaction.as_ref().is_some_and(|compaction| {
+            compaction.active() && !compaction.stopped() && !compaction.automatic()
+        });
+        let switch = self
+            .work
+            .pending_switch()
+            .is_some_and(|at| !self.cancel_through.is_some_and(|through| at <= through));
+        compaction || switch
     }
 
     /// The same, told whether the keystroke has already written a call's own

@@ -519,6 +519,14 @@ impl TitleDesk {
         desk.switch_at.is_some_and(|switch| switch > desk.worked)
     }
 
+    /// The position of a switch still to be made ([`Self::switch_pending`]):
+    /// what a stop's `through` is compared with to tell a switch it covered
+    /// from one submitted after it.
+    pub(crate) fn pending_switch(&self) -> Option<usize> {
+        let desk = self.lock();
+        desk.switch_at.filter(|switch| *switch > desk.worked)
+    }
+
     /// The switch [`Self::switching`] announced was not submitted after all.
     pub(crate) fn switch_refused(&self, before: Option<usize>) {
         self.lock().switch_at = before;

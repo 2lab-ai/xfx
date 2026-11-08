@@ -713,6 +713,12 @@ impl WorkHandle {
         self.titles.switch_pending()
     }
 
+    /// The position of that switch, while it is still to be made: the
+    /// count a stop's `through` is in.
+    pub(crate) fn pending_switch(&self) -> Option<usize> {
+        self.titles.pending_switch()
+    }
+
     /// How title generation stands, for `/trace`.
     pub(crate) fn title_generation(&self) -> crate::trace::TitleGeneration {
         self.titles.generation()
