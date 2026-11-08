@@ -1,0 +1,7 @@
+# mutants.py on a --no-local clone at 0bddf3d8 (the final code), mutant G8 alone (python3 -I -B mutants.py <clone> G8), one hold of the suite lock; output as printed.
+# 0bddf3d8 fix(tui): a row found by placing it again is known from then on (GRID-R; limit 600 s a mutant
+unchanged: exit 0; red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail ok; moves ok; retint ok; narrower ok; kept-cells ok; kept-key ok; kept-refuses ok; session ok; let-go ok
+G8 a row found by placing it again is not kept: KILLED; red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail ok; moves ok; retint ok; narrower ok; kept-cells ok; kept-key ok; kept-refuses ok; session FAILED; let-go ok
+    session said: after a theme report, no long row on the screen is known to be laid from its text
+# 1 of 1 killed; clone clean after: True
+exit 0

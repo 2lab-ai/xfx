@@ -17,11 +17,15 @@ run) or **[derived]** (arithmetic on measured figures, the operands named).
 | `c3f6fa48` | RED, item 5: two buffers held at up to twice what they hold |
 | `96c3c88a` | GREEN, item 5: a call row built at its length; an argument's rows shrunk once laid |
 | `d2b603be`, `50a099b2`, `8dd4604e`, `01149542` | tests only: a fitting row kept once; the session case's premise; a kept replay found is kept for the vector after; a test comment's citation |
-| then | this receipt |
+| `b6c192b9` | this receipt, first part (the measurements, the sweep, the mutants, the gate at `01149542`) |
+| `87783167` | RED, after review: a long row a theme report recoloured is never known to be laid from its text again |
+| `0bddf3d8` | GREEN: a row found by placing it again is kept as laid (`Grid::row_holds`) |
+| then | this receipt, second part (the theme probe, mutant G8, the banners, the gate at `0bddf3d8`) |
 
-The code is `96c3c88a`'s from there on: `d2b603be`..`01149542` touch only
-`#[cfg(test)]` code (tests, a test helper, a test's comment;
-`git diff 96c3c88a 01149542 -- src`).
+`d2b603be`..`01149542` touch only `#[cfg(test)]` code (tests, a test helper, a
+test's comment; `git diff 96c3c88a 01149542 -- src`), so the first part's
+measurements at `01149542` are `96c3c88a`'s code. The final code is
+`0bddf3d8`'s.
 
 ## The question, and the bar
 
@@ -102,7 +106,20 @@ generation holds two rows a long call, each once when it fits: for three heavy
 calls 6 x 8 MiB where the five held 5 x 16 MiB [derived], and it grows with a
 block's long calls rather than thrashing.
 
-**4. Item 5, two buffers held at their size** (`96c3c88a`). A call row that
+**4. A row found by placing it again is kept as laid** (`0bddf3d8`, found in
+review after the first part). A theme report recolours the long rows where
+they are and forgets their text (fix 1, correctly: the cells moved). The
+append after it finds each row, drawn in the new palette, already on the
+screen -- by placing the text again and comparing -- and kept nothing, so
+every later append read it whole again for as long as it was on the screen
+(RED `87783167`, `red-relay.txt`: the session test's assertion after the
+light reads). `Grid::row_holds` is the frame's question now (`row_matches`
+the tests', which keeps nothing): a match found by placing the row again is
+kept as a placement keeps it. It answers the same `bool` as `row_matches`
+(both are `Grid::matched(..).is_some()`), so no reuse decision and no byte
+moves; only what is kept does.
+
+**5. Item 5, two buffers held at their size** (`96c3c88a`). A call row that
 keeps its whole argument was grown by `format!` to twice the row for the reset
 written after the argument; `toolgroup::call_row` (`toolgroup.rs:754`) builds
 it at its length, the same bytes. An argument's rows laid line by line are
@@ -178,6 +195,28 @@ round 1, load 8.95 on every case; `probe-summary.txt` has every stage):
 | | base | 88.2 / 144.4 | 128.3 / 185.0 | 152.3 / 185.2 | 192.4 / 193.3 | 192.4 / **193.3** |
 | | head | 72.2 / 128.3 | 80.2 / 144.8 | 96.2 / 145.1 | 120.3 / 145.1 | 120.3 / **145.2** |
 
+**After a theme report** (`run-theme.sh`, `probe-theme.txt`: the frame
+probe with the terminal reported light before the 40 events timed,
+`XFX_PROBE_THEME=1`; the base, the first part's head `01149542` and the final
+`0bddf3d8`; one hold of the lock; ms, round 1 / round 2; load 3.2-8.6):
+
+| case | long calls | build | tick median | load (1 min) |
+|---|---|---|---|---|
+| heavy | 1 | base | 268.7 / 260.3 | 8.62 / 4.07 |
+| heavy | 1 | `01149542` | 3.0 / 2.9 | 7.76 / 3.89 |
+| heavy | 1 | **`0bddf3d8`** | **3.0 / 2.9** | 7.76 / 3.89 |
+| heavy | 3 | base | 939.9 / 918.6 | 7.38 / 3.98 |
+| heavy | 3 | `01149542` | **266.0 / 265.2** | 5.70 / 3.72 |
+| heavy | 3 | **`0bddf3d8`** | **8.4 / 8.3** | 5.18 / 3.24 |
+
+With one long call the gap does not show: the first read joining changes the
+call's connector, so the row is placed again and known. With three, the first
+two are never placed again, and at `01149542` every event after the theme
+report read them whole (266 ms); at `0bddf3d8` 8.3-8.4 ms, the same as with no
+theme report [measured]. The same run, without the theme report, at
+`0bddf3d8`: heavy 2.9 / 2.9 and 8.6 / 8.3, zw 2.9 / 2.9 and 8.4 / 8.4 (load
+3.3-4.8) -- the bar holds at the final code.
+
 **Ctrl-O** (ARGROW-CACHE's probe, `XFX_PROBE_DETAIL=1`; ms; load 7.4-9.0):
 
 | case | build | open | join | theme | resize | peak RSS MiB |
@@ -247,7 +286,9 @@ answer, or holds the session to it after every tick):
 `git clone --no-local` at `8dd4604e` (never the worktree), the clone restored
 after each and clean at the end, each test run bounded at 600 s (its process
 group killed; a hang counts as killed). One hold of the suite lock.
-**21 of 22 killed**; none hung.
+**21 of 22 killed**; none hung. After review, G8 (the re-laying fix), run alone
+on a clone at `0bddf3d8` (`mutants-g8.txt`): **killed** by `session`. In all,
+22 of 23, G3 declared equivalent.
 The tests' short names are `mutants.py`'s (`SHORT`): `red-grid`, `red-frame`,
 `red-thrash`, `red-row`, `red-rail` are the five REDs; `moves`, `retint`,
 `narrower` the grid's; `kept-cells`, `kept-key`, `kept-refuses` the check's;
@@ -261,6 +302,7 @@ The tests' short names are `mutants.py`'s (`SHORT`): `red-grid`, `red-frame`,
 | G4 an erased row keeps its text | `moves` |
 | G5 a retinted row keeps its text | `retint`, `session` |
 | G6 a writer's record forgets the text | `red-frame`, `moves`, `session` |
+| G8 a row found by placing it again is not kept (`0bddf3d8`, `mutants-g8.txt`) | `session` |
 | G7 a placement remembers no text | `red-grid`, `red-frame`, `moves`, `session` |
 | C1 the screen's width left out of a kept replay's key | `kept-key` |
 | C2 the plane's width left out of a kept replay's key | `kept-key` |
@@ -308,6 +350,14 @@ verdict moved, no pair drops**; `compare.py` exits 0.
 - One unresolved pair gained a differing row, from timing on both sides:
   `interrupt-recovery` `full` (the network line's `13ms`/`15ms` on fx's side,
   `0ms`/`1ms` on xfx's). It passes on neither.
+- **The binaries are the commits named** (`banners.txt`): row 1 of every xfx
+  capture that shows the banner reads `v0.1.0-fdc5ac0` in the base's sweep
+  (255 of 340; the other 85 open on a scrolled screen or Ctrl-O's) and
+  `v0.1.0-50a099b` in the head's (the same 255).
+- **The final code (`0bddf3d8`) was not swept again**: it changes no reuse
+  decision (`row_holds` and `row_matches` answer the same `bool`), so no byte
+  the head's sweep compared moves; what it changes is held to by the gate's
+  tests and the theme probe.
 - 78 fx screens and 101 xfx screens are not the same in the two sweeps (row 1
   left out). Every xfx row that moved (`xfx-moved.txt`, `xfx_moved.py`) is a
   clock (a Ctrl-O entry's stamp, in UTC, KST or IST), a duration (`8526ms`
@@ -434,8 +484,29 @@ larger than that and the peak fell (910-916 -> 720-725, one call 690 -> 285).
   **[추론]**: the base's profile put them in its other 2 %, and the head was
   not profiled.
 - **Memory**: the wider peak (above); `Shown` twice; what this unit adds.
+- **The other emitters whose check replays a script of rows**
+  (`Band::restore_primary`, `carry_document`, `hand_off`: `frame.rs:798`,
+  `:1894`, `:2053`, each `Intent::Document`) go through plain
+  `check::preflight`: a band that grows under a long row (an approval opening
+  under a running group) has its check read the row whole once. Only the
+  appends keep replays. (The wipe, the collapse and the retint are checked
+  against a target grid, `Intent::Wiped`/`Primary`, which replays no text.)
+- **The kept replays outlive their use by one append**: `Replays` holds the last
+  append's long rows (the text and its cells, about twice the row) until the
+  next append turns them, so an idle session keeps them -- 16 MiB a heavy row
+  on the screen [derived: an 8 MiB text and its 8 MiB cell].
 
 ## Gate
+
+**At the final code, `0bddf3d8`** (`gates-final.txt`, `gate-tests-final.txt`):
+the same 20 steps in one hold of the suite lock, tree clean before and after,
+**20 steps, 0 failed**, every step started at load 2.8-7.3 (outside the load
+loop below); lib tests 4 462 and, with fault injection, 4 485 passed, 0 failed
+(the session test's new assertion is inside an existing test).
+`check-tui-preflight-cost` 80 s, load 3.57.
+
+**At the first part's head, `01149542`** (below, `gates.txt`,
+`gate-tests.txt`):
 
 `gates.sh` (ARGROW-CACHE's, train 6's, unchanged but for its comment),
 `gates.txt`: every CI step the brief lists, one after another, in one hold of
@@ -477,4 +548,8 @@ error and exit 2, not the gate's (`gates.txt`'s header says so).
   sweep-derived file through `redacted.py`).
 - `ci-preflight-step.txt`, `preflight_cost.sh`, `preflight-cost.txt`: the
   preflight-cost step.
-- `gates.sh`, `gates.txt`, `gate-tests.txt`: the gate.
+- `red-relay.txt`, `run-theme.sh`, `probe-theme.txt`: the re-laying fix.
+- `banners.txt`: the sweeps' binaries.
+- `gates.sh`, `gates-final.txt`, `gate-tests-final.txt`: the gate at the final
+  code; `gates.txt`, `gate-tests.txt`: at `01149542`.
+- `mutants-g8.txt`: mutant G8.

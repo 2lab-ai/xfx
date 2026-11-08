@@ -23,6 +23,10 @@
     //   apply -- `Shell::apply` of the event;
     //   frame -- the tick after it: every append the event owed, through its
     //            check, and the band's frame, through its own;
+    // `XFX_PROBE_THEME=1`: after the long calls start, a theme report (the
+    // terminal went light) and its tick, before the events timed -- so every
+    // event is the first or a later one after a recolour of the long rows.
+    //
     // for each long call's start (`start`), then for `XFX_PROBE_EVENTS`
     // (default 20) short reads joining the group, a start and a result each
     // (`event`: median, 90th percentile, worst of apply + frame), and the bytes
@@ -95,6 +99,13 @@
             }
         }
 
+        let themed = std::env::var_os("XFX_PROBE_THEME").is_some();
+        if themed {
+            shell.route_bytes(b"[?997;2n");
+            commit_frame(&mut shell, &mut band, &mut out, &mut failures, now, Reconciled)
+                .expect("a tick");
+        }
+
         let mut applies = Vec::new();
         let mut frames = Vec::new();
         let mut totals = Vec::new();
@@ -154,7 +165,7 @@
             usage.ru_maxrss as f64 / 1024.0
         };
         eprintln!(
-            "FRAMEPROBE case={case} rows={long} events={} detail={detail} raw_bytes={} start_worst_ms={start_worst:.3} start_bytes={start_bytes} apply_median_ms={apply_median:.3} apply_worst_ms={apply_worst:.3} frame_median_ms={frame_median:.3} frame_p90_ms={frame_p90:.3} frame_worst_ms={frame_worst:.3} event_median_ms={event_median:.3} event_p90_ms={event_p90:.3} event_worst_ms={event_worst:.3} bytes_median={bytes_median} bytes_worst={bytes_worst} peak_rss_mib={peak_mib:.0}",
+            "FRAMEPROBE case={case} rows={long} events={} detail={detail} themed={themed} raw_bytes={} start_worst_ms={start_worst:.3} start_bytes={start_bytes} apply_median_ms={apply_median:.3} apply_worst_ms={apply_worst:.3} frame_median_ms={frame_median:.3} frame_p90_ms={frame_p90:.3} frame_worst_ms={frame_worst:.3} event_median_ms={event_median:.3} event_p90_ms={event_p90:.3} event_worst_ms={event_worst:.3} bytes_median={bytes_median} bytes_worst={bytes_worst} peak_rss_mib={peak_mib:.0}",
             events * 2,
             pattern(0).len(),
         );
