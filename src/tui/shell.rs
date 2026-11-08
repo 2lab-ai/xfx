@@ -45417,6 +45417,49 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_automatic_compactions_turn_titles_nothing_and_a_stopped_ones_does() {
+        // Upstream's in-turn compaction, stopped, commits its turn
+        // (`persistCompactionInterruptedTurnOnce`,
+        // `orchestrator.zig:7847-7862@481104fd`), and the session takes its
+        // title from it; one that failed returns its error from that branch
+        // without committing the turn (`:7864-7865`), and a failed turn is
+        // kept only for a partial answer or completed work it carries
+        // (`persistFailedPartialTurnOnce`, `persistFailedTurnWorkOnce`,
+        // `interruption.zig:226-293`), which this one has neither of. Both
+        // settle the band as stopped (`compaction_update`), so the end alone
+        // cannot tell them apart.
+        let mut stopped = running("first question");
+        stopped.apply(UiEvent::Compaction(compaction::Update::Began {
+            automatic: true,
+        }));
+        stopped.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Cancelled,
+        )));
+        stopped.apply(UiEvent::TurnEnded { failure: None });
+        stopped.work.give_back();
+        stopped.settle_band(Instant::now());
+
+        let mut failed = running("first question");
+        failed.apply(UiEvent::Compaction(compaction::Update::Began {
+            automatic: true,
+        }));
+        failed.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Failed,
+        )));
+        failed.apply(UiEvent::TurnEnded { failure: None });
+        failed.work.give_back();
+        failed.settle_band(Instant::now());
+        assert_eq!(
+            (
+                stopped.session_title.as_deref(),
+                failed.session_title.as_deref()
+            ),
+            (Some("first question"), None),
+            "the stopped compaction's turn's title, the failed one's"
+        );
+    }
+
+    #[test]
     fn a_prompt_sent_while_the_last_answer_is_still_paced_out_is_reported_on_its_keystroke() {
         // Upstream does not hold a prompt as a pending submission while its
         // pacer still holds text (`installPendingSubmission`,
