@@ -21,13 +21,12 @@ env:
 
 jobs:
   gate:
-    name: gate (${{ matrix.target }})
+    name: gate (${{ matrix.part && format('{0}, {1}', matrix.target, matrix.part) || matrix.target }})
     runs-on: ${{ matrix.runner }}
-    # The x86_64 macOS runner's full gate has measured 28 to 46 minutes
-    # (2026-11-04, PR #29). Most of the spread is the release-mode
-    # `cargo test --lib` in `check-tui-preflight-cost.sh`. 60 leaves headroom
-    # above the slowest run seen. The timeout is here to stop a hung job, not
-    # to bound a slow runner.
+    # The timeout is here to stop a hung job, not to bound a slow runner. The
+    # x86_64 macOS row's whole gate, in one job, measured 41.5 to 53.1 minutes
+    # over PRs #78 to #83 (2026-11-08), so that row is two jobs now (`part`,
+    # below); each runs about half of it.
     timeout-minutes: 60
     env:
       # The commit this run is a receipt for. On `pull_request` the default
@@ -58,6 +57,19 @@ jobs:
       # repeats them on the same userland. On the x86_64 macOS row they would
       # have cost minutes against its 60-minute timeout (PR #80: 47m29s). The
       # gates themselves (every check-*.sh) still run on every row.
+      #
+      # `part` splits one target's gate over two jobs on two runners of the
+      # same label, both on the commit under test: `checks` runs the steps up
+      # to the preview contract, `release` the release-mode steps from the
+      # output-cost check on. A row without `part` runs both, in one job. The
+      # x86_64 macOS row is the only one split: its single job had reached
+      # 53.1 minutes of 60 (PR #82), 17.5 of them the output-cost step, whose
+      # two release `cargo test --lib` builds no other step can share. A split
+      # costs a second runner, its setup and its own dependency builds, and the
+      # release part builds the debug `--lib` tests check-usage-clock.sh runs;
+      # the other rows have room and keep one job each, because GitHub-hosted
+      # macOS runners are scarce (`macos-15` jobs have been cancelled waiting
+      # for one). A split row carries `script_tests` on its `checks` part only.
       matrix:
         include:
           - runner: ubuntu-24.04
@@ -70,6 +82,10 @@ jobs:
             script_tests: true
           - runner: macos-15-intel
             target: x86_64-apple-darwin
+            part: checks
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            part: release
     steps:
       - name: Check out the exact commit
         uses: actions/checkout@v4
@@ -108,12 +124,15 @@ jobs:
           fi
 
       - name: Formatting
+        if: matrix.part != 'release'
         run: cargo fmt --check
 
       - name: Lints
+        if: matrix.part != 'release'
         run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: Tests
+        if: matrix.part != 'release'
         run: cargo test --locked --all-targets
 
       # Two kinds of row need the fault injector: restoration-matrix rows that
@@ -124,15 +143,18 @@ jobs:
       # second; neither runs the other's rows. The local common gate runs both
       # too, and this job is what proves them on every native target.
       - name: Tests, with the fault injector
+        if: matrix.part != 'release'
         run: |
           cargo clippy --locked --all-targets --features fault-injection -- -D warnings
           cargo test --locked --features fault-injection --test tui
           cargo test --locked --lib --features fault-injection
 
       - name: No stubs, and the parity ledger reconciles
+        if: matrix.part != 'release'
         run: ./scripts/check-no-stubs.sh
 
       - name: No credentials in tracked files
+        if: matrix.part != 'release'
         run: ./scripts/check-no-secrets.sh
 
       # BSD grep, on the macOS rows, puts GREP_OPTIONS in front of every
@@ -156,6 +178,7 @@ jobs:
         run: ./scripts/test-gate-env.sh
 
       - name: One product name in tracked files
+        if: matrix.part != 'release'
         run: ./scripts/check-xfx-identity.sh
 
       # The publishing workflow cannot be tested by running it: a merge to main
@@ -163,6 +186,7 @@ jobs:
       # tag grammar or a missing asset is a release users can see. Its structure
       # is checked here instead.
       - name: The preview publication contract holds
+        if: matrix.part != 'release'
         run: ./scripts/check-preview-contract.sh
 
       # The contract check is only worth its `ok` if it still fails what it
@@ -182,6 +206,7 @@ jobs:
       # was once recorded at 133 ms. Running them alone does not give them the
       # machine; it removes the one confound this repository controls.
       - name: The output check still fits inside a frame's budget
+        if: matrix.part != 'checks'
         run: ./scripts/check-tui-preflight-cost.sh
 
       # `XFX_E2E_USAGE_CLOCK_FILE` pins /usage's clock for the capture harness
@@ -190,6 +215,7 @@ jobs:
       # both halves runs under each: debug, and the two release builds this
       # job makes. The release runs reuse the test builds the step above made.
       - name: A release build ignores the pinned usage clock
+        if: matrix.part != 'checks'
         run: ./scripts/check-usage-clock.sh
 
       # The restoration matrix the TUI gate drives has rows only a deliberate
@@ -206,6 +232,7 @@ jobs:
       # written over in place: on Apple silicon the kernel can kill a signed
       # binary rewritten in place after it has run.
       - name: Build the binary the restoration matrix drives
+        if: matrix.part != 'checks'
         run: |
           set -eu
           cargo build --locked --release --features fault-injection
@@ -218,6 +245,7 @@ jobs:
       # checking the wrong program. The digests are the run's record of which
       # bytes the two smoke steps drove.
       - name: Release build
+        if: matrix.part != 'checks'
         run: |
           set -eu
           cargo build --locked --release
@@ -228,10 +256,11 @@ jobs:
           shasum -a 256 target/release/xfx target/faulty/xfx
 
       - name: Smoke the release binary
+        if: matrix.part != 'checks'
         run: ./scripts/smoke.sh target/release/xfx "${RUNNER_TEMP}/xfx-smoke"
 
       - name: Keep the smoke evidence of a failed run
-        if: failure()
+        if: failure() && matrix.part != 'checks'
         uses: actions/upload-artifact@v4
         with:
           name: smoke-evidence-${{ matrix.target }}
@@ -240,6 +269,7 @@ jobs:
           retention-days: 7
 
       - name: Smoke the TUI on a real terminal
+        if: matrix.part != 'checks'
         run: |
           shasum -a 256 target/release/xfx target/faulty/xfx
           ./scripts/smoke-tui.sh target/release/xfx \
@@ -247,7 +277,7 @@ jobs:
             "${RUNNER_TEMP}/xfx-smoke-tui"
 
       - name: Keep the TUI evidence of a failed run
-        if: failure()
+        if: failure() && matrix.part != 'checks'
         uses: actions/upload-artifact@v4
         with:
           name: smoke-tui-evidence-${{ matrix.target }}
