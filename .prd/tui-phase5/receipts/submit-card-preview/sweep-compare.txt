@@ -1,5 +1,11 @@
-# python3 -I -B cmp_sweeps.py <base sweep> <head sweep>   (both --only 'p5-transcript-*' --only 'p5-submit-preview-*', fx v0.0.16, 40x120; base = 58c92ba2's build, head = e4c678eb's)
-pass   p5-submit-preview-full/image-held: identical -> normalized-identical
-126 pairs on both; 125 the same verdict, 1 moved, 0 dropped
-base: identical 22, normalized-identical 48, approved-divergence 3, unresolved-defect 53
-head: identical 21, normalized-identical 49, approved-divergence 3, unresolved-defect 53
+# python3 -I -B cmp_sweeps.py <base sweep> <head sweep>   (both --only 'p5-transcript-*' --only 'p5-submit-preview-*', fx v0.0.16, 40x120; base = 58c92ba2's build, head = 4db02b1e's)
+pass   p5-submit-preview-fresh/block-held: normalized-identical -> identical
+pass   p5-submit-preview-full/image-held: normalized-identical -> identical
+pass   p5-transcript-md-light/answered: normalized-identical -> identical
+pass   p5-transcript-md-light/closed: normalized-identical -> identical
+pass   p5-transcript-submit/submit-0.15: identical -> normalized-identical
+pass   p5-transcript-submit-multi/filled: normalized-identical -> identical
+pass   p5-transcript-submit-multi/second: normalized-identical -> identical
+129 pairs on both; 122 the same verdict, 7 moved, 0 dropped
+base: identical 19, normalized-identical 54, approved-divergence 3, unresolved-defect 53
+head: identical 24, normalized-identical 49, approved-divergence 3, unresolved-defect 53

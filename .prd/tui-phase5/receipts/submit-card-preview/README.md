@@ -22,10 +22,14 @@ tags: [xfx, tui, phase5, fx-0.0.16, transcript, submit]
     gate's step 04 found them);
   - `e4c678eb` mutants round 1: a redundant slice deleted, two guards given
     tests;
-  - then this receipt's own commits (no source).
-- **Build.** Every `xfx/` capture is from a binary built at `e4c678eb`, the
+  - round 2: `35d8c94b`/`72d1b68f` (MUST 1, RED then fix), `05a6811b`/
+    `1577d48e` (MUST 2 and SHOULD (d)), `d37abb11` (MUST 2's other cases),
+    `9f94af7e` (SHOULD (b)), `943d3f79`/`d82556e5` (SHOULD (e)),
+    `4db02b1e` (the mutants' equivalent);
+  - the rest are this receipt's own commits (no source).
+- **Build.** Every `xfx/` capture is from a binary built at `4db02b1e`, the
   last commit that touches source. Row 1 of each `.full` snap says
-  `v0.1.0-e4c678e`. Every `red/` capture is from a binary built at
+  `v0.1.0-4db02b1`. Every `red/` capture is from a binary built at
   `58c92ba2` (`v0.1.0-58c92ba`). `fx/` is fx v0.0.16, sha256 `8e6cda2e…`,
   run with `FX_AUTO_UPGRADE=0`.
 
@@ -115,7 +119,7 @@ one-row composer:
 ## The claims (`check.py`)
 
 `python3 -I -B check.py <repo> . <side> [red]` reads `fx/`, `red/` (the
-base's build) and `xfx/` (`e4c678eb`'s). `frames.py` replays the screens.
+base's build) and `xfx/` (`4db02b1e`'s). `frames.py` replays the screens.
 
 - **frame1 / frame2.** The screen after the first and the second frame
   after Enter, fx's against xfx's, cell by cell. Three kinds of row are set
@@ -132,47 +136,59 @@ base's build) and `xfx/` (`e4c678eb`'s). `frames.py` replays the screens.
 
 Results:
 
-- **RED** (`red.txt`, the base): 7 claims fail, every frame1 of a card
-  taller than its room. The two pairs that need no preview pass.
+- **RED** (`red.txt`, the base): 16 of its 45 claims fail, every frame1
+  of a card taller than its room, at 40x120, 30x100 and 24x80. The two
+  pairs that need no preview pass.
   `red-test.txt` is the unit test's failure on the base: frame 1 held
   `PREVIEW-LINE-1`.
 - **GREEN** (`green.txt`, the head against fx and against the base): all
-  69 claims hold. In every pair the frame after the card's is the base's
-  frame after its card, byte for byte (`its bytes: the base's`, 9 of 9). The
+  134 claims hold: frame1, frame2, card and later for 18 pairs, 53 snaps,
+  and 9 whole histories. In every pair the frame after the card's is the
+  base's frame after its card, byte for byte (`its bytes: the base's`, 18
+  of 18). In `d82556e5`'s capture three of the 18 differed only in the
+  activity row: the head's card frame had taken the activity update the
+  base painted in its second frame, and the frame after it was the base's.
+  `4db02b1e` changes nothing the activity row reads, so the likely cause is
+  when the turn started against the tick; it was not traced further. The
   card's own frame differs from the base's in its bytes: it writes over the
   rows the band gave back instead of scrolling them in (5 bytes more for the
   three-line card). The screen it leaves is the same.
 
 ## Mutants (`mutants.py`, `mutants.txt`)
 
-Round 2, at `e4c678eb`: all 17 one-line mutants are killed. Each ran on a
-`git clone --no-local` throwaway, never on the worktree, with a 600 s limit.
-They ran against the unit's six tests: the RED, the exit, the resize, the
-hold, the room formula and `Geometry::previewed`.
+Round 3, at `4db02b1e`: all 22 one-line mutants are killed. Each ran on a
+`git clone --no-local` throwaway, never on the worktree, with a 600 s limit,
+against the unit's 16 tests (`TESTS` in `mutants.py`). Among them are the
+new mutants for MUST 1, the same-tick card frame, the plane barrier, the
+landed-frame room and the three room guards that stay.
 
-Round 1, at `70b10aa4`, left three mutants alive, and `e4c678eb` answers
-each one:
-
-- the band's slice of the preview to its newest rows was redundant, so it
-  is deleted, and the mutant moves to `preview_card`'s choice;
-- the hold (`owes_document`, `emit_document_front`) was never reached by a
-  frame under test, so a direct test was added;
-- the owed-rows guard was shadowed by `ends_blank`, so a case was added that
-  exercises it alone.
+- Round 2b, at `d82556e5`, 23 mutants: one survived, the room measured after
+  the draft went (`round2/mutants-at-d82556e5.txt`). `4db02b1e` deleted the
+  equivalent it showed (see round 2 below).
+- Round 2, at `e4c678eb`: 17 of 17 killed.
+- Round 1, at `70b10aa4`, left three mutants alive, and `e4c678eb` answered
+  each one:
+  - the band's slice of the preview to its newest rows was redundant, so it
+    is deleted, and the mutant moves to `preview_card`'s choice;
+  - the hold (`owes_document`, `emit_document_front`) was never reached by a
+    frame under test, so a direct test was added;
+  - the owed-rows guard was shadowed by `ends_blank`, so a case was added
+    that exercises it alone.
 
 ## Sweep (`sweep-*.md`)
 
-`p5-transcript-*` and `p5-submit-preview-*` (28 scenarios, 126 snap pairs)
+`p5-transcript-*` and `p5-submit-preview-*` (29 scenarios, 129 snap pairs)
 were swept against fx v0.0.16. One sweep used the base build, one the head
-build (`e4c678eb`, sha256 `6e313514…`). The comparison is
+build (`4db02b1e`, sha256 `7cbd362d…`). The comparison is
 `sweep-compare.txt` (`cmp_sweeps.py`).
 
-- Both sweeps pass 70 of 126; none failed, none timed out.
-- 125 pairs have the same verdict on both builds, and none dropped.
-- One pair moved inside the pass class: `p5-submit-preview-full/image-held`,
-  identical to normalized-identical. The cause is the activity row's pulse
-  glyph (`•` against a blank), which the ledger normalizes. The head's first
-  sweep had the same pair identical, and `five-held` moved the other way.
+- Both sweeps pass 73 of 129; none failed, none timed out.
+- 122 pairs have the same verdict on both builds, and none dropped.
+- Seven pairs moved inside the pass class, between identical and
+  normalized-identical: six toward identical on the head, one away. Each
+  differs from fx only in a turn's wall clock (`0s` against `1s`) or the
+  activity row's pulse glyph (`•` against a blank), both of which the
+  ledger normalizes. Such pairs moved both ways in earlier sweeps too.
 - The 53 unresolved pairs are the same on both builds, under the causes they
   had before (`sweep-base.md`, `sweep-head.md`).
 - The frames this unit changes are not snaps: no sweep pair holds the frame
@@ -184,17 +200,17 @@ build (`e4c678eb`, sha256 `6e313514…`). The comparison is
 `gates.sh` runs every step of `ci.yml` and the sweep's two test scripts,
 one at a time, in one suite-lock slot: fmt, both clippy runs, the full
 `cargo test`, both fault-injection runs, every `check-*`/`test-*` script,
-the release build, `smoke.sh`, the faulty build and `smoke-tui.sh`. It runs
-on `be6fd7f9`. The commits after it are docs only: `5c8d28ac` (`gates.txt`,
-this paragraph), `d61e2515` (F8 in `fx-src.txt`, the README) and the one
-that adds this sentence. On that last head the three tracked-file scanners
-ran again, outside the lock; their lines are at the end of `gates.txt`.
-Step 00 is `false` and reads `rc=1`.
+the release build, `smoke.sh`, the faulty build and `smoke-tui.sh`. It ran
+on `7e4f6d47`, which adds the head's captures. The two commits after it
+are docs only. The first adds `gates.txt`, `mutants.txt`, the sweeps and
+this README; the three tracked-file scanners then ran on it, outside the
+lock, and the second adds their lines to the end of `gates.txt`. Step 00
+is `false` and reads `rc=1`.
 
-All 21 steps read `rc=0`. Step 04 ran 5451 tests, step 06 ran 4558 and
-step 05 ran 195, with 0 failed in each. An earlier run, on `93c11c9f`,
-failed step 04 with two older shell tests that read the document right
-after Enter; `4139bd68` fixed them.
+All 21 steps read `rc=0`. Step 04 ran 5462 tests, step 06 ran 4569 and
+step 05 ran 195, with 0 failed in each. Earlier runs: `be6fd7f9` (round 1, all
+`rc=0`); `93c11c9f` failed step 04 with two older shell tests that read the
+document right after Enter, which `4139bd68` fixed.
 
 ## Ledger, docs, references
 
@@ -326,6 +342,11 @@ it.
 - **What did not change.**
   - `check.py`'s output, all 69 claims and the base's 7 failures, is byte
     for byte what it was before the rewrite.
+  - Round 2 ran it again twice: after the round-2 captures
+    (`round2/rewrite.txt`, 143 links) and after `4db02b1e`'s
+    (`round2/rewrite-at-4db02b1e.txt`, 57 links in 47 files). None was
+    left either time, and `check.py`'s 134 claims printed the same before
+    and after each.
   - So is `cells.py`'s output over every image pair, and over the two block
     pairs whose captures held a link, snaps and frames alike.
   - The rewritten wires, replayed, give the rewritten screens: 45 of 45
