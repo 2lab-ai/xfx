@@ -13203,6 +13203,111 @@ fn a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_
     }
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore() {
+    // Where three things come at a session's end, and in which order. The
+    // loop writes the last frame and the last program status report
+    // (`tui::event_loop::run`: reports come from the session's ticks, and
+    // `shut_down`'s drain only draws). The shell drops when `tui::hold`
+    // returns, and with it a copy still running: `tui::copy::Errands` gives it
+    // its grace, then stops and joins every thread, the tool killed and
+    // reaped. Then `term::shutdown` writes the restore, the program status
+    // clear in it. So no restore reaches the terminal while the copy's tool
+    // is alive, and once the tool is gone nothing but the restore is
+    // written: no frame, no report.
+    //
+    // Told by order, not by a clock: each look at the tool is paired with a
+    // look at the terminal before it (the restore's absence) and one after it
+    // (all that was written before the tool went). A slow machine only makes
+    // the looks fewer.
+    const REPORT: &str = "\u{1b}]7501;";
+    const CLEAR: &str = "\u{1b}]7501;state=clear\u{1b}\\";
+    const FRAME_OPEN: &str = "\u{1b}[?2026h";
+    let alive = |pid: i32| {
+        rustix::process::Pid::from_raw(pid)
+            .is_some_and(|pid| rustix::process::test_kill_process(pid).is_ok())
+    };
+    let gateway = FakeGateway::start(Vec::new());
+    let clipboard = support::fake_clipboard::FakeClipboard::new();
+    clipboard.hang();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    clipboard.first_on_path(&mut command);
+    clipboard.reports_into(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+
+    // The report's copy has started its tool, and the tool waits: the copy is
+    // running when the session is asked to end.
+    session.type_bytes(b"/trace\r");
+    let asked = Instant::now();
+    let tool = loop {
+        if let Some(pid) = clipboard.hung() {
+            break pid;
+        }
+        assert!(
+            asked.elapsed() < WAIT,
+            "the report's copy never started its tool; terminal so far:\n{}",
+            session.text()
+        );
+        std::thread::sleep(IDLE_POLL);
+    };
+    assert!(alive(tool), "the copy's tool ended before the quit");
+    assert!(
+        !session.text().contains(POP_TITLE),
+        "a restore before the quit"
+    );
+
+    session.type_bytes(&[0x04]);
+    let mut gone_with: Option<String> = None;
+    while session.state() == Wait::Running {
+        let before = session.text();
+        let live = alive(tool);
+        let after = session.text();
+        if live {
+            // The pop leads every restore's own modes: a restore begun.
+            assert!(
+                !before.contains(POP_TITLE) && !before.contains(CLEAR),
+                "the restore reached the terminal while the copy's tool was alive: {before:?}"
+            );
+        } else if gone_with.is_none() {
+            gone_with = Some(after);
+        }
+        std::thread::sleep(IDLE_POLL);
+    }
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert!(!alive(tool), "the clipboard tool outlived the session");
+    let text = session.settled_text();
+
+    let restore = text.rfind(RESTORE).expect("the planned exit's restore");
+    let reports: Vec<usize> = text.match_indices(REPORT).map(|(at, _)| at).collect();
+    assert!(
+        reports
+            .iter()
+            .all(|&at| at < restore || text[at..].starts_with(CLEAR)),
+        "a report after the restore began: {text:?}"
+    );
+    assert!(
+        !text[restore + RESTORE.len()..].contains(REPORT) && !text[restore..].contains(FRAME_OPEN),
+        "a frame or a report after the restore: {:?}",
+        &text[restore..]
+    );
+    // Counted rather than cut at the look's length: a look decodes what had
+    // been read so far, which can end inside a character.
+    if let Some(gone) = gone_with {
+        let reported = |t: &str| t.matches(REPORT).count() - t.matches(CLEAR).count();
+        assert!(
+            text.matches(FRAME_OPEN).count() == gone.matches(FRAME_OPEN).count()
+                && reported(&text) == reported(&gone),
+            "a frame or a report after the copy's tool was gone: {:?}",
+            text.get(gone.len()..)
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // input typed before the session is up
 // ---------------------------------------------------------------------------
