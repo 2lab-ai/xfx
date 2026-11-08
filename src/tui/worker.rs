@@ -15444,6 +15444,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band() {
+        // The case above asserts every event `turn_loop` sent. The loop's
+        // first tick begins a background catalog read whenever the session
+        // holds none ([`begin_catalog_read`]), and that read tells its answer
+        // on the same channel from a thread of its own -- so the case raced
+        // the read's answer against its own shutdown, and lost when the
+        // answer came first (registry #19). Forced here, on the same
+        // fixture: the tick taken, and whatever read it began let answer,
+        // before the drain.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Between turns"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        assert!(state.titles.ask("fix the renderer"));
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        begin_catalog_read(&mut state, &events_tx);
+        on_a_runtime(state.selector.settle_load());
+        let mut seen = Vec::new();
+        while let Ok(event) = events_rx.try_recv() {
+            seen.push(event);
+        }
+        assert!(
+            seen.is_empty(),
+            "the fixture's catalog read told the band: {seen:?}"
+        );
+    }
+
     // --- `/fork` (P5-FK2) ---------------------------------------------------
 
     /// The conversation's log as it stands on disk.
