@@ -13516,8 +13516,10 @@ impl Shell {
     /// line that does not end blank, a fork's line that a card opens a blank
     /// row under ([`Self::raw_gap`]) -- is written at once.
     fn preview_room(&self) -> Option<usize> {
+        // A handoff's departing document is nothing more to ask about: while
+        // it is owed, the welcome the new document starts with is owed too
+        // (`reset`, [`Self::welcome`]), and that is `owes`.
         if self.transcript.owes()
-            || self.departing.is_some()
             || !self.transcript.ends_blank()
             || self.raw_gap
             || self.group.drawn()
@@ -17102,6 +17104,45 @@ mod tests {
             .map(|n| format!("STALE-PREVIEW-ROW-{n:02}"))
             .collect();
         format!("\x1b[200~{}\x1b[201~", tall.join("\n"))
+    }
+
+    #[test]
+    fn no_preview_under_an_open_tool_group_after_a_reset_or_on_a_screen_with_no_room() {
+        // Three more ways a card is written whole at once: a tool group still
+        // open above it, a reset whose old document and new welcome are still
+        // owed, and a screen whose running band leaves no row for a preview
+        // (8 rows: a content bottom of 3, less the three the room keeps).
+        let mut grouped = shell(40, 120);
+        grouped.apply(tool_start(
+            "call-1",
+            "read_file",
+            serde_json::json!({"path": "a.txt"}),
+        ));
+        grouped.apply(tool_result("call-1", "read_file", true, ""));
+        land_document(&mut grouped);
+        assert!(
+            grouped.group.drawn(),
+            "no open group, so this case proves nothing"
+        );
+        assert!(
+            !grouped.transcript.owes() && grouped.transcript.ends_blank() && !grouped.raw_gap,
+            "another guard answers first, so this case proves nothing"
+        );
+        assert_eq!(grouped.preview_room(), None, "under an open tool group");
+
+        let mut reset = shell(40, 120);
+        reset.route_bytes(b"/clear\r");
+        assert_eq!(reset.preview_room(), None, "after a reset still owed");
+
+        let mut short = shell(8, 80);
+        assert_eq!(short.preview_room(), Some(0), "an 8-row screen's room");
+        short.route_bytes(b"\x1b[200~SHORT-ONE\nSHORT-TWO\nSHORT-THREE\x1b[201~");
+        land_document(&mut short);
+        short.route_bytes(b"\r");
+        assert!(
+            !short.previewing(),
+            "a preview with no room on an 8-row screen"
+        );
     }
 
     #[test]
