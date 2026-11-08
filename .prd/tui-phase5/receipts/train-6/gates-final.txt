@@ -1,9 +1,9 @@
-# The file checks at f367a05c, round 3's receipt committed in its final form (the only file changed after it is this one), in one hold of the suite lock; each exit taken from PIPESTATUS[0] on the line after its command
+# The file checks at 7da40f61, round 4's receipt committed in its final form (the only file changed after it is this one), in one hold of the suite lock; each exit taken from PIPESTATUS[0] on the line after its command
 $ cargo fmt --check -> exit 0
 $ ./scripts/check-xfx-identity.sh -> exit 0
-check-xfx-identity: ok (14309 tracked file(s) scanned)
+check-xfx-identity: ok (14310 tracked file(s) scanned)
 $ ./scripts/check-no-stubs.sh -> exit 0
 check-no-stubs: ok
 $ ./scripts/check-no-secrets.sh -> exit 0
-check-no-secrets: ok (14309 tracked file(s) scanned)
-# earlier: round 1, at 033fdb33 check-xfx-identity refused one line (the retired name inside a directory name in sweep.sh's comment; 3d3ee065 reworded it); at 3d3ee065, fa18618c and 82371f30 all four passed
+check-no-secrets: ok (14310 tracked file(s) scanned)
+# earlier: round 1, at 033fdb33 check-xfx-identity refused one line (the retired name inside a directory name in sweep.sh's comment; 3d3ee065 reworded it); at 3d3ee065, fa18618c, 82371f30 and f367a05c all four passed
