@@ -1,0 +1,5 @@
+# c078237f's pty test on the base binary: cargo test --locked --test tui -- a_paste_whose_end_marker_shares_a_read_with_enter
+test a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing ... FAILED
+thread 'a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing' (358078657) panicked at tests/support/pty.rs:367:13:
+timed out waiting for ["! input: Input that arrived right after the paste was ignored.", "┃ priornew"] on the screen, ["Paste was not applied"] off it; terminal so far:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 180 filtered out; finished in 21.16s

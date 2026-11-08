@@ -1,0 +1,3 @@
+# 1a76ea00: cargo test --locked --lib -- tui::input:: tui::paste:: tui::question:: tui::approval tui::shell::tests::a_paste tui::shell::tests::a_delivery tui::shell::tests::an_oversized_paste
+test result: ok. 295 passed; 0 failed; 0 ignored; 0 measured; 4242 filtered out; finished in 0.92s
+ok lines: 295

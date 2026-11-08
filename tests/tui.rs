@@ -3359,13 +3359,13 @@ fn a_pasted_block_with_newlines_a_cancel_byte_and_an_escape_is_exactly_one_promp
 }
 
 #[test]
-fn a_paste_whose_end_marker_shares_a_read_with_enter_is_refused_and_submits_nothing() {
-    // fx c1db919's rule (`paste_framing.zig:93-108,160-167`,
-    // `input_paste_runtime.zig:179-193`): input that arrives behind a paste's
-    // end marker in the same delivery is the clipboard's, not the user's -- a
-    // copied `ESC[201~` followed by a newline would otherwise be a prompt
-    // nobody typed. The whole paste is refused, the bytes behind the marker are
-    // dropped without being read as keys, and fx says so under `input`
+fn a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing() {
+    // fx v0.0.16's rule (9e0eab41; `paste_framing.zig:58-68,102-107,159-165`,
+    // `input_paste_runtime.zig:168-198@481104fd`): input that arrives behind a
+    // paste's end marker in the same delivery is taken for the clipboard's,
+    // not the user's -- a copied `ESC[201~` followed by a newline in one
+    // delivery would otherwise be a prompt nobody typed. The paste is kept, the bytes behind the marker are
+    // dropped without being read as keys, and fx warns under `input`
     // (`fx-p5-input-paste-40x120-paste-enter`). One write, so one read.
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
         support::fake_gateway::content_only(&["MARKER-PRIOR"]),
@@ -3384,10 +3384,10 @@ fn a_paste_whose_end_marker_shares_a_read_with_enter_is_refused_and_submits_noth
         &session,
         (40, 120),
         &[
-            "\u{2717} input: Paste was not applied because extra input followed its end marker.",
-            "\u{2503} prior",
+            "! input: Input that arrived right after the paste was ignored.",
+            "\u{2503} priornew",
         ],
-        &["priornew"],
+        &["Paste was not applied"],
     );
     assert_eq!(
         gateway.request_count(),
@@ -3395,11 +3395,65 @@ fn a_paste_whose_end_marker_shares_a_read_with_enter_is_refused_and_submits_noth
         "the Enter behind the paste's end marker submitted the composer"
     );
 
-    // A key of its own is a key again: the composer is what it was, and the
-    // next Enter sends exactly that (`app_input_runtime.zig:9857-9859`).
+    // A key of its own is a key again: the composer holds the paste, and the
+    // next Enter sends exactly that (`app_input_runtime.zig:9420-9431`).
     session.type_bytes(b"\r");
     session.wait_for("MARKER-PRIOR");
-    assert_eq!(user_messages(&gateway.only_request().json()), ["prior"]);
+    assert_eq!(user_messages(&gateway.only_request().json()), ["priornew"]);
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn an_enter_one_read_behind_a_paste_s_end_marker_is_behind_it_too() {
+    // A read takes at most 128 bytes (`BURST_BYTES`), so one write of 129
+    // whose paste ends on its 128th byte is two reads: the end marker at the
+    // tail of the first, the Enter alone in the second. It is one delivery
+    // all the same -- upstream settles a paste only once a readiness check
+    // finds nothing more to read (`event_loop.zig:94-119@481104fd`) -- so the
+    // Enter is behind the marker, ignored, and nothing is sent. A loop that
+    // settled after every read would send the draft.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-TWO-READS"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"prior");
+    on_screen(&session, (40, 120), &["\u{2503} prior"], &[]);
+    let body = "w".repeat(128 - 12);
+    let mut bytes = b"\x1b[200~".to_vec();
+    bytes.extend(body.as_bytes());
+    bytes.extend(b"\x1b[201~\r");
+    assert_eq!(
+        bytes.len(),
+        129,
+        "the end marker does not end the first read"
+    );
+    session.type_bytes(&bytes);
+    on_screen(
+        &session,
+        (40, 120),
+        &["! input: Input that arrived right after the paste was ignored."],
+        &[],
+    );
+    assert_eq!(
+        gateway.request_count(),
+        0,
+        "the Enter one read behind the end marker submitted the composer"
+    );
+
+    session.type_bytes(b"\r");
+    session.wait_for("MARKER-TWO-READS");
+    assert_eq!(
+        user_messages(&gateway.only_request().json()),
+        [format!("prior{body}")]
+    );
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
@@ -11477,7 +11531,7 @@ fn a_badge_numbered_like_words_in_its_prompt_is_sent_and_logged_under_a_fresh_nu
     let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
     session.wait_for(READY);
     // The words typed after the paste has landed: in the read that ended it
-    // they would be input behind its end marker, and refuse it.
+    // they would be input behind its end marker, and ignored.
     session.type_bytes(b"\x1b[200~shot.png\x1b[201~");
     on_screen(&session, (40, 120), &["\u{2503} [Image 1]"], &[]);
     session.type_bytes(b" duplicate [Image #1]\r");
@@ -14326,7 +14380,7 @@ fn open_the_fork_menu(session: &Session) {
 fn confirm_rule_change(session: &Session, form: &str, question: &str) {
     session.type_bytes(format!("\x1b[200~{form}\x1b[201~").as_bytes());
     // The paste is whole in the composer before Enter: a key that follows
-    // its end marker in the same read refuses it.
+    // its end marker in the same read is ignored, not pressed.
     on_screen(session, (40, 120), &[&form[form.len() - 8..]], &[]);
     session.type_bytes(b"\r");
     on_screen(session, (40, 120), &[question], &[]);
@@ -14388,7 +14442,7 @@ fn a_denied_call_made_again_in_a_fork(
     session.wait_for(READY);
     session.type_bytes(format!("\x1b[200~{remember}\x1b[201~").as_bytes());
     // The paste is whole in the composer before Enter: a key that follows
-    // its end marker in the same read refuses it.
+    // its end marker in the same read is ignored, not pressed.
     on_screen(
         &session,
         (40, 120),

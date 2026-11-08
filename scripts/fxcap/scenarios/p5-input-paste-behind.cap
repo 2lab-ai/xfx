@@ -1,0 +1,18 @@
+# U5 (9e0eab41): what counts as input behind a paste's end marker, at the
+# composer. An empty paste with a slash command, an Enter and a second end
+# marker behind it runs nothing and leaves the draft as it was
+# (app_input_runtime.zig:9399-9418@481104fd). Then a paste with an arrow key
+# and a whole second paste behind it: the first is kept, the arrow is not
+# obeyed and the second paste is not taken (paste_framing.zig:102-107).
+fx: env FX_AUTO_UPGRADE=0
+wait 4
+type keep
+wait 0.5
+type [200~[201~/version[201~
+wait 1.5
+snap version-behind
+type [200~ new[201~[A[200~two[201~
+wait 1.5
+snap paste-behind
+snapfull paste-behind
+gwlog

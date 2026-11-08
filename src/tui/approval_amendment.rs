@@ -455,23 +455,6 @@ impl Drafts {
         self.paste.byte(byte);
     }
 
-    /// A paste refused for the input behind its end marker
-    /// (`super::shell::Shell::paste_refused`): what it gathered is dropped and
-    /// nothing reaches a draft. `true` when it had already outgrown the
-    /// budget, and then that is what is owed ([`INPUT_LIMIT`]) rather than the
-    /// sentence about the input behind it -- fx settles an overflowed capture
-    /// as finished whatever followed it (`paste_framing.zig:165`), and an
-    /// amendment's finish is its limit refusal (`input_paste_runtime.zig:
-    /// 199-224`).
-    pub(crate) fn refuse_paste(&mut self) -> bool {
-        self.paste.buffer.clear();
-        let overflowed = std::mem::take(&mut self.paste.refused);
-        if overflowed {
-            self.settle(false);
-        }
-        overflowed
-    }
-
     /// What the panel owes the user about their last keystroke, taken once.
     pub(crate) fn take_notice(&mut self) -> Option<&'static str> {
         self.notice.take()

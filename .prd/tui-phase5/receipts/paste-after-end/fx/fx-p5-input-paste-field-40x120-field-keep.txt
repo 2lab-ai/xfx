@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ ask me
+
+! input: Input that arrived right after the paste was ignored.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  What should happen first?
+
+    1) Inspect repo state            Look around the workspace
+    2) Run tests
+    3) keep
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+type answer    ↑↓←→ cursor    shift+↑↓ options    tab questions    enter answer    esc cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
