@@ -5629,7 +5629,9 @@ async fn image_refusal(
         fresh = state.load_catalog() => fresh,
     };
     if turn.token.is_cancelled() {
-        return Some(crate::agent::TurnError::Cancelled.to_string());
+        // The stop's one word, which the band compares against
+        // ([`bridge::TURN_CANCELLED`]).
+        return Some(bridge::TURN_CANCELLED.to_string());
     }
     if fresh {
         let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
