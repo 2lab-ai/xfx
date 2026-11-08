@@ -1064,10 +1064,11 @@ pub(crate) struct Shell {
     /// (`finalization.zig:126-136@481104fd`).
     stop_reads_end: bool,
     /// An automatic compaction ended the turn in hand -- it settled with
-    /// anything but a success or nothing to do, or the user stopped it
-    /// ([`Self::compaction_update`], [`Self::stop_compaction`]) -- so that
-    /// turn's end is the compaction's and says nothing more, whatever stop
-    /// comes after it ([`UiEvent::TurnEnded`]). A flag of its own rather than
+    /// anything but a success or nothing to do, its stop included
+    /// ([`Self::compaction_update`]; the runtime always sends that settle,
+    /// `super::worker`'s `settle`) -- so that turn's end is the compaction's
+    /// and says nothing more, whatever stop comes after it
+    /// ([`UiEvent::TurnEnded`]). A flag of its own rather than
     /// a [`Self::stop_reads_end`] cleared, because a Ctrl-C pressed after the
     /// compaction settled and before the end is read stops the turn again
     /// ([`Self::cancel_turn_with`]): upstream's keystroke returns there, its
@@ -11243,7 +11244,6 @@ impl Shell {
             // manual compaction ends no turn, so it owes the next one nothing.
             self.sound.interrupted();
             self.cancelling = true;
-            self.compaction_ended_turn = true;
             self.retry = None;
         }
         if waiting {
