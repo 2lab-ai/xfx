@@ -1,0 +1,24 @@
+# RED at 11d6d64a (test(ctrl-o): RED -- a call's arguments are wrapped again on)
+
+running 2 tests
+test tui::shell::tests::ctrl_o_with_arguments_through_its_caches_is_the_session_laid_out_from_nothing_after_every_event ... ok
+test tui::full_transcript::tests::ctrl_o_wraps_a_calls_arguments_once_for_a_width_and_not_again_for_a_join_or_a_theme ... FAILED
+
+failures:
+
+---- tui::full_transcript::tests::ctrl_o_wraps_a_calls_arguments_once_for_a_width_and_not_again_for_a_join_or_a_theme stdout ----
+
+thread 'tui::full_transcript::tests::ctrl_o_wraps_a_calls_arguments_once_for_a_width_and_not_again_for_a_join_or_a_theme' (339810732) panicked at src/tui/full_transcript.rs:6314:9:
+assertion `left == right` failed: after a call joined
+  left: 13
+ right: 7
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::full_transcript::tests::ctrl_o_wraps_a_calls_arguments_once_for_a_width_and_not_again_for_a_join_or_a_theme
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4447 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `--lib`
+exit=101

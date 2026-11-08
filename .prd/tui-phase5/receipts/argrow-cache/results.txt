@@ -1,0 +1,5 @@
+# results_probe.rs appended to src/tui/shell.rs's tests on a git clone --no-local, release, one process, not under the lock (a single test, as the brief allows); load 8.48 after
+## at a1ff89e7 (the argument cache, before the wraps' fast paths)
+RESULTS calls=20 result_bytes=65481 open_ms=17.2 join_ms=16.1 theme_ms=16.4
+## at 0c9e1dc9 (this unit's code head)
+RESULTS calls=20 result_bytes=65481 open_ms=17.1 join_ms=16.6 theme_ms=16.1
