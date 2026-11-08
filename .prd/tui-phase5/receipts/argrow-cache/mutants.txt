@@ -1,0 +1,74 @@
+# run 1, at 0c9e1dc9 (code 1a9652cc): every mutant against the unit's tests (TESTS), one hold of the suite lock
+# 0c9e1dc9 test(ctrl-o): rows kept unpainted are the rows `railed` wrote, at every; limit 600 s a mutant
+unchanged: exit 0; count ok; equal ok; railed ok; painting ok; ascii1 ok; runs ok; prose ok; prose-mb ok; scan ok; tu4-count ok; join-1 ok; scan-run ok
+M1 an argument's rows wrapped again on every layout (no cache): KILLED; count FAILED; equal ok; railed ok; painting ok; ascii1 ok; runs ok; prose ok; prose-mb ok; scan ok; tu4-count ok; join-1 ok; scan-run ok
+    count said: assertion `left == right` failed: after a call joined
+M2 an argument's rows kept across a resize (width not in the key): KILLED; count FAILED; equal FAILED; railed ok; painting ok; ascii1 ok; runs ok; prose ok; prose-mb ok; scan ok; tu4-count ok; join-1 FAILED; scan-run ok
+    count said: assertion `left == right` failed: narrow
+    equal said: assertion `left == right` failed: narrow
+    join-1 said: [
+M3 a call's new arguments take the old ones' rows: KILLED; count FAILED; equal FAILED; railed ok; painting ok; ascii1 ok; runs ok; prose ok; prose-mb ok; scan ok; tu4-count ok; join-1 ok; scan-run ok
+    count said: [
+    equal said: assertion `left == right` failed: replaced
+M4 an argument painted in the dark palette whatever the entry's: KILLED; count ok; equal ok; railed FAILED; painting ok; ascii1 ok; runs ok; prose ok; prose-mb ok; scan ok; tu4-count ok; join-1 ok; scan-run ok
+    railed said: assertion `left == right` failed: "note: \n\n\u{7}a\u{1b}\u{1b}[38;5;250m\u{1b}[38;5;250m\u{1b}[38;5;250m\u{1b
+M5 the argument's trailing break not left off: SURVIVED; count ok; equal ok; railed ok; painting ok; ascii1 ok; runs ok; prose ok; prose-mb ok; scan ok; tu4-count ok; join-1 ok; scan-run ok
+M6 a window starts a row late in each entry: SURVIVED; count ok; equal ok; railed ok; painting ok; ascii1 ok; runs ok; prose ok; prose-mb ok; scan ok; tu4-count ok; join-1 ok; scan-run ok
+M7 a window of runs ignores where each run starts: KILLED; count FAILED; equal FAILED; railed FAILED; painting ok; ascii1 ok; runs ok; prose ok; prose-mb ok; scan ok; tu4-count ok; join-1 FAILED; scan-run ok
+    count said: attempt to subtract with overflow
+    equal said: attempt to subtract with overflow
+    railed said: attempt to subtract with overflow
+    join-1 said: attempt to subtract with overflow
+M8 a kept row keeps its trailing spaces: KILLED; count ok; equal ok; railed FAILED; painting ok; ascii1 ok; runs ok; prose ok; prose-mb ok; scan ok; tu4-count ok; join-1 ok; scan-run ok
+    railed said: assertion `left == right` failed: "note: \n\n\u{7}a\u{1b}\u{1b}[38;5;250m\u{1b}[38;5;250m\u{1b}[38;5;250m\u{1b
+M9 a blank line's row is not the blank row: KILLED; count ok; equal ok; railed FAILED; painting ok; ascii1 ok; runs ok; prose ok; prose-mb ok; scan ok; tu4-count ok; join-1 ok; scan-run ok
+    railed said: assertion `left == right` failed: "note: \n\n\u{7}a\u{1b}\u{1b}[38;5;250m\u{1b}[38;5;250m\u{1b}[38;5;250m\u{1b
+W1 painting: any ASCII first byte is a cluster alone (CR LF split): KILLED; count ok; equal ok; railed ok; painting FAILED; ascii1 ok; runs ok; prose ok; prose-mb ok; scan ok; tu4-count ok; join-1 ok; scan-run ok
+    painting said: assertion `left == right` failed: "🏻👨\u{200d}👩😀⸺⸺⸺⸺⸺\u{301}\u{301}\u{301}\u{301}\u{301}\u{301}\u{301}\u{301}\u
+W2 one byte of DEL counted a cell: SURVIVED; count ok; equal ok; railed ok; painting ok; ascii1 ok; runs ok; prose ok; prose-mb ok; scan ok; tu4-count ok; join-1 ok; scan-run ok
+W3 single_cells: a space counts as a cell of the run: KILLED; count ok; equal ok; railed ok; painting ok; ascii1 ok; runs FAILED; prose FAILED; prose-mb FAILED; scan FAILED; tu4-count ok; join-1 ok; scan-run ok
+    runs said: assertion `left != right` failed
+    prose said: assertion `left == right` failed: "\u{1b}[38;5;250m\u{600}\u{9b}!!!!!!!!!!!!!!  a\u{ffa0}~a\u{9be}" at 8, gutt
+    prose-mb said: assertion `left == right` failed: pattern: \u{009b}\u{ at 17
+    scan said: assertion `left == right` failed: "日क\u{7}\u{7}                                                               
+W4 single_cells: the last before a non-ASCII byte kept: KILLED; count ok; equal ok; railed ok; painting ok; ascii1 ok; runs FAILED; prose FAILED; prose-mb ok; scan FAILED; tu4-count ok; join-1 ok; scan-run ok
+    runs said: assertion `left == right` failed: "\u{3164}🇦☝☝☝☝☝\u{1b}[1m\u{1b}[1m\u{1b}[1m\u{1b}[1m\u{1b}[1m\u{1b}[1m\u{1b}[
+    prose said: assertion `left == right` failed: "\u{1b}[38;5;250m\u{600}\u{9b}!!!!!!!!!!!!!!  a\u{ffa0}~a\u{9be}" at 2, gutt
+    scan said: assertion `left == right` failed: "\u{301}\u{1b}[1m\u{1b}[\u{1b}[\u{1b}[\u{1b}[\u{1b}[\u{1b}[\u{1b}[\u{1b}[\u{
+W5 repeats: the last copy counted too: KILLED; count ok; equal ok; railed ok; painting ok; ascii1 ok; runs FAILED; prose FAILED; prose-mb ok; scan FAILED; tu4-count ok; join-1 ok; scan-run ok
+    runs said: assertion `left == right` failed: "\u{fe0f}\u{fe0f}\u{fe0f}\u{fe0f}\u{fe0f}\u{fe0f}\u{fe0f}\u{fe0f}\u{fe0f}\u{
+    prose said: assertion `left == right` failed: "a\u{200d}\u{200d}\u{200d}\u{fe0f}😀\t-\u{3164}\u{3164}\u{3164}\u{3164}\u{316
+    scan said: assertion `left == right` failed: "🇦🇦🇦🇦🇦🇦🇦\r\n\u{20e3}\u{20e3}\u{20e3}\u{20e3}\u{20e3}\u{20e3}\u{20e3}\u{20e3}
+P1 prose: a run stepped over past the margin: KILLED; count ok; equal ok; railed ok; painting ok; ascii1 ok; runs ok; prose FAILED; prose-mb FAILED; scan ok; tu4-count ok; join-1 ok; scan-run ok
+    prose said: assertion `left == right` failed: "\u{1b}[38;5;250m\u{600}\u{9b}!!!!!!!!!!!!!!  a\u{ffa0}~a\u{9be}" at 1, gutt
+    prose-mb said: assertion `left == right` failed: pattern: \u{009b}\u{ at 17
+P2 prose: a run stepped over inside a cluster cut into characters: KILLED; count ok; equal ok; railed ok; painting ok; ascii1 ok; runs ok; prose FAILED; prose-mb ok; scan ok; tu4-count ok; join-1 ok; scan-run ok
+    prose said: assertion `left == right` failed: "\u{200d}\u{200d}\u{200d}\u{200d}\u{200d}\u{200d}\u{200d}\u{200d}\u{200d}\u{
+P3 prose: the final-word test steps over a space: KILLED; count ok; equal ok; railed ok; painting ok; ascii1 ok; runs ok; prose FAILED; prose-mb FAILED; scan ok; tu4-count ok; join-1 ok; scan-run ok
+    prose said: assertion `left == right` failed: "pattern: क\u{94d}\u{200d}  \u{1b}[0m\u{1b}[0m\u{1b}[0m\u{1b}[0m\u{1b}[0m\u{
+    prose-mb said: assertion `left == right` failed: note: w w w w w w w  at 17
+S1 scan: a run counted past what is left of the row: KILLED; count ok; equal FAILED; railed ok; painting ok; ascii1 ok; runs ok; prose ok; prose-mb ok; scan FAILED; tu4-count ok; join-1 FAILED; scan-run ok
+    equal said: [
+    scan said: assertion `left == right` failed: "🏻🏻🏻🏻🏻🏻🏻🏻🏻🏻🏻a😀\u{ffa0}\u{ffa0}\u{ffa0}\u{ffa0}\u{ffa0}\u{ffa0}\u{ffa0}\u{ffa
+    join-1 said: [
+# 15 of 18 killed; clone clean after: True
+driver exit 0
+
+# run 2, at 06b4fc4b (the same code; a1ff89e7..06b4fc4b adds tests and a comment): the three run 1 let through, with the pass against the modules' tests (WIDER) added to mutants.py, one hold of the suite lock
+# 06b4fc4b test(wrap): every one-byte cluster is counted as the general path count; limit 600 s a mutant
+unchanged: exit 0; count ok; equal ok; railed ok; painting ok; ascii1 ok; runs ok; prose ok; prose-mb ok; scan ok; tu4-count ok; join-1 ok; scan-run ok
+M5 the argument's trailing break not left off: SURVIVED the unit's tests; KILLED by the modules' tests (1 failed); count ok; equal ok; railed ok; painting ok; ascii1 ok; runs ok; prose ok; prose-mb ok; scan ok; tu4-count ok; join-1 ok; scan-run ok
+    failed: tui::full_transcript::tests::a_trailing_line_break_is_no_rail_row_an_argument_drops_it_and_a_result_leaves_a_blank
+    test result: FAILED. 171 passed; 1 failed; 0 ignored; 0 measured; 4284 filtered out; finished in 25.15s
+M6 a window starts a row late in each entry: SURVIVED the unit's tests; KILLED by the modules' tests (22 failed); count ok; equal ok; railed ok; painting ok; ascii1 ok; runs ok; prose ok; prose-mb ok; scan ok; tu4-count ok; join-1 ok; scan-run ok
+    failed: tui::full_transcript::tests::a_call_still_running_when_its_turn_ends_is_cancelled_like_the_groups
+    failed: tui::full_transcript::tests::a_calls_row_is_the_groups_in_the_default_foreground_with_its_command_words_coloured
+    failed: tui::full_transcript::tests::a_change_is_shown_as_upstreams_diff_block_instead_of_its_arguments_with_no_review
+    failed: tui::full_transcript::tests::a_file_change_waiting_on_its_approval_has_no_entry_until_it_settles
+    failed: tui::full_transcript::tests::a_group_shows_its_header_over_its_first_call_and_each_call_under_its_own_header
+    failed: tui::full_transcript::tests::a_notice_is_the_documents_notice_and_an_error_is_headed_error
+    test result: FAILED. 150 passed; 22 failed; 0 ignored; 0 measured; 4284 filtered out; finished in 22.96s
+W2 one byte of DEL counted a cell: KILLED; count ok; equal ok; railed ok; painting ok; ascii1 FAILED; runs ok; prose ok; prose-mb ok; scan ok; tu4-count ok; join-1 ok; scan-run ok
+    ascii1 said: assertion `left == right` failed: "\u{7f}"
+# 3 of 3 killed; clone clean after: True
+driver exit 0

@@ -5,9 +5,15 @@ restored (`git checkout -- <file>`) after each, the tree clean at the end. Each
 mutant's test run is bounded: `timeout` kills its process group after LIMIT
 seconds, and a mutant that loops is "KILLED (hang)".
 
-    suite-lock.sh python3 -I mutants.py <clone>
+    suite-lock.sh python3 -I mutants.py <clone> [<mutant id>,...]
+
+A mutant the unit's tests let through is run again against the modules whose
+tests pinned that code before this unit (WIDER, not --exact), and reported
+as killed by them or as surviving them too. Given ids (`M5,M6`), only those
+mutants run.
 """
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -109,6 +115,17 @@ def run(clone, *args, limit=None):
         return subprocess.CompletedProcess(args, None, out or "", "")
 
 
+WIDER = ["tui::full_transcript::", "tui::wrap::", "tui::prose::", "tui::shell::tests::ctrl_o"]
+
+
+def wider(clone):
+    r = run(clone, "cargo", "test", "--locked", "--lib", "--no-fail-fast", "--", *WIDER, limit=LIMIT)
+    out = r.stdout + r.stderr
+    failed = sorted(set(re.findall(r"^test (\S+) \.\.\. FAILED", out, re.M)))
+    result = next((l for l in out.splitlines() if l.startswith("test result:")), "")
+    return r.returncode, failed, result
+
+
 def tests(clone):
     r = run(clone, "cargo", "test", "--locked", "--lib", "--no-fail-fast", "--", "--exact", *TESTS,
             limit=LIMIT)
@@ -129,32 +146,43 @@ def tests(clone):
 
 def main():
     clone = sys.argv[1]
+    chosen = set(sys.argv[2].split(",")) if len(sys.argv) > 2 else None
     assert run(clone, "git", "status", "--porcelain").stdout == "", "the clone is not clean"
     rc, verdict, said, out = tests(clone)
     print(f"# {run(clone, 'git', 'log', '--oneline', '-1').stdout.strip()[:80]}; limit {LIMIT} s a mutant")
     print(f"unchanged: exit {rc}; " + "; ".join(f"{SHORT[t]} {verdict[t]}" for t in TESTS))
     killed = 0
-    for name, path, old, new in MUTANTS:
+    mutants = [m for m in MUTANTS if chosen is None or m[0].split()[0] in chosen]
+    for name, path, old, new in mutants:
         text = open(f"{clone}/{path}", encoding="utf-8").read()
         assert text.count(old) == 1, (name, text.count(old))
         open(f"{clone}/{path}", "w", encoding="utf-8").write(text.replace(old, new, 1))
         rc, verdict, said, out = tests(clone)
+        wide = wider(clone) if rc == 0 else None
         run(clone, "git", "checkout", "--", path)
         failed = [t for t in TESTS if verdict[t] == "FAILED"]
         if rc is None:
             state = "KILLED (hang)"
         elif failed:
             state = "KILLED"
+        elif rc == 0 and wide[0] is None:
+            state = "SURVIVED the unit's tests; KILLED (hang) by the modules' tests"
+        elif rc == 0 and wide[1]:
+            state = f"SURVIVED the unit's tests; KILLED by the modules' tests ({len(wide[1])} failed)"
         elif rc == 0:
-            state = "SURVIVED"
+            state = f"SURVIVED, the modules' tests too ({wide[2]})"
         else:
             error = next((l for l in out.splitlines() if l.startswith("error")), "")
             state = f"OTHER (exit {rc}): {error[:100]}"
-        killed += state.startswith("KILLED")
+        killed += "KILLED" in state
         print(f"{name}: {state}; " + "; ".join(f"{SHORT[t]} {verdict[t]}" for t in TESTS))
         for t in failed:
             print(f"    {SHORT[t]} said: {said.get(t, '')}")
-    print(f"# {killed} of {len(MUTANTS)} killed; clone clean after: {run(clone, 'git', 'status', '--porcelain').stdout == ''}")
+        if wide and wide[1]:
+            for t in wide[1][:6]:
+                print(f"    failed: {t}")
+            print(f"    {wide[2]}")
+    print(f"# {killed} of {len(mutants)} killed; clone clean after: {run(clone, 'git', 'status', '--porcelain').stdout == ''}")
 
 
 if __name__ == "__main__":
