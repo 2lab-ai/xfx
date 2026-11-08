@@ -9,7 +9,11 @@ leaves behind is told from every other worker's by its path. Rows:
 
 - the test at <train-head>, unchanged: it must pass;
 - each mutant at <train-head>, one exact replacement: the test must fail
-  (KILLED), and SURVIVED is a hole; NOT BUILT is no verdict;
+  (KILLED), and SURVIVED is a hole; NOT BUILT is no verdict (J4's frame is
+  flushed: `std::io::stdout()` is line-buffered, and an unflushed frame
+  would reach the terminal only at the process's exit, after the restore --
+  a first run without the flush was killed by the after-the-restore check
+  instead of the after-the-copy one);
 - the test's text added, unchanged, to <l-u1u2> (L-U1+U2 alone: the old
   Errands drop, the program status clear in the restore) and to
   <flake-copyend> (FLAKE-COPYEND alone: its `Errands::end`, a restore with no
@@ -46,7 +50,9 @@ MUTANTS = [
     ("J4 a frame written half a second after the copy's end, before the restore", COPY,
      GRACE_LINE,
      GRACE_LINE + "        std::thread::sleep(Duration::from_millis(500));\n"
-     "        let _ = std::io::Write::write_all(&mut std::io::stdout(), b\"\\x1b[?2026h\\x1b[?2026l\");\n"),
+     "        let mut out = std::io::stdout();\n"
+     "        let _ = std::io::Write::write_all(&mut out, b\"\\x1b[?2026h\\x1b[?2026l\");\n"
+     "        let _ = std::io::Write::flush(&mut out);\n"),
 ]
 
 

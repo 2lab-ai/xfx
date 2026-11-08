@@ -1,0 +1,7 @@
+same p5-lifecycle-osc-mcp-40x120        m00-start              fx  1  xfx  1  state=idle:app=<program>
+same p5-lifecycle-osc-mcp-40x120        m01-started            fx  1  xfx  1  state=idle:app=<program>
+same p5-lifecycle-osc-mcp-40x120        m02-show               fx  1  xfx  1  state=idle:app=<program>
+same p5-lifecycle-osc-mcp-40x120        m03-turn               fx  3  xfx  3  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-mcp-40x120        m04-exit               fx  4  xfx  4  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every xfx wire carries v0.1.0-d6a10ee and no other banner
+5 wire pairs, 0 failing claims

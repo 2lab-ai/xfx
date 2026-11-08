@@ -1,0 +1,367 @@
+pairs: reference 300, train 300, shared 300; only the reference: 0
+reference: 300 pairs, pass 165; approved-divergence 2, approved-divergence-cascade 1, identical 13, normalized-identical 152, unresolved-defect 132
+train: 300 pairs, pass 166; approved-divergence 2, approved-divergence-cascade 1, identical 13, normalized-identical 153, unresolved-defect 131
+model-column-reask col-back: 4 differing rows left, 0 new
+    left: fx '' / xfx '         anthropic/claude-opus-5'
+    left: fx '' / xfx '         fake/model-a'
+    left: fx '' / xfx '         xai/grok-4.7'
+    left: fx '         unable to load models' / xfx '         openai/gpt-6-astra'
+model-parked menu-loading: 8 differing rows left, 0 new
+    left: fx '' / xfx '  xai/grok-4.7'
+    left: fx '' / xfx 'Note: Gateway catalog is authenticated with an API key'
+    left: fx '' / xfx '↑↓ navigate     tab provider     enter use     esc close'
+    left: fx '' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx 'Loading models…' / xfx '  openai/gpt-6-astra       400K context · 128K output · Fast · Ultra'
+    left: fx 'Models 0  [All]' / xfx 'Models 4  [All]  Anthropic  OpenAI  xAI  Others'
+    left: fx '↑↓ navigate     tab provider     enter use     esc close' / xfx '  fake/model-a'
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx '  anthropic/claude-opus-5  1M context · 64K output · Fast'
+p5-effort-fork-fork status: 2 differing rows left, 2 new
+    left: fx '  Turns             2' / xfx '     <tmpdir>/fxsw.j2kqgm1_/023/fxcap.XXXXXX/work'
+    left: fx '     <tmpdir>/fxsw.j2kqgm1_/023/fxcap.XXXXXX/work' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             2' / xfx '     <tmpdir>/fxsw._n7y5b96/023/fxcap.XXXXXX/work'
+    NEW:  fx '     <tmpdir>/fxsw._n7y5b96/023/fxcap.XXXXXX/work' / xfx '  Sandbox           none'
+p5-panels-sweep-a alias: 1 differing rows left, 1 new
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-a allowlist: 1 differing rows left, 1 new
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-a compact-empty: 1 differing rows left, 1 new
+    left: fx '* version: <build>' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '* version: <build>' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-a copy: 1 differing rows left, 1 new
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-a credits: 1 differing rows left, 1 new
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-a fast: 1 differing rows left, 1 new
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-a feedback: 2 differing rows left, 4 new
+    left: fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* version: <build>' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '' / xfx 'auto · model-a'
+    NEW:  fx '* version: <build>' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx 'auto · model-a' / xfx '┃'
+    NEW:  fx '┃' / xfx '✗ command: Unknown command. Try /help.'
+p5-panels-sweep-a image-missing: 1 differing rows left, 1 new
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-a images: 1 differing rows left, 1 new
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-a logout: 8 differing rows left, 13 new
+    left: fx '* Opened https://xfx.sh/feedback.' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '* session: renamed to "My title"'
+    left: fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* session: renamed to "My title"' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '┃ /shell reload'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    left: fx 'auto · model-a' / xfx '┃'
+    NEW:  fx '' / xfx '┃'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* clipboard: No assistant reply to copy.' / xfx '* undo: Nothing to undo.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx '* images: no pending images' / xfx '✗ images: image file not found'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '* clipboard: No assistant reply to copy.'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '* undo: Nothing to undo.' / xfx '* images: no pending images'
+    NEW:  fx '* version: <build>' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx 'auto · model-a' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+    NEW:  fx '✗ images: image file not found' / xfx '* fast: This model does not come with a fast mode.'
+p5-panels-sweep-a rename: 1 differing rows left, 1 new
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-a shell: 1 differing rows left, 1 new
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-a stats: 1 differing rows left, 1 new
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-a trace: 1 differing rows left, 1 new
+    left: fx '* version: <build>' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '* version: <build>' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-a ultrafast: 1 differing rows left, 1 new
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-a undo: 1 differing rows left, 1 new
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b after-compact: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '369, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b compact: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '369, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b rename: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '369, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b resume: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '369, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b stats: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '369, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b trace: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '369, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b undo: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '369, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+read-failures live-ctrl-o-up1: 2 differing rows left, 2 new
+    left: fx '-501/t5tmp/fxsw.j2kqgm1_/051/fxcap.XXXXXX/work/src","error":"NotRegula' / xfx ''
+    left: fx '├ Failed src' / xfx '-501/t5tmp/fxsw.j2kqgm1_/051/fxcap.XXXXXX/work/src","error":"NotRegula'
+    NEW:  fx '-501/t5tmp/fxsw._n7y5b96/077/fxcap.XXXXXX/work/src","error":"NotRegula' / xfx ''
+    NEW:  fx '├ Failed src' / xfx '-501/t5tmp/fxsw._n7y5b96/077/fxcap.XXXXXX/work/src","error":"NotRegula'
+recall-edge recalled: 1 differing rows left, 1 new
+    left: fx '525, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '675, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '525, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '702, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+recall-edge recalled-start: 1 differing rows left, 1 new
+    left: fx '525, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '675, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '525, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '702, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+recall-edge start: 1 differing rows left, 1 new
+    left: fx '525, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '675, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '525, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '702, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+verdicts moved: 1
+    model-column-reask col-back: unresolved-defect -> normalized-identical
+fx screens not the same in the two sweeps: 98
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    image-composer lookalike
+    image-composer lookalike-sent
+    image-composer oversized
+    image-composer recalled
+    image-composer recalled-sent
+    image-composer recovered
+    image-composer yanked
+    image-composer yanked-sent
+    image-paste ctrl-v
+    image-paste end.full
+    image-paste images
+    image-paste paste
+    image-paste sent
+    links full
+    model-column-reask col-back
+    model-column-reask col-down
+    model-reask turn-running
+    p5-effort-fork-fork continued
+    p5-effort-fork-fork forked
+    p5-effort-fork-fork forked.full
+    p5-effort-fork-fork quit
+    p5-effort-fork-fork resume
+    p5-effort-fork-fork status
+    p5-panels-sweep-a feedback
+    p5-panels-sweep-a logout
+    p5-panels-sweep-a quit
+    p5-panels-sweep-a workspace
+    p5-panels-sweep-b quit
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    rename quit
+    rename relaunched
+    resume quit
+    resume-launch quit
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    rules-read-auto grep-no
+    rules-read-auto listed
+    rules-read-auto read-ask
+    rules-read-auto read-esc
+    rules-read-auto remember-done
+    rules-read-auto remember-prompt
+    rules-read-auto remembered
+    timeout live-ctrl-o
+    trace copy-fail
+xfx screens not the same in the two sweeps: 135
+    fulltranscript cmd-ask
+    fulltranscript cmd-ask-ctrl-o
+    fulltranscript edit-ask
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    image-composer lookalike
+    image-composer lookalike-sent
+    image-composer oversized
+    image-composer recalled
+    image-composer recalled-sent
+    image-composer recovered
+    image-composer yanked
+    image-composer yanked-sent
+    image-paste ctrl-v
+    image-paste end.full
+    image-paste images
+    image-paste paste
+    image-paste sent
+    links full
+    model-column-reask col-down
+    model-parked menu-loading
+    p5-effort-fork-fork continued
+    p5-effort-fork-fork forked
+    p5-effort-fork-fork forked.full
+    p5-effort-fork-fork quit
+    p5-effort-fork-fork resume
+    p5-effort-fork-fork status
+    p5-panels-sweep-a alias
+    p5-panels-sweep-a allowlist
+    p5-panels-sweep-a compact-empty
+    p5-panels-sweep-a copy
+    p5-panels-sweep-a credits
+    p5-panels-sweep-a fast
+    p5-panels-sweep-a image-missing
+    p5-panels-sweep-a images
+    p5-panels-sweep-a quit
+    p5-panels-sweep-a rename
+    p5-panels-sweep-a shell
+    p5-panels-sweep-a stats
+    p5-panels-sweep-a ultrafast
+    p5-panels-sweep-a undo
+    p5-panels-sweep-a workspace
+    p5-panels-sweep-b after-compact
+    p5-panels-sweep-b compact
+    p5-panels-sweep-b quit
+    p5-panels-sweep-b rename
+    p5-panels-sweep-b resume
+    p5-panels-sweep-b stats
+    p5-panels-sweep-b trace
+    p5-panels-sweep-b undo
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    recall-edge recalled
+    recall-edge recalled-start
+    recall-edge start
+    rename quit
+    reset clear.full
+    reset new.full
+    reset reset.full
+    reset turn3.full
+    reset-wire clear.full
+    resume quit
+    resume-launch quit
+    resume-tools again-stopped
+    resume-tools cmd-ask
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools edit-ask
+    resume-tools end
+    resume-tools exit-ask
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    resume-tools live.full
+    resume-tools long-later
+    resume-tools write-ask
+    rules-read-auto grep-amend
+    rules-read-auto grep-ask
+    rules-read-auto grep-no
+    rules-read-auto listed
+    rules-read-auto read-ask
+    rules-read-auto read-esc
+    rules-read-auto remember-done
+    rules-read-auto remember-prompt
+    rules-read-auto remembered
+    timeout live-ctrl-o
+    trace copy-fail
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 28
