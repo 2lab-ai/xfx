@@ -902,17 +902,15 @@ pub(crate) fn spelled(target: &str, presentation: Presentation) -> String {
     spelling.finish()
 }
 
-/// [`Spelling`]'s of `text`, unbounded -- and `text` as it is when it holds
-/// nothing to spell, which is what the channel hands a row
-/// (`super::bridge`'s `spelled_shown`): one look over it instead of a token
-/// a character.
+/// [`Spelling`]'s of `text`, unbounded, in one pass over it rather than a
+/// token a character: [`Spelling::push`]'s token is
+/// [`crate::tools::question::terminal_safe`]'s for every character but the
+/// Arabic letter mark, so without one the whole text's `terminal_safe` is the
+/// same text -- and `text` as it is when it holds nothing to spell, which is
+/// what the channel hands a row (`super::bridge`'s `spelled_shown`).
 fn spelled_whole(text: &str) -> String {
-    let unspelled = matches!(
-        crate::tools::question::terminal_safe(text),
-        std::borrow::Cow::Borrowed(_)
-    ) && !text.contains('\u{061c}');
-    if unspelled {
-        return text.to_string();
+    if !text.contains('\u{061c}') {
+        return crate::tools::question::terminal_safe(text).into_owned();
     }
     let mut spelling = Spelling::new(usize::MAX);
     for character in text.chars() {
@@ -2672,6 +2670,26 @@ mod tests {
             ("\\u{12", "\\"),
         ] {
             assert_eq!(&text[..unit_at(text)], unit, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_whole_argument_is_spelled_as_its_characters_are_one_by_one() {
+        // `spelled_whole`'s one pass is `Spelling`'s token a character, the
+        // Arabic letter mark's included, and text with nothing to spell comes
+        // back as it is.
+        for text in [
+            "plain text",
+            "a\u{9b}b\u{1}c\u{7f}d\u{202e}e\u{200d}f\u{feff}g\u{301}",
+            "h\u{61c}i\u{9b}j",
+            "\\u{009b} already spelled \\x01",
+            "",
+        ] {
+            let mut spelling = Spelling::new(usize::MAX);
+            for character in text.chars() {
+                assert!(spelling.push(character));
+            }
+            assert_eq!(spelled_whole(text), spelling.finish(), "{text:?}");
         }
     }
 }
