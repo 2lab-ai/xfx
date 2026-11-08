@@ -11288,7 +11288,7 @@ fn a_badge_numbered_like_words_in_its_prompt_is_sent_and_logged_under_a_fresh_nu
     let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
     session.wait_for(READY);
     // The words typed after the paste has landed: in the read that ended it
-    // they would be input behind its end marker, and refuse it.
+    // they would be input behind its end marker, and ignored.
     session.type_bytes(b"\x1b[200~shot.png\x1b[201~");
     on_screen(&session, (40, 120), &["\u{2503} [Image 1]"], &[]);
     session.type_bytes(b" duplicate [Image #1]\r");
@@ -14137,7 +14137,7 @@ fn open_the_fork_menu(session: &Session) {
 fn confirm_rule_change(session: &Session, form: &str, question: &str) {
     session.type_bytes(format!("\x1b[200~{form}\x1b[201~").as_bytes());
     // The paste is whole in the composer before Enter: a key that follows
-    // its end marker in the same read refuses it.
+    // its end marker in the same read is ignored, not pressed.
     on_screen(session, (40, 120), &[&form[form.len() - 8..]], &[]);
     session.type_bytes(b"\r");
     on_screen(session, (40, 120), &[question], &[]);
@@ -14199,7 +14199,7 @@ fn a_denied_call_made_again_in_a_fork(
     session.wait_for(READY);
     session.type_bytes(format!("\x1b[200~{remember}\x1b[201~").as_bytes());
     // The paste is whole in the composer before Enter: a key that follows
-    // its end marker in the same read refuses it.
+    // its end marker in the same read is ignored, not pressed.
     on_screen(
         &session,
         (40, 120),

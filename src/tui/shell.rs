@@ -539,12 +539,12 @@ const GONE_NOTICE: &str = "the runtime is gone; that line was not sent";
 /// (`input_paste_runtime.zig:110-127`).
 const INPUT_LIMIT: &str = "That edit exceeds the local prompt safety limit and was not applied.";
 
-/// What a paste refused for the input behind its end marker says, under
-/// `input`, as an error in the document (`input_paste_runtime.zig:188-192`,
+/// What a paste with input behind its end marker says, under `input`, as a
+/// warning in the document (`input_paste_runtime.zig:190-196@481104fd`,
 /// `fx-p5-input-paste-40x120-paste-enter`) -- wherever the paste was going:
 /// the composer, an amendment, a question's answer, or a question that was
-/// taking no text at all ([`Shell::paste_refused`]).
-const PASTE_SUFFIX: &str = "Paste was not applied because extra input followed its end marker.";
+/// taking no text at all ([`Shell::ignored_behind_paste`]).
+const PASTE_SUFFIX: &str = "Input that arrived right after the paste was ignored.";
 
 /// The hint row's refusal for a paste this session has no number left for.
 ///
@@ -10359,14 +10359,20 @@ impl Shell {
     ///
     /// Said by the loop's readiness check and nowhere else
     /// (`super::event_loop`'s `read_burst`), because only it knows. A paste
-    /// that ended in the delivery with nothing behind its marker reaches
-    /// whatever gathered it as [`Action::PasteEnd`]; one that something
-    /// followed is refused whole ([`Self::paste_refused`]).
+    /// that ended in the delivery reaches whatever gathered it as
+    /// [`Action::PasteEnd`], whatever followed its marker; if something did,
+    /// that is said after the paste is settled ([`Self::ignored_behind_paste`]),
+    /// as fx finishes the paste first and warns second
+    /// (`input_paste_runtime.zig:189-196@481104fd`).
     pub(crate) fn end_delivery(&mut self) {
         match self.decoder.end_delivery() {
             Delivery::Quiet => {}
-            Delivery::Pasted => self.consume(vec![Input::Action(Action::PasteEnd)], Instant::now()),
-            Delivery::Refused { .. } => self.paste_refused(),
+            Delivery::Pasted { dropped } => {
+                self.consume(vec![Input::Action(Action::PasteEnd)], Instant::now());
+                if dropped > 0 {
+                    self.ignored_behind_paste();
+                }
+            }
         }
     }
 
@@ -12113,57 +12119,31 @@ impl Shell {
     }
 
     /// A paste whose end marker shared its delivery with more input
-    /// (`Settlement.reject`, `input_paste_runtime.zig:179-193`): nothing of it
-    /// is applied anywhere, and the sentence is fx's.
+    /// (`settlePasteDeliveryEpoch`, `input_paste_runtime.zig:168-198
+    /// @481104fd`): the paste has been settled like any other -- applied, or
+    /// refused for a reason of its own, which has been said -- and what
+    /// followed its marker is warned about, in fx's words.
     ///
     /// The input behind the marker never reached here. The decoder counted it
     /// and read none of it as keys ([`super::input::Decoder::end_delivery`]),
     /// so a copied end marker followed by a newline is not a prompt, and a
     /// copied `1` behind one is not an answer.
     ///
-    /// **Settled before the focus, for every surface at once**, as fx settles
-    /// a paste whatever owns it (`settleTerminalPasteDeliveryEpochWithLimits`,
-    /// `app_input_runtime.zig:813-836`): the composer, an amendment and a
-    /// question's answer each drop what they had gathered of it, and a
-    /// question that was taking no text -- a choice marked, an approval with
-    /// no draft open, fx's `decision_prompt` -- says the same sentence
-    /// (`app_input_runtime.zig:10128-10183`). Said on the plane the user can
-    /// see: the review plane's own status row while it is up, as every
-    /// refusal at a question is ([`Self::notice_at_the_question`]).
-    ///
-    /// **A capture that had already outgrown its budget says that instead**:
-    /// fx settles an overflowed capture as finished whatever followed it
-    /// (`paste_framing.zig:165`, its test `:448-464`), and finishing it is the
-    /// input-limit refusal (`input_paste_runtime.zig:199-224`). Nothing is
-    /// applied either way; what differs is which sentence is true.
-    fn paste_refused(&mut self) {
-        let composer = self
-            .paste
-            .overflowed(self.editor.text().len(), self.editor.retained());
-        self.paste.discard();
-        let draft = match (self.panel.as_mut(), self.alternate.as_mut()) {
-            (Some(panel), _) => panel.refuse_paste(),
-            (_, Some(screen)) => screen.refuse_paste(),
-            (None, None) => false,
-        };
-        if let Some(ask) = self.ask.as_mut() {
-            ask.refuse_paste();
-        }
-        if draft {
-            self.notice_at_the_question();
-            self.render.request(Reason::Modal);
-            return;
-        }
-        if composer {
-            self.over_budget();
-            return;
-        }
+    /// **The same sentence for every surface**, as fx settles a paste whatever
+    /// owns it (`app_input_runtime.zig:9686-9741@481104fd`): the composer, an
+    /// amendment, a question's answer, and a question that was taking no text
+    /// -- a choice marked, an approval with no draft open, fx's
+    /// `decision_prompt`. Said on the plane the user can see: the review
+    /// plane's own status row while it is up, as every notice at a question is
+    /// ([`Self::notice_at_the_question`]), and there it is the last word when
+    /// the paste's own refusal was said first, the order fx writes them in.
+    fn ignored_behind_paste(&mut self) {
         match self.alternate.as_mut() {
             Some(screen) => screen.set_status(PASTE_SUFFIX.to_string()),
-            None => self.announce(notice::Notice::error("input", PASTE_SUFFIX)),
+            None => self.announce(notice::Notice::warning("input", PASTE_SUFFIX)),
         }
         // The surface the paste was for is the one to repaint
-        // (`input_paste_runtime.zig:181-185`).
+        // (`input_paste_runtime.zig:254-257`, `:282`, `:306`, `:330`).
         self.render.request(if self.modal() {
             Reason::Modal
         } else {

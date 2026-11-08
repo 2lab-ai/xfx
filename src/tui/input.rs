@@ -118,18 +118,17 @@
 //! So the marker does not end the paste by itself. Once it has matched, every
 //! further byte is counted and **nothing else is done with it** -- not decoded,
 //! not a key, not a second marker, not a new paste's start -- until the caller
-//! says the delivery is over ([`Decoder::end_delivery`]). Then it is one of
-//! two (`paste_framing.zig:93-108,160-167`, at `c1db919`): nothing followed
-//! the marker, and the paste stands ([`Delivery::Pasted`], which is
-//! [`Action::PasteEnd`]); or something did, and the whole paste is refused and
-//! the bytes behind the marker are dropped ([`Delivery::Refused`]). What the
-//! refusal says, and to which surface, is the caller's
-//! (`input_paste_runtime.zig:179-193`). A marker split across two reads is
-//! not input behind the marker -- it is the marker -- and a key in a later
-//! delivery is a key.
+//! says the delivery is over ([`Decoder::end_delivery`]). Then the paste
+//! stands, whatever followed it, and the caller learns how many bytes did
+//! ([`Delivery::Pasted`], which is [`Action::PasteEnd`]; fx v0.0.16's
+//! `Settlement.finish{dropped_suffix_bytes}`, `paste_framing.zig:58-68,
+//! 102-107,159-165@481104fd`). What it says about those bytes, and to which
+//! surface, is the caller's (`input_paste_runtime.zig:168-198`). A marker
+//! split across two reads is not input behind the marker -- it is the marker
+//! -- and a key in a later delivery is a key.
 //!
-//! This is fx c1db919's rule. Its v0.0.16 keeps the paste and drops only what
-//! followed (9e0eab41); that is a later fx, not this one.
+//! fx c1db919 refused the whole paste instead (`Settlement.reject`); v0.0.16
+//! keeps it (9e0eab41), and so does this.
 //!
 //! # Feeding it
 //!
@@ -281,9 +280,8 @@ pub(crate) enum Action {
     Redraw,
     PasteStart,
     /// A paste that stands. Not the end marker's own event: a paste's end is
-    /// said when its delivery is over and nothing followed the marker
-    /// ([`Decoder::end_delivery`]); one that something did follow ends in
-    /// [`Delivery::Refused`] and never in this.
+    /// said when its delivery is over ([`Decoder::end_delivery`]), whatever
+    /// followed the marker in it -- what did is counted, never an event.
     PasteEnd,
     /// Something well-formed that means nothing here.
     ///
@@ -390,13 +388,12 @@ pub(crate) enum Delivery {
     /// No paste ended in it: there was none, or the one that is open goes on
     /// into the next delivery.
     Quiet,
-    /// A paste ended and nothing followed its end marker: it stands, and
-    /// [`Action::PasteEnd`] is owed to whatever gathered it.
-    Pasted,
-    /// A paste ended and `dropped` more bytes followed its end marker in the
-    /// same delivery (`Settlement.reject`, `paste_framing.zig:165`). None of
-    /// them was read as anything, and the paste is not applied.
-    Refused { dropped: usize },
+    /// A paste ended: it stands, and [`Action::PasteEnd`] is owed to whatever
+    /// gathered it. `dropped` more bytes followed its end marker in the same
+    /// delivery, and none of them was read as anything
+    /// (`Settlement.finish{dropped_suffix_bytes}`, `paste_framing.zig:58-68,
+    /// 159-165@481104fd`).
+    Pasted { dropped: usize },
 }
 
 /// The byte-at-a-time terminal input decoder.
@@ -456,8 +453,7 @@ impl Decoder {
     pub(crate) fn end_delivery(&mut self) -> Delivery {
         match self.behind.take() {
             None => Delivery::Quiet,
-            Some(0) => Delivery::Pasted,
-            Some(dropped) => Delivery::Refused { dropped },
+            Some(dropped) => Delivery::Pasted { dropped },
         }
     }
 
@@ -1408,11 +1404,11 @@ mod tests {
     }
 
     /// Ends a delivery the way the shell does (`super::super::shell::Shell`'s
-    /// `end_delivery`): a paste that stands is its [`Action::PasteEnd`], and a
-    /// refused one is nothing at all.
+    /// `end_delivery`): a paste that ended in it is its [`Action::PasteEnd`],
+    /// whatever followed its marker.
     fn deliver(decoder: &mut Decoder, out: &mut Vec<Input>) -> Delivery {
         let delivery = decoder.end_delivery();
-        if delivery == Delivery::Pasted {
+        if let Delivery::Pasted { .. } = delivery {
             out.push(Input::Action(Action::PasteEnd));
         }
         delivery
@@ -2209,7 +2205,10 @@ mod tests {
         for byte in b"\x1b[200~\x1b[0201~\x1b[201~" {
             decoder.feed(*byte, now, &mut out);
         }
-        assert_eq!(deliver(&mut decoder, &mut out), Delivery::Pasted);
+        assert_eq!(
+            deliver(&mut decoder, &mut out),
+            Delivery::Pasted { dropped: 0 }
+        );
         assert!(!decoder.pasting(), "the exact end marker did not close");
         assert_eq!(
             out.iter()
@@ -2701,7 +2700,7 @@ mod tests {
             let start = Instant::now();
             let mut out = Vec::new();
             let mut fed = 0usize;
-            let mut refused = 0usize;
+            let mut behind = 0usize;
             for step in 0..512 {
                 let roll = noise.next();
                 let bytes: &[u8] = match roll % 16 {
@@ -2735,12 +2734,12 @@ mod tests {
                     );
                 }
                 // And the end of a delivery, half the time, on bits the chunk
-                // was not chosen by: right behind an end marker that is a paste
-                // that stands, a chunk later one that is refused. The
-                // `PasteEnd` it owes is paid for by the marker.
+                // was not chosen by: right behind an end marker, a paste with
+                // nothing behind it; a chunk later, one with input behind it.
+                // The `PasteEnd` either owes is paid for by the marker.
                 if (roll >> 6).is_multiple_of(2) {
-                    if let Delivery::Refused { .. } = deliver(&mut decoder, &mut out) {
-                        refused += 1;
+                    if let Delivery::Pasted { dropped: 1.. } = deliver(&mut decoder, &mut out) {
+                        behind += 1;
                     }
                     assert!(
                         out.len() <= fed,
@@ -2771,11 +2770,11 @@ mod tests {
                 pasted >= 100
                     && opened >= 5
                     && closed >= 1
-                    && refused >= 1
+                    && behind >= 1
                     && ignored >= 5
                     && typed >= 30,
                 "seed {seed} exercised too little to mean anything: {pasted} pasted \
-                 bytes, {opened} opened, {closed} closed, {refused} refused, {ignored} \
+                 bytes, {opened} opened, {closed} closed, {behind} with input behind, {ignored} \
                  ignored, {typed} typed"
             );
         }
@@ -2802,7 +2801,10 @@ mod tests {
             decoder.pasting(),
             "the end marker gave the input back early"
         );
-        assert_eq!(deliver(&mut decoder, &mut out), Delivery::Pasted);
+        assert_eq!(
+            deliver(&mut decoder, &mut out),
+            Delivery::Pasted { dropped: 0 }
+        );
         assert!(
             !decoder.pasting(),
             "the delivery's end did not close the paste"
@@ -2850,18 +2852,20 @@ mod tests {
         // buffer, the paste and an Enter behind it. The Enter is the
         // clipboard's, so it is not `Submit`; the paste it followed stands
         // (`app_input_runtime.zig:9420-9431@481104fd`).
-        let (out, _) = delivered(&[b"\x1b[200~new\x1b[201~\r"]);
+        let (out, delivery) = delivered(&[b"\x1b[200~new\x1b[201~\r"]);
         assert_eq!(
             out,
             kept_new(),
             "the Enter got through, or the paste did not stand"
         );
+        assert_eq!(delivery, Delivery::Pasted { dropped: 1 });
     }
 
     #[test]
     fn a_printable_key_behind_the_end_marker_is_dropped_rather_than_typed() {
-        let (out, _) = delivered(&[b"\x1b[200~new\x1b[201~x"]);
+        let (out, delivery) = delivered(&[b"\x1b[200~new\x1b[201~x"]);
         assert_eq!(out, kept_new(), "the byte behind the marker was typed");
+        assert_eq!(delivery, Delivery::Pasted { dropped: 1 });
     }
 
     #[test]
@@ -2869,7 +2873,7 @@ mod tests {
         // Not an arrow key, not a second marker, not a new paste: every byte
         // behind the end marker is the same thing (`paste_framing.zig:102-107,
         // 527-546@481104fd`).
-        let (out, _) = delivered(&[b"\x1b[200~new\x1b[201~\x1b[A"]);
+        let (out, delivery) = delivered(&[b"\x1b[200~new\x1b[201~\x1b[A"]);
         assert_eq!(
             out,
             kept_new(),
@@ -2879,10 +2883,17 @@ mod tests {
             !out.contains(&Input::Action(Action::Up)),
             "an arrow behind the marker moved something: {out:?}"
         );
+        assert_eq!(delivery, Delivery::Pasted { dropped: 3 });
 
         let behind = b"\x1b[201~/version\r\x1b[200~x\x1b[201~";
-        let (out, _) = delivered(&[b"\x1b[200~new\x1b[201~", behind]);
+        let (out, delivery) = delivered(&[b"\x1b[200~new\x1b[201~", behind]);
         assert_eq!(out, kept_new(), "a marker behind the marker was obeyed");
+        assert_eq!(
+            delivery,
+            Delivery::Pasted {
+                dropped: behind.len()
+            }
+        );
 
         // And the machine is at ground again once the delivery is over: the
         // same arrow, in a delivery of its own, is the arrow.
@@ -2892,7 +2903,10 @@ mod tests {
         for byte in b"\x1b[200~new\x1b[201~\x1b[" {
             decoder.feed(*byte, now, &mut out);
         }
-        let _ = deliver(&mut decoder, &mut out);
+        assert_eq!(
+            deliver(&mut decoder, &mut out),
+            Delivery::Pasted { dropped: 2 }
+        );
         assert_eq!(
             out,
             kept_new(),
@@ -2910,14 +2924,24 @@ mod tests {
         // Its start marker arrives behind the first one's end marker, so it is
         // counted like any byte there: no second `PasteStart`, none of its
         // bytes, and its own end marker no second `PasteEnd`.
-        let (out, _) = delivered(&[b"\x1b[200~new\x1b[201~\x1b[200~two\x1b[201~\r"]);
+        let behind = b"\x1b[200~two\x1b[201~\r";
+        let mut bytes = b"\x1b[200~new\x1b[201~".to_vec();
+        bytes.extend(behind);
+        let (out, delivery) = delivered(&[&bytes]);
         assert_eq!(out, kept_new(), "the second paste or its Enter was taken");
+        assert_eq!(
+            delivery,
+            Delivery::Pasted {
+                dropped: behind.len()
+            }
+        );
     }
 
     #[test]
     fn a_paste_with_nothing_behind_its_end_marker_stands() {
-        let (out, _) = delivered(&[b"\x1b[200~new\x1b[201~"]);
+        let (out, delivery) = delivered(&[b"\x1b[200~new\x1b[201~"]);
         assert_eq!(out, kept_new());
+        assert_eq!(delivery, Delivery::Pasted { dropped: 0 });
     }
 
     #[test]
@@ -2938,7 +2962,10 @@ mod tests {
         for byte in b"1~" {
             decoder.feed(*byte, now, &mut out);
         }
-        let _ = deliver(&mut decoder, &mut out);
+        assert_eq!(
+            deliver(&mut decoder, &mut out),
+            Delivery::Pasted { dropped: 0 }
+        );
         assert_eq!(out, kept_new(), "the split marker was taken as content");
 
         out.clear();
@@ -2947,8 +2974,9 @@ mod tests {
         assert_eq!(out, vec![Input::Action(Action::Submit)]);
 
         // The same marker split across two reads of **one** delivery.
-        let (out, _) = delivered(&[b"\x1b[200~new\x1b[2", b"01~"]);
+        let (out, delivery) = delivered(&[b"\x1b[200~new\x1b[2", b"01~"]);
         assert_eq!(out, kept_new());
+        assert_eq!(delivery, Delivery::Pasted { dropped: 0 });
 
         // And split across two deliveries with an Enter behind its second
         // half: the Enter is behind the marker, so it is counted.
@@ -2961,7 +2989,10 @@ mod tests {
         for byte in b"01~\r" {
             decoder.feed(*byte, now, &mut out);
         }
-        let _ = deliver(&mut decoder, &mut out);
+        assert_eq!(
+            deliver(&mut decoder, &mut out),
+            Delivery::Pasted { dropped: 1 }
+        );
         assert_eq!(
             out,
             kept_new(),
@@ -2975,8 +3006,9 @@ mod tests {
         // the last bytes of one read can have its Enter at the start of the
         // next -- the same write, the same delivery. Settling per read would
         // let that Enter through.
-        let (out, _) = delivered(&[b"\x1b[200~new\x1b[201~", b"\r"]);
+        let (out, delivery) = delivered(&[b"\x1b[200~new\x1b[201~", b"\r"]);
         assert_eq!(out, kept_new(), "the Enter one read behind got through");
+        assert_eq!(delivery, Delivery::Pasted { dropped: 1 });
     }
 
     #[test]

@@ -354,13 +354,6 @@ impl Panel {
         self.drafts.take_notice()
     }
 
-    /// Drops a paste refused for the input behind its end marker, and says
-    /// whether it had already outgrown the budget
-    /// ([`super::approval_amendment::Drafts::refuse_paste`]).
-    pub(crate) fn refuse_paste(&mut self) -> bool {
-        self.drafts.refuse_paste()
-    }
-
     /// The amendment this answer carries, and the disposal of the other draft.
     ///
     /// Called **after** the readiness gate, and that ordering is the whole
