@@ -1865,4 +1865,32 @@ mod tests {
             Some("openai/gpt-5")
         );
     }
+
+    #[test]
+    fn tab_puts_the_mark_on_the_first_row_the_written_line_lists() {
+        // fx writes the marked row as a replacement, which takes the mark back
+        // to the first row (`commit`, `src/core/input/composer_text_replacement.zig:73-92@481104fd`:
+        // `model_completion_index = 0`). Under the ranks the line Tab writes
+        // can list more than its own row -- `openai/gpt-5` finds
+        // `openai/gpt-4.5-preview` fuzzily -- so a mark left where Down put it
+        // lands on another model (`p5-input-model-rank` `c-gpt5-tab`).
+        let rows = ranked();
+        let known = Known::Rows(&rows);
+        let mut column = Column::default();
+        assert!(column.step(&typed("gpt5"), known, true));
+        assert_eq!(
+            column.complete(&typed("gpt5"), known),
+            Some("/model openai/gpt-5".to_string())
+        );
+        let drawn = plain(&column.rows(&typed("openai/gpt-5"), known, 7, 120, 2, PALETTE));
+        assert_eq!(
+            drawn,
+            ["       openai/gpt-5", "       openai/gpt-4.5-preview"]
+        );
+        let marked = column.rows(&typed("openai/gpt-5"), known, 7, 120, 2, PALETTE);
+        assert!(
+            marked[0].contains(PALETTE.subtitle()) && !marked[1].contains(PALETTE.subtitle()),
+            "the mark is not on the first row: {marked:?}"
+        );
+    }
 }
