@@ -1,0 +1,11 @@
+# The join tests' lines in the gate's two cargo test logs (04-test, 05-test-fault), at 0252c06f, and CTRLO-WIDER's heading test (f) beside them
+## 04-test
+test tui::full_transcript::tests::a_value_the_heading_had_to_spell_is_never_shown_by_it_already ... ok
+test tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back ... ok
+test tui::shell::tests::ctrl_o_names_what_a_terminal_draws_wider_and_its_caches_follow_the_palette_and_the_width ... ok
+test tui::toolgroup::tests::the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width ... ok
+## 05-test-fault
+test tui::full_transcript::tests::a_value_the_heading_had_to_spell_is_never_shown_by_it_already ... ok
+test tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back ... ok
+test tui::shell::tests::ctrl_o_names_what_a_terminal_draws_wider_and_its_caches_follow_the_palette_and_the_width ... ok
+test tui::toolgroup::tests::the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width ... ok

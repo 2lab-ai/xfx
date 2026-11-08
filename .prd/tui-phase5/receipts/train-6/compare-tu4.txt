@@ -1,0 +1,632 @@
+# compare.py <tu4's own head sweep, rescored with the train's ledger> <the train's head sweep>
+pairs: reference 651, train 684, shared 651; only the reference: 0
+reference: 651 pairs, pass 462; approved-divergence 4, approved-divergence-cascade 2, identical 11, normalized-identical 451, unresolved-defect 183
+train: 651 pairs, pass 462; approved-divergence 4, approved-divergence-cascade 2, identical 14, normalized-identical 448, unresolved-defect 183
+interrupt-recovery full: 2 differing rows left, 2 new
+    left: fx '' / xfx '! network: provider: gateway · model: fake/model-a · 0ms'
+    left: fx '! network: provider: gateway · model: fake/model-a · 11ms' / xfx ''
+    NEW:  fx '' / xfx '! network: provider: gateway · model: fake/model-a · 5ms'
+    NEW:  fx '! network: provider: gateway · model: fake/model-a · 13ms' / xfx ''
+p5-effort-fork-fork status: 2 differing rows left, 2 new
+    left: fx '  Turns             2' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             2' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-effort-fork-fork-edge status-empty: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-effort-fork-oldread-src doctor.full: 2 differing rows left, 2 new
+    left: fx '[doctor] mcp_servers=0 mcp_configuration_issues=0' / xfx '[ok] workspace: using workspace <local-path>'
+    left: fx '[ok] workspace: using workspace <local-path>' / xfx '[warn] config: no config files found; using defaults and env overrides'
+    NEW:  fx '[doctor] mcp_servers=0 mcp_configuration_issues=0' / xfx '[ok] workspace: using workspace <local-path>'
+    NEW:  fx '[ok] workspace: using workspace <local-path>' / xfx '[warn] config: no config files found; using defaults and env overrides'
+p5-mcp-verbs add-badname: 4 differing rows left, 4 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx '    status     retrying' / xfx '    command    <local-path> <local-path>'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs add-new-http: 8 differing rows left, 9 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     retrying' / xfx '    command    <local-path> <local-path>'
+    left: fx '    status     waiting for approval' / xfx '    status     retrying'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs add-new-syntax: 7 differing rows left, 9 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     retrying' / xfx '    command    <local-path> <local-path>'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs add-old-http: 7 differing rows left, 9 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     retrying' / xfx '    command    <local-path> <local-path>'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs add-old-syntax: 7 differing rows left, 9 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     retrying' / xfx '    command    <local-path> <local-path>'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs auth-remote: 8 differing rows left, 9 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     retrying' / xfx '    command    <local-path> <local-path>'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: NAME     SOURCE          TRANSPORT  STATUS' / xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs end.full: 7 differing rows left, 9 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     retrying' / xfx '    command    <local-path> <local-path>'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs login-remote: 8 differing rows left, 9 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     retrying' / xfx '    command    <local-path> <local-path>'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: NAME     SOURCE          TRANSPORT  STATUS' / xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs login-stdio: 7 differing rows left, 9 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     retrying' / xfx '    command    <local-path> <local-path>'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs logout-remote: 7 differing rows left, 9 new
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    status     retrying' / xfx '    command    <local-path> <local-path>'
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs show-proj: 7 differing rows left, 9 new
+    left: fx '' / xfx '    command    <local-path> <local-path>'
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '                                   proj is waiting for approval · /mcp' / xfx '    transport  stdio'
+    left: fx '┃' / xfx '* mcp: proj'
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '                                   proj is waiting for approval · /mcp' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '┃' / xfx '    status     waiting for approval'
+read-failures live-ctrl-o-up1: 4 differing rows left, 4 new
+    left: fx '│  ls":{"field":"path","path":"<local-path>","erro' / xfx ''
+    left: fx 'ob_files to inspect directory contents, then choose a regular file."}}' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+    left: fx 'name":"read_file","message":"read_file requires a regular file","detai' / xfx 'ob_files to inspect directory contents, then choose a regular file."}}'
+    left: fx '├ Failed src' / xfx '│  ls":{"field":"path","path":"<local-path>","erro'
+    NEW:  fx '│  ls":{"field":"path","path":"<local-path>","error":"N' / xfx ''
+    NEW:  fx 'ob_files to inspect directory contents, then choose a regular file."}}' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+    NEW:  fx 'name":"read_file","message":"read_file requires a regular file","detai' / xfx 'ob_files to inspect directory contents, then choose a regular file."}}'
+    NEW:  fx '├ Failed src' / xfx '│  ls":{"field":"path","path":"<local-path>","error":"N'
+verdicts moved: 3
+    p5-transcript-submit filled: normalized-identical -> identical
+    p5-transcript-submit second: normalized-identical -> identical
+    p5-transcript-submit tall: normalized-identical -> identical
+fx screens not the same in the two sweeps: 183
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    interrupt mid
+    interrupt-cmd cmd-running
+    interrupt-recovery full
+    interrupt-steer-retract steer-again
+    interrupt-steer-retract steer-up
+    interrupt2 cd-streaming
+    links full
+    p5-call-row-safe full
+    p5-effort-fork-fork continued
+    p5-effort-fork-fork forked
+    p5-effort-fork-fork forked.full
+    p5-effort-fork-fork quit
+    p5-effort-fork-fork resume
+    p5-effort-fork-fork status
+    p5-effort-fork-fork-continue continued
+    p5-effort-fork-fork-continue forked
+    p5-effort-fork-fork-edge fork-of-empty
+    p5-effort-fork-fork-edge forked-first
+    p5-effort-fork-fork-edge forked-first.full
+    p5-effort-fork-fork-edge quit
+    p5-effort-fork-fork-edge resume
+    p5-effort-fork-fork-edge status-empty
+    p5-effort-fork-fork-empty forked
+    p5-effort-fork-oldread-src doctor.full
+    p5-effort-fork-oldread-src resume-source
+    p5-effort-fork-oldread-v1 resume-id
+    p5-effort-fork-oldread-v2 continued
+    p5-effort-fork-oldread-v2 quit
+    p5-effort-fork-oldread-v2 resume-id
+    p5-effort-fork-oldread-v2 resume-id.full
+    p5-mcp-discover-http-hostile show
+    p5-mcp-discover-http-malformed show
+    p5-mcp-discover-http-modern show
+    p5-mcp-discover-http-modern turn
+    p5-mcp-discover-http-notimpl show
+    p5-mcp-discover-http-notimpl turn
+    p5-mcp-discover-http-old2024 show
+    p5-mcp-discover-http-ssefail show
+    p5-mcp-discover-http-ssehold show
+    p5-mcp-discover-http-sseidless show
+    p5-mcp-discover-http-ssestrid show
+    p5-mcp-discover-stdio-asks show
+    p5-mcp-discover-stdio-banner show
+    p5-mcp-discover-stdio-hostile show
+    p5-mcp-discover-stdio-malformed show
+    p5-mcp-discover-stdio-modern show
+    p5-mcp-discover-stdio-modern turn
+    p5-mcp-discover-stdio-modern-tc show
+    p5-mcp-discover-stdio-modern-tc turn
+    p5-mcp-discover-stdio-old2024 show
+    p5-mcp-discover-stdio-silent show
+    p5-mcp-fail server-2
+    p5-mcp-live full
+    p5-mcp-menu-new approve-confirm
+    p5-mcp-menu-new approve-esc
+    p5-mcp-menu-new approved
+    p5-mcp-menu-new reject-inplace
+    p5-mcp-menu-new reject-inplace-ready
+    p5-mcp-menu-new reject-typed-x
+    p5-mcp-menu-new rejected
+    p5-mcp-menu-new server-fixture
+    p5-mcp-menu-new server-fixture-nomatch
+    p5-mcp-menu-new server-fixture-tool
+    p5-mcp-menu-new server-proj
+    p5-mcp-menu-new server-proj-ready
+    p5-mcp-menu-new server-proj-reject
+    p5-mcp-menu-old details-2
+    p5-mcp-menu-old details-3
+    p5-mcp-verbs add-new-http
+    p5-mcp-verbs add-new-syntax
+    p5-mcp-verbs add-old-http
+    p5-mcp-verbs add-old-syntax
+    p5-mcp-verbs approve
+    p5-mcp-verbs auth-remote
+    p5-mcp-verbs complete-args
+    p5-mcp-verbs complete-show
+    p5-mcp-verbs end.full
+    p5-mcp-verbs list-after
+    p5-mcp-verbs login-remote
+    p5-mcp-verbs login-stdio
+    p5-mcp-verbs logout-remote
+    p5-mcp-verbs prompt-list
+    p5-mcp-verbs reject
+    p5-mcp-verbs remove-three
+    p5-mcp-verbs remove-two
+    p5-mcp-verbs remove-web
+    p5-mcp-verbs remove-web2
+    p5-mcp-verbs resource-list
+    p5-mcp-verbs show-bare
+    p5-mcp-verbs show-fixture
+    p5-mcp-verbs show-proj
+    p5-mcp-verbs show-remote
+    p5-mcp-verbs trust-approve
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-toolgroup-live running-light
+    p5-toolgroup-live-tc running-dark
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-cancel full
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 full
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tools running
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    rules-read-auto grep-no
+    rules-read-auto listed
+    rules-read-auto read-ask
+    rules-read-auto read-esc
+    rules-read-auto remember-done
+    rules-read-auto remember-prompt
+    rules-read-auto remembered
+    timeout live-ctrl-o
+    toolgroup-wire end
+    toolgroup-wire end.full
+xfx screens not the same in the two sweeps: 226
+    approvals after-cc-cmd-ask
+    approvals cmd2-ask
+    approvals edit-amend-typed
+    approvals edit-ask
+    approvals edit-down1
+    approvals edit-down3-wrap
+    approvals edit-tab-amend
+    approvals write-ask
+    approvals-amend-limit asked
+    approvals-amend-limit refused
+    approvals-amend-limit refused-after-edit
+    approvals-amend-limit refused-again
+    approvals-big end
+    approvals-big write-big
+    approvals-big write-big-walked
+    fulltranscript cmd-ask
+    fulltranscript cmd-ask-ctrl-o
+    fulltranscript edit-ask
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    interrupt esc1
+    interrupt-recovery full
+    interrupt-steer steer-tool
+    links full
+    p5-call-row-safe end
+    p5-call-row-safe full
+    p5-effort-fork-fork continued
+    p5-effort-fork-fork forked
+    p5-effort-fork-fork forked.full
+    p5-effort-fork-fork quit
+    p5-effort-fork-fork resume
+    p5-effort-fork-fork status
+    p5-effort-fork-fork-continue continued
+    p5-effort-fork-fork-continue forked
+    p5-effort-fork-fork-edge fork-of-empty
+    p5-effort-fork-fork-edge forked-first
+    p5-effort-fork-fork-edge forked-first.full
+    p5-effort-fork-fork-edge midturn
+    p5-effort-fork-fork-edge quit
+    p5-effort-fork-fork-edge resume
+    p5-effort-fork-fork-edge status-empty
+    p5-effort-fork-fork-empty forked
+    p5-effort-fork-oldread-src doctor.full
+    p5-effort-fork-oldread-src resume-source
+    p5-effort-fork-oldread-v1 resume-id
+    p5-effort-fork-oldread-v2 continued
+    p5-effort-fork-oldread-v2 quit
+    p5-effort-fork-oldread-v2 resume-id
+    p5-effort-fork-oldread-v2 resume-id.full
+    p5-mcp-discover-http-hostile show
+    p5-mcp-discover-http-malformed show
+    p5-mcp-discover-http-modern show
+    p5-mcp-discover-http-modern turn
+    p5-mcp-discover-http-notimpl show
+    p5-mcp-discover-http-notimpl turn
+    p5-mcp-discover-http-old2024 show
+    p5-mcp-discover-http-ssefail show
+    p5-mcp-discover-http-ssehold show
+    p5-mcp-discover-http-sseidless show
+    p5-mcp-discover-http-ssestrid show
+    p5-mcp-discover-stdio-asks show
+    p5-mcp-discover-stdio-banner show
+    p5-mcp-discover-stdio-hostile show
+    p5-mcp-discover-stdio-malformed show
+    p5-mcp-discover-stdio-modern show
+    p5-mcp-discover-stdio-modern turn
+    p5-mcp-discover-stdio-modern-tc show
+    p5-mcp-discover-stdio-modern-tc turn
+    p5-mcp-discover-stdio-old2024 show
+    p5-mcp-discover-stdio-silent show
+    p5-mcp-fail server-2
+    p5-mcp-live full
+    p5-mcp-menu-new approve-confirm
+    p5-mcp-menu-new approve-esc
+    p5-mcp-menu-new approved
+    p5-mcp-menu-new reject-inplace
+    p5-mcp-menu-new reject-inplace-ready
+    p5-mcp-menu-new reject-typed-x
+    p5-mcp-menu-new rejected
+    p5-mcp-menu-new server-fixture
+    p5-mcp-menu-new server-fixture-nomatch
+    p5-mcp-menu-new server-fixture-tool
+    p5-mcp-menu-new server-proj
+    p5-mcp-menu-new server-proj-ready
+    p5-mcp-menu-new server-proj-reject
+    p5-mcp-menu-old details-2
+    p5-mcp-menu-old details-3
+    p5-mcp-verbs add-badname
+    p5-mcp-verbs add-new-http
+    p5-mcp-verbs add-new-syntax
+    p5-mcp-verbs add-old-http
+    p5-mcp-verbs add-old-syntax
+    p5-mcp-verbs approve
+    p5-mcp-verbs auth-remote
+    p5-mcp-verbs complete-args
+    p5-mcp-verbs complete-show
+    p5-mcp-verbs end.full
+    p5-mcp-verbs list-after
+    p5-mcp-verbs login-remote
+    p5-mcp-verbs login-stdio
+    p5-mcp-verbs logout-remote
+    p5-mcp-verbs prompt-list
+    p5-mcp-verbs reject
+    p5-mcp-verbs remove-three
+    p5-mcp-verbs remove-two
+    p5-mcp-verbs remove-web
+    p5-mcp-verbs remove-web2
+    p5-mcp-verbs resource-list
+    p5-mcp-verbs show-bare
+    p5-mcp-verbs show-fixture
+    p5-mcp-verbs show-proj
+    p5-mcp-verbs show-remote
+    p5-mcp-verbs trust-approve
+    p5-mcp-wire-old turn
+    p5-toolgroup-ctrlo dark
+    p5-toolgroup-ctrlo dark-again
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-cancel cmd-running
+    p5-transcript-cancel full
+    p5-transcript-diffask ask
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 full
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-submit filled
+    p5-transcript-submit second
+    p5-transcript-submit submit-0.15
+    p5-transcript-submit tall
+    p5-transcript-submit tall.full
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    question answered
+    question answered.full
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    resume-tools again-stopped
+    resume-tools cmd-ask
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools edit-ask
+    resume-tools end
+    resume-tools exit-ask
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    resume-tools live.full
+    resume-tools long-later
+    resume-tools resumed
+    resume-tools resumed.full
+    resume-tools write-ask
+    rules-read ask
+    rules-read ask2
+    rules-read-auto grep-amend
+    rules-read-auto grep-ask
+    rules-read-auto read-ask
+    timeout live-ctrl-o
+    toolgroup again-ask
+    toolgroup cmd-ask
+    toolgroup edit-ask
+    toolgroup exit-ask
+    toolgroup long-ask
+    toolgroup long-running
+    toolgroup write-ask
+    toolgroup-noop ask
+    toolgroup-noop end
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 16

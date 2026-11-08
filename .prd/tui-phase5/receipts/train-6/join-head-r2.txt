@@ -1,0 +1,7 @@
+# The head after 392ca22a (the row-cut test's modifier case), the same hold: clippy both ways, fmt, and the tests it touched
+== the head (392ca22a)
+clippy exit 0
+clippy-fault exit 0
+fmt exit 0
+tests exit 0: test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 4404 filtered out; finished in 5.17s
+job exit 0

@@ -1,0 +1,13 @@
+# #[test] attributes under src/ and tests/ (git grep -c '^[[:space:]]*#\[test\]' over the commit's tree, summed), and the harness's 'def test_' (scripts/fxcap/test_sweep.py, test_capture.py, test_ci_sweep.py)
+884497c0 base: #[test] 5191; test_sweep=66 test_capture=59 test_ci_sweep=26
+690aa505 main: #[test] 5239; test_sweep=66 test_capture=59 test_ci_sweep=26
+4db63171 GATE-GITENV-F: #[test] 5191; test_sweep=67 test_capture=59 test_ci_sweep=27
+5a7bb465 T-U4: #[test] 5203; test_sweep=66 test_capture=59 test_ci_sweep=26
+1824e868 CTRLO-WIDER-F: #[test] 5204; test_sweep=66 test_capture=59 test_ci_sweep=26
+709786bb FLAKE-CATALOG-EVENT: #[test] 5193; test_sweep=66 test_capture=59 test_ci_sweep=26
+a09e39c1 merge-1: #[test] 5239; test_sweep=67 test_capture=59 test_ci_sweep=27
+7fa4cc27 merge-2: #[test] 5251; test_sweep=67 test_capture=59 test_ci_sweep=27
+d55e2317 merge-3: #[test] 5264; test_sweep=67 test_capture=59 test_ci_sweep=27
+5f601851 merge-4: #[test] 5266; test_sweep=67 test_capture=59 test_ci_sweep=27
+dca1004e re-point: #[test] 5266; test_sweep=67 test_capture=59 test_ci_sweep=27
+03476db7 join-tests: #[test] 5269; test_sweep=67 test_capture=59 test_ci_sweep=27

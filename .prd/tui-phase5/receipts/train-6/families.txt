@@ -1,0 +1,7 @@
+| family | main | head | tu4 | wider |
+|---|---|---|---|---|
+| p5-ctrlo-wider-* | - | 8 / 23 | - | 8 / 23 |
+| h1-resize | 1 / 3 | 1 / 3 | - | 1 / 3 |
+| the cancel scenarios (p5-transcript-cancel, interrupt*, question*) | 50 / 94 | 84 / 94 | 84 / 94 | - |
+| p5-transcript-* (all) | 45 / 107 | 51 / 107 | 51 / 107 | - |
+| every scenario swept | 398 / 661 | 472 / 684 | 462 / 651 | 9 / 26 |
