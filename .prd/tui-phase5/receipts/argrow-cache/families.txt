@@ -1,0 +1,10 @@
+scenarios: base 75, head 75, only one side: []
+| family | scenarios | pairs | pass, base | pass, head | scenarios passing fewer on the head |
+|---|---|---|---|---|---|
+| wraps, resize, fulltranscript*, toolgroup* (added) | 12 | 61 | 35 | 35 | 0 |
+| cancel: interrupt*, question*, compact-cancel | 16 | 93 | 84 | 84 | 0 |
+| p5-ctrlo-wider-* | 7 | 23 | 8 | 8 | 0 |
+| p5-inline-code-* | 8 | 24 | 24 | 24 | 0 |
+| p5-toolgroup-* | 8 | 32 | 26 | 26 | 0 |
+| p5-transcript-* | 24 | 107 | 51 | 51 | 0 |
+| **all** | 75 | 340 | 228 | 228 | 0 |

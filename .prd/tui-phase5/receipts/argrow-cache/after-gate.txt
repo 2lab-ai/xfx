@@ -1,0 +1,6 @@
+# after the gate: the shell test's round trips compared raw (test only), at the working tree on 255d3cac
+fmt --check exit 0
+clippy exit 0
+clippy fault-injection exit 0
+test result: ok. 106 passed; 0 failed; 0 ignored; 0 measured; 4350 filtered out; finished in 26.59s
+tests exit 0

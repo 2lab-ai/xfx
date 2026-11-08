@@ -1,0 +1,14 @@
+# The cache alone, before the wraps' fast paths: render_cost_probe.rs (this folder's) appended to a
+# git clone --no-local at a1ff89e7, release, XFX_PROBE_DETAIL=1, one case a process, one round, by hand,
+# NOT under the suite lock (load 8.65-10.09); the lines as printed. What it shows: join and theme
+# switch fall to 36 ms and 3 ms with the arguments kept, while the open and a resize still pay the
+# whole wrap (0.89 s, 0.35 s) -- the reason for 1a9652cc. Then the same at 1a9652cc's diff on that
+# clone (load 6.46), before the measured run (probe.txt).
+## a1ff89e7
+PROBE3 case=c1 detail=true key=false bridge_ms=72.412 start_ms=4.831 detail_ms=79.562 rebuild_median_ms=0.038 rebuild_worst_ms=2.405 ctrlo_open_ms=890.585 ctrlo_key_ms=NaN ctrlo_cached_ms=0.007 ctrlo_pageup_ms=0.014 ctrlo_join_ms=36.423 ctrlo_theme_ms=36.331 ctrlo_resize_ms=878.263 peak_rss_mib=416
+PROBE3 case=wider detail=true key=false bridge_ms=3.405 start_ms=6.424 detail_ms=39.983 rebuild_median_ms=0.062 rebuild_worst_ms=2.923 ctrlo_open_ms=345.790 ctrlo_key_ms=NaN ctrlo_cached_ms=0.007 ctrlo_pageup_ms=0.014 ctrlo_join_ms=3.429 ctrlo_theme_ms=3.178 ctrlo_resize_ms=344.208 peak_rss_mib=138
+PROBE3 case=short detail=true key=false bridge_ms=0.013 start_ms=0.023 detail_ms=0.003 rebuild_median_ms=0.017 rebuild_worst_ms=0.037 ctrlo_open_ms=0.067 ctrlo_key_ms=NaN ctrlo_cached_ms=0.005 ctrlo_pageup_ms=0.005 ctrlo_join_ms=0.046 ctrlo_theme_ms=0.033 ctrlo_resize_ms=0.033 peak_rss_mib=9
+## a1ff89e7 + the fast paths (1a9652cc's code, uncommitted then)
+PROBE3 case=c1 detail=true key=false bridge_ms=80.044 start_ms=2.853 detail_ms=71.298 rebuild_median_ms=0.025 rebuild_worst_ms=0.378 ctrlo_open_ms=74.725 ctrlo_key_ms=NaN ctrlo_cached_ms=0.006 ctrlo_pageup_ms=0.012 ctrlo_join_ms=32.920 ctrlo_theme_ms=33.994 ctrlo_resize_ms=55.225 peak_rss_mib=415
+PROBE3 case=wider detail=true key=false bridge_ms=3.240 start_ms=6.551 detail_ms=37.395 rebuild_median_ms=0.054 rebuild_worst_ms=2.773 ctrlo_open_ms=26.199 ctrlo_key_ms=NaN ctrlo_cached_ms=0.007 ctrlo_pageup_ms=0.012 ctrlo_join_ms=3.041 ctrlo_theme_ms=2.648 ctrlo_resize_ms=24.055 peak_rss_mib=138
+PROBE3 case=short detail=true key=false bridge_ms=0.011 start_ms=0.021 detail_ms=0.003 rebuild_median_ms=0.011 rebuild_worst_ms=0.017 ctrlo_open_ms=0.066 ctrlo_key_ms=NaN ctrlo_cached_ms=0.004 ctrlo_pageup_ms=0.005 ctrlo_join_ms=0.048 ctrlo_theme_ms=0.032 ctrlo_resize_ms=0.029 peak_rss_mib=9

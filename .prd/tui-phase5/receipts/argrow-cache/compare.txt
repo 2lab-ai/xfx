@@ -1,0 +1,212 @@
+# compare.py <the base's sweep, train 6 at 9681e9d8> <this head's sweep, 06b4fc4b>; exit 0
+pairs: reference 340, train 340, shared 340; only the reference: 0
+reference: 340 pairs, pass 228; approved-divergence 14, identical 11, normalized-identical 217, unresolved-defect 98
+train: 340 pairs, pass 228; approved-divergence 14, identical 7, normalized-identical 221, unresolved-defect 98
+interrupt-recovery full: 1 differing rows left, 1 new
+    left: fx '! network: provider: gateway · model: fake/model-a · 15ms' / xfx ''
+    NEW:  fx '! network: provider: gateway · model: fake/model-a · 12ms' / xfx ''
+interrupt-retry r1.05: 4 differing rows left, 1 new
+    left: fx '' / xfx 'auto · model-a'
+    left: fx 'auto · model-a' / xfx '┃'
+    left: fx '┃' / xfx '  <wall> (↑2 ↓40)'
+    left: fx ' · HTTP 500 · server_error: upstream exploded · retrying request in 1s' / xfx '  Recovered answer.'
+    NEW:  fx ' · HTTP 500 · server_error: upstream exploded · retrying request in 1s' / xfx '✓ recovered · attempt 3'
+verdicts moved: 4
+    p5-transcript-md answered: identical -> normalized-identical
+    p5-transcript-md closed: identical -> normalized-identical
+    p5-transcript-submit-multi filled: identical -> normalized-identical
+    p5-transcript-submit-multi second: identical -> normalized-identical
+fx screens not the same in the two sweeps: 85
+    composer-wrap badge-111
+    composer-wrap badge-71
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    interrupt mid2
+    interrupt-cmd cmd-running
+    interrupt-recovery full
+    interrupt-steer-retract steer-again
+    interrupt2 cd-streaming
+    interrupt2 mid
+    p5-ctrlo-wider-diff full
+    p5-ctrlo-wider-diff-fam full
+    p5-ctrlo-wider-fence ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo-resized
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-toolgroup-live running-dark
+    p5-toolgroup-live running-light
+    p5-toolgroup-live-tc running-dark
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-cancel full
+    p5-transcript-cancel mid
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 full
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tools running
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    toolgroup long-running
+xfx screens not the same in the two sweeps: 105
+    cmd-wrap cmd-a
+    cmd-wrap cmd-b
+    composer-wrap badge-111
+    composer-wrap badge-71
+    fulltranscript cmd-ask
+    fulltranscript cmd-ask-ctrl-o
+    fulltranscript edit-ask
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    interrupt-recovery full
+    interrupt-retry r1.05
+    interrupt-steer steer-tool
+    interrupt2 draft
+    p5-ctrlo-wider-diff full
+    p5-ctrlo-wider-diff-fam full
+    p5-ctrlo-wider-fence ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo-resized
+    p5-inline-code-retint-light dark
+    p5-inline-code-retint-light light
+    p5-inline-code-retint-light light-again
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-toolgroup-retint-light dark
+    p5-toolgroup-retint-light light
+    p5-toolgroup-retint-light light-again
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-cancel full
+    p5-transcript-diffask ask
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide closed
+    p5-transcript-diffwide edited
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 full
+    p5-transcript-md answered
+    p5-transcript-md answered.full
+    p5-transcript-md closed
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-submit-multi filled
+    p5-transcript-submit-multi second
+    p5-transcript-submit-multi second.full
+    p5-transcript-submit-multi submit-0.15
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    toolgroup again-ask
+    toolgroup cmd-ask
+    toolgroup edit-ask
+    toolgroup exit-ask
+    toolgroup long-ask
+    toolgroup long-running
+    toolgroup write-ask
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 2

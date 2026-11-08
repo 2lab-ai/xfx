@@ -211,30 +211,45 @@ pub(crate) fn literal(text: &str, cols: u16, gutter: u16) -> Vec<Row> {
 /// `b x…`, one space). A tab measured again where it lands would be wider than
 /// the row was measured for, and the row's last characters would be cut off
 /// by the clip.
+#[cfg(test)]
 pub(crate) fn literal_drawn(text: &str, cols: u16, gutter: u16) -> Vec<String> {
-    let (rows, tabs) = Layout::new(text, cols, gutter, true, Opening::Line).run_with_tabs();
-    let mut next = 0usize;
+    let (rows, tabs) = literal_layout(text, cols, gutter);
     rows.into_iter()
-        .map(|laid| {
-            let Row { start, end, .. } = laid.row;
-            let mut out = String::with_capacity(end - start);
-            let mut written = start;
-            while let Some(&(at, cells)) = tabs.get(next) {
-                if at >= end {
-                    break;
-                }
-                next += 1;
-                if at < start {
-                    continue;
-                }
-                out.push_str(&text[written..at]);
-                out.extend(std::iter::repeat_n(' ', cells));
-                written = at + 1;
-            }
-            out.push_str(&text[written..end]);
-            out
-        })
+        .map(|row| literal_piece(text, row, &tabs))
         .collect()
+}
+
+/// [`literal_drawn`] before anything is drawn: the rows, as ranges of `text`,
+/// and each tab's byte offset and the cells the wrap gave it -- what a
+/// row's text is made from ([`literal_piece`]), at any time after.
+pub(crate) fn literal_layout(
+    text: &str,
+    cols: u16,
+    gutter: u16,
+) -> (Vec<Row>, Vec<(usize, usize)>) {
+    let (rows, tabs) = Layout::new(text, cols, gutter, true, Opening::Line).run_with_tabs();
+    (rows.into_iter().map(|laid| laid.row).collect(), tabs)
+}
+
+/// One of [`literal_layout`]'s rows as the text to draw: `text`'s bytes in
+/// `row`, each tab in it written as the spaces `tabs` gives it. `text` and
+/// `tabs` are the layout's, or the same with every offset moved on by one
+/// amount (a line's layout inside a longer text).
+pub(crate) fn literal_piece(text: &str, row: Row, tabs: &[(usize, usize)]) -> String {
+    let Row { start, end, .. } = row;
+    let mut out = String::with_capacity(end - start);
+    let mut written = start;
+    let first = tabs.partition_point(|&(at, _)| at < start);
+    for &(at, cells) in &tabs[first..] {
+        if at >= end {
+            break;
+        }
+        out.push_str(&text[written..at]);
+        out.extend(std::iter::repeat_n(' ', cells));
+        written = at + 1;
+    }
+    out.push_str(&text[written..end]);
+    out
 }
 
 /// `row` -- the text of one prose row -- with every tab written as the spaces
@@ -339,6 +354,10 @@ struct Layout<'a> {
     /// Each tab's byte offset and the cells it moved to its stop, where it was
     /// met ([`literal_drawn`]).
     tabs: Vec<(usize, usize)>,
+    /// Whether runs the loop would only count are counted at once
+    /// ([`Self::step_over`]): always, but for the tests, which hold the wrap
+    /// that counts every unit against it.
+    fast: bool,
 }
 
 impl<'a> Layout<'a> {
@@ -365,6 +384,7 @@ impl<'a> Layout<'a> {
             has_word: false,
             zero_run: 0,
             tabs: Vec::new(),
+            fast: true,
         };
         if let (false, Opening::Continued(_)) = (literal, opening) {
             let next = first_visible_width(text).map_or(1, usize::from);
@@ -381,7 +401,8 @@ impl<'a> Layout<'a> {
     /// [`Self::run`], and where each tab stood and the cells it took.
     fn run_with_tabs(mut self) -> (Vec<ProseRow>, Vec<(usize, usize)>) {
         let text = self.text;
-        for unit in units(text, self.literal) {
+        let mut units = units_from(text, 0, self.literal);
+        while let Some((unit, whole)) = units.next() {
             let wrap::Painted {
                 start: before,
                 end,
@@ -436,7 +457,7 @@ impl<'a> Layout<'a> {
                     let mut at_break = last;
                     if let Some(previous) = self.breaks.previous {
                         if previous.has_preceding_word
-                            && is_final_word(text, at)
+                            && is_final_word(text, at, self.fast)
                             && self.fits(self.col - previous.col_end, at)
                         {
                             at_break = previous;
@@ -471,11 +492,43 @@ impl<'a> Layout<'a> {
                 }
             } else {
                 self.has_word = true;
+                if self.fast && whole {
+                    if let Some(next) = self.step_over(at, end, w) {
+                        units = units_from(text, next, self.literal);
+                    }
+                }
             }
         }
         let width = self.col.saturating_sub(self.first_col);
         self.push(text.len(), width);
         (self.rows, self.tabs)
+    }
+
+    /// After a whole cluster at `at..end`, `w` cells, that was not a space and
+    /// is on the row: steps over what follows it that the loop would only
+    /// count -- a cluster that is no space, no tab, no break, no control, has
+    /// cells and lands on the row without crossing the margin, for which the
+    /// loop moves the column on by its cells and nothing else -- and says
+    /// where the loop goes on, when it stepped over anything.
+    ///
+    /// Two such runs are known without segmenting: printable ASCII past the
+    /// space ([`wrap::single_cells`]), and the cluster at `at` repeated
+    /// ([`wrap::repeats`]) -- an argument Ctrl-O shows of megabytes is one or
+    /// the other once the channel has spelled it, and so is its heading. A
+    /// row of either costs about a row, not each of its characters.
+    fn step_over(&mut self, at: usize, end: usize, w: usize) -> Option<usize> {
+        let room = (self.cols + 1).saturating_sub(self.col);
+        let run = wrap::single_cells(self.text, end, room);
+        if run > 0 {
+            self.col += run;
+            return Some(end + run);
+        }
+        let copies = wrap::repeats(self.text, at, &self.text[at..end], room / w);
+        if copies > 0 {
+            self.col += copies * w;
+            return Some(end + copies * (end - at));
+        }
+        None
     }
 
     /// The space at `at..end` crosses the margin: moves the row's last word
@@ -485,8 +538,8 @@ impl<'a> Layout<'a> {
         let Some(last) = self.breaks.last else {
             return false;
         };
-        if remaining_word_width(self.text, end) == 0
-            || !is_final_word(self.text, end)
+        if remaining_word_width(self.text, end, self.fast) == 0
+            || !is_final_word(self.text, end, self.fast)
             || !self.fits(self.col - last.col_end, end)
         {
             return false;
@@ -503,7 +556,7 @@ impl<'a> Layout<'a> {
         if indent >= self.cols {
             return false;
         }
-        suffix + remaining_word_width(self.text, word) <= self.cols - indent
+        suffix + remaining_word_width(self.text, word, self.fast) <= self.cols - indent
     }
 
     /// Breaks the row at `at_break` instead of where the margin is, carrying
@@ -597,12 +650,24 @@ impl<'a> Layout<'a> {
 /// characters are units of their own so the run can be rowed, as upstream's
 /// units -- one per rune -- are. Nothing is allocated for the cut: this runs
 /// over every cluster of every answer row the transcript wraps.
-fn units(text: &str, literal: bool) -> impl Iterator<Item = wrap::Painted<'_>> {
-    wrap::painting(text).flat_map(move |painted| Pieces {
-        text,
-        painted,
-        split: literal && painted.cluster.len() > ZERO_WIDTH_ROW_BYTES,
-        offset: 0,
+///
+/// From byte `from`, where a cluster begins ([`wrap::painting_from`]), and
+/// each unit with whether it is a whole cluster rather than a character of
+/// one cut.
+fn units_from(
+    text: &str,
+    from: usize,
+    literal: bool,
+) -> impl Iterator<Item = (wrap::Painted<'_>, bool)> {
+    wrap::painting_from(text, from).flat_map(move |painted| {
+        let split = literal && painted.cluster.len() > ZERO_WIDTH_ROW_BYTES;
+        Pieces {
+            text,
+            painted,
+            split,
+            offset: 0,
+        }
+        .map(move |piece| (piece, !split))
     })
 }
 
@@ -648,9 +713,22 @@ impl<'a> Iterator for Pieces<'a> {
 /// The cells from `from` to the end of the word there: up to a space or a line
 /// break, sequences and controls costing nothing (`remainingWordWidth`,
 /// `:844-860`).
-fn remaining_word_width(text: &str, from: usize) -> usize {
+///
+/// With `fast`, a run of printable ASCII past the space -- a cell each, and
+/// none of them a space or a break -- is counted at once
+/// ([`wrap::single_cells`]): the last word of a line can be megabytes.
+fn remaining_word_width(text: &str, from: usize, fast: bool) -> usize {
     let mut width = 0usize;
-    for painted in wrap::painting(&text[from..]) {
+    let mut cursor = from;
+    loop {
+        if fast {
+            let run = wrap::single_cells(text, cursor, usize::MAX);
+            width += run;
+            cursor += run;
+        }
+        let Some(painted) = wrap::painting_from(text, cursor).next() else {
+            break;
+        };
         let cluster = painted.cluster;
         if cluster == " " || wrap::is_line_break(cluster) || cluster.starts_with('\r') {
             break;
@@ -658,16 +736,29 @@ fn remaining_word_width(text: &str, from: usize) -> usize {
         if cluster != "\t" {
             width += usize::from(wrap::cluster_width(cluster));
         }
+        cursor = painted.end;
     }
     width
 }
 
 /// Whether the word at `from` is the last one before the line ends
 /// (`isFinalWordOnLine`, `:862-883`).
-fn is_final_word(text: &str, from: usize) -> bool {
+///
+/// With `fast`, a run of printable ASCII past the space before the first space
+/// is stepped over at once ([`wrap::single_cells`]): none of it is a space or
+/// a break.
+fn is_final_word(text: &str, from: usize, fast: bool) -> bool {
     let mut passed = false;
-    for painted in wrap::painting(&text[from..]) {
+    let mut cursor = from;
+    loop {
+        if fast && !passed {
+            cursor += wrap::single_cells(text, cursor, usize::MAX);
+        }
+        let Some(painted) = wrap::painting_from(text, cursor).next() else {
+            return true;
+        };
         let cluster = painted.cluster;
+        cursor = painted.end;
         if wrap::is_line_break(cluster) || cluster.starts_with('\r') {
             return true;
         }
@@ -679,7 +770,6 @@ fn is_final_word(text: &str, from: usize) -> bool {
             return false;
         }
     }
-    true
 }
 
 /// The cells of the first unit of `text` that paints something, or `None`
@@ -1580,6 +1670,73 @@ mod tests {
         );
         for row in &rows {
             assert!(row.end - row.start <= ZERO_WIDTH_ROW_BYTES + 1, "{row:?}");
+        }
+    }
+
+    #[test]
+    fn stepping_over_what_the_wrap_only_counts_changes_no_row() {
+        // ARGROW-CACHE: the wrap that steps over a run of printable ASCII and a
+        // repeated cluster against the wrap that counts every unit, in both
+        // forms, every opening, and widths from one column.
+        let openings = [
+            Opening::Line,
+            Opening::Continued(None),
+            Opening::Continued(Some(Continuation::Indent(2))),
+            Opening::Continued(Some(Continuation::Quote {
+                indent: 0,
+                depth: 1,
+            })),
+        ];
+        let mut rng = wrap::corpus::Rng(0xd1b5_4a32_d192_ed03);
+        for _ in 0..1500 {
+            let runs = 1 + rng.below(24);
+            let mut text = rng.text(runs);
+            if rng.below(4) == 0 {
+                // A line's shape for an argument: a name, then words and a
+                // long token.
+                text = {
+                    let tail = rng.below(90);
+                    format!("pattern: {text} {}", "q".repeat(tail))
+                };
+            }
+            for literal in [true, false] {
+                let opening = if literal {
+                    Opening::Line
+                } else {
+                    openings[rng.below(openings.len())]
+                };
+                for cols in [1u16, 2, 3, 5, 8, 13, 21, 34] {
+                    let gutter = rng.below(4) as u16;
+                    let fast = Layout::new(&text, cols, gutter, literal, opening).run_with_tabs();
+                    let mut slow = Layout::new(&text, cols, gutter, literal, opening);
+                    slow.fast = false;
+                    assert_eq!(
+                        fast,
+                        slow.run_with_tabs(),
+                        "{text:?} at {cols}, gutter {gutter}, literal {literal}, {opening:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_wrap_of_megabytes_of_one_token_steps_a_row_at_a_time() {
+        // The shapes Ctrl-O lays out an argument of megabytes in, once the
+        // channel has spelled it, against the wrap that counts every unit:
+        // one token, words before it, and one wide character repeated.
+        for text in [
+            format!("pattern: {}", r"\u{009b}".repeat(4000)),
+            format!("pattern: a b {}", r"\u{261d}".repeat(3000)),
+            format!("note: {}", "\u{65e5}".repeat(5000)),
+            format!("note: {} tail", "w ".repeat(3000)),
+        ] {
+            for cols in [17u16, 97, 117] {
+                let fast = Layout::new(&text, cols, 3, true, Opening::Line).run_with_tabs();
+                let mut slow = Layout::new(&text, cols, 3, true, Opening::Line);
+                slow.fast = false;
+                assert_eq!(fast, slow.run_with_tabs(), "{} at {cols}", &text[..20]);
+            }
         }
     }
 }

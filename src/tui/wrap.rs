@@ -168,6 +168,58 @@ pub(crate) fn first_cluster(text: &str) -> Option<&str> {
     }
 }
 
+/// How many of the bytes of `text` from `at`, `limit` at most, are each a
+/// cluster of one cell that is not a space -- printable ASCII after the space
+/// (`!` through `~`), each followed by another ASCII byte or by nothing, the
+/// cluster [`first_cluster`] knows without segmenting -- so a wrap can count
+/// a run of them as that many cells and step over it as one.
+///
+/// The last of the run is left out when what follows it is outside ASCII: a
+/// mark there would join it.
+pub(crate) fn single_cells(text: &str, at: usize, limit: usize) -> usize {
+    let bytes = text.as_bytes();
+    let Some(window) = bytes.get(at..at.saturating_add(limit).min(bytes.len())) else {
+        return 0;
+    };
+    let run = window
+        .iter()
+        .position(|byte| !(0x21..=0x7e).contains(byte))
+        .unwrap_or(window.len());
+    if run > 0 && bytes.get(at + run).is_some_and(|byte| !byte.is_ascii()) {
+        run - 1
+    } else {
+        run
+    }
+}
+
+/// How many copies of `cluster` -- the cluster [`first_cluster`] found at
+/// `at` -- follow it, `limit` at most, counting only a copy that another copy
+/// follows: each of those is `cluster` again, with no segmenting.
+///
+/// Where one cluster ends is decided by what it holds and by the character
+/// after it, and [`first_cluster`] reads both from where the cluster begins:
+/// a copy followed by a copy is read as the first one was, with the same
+/// character after it. The last copy is left out -- what follows it may join
+/// it (a mark, a joiner).
+pub(crate) fn repeats(text: &str, at: usize, cluster: &str, limit: usize) -> usize {
+    let (bytes, unit) = (text.as_bytes(), cluster.as_bytes());
+    let len = unit.len();
+    if len == 0 {
+        return 0;
+    }
+    let mut copies = 0;
+    let mut next = at + len;
+    while copies < limit
+        && bytes
+            .get(next..next + 2 * len)
+            .is_some_and(|two| two[..len] == *unit && two[len..] == *unit)
+    {
+        copies += 1;
+        next += len;
+    }
+    copies
+}
+
 /// One cluster that paints something, and the bytes it travels with.
 ///
 /// `start` is where the escape sequences *in front of* the cluster begin, and
@@ -192,7 +244,16 @@ pub(crate) struct Painted<'a> {
 /// [`Row`] is a range and the ranges tile the text -- a sequence between two
 /// clusters is inside whichever row those clusters put it in.
 pub(crate) fn painting(text: &str) -> impl Iterator<Item = Painted<'_>> {
-    let mut cursor = 0usize;
+    painting_from(text, 0)
+}
+
+/// [`painting`] from byte `from` of `text`, which is where a cluster begins
+/// -- or the sequences in front of one -- and with the offsets of the whole of
+/// `text`: the clusters [`painting`] gives after one that ends at `from`.
+///
+/// Each cluster is [`first_cluster`]'s, which is `graphemes(true).next()`'s.
+pub(crate) fn painting_from(text: &str, from: usize) -> impl Iterator<Item = Painted<'_>> {
+    let mut cursor = from;
     std::iter::from_fn(move || {
         let start = cursor;
         while cursor < text.len() {
@@ -201,7 +262,7 @@ pub(crate) fn painting(text: &str) -> impl Iterator<Item = Painted<'_>> {
                 cursor += len;
                 continue;
             }
-            let cluster = rest.graphemes(true).next().unwrap_or(rest);
+            let cluster = first_cluster(rest).unwrap_or(rest);
             cursor += cluster.len();
             return Some(Painted {
                 start,
@@ -610,6 +671,15 @@ pub(crate) fn cluster_width(cluster: &str) -> u16 {
 /// wider too** ([`FX_COUNTED`]: `U+302E` after a letter, a vowel sign such as
 /// Bengali `U+09BE`, a regional indicator).
 fn cluster_cells(cluster: &str) -> usize {
+    // One printable ASCII character, a space included: one cell, the general
+    // path's answer below (no tab, no control, none of the code points
+    // counted apart, no selector; `unicode-width` gives every one 1) reached
+    // without asking it -- most clusters a row is made of.
+    if let [byte] = cluster.as_bytes() {
+        if (0x20..=0x7e).contains(byte) {
+            return 1;
+        }
+    }
     if cluster == "\t" {
         return usize::from(TAB_WIDTH);
     }
@@ -1007,6 +1077,111 @@ pub(crate) fn composer_point(text: &str, rows: &[Row], cursor: usize, cols: u16)
         return (index, composer_cells(text, row, cursor, cols));
     }
     (0, 0)
+}
+
+/// Texts the wraps' fast paths are held against the wraps that count every
+/// unit (ARGROW-CACHE): every kind of unit a row is made of, and what decides
+/// where a cluster ends -- a mark, a selector, a joiner, a regional
+/// indicator, Hangul jamo, a prepended character, a conjunct's virama, CR LF
+/// -- often repeated, and now and then a cluster of over 256 bytes.
+#[cfg(test)]
+pub(crate) mod corpus {
+    pub(crate) const PIECES: &[&str] = &[
+        "a",
+        "bc",
+        "xyz",
+        "-",
+        "~",
+        "!",
+        "0",
+        " ",
+        "  ",
+        "\t",
+        "\n",
+        "\r\n",
+        "\r",
+        "\x1b[1m",
+        "\x1b[38;5;250m",
+        "\x1b[0m",
+        "\x1b",
+        "\x1b[",
+        "\x07",
+        "\x7f",
+        "\u{85}",
+        "\u{9b}",
+        "\u{65e5}",
+        "\u{1f600}",
+        "\u{261d}",
+        "\u{2e3a}",
+        "e\u{301}",
+        "\u{301}",
+        "\u{fe0f}",
+        "\u{fe0e}",
+        "\u{20e3}",
+        "#\u{fe0f}\u{20e3}",
+        "\u{200d}",
+        "\u{1f468}\u{200d}\u{1f469}",
+        "\u{1f1e6}",
+        "\u{1f1fa}",
+        "\u{1100}",
+        "\u{1161}",
+        "\u{11a8}",
+        "\u{ac00}",
+        "\u{600}",
+        "\u{110bd}",
+        "\u{915}\u{94d}",
+        "\u{915}",
+        "\u{ad}",
+        "\u{3164}",
+        "\u{ffa0}",
+        "\u{1f3fb}",
+        "\u{17d8}",
+        "\u{200b}",
+        "\u{9be}",
+        "\u{302e}",
+    ];
+
+    /// xorshift64: the same texts on every run.
+    pub(crate) struct Rng(pub(crate) u64);
+
+    impl Rng {
+        pub(crate) fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+
+        pub(crate) fn below(&mut self, bound: usize) -> usize {
+            (self.next() % bound as u64) as usize
+        }
+
+        /// `runs` pieces, a third of them repeated 2 to 40 times, and one in
+        /// forty a cluster of over 256 bytes: a letter under 140 marks, or
+        /// 100 leading jamo, which join one another.
+        pub(crate) fn text(&mut self, runs: usize) -> String {
+            let mut text = String::new();
+            for _ in 0..runs {
+                if self.below(40) == 0 {
+                    if self.below(2) == 0 {
+                        text.push('a');
+                        text.push_str(&"\u{301}".repeat(140));
+                    } else {
+                        text.push_str(&"\u{1100}".repeat(100));
+                    }
+                    continue;
+                }
+                let piece = PIECES[self.below(PIECES.len())];
+                let times = if self.below(3) == 0 {
+                    2 + self.below(39)
+                } else {
+                    1
+                };
+                text.push_str(&piece.repeat(times));
+            }
+            text
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2072,5 +2247,106 @@ mod tests {
         let wide = "a".repeat(usize::from(u16::MAX) + 10);
         assert!(fits(&wide, u16::MAX));
         assert!(!fits(&wide, u16::MAX - 1));
+    }
+
+    /// [`painting`] as it was before it read clusters through
+    /// [`first_cluster`].
+    fn painting_by_graphemes(text: &str) -> Vec<(usize, usize, String)> {
+        let mut out = Vec::new();
+        let mut cursor = 0usize;
+        while cursor < text.len() {
+            let start = cursor;
+            loop {
+                let rest = &text[cursor..];
+                if rest.is_empty() {
+                    return out;
+                }
+                if let Some(len) = super::super::pacer::escape_at(rest) {
+                    cursor += len;
+                    continue;
+                }
+                let cluster = rest.graphemes(true).next().unwrap_or(rest);
+                cursor += cluster.len();
+                out.push((start, cursor, cluster.to_string()));
+                break;
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn painting_reads_the_clusters_graphemes_reads() {
+        let mut rng = corpus::Rng(0x2545_f491_4f6c_dd1d);
+        for _ in 0..3000 {
+            let runs = 1 + rng.below(30);
+            let text = rng.text(runs);
+            let painted: Vec<(usize, usize, String)> = painting(&text)
+                .map(|painted| (painted.start, painted.end, painted.cluster.to_string()))
+                .collect();
+            assert_eq!(painted, painting_by_graphemes(&text), "{text:?}");
+            // And from any of its clusters' ends, the rest of them.
+            for (index, (_, end, _)) in painted.iter().enumerate() {
+                let from: Vec<(usize, usize, String)> = painting_from(&text, *end)
+                    .map(|painted| (painted.start, painted.end, painted.cluster.to_string()))
+                    .collect();
+                assert_eq!(from, painted[index + 1..], "{text:?} from {end}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_printable_ascii_character_is_one_cell() {
+        // And every other one-byte cluster what the general path counts it:
+        // the tab its stop's cells, every other control none.
+        for byte in 0x00u8..=0x7f {
+            let character = byte as char;
+            let text = character.to_string();
+            let general = if character == '\t' {
+                TAB_WIDTH
+            } else if character.is_control() {
+                0
+            } else {
+                u16::try_from(unicode_width::UnicodeWidthChar::width(character).unwrap_or(0))
+                    .expect("a cell or two")
+            };
+            assert_eq!(cluster_width(&text), general, "{text:?}");
+            if (0x20..=0x7e).contains(&byte) {
+                assert_eq!(general, 1, "{text:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_run_stepped_over_is_the_clusters_graphemes_reads_there() {
+        // Where a wrap may step over a run -- the end of a cluster -- the
+        // clusters `single_cells` and `repeats` count are the ones the
+        // segmenter gives, one at a time, from there.
+        let mut rng = corpus::Rng(0x9e37_79b9_7f4a_7c15);
+        for _ in 0..3000 {
+            let runs = 1 + rng.below(30);
+            let text = rng.text(runs);
+            let clusters = painting_by_graphemes(&text);
+            for (index, (_, end, cluster)) in clusters.iter().enumerate() {
+                let next = &clusters[index + 1..];
+                let ascii = single_cells(&text, *end, usize::MAX);
+                assert!(ascii <= next.len(), "{text:?} at {end}");
+                for (offset, (start, after, unit)) in next[..ascii].iter().enumerate() {
+                    assert_eq!(*start, end + offset, "{text:?} at {end}: no sequence");
+                    assert_eq!(after - start, 1, "{text:?} at {end}: {unit:?}");
+                    assert_ne!(unit, " ");
+                    assert_eq!(cluster_width(unit), 1, "{text:?} at {end}: {unit:?}");
+                }
+                let at = end - cluster.len();
+                let copies = repeats(&text, at, cluster, usize::MAX);
+                assert!(copies <= next.len(), "{text:?} at {at}");
+                for (offset, (start, _, unit)) in next[..copies].iter().enumerate() {
+                    assert_eq!(*start, end + offset * cluster.len(), "{text:?} at {at}");
+                    assert_eq!(unit, cluster, "{text:?} at {at}, copy {offset}");
+                }
+                // A limit is a limit.
+                assert_eq!(single_cells(&text, *end, 2), ascii.min(2));
+                assert_eq!(repeats(&text, at, cluster, 1), copies.min(1));
+            }
+        }
     }
 }
