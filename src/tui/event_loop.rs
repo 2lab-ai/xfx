@@ -754,6 +754,11 @@ fn adopt_resume(shell: &mut Shell, band: &mut Band, plane_restored: bool) {
     // document's included -- and `external_damage` is where both halves of that
     // are recorded together.
     shell.external_damage();
+    // And the `@` list's keys wait for the frame that repaints it, as fx's
+    // do while the reset a resume asks for is pending (`requestTerminalReset`,
+    // `app_lifecycle.zig:1210@481104fd`; `terminal_reset_pending`,
+    // `input_completion_runtime.zig:805-806`).
+    shell.file_picker_unseen();
 }
 
 /// Re-solves the band from the terminal's size, once the debounce is out.

@@ -5392,7 +5392,8 @@ impl Shell {
     }
 
     /// A frame did not show the `@` list -- it was refused or torn, or it took
-    /// the other plane -- so its keys wait for one that does
+    /// the other plane -- or the screen is about to be repainted whole (a
+    /// resize, a resume), so its keys wait for one that does
     /// (`distrustFilePicker`, `app_render_runtime.zig:1002-1003`,
     /// `:1024-1026@481104fd`; `filePickerEligible`,
     /// `input_completion_runtime.zig:775-786`, `:798-799`).
@@ -6172,18 +6173,34 @@ impl Shell {
                     }
                     None => {}
                 }
+                // A frame whatever Tab did: a Tab spent while the list waited
+                // for one is what brings the frame it waits for
+                // (`app_input_runtime.zig:1317-1321@481104fd`).
+                self.render.request(Reason::Modal);
                 return true;
             }
+            // Under the full transcript the list does not own the surface:
+            // its Enter answers nothing, and Enter goes on to send the line
+            // (`submitFilePickerOnEnter`, `input_completion_runtime.zig:
+            // 1034-1037`; `filePickerOwnsSurface`, `:1054-1056`).
+            Action::Submit if self.full.is_open() => return false,
             Action::Submit => {
                 return match files.enter() {
                     file_picker::Enter::Accept(found) => {
                         self.complete_file(&found);
+                        self.render.request(Reason::Modal);
                         true
                     }
                     // Nothing matched: the line goes as typed, and the
                     // keystroke goes on to send it.
                     file_picker::Enter::Submit => false,
-                    file_picker::Enter::Wait => true,
+                    // Spent, and a frame asked for, as fx asks for one
+                    // whenever its list answers Enter (`app_input_runtime.zig:
+                    // 1405-1410`).
+                    file_picker::Enter::Wait => {
+                        self.render.request(Reason::Modal);
+                        true
+                    }
                 };
             }
             Action::Escape => {
@@ -6192,9 +6209,13 @@ impl Shell {
             }
             _ => return false,
         };
-        if files.step(delta, self.file_rows_painted) {
-            self.render.request(Reason::Modal);
-        }
+        // A frame whether the mark moved or not, as fx asks for one after
+        // every arrow and page key (`app_input_runtime.zig:310-330`,
+        // `:1013-1020@481104fd`): an arrow spent while the list waited for a
+        // frame -- after a resize that came back the same size, say, which
+        // asks for none of its own -- is what brings that frame.
+        files.step(delta, self.file_rows_painted);
+        self.render.request(Reason::Modal);
         true
     }
 
@@ -34727,6 +34748,46 @@ mod tests {
                 other => panic!("{draft}: Enter under Ctrl-O sent {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn a_frame_that_shows_another_surface_over_the_list_neither_trusts_it_nor_sets_its_rows() {
+        // fx trusts the list, and takes its painted rows, only from a frame
+        // whose receipt shows the file picker (`picker_kind == .file`,
+        // `app_render_runtime.zig:1854-1857@481104fd`). The read-only panel
+        // outranks a list a paste opens under it (`Self::slot`; the paste
+        // reaches the composer, `Self::pasted`), so a frame lands showing the
+        // panel while the list exists: it leaves the count at six, and the
+        // Down after the panel closes is spent.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.open_info_panel(fx_status_panel());
+        pasted(&mut shell, "@");
+        listed(&mut shell);
+        assert!(
+            matches!(shell.slot(), Some(Slot::Info(_))),
+            "the panel is not in front"
+        );
+        assert!(
+            shell.geometry.panel > 6,
+            "the panel is not the taller occupant"
+        );
+        assert_eq!(
+            shell.file_rows_painted, 6,
+            "the panel's frame set the list's rows"
+        );
+        escape(&mut shell);
+        assert!(shell.info_panel.is_none());
+        assert!(shell.file_picker.is_some(), "the list went with the panel");
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(|files| files.marked())
+                .map(|found| found.path.as_str()),
+            Some("Cargo.toml"),
+            "a Down moved the bar no frame had shown"
+        );
     }
 
     #[test]

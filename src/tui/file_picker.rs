@@ -28,10 +28,14 @@
 //! fewer on a screen without them, grown to [`MOST_FILE_ROWS`] while five
 //! transcript rows stay visible above the band ([`FilePicker::height`]). The
 //! arrows scroll the rows the last frame that landed painted (99e62b8e;
-//! [`FilePicker::step`]), and every key acts only on rows a frame that landed
-//! has shown: until then a new query's arrows, Tab and Enter are spent (fx's
-//! `trusted`, `file_completion_state.zig:104`, `:218-240@481104fd`;
-//! [`FilePicker::trust`]).
+//! [`FilePicker::step`]). The keys are held behind a query-and-visibility
+//! gate (fx's `trusted`, `file_completion_state.zig:104`, `:218-240
+//! @481104fd`; [`FilePicker::trust`]): a new or changed query's arrows, Tab
+//! and Enter are spent until a frame that shows the list lands, and so are
+//! they after a frame that did not show it. Once it has been shown, a refresh
+//! of the same query is acted on at once -- fx's keys act on the rows the last
+//! frame showed until the next one shows the new ones (`current`, `:212-216`),
+//! which xfx does not copy.
 //!
 //! # What opens it
 //!
@@ -564,6 +568,7 @@ impl FilePicker {
             .rows
             .get(self.selected)
             .map(|found| (found.path.clone(), found.kind));
+        let had_mark = marked.is_some();
         let kept = marked.and_then(|(path, kind)| {
             rows.iter()
                 .position(|found| found.path == path && found.kind == kind)
@@ -573,10 +578,13 @@ impl FilePicker {
         // its new place or not: the frame paints the rows that keep the mark
         // in view, and the next move scrolls from here (`view` and
         // `acknowledge`, `file_completion_state.zig:258-275`, `:292-293`). A
-        // mark whose path is gone starts it over, as fx's next move after a
-        // lost selection does (`:244-246`; fx says so on a status row first,
-        // which xfx does not have -- AT-STALE-SELECTION).
-        if kept.is_none() {
+        // mark whose path is gone from rows that are there starts it over, as
+        // fx's next move after a lost selection does (`:244-246`; fx says so
+        // on a status row first, which xfx does not have --
+        // AT-STALE-SELECTION). Rows that went away altogether lose nothing:
+        // fx records no lost selection over an empty list (`:258-260`,
+        // `:291`).
+        if had_mark && kept.is_none() && !rows.is_empty() {
             self.window_start = 0;
         }
         self.rows = rows;
