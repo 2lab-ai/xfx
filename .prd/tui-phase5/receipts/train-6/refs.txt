@@ -1,0 +1,156 @@
+# head HEAD; sides: main 690aa505, gitenv 4db63171, tu4 5a7bb465, wider 1824e868, flake 709786bb
+docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:888]
+    main* = row | gitenv* = row | tu4* = row | wider* = row | flake* = row
+docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:196]
+    main* = row | gitenv* = row | tu4* = row | wider* = row | flake* = row
+docs/parity.md:96	[scripts/fxcap/parity-ledger.toml:307]
+    main* = row | gitenv* = row | tu4* = row | wider* = row | flake* = row
+docs/parity.md:99	[scripts/fxcap/parity-ledger.toml:432]
+    main* = row | gitenv* = row | tu4* = row | wider* = row | flake* = row
+docs/parity.md:107	[scripts/fxcap/parity-ledger.toml:123]
+    main* = row | gitenv* = row | tu4* = row | wider* = row | flake* = row
+docs/parity.md:109	[scripts/fxcap/parity-ledger.toml:913]
+    main* = row | gitenv* = row | tu4* = row | wider* = row | flake* = row
+docs/parity.md:113	[scripts/fxcap/parity-ledger.toml:349]
+    main* = row | gitenv* = row | tu4* = row | wider* = row | flake* = row
+docs/parity.md:115	[scripts/fxcap/parity-ledger.toml:70, scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:236, scripts/fxcap/parity-ledger.toml:267, scripts/fxcap/parity-ledger.toml:280, scripts/fxcap/parity-ledger.toml:294, scripts/fxcap/parity-ledger.toml:321, scripts/fxcap/parity-ledger.toml:335, scripts/fxcap/parity-ledger.toml:418]
+    main* = row | gitenv* = row | tu4* = row | wider* = row | flake* = row
+docs/parity.md:118	[scripts/fxcap/parity-ledger.toml:61]
+    main* = row | gitenv* = row | tu4* = row | wider* = row | flake* = row
+docs/parity.md:120	[scripts/fxcap/parity-ledger.toml:182, scripts/fxcap/parity-ledger.toml:335]
+    main* = row | gitenv* = row | tu4* = row | wider* = row | flake* = row
+docs/parity.md:158	[scripts/fxcap/parity-ledger.toml:562, scripts/fxcap/parity-ledger.toml:573]
+    main* = row | gitenv* = row | tu4* = row | wider* = row | flake* = row
+docs/parity.md:160	[scripts/fxcap/parity-ledger.toml:776]
+    main* = row | gitenv* = row | tu4* = row | wider* = row | flake* = row
+docs/parity.md:172	[scripts/fxcap/parity-ledger.toml:877]
+    main* = row | gitenv* = row | tu4* = row | wider* = row | flake* = row
+docs/parity.md:177	[scripts/fxcap/parity-ledger.toml:740]
+    main* = row | gitenv* = row | tu4* = row | wider* = row | flake* = row
+docs/parity.md:210	[scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:321]
+    main* = row | gitenv* = row | tu4* = row | wider* = row | flake* = row
+docs/parity.md:216	[scripts/fxcap/parity-ledger.toml:712]
+    main* = row | gitenv* = row | tu4* = row | wider* = row | flake* = row
+docs/parity.md:237	[scripts/fxcap/parity-ledger.toml:450, scripts/fxcap/parity-ledger.toml:505, scripts/fxcap/parity-ledger.toml:519, scripts/fxcap/parity-ledger.toml:533]
+    main* = row | gitenv* = row | tu4* = row | wider* = row | flake* = row
+docs/parity.md:238	[scripts/fxcap/parity-ledger.toml:139, scripts/fxcap/parity-ledger.toml:363, scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:387, scripts/fxcap/parity-ledger.toml:391, scripts/fxcap/parity-ledger.toml:405, scripts/fxcap/parity-ledger.toml:463, scripts/fxcap/parity-ledger.toml:491, scripts/fxcap/parity-ledger.toml:788]
+    main* = row | gitenv* = row | tu4* = row | wider* = row | flake* = row
+docs/parity.md:243	[scripts/fxcap/parity-ledger.toml:250]
+    main* = row | gitenv -> 245 | tu4 -> 245 | wider -> 245 | flake -> 245
+scripts/check-xfx-identity.sh:5	[docs/parity.md:241]
+    main* = | gitenv = | tu4 = | wider = | flake =
+scripts/fxcap/capture.sh:291-293	[scripts/fxcap/parity-ledger.toml:85]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+scripts/fxcap/capture.sh:462	[scripts/fxcap/parity-ledger.toml:78]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+scripts/fxcap/capture.sh:878	[scripts/fxcap/parity-ledger.toml:147]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+scripts/fxcap/cells.py:12-14	[scripts/fxcap/parity-ledger.toml:53]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/agent/machine.rs:78-85	[docs/parity.md:237]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/config/schema.rs:545-550	[docs/parity.md:93]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/gateway/mod.rs:59	[scripts/fxcap/parity-ledger.toml:640, scripts/fxcap/parity-ledger.toml:650, docs/parity.md:237]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/gateway/mod.rs:994-995	[docs/parity.md:237]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/image.rs:101	[scripts/fxcap/parity-ledger.toml:740]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/markdown/theme.rs:49	[scripts/fxcap/parity-ledger.toml:250]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/markdown/theme.rs:69	[scripts/fxcap/parity-ledger.toml:250]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/mcp/transport.rs:1318-1320	[docs/parity.md:221]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/permission/authority.rs:38-41	[scripts/fxcap/parity-ledger.toml:866]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/permission/authority.rs:737	[scripts/fxcap/parity-ledger.toml:450]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/permission/authority.rs:1145-1149	[scripts/fxcap/parity-ledger.toml:866]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/permission/slash.rs:466	[scripts/fxcap/parity-ledger.toml:774]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/provider/mod.rs:116	[scripts/fxcap/parity-ledger.toml:762]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/proxy/server.rs:1583-1613	[docs/parity.md:114]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/session/store.rs:74	[docs/parity.md:48]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/session/store.rs:1000	[scripts/fxcap/parity-ledger.toml:670]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/sound.rs:37	[scripts/fxcap/parity-ledger.toml:911]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/tools/mcp.rs:422-428	[scripts/fxcap/parity-ledger.toml:1067, docs/parity.md:176]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/tools/mutate.rs:437-442	[scripts/fxcap/parity-ledger.toml:571, docs/parity.md:158]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/tools/question.rs:25	[scripts/fxcap/parity-ledger.toml:661]
+    main = | gitenv = | tu4* = | wider = | flake =
+src/tools/question.rs:57-73	[docs/parity.md:242]
+    main* = | gitenv = | tu4 = | wider = | flake =
+src/tools/read.rs:1162	[scripts/fxcap/parity-ledger.toml:571, docs/parity.md:158]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/tools/spec.rs:214	[scripts/fxcap/parity-ledger.toml:868]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/tui/approval_view.rs:106	[scripts/fxcap/parity-ledger.toml:923]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/tui/approval_view.rs:685	[scripts/fxcap/parity-ledger.toml:774, scripts/fxcap/parity-ledger.toml:797, scripts/fxcap/parity-ledger.toml:809, scripts/fxcap/parity-ledger.toml:820, scripts/fxcap/parity-ledger.toml:831, scripts/fxcap/parity-ledger.toml:854, scripts/fxcap/parity-ledger.toml:899]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/tui/approval_view.rs:971-976	[scripts/fxcap/parity-ledger.toml:463]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/tui/approval_view.rs:1224	[scripts/fxcap/parity-ledger.toml:981]
+    main changed | gitenv changed | tu4 changed | wider* = | flake changed
+src/tui/frame.rs:2749	[scripts/fxcap/parity-ledger.toml:533]
+    main = | gitenv = | tu4 = | wider* = | flake =
+src/tui/full_transcript.rs:492	[scripts/fxcap/parity-ledger.toml:363]
+    main* -> 495 MOVED | gitenv* -> 495 MOVED | tu4* -> 495 MOVED | wider* = | flake* -> 495 MOVED
+src/tui/full_transcript.rs:2615	[scripts/fxcap/parity-ledger.toml:491, scripts/fxcap/parity-ledger.toml:981]
+    main -> 2871 | gitenv -> 2871 | tu4 -> 2627 | wider* -> 2743 MOVED | flake -> 2871
+src/tui/full_transcript.rs:2666	[scripts/fxcap/parity-ledger.toml:505, scripts/fxcap/parity-ledger.toml:519]
+    main -> 2922 | gitenv -> 2922 | tu4 -> 2678 | wider* -> 2794 MOVED | flake -> 2922
+src/tui/grid.rs:933	[scripts/fxcap/parity-ledger.toml:958]
+    main = | gitenv = | tu4 = | wider* = | flake =
+src/tui/layout.rs:91	[scripts/fxcap/parity-ledger.toml:946, scripts/fxcap/parity-ledger.toml:994]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/tui/mcp_menu.rs:1500	[scripts/fxcap/parity-ledger.toml:432]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/tui/mod.rs:127-133	[scripts/fxcap/parity-ledger.toml:1076]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/tui/retry.rs:369-381	[docs/parity.md:237]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/tui/settings.rs:361	[scripts/fxcap/parity-ledger.toml:911]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/tui/shell.rs:185	[scripts/fxcap/parity-ledger.toml:44, scripts/fxcap/parity-ledger.toml:45]
+    main* = | gitenv -> 186 | tu4 -> 186 | wider -> 186 | flake -> 186
+src/tui/shell.rs:1644	[scripts/fxcap/parity-ledger.toml:935]
+    main* = | gitenv -> 1705 | tu4 -> 1705 | wider -> 1705 | flake -> 1705
+src/tui/shell.rs:9665	[scripts/fxcap/parity-ledger.toml:843, scripts/fxcap/parity-ledger.toml:845]
+    main = | gitenv -> 9762 | tu4* -> 9762 MOVED | wider -> 9762 | flake -> 9762
+src/tui/shell.rs:12531	[scripts/fxcap/parity-ledger.toml:505]
+    main = | gitenv -> 12865 | tu4 -> 12865 | wider* -> 12859 MOVED | flake -> 12865
+src/tui/shell.rs:12600	[scripts/fxcap/parity-ledger.toml:551]
+    main* = | gitenv -> 12934 | tu4 -> 12934 | wider -> 12928 | flake -> 12934
+src/tui/shell.rs:15273	[scripts/fxcap/parity-ledger.toml:969]
+    main -> 15279 | gitenv -> 15613 | tu4 -> 15613 | wider* -> 15607 MOVED | flake -> 15613
+src/tui/shell.rs:37424	[scripts/fxcap/parity-ledger.toml:831]
+    main -> 37430 | gitenv* -> 37764 MOVED | tu4* -> 37764 MOVED | wider* -> 37758 MOVED | flake* -> 37764 MOVED
+src/tui/shell.rs:37758	[scripts/fxcap/parity-ledger.toml:786, scripts/fxcap/parity-ledger.toml:797, scripts/fxcap/parity-ledger.toml:809, scripts/fxcap/parity-ledger.toml:820, scripts/fxcap/parity-ledger.toml:899]
+    main* -> 37764 MOVED | gitenv -> 38223 | tu4 -> 38223 | wider -> 38092 | flake -> 38223
+src/tui/toolgroup.rs:889	[scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:854]
+    main -> 1058 | gitenv -> 1058 | tu4* = | wider -> 1058 | flake -> 1058
+src/tui/toolgroup.rs:966	[scripts/fxcap/parity-ledger.toml:391]
+    main -> 1135 | gitenv -> 1135 | tu4* = | wider -> 1135 | flake -> 1135
+src/tui/toolgroup.rs:1080	[scripts/fxcap/parity-ledger.toml:405]
+    main -> 1249 | gitenv -> 1249 | tu4* = | wider -> 1249 | flake -> 1249
+src/tui/usage_menu.rs:790	[scripts/fxcap/parity-ledger.toml:349]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+src/tui/wrap.rs:593-604	[scripts/fxcap/parity-ledger.toml:958]
+    main -> 615-629 | gitenv -> 615-629 | tu4 = | wider* -> 612-623 MOVED | flake -> 615-629
+src/tui/wrap.rs:622	[scripts/fxcap/parity-ledger.toml:477]
+    main* -> 656 MOVED | gitenv* -> 656 MOVED | tu4* -> 628 MOVED | wider* -> 641 MOVED | flake* -> 656 MOVED
+tests/e2e/file-tool-paths.test.ts:1170-1179	[docs/parity.md:218]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+tests/tla/session_manager/system-design.md:1536-1560	[docs/parity.md:92]
+    main* = | gitenv* = | tu4* = | wider* = | flake* =
+# 77 references; 20 (side, reference) pairs MOVED; * = the side's own text cites it

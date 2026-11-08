@@ -1,0 +1,10 @@
+commit 5f60185160d7256fecf0915cd2c5c475d6c3cb18
+parents d55e2317b5b5490f49b22298a6a69d11a6382162 709786bbda087a2518d428628bac6df955c0d4b8
+
+Merge FLAKE-CATALOG-EVENT fix/p5-flake-catalog-event @ 709786bb into train/p5-1108c
+
+FLAKE-CATALOG-EVENT (from 884497c0, test only): titled_runtime pins an
+in-process stand-in catalog, so the title fixture's catalog read never
+reaches the Gateway and its event cannot race the band (registry #19).
+No conflict.
+

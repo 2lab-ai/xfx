@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-e6cde01 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m [1muse the web echo tool[0m
+
+[38;5;255m●[39m [38;5;245m2 tool calls · 1 read · 1 MCP call[39m
+[38;5;245m├ Searched capabilities echo text through the web server[39m
+[38;5;245m└ Ran MCP mcp_web_echo[39m
+
+  done.
+
+[38;5;245m  3s (↑5 ↓120)[39m
+
+[38;5;255m┃[39m [1mand once more[0m
+
+[38;5;255m●[39m [38;5;245m2 tool calls · 1 read · 1 MCP call · 1 cancelled[39m
+[38;5;245m├ Searched capabilities echo text through the web server[39m
+[38;5;245m└ Cancelled mcp_web_echo[39m
+
+[38;5;252m■[38;5;255m Cancelled[39m [38;5;245mmcp_web_echo[39m · What can xfx do differently?
+
+[38;5;255m┃[39m
+
+[38;5;245mpress ctrl+c again to exit[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

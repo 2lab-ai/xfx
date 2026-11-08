@@ -1,0 +1,49 @@
+# The head's pairs that left the pass set or timed out in its full sweep, run again under /private/tmp/claude-501/bin/suite-lock.sh
+# (sweep.sh --only <scenario>... --jobs 2, the same binaries and ledger): base verdict, the full sweep's, the rerun's.
+h1-usage-codex codex: base unresolved-defect; head full sweep timeout; rerun unresolved-defect
+h1-usage-grok grok: base unresolved-defect; head full sweep timeout; rerun unresolved-defect
+notice-midstream end: base normalized-identical; head full sweep timeout; rerun normalized-identical
+notice-midstream end.full: base normalized-identical; head full sweep timeout; rerun normalized-identical
+notice-midstream nosuch: base normalized-identical; head full sweep timeout; rerun normalized-identical
+notice-midstream version: base normalized-identical; head full sweep timeout; rerun normalized-identical
+notices nosuch: base normalized-identical; head full sweep timeout; rerun normalized-identical
+notices version: base normalized-identical; head full sweep timeout; rerun normalized-identical
+notices version-now: base normalized-identical; head full sweep timeout; rerun normalized-identical
+notices version-trailing-space: base normalized-identical; head full sweep timeout; rerun normalized-identical
+p5-call-row-long end: base unresolved-defect; head full sweep timeout; rerun unresolved-defect
+p5-transcript-tallfirst tall: base identical; head full sweep timeout; rerun identical
+p5-transcript-tallfirst tall.full: base normalized-identical; head full sweep timeout; rerun normalized-identical
+search-roots live: base normalized-identical; head full sweep timeout; rerun normalized-identical
+search-roots live-ctrl-o: base normalized-identical; head full sweep timeout; rerun normalized-identical
+settings2 down-sound: base unresolved-defect; head full sweep timeout; rerun unresolved-defect
+settings2 enter: base unresolved-defect; head full sweep timeout; rerun unresolved-defect
+settings2 esc: base normalized-identical; head full sweep timeout; rerun normalized-identical
+settings2 filter-none: base normalized-identical; head full sweep timeout; rerun normalized-identical
+settings2 filter-sou: base unresolved-defect; head full sweep timeout; rerun unresolved-defect
+settings2 right-context: base unresolved-defect; head full sweep timeout; rerun unresolved-defect
+settings2 sound-right: base unresolved-defect; head full sweep timeout; rerun unresolved-defect
+settings2 tab1: base normalized-identical; head full sweep timeout; rerun normalized-identical
+settings2 tab2: base normalized-identical; head full sweep timeout; rerun normalized-identical
+settings2 tab3: base unresolved-defect; head full sweep timeout; rerun unresolved-defect
+settings2 tab4: base normalized-identical; head full sweep timeout; rerun normalized-identical
+settings2 tab5: base unresolved-defect; head full sweep timeout; rerun unresolved-defect
+statusline-turn after-turn: base normalized-identical; head full sweep timeout; rerun normalized-identical
+statusline-turn all-on: base normalized-identical; head full sweep timeout; rerun normalized-identical
+statusline-turn launch: base normalized-identical; head full sweep timeout; rerun normalized-identical
+h1-models2 after: base unresolved-defect; head full sweep unresolved-defect; rerun normalized-identical
+h1-models2 before: base normalized-identical; head full sweep unresolved-defect; rerun normalized-identical
+model-column-idle col-down: base unresolved-defect; head full sweep normalized-identical; rerun normalized-identical
+model-column-idle col-idle: base unresolved-defect; head full sweep normalized-identical; rerun normalized-identical
+model-column-idle col-typed: base normalized-identical; head full sweep unresolved-defect; rerun normalized-identical
+
+after the reruns: 1704 pairs; pass on the base 1041, on the head 1049; pass on the base and not on the head: 1 [('p5-ctrlo-wider-diff-fam', 'full')]
+not pass on the base, pass on the head: 9
+    h1-models2 after: unresolved-defect -> normalized-identical
+    model-column-idle col-down: unresolved-defect -> normalized-identical
+    model-column-idle col-idle: unresolved-defect -> normalized-identical
+    model-reask menu-failed: unresolved-defect -> normalized-identical
+    p5-ctrlo-wider-diff full: unresolved-defect -> normalized-identical
+    p5-ctrlo-wider-inline answer: unresolved-defect -> normalized-identical
+    p5-ctrlo-wider-inline composer: unresolved-defect -> normalized-identical
+    p5-ctrlo-wider-inline margin: unresolved-defect -> normalized-identical
+    p5-transcript-records start: unresolved-defect -> normalized-identical

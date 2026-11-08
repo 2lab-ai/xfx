@@ -360,7 +360,7 @@ reason = "fx v0.0.16's Ctrl-O spells the zero-width and directional marks, the i
 owner = "T-U1-SAFE"
 resolution = "fx names the marks in a command's output and U+061C in a later pin, or the user takes fx's raw marks"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:238", "src/tui/full_transcript.rs:492"]
+source = ["docs/parity.md:238", "src/tui/full_transcript.rs:495"]
 
 [[divergence]]
 id = "call-row-raw-argument"
@@ -370,11 +370,11 @@ scenarios = ["p5-call-row-safe"]
 snaps = ["*"]
 fx_row = '[\u061c\u202e\u2066\u009b]|t\\x0du|\}s\\x0dt\.txt'
 xfx_row = 'n\\u\{202e\}o|o\\u\{061c\}p|p\\u\{061c\}q|q\\x1b7r|s\\u\{009b\}t|t\\x0du|u\*\.md|m\\u\{202e\}n|p\\x1b\[2Jq|r\\u\{009b\}s|s\\x0dt|t\.txt|Path not found|^[├└] (?:Matched|Failed)$'
-reason = "fx v0.0.16 spells a command's own row -- the transcript's tool row and Ctrl-O's heading -- with `encodeTerminalSafe` after projecting it onto one line (`formatRunCommandDetailBounded`, `src/core/tooling/tool_presentation.zig:432-447@481104fd`), and a file change's path the same way (`fileMutationDisplayPath`, `src/core/agent/runtime/tool_presentation.zig:736-753@481104fd`), but writes a read's, a list's or a pattern's row with the argument as the model sent it (`formatToolAction`, `src/core/app/app_agent_runtime.zig:1248-1310@481104fd`): its marks and C1 controls reach the terminal as themselves, its other controls are dropped and the row ends at its first line break (`normalizeCanonicalStatus`, `src/ui/transcript/tool_group_projection.zig:317-347@481104fd`), so an argument can reorder its row or hide its own tail -- `p5-call-row-safe`'s `Matched n<U+202E>o<U+2066>p<U+061C>q7rs<U+009B>t`, and the read's row cut at its carriage return, the terminal painting `   )` past it. xfx spells those rows as fx spells a command's, so they are longer and the read's carries its reason, which fx's never reaches -- spelled, where fx writes a tool's own `status_detail` as it is and encodes only its preflight and MCP reasons (`failureStatusDetail`, `src/core/agent/runtime/tool_presentation.zig:1457-1458@481104fd`); their bound is a file change's, 4 096 bytes, where fx's raw rows have none. The Arabic letter mark (U+061C), which fx writes as itself on every row, xfx names on each of a call's rows -- heading, arguments, result -- as `ctrl-o-command-marks` does: it reorders the row as the marks fx names do (`approval_view`'s `reorders`); 8 cells for each. The selectors name the pattern's and the path's rows only -- their headings, their argument and result rows, and what a narrow screen wraps of them, the verb a wrap leaves alone on its row included (`├ Matched`, `└ Failed`) -- and the scenario's command carries no U+061C, so its rows are compared with nothing set aside."
+reason = "fx v0.0.16 spells a command's own row -- the transcript's tool row and Ctrl-O's heading -- with `encodeTerminalSafe` after projecting it onto one line (`formatRunCommandDetailBounded`, `src/core/tooling/tool_presentation.zig:432-447@481104fd`), and a file change's path the same way (`fileMutationDisplayPath`, `src/core/agent/runtime/tool_presentation.zig:736-753@481104fd`), but writes a read's, a list's or a pattern's row with the argument as the model sent it (`formatToolAction`, `src/core/app/app_agent_runtime.zig:1248-1310@481104fd`): its marks and C1 controls reach the terminal as themselves, its other controls are dropped and the row ends at its first line break (`normalizeCanonicalStatus`, `src/ui/transcript/tool_group_projection.zig:317-347@481104fd`), so an argument can reorder its row or hide its own tail -- `p5-call-row-safe`'s `Matched n<U+202E>o<U+2066>p<U+061C>q7rs<U+009B>t`, and the read's row cut at its carriage return, the terminal painting `   )` past it. xfx spells those rows as fx spells a command's, so they are longer and the read's carries its reason, which fx's never reaches -- spelled, where fx writes a tool's own `status_detail` as it is and encodes only its preflight and MCP reasons (`failureStatusDetail`, `src/core/agent/runtime/tool_presentation.zig:1457-1458@481104fd`); on Ctrl-O, like fx's raw rows, they have no bound (only `write_file`'s and `edit_file`'s path is cut, at 4 096 bytes, as fx cuts it), and the transcript's own row keeps 65 536 columns of them, more than any screen shows (T-U4). The Arabic letter mark (U+061C), which fx writes as itself on every row, xfx names on each of a call's rows -- heading, arguments, result -- as `ctrl-o-command-marks` does: it reorders the row as the marks fx names do (`approval_view`'s `reorders`); 8 cells for each. The selectors name the pattern's and the path's rows only -- their headings, their argument and result rows, and what a narrow screen wraps of them, the verb a wrap leaves alone on its row included (`├ Matched`, `└ Failed`) -- and the scenario's command carries no U+061C, so its rows are compared with nothing set aside."
 owner = "CALLROW-SAFE"
 resolution = "fx spells every call's own row and names U+061C in a later pin, or the user takes fx's raw rows"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:749"]
+source = ["docs/parity.md:238", "src/tui/toolgroup.rs:889"]
 
 [[divergence]]
 id = "call-row-source-cut"
@@ -388,7 +388,7 @@ reason = "fx v0.0.16 reads a command's first 14 400 bytes to make its row and sa
 owner = "CALLROW-SAFE"
 resolution = "fx marks a command it read only in part in a later pin, or the user takes fx's unmarked row"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:797"]
+source = ["docs/parity.md:238", "src/tui/toolgroup.rs:966"]
 
 [[divergence]]
 id = "call-row-arabic-letter-mark"
@@ -402,7 +402,7 @@ reason = "CALLROW-SAFE's decision (`call-row-raw-argument`) in the one scenario 
 owner = "CALLROW-SAFE"
 resolution = "fx names U+061C on a command's row in a later pin, or the user takes fx's raw mark, as `call-row-raw-argument` resolves"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:238", "src/tui/toolgroup.rs:911"]
+source = ["docs/parity.md:238", "src/tui/toolgroup.rs:1080"]
 
 [[divergence]]
 id = "status-notice-h1"
@@ -474,7 +474,63 @@ reason = "fx v0.0.16 counts a skin-tone modifier (U+1F3FB-1F3FF) as no cells whe
 owner = "WIDTH-DISPUTED"
 resolution = "fx counts a skin-tone modifier that follows no emoji as the terminals draw it, in a later pin, and xfx takes its count"
 expires = "date:2026-12-04"
-source = ["src/tui/wrap.rs:622"]
+source = ["src/tui/wrap.rs:726"]
+
+[[divergence]]
+id = "ctrl-o-drawn-wider-named"
+class = "unsafe-to-copy"
+pins = ["v0.0.16"]
+scenarios = ["p5-ctrlo-wider-diff-fam"]
+snaps = ["full"]
+fx_row = '^(?:│  |  │ ).*(?:[\u261d\u26f9\u270c\u270d\u2e3a\u2e3b\U0001f3cb\U0001f3cc\U0001f574\U0001f575\U0001f590\U000e0002-\U000e001f]|[a-z\u00ad\uffa0\ufff0-\ufff8]\ufe0f)|^(?:│  3    |  │ 3   )w{111}$|^(?:│  |  │     )(?:TAIL5678|wwEND)$'
+xfx_row = '^(?:│  |  │ ).*\\u\{(?:261d|26f9|270[cd]|2e3[ab]|fe0f|1f3c[bc]|1f57[45]|1f590|e000[2-9a-f]|e001[0-9a-f])\}|^(?:│  |  │     )u\{(?:261d|26f9|270[cd]|2e3[ab]|fe0f|1f3c[bc]|1f57[45]|1f590|e000[2-9a-f]|e001[0-9a-f])\}|^(?:│  |  │ ).*\\$|^(?:│  4    |  │ 4   )w{111}a$|^(?:│  |  │     )w+TAILw+END$'
+reason = "fx v0.0.16 writes as itself, in a file's line on Ctrl-O, every scalar a terminal draws wider than fx and xfx both count it (`src/tui/drawn_wider.rs`, 43 scalars: U+261D, U+26F9, U+270C-270D, U+1F3CB-1F3CC, U+1F574-1F575 and U+1F590 two cells on tmux 3.7b and one to the count, U+2E3A-2E3B two on libghostty-vt and one to the count, U+E0002-E001F one on tmux and none to the count, U+FE0F after a character that takes no emoji presentation, U+2065), and its rows do not read as the file holds them: in `p5-ctrlo-wider-diff-fam` `full`, line 2 (`fam` U+261D U+2E3A U+1F590 `x` U+E0002 `y a` U+FE0F `b` ...) reads `fam ☝ ⸺ 🖐 x` U+E0002 `b  c  d  e` on tmux -- the cells after U+261D and U+1F590 stand right of where fx's grid holds them, and the anchor fx writes after the next glyph with a variation selector (`engine.zig:2586-2588@481104fd`) puts the cursor back over `y a`, which `b` overwrites -- and `fam ☝ ⸺ 🖐 xy b` on libghostty-vt; line 3's U+261D at the margin is not drawn on tmux, line 4's `a` U+FE0F there loses its `a`, and line 5 (four U+261D, 100 `w`, `TAIL`, six `w`, `END`; the row's 112 cells by the count end four `w` after `TAIL`) ends `TAIw` on tmux, its `L` and three `w` past the margin. xfx's bytes before were fx's, cell for cell (.prd/tui-phase5/receipts/ctrlo-wider/). So a file's or a tool's line on Ctrl-O writes them `\\u{NNNN}` (`src/tui/full_transcript.rs`'s `drawn_wider_named`), as the review names them (`approval_view` `tamed`): an emoji base with its U+FE0F, a U+FE0F after one, a flag and a keycap stay. Each line takes as many rows on both sides, so the rows differ in place, read row and diff row alike. The selector, both sides of each: fx's rows holding one raw (U+FE0F after a letter, a soft hyphen, U+FFA0 or U+FFF0-FFF8), line 3's first row (111 `w`, the U+261D not drawn) and the continuations `TAIL5678` and `wwEND`; xfx's holding a token, a token's tail beginning a continuation (`u{261d}TAIL5678`) or its backslash ending a row, line 4's first row (111 `w` and `a`, its U+FE0F named on the next) and line 5's continuation."
+owner = "CTRLO-WIDER"
+resolution = "fx names them in a file's line, or counts them as a terminal draws them, at this pin's line or a later pin's, so the rows are the same"
+expires = "date:2026-12-04"
+source = ["src/tui/full_transcript.rs:3005", "docs/parity.md:238"]
+
+[[divergence]]
+id = "answer-drawn-wider-named"
+class = "unsafe-to-copy"
+pins = ["v0.0.16"]
+scenarios = ["p5-ctrlo-wider-inline-fam"]
+snaps = ["*"]
+fx_row = '^  .*[\u261d\u26f9\u270c\u270d\u2e3a\u2e3b\U0001f3cb\U0001f3cc\U0001f574\U0001f575\U0001f590\U000e0002-\U000e001f]|^  .*[a-z\u00ad\uffa0\ufff0-\ufff8]\ufe0f|^  (?:w{117}z?|w{117} TAIL5678|TAIL5678|(?:w{20})?END)$|^┃ fam \u261d '
+xfx_row = '^(?:  |┃ ).*\\u\{(?:261d|26f9|270[cd]|2e3[ab]|fe0f|1f3c[bc]|1f57[45]|1f590|e000[2-9a-f]|e001[0-9a-f]|2065)\}|^  u\{(?:261d|26f9|270[cd]|2e3[ab]|fe0f|1f3c[bc]|1f57[45]|1f590|e000[2-9a-f]|e001[0-9a-f]|2065)\}|^  .*\\$|^  w{117}a$|^  w+TAILw+END$'
+reason = "fx v0.0.16 writes an answer's text as itself, and every scalar a terminal draws wider than fx and xfx both count it (`src/tui/drawn_wider.rs`, the 43 of `ctrl-o-drawn-wider-named`) costs the answer glyphs: in `p5-ctrlo-wider-inline-fam` `answer`, a U+261D at the margin is not drawn on tmux 3.7b, a U+2E3A there not on libghostty-vt 1.3.2, the `a` before a U+FE0F there is lost on tmux, and four U+261D at a row's front push `w T A I` past it on tmux; on Ctrl-O's Response rows the same, and the short line (`fam` U+261D U+2E3A U+1F590 `x` U+E0002 `y a` U+FE0F `b` ...) reads `fam ☝ ⸺ 🖐 x` U+E0002 `b  c  d  e` on tmux and loses its `a` on libghostty-vt, the anchor fx writes after a glyph with a variation selector (`engine.zig:2586-2588@481104fd`) putting the cursor back over `y a`; Ctrl-O's Prompt row (the prompt as typed) the same. xfx at 88c2fec1 lost all of them but the document's short line (22 forms, .prd/tui-phase5/receipts/ctrlo-wider/red-r2.txt). The model writes the answer, so its words are no excuse (both reviews of round 1). xfx names them `\\u{NNNN}`, as a file's line on Ctrl-O does (`drawn_wider_named`), in an answer's prose, code and table cells before they are laid out (`src/tui/full_transcript.rs`'s `shown_event`, at the presenter, `src/tui/shell.rs`'s `present`), in an operational mark, and on Ctrl-O's Response and Prompt rows; an emoji base with its U+FE0F stays. Display only: the reply `/copy` copies, `last_reply()` and the event Ctrl-O records keep the text as written, and `/trace` lists a prompt as typed (its other entries are the screen's rows) (`src/tui/shell.rs`'s `an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written`). At the head every answer and Ctrl-O form reads whole on both terminals, at 120 columns and at 140 (measure.txt). Each line takes as many rows on both sides (the scenario's last paragraph, four U+261D, 110 `w`, `TAIL`, 20 `w` and `END`, is two rows by either count, at either width), so the rows differ in place. The selector, both sides of each: fx's rows of an answer or a prompt holding one raw (U+FE0F after a letter, a soft hyphen, U+FFA0 or U+FFF0-FFF8), the margin rows they leave (117 `w`, U+261D not drawn; 117 `w` and `z`, U+E0002 under the margin; on Ctrl-O at 140 columns 117 `w`, a blank and `TAIL5678`, the `a` before U+FE0F overwritten), the continuations `TAIL5678` and `END`; xfx's holding a token, a token's tail beginning a continuation (`u{261d}TAIL5678`) or its backslash ending a row, the margin's `a` whose U+FE0F is named on the next row, and the last paragraph's continuation. fx's Prompt row on Ctrl-O reads as the card of the sent prompt does, so fx's card is taken in too; xfx's card is `inline-band-row-anchor`'s."
+owner = "CTRLO-WIDER"
+resolution = "fx names them in an answer and a prompt's row, or counts them as a terminal draws them, at this pin's line or a later pin's, so the rows are the same"
+expires = "date:2026-12-04"
+source = ["src/tui/full_transcript.rs:3056", "src/tui/shell.rs:12859", "docs/parity.md:237"]
+
+[[divergence]]
+id = "answer-label-and-modifier-named"
+class = "unsafe-to-copy"
+pins = ["v0.0.16"]
+scenarios = ["p5-ctrlo-wider-fence", "p5-ctrlo-wider-mod"]
+snaps = ["*"]
+fx_row = '^  .*[☝⛹✌✍⸺⸻\U0001f3cb\U0001f3cc\U0001f574\U0001f575\U0001f590\U000e0002-\U000e001f]|^  [─┌├└]─+[┐┤┘]?$|^  │ cell +│$|^  w{99,100}END$'
+xfx_row = '^  (?:│ )?.*\\u\{(?:261d|26f9|270[cd]|2e3[ab]|fe0f|1f3c[bc]|1f57[45]|1f590|e000[2-9a-f]|e001[0-9a-f]|2065)\}|^  [─┌├└]─+[┐┤┘]?$|^  │ cell +│$|^  TAIL5678w{100}END$'
+reason = "`answer-drawn-wider-named`'s naming, on the two surfaces CTRLO-WIDER-F measured: a code panel's label (the fence's word, drawn into the header rule by `blocks::append_code_panel_header`, `transcript_blocks.zig:1221-1238@481104fd`) and the nine counted bases with a skin-tone modifier. fx v0.0.16 writes both raw: in `p5-ctrlo-wider-fence` its label `fam` U+261D U+2E3A U+1F590 `x` U+E0002 `ya` U+FE0F `b` U+00AD U+FE0F `c` loses `y a` U+00AD on tmux 3.7b and `a` on libghostty-vt 1.3.2, in the document and on Ctrl-O, where xfx at eeb0f7a7 lost them on Ctrl-O (the anchor after `a` U+FE0F on a frame row; .prd/tui-phase5/receipts/ctrlo-wider/red-f.txt); in `p5-ctrlo-wider-mod` seven of its nine margin rows lose digits of `5678` on tmux and its table row loses U+1F574 to the cell's border. xfx names them (`shown_event`, the label since CTRLO-WIDER-F; a base with a modifier past the base, the modifier kept), and every form reads whole on both terminals (measure.txt). Each line takes as many rows on both sides (the margin lines go on for 100 `w` and `END`, two rows by either count), so the rows differ in place. The selector, both sides of each: fx's rows of an answer holding a scalar of the family raw, xfx's holding a token (a table's row after its `│`), and the rules and borders of a panel or a table whose width follows the label or the cell -- the named text is wider -- and the table's header row, padded to it; and a margin line's second row, fx's 100 `w` (99 after an astral base, one more on its first row) and `END`, xfx's `TAIL5678` before them."
+owner = "CTRLO-WIDER-F"
+resolution = "fx names them, or counts them as a terminal draws them, at this pin's line or a later pin's, so the rows are the same"
+expires = "date:2026-12-04"
+source = ["src/tui/full_transcript.rs:3056", "docs/parity.md:237"]
+
+[[divergence]]
+id = "inline-band-row-anchor"
+class = "unsafe-to-copy"
+pins = ["v0.0.16"]
+scenarios = ["p5-ctrlo-wider-inline-fam"]
+snaps = ["prompt", "margin", "resized"]
+fx_row = '^┃ fam \u261d '
+xfx_row = '^┃ fam \u261d .*y a\ufe0fb '
+reason = "Observed in fx v0.0.16's wire, not traced through its presenter: the card of a sent prompt, written again in bold after Enter, carries the anchor fx writes after a glyph with a variation selector (`engine.zig:2586-2588@481104fd`) -- `ESC[23;3H`, `ESC[1m`, `fam` U+261D ... `a` U+FE0F, `ESC[17G`, `b` ... in `fx/p5-ctrlo-wider-inline-fam-40x120/fx-p5-ctrlo-wider-inline-fam-40x120-prompt.wire` (.prd/tui-phase5/receipts/ctrlo-wider/), as the answer's row before it does in the same file. With a scalar before it that a terminal draws wider than the count (`src/tui/drawn_wider.rs`), the anchor puts the cursor back over glyphs already drawn and the glyphs after it overwrite them: the card (`fam` U+261D U+2E3A U+1F590 `x` U+E0002 `y a` U+FE0F `b` ...) reads `fam ☝ ⸺ 🖐 x` U+E0002 `b  c  d  e` on tmux 3.7b and loses its `a` on libghostty-vt 1.3.2. xfx writes the card as a document row, as it stands (`src/tui/frame.rs`'s `place`; ENGINE-VS-ANCHOR's decision 2, `.prd/tui-phase5/receipts/engine-vs-anchor/README.md`), so every glyph stays on both terminals, shifted as the terminal draws it (`fam ☝ ⸺ 🖐 x` U+E0002 `y a️b ­️c ﾠ️d ￰️e`; measure.txt, the card of the sent prompt); copying fx's write would lose them. Both write the scalars themselves: the card is the prompt as the user typed it, as the composer is (the cause `composer-drawn-wider`). An answer's rows are named (`answer-drawn-wider-named`), so this is the card's alone."
+owner = "CTRLO-WIDER"
+resolution = "fx stops anchoring over a glyph a terminal drew wider than its count, in a later pin, so the rows are the same"
+expires = "date:2026-12-04"
+source = ["src/tui/frame.rs:2749", "docs/parity.md:237"]
 
 # --- causes -----------------------------------------------------------------
 #
@@ -484,18 +540,6 @@ source = ["src/tui/wrap.rs:622"]
 # .prd/tui-phase4/receipts/sweep/ has the table.
 
 # (b) units in flight, the specific rows first.
-
-[[cause]]
-id = "ctrl-o-drawn-wider-raw"
-kind = "defect"
-owner = "CTRLO-WIDER"
-scenarios = ["*"]
-snaps = ["*"]
-xfx_row = '^  │ +\d+ [ +-] .*[\u0605\u070f\u0890-\u0891\u08e2\u09be\u09d7\u0b3e\u0b57\u0bbe\u0bd7\u0cc0\u0cc2\u0cc7-\u0cc8\u0cca-\u0ccb\u0cd5-\u0cd6\u0d3e\u0d4e\u0d57\u0dcf\u0ddf\u1715\u1734\u1b35\u1b3b\u1b3d\u1b43-\u1b44\u1baa\u1bf2-\u1bf3\u302e-\u302f\ua8fa\ua953\ua9c0\uff9e-\uff9f\U000111c0\U000111c2-\U000111c3\U00011235\U0001133e\U0001134d\U00011357\U000113b8\U000113c2\U000113c5\U000113c7-\U000113c9\U000113cf\U000113d1\U000114b0\U000114bd\U000115af\U000116b6\U00011930\U0001193d\U0001193f\U00011941\U00011a84-\U00011a89\U00011d46\U00011f02\U00011f41\U00016ff0-\U00016ff1\U0001d165-\U0001d166\U0001d16d-\U0001d172\U000e0000\U000e0080-\U000e00ff\U000e01f0-\U000e0fff]'
-xfx = "src/tui/drawn_wider.rs:50-67"
-fx = "src/core/shared/display_width.zig:275-282@c1db9191"
-why = "Ctrl-O's diff rows write as themselves, as fx v0.0.16 does, the scalars `src/tui/drawn_wider.rs` lists that fx does not name (`isNonPrintingCodepoint`, `text_utils.zig:703-708@481104fd`), and the painter counts them as the width table does, fewer cells than a terminal was measured to draw them. This cause selects only the ones fx counts more cells than xfx does, one code point at a time (`runeWidth`): 3,812 scalars in 63 ranges, U+0605, U+FF9E and U+302E among them (U+0605 and U+FF9E one cell, U+302E two, `wide_ranges` `0x2FF0-0x303E`, `unicode_display_data.zig:81@481104fd`; xfx none). A diff line with one at the margin can run past it, as WIDTH-DISPUTED's fillers did. No scenario holds one. Left out of the selector, so a row with one of them sweeps unresolved rather than here: U+FE0F (it would take in every row with an emoji in emoji presentation), and the scalars fx counts no more cells than xfx -- the family `drawn_wider.rs:23-30` lists (U+261D, U+26F9, U+270C-270D, U+2E3A-2E3B, the regional indicators U+1F1E6-1F1FF, U+1F3CB-1F3CC, U+1F574-1F575, U+1F590), which xfx and fx count one cell where a terminal draws two, and U+E0002-E001F, which both count as none. Of that U+FE0F: after a soft hyphen, U+FFA0, U+FFF0-FFF8 or a letter, the painter counts one cell less than tmux 3.7b draws, as fx does (12 of the 164 forms WIDTH-DISPUTED measured, .prd/tui-phase5/receipts/width-disputed/clusters.txt, `UNDER`; libghostty-vt draws no more than the count). Those 12, and the rest of the table's scalars, are painted raw not on Ctrl-O alone: `super::drawn_wider` is consulted only by `approval_view`, so the inline transcript and the composer write and count them the same way. CTRLO-WIDER owns them on all three surfaces (its scope widened in WIDTH-DISPUTED-d); the selector stays Ctrl-O's diff rows, the one surface a capture holds them on."
-resolution = "On Ctrl-O, in the inline transcript and in the composer alike. For the scalars it selects: fixed when the painter counts them as fx does, or the surface names them (a divergence from fx's bytes then). Counting as fx does cannot close the family it leaves out, where xfx's count is already fx's: only naming them closes it, as the review does (`approval_view` `tamed`); so for U+FE0F after a character that takes no emoji presentation."
 
 [[cause]]
 id = "submit-multi-card-whole"
@@ -527,18 +571,6 @@ whole_snap = true
 xfx = ["src/tools/mutate.rs:437-442", "src/tools/read.rs:1162"]
 fx = ["src/tools/filesystem/edit_file.zig:1-275@c1db9191"]
 why = "fx v0.0.16 edits a file that is not UTF-8 and shows its stray bytes as `\\xNN` in the diff (9db199e4, `dupeValidUtf8`, `text_utils.zig:444-460@481104fd`); xfx refuses it (`edit_file cannot edit <path>: it is not UTF-8 text`), and its read before, `binary or non-utf8 file omitted`, is no read in full, so the read proof refuses first: `└ Failed bad.txt: edit_file will not replace ...` against fx's `└ Edited bad.txt +1 / -1`, a failed call's argument rows on Ctrl-O against fx's diff, and the rows under them shifted. T-U6 recorded it (docs/parity.md:158; .prd/tui-phase5/receipts/transcript-receipts/README.md, `refused`) with no ledger entry; named at train 2 so its sweep attributes every row, as subagent-tool names a deferred tool's."
-
-[[cause]]
-id = "cancelled-marker"
-kind = "unit"
-owner = "T-U4 cancelled marker"
-scenarios = ["*"]
-snaps = ["*"]
-fx_row = '^▪ Cancelled '
-xfx_row = '^■ Cancelled '
-xfx = ["src/tui/toolgroup.rs:710"]
-fx = ["src/ui/transcript/runtime.zig:618@481104fd"]
-why = "v0.0.16 marks a cancelled tool call `▪` where c1db919 and xfx mark it `■`; T-U4 owns the marker everywhere (.prd/tui-phase5/ssot.md, Wave 1)."
 
 [[cause]]
 id = "status-panel-scroll-window"
@@ -606,6 +638,27 @@ scenarios = ["interrupt-recover*", "interrupt-retry"]
 snaps = ["*"]
 whole_snap = true
 why = "Stream-failure recovery: fx's `⚠ Provider unavailable · … retrying request in 1s` row, its attempt numbers out of 10 and its `✓ recovered` timing, where xfx retries three times at 250/500 ms and reports. K-recover ports the recovery; the retry budget (ssot.md:149, `gateway::DEFAULT_MAX_ATTEMPTS`, src/gateway/mod.rs:59) is its to settle against fx's ten (model_response_recovery.zig:3)."
+
+[[cause]]
+id = "retry-budget-lifecycle"
+kind = "unit"
+owner = "K-recover fix/tui-stream-recovery f11a23d2"
+scenarios = ["p5-lifecycle-retry"]
+snaps = ["r0[1-5]*"]
+fx_row = '^⚠ Provider unavailable · HTTP 502 · |^▪ Cancelled · What can xfx do differently\?$|^auto · model-a +esc again to interrupt$'
+xfx_row = '^✗ system: the Gateway returned HTTP 502: |^auto · model-a$'
+why = "Every request of the turn answers 502. fx backs off and is still retrying when Escape stops the turn (`⚠ Provider unavailable · HTTP 502 · … retrying request in Ns`), so its stop leaves `▪ Cancelled · What can fx do differently?`; xfx gives up after three attempts (`gateway::DEFAULT_MAX_ATTEMPTS`, src/gateway/mod.rs:59) before `r01` (2.1 s) and writes the failure, so its row 5 is `✗ system: the Gateway returned HTTP 502: …` from `r01` on, where fx's is the retry row and then the cancelled line, and the Escape that arms fx's `esc again to interrupt` finds no turn on xfx's (`r04a-esc-armed`). The retry budget K-recover owns for `interrupt-retry`. Named by T-U4: the deleted `cancelled-marker` took fx's `▪ Cancelled` row in `r04-after-esc` and `r05-after-esc-4.5s`, and these rows were otherwise uncaused (.prd/tui-phase5/receipts/cancel-marker/README.md)."
+
+[[cause]]
+id = "question-cap-four"
+kind = "unit"
+owner = "I-U6 ask_user_question to 20 (input cluster I11), not yet a branch"
+scenarios = ["p5-input-question"]
+snaps = ["q6", "q6-after", "q6-after.full"]
+rows = ["9-17"]
+fx_row = '^─+$|^  Q1 colour\?$|^    \d\) |^1–3 choose now .*Question 1 of 6$|^▪ Cancelled$|^$'
+xfx_row = '^  Six done\.$|^  <wall> \(|^┃$|^auto · model-a$|^$'
+why = "fx v0.0.16 asks up to 20 questions in a batch (`max_questions = 20`, `question_answer.zig:9@481104fd`), xfx still 4 (`MAX_QUESTIONS`, src/tools/question.rs:25): the scenario's six-question batch opens fx's panel (`Q1 colour? … Question 1 of 6`) and Escape leaves fx's `▪ Cancelled`, where xfx's tool refuses the batch and the turn goes on to `Six done.`. The first batch's `▪ Cancelled` row (row 5) is the same on both since T-U4. Named by T-U4: these rows were uncaused at the base (.prd/tui-phase5/receipts/cancel-marker/README.md)."
 
 [[cause]]
 id = "P1-carry-notice"
@@ -686,6 +739,16 @@ fx_row = 'RequiredVisionToolCallMissing|^  It is a small red square\.$'
 xfx_row = 'request failed: SubscriptionNativeImageUnavailable'
 why = "For a model without native image input fx forces a `vision` call answered by a second model (google/gemini-2.5-flash, orchestrator.zig:5970); xfx refuses (src/image.rs:101). Routing a user's image to a model they did not pick is theirs to decide; docs/parity.md:177 records it deferred, the ledger may not approve it until asked."
 
+[[cause]]
+id = "composer-drawn-wider"
+kind = "decision"
+owner = "COMPOSER-WIDER"
+scenarios = ["p5-ctrlo-wider-inline-fam"]
+snaps = ["composer", "margin"]
+fx_row = '^┃ '
+xfx_row = '^┃ '
+why = "The dispatcher's decision (2026-11-08, reversible): the composer writes the draft as fx v0.0.16 does, the scalars a terminal draws wider than the count (`src/tui/drawn_wider.rs`) raw, because the draft is the user's own text -- a precondition the user makes, not the model or a file. Both lose glyphs there alike (.prd/tui-phase5/receipts/ctrlo-wider/measure.txt, the composer's forms, measured and not checked): the short line typed reads `fam ☝ ⸺ 🖐 x` U+E0002 `b  c  d  e` on tmux 3.7b, the anchor after `a` U+FE0F putting the cursor back over `y a`, and loses its `a` on libghostty-vt 1.3.2; four U+261D in front cost the row `w T A I` on tmux, and a U+261D at the margin is not drawn there. xfx's composer is fx's cell for cell (`composer`, `margin`), so this covers no row a sweep leaves unresolved; it records the decision and its owner. COMPOSER-WIDER owns naming them in the composer for display only, with a map from the draft's characters to the caret's cells, so the draft sent stays as typed. A file name an `@` completion puts in the draft is the way a file's text could reach the composer (PLAUSIBLE, not traced); that route is COMPOSER-WIDER's too."
+
 # (d) defects with no owner yet.
 
 [[cause]]
@@ -720,7 +783,7 @@ scenarios = ["*"]
 snaps = ["*"]
 fx_row = '^  (?:system prompt: |skills: |tools: \d+ advertised|mcp: none$)|^  more\)$|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
 xfx_row = '^  tools: \d+ advertised|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
-xfx = ["src/tui/shell.rs:37758"]
+xfx = ["src/tui/shell.rs:37764"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/app/app_bootstrap_runtime.zig:90@c1db9191"]
 why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:238). The tool list's later rows are matched at any width: rows of tool names alone, each ending `,` or `+N more)` (`  write_file, shell, …, +6 more)` at 80 columns, `p5-transcript-tools`; `  edit_file, write_file, shell, subagent, capability_search,` / `  +6 more)` at 60, `p5-transcript-question`)."
 
@@ -731,7 +794,7 @@ owner = "unowned (follows tool-schema and session-record)"
 scenarios = ["p5-transcript-anchor", "p5-transcript-anchormid", "p5-transcript-resize", "p5-transcript-records", "p5-transcript-question"]
 snaps = ["full-*"]
 rows = ["1-2", "35-37"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37758"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37764"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "Rows only one side has push the other side's rows off a Ctrl-O page by two: fx's command entry has two argument rows xfx's `terminal` has not (`tool-schema`), so a page counted from the tail starts two rows later on fx; fx's `* session:` record has two lines xfx's has not (`session-record`), so a page counted from the top ends two rows earlier, and a record shorter than the screen leaves xfx two more blank rows. Only the two rows at each edge of the record (and the footer's blank row under it); every other row of these pages is compared, cell by cell with its styles, against the other side's document joined from its windows (.prd/tui-phase5/receipts/transcript-wrap/check.py)."
 
@@ -743,7 +806,7 @@ scenarios = ["p5-toolgroup-ctrlo", "p5-toolgroup-ctrlo-tc"]
 snaps = ["full-*"]
 rows = ["34-37"]
 xfx_row = '^\s*$'
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37758"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37764"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "TG-REDRAW's Ctrl-O pages hold the whole record, read from the top: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so xfx's record ends four rows higher and leaves rows 34-37 blank where fx's turn summary still stands. xfx's blank rows there only (`xfx_row`): no fx row and no xfx row with text is this cause's, and every other row of these pages is compared, the tool group's two rows among them (.prd/tui-phase5/receipts/toolgroup-redraw/)."
 
@@ -754,9 +817,32 @@ owner = "unowned (follows tool-schema and session-record)"
 scenarios = ["p5-transcript-safe", "p5-transcript-safetab"]
 snaps = ["full", "full-pgup"]
 rows = ["1-2", "33-36"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37758"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37764"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "`transcript-page-offset` for `p5-transcript-safe` and `p5-transcript-safetab`, four rows deep: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so the tail page starts later on fx (xfx's top rows, the record's `+5 more)` and `mcp: none`, are above fx's) and the page at the top ends four rows earlier (xfx's rows 33-36, the read's heading and its two rows and the blank under them, are below fx's). The read's rows are compared on the tail page."
+
+[[cause]]
+id = "cancel-page-edge"
+kind = "defect"
+owner = "session-record and tool-schema's owners: the page offset those two causes make, closed when both are"
+scenarios = ["p5-transcript-cancel"]
+snaps = ["full"]
+rows = ["1-2"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:37764"]
+fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
+why = "`transcript-page-offset` for `p5-transcript-cancel`'s Ctrl-O page, read from the tail: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`action: run`, `yield_time_ms: 30000`; `tool-schema`), so xfx's page starts at its record's `* session:` row where fx's starts lower in its record (`skills: loading`). Every other row of the page is compared. Named by T-U4, which gave the scenario xfx's own turns (.prd/tui-phase5/receipts/cancel-marker/README.md)."
+
+[[cause]]
+id = "amendment-card-after-stop"
+kind = ["unit", "defect"]
+owner = "AMEND-CARD-ROW the blank row xfx keeps under an approval's amendment card that ends the document"
+scenarios = ["approvals"]
+snaps = ["after-esc", "after-esc.full"]
+rows = [15, 16]
+xfx_row = '^$'
+xfx = ["src/tui/shell.rs:9762"]
+fx = ["src/core/app/app_worker_runtime.zig:1026@c1db9191"]
+why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`write_user_prompt`, the cited line), xfx rides it under the open group (`trailer_rows`, src/tui/shell.rs:9762, each card through `queue_card`, :1658, which ends it on a blank row). After Escape stops the turn the group's cancelled line is drawn above the card on both, and fx's document then ends on the card with the composer right under it -- `fx-approvals-40x120-after-esc` rows 14-15, `┃ use capitals` (bold) then the composer's `┃` -- where xfx's keeps the card's blank row (row 15) and its composer and hint row stand one row lower (rows 16, 18 against fx's 15, 17). fx's card carries no row under it: wherever fx's document ends on a cancelled line or an answer, one blank row stands before the composer (`p5-transcript-cancel` `esc` rows 5-7, `interrupt2` `esc2` rows 36-38), and the card here is the one entry after that blank, with none of its own. Already so at the base (e6cde019's sweep: xfx row 15 `(blank)` uncaused; the pair was counted under the deleted `cancelled-marker`). AMEND-CARD-ROW: end such a card as fx does when nothing follows it in the document (.prd/tui-phase5/receipts/cancel-marker/README.md)."
 
 [[cause]]
 id = "call-row-page-edge"
@@ -765,7 +851,7 @@ owner = "unowned (follows tool-schema)"
 scenarios = ["p5-call-row-safe"]
 snaps = ["full"]
 rows = ["1-3"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/toolgroup.rs:749"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/toolgroup.rs:889"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191"]
 why = "`transcript-page-offset` for `p5-call-row-safe`'s tail page: fx's command entry has two argument rows xfx's has not (`tool-schema`), and xfx's spelled rows (`call-row-raw-argument`) take one more row than fx's at 40x120 and fewer at 40x60, so the page starts a row or three apart and the rows at its top (the `* network:` record's last line, the prompt's header and card, the blank between) are on one side only. Every other row of the page is compared."
 
@@ -810,7 +896,7 @@ owner = "unowned (follows session-record and tool-schema)"
 scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout"]
 snaps = ["*ctrl-o*", "full*"]
 whole_snap = true
-xfx = ["src/tui/shell.rs:37758", "src/tui/approval_view.rs:685"]
+xfx = ["src/tui/shell.rs:37764", "src/tui/approval_view.rs:685"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/execution/command_environment.zig:128@c1db9191"]
 why = "Every Ctrl-O row under fx's taller session record and its shell calls' argument rows stands lower than xfx's, so a page shows other entries; what else differs on these pages is read only once those two are fixed."
 
@@ -860,6 +946,41 @@ whole_snap = true
 xfx = ["src/tui/layout.rs:91"]
 fx = ["src/ui/render_engine/footer_layout.zig:39-60@c1db9191"]
 why = "Once /allowlist's notices fill the screen fx's band stands three rows above the bottom and xfx's on it, so the document above differs by those rows. The two placement functions are named; which input differs is not yet traced."
+
+[[cause]]
+id = "ri-run-pairing"
+kind = "defect"
+owner = "RI-COUNT"
+scenarios = ["p5-ctrlo-wider-ri"]
+snaps = ["answer", "typed", "erased"]
+fx_row = '^  ri \U0001f1ff\U0001f1fa\U0001f1f8 end +\)$|^  w{110}\U0001f1ff\U0001f1fa\U0001f1f8TAIL$|^  5678$'
+xfx_row = '^  ri \U0001f1ff\U0001f1fa\U0001f1f8 end$|^  w{110}\U0001f1ff\U0001f1fa\U0001f1f8TA$|^  IL5678$'
+xfx = ["src/tui/wrap.rs:673-693", "src/tui/grid.rs:933"]
+fx = ["src/core/shared/display_width.zig:234-263@c1db9191"]
+why = "Every regional indicator is counted otherwise than the terminals draw it, and the painter, the composer, the cut (`frame::clip`) and the status line share the one count (`cluster_cells`). fx v0.0.16 counts an RGI flag two cells and else one indicator at a time, two cells each, along the line (`displayUnitAt`); xfx counts the same a grapheme cluster at a time (part 1 of CTRLO-WIDER, `FX_COUNTED`). The terminals draw an RGI flag two cells, a pair that is no flag two cells (counted four by fx and xfx: the 417 such pairs between letters, .prd/tui-phase5/receipts/ctrlo-wider/README.md, `review/pairs-head.txt`), and a lone indicator two cells on libghostty-vt 1.3.2 and one on tmux 3.7b (counted two; `sweeps.txt.xz`). Main before part 1 counted a lone indicator one, which tmux draws exactly: part 1 brought the over-count against tmux with fx's count. And a run is paired otherwise: fx pairs it along the line, xfx and the terminals a cluster at a time from its start, so Z U S (U+1F1FF U+1F1FA U+1F1F8, U S the flag of the United States, Z U none) is fx's Z 2 and U S 2, four, xfx's [Z U] 4 and [S] 2, six, libghostty-vt's four and tmux's three (`src/tui/wrap.rs`'s `an_odd_run_of_regional_indicators_counts_no_fewer_cells_than_fx`: never fewer than fx). In `p5-ctrlo-wider-ri` `answer`, 110 `w`, Z U S and `TAIL5678`: fx's row ends `TAIL` and the next is `5678`, xfx's ends `TA` and the next is `IL5678`. A count above what is drawn loses no text in a document row, written as it stands, but it does where the grid writes only the cells that changed, at the columns it counted (`Grid::diff`): `typed` and `erased` -- U+1F1E6 twice and `abcd` typed in the composer, the four letters erased and `Q` typed -- read `┃ 🇦🇦abcd` and then `┃ 🇦🇦abQ` on both terminals, on fx and xfx alike: the pair drawn in two cells, the letters at cells 5-8 where the count put them at 7-10, and the erase written at 8-10, so `ab` stays on the screen though the draft is `🇦🇦Q` (`fx/` and `red3/p5-ctrlo-wider-ri-40x120/*-erased.txt`; the same on libghostty-vt replaying `*-erased.wire`). fx's own over-count leaves the same kind of cell in its document: when its first frame of the answer lands on the activity row `• Thinking (0s)` (15 cells), it writes `  ri 🇿🇺🇸 end  ` to cover 15 by its count, tmux draws 14, and the old row's `)` stays after `end` (four of five fx runs here; a frame that lands before `(0s)` is drawn leaves none). Both sides' composer rows are the same bytes, so `typed` and `erased` sweep identical and this covers no row of them; it records the defect. Not copied and not changed here: counting a pair as drawn, or as fx counts it, is RI-COUNT's decision, for the count every consumer shares (opus's review of CTRLO-WIDER round 2, item 4); RI-COUNT's scope is the sequences a terminal draws wider than they are counted (regional-indicator runs and modifier sequences on bases outside the 43: `answer-modifier-sequence-wider`)."
+
+[[cause]]
+id = "resize-document-repaint"
+kind = "defect"
+owner = "RESIZE-REPAINT"
+scenarios = ["p5-ctrlo-wider-inline-fam", "h1-resize"]
+snaps = ["resized", "small", "large"]
+whole_snap = true
+xfx = ["src/tui/shell.rs:15607"]
+fx = ["src/ui/resize_runtime.zig:766-767@c1db9191"]
+why = "fx v0.0.16 answers a resize that changes the screen's size by clearing the screen and its scrollback and writing the document again at the new width (`requestTerminalResetAfterResize`): the wire after `resize 40x140` opens `ESC[0m ESC[2J ESC[3J ESC[H` and writes every row again (`fx/p5-ctrlo-wider-inline-fam-40x120/fx-p5-ctrlo-wider-inline-fam-40x120-resized.wire`, .prd/tui-phase5/receipts/ctrlo-wider/). xfx solves the band and the unfinished line again and leaves every finished row to the terminal (`Shell::resize`: the band and the unfinished line, and nothing above them). So after the widening fx's answer stands at 140 columns -- 117 `w`, U+261D and `TAIL5678` on one row -- and xfx's at the 120 it was written at, and every row under it stands apart. Not the naming: a plain answer does the same, and `h1-resize`'s `small` and `large` are this too (xfx leaves the draft's old first row behind at row 2, fx repaints the band under the banner; .prd/tui-phase4/receipts/h1/README.md). RESIZE-REPAINT owns a decision, not only a defect: fx's repaint erases the user's scrollback (`ESC[3J`) on every resize, which xfx's terminal-owned scrollback keeps -- copy it, or keep the rows and diverge, with the reason (opus's review of CTRLO-WIDER round 2, item 4)."
+
+[[cause]]
+id = "answer-modifier-sequence-wider"
+kind = "defect"
+owner = "RI-COUNT"
+scenarios = ["p5-ctrlo-wider-mod"]
+snaps = ["more"]
+fx_row = '(?<![\u261d\u26f9\u270c\u270d\U0001f3cb\U0001f3cc\U0001f574\U0001f575\U0001f590])(?<=[\u261d-\u270d\U0001f385-\U0001faf8])[\U0001f3fb-\U0001f3ff]'
+xfx_row = '(?<![\u261d\u26f9\u270c\u270d\U0001f3cb\U0001f3cc\U0001f574\U0001f575\U0001f590])(?<=[\u261d-\u270d\U0001f385-\U0001faf8])[\U0001f3fb-\U0001f3ff]'
+xfx = ["src/tui/full_transcript.rs:3005", "src/tui/approval_view.rs:1224"]
+fx = ["src/core/shared/display_width.zig:246-247@c1db9191"]
+why = "An RGI emoji modifier sequence -- a base and a skin-tone modifier, U+1F3FB-1F3FF -- is two cells to fx v0.0.16 and xfx (an RGI sequence, `displayUnitAt`), and tmux 3.7b draws 545 of the 2,030 that xfx's table holds as four or six, the modifier on a cell pair of its own, for bases old and new alike (measured for the review, `approval_view`'s `agreed_emoji`, which names a modifier past its base there). In an answer neither side names one whose base is outside the 43 (`drawn_wider_named` names those alone): `p5-ctrlo-wider-mod` `more`, 110 `w`, U+1F46F U+1F3FB (or U+1F93C U+1F3FB) and `TAIL5678`, loses `L` and `5` on tmux on fx and xfx alike, and reads whole on libghostty-vt (.prd/tui-phase5/receipts/ctrlo-wider/measure.txt, not checked). The two sides' rows are the same, so this covers no row a sweep leaves unresolved; it records the defect, which predates CTRLO-WIDER and is outside its surfaces (opus's review of round 2, new item 2). RI-COUNT owns it with `ri-run-pairing`: its scope is the sequences a terminal draws wider than they are counted (regional-indicator runs and modifier sequences on bases outside the 43), the count every consumer shares (the dispatcher's assignment, 2026-11-08, reversible). The nine bases of the family with a modifier are named past the base, `\\u{261d}` and the modifier, and read whole on both terminals in prose, at the margin, in a code panel and in a table's cell (the same file)."
 
 # (c) the capture.
 
@@ -924,16 +1045,6 @@ fx_row = '^auto · model-a · fix the renderer loop, it redraw'
 xfx_row = '^auto · model-a · Fix the renderer loop$'
 fix = "the fake gateway keeps an unused connection open for fx's 30 s pool TTL (fakegw.ts idleTimeout), not a scenario file"
 why = "fx's title call goes out on the connection it warmed at launch, which the fake reset after 10 s idle, so fx keeps the derived title (receipts/w9/README.md:81-131): a property of the capture harness."
-
-[[cause]]
-id = "U7-cancelled-glyph"
-kind = "unit"
-owner = "U7 cancelled glyph (input cluster I10, transcript T6), not yet a branch"
-scenarios = ["p5-mcp-live"]
-snaps = ["cancel", "end", "failed"]
-fx_row = '^▪ Cancelled '
-xfx_row = '^■ Cancelled '
-why = "fx v0.0.16 marks a cancelled call `▪` (U+25AA, c29d5bfc); xfx still writes `■` (U+25A0). The glyph's cell only: read as `■`, `cancel` and `end` are the same (.prd/tui-phase5/receipts/mcp-toolgroup/README.md)."
 
 [[cause]]
 id = "U5-transcript-local-time"

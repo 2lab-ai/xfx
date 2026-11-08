@@ -1,0 +1,62 @@
+# CI's steps (.github/workflows/ci.yml, and sweep.yml's fxcap tests), one at a time under the suite lock, in the worktree
+# at the round-3 code head, TMPDIR=<tmp>/g. Each step: its exit code and wall time, then the lines of its output that report a
+# count (cargo test: the sum of every binary's `test result:` line). Nothing re-run.
+head 1d52413d5699f32e0d2242e267b07bb7b5e399f5 (fix(tui): spell a whole argument in one pass, not a check an); tree clean of code: 0 changed paths outside the receipt
+=== cargo fmt --check -- exit 0 (2 s)
+=== cargo clippy --locked --all-targets -- -D warnings -- exit 0 (28 s)
+=== cargo clippy --locked --all-targets --features fault-injection -- -D warnings -- exit 0 (14 s)
+=== cargo test --locked --no-fail-fast -- exit 0 (152 s)
+    total: 15 test binaries: 5291 passed, 0 failed, 7 ignored
+=== cargo test --locked --features fault-injection --no-fail-fast -- exit 0 (130 s)
+    total: 15 test binaries: 5328 passed, 0 failed, 7 ignored
+=== scripts/check-xfx-identity.sh -- exit 0 (1 s)
+    check-xfx-identity: ok (13202 tracked file(s) scanned)
+=== scripts/check-no-stubs.sh -- exit 0 (9 s)
+    check-no-stubs: ok
+=== scripts/check-no-secrets.sh -- exit 0 (38 s)
+    check-no-secrets: ok (13202 tracked file(s) scanned)
+=== scripts/check-preview-contract.sh -- exit 0 (3 s)
+    check-preview-contract: ok (.github/workflows/preview.yml)
+=== scripts/check-tui-preflight-cost.sh -- exit 0 (94 s)
+    check-tui-preflight-cost: measuring (default features)
+    check-tui-preflight-cost: measuring (fault injection)
+    check-tui-preflight-cost: ok
+=== scripts/check-usage-clock.sh -- exit 0 (1 s)
+    check-usage-clock: debug: honoured (debug assertions)
+    check-usage-clock: release: ignored (release)
+    check-usage-clock: release, fault injection: ignored (release)
+    check-usage-clock: ok
+=== scripts/test-check-no-secrets.sh -- exit 0 (91 s)
+    test-check-no-secrets: ok last-batch         exit 1
+    test-check-no-secrets: ok dash-n-name        exit 1
+    test-check-no-secrets: ok unreadable-middle  exit 1
+    test-check-no-secrets: ok grep-options       exit 1
+    test-check-no-secrets: ok grep-signal        exit 1
+    test-check-no-secrets: ok grep-126           exit 1
+    test-check-no-secrets: ok grep-127           exit 1
+    test-check-no-secrets: ok every-file         exit 1
+    test-check-no-secrets: ok every-file-set     3472 of 3472 keys, each once
+    test-check-no-secrets: ok nothing-tracked    exit 1
+    test-check-no-secrets: ok only-a-symlink     exit 1
+    test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
+=== scripts/test-gate-env.sh -- exit 0 (73 s)
+    test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code
+    test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command
+    test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break
+    test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
+    test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
+    test-gate-env: ok (5 cases)
+=== scripts/test-preview-contract.sh -- exit 0 (48 s)
+    test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+=== scripts/fxcap/test-sweep.sh -- exit 0 (33 s)
+    Ran 66 tests ... OK
+    Ran 26 tests ... OK
+=== scripts/fxcap/test-capture.sh -- exit 0 (284 s)
+    Ran 59 tests ... OK
+=== cargo build --locked --release -- exit 0 (13 s)
+=== cargo build --locked --release --features fault-injection --target-dir target/faulty -- exit 0 (14 s)
+=== scripts/smoke.sh target/release/xfx <tmp>/smoke -- exit 0 (1 s)
+    47 check(s), 0 failure(s)
+=== scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <tmp>/smoke-tui -- exit 0 (78 s)
+    smoke-tui: 37 scenarios + the oracle, 1127 checks, 0 failures
+=== done 2026-11-08 14:34

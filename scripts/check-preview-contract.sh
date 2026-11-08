@@ -42,9 +42,29 @@ set -euo pipefail
 
 # BSD grep -- macOS's -- puts `GREP_OPTIONS` in front of every argument list:
 # a `-v` there makes "the README carries the install command" true of any
-# README with another line. (GNU grep 3.8 ignores it.) This script's options are its own;
-# scripts/test-gate-env.sh holds it to that.
+# README with another line. (GNU grep 3.8 ignores it.) This script's options
+# are its own; scripts/test-gate-env.sh holds it to that.
 unset GREP_OPTIONS
+
+# Git takes where a repository is, which index it lists, where it writes
+# objects and which config and attributes apply from its environment:
+# `GIT_DIR`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, `GIT_COMMON_DIR`,
+# `GIT_CONFIG_*`, `GIT_ATTR_SOURCE` and more. One inherited from a caller --
+# an exported shell, a hook -- sent the scratch commits the epoch
+# gate runs over into another repository: `GIT_DIR`, `GIT_OBJECT_DIRECTORY`
+# and `GIT_COMMON_DIR` each did, whatever `scratch_git` pins.
+# This checks the checkout it is in, as CI does: that checkout's own
+# `.git`, index and working tree. So every `GIT_*` goes before any git runs,
+# read from the shell's own list of its variables, `${!GIT_@}`: no command to
+# be missing (`compgen`, a readline builtin, is not in every bash). A name that
+# is no identifier cannot be unset, and git reads none such.
+# scripts/test-gate-env.sh holds it to that.
+for name in "${!GIT_@}"; do
+	case "$name" in
+	*[!A-Za-z0-9_]*) ;;
+	*) unset "$name" ;;
+	esac
+done
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
@@ -1060,6 +1080,15 @@ else
 	rewritten_plain="$(scratch_git -C "$origin" rev-parse HEAD)"
 	scratch_git -C "$origin" checkout -q main
 
+	# The gate drops every GIT_* before its first git, as a runner's step
+	# must, so the pins scratch_git sets cannot reach its git through the
+	# environment: under a HOME whose config names an fsmonitor, its
+	# `git diff` ran it. A `git` first on its PATH sets them after the drop.
+	mkdir -p "$work/pinned-bin"
+	printf '#!/bin/sh\nGIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 exec %s "$@"\n' \
+		"'$(command -v git)'" >"$work/pinned-bin/git"
+	chmod 755 "$work/pinned-bin/git"
+
 	# gate <publish|skip|error> <before> <after> [the GITHUB_SHA it is told]
 	gate() {
 		local want="$1" before="$2" after="$3" sha="${4:-$3}" checkout status got
@@ -1073,7 +1102,7 @@ else
 		(
 			cd "$checkout"
 			BEFORE="$before" GITHUB_SHA="$sha" GITHUB_OUTPUT="$checkout.output" \
-				GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+				PATH="$work/pinned-bin:$PATH" \
 				bash --noprofile --norc -eo pipefail "$work/epoch-gate.sh"
 		) >"$checkout.log" 2>&1 || status=$?
 		got="$(sed -n 's/^publish=//p' "$checkout.output" | tr '\n' ' ')"

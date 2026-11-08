@@ -1,0 +1,32 @@
+# Phase 5 (CTRLO-WIDER): an edit of a file whose lines hold scalars fx
+# v0.0.16 counts one code point at a time as more cells than the width table
+# does, and a terminal draws wider than that table's count: U+0605 before a
+# digit, Bengali U+0995 U+09BE, `a` U+302E (two cells to fx), halfwidth
+# U+FF76 U+FF9E, a lone regional indicator U+1F1E6, an RGI flag U+1F1F0
+# U+1F1F7, a pair that is no flag (U+1F1E6 x2) and U+E0000 -- one line short,
+# and four that reach the 112-cell text row at its last cell by fx's count:
+# `a` U+302E twice, U+0995 U+09BE, U+E0000 and U+1F1E6, each just before
+# `TAIL5678`. The first two lines change (`-`/`+` rows). Read first on both
+# sides, then Ctrl-O over the change.
+gateway p5-ctrlo-wider-diff-turns.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+work p5-ctrlo-wider-diffws
+keep
+until shown Full access
+until gone Full access
+type edit the file
+wait 1
+key Enter
+until shown Edited.
+until gone Generating (
+snap edited
+key C-o
+until shown full detail
+snap full
+wire full
+key C-o
+until gone full detail
+snap closed
+gwlog

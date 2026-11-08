@@ -1,0 +1,10 @@
+# render_cost_probe.rs on a clone at bc6c9afc (round 1: every non-command, non-file-change argument kept whole, in every row).
+# Release build, macOS, one case a process, under the suite lock; ms per step, peak RSS of the process.
+PROBE case=short raw_bytes=9 bridge_ms=0.1 start_ms=0.2 rebuild_median_ms=0.0 rebuild_worst_ms=0.1 ctrlo_open_ms=0.5 ctrlo_cached_ms=0.0 ctrlo_after_event_ms=0.4 peak_rss_mib=9
+case short exit 0
+PROBE case=plain raw_bytes=8388608 bridge_ms=34.0 start_ms=449.6 rebuild_median_ms=452.0 rebuild_worst_ms=475.0 ctrlo_open_ms=937.2 ctrlo_cached_ms=0.0 ctrlo_after_event_ms=1036.0 peak_rss_mib=614
+case plain exit 0
+PROBE case=c1 raw_bytes=8388608 bridge_ms=134.0 start_ms=1767.7 rebuild_median_ms=1749.4 rebuild_worst_ms=1794.7 ctrlo_open_ms=3455.4 ctrlo_cached_ms=0.0 ctrlo_after_event_ms=3862.5 peak_rss_mib=1350
+case c1 exit 0
+PROBE case=marks raw_bytes=6291456 bridge_ms=65.4 start_ms=881.0 rebuild_median_ms=883.0 rebuild_worst_ms=1156.0 ctrlo_open_ms=1758.6 ctrlo_cached_ms=0.0 ctrlo_after_event_ms=2010.5 peak_rss_mib=1162
+case marks exit 0

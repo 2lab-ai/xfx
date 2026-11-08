@@ -1,0 +1,27 @@
+ok   1,111,999 scalars in every column
+ok   tmux and libghostty-vt drew every scalar the same in both sweeps
+ok   the base table (3,881 scalars) is the base sweep's scalars drawn wider than xfx counted
+     P1: 3,838 scalars in 64 ranges (the table's, fx counts more than xfx did)
+     left out: 43 scalars in 10 ranges, fx's count no more than xfx's: U+2065, U+261D, U+26F9, U+270C-270D, U+2E3A-2E3B, U+FE0F, U+1F3CB-1F3CC, U+1F574-1F575, U+1F590, U+E0002-E001F
+     P1 without U+1F1E6-1F1FF: 3,812 scalars in 63 ranges (the ledger's selector)
+ok   wrap.rs's FX_COUNTED is P1, exactly
+ok   the scalars whose count moved (3,838) are P1, exactly
+ok   every scalar of P1 now counts fx's count
+ok   every count that moved grew
+ok   no scalar of P1 counts more than fx because the width table counts it more
+ok   no scalar of P1 is drawn wider than fx's count by either terminal
+     P1, tmux exact, libghostty-vt exact: 17 (e.g. U+0D4E)
+     P1, tmux exact, libghostty-vt narrower: 3,733 (e.g. U+302E)
+     P1, tmux narrower, libghostty-vt exact: 88 (e.g. U+0605)
+     before -> after (fx) for P1: 3,808 x 0->1, 4 x 0->2, 26 x 1->2
+ok   drawn wider than xfx's count at the head: 43 scalars, the left-out family exactly
+     U+2065: fx 0, xfx 0, tmux 1, libghostty-vt 0
+     U+261D: fx 1, xfx 1, tmux 2, libghostty-vt 1
+     U+26F9: fx 1, xfx 1, tmux 2, libghostty-vt 1
+     U+270C-270D: fx 1, xfx 1, tmux 2, libghostty-vt 1
+     U+2E3A-2E3B: fx 1, xfx 1, tmux 1, libghostty-vt 2
+     U+FE0F: fx 0, xfx 0, tmux 1, libghostty-vt 0
+     U+1F3CB-1F3CC: fx 1, xfx 1, tmux 2, libghostty-vt 1
+     U+1F574-1F575: fx 1, xfx 1, tmux 2, libghostty-vt 1
+     U+1F590: fx 1, xfx 1, tmux 2, libghostty-vt 1
+     U+E0002-E001F: fx 0, xfx 0, tmux 1, libghostty-vt 0

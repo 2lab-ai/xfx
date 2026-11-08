@@ -1,0 +1,182 @@
+head fff83c06
+Darwin arm64
+GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+git version 2.54.0 (Apple Git-157)
+rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)
+TMPDIR=<tmp>
+
+== what changed since 2c8fbc64
+ .github/workflows/ci.yml          |   2 +
+ .github/workflows/preview.yml     |  12 ++
+ .github/workflows/sweep-full.yml  |   2 +
+ .github/workflows/sweep.yml       |   4 +
+ build.rs                          |  25 ++-
+ scripts/check-no-secrets.sh       |  26 +++-
+ scripts/check-preview-contract.sh |  21 ++-
+ scripts/check-xfx-identity.sh     | 145 +++++++++++++++---
+ scripts/fxcap/test_sweep.py       |   9 +-
+ scripts/test-check-no-secrets.sh  |  31 ++--
+ scripts/test-gate-env.sh          | 309 ++++++++++++++++++++++++++++++++++----
+ 11 files changed, 505 insertions(+), 81 deletions(-)
+
+== cargo fmt --check
+-> exit 0, 1 s
+
+== cargo build --locked
+   Compiling rustix v1.1.4
+   Compiling xfx v0.1.0 (<local-path>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.29s
+-> exit 0, 13 s
+
+== cargo clippy --locked --all-targets -- -D warnings
+   Compiling xfx v0.1.0 (<local-path>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.83s
+-> exit 0, 7 s
+
+== ./scripts/check-no-secrets.sh
+check-no-secrets: ok (12131 tracked file(s) scanned)
+-> exit 0, 24 s
+
+== ./scripts/check-no-stubs.sh
+check-no-stubs: ok
+-> exit 0, 9 s
+
+== ./scripts/check-preview-contract.sh
+check-preview-contract: ok (.github/workflows/preview.yml)
+-> exit 0, 6 s
+
+== ./scripts/check-tui-preflight-cost.sh
+preflight 200x300 sparse: 27 bytes in 476.347µs mean, 451.416µs min, 479.958µs median, 484.958µs max (budget 32 ms)
+preflight 200x300 full: 61292 bytes in 953.091µs mean, 930.458µs min, 954.917µs median, 980.792µs max (budget 32 ms)
+preflight 200x300 scroll: 9 bytes in 490.152µs mean, 484.375µs min, 489.166µs median, 512.792µs max (budget 32 ms)
+preflight 200x300 update: 85420 bytes in 718.804µs mean, 634.833µs min, 641.792µs median, 1.134083ms max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 345.863µs mean, 338.167µs min, 344.709µs median, 360.625µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 1.251575ms mean, 1.237334ms min, 1.247833ms median, 1.293167ms max (budget 32 ms)
+check-tui-preflight-cost: measuring (fault injection)
+preflight 24x80 unchanged: 0 bytes in 20.904µs mean, 16.416µs min, 16.667µs median, 101.042µs max (budget 8 ms)
+preflight 24x80 sparse: 26 bytes in 17.154µs mean, 16.583µs min, 17µs median, 18.833µs max (budget 8 ms)
+preflight 24x80 full: 2055 bytes in 33.677µs mean, 32.542µs min, 33.042µs median, 37.5µs max (budget 8 ms)
+preflight 24x80 scroll: 8 bytes in 16.599µs mean, 16.25µs min, 16.458µs median, 18.583µs max (budget 8 ms)
+preflight 24x80 update: 2815 bytes in 21.895µs mean, 21.5µs min, 21.583µs median, 26.458µs max (budget 8 ms)
+preflight 200x300 unchanged: 0 bytes in 513.783µs mean, 499.75µs min, 504.833µs median, 689.167µs max (budget 32 ms)
+preflight 200x300 sparse: 27 bytes in 555.462µs mean, 491.916µs min, 503.125µs median, 705.084µs max (budget 32 ms)
+preflight 200x300 full: 61292 bytes in 1.180308ms mean, 1.107917ms min, 1.151417ms median, 1.2895ms max (budget 32 ms)
+preflight 200x300 scroll: 9 bytes in 529.183µs mean, 522.875µs min, 528.75µs median, 547.459µs max (budget 32 ms)
+preflight 200x300 update: 85420 bytes in 783.777µs mean, 773.459µs min, 784.584µs median, 797.125µs max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 399.102µs mean, 391.291µs min, 394.25µs median, 427.5µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 1.420958ms mean, 1.397083ms min, 1.412833ms median, 1.445708ms max (budget 32 ms)
+check-tui-preflight-cost: ok
+-> exit 0, 83 s
+
+== ./scripts/check-usage-clock.sh
+check-usage-clock: debug: honoured (debug assertions)
+check-usage-clock: release: ignored (release)
+check-usage-clock: release, fault injection: ignored (release)
+check-usage-clock: ok
+-> exit 0, 6 s
+
+== ./scripts/check-xfx-identity.sh
+check-xfx-identity: ok (12131 tracked file(s) scanned)
+-> exit 0, 1 s
+
+== ./scripts/test-check-no-secrets.sh
+test-check-no-secrets: 3473 tracked names overflow ARG_MAX (1048576): ./scripts/test-check-no-secrets.sh: line 189: /usr/bin/env: Argument list too long
+test-check-no-secrets: 3468 names carry a tab, a newline and U+00E9; this filesystem refuses a name that is not UTF-8
+test-check-no-secrets: ok clean              exit 0
+test-check-no-secrets: ok first-batch        exit 1
+test-check-no-secrets: ok last-batch         exit 1
+test-check-no-secrets: ok dash-n-name        exit 1
+test-check-no-secrets: ok unreadable-middle  exit 1
+test-check-no-secrets: ok grep-options       exit 1
+test-check-no-secrets: ok grep-signal        exit 1
+test-check-no-secrets: ok grep-126           exit 1
+test-check-no-secrets: ok grep-127           exit 1
+test-check-no-secrets: ok every-file         exit 1
+test-check-no-secrets: ok every-file-set     3472 of 3472 keys, each once
+test-check-no-secrets: ok nothing-tracked    exit 1
+test-check-no-secrets: ok only-a-symlink     exit 1
+test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
+-> exit 0, 95 s
+
+== ./scripts/test-gate-env.sh
+test-gate-env: ok attributes-untracked           the retired product name is still in tracked content
+test-gate-env: ok identity-color-grep            the retired product name is still in tracked content
+test-gate-env: ok identity-grep.patternType      git grep could not search
+test-gate-env: ok identity-grep.extendedRegexp   git grep could not search
+test-gate-env: ok identity-grep.threads          git grep could not search
+test-gate-env: ok identity-core.quotePath        git cannot open it
+test-gate-env: ok identity-index-corrupt         git ls-files could not list
+test-gate-env: ok identity-core.quotePath-home   the path scan could not run in its own control
+test-gate-env: ok identity-unreadable            git grep could not search
+test-gate-env: ok identity-core.worktree         the retired product name is still in tracked content
+test-gate-env: ok identity-skip-worktree         marked skip-worktree or assume-unchanged
+test-gate-env: ok identity-assume-unchanged      marked skip-worktree or assume-unchanged
+test-gate-env: ok identity-home-programs         the retired product name is still in tracked content
+test-gate-env: ok no-secrets-home-programs       possible OpenAI-style key:
+test-gate-env: ok preview-home-programs          does not document the qualified install command
+test-gate-env: ok workflow-steps                 all 10 steps that run git drop GIT_* first
+test-gate-env: ok ci-checkout-assertion          checked out
+test-gate-env: ok build-script                   stamps the checkout's HEAD (4122910e158c)
+test-gate-env: ok test-check-no-secrets          test-check-no-secrets: ok (13 cases; 3473 tracked names past
+test-gate-env: ok (45 cases)
+-> exit 0, 396 s
+
+== ./scripts/test-preview-contract.sh
+test-preview-contract: caught gate-removed                 preflight has no epoch gate
+test-preview-contract: caught gate-always-publishes        expected skip
+test-preview-contract: caught build-unconditional          build runs on nil
+test-preview-contract: caught publish-unconditional        publish runs on nil
+test-preview-contract: caught environment-dropped          publish reads TAP_PUSH_KEY under environment nil
+test-preview-contract: caught environment-renamed          publish reads TAP_PUSH_KEY under environment "production"
+test-preview-contract: caught environment-on-preflight     preflight names environment "preview" but reads no secret
+test-preview-contract: caught key-without-environment      build reads TAP_PUSH_KEY under environment nil
+test-preview-contract: caught build-whole-context          the jobs reading secrets are ["build", "publish"]
+test-preview-contract: caught build-bracket-key            the jobs reading secrets are ["build", "publish"]
+test-preview-contract: caught build-brace-literal          the jobs reading secrets are ["build", "publish"]
+test-preview-contract: caught publish-action-whole-context hands a secret to the action actions/github-script@v7
+test-preview-contract: caught second-workflow              tap.yml mentions TAP_PUSH_KEY
+test-preview-contract: caught other-workflow-environment   dispatch.yml: job leak names environment "preview"
+test-preview-contract: caught other-workflow-whole-context report.yml: job report reads a secret
+test-preview-contract: caught secrets-inherit              call.yml: job call passes secrets
+test-preview-contract: caught epoch-absent                 there is no .github/preview-epoch
+test-preview-contract: caught epoch-two-lines              .github/preview-epoch is "phase4\nphase5\n"
+test-preview-contract: caught epoch-crlf                   .github/preview-epoch is "phase4\r\n"
+test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+-> exit 0, 96 s
+
+== ./scripts/fxcap/test-sweep.sh
+...................................................
+----------------------------------------------------------------------
+Ran 51 tests in 5.331s
+
+OK
+...........................
+----------------------------------------------------------------------
+Ran 27 tests in 9.510s
+
+OK
+-> exit 0, 15 s
+
+== actionlint -verbose
+Linting .github/workflows/preview.yml
+verbose: Using project at <local-path>
+verbose: Linting .github/workflows/release.yml
+verbose: Using project at <local-path>
+verbose: Found 0 parse errors in 0 ms for .github/workflows/sweep.yml
+verbose: Found 0 parse errors in 0 ms for .github/workflows/ci.yml
+verbose: Found 0 parse errors in 0 ms for .github/workflows/sweep-full.yml
+verbose: Found 0 parse errors in 0 ms for .github/workflows/release.yml
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Found 0 parse errors in 3 ms for .github/workflows/preview.yml
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Found total 0 errors in 40 ms for .github/workflows/sweep.yml
+verbose: Found total 0 errors in 52 ms for .github/workflows/sweep-full.yml
+verbose: Found total 0 errors in 77 ms for .github/workflows/ci.yml
+verbose: Found total 0 errors in 77 ms for .github/workflows/release.yml
+verbose: Found total 0 errors in 125 ms for .github/workflows/preview.yml
+verbose: Found 0 errors in 5 files
+-> exit 0, 0 s
+exit=0

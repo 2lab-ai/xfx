@@ -43,6 +43,8 @@ jobs:
       - name: Confirm the checkout
         run: |
           set -eu
+          # Git reads its repository, index and config from GIT_*; none of a caller's.
+          for name in "${!GIT_@}"; do case "$name" in *[!A-Za-z0-9_]*) ;; *) unset "$name" ;; esac; done
           actual="$(git rev-parse HEAD)"
           if [ "$actual" != "${GITHUB_SHA}" ]; then
             echo "checked out $actual, expected ${GITHUB_SHA}" >&2

@@ -1,0 +1,28 @@
+# compare.py <wider's own head sweep, rescored with the train's ledger> <the train's head sweep>
+pairs: reference 26, train 684, shared 26; only the reference: 0
+reference: 26 pairs, pass 9; approved-divergence 11, normalized-identical 9, unresolved-defect 6
+train: 26 pairs, pass 9; approved-divergence 11, normalized-identical 9, unresolved-defect 6
+p5-ctrlo-wider-ri answer: 0 differing rows left, 1 new
+    NEW:  fx '  ri 🇿🇺🇸 end  )' / xfx '  ri 🇿🇺🇸 end'
+p5-ctrlo-wider-ri erased: 0 differing rows left, 1 new
+    NEW:  fx '  ri 🇿🇺🇸 end  )' / xfx '  ri 🇿🇺🇸 end'
+p5-ctrlo-wider-ri typed: 0 differing rows left, 1 new
+    NEW:  fx '  ri 🇿🇺🇸 end  )' / xfx '  ri 🇿🇺🇸 end'
+verdicts moved: 0
+fx screens not the same in the two sweeps: 8
+    p5-ctrlo-wider-diff full
+    p5-ctrlo-wider-diff-fam full
+    p5-ctrlo-wider-fence ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo-resized
+    p5-ctrlo-wider-ri answer
+    p5-ctrlo-wider-ri erased
+    p5-ctrlo-wider-ri typed
+xfx screens not the same in the two sweeps: 5
+    p5-ctrlo-wider-diff full
+    p5-ctrlo-wider-diff-fam full
+    p5-ctrlo-wider-fence ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo-resized
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 3

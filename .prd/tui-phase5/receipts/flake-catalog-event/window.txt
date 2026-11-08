@@ -1,0 +1,34 @@
+# The race window, measured on the RED binary (8f82e4a3): the failing case alone,
+# --exact tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown, 50 runs per row,
+# with HTTPS_PROXY = connect_logger.py holding each 403 for d ms (a stand-in round trip; nothing is forwarded).
+# d=0 rows: from loops.txt BEFORE (the same binary, all 12 touched cases per run, this case's count shown).
+
+## d = 0 ms: idle fail 50/50, loaded fail 50/50 (loops.txt, BEFORE)
+
+## d = 10 ms and d = 30 ms
+== stand-in round trip 10 ms (port 58213)
+start=2026-11-08T05:52:24Z end=2026-11-08T05:52:27Z runs=50 pass=45 fail=5 load=[23.71 18.10 14.53]
+spinners: 18 started, pids 22648..22665
+start=2026-11-08T05:52:27Z end=2026-11-08T05:52:29Z runs=50 pass=49 fail=1 load=[26.94 18.86 14.82]
+spinners: 18 killed
+== stand-in round trip 30 ms (port 58214)
+start=2026-11-08T05:52:29Z end=2026-11-08T05:52:32Z runs=50 pass=50 fail=0 load=[26.94 18.86 14.82]
+spinners: 18 started, pids 23459..23480
+start=2026-11-08T05:52:32Z end=2026-11-08T05:52:35Z runs=50 pass=50 fail=0 load=[27.18 19.05 14.91]
+spinners: 18 killed
+
+[exited with code 0]
+
+## d = 100 ms (all 12 touched cases per run; only the RED case failed)
+port=57765
+start=2026-11-08T05:50:45Z end=2026-11-08T05:51:18Z runs=50 pass=0 fail=50 load=[14.15 13.89 12.78]
+  tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band: fail 50 / 50
+  (every other touched test: fail 0 / 50)
+spinners: 18 started, pids 12637..12658
+start=2026-11-08T05:51:19Z end=2026-11-08T05:51:52Z runs=50 pass=0 fail=50 load=[36.68 19.42 14.83]
+spinners: 18 killed
+  tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band: fail 50 / 50
+  (every other touched test: fail 0 / 50)
+connects=     200
+
+[exited with code 0]

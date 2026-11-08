@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-b7cf010 [debug] · Run /help for commands
+
+┃ go
+
+  fam \u{261d} \u{2e3a} \u{1f590} x\u{e0002}y a\u{fe0f}b ­\u{fe0f}c ﾠ\u{fe0f}d ￰\u{fe0f}e \u{2065}f end
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\
+  u{261d}TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\
+  u{2e3a}TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwa
+  \u{fe0f}TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\
+  u{e0002}zTAIL5678
+
+  \u{261d}\u{261d}\u{261d}\u{261d}wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+  wwwwwwwwwwwwwwwwwwwwwwwwTAILwwwwwwwwwwwwwwwwwwwwEND
+
+  0s (↑1 ↓40)
+
+┃ fam ☝ ⸺ 🖐 x󠀂y a️b ­️c ﾠ️d ￰️e ⁥f end ZZ
+
+  Spare.
+
+  0s (↑17 ↓40)
+
+┃ ☝☝☝☝wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwL
+┃ wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+┃ TAIL
+
+auto · model-a
+
+
+
+
+
+

@@ -1,0 +1,49 @@
+== ci.yml at 884497c0 (Merge pull request #80 from 2lab-ai/train/p5-1108a)
+x86_64-unknown-linux-gnu (ubuntu-24.04): 21 of 23 steps
+  not run: Keep the smoke evidence of a failed run (if failure())
+  not run: Keep the TUI evidence of a failed run (if failure())
+aarch64-unknown-linux-gnu (ubuntu-24.04-arm): 21 of 23 steps
+  not run: Keep the smoke evidence of a failed run (if failure())
+  not run: Keep the TUI evidence of a failed run (if failure())
+aarch64-apple-darwin (macos-15): 21 of 23 steps
+  not run: Keep the smoke evidence of a failed run (if failure())
+  not run: Keep the TUI evidence of a failed run (if failure())
+x86_64-apple-darwin (macos-15-intel): 21 of 23 steps
+  not run: Keep the smoke evidence of a failed run (if failure())
+  not run: Keep the TUI evidence of a failed run (if failure())
+script-test steps: ./scripts/test-check-no-secrets.sh, ./scripts/test-gate-env.sh, ./scripts/test-preview-contract.sh
+
+== ci.yml at 621c9504 (Merge origin/main 884497c0 into fix/p5-gate-gitenv-f)
+x86_64-unknown-linux-gnu (ubuntu-24.04): 20 of 22 steps
+  not run: Keep the smoke evidence of a failed run (if failure())
+  not run: Keep the TUI evidence of a failed run (if failure())
+aarch64-unknown-linux-gnu (ubuntu-24.04-arm): 20 of 22 steps
+  not run: Keep the smoke evidence of a failed run (if failure())
+  not run: Keep the TUI evidence of a failed run (if failure())
+aarch64-apple-darwin (macos-15): 20 of 22 steps
+  not run: Keep the smoke evidence of a failed run (if failure())
+  not run: Keep the TUI evidence of a failed run (if failure())
+x86_64-apple-darwin (macos-15-intel): 20 of 22 steps
+  not run: Keep the smoke evidence of a failed run (if failure())
+  not run: Keep the TUI evidence of a failed run (if failure())
+script-test steps: ./scripts/test-gate-env.sh, ./scripts/test-preview-contract.sh
+
+== ci.yml at a41695bf (ci: run the gate scripts' own tests on one row per OS)
+x86_64-unknown-linux-gnu (ubuntu-24.04): 20 of 22 steps
+  not run: Keep the smoke evidence of a failed run (if failure())
+  not run: Keep the TUI evidence of a failed run (if failure())
+aarch64-unknown-linux-gnu (ubuntu-24.04-arm): 18 of 22 steps
+  not run: No gate takes its options, repository or config from the environment
+  not run: The preview contract catches every mutant it exists for
+  not run: Keep the smoke evidence of a failed run (if failure())
+  not run: Keep the TUI evidence of a failed run (if failure())
+aarch64-apple-darwin (macos-15): 20 of 22 steps
+  not run: Keep the smoke evidence of a failed run (if failure())
+  not run: Keep the TUI evidence of a failed run (if failure())
+x86_64-apple-darwin (macos-15-intel): 18 of 22 steps
+  not run: No gate takes its options, repository or config from the environment
+  not run: The preview contract catches every mutant it exists for
+  not run: Keep the smoke evidence of a failed run (if failure())
+  not run: Keep the TUI evidence of a failed run (if failure())
+script-test steps: ./scripts/test-gate-env.sh, ./scripts/test-preview-contract.sh
+

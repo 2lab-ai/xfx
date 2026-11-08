@@ -1,0 +1,16 @@
+# Merge 5's sides, as committed (round 4, opus's SHOULD): ARGROW-CACHE's change outside .prd since 9681e9d8, and the merged tree's build
+$ git diff --numstat 9681e9d8 e066669d -- . ':!.prd'
+553	76	src/tui/full_transcript.rs
+82	4	src/tui/full_transcript/tool_status.rs
+194	37	src/tui/prose.rs
+440	0	src/tui/shell.rs
+278	2	src/tui/wrap.rs
+$ git diff --stat 9681e9d8 e066669d -- . ':!.prd'
+ src/tui/full_transcript.rs             | 629 +++++++++++++++++++++++++++++----
+ src/tui/full_transcript/tool_status.rs |  86 ++++-
+ src/tui/prose.rs                       | 231 ++++++++++--
+ src/tui/shell.rs                       | 440 +++++++++++++++++++++++
+ src/tui/wrap.rs                        | 280 ++++++++++++++-
+ 5 files changed, 1547 insertions(+), 119 deletions(-)
+$ git diff --name-only 9681e9d8 99eb8a13 -- docs/parity.md scripts/fxcap/parity-ledger.toml   (the train's side: empty)
+$ git diff --name-only 9681e9d8 e066669d -- docs/parity.md scripts/fxcap/parity-ledger.toml   (ARGROW-CACHE's side: empty)

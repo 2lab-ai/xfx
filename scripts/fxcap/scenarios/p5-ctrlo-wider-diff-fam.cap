@@ -1,0 +1,32 @@
+# Phase 5 (CTRLO-WIDER): the scalars fx and xfx count alike that a
+# terminal draws wider (src/tui/drawn_wider.rs): U+261D, U+2E3A and U+1F590,
+# U+E0002 (counted as none), U+FE0F after `a`, a soft hyphen, U+FFA0 and
+# U+FFF0, and U+2065 -- one line short; two that reach the 112-cell text row
+# at its last cell by the count, U+261D and then `a` U+FE0F, each just before
+# `TAIL5678`; and one with four U+261D at its front, 100 `w`, `TAIL`, six `w`
+# and `END`, the row's 112 cells and five more by the count. The first line
+# changes. Each line takes as many rows named as raw, so neither side's
+# Ctrl-O screen pushes a row off the other's. Read first on both sides, then
+# Ctrl-O over the change.
+gateway p5-ctrlo-wider-diff-fam-turns.json
+fx: env FX_AUTO_UPGRADE=0
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+work p5-ctrlo-wider-diff-famws
+keep
+until shown Full access
+until gone Full access
+type edit the file
+wait 1
+key Enter
+until shown Edited.
+until gone Generating (
+snap edited
+key C-o
+until shown full detail
+snap full
+wire full
+key C-o
+until gone full detail
+snap closed
+gwlog

@@ -1,0 +1,65 @@
+# The join tests at 392ca22a, their text unchanged, on each unit's tip alone (join_units.sh, apply_join.py), the same hold
+## unit-tu4: 5a7bb465 receipt(cancel-marker): round 3 -- the row's cut, Ctrl-O's caches, numbers, mutan, the tests appended (git diff --stat:  2 files changed, 309 insertions(+))
+test tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back ... FAILED
+test tui::shell::tests::ctrl_o_names_what_a_terminal_draws_wider_and_its_caches_follow_the_palette_and_the_width ... FAILED
+test tui::toolgroup::tests::the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width ... ok
+thread 'tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back' (335031094) panicked at src/tui/shell.rs:44847:9:
+thread 'tui::shell::tests::ctrl_o_names_what_a_terminal_draws_wider_and_its_caches_follow_the_palette_and_the_width' (335031095) panicked at src/tui/shell.rs:44757:9:
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4386 filtered out; finished in 1.38s
+error: test failed, to rerun pass `--lib`
+error: 1 target failed:
+---- tui::shell::tests::ctrl_o_names_what_a_terminal_draws_wider_and_its_caches_follow_the_palette_and_the_width stdout ----
+thread 'tui::shell::tests::ctrl_o_names_what_a_terminal_draws_wider_and_its_caches_follow_the_palette_and_the_width' (335031095) panicked at src/tui/shell.rs:44757:9:
+the argument row, named: [
+    "  2026-11-08 08:00:52.842 UTC · Prompt",
+    "┃ read it",
+    "",
+    "  2026-11-08 08:00:52.842 UTC · Tool",
+    "● 1 tool call · 1 read",
+    "└ Read ☝x⸺wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww.txt",
+    "│  line ☝ one",
+    "",
+    "",
+---- tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back stdout ----
+thread 'tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back' (335031094) panicked at src/tui/shell.rs:44847:9:
+[
+    "\u{1b}[38;5;245m  2026-11-08 08:00:52.842 UTC · Prompt\u{1b}[0m",
+    "\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[1mread it\u{1b}[0m",
+    "",
+    "\u{1b}[38;5;245m  2026-11-08 08:00:52.842 UTC · Tool\u{1b}[0m",
+    "\u{1b}[38;5;255m●\u{1b}[0m \u{1b}[38;5;245m1 tool call · 1 read\u{1b}[0m",
+    "└ Read ☝x⸺wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww.txt\u{1b}[0m",
+    "│\u{1b}[38;5;245m  line ☝ one\u{1b}[0m",
+    "",
+    "",
+exit 101
+## unit-wider: 1824e868 test(tui): a fenced reply's label is named on the screen and kept as written in t, the tests appended (git diff --stat:  2 files changed, 309 insertions(+))
+test tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back ... FAILED
+test tui::shell::tests::ctrl_o_names_what_a_terminal_draws_wider_and_its_caches_follow_the_palette_and_the_width ... ok
+test tui::toolgroup::tests::the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width ... FAILED
+thread 'tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back' (335035418) panicked at src/tui/shell.rs:44866:9:
+thread 'tui::toolgroup::tests::the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width' (335035420) panicked at src/tui/toolgroup.rs:2342:13:
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4385 filtered out; finished in 0.42s
+error: test failed, to rerun pass `--lib`
+error: 1 target failed:
+---- tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back stdout ----
+thread 'tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back' (335035418) panicked at src/tui/shell.rs:44866:9:
+[
+    "\u{1b}[38;5;245m  2026-11-08 08:01:06.434 UTC · Prompt\u{1b}[0m",
+    "\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[1mread it\u{1b}[0m",
+    "",
+    "\u{1b}[38;5;245m  2026-11-08 08:01:06.434 UTC · Tool\u{1b}[0m",
+    "\u{1b}[38;5;255m●\u{1b}[0m \u{1b}[38;5;245m1 tool call · 1 read\u{1b}[0m",
+    "└ Read ☝x⸺wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww.txt\u{1b}[0m",
+    "│\u{1b}[38;5;245m  path: \\u{261d}x\\u{2e3a}wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww.txt\u{1b}[0m",
+    "│\u{1b}[38;5;245m  line \\u{261d} one\u{1b}[0m",
+    "",
+---- tui::toolgroup::tests::the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width stdout ----
+thread 'tui::toolgroup::tests::the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width' (335035420) panicked at src/tui/toolgroup.rs:2342:13:
+named, past any screen: cut at byte 4093 of 72072, inside a unit
+failures:
+    tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back
+    tui::toolgroup::tests::the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4385 filtered out; finished in 0.42s
+error: test failed, to rerun pass `--lib`
+exit 101

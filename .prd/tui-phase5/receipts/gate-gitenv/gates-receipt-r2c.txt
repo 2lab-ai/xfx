@@ -1,0 +1,37 @@
+head fa3a94e0
+Darwin arm64
+GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+git version 2.54.0 (Apple Git-157)
+rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)
+TMPDIR=<tmp>
+
+== what changed since 16c115c1
+ .prd/tui-phase5/receipts/gate-gitenv/README.md     | 118 ++++++++-
+ .../receipts/gate-gitenv/discovery-probe.sh        |  88 +++++++
+ .../receipts/gate-gitenv/gates-code-r2c.txt        |  28 +++
+ .../gate-gitenv/mutants-r2c-linux-rerun.txt        |  10 +
+ .../receipts/gate-gitenv/mutants-r2c-linux.txt     | 153 ++++++++++++
+ .../receipts/gate-gitenv/mutants-r2c-macos.txt     |  10 +
+ .../tui-phase5/receipts/gate-gitenv/mutants-r2c.py | 277 +++++++++++++++++++++
+ .prd/tui-phase5/receipts/gate-gitenv/publish.py    |  11 +
+ .../receipts/gate-gitenv/runs-r2c-linux.txt        | 219 ++++++++++++++++
+ .../receipts/gate-gitenv/runs-r2c-macos.txt        | 223 +++++++++++++++++
+ .prd/tui-phase5/receipts/gate-gitenv/runs-r2c.sh   |  43 ++++
+ 11 files changed, 1174 insertions(+), 6 deletions(-)
+
+== ./scripts/check-no-secrets.sh
+check-no-secrets: ok (12160 tracked file(s) scanned)
+-> exit 0, 22 s
+
+== ./scripts/check-xfx-identity.sh
+check-xfx-identity: ok (12160 tracked file(s) scanned)
+-> exit 0, 1 s
+
+== ./scripts/check-no-stubs.sh
+check-no-stubs: ok
+-> exit 0, 8 s
+
+== ./scripts/check-preview-contract.sh
+check-preview-contract: ok (.github/workflows/preview.yml)
+-> exit 0, 7 s
+exit=0

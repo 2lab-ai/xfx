@@ -1,0 +1,54 @@
+== scripts/test-gate-env.sh on the worktree, mid round 2 (macOS, git 2.54)
+The workflow steps already dropped GIT_*, and check-preview-contract.sh
+still handed the extracted epoch gate GIT_CONFIG_GLOBAL=/dev/null and
+GIT_CONFIG_NOSYSTEM=1 by environment, which the step's own drop now
+removed: `preview-home-programs` shows its `git diff` running the HOME
+fsmonitor. (The `identity-core.quotePath` problem here is this draft of the
+test expecting the wrong message: rev-parse, not ls-files, is what fails
+under that config; the committed case expects rev-parse's.)
+
+test-gate-env: this grep reads GREP_OPTIONS (grep (BSD grep, GNU compatible) 2.6.0-FreeBSD): each case below is a RED for its gate
+test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code
+test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command
+test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break
+test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
+test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
+test-gate-env: ok identity-git-dir               the retired product name is still in tracked path names
+test-gate-env: ok identity-git-dir-work-tree     the retired product name is still in tracked path names
+test-gate-env: ok identity-index-file            the retired product name is still in tracked path names
+test-gate-env: ok identity-object-dir            the retired product name is still in tracked path names
+test-gate-env: ok identity-common-dir            the retired product name is still in tracked path names
+test-gate-env: ok identity-trace                 the retired product name is still in tracked path names
+test-gate-env: ok no-secrets-index-file          possible OpenAI-style key:
+test-gate-env: ok no-secrets-object-dir          possible OpenAI-style key:
+test-gate-env: ok no-secrets-common-dir          possible OpenAI-style key:
+test-gate-env: ok no-secrets-git-dir             possible OpenAI-style key:
+test-gate-env: ok preview-git-dir                does not document the qualified install command
+test-gate-env: ok preview-git-dir-work-tree      does not document the qualified install command
+test-gate-env: ok preview-object-dir             does not document the qualified install command
+test-gate-env: ok preview-common-dir             does not document the qualified install command
+test-gate-env: ok attributes-config-global       the retired product name is still in tracked content
+test-gate-env: ok attributes-config-system       the retired product name is still in tracked content
+test-gate-env: ok attributes-config-count        the retired product name is still in tracked content
+test-gate-env: ok attributes-config-parameters   the retired product name is still in tracked content
+test-gate-env: ok attributes-attr-source         the retired product name is still in tracked content
+test-gate-env: ok attributes-info                the retired product name is still in tracked content
+test-gate-env: ok attributes-local-config        the retired product name is still in tracked content
+test-gate-env: ok attributes-untracked           the retired product name is still in tracked content
+test-gate-env: ok identity-color-grep            the retired product name is still in tracked content
+test-gate-env: ok identity-grep.patternType      git grep could not search
+test-gate-env: ok identity-grep.extendedRegexp   git grep could not search
+test-gate-env: ok identity-grep.threads          git grep could not search
+test-gate-env: identity-core.quotePath: the gate failed, but not with 'git ls-files could not list'; its last lines:
+check-xfx-identity: not a git checkout; this check can only speak about tracked files
+test-gate-env: ok identity-core.quotePath-home   the path scan could not run in its own control
+test-gate-env: ok identity-unreadable            git grep could not search
+test-gate-env: ok identity-core.worktree         the retired product name is still in tracked content
+test-gate-env: ok identity-home-programs         the retired product name is still in tracked content
+test-gate-env: ok no-secrets-home-programs       possible OpenAI-style key:
+test-gate-env: preview-home-programs: a program from config ran: fsmonitor
+test-gate-env: ok workflow-steps                 all 10 steps that run git drop GIT_* first
+test-gate-env: ok ci-checkout-assertion          checked out
+test-gate-env: ok build-script                   stamps the checkout's HEAD (c571ba9c61cf)
+test-gate-env: ok test-check-no-secrets          test-check-no-secrets: ok (13 cases; 3473 tracked names past
+test-gate-env: 2 problem(s), 40 case(s) passed

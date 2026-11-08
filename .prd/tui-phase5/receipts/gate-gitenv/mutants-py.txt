@@ -1,0 +1,7 @@
+clone head 5d33c5df; Darwin arm64; Python 3.14.6; git version 2.54.0 (Apple Git-157)
+control: test-sweep exit 0; failing: -
+CAUGHT ci-sweep-keeps-git-env: test-sweep exit 1; failing: test_the_selection_reads_this_checkout_whatever_git_variables_it_inherits
+CAUGHT sweep-out-guard-keeps-git-env: test-sweep exit 1; failing: test_the_out_guard_finds_this_checkout_whatever_git_variables_it_inherits
+2 of 2 mutants caught, each by exactly its own test
+driver exit=0
+(clone status and any __pycache__ above; empty = clean)

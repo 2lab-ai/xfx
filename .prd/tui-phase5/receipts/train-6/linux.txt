@@ -1,0 +1,24 @@
+== platform
+Linux aarch64
+GNU bash, version 5.2.15(1)-release (aarch64-unknown-linux-gnu)
+git version 2.39.5
+grep (GNU grep) 3.8
+ruby 3.1.2p20 (2022-04-12 revision 4491bb740a) [aarch64-linux-gnu]
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+uid 1000; head 0252c06f
+
+== scripts/test-gate-env.sh: exit 0, 127 s
+test-gate-env: ok build-script                   stamps the checkout's HEAD (7ec6afbe2b16)
+test-gate-env: ok build-script-linked-worktree   stamps the worktree's HEAD (2a3addacc756), watches its HEAD and ref
+test-gate-env: ok test-check-no-secrets          test-check-no-secrets: ok (13 cases; 6959 tracked names past
+test-gate-env: ok (60 cases)
+
+== scripts/test-preview-contract.sh: exit 0, 17 s
+test-preview-contract: caught epoch-absent                 there is no .github/preview-epoch
+test-preview-contract: caught epoch-two-lines              .github/preview-epoch is "phase4\nphase5\n"
+test-preview-contract: caught epoch-crlf                   .github/preview-epoch is "phase4\r\n"
+test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+
+== the clone afterwards: clean
+docker exit=0
+runner exit 0

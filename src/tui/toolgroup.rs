@@ -44,9 +44,9 @@
 
 use crate::markdown::code_highlight::{self, Variant};
 use crate::markdown::{code_highlight_languages, theme as syntax};
-use crate::tools::{mcp, Activity, LineChanges, Outcome, Shown};
+use crate::tools::{mcp, mutate, Activity, LineChanges, Outcome, Presentation, Shown};
 
-use super::theme::{DocumentRow, Mode, Palette, Redraw};
+use super::theme::{DocumentRow, Mode, Palette, Redraw, CANCELLED_MARK};
 
 /// What a cancelled call's own line ends with, after its mark and its row
 /// (`vercel-labs/fx@c1db9191 src/ui/transcript/runtime.zig:644`), in this
@@ -76,9 +76,11 @@ const COMMAND_TARGET_BYTES: usize = COMMAND_SOURCE_BYTES - 1;
 /// argument the heading already shows ([`status`]).
 const COMMAND_STATUS_BYTES: usize = 120;
 
-/// How many bytes of any other call's argument a row keeps, spelled: fx's
-/// bound for a file change's path (`diff.max_encoded_label_bytes`,
-/// `src/core/output/diff.zig:10@481104fd`, `fileMutationDisplayPath`).
+/// How many bytes of a file change's path a row keeps, spelled: fx's bound
+/// for it (`diff.max_encoded_label_bytes`, `src/core/output/diff.zig:10@481104fd`,
+/// `fileMutationDisplayPath`), for `write_file` and `edit_file` alone
+/// (`file_mutation_contract.isToolName`,
+/// `src/core/tooling/file_mutation_contract.zig:487-490`).
 const TARGET_BYTES: usize = 4 * 1024;
 
 /// How many bytes of a failure's reason a row keeps, spelled
@@ -89,6 +91,101 @@ const REASON_BYTES: usize = 256;
 /// What a row's argument or reason ends with when its bound cut it
 /// (`encodeTerminalSafe`'s marker, `text_utils.zig:358@481104fd`).
 const CUT: &str = "...";
+
+/// How many columns of a call's argument the transcript's own row keeps: one
+/// more than the widest screen there is (a screen's width is a `u16`), so the
+/// row is still wider than any screen and is cut there with its ellipsis,
+/// cell for cell what the whole argument would show (`super::transcript`'s
+/// `ellipsized`). Ctrl-O's heading keeps the whole argument, as fx's expanded
+/// row is never clipped (`formatExpandedChild`,
+/// `tool_group_projection.zig:786-787@481104fd`).
+///
+/// A read's, a list's or a pattern's argument is the model's at any length,
+/// up to the stream's 8 MiB (`crate::gateway::sse::MAX_COMPLETION_BYTES`) and
+/// four times that spelled, and the group's block is drawn again whole, in
+/// both modes, on every change: kept whole, a redraw took 0.46 s for 8 MiB of
+/// `a` and 1.8 s for 4 Mi U+009B, the session 1.25 GiB at its peak
+/// (`.prd/tui-phase5/receipts/cancel-marker/round2/`).
+///
+/// Columns and nothing else: a bound on bytes cut text a screen shows -- a
+/// letter under 196 608 combining marks lost the `tail` after it (round 3).
+/// A cluster that holds many bytes is kept whole, as the screen keeps it
+/// (`super::grid::tokenize_row` joins every mark to its cell), and what it
+/// costs a redraw is paid once ([`Call::inline`], and the transcript's own
+/// cache of the rows it writes).
+const INLINE_CELLS: usize = u16::MAX as usize + 1;
+
+/// `target`, spelled as [`spelled`] spells an argument that is not a command,
+/// as the transcript's own row keeps it: whole when it is no wider than
+/// [`INLINE_CELLS`], and otherwise up to the last whole unit that fits, ended
+/// [`CUT`].
+///
+/// A unit is one of `target`'s grapheme clusters, or a spelling it already
+/// holds (`\xNN`, `\u{N}`, [`spelling_at`]) with whatever joins that
+/// spelling's last character -- the channel's argument is spelled
+/// (`super::bridge`'s `spelled_shown`), and spelling it again changes nothing
+/// -- so the cut never falls inside a cluster or a spelling.
+fn inline(target: &str) -> String {
+    let mut out = String::new();
+    let mut cells = 0usize;
+    let mut rest = target;
+    while !rest.is_empty() {
+        let unit = &rest[..unit_at(rest)];
+        let unit_spelled = spelled_whole(unit);
+        cells += usize::from(super::wrap::width(&unit_spelled));
+        if cells > INLINE_CELLS {
+            out.push_str(CUT);
+            return out;
+        }
+        out.push_str(&unit_spelled);
+        rest = &rest[unit.len()..];
+    }
+    out
+}
+
+/// How many bytes of `rest` its first unit takes ([`inline`]): a spelling and
+/// what joins its last character, or one grapheme cluster.
+fn unit_at(rest: &str) -> usize {
+    use unicode_segmentation::UnicodeSegmentation;
+    let cluster = |text: &str| text.graphemes(true).next().map_or(text.len(), str::len);
+    match spelling_at(rest) {
+        // Its last character is `}` or a hex digit, and a mark after it joins
+        // it, so the cluster that character starts is the spelling's end.
+        Some(len) => len - 1 + cluster(&rest[len - 1..]),
+        None => cluster(rest),
+    }
+}
+
+/// The length of the spelling `rest` starts with, if it starts with one:
+/// `\xNN` or `\u{N}`, one to six hex digits, as [`Spelling`] writes them
+/// (`crate::tools::question::terminal_safe`). Text the model wrote that reads
+/// the same is taken for one too, which only keeps a cut from falling inside
+/// it.
+fn spelling_at(rest: &str) -> Option<usize> {
+    let bytes = rest.as_bytes();
+    if bytes.first() != Some(&b'\\') {
+        return None;
+    }
+    match bytes.get(1) {
+        Some(b'x')
+            if bytes
+                .get(2..4)
+                .is_some_and(|hex| hex.iter().all(u8::is_ascii_hexdigit)) =>
+        {
+            Some(4)
+        }
+        Some(b'u') if bytes.get(2) == Some(&b'{') => {
+            let digits = bytes[3..]
+                .iter()
+                .take(7)
+                .take_while(|byte| byte.is_ascii_hexdigit())
+                .count();
+            ((1..=6).contains(&digits) && bytes.get(3 + digits) == Some(&b'}'))
+                .then_some(4 + digits)
+        }
+        _ => None,
+    }
+}
 
 /// The kinds of work a header counts, in the order upstream breaks a tie in
 /// (`tool_group_projection.zig:140-150`: read, list, write, edit, open,
@@ -106,9 +203,9 @@ const CATEGORIES: [(Activity, &str); 5] = [
 /// its own, after every one in [`CATEGORIES`] when two counts tie
 /// (`vercel-labs/fx@481104fd src/ui/transcript/tool_group_projection.zig:
 /// 143-156`, `MCP call` at index 8, after `command`'s 5), and `MCP calls` for
-/// more than one (`:542`). Until fx v0.0.16 such a call was counted as a
-/// command (`fx-p5-mcp-turn-40x120-turn`: `2 commands` on 0.0.13, `2 MCP
-/// calls` on 0.0.16).
+/// more than one ([`category_word`]). Until fx v0.0.16 such a call was
+/// counted as a command (`fx-p5-mcp-turn-40x120-turn`: `2 commands` on 0.0.13,
+/// `2 MCP calls` on 0.0.16).
 const MCP_CALL: &str = "MCP call";
 
 /// The calls of one group, in the order they started.
@@ -128,6 +225,11 @@ pub(crate) struct ToolGroup {
 struct Call {
     id: String,
     shown: Shown,
+    /// The argument as the transcript's own row shows it ([`inline`]), made
+    /// the first time a row needs it and kept: a call's argument never
+    /// changes, and the block is drawn again in both modes on every change to
+    /// the group. Ctrl-O's heading reads [`Self::shown`].
+    inline: std::cell::OnceCell<String>,
     state: State,
     /// The command as the highlighter last coloured it, per mode and run
     /// colour ([`Call::highlighted`]).
@@ -221,21 +323,32 @@ impl Call {
     /// `Cancelled mcp_web_echo`, and `-failed`, `Failed mcp_web_echo: …`).
     /// The name is a server's tool's, so it is spelled as every name a server
     /// supplies is ([`crate::mcp::terminal_safe`]).
-    fn target(&self) -> String {
+    ///
+    /// `whole`: Ctrl-O's heading, which shows all of it; otherwise the
+    /// transcript's row, which keeps what a screen can show ([`inline`]) --
+    /// but a command's and a file change's, which have bounds of their own,
+    /// under that one.
+    fn target(&self, whole: bool) -> String {
         let default = self.shown.presentation.default_target;
         let refused = matches!(self.state, State::Denied | State::Cancelled);
         let ran = matches!(self.state, State::Running | State::Done(_));
-        match &self.shown.target {
+        match self.shown.target.as_deref() {
             Some(target) if self.calls_mcp() => {
                 let named = if ran {
-                    target.as_str()
+                    target
                 } else {
                     target.strip_prefix("MCP ").unwrap_or(target)
                 };
                 crate::mcp::terminal_safe(named)
             }
             Some(target) if !(refused && self.changes_a_file()) => {
-                spelled(target, self.shown.presentation.activity)
+                let own_bound = self.shown.presentation.activity == Activity::Command
+                    || names_a_changed_file(self.shown.presentation);
+                if whole || own_bound {
+                    spelled(target, self.shown.presentation)
+                } else {
+                    self.inline.get_or_init(|| inline(target)).clone()
+                }
             }
             _ => default.to_string(),
         }
@@ -264,8 +377,8 @@ impl Call {
     }
 
     /// The row after its connector, plain: what [`Self::row`] paints.
-    fn phrase(&self) -> String {
-        let mut phrase = format!("{} {}", self.label(), self.target());
+    fn phrase(&self, whole: bool) -> String {
+        let mut phrase = format!("{} {}", self.label(), self.target(whole));
         match &self.state {
             // A reason with nothing left once it is spelled is no reason, as
             // fx's is none (`failureStatusDetail`, `src/core/agent/runtime/
@@ -302,9 +415,9 @@ impl Call {
     /// The row, after its connector, in the row's colour -- with a command's
     /// words re-coloured by the shell highlighter inside it
     /// (`highlightCommandPhrase`, `:728`).
-    fn painted(&self, base: &str, palette: Palette) -> String {
+    fn painted(&self, base: &str, palette: Palette, whole: bool) -> String {
         if !self.runs_a_command() {
-            return self.phrase();
+            return self.phrase(whole);
         }
         format!("{} {}", self.label(), self.highlighted(base, palette))
     }
@@ -318,7 +431,8 @@ impl Call {
     /// every group. The highlighter is a function of exactly those three
     /// things, so what it gave once is what it gives again.
     fn highlighted(&self, base: &str, palette: Palette) -> String {
-        let command = self.target();
+        // A command is held to its own bound, under the row's.
+        let command = self.target(true);
         let light = palette.mode == Mode::Light;
         if let Some(kept) = self
             .highlights
@@ -375,6 +489,7 @@ impl ToolGroup {
         self.calls.push(Call {
             id,
             shown,
+            inline: std::cell::OnceCell::new(),
             state: State::Running,
             highlights: std::cell::RefCell::default(),
         });
@@ -571,7 +686,7 @@ impl ToolGroup {
     /// activity row under it, and between the group and whatever closes it.
     fn rows(&self, palette: Palette) -> Vec<String> {
         let shown: Vec<&Call> = self.calls.iter().filter(|call| call.visible()).collect();
-        let mut rows = self.header_and_calls(palette, palette.statusline());
+        let mut rows = self.header_and_calls(palette, palette.statusline(), false);
         if rows.is_empty() {
             return rows;
         }
@@ -595,11 +710,13 @@ impl ToolGroup {
     /// against `-end.ansi`), and nothing under them -- the blank row and a
     /// cancelled call's own line are the inline block's.
     pub(crate) fn expanded(&self, palette: Palette) -> Vec<String> {
-        self.header_and_calls(palette, "")
+        self.header_and_calls(palette, "", true)
     }
 
-    /// The header, then each visible call's row with `text` around it.
-    fn header_and_calls(&self, palette: Palette, text: &str) -> Vec<String> {
+    /// The header, then each visible call's row with `text` around it: the
+    /// whole argument for Ctrl-O, the transcript's own row's otherwise
+    /// ([`Call::target`]).
+    fn header_and_calls(&self, palette: Palette, text: &str, whole: bool) -> Vec<String> {
         let shown: Vec<&Call> = self.calls.iter().filter(|call| call.visible()).collect();
         let Some(last) = shown.len().checked_sub(1) else {
             return Vec::new();
@@ -620,7 +737,7 @@ impl ToolGroup {
             };
             rows.push(format!(
                 "{text}{connector} {}{reset}",
-                call.painted(text, palette)
+                call.painted(text, palette, whole)
             ));
         }
         rows
@@ -651,12 +768,7 @@ fn summary(calls: &[&Call]) -> String {
     // By count, most first; a tie keeps the categories' own order.
     counted.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
     for (count, _, label) in counted {
-        let plural = if matches!(label, "command" | MCP_CALL) && count != 1 {
-            "s"
-        } else {
-            ""
-        };
-        out.push_str(&format!(" \u{b7} {count} {label}{plural}"));
+        out.push_str(&format!(" \u{b7} {count} {}", category_word(label, count)));
     }
     for label in WENT_WRONG {
         let count = calls
@@ -668,6 +780,30 @@ fn summary(calls: &[&Call]) -> String {
         }
     }
     out
+}
+
+/// The word a kind of work is counted in for `count` calls: upstream's table
+/// (`formatGroupSummary`, `vercel-labs/fx@481104fd
+/// src/ui/transcript/tool_group_projection.zig:539-544`). A count of 1 takes
+/// the label as written; any other takes the label's plural where the table
+/// has one -- `commands`, `subagents`, `MCP calls` -- and the label itself
+/// where it has none (`2 read`, `3 edit`). `subagent` is upstream's word for a
+/// tool xfx does not have (`docs/parity.md`, `subagent`): the table keeps it
+/// so the header says what fx's would the day the tool is ported, and no call
+/// of xfx's is counted as one.
+fn category_word(label: &str, count: usize) -> &str {
+    const PLURALS: [(&str, &str); 3] = [
+        ("command", "commands"),
+        ("subagent", "subagents"),
+        (MCP_CALL, "MCP calls"),
+    ];
+    if count == 1 {
+        return label;
+    }
+    PLURALS
+        .iter()
+        .find(|(singular, _)| *singular == label)
+        .map_or(label, |(_, plural)| plural)
 }
 
 /// The ways a settled call can have gone wrong, in the order a header counts
@@ -704,10 +840,10 @@ fn cancelled_line(call: &Call, palette: Palette) -> String {
     let target = if call.runs_a_command() {
         call.highlighted(base, palette)
     } else {
-        call.target()
+        call.target(false)
     };
     format!(
-        "{}\u{25a0}{reset}{} Cancelled{reset} {base}{target}{reset}{CANCELLED_FOLLOW_UP}",
+        "{}{CANCELLED_MARK}{reset}{} Cancelled{reset} {base}{target}{reset}{CANCELLED_FOLLOW_UP}",
         palette.warning(),
         palette.hint(),
     )
@@ -727,16 +863,20 @@ fn cancelled_line(call: &Call, palette: Palette) -> String {
 ///   then [`Spelling`] writes it at [`COMMAND_TARGET_BYTES`]
 ///   (`formatRunCommandDetailBounded`, `:432-447`, the row's text at
 ///   `src/core/app/app_callbacks.zig:544-549`);
-/// * any other argument is [`Spelling`]'s as it is, at [`TARGET_BYTES`],
-///   as fx spells a file change's path (`fileMutationDisplayPath`,
-///   `src/core/agent/runtime/tool_presentation.zig:736-753`). fx writes a
-///   read's, a list's or a pattern's row with the argument as it came -- the
-///   marks and the C1 controls to the terminal as themselves, the other
-///   controls dropped, the row ended at its first line break
-///   (`formatToolAction`, `src/core/app/app_agent_runtime.zig:1248-1310`,
+/// * a file change's path (`write_file`, `edit_file`) is [`Spelling`]'s as
+///   it is, at [`TARGET_BYTES`], as fx spells it (`fileMutationDisplayPath`,
+///   `src/core/agent/runtime/tool_presentation.zig:736-753`);
+/// * any other argument is [`Spelling`]'s as it is, whole. fx writes a
+///   read's, a list's, a pattern's or a new folder's row with the argument as
+///   it came, at any length -- the marks and the C1 controls to the terminal as
+///   themselves, the other controls dropped, the row ended at its first line
+///   break (`formatToolAction`, `src/core/app/app_agent_runtime.zig:1248-1310`,
+///   `presentationLabelValue`, `src/core/tooling/tool_dispatch.zig:626-647`,
 ///   and `formatToolActionValue`, `:1340-1342`; `normalizeCanonicalStatus`,
 ///   `src/ui/transcript/tool_group_projection.zig:317-347`) -- which is not
-///   safe to copy (ledger `call-row-raw-argument`).
+///   safe to copy (ledger `call-row-raw-argument`); its length is, and Ctrl-O
+///   shows the heading whole as fx's does (`formatExpandedChild`, `:786-787`:
+///   an expanded row is never clipped).
 ///
 /// Spaces around an argument stay, upstream's `Failed   missing.txt  :`
 /// (`fx-read-failures-40x120-live`). Not fx's: a command's `cd . &&` and its
@@ -746,17 +886,46 @@ fn cancelled_line(call: &Call, palette: Palette) -> String {
 /// Idempotent: what it writes holds no line break, nothing it would spell and
 /// nothing past its bound -- so the channel spells the argument as it crosses
 /// (`super::bridge`'s `made_inert`) and the row spells it again unchanged.
-pub(crate) fn spelled(target: &str, activity: Activity) -> String {
-    if activity != Activity::Command {
-        let mut spelling = Spelling::new(TARGET_BYTES);
-        for character in target.chars() {
-            if !spelling.push(character) {
-                break;
-            }
-        }
-        return spelling.finish();
+pub(crate) fn spelled(target: &str, presentation: Presentation) -> String {
+    if presentation.activity == Activity::Command {
+        return command_spelled(target, COMMAND_TARGET_BYTES, true);
     }
-    command_spelled(target, COMMAND_TARGET_BYTES, true)
+    if !names_a_changed_file(presentation) {
+        return spelled_whole(target);
+    }
+    let mut spelling = Spelling::new(TARGET_BYTES);
+    for character in target.chars() {
+        if !spelling.push(character) {
+            break;
+        }
+    }
+    spelling.finish()
+}
+
+/// [`Spelling`]'s of `text`, unbounded, in one pass over it rather than a
+/// token a character: [`Spelling::push`]'s token is
+/// [`crate::tools::question::terminal_safe`]'s for every character but the
+/// Arabic letter mark, so without one the whole text's `terminal_safe` is the
+/// same text -- and `text` as it is when it holds nothing to spell, which is
+/// what the channel hands a row (`super::bridge`'s `spelled_shown`).
+fn spelled_whole(text: &str) -> String {
+    if !text.contains('\u{061c}') {
+        return crate::tools::question::terminal_safe(text).into_owned();
+    }
+    let mut spelling = Spelling::new(usize::MAX);
+    for character in text.chars() {
+        spelling.push(character);
+    }
+    spelling.finish()
+}
+
+/// Whether `presentation` is `write_file`'s or `edit_file`'s, whose path fx
+/// spells at a file change's bound ([`TARGET_BYTES`]; `file_mutation_contract.
+/// isToolName`, `src/core/tooling/file_mutation_contract.zig:487-490@481104fd`).
+fn names_a_changed_file(presentation: Presentation) -> bool {
+    [mutate::WRITE_FILE, mutate::EDIT_FILE]
+        .iter()
+        .any(|spec| spec.presentation() == presentation)
 }
 
 /// fx's status phrase for a call with this argument as the model wrote it,
@@ -1297,14 +1466,14 @@ mod tests {
                 "\u{25cf} 1 tool call \u{b7} 1 command \u{b7} 1 cancelled",
                 "\u{2514} Cancelled sleep 30",
                 "",
-                "\u{25a0} Cancelled sleep 30 \u{b7} What can xfx do differently?",
+                "\u{25aa} Cancelled sleep 30 \u{b7} What can xfx do differently?",
                 "",
             ]
         );
         let line = &group.rows(DARK)[3];
         assert!(
             line.starts_with(&format!(
-                "{WORD}\u{25a0}{RESET}{HINT} Cancelled{RESET} {TEXT}"
+                "{WORD}\u{25aa}{RESET}{HINT} Cancelled{RESET} {TEXT}"
             )),
             "{line:?}"
         );
@@ -1547,7 +1716,7 @@ mod tests {
                 DocumentRow::Plain,
             ]
         );
-        assert!(rows[4].contains('\u{25a0}'), "{rows:?}");
+        assert!(rows[4].contains('\u{25aa}'), "{rows:?}");
         assert!(ToolGroup::default().kinds().is_empty());
     }
 
@@ -1828,7 +1997,7 @@ mod tests {
                 "\u{25cf} 1 tool call \u{b7} 1 MCP call \u{b7} 1 cancelled",
                 "\u{2514} Cancelled mcp_web_echo",
                 "",
-                "\u{25a0} Cancelled mcp_web_echo \u{b7} What can xfx do differently?",
+                "\u{25aa} Cancelled mcp_web_echo \u{b7} What can xfx do differently?",
                 "",
             ]
         );
@@ -2048,7 +2217,7 @@ mod tests {
         check(
             &group,
             3,
-            format!("\u{25a0} Cancelled {SPELLED} \u{b7} What can xfx do differently?"),
+            format!("\u{25aa} Cancelled {SPELLED} \u{b7} What can xfx do differently?"),
         );
     }
 
@@ -2195,7 +2364,8 @@ mod tests {
         // reflow bound, 14 399 bytes (`max_run_command_reflow_bytes`,
         // `tool_presentation.zig:21-23`, `formatRunCommandDetailBounded`
         // `:441`), a file change's path at 4 096 (`diff.max_encoded_label_bytes`,
-        // `src/core/output/diff.zig:10`), and so every other argument here.
+        // `src/core/output/diff.zig:10`). Every other argument fx writes as it
+        // came, at any length, and so here, spelled.
         let pair = "A\u{202e}";
         let spelled_pair = r"A\u{202e}";
         let mut group = ToolGroup::default();
@@ -2207,10 +2377,22 @@ mod tests {
         let mut group = ToolGroup::default();
         group.start(
             "1".into(),
+            shown(
+                &WRITE_FILE,
+                json!({"path": pair.repeat(5_000), "content": "x"}),
+            ),
+        );
+        assert!(group.finish("1", true, "", Outcome::Finished, None));
+        let row = &plain(&group)[1];
+        let expected = format!("\u{2514} Wrote {}A...", spelled_pair.repeat(454));
+        assert!(*row == expected, "{}", &row[row.len() - 40..]);
+        let mut group = ToolGroup::default();
+        group.start(
+            "1".into(),
             shown(&read::READ_FILE, json!({"path": pair.repeat(5_000)})),
         );
         let row = &plain(&group)[1];
-        let expected = format!("\u{2514} Reading {}A...", spelled_pair.repeat(454));
+        let expected = format!("\u{2514} Reading {}", spelled_pair.repeat(5_000));
         assert!(*row == expected, "{}", &row[row.len() - 40..]);
     }
 
@@ -2249,8 +2431,359 @@ mod tests {
             let expanded = strip(&group.expanded(DARK)[1]);
             assert_eq!(expanded, format!("\u{2514} {row}"));
             // And spelled again, as the row spells what the channel spelled.
-            let once = spelled(&command_text, Activity::Command);
-            assert_eq!(spelled(&once, Activity::Command), once);
+            let once = spelled(&command_text, terminal::TERMINAL.presentation());
+            assert_eq!(spelled(&once, terminal::TERMINAL.presentation()), once);
+        }
+    }
+
+    #[test]
+    fn a_kinds_word_for_more_than_one_call_is_upstreams_table() {
+        // `formatGroupSummary` (`tool_group_projection.zig:520-545@481104fd`):
+        // a count of 1 takes the label as written; any other takes
+        // `commands`, `subagents` or `MCP calls`, and every other label stays
+        // as it is (`2 read`, `3 edit`). The labels are upstream's
+        // `category_labels` (`:143-153`); `open`, `subagent` and `browser`
+        // name tools xfx does not have, so only this table knows them.
+        for label in [
+            "read", "list", "write", "edit", "open", "command", "subagent", "browser", "MCP call",
+        ] {
+            assert_eq!(category_word(label, 1), label);
+        }
+        for (label, plural) in [
+            ("read", "read"),
+            ("list", "list"),
+            ("write", "write"),
+            ("edit", "edit"),
+            ("open", "open"),
+            ("command", "commands"),
+            ("subagent", "subagents"),
+            ("browser", "browser"),
+            ("MCP call", "MCP calls"),
+        ] {
+            for count in [2, 3, 12] {
+                assert_eq!(category_word(label, count), plural, "{label} x{count}");
+            }
+        }
+        // Upstream's own case (`group summary uses singular and plural
+        // subagent labels`, `:1509-1524`), as the header joins the words.
+        let words = |counts: &[(usize, &str)]| -> String {
+            counts
+                .iter()
+                .map(|(count, label)| format!(" \u{b7} {count} {}", category_word(label, *count)))
+                .collect()
+        };
+        assert_eq!(
+            words(&[(1, "command"), (1, "subagent")]),
+            " \u{b7} 1 command \u{b7} 1 subagent"
+        );
+        assert_eq!(
+            words(&[(3, "subagent"), (2, "command")]),
+            " \u{b7} 3 subagents \u{b7} 2 commands"
+        );
+    }
+
+    /// Where each of `raw`'s grapheme clusters ends once spelled: the places
+    /// a cut of the spelled argument may fall without cutting one in two.
+    fn cluster_ends(raw: &str) -> Vec<usize> {
+        use unicode_segmentation::UnicodeSegmentation;
+        let presentation = read::GLOB_FILES.presentation();
+        let mut at = 0;
+        let mut ends = vec![0];
+        for cluster in raw.graphemes(true) {
+            at += spelled(cluster, presentation).len();
+            ends.push(at);
+        }
+        ends
+    }
+
+    /// The transcript's row `row` and the row the whole argument makes, as a
+    /// screen `cols` wide shows each (`super::super::transcript`'s
+    /// `ellipsized`, which is how the transcript writes a block's rows).
+    fn shown_at(row: &str, whole: &str, cols: u16) -> (String, String) {
+        (
+            super::super::transcript::ellipsized(row, cols),
+            super::super::transcript::ellipsized(whole, cols),
+        )
+    }
+
+    /// The widths a screen is tested at: the scenarios', a wide one, and the
+    /// widest whose cut `wrap::width`, saturating at `u16::MAX`, still sees.
+    const WIDTHS: [u16; 4] = [40, 120, 1000, u16::MAX - 1];
+
+    #[test]
+    fn the_transcripts_row_shows_at_every_width_what_the_whole_row_does_and_ctrl_o_the_whole() {
+        // T-U4 rounds 2 and 3: a read's, a list's or a pattern's argument is
+        // the model's at any length on fx's Ctrl-O (`formatExpandedChild`,
+        // never clipped) -- up to the stream's 8 MiB here, four times that
+        // spelled -- and every redraw of the open group drew it whole in both
+        // modes (0.46 s a redraw for 8 MiB of `a`, receipts/cancel-marker/
+        // round2). The transcript's own row shows at most a screen's width,
+        // so it keeps what the widest screen shows and Ctrl-O's heading keeps
+        // it all -- and at every width a screen shows exactly what it shows
+        // of the whole row, with no cut inside one of the argument's
+        // clusters, however many bytes one holds.
+        let wide = usize::from(u16::MAX) + 1;
+        let family = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}\u{200d}\u{1f466}";
+        let heavy = format!("e{}", "\u{301}".repeat(5000));
+        let cases = [
+            // Past any screen's width.
+            "a".repeat(3 * wide),
+            // Spelled eight times as wide as it came.
+            "\u{9b}".repeat(wide),
+            // One cluster of 196 609 code points that paints one cell, and
+            // what follows it: on every screen.
+            format!("a{}tail", "\u{301}".repeat(3 * wide)),
+            // A run of ZWJ families, each one cluster: its joiners are
+            // spelled, so each is 32 cells on the row.
+            family.repeat(wide / 16),
+            // A heavy cluster in the last column the row keeps, and one just
+            // past it.
+            format!("{}{heavy}bcd", "a".repeat(wide - 1)),
+            format!("{}{heavy}bcd", "a".repeat(wide)),
+        ];
+        for pattern in cases {
+            let spelled_whole = spelled(&pattern, read::GLOB_FILES.presentation());
+            let mut group = ToolGroup::default();
+            group.start(
+                "1".into(),
+                shown(&read::GLOB_FILES, json!({"pattern": pattern})),
+            );
+            let rows = group.rows(DARK);
+            let whole = format!("{TEXT}\u{2514} Matching {spelled_whole}{RESET}");
+            for cols in WIDTHS {
+                let (row, all) = shown_at(&rows[1], &whole, cols);
+                assert!(
+                    row == all,
+                    "{cols} columns: {} bytes, {} whole",
+                    row.len(),
+                    all.len()
+                );
+            }
+            // What it keeps is the argument up to the end of one of its
+            // clusters, and no further than the widest screen shows.
+            let kept = strip(&rows[1]);
+            let kept = kept.strip_prefix("\u{2514} Matching ").expect("the row");
+            let (kept, cut) = match kept.strip_suffix("...") {
+                Some(kept) if kept.len() < spelled_whole.len() => (kept, true),
+                _ => (kept, false),
+            };
+            assert!(spelled_whole.starts_with(kept));
+            assert!(
+                cluster_ends(&pattern).contains(&kept.len()),
+                "cut at byte {} of {}, inside a cluster",
+                kept.len(),
+                spelled_whole.len()
+            );
+            let cells = |text: &str| -> usize {
+                super::super::wrap::painting(text)
+                    .map(|painted| usize::from(super::super::wrap::cluster_width(painted.cluster)))
+                    .sum()
+            };
+            assert!(
+                cells(kept) <= wide,
+                "the transcript's row keeps {} cells",
+                cells(kept)
+            );
+            // Cut only when the whole is wider than that.
+            assert_eq!(cut, cells(&spelled_whole) > wide);
+            // Ctrl-O's heading is the whole argument.
+            let heading = strip(&group.expanded(DARK)[1]);
+            assert!(heading == format!("\u{2514} Matching {spelled_whole}"));
+        }
+    }
+
+    #[test]
+    fn the_transcripts_row_cuts_a_spelled_argument_between_its_spellings() {
+        // T-U4 round 3: the channel spells a call's argument as it crosses
+        // (`super::super::bridge`'s `spelled_shown`), so the row is given
+        // `\u{009b}` and `\x01` as text. Wherever the row's bound falls, it
+        // falls between two of them, never inside one -- whatever runs
+        // before them.
+        let wide = usize::from(u16::MAX) + 1;
+        let whole_spellings = |mut text: &str| {
+            while !text.is_empty() {
+                match ["\\u{009b}", "\\x01"]
+                    .iter()
+                    .find(|token| text.starts_with(**token))
+                {
+                    Some(token) => text = &text[token.len()..],
+                    None => return false,
+                }
+            }
+            true
+        };
+        for lead in ["", "a", "ab", "abc", "abcd", "abcde", "abcdef", "abcdefg"] {
+            let pattern = format!("{lead}{}", "\u{9b}\u{1}".repeat(wide / 6));
+            let event = super::super::bridge::UiEvent::ToolStart {
+                call_id: "1".into(),
+                tool: "glob_files".into(),
+                shown: shown(&read::GLOB_FILES, json!({"pattern": pattern})),
+            }
+            .made_inert();
+            let super::super::bridge::UiEvent::ToolStart {
+                shown: spelled_shown,
+                ..
+            } = event
+            else {
+                panic!("a start");
+            };
+            let spelled_whole = spelled_shown.target.clone().expect("a pattern");
+            let mut group = ToolGroup::default();
+            group.start("1".into(), spelled_shown);
+            let rows = group.rows(DARK);
+            let kept = strip(&rows[1]);
+            let kept = kept
+                .strip_prefix("\u{2514} Matching ")
+                .and_then(|kept| kept.strip_suffix("..."))
+                .expect("cut");
+            let tokens = kept.strip_prefix(lead).expect("the lead");
+            assert!(
+                whole_spellings(tokens),
+                "{lead:?}: cut inside a spelling, ...{:?}",
+                &tokens[tokens.len() - 12..]
+            );
+            let whole = format!("{TEXT}\u{2514} Matching {spelled_whole}{RESET}");
+            for cols in WIDTHS {
+                let (row, all) = shown_at(&rows[1], &whole, cols);
+                assert!(row == all, "{lead:?}, {cols} columns");
+            }
+        }
+    }
+
+    #[test]
+    fn a_unit_of_the_row_is_a_cluster_or_a_spelling_with_what_joins_its_last_character() {
+        // `inline`'s units: a cut falls between two of them. A mark after a
+        // spelling joins the spelling's last character on the screen, so it
+        // is the spelling's; a skin tone after one is too (an extend).
+        for (text, unit) in [
+            ("ab", "a"),
+            ("e\u{301}\u{301}x", "e\u{301}\u{301}"),
+            ("\\u{009b}x", "\\u{009b}"),
+            ("\\x01\u{301}y", "\\x01\u{301}"),
+            ("\\u{009b}\u{1f3fb}x", "\\u{009b}\u{1f3fb}"),
+            ("\\u{10ffff}", "\\u{10ffff}"),
+            // Not spellings: a bare backslash, too few or too many digits.
+            ("\\xq1", "\\"),
+            ("\\x0", "\\"),
+            ("\\u{}", "\\"),
+            ("\\u{1234567}", "\\"),
+            ("\\u{12", "\\"),
+        ] {
+            assert_eq!(&text[..unit_at(text)], unit, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_whole_argument_is_spelled_as_its_characters_are_one_by_one() {
+        // `spelled_whole`'s one pass is `Spelling`'s token a character, the
+        // Arabic letter mark's included, and text with nothing to spell comes
+        // back as it is.
+        for text in [
+            "plain text",
+            "a\u{9b}b\u{1}c\u{7f}d\u{202e}e\u{200d}f\u{feff}g\u{301}",
+            "h\u{61c}i\u{9b}j",
+            "\\u{009b} already spelled \\x01",
+            "",
+        ] {
+            let mut spelling = Spelling::new(usize::MAX);
+            for character in text.chars() {
+                assert!(spelling.push(character));
+            }
+            assert_eq!(spelled_whole(text), spelling.finish(), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width() {
+        // Train 6, join check 1 (T-U4 x CTRLO-WIDER). CTRLO-WIDER names the
+        // scalars a terminal draws wider than xfx and fx count them on
+        // Ctrl-O's file and tool lines and in an answer
+        // (`super::super::drawn_wider`), not on this row: the transcript's
+        // row is upstream's argument as written (ledger
+        // `call-row-raw-argument`). So here a raw one is one of the row's
+        // grapheme clusters, and a named form the model wrote itself,
+        // `\u{261d}`, reads as one of the spellings the row keeps whole. T-U4
+        // cuts the row by columns between whole units; wherever that cut
+        // falls, it falls between two of either, and at 40, 120 and 1000
+        // columns a screen shows what it shows of the whole row.
+        let wide = usize::from(u16::MAX) + 1;
+        let raw: [&str; 5] = [
+            "\u{261d}",
+            "\u{2e3a}",
+            "\u{1f590}",
+            "x\u{e0002}",
+            "a\u{fe0f}",
+        ];
+        // Each spelling a unit of its own, and so each letter before one.
+        let named: [&str; 7] = [
+            r"\u{261d}",
+            r"\u{2e3a}",
+            r"\u{1f590}",
+            "x",
+            r"\u{e0002}",
+            "a",
+            r"\u{fe0f}",
+        ];
+        let filler = |n: usize| vec!["a"; n];
+        let cases: Vec<(&str, Vec<&str>)> = vec![
+            ("short, raw", raw.to_vec()),
+            ("short, named", named.to_vec()),
+            ("raw, past any screen", raw.repeat(wide / 4)),
+            ("named, past any screen", named.repeat(wide / 40)),
+            (
+                "a raw one at the cut",
+                [filler(wide - 1), raw.to_vec()].concat(),
+            ),
+            (
+                "a named one across the cut",
+                [filler(wide - 4), named.to_vec()].concat(),
+            ),
+            // One of them with a skin-tone modifier: one cluster of two
+            // scalars, the base in the row's last column and the modifier
+            // past it. Cut between the two, the row would end on half of
+            // it.
+            (
+                "a raw one and its modifier across the cut",
+                [filler(wide - 1), vec!["\u{261d}\u{1f3fb}", "z"]].concat(),
+            ),
+        ];
+        for (why, units) in cases {
+            let pattern: String = units.concat();
+            let spelled = crate::tools::question::terminal_safe(&pattern).into_owned();
+            // Where each unit ends once spelled: the places a cut may fall.
+            let mut ends = vec![0];
+            for unit in &units {
+                let last = *ends.last().expect("a start");
+                ends.push(last + crate::tools::question::terminal_safe(unit).len());
+            }
+            assert_eq!(*ends.last().expect("an end"), spelled.len(), "{why}");
+            let mut group = ToolGroup::default();
+            group.start(
+                "1".into(),
+                shown(&read::GLOB_FILES, json!({ "pattern": pattern })),
+            );
+            let rows = group.rows(DARK);
+            let whole = format!("{TEXT}\u{2514} Matching {spelled}{RESET}");
+            for cols in [40, 120, 1000] {
+                assert_eq!(
+                    super::super::transcript::ellipsized(&rows[1], cols),
+                    super::super::transcript::ellipsized(&whole, cols),
+                    "{why}: {cols} columns"
+                );
+            }
+            let kept = strip(&rows[1]);
+            let kept = kept.strip_prefix("\u{2514} Matching ").expect("the row");
+            let kept = match kept.strip_suffix("...") {
+                Some(cut) if cut.len() < spelled.len() => cut,
+                _ => kept,
+            };
+            assert!(spelled.starts_with(kept), "{why}");
+            assert!(
+                ends.contains(&kept.len()),
+                "{why}: cut at byte {} of {}, inside a unit",
+                kept.len(),
+                spelled.len()
+            );
         }
     }
 }

@@ -1,0 +1,12 @@
+docker run rust:1.99-bookworm; root installs ruby, then su to uid 1000; mutants-r2d.py, the three mutants adjusted after the first run
+Linux aarch64
+git version 2.39.5
+96d1f424 test(gates): GATE-GITENV 2d -- the missing-file listing failing
+this file system does not fold case
+control: test exit 0; failing: -
+CAUGHT identity-sparse-remedy-clears-the-bit: test exit 1; failing: identity-both-bits, identity-skip-worktree
+CAUGHT identity-ceiling-instead: test exit 1; failing: identity-vendored-colon, identity-vendored-symlink
+CAUGHT identity-requires-a-git-directory: test exit 1; failing: identity-linked-worktree, identity-submodule, identity-vendored-gitfile
+3 of 3 mutants caught, each by exactly its own cases
+mutants-exit=0
+docker exit=0

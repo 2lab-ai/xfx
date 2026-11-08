@@ -1,0 +1,11 @@
+# base: build in sw-base at 9681e9d8, exit 0; xfx sha256 659cf667184f2e57f4f96e25fbade4bae8bbc33b5e58234e95c75e31c678c3f4
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 7.98
+# base: sweep exit 0, 1547 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 3.06
+pass = 228 / 340 = 67.1%; unresolved 98, failed 0, timeout 0
+base exit 0
+# head: build in sw-head at 06b4fc4b, exit 0; xfx sha256 60f63b4abfa7dbf94ef9c8575e0462c26f29c5b7af27ae5feea0ac0cda3989f6
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 3.94
+# head: sweep exit 0, 1421 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 4.46
+pass = 228 / 340 = 67.1%; unresolved 98, failed 0, timeout 0
+head exit 0
+wrapper exit 0

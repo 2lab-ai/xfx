@@ -1,0 +1,11 @@
+SAME  src/tui/full_transcript.rs:2743@99eb8a13 -> :3005 (+-2 lines)  [ledger ctrl-o-drawn-wider-named, answer-modifier-sequence-wider (`fn drawn_wider_named`)]
+    first: pub(crate) fn drawn_wider_named(text: &str) -> Cow<'_, str> {
+SAME  src/tui/full_transcript.rs:2794@99eb8a13 -> :3056 (+-2 lines)  [ledger answer-drawn-wider-named, answer-label-and-modifier-named (the doc above `fn shown_event`)]
+    first: /// (`scripts/fxcap/parity-ledger.toml`, `answer-drawn-wider-named`).
+SAME  src/tui/wrap.rs:656@99eb8a13 -> :726 (+-2 lines)  [ledger filler-modifier-count (`fn upstream_cells`)]
+    first: fn upstream_cells(cluster: &str) -> usize {
+SAME  src/tui/wrap.rs:232-240@99eb8a13 -> :293-301 (+-2 lines)  [event_loop.rs, the wrap into 40 + 40 and 10 (`wrap`'s word state)]
+    first: let mut start = 0usize;
+SAME  src/tui/wrap.rs:612-623@99eb8a13 -> :673-693, its lines 674-682 taken out (+-2 lines)  [ledger ri-run-pairing (`fn cluster_cells` to its `upstream_cells` arm)]
+    inserted: // One printable ASCII character, a space included: one cell, the general / // path's answer below (no tab, no control, none of the code points / // counted apart, no selector; `unicode-width` gives e
+# 5 of 5 the same code

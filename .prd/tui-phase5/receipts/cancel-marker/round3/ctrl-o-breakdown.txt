@@ -1,0 +1,31 @@
+# ctrl_o_breakdown_probe.rs on a clone at 0978e02c's Ctrl-O code, release, macOS; ms per step.
+# One run each, outside the suite lock: an attribution of where the time went, not a receipt
+# of the fix (round3/probe-before.txt and probe-after.txt are, under the lock).
+== plain (8 MiB of `a`)
+spell 39.5
+group build 2.4
+expanded 38.9
+expanded_rows 56.4 rows=71090
+tool_rows(big) 286.3 rows=71091
+tool_rows(small) 44.6
+measure 1148.1 total=71152
+== c1 (4 Mi U+009B, 32 MiB spelled), with the heading's own steps
+spell 130.2
+group build 3.7
+expanded 132.0
+expanded_rows 187.3 rows=284360
+heading clone 0.5
+unpainted 25.0 33554445
+width 504.6 65535
+rows clone 3.6
+tool_rows(big) 856.7 rows=284361
+tool_rows(small) 135.4
+measure 3609.9 total=284422
+== heavy (one letter under 4 Mi combining marks, then `tail`)
+spell 22.3
+group build 2.1
+expanded 23.2
+expanded_rows 71.1 rows=1
+tool_rows(big) 168.2 rows=2
+tool_rows(small) 27.4
+measure 677.3 total=63

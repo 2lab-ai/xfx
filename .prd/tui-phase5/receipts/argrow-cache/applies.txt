@@ -1,0 +1,16 @@
+# Does the change apply to T-U4 alone (5a7bb465) or to CTRLO-WIDER alone (1824e868)?
+# `git cherry-pick 11d6d64a a1ff89e7 1a9652cc` on a `git clone --no-local` of each, 2026-11-08.
+
+## T-U4 alone
+11d6d64a (RED): CONFLICT (content): Merge conflict in src/tui/shell.rs
+  -- the shell test uses train 6's join-test helpers (`timeless`, `WIDER_*`), which T-U4 alone has not.
+  With that file kept as T-U4's (`git checkout --ours src/tui/shell.rs`), the cherry-pick went on to:
+a1ff89e7 (fix): conflict in src/tui/full_transcript.rs, `content()`'s prompt arm (one hunk):
+  the diff's context is CTRLO-WIDER's `card(&drawn_wider_named(text), ..)`; T-U4 alone has `card(text, ..)`.
+
+## CTRLO-WIDER alone
+11d6d64a (RED): CONFLICT (content): Merge conflict in src/tui/full_transcript.rs (3 hunks)
+                CONFLICT (content): Merge conflict in src/tui/shell.rs
+  -- CTRLO-WIDER alone has none of T-U4's caches (`group_block`, `heading`) that the change extends.
+
+Not hand-ported: both are measured as baselines only (`probe.txt`). Both cherry-picks aborted, clones deleted.

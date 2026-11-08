@@ -28,7 +28,7 @@
 //! the hint row, right-aligned, and only for a batch of more than one
 //! (`questionInteractionHint`, `src/ui/footer/input_presentation.zig:192-249`).
 //! Once the batch is over the document keeps a summary of it -- each question
-//! under its ordinal with the answer hung beneath it, or `■ Cancelled`
+//! under its ordinal with the answer hung beneath it, or `▪ Cancelled`
 //! (`composeQuestionResolutions`, `question_ui.zig:418-519`).
 //!
 //! # What is canonical and what is only painted
@@ -85,7 +85,7 @@ use super::input::Action;
 // armed the clear (`input_presentation.zig:530-537`): the composer's own
 // words, because it is the composer's own gesture.
 use super::shell::ESCAPE_ARMED;
-use super::theme::{DocumentRow, Palette};
+use super::theme::{DocumentRow, Palette, CANCELLED_MARK};
 use super::wrap::width;
 
 /// What the question is written into (`question_ui.zig:78`).
@@ -131,9 +131,6 @@ const FREEFORM_HINTS: [&str; 4] = [
 /// What the document says about a batch the user refused
 /// (`writeCancelledResolution`, `question_ui.zig:513-519`).
 const CANCELLED: &str = "Cancelled";
-
-/// The glyph in front of it, in the outcome-label grey (`red_style`).
-const CANCELLED_GLYPH: &str = "\u{25a0}";
 
 /// Which batch a message on the control channel is about.
 ///
@@ -1028,13 +1025,13 @@ impl QuestionPanel {
 }
 
 /// The row the document keeps for a batch the user refused, by either key:
-/// `■ Cancelled`, the glyph in the outcome-label grey and the word in none
-/// (`writeCancelledResolution`, `question_ui.zig:513-519`; `red_style` is
-/// `252` in the dark and `238` in the light, which is
+/// `▪ Cancelled` ([`CANCELLED_MARK`]), the glyph in the outcome-label grey and
+/// the word in none (`writeCancelledResolution`, `question_ui.zig:513-519`;
+/// `red_style` is `252` in the dark and `238` in the light, which is
 /// [`Palette::notice_label`]).
 pub(crate) fn cancelled_row(palette: &Palette) -> String {
     format!(
-        "{}{CANCELLED_GLYPH}{} {CANCELLED}",
+        "{}{CANCELLED_MARK}{} {CANCELLED}",
         palette.notice_label(),
         palette.reset()
     )
@@ -2876,13 +2873,13 @@ mod tests {
     fn a_refused_batch_leaves_one_row() {
         // `fx-question2-40x120-q2-esc` row 14: the glyph in the outcome grey,
         // the word in none (`question_ui.zig:513-519`).
-        assert_eq!(cancelled_row(&DARK), "\u{1b}[38;5;252m■\u{1b}[0m Cancelled");
+        assert_eq!(cancelled_row(&DARK), "\u{1b}[38;5;252m▪\u{1b}[0m Cancelled");
         let light = Palette {
             mode: super::super::theme::Mode::Light,
         };
         assert_eq!(
             cancelled_row(&light),
-            "\u{1b}[38;5;238m■\u{1b}[0m Cancelled"
+            "\u{1b}[38;5;238m▪\u{1b}[0m Cancelled"
         );
     }
 

@@ -1,0 +1,10 @@
+# head HEAD; sides: train 99eb8a13, argrow e066669d
+scripts/fxcap/parity-ledger.toml: src/tui/full_transcript.rs:2743
+    train MOVED -> 3005
+scripts/fxcap/parity-ledger.toml: src/tui/full_transcript.rs:2794
+    train MOVED -> 3056
+scripts/fxcap/parity-ledger.toml: src/tui/wrap.rs:612-623
+    train MOVED -> 673-693
+scripts/fxcap/parity-ledger.toml: src/tui/wrap.rs:656
+    train MOVED -> 726
+# 185 references in 588 files; 4 moved or changed on some side that cites them

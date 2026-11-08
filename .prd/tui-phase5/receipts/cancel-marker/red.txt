@@ -1,0 +1,174 @@
+# RED, captures: fx v0.0.16 (fx/) against xfx e6cde019 (xfx-base/), the same 77 pairs; for p5-transcript-cancel, the
+# base build on this branch's scenario (xfx's own turns). Made by: python3 -I -B marker_cells.py fx xfx-base $(cat pairs.txt)
+DIFFER approvals/after-esc: 1 marker row(s) 12
+    fx row 12 / xfx row 12: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER approvals/after-esc.full: 1 marker row(s) 12
+    fx row 12 / xfx row 12: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER approvals-amend-limit/end: 1 marker row(s) 9
+    fx row 9 / xfx row 9: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt/cc-0.3: 1 marker row(s) 5
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt/cc-1.5: 1 marker row(s) 5
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt/cc-3.5: 1 marker row(s) 5
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt/end.full: 2 marker row(s) 5, 15
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+    fx row 15 / xfx row 15: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt/esc1: 1 marker row(s) 5
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt/esc2: 2 marker row(s) 5, 15
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+    fx row 15 / xfx row 15: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt/esc2-later: 2 marker row(s) 5, 15
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+    fx row 15 / xfx row 15: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt/mid2: 1 marker row(s) 5
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt/next: 1 marker row(s) 5
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt-cmd/cmd-cc: 1 marker row(s) 8
+    fx row 8 / xfx row 8: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt-cmd/cmd-cc-2: 1 marker row(s) 8
+    fx row 8 / xfx row 8: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt-cmd/cmd-done: 1 marker row(s) 8
+    fx row 8 / xfx row 8: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt-cmd/end.full: 1 marker row(s) 8
+    fx row 8 / xfx row 8: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt-next-cmd/next: 1 marker row(s) 8
+    fx row 8 / xfx row 8: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt-next-question/next: 1 marker row(s) 5
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())] / xfx [(0, '■', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())]
+DIFFER interrupt-question/end.full: 1 marker row(s) 5
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())] / xfx [(0, '■', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())]
+DIFFER interrupt-question/q-cc: 1 marker row(s) 5
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())] / xfx [(0, '■', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())]
+DIFFER interrupt2/cd-streaming: 1 marker row(s) 32
+    fx row 32 / xfx row 32: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt2/draft: 1 marker row(s) 32
+    fx row 32 / xfx row 32: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt2/draft-cc: 1 marker row(s) 32
+    fx row 32 / xfx row 32: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt2/draft-cc2: 2 marker row(s) 32, 36
+    fx row 32 / xfx row 32: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+    fx row 36 / xfx row 36: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt2/end.full: 2 marker row(s) 45, 49
+    fx row 45 / xfx row 45: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+    fx row 49 / xfx row 49: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt2/esc2: 1 marker row(s) 36
+    fx row 36 / xfx row 36: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER interrupt2/esc2-later: 1 marker row(s) 36
+    fx row 36 / xfx row 36: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER p5-input-question/q2-cancelled: 1 marker row(s) 5
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())] / xfx [(0, '■', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())]
+DIFFER p5-input-question/q6: 1 marker row(s) 5
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())] / xfx [(0, '■', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())]
+DIFFER p5-input-question/q6-after: 2 marker row(s) 5, 9
+    fx has 2 marker row(s), xfx 1 (5)
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())] / xfx [(0, '■', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())]
+DIFFER p5-input-question/q6-after.full: 2 marker row(s) 5, 9
+    fx has 2 marker row(s), xfx 1 (5)
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())] / xfx [(0, '■', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())]
+DIFFER p5-lifecycle-retry/r04-after-esc: 1 marker row(s) 5
+    fx has 1 marker row(s), xfx 0 (none)
+DIFFER p5-lifecycle-retry/r05-after-esc-4.5s: 1 marker row(s) 5
+    fx has 1 marker row(s), xfx 0 (none)
+DIFFER p5-mcp-live/cancel: 1 marker row(s) 19
+    fx row 19 / xfx row 19: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER p5-mcp-live/end: 1 marker row(s) 19
+    fx row 19 / xfx row 19: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER p5-mcp-live/failed: 1 marker row(s) 19
+    fx row 19 / xfx row 19: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER p5-panels-keys/approval-esc: 1 marker row(s) 10
+    fx row 10 / xfx row 10: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER p5-panels-keys/end: 1 marker row(s) 10
+    fx row 10 / xfx row 10: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER p5-toolstop-retint/dark: 1 marker row(s) 8
+    fx row 8 / xfx row 8: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER p5-toolstop-retint/dark-again: 1 marker row(s) 8
+    fx row 8 / xfx row 8: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER p5-toolstop-retint/light: 1 marker row(s) 8
+    fx row 8 / xfx row 8: fx [(0, '▪', (('fg', 238),)), (2, 'C', (('fg', 235),)), (3, 'a', (('fg', 235),))] / xfx [(0, '■', (('fg', 238),)), (2, 'C', (('fg', 235),)), (3, 'a', (('fg', 235),))]
+DIFFER p5-toolstop-retint-light/dark: 1 marker row(s) 8
+    fx row 8 / xfx row 8: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER p5-toolstop-retint-light/light: 1 marker row(s) 8
+    fx row 8 / xfx row 8: fx [(0, '▪', (('fg', 238),)), (2, 'C', (('fg', 235),)), (3, 'a', (('fg', 235),))] / xfx [(0, '■', (('fg', 238),)), (2, 'C', (('fg', 235),)), (3, 'a', (('fg', 235),))]
+DIFFER p5-toolstop-retint-light/light-again: 1 marker row(s) 8
+    fx row 8 / xfx row 8: fx [(0, '▪', (('fg', 238),)), (2, 'C', (('fg', 235),)), (3, 'a', (('fg', 235),))] / xfx [(0, '■', (('fg', 238),)), (2, 'C', (('fg', 235),)), (3, 'a', (('fg', 235),))]
+DIFFER p5-toolstop-retint-light-tc/dark: 1 marker row(s) 8
+    fx row 8 / xfx row 8: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', (208, 208, 208)),)), (2, 'C', (('fg', (238, 238, 238)),)), (3, 'a', (('fg', (238, 238, 238)),))]
+DIFFER p5-toolstop-retint-light-tc/light: 1 marker row(s) 8
+    fx row 8 / xfx row 8: fx [(0, '▪', (('fg', 238),)), (2, 'C', (('fg', 235),)), (3, 'a', (('fg', 235),))] / xfx [(0, '■', (('fg', (68, 68, 68)),)), (2, 'C', (('fg', (38, 38, 38)),)), (3, 'a', (('fg', (38, 38, 38)),))]
+DIFFER p5-toolstop-retint-light-tc/light-again: 1 marker row(s) 8
+    fx row 8 / xfx row 8: fx [(0, '▪', (('fg', 238),)), (2, 'C', (('fg', 235),)), (3, 'a', (('fg', 235),))] / xfx [(0, '■', (('fg', (68, 68, 68)),)), (2, 'C', (('fg', (38, 38, 38)),)), (3, 'a', (('fg', (38, 38, 38)),))]
+DIFFER p5-toolstop-retint-tc/dark: 1 marker row(s) 8
+    fx row 8 / xfx row 8: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', (208, 208, 208)),)), (2, 'C', (('fg', (238, 238, 238)),)), (3, 'a', (('fg', (238, 238, 238)),))]
+DIFFER p5-toolstop-retint-tc/dark-again: 1 marker row(s) 8
+    fx row 8 / xfx row 8: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', (208, 208, 208)),)), (2, 'C', (('fg', (238, 238, 238)),)), (3, 'a', (('fg', (238, 238, 238)),))]
+DIFFER p5-toolstop-retint-tc/light: 1 marker row(s) 8
+    fx row 8 / xfx row 8: fx [(0, '▪', (('fg', 238),)), (2, 'C', (('fg', 235),)), (3, 'a', (('fg', 235),))] / xfx [(0, '■', (('fg', (68, 68, 68)),)), (2, 'C', (('fg', (38, 38, 38)),)), (3, 'a', (('fg', (38, 38, 38)),))]
+DIFFER p5-transcript-cancel/cmd-esc: 2 marker row(s) 5, 18
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+    fx row 18 / xfx row 18: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER p5-transcript-cancel/cmd-running: 1 marker row(s) 5
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER p5-transcript-cancel/end.full: 2 marker row(s) 5, 18
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+    fx row 18 / xfx row 18: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER p5-transcript-cancel/esc: 1 marker row(s) 5
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER p5-transcript-cancel/full: 1 marker row(s) 17
+    fx has 1 marker row(s), xfx 0 (none)
+DIFFER p5-transcript-cancel/next: 1 marker row(s) 5
+    fx row 5 / xfx row 5: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER question-field/end.full: 1 marker row(s) 16
+    fx row 16 / xfx row 16: fx [(0, '▪', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())] / xfx [(0, '■', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())]
+DIFFER question-field/q2-cc: 1 marker row(s) 16
+    fx row 16 / xfx row 16: fx [(0, '▪', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())] / xfx [(0, '■', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())]
+DIFFER question-other/end.full: 1 marker row(s) 14
+    fx row 14 / xfx row 14: fx [(0, '▪', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())] / xfx [(0, '■', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())]
+DIFFER question-other/q2-esc: 1 marker row(s) 14
+    fx row 14 / xfx row 14: fx [(0, '▪', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())] / xfx [(0, '■', (('fg', 252),)), (2, 'C', ()), (3, 'a', ())]
+DIFFER resume-tools/again-stopped: 1 marker row(s) 27
+    fx row 27 / xfx row 27: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER resume-tools/ctrl-o: 2 marker row(s) 31, 36
+    fx row 31 / xfx row 31: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+    fx row 36 / xfx row 36: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER resume-tools/live.full: 2 marker row(s) 27, 34
+    fx row 27 / xfx row 27: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+    fx row 34 / xfx row 34: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER resume-tools/long-later: 2 marker row(s) 20, 27
+    fx row 20 / xfx row 18: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+    fx row 27 / xfx row 25: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER resume-tools/resumed: 2 marker row(s) 24, 28
+    fx row 24 / xfx row 24: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+    fx row 28 / xfx row 28: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER resume-tools/resumed.full: 2 marker row(s) 24, 28
+    fx row 24 / xfx row 24: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+    fx row 28 / xfx row 28: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER rules-read-auto/listed: 1 marker row(s) 13
+    fx row 13 / xfx row 13: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER rules-read-auto/read-esc: 1 marker row(s) 19
+    fx row 19 / xfx row 19: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER rules-read-auto/remember-done: 1 marker row(s) 19
+    fx row 19 / xfx row 19: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER rules-read-auto/remember-prompt: 1 marker row(s) 19
+    fx row 19 / xfx row 19: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER rules-read-auto/remembered: 1 marker row(s) 19
+    fx row 19 / xfx row 19: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER toolgroup/again-stopped: 1 marker row(s) 27
+    fx row 27 / xfx row 27: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER toolgroup/end.full: 2 marker row(s) 27, 34
+    fx row 27 / xfx row 27: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+    fx row 34 / xfx row 34: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER toolgroup/long-ask: 1 marker row(s) 20
+    fx row 20 / xfx row 18: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER toolgroup/long-later: 2 marker row(s) 20, 27
+    fx row 20 / xfx row 18: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+    fx row 27 / xfx row 25: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER toolgroup/long-running: 1 marker row(s) 20
+    fx row 20 / xfx row 18: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+DIFFER toolgroup/long-stopped: 2 marker row(s) 20, 27
+    fx row 20 / xfx row 18: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+    fx row 27 / xfx row 25: fx [(0, '▪', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))] / xfx [(0, '■', (('fg', 252),)), (2, 'C', (('fg', 255),)), (3, 'a', (('fg', 255),))]
+pairs: 77, DIFFER: 77

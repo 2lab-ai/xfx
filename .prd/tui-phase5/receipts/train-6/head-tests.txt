@@ -1,0 +1,8 @@
+# The gate's two cargo test steps again at the final code (4bd99902: 392ca22a's code and the receipt), one hold of the suite lock; each exit from $? on the line after its command
+# head 4bd99902; tree clean: yes; load 4.82
+cargo test --locked --no-fail-fast: exit 0
+  5357 passed, 0 failed, 7 ignored, 15 binaries
+cargo test --locked --features fault-injection --no-fail-fast: exit 0
+  5394 passed, 0 failed, 7 ignored, 15 binaries
+# tree clean after: yes
+job exit 0

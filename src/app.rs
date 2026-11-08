@@ -62,7 +62,7 @@ const TURN_FAILURE_EXIT_CODE: u8 = 1;
 /// to leave (`crate::interactive`). Only `ask`'s one-shot watcher keeps the
 /// exiting arm for the rest of the process, and there the turn's end *is* the
 /// process's. (The TUI no longer writes this sentence: it answers a cancel with
-/// upstream's `■ Cancelled` line and says `press ctrl+c again to exit` on its
+/// upstream's `▪ Cancelled` line and says `press ctrl+c again to exit` on its
 /// hint row for exactly as long as a press would leave, `crate::tui::gesture`.)
 /// So an unconditional
 /// "press Ctrl-C again to exit immediately" was true only while the turn was

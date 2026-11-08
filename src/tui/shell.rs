@@ -124,7 +124,7 @@ use super::settings::{self, Setting, SettingsAction, SettingsMenu};
 use super::skills_menu::{self, Origin as SkillsOrigin, SkillsMenu};
 use super::sound::Sound;
 use super::statusline::{self, MenuAction as StatuslineAction};
-use super::theme::{DocumentRow, Mode, Palette};
+use super::theme::{DocumentRow, Mode, Palette, CANCELLED_MARK};
 use super::toolgroup::ToolGroup;
 use super::trace::{Job, Traces};
 use super::transcript::{Append, Gutter, Landed, Role, Transcript};
@@ -146,14 +146,14 @@ use crate::tools::{LineChanges, Outcome as CallOutcome, Shown};
 use crate::workspace::access::{self as workspace_access, WorkspaceAccess};
 
 /// Upstream's line for a cancelled turn, in this product's name and in
-/// `palette`: `■` in the warning grey, `Cancelled` in the hint grey, and the
-/// question after it in the terminal's own colour (`lifecycleTerminalLine`,
-/// `transcript/runtime.zig:633-680`; `fx-interrupt-40x120-cc-0.3.ansi`:
-/// `ESC[38;5;252m■ESC[39m ESC[38;5;255mCancelledESC[39m · What can fx do
-/// differently?`).
+/// `palette`: [`CANCELLED_MARK`] in the warning grey, `Cancelled` in the hint
+/// grey, the question after it in the terminal's own colour
+/// (`lifecycleTerminalLine`, `transcript/runtime.zig:633-680`; fx v0.0.16's
+/// `receipts/cancel-marker/fx/fx-p5-transcript-cancel-40x120-esc.ansi`:
+/// `ESC[38;5;252m▪ESC[39m ESC[38;5;255mCancelledESC[39m · What can fx …`).
 pub(crate) fn cancelled_line(palette: Palette) -> String {
     format!(
-        "{}\u{25a0}{} {}Cancelled{}{CANCELLED_FOLLOW_UP}",
+        "{}{CANCELLED_MARK}{} {}Cancelled{}{CANCELLED_FOLLOW_UP}",
         palette.warning(),
         palette.reset(),
         palette.hint(),
@@ -1045,7 +1045,7 @@ pub(crate) struct Shell {
     /// The launch's report, taken before the keys typed ahead of the session
     /// were read and owed to the first tick ([`Self::hold_launch_status`]).
     launch_status: Option<program_status::Report>,
-    /// The turn's `■ Cancelled` line, while it waits for a running call to
+    /// The turn's `▪ Cancelled` line, while it waits for a running call to
     /// settle ([`Self::cancel_turn_with`]), and whether the queue notice waits
     /// with it.
     cancel_owed: Option<bool>,
@@ -1992,9 +1992,9 @@ enum Mark {
     /// Rows laid out already -- wrapped at the screen they were composed for
     /// and painted in the palette's own colours -- each with what it is, as
     /// one block of the document with a blank row above and below it
-    /// ([`Shell::write_block`]). What a question batch leaves behind
-    /// ([`super::question`]).
-    Block(Vec<(String, DocumentRow)>),
+    /// ([`Shell::write_block`]), and the mode it was painted in. What a
+    /// question batch leaves behind ([`super::question`]).
+    Block(Vec<(String, DocumentRow)>, Mode),
     /// The end of the answer's line, and nothing else. What a turn that ended
     /// without a failure owes: the next thing written starts on a new row.
     EndOfLine,
@@ -3625,10 +3625,10 @@ impl Shell {
         self.announce(notice::Notice::neutral("session forked", body));
         if let Ok(source) = crate::session::SessionId::parse(source) {
             let line = format!("original session xfx --resume {source}");
-            // An entry of the session's record, as upstream's raw line is one
-            // of its transcript's (`appendRaw`, a `raw_bytes` entry,
-            // `resume_projection.zig:106-128@481104fd`).
-            self.full.block(std::slice::from_ref(&line));
+            // An entry of the record, as upstream's raw line is one of its transcript's
+            // (`appendRaw`, a `raw_bytes` entry, `resume_projection.zig:106-128@481104fd`).
+            let mode = self.palette.mode;
+            self.full.block(&[(line.clone(), DocumentRow::Plain)], mode);
             self.write_raw_rows(&line);
             self.raw_gap = true;
         }
@@ -3914,10 +3914,10 @@ impl Shell {
             // ([`cancelled_line`]), as a block so the full transcript records
             // it as upstream's replay does, and recorded as a stopped row so a
             // theme report repaints its two greys.
-            Ending::Cancelled => self.run_mark(Mark::Block(vec![(
-                cancelled_line(self.palette),
-                DocumentRow::ToolStopped,
-            )])),
+            Ending::Cancelled => self.run_mark(Mark::Block(
+                vec![(cancelled_line(self.palette), DocumentRow::ToolStopped)],
+                self.palette.mode,
+            )),
             // And for one that failed, whatever the live turn's sentence was.
             Ending::Failed => {
                 self.run_mark(Mark::Notice(notice::Notice::error("system", "failed")));
@@ -4495,7 +4495,7 @@ impl Shell {
                 // A turn this session stopped has already been answered for,
                 // at the keystroke: no summary under an answer that was cut
                 // off, and no `✗ system:` for a failure the user asked for --
-                // upstream writes the one `■ Cancelled` line and nothing after
+                // upstream writes the one `▪ Cancelled` line and nothing after
                 // it (`fx-interrupt-40x120-cc-1.5`).
                 self.cancel_covers = 0;
                 let (failure, summary) = if std::mem::take(&mut self.cancelling) {
@@ -4937,9 +4937,9 @@ impl Shell {
             Mark::Summary(line) => self.full.usage(line),
             // Upstream's full transcript has it as the user prompt it is.
             Mark::Amendment(text) => self.full.prompt(&card_text(text, &BadgeLinks::new())),
-            Mark::Block(rows) => {
-                let rows: Vec<String> = rows.iter().map(|(row, _)| row.clone()).collect();
-                self.full.block(&rows);
+            Mark::Block(rows, drawn_in) => {
+                // With each row's kind, for a theme report's recolouring.
+                self.full.block(rows, *drawn_in);
             }
             Mark::ToolStart { id, shown } => self.full.tool_started(id, shown),
             Mark::ToolResult {
@@ -9105,7 +9105,7 @@ impl Shell {
             // answers the key, as upstream's does the moment it is pressed
             // (`fx-approvals-cc-40x120-after-esc`); the refusal the runtime
             // reports for it next is the same stop in the tool's words, and is
-            // dropped ([`Self::abandoned`]). That call's own `■ Cancelled …`
+            // dropped ([`Self::abandoned`]). That call's own `▪ Cancelled …`
             // line is the turn's, so no second one is written for the turn
             // (`append_turn_cancellation`, `transcript/runtime.zig:5378-5383`).
             //
@@ -9211,7 +9211,7 @@ impl Shell {
     /// **Whichever way the batch ends, the document keeps a record of it**,
     /// as upstream's does (`finalizeQuestionTranscript`,
     /// `input_question_runtime.zig:120-136`): every question with its answer
-    /// hung under it, or `■ Cancelled` ([`super::question`]'s
+    /// hung under it, or `▪ Cancelled` ([`super::question`]'s
     /// `answered_rows`, `cancelled_row`). Behind the stream rather than at
     /// once ([`Self::mark`]), because a question can be answered while the
     /// text the model wrote before asking it is still being released, and the
@@ -9286,7 +9286,7 @@ impl Shell {
                 // including asking a second batch straight away. The order
                 // [`Self::decide`] uses, for the same reason.
                 self.ask = None;
-                self.mark(Mark::Block(record));
+                self.mark(Mark::Block(record, self.palette.mode));
                 self.work
                     .control(TurnControl::QuestionAnswer { id, answers });
                 self.settled_question();
@@ -9294,12 +9294,12 @@ impl Shell {
             // Escape or Ctrl-C: the turn's own stop, and **only** it.
             question::Answered::Cancelled => {
                 self.ask = None;
-                self.mark(Mark::Block(vec![(
-                    question::cancelled_row(&self.palette),
-                    DocumentRow::Plain,
-                )]));
+                self.mark(Mark::Block(
+                    vec![(question::cancelled_row(&self.palette), DocumentRow::Plain)],
+                    self.palette.mode,
+                ));
                 self.settled_question();
-                // **The question's `■ Cancelled` is the turn's line**, and
+                // **The question's `▪ Cancelled` is the turn's line**, and
                 // nothing follows it: upstream's `cancelQuestionPrompt` records
                 // the question cancelled and stops the turn, with no line of
                 // the turn's own after it and no exit armed -- the key was the
@@ -9538,10 +9538,10 @@ impl Shell {
             Mark::Amendment(text) => self.write_card(&text, &BadgeLinks::new(), &SkillRuns::new()),
             Mark::Operational(text) => {
                 self.full.presented(&markdown::Event::Text(text.clone()));
-                self.write_prose(&text);
+                self.write_prose(&full_transcript::drawn_wider_named(&text));
             }
             Mark::Notice(notice) => self.write_notice(&notice),
-            Mark::Block(rows) => self.write_block(&rows),
+            Mark::Block(rows, _) => self.write_block(&rows),
             Mark::EndOfLine => self.finish_document_line(),
             Mark::ToolStart { id, shown } => {
                 self.group.start(id, shown);
@@ -9640,7 +9640,7 @@ impl Shell {
     /// counted, with its own line under the group.
     ///
     /// Says whether it stopped anything -- that is, whether a call's own
-    /// `■ Cancelled …` line is now in the document.
+    /// `▪ Cancelled …` line is now in the document.
     fn settle_group(&mut self) -> bool {
         self.full.settle();
         let stopped = self.group.cancel_running();
@@ -12225,18 +12225,18 @@ impl Shell {
     }
 
     /// The same, told whether the keystroke has already written a call's own
-    /// `■ Cancelled …` line -- which is the turn's line too, so no second one
+    /// `▪ Cancelled …` line -- which is the turn's line too, so no second one
     /// is written (`append_turn_cancellation`, `transcript/runtime.zig:
     /// 5378-5383`).
     ///
     /// **A running command is settled by this keystroke**, as upstream's is
-    /// (`fx-interrupt-40x120-cmd-cc`: `└ Cancelled sleep 6` and `■ Cancelled
-    /// sleep 6 · …` at once): the turn's flag is raised before the message goes
-    /// ([`super::worker::WorkHandle::control`]), and the command's supervisor
-    /// kills it and its group within a poll (`crate::tools::terminal`). Its
-    /// line is the turn's, so no second one is written; the result the runtime
-    /// reports for it next is the same stop in the tool's words, and is dropped
-    /// ([`Self::abandoned`]).
+    /// (`fx-interrupt-40x120-cmd-cc`: `└ Cancelled sleep 6` and the call's own
+    /// `Cancelled sleep 6 · …` line at once): the turn's flag is raised before
+    /// the message goes ([`super::worker::WorkHandle::control`]), and the
+    /// command's supervisor kills it and its group within a poll
+    /// (`crate::tools::terminal`). Its line is the turn's, so no second one is
+    /// written; the result the runtime reports for it next is the same stop in
+    /// the tool's words, and is dropped ([`Self::abandoned`]).
     ///
     /// **Any other running call is not**: a file tool does not poll the flag,
     /// and runs to its end before the turn reads the stop. A `Cancelled` row
@@ -12323,11 +12323,10 @@ impl Shell {
         self.close_prose();
     }
 
-    /// Upstream's line for a cancelled turn (`writeTurnCancellation` and
-    /// `lifecycleTerminalLine`, `transcript/runtime.zig:633-680`, `:9951-9966`):
-    /// `■` in the warning grey, `Cancelled` in the hint grey, and the question
-    /// after it in the terminal's own colour -- with a blank row above and
-    /// below, as `fx-interrupt-40x120-cc-0.3` lays it out.
+    /// Upstream's line for a cancelled turn (`writeTurnCancellation`,
+    /// `lifecycleTerminalLine`, `transcript/runtime.zig:633-680`, `:9951-9966`),
+    /// a blank row above and below as `fx-interrupt-40x120-cc-0.3` lays it out,
+    /// and on Ctrl-O as upstream's entry is, the resumed turn's too ([`Self::hydrate`]).
     fn write_cancelled(&mut self) {
         self.finish_document_line();
         if self.transcript.queue_gutter(Gutter::None) {
@@ -12336,8 +12335,9 @@ impl Shell {
         if !self.transcript.ends_blank() {
             self.end_transcript_line();
         }
-        let line = cancelled_line(self.palette);
+        let (line, mode) = (cancelled_line(self.palette), self.palette.mode);
         self.write_transcript_as(&line, Role::Plain);
+        self.full.block(&[(line, DocumentRow::Plain)], mode);
         self.end_transcript_line();
         self.end_transcript_line();
     }
@@ -12849,8 +12849,14 @@ impl Shell {
     }
 
     /// One thing the presenter completed, in the shape upstream gives it.
+    ///
+    /// The screen records the event as the presenter made it; the document
+    /// is given it as an answer's rows show it
+    /// ([`full_transcript::shown_event`]: a character a terminal draws wider
+    /// than it is counted, named).
     fn present(&mut self, event: markdown::Event) {
         self.full.presented(&event);
+        let event = full_transcript::shown_event(event);
         let cols = self.geometry.cols;
         match event {
             markdown::Event::Text(text) => self.write_prose(&text),
@@ -16075,7 +16081,7 @@ mod tests {
     /// it ([`Shell::write_cancelled`]).
     fn cancelled() -> Vec<String> {
         vec![
-            "\u{25a0} Cancelled \u{b7} What can xfx do differently?".to_string(),
+            "\u{25aa} Cancelled \u{b7} What can xfx do differently?".to_string(),
             String::new(),
         ]
     }
@@ -20126,9 +20132,9 @@ mod tests {
 
     /// How the interrupt's notice opens in the document: `⊘ turn: ` and the
     /// sentence after it.
-    /// The turn's own `■ Cancelled` line (claim changed: this was the line
+    /// The turn's own `▪ Cancelled` line (claim changed: this was the line
     /// shell's interrupt notice, `⊘ turn: interrupted …`).
-    const INTERRUPTED_ROW: &str = "\u{25a0} Cancelled \u{b7} What can xfx do differently?";
+    const INTERRUPTED_ROW: &str = "\u{25aa} Cancelled \u{b7} What can xfx do differently?";
 
     /// A tool call starting, as the runtime announces it: with the row its
     /// own spec gives it (`crate::tools::ToolSpec::shown`).
@@ -21621,7 +21627,7 @@ mod tests {
             fixture.route_bytes(key);
             fixture.settle_input(Instant::now() + Duration::from_millis(100));
             let document = fixture.document();
-            assert_eq!(document[..2], ["■ Cancelled", ""], "{key:?}: {document:?}");
+            assert_eq!(document[..2], ["▪ Cancelled", ""], "{key:?}: {document:?}");
         }
     }
 
@@ -22123,7 +22129,7 @@ mod tests {
         // so at once, in upstream's line for a cancelled turn, so the user
         // watches the request land rather than inferring it from a stream that
         // may not stop for a while. Claim changed: the document line was the
-        // line shell's interrupt notice; it is upstream's `■ Cancelled` line,
+        // line shell's interrupt notice; it is upstream's `▪ Cancelled` line,
         // and the promise about the next press moved to the hint row.
         let mut shell = shell(24, 80);
         shell.route_bytes(b"stream something\r");
@@ -22147,8 +22153,8 @@ mod tests {
 
     #[test]
     fn the_cancelled_line_is_upstreams_marker_word_and_question_in_upstreams_greys() {
-        // `fx-interrupt-40x120-cc-0.3.ansi`: `ESC[38;5;252m■ESC[39m
-        // ESC[38;5;255mCancelledESC[39m · What can fx do differently?` -- the
+        // fx v0.0.16's `p5-transcript-cancel` `esc` (receipts/cancel-marker):
+        // `ESC[38;5;252m▪ESC[39m ESC[38;5;255mCancelledESC[39m · …` -- the
         // marker in the warning grey, the word in the hint grey, the question
         // in the terminal's own colour. tmux re-serializes resets as `39`;
         // this crate writes `0`, the same pen.
@@ -22167,7 +22173,7 @@ mod tests {
         assert_eq!(
             rows,
             vec![
-                "\u{1b}[38;5;252m\u{25a0}\u{1b}[0m \u{1b}[38;5;255mCancelled\u{1b}[0m \u{b7} What can xfx do differently?"
+                "\u{1b}[38;5;252m\u{25aa}\u{1b}[0m \u{1b}[38;5;255mCancelled\u{1b}[0m \u{b7} What can xfx do differently?"
                     .to_string(),
                 String::new(),
             ]
@@ -22179,7 +22185,7 @@ mod tests {
         };
         assert_eq!(
             cancelled_line(light),
-            "\u{1b}[38;5;238m\u{25a0}\u{1b}[0m \u{1b}[38;5;235mCancelled\u{1b}[0m \u{b7} What can xfx do differently?"
+            "\u{1b}[38;5;238m\u{25aa}\u{1b}[0m \u{1b}[38;5;235mCancelled\u{1b}[0m \u{b7} What can xfx do differently?"
         );
     }
 
@@ -23100,7 +23106,7 @@ mod tests {
     #[test]
     fn a_ctrl_c_at_a_models_question_leaves_only_the_questions_cancelled_line() {
         // `cancelQuestionPrompt` (`input_question_runtime.zig:59-80`) and
-        // `receipts/f3/fx-question-…-q2-esc`: the question's `■ Cancelled` is
+        // `receipts/f3/fx-question-…-q2-esc`: the question's `▪ Cancelled` is
         // the turn's line; no second line and no exit armed follow it.
         let mut shell = running("ask me");
         shell.apply(UiEvent::Question(QuestionRequest {
@@ -23185,7 +23191,7 @@ mod tests {
         assert!(!text.contains("MARKER-STOPPED"), "{written:#?}");
         assert!(!text.contains("system"), "{written:#?}");
         let line = text
-            .find("\u{25a0} Cancelled \u{b7} What can xfx")
+            .find("\u{25aa} Cancelled \u{b7} What can xfx")
             .expect("the turn's line");
         let second = text.find("MARKER-SECOND").expect("the next answer");
         assert!(line < second, "{written:#?}");
@@ -28371,7 +28377,7 @@ mod tests {
             [
                 "\u{2503} and once more",
                 "",
-                "\u{25a0} Cancelled \u{b7} What can xfx do differently?",
+                "\u{25aa} Cancelled \u{b7} What can xfx do differently?",
                 "",
                 "\u{2503} and then",
                 "",
@@ -28396,7 +28402,7 @@ mod tests {
         assert_eq!(
             rows[4],
             format!(
-                "{}\u{25a0}{} {}Cancelled{} \u{b7} What can xfx do differently?",
+                "{}\u{25aa}{} {}Cancelled{} \u{b7} What can xfx do differently?",
                 PALETTE.warning(),
                 PALETTE.reset(),
                 PALETTE.hint(),
@@ -31927,7 +31933,7 @@ mod tests {
         // turn (`app_input_runtime.zig:3139-3143`), and the call the panel was
         // asking about never runs, so the row says `Cancelled`, the header
         // counts it, and the call gets its own line under the group -- at the
-        // keystroke. That line is the turn's too: no second `■ Cancelled`
+        // keystroke. That line is the turn's too: no second `▪ Cancelled`
         // follows it (`append_turn_cancellation`, `transcript/runtime.zig:
         // 5378-5383`). Claim changed: an interrupt notice used to follow.
         let mut shell = shell(24, 80);
@@ -31952,7 +31958,7 @@ mod tests {
                 "\u{25cf} 1 tool call \u{b7} 1 edit \u{b7} 1 cancelled",
                 "\u{2514} Cancelled file",
                 "",
-                "\u{25a0} Cancelled file \u{b7} What can xfx do differently?",
+                "\u{25aa} Cancelled file \u{b7} What can xfx do differently?",
                 "",
             ],
             "{written:#?}"
@@ -31986,7 +31992,7 @@ mod tests {
     fn ctrl_c_at_an_approval_leaves_the_calls_row_to_its_refusal() {
         // Ctrl-C at a question refuses this call and the turn goes on
         // (`src/ui/input/runtime.zig:61`, `3 => .deny`), so nothing is stopped
-        // at the keystroke: no `Cancelled` row and no `■` line. The refusal
+        // at the keystroke: no `Cancelled` row and no `▪` line. The refusal
         // the runtime reports is what settles the row, as `Denied`, in the
         // same group the turn's next call is counted in.
         let mut shell = shell(24, 80);
@@ -32006,7 +32012,7 @@ mod tests {
         assert!(
             !written
                 .iter()
-                .any(|row| row.contains("Cancelled") || row.starts_with('\u{25a0}')),
+                .any(|row| row.contains("Cancelled") || row.starts_with('\u{25aa}')),
             "{written:#?}"
         );
 
@@ -32041,7 +32047,7 @@ mod tests {
         // supervisor kills it within a poll -- so the screen says so at the
         // keystroke, as upstream's does (`fx-interrupt-40x120-cmd-cc`): the
         // group's `· 1 cancelled`, `└ Cancelled sleep 30`, and the call's own
-        // `■ Cancelled sleep 30 · …`, which is the turn's line too. The
+        // `▪ Cancelled sleep 30 · …`, which is the turn's line too. The
         // runtime's result for the call, the same stop in the tool's words,
         // changes nothing, and neither does the turn's conclusion.
         let mut shell = shell(24, 80);
@@ -32066,7 +32072,7 @@ mod tests {
                 "\u{25cf} 1 tool call \u{b7} 1 command \u{b7} 1 cancelled",
                 "\u{2514} Cancelled sleep 30",
                 "",
-                "\u{25a0} Cancelled sleep 30 \u{b7} What can xfx do differently?",
+                "\u{25aa} Cancelled sleep 30 \u{b7} What can xfx do differently?",
                 "",
             ],
             "{at_the_key:#?}"
@@ -32161,7 +32167,7 @@ mod tests {
                 "\u{25cf} 1 tool call \u{b7} 1 write \u{b7} 1 cancelled",
                 "\u{2514} Cancelled file",
                 "",
-                "\u{25a0} Cancelled file \u{b7} What can xfx do differently?",
+                "\u{25aa} Cancelled file \u{b7} What can xfx do differently?",
                 "",
                 "\u{2717} system: the turn was cancelled",
                 "",
@@ -37956,6 +37962,131 @@ mod tests {
         shell.apply(UiEvent::Delta("All done.\n".into()));
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.shell.flush_paced();
+    }
+
+    /// `p5-ctrlo-wider-inline-fam`'s family: characters a terminal draws
+    /// wider than xfx and fx count them (`super::drawn_wider`), raw and as
+    /// the screen names them, with an emoji base and its `U+FE0F` that both
+    /// terminals draw at the two cells counted, which stays.
+    const FAMILY_RAW: &str =
+        "fam \u{261d} \u{2e3a} \u{1f590} x\u{e0002}y a\u{fe0f}b \u{2e3b} up \u{261d}\u{fe0f} end";
+    const FAMILY_NAMED: &str =
+        r"fam \u{261d} \u{2e3a} \u{1f590} x\u{e0002}y a\u{fe0f}b \u{2e3b} up ☝️ end";
+
+    #[test]
+    fn an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written() {
+        // Display only: the document's row and Ctrl-O's Response row name
+        // them; the reply `/copy` puts on the clipboard is the model's text,
+        // byte for byte (`WorkHandle::last_reply`, the journal's). Written
+        // raw, the rows lose glyphs on tmux 3.7b and libghostty-vt
+        // (.prd/tui-phase5/receipts/ctrlo-wider/, `measure.txt`).
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = running("go");
+        shell.copies = Copies::new(tool.clipboard());
+        shell.apply(UiEvent::Delta(format!(
+            "{FAMILY_RAW}\n\n```\n{FAMILY_RAW}\n```\n\n| cell |\n|---|\n| {FAMILY_RAW} |\n\n"
+        )));
+        shell.apply(UiEvent::Operational(format!("{FAMILY_RAW}\n")));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        let document: Vec<String> = shell.document().iter().map(|row| colourless(row)).collect();
+        let named: Vec<&String> = document
+            .iter()
+            .filter(|row| row.contains(FAMILY_NAMED))
+            .collect();
+        assert_eq!(
+            named.len(),
+            4,
+            "the prose, the code panel, the table's cell and the operational line: {document:#?}"
+        );
+        assert!(
+            !document
+                .iter()
+                .any(|row| row.contains("\u{261d} ") || row.contains('\u{2e3a}')),
+            "a raw character a terminal draws wider: {document:#?}"
+        );
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        assert!(
+            screen
+                .iter()
+                .filter(|row| row.contains(FAMILY_NAMED))
+                .count()
+                >= 3,
+            "Ctrl-O's Response rows: {screen:#?}"
+        );
+        assert!(
+            !screen.iter().any(|row| row.contains('\u{2e3a}')),
+            "{screen:#?}"
+        );
+        shell.route_bytes(b"\x0f");
+        shell.work.replied(FAMILY_RAW);
+        shell.route_bytes(b"/copy\r");
+        let _ = copy_settled(&mut shell);
+        assert_eq!(
+            tool.copied().expect("the clipboard tool was fed"),
+            FAMILY_RAW.as_bytes()
+        );
+    }
+
+    #[test]
+    fn a_prompts_characters_a_terminal_draws_wider_are_named_on_ctrl_o() {
+        // Ctrl-O's Prompt row is a frame's row, written with the anchor after
+        // a glyph with a variation selector, which a scalar drawn wider
+        // before it turns into an overwrite (`p5-ctrlo-wider-inline-fam`
+        // `ctrlo`: `y a` lost on tmux, `a` on libghostty-vt): named there.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(FAMILY_RAW.as_bytes());
+        shell.route_bytes(b"\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Delta("Spare.\n".into()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        let _ = shell.written();
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        assert!(
+            screen
+                .iter()
+                .any(|row| row == &format!("\u{2503} {FAMILY_NAMED}")),
+            "{screen:#?}"
+        );
+    }
+
+    #[test]
+    fn a_code_panels_label_names_what_a_terminal_draws_wider() {
+        // The fence's word is the model's too, drawn into the panel's header
+        // rule (`blocks::append_code_panel_header`): on Ctrl-O's frame rows
+        // the anchor after `a` U+FE0F writes over what a wider glyph before
+        // it pushed right (`p5-ctrlo-wider-fence` `ctrlo`). Named there and
+        // in the document, as the code under it is.
+        let label = "fam\u{261d}\u{2e3a}\u{1f590}x\u{e0002}ya\u{fe0f}b";
+        let named = r"fam\u{261d}\u{2e3a}\u{1f590}x\u{e0002}ya\u{fe0f}b";
+        let mut shell = running("go");
+        shell.apply(UiEvent::Delta(format!("```{label}\nplain code\n```\n")));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        let header = format!("\u{2500} {named} \u{2500}");
+        let document: Vec<String> = shell.document().iter().map(|row| colourless(row)).collect();
+        assert!(
+            document.iter().any(|row| row.contains(&header)),
+            "the document's panel header: {document:#?}"
+        );
+        assert!(
+            !document.iter().any(|row| row.contains('\u{261d}')),
+            "{document:#?}"
+        );
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        assert!(
+            screen.iter().any(|row| row.contains(&header)),
+            "Ctrl-O's panel header: {screen:#?}"
+        );
+        assert!(
+            !screen.iter().any(|row| row.contains('\u{261d}')),
+            "{screen:#?}"
+        );
     }
 
     #[test]
@@ -45296,5 +45427,795 @@ mod tests {
         )));
         shell.work.give_back();
         assert_eq!(status_of(&mut shell).as_deref(), Some("done"));
+    }
+
+    #[test]
+    fn a_turn_stopped_over_its_answer_leaves_its_cancelled_line_on_ctrl_o_too() {
+        // fx v0.0.16 appends the turn's lifecycle line to the transcript it
+        // replays and Ctrl-O lays out (`writeTurnCancellation`,
+        // `transcript/runtime.zig:9951-9966`), so its full transcript shows it
+        // under the prompt it stopped, with no heading of its own:
+        // `p5-transcript-cancel` `full`, rows 15-17 (receipts/cancel-marker).
+        // A resumed turn's line already reached it ([`Shell::hydrate`]); the
+        // live one did not.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"stream something\r");
+        let _taken = shell.picks_up();
+        let _ = shell.take_pending();
+        shell.route_bytes(&[0x03]);
+        let _ = shell.take_pending();
+
+        shell.route_bytes(b"\x0f");
+        let full: Vec<String> = shell
+            .screen_rows()
+            .iter()
+            .map(|row| colourless(row))
+            .collect();
+        let card = full
+            .iter()
+            .position(|row| row == "\u{2503} stream something")
+            .expect("the prompt is recorded");
+        assert_eq!(
+            full[card + 1..card + 4],
+            [
+                "",
+                "\u{25aa} Cancelled \u{b7} What can xfx do differently?",
+                ""
+            ],
+            "{full:#?}"
+        );
+        // Once: the document's line is not a second entry.
+        assert_eq!(
+            full.iter()
+                .filter(|row| row.starts_with("\u{25aa} Cancelled"))
+                .count(),
+            1,
+            "{full:#?}"
+        );
+        // And `/trace`'s timeline has it as upstream's raw entry
+        // (`writeTranscriptTimeline`, `app_commands.zig:2681-2689`).
+        let (timeline, _) = shell.full.traced(TRACE_COLS, PALETTE);
+        let line: Vec<_> = timeline
+            .iter()
+            .filter(|entry| entry.rows.iter().any(|row| row.contains("Cancelled")))
+            .map(|entry| (entry.kind, entry.rows.clone()))
+            .collect();
+        assert_eq!(
+            line,
+            [(
+                "raw",
+                vec!["\u{25aa} Cancelled \u{b7} What can xfx do differently?".to_string()]
+            )]
+        );
+    }
+
+    #[test]
+    fn a_theme_report_recolours_ctrl_os_stopped_turn_line_and_refused_batch_row() {
+        // fx v0.0.16 rewrites a cancelled turn's line and a question's
+        // resolution through its token table on a theme switch
+        // (`retintEntriesForTheme`, `src/ui/transcript/store.zig:3722-3777`,
+        // `themeOwnsRawEntry` `:3802-3814`), and Ctrl-O lays them out. Here a
+        // stopped turn's line and a refused batch's row: after the switch in
+        // the new theme's greys there, as in the document. An answered
+        // batch's rows are not checked here (fx's table makes them 247/250).
+        let mut stopped = shell(40, 120);
+        stopped.route_bytes(b"stream something\r");
+        let _taken = stopped.picks_up();
+        let _ = stopped.take_pending();
+        stopped.route_bytes(&[0x03]);
+        let _ = stopped.take_pending();
+        let mut asked = shell(40, 120);
+        asking_question(&mut asked, a_batch());
+        let _ = asked.document();
+        asked.route_bytes(&[0x1b]);
+        asked.settle_input(Instant::now() + Duration::from_millis(100));
+        let _ = asked.document();
+        for (mut fixture, dark, light) in [
+            (stopped, cancelled_line(PALETTE), cancelled_line(LIGHT)),
+            (
+                asked,
+                super::super::question::cancelled_row(&PALETTE),
+                super::super::question::cancelled_row(&LIGHT),
+            ),
+        ] {
+            fixture.route_bytes(b"\x0f");
+            assert!(
+                fixture.screen_rows().contains(&dark),
+                "{:#?}",
+                fixture.screen_rows()
+            );
+            fixture.route_bytes(b"\x0f");
+            fixture.route_bytes(WENT_LIGHT);
+            fixture.route_bytes(b"\x0f");
+            let full = fixture.screen_rows();
+            assert!(full.contains(&light), "{light:?} in {full:#?}");
+            assert!(!full.contains(&dark), "{full:#?}");
+            // And back: the rows as they were drawn, byte for byte.
+            fixture.route_bytes(b"\x0f");
+            fixture.route_bytes(WENT_DARK);
+            fixture.route_bytes(b"\x0f");
+            let full = fixture.screen_rows();
+            assert!(full.contains(&dark), "{dark:?} in {full:#?}");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Train 6 joins: CTRLO-WIDER's names through T-U4's Ctrl-O caches
+    // -----------------------------------------------------------------------
+
+    /// Ctrl-O's screen with every entry's time taken out (`yyyy-mm-dd
+    /// hh:mm:ss.mmm`, the one thing two sessions given the same events write
+    /// differently); the rows' colours are kept.
+    fn timeless(rows: &[String]) -> Vec<String> {
+        rows.iter()
+            .map(|row| {
+                let mut out = String::new();
+                let mut rest = row.as_str();
+                while !rest.is_empty() {
+                    let stamp = rest.len() >= 23
+                        && rest.is_char_boundary(23)
+                        && rest[..23].char_indices().all(|(at, c)| match at {
+                            4 | 7 => c == '-',
+                            10 => c == ' ',
+                            13 | 16 => c == ':',
+                            19 => c == '.',
+                            _ => c.is_ascii_digit(),
+                        });
+                    if stamp {
+                        out.push_str("<time>");
+                        rest = &rest[23..];
+                    } else {
+                        let c = rest.chars().next().expect("a character");
+                        out.push(c);
+                        rest = &rest[c.len_utf8()..];
+                    }
+                }
+                out
+            })
+            .collect()
+    }
+
+    /// A path a read is given and the reply after it, each holding characters
+    /// a terminal draws wider than xfx and fx count them
+    /// (`super::drawn_wider`): U+261D and U+2E3A.
+    const WIDER_PATH: &str = "\u{261d}x\u{2e3a}wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww.txt";
+    const WIDER_PATH_NAMED: &str = r"\u{261d}x\u{2e3a}wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww.txt";
+    const WIDER_LABEL: &str = "fam\u{261d}\u{2e3a}";
+    const WIDER_LABEL_NAMED: &str = r"fam\u{261d}\u{2e3a}";
+
+    /// A finished turn that read [`WIDER_PATH`] -- its start, its arguments,
+    /// its result and the result's text, each through the channel's
+    /// `made_inert` as a live turn's are -- and answered with a code panel
+    /// labelled [`WIDER_LABEL`]. Thirty short paragraphs come first, so the
+    /// record is taller than the screen at every width and which rows the
+    /// screen shows depends on where it stands.
+    fn a_turn_that_read_a_wider_path(shell: &mut Fixture) {
+        shell.route_bytes(b"read it\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnStarted.made_inert());
+        let filler: String = (1..=30)
+            .map(|n| format!("Paragraph {n} before the read.\n\n"))
+            .collect();
+        shell.apply(UiEvent::Delta(filler).made_inert());
+        shell.apply(
+            tool_start("r1", "read_file", serde_json::json!({ "path": WIDER_PATH })).made_inert(),
+        );
+        shell.apply(
+            UiEvent::ToolDetail {
+                call_id: "r1".into(),
+                detail: full_transcript::Detail::Arguments(vec![full_transcript::Argument {
+                    name: "path".into(),
+                    value: WIDER_PATH.into(),
+                    text: true,
+                }]),
+            }
+            .made_inert(),
+        );
+        shell.apply(tool_result("r1", "read_file", true, "").made_inert());
+        shell.apply(
+            UiEvent::ToolDetail {
+                call_id: "r1".into(),
+                detail: full_transcript::Detail::Result("line \u{261d} one\n".into()),
+            }
+            .made_inert(),
+        );
+        shell.apply(
+            UiEvent::Delta(format!("```{WIDER_LABEL}\ncode \u{261d} here\n```\n")).made_inert(),
+        );
+        shell.apply(UiEvent::TurnEnded { failure: None }.made_inert());
+        shell.shell.flush_paced();
+        let _ = shell.written();
+    }
+
+    /// The same session laid out from nothing at `cols` in `palette`, Ctrl-O
+    /// open: what a cache must equal.
+    fn fresh_ctrl_o(cols: u16, palette: Palette) -> Vec<String> {
+        let mut fresh = shell_with(40, cols, palette, false);
+        a_turn_that_read_a_wider_path(&mut fresh);
+        fresh.route_bytes(b"\x0f");
+        timeless(&fresh.screen_rows())
+    }
+
+    #[test]
+    fn ctrl_o_names_what_a_terminal_draws_wider_and_its_caches_follow_the_palette_and_the_width() {
+        // Train 6, join check 1. T-U4 keeps a group's Ctrl-O block per
+        // (revision, palette) and each call's heading per (text, width);
+        // CTRLO-WIDER names, on Ctrl-O, a file's or a tool's line (the
+        // arguments, the result) and an answer's code panel, its label
+        // included, and leaves the heading raw, as fx's is (its round 2,
+        // (f): `a_value_the_heading_had_to_spell_is_never_shown_by_it_already`).
+        // Through the caches, after a theme switch and after a resize, each
+        // screen is the one the same session laid out from nothing shows.
+        let mut live = shell(40, 120);
+        a_turn_that_read_a_wider_path(&mut live);
+        live.route_bytes(b"\x0f");
+        let dark = live.screen_rows();
+        let plain: Vec<String> = dark.iter().map(|row| colourless(row)).collect();
+        let heading = format!("\u{2514} Read {WIDER_PATH}");
+        assert!(plain.contains(&heading), "the heading, raw: {plain:#?}");
+        // The screen is at the tail of a record taller than it.
+        assert!(
+            !plain.iter().any(|row| row.contains("Paragraph 1 before")),
+            "{plain:#?}"
+        );
+        assert!(
+            plain.contains(&format!("\u{2502}  path: {WIDER_PATH_NAMED}")),
+            "the argument row, named: {plain:#?}"
+        );
+        assert!(
+            plain.iter().any(|row| row.contains(r"line \u{261d} one")),
+            "the result, named: {plain:#?}"
+        );
+        assert!(
+            plain
+                .iter()
+                .any(|row| row.contains(&format!("\u{2500} {WIDER_LABEL_NAMED} \u{2500}"))),
+            "the code panel's label, named: {plain:#?}"
+        );
+        assert!(
+            plain.iter().any(|row| row.contains(r"code \u{261d} here")),
+            "the code, named: {plain:#?}"
+        );
+        assert_eq!(
+            plain
+                .iter()
+                .filter(|row| row.contains('\u{261d}') || row.contains('\u{2e3a}'))
+                .collect::<Vec<_>>(),
+            [&heading],
+            "raw only in the heading: {plain:#?}"
+        );
+        assert_eq!(timeless(&dark), fresh_ctrl_o(120, PALETTE), "dark, 120");
+
+        // A theme switch: closed, the report, opened again.
+        live.route_bytes(b"\x0f");
+        live.route_bytes(WENT_LIGHT);
+        live.route_bytes(b"\x0f");
+        let light = live.screen_rows();
+        assert_ne!(light, dark, "the palette is in the rows");
+        assert_eq!(timeless(&light), fresh_ctrl_o(120, LIGHT), "light, 120");
+
+        // A resize while Ctrl-O is open: the heading wraps at 40 columns.
+        let _ = live.resize(40, 40);
+        let narrow = live.screen_rows();
+        let narrow_plain: Vec<String> = narrow.iter().map(|row| colourless(row)).collect();
+        assert!(
+            !narrow_plain.contains(&heading),
+            "the heading, laid out again: {narrow_plain:#?}"
+        );
+        assert!(
+            !narrow_plain
+                .iter()
+                .any(|row| row.contains("Paragraph 1 before")),
+            "{narrow_plain:#?}"
+        );
+        assert!(
+            narrow_plain
+                .iter()
+                .all(|row| super::super::wrap::width(row) <= 40),
+            "{narrow_plain:#?}"
+        );
+        // Right after the resize, still open, row for row the session laid
+        // out from nothing at 40 columns: no row of the 120-column layout
+        // left, and the screen at the tail as a fresh one stands.
+        assert_eq!(
+            timeless(&narrow),
+            fresh_ctrl_o(40, LIGHT),
+            "light, 40, right after the resize"
+        );
+        // Opened again at that width, it is the session laid out from nothing.
+        live.route_bytes(b"\x0f");
+        live.route_bytes(b"\x0f");
+        assert_eq!(
+            timeless(&live.screen_rows()),
+            fresh_ctrl_o(40, LIGHT),
+            "light, 40"
+        );
+
+        // And back: dark at 120, as first drawn, byte for byte.
+        live.route_bytes(b"\x0f");
+        live.route_bytes(WENT_DARK);
+        let _ = live.resize(40, 120);
+        live.route_bytes(b"\x0f");
+        assert_eq!(live.screen_rows(), dark, "dark, 120 again");
+    }
+
+    #[test]
+    fn a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back() {
+        // Train 6, join check 3: T-U4's retint of Ctrl-O's blocks (a
+        // cancelled line drawn in one mode, shown in another) beside
+        // CTRLO-WIDER's named code panel label, with the report arriving
+        // while Ctrl-O is open. Every row is the one the same session drawn
+        // from nothing in the new palette has -- no grey of the old one left
+        // -- and the report back gives the first screen byte for byte.
+        let session = |palette: Palette| {
+            let mut shell = shell_with(40, 120, palette, false);
+            a_turn_that_read_a_wider_path(&mut shell);
+            shell.route_bytes(b"stream something\r");
+            let _taken = shell.picks_up();
+            let _ = shell.take_pending();
+            shell.route_bytes(&[0x03]);
+            let _ = shell.take_pending();
+            shell.route_bytes(b"\x0f");
+            shell
+        };
+        let mut live = session(PALETTE);
+        let dark = live.screen_rows();
+        assert!(dark.contains(&cancelled_line(PALETTE)), "{dark:#?}");
+        let label = format!("\u{2500} {WIDER_LABEL_NAMED} \u{2500}");
+        assert!(
+            dark.iter().any(|row| colourless(row).contains(&label)),
+            "{dark:#?}"
+        );
+        live.route_bytes(WENT_LIGHT);
+        let light = live.screen_rows();
+        assert!(light.contains(&cancelled_line(LIGHT)), "{light:#?}");
+        assert!(!light.contains(&cancelled_line(PALETTE)), "{light:#?}");
+        assert_eq!(
+            timeless(&light),
+            timeless(&session(LIGHT).screen_rows()),
+            "the open screen after the report"
+        );
+        live.route_bytes(WENT_DARK);
+        assert_eq!(live.screen_rows(), dark, "the report back");
+    }
+
+    /// ARGROW-CACHE: a turn still running whose calls carry arguments Ctrl-O
+    /// lays out on rows of their own, each through the channel's
+    /// `made_inert` as a live turn's are: a pattern of words, a long token, a
+    /// control, a scalar a terminal draws wider and a CJK run, too long for
+    /// its heading to fit; a command's `cwd` and its output; a read's note of
+    /// three lines, one of them empty. `late` joins it in [`a_join`].
+    fn a_turn_with_arguments(shell: &mut Fixture) {
+        let argument = |name: &str, value: &str| full_transcript::Argument {
+            name: name.into(),
+            value: value.into(),
+            text: false,
+        };
+        let detail = |shell: &mut Fixture, id: &str, detail: full_transcript::Detail| {
+            shell.apply(
+                UiEvent::ToolDetail {
+                    call_id: id.into(),
+                    detail,
+                }
+                .made_inert(),
+            );
+        };
+        shell.route_bytes(b"go\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnStarted.made_inert());
+        shell.apply(
+            tool_start(
+                "g",
+                "glob_files",
+                serde_json::json!({ "pattern": ARGROW_PATTERN }),
+            )
+            .made_inert(),
+        );
+        detail(
+            shell,
+            "g",
+            full_transcript::Detail::Arguments(vec![argument("pattern", ARGROW_PATTERN)]),
+        );
+        shell.apply(tool_result("g", "glob_files", true, "").made_inert());
+        shell.apply(
+            tool_start(
+                "t",
+                "terminal",
+                serde_json::json!({"action": "exec", "command": "ls -la"}),
+            )
+            .made_inert(),
+        );
+        detail(
+            shell,
+            "t",
+            full_transcript::Detail::Arguments(vec![
+                argument("action", "exec"),
+                argument("cwd", "sub dir \u{2e3a} \u{65e5}\u{672c}"),
+            ]),
+        );
+        shell.apply(tool_result("t", "terminal", true, "").made_inert());
+        detail(
+            shell,
+            "t",
+            full_transcript::Detail::Command {
+                output: "a.txt\nb.txt\n".into(),
+                status: None,
+            },
+        );
+        shell.apply(
+            tool_start("r", "read_file", serde_json::json!({ "path": "notes.txt" })).made_inert(),
+        );
+        detail(
+            shell,
+            "r",
+            full_transcript::Detail::Arguments(vec![argument(
+                "note",
+                &format!("first\n\n{}", "third line of words ".repeat(12)),
+            )]),
+        );
+        shell.apply(tool_result("r", "read_file", true, "").made_inert());
+    }
+
+    const ARGROW_PATTERN: &str = "src/**/alpha beta gamma delta epsilon \u{261d} \u{9b} \
+        \u{65e5}\u{672c}\u{8a9e}\u{65e5}\u{672c}\u{8a9e} \
+        xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
+        zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau *.rs";
+
+    /// What Ctrl-O shows of [`a_turn_with_arguments`] laid out from nothing
+    /// at `cols` in `palette`, opened after the events: its screen's record
+    /// rows, and the whole record through the same caches. `traced` are the
+    /// sentences the live session's `/trace`s were answered with, said here
+    /// at the same place in the record -- after the turn's calls, before
+    /// `late` joins -- without a `/trace` of this session's own, so nothing
+    /// of it is laid out before the screen is.
+    fn fresh_arguments(
+        cols: u16,
+        palette: Palette,
+        traced: &[String],
+        late: bool,
+    ) -> (Vec<String>, Vec<String>) {
+        let mut fresh = shell_with(40, cols, palette, false);
+        a_turn_with_arguments(&mut fresh);
+        for sentence in traced {
+            fresh.announce(notice::Notice::neutral("", sentence.clone()));
+        }
+        if late {
+            a_join(&mut fresh);
+        }
+        fresh.route_bytes(b"\x0f");
+        shown_and_whole(&fresh)
+    }
+
+    /// `/trace` typed, its report written to `dir` through a fake clipboard,
+    /// and the shell left to settle until the record holds what it was
+    /// answered with: that sentence (on macOS the report is copied,
+    /// elsewhere saved and named), and the report.
+    ///
+    /// `/trace` lays the record out at its own width, `TRACE_COLS`, through
+    /// the same argument caches the screen uses (`FullTranscript::traced`).
+    fn a_trace(
+        shell: &mut Fixture,
+        tool: &crate::clipboard::fake::FakeTool,
+        dir: &std::path::Path,
+    ) -> (String, String) {
+        // One word of the sentence, which a row break never splits: on Linux
+        // the sentence names the report's path and may wrap.
+        const SAID: &str = "redact";
+        // How many times the record says it. Laid out at the screen's width
+        // only while Ctrl-O is open, as every frame of it lays the record out
+        // anyway; with it closed the inline document is read instead, so
+        // nothing of the record is laid out before the report is.
+        let open = shell.full.is_open();
+        let said = |shell: &mut Fixture| {
+            if open {
+                shell
+                    .full
+                    .all_rows(shell.geometry.cols, shell.palette)
+                    .iter()
+                    .filter(|row| colourless(row).contains(SAID))
+                    .count()
+            } else {
+                shell
+                    .document()
+                    .iter()
+                    .filter(|row| row.contains(SAID))
+                    .count()
+            }
+        };
+        let before = if open { said(shell) } else { 0 };
+        if !open {
+            let _ = shell.document();
+        }
+        shell.traces = Traces::new(tool.clipboard(), dir.to_path_buf());
+        shell.route_bytes(b"/trace\r");
+        let deadline = Instant::now() + START_PATIENCE;
+        loop {
+            shell.settle_band(Instant::now());
+            if said(shell) > before {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "/trace never said how it went in {START_PATIENCE:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let (path, report) = the_report(dir);
+        let done = if cfg!(target_os = "macos") {
+            crate::trace::Disposition::Copied(path)
+        } else {
+            crate::trace::Disposition::Saved(path)
+        };
+        (done.sentence(), report)
+    }
+
+    /// The record rows of the screen the shell shows now (the footer under
+    /// them holds the running turn's status), and every row of the record,
+    /// each with its time taken out.
+    fn shown_and_whole(shell: &Fixture) -> (Vec<String>, Vec<String>) {
+        let (shown, whole) = shown_and_whole_raw(shell);
+        (timeless(&shown), timeless(&whole))
+    }
+
+    /// [`shown_and_whole`] with the times in: what one session's screen is
+    /// compared with byte for byte.
+    fn shown_and_whole_raw(shell: &Fixture) -> (Vec<String>, Vec<String>) {
+        let mut shown = shell.screen_rows();
+        shown.truncate(36);
+        let whole = shell.full.all_rows(shell.geometry.cols, shell.palette);
+        (shown, whole)
+    }
+
+    #[test]
+    fn ctrl_o_with_arguments_through_its_caches_is_the_session_laid_out_from_nothing_after_every_event(
+    ) {
+        // ARGROW-CACHE: train 6's join test compared Ctrl-O's screen with the
+        // session laid out from nothing only after a reopen, and its screen,
+        // at the tail, showed no call's argument rows but the last call's.
+        // Here every event is followed at once by both -- the screen's record
+        // rows and the whole record -- with Ctrl-O still open: the screen's
+        // own caches against a session that has none yet.
+        let mut live = shell(40, 120);
+        a_turn_with_arguments(&mut live);
+
+        // `/trace` before Ctrl-O was ever opened (train 6's review: opus
+        // SHOULD 3). The report lays every argument out at its own 200
+        // columns, through the argument's cache, which keeps those rows: the
+        // pattern's 130-cell token, which 120 columns break, is whole on its
+        // argument row there. Ctrl-O, opened after, lays the argument out
+        // again at 120 from its own text, and never paints the report's.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let dirs: Vec<tempfile::TempDir> = (0..3)
+            .map(|_| tempfile::tempdir().expect("a report directory"))
+            .collect();
+        let mut traced = Vec::new();
+        let (sentence, report) = a_trace(&mut live, &tool, dirs[0].path());
+        let token = "x".repeat(130);
+        assert!(
+            report
+                .lines()
+                .any(|line| line.trim_start().starts_with("\u{2502}  ") && line.contains(&token)),
+            "the argument row at the report's width: {report}"
+        );
+        traced.push(sentence);
+        live.route_bytes(b"\x0f");
+        let opened = shown_and_whole(&live);
+        assert!(
+            opened
+                .1
+                .iter()
+                .all(|row| super::super::wrap::width(row) <= 120),
+            "{:#?}",
+            opened.1
+        );
+        assert_eq!(
+            opened,
+            fresh_arguments(120, PALETTE, &traced, false),
+            "opened after /trace"
+        );
+        let whole: Vec<String> = opened.1.iter().map(|row| colourless(row)).collect();
+        for row in [
+            "\u{2502}  cwd: sub dir \\u{2e3a} \u{65e5}\u{672c}",
+            "\u{2502}  note: first",
+            "\u{2502}  ",
+        ] {
+            assert!(whole.contains(&row.to_string()), "{row:?}: {whole:#?}");
+        }
+        assert!(
+            whole
+                .iter()
+                .any(|row| row.starts_with("\u{2502}  pattern: src/**/alpha")),
+            "{whole:#?}"
+        );
+        assert!(
+            whole.iter().any(|row| row.contains(r"\u{261d} \u{009b}")),
+            "the pattern, named and spelled: {whole:#?}"
+        );
+
+        // `/trace` while it is open: the screen goes on painting the 120
+        // columns' rows its entries were laid out with, and a theme switch
+        // lays them out again at 120, from the argument's own text.
+        let (sentence, _) = a_trace(&mut live, &tool, dirs[1].path());
+        traced.push(sentence);
+        let after_trace = shown_and_whole(&live);
+        assert!(
+            after_trace
+                .1
+                .iter()
+                .all(|row| super::super::wrap::width(row) <= 120),
+            "{:#?}",
+            after_trace.1
+        );
+        assert_eq!(
+            after_trace,
+            fresh_arguments(120, PALETTE, &traced, false),
+            "traced"
+        );
+        let after_trace_raw = shown_and_whole_raw(&live);
+        live.route_bytes(WENT_LIGHT);
+        assert_eq!(
+            shown_and_whole(&live),
+            fresh_arguments(120, LIGHT, &traced, false),
+            "light, after /trace"
+        );
+        live.route_bytes(WENT_DARK);
+        assert_eq!(
+            shown_and_whole_raw(&live),
+            after_trace_raw,
+            "dark again after /trace, byte for byte"
+        );
+
+        // `/trace` again, then a call joins the open group: the join lays
+        // every member out again at 120 from its own text, not the report's
+        // 200 columns.
+        let (sentence, _) = a_trace(&mut live, &tool, dirs[2].path());
+        traced.push(sentence);
+        assert_eq!(
+            shown_and_whole(&live),
+            fresh_arguments(120, PALETTE, &traced, false),
+            "traced again"
+        );
+        a_join(&mut live);
+        let joined = shown_and_whole(&live);
+        let joined_raw = shown_and_whole_raw(&live);
+        assert_eq!(
+            joined,
+            fresh_arguments(120, PALETTE, &traced, true),
+            "joined"
+        );
+        assert!(
+            joined
+                .1
+                .iter()
+                .any(|row| colourless(row) == "\u{2502}  note: joined late"),
+            "{:#?}",
+            joined.1
+        );
+
+        // A theme report while it is open, and back.
+        live.route_bytes(WENT_LIGHT);
+        let light = shown_and_whole(&live);
+        assert_ne!(light, joined, "the palette is in the rows");
+        assert_eq!(light, fresh_arguments(120, LIGHT, &traced, true), "light");
+        live.route_bytes(WENT_DARK);
+        assert_eq!(
+            shown_and_whole_raw(&live),
+            joined_raw,
+            "dark again, byte for byte"
+        );
+
+        // Narrower while it is open, compared at once; and back.
+        let _ = live.resize(40, 40);
+        let narrow = shown_and_whole(&live);
+        assert_eq!(
+            narrow,
+            fresh_arguments(40, PALETTE, &traced, true),
+            "narrow"
+        );
+        assert!(
+            narrow
+                .1
+                .iter()
+                .all(|row| super::super::wrap::width(row) <= 40),
+            "{:#?}",
+            narrow.1
+        );
+        let _ = live.resize(40, 120);
+        assert_eq!(
+            shown_and_whole_raw(&live),
+            joined_raw,
+            "back at 120, byte for byte"
+        );
+
+        // Closed and opened again.
+        live.route_bytes(b"\x0f");
+        live.route_bytes(b"\x0f");
+        assert_eq!(
+            shown_and_whole_raw(&live),
+            joined_raw,
+            "reopened, byte for byte"
+        );
+
+        // The glob's arguments again, another pattern, while it is open.
+        let other = "lib/**/\u{2e3a}\u{2e3a} one two three \u{200b} four *.toml";
+        live.apply(
+            UiEvent::ToolDetail {
+                call_id: "g".into(),
+                detail: full_transcript::Detail::Arguments(vec![full_transcript::Argument {
+                    name: "pattern".into(),
+                    value: other.into(),
+                    text: false,
+                }]),
+            }
+            .made_inert(),
+        );
+        let replaced = shown_and_whole(&live);
+        assert_eq!(
+            replaced,
+            fresh_arguments_replaced(other, &traced),
+            "replaced"
+        );
+        // The heading is the call's start, and says what it said; the
+        // argument row is the new pattern's.
+        let rows: Vec<String> = replaced.1.iter().map(|row| colourless(row)).collect();
+        assert!(
+            rows.iter()
+                .any(|row| row.starts_with("\u{2502}  pattern: lib/**/\\u{2e3a}")),
+            "{rows:#?}"
+        );
+        assert!(
+            !rows
+                .iter()
+                .any(|row| row.starts_with("\u{2502}  pattern: src/")),
+            "{rows:#?}"
+        );
+    }
+
+    /// `late` joining the open group, as [`a_turn_with_arguments`] has it.
+    fn a_join(shell: &mut Fixture) {
+        shell.apply(
+            tool_start(
+                "late",
+                "read_file",
+                serde_json::json!({ "path": "late.txt" }),
+            )
+            .made_inert(),
+        );
+        shell.apply(
+            UiEvent::ToolDetail {
+                call_id: "late".into(),
+                detail: full_transcript::Detail::Arguments(vec![full_transcript::Argument {
+                    name: "note".into(),
+                    value: "joined late".into(),
+                    text: false,
+                }]),
+            }
+            .made_inert(),
+        );
+    }
+
+    /// [`fresh_arguments`] at 120 columns in the dark, `traced` said, `late`
+    /// joined, with the glob's arguments given twice, the second time
+    /// `pattern` -- in the order the live session had them: after `late`.
+    fn fresh_arguments_replaced(pattern: &str, traced: &[String]) -> (Vec<String>, Vec<String>) {
+        let mut fresh = shell_with(40, 120, PALETTE, false);
+        a_turn_with_arguments(&mut fresh);
+        for sentence in traced {
+            fresh.announce(notice::Notice::neutral("", sentence.clone()));
+        }
+        a_join(&mut fresh);
+        fresh.apply(
+            UiEvent::ToolDetail {
+                call_id: "g".into(),
+                detail: full_transcript::Detail::Arguments(vec![full_transcript::Argument {
+                    name: "pattern".into(),
+                    value: pattern.into(),
+                    text: false,
+                }]),
+            }
+            .made_inert(),
+        );
+        fresh.route_bytes(b"\x0f");
+        shown_and_whole(&fresh)
     }
 }

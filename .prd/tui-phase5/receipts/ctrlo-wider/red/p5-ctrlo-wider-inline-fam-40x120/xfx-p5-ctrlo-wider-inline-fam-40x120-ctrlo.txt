@@ -1,0 +1,40 @@
+* network: provider: gateway · model: fake/model-a · 63ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-08 07:37:37.136 KST · Prompt
+┃ go
+
+  2026-11-08 07:37:37.258 KST · Response
+  fam ☝ ⸺ 🖐 x󠀂b  c  d  e ⁥f end
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+  TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww⸺
+  TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww️
+  TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwz
+  TAIL5678
+
+  ☝☝☝☝wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwL
+  wwwwwwwwwwwwwwwwwwwwEND
+
+  2026-11-08 07:37:37.870 KST · Usage
+  0s (↑1 ↓40)
+
+  2026-11-08 07:37:42.819 KST · Prompt
+┃ fam ☝ ⸺ 🖐 x󠀂b  c  d  e ⁥f end
+
+  2026-11-08 07:37:42.957 KST · Response
+  Spare.
+
+  2026-11-08 07:37:42.957 KST · Usage
+  0s (↑16 ↓40)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a

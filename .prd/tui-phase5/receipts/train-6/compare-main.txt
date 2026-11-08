@@ -1,0 +1,1000 @@
+# compare.py <main's sweep at 690aa505, rescored with the train's ledger> <the train's head sweep>
+pairs: reference 661, train 684, shared 661; only the reference: 0
+reference: 661 pairs, pass 398; approved-divergence 5, approved-divergence-cascade 2, identical 13, normalized-identical 385, unresolved-defect 256
+train: 661 pairs, pass 464; approved-divergence 4, approved-divergence-cascade 2, identical 14, normalized-identical 450, unresolved-defect 191
+approvals after-esc: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled echo again · What can xfx do differently?' / xfx '■ Cancelled echo again · What can xfx do differently?'
+approvals after-esc.full: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled echo again · What can xfx do differently?' / xfx '■ Cancelled echo again · What can xfx do differently?'
+approvals-amend-limit end: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled file · What can xfx do differently?' / xfx '■ Cancelled file · What can xfx do differently?'
+interrupt cc-0.3: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+interrupt cc-1.5: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+interrupt cc-3.5: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+interrupt end.full: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+interrupt esc1: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+interrupt esc2: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+interrupt esc2-later: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+interrupt mid2: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+interrupt next: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+interrupt-cmd cmd-cc: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled sleep 6 · What can xfx do differently?' / xfx '■ Cancelled sleep 6 · What can xfx do differently?'
+interrupt-cmd cmd-cc-2: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled sleep 6 · What can xfx do differently?' / xfx '■ Cancelled sleep 6 · What can xfx do differently?'
+interrupt-cmd cmd-done: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled sleep 6 · What can xfx do differently?' / xfx '■ Cancelled sleep 6 · What can xfx do differently?'
+interrupt-cmd end.full: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled sleep 6 · What can xfx do differently?' / xfx '■ Cancelled sleep 6 · What can xfx do differently?'
+interrupt-next-cmd next: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled sleep 6 · What can xfx do differently?' / xfx '■ Cancelled sleep 6 · What can xfx do differently?'
+interrupt-next-question next: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled' / xfx '■ Cancelled'
+interrupt-question end.full: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled' / xfx '■ Cancelled'
+interrupt-question q-cc: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled' / xfx '■ Cancelled'
+interrupt-recovery full: 1 differing rows left, 1 new
+    left: fx '' / xfx '! network: provider: gateway · model: fake/model-a · 1ms'
+    NEW:  fx '' / xfx '! network: provider: gateway · model: fake/model-a · 5ms'
+interrupt2 cd-streaming: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+interrupt2 draft: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+interrupt2 draft-cc: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+interrupt2 draft-cc2: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+interrupt2 end.full: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+interrupt2 esc2: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+interrupt2 esc2-later: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+p5-effort-fork-fork status: 2 differing rows left, 2 new
+    left: fx '  Turns             2' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             2' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-effort-fork-fork-edge status-empty: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-effort-fork-oldread-src doctor.full: 2 differing rows left, 2 new
+    left: fx '[doctor] mcp_servers=0 mcp_configuration_issues=0' / xfx '[ok] workspace: using workspace <local-path>'
+    left: fx '[ok] workspace: using workspace <local-path>' / xfx '[warn] config: no config files found; using defaults and env overrides'
+    NEW:  fx '[doctor] mcp_servers=0 mcp_configuration_issues=0' / xfx '[ok] workspace: using workspace <local-path>'
+    NEW:  fx '[ok] workspace: using workspace <local-path>' / xfx '[warn] config: no config files found; using defaults and env overrides'
+p5-input-question q2-cancelled: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled' / xfx '■ Cancelled'
+p5-input-question q6: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled' / xfx '■ Cancelled'
+p5-input-question q6-after: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled' / xfx '■ Cancelled'
+p5-input-question q6-after.full: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled' / xfx '■ Cancelled'
+p5-lifecycle-retry r04a-esc-armed: 1 differing rows left, 1 new
+    left: fx 'navailable · HTTP 502 · Synthetic bad gateway · retrying request in 7s' / xfx 'teway returned HTTP 502: {"error":{"message":"Synthetic bad gateway"}}'
+    NEW:  fx 'navailable · HTTP 502 · Synthetic bad gateway · retrying request in 6s' / xfx 'teway returned HTTP 502: {"error":{"message":"Synthetic bad gateway"}}'
+p5-mcp-live cancel: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled mcp_web_echo · What can xfx do differently?' / xfx '■ Cancelled mcp_web_echo · What can xfx do differently?'
+p5-mcp-live end: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled mcp_web_echo · What can xfx do differently?' / xfx '■ Cancelled mcp_web_echo · What can xfx do differently?'
+p5-mcp-live failed: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled mcp_web_echo · What can xfx do differently?' / xfx '■ Cancelled mcp_web_echo · What can xfx do differently?'
+p5-mcp-menu-new approve-confirm: 2 differing rows left, 0 new
+    left: fx '    <local-path>' / xfx '  ↳ <local-path>'
+    left: fx '    <checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '  ↳ <checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+p5-mcp-menu-new back-list: 1 differing rows left, 0 new
+    left: fx '  remote                  retrying                profile' / xfx '  remote                  connecting              profile'
+p5-mcp-menu-new list-remote: 1 differing rows left, 0 new
+    left: fx '› remote                  retrying                profile' / xfx '› remote                  connecting              profile'
+p5-mcp-verbs add-badname: 2 differing rows left, 2 new
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs add-new-http: 4 differing rows left, 4 new
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs add-new-syntax: 4 differing rows left, 4 new
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs add-old-http: 4 differing rows left, 4 new
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs add-old-syntax: 4 differing rows left, 4 new
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs auth-remote: 4 differing rows left, 4 new
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs end.full: 83 differing rows left, 20 new
+    left: fx '' / xfx '      echo  Echo text through the legacy MCP fixture'
+    left: fx '' / xfx '    --project  write ./.mcp.json instead of ~/.xfx/mcp.json'
+    left: fx '' / xfx '    status     waiting for approval'
+    left: fx '' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '' / xfx '  proj     .mcp.json        stdio      ready, 1 tool'
+    left: fx '' / xfx '  proj     .mcp.json        stdio      waiting for approval'
+    left: fx '' / xfx '  usage: /mcp show NAME'
+    left: fx '' / xfx '! mcp: /mcp auth is now /mcp login NAME.'
+    left: fx '' / xfx "mcp prompt is gone: xfx doesn't support MCP resources and prompts yet."
+    left: fx '' / xfx "p resource is gone: xfx doesn't support MCP resources and prompts yet."
+    left: fx '' / xfx '! mcp: /mcp trust is now /mcp approve NAME and /mcp reject NAME.'
+    left: fx '' / xfx '! mcp: Interactive MCP authentication is unavailable here.'
+    left: fx '' / xfx '! mcp: No MCP server named three in ~/.xfx/mcp.json or .mcp.json.'
+    left: fx '' / xfx '! mcp: No MCP server named web2 in ~/.xfx/mcp.json or .mcp.json.'
+    left: fx '' / xfx '! mcp: fixture runs a command, so it has no login.'
+    left: fx '' / xfx '* mcp: Added two to ~/.xfx/mcp.json.'
+    left: fx '' / xfx '* mcp: Added web2 to ~/.xfx/mcp.json.'
+    left: fx '' / xfx "* mcp: Rejected proj. xfx won't start it in this project."
+    left: fx '' / xfx '* mcp: Removed two from ~/.xfx/mcp.json.'
+    left: fx '' / xfx '* mcp: Removed web2 from ~/.xfx/mcp.json.'
+    left: fx '' / xfx "* mcp: remote wasn't signed in."
+    left: fx '' / xfx '<banner>'
+    left: fx '' / xfx 'auto · model-a'
+    left: fx '' / xfx '┃'
+    left: fx '         /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...]' / xfx '  usage: /mcp add [--project] [--header K=V]... NAME URL'
+    left: fx '         /mcp add [--project] slack' / xfx '         /mcp add [--project] [--env K=V]... NAME -- COMMAND [ARGS...]'
+    left: fx '      echo  Echo text through the legacy MCP fixture' / xfx '    tools      1'
+    left: fx '    --project  write ./.mcp.json instead of ~/.xfx/mcp.json' / xfx '         /mcp add [--project] slack'
+    left: fx '    command    <local-path> <local-path>' / xfx '    transport  http'
+    left: fx '    command    <local-path> <local-path>' / xfx '    transport  stdio'
+    left: fx "    error      it refused or never answered xfx's initialize request" / xfx ''
+    left: fx '    next       /mcp approve proj' / xfx "    error      it refused or never answered xfx's initialize request"
+    left: fx '    source     .mcp.json' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    source     ~/.xfx/mcp.json' / xfx '    next       /mcp approve proj'
+    left: fx '    source     ~/.xfx/mcp.json' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '    status     ready, 1 tool' / xfx '* mcp: fixture'
+    left: fx '    status     retrying' / xfx '    command    <local-path> <local-path>'
+    left: fx '    status     waiting for approval' / xfx '* mcp: remote'
+    left: fx '    tools      1' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '    transport  http' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '    transport  stdio' / xfx '    status     retrying'
+    left: fx '    transport  stdio' / xfx '    version    2025-03-26'
+    left: fx '    url        http://127.0.0.1:9/mcp' / xfx '    source     .mcp.json'
+    left: fx '    version    2025-03-26' / xfx '    status     ready, 1 tool'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    command    <local-path> <local-path>'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '* mcp: Approved proj, which runs: <local-path> <local-path>'
+    left: fx '  fixture  ~/.xfx/mcp.json  stdio      ready, 1 tool' / xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+    left: fx '  proj     .mcp.json       stdio      ready, 1 tool' / xfx '  web2     ~/.xfx/mcp.json  http       connecting'
+    left: fx '  proj     .mcp.json       stdio      waiting for approval' / xfx '  remote   ~/.xfx/mcp.json  http       connecting'
+    left: fx '  remote   ~/.xfx/mcp.json  http       connecting' / xfx '  fixture  ~/.xfx/mcp.json  stdio      ready, 1 tool'
+    left: fx '  two      ~/.xfx/mcp.json  stdio      ready, 1 tool' / xfx '  remote   ~/.xfx/mcp.json  http       connecting'
+    left: fx '  usage: /mcp add [--project] [--header K=V]... NAME URL' / xfx ": 'bad.name' can't be a server name: use letters, digits, '-' and '_'."
+    left: fx '  usage: /mcp add [--project] [--header K=V]... NAME URL' / xfx '! mcp: /mcp add has no --transport flag.'
+    left: fx '  usage: /mcp add [--project] [--header K=V]... NAME URL' / xfx '! mcp: /mcp add needs a URL, or -- and a command.'
+    left: fx '  usage: /mcp show NAME' / xfx '! mcp: /mcp show needs one server NAME.'
+    left: fx '  web2     ~/.xfx/mcp.json  http       connecting' / xfx '  two      ~/.xfx/mcp.json  stdio      ready, 1 tool'
+    left: fx ": 'bad.name' can't be a server name: use letters, digits, '-' and '_'." / xfx ''
+    left: fx '! mcp: /mcp add has no --transport flag.' / xfx ''
+    left: fx '! mcp: /mcp add needs a URL, or -- and a command.' / xfx ''
+    left: fx '! mcp: /mcp auth is now /mcp login NAME.' / xfx ''
+    left: fx "mcp prompt is gone: xfx doesn't support MCP resources and prompts yet." / xfx ''
+    left: fx "p resource is gone: xfx doesn't support MCP resources and prompts yet." / xfx ''
+    left: fx '! mcp: /mcp show needs one server NAME.' / xfx ''
+    left: fx '! mcp: /mcp trust is now /mcp approve NAME and /mcp reject NAME.' / xfx ''
+    left: fx "p: Couldn't sign in to remote: xfx couldn't find how to sign in to it." / xfx ''
+    left: fx '! mcp: No MCP server named three in ~/.xfx/mcp.json or .mcp.json.' / xfx ''
+    left: fx '! mcp: No MCP server named web2 in ~/.xfx/mcp.json or .mcp.json.' / xfx ''
+    left: fx '! mcp: fixture runs a command, so it has no login.' / xfx '* mcp: proj'
+    left: fx '* mcp: Added two to ~/.xfx/mcp.json.' / xfx ''
+    left: fx '* mcp: Added web2 to ~/.xfx/mcp.json.' / xfx ''
+    left: fx '* mcp: Approved proj, which runs: <local-path> <local-path>' / xfx ''
+    left: fx '* mcp: NAME     SOURCE          TRANSPORT  STATUS' / xfx ''
+    left: fx "* mcp: Rejected proj. xfx won't start it in this project." / xfx ''
+    left: fx '* mcp: Removed two from ~/.xfx/mcp.json.' / xfx ''
+    left: fx '* mcp: Removed web2 from ~/.xfx/mcp.json.' / xfx ''
+    left: fx '* mcp: fixture' / xfx ''
+    left: fx '* mcp: proj' / xfx ''
+    left: fx '* mcp: remote' / xfx '    transport  stdio'
+    left: fx "* mcp: remote wasn't signed in." / xfx ''
+    left: fx '<banner>' / xfx '^['
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+    NEW:  fx '' / xfx '    transport  stdio'
+    NEW:  fx '' / xfx '* mcp: proj'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx "    error      it refused or never answered xfx's initialize request" / xfx '! mcp: fixture runs a command, so it has no login.'
+    NEW:  fx '    next       /mcp approve proj' / xfx ''
+    NEW:  fx '    source     .mcp.json' / xfx "    error      it refused or never answered xfx's initialize request"
+    NEW:  fx '    source     ~/.xfx/mcp.json' / xfx ''
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '    status     waiting for approval' / xfx '    status     retrying'
+    NEW:  fx '    transport  http' / xfx '    source     .mcp.json'
+    NEW:  fx '    transport  stdio' / xfx '    transport  http'
+    NEW:  fx '    url        http://127.0.0.1:9/mcp' / xfx '    next       /mcp approve proj'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '  proj     .mcp.json       stdio      ready, 1 tool' / xfx '  proj     .mcp.json        stdio      ready, 1 tool'
+    NEW:  fx '  proj     .mcp.json       stdio      waiting for approval' / xfx '  proj     .mcp.json        stdio      waiting for approval'
+    NEW:  fx "p: Couldn't sign in to remote: xfx couldn't find how to sign in to it." / xfx '! mcp: Interactive MCP authentication is unavailable here.'
+    NEW:  fx '! mcp: fixture runs a command, so it has no login.' / xfx '    status     waiting for approval'
+    NEW:  fx '* mcp: NAME     SOURCE          TRANSPORT  STATUS' / xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+    NEW:  fx '* mcp: proj' / xfx '* mcp: remote'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs login-remote: 4 differing rows left, 4 new
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs login-stdio: 4 differing rows left, 4 new
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs logout-remote: 4 differing rows left, 4 new
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs show-proj: 4 differing rows left, 4 new
+    left: fx '' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '                                   proj is waiting for approval · /mcp' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '' / xfx '  p5-mcp-stdio.ts'
+    NEW:  fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '  p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '                                   proj is waiting for approval · /mcp' / xfx '    command    <local-path> <local-path>'
+p5-mcp-verbs startup: 3 differing rows left, 0 new
+    left: fx '<banner>' / xfx ''
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+p5-toolstop-retint dark: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?' / xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+p5-toolstop-retint dark-again: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?' / xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+p5-toolstop-retint light: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?' / xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+p5-toolstop-retint-light dark: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?' / xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+p5-toolstop-retint-light light: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?' / xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+p5-toolstop-retint-light light-again: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?' / xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+p5-toolstop-retint-light-tc dark: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?' / xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+p5-toolstop-retint-light-tc light: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?' / xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+p5-toolstop-retint-light-tc light-again: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?' / xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+p5-toolstop-retint-tc dark: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?' / xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+p5-toolstop-retint-tc dark-again: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?' / xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+p5-toolstop-retint-tc light: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?' / xfx '■ Cancelled sleep 6 && echo "x" # note · What can xfx do differently?'
+p5-transcript-cancel cmd-esc: 6 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx ''
+    left: fx '┃' / xfx 'auto · model-a'
+    left: fx '└ Cancelled sleep 30' / xfx '  not offer'
+    left: fx '▪ Cancelled sleep 30 · What can xfx do differently?' / xfx '┃'
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx 'l, which this build does not advertise; xfx will not run a tool it did'
+p5-transcript-cancel cmd-running: 6 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx ''
+    left: fx '~ Running (<s>) (↑4 ↓40)' / xfx '┃'
+    left: fx '┃' / xfx 'auto · model-a'
+    left: fx '└ Running sleep 30' / xfx '  not offer'
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+    left: fx '● 1 tool call · 1 command' / xfx 'l, which this build does not advertise; xfx will not run a tool it did'
+p5-transcript-cancel end.full: 6 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx ''
+    left: fx '┃' / xfx 'auto · model-a'
+    left: fx '└ Cancelled sleep 30' / xfx '  not offer'
+    left: fx '▪ Cancelled sleep 30 · What can xfx do differently?' / xfx '┃'
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx 'l, which this build does not advertise; xfx will not run a tool it did'
+p5-transcript-cancel esc: 2 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'auto · model-a'
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+p5-transcript-cancel full: 25 differing rows left, 29 new
+    left: fx '' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+    left: fx '  <wall> (↑1 ↓40)' / xfx '  After cancel answer.'
+    left: fx '  After cancel answer.' / xfx '┃ next'
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice' / xfx '* session: provider: gateway · model: fake/model-a · effort: auto'
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Usage'
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt'
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt'
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Usage' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response'
+    left: fx '  finish: stop' / xfx '  +4 more)'
+    left: fx '  finish: tool_calls' / xfx '  finish: stop'
+    left: fx '  mcp: none' / xfx ''
+    left: fx '  skills: loading' / xfx '<banner>'
+    left: fx '  tokens: 1200 in · 40 out' / xfx '  mcp: none'
+    left: fx '* network: provider: gateway · model: fake/model-a · <ms>' / xfx 'grep_files, read_file, write_file, edit_file, create_folder, terminal,'
+    left: fx 'full access · model-a' / xfx 'auto · model-a'
+    left: fx '│  action: run' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Error'
+    left: fx '│  yield_time_ms: 30000' / xfx 'l, which this build does not advertise; xfx will not run a tool it did'
+    left: fx '│ signal 15' / xfx '  not offer'
+    left: fx '┃ next' / xfx '┃ stream please'
+    left: fx '┃ run the long one' / xfx '  <wall> (↑1 ↓40)'
+    left: fx '┃ stream please' / xfx '* network: provider: gateway · model: fake/model-a · <ms>'
+    left: fx '└ Cancelled sleep 30' / xfx ''
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '  tokens: 1200 in · 40 out'
+    left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '┃ run the long one'
+    NEW:  fx '' / xfx '  +4 more)'
+    NEW:  fx '' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt'
+    NEW:  fx '' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response'
+    NEW:  fx '' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Usage'
+    NEW:  fx '' / xfx '  finish: stop'
+    NEW:  fx '  <wall> (↑1 ↓40)' / xfx ''
+    NEW:  fx '  After cancel answer.' / xfx ''
+    NEW:  fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice' / xfx '  mcp: none'
+    NEW:  fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice' / xfx '  tokens: 1200 in · 40 out'
+    NEW:  fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt' / xfx '  <wall> (↑1 ↓40)'
+    NEW:  fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt' / xfx '  tokens: 1200 in · 40 out'
+    NEW:  fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt' / xfx '▪ Cancelled · What can xfx do differently?'
+    NEW:  fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response' / xfx '┃ next'
+    NEW:  fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool' / xfx '┃ run the long one'
+    NEW:  fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Usage' / xfx '  After cancel answer.'
+    NEW:  fx '  finish: stop' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+    NEW:  fx '  finish: tool_calls' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+    NEW:  fx '  mcp: none' / xfx 'grep_files, read_file, write_file, edit_file, create_folder, terminal,'
+    NEW:  fx '  skills: loading' / xfx '* session: provider: gateway · model: fake/model-a · effort: auto'
+    NEW:  fx '  tokens: 1200 in · 40 out' / xfx '* network: provider: gateway · model: fake/model-a · <ms>'
+    NEW:  fx '* network: provider: gateway · model: fake/model-a · <ms>' / xfx ''
+    NEW:  fx '│  action: run' / xfx '● 1 tool call · 1 command · 1 cancelled'
+    NEW:  fx '│  yield_time_ms: 30000' / xfx '└ Cancelled sleep 30'
+    NEW:  fx '┃ next' / xfx ''
+    NEW:  fx '┃ run the long one' / xfx ''
+    NEW:  fx '┃ stream please' / xfx ''
+    NEW:  fx '└ Cancelled sleep 30' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+    NEW:  fx '▪ Cancelled · What can xfx do differently?' / xfx '┃ stream please'
+    NEW:  fx '● 1 tool call · 1 command · 1 cancelled' / xfx ''
+p5-transcript-cancel mid: 1 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'auto · model-a'
+p5-transcript-cancel next: 2 differing rows left, 0 new
+    left: fx 'full access · model-a' / xfx 'auto · model-a'
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+question-field end.full: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled' / xfx '■ Cancelled'
+question-field q2-cc: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled' / xfx '■ Cancelled'
+question-other end.full: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled' / xfx '■ Cancelled'
+question-other q2-esc: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled' / xfx '■ Cancelled'
+read-failures live-ctrl-o-up1: 2 differing rows left, 2 new
+    left: fx '│  ls":{"field":"path","path":"<local-path>","error":"N' / xfx ''
+    left: fx '├ Failed src' / xfx '│  ls":{"field":"path","path":"<local-path>","error":"N'
+    NEW:  fx '│  ls":{"field":"path","path":"<local-path>","error":"N' / xfx ''
+    NEW:  fx '├ Failed src' / xfx '│  ls":{"field":"path","path":"<local-path>","error":"N'
+resume-tools again-stopped: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled file · What can xfx do differently?' / xfx '■ Cancelled file · What can xfx do differently?'
+resume-tools ctrl-o: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+resume-tools live.full: 2 differing rows left, 0 new
+    left: fx '▪ Cancelled file · What can xfx do differently?' / xfx '■ Cancelled file · What can xfx do differently?'
+    left: fx '▪ Cancelled sleep 4 · What can xfx do differently?' / xfx '■ Cancelled sleep 4 · What can xfx do differently?'
+resume-tools long-later: 2 differing rows left, 2 new
+    left: fx '└ Cancelled file' / xfx '■ Cancelled file · What can xfx do differently?'
+    left: fx '└ Cancelled sleep 4' / xfx '■ Cancelled sleep 4 · What can xfx do differently?'
+    NEW:  fx '└ Cancelled file' / xfx '▪ Cancelled file · What can xfx do differently?'
+    NEW:  fx '└ Cancelled sleep 4' / xfx '▪ Cancelled sleep 4 · What can xfx do differently?'
+resume-tools resumed: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+resume-tools resumed.full: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled · What can xfx do differently?' / xfx '■ Cancelled · What can xfx do differently?'
+rules-read-auto listed: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled secret.txt · What can xfx do differently?' / xfx '■ Cancelled secret.txt · What can xfx do differently?'
+rules-read-auto read-esc: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled secret.txt · What can xfx do differently?' / xfx '■ Cancelled secret.txt · What can xfx do differently?'
+rules-read-auto remember-done: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled secret.txt · What can xfx do differently?' / xfx '■ Cancelled secret.txt · What can xfx do differently?'
+rules-read-auto remember-prompt: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled secret.txt · What can xfx do differently?' / xfx '■ Cancelled secret.txt · What can xfx do differently?'
+rules-read-auto remembered: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled secret.txt · What can xfx do differently?' / xfx '■ Cancelled secret.txt · What can xfx do differently?'
+toolgroup again-stopped: 1 differing rows left, 0 new
+    left: fx '▪ Cancelled file · What can xfx do differently?' / xfx '■ Cancelled file · What can xfx do differently?'
+toolgroup end.full: 2 differing rows left, 0 new
+    left: fx '▪ Cancelled file · What can xfx do differently?' / xfx '■ Cancelled file · What can xfx do differently?'
+    left: fx '▪ Cancelled sleep 4 · What can xfx do differently?' / xfx '■ Cancelled sleep 4 · What can xfx do differently?'
+toolgroup long-ask: 1 differing rows left, 1 new
+    left: fx '└ Cancelled file' / xfx '■ Cancelled file · What can xfx do differently?'
+    NEW:  fx '└ Cancelled file' / xfx '▪ Cancelled file · What can xfx do differently?'
+toolgroup long-later: 2 differing rows left, 2 new
+    left: fx '└ Cancelled file' / xfx '■ Cancelled file · What can xfx do differently?'
+    left: fx '└ Cancelled sleep 4' / xfx '■ Cancelled sleep 4 · What can xfx do differently?'
+    NEW:  fx '└ Cancelled file' / xfx '▪ Cancelled file · What can xfx do differently?'
+    NEW:  fx '└ Cancelled sleep 4' / xfx '▪ Cancelled sleep 4 · What can xfx do differently?'
+toolgroup long-running: 1 differing rows left, 1 new
+    left: fx '└ Cancelled file' / xfx '■ Cancelled file · What can xfx do differently?'
+    NEW:  fx '└ Cancelled file' / xfx '▪ Cancelled file · What can xfx do differently?'
+toolgroup long-stopped: 2 differing rows left, 2 new
+    left: fx '└ Cancelled file' / xfx '■ Cancelled file · What can xfx do differently?'
+    left: fx '└ Cancelled sleep 4' / xfx '■ Cancelled sleep 4 · What can xfx do differently?'
+    NEW:  fx '└ Cancelled file' / xfx '▪ Cancelled file · What can xfx do differently?'
+    NEW:  fx '└ Cancelled sleep 4' / xfx '▪ Cancelled sleep 4 · What can xfx do differently?'
+verdicts moved: 67
+    approvals-amend-limit end: unresolved-defect -> normalized-identical
+    interrupt cc-0.3: unresolved-defect -> normalized-identical
+    interrupt cc-1.5: unresolved-defect -> normalized-identical
+    interrupt cc-3.5: unresolved-defect -> normalized-identical
+    interrupt end.full: unresolved-defect -> normalized-identical
+    interrupt esc1: unresolved-defect -> normalized-identical
+    interrupt esc2: unresolved-defect -> normalized-identical
+    interrupt esc2-later: unresolved-defect -> normalized-identical
+    interrupt mid2: unresolved-defect -> normalized-identical
+    interrupt next: unresolved-defect -> normalized-identical
+    interrupt-cmd cmd-cc: unresolved-defect -> normalized-identical
+    interrupt-cmd cmd-cc-2: unresolved-defect -> normalized-identical
+    interrupt-cmd cmd-done: unresolved-defect -> normalized-identical
+    interrupt-cmd end.full: unresolved-defect -> normalized-identical
+    interrupt-next-cmd next: unresolved-defect -> normalized-identical
+    interrupt-next-question next: unresolved-defect -> normalized-identical
+    interrupt-question end.full: unresolved-defect -> normalized-identical
+    interrupt-question q-cc: unresolved-defect -> normalized-identical
+    interrupt2 cd-streaming: unresolved-defect -> normalized-identical
+    interrupt2 draft: unresolved-defect -> normalized-identical
+    interrupt2 draft-cc: unresolved-defect -> normalized-identical
+    interrupt2 draft-cc2: unresolved-defect -> normalized-identical
+    interrupt2 end.full: unresolved-defect -> normalized-identical
+    interrupt2 esc2: unresolved-defect -> normalized-identical
+    interrupt2 esc2-later: unresolved-defect -> normalized-identical
+    p5-input-question q2-cancelled: unresolved-defect -> normalized-identical
+    p5-mcp-live cancel: unresolved-defect -> normalized-identical
+    p5-mcp-live end: unresolved-defect -> normalized-identical
+    p5-mcp-live failed: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new approve-confirm: approved-divergence -> normalized-identical
+    p5-mcp-menu-new back-list: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new list-remote: unresolved-defect -> normalized-identical
+    p5-mcp-verbs startup: unresolved-defect -> normalized-identical
+    p5-toolstop-retint dark: unresolved-defect -> normalized-identical
+    p5-toolstop-retint dark-again: unresolved-defect -> normalized-identical
+    p5-toolstop-retint light: unresolved-defect -> normalized-identical
+    p5-toolstop-retint-light dark: unresolved-defect -> normalized-identical
+    p5-toolstop-retint-light light: unresolved-defect -> normalized-identical
+    p5-toolstop-retint-light light-again: unresolved-defect -> normalized-identical
+    p5-toolstop-retint-light-tc dark: unresolved-defect -> normalized-identical
+    p5-toolstop-retint-light-tc light: unresolved-defect -> normalized-identical
+    p5-toolstop-retint-light-tc light-again: unresolved-defect -> normalized-identical
+    p5-toolstop-retint-tc dark: unresolved-defect -> normalized-identical
+    p5-toolstop-retint-tc dark-again: unresolved-defect -> normalized-identical
+    p5-toolstop-retint-tc light: unresolved-defect -> normalized-identical
+    p5-transcript-cancel cmd-esc: unresolved-defect -> normalized-identical
+    p5-transcript-cancel cmd-running: unresolved-defect -> normalized-identical
+    p5-transcript-cancel end.full: unresolved-defect -> normalized-identical
+    p5-transcript-cancel esc: unresolved-defect -> normalized-identical
+    p5-transcript-cancel mid: unresolved-defect -> normalized-identical
+    p5-transcript-cancel next: unresolved-defect -> normalized-identical
+    question-field end.full: unresolved-defect -> normalized-identical
+    question-field q2-cc: unresolved-defect -> normalized-identical
+    question-other end.full: unresolved-defect -> normalized-identical
+    question-other q2-esc: unresolved-defect -> normalized-identical
+    resume-tools again-stopped: unresolved-defect -> normalized-identical
+    resume-tools live.full: unresolved-defect -> normalized-identical
+    resume-tools resumed: unresolved-defect -> normalized-identical
+    resume-tools resumed.full: unresolved-defect -> normalized-identical
+    rules-read granted: normalized-identical -> identical
+    rules-read-auto listed: unresolved-defect -> normalized-identical
+    rules-read-auto read-esc: unresolved-defect -> normalized-identical
+    rules-read-auto remember-done: unresolved-defect -> normalized-identical
+    rules-read-auto remember-prompt: unresolved-defect -> normalized-identical
+    rules-read-auto remembered: unresolved-defect -> normalized-identical
+    toolgroup again-stopped: unresolved-defect -> normalized-identical
+    toolgroup end.full: unresolved-defect -> normalized-identical
+fx screens not the same in the two sweeps: 185
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    interrupt mid
+    interrupt-cmd cmd-running
+    interrupt-recovery full
+    interrupt-steer-retract steer-again
+    interrupt2 cd-streaming
+    links full
+    p5-call-row-safe full
+    p5-effort-fork-fork continued
+    p5-effort-fork-fork forked
+    p5-effort-fork-fork forked.full
+    p5-effort-fork-fork quit
+    p5-effort-fork-fork resume
+    p5-effort-fork-fork status
+    p5-effort-fork-fork-continue continued
+    p5-effort-fork-fork-continue forked
+    p5-effort-fork-fork-edge fork-of-empty
+    p5-effort-fork-fork-edge forked-first
+    p5-effort-fork-fork-edge forked-first.full
+    p5-effort-fork-fork-edge quit
+    p5-effort-fork-fork-edge resume
+    p5-effort-fork-fork-edge status-empty
+    p5-effort-fork-fork-empty forked
+    p5-effort-fork-oldread-src doctor.full
+    p5-effort-fork-oldread-src resume-source
+    p5-effort-fork-oldread-v1 resume-id
+    p5-effort-fork-oldread-v2 continued
+    p5-effort-fork-oldread-v2 quit
+    p5-effort-fork-oldread-v2 resume-id
+    p5-effort-fork-oldread-v2 resume-id.full
+    p5-lifecycle-retry r04a-esc-armed
+    p5-mcp-discover-http-hostile show
+    p5-mcp-discover-http-malformed show
+    p5-mcp-discover-http-modern show
+    p5-mcp-discover-http-modern turn
+    p5-mcp-discover-http-notimpl show
+    p5-mcp-discover-http-notimpl turn
+    p5-mcp-discover-http-old2024 show
+    p5-mcp-discover-http-ssefail show
+    p5-mcp-discover-http-ssehold show
+    p5-mcp-discover-http-sseidless show
+    p5-mcp-discover-http-ssestrid show
+    p5-mcp-discover-stdio-asks show
+    p5-mcp-discover-stdio-banner show
+    p5-mcp-discover-stdio-hostile show
+    p5-mcp-discover-stdio-malformed show
+    p5-mcp-discover-stdio-modern show
+    p5-mcp-discover-stdio-modern turn
+    p5-mcp-discover-stdio-modern-tc show
+    p5-mcp-discover-stdio-modern-tc turn
+    p5-mcp-discover-stdio-old2024 show
+    p5-mcp-discover-stdio-silent show
+    p5-mcp-fail server-2
+    p5-mcp-live full
+    p5-mcp-menu-new approve-confirm
+    p5-mcp-menu-new approve-esc
+    p5-mcp-menu-new approved
+    p5-mcp-menu-new reject-inplace
+    p5-mcp-menu-new reject-inplace-ready
+    p5-mcp-menu-new reject-typed-x
+    p5-mcp-menu-new rejected
+    p5-mcp-menu-new server-fixture
+    p5-mcp-menu-new server-fixture-nomatch
+    p5-mcp-menu-new server-fixture-tool
+    p5-mcp-menu-new server-proj
+    p5-mcp-menu-new server-proj-ready
+    p5-mcp-menu-new server-proj-reject
+    p5-mcp-menu-old details-2
+    p5-mcp-menu-old details-3
+    p5-mcp-verbs add-new-http
+    p5-mcp-verbs add-new-syntax
+    p5-mcp-verbs add-old-http
+    p5-mcp-verbs add-old-syntax
+    p5-mcp-verbs approve
+    p5-mcp-verbs auth-remote
+    p5-mcp-verbs complete-args
+    p5-mcp-verbs complete-show
+    p5-mcp-verbs end.full
+    p5-mcp-verbs list-after
+    p5-mcp-verbs login-remote
+    p5-mcp-verbs login-stdio
+    p5-mcp-verbs logout-remote
+    p5-mcp-verbs prompt-list
+    p5-mcp-verbs reject
+    p5-mcp-verbs remove-three
+    p5-mcp-verbs remove-two
+    p5-mcp-verbs remove-web
+    p5-mcp-verbs remove-web2
+    p5-mcp-verbs resource-list
+    p5-mcp-verbs show-bare
+    p5-mcp-verbs show-fixture
+    p5-mcp-verbs show-proj
+    p5-mcp-verbs show-remote
+    p5-mcp-verbs trust-approve
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-toolgroup-live-tc running-dark
+    p5-toolgroup-live-tc running-light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-cancel full
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 full
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    rules-read always
+    rules-read ask2
+    rules-read granted
+    rules-read no
+    rules-read once
+    rules-read-auto grep-no
+    rules-read-auto listed
+    rules-read-auto read-ask
+    rules-read-auto read-esc
+    rules-read-auto remember-done
+    rules-read-auto remember-prompt
+    rules-read-auto remembered
+    timeout live-ctrl-o
+xfx screens not the same in the two sweeps: 281
+    approvals after-cc-cmd-ask
+    approvals after-esc
+    approvals after-esc.full
+    approvals cmd2-ask
+    approvals edit-amend-typed
+    approvals edit-ask
+    approvals edit-down1
+    approvals edit-down3-wrap
+    approvals edit-tab-amend
+    approvals write-ask
+    approvals-amend-limit asked
+    approvals-amend-limit end
+    approvals-amend-limit refused
+    approvals-amend-limit refused-after-edit
+    approvals-amend-limit refused-again
+    approvals-big write-big
+    approvals-big write-big-walked
+    fulltranscript cmd-ask
+    fulltranscript cmd-ask-ctrl-o
+    fulltranscript edit-ask
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    interrupt cc-0.3
+    interrupt cc-1.5
+    interrupt cc-3.5
+    interrupt end.full
+    interrupt esc1
+    interrupt esc2
+    interrupt esc2-later
+    interrupt mid2
+    interrupt next
+    interrupt-cmd cmd-cc
+    interrupt-cmd cmd-cc-2
+    interrupt-cmd cmd-done
+    interrupt-cmd end.full
+    interrupt-next-cmd next
+    interrupt-next-question next
+    interrupt-question end.full
+    interrupt-question q-cc
+    interrupt-recovery full
+    interrupt2 cd-streaming
+    interrupt2 draft
+    interrupt2 draft-cc
+    interrupt2 draft-cc2
+    interrupt2 end.full
+    interrupt2 esc2
+    interrupt2 esc2-later
+    links full
+    p5-call-row-safe end
+    p5-call-row-safe full
+    p5-effort-fork-fork continued
+    p5-effort-fork-fork forked
+    p5-effort-fork-fork forked.full
+    p5-effort-fork-fork quit
+    p5-effort-fork-fork resume
+    p5-effort-fork-fork status
+    p5-effort-fork-fork-continue continued
+    p5-effort-fork-fork-continue forked
+    p5-effort-fork-fork-edge fork-of-empty
+    p5-effort-fork-fork-edge forked-first
+    p5-effort-fork-fork-edge forked-first.full
+    p5-effort-fork-fork-edge midturn
+    p5-effort-fork-fork-edge quit
+    p5-effort-fork-fork-edge resume
+    p5-effort-fork-fork-edge status-empty
+    p5-effort-fork-fork-empty forked
+    p5-effort-fork-oldread-src doctor.full
+    p5-effort-fork-oldread-src resume-source
+    p5-effort-fork-oldread-v1 resume-id
+    p5-effort-fork-oldread-v2 continued
+    p5-effort-fork-oldread-v2 quit
+    p5-effort-fork-oldread-v2 resume-id
+    p5-effort-fork-oldread-v2 resume-id.full
+    p5-input-question q2-cancelled
+    p5-input-question q6
+    p5-input-question q6-after
+    p5-input-question q6-after.full
+    p5-mcp-discover-http-hostile show
+    p5-mcp-discover-http-malformed show
+    p5-mcp-discover-http-modern show
+    p5-mcp-discover-http-modern turn
+    p5-mcp-discover-http-notimpl show
+    p5-mcp-discover-http-notimpl turn
+    p5-mcp-discover-http-old2024 show
+    p5-mcp-discover-http-ssefail show
+    p5-mcp-discover-http-ssehold show
+    p5-mcp-discover-http-sseidless show
+    p5-mcp-discover-http-ssestrid show
+    p5-mcp-discover-stdio-asks show
+    p5-mcp-discover-stdio-banner show
+    p5-mcp-discover-stdio-hostile show
+    p5-mcp-discover-stdio-malformed show
+    p5-mcp-discover-stdio-modern show
+    p5-mcp-discover-stdio-modern turn
+    p5-mcp-discover-stdio-modern-tc show
+    p5-mcp-discover-stdio-modern-tc turn
+    p5-mcp-discover-stdio-old2024 show
+    p5-mcp-discover-stdio-silent show
+    p5-mcp-fail server-2
+    p5-mcp-live cancel
+    p5-mcp-live end
+    p5-mcp-live failed
+    p5-mcp-live full
+    p5-mcp-menu-new approve-confirm
+    p5-mcp-menu-new approve-esc
+    p5-mcp-menu-new approved
+    p5-mcp-menu-new back-list
+    p5-mcp-menu-new list-remote
+    p5-mcp-menu-new reject-inplace
+    p5-mcp-menu-new reject-inplace-ready
+    p5-mcp-menu-new reject-typed-x
+    p5-mcp-menu-new rejected
+    p5-mcp-menu-new server-fixture
+    p5-mcp-menu-new server-fixture-nomatch
+    p5-mcp-menu-new server-fixture-tool
+    p5-mcp-menu-new server-proj
+    p5-mcp-menu-new server-proj-ready
+    p5-mcp-menu-new server-proj-reject
+    p5-mcp-menu-old details-2
+    p5-mcp-menu-old details-3
+    p5-mcp-verbs add-badname
+    p5-mcp-verbs add-new-http
+    p5-mcp-verbs add-new-syntax
+    p5-mcp-verbs add-old-http
+    p5-mcp-verbs add-old-syntax
+    p5-mcp-verbs approve
+    p5-mcp-verbs auth-remote
+    p5-mcp-verbs complete-args
+    p5-mcp-verbs complete-show
+    p5-mcp-verbs end.full
+    p5-mcp-verbs list-after
+    p5-mcp-verbs login-remote
+    p5-mcp-verbs login-stdio
+    p5-mcp-verbs logout-remote
+    p5-mcp-verbs prompt-list
+    p5-mcp-verbs reject
+    p5-mcp-verbs remove-three
+    p5-mcp-verbs remove-two
+    p5-mcp-verbs remove-web
+    p5-mcp-verbs remove-web2
+    p5-mcp-verbs resource-list
+    p5-mcp-verbs show-bare
+    p5-mcp-verbs show-fixture
+    p5-mcp-verbs show-proj
+    p5-mcp-verbs show-remote
+    p5-mcp-verbs startup
+    p5-mcp-verbs trust-approve
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-toolstop-retint dark
+    p5-toolstop-retint dark-again
+    p5-toolstop-retint light
+    p5-toolstop-retint-light dark
+    p5-toolstop-retint-light light
+    p5-toolstop-retint-light light-again
+    p5-toolstop-retint-light-tc dark
+    p5-toolstop-retint-light-tc light
+    p5-toolstop-retint-light-tc light-again
+    p5-toolstop-retint-tc dark
+    p5-toolstop-retint-tc dark-again
+    p5-toolstop-retint-tc light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-cancel cmd-esc
+    p5-transcript-cancel cmd-running
+    p5-transcript-cancel end.full
+    p5-transcript-cancel esc
+    p5-transcript-cancel full
+    p5-transcript-cancel mid
+    p5-transcript-cancel next
+    p5-transcript-diffask ask
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 full
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    question answered
+    question answered.full
+    question-field end.full
+    question-field q2-cc
+    question-other end.full
+    question-other q2-esc
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    resume-tools again-stopped
+    resume-tools cmd-ask
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools edit-ask
+    resume-tools exit-ask
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    resume-tools live.full
+    resume-tools long-later
+    resume-tools resumed
+    resume-tools resumed.full
+    resume-tools write-ask
+    rules-read ask
+    rules-read ask2
+    rules-read-auto grep-amend
+    rules-read-auto grep-ask
+    rules-read-auto listed
+    rules-read-auto read-ask
+    rules-read-auto read-esc
+    rules-read-auto remember-done
+    rules-read-auto remember-prompt
+    rules-read-auto remembered
+    timeout live-ctrl-o
+    toolgroup again-ask
+    toolgroup again-stopped
+    toolgroup cmd-ask
+    toolgroup edit-ask
+    toolgroup end
+    toolgroup end.full
+    toolgroup exit-ask
+    toolgroup long-ask
+    toolgroup long-later
+    toolgroup long-running
+    toolgroup long-stopped
+    toolgroup write-ask
+    toolgroup-wire end
+    toolgroup-wire end.full
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 23

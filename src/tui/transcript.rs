@@ -41,6 +41,7 @@
 //! Text that the terminal has not seen is not the terminal's, so it is kept as
 //! text.
 
+use std::cell::RefCell;
 use std::collections::VecDeque;
 
 use unicode_segmentation::UnicodeSegmentation;
@@ -652,6 +653,29 @@ pub(crate) struct Transcript {
     /// is on the terminal, and a vector the screen refused must leave them
     /// owed exactly as a refused append always did ([`Landed::None`]).
     staged: Option<Staged>,
+    /// The long rows a block wrote last, each with the width it was cut for
+    /// and what it was cut to ([`Self::cut_for_screen`]).
+    kept_rows: RefCell<Vec<KeptRow>>,
+    /// How many times a block's row of [`KEPT_ROW_BYTES`] or more was cut
+    /// for the screen: what writing a block again costs, for the tests.
+    #[cfg(test)]
+    cut_long: std::cell::Cell<usize>,
+}
+
+/// How long a block's row is before what it was cut to is worth keeping: a
+/// row the screen's width of cells is a few hundred bytes, and a call's row
+/// can hold megabytes a screen shows ([`super::toolgroup`]'s inline argument).
+const KEPT_ROW_BYTES: usize = 64 * 1024;
+
+/// How many of those a transcript keeps: a block's call row in each mode,
+/// drawn and drawn again, and one more.
+const KEPT_ROWS: usize = 5;
+
+/// One long block row, the width it was cut for, and what it was cut to.
+struct KeptRow {
+    row: String,
+    cols: u16,
+    written: String,
 }
 
 /// The committed state [`Transcript::stage`] saved, and the operations taken
@@ -695,6 +719,9 @@ impl Transcript {
             block_frozen: 0,
             block_open: false,
             staged: None,
+            kept_rows: RefCell::default(),
+            #[cfg(test)]
+            cut_long: std::cell::Cell::new(0),
         }
     }
 
@@ -901,6 +928,40 @@ impl Transcript {
         true
     }
 
+    /// [`ellipsized`], for a block's row -- from what the block wrote last
+    /// for the same row at the same width when the row is [`KEPT_ROW_BYTES`]
+    /// or longer. A block is written again whole on every change to it
+    /// ([`Self::queue_block`]) and cutting a row reads all of it, where finding
+    /// the row kept is one comparison of its bytes.
+    fn cut_for_screen(&self, row: &str, cols: u16) -> String {
+        if row.len() < KEPT_ROW_BYTES {
+            return ellipsized(row, cols);
+        }
+        let mut kept = self.kept_rows.borrow_mut();
+        if let Some(at) = kept
+            .iter()
+            .position(|kept| kept.cols == cols && kept.row == row)
+        {
+            let found = kept.remove(at);
+            let written = found.written.clone();
+            kept.insert(0, found);
+            return written;
+        }
+        #[cfg(test)]
+        self.cut_long.set(self.cut_long.get() + 1);
+        let written = ellipsized(row, cols);
+        kept.insert(
+            0,
+            KeptRow {
+                row: row.to_string(),
+                cols,
+                written: written.clone(),
+            },
+        );
+        kept.truncate(KEPT_ROWS);
+        written
+    }
+
     /// Queues a change of gutter for the lines that follow.
     ///
     /// Ends the open line first, if there is one: a gutter is a property of a
@@ -1075,6 +1136,7 @@ impl Transcript {
             (0, 0)
         };
         let redraw_of = |index: usize| redraws.get(index).and_then(Option::as_ref);
+        let ellipsized = |row: &str, cols: u16| self.cut_for_screen(row, cols);
         let mut written: Vec<String> = rows
             .iter()
             .enumerate()
@@ -1410,7 +1472,7 @@ fn freeze_block(frozen: usize, rows: usize) -> (usize, usize) {
 /// cell by cell, and every other byte as it is. A colour that rule leaves is
 /// left here. So a stopped call's argument drawn dark is light's 247, as
 /// upstream's token table makes it, not the 245 a fresh light drawing has.
-fn recoloured(row: &str, kind: DocumentRow, palette: Palette) -> String {
+pub(crate) fn recoloured(row: &str, kind: DocumentRow, palette: Palette) -> String {
     let mut out = String::with_capacity(row.len());
     let mut rest = row;
     while !rest.is_empty() {
@@ -3699,7 +3761,7 @@ mod tests {
                 "\u{25cf} header",
                 "\u{2514} call",
                 "",
-                "\u{25a0} Cancelled call",
+                "\u{25aa} Cancelled call",
                 "",
             ]),
             vec![
@@ -4014,13 +4076,13 @@ mod tests {
         // other byte stays, a link and a reset included.
         let link = "\u{1b}]8;id=fx-1;https://example.com\u{1b}\\";
         let row = format!(
-            "\u{1b}[38;5;252m\u{25a0}\u{1b}[0m\u{1b}[1;38;5;255m Cancelled\u{1b}[0m \
+            "\u{1b}[38;5;252m\u{25aa}\u{1b}[0m\u{1b}[1;38;5;255m Cancelled\u{1b}[0m \
              \u{1b}[38;5;245mx {link}y\u{1b}[39m \u{1b}[38;5;243m# note\u{1b}[0m"
         );
         assert_eq!(
             recoloured(&row, DocumentRow::ToolStopped, LIGHT_256),
             format!(
-                "\u{1b}[38;5;238m\u{25a0}\u{1b}[0m\u{1b}[1;38;5;235m Cancelled\u{1b}[0m \
+                "\u{1b}[38;5;238m\u{25aa}\u{1b}[0m\u{1b}[1;38;5;235m Cancelled\u{1b}[0m \
                  \u{1b}[38;5;247mx {link}y\u{1b}[39m \u{1b}[38;5;243m# note\u{1b}[0m"
             ),
             "the token table's pairs, the bold kept, 243 (in no pair) left"
@@ -4297,5 +4359,49 @@ mod tests {
             out.push(character);
         }
         out
+    }
+
+    #[test]
+    fn a_long_block_row_is_cut_for_the_screen_once_however_often_the_block_is_written_again() {
+        // T-U4 round 3: a tool group's block is written again on every change
+        // to the group, and a call's row can hold megabytes that a screen
+        // shows -- one letter under 65 536 combining marks paints one cell --
+        // and cutting it for the screen measured all of it again on every
+        // write. What it was cut to is kept, by the row and the width.
+        let long = format!("a{}tail", "\u{301}".repeat(64 * 1024));
+        let mut transcript = Transcript::new(40);
+        for header in ["header 1", "header 2", "header 3"] {
+            transcript.queue_block(
+                rows(&[header, long.as_str(), ""]),
+                Vec::new(),
+                Vec::new(),
+                Mode::Dark,
+            );
+            let appends = drain(&mut transcript, DARK_256);
+            assert!(
+                appends.iter().any(|append| append.rows.contains(&long)),
+                "the row, whole: it fits"
+            );
+        }
+        assert_eq!(transcript.cut_long.get(), 1, "cut once for 40 columns");
+    }
+
+    #[test]
+    fn a_kept_row_is_found_only_for_the_same_row_at_the_same_width() {
+        // What `cut_for_screen` keeps is the cut of one row for one width:
+        // another width, or another row of the same length, is cut again.
+        let transcript = Transcript::new(40);
+        let wide = "a".repeat(KEPT_ROW_BYTES);
+        let other = "b".repeat(KEPT_ROW_BYTES);
+        for (row, cols) in [
+            (&wide, 40),
+            (&wide, 30),
+            (&other, 30),
+            (&wide, 40),
+            (&wide, 30),
+        ] {
+            assert_eq!(transcript.cut_for_screen(row, cols), ellipsized(row, cols));
+        }
+        assert_eq!(transcript.cut_long.get(), 3, "the last two were kept");
     }
 }

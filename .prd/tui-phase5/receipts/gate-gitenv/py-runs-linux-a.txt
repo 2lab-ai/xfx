@@ -1,0 +1,87 @@
+docker run --network none --user 1000:1000 (no ruby, no zip in this image)
+== platform
+Linux aarch64
+Python 3.11.2
+git version 2.39.5
+
+== scripts/fxcap/test_sweep.py at 45d99f52
+1 OK
+1 Ran 50 tests in 3.442s
+-> exit 0, 4 s
+
+== scripts/fxcap/test_ci_sweep.py at 45d99f52
+1 ERROR: test_a_bun_zip_off_its_pin_is_refused (__main__.CiFetch.test_a_bun_zip_off_its_pin_is_refused)
+1 ERROR: test_a_pull_request_whose_base_is_not_in_the_clone_fails (__main__.Workflows.test_a_pull_request_whose_base_is_not_in_the_clone_fails)
+1 ERROR: test_a_pull_requests_base_and_a_pushs_before_are_two_variables (__main__.Workflows.test_a_pull_requests_base_and_a_pushs_before_are_two_variables)
+1 ERROR: test_a_symlinked_member_is_refused (__main__.CiFetch.test_a_symlinked_member_is_refused)
+1 ERROR: test_a_tarball_off_its_pin_is_refused_before_it_is_read (__main__.CiFetch.test_a_tarball_off_its_pin_is_refused_before_it_is_read)
+1 ERROR: test_an_executable_off_its_pin_is_refused (__main__.CiFetch.test_an_executable_off_its_pin_is_refused)
+1 ERROR: test_an_existing_destination_is_refused (__main__.CiFetch.test_an_existing_destination_is_refused)
+1 ERROR: test_only_a_pull_requests_run_is_cancelled_by_the_next (__main__.Workflows.test_only_a_pull_requests_run_is_cancelled_by_the_next)
+1 ERROR: test_the_base_is_built_from_inside_its_own_checkout (__main__.Workflows.test_the_base_is_built_from_inside_its_own_checkout)
+1 ERROR: test_the_capture_tests_run_once_tmux_bun_and_curl_are_there (__main__.Workflows.test_the_capture_tests_run_once_tmux_bun_and_curl_are_there)
+1 ERROR: test_the_invariants (__main__.Workflows.test_the_invariants)
+1 ERROR: test_the_pinned_files_are_installed_read_only (__main__.CiFetch.test_the_pinned_files_are_installed_read_only)
+1 ERROR: test_the_scripts_fx_pin_is_the_ledgers (__main__.CiFetch.test_the_scripts_fx_pin_is_the_ledgers)
+1 FAILED (errors=13)
+6 FileNotFoundError: [Errno 2] No such file or directory: 'ruby'
+7 FileNotFoundError: [Errno 2] No such file or directory: 'zip'
+1 Ran 26 tests in 1.254s
+-> exit 1, 1 s
+
+== scripts/fxcap/test_sweep.py at 4ac0667e
+1 AssertionError: '<local-path>' != '<copy>'
+1 FAIL: test_the_out_guard_finds_this_checkout_whatever_git_variables_it_inherits (__main__.GitEnvironment.test_the_out_guard_finds_this_checkout_whatever_git_variables_i
+1 FAILED (failures=1)
+1 Ran 51 tests in 3.536s
+-> exit 1, 4 s
+
+== scripts/fxcap/test_ci_sweep.py at 4ac0667e
+1 AssertionError: Tuples differ: (0, 'same\tcore\nregress\tcore\nflaky\tcore\nalways\tcor[14 chars]e\n') != (0, 'same\tcore, changed\nregress\tcore\nflaky\tcore\nal[96 ch
+1 ERROR: test_a_bun_zip_off_its_pin_is_refused (__main__.CiFetch.test_a_bun_zip_off_its_pin_is_refused)
+1 ERROR: test_a_pull_request_whose_base_is_not_in_the_clone_fails (__main__.Workflows.test_a_pull_request_whose_base_is_not_in_the_clone_fails)
+1 ERROR: test_a_pull_requests_base_and_a_pushs_before_are_two_variables (__main__.Workflows.test_a_pull_requests_base_and_a_pushs_before_are_two_variables)
+1 ERROR: test_a_symlinked_member_is_refused (__main__.CiFetch.test_a_symlinked_member_is_refused)
+1 ERROR: test_a_tarball_off_its_pin_is_refused_before_it_is_read (__main__.CiFetch.test_a_tarball_off_its_pin_is_refused_before_it_is_read)
+1 ERROR: test_an_executable_off_its_pin_is_refused (__main__.CiFetch.test_an_executable_off_its_pin_is_refused)
+1 ERROR: test_an_existing_destination_is_refused (__main__.CiFetch.test_an_existing_destination_is_refused)
+1 ERROR: test_only_a_pull_requests_run_is_cancelled_by_the_next (__main__.Workflows.test_only_a_pull_requests_run_is_cancelled_by_the_next)
+1 ERROR: test_the_base_is_built_from_inside_its_own_checkout (__main__.Workflows.test_the_base_is_built_from_inside_its_own_checkout)
+1 ERROR: test_the_capture_tests_run_once_tmux_bun_and_curl_are_there (__main__.Workflows.test_the_capture_tests_run_once_tmux_bun_and_curl_are_there)
+1 ERROR: test_the_invariants (__main__.Workflows.test_the_invariants)
+1 ERROR: test_the_pinned_files_are_installed_read_only (__main__.CiFetch.test_the_pinned_files_are_installed_read_only)
+1 ERROR: test_the_scripts_fx_pin_is_the_ledgers (__main__.CiFetch.test_the_scripts_fx_pin_is_the_ledgers)
+1 FAIL: test_the_selection_reads_this_checkout_whatever_git_variables_it_inherits (__main__.CiSweep.test_the_selection_reads_this_checkout_whatever_git_variables_it_inher
+1 FAILED (failures=1, errors=13)
+6 FileNotFoundError: [Errno 2] No such file or directory: 'ruby'
+7 FileNotFoundError: [Errno 2] No such file or directory: 'zip'
+1 Ran 27 tests in 1.536s
+-> exit 1, 1 s
+
+== scripts/fxcap/test_sweep.py at 5d33c5df
+1 OK
+1 Ran 51 tests in 3.508s
+-> exit 0, 4 s
+
+== scripts/fxcap/test_ci_sweep.py at 5d33c5df
+1 ERROR: test_a_bun_zip_off_its_pin_is_refused (__main__.CiFetch.test_a_bun_zip_off_its_pin_is_refused)
+1 ERROR: test_a_pull_request_whose_base_is_not_in_the_clone_fails (__main__.Workflows.test_a_pull_request_whose_base_is_not_in_the_clone_fails)
+1 ERROR: test_a_pull_requests_base_and_a_pushs_before_are_two_variables (__main__.Workflows.test_a_pull_requests_base_and_a_pushs_before_are_two_variables)
+1 ERROR: test_a_symlinked_member_is_refused (__main__.CiFetch.test_a_symlinked_member_is_refused)
+1 ERROR: test_a_tarball_off_its_pin_is_refused_before_it_is_read (__main__.CiFetch.test_a_tarball_off_its_pin_is_refused_before_it_is_read)
+1 ERROR: test_an_executable_off_its_pin_is_refused (__main__.CiFetch.test_an_executable_off_its_pin_is_refused)
+1 ERROR: test_an_existing_destination_is_refused (__main__.CiFetch.test_an_existing_destination_is_refused)
+1 ERROR: test_only_a_pull_requests_run_is_cancelled_by_the_next (__main__.Workflows.test_only_a_pull_requests_run_is_cancelled_by_the_next)
+1 ERROR: test_the_base_is_built_from_inside_its_own_checkout (__main__.Workflows.test_the_base_is_built_from_inside_its_own_checkout)
+1 ERROR: test_the_capture_tests_run_once_tmux_bun_and_curl_are_there (__main__.Workflows.test_the_capture_tests_run_once_tmux_bun_and_curl_are_there)
+1 ERROR: test_the_invariants (__main__.Workflows.test_the_invariants)
+1 ERROR: test_the_pinned_files_are_installed_read_only (__main__.CiFetch.test_the_pinned_files_are_installed_read_only)
+1 ERROR: test_the_scripts_fx_pin_is_the_ledgers (__main__.CiFetch.test_the_scripts_fx_pin_is_the_ledgers)
+1 FAILED (errors=13)
+6 FileNotFoundError: [Errno 2] No such file or directory: 'ruby'
+7 FileNotFoundError: [Errno 2] No such file or directory: 'zip'
+1 Ran 27 tests in 1.413s
+-> exit 1, 1 s
+
+== the clone afterwards
+clean

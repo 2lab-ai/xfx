@@ -126,6 +126,25 @@ pub(crate) fn width(text: &str) -> u16 {
     u16::try_from(cells).unwrap_or(u16::MAX)
 }
 
+/// Whether `text` is no wider than `cols`: [`width`]`(text) <= cols`, looking
+/// no further than the cell past `cols`, so a row of megabytes that does not
+/// fit is not measured to its end to say so (a Ctrl-O heading,
+/// `super::full_transcript`).
+pub(crate) fn fits(text: &str, cols: u16) -> bool {
+    if cols == u16::MAX {
+        // [`width`] saturates there: everything fits.
+        return true;
+    }
+    let mut cells = 0usize;
+    for painted in painting(text) {
+        cells += cluster_cells(painted.cluster);
+        if cells > usize::from(cols) {
+            return false;
+        }
+    }
+    true
+}
+
 /// The grapheme cluster `text` begins with, or `None` when it is empty.
 ///
 /// `text.graphemes(true).next()`, and the same answer, reached without
@@ -147,6 +166,58 @@ pub(crate) fn first_cluster(text: &str) -> Option<&str> {
         }
         _ => text.graphemes(true).next(),
     }
+}
+
+/// How many of the bytes of `text` from `at`, `limit` at most, are each a
+/// cluster of one cell that is not a space -- printable ASCII after the space
+/// (`!` through `~`), each followed by another ASCII byte or by nothing, the
+/// cluster [`first_cluster`] knows without segmenting -- so a wrap can count
+/// a run of them as that many cells and step over it as one.
+///
+/// The last of the run is left out when what follows it is outside ASCII: a
+/// mark there would join it.
+pub(crate) fn single_cells(text: &str, at: usize, limit: usize) -> usize {
+    let bytes = text.as_bytes();
+    let Some(window) = bytes.get(at..at.saturating_add(limit).min(bytes.len())) else {
+        return 0;
+    };
+    let run = window
+        .iter()
+        .position(|byte| !(0x21..=0x7e).contains(byte))
+        .unwrap_or(window.len());
+    if run > 0 && bytes.get(at + run).is_some_and(|byte| !byte.is_ascii()) {
+        run - 1
+    } else {
+        run
+    }
+}
+
+/// How many copies of `cluster` -- the cluster [`first_cluster`] found at
+/// `at` -- follow it, `limit` at most, counting only a copy that another copy
+/// follows: each of those is `cluster` again, with no segmenting.
+///
+/// Where one cluster ends is decided by what it holds and by the character
+/// after it, and [`first_cluster`] reads both from where the cluster begins:
+/// a copy followed by a copy is read as the first one was, with the same
+/// character after it. The last copy is left out -- what follows it may join
+/// it (a mark, a joiner).
+pub(crate) fn repeats(text: &str, at: usize, cluster: &str, limit: usize) -> usize {
+    let (bytes, unit) = (text.as_bytes(), cluster.as_bytes());
+    let len = unit.len();
+    if len == 0 {
+        return 0;
+    }
+    let mut copies = 0;
+    let mut next = at + len;
+    while copies < limit
+        && bytes
+            .get(next..next + 2 * len)
+            .is_some_and(|two| two[..len] == *unit && two[len..] == *unit)
+    {
+        copies += 1;
+        next += len;
+    }
+    copies
 }
 
 /// One cluster that paints something, and the bytes it travels with.
@@ -173,7 +244,16 @@ pub(crate) struct Painted<'a> {
 /// [`Row`] is a range and the ranges tile the text -- a sequence between two
 /// clusters is inside whichever row those clusters put it in.
 pub(crate) fn painting(text: &str) -> impl Iterator<Item = Painted<'_>> {
-    let mut cursor = 0usize;
+    painting_from(text, 0)
+}
+
+/// [`painting`] from byte `from` of `text`, which is where a cluster begins
+/// -- or the sequences in front of one -- and with the offsets of the whole of
+/// `text`: the clusters [`painting`] gives after one that ends at `from`.
+///
+/// Each cluster is [`first_cluster`]'s, which is `graphemes(true).next()`'s.
+pub(crate) fn painting_from(text: &str, from: usize) -> impl Iterator<Item = Painted<'_>> {
+    let mut cursor = from;
     std::iter::from_fn(move || {
         let start = cursor;
         while cursor < text.len() {
@@ -182,7 +262,7 @@ pub(crate) fn painting(text: &str) -> impl Iterator<Item = Painted<'_>> {
                 cursor += len;
                 continue;
             }
-            let cluster = rest.graphemes(true).next().unwrap_or(rest);
+            let cluster = first_cluster(rest).unwrap_or(rest);
             cursor += cluster.len();
             return Some(Painted {
                 start,
@@ -586,15 +666,30 @@ pub(crate) fn cluster_width(cluster: &str) -> u16 {
 ///
 /// **A cluster that holds a soft hyphen or a Hangul filler takes the cells
 /// upstream counts** ([`counted_as_upstream`]), where the width table counts
-/// them as none.
+/// them as none; **and so does one that holds a scalar a terminal was measured
+/// drawing wider than the width table counted it, where upstream counts it
+/// wider too** ([`FX_COUNTED`]: `U+302E` after a letter, a vowel sign such as
+/// Bengali `U+09BE`, a regional indicator).
 fn cluster_cells(cluster: &str) -> usize {
+    // One printable ASCII character, a space included: one cell, the general
+    // path's answer below (no tab, no control, none of the code points
+    // counted apart, no selector; `unicode-width` gives every one 1) reached
+    // without asking it -- most clusters a row is made of.
+    if let [byte] = cluster.as_bytes() {
+        if (0x20..=0x7e).contains(byte) {
+            return 1;
+        }
+    }
     if cluster == "\t" {
         return usize::from(TAB_WIDTH);
     }
     if cluster.chars().all(char::is_control) {
         return 0;
     }
-    if cluster.chars().any(counted_as_upstream) {
+    if cluster
+        .chars()
+        .any(|character| counted_as_upstream(character) || fx_counted(character))
+    {
         return upstream_cells(cluster).max(cluster.width());
     }
     let mut chars = cluster.chars();
@@ -604,10 +699,18 @@ fn cluster_cells(cluster: &str) -> usize {
     cluster.width()
 }
 
-/// A cluster holding one of [`counted_as_upstream`]'s code points, counted
-/// one code point at a time as upstream counts a line
-/// ([`crate::markdown::display_width`]) -- but no code point under the width
-/// table's own count of it.
+/// A cluster holding one of [`counted_as_upstream`]'s or [`FX_COUNTED`]'s
+/// code points, counted a display unit at a time as upstream counts a line
+/// (`displayUnitAt`, `src/core/shared/display_width.zig:234-263@481104fd`;
+/// [`crate::markdown::display_width::display_unit_at`] is its port): an RGI
+/// emoji sequence whole, a character and its variation selector together,
+/// and every other code point alone -- but no unit under the width table's
+/// own count of it.
+///
+/// A unit, not a code point, for the regional indicators: upstream counts one
+/// alone as two cells (`emoji_presentation_ranges`,
+/// `unicode_display_data.zig:204@481104fd`) and a pair that is an RGI flag as
+/// two cells whole, so a flag counted a code point at a time would be four.
 ///
 /// The one place the two disagree in such a cluster is a skin-tone modifier
 /// (`U+1F3FB`-`U+1F3FF`): upstream counts it as none wherever it stands (a
@@ -617,19 +720,33 @@ fn cluster_cells(cluster: &str) -> usize {
 /// modifier after it is three cells on tmux 3.7b, where upstream's count is
 /// one (`.prd/tui-phase5/receipts/width-disputed/clusters.txt`). Every other
 /// code point these clusters were measured with -- the 14, `U+0301`,
-/// `U+FE0E`, `U+034F`, `U+200D`, the jamo -- the table counts no more than
-/// upstream does, so for them this is upstream's count exactly.
+/// `U+FE0E`, `U+034F`, `U+200D`, the jamo, and every scalar of
+/// [`FX_COUNTED`] -- the table counts no more than upstream does, so for them
+/// this is upstream's count exactly.
 fn upstream_cells(cluster: &str) -> usize {
-    let mut buf = [0u8; 4];
-    cluster
-        .chars()
-        .map(|character| {
-            let upstream = crate::markdown::display_width::visible_width(
-                character.encode_utf8(&mut buf).as_bytes(),
-            );
-            upstream.max(unicode_width::UnicodeWidthChar::width(character).unwrap_or(0))
-        })
-        .sum()
+    let bytes = cluster.as_bytes();
+    let mut cells = 0;
+    let mut index = 0;
+    while index < bytes.len() {
+        let unit = crate::markdown::display_width::display_unit_at(bytes, index);
+        // A unit of a valid `str` ends on a character boundary; walked on to
+        // one regardless, so a slice here can never split a character.
+        let mut end = (index + unit.byte_len.max(1)).min(bytes.len());
+        while !cluster.is_char_boundary(end) {
+            end += 1;
+        }
+        let text = &cluster[index..end];
+        let mut chars = text.chars();
+        let table = match (chars.next(), chars.next()) {
+            (Some(character), None) => {
+                unicode_width::UnicodeWidthChar::width(character).unwrap_or(0)
+            }
+            _ => text.width(),
+        };
+        cells += unit.cell_width.max(table);
+        index = end;
+    }
+    cells
 }
 
 /// Whether a cluster holding `character` is counted as upstream counts it --
@@ -668,10 +785,12 @@ fn upstream_cells(cluster: &str) -> usize {
 /// that takes no emoji presentation, which tmux widens by a cell when the
 /// character before it draws narrower than two cells: `U+115F U+FE0F` stays
 /// two, as `U+115F` alone does, where `U+1160 U+FE0F` and `U+3164 U+FE0F`
-/// take one (clusters.txt). It is `super::drawn_wider`'s `U+FE0F`; the
-/// ledger's `ctrl-o-drawn-wider-raw`, owner CTRLO-WIDER, owns it on Ctrl-O,
-/// in the inline transcript and in the composer, and says only naming
-/// closes it.
+/// take one (clusters.txt). It is `super::drawn_wider`'s `U+FE0F`, which
+/// fx counts as this does: no count closes it. A file's or a tool's line on
+/// Ctrl-O names it (`super::full_transcript`'s `drawn_wider_named`), the
+/// review names it, and an answer and the composer write it as fx does
+/// (`scripts/fxcap/parity-ledger.toml`, `ctrl-o-drawn-wider-named`;
+/// `.prd/tui-phase5/receipts/ctrlo-wider/`).
 ///
 /// **It is more than they draw, often**, and that is upstream's count kept
 /// rather than a terminal's: `U+1160` one cell and `U+3164` two where both
@@ -695,6 +814,56 @@ fn counted_as_upstream(character: char) -> bool {
         u32::from(character),
         0x00ad | 0x115f | 0x1160 | 0x3164 | 0xffa0 | 0xfff0..=0xfff8
     )
+}
+
+/// The scalars a terminal was measured to draw wider than xfx counted them
+/// and that upstream counts as more cells than xfx did, one code point at a
+/// time: 3,838 in 64 ranges, first and last code point, in order.
+///
+/// Read off `super::drawn_wider`'s sweep before it was taken again
+/// (`scripts/drawn-wider/sweep.sh` at `e6cde019`, the 3,881 scalars that table
+/// listed then), set against upstream's own count of each alone (`runeWidth`,
+/// `src/core/shared/display_width.zig:275-282@481104fd`):
+/// `.prd/tui-phase5/receipts/ctrlo-wider/`. They are combining and spacing
+/// marks the width table counts as none or as part of the character before
+/// them (`U+0605`, `U+09BE`, `U+302E`, `U+FF9E`, ...), the regional
+/// indicators `U+1F1E6`-`U+1F1FF` (one cell alone to the width table, two to
+/// upstream, which holds them in `emoji_presentation_ranges`,
+/// `unicode_display_data.zig:204@481104fd`), and the unassigned
+/// default-ignorable `U+E0000`, `U+E0080`-`U+E00FF` and `U+E01F0`-`U+E0FFF`.
+/// Upstream's count of every one of them is no less than either terminal
+/// draws it.
+#[rustfmt::skip]
+pub(super) const FX_COUNTED: [(u32, u32); 64] = [
+    (0x00605, 0x00605), (0x0070f, 0x0070f), (0x00890, 0x00891), (0x008e2, 0x008e2), (0x009be, 0x009be),
+    (0x009d7, 0x009d7), (0x00b3e, 0x00b3e), (0x00b57, 0x00b57), (0x00bbe, 0x00bbe), (0x00bd7, 0x00bd7),
+    (0x00cc0, 0x00cc0), (0x00cc2, 0x00cc2), (0x00cc7, 0x00cc8), (0x00cca, 0x00ccb), (0x00cd5, 0x00cd6),
+    (0x00d3e, 0x00d3e), (0x00d4e, 0x00d4e), (0x00d57, 0x00d57), (0x00dcf, 0x00dcf), (0x00ddf, 0x00ddf),
+    (0x01715, 0x01715), (0x01734, 0x01734), (0x01b35, 0x01b35), (0x01b3b, 0x01b3b), (0x01b3d, 0x01b3d),
+    (0x01b43, 0x01b44), (0x01baa, 0x01baa), (0x01bf2, 0x01bf3), (0x0302e, 0x0302f), (0x0a8fa, 0x0a8fa),
+    (0x0a953, 0x0a953), (0x0a9c0, 0x0a9c0), (0x0ff9e, 0x0ff9f), (0x111c0, 0x111c0), (0x111c2, 0x111c3),
+    (0x11235, 0x11235), (0x1133e, 0x1133e), (0x1134d, 0x1134d), (0x11357, 0x11357), (0x113b8, 0x113b8),
+    (0x113c2, 0x113c2), (0x113c5, 0x113c5), (0x113c7, 0x113c9), (0x113cf, 0x113cf), (0x113d1, 0x113d1),
+    (0x114b0, 0x114b0), (0x114bd, 0x114bd), (0x115af, 0x115af), (0x116b6, 0x116b6), (0x11930, 0x11930),
+    (0x1193d, 0x1193d), (0x1193f, 0x1193f), (0x11941, 0x11941), (0x11a84, 0x11a89), (0x11d46, 0x11d46),
+    (0x11f02, 0x11f02), (0x11f41, 0x11f41), (0x16ff0, 0x16ff1), (0x1d165, 0x1d166), (0x1d16d, 0x1d172),
+    (0x1f1e6, 0x1f1ff), (0xe0000, 0xe0000), (0xe0080, 0xe00ff), (0xe01f0, 0xe0fff),
+];
+
+/// Whether `character` is one of [`FX_COUNTED`]'s.
+fn fx_counted(character: char) -> bool {
+    let code = u32::from(character);
+    FX_COUNTED
+        .binary_search_by(|&(first, last)| {
+            if last < code {
+                std::cmp::Ordering::Less
+            } else if first > code {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
+        .is_ok()
 }
 
 /// The cells the composer's gutter takes in front of every row, the first
@@ -908,6 +1077,111 @@ pub(crate) fn composer_point(text: &str, rows: &[Row], cursor: usize, cols: u16)
         return (index, composer_cells(text, row, cursor, cols));
     }
     (0, 0)
+}
+
+/// Texts the wraps' fast paths are held against the wraps that count every
+/// unit (ARGROW-CACHE): every kind of unit a row is made of, and what decides
+/// where a cluster ends -- a mark, a selector, a joiner, a regional
+/// indicator, Hangul jamo, a prepended character, a conjunct's virama, CR LF
+/// -- often repeated, and now and then a cluster of over 256 bytes.
+#[cfg(test)]
+pub(crate) mod corpus {
+    pub(crate) const PIECES: &[&str] = &[
+        "a",
+        "bc",
+        "xyz",
+        "-",
+        "~",
+        "!",
+        "0",
+        " ",
+        "  ",
+        "\t",
+        "\n",
+        "\r\n",
+        "\r",
+        "\x1b[1m",
+        "\x1b[38;5;250m",
+        "\x1b[0m",
+        "\x1b",
+        "\x1b[",
+        "\x07",
+        "\x7f",
+        "\u{85}",
+        "\u{9b}",
+        "\u{65e5}",
+        "\u{1f600}",
+        "\u{261d}",
+        "\u{2e3a}",
+        "e\u{301}",
+        "\u{301}",
+        "\u{fe0f}",
+        "\u{fe0e}",
+        "\u{20e3}",
+        "#\u{fe0f}\u{20e3}",
+        "\u{200d}",
+        "\u{1f468}\u{200d}\u{1f469}",
+        "\u{1f1e6}",
+        "\u{1f1fa}",
+        "\u{1100}",
+        "\u{1161}",
+        "\u{11a8}",
+        "\u{ac00}",
+        "\u{600}",
+        "\u{110bd}",
+        "\u{915}\u{94d}",
+        "\u{915}",
+        "\u{ad}",
+        "\u{3164}",
+        "\u{ffa0}",
+        "\u{1f3fb}",
+        "\u{17d8}",
+        "\u{200b}",
+        "\u{9be}",
+        "\u{302e}",
+    ];
+
+    /// xorshift64: the same texts on every run.
+    pub(crate) struct Rng(pub(crate) u64);
+
+    impl Rng {
+        pub(crate) fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+
+        pub(crate) fn below(&mut self, bound: usize) -> usize {
+            (self.next() % bound as u64) as usize
+        }
+
+        /// `runs` pieces, a third of them repeated 2 to 40 times, and one in
+        /// forty a cluster of over 256 bytes: a letter under 140 marks, or
+        /// 100 leading jamo, which join one another.
+        pub(crate) fn text(&mut self, runs: usize) -> String {
+            let mut text = String::new();
+            for _ in 0..runs {
+                if self.below(40) == 0 {
+                    if self.below(2) == 0 {
+                        text.push('a');
+                        text.push_str(&"\u{301}".repeat(140));
+                    } else {
+                        text.push_str(&"\u{1100}".repeat(100));
+                    }
+                    continue;
+                }
+                let piece = PIECES[self.below(PIECES.len())];
+                let times = if self.below(3) == 0 {
+                    2 + self.below(39)
+                } else {
+                    1
+                };
+                text.push_str(&piece.repeat(times));
+            }
+            text
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1392,6 +1666,250 @@ mod tests {
         );
     }
 
+    /// The `[` `]` and `a` `b` forms `super::drawn_wider`'s sweep and the
+    /// tests here measure a scalar in.
+    fn framed(character: char) -> (usize, usize) {
+        (
+            usize::from(width(&format!("[{character}]"))) - 2,
+            usize::from(width(&format!("a{character}b"))) - 2,
+        )
+    }
+
+    #[test]
+    fn the_scalars_a_terminal_drew_wider_take_the_cells_fx_counts() {
+        // fx counts each alone (`runeWidth`,
+        // `src/core/shared/display_width.zig:275-282@481104fd`; the port,
+        // `crate::markdown::display_width`, the oracle here), between two
+        // markers and between two letters alike: `U+0605` joins the
+        // character after it and `U+302E` the one before it in a cluster,
+        // and still takes its own cells.
+        let mut scalars = 0;
+        let mut wrong = Vec::new();
+        for &(first, last) in &FX_COUNTED {
+            for code in first..=last {
+                let character = char::from_u32(code).expect("a scalar");
+                let fx =
+                    crate::markdown::display_width::visible_width(character.to_string().as_bytes());
+                let painter = framed(character);
+                if painter != (fx, fx) {
+                    wrong.push((format!("U+{code:04X}"), painter, fx));
+                }
+                scalars += 1;
+            }
+        }
+        assert_eq!(scalars, 3838);
+        assert!(FX_COUNTED.windows(2).all(|pair| pair[0].1 + 1 < pair[1].0));
+        assert_eq!(
+            wrong.len(),
+            0,
+            "(scalar, painter, fx): {:?}",
+            &wrong[..wrong.len().min(12)]
+        );
+        // Some, by name: fx's count, and what tmux 3.7b and libghostty-vt
+        // 1.3.2 advance for each between two markers (the sweep's
+        // `tmux.txt` and `ghostty.txt` in the receipt): never more.
+        for (code, fx, tmux, ghostty) in [
+            (0x0605, 1, 0, 1),
+            (0x09be, 1, 0, 1),
+            (0x302e, 2, 2, 1),
+            (0xff9e, 1, 1, 1),
+            (0x1d165, 1, 0, 1),
+            (0x1f1e6, 2, 1, 2),
+            (0xe0000, 1, 1, 0),
+            (0xe0fff, 1, 1, 0),
+        ] {
+            let character = char::from_u32(code).expect("a scalar");
+            assert_eq!(framed(character), (fx, fx), "U+{code:04X}");
+            assert!(fx >= tmux && fx >= ghostty, "U+{code:04X}");
+        }
+    }
+
+    #[test]
+    fn a_cluster_with_one_of_them_takes_the_cells_fx_counts_and_a_flag_stays_two() {
+        // fx's units (`displayUnitAt`, `display_width.zig:234-263@481104fd`):
+        // an RGI sequence whole, two cells; else a code point at a time.
+        for (text, cells) in [
+            // Bengali `কা`: `U+0995` and its vowel sign, one cluster the
+            // width table counts as one cell.
+            ("\u{995}\u{9be}", 2),
+            ("a\u{302e}", 3),
+            ("\u{ff76}\u{ff9e}", 2),
+            ("\u{605}\u{661}", 2),
+            ("\u{1f1e6}", 2),
+            // A flag is one RGI sequence: two cells, as before.
+            ("\u{1f1fa}\u{1f1f8}", 2),
+            // A pair that is no flag is two units of two.
+            ("\u{1f1e6}\u{1f1e6}", 4),
+        ] {
+            assert_eq!(usize::from(width(text)), cells, "{text:?}");
+            assert_eq!(
+                crate::markdown::display_width::visible_width(text.as_bytes()),
+                cells,
+                "{text:?}"
+            );
+        }
+        // Every pair of regional indicators: a flag (an RGI flag sequence,
+        // upstream's trie) stays two cells, the width table's count of every
+        // pair; any other pair is fx's four.
+        let mut flags = 0;
+        let mut wrong = Vec::new();
+        for first in 0x1f1e6..=0x1f1ffu32 {
+            for second in 0x1f1e6..=0x1f1ffu32 {
+                let pair: String = [first, second]
+                    .iter()
+                    .map(|&c| char::from_u32(c).expect("a scalar"))
+                    .collect();
+                let flag = crate::markdown::display_width::rgi_sequence_len(pair.as_bytes(), 0)
+                    == pair.len();
+                flags += usize::from(flag);
+                let cells = if flag { 2 } else { 4 };
+                if usize::from(width(&pair)) != cells || pair.width() != 2 {
+                    wrong.push((format!("{first:X} {second:X}"), width(&pair), cells));
+                }
+            }
+        }
+        // Emoji 17.0's 259 RGI flag sequences (`emoji-sequences.txt`, the
+        // version `unicode_display_data.zig@481104fd` was generated from).
+        assert_eq!(flags, 259);
+        assert_eq!(wrong, Vec::<(String, u16, usize)>::new());
+    }
+
+    #[test]
+    fn a_scalar_counted_two_cells_is_cut_placed_and_measured_at_two_by_every_consumer() {
+        // The four `FX_COUNTED` scalars the count took from none to two cells
+        // (East Asian Wide marks: U+302E-302F, U+16FF0-16FF1) and a regional
+        // indicator, which went from one to two, through the painter's cut
+        // (`frame::clip`), the composer's caret (`composer_cells`) and the
+        // status line's measure (`picker::cells`): each agrees with fx's count
+        // (the port, `crate::markdown::display_width`) wherever the scalar
+        // stands -- alone, joined to a letter before it, doubled, after a
+        // space -- and no cut keeps more cells than it was given or stops
+        // short of a cluster that would have fit.
+        let port = |text: &str| crate::markdown::display_width::visible_width(text.as_bytes());
+        for c in [
+            '\u{302e}',
+            '\u{302f}',
+            '\u{16ff0}',
+            '\u{16ff1}',
+            '\u{1f1e6}',
+        ] {
+            for text in [
+                c.to_string(),
+                format!("ab{c}cd"),
+                format!("{c}{c}x"),
+                format!("x {c}"),
+                format!("{}{c}", "a".repeat(37)),
+            ] {
+                let cells = port(&text);
+                assert_eq!(usize::from(width(&text)), cells, "{text:?}");
+                assert_eq!(super::super::picker::cells(&text), cells, "{text:?}");
+                for cols in 0..=u16::try_from(cells + 1).expect("a short text") {
+                    let cut = super::super::frame::clip(&text, cols);
+                    assert!(
+                        port(cut) <= usize::from(cols),
+                        "{text:?} at {cols}: {cut:?}"
+                    );
+                    if let Some(next) = first_cluster(&text[cut.len()..]) {
+                        assert!(
+                            port(cut) + port(next) > usize::from(cols),
+                            "{text:?} at {cols}: {cut:?} stops short of {next:?}"
+                        );
+                    }
+                }
+                // The caret after every cluster of a draft one row holds, at
+                // 40 columns of text and at the row's last cell.
+                for cols in [40u16, u16::try_from(cells).expect("a short text").max(2)] {
+                    let rows = composer(&text, cols, &[]);
+                    for row in &rows {
+                        let mut at = row.start;
+                        while at < row.end {
+                            let cluster = first_cluster(&text[at..]).expect("a cluster");
+                            at += cluster.len();
+                            assert_eq!(
+                                usize::from(composer_cells(&text, row, at, cols)),
+                                port(&text[row.start..at]),
+                                "{text:?} at {cols}, caret at {at}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn an_odd_run_of_regional_indicators_counts_no_fewer_cells_than_fx() {
+        // fx pairs a run along the line, an RGI flag whole where its trie
+        // holds one (`displayUnitAt`, `display_width.zig:246-247@481104fd`);
+        // the painter counts a grapheme cluster at a time, and the clusters
+        // pair from the run's start (UAX #29, GB12-13). Z U S, where U S is a
+        // flag and Z U none: fx Z 2 and U S 2, four; xfx [Z U] 4 and [S] 2,
+        // six (`scripts/fxcap/parity-ledger.toml`, `ri-run-pairing`;
+        // `p5-ctrlo-wider-ri`). Never fewer: every run of three, between
+        // letters.
+        let port = |text: &str| crate::markdown::display_width::visible_width(text.as_bytes());
+        let zus = "\u{1f1ff}\u{1f1fa}\u{1f1f8}";
+        assert_eq!((usize::from(width(zus)), port(zus)), (6, 4));
+        let indicator = |n: u32| char::from_u32(0x1f1e6 + n).expect("an indicator");
+        let mut differ = 0;
+        for a in 0..26 {
+            for b in 0..26 {
+                for c in 0..26 {
+                    let text = format!("x{}{}{}y", indicator(a), indicator(b), indicator(c));
+                    let (painter, fx) = (usize::from(width(&text)), port(&text));
+                    assert!(painter >= fx, "{text:?}: {painter} < {fx}");
+                    differ += usize::from(painter != fx);
+                }
+            }
+        }
+        assert!(differ > 0);
+    }
+
+    #[test]
+    fn no_other_scalar_is_counted_otherwise() {
+        // Every scalar the drawn-wider sweep measures that is neither one of
+        // `FX_COUNTED` nor one of the fourteen `counted_as_upstream` names
+        // keeps the count it had: the width table's, cluster by cluster, a
+        // text-presentation selector leaving its base at its own width.
+        fn table(text: &str) -> usize {
+            text.graphemes(true)
+                .map(|cluster| {
+                    let mut chars = cluster.chars();
+                    if cluster.chars().all(char::is_control) {
+                        0
+                    } else if let (Some(base), Some('\u{fe0e}'), None) =
+                        (chars.next(), chars.next(), chars.next())
+                    {
+                        unicode_width::UnicodeWidthChar::width(base).unwrap_or(0)
+                    } else {
+                        cluster.width()
+                    }
+                })
+                .sum()
+        }
+        let mut measured = 0;
+        let mut moved = Vec::new();
+        for code in 0..0x11_0000u32 {
+            if code < 0x20 || (0x7f..=0x9f).contains(&code) {
+                continue;
+            }
+            let Some(character) = char::from_u32(code) else {
+                continue;
+            };
+            measured += 1;
+            if fx_counted(character) || counted_as_upstream(character) {
+                continue;
+            }
+            for text in [format!("[{character}]"), format!("a{character}b")] {
+                if usize::from(width(&text)) != table(&text) {
+                    moved.push(format!("U+{code:04X}"));
+                }
+            }
+        }
+        assert_eq!(measured, 1_111_999);
+        assert_eq!(moved, Vec::<String>::new());
+    }
+
     #[test]
     fn a_word_that_does_not_fit_the_rest_of_a_row_wraps_whole() {
         // visual_layout.zig:278-282
@@ -1708,5 +2226,127 @@ mod tests {
         // it is: the whole string must fall through, not just the one byte.
         assert_eq!(width("a\nb"), 2);
         assert_eq!(width("ab\u{1b}[3"), 2, "an unfinished escape sequence");
+    }
+
+    #[test]
+    fn fits_answers_what_width_does_without_reading_past_the_cell_after_the_width() {
+        for (text, cols) in [
+            ("abc", 3),
+            ("abcd", 3),
+            ("", 0),
+            ("a", 0),
+            ("\u{d55c}\u{d55c}", 4),
+            ("\u{d55c}\u{d55c}", 3),
+            ("\u{1b}[38;5;245mab\u{1b}[0m", 2),
+            ("e\u{301}\u{301}x", 2),
+            ("e\u{301}\u{301}x", 1),
+        ] {
+            assert_eq!(fits(text, cols), width(text) <= cols, "{text:?} at {cols}");
+        }
+        // Where `width` saturates, everything fits, as it says.
+        let wide = "a".repeat(usize::from(u16::MAX) + 10);
+        assert!(fits(&wide, u16::MAX));
+        assert!(!fits(&wide, u16::MAX - 1));
+    }
+
+    /// [`painting`] as it was before it read clusters through
+    /// [`first_cluster`].
+    fn painting_by_graphemes(text: &str) -> Vec<(usize, usize, String)> {
+        let mut out = Vec::new();
+        let mut cursor = 0usize;
+        while cursor < text.len() {
+            let start = cursor;
+            loop {
+                let rest = &text[cursor..];
+                if rest.is_empty() {
+                    return out;
+                }
+                if let Some(len) = super::super::pacer::escape_at(rest) {
+                    cursor += len;
+                    continue;
+                }
+                let cluster = rest.graphemes(true).next().unwrap_or(rest);
+                cursor += cluster.len();
+                out.push((start, cursor, cluster.to_string()));
+                break;
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn painting_reads_the_clusters_graphemes_reads() {
+        let mut rng = corpus::Rng(0x2545_f491_4f6c_dd1d);
+        for _ in 0..3000 {
+            let runs = 1 + rng.below(30);
+            let text = rng.text(runs);
+            let painted: Vec<(usize, usize, String)> = painting(&text)
+                .map(|painted| (painted.start, painted.end, painted.cluster.to_string()))
+                .collect();
+            assert_eq!(painted, painting_by_graphemes(&text), "{text:?}");
+            // And from any of its clusters' ends, the rest of them.
+            for (index, (_, end, _)) in painted.iter().enumerate() {
+                let from: Vec<(usize, usize, String)> = painting_from(&text, *end)
+                    .map(|painted| (painted.start, painted.end, painted.cluster.to_string()))
+                    .collect();
+                assert_eq!(from, painted[index + 1..], "{text:?} from {end}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_printable_ascii_character_is_one_cell() {
+        // And every other one-byte cluster what the general path counts it:
+        // the tab its stop's cells, every other control none.
+        for byte in 0x00u8..=0x7f {
+            let character = byte as char;
+            let text = character.to_string();
+            let general = if character == '\t' {
+                TAB_WIDTH
+            } else if character.is_control() {
+                0
+            } else {
+                u16::try_from(unicode_width::UnicodeWidthChar::width(character).unwrap_or(0))
+                    .expect("a cell or two")
+            };
+            assert_eq!(cluster_width(&text), general, "{text:?}");
+            if (0x20..=0x7e).contains(&byte) {
+                assert_eq!(general, 1, "{text:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_run_stepped_over_is_the_clusters_graphemes_reads_there() {
+        // Where a wrap may step over a run -- the end of a cluster -- the
+        // clusters `single_cells` and `repeats` count are the ones the
+        // segmenter gives, one at a time, from there.
+        let mut rng = corpus::Rng(0x9e37_79b9_7f4a_7c15);
+        for _ in 0..3000 {
+            let runs = 1 + rng.below(30);
+            let text = rng.text(runs);
+            let clusters = painting_by_graphemes(&text);
+            for (index, (_, end, cluster)) in clusters.iter().enumerate() {
+                let next = &clusters[index + 1..];
+                let ascii = single_cells(&text, *end, usize::MAX);
+                assert!(ascii <= next.len(), "{text:?} at {end}");
+                for (offset, (start, after, unit)) in next[..ascii].iter().enumerate() {
+                    assert_eq!(*start, end + offset, "{text:?} at {end}: no sequence");
+                    assert_eq!(after - start, 1, "{text:?} at {end}: {unit:?}");
+                    assert_ne!(unit, " ");
+                    assert_eq!(cluster_width(unit), 1, "{text:?} at {end}: {unit:?}");
+                }
+                let at = end - cluster.len();
+                let copies = repeats(&text, at, cluster, usize::MAX);
+                assert!(copies <= next.len(), "{text:?} at {at}");
+                for (offset, (start, _, unit)) in next[..copies].iter().enumerate() {
+                    assert_eq!(*start, end + offset * cluster.len(), "{text:?} at {at}");
+                    assert_eq!(unit, cluster, "{text:?} at {at}, copy {offset}");
+                }
+                // A limit is a limit.
+                assert_eq!(single_cells(&text, *end, 2), ascii.min(2));
+                assert_eq!(repeats(&text, at, cluster, 1), copies.min(1));
+            }
+        }
     }
 }

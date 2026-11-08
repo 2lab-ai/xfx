@@ -180,6 +180,23 @@ pub(crate) struct Palette {
 /// sure about.
 const RESET: &str = "\u{1b}[0m";
 
+/// What marks something the user stopped, wherever fx v0.0.16 writes it: a
+/// cancelled turn's line and a cancelled tool call's own line
+/// (`lifecycleMarker(.cancelled)`, `vercel-labs/fx@481104fd
+/// src/ui/transcript/runtime.zig:618`, in the [`Palette::warning`] grey), and a
+/// question batch the user refused (`writeCancelledResolution`,
+/// `src/ui/footer/question_ui.zig:513-519`, in [`Palette::notice_label`]'s).
+/// U+25AA since c29d5bfc; c1db919 wrote U+25A0, the same colours.
+///
+/// Only ever written: xfx keeps no rendered row it reads back. A saved
+/// session records how a call or a turn ended, not its line
+/// (`crate::session::ToolEnding`, `crate::session::TerminalReason`), and a
+/// resume draws the line again from that, so an older session replays with
+/// this mark too -- where fx, which replays a session's own rows, still
+/// reads U+25A0 (`tool_group_projection.zig:323-324`,
+/// `src/ui/footer/render_input.zig:732-733`).
+pub(crate) const CANCELLED_MARK: &str = "\u{25aa}";
+
 /// The greys upstream paints these four roles in, by 256-colour index
 /// (`render.zig:28,29,34` dark and `render.zig:70,71,76` light, for the
 /// first three).
@@ -226,13 +243,13 @@ const RESET: &str = "\u{1b}[0m";
 /// report has nothing of it to retint ([`Palette::document_retint`]).
 ///
 /// The tenth is upstream's `warning_style` (`core/shared/theme.zig:86,129`,
-/// `c1db919`) in the tool group: the `■` a cancelled tool call is marked with
+/// `c1db919`) in the tool group: the `▪` a cancelled tool call is marked with
 /// in the transcript. The same grey as the eighth in both modes, and a role
 /// of its own for the reason the fifth is one -- the two are the same colour
 /// and not the same decision.
 ///
 /// The eleventh is upstream's `tool_stdout_style` (`theme.zig:103` dark, `:147`
-/// light): what a cancelled call's own line names it by, after `■ Cancelled`.
+/// light): what a cancelled call's own line names it by, after `▪ Cancelled`.
 /// The **same grey in both themes** -- 245 -- which is why it is a role and not
 /// the statusline's: on a light screen the two part ways (241 and 245).
 ///
@@ -321,7 +338,7 @@ pub(crate) enum DocumentRow {
     /// ([`Redraw`]) and never recolours by colour
     /// ([`Palette::document_retint_in`]).
     ToolGroup,
-    /// A cancelled call's own line under its group (`■`).
+    /// A cancelled call's own line under its group (`▪`).
     ToolStopped,
     /// The answer under an answered question, in the document's record of a
     /// question batch ([`ANSWER`]).
@@ -413,7 +430,7 @@ impl Palette {
         self.paint(DIM)
     }
 
-    /// What marks something the user stopped: a cancelled tool call's `■`.
+    /// What marks something the user stopped: a cancelled tool call's `▪`.
     pub(crate) fn warning(&self) -> &'static str {
         self.paint(WARNING)
     }
@@ -544,7 +561,7 @@ impl Palette {
         // (`HINT`, the same grey `BODY` names), the quiet rows -- the
         // welcome line's version, a turn's summary and a cancelled notice's
         // label (`DIM`) -- the label of a notice that reports an outcome
-        // (`LABEL`), bold or not, and a cancelled tool call's `■` (`WARNING`),
+        // (`LABEL`), bold or not, and a cancelled tool call's `▪` (`WARNING`),
         // the same grey under another name. An answered question's answer is
         // not here: it is only ever on a row recorded as one
         // ([`DocumentRow::Answer`]), where it is answered alone.
@@ -1448,7 +1465,7 @@ mod tests {
     fn a_rows_colours_are_answered_as_the_kind_its_writer_recorded() {
         // The row's kind is recorded when it is written (the group's
         // `kinds`), not read off its first cell -- which is what let a
-        // question's `■ Cancelled` row, in the outcome grey, pass for a tool
+        // question's `▪ Cancelled` row, in the outcome grey, pass for a tool
         // group's stopped call. A group's own rows answer nothing: they are
         // drawn again.
         let light = Palette { mode: Mode::Light };

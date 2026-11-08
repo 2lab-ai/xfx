@@ -46,10 +46,21 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 check="$repo_root/scripts/check-no-secrets.sh"
 
 # Every `git` below acts on a scratch repository named with `-C`, and on
-# nothing else. One exported from a hook would point it at the repository
-# that ran this.
-unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR \
-	GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
+# nothing else. Every `GIT_*` goes: one exported from a hook would point it at
+# the repository that ran this, and `GIT_TRACE` would have it write a trace
+# wherever it named. `${!GIT_@}` is the shell's own list of its variables so
+# named. And `sg` runs git with no global or system config, so no hook,
+# template or `core.fsmonitor` of the caller's runs in the scratch
+# repositories.
+for name in "${!GIT_@}"; do
+	case "$name" in
+	*[!A-Za-z0-9_]*) ;;
+	*) unset "$name" ;;
+	esac
+done
+sg() {
+	GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c core.fsmonitor=false "$@"
+}
 # And this file's own `grep`s read the check's output with options of their
 # own; one case below sets `GREP_OPTIONS` for the check alone.
 unset GREP_OPTIONS
@@ -124,7 +135,7 @@ count=$(((target + per_file - 1) / per_file))
 
 big="$work/big"
 mkdir -p "$big/scripts"
-git -C "$big" init -q
+sg -C "$big" init -q
 cp "$check" "$big/scripts/check-no-secrets.sh"
 i=0
 while [ "$i" -lt "$count" ]; do
@@ -147,10 +158,10 @@ printf 'clean\n' >"$big/+first-batch"
 printf 'clean\n' >"$big/-n"
 printf 'clean\n' >"$big/notes.md"
 printf 'clean\n' >"$big/zz-last-batch"
-git -C "$big" add -f -A
+sg -C "$big" add -f -A
 tracked=$((count + 5))
 
-git -C "$big" ls-files -z >"$work/listing"
+sg -C "$big" ls-files -z >"$work/listing"
 names=()
 while IFS= read -r -d '' name; do
 	names+=("$name")
@@ -349,17 +360,17 @@ fi
 # check's copy is untracked in both.
 empty="$work/empty"
 mkdir -p "$empty/scripts"
-git -C "$empty" init -q
+sg -C "$empty" init -q
 cp "$check" "$empty/scripts/check-no-secrets.sh"
 run_check "$empty"
 verdict nothing-tracked 1 "check-no-secrets: no files to scan; the check would pass for the wrong reason"
 
 links="$work/links"
 mkdir -p "$links/scripts"
-git -C "$links" init -q
+sg -C "$links" init -q
 cp "$check" "$links/scripts/check-no-secrets.sh"
 ln -s nowhere "$links/link"
-git -C "$links" add -f -- link
+sg -C "$links" add -f -- link
 run_check "$links"
 verdict only-a-symlink 1 "check-no-secrets: no files to scan; the check would pass for the wrong reason"
 

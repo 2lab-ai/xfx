@@ -1,0 +1,44 @@
+head 0e8f9b9a
+Darwin arm64
+GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+git version 2.54.0 (Apple Git-157)
+rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)
+TMPDIR=<tmp>
+
+== what changed since 96d1f424
+ .prd/tui-phase5/receipts/gate-gitenv/README.md     | 177 ++++++++++-
+ .../receipts/gate-gitenv/ci-checkout-probe.sh      |  35 +++
+ .../receipts/gate-gitenv/discovery-probe.sh        |  45 ++-
+ .../gate-gitenv/gates-full-r2d-unlocked.txt        | 245 +++++++++++++++
+ .../receipts/gate-gitenv/gates-full-r2d.txt        | 252 ++++++++++++++++
+ .prd/tui-phase5/receipts/gate-gitenv/gates-full.sh |  72 +++++
+ .../gate-gitenv/gates-rerun-r2d-unlocked.txt       |  21 ++
+ .../tui-phase5/receipts/gate-gitenv/gates-rerun.sh |  34 +++
+ .../gate-gitenv/mutants-r2d-linux-rerun.txt        |  12 +
+ .../receipts/gate-gitenv/mutants-r2d-linux.txt     | 188 ++++++++++++
+ .../receipts/gate-gitenv/mutants-r2d-macos.txt     |  11 +
+ .../tui-phase5/receipts/gate-gitenv/mutants-r2d.py | 318 +++++++++++++++++++
+ .prd/tui-phase5/receipts/gate-gitenv/publish.py    |  19 ++
+ .../receipts/gate-gitenv/runs-r2d-linux.txt        | 331 ++++++++++++++++++++
+ .../receipts/gate-gitenv/runs-r2d-macos.txt        | 336 +++++++++++++++++++++
+ .prd/tui-phase5/receipts/gate-gitenv/runs-r2d.sh   |  52 ++++
+ .../receipts/gate-gitenv/test-capture-r2d-base.txt |  19 ++
+ .../receipts/gate-gitenv/test-capture-r2d-head.txt |  14 +
+ 18 files changed, 2170 insertions(+), 11 deletions(-)
+
+== ./scripts/check-no-secrets.sh
+check-no-secrets: ok (12176 tracked file(s) scanned)
+-> exit 0, 22 s
+
+== ./scripts/check-xfx-identity.sh
+check-xfx-identity: ok (12176 tracked file(s) scanned)
+-> exit 0, 1 s
+
+== ./scripts/check-no-stubs.sh
+check-no-stubs: ok
+-> exit 0, 8 s
+
+== ./scripts/check-preview-contract.sh
+check-preview-contract: ok (.github/workflows/preview.yml)
+-> exit 0, 3 s
+exit=0

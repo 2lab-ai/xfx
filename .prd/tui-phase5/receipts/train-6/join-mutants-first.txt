@@ -1,0 +1,19 @@
+# 0252c06f docs(receipt): P5 train 6 -- merges, re-points, token check, the tools 
+unchanged: exit 0; join-1 (Ctrl-O, caches) ok; join-3 (retint, open) ok; join-1 (row's cut) ok
+JM1 T-U4's group block kept across a palette: KILLED; join-1 (Ctrl-O, caches) FAILED; join-3 (retint, open) FAILED; join-1 (row's cut) ok
+    join-1 (Ctrl-O, caches) said: assertion `left == right` failed: light, 120
+    join-3 (retint, open) said: assertion `left == right` failed: the open screen after the report
+JM2 T-U4's heading kept across a resize: KILLED; join-1 (Ctrl-O, caches) FAILED; join-3 (retint, open) ok; join-1 (row's cut) ok
+    join-1 (Ctrl-O, caches) said: the heading, laid out again: [
+JM3 CTRLO-WIDER's code panel label not named: KILLED; join-1 (Ctrl-O, caches) FAILED; join-3 (retint, open) FAILED; join-1 (row's cut) ok
+    join-1 (Ctrl-O, caches) said: the code panel's label, named: [
+    join-3 (retint, open) said: [
+JM4 CTRLO-WIDER's file and tool lines not named: KILLED; join-1 (Ctrl-O, caches) FAILED; join-3 (retint, open) ok; join-1 (row's cut) ok
+    join-1 (Ctrl-O, caches) said: the argument row, named: [
+JM5 T-U4's retint of a Ctrl-O block off (drawn in one mode, shown as drawn): KILLED; join-1 (Ctrl-O, caches) ok; join-3 (retint, open) FAILED; join-1 (row's cut) ok
+    join-3 (retint, open) said: [
+JM6 T-U4's row cut: a unit is a character, not a cluster: SURVIVED; join-1 (Ctrl-O, caches) ok; join-3 (retint, open) ok; join-1 (row's cut) ok
+JM7 T-U4's row cut: a spelling is not a unit: KILLED; join-1 (Ctrl-O, caches) ok; join-3 (retint, open) ok; join-1 (row's cut) FAILED
+    join-1 (row's cut) said: named, past any screen: cut at byte 65536 of 72072, inside a unit
+# 6 of 7 killed; clone clean after: True
+driver exit 0

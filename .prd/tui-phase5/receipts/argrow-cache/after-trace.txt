@@ -1,0 +1,11 @@
+# at 7c9f2221 (the /trace test, test only), the working tree clean but for this folder
+fmt --check exit 0
+clippy exit 0
+clippy fault-injection exit 0
+## cargo test --locked --lib -- tui::shell::tests::ctrl_o tui::shell::tests::trace tui::full_transcript
+test tui::shell::tests::ctrl_o_with_arguments_through_its_caches_is_the_session_laid_out_from_nothing_after_every_event ... ok
+test result: ok. 111 passed; 0 failed; 0 ignored; 0 measured; 4345 filtered out; finished in 23.84s
+tests exit 0
+## the same with --features fault-injection
+test result: ok. 111 passed; 0 failed; 0 ignored; 0 measured; 4368 filtered out; finished in 24.41s
+tests fault-injection exit 0

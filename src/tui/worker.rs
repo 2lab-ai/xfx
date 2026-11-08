@@ -14774,6 +14774,15 @@ mod tests {
 
     /// A runtime on the Gateway with a key and nothing asked in it yet, its
     /// desk publishing where to ask and answered by `answer` from the excerpt.
+    ///
+    /// **Its catalog has answered already, from a stand-in in this process.**
+    /// The key alone would make the selector's catalog the remote Gateway's
+    /// (`crate::provider::model::catalog_for`, at the endpoint the process
+    /// environment names), unread: `turn_loop`'s first tick would begin
+    /// reading it on a thread of its own ([`begin_catalog_read`]) and tell
+    /// the band its answer whenever it came -- an event no title case sends,
+    /// racing the case's own shutdown (registry #19), from a socket a unit
+    /// test has no business opening.
     fn titled_runtime(
         answer: impl Fn(&str) -> super::super::titles::Outcome + Send + Sync + 'static,
     ) -> (tempfile::TempDir, tempfile::TempDir, Runtime) {
@@ -14790,6 +14799,14 @@ mod tests {
         assert_eq!(config.provider, ProviderId::Gateway);
         let store = open_store(&config).expect("a store");
         let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        // The stand-in first, which leaves nothing loaded; then the answer.
+        state.selector.set_fetcher_for_test(Box::new(Answering {
+            entries: Vec::new(),
+            asked: Arc::default(),
+        }));
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(Vec::new()));
         let (desk, answers) = super::super::titles::TitleDesk::answering(true, answer);
         state.titles = desk;
         state.title_answers = Some(answers);
@@ -15441,6 +15458,65 @@ mod tests {
                 r#""event":{"kind":"session_renamed","title":"Between turns","source":"generated"}}"#
             ),
             "{log}"
+        );
+    }
+
+    #[test]
+    fn a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band() {
+        // The case above asserts every event `turn_loop` sent. The loop's
+        // first tick begins a background catalog read whenever the session
+        // holds none ([`begin_catalog_read`]), and that read tells its answer
+        // on the same channel from a thread of its own -- so the case raced
+        // the read's answer against its own shutdown, and lost when the
+        // answer came first (registry #19). Forced here, on the same
+        // fixture: the tick taken, and whatever read it began let answer,
+        // before the drain.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Between turns"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        assert!(state.titles.ask("fix the renderer"));
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        begin_catalog_read(&mut state, &events_tx);
+        on_a_runtime(state.selector.settle_load());
+        let mut seen = Vec::new();
+        while let Ok(event) = events_rx.try_recv() {
+            seen.push(event);
+        }
+        assert!(
+            seen.is_empty(),
+            "the fixture's catalog read told the band: {seen:?}"
+        );
+    }
+
+    #[test]
+    fn a_title_runtime_answers_a_forced_catalog_read_from_its_stand_in() {
+        // The case above stays green on the pin alone: a catalog held as
+        // loaded keeps the selector's own reads idle, whatever they would
+        // ask. This one asks through the path the pin does not close -- the
+        // reader a `/model` typed mid-turn starts beside the work
+        // (`CatalogAsks::Reading`, from `ModelSelector::reader`) -- and the
+        // answer has to be the fixture's stand-in's: no rows, at once. The
+        // Gateway catalog the key would otherwise give the fixture answers
+        // with a failure, from a socket.
+        let (_home, _workspace, state) = titled_runtime(|_| generated("Read"));
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let started = state
+            .selector
+            .reader()
+            .begin(telling(state.config.provider, events_tx))
+            .expect("the fixture has a catalog to read");
+        let told = on_a_runtime(async {
+            tokio::time::timeout(TEST_DRAIN, events_rx.recv())
+                .await
+                .ok()
+                .flatten()
+        });
+        drop(started);
+        assert_eq!(
+            told,
+            Some(UiEvent::CatalogLoaded {
+                provider: ProviderId::Gateway,
+                entries: Vec::new(),
+            })
         );
     }
 

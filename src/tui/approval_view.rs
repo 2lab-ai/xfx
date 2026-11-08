@@ -1062,7 +1062,10 @@ fn default_ignorable(code: u32) -> bool {
 /// question. The cost is Indic and Khmer text: the vowel signs xfx's table
 /// counts as none (`U+09BE`, `U+0BBE`, `U+0D3E`, `U+0B3E`, `U+0CC2`, `U+0DCF`,
 /// spacing marks that extend the cluster) are named, and so, by [`squeezed`],
-/// is every Khmer coeng and the consonant it subjoins. Measured where xfx counts none
+/// is every Khmer coeng and the consonant it subjoins. The painter counts most
+/// of these vowel signs and marks as upstream does now (`super::wrap`'s
+/// `FX_COUNTED`, CTRLO-WIDER), a cell or more; they are still named here,
+/// by the table's count, as before. Measured where the table counts none
 /// (cursor column between two
 /// markers, 2026-11-03): the halfwidth voiced sound mark `U+FF9E` is one cell
 /// in tmux 3.7b and in herdr's libghostty-vt; the Hangul tone mark `U+302E` two
@@ -1136,6 +1139,36 @@ fn declustered(safe: String) -> String {
 /// Whether `character` is a regional indicator, half of a flag.
 fn regional_indicator(character: char) -> bool {
     matches!(character, '\u{1f1e6}'..='\u{1f1ff}')
+}
+
+/// Whether `character` is named wherever it stands but in a sequence measured
+/// whole ([`measured_whole`]): one a terminal was measured drawing alone wider
+/// than xfx counts it ([`super::drawn_wider`]), or a regional indicator.
+///
+/// An indicator crosses as itself only as half of an RGI flag, two cells to
+/// xfx, upstream, tmux 3.7b and libghostty-vt alike. xfx counts one as
+/// upstream does (`super::wrap`'s `FX_COUNTED`; `emoji_presentation_ranges`,
+/// `unicode_display_data.zig:204@481104fd`): two cells alone, where tmux draws
+/// one, and a pair that is no flag four, where both terminals draw two. A row
+/// laid out wider than it is drawn puts what a later frame writes after it
+/// where the terminal does not hold it, and on a decision screen that is a
+/// cell that does not say what the command does.
+fn named_wherever(character: char) -> bool {
+    super::drawn_wider::drawn_wider(character) || regional_indicator(character)
+}
+
+/// Whether `line` holds an RGI flag at byte `index`: a pair of regional
+/// indicators upstream's trie holds whole (`matchRgiSequence`,
+/// `display_width.zig@481104fd`).
+fn flag_at(line: &str, index: usize) -> bool {
+    let mut pair = line[index..].chars();
+    match (pair.next(), pair.next()) {
+        (Some(first), Some(second)) if regional_indicator(first) && regional_indicator(second) => {
+            crate::markdown::display_width::rgi_sequence_len(line.as_bytes(), index)
+                == first.len_utf8() + second.len_utf8()
+        }
+        _ => false,
+    }
 }
 
 /// How far a conjoining Hangul syllable has come, as its jamo cross as
@@ -1212,7 +1245,7 @@ const CLUSTER_CAP: u16 = 4;
 /// tmux, herdr's terminal and upstream all count the pair as two cells. After
 /// anything else the terminals disagree -- tmux makes a narrow character wide,
 /// libghostty-vt and upstream ignore the selector -- so it is named.
-fn agreed_presentation(base: char) -> bool {
+pub(super) fn agreed_presentation(base: char) -> bool {
     crate::markdown::display_width::is_variation_base(u32::from(base))
         && super::wrap::width(&format!("{base}\u{fe0f}")) == 2
 }
@@ -1221,9 +1254,9 @@ fn agreed_presentation(base: char) -> bool {
 /// nothing left in it a terminal would obey or reorder; no default-ignorable code point and nothing else xfx counts
 /// as none on its own but a combining mark, past the exceptions [`tamed`] and
 /// [`Syllable`] make; no character a terminal was measured drawing alone wider
-/// than xfx counts it ([`super::drawn_wider`]), but a pair of regional
-/// indicators; and no cluster xfx counts as fewer cells than its characters
-/// take one by one ([`squeezed`]).
+/// than xfx counts it ([`super::drawn_wider`]) and no regional indicator, but
+/// an RGI flag ([`named_wherever`]); and no cluster xfx counts as fewer cells
+/// than its characters take one by one ([`squeezed`]).
 fn spelled(line: &str, emoji: Emoji) -> String {
     if line.bytes().all(|byte| (0x20..0x7f).contains(&byte)) {
         return line.to_string();
@@ -1244,16 +1277,12 @@ fn spelled(line: &str, emoji: Emoji) -> String {
                 continue;
             }
         }
-        index += character.len_utf8();
-        if regional_indicator(character) {
-            // A pair of indicators, a flag or not, is two cells to xfx, tmux
-            // and libghostty-vt alike; one alone is two to libghostty-vt and
-            // one to xfx, so it is named below (`super::drawn_wider`).
-            if let Some(partner) = line[index..]
-                .chars()
-                .next()
-                .filter(|c| regional_indicator(*c))
-            {
+        if flag_at(line, index) {
+            // An RGI flag is two cells to xfx, upstream, tmux and
+            // libghostty-vt alike; any other indicator is named below
+            // ([`named_wherever`]).
+            index += character.len_utf8();
+            if let Some(partner) = line[index..].chars().next() {
                 safe.push(character);
                 safe.push(partner);
                 index += partner.len_utf8();
@@ -1261,12 +1290,14 @@ fn spelled(line: &str, emoji: Emoji) -> String {
                 syllable = Syllable::Open;
                 continue;
             }
+        } else {
+            index += character.len_utf8();
         }
         if let Some(replacement) = escaped(character) {
             safe.push_str(&replacement);
             base = None;
             syllable = Syllable::Open;
-        } else if super::drawn_wider::drawn_wider(character)
+        } else if named_wherever(character)
             && !default_ignorable(u32::from(character))
             && !(emoji == Emoji::Kept
                 && line[index..].starts_with('\u{fe0f}')
@@ -1300,8 +1331,8 @@ fn spelled(line: &str, emoji: Emoji) -> String {
 }
 
 /// Whether `cluster` is, exactly, a sequence both terminals were measured
-/// drawing whole at xfx's count: a pair of regional indicators (two cells to
-/// tmux 3.7b, libghostty-vt and xfx), and in text read as text also a
+/// drawing whole at xfx's count: an RGI flag (two cells to tmux 3.7b,
+/// libghostty-vt, upstream and xfx), and in text read as text also a
 /// character that takes an emoji presentation with its `U+FE0F`, or an RGI
 /// emoji without a skin-tone modifier ([`agreed_emoji`]). Nothing may come
 /// before or after it in the cluster: a mark or a selector after a flag makes
@@ -1312,7 +1343,7 @@ fn measured_whole(cluster: &str, emoji: Emoji) -> bool {
         (characters.next(), characters.next(), characters.next())
     {
         if regional_indicator(first) && regional_indicator(second) {
-            return true;
+            return flag_at(cluster, 0);
         }
         if emoji == Emoji::Kept && second == '\u{fe0f}' && agreed_presentation(first) {
             return true;
@@ -1324,7 +1355,8 @@ fn measured_whole(cluster: &str, emoji: Emoji) -> bool {
 }
 
 /// The spelling's postcondition, enforced last: no character a terminal was
-/// measured drawing wider than xfx counts it ([`super::drawn_wider`]) and no
+/// measured drawing wider than xfx counts it ([`super::drawn_wider`]), no
+/// regional indicator ([`named_wherever`]) and no
 /// default-ignorable code point ([`default_ignorable`]) is left in a cluster of
 /// `text` that is not, exactly, a sequence measured whole. The
 /// passes before this one decide character by character and then cluster by
@@ -1348,8 +1380,7 @@ fn guarded(mut text: String, emoji: Emoji) -> String {
         while let Some(cluster) = super::wrap::first_cluster(rest) {
             rest = &rest[cluster.len()..];
             let unprotected = |character: char| {
-                super::drawn_wider::drawn_wider(character)
-                    || default_ignorable(u32::from(character))
+                named_wherever(character) || default_ignorable(u32::from(character))
             };
             if measured_whole(cluster, emoji) || !cluster.chars().any(unprotected) {
                 out.push_str(cluster);
@@ -1486,7 +1517,7 @@ pub(crate) fn command_text(command: &str) -> String {
             safe.push_str(&format!("\\x{code:02x}"));
             syllable = Syllable::Open;
         } else if names_code_point(code)
-            || super::drawn_wider::drawn_wider(character)
+            || named_wherever(character)
             || (uncounted(character) && !syllable.completes(character))
         {
             safe.push_str(&format!("\\u{{{code:04x}}}"));
@@ -2194,8 +2225,8 @@ mod tests {
         // and where the input crosses as it is, at no fewer than they draw
         // the input. The cases: Emoji 15.1 and 16/17 RGI sequences, the older
         // family and a subdivision flag; skin tones, RGI and on a base that
-        // takes none; regional indicators as a flag, a pair, one alone and
-        // one with a mark; a joining with no RGI sequence; clusters xfx counts
+        // takes none; regional indicators as a flag, a pair that is no flag,
+        // one alone and one with a mark; a joining with no RGI sequence; clusters xfx counts
         // as less than their parts; marks on their letter; what xfx counts
         // as no cells; and the sweep's emoji base and dash (`super::drawn_wider`).
         let corpus: [(&str, u16, u16, &str, u16, u16); 28] = [
@@ -2236,7 +2267,10 @@ mod tests {
             ("\u{1f93c}\u{1f3fb}", 4, 2, "\u{1f93c}\\u{1F3FB}", 11, 11),
             ("a\u{1f3fd}", 3, 3, "a\u{1f3fd}", 3, 3),
             ("\u{1f1f0}\u{1f1f7}", 2, 2, "\u{1f1f0}\u{1f1f7}", 2, 2),
-            ("\u{1f1e6}\u{1f1e6}", 2, 2, "\u{1f1e6}\u{1f1e6}", 2, 2),
+            // A pair that is no flag: two cells to both terminals, four to
+            // upstream and to xfx, which counts it as upstream does
+            // (`super::wrap`'s `FX_COUNTED`), so it is named.
+            ("\u{1f1e6}\u{1f1e6}", 2, 2, "\\u{1F1E6}\\u{1F1E6}", 18, 18),
             ("\u{1f1e6}", 1, 2, "\\u{1F1E6}", 9, 9),
             (
                 "\u{1f642}\u{200d}\u{2194}",
@@ -2355,8 +2389,8 @@ mod tests {
     #[test]
     fn no_table_character_is_left_standing_alone_by_the_split() {
         // SEC-A4h, opus round 5's strings: the split keeps a cluster's first
-        // character, and a lone indicator or a lone emoji base is one cell to
-        // xfx and two to a terminal.
+        // character, and a lone emoji base is one cell to xfx and two to a
+        // terminal, a lone indicator two to xfx and one to tmux.
         for (input, rules) in [
             (
                 "\u{1f1e6}\u{1f1e6}\u{1f3fd}\u{1f3fd}\u{1f3fd}",
@@ -2376,7 +2410,7 @@ mod tests {
                     let mut characters = cluster.chars();
                     if let (Some(alone), None) = (characters.next(), characters.next()) {
                         assert!(
-                            !super::super::drawn_wider::drawn_wider(alone),
+                            !super::wider_terminal::table_character(alone),
                             "{rule} {input:?} -> {shown:?}: {alone:?} stands alone"
                         );
                     }
@@ -2413,8 +2447,60 @@ mod tests {
     }
 
     #[test]
+    fn every_scalar_the_painter_counts_as_fx_does_is_still_named_in_any_context() {
+        // The painter counts `super::super::wrap::FX_COUNTED` as upstream
+        // does, so `super::drawn_wider`'s table, and `guarded`'s postcondition
+        // with it, no longer holds them. Every one but the regional indicators
+        // (`named_wherever`) is still named: by `uncounted` (the width table
+        // counts it as none alone) or `default_ignorable` -- each decided on
+        // the character alone, so wherever it stands. Contexts: alone,
+        // between letters, after a consonant it would join, doubled, before a
+        // mark, after an emoji, before a selector, after a flag.
+        let contexts: [fn(char) -> String; 8] = [
+            |c| c.to_string(),
+            |c| format!("a{c}b"),
+            |c| format!("\u{995}{c}"),
+            |c| format!("{c}{c}"),
+            |c| format!("x{c}\u{301}"),
+            |c| format!("\u{1f44d}{c}"),
+            |c| format!("{c}\u{fe0f}"),
+            |c| format!("\u{1f1fa}\u{1f1f8}{c}"),
+        ];
+        let mut scalars = 0;
+        let mut raw = Vec::new();
+        for &(first, last) in &super::super::wrap::FX_COUNTED {
+            for code in first..=last {
+                let c = char::from_u32(code).expect("a scalar");
+                if regional_indicator(c) {
+                    continue;
+                }
+                scalars += 1;
+                for context in contexts {
+                    let text = context(c);
+                    for (rule, shown) in [
+                        ("tamed", tamed(&text)),
+                        ("named", named(&text)),
+                        ("command", command_text(&text)),
+                    ] {
+                        if shown.contains(c) {
+                            raw.push(format!("{rule} {text:?} -> {shown:?}"));
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(scalars, 3812);
+        assert!(
+            raw.is_empty(),
+            "{} left raw, first {:#?}",
+            raw.len(),
+            &raw[..raw.len().min(8)]
+        );
+    }
+
+    #[test]
     fn a_command_names_every_table_character_itself() {
-        // `command_text`'s own arm for `super::drawn_wider`: a regional
+        // `command_text`'s own arm for `named_wherever`: a regional
         // indicator, a dash and an emoji base are neither default-ignorable
         // nor counted as no cells, so only that arm names them.
         assert_eq!(command_text("a\u{1f1e6}b"), "a\\u{1f1e6}b");
@@ -3009,15 +3095,18 @@ pub(crate) mod wider_terminal {
     pub(crate) const NFD_KOREAN: &str = "\u{1112}\u{1161}\u{11ab}\u{1100}\u{1173}\u{11af}.txt";
 
     /// Whether `cluster` is a sequence both terminals were measured drawing
-    /// whole at xfx's count: a pair of regional indicators, a character that
-    /// takes an emoji presentation with its `U+FE0F`, or an RGI emoji without a
-    /// skin-tone modifier -- exactly, nothing before or after it in the
-    /// cluster. The test's own oracle, written apart from `super`'s.
+    /// whole at xfx's count: an RGI flag, a character that takes an emoji
+    /// presentation with its `U+FE0F`, or an RGI emoji without a skin-tone
+    /// modifier -- exactly, nothing before or after it in the cluster. The
+    /// test's own oracle, written apart from `super`'s.
     pub(crate) fn measured_whole(cluster: &str) -> bool {
         let characters: Vec<char> = cluster.chars().collect();
         let regional = |c: char| ('\u{1f1e6}'..='\u{1f1ff}').contains(&c);
         match characters.as_slice() {
-            [a, b] if regional(*a) && regional(*b) => return true,
+            [a, b] if regional(*a) && regional(*b) => {
+                return crate::markdown::display_width::rgi_sequence_len(cluster.as_bytes(), 0)
+                    == cluster.len()
+            }
             [base, '\u{fe0f}']
                 if crate::markdown::display_width::is_variation_base(u32::from(*base))
                     && super::super::wrap::width(cluster) == 2 =>
@@ -3033,6 +3122,15 @@ pub(crate) mod wider_terminal {
                 .any(|c| ('\u{1f3fb}'..='\u{1f3ff}').contains(c))
     }
 
+    /// A character the views name wherever it stands but in a sequence
+    /// measured whole: one `super::drawn_wider`'s table holds, or a regional
+    /// indicator -- two cells alone to xfx and upstream, one to tmux 3.7b,
+    /// and four in a pair that is no flag, two to both terminals.
+    pub(crate) fn table_character(character: char) -> bool {
+        super::super::drawn_wider::drawn_wider(character)
+            || ('\u{1f1e6}'..='\u{1f1ff}').contains(&character)
+    }
+
     /// The table characters `text` carries outside a sequence measured whole,
     /// cluster by cluster as xfx lays them out.
     pub(crate) fn unprotected(text: &str) -> Vec<String> {
@@ -3040,9 +3138,7 @@ pub(crate) mod wider_terminal {
         let mut rest = text;
         while let Some(cluster) = super::super::wrap::first_cluster(rest) {
             rest = &rest[cluster.len()..];
-            if !measured_whole(cluster)
-                && cluster.chars().any(super::super::drawn_wider::drawn_wider)
-            {
+            if !measured_whole(cluster) && cluster.chars().any(table_character) {
                 found.push(cluster.to_string());
             }
         }

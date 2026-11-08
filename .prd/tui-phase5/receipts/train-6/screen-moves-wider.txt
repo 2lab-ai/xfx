@@ -1,0 +1,7 @@
+# screen_moves.py <wider's own head sweep> <the train's head sweep>
+snaps whose screen differs only in clock-like or run-local text: 10; otherwise: 3
+  of them, snaps where fx's screen moved at the same rows as xfx's: 0 snaps
+  snaps where xfx's screen moved alone or at other rows than fx's: 3
+    fx p5-ctrlo-wider-ri answer rows [5]: [('  ri 🇿🇺🇸 end', '  ri 🇿🇺🇸 end  )')]
+    fx p5-ctrlo-wider-ri erased rows [5]: [('  ri 🇿🇺🇸 end', '  ri 🇿🇺🇸 end  )')]
+    fx p5-ctrlo-wider-ri typed rows [5]: [('  ri 🇿🇺🇸 end', '  ri 🇿🇺🇸 end  )')]

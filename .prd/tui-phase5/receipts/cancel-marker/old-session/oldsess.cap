@@ -1,0 +1,27 @@
+# T-U4 old-session probe: the base build (e6cde019) stops a command call and
+# its turn with Ctrl-C and quits; the head build (95669160) resumes that
+# session from the store the base build left. XFX_BIN is a wrapper that runs
+# the base build on the first launch and the head build on the relaunch.
+gateway p5-toolstop-retint-xfx.json
+env XFX_PERMISSION_MODE=yolo
+wait 6
+type run cmd
+key Enter
+wait 2.5
+key C-c
+wait 6
+snap base-stopped
+keep
+type /quit
+key Enter
+wait 2
+home base-store
+relaunch --resume last
+wait 4
+snap head-resumed
+snapfull head-resumed
+key C-o
+wait 2
+snap head-resumed-ctrl-o
+key C-o
+wait 1

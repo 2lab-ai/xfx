@@ -1,0 +1,32 @@
+# The sweep's selection, one --only glob a line, each with why (the README's Sweep).
+# T-U4's round 3 selection, whole (its round3/sweep-head.md: 132 scenarios) -- the
+# cancel scenarios, every p5-transcript-*, the tool group's and Ctrl-O's, the call
+# rows, and every scenario T-U4's deleted '*' cause `cancelled-marker` stood over
+p5-transcript-*
+p5-toolgroup-*
+p5-toolstop-*
+p5-inline-code-*
+p5-call-row-*
+p5-mcp-*
+p5-input-question
+p5-effort-fork-*
+fulltranscript*
+resume-tools
+read-failures
+toolgroup*
+interrupt*
+question*
+approvals*
+rules-read*
+compact-cancel
+links
+timeout
+# CTRLO-WIDER(+F)'s scenarios, every one (it added all seven), and h1-resize (its
+# `resize-document-repaint` cause); the deleted '*' cause `ctrl-o-drawn-wider-raw`
+# stood over rows that hold one of the 43 scalars, which only these and
+# p5-transcript-diffwrap2 have (CTRLO-WIDER's README, "Pre-existing scenarios")
+p5-ctrlo-wider-*
+h1-resize
+# the scenarios of every other ledger entry the train changed and the globs above
+# miss: `retry-budget-lifecycle` (T-U4, added)
+p5-lifecycle-retry

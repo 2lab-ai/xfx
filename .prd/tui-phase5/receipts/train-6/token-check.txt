@@ -1,0 +1,128 @@
+merge a09e39c1: ours 690aa505, theirs 4db63171, base 884497c0 -- OK
+  parity row 'transport-owned retry and team routing': changed by ours; 49 tokens added, 0 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours; 18 tokens added, 1 deleted, all as expected, in order
+  parity row 'terminal program status (OSC 7501)': changed by ours; 1164 tokens added, 0 deleted, all as expected, in order
+  parity row "a question's line breaks in a program status message": changed by ours; 106 tokens added, 0 deleted, all as expected, in order
+  parity row 'A program status report (OSC 7501)': changed by ours; 82 tokens added, 0 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause stats-bytes: changed by ours, kept so
+  ledger cause submit-multi-card-whole: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger divergence inline-code-shade: changed by ours, kept so
+  ledger normalization banner: changed by ours, kept so
+  ledger comments: 0 added, 0 deleted, all as expected
+merge 7fa4cc27: ours a09e39c1, theirs 5a7bb465, base 884497c0 -- OK
+  parity row '`/resume`': changed by theirs; 1 tokens added, 1 deleted, all as expected, in order
+  parity row '`/allowlist`': changed by theirs; 1 tokens added, 1 deleted, all as expected, in order
+  parity row 'transport-owned retry and team routing': changed by ours; 49 tokens added, 0 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours+theirs; 23 tokens added, 6 deleted, all as expected; 6 clauses (each with its side's token either side) whole and contiguous; each side's tokens in its order
+  parity row 'full transcript (`C-o`)': changed by theirs; 54 tokens added, 2 deleted, all as expected, in order
+  parity row 'terminal program status (OSC 7501)': changed by ours; 1164 tokens added, 0 deleted, all as expected, in order
+  parity row "a question's line breaks in a program status message": changed by ours; 106 tokens added, 0 deleted, all as expected, in order
+  parity row 'A program status report (OSC 7501)': changed by ours; 82 tokens added, 0 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause U7-cancelled-glyph: deleted by theirs, kept so
+  ledger cause amendment-card-after-stop: added by theirs, kept so
+  ledger cause call-row-page-edge: changed by theirs, kept so
+  ledger cause cancel-page-edge: added by theirs, kept so
+  ledger cause cancelled-marker: deleted by theirs, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause question-cap-four: added by theirs, kept so
+  ledger cause retry-budget-lifecycle: added by theirs, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause stats-bytes: changed by ours, kept so
+  ledger cause submit-multi-card-whole: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger divergence call-row-arabic-letter-mark: changed by theirs, kept so
+  ledger divergence call-row-raw-argument: changed by theirs, kept so
+  ledger divergence call-row-source-cut: changed by theirs, kept so
+  ledger divergence inline-code-shade: changed by ours, kept so
+  ledger normalization banner: changed by ours, kept so
+  ledger comments: 0 added, 0 deleted, all as expected
+merge d55e2317: ours 7fa4cc27, theirs 1824e868, base 884497c0 -- OK
+  parity row '`/resume`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row '`/allowlist`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row 'transport-owned retry and team routing': changed by ours; 49 tokens added, 0 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours+theirs; 438 tokens added, 15 deleted, all as expected; 9 clauses (each with its side's token either side) whole and contiguous; each side's tokens in its order
+  parity row 'full transcript (`C-o`)': changed by ours+theirs; 301 tokens added, 17 deleted, all as expected; 12 clauses (each with its side's token either side) whole and contiguous; each side's tokens in its order
+  parity row 'terminal program status (OSC 7501)': changed by ours; 1164 tokens added, 0 deleted, all as expected, in order
+  parity row "a question's line breaks in a program status message": changed by ours; 106 tokens added, 0 deleted, all as expected, in order
+  parity row 'A program status report (OSC 7501)': changed by ours; 82 tokens added, 0 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause U7-cancelled-glyph: deleted by ours, kept so
+  ledger cause amendment-card-after-stop: added by ours, kept so
+  ledger cause answer-modifier-sequence-wider: added by theirs, kept so
+  ledger cause call-row-page-edge: changed by ours, kept so
+  ledger cause cancel-page-edge: added by ours, kept so
+  ledger cause cancelled-marker: deleted by ours, kept so
+  ledger cause composer-drawn-wider: added by theirs, kept so
+  ledger cause ctrl-o-drawn-wider-raw: deleted by theirs, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause question-cap-four: added by ours, kept so
+  ledger cause resize-document-repaint: added by theirs, kept so
+  ledger cause retry-budget-lifecycle: added by ours, kept so
+  ledger cause ri-run-pairing: added by theirs, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause stats-bytes: changed by ours, kept so
+  ledger cause submit-multi-card-whole: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger divergence answer-drawn-wider-named: added by theirs, kept so
+  ledger divergence answer-label-and-modifier-named: added by theirs, kept so
+  ledger divergence call-row-arabic-letter-mark: changed by ours, kept so
+  ledger divergence call-row-raw-argument: changed by ours, kept so
+  ledger divergence call-row-source-cut: changed by ours, kept so
+  ledger divergence ctrl-o-drawn-wider-named: added by theirs, kept so
+  ledger divergence inline-band-row-anchor: added by theirs, kept so
+  ledger divergence inline-code-shade: changed by ours, kept so
+  ledger normalization banner: changed by ours, kept so
+  ledger comments: 0 added, 0 deleted, all as expected
+merge 5f601851: ours d55e2317, theirs 709786bb, base 884497c0 -- OK
+  parity row '`/resume`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row '`/allowlist`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row 'transport-owned retry and team routing': changed by ours; 49 tokens added, 0 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours; 438 tokens added, 15 deleted, all as expected, in order
+  parity row 'full transcript (`C-o`)': changed by ours; 301 tokens added, 17 deleted, all as expected, in order
+  parity row 'terminal program status (OSC 7501)': changed by ours; 1164 tokens added, 0 deleted, all as expected, in order
+  parity row "a question's line breaks in a program status message": changed by ours; 106 tokens added, 0 deleted, all as expected, in order
+  parity row 'A program status report (OSC 7501)': changed by ours; 82 tokens added, 0 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause U7-cancelled-glyph: deleted by ours, kept so
+  ledger cause amendment-card-after-stop: added by ours, kept so
+  ledger cause answer-modifier-sequence-wider: added by ours, kept so
+  ledger cause call-row-page-edge: changed by ours, kept so
+  ledger cause cancel-page-edge: added by ours, kept so
+  ledger cause cancelled-marker: deleted by ours, kept so
+  ledger cause composer-drawn-wider: added by ours, kept so
+  ledger cause ctrl-o-drawn-wider-raw: deleted by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause question-cap-four: added by ours, kept so
+  ledger cause resize-document-repaint: added by ours, kept so
+  ledger cause retry-budget-lifecycle: added by ours, kept so
+  ledger cause ri-run-pairing: added by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause stats-bytes: changed by ours, kept so
+  ledger cause submit-multi-card-whole: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger divergence answer-drawn-wider-named: added by ours, kept so
+  ledger divergence answer-label-and-modifier-named: added by ours, kept so
+  ledger divergence call-row-arabic-letter-mark: changed by ours, kept so
+  ledger divergence call-row-raw-argument: changed by ours, kept so
+  ledger divergence call-row-source-cut: changed by ours, kept so
+  ledger divergence ctrl-o-drawn-wider-named: added by ours, kept so
+  ledger divergence inline-band-row-anchor: added by ours, kept so
+  ledger divergence inline-code-shade: changed by ours, kept so
+  ledger normalization banner: changed by ours, kept so
+  ledger comments: 0 added, 0 deleted, all as expected
+merge 2ff36665: ours 99eb8a13, theirs e066669d, base 9681e9d8 -- OK
+  parity order: every row in each side's order
+  ledger comments: 0 added, 0 deleted, all as expected

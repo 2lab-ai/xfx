@@ -1,0 +1,64 @@
+# Phase 5 (CTRLO-WIDER): the family of p5-ctrlo-wider-diff-fam in an answer
+# (the inline transcript, 118 cells of text a row), in a prompt, on Ctrl-O
+# and in the composer. The answer: the short line, then four paragraphs that
+# reach a row's last cell by the count (U+261D, U+2E3A, `a` U+FE0F, U+E0002
+# then `z`, each before `TAIL5678`) and one whose first row by the count is
+# four U+261D, 110 `w` and `TAIL`, with 20 `w` and `END` after it -- two rows
+# by fx's count and by xfx's named form alike, at 120 columns and at 140, so
+# no row below it moves and no Ctrl-O page starts on another row. Then the
+# short line typed (the composer), sent as a prompt (its card), Ctrl-O over
+# both turns; then four U+261D, 110 `w` and `TAIL`, a new line and 117 `w`,
+# U+261D and `TAIL` typed (the composer at the margin), the screen widened to
+# 140 columns (fx writes the document again at the new width, xfx leaves its
+# rows to the terminal), and Ctrl-O again (its rows laid out again at the new
+# width). `cursor` says where the caret is; `wire` keeps every byte written,
+# for a replay on libghostty-vt
+# (.prd/tui-phase5/receipts/ctrlo-wider/replay_ghostty.c).
+gateway p5-ctrlo-wider-inline-fam-turns.json
+fx: env FX_AUTO_UPGRADE=0
+keep
+until shown Run /help for commands
+type go
+wait 1
+key Enter
+until shown END
+until gone Generating (
+snap answer
+wire answer
+type fam ☝ ⸺ 🖐 x󠀂y a️b ­️c ﾠ️d ￰️e ⁥f end ZZ
+until shown f end ZZ
+snap composer
+cursor composer
+wire composer
+key Enter
+until shown Spare.
+until gone Generating (
+snap prompt
+wire prompt
+key C-o
+until shown full detail
+snap ctrlo
+wire ctrlo
+key C-o
+until gone full detail
+type ☝☝☝☝wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwTAIL
+key C-j
+type wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww☝TAIL
+until shown ┃ TAIL
+snap margin
+cursor margin
+wire margin
+resize 40x140
+# fx writes the document again at 140 columns, where this row is one row;
+# xfx's screen changes only in its band, nothing a text can wait on.
+fx: until shown wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww☝TAIL5678
+xfx: wait 2
+snap resized
+wire resized
+key C-o
+until shown full detail
+snap ctrlo-resized
+wire ctrlo-resized
+key C-o
+until gone full detail
+gwlog

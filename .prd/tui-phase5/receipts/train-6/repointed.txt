@@ -1,0 +1,27 @@
+SAME  src/tui/full_transcript.rs:492@690aa505 -> :495 (+-2 lines)  [ledger ctrl-o-command-marks (source)]
+    first: fn detail_spelled(text: &str, tab: &str) -> String {
+SAME  src/tui/wrap.rs:622@690aa505 -> :656 (+-0 lines)  [ledger filler-modifier-count (source)]
+    first: fn upstream_cells(cluster: &str) -> usize {
+SAME  src/tui/full_transcript.rs:2615@1824e868 -> :2743 (+-2 lines)  [ledger ctrl-o-drawn-wider-named, answer-modifier-sequence-wider (source)]
+    first: pub(crate) fn drawn_wider_named(text: &str) -> Cow<'_, str> {
+SAME  src/tui/full_transcript.rs:2666@1824e868 -> :2794 (+-2 lines)  [ledger answer-drawn-wider-named, answer-label-and-modifier-named (source)]
+    first: /// (`scripts/fxcap/parity-ledger.toml`, `answer-drawn-wider-named`).
+SAME  src/tui/shell.rs:12531@1824e868 -> :12859 (+-2 lines)  [ledger answer-drawn-wider-named (source)]
+    first: let event = full_transcript::shown_event(event);
+SAME  src/tui/shell.rs:37758@690aa505 -> :37764 (+-2 lines)  [ledger session-record, transcript-page-offset, toolgroup-ctrlo-record-short, safe-page-edge, full-transcript-shift (xfx)]
+    first: "  tools: {} advertised ({},",
+SAME  src/tui/shell.rs:37424@5a7bb465 -> :37764 (+-2 lines)  [ledger cancel-page-edge (xfx)]
+    first: "  tools: {} advertised ({},",
+SAME  src/tui/shell.rs:9665@5a7bb465 -> :9762 (+-2 lines)  [ledger amendment-card-after-stop (xfx, why)]
+    first: fn trailer_rows(&self) -> Vec<String> {
+SAME  src/tui/wrap.rs:593-604@1824e868 -> :612-623 (+-2 lines)  [ledger ri-run-pairing (source)]
+    first: fn cluster_cells(cluster: &str) -> usize {
+SAME  src/tui/shell.rs:15273@1824e868 -> :15607 (+-2 lines)  [ledger resize-document-repaint (source)]
+    first: pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Resize {
+SAME  src/tui/shell.rs:14033-14058@690aa505 -> :14039-14064 (+-2 lines)  [capfile.py TIMERS, `warning_shown`]
+    first: fn warning_shown(&self) -> Option<&'static str> {
+SAME  src/tui/shell.rs:14051-14053@690aa505 -> :14057-14059 (+-2 lines)  [capfile.py TIMERS, the full transcript]
+    first: if self.owner != ScreenOwner::Primary {
+SAME  src/tui/wrap.rs:213-221@690aa505 -> :232-240 (+-2 lines)  [event_loop.rs, the wrap into 40 + 40 and 10]
+    first: let mut start = 0usize;
+# 13 of 13 the same code

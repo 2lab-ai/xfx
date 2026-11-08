@@ -1,0 +1,11 @@
+# The head after 392ca22a (the row-cut test's modifier case), the same hold: clippy both ways, fmt, and the tests it touched. The $ lines were added in round 2 (opus's SHOULD 5) from join-r2-jobs.sh, the script that ran (its lines 11-18); every other line is as it ran
+== the head (392ca22a)
+$ cargo clippy --locked --all-targets -- -D warnings
+clippy exit 0
+$ cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+clippy-fault exit 0
+$ cargo fmt --check
+fmt exit 0
+$ cargo test --locked --lib --no-fail-fast -- tui::toolgroup::tests <the two Ctrl-O join tests>
+tests exit 0: test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 4404 filtered out; finished in 5.17s
+job exit 0

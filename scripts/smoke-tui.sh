@@ -3280,10 +3280,10 @@ CHOICE_MARK = "❯ "
 READ_NOTES = "Read notes.txt"
 
 # The line a cancelled turn leaves in the document (`src/tui/shell.rs`'s
-# `cancelled_line`; `.prd/tui-phase4/receipts/f4`, "cancelled turn":
-# `■ Cancelled · What can fx do differently?`, in this product's name). It
+# `cancelled_line`; `.prd/tui-phase5/receipts/cancel-marker`, fx v0.0.16's
+# `▪ Cancelled · What can fx do differently?`, in this product's name). It
 # replaces the `stopping the turn` notice an interrupt used to write.
-CANCELLED_TURN = "■ Cancelled · What can xfx do differently?"
+CANCELLED_TURN = "▪ Cancelled · What can xfx do differently?"
 
 # What the hint row says, whole, while a second Ctrl-C would leave
 # (`src/tui/shell.rs`'s `EXIT_ARMED`; `receipts/f4`, "exit hint").
@@ -6932,12 +6932,12 @@ def scenario_10(run):
     # under it, and nothing more is asked of the model.
     fixture, escaped = ask("answer-escape")
     escaped.send(b"\x1b")
-    grid = on_the_grid(escaped, "■ Cancelled file", "the escaped call's cancelled line")
+    grid = on_the_grid(escaped, "▪ Cancelled file", "the escaped call's cancelled line")
     escaped.grid("escaped")
     run.require(read(escaped.notes) == "alpha\n", "Esc refused the call")
     run.require(
         grid.find("Cancelled file") is not None
-        and grid.find("■ Cancelled file · What can xfx do differently?") is not None,
+        and grid.find("▪ Cancelled file · What can xfx do differently?") is not None,
         "the call's row and the turn's cancelled line say the turn was stopped: %r" % grid.text(),
     )
     run.require(
@@ -10043,7 +10043,7 @@ FREEFORM_SLOT = "Other"
 # glyph and the word, and nothing after them (`.prd/tui-phase4/receipts/f4`,
 # "question cancelled by Ctrl-C"; `receipts/f3`, `q2-esc`; `src/tui/question.rs`'s
 # `CANCELLED`). It replaces the `stopping the turn` notice the interrupt wrote.
-QUESTION_STOPPED = "\u25a0 Cancelled"
+QUESTION_STOPPED = "\u25aa Cancelled"
 
 # What the model is told about a question whose turn was stopped, in the next
 # request (`receipts/f4`, "a question cancelled with Ctrl-C": the call's
@@ -10473,7 +10473,7 @@ def scenario_23b(run):
     `receipts/f4`, "question cancelled by Ctrl-C"). Escape used to be an answer
     about the call -- the byte-exact `(user cancelled the question)` sentinel,
     and the turn carrying on to its own conclusion -- and it is upstream's
-    cancel now, the same as Ctrl-C: the question's record says `■ Cancelled`,
+    cancel now, the same as Ctrl-C: the question's record says `▪ Cancelled`,
     the turn asks the model for nothing more, and the model hears about it in
     the next prompt's request, as the call's `aborted by user`. That claim
     replaces the sentinel's; the sentinel is asserted never to reach the wire.
@@ -11601,7 +11601,7 @@ NOTICE_COMMAND = "/version"
 # build's and not this file's.
 NOTICE_PREFIX = "* version: "
 
-# The warning grey a cancelled line's `■` is painted in, in each palette
+# The warning grey a cancelled line's `▪` is painted in, in each palette
 # (`src/tui/theme.rs`'s `WARNING`, `DARK`/`LIGHT` at index 9).
 RETINT_DARK_WARNING = "\x1b[38;5;252m"
 RETINT_LIGHT_WARNING = "\x1b[38;5;238m"
@@ -12075,7 +12075,7 @@ def scenario_27(run):
     # already on the screen (the card's rail and the welcome line) is re-tinted
     # while the tail is still inside the product, and xfx's own line written
     # **after** the report -- the cancelled line the interrupt leaves
-    # (`receipts/f4`), its `■` in the warning grey and its word in the body
+    # (`receipts/f4`), its `▪` in the warning grey and its word in the body
     # grey (`src/tui/shell.rs`'s `cancelled_line`) -- is in the light palette's,
     # the palette now in force. It used to be a `stopping the turn` notice in
     # the notice grey; the claim is the same, read on fx's line.

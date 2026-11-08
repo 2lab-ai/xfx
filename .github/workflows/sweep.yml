@@ -62,6 +62,8 @@ jobs:
         id: base
         run: |
           set -euo pipefail
+          # Git reads its repository, index and config from GIT_*; none of a caller's.
+          for name in "${!GIT_@}"; do case "$name" in *[!A-Za-z0-9_]*) ;; *) unset "$name" ;; esac; done
           actual="$(git rev-parse HEAD)"
           if [ "$actual" != "$COMMIT_UNDER_TEST" ]; then
             echo "checked out $actual, expected $COMMIT_UNDER_TEST" >&2
@@ -132,6 +134,8 @@ jobs:
           BASE: ${{ steps.base.outputs.sha }}
         run: |
           set -euo pipefail
+          # Git reads its repository, index and config from GIT_*; none of a caller's.
+          for name in "${!GIT_@}"; do case "$name" in *[!A-Za-z0-9_]*) ;; *) unset "$name" ;; esac; done
           mkdir -p "$RUNNER_TEMP/xfx"
           git worktree add --detach "$RUNNER_TEMP/base" "$BASE"
           (cd "$RUNNER_TEMP/base" && cargo build --locked --target-dir "$GITHUB_WORKSPACE/target")

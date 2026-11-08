@@ -1,0 +1,97 @@
+# Every U+25A0 (`■`, or `25a0` in any case: `\u{25a0}`, `\u25a0`, `U+25A0`) in src, tests, scripts, docs and .github
+# at the base e6cde019, and what this branch did with it (`git grep -n -I -i -E '■|25a0'`; the base's line numbers).
+docs/parity.md:90  [parity row -> U+25AA (1 on the line)]  | `/resume` | slash | implemented | **The TUI** opens upstream's session picker in the band under the composer
+docs/parity.md:97  [parity row -> U+25AA (1 on the line)]  | `/allowlist` | slash | implemented | Upstream's row: `/allowlist [view [effective\|local\|user]\|[local\|use
+docs/parity.md:237  [parity row -> U+25AA (5 on the line)]  | full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the 
+scripts/fxcap/parity-ledger.toml:489  [deleted: the comment on the deleted cause's order]  # (`^[▪■] Cancelled `) is a row of both, and the first cause that covers a
+scripts/fxcap/parity-ledger.toml:542  [deleted with its cause (cancelled-marker / U7-cancelled-glyph)]  xfx_row = '^■ Cancelled '
+scripts/fxcap/parity-ledger.toml:545  [deleted with its cause (cancelled-marker / U7-cancelled-glyph)]  why = "v0.0.16 marks a cancelled tool call `▪` where c1db919 and xfx mark it `■`; T-U4 owns the marker everywh
+scripts/fxcap/parity-ledger.toml:553  [kept: truecolor-grey-notation's selector already takes both]  fx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] |^[▪■] Cancelled |^~ Running \(|^  X+ [A-
+scripts/fxcap/parity-ledger.toml:554  [kept: truecolor-grey-notation's selector already takes both]  xfx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] |^[▪■] Cancelled |^~ Running \(|^  X+ [A
+scripts/fxcap/parity-ledger.toml:949  [deleted with its cause (cancelled-marker / U7-cancelled-glyph)]  xfx_row = '^■ Cancelled '
+scripts/fxcap/parity-ledger.toml:950  [deleted with its cause (cancelled-marker / U7-cancelled-glyph)]  why = "fx v0.0.16 marks a cancelled call `▪` (U+25AA, c29d5bfc); xfx still writes `■` (U+25A0). The glyph's ce
+scripts/fxcap/scenarios/interrupt-question.cap:1  [scenario comment -> U+25AA]  # Ctrl-C at a model's question: the question's `■ Cancelled` is the turn's
+scripts/fxcap/scenarios/p5-transcript-cancel.cap:4  [kept: the scenario's comment names the change (U+25A0 -> U+25AA)]  # The cancelled marker is the change (c29d5bfc: U+25A0 -> U+25AA). Ctrl-O shows
+scripts/smoke-tui.sh:3108  [smoke-tui -> U+25AA]  # `■ Cancelled · What can fx do differently?`, in this product's name). It
+scripts/smoke-tui.sh:3110  [smoke-tui -> U+25AA]  CANCELLED_TURN = "■ Cancelled · What can xfx do differently?"
+scripts/smoke-tui.sh:6726  [smoke-tui -> U+25AA]  grid = on_the_grid(escaped, "■ Cancelled file", "the escaped call's cancelled line")
+scripts/smoke-tui.sh:6731  [smoke-tui -> U+25AA]  and grid.find("■ Cancelled file · What can xfx do differently?") is not None,
+scripts/smoke-tui.sh:9837  [smoke-tui -> U+25AA]  QUESTION_STOPPED = "\u25a0 Cancelled"
+scripts/smoke-tui.sh:10235  [smoke-tui -> U+25AA]  cancel now, the same as Ctrl-C: the question's record says `■ Cancelled`,
+scripts/smoke-tui.sh:11364  [smoke-tui -> U+25AA]  # The warning grey a cancelled line's `■` is painted in, in each palette
+scripts/smoke-tui.sh:11838  [smoke-tui -> U+25AA]  # (`receipts/f4`), its `■` in the warning grey and its word in the body
+src/app.rs:65  [doc comment -> U+25AA]  /// upstream's `■ Cancelled` line and says `press ctrl+c again to exit` on its
+src/markdown/unicode_display_data.rs:563  [kept: a word of RGI_DATA's packed table (0x2025A0), not the character]  0x20259F, 0x2025A0, 0x2025A1, 0x0045A2, 0x2025A4, 0x2025A5, 0x2025A6, 0x2025A7,
+src/tui/event_loop.rs:5973  [test comment -> U+25AA (or the glyph dropped from a c1db919 quote)]  /// them, and the call's own `■ Cancelled` line.
+src/tui/event_loop.rs:6043  [test expectation -> U+25AA]  let line = "\u{25a0} Cancelled";
+src/tui/event_loop.rs:6046  [test expectation -> U+25AA]  on_screen(band, line, "\u{25a0}"),
+src/tui/event_loop.rs:6899  [test expectation -> U+25AA]  let line = &landed[landed.find("\u{25a0}").expect("the stopped line")..];
+src/tui/event_loop.rs:6902  [test expectation -> U+25AA]  fg_of(&landed, "\u{25a0}"),
+src/tui/full_transcript.rs:3915  [test comment -> U+25AA (or the glyph dropped from a c1db919 quote)]  // The group's own `■ Cancelled …` line is the inline transcript's:
+src/tui/grid.rs:1571  [test comment -> U+25AA (or the glyph dropped from a c1db919 quote)]  // A question's `■ Cancelled`: the mark in the outcome grey is not a
+src/tui/grid.rs:1575  [test expectation -> U+25AA]  &format!("{LABEL_DARK}\u{25a0}{RESET} Cancelled {SUMMARY_DARK}x{RESET}"),
+src/tui/grid.rs:1587  [test expectation -> U+25AA]  &format!("{LABEL_LIGHT}\u{25a0}{RESET} Cancelled {SUMMARY_LIGHT}x{RESET}"),
+src/tui/grid.rs:1681  [test expectation -> U+25AA]  ("\u{25a0} Cancelled sleep 4", ToolStopped),
+src/tui/question.rs:31  [doc comment -> U+25AA]  //! under its ordinal with the answer hung beneath it, or `■ Cancelled`
+src/tui/question.rs:136  [WRITER -> theme::CANCELLED_MARK (U+25AA)]  const CANCELLED_GLYPH: &str = "\u{25a0}";
+src/tui/question.rs:1024  [doc comment -> U+25AA]  /// `■ Cancelled`, the glyph in the outcome-label grey and the word in none
+src/tui/question.rs:2873  [test expectation -> U+25AA]  assert_eq!(cancelled_row(&DARK), "\u{1b}[38;5;252m■\u{1b}[0m Cancelled");
+src/tui/question.rs:2880  [test expectation -> U+25AA]  "\u{1b}[38;5;238m■\u{1b}[0m Cancelled"
+src/tui/shell.rs:148  [doc comment -> U+25AA]  /// `palette`: `■` in the warning grey, `Cancelled` in the hint grey, and the
+src/tui/shell.rs:151  [doc comment -> U+25AA]  /// `ESC[38;5;252m■ESC[39m ESC[38;5;255mCancelledESC[39m · What can fx do
+src/tui/shell.rs:155  [WRITER -> theme::CANCELLED_MARK (U+25AA)]  "{}\u{25a0}{} {}Cancelled{}{CANCELLED_FOLLOW_UP}",
+src/tui/shell.rs:990  [doc comment -> U+25AA]  /// The turn's `■ Cancelled` line, while it waits for a running call to
+src/tui/shell.rs:4401  [doc comment -> U+25AA]  // upstream writes the one `■ Cancelled` line and nothing after
+src/tui/shell.rs:9011  [doc comment -> U+25AA]  // dropped ([`Self::abandoned`]). That call's own `■ Cancelled …`
+src/tui/shell.rs:9117  [doc comment -> U+25AA]  /// hung under it, or `■ Cancelled` ([`super::question`]'s
+src/tui/shell.rs:9205  [doc comment -> U+25AA]  // **The question's `■ Cancelled` is the turn's line**, and
+src/tui/shell.rs:9546  [doc comment -> U+25AA]  /// `■ Cancelled …` line is now in the document.
+src/tui/shell.rs:11903  [doc comment -> U+25AA]  /// `■ Cancelled …` line -- which is the turn's line too, so no second one
+src/tui/shell.rs:11908  [doc comment -> U+25AA (a c1db919 capture quote reworded)]  /// (`fx-interrupt-40x120-cmd-cc`: `└ Cancelled sleep 6` and `■ Cancelled
+src/tui/shell.rs:12003  [doc comment -> U+25AA]  /// `■` in the warning grey, `Cancelled` in the hint grey, and the question
+src/tui/shell.rs:15747  [test expectation -> U+25AA]  "\u{25a0} Cancelled \u{b7} What can xfx do differently?".to_string(),
+src/tui/shell.rs:19799  [test comment -> U+25AA (or the glyph dropped from a c1db919 quote)]  /// The turn's own `■ Cancelled` line (claim changed: this was the line
+src/tui/shell.rs:19801  [test expectation -> U+25AA]  const INTERRUPTED_ROW: &str = "\u{25a0} Cancelled \u{b7} What can xfx do differently?";
+src/tui/shell.rs:21294  [test expectation -> U+25AA]  assert_eq!(document[..2], ["■ Cancelled", ""], "{key:?}: {document:?}");
+src/tui/shell.rs:21796  [test comment -> U+25AA (or the glyph dropped from a c1db919 quote)]  // line shell's interrupt notice; it is upstream's `■ Cancelled` line,
+src/tui/shell.rs:21820  [test comment -> U+25AA (or the glyph dropped from a c1db919 quote)]  // `fx-interrupt-40x120-cc-0.3.ansi`: `ESC[38;5;252m■ESC[39m
+src/tui/shell.rs:21840  [test expectation -> U+25AA]  "\u{1b}[38;5;252m\u{25a0}\u{1b}[0m \u{1b}[38;5;255mCancelled\u{1b}[0m \u{b7} What can xfx do differently?"
+src/tui/shell.rs:21853  [test expectation -> U+25AA]  "\u{1b}[38;5;238m\u{25a0}\u{1b}[0m \u{1b}[38;5;235mCancelled\u{1b}[0m \u{b7} What can xfx do differently?"
+src/tui/shell.rs:22775  [test comment -> U+25AA (or the glyph dropped from a c1db919 quote)]  // `receipts/f3/fx-question-…-q2-esc`: the question's `■ Cancelled` is
+src/tui/shell.rs:22860  [test expectation -> U+25AA]  .find("\u{25a0} Cancelled \u{b7} What can xfx")
+src/tui/shell.rs:28047  [test expectation -> U+25AA]  "\u{25a0} Cancelled \u{b7} What can xfx do differently?",
+src/tui/shell.rs:28072  [test expectation -> U+25AA]  "{}\u{25a0}{} {}Cancelled{} \u{b7} What can xfx do differently?",
+src/tui/shell.rs:31603  [test comment -> U+25AA (or the glyph dropped from a c1db919 quote)]  // keystroke. That line is the turn's too: no second `■ Cancelled`
+src/tui/shell.rs:31628  [test expectation -> U+25AA]  "\u{25a0} Cancelled file \u{b7} What can xfx do differently?",
+src/tui/shell.rs:31662  [test comment -> U+25AA (or the glyph dropped from a c1db919 quote)]  // at the keystroke: no `Cancelled` row and no `■` line. The refusal
+src/tui/shell.rs:31682  [test expectation -> U+25AA]  .any(|row| row.contains("Cancelled") || row.starts_with('\u{25a0}')),
+src/tui/shell.rs:31717  [test comment -> U+25AA (or the glyph dropped from a c1db919 quote)]  // `■ Cancelled sleep 30 · …`, which is the turn's line too. The
+src/tui/shell.rs:31742  [test expectation -> U+25AA]  "\u{25a0} Cancelled sleep 30 \u{b7} What can xfx do differently?",
+src/tui/shell.rs:31837  [test expectation -> U+25AA]  "\u{25a0} Cancelled file \u{b7} What can xfx do differently?",
+src/tui/theme.rs:226  [doc comment -> U+25AA]  /// `c1db919`) in the tool group: the `■` a cancelled tool call is marked with
+src/tui/theme.rs:232  [doc comment -> U+25AA]  /// light): what a cancelled call's own line names it by, after `■ Cancelled`.
+src/tui/theme.rs:321  [doc comment -> U+25AA]  /// A cancelled call's own line under its group (`■`).
+src/tui/theme.rs:414  [doc comment -> U+25AA]  /// What marks something the user stopped: a cancelled tool call's `■`.
+src/tui/theme.rs:556  [doc comment -> U+25AA]  // (`LABEL`), bold or not, and a cancelled tool call's `■` (`WARNING`),
+src/tui/theme.rs:1698  [test comment -> U+25AA (or the glyph dropped from a c1db919 quote)]  // question's `■ Cancelled` row, in the outcome grey, pass for a tool
+src/tui/toolgroup.rs:711  [WRITER -> theme::CANCELLED_MARK (U+25AA)]  "{}\u{25a0}{reset}{} Cancelled{reset} {base}{target}{reset}{CANCELLED_FOLLOW_UP}",
+src/tui/toolgroup.rs:1306  [test expectation -> U+25AA]  "\u{25a0} Cancelled sleep 30 \u{b7} What can xfx do differently?",
+src/tui/toolgroup.rs:1313  [test expectation -> U+25AA]  "{WORD}\u{25a0}{RESET}{HINT} Cancelled{RESET} {TEXT}"
+src/tui/toolgroup.rs:1559  [test expectation -> U+25AA]  assert!(rows[4].contains('\u{25a0}'), "{rows:?}");
+src/tui/toolgroup.rs:1857  [test expectation -> U+25AA]  "\u{25a0} Cancelled mcp_web_echo \u{b7} What can xfx do differently?",
+src/tui/toolgroup.rs:2077  [test expectation -> U+25AA]  format!("\u{25a0} Cancelled {SPELLED} \u{b7} What can xfx do differently?"),
+src/tui/transcript.rs:3738  [test expectation -> U+25AA]  "\u{25a0} Cancelled call",
+src/tui/transcript.rs:4053  [test expectation -> U+25AA]  "\u{1b}[38;5;252m\u{25a0}\u{1b}[0m\u{1b}[1;38;5;255m Cancelled\u{1b}[0m \
+src/tui/transcript.rs:4059  [test expectation -> U+25AA]  "\u{1b}[38;5;238m\u{25a0}\u{1b}[0m\u{1b}[1;38;5;235m Cancelled\u{1b}[0m \
+tests/tui.rs:3963  [test comment -> U+25AA (or the glyph dropped from a c1db919 quote)]  // (`fx-interrupt-cmd-40x120-cmd-cc`: `└ Cancelled sleep 6` and `■
+tests/tui.rs:4033  [test expectation -> U+25AA]  &["\u{2514} Cancelled sleep 30", "\u{25a0} Cancelled sleep 30"],
+tests/tui.rs:4111  [test expectation -> U+25AA]  &["\u{25a0} Cancelled sleep 30"],
+tests/tui.rs:12985  [test comment -> U+25AA (or the glyph dropped from a c1db919 quote)]  // `■ Cancelled`, no `✗ system`.
+
+# The same grep on this branch:
+scripts/fxcap/parity-ledger.toml:537:fx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] |^[▪■] Cancelled |^~ Running \(|^  X+ [A-Z]+ · |^\* (?:session|network): |
+scripts/fxcap/parity-ledger.toml:538:xfx_row = '^┃|^  <wall> \(|^(?:auto|full access) · model-a$|^● |^[├└] |^[▪■] Cancelled |^~ Running \(|^  X+ [A-Z]+ · |^\* (?:session|network): 
+scripts/fxcap/scenarios/p5-transcript-cancel.cap:4:# The cancelled marker is the change (c29d5bfc: U+25A0 -> U+25AA). Ctrl-O shows
+src/markdown/unicode_display_data.rs:563:        0x20259F, 0x2025A0, 0x2025A1, 0x0045A2, 0x2025A4, 0x2025A5, 0x2025A6, 0x2025A7,
+src/tui/theme.rs:186:/// U+25AA since c29d5bfc; c1db919 wrote U+25A0, the same colours.
+src/tui/theme.rs:193:/// reads U+25A0 (`tool_group_projection.zig:323-324`,

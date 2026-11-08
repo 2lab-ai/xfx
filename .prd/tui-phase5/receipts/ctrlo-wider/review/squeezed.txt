@@ -1,0 +1,13 @@
+# review/sq_dump.rs on a clone at e6cde019 (base) and at 0b4807bc (head): text | tamed | named | command_text
+## base
+\u{78}\u{1f44d}\u{1f3fd}\u{302e}\u{79} | tamed x\u{1f44d}\\u{1F3FD}\\u{302E}y | named x\u{1f44d}\\u{1F3FD}\\u{302E}y | command x\u{1f44d}\u{1f3fd}\\u{302e}y
+\u{1f44d}\u{1f3fd}\u{302e} | tamed \u{1f44d}\\u{1F3FD}\\u{302E} | named \u{1f44d}\\u{1F3FD}\\u{302E} | command \u{1f44d}\u{1f3fd}\\u{302e}
+\u{78}\u{1f44d}\u{302e}\u{79} | tamed x\u{1f44d}\\u{302E}y | named x\u{1f44d}\\u{302E}y | command x\u{1f44d}\\u{302e}y
+\u{78}\u{995}\u{9be}\u{79} | tamed x\u{995}\\u{09BE}y | named x\u{995}\\u{09BE}y | command x\u{995}\\u{09be}y
+\u{78}\u{1f1e6}\u{302e}\u{79} | tamed x\\u{1F1E6}\\u{302E}y | named x\\u{1F1E6}\\u{302E}y | command x\\u{1f1e6}\\u{302e}y
+## head
+\u{78}\u{1f44d}\u{1f3fd}\u{302e}\u{79} | tamed x\u{1f44d}\\u{1F3FD}\\u{302E}y | named x\u{1f44d}\\u{1F3FD}\\u{302E}y | command x\u{1f44d}\u{1f3fd}\\u{302e}y
+\u{1f44d}\u{1f3fd}\u{302e} | tamed \u{1f44d}\\u{1F3FD}\\u{302E} | named \u{1f44d}\\u{1F3FD}\\u{302E} | command \u{1f44d}\u{1f3fd}\\u{302e}
+\u{78}\u{1f44d}\u{302e}\u{79} | tamed x\u{1f44d}\\u{302E}y | named x\u{1f44d}\\u{302E}y | command x\u{1f44d}\\u{302e}y
+\u{78}\u{995}\u{9be}\u{79} | tamed x\u{995}\\u{09BE}y | named x\u{995}\\u{09BE}y | command x\u{995}\\u{09be}y
+\u{78}\u{1f1e6}\u{302e}\u{79} | tamed x\\u{1F1E6}\\u{302E}y | named x\\u{1F1E6}\\u{302E}y | command x\\u{1f1e6}\\u{302e}y
