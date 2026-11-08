@@ -1,0 +1,16 @@
+# RED at the base's code (fdc5ac0b) with this unit's three tests and the test-only counter (grid::bytes_tokenized) added, nothing else.
+# cargo test --locked --lib -- <the three tests>   (debug, timeout 900; rows are fixed 128 KiB / 3 x 128 KiB, no unbounded source)
+test tui::grid::tests::a_row_this_grid_placed_is_matched_again_without_reading_it ... FAILED
+test tui::transcript::tests::a_block_with_three_long_rows_drawn_again_cuts_none_of_them_again ... FAILED
+test tui::frame::tests::an_append_that_leaves_a_long_row_where_it_is_reads_none_of_it_again ... FAILED
+thread 'tui::grid::tests::a_row_this_grid_placed_is_matched_again_without_reading_it' (347766322) panicked at src/tui/grid.rs:2190:9:
+assertion `left == right` failed: the row was read again to say it had not changed
+  left: 131077
+ right: 0
+thread 'tui::transcript::tests::a_block_with_three_long_rows_drawn_again_cuts_none_of_them_again' (347766323) panicked at src/tui/transcript.rs:4443:9:
+assertion `left == right` failed: the block was written again three times, and rows it had already cut were cut again
+  left: 12
+ right: 0
+thread 'tui::frame::tests::an_append_that_leaves_a_long_row_where_it_is_reads_none_of_it_again' (347766321) panicked at src/tui/frame.rs:7643:9:
+an append that left a row of 131077 bytes where it was read 262186 bytes of rows
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 4456 filtered out; finished in 0.21s

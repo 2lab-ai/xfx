@@ -768,13 +768,31 @@ impl ToolGroup {
             } else {
                 '\u{251c}'
             };
-            rows.push(format!(
-                "{text}{connector} {}{reset}",
-                call.painted(text, palette, whole)
+            rows.push(call_row(
+                text,
+                connector,
+                &call.painted(text, palette, whole),
+                reset,
             ));
         }
         rows
     }
+}
+
+/// `{text}{connector} {painted}{reset}`, in a buffer the size of what it
+/// holds: a call's row can hold the whole of its argument -- megabytes, kept
+/// as the screen keeps them -- and `format!` grows its buffer for the reset
+/// written after the argument to twice the row (GRID-ROW-COST: Ctrl-O's
+/// block held 12 MiB for a row of 6).
+fn call_row(text: &str, connector: char, painted: &str, reset: &str) -> String {
+    let mut row =
+        String::with_capacity(text.len() + connector.len_utf8() + 1 + painted.len() + reset.len());
+    row.push_str(text);
+    row.push(connector);
+    row.push(' ');
+    row.push_str(painted);
+    row.push_str(reset);
+    row
 }
 
 /// The header's words after its mark: the count, then each kind of work by how
@@ -2338,6 +2356,41 @@ mod tests {
         assert_eq!(plain(&group)[1..4], expected);
         let expanded: Vec<String> = group.expanded(DARK).iter().map(|row| strip(row)).collect();
         assert_eq!(expanded[1..4], expected);
+    }
+
+    #[test]
+    fn a_call_row_with_a_long_argument_is_held_at_its_length() {
+        // GRID-ROW-COST, item 5: a call's row keeps its whole argument, and
+        // the reset written after it grew the row's buffer to twice the row --
+        // Ctrl-O's block held 12 MiB for a row of 6 (2 Mi U+261D, this unit's
+        // receipt, `memory.txt`). The bytes are the same row.
+        let pattern = "\u{261d}".repeat(1 << 16);
+        let mut group = ToolGroup::default();
+        group.start(
+            "g".into(),
+            shown(&read::GLOB_FILES, json!({ "pattern": pattern })),
+        );
+        group.start(
+            "r".into(),
+            shown(&read::READ_FILE, json!({ "path": "a.txt" })),
+        );
+        for rows in [group.expanded(DARK), group.rows(DARK)] {
+            let long = rows
+                .iter()
+                .max_by_key(|row| row.len())
+                .expect("the group's rows");
+            assert!(
+                long.len() > pattern.len(),
+                "the row does not hold the argument whole"
+            );
+            assert!(
+                long.capacity() < long.len() + long.len() / 8,
+                "a row of {} bytes held {}",
+                long.len(),
+                long.capacity()
+            );
+            assert!(strip(long).starts_with("\u{251c} "));
+        }
     }
 
     #[test]

@@ -1,0 +1,31 @@
+# GRID-ROW-COST, item 5: what is live at the end of the memory probe (memory_probe.rs, case wider: 2 Mi x U+261D,
+# the call's start then its arguments, 20 reads, Ctrl-O opened, PageUp, a call joining, closed, a theme report,
+# opened, a resize to 100 columns, closed), on the base (fdc5ac0b) and the head (8dd4604e).
+# Each: the probe appended to a --no-local clone, built release with CARGO_PROFILE_RELEASE_STRIP=false
+# CARGO_PROFILE_RELEASE_DEBUG=1 (symbols only), run under MallocStackLogging=1 with XFX_PROBE_PAUSE_AT=ctrlo_closed_again,
+# and `malloc_history <pid> -allBySize` taken while it held there; live_sites.py's output (sites of 0.5 MiB or more:
+# allocations, MiB, the crate's frames as file:line innermost first). Line numbers are each tree's own; the
+# probe sits at the end of shell.rs (shell.rs:462xx), full_transcript.rs moved 5 lines at the head.
+# The probe's own pattern is shell.rs:46271/46272 (6.0 MiB in both).
+
+== base fdc5ac0b: live 61.8 MiB at the pause
+     1 allocations   16.0 MiB  full_transcript.rs:1124 < spec_from_iter_nested.rs:60 < full_transcript.rs:1747 < shell.rs:4017 < shell.rs:46302 < function.rs:250
+    22 allocations   12.0 MiB  toolgroup.rs:738 < full_transcript.rs:2069 < full_transcript.rs:2017 < full_transcript.rs:1939 < full_transcript.rs:1455 < full_transcript.rs:1864 < shell.rs:4808 < shell.rs:46346
+ 21399 allocations    6.5 MiB  mod.rs:665 < tool_status.rs:126 < full_transcript.rs:2069 < full_transcript.rs:2017 < full_transcript.rs:1939 < full_transcript.rs:1455 < full_transcript.rs:1864 < shell.rs:4808
+     1 allocations    6.0 MiB  shell.rs:46271 < function.rs:250
+     1 allocations    6.0 MiB  bridge.rs:498 < shell.rs:46287 < function.rs:250
+     1 allocations    6.0 MiB  mod.rs:665 < mod.rs:4131 < full_transcript.rs:1194 < full_transcript.rs:2069 < full_transcript.rs:2017 < full_transcript.rs:1939 < full_transcript.rs:1455 < full_transcript.rs:1864
+     1 allocations    6.0 MiB  full_transcript.rs:1670 < shell.rs:4017 < shell.rs:46289 < function.rs:250
+     2 allocations    2.0 MiB  backtrace.rs:172
+     1 allocations    0.8 MiB  tool_status.rs:117 < full_transcript.rs:2069 < full_transcript.rs:2017 < full_transcript.rs:1939 < full_transcript.rs:1455 < full_transcript.rs:1864 < shell.rs:4808 < shell.rs:46349
+
+== head 8dd4604e: live 55.0 MiB at the pause
+     1 allocations   16.0 MiB  full_transcript.rs:1124 < spec_from_iter_nested.rs:60 < full_transcript.rs:1752 < shell.rs:4017 < shell.rs:46303 < function.rs:250
+ 21399 allocations    6.5 MiB  mod.rs:665 < tool_status.rs:126 < full_transcript.rs:2074 < full_transcript.rs:2022 < full_transcript.rs:1944 < full_transcript.rs:1460 < full_transcript.rs:1869 < shell.rs:4808
+    22 allocations    6.0 MiB  toolgroup.rs:738 < full_transcript.rs:2074 < full_transcript.rs:2022 < full_transcript.rs:1944 < full_transcript.rs:1460 < full_transcript.rs:1869 < shell.rs:4808 < shell.rs:46347
+     1 allocations    6.0 MiB  shell.rs:46272 < function.rs:250
+     1 allocations    6.0 MiB  bridge.rs:498 < shell.rs:46288 < function.rs:250
+     1 allocations    6.0 MiB  mod.rs:665 < mod.rs:4131 < full_transcript.rs:1194 < full_transcript.rs:2074 < full_transcript.rs:2022 < full_transcript.rs:1944 < full_transcript.rs:1460 < full_transcript.rs:1869
+     1 allocations    6.0 MiB  full_transcript.rs:1675 < shell.rs:4017 < shell.rs:46290 < function.rs:250
+     2 allocations    2.0 MiB  backtrace.rs:172 < rt.rs:206
+     1 allocations    0.8 MiB  tool_status.rs:117 < full_transcript.rs:2074 < full_transcript.rs:2022 < full_transcript.rs:1944 < full_transcript.rs:1460 < full_transcript.rs:1869 < shell.rs:4808 < shell.rs:46350

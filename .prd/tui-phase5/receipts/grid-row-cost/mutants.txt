@@ -1,0 +1,64 @@
+# mutants.py on a --no-local clone at 8dd4604e (the code of 96c3c88a; only tests differ), one hold of the suite lock;
+# python3 -I -B mutants.py <clone>; output as printed.
+# 8dd4604e test(tui): a kept replay found is kept for the vector after (GRID-ROW-C; limit 600 s a mutant
+unchanged: exit 0; red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail ok; moves ok; retint ok; narrower ok; kept-cells ok; kept-key ok; kept-refuses ok; session ok; let-go ok
+G1 a row laid from any text answers for every text: KILLED; red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail ok; moves FAILED; retint ok; narrower ok; kept-cells ok; kept-key ok; kept-refuses ok; session FAILED; let-go ok
+    moves said: assertion `left == right` failed: row 8: the remembered answer is not a fresh placement's
+    session said: a long call started: a vector was refused: Some(Custom { kind: Other, error: "output check refused a cell the 
+G2 the screen's width left out of the key: KILLED; red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail ok; moves ok; retint ok; narrower FAILED; kept-cells ok; kept-key ok; kept-refuses ok; session ok; let-go ok
+    narrower said: assertion `left == right` failed: row 10: the remembered answer is not a fresh placement's
+G3 the grid's width left out of the key (declared equivalent): SURVIVED, the modules' tests too (test result: ok. 512 passed; 0 failed; 1 ignored; 0 measured; 3956 filtered out; finished in 22.91s); red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail ok; moves ok; retint ok; narrower ok; kept-cells ok; kept-key ok; kept-refuses ok; session ok; let-go ok
+G4 an erased row keeps its text: KILLED; red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail ok; moves FAILED; retint ok; narrower ok; kept-cells ok; kept-key ok; kept-refuses ok; session ok; let-go ok
+    moves said: assertion `left == right` failed: row 8: the remembered answer is not a fresh placement's
+G5 a retinted row keeps its text: KILLED; red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail ok; moves ok; retint FAILED; narrower ok; kept-cells ok; kept-key ok; kept-refuses ok; session FAILED; let-go ok
+    retint said: assertion `left == right` failed: row 3: the remembered answer is not a fresh placement's
+    session said: assertion `left == right` failed: the theme went light: rows that are not what their text lays
+G6 a writer's record forgets the text: KILLED; red-grid ok; red-frame FAILED; red-thrash ok; red-row ok; red-rail ok; moves FAILED; retint ok; narrower ok; kept-cells ok; kept-key ok; kept-refuses ok; session FAILED; let-go ok
+    red-frame said: an append that left a row of 131077 bytes where it was read 131109 bytes of rows
+    moves said: a record forgot what the row was laid from
+    session said: no row on the screen was laid from a long call's text
+G7 a placement remembers no text: KILLED; red-grid FAILED; red-frame FAILED; red-thrash ok; red-row ok; red-rail ok; moves FAILED; retint ok; narrower ok; kept-cells ok; kept-key ok; kept-refuses ok; session FAILED; let-go ok
+    red-grid said: assertion `left == right` failed: the row was read again to say it had not changed
+    red-frame said: an append that left a row of 131077 bytes where it was read 131109 bytes of rows
+    moves said: a record forgot what the row was laid from
+    session said: no row on the screen was laid from a long call's text
+C1 the screen's width left out of a kept replay's key: KILLED; red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail ok; moves ok; retint ok; narrower ok; kept-cells ok; kept-key FAILED; kept-refuses ok; session ok; let-go ok
+    kept-key said: assertion `left == right` failed: 80 on 40
+C2 the plane's width left out of a kept replay's key: KILLED; red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail ok; moves ok; retint ok; narrower ok; kept-cells ok; kept-key FAILED; kept-refuses ok; session ok; let-go ok
+    kept-key said: assertion `left == right` failed: 10 on 80: found for another key
+C3 a kept replay found for any text at its widths: KILLED; red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail ok; moves ok; retint ok; narrower ok; kept-cells ok; kept-key ok; kept-refuses ok; session FAILED; let-go ok
+    session said: a long call started: a vector was refused: Some(Custom { kind: Other, error: "output check refused a cell the 
+C4 a kept replay found trusts the row the screen holds: KILLED; red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail ok; moves ok; retint ok; narrower ok; kept-cells FAILED; kept-key ok; kept-refuses FAILED; session ok; let-go ok
+    kept-cells said: assertion `left == right` failed: 10 columns: a kept replay laid other cells
+    kept-refuses said: a row the screen does not hold, declared and not written: TerminalModel { primary: Plane { rows: 24, cols: 80,
+C5 a vector's replays never kept for the next: KILLED; red-grid ok; red-frame FAILED; red-thrash ok; red-row ok; red-rail ok; moves ok; retint ok; narrower ok; kept-cells FAILED; kept-key FAILED; kept-refuses FAILED; session ok; let-go ok
+    red-frame said: an append that left a row of 131077 bytes where it was read 131101 bytes of rows
+    kept-cells said: assertion `left == right` failed: 10 columns: the kept row was read again
+    kept-key said: assertion `left == right` failed
+    kept-refuses said: assertion `left == right` failed: the declared row was not laid from the kept replay
+C6 every vector's replays kept for good: KILLED; red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail ok; moves ok; retint ok; narrower ok; kept-cells ok; kept-key FAILED; kept-refuses ok; session ok; let-go ok
+    kept-key said: assertion `left == right` failed: a row no vector declared since the last turn was still kept
+C7 a kept replay found is not carried into this vector's: KILLED; red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail ok; moves ok; retint ok; narrower ok; kept-cells FAILED; kept-key ok; kept-refuses ok; session ok; let-go ok
+    kept-cells said: assertion `left == right` failed: 10 columns
+C8 no row is long enough to keep: KILLED; red-grid ok; red-frame FAILED; red-thrash ok; red-row ok; red-rail ok; moves ok; retint ok; narrower ok; kept-cells FAILED; kept-key FAILED; kept-refuses FAILED; session ok; let-go ok
+    red-frame said: an append that left a row of 131077 bytes where it was read 131101 bytes of rows
+    kept-cells said: capacity overflow
+    kept-key said: capacity overflow
+    kept-refuses said: capacity overflow
+T1 a block's write never turns its cuts over: KILLED; red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail ok; moves ok; retint ok; narrower ok; kept-cells ok; kept-key ok; kept-refuses ok; session ok; let-go FAILED
+    let-go said: assertion `left == right` failed: A, B, C, and A again
+T2 every write's cuts kept for good: KILLED; red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail ok; moves ok; retint ok; narrower ok; kept-cells ok; kept-key ok; kept-refuses ok; session ok; let-go FAILED
+    let-go said: assertion `left == right` failed: A, B, C, and A again
+T3 a kept cut found is not carried into this write's: KILLED; red-grid ok; red-frame ok; red-thrash FAILED; red-row ok; red-rail ok; moves ok; retint ok; narrower ok; kept-cells ok; kept-key ok; kept-refuses ok; session ok; let-go ok
+    red-thrash said: assertion `left == right` failed: the block was written again three times, and rows it had already cut were cu
+T4 a cut row kept as the row it was cut from: SURVIVED the unit's tests; KILLED by the modules' tests (1 failed); red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail ok; moves ok; retint ok; narrower ok; kept-cells ok; kept-key ok; kept-refuses ok; session ok; let-go ok
+    failed: tui::transcript::tests::a_kept_row_is_found_only_for_the_same_row_at_the_same_width
+    test result: FAILED. 511 passed; 1 failed; 1 ignored; 0 measured; 3956 filtered out; finished in 22.65s
+T5 a row that fits kept twice: KILLED; red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail ok; moves ok; retint ok; narrower ok; kept-cells ok; kept-key ok; kept-refuses ok; session ok; let-go FAILED
+    let-go said: a row that fits, cut to itself, was kept twice
+B1 a call's row built by format!: KILLED; red-grid ok; red-frame ok; red-thrash ok; red-row FAILED; red-rail ok; moves ok; retint ok; narrower ok; kept-cells ok; kept-key ok; kept-refuses ok; session ok; let-go ok
+    red-row said: a row of 196625 bytes held 393242
+B2 an argument's rows left as the growth left them: KILLED; red-grid ok; red-frame ok; red-thrash ok; red-row ok; red-rail FAILED; moves ok; retint ok; narrower ok; kept-cells ok; kept-key ok; kept-refuses ok; session ok; let-go ok
+    red-rail said: assertion `left == right` failed
+# 21 of 22 killed; clone clean after: True
+exit 0

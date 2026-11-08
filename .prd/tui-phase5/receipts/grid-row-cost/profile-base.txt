@@ -1,0 +1,96 @@
+# GRID-ROW-COST: where an event's frame goes at the base (fdc5ac0b), heavy case, one long row.
+# The probe (frame_cost_probe.rs) appended to a --no-local clone at fdc5ac0b, built release with
+# CARGO_PROFILE_RELEASE_STRIP=false CARGO_PROFILE_RELEASE_DEBUG=1 (symbols only; the measured builds
+# keep strip = true), run XFX_PROBE=heavy XFX_PROBE_EVENTS=60, and macOS `sample <pid> 10` taken while
+# it ran the 120 events (1 ms interval). profile_tree.py's output: depth in the call tree, samples, symbol.
+# Of commit_frame's 6209 samples: append_floating 3112 + 3029; under them preflight -> Expected::edits ->
+# tokenize_row 1606 + 1499, and render_append_recorded -> Grid::row_matches -> Grid::place_row 3017;
+# seed_primary 4, build_frame (the band's frame) 13 + 2 + 2, the transcript's prepare_front 22 + 3;
+# Shell::apply 38 + 34 (outside commit_frame).
+  24   6209 _RINvNtNtCshbckJCs5Rte_3xfx3tui10event_loop12commit_frameNtNtB2_5tests11FlakyScreenEB6_
+  28   6167 _RINvNtNtCshbckJCs5Rte_3xfx3tui10event_loop15commit_documentNtB2_8AssemblyEB6_
+  30   6145 _RINvMs3_NtNtCshbckJCs5Rte_3xfx3tui10transcriptNtB6_10Transcript10emit_frontNtNtB8_7deliver4EmitNCINvNtB8_10event_loop15commit_documentNtB1A_8Assembly
+  32   3112 _RINvMs1_NtNtCshbckJCs5Rte_3xfx3tui5frameNtB6_4Band15append_floatingNtNtB8_10event_loop8AssemblyEBa_
+  34   1606 _RNvNtNtCshbckJCs5Rte_3xfx3tui5check9preflight
+  38   1606 _RNvMsf_NtNtCshbckJCs5Rte_3xfx3tui5checkNtB5_8Expected5edits
+  40    857 _RINvNtNtCshbckJCs5Rte_3xfx3tui4grid12tokenize_rowNCNvMsf_NtB4_5checkNtBT_8Expected5place0EB6_
+  40    268 _RINvNtNtCshbckJCs5Rte_3xfx3tui4grid12tokenize_rowNCNvMsf_NtB4_5checkNtBT_8Expected5place0EB6_
+  40    267 _RINvNtNtCshbckJCs5Rte_3xfx3tui4grid12tokenize_rowNCNvMsf_NtB4_5checkNtBT_8Expected5place0EB6_
+  40    212 _RINvNtNtCshbckJCs5Rte_3xfx3tui4grid12tokenize_rowNCNvMsf_NtB4_5checkNtBT_8Expected5place0EB6_
+  40      2 _RINvNtNtCshbckJCs5Rte_3xfx3tui4grid12tokenize_rowNCNvMsf_NtB4_5checkNtBT_8Expected5place0EB6_
+  42      2 _RNCNvMsf_NtNtCshbckJCs5Rte_3xfx3tui5checkNtB7_8Expected5place0Bb_
+  34   1499 _RNvNtNtCshbckJCs5Rte_3xfx3tui5check9preflight
+  36   1499 _RNvMsf_NtNtCshbckJCs5Rte_3xfx3tui5checkNtB5_8Expected5edits
+  38    800 _RINvNtNtCshbckJCs5Rte_3xfx3tui4grid12tokenize_rowNCNvMsf_NtB4_5checkNtBT_8Expected5place0EB6_
+  38    250 _RINvNtNtCshbckJCs5Rte_3xfx3tui4grid12tokenize_rowNCNvMsf_NtB4_5checkNtBT_8Expected5place0EB6_
+  38    248 _RINvNtNtCshbckJCs5Rte_3xfx3tui4grid12tokenize_rowNCNvMsf_NtB4_5checkNtBT_8Expected5place0EB6_
+  38    199 _RINvNtNtCshbckJCs5Rte_3xfx3tui4grid12tokenize_rowNCNvMsf_NtB4_5checkNtBT_8Expected5place0EB6_
+  38      2 _RINvNtNtCshbckJCs5Rte_3xfx3tui4grid12tokenize_rowNCNvMsf_NtB4_5checkNtBT_8Expected5place0EB6_
+  40      2 _RNCNvMsf_NtNtCshbckJCs5Rte_3xfx3tui5checkNtB7_8Expected5place0Bb_
+  34      4 _RNvNtNtCshbckJCs5Rte_3xfx3tui5check9preflight
+  34      2 _RNvNtNtCshbckJCs5Rte_3xfx3tui5check9preflight
+  34      1 _RNvNtNtCshbckJCs5Rte_3xfx3tui5check9preflight
+  32   3029 _RINvMs1_NtNtCshbckJCs5Rte_3xfx3tui5frameNtB6_4Band15append_floatingNtNtB8_10event_loop8AssemblyEBa_
+  34   3024 _RNvMs1_NtNtCshbckJCs5Rte_3xfx3tui5frameNtB5_4Band22render_append_recorded
+  36   3017 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui4gridNtB4_4Grid11row_matches
+  38   1595 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui4gridNtB4_4Grid9place_row
+  38    519 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui4gridNtB4_4Grid9place_row
+  38    495 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui4gridNtB4_4Grid9place_row
+  38    404 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui4gridNtB4_4Grid9place_row
+  38      4 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui4gridNtB4_4Grid9place_row
+  40      4 _RNCNvMs_NtNtCshbckJCs5Rte_3xfx3tui4gridNtB6_4Grid9place_row0Ba_
+  36      7 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui4gridNtB4_4Grid11row_matches
+  34      4 _RNvMs1_NtNtCshbckJCs5Rte_3xfx3tui5frameNtB5_4Band22render_append_recorded
+  34      1 _RNvMs1_NtNtCshbckJCs5Rte_3xfx3tui5frameNtB5_4Band22render_append_recorded
+  32      4 _RINvMs1_NtNtCshbckJCs5Rte_3xfx3tui5frameNtB6_4Band15append_floatingNtNtB8_10event_loop8AssemblyEBa_
+  34      4 _RNvMsb_NtNtCshbckJCs5Rte_3xfx3tui5checkNtB5_13TerminalModel12seed_primary
+  36      3 _RNvMs8_NtNtCshbckJCs5Rte_3xfx3tui5checkNtB5_5Plane11from_shadow
+  36      1 _RNvMs8_NtNtCshbckJCs5Rte_3xfx3tui5checkNtB5_5Plane11from_shadow
+  30     22 _RINvMs3_NtNtCshbckJCs5Rte_3xfx3tui10transcriptNtB6_10Transcript10emit_frontNtNtB8_7deliver4EmitNCINvNtB8_10event_loop15commit_documentNtB1A_8Assembly
+  32     19 _RNvMs3_NtNtCshbckJCs5Rte_3xfx3tui10transcriptNtB5_10Transcript13prepare_front
+  38     14 _RNvMs3_NtNtCshbckJCs5Rte_3xfx3tui10transcriptNtB5_10Transcript14cut_for_screen
+  40     12 _RNvMs3_NtNtCshbckJCs5Rte_3xfx3tui10transcriptNtB5_10Transcript14cut_for_screen
+  38      4 _RNvMs3_NtNtCshbckJCs5Rte_3xfx3tui10transcriptNtB5_10Transcript14cut_for_screen
+  32      3 _RNvMs3_NtNtCshbckJCs5Rte_3xfx3tui10transcriptNtB5_10Transcript13prepare_front
+  38      3 _RNvMs3_NtNtCshbckJCs5Rte_3xfx3tui10transcriptNtB5_10Transcript14cut_for_screen
+  30     13 _RNvMs1_NtNtCshbckJCs5Rte_3xfx3tui5frameNtB5_4Band11build_frame
+  32      7 _RNvNtNtCshbckJCs5Rte_3xfx3tui5check9preflight
+  32      5 _RNvNtNtCshbckJCs5Rte_3xfx3tui5check9preflight
+  32      1 _RNvNtNtCshbckJCs5Rte_3xfx3tui5check9preflight
+  30      2 _RNvMs1_NtNtCshbckJCs5Rte_3xfx3tui5frameNtB5_4Band11build_frame
+  32      2 _RNvMsb_NtNtCshbckJCs5Rte_3xfx3tui5checkNtB5_13TerminalModel12seed_primary
+  34      2 _RNvMs8_NtNtCshbckJCs5Rte_3xfx3tui5checkNtB5_5Plane11from_shadow
+  30      2 _RNvMs1_NtNtCshbckJCs5Rte_3xfx3tui5frameNtB5_4Band11build_frame
+  32      2 _RNvMs1_NtNtCshbckJCs5Rte_3xfx3tui5frameNtB5_4Band4plan
+  28      1 _RNvNtNtCshbckJCs5Rte_3xfx3tui5check16preflight_update
+  24     38 _RNvMs2_NtNtCshbckJCs5Rte_3xfx3tui5shellNtB5_5Shell5apply
+  30     20 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup7redraws
+  32     20 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup4rows
+  34     10 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup16header_and_calls
+  34      7 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup16header_and_calls
+  34      3 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup16header_and_calls
+  30      9 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup6redraw
+  30      7 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup6redraw
+  32      7 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup4rows
+  34      3 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup16header_and_calls
+  34      2 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup16header_and_calls
+  34      2 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup16header_and_calls
+  30      2 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup6redraw
+  24     34 _RNvMs2_NtNtCshbckJCs5Rte_3xfx3tui5shellNtB5_5Shell5apply
+  30     19 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup7redraws
+  32     19 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup4rows
+  34     10 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup16header_and_calls
+  34      6 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup16header_and_calls
+  34      3 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup16header_and_calls
+  30     10 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup6redraw
+  30      5 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup6redraw
+  32      5 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup4rows
+  34      3 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup16header_and_calls
+  34      1 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup16header_and_calls
+  34      1 _RNvMs_NtNtCshbckJCs5Rte_3xfx3tui9toolgroupNtB4_9ToolGroup16header_and_calls
+   8      1 _RNvMs3_NtNtCshbckJCs5Rte_3xfx3tui10transcriptNtB5_10Transcript14cut_for_screen
+   8      1 _RNvMs3_NtNtCshbckJCs5Rte_3xfx3tui10transcriptNtB5_10Transcript14cut_for_screen
+   8      1 _RNvMs3_NtNtCshbckJCs5Rte_3xfx3tui10transcriptNtB5_10Transcript14cut_for_screen
+   8      1 _RNvMs3_NtNtCshbckJCs5Rte_3xfx3tui10transcriptNtB5_10Transcript14cut_for_screen
+   8      1 _RNvMs3_NtNtCshbckJCs5Rte_3xfx3tui10transcriptNtB5_10Transcript14cut_for_screen
+   6      1 _RNvMs3_NtNtCshbckJCs5Rte_3xfx3tui10transcriptNtB5_10Transcript14cut_for_screen

@@ -160,15 +160,20 @@ pub(crate) struct Band {
     /// frames so building one allocates nothing after the first, and swapped
     /// with [`shadow`](Self::shadow) only by a write that succeeded.
     target: Grid,
-    /// One row of scratch space [`Grid::row_matches`] renders a candidate
+    /// One row of scratch space [`Grid::row_holds`] renders a candidate
     /// settled row into, reused across a whole append so only this row's own
     /// cell-vector storage is (re)allocated once, not once per row compared
-    /// -- narrower than "the check allocates nothing": [`Grid::place_row`]
-    /// still allocates a `String` per grapheme cluster it writes into
-    /// `scratch`, on every row it renders, matched or not. Disposable:
+    /// -- narrower than "the check allocates nothing": a row it places
+    /// there still allocates a `String` per grapheme cluster, on every row it
+    /// renders, matched or not (a row the grid placed itself from the same
+    /// text is answered without one, [`Grid::row_holds`]). Disposable:
     /// nothing ever reads it as a claim about the screen, only as the last
-    /// thing [`Grid::row_matches`] rendered into it.
+    /// thing [`Grid::row_holds`] rendered into it.
     scratch: Grid,
+    /// What the output check's replay of this band's appends laid for long
+    /// rows, kept for the next append ([`check::preflight_kept`]): the check's
+    /// own record, which nothing here reads.
+    replays: check::Replays,
     /// The window title this session wants, and `None` for a session that has
     /// not asked for one -- which is every session until [`Band::set_title`] is
     /// called, and therefore every test below.
@@ -391,6 +396,7 @@ impl Band {
             shadow: Grid::blank(0, 0),
             target: Grid::blank(0, 0),
             scratch: Grid::blank(0, 0),
+            replays: check::Replays::default(),
             title: None,
             shown_title: None,
             caret: None,
@@ -1625,8 +1631,9 @@ impl Band {
         // band top as the frame that landed last, and no extra blank scroll
         // ahead of it (`scroll != fresh` means `Transcript` handed back more
         // scroll than rows, which is not a screen this reasoning covers).
-        // Row-by-row it still costs a real rendered-cell comparison
-        // ([`Grid::row_matches`]) rather than trusting the frame-level facts
+        // Row-by-row it still costs a real rendered-cell comparison, or the
+        // grid's record that the row was laid from this text
+        // ([`Grid::row_holds`]), rather than trusting the frame-level facts
         // alone -- those rule out *why* a row could be stale, not whether
         // this particular one is.
         let reuse_eligible = !self.damaged
@@ -1644,7 +1651,7 @@ impl Band {
             let reused = reuse_eligible
                 && self
                     .target
-                    .row_matches(line, row, geometry, &mut self.scratch);
+                    .row_holds(line, row, geometry, &mut self.scratch);
             if !reused {
                 place(&mut self.buffer, line, row, geometry);
                 self.target.place_row(line, row, geometry);
@@ -2662,7 +2669,7 @@ impl Band {
         // the rows that may be reached, and the exact number of scrolls, since
         // a row carried off the top of the screen is in native scrollback for
         // good.
-        check::preflight(
+        check::preflight_kept(
             &seed,
             &appended,
             &check::Declared::new(
@@ -2684,6 +2691,7 @@ impl Band {
                 },
                 footprint,
             ),
+            &mut self.replays,
         )
         .map_err(Emit::rejected)?;
         out.emit(&appended)?;
@@ -7606,6 +7614,45 @@ mod tests {
         assert_eq!(band.painted_top(), painted_before);
         assert_eq!(band.document_bottom, document_bottom_before);
         assert_eq!(band.caret, caret_before);
+    }
+
+    #[test]
+    fn an_append_that_leaves_a_long_row_where_it_is_reads_none_of_it_again() {
+        // GRID-ROW-COST (T-U4 round 3's residual): a tool group's block is
+        // written again on every change to the group, and a call's row in it
+        // can hold megabytes that paint one cell. An append that leaves that
+        // row where it is read all of it twice: the grid, to say the row had
+        // not changed (`Grid::row_matches`), and the output check, to replay
+        // the row the append declares (`check::preflight`) -- 262 ms an event
+        // for 8 MiB of marks, of which these two are 99 % (this unit's
+        // receipt, `profile-base.txt`).
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame clears `damaged`");
+        let long = format!("a{}tail", "\u{301}".repeat(64 * 1024));
+        let first = vec![long.clone(), "marker-B".to_string()];
+        band.append_document(&mut screen, 0, &first, &geometry)
+            .expect("the first settled block lands");
+
+        screen.written.clear();
+        // The group grew by a row: the two rows it had stay where they are.
+        let second = vec![long.clone(), "marker-B".to_string(), "marker-C".to_string()];
+        let (landed, read) = crate::tui::grid::bytes_tokenized(|| {
+            band.append_document(&mut screen, 1, &second, &geometry)
+        });
+        landed.expect("the grown block lands");
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        assert!(
+            !text.contains("tail") && text.contains("marker-C"),
+            "the repro's own append did not keep the long row and add the new one: {text:?}"
+        );
+        assert!(
+            read < long.len(),
+            "an append that left a row of {} bytes where it was read {read} bytes of rows",
+            long.len()
+        );
     }
 
     #[test]

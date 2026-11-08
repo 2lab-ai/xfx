@@ -1149,15 +1149,82 @@ struct Expected<'a> {
     /// The next step to perform.
     at: usize,
     geometry: &'a super::layout::Geometry,
+    /// What this replay and the one before it laid for long rows, when the
+    /// emitter keeps them ([`preflight_kept`]).
+    replays: Option<&'a mut Replays>,
+}
+
+/// The rows a replay lays from what an earlier one laid, rather than reading
+/// them again: rows of this many bytes or more. A row of a screen's width is a
+/// few hundred bytes, and reading one costs microseconds; a tool call's row can
+/// hold megabytes that paint one cell (`super::toolgroup`'s inline argument),
+/// and reading one cluster by cluster costs a frame many times over.
+const REPLAY_KEPT_BYTES: usize = 4 * 1024;
+
+/// What the replay of a declared row laid for a long text, kept from one of an
+/// emitter's vectors to its next ([`preflight_kept`]): a tool group's block is
+/// written again on every change to the group, and a long row it leaves where
+/// it is is declared again, unchanged, by every append that rewrites the block.
+///
+/// **The check's own, never the emitter's.** Each entry is cells this module's
+/// replay laid itself, through the one tokenizer, keyed on everything the
+/// tokenizer reads -- the text, the plane's width and the screen's -- so a row
+/// laid from an entry is the row a fresh replay lays. Nothing here asks what
+/// the emitter's grid believes a row holds (`super::grid`'s `Laid`): a vector
+/// that leaves a row other than the declared text, or a seed that holds one,
+/// is refused as before, which is what the check is for.
+///
+/// One generation, not a cache of some size: what a vector's replay laid
+/// replaces what the one before it laid, so every long row a block declares
+/// again is found however many there are, and nothing outlives the vector
+/// after the one that last declared it.
+#[derive(Debug, Default)]
+pub(crate) struct Replays {
+    /// What the last vector's replay laid.
+    kept: Vec<Replayed>,
+    /// What this vector's replay has laid, so far.
+    laid: Vec<Replayed>,
+}
+
+/// One long row a replay laid: the text, the widths it was laid at, and the
+/// cells.
+#[derive(Debug)]
+struct Replayed {
+    text: String,
+    cols: u16,
+    screen: u16,
+    cells: Vec<CellState>,
+}
+
+impl Replays {
+    /// The cells `text` was laid to at these widths by this replay or the one
+    /// before it, and carried into this one's generation.
+    fn find(&mut self, text: &str, cols: u16, screen: u16) -> Option<&Replayed> {
+        let same =
+            |kept: &Replayed| kept.cols == cols && kept.screen == screen && kept.text == text;
+        if let Some(at) = self.laid.iter().position(same) {
+            return self.laid.get(at);
+        }
+        let at = self.kept.iter().position(same)?;
+        let found = self.kept.swap_remove(at);
+        self.laid.push(found);
+        self.laid.last()
+    }
+
+    /// This vector's replay is over: what it laid is what the next one finds.
+    fn turn(&mut self) {
+        self.kept = std::mem::take(&mut self.laid);
+    }
 }
 
 impl<'a> Expected<'a> {
-    fn new(seed: &Plane, script: &'a Script<'a>) -> Self {
+    fn new(seed: &Plane, script: &'a Script<'a>, replays: Option<&'a mut Replays>) -> Self {
         Self {
             plane: seed.clone(),
             steps: &script.steps,
             at: 0,
             geometry: script.geometry,
+            replays,
         }
     }
 
@@ -1183,9 +1250,25 @@ impl<'a> Expected<'a> {
     /// Puts one row of expected text on the expected plane.
     fn place(&mut self, row: u16, text: &str, at: usize) -> Result<(), Reject> {
         let cols = self.plane.cols;
+        let screen = self.geometry.cols;
         let Some(cells) = self.plane.row_mut(row) else {
             return Ok(());
         };
+        // A long text this replay or the last one laid at these widths is laid
+        // from what it laid ([`Replays`]): the same cells, without reading the
+        // text cluster by cluster again.
+        let long = text.len() >= REPLAY_KEPT_BYTES;
+        if let Some(kept) = self
+            .replays
+            .as_deref_mut()
+            .filter(|_| long)
+            .and_then(|replays| replays.find(text, cols, screen))
+        {
+            for (cell, kept) in cells.iter_mut().zip(&kept.cells) {
+                cell.clone_from(kept);
+            }
+            return Ok(());
+        }
         for cell in cells.iter_mut() {
             *cell = CellState::Empty;
         }
@@ -1235,7 +1318,17 @@ impl<'a> Expected<'a> {
                 row,
                 u16::try_from(column + 1).unwrap_or(u16::MAX),
             )),
-            None => Ok(()),
+            None => {
+                if let Some(replays) = self.replays.as_deref_mut().filter(|_| long) {
+                    replays.laid.push(Replayed {
+                        text: text.to_string(),
+                        cols,
+                        screen,
+                        cells: cells.to_vec(),
+                    });
+                }
+                Ok(())
+            }
         }
     }
 
@@ -1335,6 +1428,31 @@ pub(crate) fn preflight(
     bytes: &[u8],
     declared: &Declared<'_>,
 ) -> Result<TerminalModel, Reject> {
+    replayed(seed, bytes, declared, None)
+}
+
+/// [`preflight`], for an emitter that writes the same long rows again vector
+/// after vector (`super::frame::Band`'s appends): the cells the replay lays
+/// for a long declared row are kept in `replays` for its next vector, and
+/// found there instead of read again ([`Replays`]). The same check, the same
+/// answer.
+pub(crate) fn preflight_kept(
+    seed: &TerminalModel,
+    bytes: &[u8],
+    declared: &Declared<'_>,
+    replays: &mut Replays,
+) -> Result<TerminalModel, Reject> {
+    let checked = replayed(seed, bytes, declared, Some(&mut *replays));
+    replays.turn();
+    checked
+}
+
+fn replayed(
+    seed: &TerminalModel,
+    bytes: &[u8],
+    declared: &Declared<'_>,
+    replays: Option<&mut Replays>,
+) -> Result<TerminalModel, Reject> {
     let mut model = seed.clone();
     // A row-painting vector is replayed **beside** its declaration rather than
     // compared to it at the end: the rows an append delivers past the height of
@@ -1344,6 +1462,7 @@ pub(crate) fn preflight(
         Intent::Document { script, .. } => Some(Expected::new(
             seed.plane_of(declared.footprint.plane),
             script,
+            replays,
         )),
         _ => None,
     };
@@ -4864,7 +4983,7 @@ mod tests {
             for row in rows {
                 let mut grid = Grid::blank(1, cols);
                 grid.place_row(1, row, &geometry);
-                let mut expected = Expected::new(&Plane::blank(1, cols), &script);
+                let mut expected = Expected::new(&Plane::blank(1, cols), &script, None);
                 expected
                     .place(1, row, 0)
                     .expect("a row this crate can paint");
@@ -4880,6 +4999,181 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Long rows a replay keeps ([`Replays`]): one letter under marks that
+    /// paint one cell, coloured; a wide cluster with the marks behind its
+    /// second half; and a row far wider than any screen, with a family in it.
+    fn long_rows() -> Vec<String> {
+        let marks = "\u{301}".repeat(REPLAY_KEPT_BYTES);
+        vec![
+            format!("{COLOUR}a{marks}{RESET}tail"),
+            format!("\u{4e2d}{COLOUR}{marks}x"),
+            format!(
+                "{}{FAMILY}{}",
+                "x".repeat(70),
+                "y".repeat(REPLAY_KEPT_BYTES)
+            ),
+        ]
+    }
+
+    /// The cells `row` is laid to on a plane `cols` wide for `geometry`'s
+    /// screen, by a replay holding `replays`, and how many bytes of rows the
+    /// tokenizer read for it.
+    fn laid(
+        row: &str,
+        cols: u16,
+        geometry: &Geometry,
+        replays: Option<&mut Replays>,
+    ) -> (Vec<CellState>, usize) {
+        let script = Script::new(geometry);
+        let mut expected = Expected::new(&Plane::blank(1, cols), &script, replays);
+        let ((), read) = crate::tui::grid::bytes_tokenized(|| {
+            expected
+                .place(1, row, 0)
+                .expect("a row this crate can paint");
+        });
+        (expected.plane.row(1).expect("the one row").to_vec(), read)
+    }
+
+    #[test]
+    fn a_kept_replay_lays_the_cells_a_fresh_one_lays_and_reads_none_of_the_row() {
+        // GRID-ROW-COST: an append that leaves a long row where it is declares
+        // it again, and the replay read all of it again to lay it -- half of
+        // an event's 262 ms for 8 MiB of marks. What the last vector's replay
+        // laid is laid again from what it laid: the same cells.
+        let geometry = geometry();
+        for cols in [10u16, 80] {
+            for row in long_rows() {
+                let (fresh, _) = laid(&row, cols, &geometry, None);
+                let mut replays = Replays::default();
+                let (first, read) = laid(&row, cols, &geometry, Some(&mut replays));
+                assert_eq!(first, fresh);
+                assert_eq!(read, row.len(), "the first replay reads the row");
+                replays.turn();
+                let (again, read) = laid(&row, cols, &geometry, Some(&mut replays));
+                assert_eq!(
+                    again, fresh,
+                    "{cols} columns: a kept replay laid other cells"
+                );
+                assert_eq!(read, 0, "{cols} columns: the kept row was read again");
+                // Twice in one vector is found too, and a row found is kept
+                // for the vector after: a block declares it in every one.
+                let (twice, read) = laid(&row, cols, &geometry, Some(&mut replays));
+                assert_eq!((twice, read), (fresh.clone(), 0));
+                for _ in 0..2 {
+                    replays.turn();
+                    let (later, read) = laid(&row, cols, &geometry, Some(&mut replays));
+                    assert_eq!((later, read), (fresh.clone(), 0), "{cols} columns");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_kept_replay_is_found_only_for_its_text_at_its_widths_and_for_one_vector() {
+        // Keyed on all the tokenizer reads: the text, the plane's width and the
+        // screen's, which it cuts at the narrower of. And kept one vector: a
+        // row the next vector did not declare is read again after it.
+        let geometry = geometry();
+        let narrower = layout::solve(24, 40, 1).expect("a narrower band");
+        let rows = long_rows();
+        let row = rows[2].as_str();
+        let mut replays = Replays::default();
+        laid(row, 80, &geometry, Some(&mut replays));
+        replays.turn();
+        for (cols, screen, text) in [
+            (80u16, &narrower, row),
+            (10, &geometry, row),
+            (80, &geometry, rows[1].as_str()),
+        ] {
+            let (cells, read) = laid(text, cols, screen, Some(&mut replays));
+            assert_eq!(
+                cells,
+                laid(text, cols, screen, None).0,
+                "{cols} on {}",
+                screen.cols
+            );
+            assert_eq!(
+                read,
+                text.len(),
+                "{cols} on {}: found for another key",
+                screen.cols
+            );
+        }
+        // Found once more in this vector, then not declared by the next.
+        assert_eq!(laid(row, 80, &geometry, Some(&mut replays)).1, 0);
+        replays.turn();
+        replays.turn();
+        assert_eq!(
+            laid(row, 80, &geometry, Some(&mut replays)).1,
+            row.len(),
+            "a row no vector declared since the last turn was still kept"
+        );
+    }
+
+    #[test]
+    fn a_kept_replay_still_refuses_a_screen_that_does_not_hold_the_declared_row() {
+        // The replay's record is the check's own, made from the text, and never
+        // the emitter's belief about a row: a long row an append declares and
+        // leaves where it is, on a screen that holds something else there --
+        // left by the seed, or by the bytes -- is refused as a row read afresh
+        // would be.
+        let geometry = geometry();
+        let rows = long_rows();
+        let row = rows[0].as_str();
+        let mut script = Script::new(&geometry);
+        script.place(5, row);
+        let declared = Declared::new(
+            Intent::Document {
+                script: &script,
+                caret: None,
+                cursor_visible: None,
+                title: None,
+            },
+            Footprint::new(PlaneKind::Primary, vec![Seg::Place(5..=5)]),
+        );
+        let blank = Grid::blank(geometry.rows, geometry.cols);
+        let mut replays = Replays::default();
+        let written = format!("\u{1b}[5;1H{row}\u{1b}[K");
+        preflight_kept(
+            &seed(&blank, None),
+            written.as_bytes(),
+            &declared,
+            &mut replays,
+        )
+        .expect("the row, written");
+
+        let mut other = Grid::blank(geometry.rows, geometry.cols);
+        other.place_row(5, "something else", &geometry);
+        let ((), read) = crate::tui::grid::bytes_tokenized(|| {
+            let refused = preflight_kept(&seed(&other, None), b"", &declared, &mut replays)
+                .expect_err("a row the screen does not hold, declared and not written");
+            assert_eq!(
+                refused.shape(),
+                "a cell the vector did not leave as intended"
+            );
+        });
+        assert_eq!(
+            read, 0,
+            "the declared row was not laid from the kept replay"
+        );
+
+        let mut held = Grid::blank(geometry.rows, geometry.cols);
+        held.place_row(5, row, &geometry);
+        let refused = preflight_kept(
+            &seed(&held, None),
+            b"\x1b[5;1HRUINED\x1b[K",
+            &declared,
+            &mut replays,
+        )
+        .expect_err("bytes that leave another row where a kept one is declared");
+        assert_eq!(
+            refused.shape(),
+            "a cell the vector did not leave as intended"
+        );
+        preflight_kept(&seed(&held, None), b"", &declared, &mut replays)
+            .expect("the row, held and left");
     }
 
     #[test]

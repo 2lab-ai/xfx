@@ -1,0 +1,15 @@
+# RED for item 5 (memory) at fcf78575's code with the two tests below added, nothing else (debug, timeout 900; fixed texts of 64 Ki scalars and 3000 lines).
+# cargo test --locked --lib -- a_call_row_with_a_long_argument_is_held_at_its_length an_arguments_rows_are_held_at_their_count
+test tui::toolgroup::tests::a_call_row_with_a_long_argument_is_held_at_its_length ... FAILED
+test tui::full_transcript::tests::an_arguments_rows_are_held_at_their_count ... FAILED
+---- tui::toolgroup::tests::a_call_row_with_a_long_argument_is_held_at_its_length stdout ----
+thread 'tui::toolgroup::tests::a_call_row_with_a_long_argument_is_held_at_its_length' (348292574) panicked at src/tui/toolgroup.rs:2335:13:
+a row of 196625 bytes held 393242
+---- tui::full_transcript::tests::an_arguments_rows_are_held_at_their_count stdout ----
+thread 'tui::full_transcript::tests::an_arguments_rows_are_held_at_their_count' (348292573) panicked at src/tui/full_transcript.rs:3282:9:
+assertion `left == right` failed
+  left: 28672
+ right: 21001
+    tui::full_transcript::tests::an_arguments_rows_are_held_at_their_count
+    tui::toolgroup::tests::a_call_row_with_a_long_argument_is_held_at_its_length
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4467 filtered out; finished in 0.27s
