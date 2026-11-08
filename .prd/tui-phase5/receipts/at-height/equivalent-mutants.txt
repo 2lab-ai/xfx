@@ -1,0 +1,27 @@
+# Round 2's two surviving mutants, and why each is equivalent.
+
+## reset-per-word (file_rows_painted put back to six for each new @ word)
+A new word's FilePicker starts untrusted, so its keys are spent until its
+first frame lands (file_completion_state.zig:175, :239-240@481104fd), and
+that frame sets the count before any key can read it. The count is fx's
+`visible_rows`, kept in the picker state for the session (only deinit resets
+it, :121-128), and for the same reason no key in fx reads it across words
+(opus, SHOULD 1). Kept on the Shell to mirror fx's lifetime.
+
+## landed-any-slot (a landed frame trusts the list whatever slot it showed)
+fx sets trust only from a frame whose receipt shows the file picker
+(picker_kind == .file, app_render_runtime.zig:1854-1857). In xfx the slot
+check matters only if a frame lands showing another surface while the @
+list exists. A question or the model's ask dismisses the list as it opens
+(dismiss_picker before the panel is installed: src/tui/shell.rs:5065 for a
+permission question, :9661 for the model's ask, at a4914d8e). The other surfaces that outrank the list were probed in
+a throwaway test (not committed; shell.rs restored byte for byte, git status
+clean for it):
+
+  #[test] fn zz_probe_surfaces_over_the_list() -- in ws2 at 40x120:
+    "@" listed, then Ctrl-P           -> PROBE ctrl-p: picker=false slot_files=false
+    "/provider @s"                    -> PROBE provider: picker=false slot_files=false slot_provider=true
+    "/mcp show @s"                    -> PROBE mcp: picker=false slot_files=false slot_mcpargs=false
+
+None of them keeps the list, so no frame lands over a live one, and the check
+mirrors fx's condition at no cost.

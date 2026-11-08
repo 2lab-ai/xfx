@@ -381,6 +381,259 @@
   251          self.file_completion_window_start = 0;
   252      }
 
+== src/core/input/file_completion_state.zig:121-143@481104fd -- deinit resets every field; invalidate and distrust clear trusted, and leave visible_rows
+  121      pub fn deinit(self: *State, alloc: std.mem.Allocator) void {
+  122          if (self.prepared) |*value| value.deinit(alloc);
+  123          if (self.presented) |*value| value.deinit(alloc);
+  124          const state_info = @typeInfo(State).@"struct";
+  125          inline for (state_info.field_names, state_info.field_types, state_info.field_attrs) |field_name, field_type, field_attrs| {
+  126              @field(self.*, field_name) = field_attrs.defaultValue(field_type).?;
+  127          }
+  128      }
+  129  
+  130      pub fn invalidate(self: *State) void {
+  131          self.episode +%= 1;
+  132          self.active = false;
+  133          self.trusted = false;
+  134          self.source = null;
+  135          self.lookup_dirty = true;
+  136          self.directory_request = null;
+  137          self.refresh_requested = false;
+  138          self.selection_missing = false;
+  139      }
+  140  
+  141      pub fn distrust(self: *State) void {
+  142          self.trusted = false;
+  143      }
+
+== src/core/input/file_completion_state.zig:147-196@481104fd -- reconcile: a changed query clears trusted (:175) and leaves visible_rows
+  147      pub fn reconcile(self: *State, query: ?file_picker_path.Query, scope_epoch: u64, indexed: bool) bool {
+  148          const q = query orelse {
+  149              if (!self.active) return false;
+  150              self.invalidate();
+  151              return true;
+  152          };
+  153          const kept = @min(q.query.len, self.raw_query.len);
+  154          if (self.active and self.scope_epoch == scope_epoch and self.indexed == indexed and
+  155              self.at_offset == q.at_offset and self.token_start == q.token_start and
+  156              self.replace_end == q.replace_end and self.quoted == q.quoted and
+  157              self.raw_len == q.query.len and std.mem.eql(u8, self.raw_query[0..kept], q.query[0..kept])) return false;
+  158          var decoded_storage: [file_index.max_path_len]u8 = undefined;
+  159          const decoded = q.decoded_query(&decoded_storage) catch null;
+  160          const lookup = if (decoded) |bytes| if (bytes.len <= self.lookup_query.len) bytes else null else null;
+  161          const same_lookup = self.active and self.directory_request == null and self.scope_epoch == scope_epoch and self.indexed == indexed and
+  162              self.lookup_len != null and lookup != null and std.mem.eql(u8, self.lookup_query[0..self.lookup_len.?], lookup.?);
+  163          self.directory_request = null;
+  164          self.refresh_requested = self.refresh_requested or !self.active or self.indexed != indexed or self.scope_epoch != scope_epoch;
+  165          self.episode +%= 1;
+  166          self.active = true;
+  167          self.indexed = indexed;
+  168          self.scope_epoch = scope_epoch;
+  169          @memcpy(self.raw_query[0..kept], q.query[0..kept]);
+  170          self.raw_len = q.query.len;
+  171          self.at_offset = q.at_offset;
+  172          self.token_start = q.token_start;
+  173          self.replace_end = q.replace_end;
+  174          self.quoted = q.quoted;
+  175          self.trusted = false;
+  176          self.selection_missing = false;
+  177          self.lookup_len = if (lookup) |bytes| bytes.len else null;
+  178          if (lookup) |bytes| @memcpy(self.lookup_query[0..bytes.len], bytes);
+  179          if (same_lookup and !self.lookup_dirty) {
+  180              // Reuse bytes for another occurrence, never its old presentation
+  181              // authority. Ownership moves into the unacknowledged slot.
+  182              if (self.prepared == null) {
+  183                  self.prepared = self.presented;
+  184                  self.presented = null;
+  185              }
+  186              if (self.prepared) |*value| {
+  187                  value.episode = self.episode;
+  188                  value.id = self.next_revision;
+  189                  self.next_revision +%= 1;
+  190              }
+  191          } else {
+  192              self.lookup_dirty = true;
+  193              self.source = null;
+  194          }
+  195          return true;
+  196      }
+
+== src/core/input/file_completion_state.zig:204-237@481104fd -- stage leaves trusted; current is the presented snapshot; selected and acceptedEmpty need trusted
+  204      pub fn stage(self: *State, alloc: std.mem.Allocator, source: file_index.ReadableRevision, status: Status, rows: ?Rows) void {
+  205          if (self.prepared) |*old| old.deinit(alloc);
+  206          self.prepared = .{ .id = self.next_revision, .episode = self.episode, .status = status, .rows = rows };
+  207          self.next_revision +%= 1;
+  208          self.source = source;
+  209          self.lookup_dirty = false;
+  210      }
+  211  
+  212      fn current(self: *const State) ?*const Snapshot {
+  213          if (!self.active) return null;
+  214          if (self.presented) |*value| if (value.episode == self.episode) return value;
+  215          return null;
+  216      }
+  217  
+  218      pub fn selected(self: *const State, index: usize) ?file_index.SearchResult {
+  219          if (!self.trusted or self.selection_missing) return null;
+  220          const value = self.current() orelse return null;
+  221          if (value.status != .ready or index >= value.items().len) return null;
+  222          return value.items()[index];
+  223      }
+  224  
+  225      pub fn acceptedEmpty(self: *const State) bool {
+  226          const value = self.current() orelse return false;
+  227          return self.trusted and !self.selection_missing and value.status == .empty;
+  228      }
+  229  
+  230      pub fn retry(self: *State) void {
+  231          self.lookup_dirty = true;
+  232          self.refresh_requested = true;
+  233      }
+  234  
+  235      pub fn rejectSelection(self: *State) void {
+  236          self.selection_missing = true;
+  237      }
+
+== src/core/app/app_render_runtime.zig:1002-1026@481104fd -- a frame not committed distrusts; a committed one acknowledges with a receipt, distrusts without
+ 1002              if (!result.is_committed()) {
+ 1003                  input_completion_runtime.CompletionRuntime(App).distrustFilePicker(app);
+ 1004                  render_requests.resetInputPendingAbortStreak();
+ 1005                  attempt.restore();
+ 1006                  debug_trace.logf(
+ 1007                      "frame_schedule",
+ 1008                      "attempt_restore outcome={s} reasons={s} reason_count={d} invalidations={d} pending_reason_count={d} animation_phase={d} animation_deadline_ms={d}",
+ 1009                      .{
+ 1010                          @tagName(result.shadow_state),
+ 1011                          reason_names,
+ 1012                          snapshot.reasons.count(),
+ 1013                          snapshot.invalidations.len,
+ 1014                          render_requests.pendingReasonCount(),
+ 1015                          render_requests.visibleAnimationPhase(),
+ 1016                          render_requests.animation_next_deadline_ms,
+ 1017                      },
+ 1018                  );
+ 1019                  return;
+ 1020              }
+ 1021  
+ 1022              if (result.file_picker_receipt) |receipt| {
+ 1023                  input_completion_runtime.CompletionRuntime(App).acknowledgeFilePicker(app, receipt);
+ 1024              } else {
+ 1025                  input_completion_runtime.CompletionRuntime(App).distrustFilePicker(app);
+ 1026              }
+
+== src/core/app/input_completion_runtime.zig:775-809@481104fd -- filePickerEligible; reconcile distrusts while ineligible, resize-pending, reset-pending or dimensions invalid
+  775          fn filePickerEligible(app: *App) bool {
+  776              if (comptime !runtime_profile.allows(App, .file_index)) return false;
+  777              if (comptime @hasField(App, "question_prompt")) if (app.question_prompt.isActive()) return false;
+  778              if (comptime @hasField(App, "approval_prompt")) if (app.approval_prompt.isActive()) return false;
+  779              if (comptime @hasField(App, "auth")) {
+  780                  if (comptime @hasDecl(@TypeOf(app.auth), "pickerView")) if (app.auth.pickerView().active) return false;
+  781              }
+  782              if (comptime @hasField(App, "shell")) {
+  783                  if (comptime @hasDecl(@TypeOf(app.shell), "fullTranscriptActive")) if (app.shell.fullTranscriptActive()) return false;
+  784              }
+  785              return !catalogMenuOwnsSurface(app);
+  786          }
+  787  
+  788          pub fn reconcileFilePicker(app: *App) void {
+  789              if (comptime !runtime_profile.allows(App, .file_index)) return;
+  790              const picker = &app.input_runtime.picker;
+  791              const query = picker.activeFilePickerQuery(&app.input_runtime.edit_state);
+  792              var decoded_storage: [file_index.max_path_len]u8 = undefined;
+  793              const indexed = if (query) |q| blk: {
+  794                  const decoded = q.decoded_query(&decoded_storage) catch break :blk true;
+  795                  break :blk fileCompletionsDependOnIndex(app, decoded);
+  796              } else true;
+  797              if (picker.file_completion.reconcile(query, fileScopeEpoch(app), indexed)) picker.resetFilePickerIndex();
+  798              const eligible = filePickerEligible(app);
+  799              if (!eligible) picker.file_completion.distrust();
+  800              if (comptime @hasDecl(App, "reconcileDirectoryCompletion")) app.reconcileDirectoryCompletion(eligible);
+  801              if (comptime @hasField(App, "shell")) {
+  802                  if (comptime @hasField(@TypeOf(app.shell), "render_requests")) {
+  803                      if (app.shell.render_requests.resizeLifecyclePending()) picker.file_completion.distrust();
+  804                  }
+  805                  if (comptime @hasField(@TypeOf(app.shell), "terminal_reset_pending")) {
+  806                      if (app.shell.terminal_reset_pending or app.shell.terminal_dimensions_invalid) picker.file_completion.distrust();
+  807                  }
+  808              }
+  809          }
+
+== src/core/app/input_completion_runtime.zig:946-966@481104fd -- Tab: no selection chooses nothing (retry only for unavailable or stale)
+  946          pub fn autocompleteFilePickerSelection(app: *App, max_input_len: usize) !edit_contract.InsertResult {
+  947              if (comptime !runtime_profile.allows(App, .file_index)) return .inactive;
+  948              reconcileFilePicker(app);
+  949              if (!filePickerEligible(app)) return .inactive;
+  950              const selection = resolveFilePickerSelection(app) orelse {
+  951                  const picker = &app.input_runtime.picker;
+  952                  const status = filePickerView(app).status;
+  953                  if (status != .loading and (status == .unavailable or status == .stale or picker.file_completion.selection_missing)) picker.file_completion.retry();
+  954                  app.shell.render_requests.request(.footer);
+  955                  return .inactive;
+  956              };
+  957              return applyFilePickerSelection(app, selection, max_input_len, .open);
+  958          }
+  959  
+  960          fn resolveFilePickerSelection(app: *App) ?FilePickerSelection {
+  961              const picker = &app.input_runtime.picker;
+  962              const query = picker.activeFilePickerQuery(&app.input_runtime.edit_state) orelse return null;
+  963              const choice = picker.file_completion.selected(picker.file_completion_index) orelse return null;
+  964              return .{ .query = query, .choice = choice };
+  965          }
+  966  
+
+== src/core/app/input_completion_runtime.zig:1034-1056@481104fd -- Enter: no selection is spent unless acceptedEmpty
+ 1034          pub fn submitFilePickerOnEnter(app: *App, max_input_len: usize) !?edit_contract.InsertResult {
+ 1035              if (comptime !runtime_profile.allows(App, .file_index)) return null;
+ 1036              reconcileFilePicker(app);
+ 1037              if (!filePickerOwnsSurface(app)) return null;
+ 1038              const selection = resolveFilePickerSelection(app) orelse {
+ 1039                  if (app.input_runtime.picker.file_completion.acceptedEmpty()) return null;
+ 1040                  return .inactive;
+ 1041              };
+ 1042              const result = try applyFilePickerSelection(app, selection, max_input_len, .select);
+ 1043              debug_trace.logf(
+ 1044                  "input",
+ 1045                  "file picker Enter consumed selected={s} limit_exceeded={s}",
+ 1046                  .{
+ 1047                      if (result == .inserted) "true" else "false",
+ 1048                      if (result == .limit_exceeded) "true" else "false",
+ 1049                  },
+ 1050              );
+ 1051              return result;
+ 1052          }
+ 1053  
+ 1054          pub fn filePickerOwnsSurface(app: *App) bool {
+ 1055              return filePickerEligible(app) and hasFileQuery(app);
+ 1056          }
+
+== src/core/input/picker_state.zig:196-213@481104fd -- invalidate on a new inline-picker episode and on dismiss
+  196      pub fn resetInlinePickerEpisode(self: *State) void {
+  197          self.file_completion.invalidate();
+  198          self.slash_completion_index = 0;
+  199          self.slash_completion_window_start = 0;
+  200          self.inline_picker_suppression = null;
+  201      }
+  202  
+  203      pub fn resetInlinePickerForHistoryRecall(self: *State, editor: *const editor_state.State) void {
+  204          self.resetInlinePickerEpisode();
+  205          self.inline_picker_suppression = suppressionForHistoryRecall(
+  206              self.inlinePickerTriggerKind(editor),
+  207          );
+  208      }
+  209  
+  210      pub fn dismissInlinePicker(self: *State, kind: InlinePickerKind) void {
+  211          if (kind == .file) self.file_completion.invalidate();
+  212          self.inline_picker_suppression = .{ .dismissed_until_trigger_change = kind };
+  213      }
+
+== src/ui/resize_runtime.zig:657-662@481104fd -- dimensions invalid: set on a resize no layout fits
+  657  fn handleInvalidResize(shell: *TranscriptRuntime, err: anyerror) !void {
+  658      if (!ui_terminal.isInvalidLayoutError(err)) return err;
+  659      if (!shell.has_committed_frame) return err;
+  660      shell.terminal_dimensions_invalid = true;
+  661      try recordOwnedBandInvalidation(shell, .resize);
+  662      shell.footer_viewport.invalidateAfterExternalClear();
+
 == src/ui/footer/picker_presentation.zig:634-639@c1db9191 -- the old height: the list picker's, at most six
   634  pub fn activeListPickerReservedRows(terminal_rows: u16, input_extra: u16, banner_rows: u16) u16 {
   635      const fixed_rows: u16 = 5 +| input_extra +| banner_rows;

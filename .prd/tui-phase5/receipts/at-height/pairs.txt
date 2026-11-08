@@ -1,4 +1,4 @@
-banners: head x𝒇x v0.1.0-9d1e116 [debug] | base x𝒇x v0.1.0-712dd8d [debug]
+banners: head x𝒇x v0.1.0-79b8196 [debug] | base x𝒇x v0.1.0-712dd8d [debug]
 pair                                                        base  head
 p5-input-at-16x120-at-src-enter                                1     1
 p5-input-at-16x120-at-src-tab                                 10    10
@@ -21,6 +21,9 @@ p5-input-at-40x120-at-st-down12                               12    10
 p5-input-at-40x120-at-st-up6                                  12    10
 p5-input-at-40x120-at-st                                      12    10
 p5-input-at-40x120-at-stat                                    12    10
+p5-input-at-gate-40x120-downs-after                           12     0
+p5-input-at-gate-40x120-downs-in-the-read                      8     0
+p5-input-at-gate-40x120-tab-in-the-read                       14     0
 p5-input-at-height-12x120-at                                   0     0
 p5-input-at-height-12x120-down12                               0     0
 p5-input-at-height-12x120-pgup                                 0     0
@@ -47,4 +50,4 @@ p5-input-at-resize-40x120-short-up7                           14    14
 p5-input-at-resize-40x120-short                               14    14
 p5-input-at-resize-40x120-tall-down1                          24    28
 p5-input-at-resize-40x120-tall                                24    28
-pairs: 47; identical on the head (0 rows differ): 21
+pairs: 50; identical on the head (0 rows differ): 24

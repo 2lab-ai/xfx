@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-9d1e116 [debug] · Run /help for commands
+x𝒇x v0.1.0-79b8196 [debug] · Run /help for commands
 
 ┃ @src/config.zig
 

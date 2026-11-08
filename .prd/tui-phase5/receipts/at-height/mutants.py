@@ -19,14 +19,24 @@ TESTS = [
     "tui::file_picker::tests",
     "tui::event_loop::tests::the_at_list",
     "tui::event_loop::tests::the_frame_that_gives_the_plane_back",
-    "tui::event_loop::tests::the_rows_painted_are_kept",
+    "tui::event_loop::tests::a_new_at_words_arrows",
+    "tui::event_loop::tests::a_refused_frame_leaves_the_at",
+    "tui::event_loop::tests::a_resize_spends_the_at",
+    "tui::event_loop::tests::under_the_full_transcript",
     "tui::shell::tests::a_waiting_prompts_rows_come_out",
     "tui::shell::tests::a_frame_that_gave_the_list_no_rows",
+    "tui::shell::tests::only_a_frame_that_landed",
+    "tui::shell::tests::tab_and_enter_before",
     "tui::shell::tests::an_at_opens_the_file_list",
     "tui::shell::tests::a_query_narrows_the_list",
     "tui::shell::tests::a_page_key_moves_the_list",
     "tui::shell::tests::a_later_at_puts_the_rows",
     "tui::shell::tests::control_j_and_k_walk_the_list",
+    "tui::shell::tests::the_rows_fill_in",
+    "tui::shell::tests::enter_puts_the_path",
+    "tui::shell::tests::an_unmatched_mention",
+    "tui::shell::tests::a_directory_choice",
+    "tui::shell::tests::one_undo_takes",
 ]
 LIMIT_S = 900
 
@@ -35,6 +45,7 @@ SH = "src/tui/shell.rs"
 EL = "src/tui/event_loop.rs"
 
 MUTANTS = [
+    # round 1's, at the round-2 code
     ("ten-is-six", FP, "const MOST_FILE_ROWS: u16 = 10;", "const MOST_FILE_ROWS: u16 = 6;"),
     ("no-transcript-floor", FP, "const TRANSCRIPT_ROWS: u16 = 5;", "const TRANSCRIPT_ROWS: u16 = 0;"),
     ("grown-only", FP, "        list.max(grown)\n", "        grown\n"),
@@ -47,10 +58,26 @@ MUTANTS = [
     ("step-ignores-rows", FP, "self.window_start = edge_start(self.window_start, count, self.selected, painted);", "self.window_start = edge_start(self.window_start, count, self.selected, MOST_ROWS);"),
     ("landed-band-forgets", EL, "    // And the `@` list's arrows scroll the rows this frame showed it in.\n    shell.file_picker_landed();\n", ""),
     ("restore-forgets", EL, "                    shell.file_picker_landed();\n                    failures.succeeded();", "                    failures.succeeded();"),
-    ("landed-any-slot", SH, "if self.geometry.panel > 0 && matches!(self.slot(), Some(Slot::Files(_))) {", "if self.geometry.panel > 0 {"),
-    ("landed-no-panel-guard", SH, "if self.geometry.panel > 0 && matches!(self.slot(), Some(Slot::Files(_))) {", "if matches!(self.slot(), Some(Slot::Files(_))) {"),
+    ("landed-any-slot", SH, "let shown = self.geometry.panel > 0 && matches!(self.slot(), Some(Slot::Files(_)));", "let shown = self.geometry.panel > 0;"),
+    ("landed-no-panel-guard", SH, "let shown = self.geometry.panel > 0 && matches!(self.slot(), Some(Slot::Files(_)));", "let shown = matches!(self.slot(), Some(Slot::Files(_)));"),
     ("reset-per-word", SH, "            self.file_picker = Some(files);\n            return;\n", "            self.file_picker = Some(files);\n            self.file_rows_painted = file_picker::MOST_ROWS;\n            return;\n"),
     ("refresh-refits-window", FP, "        self.rows = rows;\n        self.shown = shown;\n        true\n", "        self.rows = rows;\n        self.shown = shown;\n        self.window_start = edge_start(self.window_start, self.rows.len(), self.selected, MOST_ROWS);\n        true\n"),
+    # round 2: the trusted gate
+    ("new-word-trusted", FP, "            window_start: 0,\n            trusted: false,\n", "            window_start: 0,\n            trusted: true,\n"),
+    ("step-ignores-trust", FP, "if !self.trusted || count == 0 {", "if count == 0 {"),
+    ("chosen-ignores-trust", FP, "self.marked().filter(|_| self.trusted)", "self.marked()"),
+    ("submit-ignores-trust", FP, "(None, Shown::Empty) if self.trusted => Enter::Submit,", "(None, Shown::Empty) => Enter::Submit,"),
+    ("tab-takes-marked", SH, "match files.chosen().cloned() {", "match files.marked().cloned() {"),
+    ("landed-never-trusts", SH, "        if shown {\n            files.trust();\n", "        if shown {\n"),
+    ("landed-never-distrusts", SH, "        } else {\n            files.distrust();\n        }\n    }\n", "        }\n    }\n"),
+    ("refused-keeps-trust", SH, "        // And the `@` list it carried is not known to be on the screen.\n        self.file_picker_unseen();\n", ""),
+    ("other-plane-keeps-trust", EL, "                    shell.file_picker_unseen();\n", ""),
+    ("resize-keeps-trust", SH, "        // `input_completion_runtime.zig:803-806@481104fd`).\n        self.file_picker_unseen();\n", "        // `input_completion_runtime.zig:803-806@481104fd`).\n"),
+    ("pending-resize-keeps-trust", SH, "if self.render.resize_pending() || self.full.is_open() {", "if self.full.is_open() {"),
+    ("transcript-keeps-trust", SH, "if self.render.resize_pending() || self.full.is_open() {", "if self.render.resize_pending() {"),
+    # round 2: the window on a refresh
+    ("refresh-resets-at-row-0", FP, "        if kept.is_none() {\n            self.window_start = 0;\n        }\n", "        if self.selected == 0 {\n            self.window_start = 0;\n        }\n"),
+    ("refresh-never-resets", FP, "        if kept.is_none() {\n            self.window_start = 0;\n        }\n", ""),
 ]
 
 
