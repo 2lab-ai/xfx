@@ -1566,12 +1566,27 @@ pub(crate) struct Shell {
     /// The title owed waits past this tick's frame and goes out with the
     /// next tick's ([`Self::take_leading_title`], [`Self::tick_committed`]).
     title_held: bool,
-    /// Answer text read under the user's stop of a turn whose end may still
-    /// say it finished first ([`Self::stop_reads_end`]): kept for the drain
-    /// it arrived in, presented if that drain also reads the turn's end and
-    /// the end is not the stop's own, dropped when the drain ends
-    /// ([`Self::ui_events_taken`]). `true` marks an operational line.
-    late: Vec<(bool, String)>,
+    /// What the user's stop of a turn whose end may still say it finished
+    /// first ([`Self::stop_reads_end`]) read of that turn, in the order it
+    /// came: its answer text and operational lines, and a tool row read
+    /// behind them ([`Late`]). Kept for the drain it arrived in: presented
+    /// in order if that drain also reads the turn's end and the end is not
+    /// the stop's own, and otherwise the text dropped and the rows written
+    /// ([`Self::release_late`]).
+    ///
+    /// **Not counted against the drain's bound** ([`Self::paced_backlog`]):
+    /// only the turn's end, or a drain that empties the channel, lets go of
+    /// it, so counted it would keep the loop from the one event that does.
+    /// Its own bound is the channel's: what it holds was on the channel when
+    /// the stop was pressed, or decoded before the stop reached the
+    /// provider's decode, which polls the turn's flag the keystroke raises
+    /// before anything is sent (`WorkHandle::control`; `gateway::sse`'s
+    /// `push`); once the runtime reads the stop, the turn's token is
+    /// cancelled and `bridge::send_ui` sends nothing more. A turn the stop
+    /// did not cancel had finished, so everything it sent is on the channel
+    /// ahead of its end, [`super::bridge::UI_EVENTS`] events of at most
+    /// [`super::bridge::DELTA_SLICE`] each.
+    late: Vec<Late>,
     /// The user stopped work at a keystroke of this tick
     /// ([`Self::cancel_turn_with`], [`Self::stop_compaction`]), so its `idle`
     /// and its `Cancelled` frame are this tick's ([`Self::take_leading_title`]).
@@ -2122,6 +2137,19 @@ enum Mark {
     /// write answers ([`Shell::saves_said`]) it holds everything behind it,
     /// the stream included, so the order said is the order given.
     Saving { save: Held, then: notice::Notice },
+}
+
+/// One thing a stop's turn read, held for that turn's end ([`Shell::late`]).
+#[derive(Debug)]
+enum Late {
+    /// Answer text: presented only with the turn's finish.
+    Text(String),
+    /// An operational line ([`Mark::Operational`]): the same.
+    Operational(String),
+    /// A tool row ([`Mark::ToolStart`], [`Mark::ToolResult`]) read behind
+    /// held text: written whatever the end says, as a row read with nothing
+    /// held is, at once -- held only so it does not go ahead of that text.
+    Tool(Mark),
 }
 
 /// Which writer a [`Mark::Saving`] waits for, and which of its saves.
@@ -4307,7 +4335,7 @@ impl Shell {
                     // then says that ([`UiEvent::Recovered`]).
                     self.stream(&text);
                 } else if self.keeps_late_text() {
-                    self.late.push((false, text));
+                    self.late.push(Late::Text(text));
                 }
             }
             // In the place the stream has reached, not at once: it is about the
@@ -4316,7 +4344,7 @@ impl Shell {
                 if !self.cancelling {
                     self.mark(Mark::Operational(text));
                 } else if self.keeps_late_text() {
-                    self.late.push((true, text));
+                    self.late.push(Late::Operational(text));
                 }
             }
             // A request failed and the turn will try it again. Not after a
@@ -4384,7 +4412,7 @@ impl Shell {
                 if !self.cancelling {
                     self.activity.set(Work::Tool { name: tool });
                 }
-                self.mark(Mark::ToolStart { id: call_id, shown });
+                self.mark_tool(Mark::ToolStart { id: call_id, shown });
             }
             UiEvent::ToolResult {
                 call_id,
@@ -4400,7 +4428,7 @@ impl Shell {
                 if !self.cancelling {
                     self.activity.set(Work::Thinking);
                 }
-                self.mark(Mark::ToolResult {
+                self.mark_tool(Mark::ToolResult {
                     id: call_id,
                     ok,
                     // Spelled and bounded as the call's row has it, by the
@@ -4665,9 +4693,27 @@ impl Shell {
                 // A cancel that waited for a running call is answered now: the
                 // call's own line if the turn ends with it still running, and
                 // otherwise the turn's ([`Self::cancel_turn_with`]).
+                //
+                // What the stop held of this turn in this drain ([`Self::late`]):
+                // under the stop's own end its rows alone, where they were
+                // read; under any other end the whole of it, in the order it
+                // came, as upstream's drain presents a batch that holds the
+                // turn's own finish, or that its worker had already let go
+                // of, as no interrupted segment (`batchSegmentIsInterrupted`,
+                // `app_worker_runtime.zig:301-325@481104fd`; `takeEventBatch`'s
+                // `cancelled_turn_id`, `worker_runtime.zig:923-937`) -- under
+                // the keystroke's `Cancelled` line, the owed one included,
+                // which is asked about the calls as the held rows leave them,
+                // and above the group's end and the summary or the failure.
                 let owed = self.cancel_owed.take();
-                let stops_a_call = self.group.running();
-                self.mark(Mark::TurnOver);
+                let presented = !quiet && !self.late.is_empty();
+                if !presented {
+                    self.release_late(false);
+                }
+                let stops_a_call = self.runs_a_call_past_late();
+                if !presented {
+                    self.mark(Mark::TurnOver);
+                }
                 if let Some(waiting) = owed {
                     if !stops_a_call {
                         self.write_cancelled();
@@ -4676,23 +4722,9 @@ impl Shell {
                         self.write_notice(&notice::Notice::cancelled("queue", QUEUE_DROPPED));
                     }
                 }
-                // The answer read after the stop in this drain, when the end
-                // is not the stop's own: upstream's drain presents a batch
-                // that holds the turn's own finish, or that its worker had
-                // already let go of, as no interrupted segment
-                // (`batchSegmentIsInterrupted`, `app_worker_runtime.zig:301-325@481104fd`;
-                // `takeEventBatch`'s `cancelled_turn_id`,
-                // `worker_runtime.zig:923-937`) -- under the keystroke's
-                // `Cancelled` line and above the summary or the failure.
-                for (operational, text) in std::mem::take(&mut self.late) {
-                    if quiet {
-                        break;
-                    }
-                    if operational {
-                        self.mark(Mark::Operational(text));
-                    } else {
-                        self.stream(&text);
-                    }
+                if presented {
+                    self.release_late(true);
+                    self.mark(Mark::TurnOver);
                 }
                 // A summary only under a turn the runtime ran: `/model`, `/setup`
                 // and a catalog listing end with this event too, and they
@@ -9080,8 +9112,57 @@ impl Shell {
     /// not: what is still on the channel is the same batch.
     pub(crate) fn ui_events_taken(&mut self, emptied: bool) {
         if emptied {
-            self.late.clear();
+            self.release_late(false);
         }
+    }
+
+    /// A tool row's mark, in its place in the turn: behind what
+    /// [`Self::late`] holds when it holds anything, so the row does not go
+    /// ahead of text read before it; at once otherwise, as any mark.
+    fn mark_tool(&mut self, mark: Mark) {
+        if self.late.is_empty() {
+            self.mark(mark);
+        } else {
+            self.late.push(Late::Tool(mark));
+        }
+    }
+
+    /// Lets go of what [`Self::late`] holds: all of it in the order it came
+    /// when `presented`, and otherwise the tool rows alone, the text and the
+    /// operational lines dropped.
+    fn release_late(&mut self, presented: bool) {
+        for held in std::mem::take(&mut self.late) {
+            match held {
+                Late::Text(text) if presented => self.stream(&text),
+                Late::Operational(text) if presented => self.mark(Mark::Operational(text)),
+                Late::Tool(mark) => self.mark(mark),
+                Late::Text(_) | Late::Operational(_) => {}
+            }
+        }
+    }
+
+    /// Whether a call of the turn is still running once the tool rows
+    /// [`Self::late`] holds have been written: the group's own calls and
+    /// those a held row starts, less those a held row settles. A question
+    /// is never one ([`ToolGroup::start`]).
+    fn runs_a_call_past_late(&self) -> bool {
+        let mut started = Vec::new();
+        let mut settled = Vec::new();
+        for held in &self.late {
+            match held {
+                Late::Tool(Mark::ToolStart { id, shown })
+                    if shown.presentation.activity != crate::tools::Activity::Ask =>
+                {
+                    started.push(id.as_str());
+                }
+                Late::Tool(Mark::ToolResult { id, .. }) => settled.push(id.as_str()),
+                _ => {}
+            }
+        }
+        self.group
+            .running_ids()
+            .chain(started)
+            .any(|id| !settled.contains(&id))
     }
 
     /// The prompts still waiting for their turn: those [`Self::prompts`]
@@ -9937,12 +10018,12 @@ impl Shell {
     /// [`PACED_BACKLOG`]. That is where the bound on this queue lives: the
     /// channel fills behind a UI that has stopped listening, the runtime parks
     /// in its `send().await`, and the socket feels it -- rather than a `String`
-    /// here growing to the length of the answer. Answer text a stop's turn
-    /// is still to place ([`Self::late`]) counts too: it is the same text,
-    /// held a drain longer.
+    /// here growing to the length of the answer. What a stop holds for its
+    /// turn's end ([`Self::late`]) is not counted: the clock does not let go
+    /// of it, the turn's end does, so counted it would keep the loop from the
+    /// event that empties it -- and its bound is the channel's.
     pub(crate) fn paced_backlog(&self) -> usize {
-        let late: usize = self.late.iter().map(|(_, text)| text.len()).sum();
-        self.pacer.pending().saturating_add(late)
+        self.pacer.pending()
     }
 
     /// Why the session is ending, when the runtime is why.
@@ -10311,7 +10392,7 @@ impl Shell {
             self.stop_requested = false;
         }
         if self.cancelling && self.work.outstanding() == 0 && self.tally.started.is_none() {
-            self.late.clear();
+            self.release_late(false);
             self.cancelling = false;
             self.stop_reads_end = false;
             self.compaction_ended_turn = false;
@@ -45934,6 +46015,43 @@ mod tests {
         assert!(
             first.is_some() && row.is_some() && second.is_some() && first < row && row < second,
             "the first text, the row, the second text: {rows:#?}"
+        );
+    }
+
+    #[test]
+    fn a_cancel_that_waited_for_a_call_whose_result_is_held_writes_the_turns_line() {
+        // The owed line ([`Shell::cancel_owed`]) beside the rows a stop holds:
+        // a call that does not poll the turn's flag was running at the
+        // keystroke, so the line waited for the turn's end; the turn
+        // finished, with the call's result read behind text the stop held.
+        // Once the held rows are written no call is running, so the line is
+        // the turn's -- above the held text, as upstream's keystroke line is
+        // (`cancelActiveOperation`, `input_interrupt_runtime.zig:91-127@481104fd`).
+        let mut shell = running("first question");
+        shell.apply(tool_start(
+            "r",
+            "read_file",
+            serde_json::json!({"path": "notes.txt"}),
+        ));
+        shell.route_bytes(&[0x03]);
+        let _ = shell.painted_document();
+        shell.apply(UiEvent::Delta("FIRST-PART\n\n".to_string()));
+        shell.apply(tool_result("r", "read_file", true, ""));
+        shell.apply(UiEvent::Delta("SECOND-PART\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        shell.shell.flush_paced();
+        let rows = shell.painted_document();
+        let at = |needle: &str| rows.iter().position(|row| row.contains(needle));
+        let (cancelled, first, summary) = (at("Cancelled"), at("FIRST-PART"), at("0s ("));
+        assert!(
+            cancelled.is_some()
+                && first.is_some()
+                && summary.is_some()
+                && cancelled < first
+                && first < summary,
+            "the turn's Cancelled line, the held text, the summary: {rows:#?}"
         );
     }
 

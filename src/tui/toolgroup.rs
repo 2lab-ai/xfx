@@ -439,6 +439,14 @@ impl ToolGroup {
         self.collapsed = collapsed;
     }
 
+    /// The ids of the group's calls that have not returned yet.
+    pub(crate) fn running_ids(&self) -> impl Iterator<Item = &str> {
+        self.calls
+            .iter()
+            .filter(|call| call.state == State::Running)
+            .map(|call| call.id.as_str())
+    }
+
     /// Whether any call of the group has not returned yet.
     pub(crate) fn running(&self) -> bool {
         self.calls.iter().any(|call| call.state == State::Running)

@@ -375,7 +375,9 @@ fn drain_ui_events(shell: &mut Shell, events: &mut Receiver<UiEvent>) -> bool {
         // [`bridge::UI_EVENTS`] more deltas past it, so the number meant
         // nothing about how much is really in hand. Asked here it is worth one
         // event of overshoot, which is the least any policy that may not drop
-        // an event can be ([`PACED_BACKLOG`]).
+        // an event can be ([`PACED_BACKLOG`]). What a stop holds for its
+        // turn's end is not counted ([`Shell::paced_backlog`]): only reading
+        // that end lets go of it, so the door has to stay open for it.
         if shell.paced_backlog() >= PACED_BACKLOG {
             return false;
         }
