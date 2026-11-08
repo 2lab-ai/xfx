@@ -20,7 +20,9 @@ The cause is the test's fixture, not the product. The fix changes
 |---|---|
 | `8f82e4a3` | RED: `a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band` |
 | `b03074c0` | the fix: `titled_runtime`'s catalog answered, by an in-process stand-in |
-| (this one) | this receipt |
+| `503181ad` | this receipt, round 1 |
+| `1ec85e11` | review round 2: `a_title_runtime_answers_a_forced_catalog_read_from_its_stand_in` |
+| (the next) | this receipt, round 2: the claims narrowed, `stand-in-mutant.txt`, `round2.txt` |
 
 ## The trace (`trace.txt`: each hop's code, excerpted at the base)
 
@@ -108,11 +110,34 @@ original case fails the same way whenever the read answers fast (3/3 in
 
 `titled_runtime` now:
 - asks an in-process stand-in (`Answering`, no rows) instead of the
-  Gateway, so no path from this runtime can open a socket -- the
-  `CatalogAsks::Reading` reader a `/model` mid-turn would use included;
+  Gateway. While the selector the fixture built is in force, no catalog read
+  from it opens a socket: its own reads, and the `CatalogAsks::Reading`
+  reader a `/model` mid-turn would start (`ModelSelector::reader`), both ask
+  the stand-in;
 - pins its catalog as loaded (`set_catalog_for_test(Loaded(vec![]))`), so
   `begin_load` returns at once (`model.rs:1560-1562`) and the first tick
   starts nothing.
+
+That holds for **the selector as built, not for the runtime.** Two paths
+build a new one from the configuration, and on this keyed Gateway
+configuration that is the remote Gateway's catalog again, `NotLoaded`:
+`adopt` (`worker.rs:2885`), and `follow_model` when the provider moves
+(`model.rs:1489-1491`, reached from `switch_to` at `worker.rs:2605`). It is
+latent: no title case reads the catalog or runs `turn_loop` after either.
+Each RED-tree loop of 50 runs of all 12 cases logged 100 `CONNECT`s
+(`loops.txt:9`, `:20`): 2 cases x 50, the RED case and the failing case; the GREEN
+loops logged none (`loops.txt:35`). Other provider I/O (a title asked of
+the Gateway, `title_asker`, `worker.rs:2113`) is not the catalog's and is
+not covered by this pin; the title cases install a desk that answers
+in-process (`TitleDesk::answering`).
+
+**The two halves are each checked.** The pin: the RED case above. The
+stand-in: `a_title_runtime_answers_a_forced_catalog_read_from_its_stand_in`
+(added in review round 2) forces a read through the reader path and
+requires `CatalogLoaded` with no rows. With only the stand-in's install
+removed, in a throwaway clone, it fails with `CatalogUnread` and the logger
+records `CONNECT ai-gateway.vercel.sh:443`, while the RED case and the
+failing case stay green (`stand-in-mutant.txt`).
 
 The exact-list assertion is unchanged. Pinning `Loaded(vec![])` tells the
 UI the same thing an unread or absent catalog does (`from_state` and
@@ -161,13 +186,29 @@ field rate; the field rate is the window table above.
   through the logger: 4368 passed, 0 failed, and no `CONNECT` to the
   Gateway. Two went to `w.example:443`, from
   `mcp::command::tests::a_header_or_env_value_is_never_said_back_and_never_planted_in_the_project`:
-  an MCP probe of a name reserved never to resolve, asserting no event list.
-  Outside this class; reported, not changed.
+  an MCP probe of a name reserved never to resolve. That case does assert
+  an exact list of `Notice`s (`mcp/command/tests.rs:585`), but a failed
+  connect is kept in the server's `live.failure`
+  (`mcp/runtime.rs:1343-1348`) and is never said as a `Notice` -- the
+  runtime's `notice` is called only when its worker thread cannot start, a
+  reload fails, or a trust choice is saved (`mcp/runtime.rs:1052`, `:1228`,
+  `:1763-1790`) -- so the probe cannot race that list. Outside this class;
+  reported, not changed.
 - Fixed: 1 fixture (`titled_runtime`). Latent, not racing today: a keyed
   fixture's selector is rebuilt with the remote catalog by `adopt`
-  (`worker.rs:2885`) -- `a_prompt_held_for_a_switch_asks_of_the_conversation_it_will_run_in`
-  calls it on `titled_runtime` -- and `a_runtime_that_can_open_one` holds a
-  key; no case on either reads the catalog or runs `turn_loop`.
+  (`worker.rs:2885`), which two cases call on `titled_runtime` --
+  `a_title_for_a_conversation_let_go_of_names_neither_it_nor_the_next`
+  (`worker.rs:15169`, `:15190`) and
+  `a_prompt_held_for_a_switch_asks_of_the_conversation_it_will_run_in`
+  (`:15210`, `:15228`) -- and `a_runtime_that_can_open_one` holds a key; no
+  case on either reads the catalog or runs `turn_loop`.
+
+**Owned elsewhere: unit TEST-NET-ISOLATION** (the dispatcher's). Routing
+`catalog_for` (`model.rs:998`) and `title_asker` (`worker.rs:2113`) through
+the runtime's own environment rather than the process's, so that no keyed
+fixture can name the remote host at all; a proxy-sweep step in the gate
+(`proxy-sweep.txt` is this unit's one-off run of it); and the `w.example`
+MCP case's live lookup. This unit changes none of them.
 
 ## Gate at the fix commit (`gate.txt`)
 
@@ -202,6 +243,9 @@ checks were run again on it.
 - `sweep.txt` -- the class sweep, case by case.
 - `proxy-sweep.txt` -- the whole lib binary at the fix through the logger.
 - `gate.txt` -- the gate at the fix commit.
+- `stand-in-mutant.txt` -- review round 2: the stand-in's install removed
+  alone, in a throwaway clone, against the branch.
+- `round2.txt` -- review round 2's runs at the new head.
 - `connect_logger.py`, `loop.sh`, `loaded.py`, `pertest.sh` -- the harness:
   the logger (logs a connection's first line, answers 403, optionally after
   a delay, forwards nothing), the loop, the spinners, and the per-case count.

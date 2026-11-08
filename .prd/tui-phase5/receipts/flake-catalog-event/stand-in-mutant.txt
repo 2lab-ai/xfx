@@ -1,0 +1,36 @@
+# Review round 2: does a_title_runtime_answers_a_forced_catalog_read_from_its_stand_in catch the stand-in's removal alone?
+# HTTPS_PROXY = connect_logger.py (403 at once, forwards nothing) for every run here.
+# Mutant = the branch at 1ec85e11 in a throwaway clone, with only the set_fetcher_for_test install removed from titled_runtime:
+diff --git a/src/tui/worker.rs b/src/tui/worker.rs
+index fe469e83..5452b2a9 100644
+--- a/src/tui/worker.rs
++++ b/src/tui/worker.rs
+@@ -14800,10 +14800,6 @@ mod tests {
+         let store = open_store(&config).expect("a store");
+         let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+         // The stand-in first, which leaves nothing loaded; then the answer.
+-        state.selector.set_fetcher_for_test(Box::new(Answering {
+-            entries: Vec::new(),
+-            asked: Arc::default(),
+-        }));
+         state
+             .selector
+             .set_catalog_for_test(CatalogState::Loaded(Vec::new()));
+
+## mutant (throwaway clone, install removed)
+test tui::worker::tests::a_title_runtime_answers_a_forced_catalog_read_from_its_stand_in ... FAILED
+test tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band ... ok
+test tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown ... ok
+thread 'tui::worker::tests::a_title_runtime_answers_a_forced_catalog_read_from_its_stand_in' (332238156) panicked at src/tui/worker.rs:15510:9:
+  left: Some(CatalogUnread { provider: Gateway, retry: Some(Unreachable), attempted: Instant { tv_sec: 833406, tv_nsec: 801582125 } })
+ right: Some(CatalogLoaded { provider: Gateway, entries: [] })
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 4373 filtered out; finished in 0.09s
+CONNECT lines this run: 1
+CONNECT ai-gateway.vercel.sh:443 HTTP/1.1
+
+## head (1ec85e11, the branch)
+test tui::worker::tests::a_title_runtime_answers_a_forced_catalog_read_from_its_stand_in ... ok
+test tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band ... ok
+test tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4373 filtered out; finished in 0.13s
+CONNECT lines this run: 0

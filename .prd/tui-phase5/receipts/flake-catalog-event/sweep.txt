@@ -121,8 +121,24 @@ channels; none builds a Runtime with a selector or calls turn_loop (the
 names), so none can race a catalog read.
 
 ## Integration tests (not UiEvent lists; noted for the hermeticity half)
-tests/*.rs set AI_GATEWAY_API_KEY in: gateway.rs, permissions.rs,
-sessions.rs, tool_loop.rs (each with XFX_GATEWAY_URL to a fake), tui.rs
-(:9222/:9613 with XFX_GATEWAY_URL to FakeGateway), and the sandbox
-(tests/support/sandbox.rs:25, :90, :152) scrubs or sets XFX_GATEWAY_URL.
-Not run through the proxy here.
+Every tests/*.rs file that names AI_GATEWAY_API_KEY, from
+`grep -n AI_GATEWAY_API_KEY tests/*.rs` at the fix (round 2's list; round 1
+named only some). A line can set the key, scrub it, remove it or quote it in
+an assertion; which of these runs reach a remote host was not classified
+here and none was run through the proxy:
+- tests/cli.rs: 14 lines name AI_GATEWAY_API_KEY (44 655 689 698 701 705 723 1320 1973 1982 2059 2101 2108 2268); 0 name XFX_GATEWAY_URL
+- tests/gateway.rs: 25 lines name AI_GATEWAY_API_KEY (41 1568 1604 1626 1668 1686 1738 1760 1782 1798 1816 1862 1891 1932 1966 1999 2022 2057 2081 2096 2116 2164 2241 2261 2278); 25 name XFX_GATEWAY_URL
+- tests/interactive.rs: 4 lines name AI_GATEWAY_API_KEY (528 1649 1656 1660); 0 name XFX_GATEWAY_URL
+- tests/ledger_compat.rs: 1 lines name AI_GATEWAY_API_KEY (349); 0 name XFX_GATEWAY_URL
+- tests/llmux.rs: 7 lines name AI_GATEWAY_API_KEY (1449 1603 1687 1710 2581 2689 2968); 1 name XFX_GATEWAY_URL
+- tests/parity.rs: 2 lines name AI_GATEWAY_API_KEY (682 1048); 0 name XFX_GATEWAY_URL
+- tests/permissions.rs: 7 lines name AI_GATEWAY_API_KEY (57 4764 4804 4843 4984 5063 5150); 7 name XFX_GATEWAY_URL
+- tests/sessions.rs: 2 lines name AI_GATEWAY_API_KEY (49 1591); 2 name XFX_GATEWAY_URL
+- tests/tool_loop.rs: 7 lines name AI_GATEWAY_API_KEY (58 3696 3734 3777 3820 3864 3893); 7 name XFX_GATEWAY_URL
+- tests/tui.rs: 5 lines name AI_GATEWAY_API_KEY (5554 9222 9613 11508 12069); 2 name XFX_GATEWAY_URL
+For example tests/cli.rs:1318-1321 and :2099-2102 run the binary with a
+planted key, and tests/llmux.rs:2968 builds an environment with one, none
+naming XFX_GATEWAY_URL in the same call (whether the sandbox supplies one
+there was not checked). The sandbox (tests/support/sandbox.rs:25,
+:90, :152) scrubs or sets XFX_GATEWAY_URL. Sorting these out is unit
+TEST-NET-ISOLATION's (the dispatcher's), not this unit's.
