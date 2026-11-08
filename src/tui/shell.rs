@@ -17046,6 +17046,101 @@ mod tests {
         );
     }
 
+    /// Writes everything the document owes, as a frame that lands would.
+    fn land_document(shell: &mut Fixture) {
+        while shell
+            .emit_document_front(|_| Landed::<std::convert::Infallible>::All)
+            .is_some()
+        {}
+    }
+
+    /// A 60-line paste, every line naming itself.
+    fn stale_paste() -> String {
+        let tall: Vec<String> = (1..=60)
+            .map(|n| format!("STALE-PREVIEW-ROW-{n:02}"))
+            .collect();
+        format!("\x1b[200~{}\x1b[201~", tall.join("\n"))
+    }
+
+    #[test]
+    fn a_preview_the_slash_menu_took_the_room_of_does_not_come_back() {
+        // A preview the band lost the room for before its frame was the
+        // frame that clears the composer: the card is written whole that
+        // frame, and nothing of the preview may come back when the room does
+        // -- not its rows in the band, and not the hold on the document. Here
+        // the slash menu takes the room, opened by a key read with the Enter.
+        let paste = stale_paste();
+        let mut menu = shell(40, 120);
+        menu.document_rows = 2;
+        menu.route_bytes(paste.as_bytes());
+        menu.route_bytes(b"\r/");
+        assert!(
+            !menu.previewing(),
+            "the slash menu left the preview its rows"
+        );
+        land_document(&mut menu);
+        menu.preview_landed();
+        menu.route_bytes(b"\x7f");
+        assert!(
+            !menu.previewing(),
+            "the preview came back when the menu closed"
+        );
+        assert!(
+            !menu
+                .band_rows()
+                .iter()
+                .any(|row| row.contains("STALE-PREVIEW-ROW")),
+            "the band shows a card already written: {:#?}",
+            menu.band_rows()
+        );
+    }
+
+    #[test]
+    fn a_preview_a_steer_took_the_room_of_does_not_come_back() {
+        // The same, with a steer's banner taking the room under a turn that
+        // started.
+        let paste = stale_paste();
+        let mut steered = shell(40, 120);
+        steered.document_rows = 2;
+        steered.route_bytes(paste.as_bytes());
+        steered.route_bytes(b"\r");
+        assert!(
+            steered.previewing(),
+            "no preview, so this case proves nothing"
+        );
+        let _taken = steered.picks_up();
+        steered.start_turn();
+        steered.settle_band(Instant::now());
+        let steering = steered.work.steering();
+        steering.open();
+        steered.route_bytes(b"a steer\r");
+        steered.settle_band(Instant::now());
+        assert!(
+            !steered.previewing(),
+            "the steer's banner left the preview its rows"
+        );
+        land_document(&mut steered);
+        steered.preview_landed();
+        let taken = steering.take();
+        assert!(!taken.is_empty(), "the steer never reached the turn");
+        steered.apply(UiEvent::Steered {
+            ids: taken.iter().map(|steer| steer.id).collect(),
+        });
+        steered.settle_band(Instant::now());
+        assert!(
+            !steered.previewing(),
+            "the preview came back when the steer was taken"
+        );
+        assert!(
+            !steered
+                .band_rows()
+                .iter()
+                .any(|row| row.contains("STALE-PREVIEW-ROW")),
+            "the band shows a card already written: {:#?}",
+            steered.band_rows()
+        );
+    }
+
     #[test]
     fn a_cards_preview_is_upstreams_tail_cut_to_the_frame_that_clears_the_composer() {
         // fx v0.0.16's numbers on a 40-row screen, each read off a capture's
