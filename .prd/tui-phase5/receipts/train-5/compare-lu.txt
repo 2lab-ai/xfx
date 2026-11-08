@@ -1398,10 +1398,10 @@ model-parked menu-loading: 0 differing rows left, 1 new
 model-reask menu-failed: 0 differing rows left, 1 new
     NEW:  fx 'Could not reach AI Gateway; xfx retries automatically.' / xfx 'Could not reach AI Gateway; retry /model.'
 p5-effort-fork-fork status: 2 differing rows left, 2 new
-    left: fx '  Turns             2' / xfx '       <local-path>'
-    left: fx '       <local-path>' / xfx '  Sandbox           none'
-    NEW:  fx '  Turns             2' / xfx '     <tmpdir>/fxsw._n7y5b96/023/fxcap.XXXXXX/work'
-    NEW:  fx '     <tmpdir>/fxsw._n7y5b96/023/fxcap.XXXXXX/work' / xfx '  Sandbox           none'
+    left: fx '  Turns             2' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             2' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
 p5-input-model-fail fail-open: 0 differing rows left, 1 new
     NEW:  fx 'Could not reach AI Gateway; xfx retries automatically.' / xfx 'Could not reach AI Gateway; retry /model.'
 p5-panels-sweep-a feedback: 8 differing rows left, 13 new
@@ -1729,7 +1729,7 @@ p5-panels-sweep-a statusline-closed: 16 differing rows left, 7 new
 p5-panels-sweep-a trace: 1 differing rows left, 0 new
     left: fx '<banner>' / xfx '* version: <build>'
 p5-panels-sweep-a workspace: 19 differing rows left, 7 new
-    left: fx '' / xfx '       <local-path>'
+    left: fx '' / xfx '  Primary                   <local-path>'
     left: fx '' / xfx 'Workspace'
     left: fx '' / xfx '──────────────────────────────────────────────────────────────────────'
     left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '❯ Add directory…             Grant access to another directory'
@@ -1838,13 +1838,13 @@ p5-toolgroup-ctrlo-tc light: 6 differing rows left, 0 new
     left: fx '● 1 tool call · 1 command' / xfx '● 1 tool call · 1 command'
 read-failures live-ctrl-o-up1: 4 differing rows left, 4 new
     left: fx 'ob_files to inspect directory contents, then choose a regular file."}}' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
-    left: fx '-501/osc/fxsw.92y13xvt/521/fxcap.XXXXXX/work/src","error":"NotRegularF' / xfx ''
+    left: fx '│  ls":{"field":"path","path":"<local-path>","error":"NotRegularF' / xfx ''
     left: fx 'name":"read_file","message":"read_file requires a regular file","detai' / xfx 'ob_files to inspect directory contents, then choose a regular file."}}'
-    left: fx '├ Failed src' / xfx '-501/osc/fxsw.92y13xvt/521/fxcap.XXXXXX/work/src","error":"NotRegularF'
-    NEW:  fx '-501/t5tmp/fxsw._n7y5b96/077/fxcap.XXXXXX/work/src","error":"NotRegula' / xfx ''
+    left: fx '├ Failed src' / xfx '│  ls":{"field":"path","path":"<local-path>","error":"NotRegularF'
+    NEW:  fx '│  ls":{"field":"path","path":"<local-path>","error":"NotRegula' / xfx ''
     NEW:  fx 'ob_files to inspect directory contents, then choose a regular file."}}' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
     NEW:  fx 'name":"read_file","message":"read_file requires a regular file","detai' / xfx 'ob_files to inspect directory contents, then choose a regular file."}}'
-    NEW:  fx '├ Failed src' / xfx '-501/t5tmp/fxsw._n7y5b96/077/fxcap.XXXXXX/work/src","error":"NotRegula'
+    NEW:  fx '├ Failed src' / xfx '│  ls":{"field":"path","path":"<local-path>","error":"NotRegula'
 verdicts moved: 6
     model-parked menu-loading: normalized-identical -> unresolved-defect
     model-reask menu-failed: normalized-identical -> unresolved-defect

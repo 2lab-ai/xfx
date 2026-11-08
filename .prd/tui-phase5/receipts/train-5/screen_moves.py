@@ -14,6 +14,11 @@ approval wraps), and the resume id a saved session prints. The output is
 written through scripts/fxcap/redact.py by the caller.
 """
 import glob, json, os, re, sys
+# Train 5: a row is redacted whole before its last 60 characters are kept,
+# so a cut cannot leave a local path's tail without its root.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "scripts", "fxcap"))
+import redact  # noqa: E402
+REDACT = redact.Redactor({})
 a_out, b_out = sys.argv[1:3]
 MASK = [(re.compile(r"\d{4}-\d{2}-\d{2}"), "D"), (re.compile(r"\d{1,2}:\d{2}:\d{2}(\.\d+)?"), "T"),
         (re.compile(r"\b\d+(\.\d+)?m?s\b"), "S"), (re.compile(r"/[\w./-]*fxcap\.[\w]+[\w./-]*"), "P"),
@@ -36,7 +41,7 @@ for sc, label in sorted(keys):
         if ta == tb: continue
         if [mask(x) for x in ta] == [mask(x) for x in tb]: clock += 1; continue
         rows = [i + 2 for i, (x, y) in enumerate(zip(ta, tb)) if mask(x) != mask(y)]
-        other.append((side, sc, label, rows[:6], [(ta[r-2][-60:], tb[r-2][-60:]) for r in rows[:2]]))
+        other.append((side, sc, label, rows[:6], [(REDACT(ta[r-2])[-60:], REDACT(tb[r-2])[-60:]) for r in rows[:2]]))
 print(f"snaps whose screen differs only in clock-like or run-local text: {clock}; otherwise: {len(other)}")
 # Grouped by snap: fx is one binary in both sweeps, so a snap where fx's screen
 # moved at the same rows as xfx's moved with the run (the checkout's path

@@ -29,15 +29,18 @@ by `capture.sh` before and after every run, `FX_AUTO_UPGRADE=0`.
   sets neither `working` nor `blocked` on either product (code, and a
   capture: `idle` through the 2026-07-28 server's startup on both); under
   `COLORTERM=truecolor` osc.py's 43 wire pairs still hold every claim and no
-  osc frame on either binary carries a `38;2`; a new join test pins the session's end: the copy
-  given up after the last frame and before the restore (4 of 4 mutants
-  killed; it passes on each unit alone).
-- Gate at `d6a10eeb`, all under one suite-lock hold: 20 steps, 19 passed
+  osc frame on either binary carries a `38;2`; a join test pins the
+  session's end -- the copy given up after the last frame and before the
+  restore. Round 2 (`ffd53286`, after both resolution reviews) rebuilt it
+  on `/copy` (no deadline, both platforms), judged on the whole terminal
+  stream after the exit (its mutants, control and gate: the next commit).
+- Gate (round 2): the next commit.
+- Gate (round 1) at `d6a10eeb`, all under one suite-lock hold: 20 steps, 19 passed
   (`cargo test` 5327, with fault injection 5364, each +48 on `main`'s;
   smoke-tui 1168 checks). `test-capture.sh` failed one case, a wall-clock race in the
-  harness's own test that neither unit touches (fourth sighting, named
-  FLAKE-PIDEXEC); under the lock right after, 59 of 59 OK and the case alone
-  5 of 5.
+  harness's own test that neither unit touches (owned by LAUNCH-SETTLE, its
+  item 6, in flight); under the lock right after, 59 of 59 OK and the case
+  alone 5 of 5.
 - Sweep, 58 scenarios at the head: 166 of 300 pairs pass, 0 failed, 0
   timeout. Against `main` 165 → 166, none down (one timing move up).
   Against L-U1+U2's own sweep 166 → 166: 3 up (TC-NOTATION's) and 3 down,
@@ -66,9 +69,11 @@ After the merges, in order:
 | commit | what |
 |---|---|
 | `81a71203` | the `path:line` references the merges moved, re-pointed (below) |
-| `150334d9` | the copy errand x program status join test (below) |
-| `d6a10eeb` | this receipt, first part (the gate ran at `150334d9`) |
-| the next | this receipt, the rest |
+| `150334d9` | the copy errand x program status join test, round 1 (below) |
+| `d6a10eeb` | this receipt, first part (round 1's gate ran here) |
+| `140344ab`, `01daedb4` | this receipt, the rest (round 1) |
+| `ffd53286` | round 2: the join test rebuilt on `/copy`, judged after the exit; the fake clipboard's hold mode (below) |
+| the next | round 2's receipt: the join section, the LAUNCH-SETTLE owner, the redaction, round 2's gate |
 
 `git show --remerge-diff` of each merge is `remerge-1.txt` and
 `remerge-2.txt`. Merge 1's has an empty body: git's own result, unchanged.
@@ -359,7 +364,7 @@ binary's frames use is the same under `COLORTERM=truecolor` as without it,
 in every scenario. So no frame `osc.py` or L-U1+U2's tests read depends on a
 `38;2` grey: there is none to depend on, at either depth.
 
-### 4. The copy errand x the OSC report at a session's end (`150334d9`, `join-mutants.txt`)
+### 4. The copy errand x the OSC report at a session's end (r2: `ffd53286`, `join-mutants.txt`)
 
 Where each of the three comes, in the code at the head:
 
@@ -368,20 +373,20 @@ Where each of the three comes, in the code at the head:
    then `shut_down` (`:421`). Reports are written only by `commit_tick`
    (`:1133`, `take_checked_status` and `write_program_status`), which the
    session's ticks call (`session`, `:231`, through `commit_counted`,
-   `:297`, `:1079`); `shut_down`'s drain draws through
-   `drained` and `flushed`, which call `commit_frame` (`:838`): frames, no
-   report.
+   `:297`, `:1079`); `shut_down`'s drain draws through `drained` and
+   `flushed`, which call `commit_frame` (`:838`): frames, no report.
 2. **The copy's end** is the shell's drop. The `Shell` is made and owned in
    `tui::hold` (`src/tui/mod.rs:329`, `:481`) and dropped when `hold`
    returns, after `event_loop::run` and the MCP runtime's shutdown
    (`:504-524`). Its `copies` and `traces` each hold an `Errands`, whose drop
-   is FLAKE-COPYEND's `end` (`src/tui/copy.rs:123-126`): the grace, then every
-   thread stopped and joined through the `Ending` guard; a copy's thread
-   returns only once `Stop::settle` has killed and reaped its tool
-   (`src/clipboard.rs` `run`, `settle`).
+   is FLAKE-COPYEND's `end` (`src/tui/copy.rs:123-126`): the grace (1 s,
+   `GRACE`, `copy.rs:48`), then every thread stopped and joined through the
+   `Ending` guard; a copy's thread returns only once `Stop::settle` has
+   killed and reaped its tool (`src/clipboard.rs` `run`, `settle`).
 3. **The restore, with the program status clear in it**, is `term::shutdown`
-   in `tui::session` (`src/tui/mod.rs:105`), after `hold` has returned (`:260`); L-U1+U2
-   put the clear inside the four restore literals (`src/tui/term.rs:97-113`).
+   in `tui::session` (`src/tui/mod.rs:105`), after `hold` has returned
+   (`:260`); L-U1+U2 put the clear inside the four restore literals
+   (`src/tui/term.rs:97-113`).
 
 Neither unit moved any of the three. FLAKE-COPYEND changed what `Errands`'
 drop does inside (the old body became `end`, the guard added), not when it
@@ -390,45 +395,45 @@ report, not where the shell drops or the restore is written (its
 `src/tui/mod.rs` change is a `clears_status: false` field and `mod
 program_status;`, `git diff 884497c0 <head> -- src/tui/mod.rs`).
 
-**The test**, `tests/tui.rs`
-`a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore`
-(macOS only: `/trace`'s file copy is `osascript`, which is macOS only):
-the fake clipboard's `osascript` hangs; `/trace`; the test waits until the
-tool has started (its pid file) and is alive, and that no restore is on the
-terminal; Ctrl-D. Then, until the session has gone, each look at the tool
-(`kill -0`) is paired with a look at the terminal before it and one after
-it: **while the tool is alive, no restore has begun** (no title pop, no
-clear); and the terminal as it was right after the first look that found the
-tool gone holds every frame opener and every report but the clear that the
-session ever writes. At the end: the planned exit's restore, no report after
-the restore began but its own clear, no frame after it, the tool dead. No
-clock bounds anything: a slow machine only makes the looks fewer.
+**Round 1's test was a sample, and round 2 replaces it.** Both reviews of
+round 1 (`150334d9`) found that its order checks were looks taken while the
+session ran: a session that exited before the next look skipped them
+(`if let Some(gone)`), the first look that found the tool gone could already
+hold a late frame, and it ran on `/trace`, whose file copy has its own 5 s
+deadline (`clipboard.rs:121`, `:191`) beside the 1 s grace -- so its comment's
+and this receipt's "no clock bounds anything" was false. Round 2's test
+(`tests/tui.rs`
+`a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore`,
+same name, on both platforms now):
 
-It passes: in job A at `150334d9` (under the suite lock, before the gate)
-and in both of the gate's cargo test runs (`join-tests.txt`).
+- **`/copy`**, whose tool has no deadline (`copy_until` passes `None`,
+  `clipboard.rs:220`) and is the same fake script on macOS (`pbcopy`) and
+  Linux (`xclip`). The fake gains a hold mode
+  (`tests/support/fake_clipboard.rs`, `hold_copies_on`): the tool takes what
+  it is fed, then, until it is killed, writes a heartbeat (`<<BEAT>>`, one
+  `write(2)` from the tool's own shell, about every 10 ms) into the pty's
+  slave -- the stream xfx's output goes to.
+- A reply, `/copy`, the tool holding and alive (its pid file, `kill -0`) and
+  fed the reply; Ctrl-D; the session's exit; the tool dead. Then **every
+  check reads the whole terminal stream once the session has exited**
+  (`settled_text`: the reader joined, the pty drained), so none depends on
+  when the test looks.
 
-**Does it discriminate?** `join_mutants.py`, on a `git clone --no-local` of
-the train at `150334d9`, under the suite lock, each mutant one exact
-replacement (`join-mutants.txt`): **4 of 4 killed.**
+What each check proves, and what it can miss:
 
-| mutant | where | caught at |
+| check | proves | can miss / can falsely fail |
 |---|---|---|
-| J1: the restore written before the shell drops, so before the copy's end | `tui/mod.rs`, `hold`'s return | "the restore reached the terminal while the copy's tool was alive" |
-| J2: a session's end leaves its copies running (`Errands`' drop detaches the threads) | `tui/copy.rs` `Drop` | "the clipboard tool outlived the session" (the first run caught it at the restore-while-alive check; the tool it leaves ends itself within 30 s, none killed) |
-| J3: a program status report written after the restore | `tui/mod.rs`, after `term::shutdown` | "a report after the restore began" |
-| J4: a frame written, and flushed, half a second after the copy's end and before the restore | `tui/copy.rs` `Drop` | "a frame or a report after the copy's tool was gone" |
+| nothing after the tool's last heartbeat but the restore's clear: no frame opener, no report | everything xfx writes after the copy's end comes after it. Every heartbeat is written by the tool before it dies; xfx writes nothing of the end until `Stop::settle` has reaped it; the pty keeps writes in the order they were made. So a frame or a report written after the copy's end, however soon or late, is after every heartbeat | misses nothing of that kind. Needs a heartbeat after the last frame, which the 1 s grace gives: a tool starved of the CPU for the whole grace would fail the case, not pass it |
+| no heartbeat after the restore began | the tool was dead before the restore was written | a restore written before the copy's end is caught only if the tool beats between the two. A misordered restore would come with the grace between it and the kill (1 s, about a hundred heartbeats); one written within the last heartbeat before the kill would not be caught |
+| one restore; nothing after it but its own clear (no frame, no report) | the restore is last | -- |
+| the tool alive at Ctrl-D, dead after the exit | the copy was running when the session ended (the tool never ends by itself) and the session ended it | -- |
 
-A first run (`join-mutants-first.txt`) wrote J4's frame unflushed:
-`std::io::stdout()` is line-buffered, so the frame reached the terminal only
-at the process's exit, after the restore, and the after-the-restore check
-caught it instead. J4 now flushes, so it lands where it says.
+The only waits are bounds on a tool that never starts and on a session that
+never ends (`WAIT`); no order is read from a clock. The deterministic part is
+the first row; the second is a sample, at the tool's heartbeat rate, of an
+interval the code makes a second long. That is what the test proves.
 
-**On each unit alone**, the test's text added unchanged (`join-mutants.txt`):
-it passes on L-U1+U2 `e636db48` (the old `Errands` drop, the clear in the
-restore) and on FLAKE-COPYEND `0b432f9a` (its `end`, a restore with no
-clear: the check that no report follows the restore holds there trivially).
-So the order -- last frame, copy's end, restore -- is each unit's own and the
-train's.
+Its mutants, the control and its runs: the next commit.
 
 ## Gates
 
@@ -480,10 +485,11 @@ exactly as on `main`. It is not this train's to fix (a harness change wants
 its own RED and review), and it is **not new**: FLAKE-COPYEND's r2 gate
 (`flake-copyend/r2/fxcap-capture-flakes.txt`, "a new sighting") and
 CTRLO-WIDER's run 2 recorded the same case failing the same way, and
-GATE-GITENV-F's unlocked rerun did too; this is at least the fourth
-sighting, still with no owner. Named for one: **FLAKE-PIDEXEC** (the case
-waits for the pid to run `/bin/cat` -- an `until` on the pid's executable --
-rather than `wait 1`). **Run again** under the suite lock right after the
+GATE-GITENV-F's unlocked rerun did too. It has an owner: **LAUNCH-SETTLE,
+item 6** ("test_capture.py:385 waits for the exec to land"), dispatched and
+in flight; the program's status cites the case at `:385`, its line on
+FLAKE-COPYEND's branch, and it is `:394` at this head (`main`'s train 4 grew
+the file above it). **Run again** under the suite lock right after the
 gate, at the same head (`gates.txt`, the reruns): `test-capture.sh` whole,
 59 tests OK (222 s); the case alone through `test-capture.sh`, five times,
 OK each time (load 8.3 to 8.7).
@@ -669,14 +675,17 @@ compact.'` 0.01 to 0.07 s after its line.
   and `xfx/` wires); `default.txt`, `tc.txt`, `mcp.txt`, `recorded-fx.txt`
   (osc.py's runs), `greys.txt`, `publish.txt` (what was published and the
   six wires that were not).
-- `join_mutants.py`, `join-mutants.txt`: the join test against four mutants
-  and on each unit alone; `join-mutants-first.txt`, the first run (J4
-  unflushed).
-- `join-tests.txt`: the join test's lines in the gate's cargo test logs;
+- `join_mutants.py`, `join-mutants.txt`: round 2's join test against five
+  mutants, the same with its observer delayed across the shutdown (the
+  control), on each unit alone, and round 1's test delayed the same way;
+  `join_mutants_r1.py`, `join-mutants-r1.txt`, `join-mutants-r1-first.txt`:
+  round 1's driver and its two runs (the first with J4 unflushed).
+- `join-tests.txt`: the join test's lines in round 1's gate's cargo test
+  logs; `join-tests-r2.txt`, in round 2's, and the touched tests' three runs;
   `test-counts.txt`: the test counts per commit, with their commands;
   `until-waits.txt`: every `until` line of the swept scenarios that have one.
-- `gates.sh`, `gates.txt`: the gate as it ran, and the test-capture reruns
-  after it; `gates_txt.py`: how `gates.txt` was assembled; `gates-final.txt`:
+- `gates.sh`, `gates.txt`: round 1's gate as it ran, and the test-capture
+  reruns after it; `gates-r2.txt`: round 2's gate and the touched tests' runs; `gates_txt.py`: how `gates.txt` was assembled; `gates-final.txt`:
   the file checks with the receipt in its final form.
 - `selection.txt`: the sweep's `--only` globs, each with why.
 - `sweep-head.md`, `sweep-main.md`: the two scoreboards (`main`'s rescored

@@ -16,10 +16,10 @@ model-parked menu-loading: 8 differing rows left, 0 new
     left: fx '↑↓ navigate     tab provider     enter use     esc close' / xfx '  fake/model-a'
     left: fx '──────────────────────────────────────────────────────────────────────' / xfx '  anthropic/claude-opus-5  1M context · 64K output · Fast'
 p5-effort-fork-fork status: 2 differing rows left, 2 new
-    left: fx '  Turns             2' / xfx '     <tmpdir>/fxsw.j2kqgm1_/023/fxcap.XXXXXX/work'
-    left: fx '     <tmpdir>/fxsw.j2kqgm1_/023/fxcap.XXXXXX/work' / xfx '  Sandbox           none'
-    NEW:  fx '  Turns             2' / xfx '     <tmpdir>/fxsw._n7y5b96/023/fxcap.XXXXXX/work'
-    NEW:  fx '     <tmpdir>/fxsw._n7y5b96/023/fxcap.XXXXXX/work' / xfx '  Sandbox           none'
+    left: fx '  Turns             2' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             2' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
 p5-panels-sweep-a alias: 1 differing rows left, 1 new
     left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '655, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
     NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
@@ -113,10 +113,10 @@ p5-panels-sweep-b undo: 1 differing rows left, 1 new
     left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '369, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
     NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
 read-failures live-ctrl-o-up1: 2 differing rows left, 2 new
-    left: fx '-501/t5tmp/fxsw.j2kqgm1_/051/fxcap.XXXXXX/work/src","error":"NotRegula' / xfx ''
-    left: fx '├ Failed src' / xfx '-501/t5tmp/fxsw.j2kqgm1_/051/fxcap.XXXXXX/work/src","error":"NotRegula'
-    NEW:  fx '-501/t5tmp/fxsw._n7y5b96/077/fxcap.XXXXXX/work/src","error":"NotRegula' / xfx ''
-    NEW:  fx '├ Failed src' / xfx '-501/t5tmp/fxsw._n7y5b96/077/fxcap.XXXXXX/work/src","error":"NotRegula'
+    left: fx '│  ls":{"field":"path","path":"<local-path>","error":"NotRegula' / xfx ''
+    left: fx '├ Failed src' / xfx '│  ls":{"field":"path","path":"<local-path>","error":"NotRegula'
+    NEW:  fx '│  ls":{"field":"path","path":"<local-path>","error":"NotRegula' / xfx ''
+    NEW:  fx '├ Failed src' / xfx '│  ls":{"field":"path","path":"<local-path>","error":"NotRegula'
 recall-edge recalled: 1 differing rows left, 1 new
     left: fx '525, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '675, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
     NEW:  fx '525, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '702, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'

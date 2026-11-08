@@ -18,6 +18,13 @@ row 1 -- the banner -- left out) is not the same in the two sweeps. fx is one
 binary in both, so an fx screen that moved is the run's own timing; an xfx
 screen that moved is the code's change or its timing.
 
+Train 5: each row is redacted whole (scripts/fxcap/redact.py's Redactor,
+every path under a local root to `<local-path>`) before its last 70
+characters are printed. Cut first, a row that holds a local path could lose
+the path's root and keep its tail (a scratch directory's name and what
+follows), which the redactor the caller pipes this through no longer
+recognizes as a path.
+
 Exit 0 when every shared pair that passes on the reference passes on the
 train ("pass" is identical or normalized-identical, the sweep's own measure)
 **or** moved only because fx's own screen did while xfx's stayed the same.
@@ -30,6 +37,15 @@ import re
 import sys
 
 PASS = ("identical", "normalized-identical")
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "scripts", "fxcap"))
+import redact  # noqa: E402
+
+REDACT = redact.Redactor({})
+
+
+def tail(row):
+    return REDACT(row)[-70:]
 
 
 def load(out):
@@ -61,9 +77,9 @@ for key in shared:
     if new or gone:
         print("%s %s: %d differing rows left, %d new" % (key[0], key[1], len(gone), len(new)))
         for fx, xfx in sorted(gone):
-            print("    left: fx %r / xfx %r" % (fx[-70:], xfx[-70:]))
+            print("    left: fx %r / xfx %r" % (tail(fx), tail(xfx)))
         for fx, xfx in sorted(new):
-            print("    NEW:  fx %r / xfx %r" % (fx[-70:], xfx[-70:]))
+            print("    NEW:  fx %r / xfx %r" % (tail(fx), tail(xfx)))
         if new:
             gained.append(key)
 print("verdicts moved: %d%s" % (len(moved), "".join("\n    " + m for m in moved)))
