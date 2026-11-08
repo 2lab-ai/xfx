@@ -2172,7 +2172,6 @@ fn paint_alternate(
                 // not on the screen.
                 Err(refusal) => {
                     shell.forget_mcp_drawn();
-                    shell.file_picker_unseen();
                     return match disposed(Emit::rejected(refusal), failures, now) {
                         Some(fatal) => Err(fatal),
                         None => Ok(()),
@@ -2193,7 +2192,6 @@ fn paint_alternate(
                 }
                 Err(emit) => {
                     shell.forget_mcp_drawn();
-                    shell.file_picker_unseen();
                     match disposed(emit, failures, now) {
                         Some(fatal) => Err(fatal),
                         None => Ok(()),
@@ -2223,7 +2221,10 @@ fn paint_alternate(
                 Ok(()) => {
                     band.frame_landed(&frame, &shell.geometry, cursor);
                     shell.approval_landed(Outcome::Painted);
-                    // A frame of the other plane: no `@` list on it.
+                    // The band has left the screen, and the `@` list with it:
+                    // its keys wait for the frame that gives the plane back
+                    // (every frame of this plane is one without it,
+                    // `app_render_runtime.zig:1024-1026@481104fd`).
                     shell.file_picker_unseen();
                     let _ = shell.render.begin();
                     failures.succeeded();
@@ -2292,7 +2293,6 @@ fn paint_alternate(
             // stops an unwritten repaint granting a question nobody has seen.
             if frame.bytes().is_empty() {
                 shell.approval_landed(Outcome::Unchanged);
-                shell.file_picker_unseen();
                 // Not reached while a recovery is pending: the force above
                 // drops the one cache that can make a repaint empty, so the
                 // tick that owes a verified write always has bytes to write.
@@ -2316,8 +2316,6 @@ fn paint_alternate(
                 Ok(()) => {
                     band.frame_landed(&frame, &shell.geometry, cursor);
                     shell.approval_landed(Outcome::Painted);
-                    // A frame of the other plane: no `@` list on it.
-                    shell.file_picker_unseen();
                     failures.succeeded();
                     Ok(())
                 }
@@ -16059,6 +16057,38 @@ mod tests {
             "the frame that landed"
         );
         assert_eq!(list.keys(UP), at_window(7, 12, 12));
+    }
+
+    #[test]
+    fn under_the_full_transcript_the_at_list_takes_no_key() {
+        // fx's list is not eligible while the full transcript is up
+        // (`filePickerEligible`, `input_completion_runtime.zig:783`, `:798-799
+        // @481104fd`), and every frame of it lands without the list
+        // (`app_render_runtime.zig:1024-1026`). The keys the transcript
+        // leaves unbound -- Tab here -- reach the list's handler; it takes
+        // none. Ctrl-O and Tab in one read: nothing is chosen, and after the
+        // plane comes back the list is there with the bar on f-01.
+        let mut list = AtList::open(40, 120);
+        list.keys(b"\x0f\t");
+        assert!(list.band.on_alternate(), "Ctrl-O did not take the plane");
+        assert_eq!(
+            list.keys(b"\x0f"),
+            at_window(1, 10, 1),
+            "Tab chose a row under Ctrl-O"
+        );
+        // And the return, with a Down in the same read: the last frame that
+        // landed was the transcript's, so the Down is spent; after the frame
+        // that gives the plane back, it moves the bar.
+        list.keys(b"\x0f");
+        assert!(list.band.on_alternate());
+        let mut typed = b"\x0f".to_vec();
+        typed.extend(DOWN);
+        assert_eq!(
+            list.keys(&typed),
+            at_window(1, 10, 1),
+            "the Down moved the bar"
+        );
+        assert_eq!(list.keys(DOWN), at_window(1, 10, 2));
     }
 
     #[test]

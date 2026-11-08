@@ -5391,8 +5391,8 @@ impl Shell {
         }
     }
 
-    /// A frame did not show the `@` list -- it was refused or torn, or it was
-    /// a frame of the other plane -- so its keys wait for one that does
+    /// A frame did not show the `@` list -- it was refused or torn, or it took
+    /// the other plane -- so its keys wait for one that does
     /// (`distrustFilePicker`, `app_render_runtime.zig:1002-1003`,
     /// `:1024-1026@481104fd`; `filePickerEligible`,
     /// `input_completion_runtime.zig:775-786`, `:798-799`).
@@ -6147,8 +6147,11 @@ impl Shell {
         };
         // From the screen's signal to the frame at its new size, the rows on
         // it are not the ones the keys would act on (`resizeLifecyclePending`,
-        // `input_completion_runtime.zig:803@481104fd`).
-        if self.render.resize_pending() {
+        // `input_completion_runtime.zig:803@481104fd`); and while the full
+        // transcript is up the list is not on the screen at all -- the keys
+        // it leaves unbound reach here, and fx's list takes none of them
+        // (`filePickerEligible`, `:775-786`, `:798-799`).
+        if self.render.resize_pending() || self.full.is_open() {
             files.distrust();
         }
         let page = i64::from(layout::input_row_limit(self.geometry.rows));
