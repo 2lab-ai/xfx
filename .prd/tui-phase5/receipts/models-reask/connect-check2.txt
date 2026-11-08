@@ -1,0 +1,42 @@
+# round 2: FLAKE-CATALOG-EVENT's connect_logger.py (tools copy, scratch) on 127.0.0.1:62000 as HTTPS_PROXY/https_proxy; the lib test binary built at ba6670a8; each case by its exact name (--exact), one by one: round 2's fifteen cases and the five catalog cases round 2 re-shaped (undated); the logger's log after all 20: not created -- no connection reached it
+test provider::model::tests::a_read_that_finds_no_runtime_tells_its_failure_as_every_read_tells_its_answer ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.00s
+test tui::worker::tests::a_read_that_finds_no_runtime_tells_the_band_its_failure_and_is_read_again_past_its_backoff ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.03s
+test tui::shell::tests::every_answer_lets_activity_ask_again_a_refresh_failure_over_a_failed_band_too ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.00s
+test tui::shell::tests::a_read_that_found_no_runtime_ends_the_menus_wait_and_activity_asks_again_past_its_hold ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.00s
+test tui::worker::tests::a_read_asked_for_mid_work_that_finds_no_runtime_is_told_at_once_and_once ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.01s
+test tui::shell::tests::rows_a_slow_read_brought_are_read_again_five_minutes_after_it_began ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.00s
+test tui::shell::tests::a_refresh_that_failed_for_good_is_read_again_when_the_runtimes_clock_says ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.00s
+test tui::worker::tests::the_band_is_told_rows_are_due_again_five_minutes_after_their_read_began ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.04s
+test tui::worker::tests::a_failed_refresh_is_due_again_when_the_runtimes_clock_says ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.00s
+test provider::model::tests::activity_is_due_exactly_when_the_clock_says_it_is ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.00s
+test tui::worker::tests::the_catalog_as_held_is_told_with_the_runtimes_clock ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.00s
+test tui::worker::tests::a_request_carrying_tool_images_waits_for_the_retry_behind_a_failed_catalog ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.12s
+test tui::worker::tests::the_image_route_waits_two_seconds_at_most_and_once_a_turn ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 2.02s
+test tui::worker::tests::a_prompts_images_wait_for_the_retry_behind_a_failed_catalog ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.13s
+test tui::worker::tests::the_historys_images_wait_at_the_image_route_and_not_at_the_turns_start ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 2.12s
+test tui::worker::tests::a_catalog_asked_for_again_while_a_turn_runs_is_read_at_once_and_told_before_it_ends ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.02s
+test tui::worker::tests::a_catalog_asked_for_while_a_question_has_parked_the_turn_is_told_before_it_is_answered ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.03s
+test tui::worker::tests::a_catalog_asked_for_while_an_approval_has_parked_the_turn_is_told_before_it_is_answered ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.03s
+test tui::worker::tests::a_catalog_request_answers_the_menu_and_never_the_document ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.02s
+test tui::worker::tests::a_catalog_that_answers_while_a_turn_runs_is_told_to_the_band_at_once ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.01s
+connect.log after them: not created -- no connection reached it

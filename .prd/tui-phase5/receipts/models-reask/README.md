@@ -18,7 +18,18 @@ Base `main` `690aa505`. Every claim below is tied to a file in this folder.
 | `0a14906f` | the column says the failure while the retry behind it reads -- **the code head** |
 | `c6900765` | `docs/parity.md`, `parity-ledger.toml`, `scenarios/model-column-hold.cap` |
 | `765bbc4d` | a test only: a prompt's ask over held rows (for mutant R, below) |
-| (this one) | this receipt |
+| `5f040719` | this receipt, round 1 |
+| `92ad8f13` | round 2 RED: a read that finds no runtime is told; any answer lets activity ask again |
+| `834a0b32` | its fix |
+| `38a96c55` | round 2 RED: a read asked for mid-work that finds no runtime is told at once |
+| `9bd97386` | its fix |
+| `3ad38109` | round 2 RED: the band's activity clock is the runtime's, from the read's start |
+| `a8cc789b` | its fix |
+| `39ccc85d` | round 2 RED: the image route waits for a failed catalog's retry, once a turn |
+| `b74c5822` | its fix -- **round 2's code head** |
+| `b8ac7760`, `9eee6b09` | `docs/parity.md` and `parity-ledger.toml` for round 2 |
+| `ac646f87`, `ba6670a8` | tests only: two pins (below) |
+| (this one) | this receipt, round 2 |
 
 The xfx captures here are from the binary built at `0a14906f` (row 1:
 `x𝒇x v0.1.0-0a14906 [debug]`, sha256 `23719b94f33f…`); the base's from
@@ -78,12 +89,19 @@ session never polls the models endpoint" (`:27-35`).
    (`retryableFailureText`, `model_menu_presentation.zig:435-443`), which
    includes a fetch thread it could not spawn (`.runtime`, retryable,
    `model_cache_runtime.zig:537-546`).
-8. **A turn waits for the retry, briefly**: a request whose capabilities
+8. **A turn waits for the retry, briefly** -- at its start, and once more
+   at the image route (round 2, `fx-cites2.txt`): a turn whose capabilities
    need the catalog (`requiresResolvedRequestCapabilities`,
-   `orchestrator.zig:5658-5670`, from `:5884-5893`) waits up to 2 s for a
-   failed catalog's retry on its way, such as the one its prompt started
-   (`resolveForRequest`, `model_cache_runtime.zig:843-866`;
-   `failed_catalog_retry_wait_ms`, `:45-47`).
+   `orchestrator.zig:5658-5670`, from `:5884-5893`, whose images are this
+   turn's own) waits up to 2 s for a failed catalog's retry on its way, such
+   as the one its prompt started (`resolveForRequest`,
+   `model_cache_runtime.zig:843-866`; `failed_catalog_retry_wait_ms`,
+   `:45-47`); then the image route, seeded with that resolution's image
+   support (`orchestrator.zig:7002`), asks again at most once a turn, at the
+   first request carrying images -- this turn's, the history's or a tool
+   result's -- while the support is unknown (`image_route.zig:180-184`,
+   `orchestrator.zig:7502-7509`), and that resolution waits up to 2 s too.
+   No other request waits.
 
 At `c1db9191` (0.0.13, the code xfx was ported from) a failed catalog was
 read again whenever asked a second after the read that failed began, rows
@@ -139,16 +157,20 @@ sentence said `retry /model.` (`model_menu_presentation.zig:439-441
 
 - **llmux is held to the Gateway's interval** (five minutes): fx has no
   llmux provider, so there is no line to copy; one rule for both providers.
-- **The turn waits once**, before its first catalog read, where fx resolves
-  a request's capabilities before each request (`orchestrator.zig:5885`): a
-  retry still on its way after the first 2 s is not waited for again by the
-  turn's later steps. Written in `docs/parity.md`'s `/model` row.
+- ~~**The turn waits once**~~ -- withdrawn in round 2: it rested on fx
+  resolving "before each request", which fx does not; fx resolves at the
+  turn's start and at most once more at the image route (fx item 8 above),
+  and xfx now does the same.
 - **A prompt's ask is sent at submission, on the control channel**, ahead of
   the work: fx triggers at enqueue, behind a running turn too, and xfx's
   work queue is not read during a turn.
-- **The timeout's sentence is not here**: a catalog read past a deadline is
-  the input cluster's U10 (catalog fetch bounds); xfx's current bounds give
-  `Could not reach AI Gateway` when the send times out.
+- **The timeout's sentence** (corrected in round 2): fx makes a catalog
+  request past its deadline a retryable `.transport` failure
+  (`catalogRequestFailure`, `builtins/gateway.zig:2510-2519`, tested
+  `:2545-2547`; `fx-cites2.txt`), so it says `Could not reach AI Gateway;
+  fx retries automatically.` -- which xfx says for a send that times out.
+  A deadline met while the body is read is the input cluster's U10 (the
+  catalog's fetch bounds).
 
 ## RED, then GREEN (`red.txt`, `green.txt`)
 
@@ -410,6 +432,113 @@ untracked (staged for `check-no-secrets`), `TMPDIR` a short path:
 **20 steps, 0 failed**, at `765bbc4d` (`# head 765bbc4d`; `tree clean: no`
 is this receipt, staged and uncommitted, and nothing else). The test counts
 are the sums of the `test result` lines in the steps' logs.
+
+## Round 2: the two reviews' fixes
+
+Files: `fx-cites2.txt` (every fx line below, at `481104fd`), `red-green2.txt`
+and `red_green2.sh`, `mutants2.txt` and `mutants2.py`, `connect-check2.txt`,
+`sweep-r2-1.md`, `sweep-r2-2.md`, `sweep-compare2.txt`, `tests2.txt`,
+`gate-test-results.txt`, `gateway-logs/`.
+
+1. **A read that finds no runtime** (gpt6's MUST, opus's SHOULD 1). At
+   `5f040719` a read whose thread could build no runtime recorded its
+   failure and never told it (`PendingLoad::start`): between turns the loop
+   took the answer silently (`Taken::Catalog => continue`), and a band
+   waiting on it stayed at `Loading models…`, its asks latched. Now the
+   runtime is built before the thread, and a read that can have none is
+   answered as a read that can have no thread is (`PendingLoad::unstarted`):
+   fx's `.runtime` failure, retryable (`model_cache_runtime.zig:537-546`),
+   told when the selector takes it -- at once between turns. Asked for while
+   work runs, the work tells it with its answer to the ask
+   (`StartedLoad::answer_unstarted`, `told_event`) rather than at the work's
+   end. Test seam: `ModelCatalog::runtime_fails_for_test`, test builds only.
+   Opus's PLAUSIBLE: a `CatalogRefreshFailed` reaching a band that holds no
+   rows left its activity latch set. Now any answer for the band's provider
+   clears it, and an `Unread` band's hold moves to the runtime's due. The
+   cost: such a band -- out of step with the runtime; I found no in-order
+   path to one -- keeps `/model` on its old failure until that hold ends.
+2. **The band's activity clock** (gpt6's NTH 1). fx counts the refresh
+   interval from `last_attempt_ms`, set as a read starts
+   (`model_cache_runtime.zig:636`; `expired`, `:609-611`); the band counted
+   from the answer's arrival, so a slow read's rows were re-read later than
+   fx re-reads them. Now the runtime tells the band its due with every
+   answer (`CatalogLoaded.due`, `CatalogRefreshFailed.due`), computed by
+   `LoadClock::activity_due` -- `LoadClock::due` read the other way, and
+   `activity_is_due_exactly_when_the_clock_says_it_is` pins that the band
+   never asks before the runtime would read (an early ask would read
+   nothing and latch the band).
+3. **The turn's waits** (decision 2). fx resolves at the turn's start
+   (`orchestrator.zig:5884-5893`, this turn's images) and at most once more
+   at the image route (`image_route.zig:180-184`; `orchestrator.zig:
+   7502-7509`, seeded by `:7002`) -- not before each request. xfx now: the
+   turn's start waits for this turn's own images, not the history's
+   (`one_turn`); `image_refusal`, the route at the first request, waits when
+   the model is unknown; `ToolImageGate::refusal` waits once a turn unless
+   the first request carried images already (`asked`).
+4. **What fx shows for a refresh failure asking again cannot change**:
+   `retryableFailureText` gives nothing, so `loadedCatalogStatusText` reads
+   on to the loaded catalog's provenance note
+   (`model_menu_presentation.zig:403-433`; the provenance is still the
+   loaded catalog's, `modelMenuCatalogState`, `model_cache_runtime.zig:
+   1061-1088`). xfx's `menu_note` keeps `catalog_note` for retryable
+   failures only and falls through to the Gateway note: the same, so no
+   change and no RED.
+5. **Docs and ledger**: the `/model` row (no-thread or no-runtime read
+   retryable, the clock, the image route, the deadline), `catalog-window`'s
+   9012 ms (`window.txt:6`), `activity-tokens-before-request` owned by
+   ACTIVITY-TOKENS, the line refs this round moved (`shell.rs` 1662 -> 1665,
+   4128 -> 4131, 12656 -> 12671, 37963 -> 38002; in `docs/parity.md`
+   `worker.rs` 3840 -> 3856, 3528 -> 3544), two stale doc links to
+   `adopt_loads`.
+
+**RED, then GREEN** (`red-green2.txt`, a `--no-local` clone): eleven cases,
+each FAILED at the commit that added it (`92ad8f13` three, `38a96c55` one,
+`3ad38109` four, `39ccc85d` three) and ok at `ba6670a8`. Four more are ok
+from the commit that added them: the band's half of the no-runtime read,
+and three pins added after the fixes -- `activity_is_due_exactly...`,
+`the_historys_images_wait...` (one 2 s window, not two),
+`the_catalog_as_held_is_told...`.
+
+**No socket off the machine** (`connect-check2.txt`): those fifteen and the
+five catalog cases round 2 re-shaped, by exact name, under the logger: its
+log never written.
+
+**Mutants** (`mutants2.txt`, `mutants2.py`; a `--no-local` clone of
+`ba6670a8`, each mutant one change on a line this round changed,
+`cargo test --locked --lib` filtered to the catalog's and the images'
+cases, 900 s each, the clone restored after each): **17 mutants, 16
+KILLED, one equivalent** -- AC, the tool-image gate forgetting that the
+turn's first request carried images: `image_refusal` refuses a turn whose
+images meet a model the catalog does not list as reading them, so a turn
+that reaches a tool-image request with `asked` already true has a model the
+gate knows, and the gate's wait cannot run whatever `asked` starts as. The
+line is kept because it states fx's once-a-turn rule.
+
+**Tests and file checks** (`tests2.txt`, `tests2.sh` -- the gate's first
+fifteen steps, unchanged, inside one hold of the suite lock, at `ba6670a8`
+with this receipt staged): **15 steps, 0 failed** -- fmt, clippy and
+clippy with fault injection, `cargo test --locked --no-fail-fast` (5358
+passed, 0 failed) and with fault injection (5395 passed, 0 failed), every
+`check-*.sh`, every `test-*.sh`, and fxcap's `test-sweep.sh` (the ledger).
+The builds, smoke and smoke-tui are the dispatcher's gate. Round 1's
+gate's `test result` lines are in `gate-test-results.txt` (5343 and 5380).
+
+**The sweep, twice** (`sweep-r2-1.md`, `sweep-r2-2.md`,
+`sweep-compare2.txt`; captures `fx-r2/`, `xfx-r2/` from the first, the
+binary built at `ba6670a8` -- row 1 `x𝒇x v0.1.0-ba6670a [debug]`, sha256
+`486a4730f849…` -- and fx v0.0.16 `8e6cda2e…`): every model scenario, with
+the round-2 ledger. **84 pairs: 75 in each run, against the base's 65; 10
+up, none down.** Up: the nine of round 1's final sweep and `model-reask`
+`menu-failed`. In both runs both sides' deciding reads of the three
+`modelsdown` scenarios landed on the same side of the outage's end (the
+table at the end of `sweep-compare2.txt`; the logs in
+`gateway-logs/r2-1/`, `r2-2/`), so all their pairs passed -- the cause
+stays `catalog-window`, owned by FLAKE-MODELSDOWN, and a later run that
+straddles the end will show them again. Failing on both, nine: six
+`p5-input-model` rows (five search queries and the inline column's
+`inline-gpt6`) and `model-anchor` `alt-enter` (fuzzy search, U8), `model` `typed` (C7's help entry), and `model-parked` `menu-loading`
+(the token suffix, `activity-tokens-before-request`, now owned by
+ACTIVITY-TOKENS).
 
 ## How files got here (`receipt_copy.py`)
 

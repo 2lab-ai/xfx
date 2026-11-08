@@ -1,0 +1,58 @@
+# round 2: base 690aa505 (xfx sha256 e44245759efc, sweep-base; model-column-hold from hold-base) against the round-2 head ba6670a8 (xfx sha256 486a4730f849, banner `x𝒇x v0.1.0-ba6670a [debug]`), fx v0.0.16 8e6cda2e on both, every model* / h1-models* / p5-input-model* scenario, 40x120, swept twice (sweep-r2-1, sweep-r2-2) with the round-2 ledger
+## sweep-r2-1
+pairs 84; base pass 65; head pass 75
+## up: 10
+- h1-models2 after: unresolved-defect -> normalized-identical
+- model-column-hold col-back: failed -> normalized-identical
+- model-column-hold col-first: failed -> normalized-identical
+- model-column-hold col-held: failed -> normalized-identical
+- model-column-hold col-retry: failed -> normalized-identical
+- model-floor after-floor: unresolved-defect -> normalized-identical
+- model-floor inside-floor: unresolved-defect -> normalized-identical
+- model-parked question-up: unresolved-defect -> normalized-identical
+- model-reask menu-failed: unresolved-defect -> normalized-identical
+- p5-input-model-fail fail-open: unresolved-defect -> normalized-identical
+## down: 0
+## fail-both: 9
+- model typed: unresolved-defect -> unresolved-defect  (row 7: fx `  /model   choose what model and reasoning effort to use                                                          Model` / xfx `  /model   show the model, or `/model <id>` to use another one from now on                                        Model`)
+- model-anchor alt-enter: unresolved-defect -> unresolved-defect  (row 6: fx `  xai/grok-4.7` / xfx `  no matching models`)
+- model-parked menu-loading: unresolved-defect -> unresolved-defect  (row 5: fx `~ Thinking (<s>)` / xfx `~ Thinking (<s>) (↑4 ↓0)`)
+- p5-input-model inline-gpt6: unresolved-defect -> unresolved-defect  (row 5: fx `         openai/gpt-6-astra` / xfx `         no matching models`)
+- p5-input-model q-anthropic-opus: unresolved-defect -> unresolved-defect  (row 5: fx `Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+- p5-input-model q-cs45: unresolved-defect -> unresolved-defect  (row 5: fx `Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+- p5-input-model q-grok-fast: unresolved-defect -> unresolved-defect  (row 5: fx `Models 2  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+- p5-input-model q-sonnet45: unresolved-defect -> unresolved-defect  (row 5: fx `Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+- p5-input-model q-zai-glm: unresolved-defect -> unresolved-defect  (row 5: fx `Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+## pass both: 65
+## sweep-r2-2
+pairs 84; base pass 65; head pass 75
+## up: 10
+- h1-models2 after: unresolved-defect -> normalized-identical
+- model-column-hold col-back: failed -> normalized-identical
+- model-column-hold col-first: failed -> normalized-identical
+- model-column-hold col-held: failed -> normalized-identical
+- model-column-hold col-retry: failed -> normalized-identical
+- model-floor after-floor: unresolved-defect -> normalized-identical
+- model-floor inside-floor: unresolved-defect -> normalized-identical
+- model-parked question-up: unresolved-defect -> normalized-identical
+- model-reask menu-failed: unresolved-defect -> normalized-identical
+- p5-input-model-fail fail-open: unresolved-defect -> normalized-identical
+## down: 0
+## fail-both: 9
+- model typed: unresolved-defect -> unresolved-defect  (row 7: fx `  /model   choose what model and reasoning effort to use                                                          Model` / xfx `  /model   show the model, or `/model <id>` to use another one from now on                                        Model`)
+- model-anchor alt-enter: unresolved-defect -> unresolved-defect  (row 6: fx `  xai/grok-4.7` / xfx `  no matching models`)
+- model-parked menu-loading: unresolved-defect -> unresolved-defect  (row 5: fx `~ Thinking (<s>)` / xfx `~ Thinking (<s>) (↑4 ↓0)`)
+- p5-input-model inline-gpt6: unresolved-defect -> unresolved-defect  (row 5: fx `         openai/gpt-6-astra` / xfx `         no matching models`)
+- p5-input-model q-anthropic-opus: unresolved-defect -> unresolved-defect  (row 5: fx `Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+- p5-input-model q-cs45: unresolved-defect -> unresolved-defect  (row 5: fx `Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+- p5-input-model q-grok-fast: unresolved-defect -> unresolved-defect  (row 5: fx `Models 2  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+- p5-input-model q-sonnet45: unresolved-defect -> unresolved-defect  (row 5: fx `Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+- p5-input-model q-zai-glm: unresolved-defect -> unresolved-defect  (row 5: fx `Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+## pass both: 65
+## the three modelsdown scenarios in these two sweeps (window.py, as window.txt)
+r2-1           model-reask         down<6000ms | fx 803:503, 8911:200         | xfx 1814:503, 9919:200       | menu-failed pass, reask-midturn pass, turn-running pass
+r2-1           model-column-idle   down<9000ms | fx 792:503, 6814:503         | xfx 2468:503, 8491:503       | col-down pass, col-idle pass, col-typed pass
+r2-1           model-column-reask  down<9000ms | fx 804:503, 6359:503         | xfx 1630:503, 7193:503       | col-back pass, col-down pass
+r2-2           model-reask         down<6000ms | fx 848:503, 8978:200         | xfx 783:503, 8877:200        | menu-failed pass, reask-midturn pass, turn-running pass
+r2-2           model-column-idle   down<9000ms | fx 793:503, 6823:503         | xfx 975:503, 7007:503        | col-down pass, col-idle pass, col-typed pass
+r2-2           model-column-reask  down<9000ms | fx 772:503, 6326:503         | xfx 779:503, 6331:503        | col-back pass, col-down pass
