@@ -1,0 +1,453 @@
+# fx v0.0.16 (481104fd) text for every fx citation STOP-IN-CATALOG-WAIT adds. Each block: the command (repo = the fx
+# upstream checkout, read through git show at the pin, never its working tree), then the lines with their numbers.
+# What the transcript shows of an interrupted turn (one Cancelled line, no entry; idle) is quoted already in
+# ../stop-next/fx-src.txt (app_session_runtime.zig:2581-2595, :2635-2645; program_status.zig:57-71), and the cancelled
+# drain's admission of error_text in its app_worker_runtime.zig:339-389 block.
+
+## F1: which turns resolve the capabilities at their start -- Ultra always; images, a window nobody else gives, a level
+## or Fast the fallback cannot vouch for -- and what a stop in that resolve, or right after it, does: interrupted, the
+## prompt persisted (persistInterruptedTurnOnce), before the skill catalog, before any request
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '5658,5670p'
+ 5658  fn requiresResolvedRequestCapabilities(
+ 5659      has_images: bool,
+ 5660      vision_policy_needs_capabilities: bool,
+ 5661      effort: types.ReasoningEffort,
+ 5662      fast_mode: bool,
+ 5663      available: model_capabilities.Capabilities,
+ 5664  ) bool {
+ 5665      return has_images or
+ 5666          available.context_window == null or
+ 5667          (vision_policy_needs_capabilities and available.image_input_support == .unknown) or
+ 5668          (!effort.isDefault() and !model_capabilities.reasoningEffortSupported(available, effort)) or
+ 5669          (fast_mode and !available.supports_fast_mode);
+ 5670  }
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '5882,5950p'
+ 5882      const vision_fallback_available = config.provider_capabilities.vision_fallback and
+ 5883          deps.tool_registry.lookup("vision") != null;
+ 5884      var request_capabilities = deps.available_model_capabilities(deps.ctx, job.model);
+ 5885      if (config.ultrafast_mode or requiresResolvedRequestCapabilities(
+ 5886          job.images.len > 0 or job.authorized_image_catalog.len > 0,
+ 5887          vision_fallback_available,
+ 5888          config.effort,
+ 5889          config.fast_mode,
+ 5890          request_capabilities,
+ 5891      )) {
+ 5892          resolve_capabilities: while (true) {
+ 5893              request_capabilities = deps.resolve_model_capabilities(deps.ctx, arena, job.model) catch |err| {
+ 5894                  if (err != error.Cancelled) return err;
+ 5895                  if (try append_immediate_steering_after_cancel(
+ 5896                      deps,
+ 5897                      arena,
+ 5898                      &within_turn_suffix,
+ 5899                      turn_id,
+ 5900                      "",
+ 5901                  )) continue :resolve_capabilities;
+ 5902                  runtime_telemetry.traceCancelObserved(finish_trace.ctx, false);
+ 5903                  var terminal_materializing = false;
+ 5904                  try runtime_interruption.persistInterruptedTurnOnce(
+ 5905                      deps,
+ 5906                      finalization,
+ 5907                      job,
+ 5908                      null,
+ 5909                      null,
+ 5910                      completed_tool_names.items,
+ 5911                      &interrupted_persisted,
+ 5912                      finish_trace.ctx,
+ 5913                      within_turn_suffix.items,
+ 5914                      null,
+ 5915                      &terminal_materializing,
+ 5916                  );
+ 5917                  finish_trace.finish("interrupted");
+ 5918                  return;
+ 5919              };
+ 5920              break :resolve_capabilities;
+ 5921          }
+ 5922      }
+ 5923      if (config.cancel_flag.load(.seq_cst)) {
+ 5924          if (!try append_immediate_steering_after_cancel(
+ 5925              deps,
+ 5926              arena,
+ 5927              &within_turn_suffix,
+ 5928              turn_id,
+ 5929              "",
+ 5930          )) {
+ 5931              runtime_telemetry.traceCancelObserved(finish_trace.ctx, false);
+ 5932              var terminal_materializing = false;
+ 5933              try runtime_interruption.persistInterruptedTurnOnce(
+ 5934                  deps,
+ 5935                  finalization,
+ 5936                  job,
+ 5937                  null,
+ 5938                  null,
+ 5939                  completed_tool_names.items,
+ 5940                  &interrupted_persisted,
+ 5941                  finish_trace.ctx,
+ 5942                  within_turn_suffix.items,
+ 5943                  null,
+ 5944                  &terminal_materializing,
+ 5945              );
+ 5946              finish_trace.finish("interrupted");
+ 5947              return;
+ 5948          }
+ 5949      }
+ 5950      var skill_section = try prepareSkillCatalog(arena, deps, config, request_capabilities.context_window);
+
+## F2: the resolve's wait -- a first load (.loading) or a failed catalog's retry in flight, 2 s at most -- ends on
+## the turn's cancel flag with error.Cancelled
+
+### git -C fx-upstream show 481104fd:src/core/app/model_cache_runtime.zig | sed -n '45,47p'
+   45  /// How long a request waits for a failed catalog's retry before it goes out
+   46  /// without the catalog's limits.
+   47  const failed_catalog_retry_wait_ms: i64 = 2_000;
+
+### git -C fx-upstream show 481104fd:src/core/app/model_cache_runtime.zig | sed -n '817,883p'
+  817      pub fn resolveForRequest(
+  818          self: *Self,
+  819          model: []const u8,
+  820          cancel_flag: *std.atomic.Value(bool),
+  821      ) model_capabilities.ResolveError!model_capabilities.Capabilities {
+  822          var retry_wait_until_ms: ?i64 = null;
+  823          while (true) {
+  824              self.finishThreadIfDone();
+  825              self.mutex.lockUncancelable(io_mod.getIo());
+  826              const state = self.state;
+  827              if (state == .ready) {
+  828                  const metadata = if (findCatalogModel(self.catalog.items, model)) |entry|
+  829                      model_catalog_metadata.fromCatalogEntry(entry.*)
+  830                  else
+  831                      null;
+  832                  self.mutex.unlock(io_mod.getIo());
+  833                  debug_trace.logf(
+  834                      "gateway",
+  835                      "interactive model catalog lookup outcome={s} model={s}",
+  836                      .{ if (metadata != null) "ready_hit" else "missing_entry", model },
+  837                  );
+  838                  if (metadata == null) {
+  839                      diagnostics.recordModelCatalogEvent(false, .lookup, "outcome=missing_entry model={s}", .{model});
+  840                  }
+  841                  return model_capabilities.resolveCapabilities(model, metadata);
+  842              }
+  843              // A request waits a moment for a failed catalog's retry, such as
+  844              // the one a submitted prompt starts, so a retry that lands quickly
+  845              // gives this request its limits. A slow retry never holds it.
+  846              const retry_in_flight = state == .failed and self.fetch_in_flight;
+  847              self.mutex.unlock(io_mod.getIo());
+  848              const wait_for_retry = retry_in_flight and wait: {
+  849                  const now = model_catalog.clockMs();
+  850                  const until = retry_wait_until_ms orelse now + failed_catalog_retry_wait_ms;
+  851                  retry_wait_until_ms = until;
+  852                  break :wait now < until;
+  853              };
+  854  
+  855              switch (if (wait_for_retry) .loading else state) {
+  856                  .loading => {
+  857                      if (cancel_flag.load(.seq_cst)) {
+  858                          debug_trace.logf(
+  859                              "gateway",
+  860                              "interactive model catalog lookup outcome=cancelled model={s}",
+  861                              .{model},
+  862                          );
+  863                          diagnostics.recordModelCatalogEvent(false, .lookup, "outcome=cancelled model={s}", .{model});
+  864                          return error.Cancelled;
+  865                      }
+  866                      io_mod.sleep(std.time.ns_per_ms);
+  867                  },
+  868                  .failed, .idle => {
+  869                      debug_trace.logf(
+  870                          "gateway",
+  871                          "interactive model catalog lookup outcome={s} model={s}",
+  872                          .{ if (state == .failed) "cache_failed" else "cache_unavailable", model },
+  873                      );
+  874                      diagnostics.recordModelCatalogEvent(true, .lookup, "outcome={s} model={s}", .{
+  875                          if (state == .failed) "cache_failed" else "cache_unavailable",
+  876                          model,
+  877                      });
+  878                      return model_capabilities.capabilitiesForModel(model);
+  879                  },
+  880                  .ready => unreachable,
+  881              }
+  882          }
+  883      }
+
+## F3: the flag is the worker's stop; Fast or Ultra also check it before the cache is asked
+
+### git -C fx-upstream show 481104fd:src/main.zig | sed -n '2068,2071p'
+ 2068      pub fn resolveModelCapabilitiesForRequest(self: *App, model: []const u8) model_capabilities.ResolveError!model_capabilities.Capabilities {
+ 2069          _ = try self.model_cache.resolveForRequest(model, &self.worker.worker_cancel_requested);
+ 2070          return self.resolvedModelCapabilities(model);
+ 2071      }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_callbacks.zig | sed -n '912,937p'
+  912          fn agentResolveModelCapabilities(ctx: *anyopaque, _: Allocator, model: []const u8) model_capabilities.ResolveError!model_capabilities.Capabilities {
+  913              const app: *App = @ptrCast(@alignCast(ctx));
+  914              if (comptime runtime_profile.allows(App, .cooperative_agent)) {
+  915                  const settings = app.worker.effectiveAgentTurnSettings();
+  916                  if (settings.fast_mode or settings.ultrafast_mode) {
+  917                      if (app.worker.isCancelRequested()) return error.Cancelled;
+  918                      app.ensureModelCache();
+  919                      // A host abort can settle the fetch before queued input reaches the worker.
+  920                      app.cooperativeTransportPulse() catch |err| {
+  921                          debug_trace.logf("gateway", "model catalog transport pulse failed err={s}", .{@errorName(err)});
+  922                          return error.Cancelled;
+  923                      };
+  924                      if (app.worker.isCancelRequested()) return error.Cancelled;
+  925                  }
+  926              }
+  927              if (comptime @hasDecl(App, "resolveModelCapabilitiesForRequest")) {
+  928                  return app.resolveModelCapabilitiesForRequest(model);
+  929              }
+  930              if (comptime @hasDecl(App, "resolvedModelCapabilities")) {
+  931                  return app.resolvedModelCapabilities(model);
+  932              }
+  933              if (comptime @hasDecl(App, "providerSet")) {
+  934                  return app.providerSet().select(provider_runtime.provider(app)).fallbackModelCapabilities(model);
+  935              }
+  936              return model_capabilities.capabilitiesForModel(model);
+  937          }
+
+## F4: the interrupted turn keeps the prompt and its images, and finishes .interrupted
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/interruption.zig | sed -n '21,49p'
+   21  pub fn persistInterruptedTurnOnce(
+   22      hooks: *const AgentRuntimeDeps,
+   23      finalization: *TurnFinalizationGuard,
+   24      job: QueuedPrompt,
+   25      partial_assistant: ?[]const u8,
+   26      active_tool_call: ?ToolCall,
+   27      completed_tool_names: [][]u8,
+   28      persisted: *bool,
+   29      trace_ctx: TraceContext,
+   30      current_turn_messages: []const types.ChatMessage,
+   31      retained_candidate: ?[]const u8,
+   32      terminal_materializing: *bool,
+   33  ) !void {
+   34      return persistInterruptedTurnWithPresentation(
+   35          hooks,
+   36          finalization,
+   37          job,
+   38          partial_assistant,
+   39          active_tool_call,
+   40          completed_tool_names,
+   41          persisted,
+   42          trace_ctx,
+   43          current_turn_messages,
+   44          retained_candidate,
+   45          terminal_materializing,
+   46          null,
+   47          .turn,
+   48      );
+   49  }
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/interruption.zig | sed -n '196,224p'
+  196  
+  197      persisted.* = true;
+  198      const turn: HistoryTurn = .{ .interrupted = .{
+  199          .user = .{ .text = job.prompt, .images = job.images },
+  200          .assistant = if (partial_assistant) |text| if (text.len > 0) @constCast(text) else null else null,
+  201          .tool_call = durable_active_tool_call,
+  202          .completed_tool_names = completed_tool_names,
+  203          .execution = execution,
+  204          .cancelled_command = cancelled_command,
+  205          .cancellation_origin = cancellation_origin,
+  206      } };
+  207  
+  208      var propagation_error: ?anyerror = null;
+  209      hooks.propagate_history_turn(hooks.ctx, turn) catch |err| {
+  210          propagation_error = err;
+  211      };
+  212      try traceInterruptedPersistence(
+  213          job,
+  214          partial_assistant,
+  215          active_tool_call,
+  216          completed_tool_names,
+  217          trace_ctx,
+  218      );
+  219      try finalization.finish(.interrupted, null, .{
+  220          .turn = try types.dupeHistoryTurn(std.heap.c_allocator, turn),
+  221      });
+  222      debug_trace.eventf("interrupt", "finish_event_emitted", trace_ctx, "outcome_kind=interrupted", .{});
+  223      if (propagation_error) |err| return err;
+  224  }
+
+## F5: Ultra's refusal is a request's, inside the request loop, after F1's checks
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '7655,7658p'
+ 7655              }
+ 7656              last_gateway_message_count = gateway_instructions.items.len + request_messages.len;
+ 7657              var provider_opts = try model_capabilities.resolveUltrafastProviderOptions(request_capabilities, job.provider, gateway_model, config.effort, route_fast_mode, config.ultrafast_mode);
+ 7658              provider_opts.prompt_caching = config.provider_capabilities.gateway_prompt_caching;
+
+### git -C fx-upstream show 481104fd:src/core/config/model_capabilities.zig | sed -n '238,252p'
+  238  pub fn resolveUltrafastProviderOptions(
+  239      capabilities: Capabilities,
+  240      provider: model_provider.ProviderId,
+  241      model: []const u8,
+  242      effort: types.ReasoningEffort,
+  243      fast_mode: bool,
+  244      ultrafast_mode: bool,
+  245  ) error{UltrafastUnavailable}!ResolvedProviderOptions {
+  246      var options = resolveProviderOptionsForCapabilities(capabilities, effort, fast_mode);
+  247      if (!ultrafast_mode) return options;
+  248      if (provider != .gateway or !std.mem.startsWith(u8, model, "openai/") or !capabilities.supports_ultrafast_mode) {
+  249          return error.UltrafastUnavailable;
+  250      }
+  251      options.fast = false;
+  252      options.ultrafast = true;
+
+## F6: in the TUI only the prompt's images count at the turn's start: authorized_image_catalog is ACP's (a recovery
+## checkpoint's)
+
+### git -C fx-upstream show 481104fd:src/acp/prompt.zig | sed -n '1103,1113p'
+ 1103      const authorized_image_catalog = if (recovery_checkpoint != null)
+ 1104          prior_image_catalog
+ 1105      else
+ 1106          try session.session_rt.snapshotImageCatalog(alloc, current_images);
+ 1107      defer if (recovery_checkpoint == null) types.freeImageAttachmentSlice(alloc, authorized_image_catalog);
+ 1108  
+ 1109      const job: worker_runtime.QueuedPrompt = .{
+ 1110          .turn_id = if (recovery_checkpoint) |checkpoint| checkpoint.turn_id else 0,
+ 1111          .prompt = @constCast(owned_prompt),
+ 1112          .images = @constCast(current_images),
+ 1113          .authorized_image_catalog = authorized_image_catalog,
+
+## F7 (not copied): the image route's own resolve at the first request (history images; the prompt's again while the
+## support is unknown) is a plain try: error.Cancelled leaves the loop, keeps nothing without execution, finishes the
+## turn failed, and the worker loop says request failed under system
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '7500,7516p'
+ 7500              // Ends: the core asks for capabilities at most once per turn, and
+ 7501              // its reply never asks again (ImageRoute.tla ResolveOncePerTurn).
+ 7502              while (true) {
+ 7503                  const image_out = image_route.step(image_route_state, image_event);
+ 7504                  image_route_state = image_out.state;
+ 7505                  var reply: ?image_route.Event = null;
+ 7506                  for (image_out.effects()) |effect| switch (effect) {
+ 7507                      .resolve_capabilities => {
+ 7508                          request_capabilities = try deps.resolve_model_capabilities(deps.ctx, overlay_arena, gateway_model);
+ 7509                          reply = .{ .capabilities_resolved = request_capabilities.image_input_support };
+ 7510                      },
+ 7511                      .notify_catalog_down => notify_catalog_down = true,
+ 7512                      .send => |chosen| image_decision = chosen,
+ 7513                      .fail => |reason| image_failure = reason,
+ 7514                  };
+ 7515                  image_event = reply orelse break;
+ 7516              }
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '6092,6135p'
+ 6092      ) catch |err| {
+ 6093          // A turn that yielded stays open for the host to resume, so nothing
+ 6094          // it did is finished as a failure.
+ 6095          if (err == error.TurnYielded) return err;
+ 6096          if (stop_state.retained_candidate != null and
+ 6097              !stop_state.terminal_materializing and
+ 6098              finalization.state == .open)
+ 6099          {
+ 6100              runtime_finalization.finalizeRetainedCandidateFailure(
+ 6101                  deps,
+ 6102                  finalization,
+ 6103                  arena,
+ 6104                  job,
+ 6105                  within_turn_suffix.items,
+ 6106                  &summary_accumulator,
+ 6107                  &finish_trace,
+ 6108                  stop_state.retained_candidate,
+ 6109                  stop_state.latest_partial,
+ 6110                  &stop_state.terminal_materializing,
+ 6111              ) catch |secondary_err| {
+ 6112                  if (deps.compaction_failure) |out| out.* = null;
+ 6113                  return secondary_err;
+ 6114              };
+ 6115          } else if (!stop_state.terminal_materializing and
+ 6116              finalization.state == .open)
+ 6117          {
+ 6118              _ = runtime_finalization.finishExecutionOnlyFailureIfNeeded(
+ 6119                  deps,
+ 6120                  finalization,
+ 6121                  arena,
+ 6122                  job,
+ 6123                  within_turn_suffix.items,
+ 6124                  &summary_accumulator,
+ 6125                  &finish_trace,
+ 6126                  &stop_state.terminal_materializing,
+ 6127                  "error",
+ 6128              ) catch |secondary_err| {
+ 6129                  if (deps.compaction_failure) |out| out.* = null;
+ 6130                  return secondary_err;
+ 6131              };
+ 6132          }
+ 6133          return err;
+ 6134      };
+ 6135  }
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/finalization.zig | sed -n '226,241p'
+  226  pub fn finishExecutionOnlyFailureIfNeeded(
+  227      deps: *const AgentRuntimeDeps,
+  228      finalization: *TurnFinalizationGuard,
+  229      arena: Allocator,
+  230      job: QueuedPrompt,
+  231      current_turn_messages: []const ChatMessage,
+  232      summary: *TurnSummaryAccumulator,
+  233      finish_trace: *PromptFinishTrace,
+  234      terminal_materializing: *bool,
+  235      trace_outcome: []const u8,
+  236  ) !bool {
+  237      const execution = try execution_memory.buildExecutionMemory(
+  238          arena,
+  239          current_turn_messages,
+  240      );
+  241      if (execution.isEmpty()) return false;
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '5616,5626p'
+ 5616      processQueuedPromptInner(deps, semantic_presentation, effective_lifecycle, effective_config, effective_job, &finalization, agent) catch |err| {
+ 5617          observed_error = err;
+ 5618          if (finalization.state == .open) {
+ 5619              finalization.finish(.failed, null, null) catch |finalization_err| {
+ 5620                  observed_error = finalization_err;
+ 5621                  if (deps.compaction_failure) |out| out.* = null;
+ 5622                  return finalization_err;
+ 5623              };
+ 5624          }
+ 5625          return err;
+ 5626      };
+
+### git -C fx-upstream show 481104fd:src/core/app/app_process_runtime.zig | sed -n '124,136p'
+  124          fn formatErrorBody(alloc: std.mem.Allocator, context: []const u8, err: anyerror) ![]u8 {
+  125              switch (err) {
+  126                  error.ConnectionSetupTimedOut => return alloc.dupe(u8, "Connection setup timed out after 30 seconds."),
+  127                  error.TlsInitializationFailed => return alloc.dupe(u8, "Connection setup failed: TLS could not be initialized."),
+  128                  error.ModelImageCapabilityUnavailable => return alloc.dupe(u8, image_attachments.model_image_capability_unavailable_notice),
+  129                  else => {},
+  130              }
+  131              if (detailedErrorSummary(err)) |detail| {
+  132                  return alloc.print("{s}: {s} ({s})", .{ context, detail, @errorName(err) });
+  133              }
+  134  
+  135              return alloc.print("{s}: {s}", .{ context, @errorName(err) });
+  136          }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_process_runtime.zig | sed -n '150,172p'
+  150          fn workerLoop(app: *App) !void {
+  151              while (true) {
+  152                  const work = (try app.worker.waitAndTakeNextWork(std.heap.c_allocator)) orelse return;
+  153  
+  154                  defer worker_runtime.freeWorkItem(std.heap.c_allocator, work);
+  155                  defer app.worker.finishProcessing();
+  156                  var failure_provenance: ?compaction_activity.ErrorProvenance = null;
+  157                  app.processQueuedWork(work, &failure_provenance) catch |err| {
+  158                      settleCompactionWorkFailure(&app.worker, work, err);
+  159                      if (compactionErrorHandled(work, failure_provenance, err)) {
+  160                          compactor.traceLog(true, "interactive error retained err={s}", .{@errorName(err)});
+  161                      } else if (err != error.RouteRecoveryStopped) {
+  162                          const body = try formatErrorBody(std.heap.c_allocator, "request failed", err);
+  163                          defer std.heap.c_allocator.free(body);
+  164                          try app.worker.pushEvent(std.heap.c_allocator, .{ .error_text = .{
+  165                              .topic = "system",
+  166                              .tone = .@"error",
+  167                              .body = body,
+  168                          } });
+  169                      }
+  170                  };
+  171              }
+  172          }

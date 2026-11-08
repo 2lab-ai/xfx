@@ -1,0 +1,41 @@
+# p5-stop-in-catalog-wait, 40x120: fx v0.0.16 (fx/, sha256 8e6cda2e...) against xfx 0b4d89be (xfx/) and the base 9298583e (base-xfx/).
+# 1) the sweep's verdicts (sweep.sh --only ..., ledger normalizations: the product name in 'What can fx do differently?'), from
+#    sweep-head.md / sweep-base.md's pairs.json; 2) cells.py raw, row 1 left out (the product name in row 5 is the one difference on xfx/).
+head before: normalized-identical rows=[]
+head stopped: normalized-identical rows=[]
+head settled: normalized-identical rows=[]
+base before: normalized-identical rows=[]
+base stopped: unresolved-defect rows=[{'row': 7, 'fx': '┃', 'xfx': '✗ system: Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it', 'attrs_only': False, 'matched': []}, {'row': 9, 'fx': 'press ctrl+c again to exit', 'xfx': '┃', 'attrs_only': False, 'matched': []}, {'row': 11, 'fx': '', 'xfx': 'press ctrl+c again to exit', 'attrs_only': False, 'matched': []}]
+base settled: unresolved-defect rows=[{'row': 7, 'fx': '┃', 'xfx': '✗ system: Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it', 'attrs_only': False, 'matched': []}, {'row': 9, 'fx': 'auto · gpt-6-astra · ⚡︎', 'xfx': '┃', 'attrs_only': False, 'matched': []}, {'row': 11, 'fx': '', 'xfx': 'auto · gpt-6-astra · ⚡︎', 'attrs_only': False, 'matched': []}]
+## cells.py fx/fx-...-before.ansi xfx/xfx-...-before.ansi
+0 rows differ in their cells (row 1 not compared)
+## cells.py fx/fx-...-before.ansi base-xfx/xfx-...-before.ansi
+0 rows differ in their cells (row 1 not compared)
+## cells.py fx/fx-...-stopped.ansi xfx/xfx-...-stopped.ansi
+row 5: fx [(23, 'f', ()), (24, 'x', ()), (25, ' ', ()), (26, 'd', ())]
+row 5: xfx [(23, 'x', ()), (24, 'f', ()), (25, 'x', ()), (26, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+## cells.py fx/fx-...-stopped.ansi base-xfx/xfx-...-stopped.ansi
+row 5: fx [(23, 'f', ()), (24, 'x', ()), (25, ' ', ()), (26, 'd', ())]
+row 5: xfx [(23, 'x', ()), (24, 'f', ()), (25, 'x', ()), (26, ' ', ())]
+row 7: fx [(0, '┃', (('fg', 255),))]
+row 7: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+row 9: fx [(0, 'p', (('fg', 245),)), (1, 'r', (('fg', 245),)), (2, 'e', (('fg', 245),)), (3, 's', (('fg', 245),))]
+row 9: xfx [(0, '┃', (('fg', 255),))]
+row 11: fx []
+row 11: xfx [(0, 'p', (('fg', 245),)), (1, 'r', (('fg', 245),)), (2, 'e', (('fg', 245),)), (3, 's', (('fg', 245),))]
+4 rows differ in their cells (row 1 not compared)
+## cells.py fx/fx-...-settled.ansi xfx/xfx-...-settled.ansi
+row 5: fx [(23, 'f', ()), (24, 'x', ()), (25, ' ', ()), (26, 'd', ())]
+row 5: xfx [(23, 'x', ()), (24, 'f', ()), (25, 'x', ()), (26, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+## cells.py fx/fx-...-settled.ansi base-xfx/xfx-...-settled.ansi
+row 5: fx [(23, 'f', ()), (24, 'x', ()), (25, ' ', ()), (26, 'd', ())]
+row 5: xfx [(23, 'x', ()), (24, 'f', ()), (25, 'x', ()), (26, ' ', ())]
+row 7: fx [(0, '┃', (('fg', 255),))]
+row 7: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+row 9: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+row 9: xfx [(0, '┃', (('fg', 255),))]
+row 11: fx []
+row 11: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+4 rows differ in their cells (row 1 not compared)

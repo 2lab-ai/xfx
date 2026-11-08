@@ -1,0 +1,11 @@
+# GREEN at baaf8e0b (code head 0b4d89be): cargo test --locked --lib -- tui::worker::tests::a_stop_in_a_turns_catalog_wait agent::machine::tests::a_turn_stopped_before_it_began agent::machine::tests::a_compaction_the_first_request
+
+running 4 tests
+test agent::machine::tests::a_turn_stopped_before_it_began_is_asked_and_stopped_and_measures_nothing ... ok
+test agent::machine::tests::a_compaction_the_first_request_needed_that_failed_leaves_no_turn_and_a_stopped_one_does ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 4534 filtered out; finished in 22.64s
+
+exit=0

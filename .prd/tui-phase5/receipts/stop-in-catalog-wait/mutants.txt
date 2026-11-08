@@ -1,0 +1,35 @@
+# mutants.py on a git clone --no-local of the fix commit 0b4d89be (mut/), each run under suite-lock.sh, 600 s each
+head ultra-refusal-not-yielded: killed
+    test agent::machine::tests::a_turn_stopped_before_it_began_is_asked_and_stopped_and_measures_nothing ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... FAILED
+    thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one' (353652714) panicked at src/tui/worker.rs:17863:9:
+    test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 4535 filtered out; finished in 22.61s
+head image-refusal-asked-when-stopped: killed
+    test agent::machine::tests::a_turn_stopped_before_it_began_is_asked_and_stopped_and_measures_nothing ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... FAILED
+    thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one' (353672257) panicked at src/tui/worker.rs:17866:9:
+    test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 4535 filtered out; finished in 20.63s
+head candidate-bare-return: killed
+    test agent::machine::tests::a_turn_stopped_before_it_began_is_asked_and_stopped_and_measures_nothing ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... FAILED
+    thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one' (353691579) panicked at src/tui/worker.rs:17866:9:
+    test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 4535 filtered out; finished in 20.47s
+head no-machine-guard: killed
+    test agent::machine::tests::a_turn_stopped_before_it_began_is_asked_and_stopped_and_measures_nothing ... FAILED
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+    thread 'agent::machine::tests::a_turn_stopped_before_it_began_is_asked_and_stopped_and_measures_nothing' (353705955) panicked at src/agent/machine.rs:2158:9:
+    test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 4535 filtered out; finished in 22.61s
+exit=0
+# mutants.py --join-only (the train 7 join test alone), stop-leaks-to-next-turn: on mut/ (0b4d89be, the join test with gpt6's second-turn assertion) and on ctl/ (9298583e, the join test as 85b13f84 left it); under suite-lock.sh, 600 s each
+head stop-leaks-to-next-turn: killed
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... FAILED
+    thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number' (353846539) panicked at src/tui/worker.rs:17530:13:
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4537 filtered out; finished in 13.19s
+base-85b13f84 stop-leaks-to-next-turn: SURVIVED
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4535 filtered out; finished in 13.12s
+exit=0
