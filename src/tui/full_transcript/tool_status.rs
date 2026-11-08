@@ -263,10 +263,22 @@ fn token_exceeds_width(text: &str, start: usize, max_width: usize) -> bool {
 /// end found for the run's first byte is the end for all of them, so it is
 /// found once.
 fn scan(text: &str, start: usize, max_width: usize) -> StatusLine {
-    scan_with(text, start, max_width, true)
+    scan_with(text, start, max_width, true, true)
 }
 
-fn scan_with(text: &str, start: usize, max_width: usize, keep_run_end: bool) -> StatusLine {
+/// [`scan`], and with `fast`, one more difference in cost and none in result:
+/// a run of characters the loop would only count -- printable ASCII past the
+/// space ([`crate::tui::wrap::single_cells`]), or one character repeated
+/// ([`crate::tui::wrap::repeats`]) -- that fits what is left of the row is
+/// counted at once, so a row of a heading many megabytes long costs about a
+/// row, not every character of it again, at each width it is laid out at.
+fn scan_with(
+    text: &str,
+    start: usize,
+    max_width: usize,
+    keep_run_end: bool,
+    fast: bool,
+) -> StatusLine {
     let bytes = text.as_bytes();
     if start >= bytes.len() || max_width == 0 {
         return StatusLine::at(start, start);
@@ -333,6 +345,25 @@ fn scan_with(text: &str, start: usize, max_width: usize, keep_run_end: bool) -> 
         }
         width += cells;
         index += len;
+        if fast && cells > 0 {
+            // Each counted as the loop would count it: one that does not end
+            // the row, adding its cells.
+            let room = max_width - width;
+            let run = crate::tui::wrap::single_cells(text, index, room);
+            if run > 0 {
+                width += run;
+                index += run;
+            } else {
+                let copies = crate::tui::wrap::repeats(
+                    text,
+                    index - len,
+                    &text[index - len..index],
+                    room / cells,
+                );
+                width += copies * cells;
+                index += copies * len;
+            }
+        }
     }
     StatusLine::at(index, index)
 }
@@ -685,8 +716,8 @@ mod tests {
             for start in starts(&text) {
                 for max_width in 0..14 {
                     assert_eq!(
-                        scan_with(&text, start, max_width, true),
-                        scan_with(&text, start, max_width, false),
+                        scan_with(&text, start, max_width, true, true),
+                        scan_with(&text, start, max_width, false, true),
                         "{text:?} from {start} at {max_width}"
                     );
                 }
@@ -817,6 +848,53 @@ mod tests {
                         first_round_scan(text.as_bytes(), start, max_width),
                         "{text:?} from {start} at {max_width}"
                     );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn counting_a_run_at_once_changes_no_break() {
+        // ARGROW-CACHE: the scan that counts a run of printable ASCII and a
+        // repeated character at once against the one that counts each.
+        let mut rng = crate::tui::wrap::corpus::Rng(0x8cb9_2ba7_2f3d_8dd7);
+        for _ in 0..800 {
+            let runs = 1 + rng.below(24);
+            let text = rng.text(runs);
+            for start in starts(&text) {
+                for max_width in 0..14 {
+                    assert_eq!(
+                        scan_with(&text, start, max_width, true, true),
+                        scan_with(&text, start, max_width, true, false),
+                        "{text:?} from {start} at {max_width}"
+                    );
+                }
+            }
+        }
+        // And the whole heading, rows and styles, for a heading of
+        // megabytes' shapes.
+        for text in [
+            format!(
+                "\u{251c} Explored \x1b[38;5;245m{}\x1b[39m",
+                r"\u{009b}".repeat(3000)
+            ),
+            format!("\u{2514} Explored {}", "\u{261d}".repeat(3000)),
+            format!("\u{2514} Read a b {} c", "x".repeat(700)),
+        ] {
+            for max_width in [17usize, 98, 120] {
+                let mut start = 0;
+                while start < text.len() {
+                    let fast = scan_with(&text, start, max_width, true, true);
+                    let slow = scan_with(&text, start, max_width, true, false);
+                    assert_eq!(fast, slow, "from {start} at {max_width}");
+                    start = if fast.next > start {
+                        fast.next
+                    } else {
+                        fast.end.max(start + 1)
+                    };
+                    while !text.is_char_boundary(start) {
+                        start += 1;
+                    }
                 }
             }
         }
