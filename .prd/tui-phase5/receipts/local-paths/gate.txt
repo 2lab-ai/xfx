@@ -25,3 +25,11 @@ steps 20, failed 0; tree clean
 # check-no-local-paths: ok (15559 tracked file(s) scanned; 7 marked fixture line(s), 66 placeholder line(s))
 # test-check-no-local-paths: ok (10 cases)
 # test-gate-env: ok ci-script-tests-per-os test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths on macOS and Linux rows
+
+# after 26d6c639 (redact.py, two tests, CHANGELOG.md): at 8b92c861, one at a time
+0        2s  check-no-local-paths
+0       49s  check-no-secrets
+0        2s  check-xfx-identity
+0       12s  check-no-stubs
+0       15s  fxcap/test-sweep
+# RunRoots + Placeholders at 26d6c639, three runs: harness.txt
