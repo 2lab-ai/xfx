@@ -17940,4 +17940,131 @@ mod tests {
              the stop: 300 ms to 1 s; without it: past 1.2 s), what the log says of the turns"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // HISTORY-NOTICE-STOP: a stopped turn leaves the history's notices unsaid
+    // -----------------------------------------------------------------------
+
+    /// What the history notice about sealed reasoning says, whichever wire.
+    const NOT_CARRIED: &str = "not carried over";
+
+    /// Puts into `state`'s conversation a turn llmux answered, both of whose
+    /// steps sealed their reasoning: on the Gateway its history rebuilds with
+    /// the same notice twice, once per step, and says it once.
+    fn sealed_on_llmux(state: &mut Runtime) {
+        let sealed = |text: &str| {
+            vec![
+                serde_json::json!({"type": "thinking", "thinking": "SEALED", "signature": "sig-1"}),
+                serde_json::json!({"type": "text", "text": text}),
+            ]
+        };
+        let conversation = state.conversation.as_mut().expect("a conversation");
+        for event in [
+            SessionEvent::UserMessage {
+                text: "read it".to_string(),
+            },
+            SessionEvent::AssistantMessage {
+                text: String::new(),
+                tool_calls: vec![crate::session::RecordedToolCall {
+                    id: "toolu_1".to_string(),
+                    name: "read_file".to_string(),
+                    input: serde_json::json!({"path": "notes.txt"}),
+                }],
+                raw_content: sealed(""),
+                responses_state: Vec::new(),
+                wire: Some(Wire::AnthropicMessages),
+                model: None,
+            },
+            SessionEvent::ToolResult {
+                call_id: "toolu_1".to_string(),
+                tool: "read_file".to_string(),
+                ok: true,
+                output: "NOTES".to_string(),
+                ending: None,
+                lines: None,
+                change: None,
+            },
+            SessionEvent::AssistantMessage {
+                text: "LLMUX-ANSWER".to_string(),
+                tool_calls: Vec::new(),
+                raw_content: sealed("LLMUX-ANSWER"),
+                responses_state: Vec::new(),
+                wire: Some(Wire::AnthropicMessages),
+                model: None,
+            },
+            SessionEvent::TurnConcluded {
+                outcome: TurnConclusion::Final {
+                    finish_reason: "stop".to_string(),
+                    steps: 2,
+                },
+            },
+        ] {
+            conversation.recorder.commit(event);
+        }
+        let wire = state.config.provider.wire();
+        let model = state.model().to_string();
+        let replay = state
+            .conversation
+            .as_ref()
+            .expect("a conversation")
+            .recorder
+            .state()
+            .history_messages(wire, &model);
+        assert_eq!(replay.notices.len(), 2, "{:?}", replay.notices);
+        assert!(
+            replay.notices[0] == replay.notices[1] && replay.notices[0].contains(NOT_CARRIED),
+            "{:?}",
+            replay.notices
+        );
+    }
+
+    #[test]
+    fn a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn() {
+        // xfx says once per conversation what the history could not carry --
+        // here, reasoning llmux sealed, on the Gateway (`/provider` in
+        // docs/parity.md; `.prd/04-providers.md` §Provenance: "a drop is never
+        // silent"). Upstream drops it without a word (`projectProviderReplay`,
+        // `types.zig:1668-1680@481104fd`); the one notice it says once a
+        // session, a source limit's, is claimed where it is shown, and only by
+        // a turn past its stop checks (`claimContextNotice`, `session.zig:
+        // 1551-1561`, from `pushContextNotice`, `acp/prompt.zig:3219-3227`, at
+        // `prepareSkillCatalog`, `orchestrator.zig:5950`, after `:5893-5919`
+        // and `:5923-5948`). So a turn stopped in its catalog wait -- the
+        // default model's window behind a retry, a prompt image behind the
+        // first load -- sends nothing and shows nothing: the notice is the
+        // next turn's, which sends the history it is about. Without the stop,
+        // the first turn says it and the second does not say it again.
+        let cancelled = Some(bridge::TURN_CANCELLED.to_string());
+        let mut got = Vec::new();
+        let mut want = Vec::new();
+        for wait in [CatalogWait::WindowRetry, CatalogWait::PromptImageFirstLoad] {
+            for stop in [Some(Duration::from_millis(300)), None] {
+                let (_home, _workspace, mut state, first, held) = waiting_in(wait);
+                sealed_on_llmux(&mut state);
+                let log = first_of_two_and_a_stop(state, first, stop);
+                drop(held);
+                let mut ends = Vec::new();
+                let mut said: Vec<usize> = Vec::new();
+                for (_, event) in &log {
+                    match event {
+                        UiEvent::TurnStarted { .. } => said.push(0),
+                        UiEvent::TurnEnded { failure } => ends.push(failure.clone()),
+                        UiEvent::Notice(notice) if notice.text().contains(NOT_CARRIED) => {
+                            *said.last_mut().expect("a notice inside a turn") += 1;
+                        }
+                        _ => {}
+                    }
+                }
+                got.push((wait, stop.is_some(), ends, said));
+                want.push(match stop {
+                    Some(_) => (wait, true, vec![cancelled.clone(), None], vec![0, 1]),
+                    None => (wait, false, vec![None, None], vec![1, 0]),
+                });
+            }
+        }
+        assert_eq!(
+            got, want,
+            "each: both turns' ends, and how many times each turn said the history's notice"
+        );
+    }
 }
