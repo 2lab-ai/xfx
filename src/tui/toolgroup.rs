@@ -735,13 +735,31 @@ impl ToolGroup {
             } else {
                 '\u{251c}'
             };
-            rows.push(format!(
-                "{text}{connector} {}{reset}",
-                call.painted(text, palette, whole)
+            rows.push(call_row(
+                text,
+                connector,
+                &call.painted(text, palette, whole),
+                reset,
             ));
         }
         rows
     }
+}
+
+/// `{text}{connector} {painted}{reset}`, in a buffer the size of what it
+/// holds: a call's row can hold the whole of its argument -- megabytes, kept
+/// as the screen keeps them -- and `format!` grows its buffer for the reset
+/// written after the argument to twice the row (GRID-ROW-COST: Ctrl-O's
+/// block held 12 MiB for a row of 6).
+fn call_row(text: &str, connector: char, painted: &str, reset: &str) -> String {
+    let mut row =
+        String::with_capacity(text.len() + connector.len_utf8() + 1 + painted.len() + reset.len());
+    row.push_str(text);
+    row.push(connector);
+    row.push(' ');
+    row.push_str(painted);
+    row.push_str(reset);
+    row
 }
 
 /// The header's words after its mark: the count, then each kind of work by how

@@ -1193,6 +1193,11 @@ impl Railed {
             }));
             tabs.extend(line_tabs.into_iter().map(|(tab, cells)| (at + tab, cells)));
         }
+        // Held as long as the layout is, so held at their count: an argument
+        // of megabytes is a hundred thousand rows and more, laid line by line
+        // into vectors the growth leaves larger than what they hold.
+        rows.shrink_to_fit();
+        tabs.shrink_to_fit();
         Self {
             text,
             gutter,
