@@ -1069,9 +1069,10 @@ pub(crate) struct Shell {
     /// sets (`requestInteractiveCancel`, `worker_runtime.zig:753-773`) and the
     /// worker's next take clears (`:1512`) -- so a second Ctrl-C writes no
     /// second line and stops nothing more ([`Self::cancel_turn`]). Only the
-    /// Ctrl-C and Escape-pair stop is held by it: a manual compaction is
-    /// stopped ahead of the check (`:77-90`), and an approval's or a
-    /// question's Escape is a stop of its own (`cancelApprovalTurn`).
+    /// Ctrl-C and Escape-pair stop of a turn is held by it: a manual
+    /// compaction and a provider switch are stopped ahead of the check
+    /// (`:69-90`), and an approval's or a question's Escape is a stop of its
+    /// own (`cancelApprovalTurn`).
     stop_requested: bool,
     /// The cancel in effect includes the user's stop of a turn
     /// ([`Self::cancel_turn_with`]), so -- unless a compaction ended the turn
@@ -12475,14 +12476,15 @@ impl Shell {
     /// first, or one after an automatic compaction's stop, writes no second
     /// `■ Cancelled` line and sends no second stop -- which would drop the
     /// prompts typed since the first (`input_interrupt_runtime.zig:94@481104fd`).
-    /// A manual compaction is stopped ahead of that check, as upstream's is
-    /// (`:77-90`).
+    /// A manual compaction and a provider switch are stopped ahead of that
+    /// check, as upstream's compaction and provider preparation are
+    /// (`:69-90`).
     fn cancel_turn(&mut self) {
         let manual = self
             .compaction
             .as_ref()
             .is_some_and(|compaction| compaction.active() && !compaction.automatic());
-        if self.stop_requested && !manual {
+        if self.stop_requested && !manual && !self.work.switch_pending() {
             return;
         }
         self.cancel_turn_with(false);
@@ -45975,6 +45977,77 @@ mod tests {
                 ("after a compaction's failure", 1, true, 0),
             ],
             "each: the `Cancelled` lines, a stop sent again, the prompts still waiting"
+        );
+    }
+
+    #[test]
+    fn work_typed_after_a_stop_that_is_not_a_turn_is_still_stopped_by_the_next_press() {
+        // Upstream cancels a manual compaction and a provider's preparation
+        // ahead of its check on the worker's cancel
+        // (`cancelActiveOperation`, `input_interrupt_runtime.zig:69-90@481104fd`),
+        // so a `/compact` or a provider switch typed after a stop, with the
+        // stopped turn still in hand, is stopped by the next press -- the
+        // stop the first press requested is a turn's.
+        let now = Instant::now();
+        let mut got = Vec::new();
+        for what in ["/compact", "a provider switch"] {
+            let mut shell = running("first");
+            // A conversation with a turn in it, for `/compact` to compact.
+            shell.work.publish_status(a_status(1, 0));
+            shell.consume(vec![Input::Action(Action::Cancel)], now);
+            let _ = shell.controlled();
+            if what == "/compact" {
+                shell.route_bytes(b"/compact\r");
+            } else {
+                shell.switch_provider(ProviderId::Llmux);
+            }
+            shell.apply(UiEvent::TurnEnded {
+                failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+            });
+            shell.work.give_back();
+            shell.settle_band(now);
+            shell.consume(vec![Input::Action(Action::Cancel)], now + EXIT_WINDOW);
+            got.push((what, shell.controlled()));
+        }
+        assert_eq!(
+            got,
+            [
+                ("/compact", Some(TurnControl::Cancel { through: 2 })),
+                (
+                    "a provider switch",
+                    Some(TurnControl::Cancel { through: 2 })
+                ),
+            ],
+            "what each second press sent"
+        );
+    }
+
+    #[test]
+    fn a_prompt_queued_at_once_under_a_manual_compactions_row_is_not_shown_waiting() {
+        // A prompt upstream queues at once is not a steer, and its band lists
+        // only steering prompts (`snapshotSteeringPresentation`,
+        // `worker_runtime.zig:1749-1792@481104fd`). Typed while the last
+        // answer is still paced out (`installPendingSubmission`,
+        // `input_submit_runtime.zig:1138-1142`) and a manual compaction's row
+        // is up, it is not among the band's rows.
+        let mut shell = running("go");
+        shell.work.publish_status(a_status(1, 0));
+        shell.apply(UiEvent::Delta("word ".repeat(400)));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        shell.route_bytes(b"/compact\r");
+        assert_eq!(shell.picks_up(), TurnWork::Compact);
+        shell.route_bytes(b"next\r");
+        shell.settle_band(Instant::now());
+        assert!(
+            shell.pacer.pending() > 0 && shell.compacting(),
+            "the answer was released, or no compaction is on the row"
+        );
+        let rows = shell.band_rows();
+        assert!(
+            !rows.join("\n").contains("next"),
+            "the band shows it waiting: {rows:?}"
         );
     }
 
