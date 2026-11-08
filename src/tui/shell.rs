@@ -10355,10 +10355,10 @@ impl Shell {
 
     /// The terminal has nothing more to read: the delivery the reads since the
     /// last one were part of is over (`settleTerminalPasteDeliveryEpoch`,
-    /// `app_input_runtime.zig:813-836`).
+    /// `app_input_runtime.zig:790-813@481104fd`).
     ///
     /// Said by the loop's readiness check and nowhere else
-    /// (`super::event_loop`'s `read_burst`), because only it knows. A paste
+    /// (`super::event_loop`'s `burst`), because only it knows. A paste
     /// that ended in the delivery reaches whatever gathered it as
     /// [`Action::PasteEnd`], whatever followed its marker; if something did,
     /// that is said after the paste is settled ([`Self::ignored_behind_paste`]),
@@ -12124,10 +12124,12 @@ impl Shell {
     /// refused for a reason of its own, which has been said -- and what
     /// followed its marker is warned about, in fx's words.
     ///
-    /// The input behind the marker never reached here. The decoder counted it
-    /// and read none of it as keys ([`super::input::Decoder::end_delivery`]),
-    /// so a copied end marker followed by a newline is not a prompt, and a
-    /// copied `1` behind one is not an answer.
+    /// The input behind the marker in its delivery never reached here. The
+    /// decoder counted it and read none of it as keys
+    /// ([`super::input::Decoder::end_delivery`]), so a copied end marker
+    /// followed by a newline in the same delivery is not a prompt, and a copied
+    /// `1` behind one in it is not an answer. Where a delivery ends is the
+    /// terminal's to say, not the clipboard's (`super::input`'s module doc).
     ///
     /// **The same sentence for every surface**, as fx settles a paste whatever
     /// owns it (`app_input_runtime.zig:9686-9741@481104fd`): the composer, an

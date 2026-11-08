@@ -6303,9 +6303,11 @@ def scenario_7(run):
     # -- a paste and an Enter behind its end marker, in one read -----------
     # fx v0.0.16's paste framing (9e0eab41; `paste_framing.zig:58-68,102-107,
     # 159-165`, `input_paste_runtime.zig:168-198@481104fd`): input that
-    # arrives behind a paste's end marker before the terminal goes quiet is the
-    # clipboard's, not the user's -- clipboard text carrying `ESC [201~` and a
-    # newline would otherwise submit the composer as if typed. The paste is
+    # arrives behind a paste's end marker before the terminal goes quiet is
+    # taken for the clipboard's, not the user's -- clipboard text carrying
+    # `ESC [201~` and a newline, written in one go, would otherwise submit the
+    # composer as if typed (written with a pause between, it still can: see
+    # docs/parity.md's `full-screen TUI` row). The paste is
     # kept, nothing behind it is read as a key, and fx warns once under
     # `input`. A draft is typed first, so "nothing was sent" is not an empty
     # composer that had nothing to send, and a later Enter of its own sends the

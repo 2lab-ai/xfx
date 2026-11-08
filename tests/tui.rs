@@ -3362,9 +3362,9 @@ fn a_pasted_block_with_newlines_a_cancel_byte_and_an_escape_is_exactly_one_promp
 fn a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing() {
     // fx v0.0.16's rule (9e0eab41; `paste_framing.zig:58-68,102-107,159-165`,
     // `input_paste_runtime.zig:168-198@481104fd`): input that arrives behind a
-    // paste's end marker in the same delivery is the clipboard's, not the
-    // user's -- a copied `ESC[201~` followed by a newline would otherwise be a
-    // prompt nobody typed. The paste is kept, the bytes behind the marker are
+    // paste's end marker in the same delivery is taken for the clipboard's,
+    // not the user's -- a copied `ESC[201~` followed by a newline in one
+    // delivery would otherwise be a prompt nobody typed. The paste is kept, the bytes behind the marker are
     // dropped without being read as keys, and fx warns under `input`
     // (`fx-p5-input-paste-40x120-paste-enter`). One write, so one read.
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(

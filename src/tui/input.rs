@@ -106,14 +106,23 @@
 //! # A paste ends with its delivery
 //!
 //! **Input that arrives behind a paste's end marker in the same delivery is
-//! the clipboard's, not the user's**, and it is never read as keys. A
+//! taken for the clipboard's, not the user's**, and it is not read as keys. A
 //! *delivery* is everything the terminal had written by the time the loop
 //! found nothing more to read -- one read or many, since a read takes at most
-//! `super::event_loop::BURST_BYTES` -- which is upstream's delivery epoch: it
-//! settles a paste only once a readiness check finds the input drained
-//! (`event_loop.zig:44-72`). A person cannot press a key inside that window;
-//! a clipboard that carries `ESC [ 201 ~` followed by a newline can, and
-//! without this rule the newline would submit the composer as if typed.
+//! `super::event_loop::BURST_BYTES`, and across the 32-read cap of one turn --
+//! which is upstream's delivery epoch: it settles a paste only once a
+//! readiness check finds the input drained (`event_loop.zig:94-119
+//! @481104fd`). A person cannot press a key inside that window; a clipboard
+//! that carries `ESC [ 201 ~` followed by a newline can, and without this rule
+//! the newline would submit the composer as if typed.
+//!
+//! **The window is the terminal's, not the clipboard's.** A terminal that
+//! writes one paste with a moment between two of its writes -- a paste longer
+//! than the pty's input queue arrives as the terminal refills it -- ends the
+//! delivery at that moment, and the bytes after it are read as keys. That is
+//! fx v0.0.16's boundary too, and it was xfx's before this unit. A
+//! terminal that strips an end marker out of pasted text closes the gap where
+//! it opens (`docs/parity.md`, the `full-screen TUI` row).
 //!
 //! So the marker does not end the paste by itself. Once it has matched, every
 //! further byte is counted and **nothing else is done with it** -- not decoded,
@@ -412,7 +421,8 @@ pub(crate) struct Decoder {
     /// that carried it: `Some(0)` the moment the marker completes, and `None`
     /// again once that delivery is over ([`Self::end_delivery`]). While it is
     /// `Some`, a byte is counted here and nothing else is done with it
-    /// (`end_candidate` and `unsafe`, `paste_framing.zig:98-108`).
+    /// (`end_candidate`'s `unsafe_suffix_bytes`, `paste_framing.zig:102-107
+    /// @481104fd`).
     behind: Option<usize>,
 }
 
@@ -444,10 +454,10 @@ impl Decoder {
 
     /// The delivery the bytes fed so far arrived in is over: the terminal had
     /// nothing more to read. Settles a paste whose end marker arrived in it
-    /// (`settleDeliveryEpoch`, `paste_framing.zig:160-167`).
+    /// (`settleDeliveryEpoch`, `paste_framing.zig:159-165@481104fd`).
     ///
     /// Only the caller knows when that is -- the loop's readiness check
-    /// (`super::event_loop`'s `read_burst`) -- and it is said once per drained
+    /// (`super::event_loop`'s `burst`) -- and it is said once per drained
     /// burst, not once per read: a paste larger than one read is one delivery,
     /// and so is its end marker and an Enter one read behind it.
     pub(crate) fn end_delivery(&mut self) -> Delivery {
@@ -461,10 +471,10 @@ impl Decoder {
     pub(crate) fn feed(&mut self, byte: u8, now: Instant, out: &mut Vec<Input>) {
         // Behind a paste's end marker, in the delivery that carried it: the
         // byte is counted, and that is all. Not decoded, so not a key -- an
-        // Enter here is the clipboard's, not the user's -- and not a marker
+        // Enter here is taken for the clipboard's, not the user's -- and not a marker
         // either: a second end marker or a new paste's start is input behind
-        // this one's like any other (`paste_framing.zig:548-565`,
-        // `app_input_runtime.zig:9841-9860`).
+        // this one's like any other (`paste_framing.zig:102-107,527-546`,
+        // `app_input_runtime.zig:9399-9418@481104fd`).
         if let Some(behind) = self.behind.as_mut() {
             *behind = behind.saturating_add(1);
             return;
