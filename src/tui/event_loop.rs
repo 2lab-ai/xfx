@@ -16000,4 +16000,87 @@ mod tests {
              three drains later, the new compaction's own row)"
         );
     }
+
+    #[test]
+    fn a_line_after_a_stop_that_dropped_the_compaction_has_its_turn_to_itself() {
+        // Upstream settles a queued compaction cancelled at the stop's own
+        // keystroke (`cancelActiveOperation` -> `cancelContextCompaction`,
+        // `src/core/app/input_interrupt_runtime.zig:77-90@481104fd`,
+        // `src/core/agent/worker_runtime.zig:1007-1009`), so the next line
+        // takes its sentence away (`submit`,
+        // `src/core/app/input_submit_runtime.zig:639-647`) and that line's
+        // turn has the row to itself. The drop here is the real runtime loop's
+        // (`super::super::worker::loop_reads_its_control`); the line's turn is
+        // the band's events. Two schedules: the line pasted into the tick after
+        // the drop, read before that tick's drain; and the line typed with the
+        // stop, before the runtime read it.
+        let mut got = Vec::new();
+        for case in [
+            "the line in the tick after the drop",
+            "the line with the stop",
+        ] {
+            let mut shell = shell_with_a_turn();
+            let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+            shell.route_bytes(b"/compact\r");
+            shell.route_bytes(&[0x03]);
+            if case == "the line with the stop" {
+                shell.route_bytes(b"next question\r");
+            }
+            shell.settle_band(Instant::now());
+            // A tick. Its drain finds nothing, the runtime reads the stop and
+            // drops the compaction it never took, and the tick settles.
+            take_ui_events(&mut shell, &mut receiver);
+            let stop = shell._control.try_recv().expect("the stop went out");
+            crate::tui::worker::loop_reads_its_control(
+                &shell.handle,
+                &mut shell._work,
+                vec![stop],
+                &events,
+            );
+            shell.settle_band(Instant::now());
+            if case == "the line in the tick after the drop" {
+                shell.route_bytes(b"next question\r");
+            }
+            take_ui_events(&mut shell, &mut receiver);
+            shell.settle_band(Instant::now());
+            // The line's turn: the runtime takes it, starts it, ends it.
+            assert!(
+                matches!(
+                    shell._work.try_recv(),
+                    Ok(crate::tui::bridge::TurnWork::Submit(_))
+                ),
+                "{case}: the line is the work left"
+            );
+            shell.start_turn();
+            take_ui_events(&mut shell, &mut receiver);
+            shell.settle_band(Instant::now());
+            let during = (
+                band_says(&shell, "Stopping compaction"),
+                band_says(&shell, COMPACTION_CANCELLED),
+            );
+            shell.apply(UiEvent::TurnEnded { failure: None });
+            shell.handle.give_back();
+            for _ in 0..3 {
+                take_ui_events(&mut shell, &mut receiver);
+                shell.settle_band(Instant::now());
+            }
+            let after = (
+                band_says(&shell, "Stopping compaction"),
+                band_says(&shell, COMPACTION_CANCELLED),
+            );
+            got.push((case, during, after));
+        }
+        assert_eq!(
+            got,
+            [
+                (
+                    "the line in the tick after the drop",
+                    (false, false),
+                    (false, false)
+                ),
+                ("the line with the stop", (false, false), (false, false)),
+            ],
+            "each: (`Stopping compaction`, the sentence) during the line's turn, then after it"
+        );
+    }
 }

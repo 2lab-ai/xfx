@@ -6451,6 +6451,40 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     UNKNOWN_PANIC.to_string()
 }
 
+/// Test support for the band's cases (`super::event_loop`'s tests): the real
+/// [`turn_loop`], over a shell's own work channel and count, reading
+/// `control` and then a [`TurnControl::Shutdown`]. The loop reads its control
+/// channel first (`biased`), so it acts on every message and returns without
+/// taking any work they did not drop. It counts from the shell's first
+/// submission, so it is called before the case takes any work off the
+/// channel. The runtime has no credential ([`tests::recording`]): nothing it
+/// could start reaches a socket.
+#[cfg(test)]
+pub(crate) fn loop_reads_its_control(
+    handle: &WorkHandle,
+    work: &mut Receiver<TurnWork>,
+    control: Vec<TurnControl>,
+    events: &Sender<UiEvent>,
+) {
+    let (_home, _workspace, state) = tests::recording();
+    let (control_tx, control_rx) = mpsc::unbounded_channel();
+    for message in control.into_iter().chain([TurnControl::Shutdown]) {
+        control_tx
+            .send(message)
+            .expect("the loop's control channel is open");
+    }
+    let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+    tests::on_a_runtime(turn_loop(
+        state,
+        events,
+        work,
+        &mut changes,
+        ControlChannel::new(control_rx),
+        Cancellation::new(CancelToken::new()),
+        &handle.outstanding,
+    ));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -7240,7 +7274,7 @@ mod tests {
 
     /// Runs `work` on a runtime of its own, in a set of local tasks, as the
     /// worker thread does.
-    fn on_a_runtime<T>(work: impl Future<Output = T>) -> T {
+    pub(super) fn on_a_runtime<T>(work: impl Future<Output = T>) -> T {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -10016,7 +10050,7 @@ mod tests {
     /// that named a different one would be building a session production
     /// cannot produce -- `spawn` constructs the selector from the same
     /// configuration the conversation is opened against.
-    fn recording() -> (tempfile::TempDir, tempfile::TempDir, Runtime) {
+    pub(super) fn recording() -> (tempfile::TempDir, tempfile::TempDir, Runtime) {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
@@ -10070,6 +10104,51 @@ mod tests {
             max_context: None,
             facts: Default::default(),
         }
+    }
+
+    #[test]
+    fn a_compaction_a_stop_drops_before_it_began_is_told_how_it_ended() {
+        // Upstream's worker settles the queued compaction a stop drops, as
+        // cancelled (`cancelContextCompaction`,
+        // `src/core/agent/worker_runtime.zig:1002-1021@481104fd`; a reset's
+        // discard, `:1846-1847`): that is the band's only word about one that
+        // never began. Both ways a stop between items drops one: a cancel,
+        // and a reset, whose fence comes after the word.
+        let mut got = Vec::new();
+        for stop in ["a cancel", "a reset"] {
+            let (handle, mut work_rx, _control) = WorkHandle::detached();
+            handle.submit(TurnWork::Compact).expect("idle");
+            let through = handle.accepted();
+            let message = if stop == "a cancel" {
+                TurnControl::Cancel { through }
+            } else {
+                TurnControl::Reset { through }
+            };
+            let (events, mut seen) = mpsc::channel(bridge::UI_EVENTS);
+            loop_reads_its_control(&handle, &mut work_rx, vec![message], &events);
+            drop(events);
+            let mut said = Vec::new();
+            while let Ok(event) = seen.try_recv() {
+                said.push(match event {
+                    UiEvent::Compaction(_) => "the compaction's end".to_string(),
+                    UiEvent::Fresh { .. } => "the fence".to_string(),
+                    other => format!("{other:?}"),
+                });
+            }
+            got.push((stop, said, handle.outstanding()));
+        }
+        assert_eq!(
+            got,
+            [
+                ("a cancel", vec!["the compaction's end".to_string()], 0),
+                (
+                    "a reset",
+                    vec!["the compaction's end".to_string(), "the fence".to_string()],
+                    0
+                ),
+            ],
+            "each: (the stop, what the band was told, the places still held)"
+        );
     }
 
     #[test]
