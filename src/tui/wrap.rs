@@ -126,6 +126,25 @@ pub(crate) fn width(text: &str) -> u16 {
     u16::try_from(cells).unwrap_or(u16::MAX)
 }
 
+/// Whether `text` is no wider than `cols`: [`width`]`(text) <= cols`, looking
+/// no further than the cell past `cols`, so a row of megabytes that does not
+/// fit is not measured to its end to say so (a Ctrl-O heading,
+/// `super::full_transcript`).
+pub(crate) fn fits(text: &str, cols: u16) -> bool {
+    if cols == u16::MAX {
+        // [`width`] saturates there: everything fits.
+        return true;
+    }
+    let mut cells = 0usize;
+    for painted in painting(text) {
+        cells += cluster_cells(painted.cluster);
+        if cells > usize::from(cols) {
+            return false;
+        }
+    }
+    true
+}
+
 /// The grapheme cluster `text` begins with, or `None` when it is empty.
 ///
 /// `text.graphemes(true).next()`, and the same answer, reached without

@@ -1080,6 +1080,27 @@ struct Call {
     /// Drawn from a resumed session's log rather than run
     /// ([`FullTranscript::replay`]).
     replayed: bool,
+    /// Its heading as it was last laid out ([`FullTranscript::heading`]).
+    heading: RefCell<Option<Heading>>,
+}
+
+/// A call's heading laid out at one width: its rows wrapped under their rail
+/// and whether it fits one row -- and what it was laid out from, the block
+/// row it is (named by its block and index, so the text is not held twice).
+struct Heading {
+    block: Rc<Vec<String>>,
+    index: usize,
+    cols: u16,
+    rows: Rc<Vec<String>>,
+    fits: bool,
+}
+
+/// A tool group's expanded block as it was last built, and for what
+/// ([`FullTranscript::group_block`]).
+struct GroupBlock {
+    revision: u64,
+    palette: Palette,
+    rows: Rc<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1130,6 +1151,9 @@ pub(crate) struct FullTranscript {
     /// How many times anything in each tool group changed: a call's row is
     /// laid out from its whole group, since the header counts every call.
     groups: Vec<u64>,
+    /// Each group's expanded block, built once for its revision and palette
+    /// and shared by every call's entry in it.
+    blocks: RefCell<HashMap<usize, GroupBlock>>,
     /// Whether the next call joins the last group. Closed by the answer's
     /// text, a card and the turn's end -- what closes the transcript's own
     /// group -- and not by a notice, which the group carries under it.
@@ -1251,6 +1275,7 @@ impl FullTranscript {
             entries: Vec::new(),
             calls: HashMap::new(),
             groups: Vec::new(),
+            blocks: RefCell::default(),
             group_open: false,
             pending: HashMap::new(),
             revision: 0,
@@ -1415,6 +1440,7 @@ impl FullTranscript {
             result: pending.result,
             change: pending.change,
             replayed: self.replaying,
+            heading: RefCell::default(),
         })));
         self.stamp = stamp;
         self.calls.insert(id.to_string(), self.entries.len() - 1);
@@ -1861,6 +1887,92 @@ impl FullTranscript {
         (timeline, network)
     }
 
+    /// `group`'s expanded block in `palette` (`super::toolgroup`'s
+    /// `ToolGroup::expanded`), built from `members` -- every call in the group,
+    /// in order -- once for the group's revision and the palette, and shared by
+    /// every member's entry: each used to build the whole group again, every
+    /// member's argument spelled again, to read one row of it.
+    fn group_block(&self, group: usize, members: &[&Call], palette: Palette) -> Rc<Vec<String>> {
+        let revision = self.groups.get(group).copied().unwrap_or(0);
+        if let Some(kept) = self.blocks.borrow().get(&group) {
+            if kept.revision == revision && kept.palette == palette {
+                return Rc::clone(&kept.rows);
+            }
+        }
+        let mut built = ToolGroup::default();
+        for member in members {
+            built.start(member.id.clone(), member.shown.clone());
+            if let State::Finished {
+                ok,
+                detail,
+                outcome,
+                changes,
+            } = &member.state
+            {
+                built.finish(&member.id, *ok, detail, *outcome, *changes);
+            }
+        }
+        if members
+            .iter()
+            .any(|member| member.state == State::Cancelled)
+        {
+            built.cancel_running();
+        }
+        let rows = Rc::new(built.expanded(palette));
+        #[cfg(test)]
+        self.built.set((self.built.get().0 + 1, self.built.get().1));
+        self.blocks.borrow_mut().insert(
+            group,
+            GroupBlock {
+                revision,
+                palette,
+                rows: Rc::clone(&rows),
+            },
+        );
+        rows
+    }
+
+    /// `call`'s heading -- row `index` of its group's `block` -- laid out at
+    /// `cols`, from the call's own cache when it was laid out from the same
+    /// text at the same width: a call that joins the group, or a change to
+    /// another call, leaves it as it was, and only a heading whose own text
+    /// changed (its state, its connector, the palette) or a resize lays it out
+    /// again.
+    fn heading(
+        &self,
+        call: &Call,
+        block: &Rc<Vec<String>>,
+        index: usize,
+        cols: u16,
+    ) -> (Rc<Vec<String>>, bool) {
+        let text = block.get(index).map_or("", String::as_str);
+        let mut kept = call.heading.borrow_mut();
+        if let Some(heading) = kept.as_mut() {
+            let same = heading.cols == cols
+                && ((Rc::ptr_eq(&heading.block, block) && heading.index == index)
+                    || heading.block.get(heading.index).map(String::as_str) == Some(text));
+            if same {
+                // The old block is let go of: this one holds the same text.
+                heading.block = Rc::clone(block);
+                heading.index = index;
+                return (Rc::clone(&heading.rows), heading.fits);
+            }
+        }
+        let rows = Rc::new(tool_status::expanded_rows(text, cols));
+        #[cfg(test)]
+        self.built.set((self.built.get().0, self.built.get().1 + 1));
+        // Measured as the screen measures it (`tool_status`'s measure).
+        let fits = wrap::fits(text, cols);
+        *kept = Some(Heading {
+            block: Rc::clone(block),
+            index,
+            cols,
+            rows: Rc::clone(&rows),
+            fits,
+        });
+        (rows, fits)
+    }
+
     /// A call's rows: its group's header when it is the group's first, its own
     /// row as the group draws it, then what it was called with, what it
     /// returned and the change it made -- the change in place of its
@@ -1882,28 +1994,7 @@ impl FullTranscript {
         let Some(position) = visible.iter().position(|member| member.id == call.id) else {
             return Vec::new();
         };
-        let mut group = ToolGroup::default();
-        for member in &members {
-            group.start(member.id.clone(), member.shown.clone());
-            if let State::Finished {
-                ok,
-                detail,
-                outcome,
-                changes,
-            } = &member.state
-            {
-                group.finish(&member.id, *ok, detail, *outcome, *changes);
-            }
-        }
-        if members
-            .iter()
-            .any(|member| member.state == State::Cancelled)
-        {
-            group.cancel_running();
-        }
-        let block = group.expanded(palette);
-        #[cfg(test)]
-        self.built.set((self.built.get().0 + 1, self.built.get().1));
+        let block = self.group_block(call.group, &members, palette);
         let mut rows = Vec::new();
         // Each row wrapped under its rail rather than cut at the edge
         // (`materializeExpandedOverride`, `tool_group_projection.zig:
@@ -1913,27 +2004,34 @@ impl FullTranscript {
                 rows.extend(tool_status::expanded_rows(header, cols));
             }
         }
-        let heading = block.get(1 + position).cloned().unwrap_or_default();
+        let (heading, heading_fits) = self.heading(call, &block, 1 + position, cols);
+        rows.extend(heading.iter().cloned());
         // An argument the heading already shows has no row of its own -- but
         // only one in the heading's first line, all the heading shows of a
         // status, and only while the heading fits one row: a short value
         // turns up inside a long command by chance, and a wrapped heading
         // must not hide more than a clipped one did
         // (`argumentVisibleInToolHeading`, `full_transcript_screen.zig:
-        // 6594-6619@481104fd`, 78424464).
-        let plain_heading = unpainted(&heading);
-        let first_line = plain_heading.split(['\n', '\r']).next().unwrap_or_default();
-        // Measured as the screen measures it (`tool_status`'s measure).
-        let heading_fits = wrap::width(&heading) <= cols;
-        rows.extend(tool_status::expanded_rows(&heading, cols));
-        #[cfg(test)]
-        self.built.set((self.built.get().0, self.built.get().1 + 1));
+        // 6594-6619@481104fd`, 78424464). Read off the heading only when it
+        // fits and something could be in it.
+        let first_line = (heading_fits
+            && call.change.is_none()
+            && call.arguments.iter().any(|argument| argument.text))
+        .then(|| {
+            let plain = unpainted(block.get(1 + position).map_or("", String::as_str));
+            plain
+                .split(['\n', '\r'])
+                .next()
+                .unwrap_or_default()
+                .to_string()
+        });
         if call.change.is_none() {
             for argument in &call.arguments {
                 let shown_already = argument.text
                     && !argument.value.is_empty()
-                    && heading_fits
-                    && first_line.contains(argument.value.as_str());
+                    && first_line
+                        .as_deref()
+                        .is_some_and(|line| line.contains(argument.value.as_str()));
                 let exec = call.shown.presentation.activity == Activity::Command
                     && argument.name == "action"
                     && argument.value == "exec";
@@ -5867,7 +5965,9 @@ mod tests {
             "big",
             &read::GLOB_FILES.shown(&json!({ "pattern": "x".repeat(4000) })),
         );
-        for index in 0..5 {
+        record.tool_started("ls", &command("ls -la src"));
+        record.tool_finished("ls", true, "", Outcome::Finished, None);
+        for index in 0..4 {
             let id = format!("r{index}");
             record.tool_started(&id, &read("a.txt"));
             record.tool_finished(&id, true, "", Outcome::Finished, None);
@@ -5881,11 +5981,13 @@ mod tests {
         record.tool_started("late", &read("b.txt"));
         let _ = record.measure(120, DARK);
         assert_eq!(record.built.get(), (2, 8), "after a call joined");
-        // The other theme: every heading's colours.
+        // The other theme: the block again, and the one heading whose text
+        // has colours in it -- the command's words. A read's and a pattern's
+        // heading is the same text in both modes on this screen.
         let _ = record.measure(120, LIGHT);
-        assert_eq!(record.built.get(), (3, 15), "after a theme switch");
+        assert_eq!(record.built.get(), (3, 9), "after a theme switch");
         // Narrower: every heading again, the block as it was.
         let _ = record.measure(100, LIGHT);
-        assert_eq!(record.built.get(), (3, 22), "after a resize");
+        assert_eq!(record.built.get(), (3, 16), "after a resize");
     }
 }
