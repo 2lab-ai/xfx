@@ -1,9 +1,9 @@
-# The file checks at 3d3ee065, this receipt committed in its final form (the only file added after it is this one), each exit taken from PIPESTATUS[0] on the line after its command
+# The file checks at fa18618c, this receipt committed in its final form (the only file changed after it is this one), each exit taken from PIPESTATUS[0] on the line after its command
 $ cargo fmt --check -> exit 0
 $ ./scripts/check-xfx-identity.sh -> exit 0
-check-xfx-identity: ok (14260 tracked file(s) scanned)
+check-xfx-identity: ok (14262 tracked file(s) scanned)
 $ ./scripts/check-no-stubs.sh -> exit 0
 check-no-stubs: ok
 $ ./scripts/check-no-secrets.sh -> exit 0
-check-no-secrets: ok (14260 tracked file(s) scanned)
-# an earlier run at 033fdb33 refused one line: check-xfx-identity found the retired name inside a directory name in sweep.sh's comment; 3d3ee065 reworded it
+check-no-secrets: ok (14262 tracked file(s) scanned)
+# earlier: at 033fdb33 check-xfx-identity refused one line (the retired name inside a directory name in sweep.sh's comment; 3d3ee065 reworded it); at 3d3ee065 all four passed (this file at 4bd99902)
