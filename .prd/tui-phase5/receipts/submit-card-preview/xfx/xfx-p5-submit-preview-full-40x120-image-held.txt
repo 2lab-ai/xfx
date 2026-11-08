@@ -33,7 +33,7 @@
 ┃ [Image 1]image line one
 ┃ image line two
 
-• Generating (1s) (↑10 ↓2)
+  Generating (1s) (↑10 ↓2)
 
 ┃
 

@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-d82556e [debug] · Run /help for commands
+x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands
 
 ┃ fill the screen
 

@@ -17,7 +17,7 @@
 
   Filler line 30 of the first answer.
 
-  1s (↑4 ↓40)
+  0s (↑4 ↓40)
 
 ┃
 

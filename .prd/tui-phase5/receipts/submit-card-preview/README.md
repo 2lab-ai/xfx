@@ -89,23 +89,28 @@ one-row composer:
 
 ## What xfx does now
 
-- `Shell::preview_room` measures the room before the draft goes.
+- `Shell::preview_room` measures the room when the card is echoed, against
+  the content bottom of the band the last landed frame painted
+  (`Shell::band_landed`), as fx measures from its last committed frame.
 - `Shell::preview_card` puts the card's newest rows, built by
   `transcript::pushed_rows` from the bytes the card's own push writes, at
   the band's top (`Geometry::previewed`).
 - While the band shows them, the document is held: the card is queued,
   recorded once for Ctrl-O, and none of it is written.
 - When that band frame lands, `Shell::preview_landed` (from `landed_band`)
-  drops the preview. The next frame writes the card exactly as before.
+  drops the preview, and the same tick writes the card's frame
+  (`commit_tick`). That frame leaves the screen the base's first frame
+  left; its bytes are not the base's (see the results below). fx builds its card frame
+  1-2 ms after the preview's frame commits (`fx-trace.txt`).
+- A band solved without the preview's rows (the slash menu, a steer's
+  banner) drops it for good (`unplaced_preview_gone`). A question or Ctrl-O
+  that takes the other plane gives it up, so the card is paid before
+  `1049h`.
 - The preview is band rows, so neither a carry nor a resize can move one of
   them into scrollback. A resize drops the preview. The exit's frame writes
   a card that is still held (`flush_paced`, `shut_down`).
-- A card is written at once, as before, when:
-  - it fits;
-  - the document still owes rows;
-  - the document does not end blank;
-  - the card follows a fork's line (`raw_gap`);
-  - a tool group is open.
+- A card is written at once, as before, when it fits, and in each case
+  under "Where xfx previews less than fx".
 
 ## The claims (`check.py`)
 
@@ -295,6 +300,14 @@ Every claim below rests on a file in `round2/` or on a test named in it.
   - A paste followed by an Enter in the same read is refused on both
     binaries, so the scenario types its lines instead (`frames.py` also
     skips fx's cursor-probe update, which moves no cell).
+- **The mutants' survivor** (`4db02b1e`). At `d82556e5` one mutant lived:
+  the room measured after the draft went, not before
+  (`round2/mutants-at-d82556e5.txt`). Once a band frame has landed it is an
+  equivalent: the room reads that frame's band, which the draft's going
+  does not change. Before one lands (at start, or after a resize) the room
+  falls back to the band of the moment, and no frame has shown the
+  composer either measurement would read. `send` now measures the room
+  where it echoes the card, and the mutant is deleted.
 
 ## Local paths in the captures
 
