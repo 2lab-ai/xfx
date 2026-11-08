@@ -1038,7 +1038,7 @@ struct Entry {
     /// is never taken for a layout of the new.
     revision: u64,
     /// The rows this entry was laid out as last, and for what.
-    drawn: RefCell<Option<(Key, Rc<Vec<String>>)>>,
+    drawn: RefCell<Option<(Key, Rc<Rows>)>>,
 }
 
 /// What a layout depends on.
@@ -1078,7 +1078,7 @@ struct Call {
     /// (`super::toolgroup`): upstream draws the group's header over its first
     /// call and connects each call under it, here as in the transcript.
     group: usize,
-    arguments: Vec<Argument>,
+    arguments: Vec<CallArgument>,
     result: Option<Detail>,
     /// The change it made, when it made one ([`Detail::Change`]).
     change: Option<ApprovalDiff>,
@@ -1098,6 +1098,230 @@ struct Heading {
     cols: u16,
     rows: Rc<Vec<String>>,
     fits: bool,
+}
+
+/// One of a call's arguments as this screen keeps it: `name: value` once, the
+/// value as the channel spelled it, and its rows as they were last wrapped.
+///
+/// The rows are the argument's own: a call's arguments are replaced only by a
+/// new set ([`Detail::Arguments`]), which comes with rows of its own, so rows
+/// wrapped for one text are never taken for another's.
+struct CallArgument {
+    /// `name: value`.
+    line: Rc<str>,
+    /// Where the value begins in [`Self::line`].
+    value_at: usize,
+    /// [`Argument::text`].
+    text: bool,
+    /// Its rows at the width they were last wrapped for, unpainted
+    /// ([`FullTranscript::argument_rows`]).
+    wrapped: RefCell<Option<Rc<Railed>>>,
+}
+
+impl CallArgument {
+    fn of(argument: &Argument) -> Self {
+        Self {
+            line: Rc::from(format!("{}: {}", argument.name, argument.value)),
+            value_at: argument.name.len() + 2,
+            text: argument.text,
+            wrapped: RefCell::default(),
+        }
+    }
+
+    fn name(&self) -> &str {
+        &self.line[..self.value_at - 2]
+    }
+
+    fn value(&self) -> &str {
+        &self.line[self.value_at..]
+    }
+}
+
+/// Text under a rail as [`railed`] wraps it, before it is painted: each row a
+/// range of the text, so a theme switch, which changes only a row's colours,
+/// paints the rows again ([`Self::row`]) and wraps nothing, and a row is
+/// painted only when it is shown.
+struct Railed {
+    text: Rc<str>,
+    gutter: &'static str,
+    cols: u16,
+    rows: Vec<RailRow>,
+    /// Each tab's byte offset in [`Self::text`] and the cells the wrap gave it
+    /// ([`super::prose::literal_layout`]).
+    tabs: Vec<(usize, usize)>,
+}
+
+/// One row of a [`Railed`]: a range of its text, or a line with nothing on
+/// it, whose row is the rail and the gutter alone.
+#[derive(Debug, Clone, Copy)]
+struct RailRow {
+    start: usize,
+    end: usize,
+    blank: bool,
+}
+
+impl Railed {
+    /// `text[..len]` wrapped under the rail and `gutter` at `cols`.
+    fn new(text: Rc<str>, len: usize, gutter: &'static str, cols: u16) -> Self {
+        let rail = 1 + wrap::width(gutter);
+        let width = cols.saturating_sub(rail).max(1);
+        let mut rows = Vec::new();
+        let mut tabs = Vec::new();
+        let mut base = 0usize;
+        for line in text[..len].split('\n') {
+            let at = base;
+            base += line.len() + 1;
+            let line = line.trim_end_matches('\r');
+            if line.is_empty() {
+                rows.push(RailRow {
+                    start: at,
+                    end: at,
+                    blank: true,
+                });
+                continue;
+            }
+            // A command's tab, as the spaces the wrap measured it to where it
+            // met it -- a stop of the screen, the rail and the gutter
+            // included -- and as many where the reflow moved it down with its
+            // word (`wrapLiteralCommandOutput`, `assistant_wrap.zig:524-546@481104fd`;
+            // [`super::prose::literal_drawn`]).
+            let (laid, line_tabs) = super::prose::literal_layout(line, width, rail);
+            rows.extend(laid.into_iter().map(|row| RailRow {
+                start: at + row.start,
+                end: at + row.end,
+                blank: false,
+            }));
+            tabs.extend(line_tabs.into_iter().map(|(tab, cells)| (at + tab, cells)));
+        }
+        Self {
+            text,
+            gutter,
+            cols,
+            rows,
+            tabs,
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Row `index` painted in `palette`: `│` in the default colour, then the
+    /// gutter and the text in the dim grey, cut to what the rail and the
+    /// gutter leave.
+    fn row(&self, index: usize, palette: Palette) -> String {
+        let RailRow { start, end, blank } = self.rows[index];
+        let (dim, reset, gutter) = (palette.dim(), palette.reset(), self.gutter);
+        if blank {
+            return clip(&format!("\u{2502}{dim}{gutter}{reset}"), self.cols).to_string();
+        }
+        let width = self.cols.saturating_sub(1 + wrap::width(gutter)).max(1);
+        let piece = super::prose::literal_piece(
+            &self.text,
+            wrap::Row {
+                start,
+                end,
+                width: 0,
+            },
+            &self.tabs,
+        );
+        let piece = piece.trim_end_matches([' ', '\n']);
+        let piece = clip(piece, width);
+        format!("\u{2502}{dim}{gutter}{piece}{reset}")
+    }
+}
+
+/// One entry's rows as they were laid out: runs of them, each held once --
+/// by the entry, or by the cache that laid it out -- so an entry laid out
+/// again for a change to its group copies none of a call's heading or
+/// arguments, and an argument's rows are painted only when shown.
+#[derive(Default)]
+struct Rows {
+    runs: Vec<Run>,
+    len: usize,
+}
+
+enum Run {
+    /// Rows this entry wrote.
+    Own(Vec<String>),
+    /// Rows a cache holds: a call's heading.
+    Shared(Rc<Vec<String>>),
+    /// An argument's rows, painted in the palette the entry is laid out in.
+    Railed(Rc<Railed>, Palette),
+}
+
+impl Run {
+    fn len(&self) -> usize {
+        match self {
+            Run::Own(rows) => rows.len(),
+            Run::Shared(rows) => rows.len(),
+            Run::Railed(railed, _) => railed.len(),
+        }
+    }
+
+    fn row(&self, index: usize) -> std::borrow::Cow<'_, str> {
+        match self {
+            Run::Own(rows) => rows[index].as_str().into(),
+            Run::Shared(rows) => rows[index].as_str().into(),
+            Run::Railed(railed, palette) => railed.row(index, *palette).into(),
+        }
+    }
+}
+
+impl Rows {
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    fn push(&mut self, row: String) {
+        self.len += 1;
+        if let Some(Run::Own(rows)) = self.runs.last_mut() {
+            rows.push(row);
+        } else {
+            self.runs.push(Run::Own(vec![row]));
+        }
+    }
+
+    fn extend(&mut self, rows: impl IntoIterator<Item = String>) {
+        for row in rows {
+            self.push(row);
+        }
+    }
+
+    fn run(&mut self, run: Run) {
+        let len = run.len();
+        if len > 0 {
+            self.len += len;
+            self.runs.push(run);
+        }
+    }
+
+    /// Rows `from..to`, painted, onto `out`.
+    fn copy(&self, from: usize, to: usize, out: &mut Vec<String>) {
+        let mut at = 0usize;
+        for run in &self.runs {
+            let len = run.len();
+            let (lo, hi) = (from.max(at), to.min(at + len));
+            for index in lo..hi {
+                out.push(run.row(index - at).into_owned());
+            }
+            at += len;
+            if at >= to {
+                break;
+            }
+        }
+    }
+
+    /// Every row, painted.
+    fn to_vec(&self) -> Vec<String> {
+        let mut out = Vec::with_capacity(self.len);
+        self.copy(0, self.len, &mut out);
+        out
+    }
 }
 
 /// A tool group's expanded block as it was last built, and for what
@@ -1446,7 +1670,12 @@ impl FullTranscript {
             shown: shown.clone(),
             state: State::Running,
             group,
-            arguments: pending.arguments.unwrap_or_default(),
+            arguments: pending
+                .arguments
+                .iter()
+                .flatten()
+                .map(CallArgument::of)
+                .collect(),
             result: pending.result,
             change: pending.change,
             replayed: self.replaying,
@@ -1517,7 +1746,7 @@ impl FullTranscript {
             match detail {
                 Detail::Arguments(arguments) => self.attach(
                     call_id,
-                    |call| call.arguments = arguments.clone(),
+                    |call| call.arguments = arguments.iter().map(CallArgument::of).collect(),
                     |pending| pending.arguments = Some(arguments.clone()),
                 ),
                 Detail::Change(change) => self.attach(
@@ -1724,12 +1953,13 @@ impl FullTranscript {
     /// `count` rows of the record from row `start`, laid out at `cols`.
     ///
     /// Walks the entries' cached layouts and copies only the rows the screen
-    /// shows, so a long session costs the screen what fits on it.
+    /// shows, so a long session costs the screen what fits on it -- and paints
+    /// only those of a call's arguments.
     fn window(&self, start: usize, count: usize, cols: u16, palette: Palette) -> Vec<String> {
         let end = start + count;
         let mut out = Vec::with_capacity(count);
         let mut at = 0usize;
-        let mut take = |row: &str, at: &mut usize| {
+        let take = |row: &str, at: &mut usize, out: &mut Vec<String>| {
             if *at >= start && *at < end {
                 out.push(row.to_string());
             }
@@ -1739,6 +1969,7 @@ impl FullTranscript {
             take(
                 &ellipsized(&super::shell::welcome_line(palette), cols),
                 &mut at,
+                &mut out,
             );
         }
         for entry in self.shown() {
@@ -1750,15 +1981,10 @@ impl FullTranscript {
                 continue;
             }
             if at > 0 {
-                take("", &mut at);
+                take("", &mut at, &mut out);
             }
-            if at + rows.len() <= start {
-                at += rows.len();
-                continue;
-            }
-            for row in rows.iter() {
-                take(row, &mut at);
-            }
+            rows.copy(start.saturating_sub(at), end - at, &mut out);
+            at += rows.len();
         }
         out
     }
@@ -1773,7 +1999,7 @@ impl FullTranscript {
 
     /// One entry's rows -- its header, then what it says -- from its cache
     /// when that is still the layout of what it says now.
-    fn laid_out(&self, entry: &Entry, cols: u16, palette: Palette) -> Rc<Vec<String>> {
+    fn laid_out(&self, entry: &Entry, cols: u16, palette: Palette) -> Rc<Rows> {
         let revision = match &entry.body {
             Body::Tool(call) => self.groups.get(call.group).copied().unwrap_or(0),
             _ => entry.revision,
@@ -1793,23 +2019,29 @@ impl FullTranscript {
         rows
     }
 
-    fn lay_out(&self, entry: &Entry, cols: u16, palette: Palette) -> Vec<String> {
+    fn lay_out(&self, entry: &Entry, cols: u16, palette: Palette) -> Rows {
         let (kind, body) = self.content(entry, cols, palette);
         if body.is_empty() {
-            return Vec::new();
+            return Rows::default();
         }
-        let mut rows = Vec::with_capacity(body.len() + 1);
+        let mut rows = Rows::default();
         if let (Some(kind), Some(stamp)) = (kind, stamp(entry.at_ms)) {
             let text = clip(&format!("  {stamp} \u{b7} {}", kind.label()), cols).to_string();
             rows.push(format!("{}{text}{}", palette.dim(), palette.reset()));
         }
-        rows.extend(body);
+        rows.len += body.len;
+        rows.runs.extend(body.runs);
         rows
     }
 
     /// What one entry says, laid out at `cols`, and what kind of entry its
     /// header calls it -- [`Self::lay_out`] without the header.
-    fn content(&self, entry: &Entry, cols: u16, palette: Palette) -> (Option<Kind>, Vec<String>) {
+    fn content(&self, entry: &Entry, cols: u16, palette: Palette) -> (Option<Kind>, Rows) {
+        let written = |rows: Vec<String>| {
+            let mut out = Rows::default();
+            out.extend(rows);
+            out
+        };
         match &entry.body {
             // A prompt's row is a frame's here, and written with the anchor
             // after a glyph with a variation selector: named, as an answer's
@@ -1817,18 +2049,23 @@ impl FullTranscript {
             // was typed.
             Body::Prompt(text) => (
                 Some(Kind::Prompt),
-                card(&drawn_wider_named(text), cols, palette),
+                written(card(&drawn_wider_named(text), cols, palette)),
             ),
-            Body::Response(events) => (Some(Kind::Response), answer(events, cols, palette)),
+            Body::Response(events) => {
+                (Some(Kind::Response), written(answer(events, cols, palette)))
+            }
             Body::Notice(notice) => (
                 Some(if notice.tone == Tone::Error {
                     Kind::Error
                 } else {
                     Kind::Notice
                 }),
-                notice_rows(notice, cols, palette),
+                written(notice_rows(notice, cols, palette)),
             ),
-            Body::Usage(text) => (Some(Kind::Usage), line(text, Role::Dim, cols, palette)),
+            Body::Usage(text) => (
+                Some(Kind::Usage),
+                written(line(text, Role::Dim, cols, palette)),
+            ),
             Body::Tool(call) => (Some(Kind::Tool), self.tool_rows(call, cols, palette)),
             // Upstream heads only the entries it has a kind for
             // (`metadataKind`, `full_transcript_screen.zig:5867-5895`), and a
@@ -1842,15 +2079,17 @@ impl FullTranscript {
             // the document's rows (`super::transcript`'s `recoloured`).
             Body::Block(rows, drawn_in) => (
                 None,
-                rows.iter()
-                    .flat_map(|(row, kind)| {
-                        if *drawn_in == palette.mode {
-                            run_on(row, cols)
-                        } else {
-                            run_on(&recoloured(row, *kind, palette), cols)
-                        }
-                    })
-                    .collect(),
+                written(
+                    rows.iter()
+                        .flat_map(|(row, kind)| {
+                            if *drawn_in == palette.mode {
+                                run_on(row, cols)
+                            } else {
+                                run_on(&recoloured(row, *kind, palette), cols)
+                            }
+                        })
+                        .collect(),
+                ),
             ),
         }
     }
@@ -1888,7 +2127,10 @@ impl FullTranscript {
                         _ => "raw",
                     };
                     let (_, rows) = self.content(entry, cols, palette);
-                    (kind, rows.iter().map(|row| unpainted(row)).collect())
+                    (
+                        kind,
+                        rows.to_vec().iter().map(|row| unpainted(row)).collect(),
+                    )
                 }
             };
             let problem = matches!(&entry.body, Body::Notice(notice)
@@ -1998,6 +2240,33 @@ impl FullTranscript {
         (rows, fits)
     }
 
+    /// `argument`'s rows under the rail at `cols`, unpainted: wrapped once for
+    /// the width, from the argument's own cache after that. A call that joins
+    /// the group, a change to another call and a theme switch leave them as
+    /// they were; a resize wraps them again, and a call's new arguments come
+    /// with no rows ([`CallArgument`]).
+    ///
+    /// Without the one break the argument may end on: upstream wraps an
+    /// argument's text short of it (`full_transcript_screen.zig:6381-6383`),
+    /// so `content: …\n` is no rail row of its own.
+    fn argument_rows(&self, argument: &CallArgument, cols: u16) -> Rc<Railed> {
+        let mut kept = argument.wrapped.borrow_mut();
+        if let Some(wrapped) = kept.as_ref() {
+            if wrapped.cols == cols {
+                return Rc::clone(wrapped);
+            }
+        }
+        // Let go of the old width's rows before wrapping for the new one.
+        *kept = None;
+        let line = &argument.line;
+        let len = line.strip_suffix('\n').unwrap_or(line).len();
+        #[cfg(test)]
+        self.arguments_wrapped.set(self.arguments_wrapped.get() + 1);
+        let wrapped = Rc::new(Railed::new(Rc::clone(line), len, "  ", cols));
+        *kept = Some(Rc::clone(&wrapped));
+        wrapped
+    }
+
     /// A call's rows: its group's header when it is the group's first, its own
     /// row as the group draws it, then what it was called with, what it
     /// returned and the change it made -- the change in place of its
@@ -2006,7 +2275,7 @@ impl FullTranscript {
     /// Nothing at all for a call the group draws no row for -- a question,
     /// and a file change still waiting on its approval -- as upstream draws
     /// none (`toolgroup`'s `Call::visible`).
-    fn tool_rows(&self, call: &Call, cols: u16, palette: Palette) -> Vec<String> {
+    fn tool_rows(&self, call: &Call, cols: u16, palette: Palette) -> Rows {
         let members: Vec<&Call> = self
             .entries
             .iter()
@@ -2017,10 +2286,10 @@ impl FullTranscript {
             .collect();
         let visible: Vec<&&Call> = members.iter().filter(|member| member.visible()).collect();
         let Some(position) = visible.iter().position(|member| member.id == call.id) else {
-            return Vec::new();
+            return Rows::default();
         };
         let block = self.group_block(call.group, &members, palette);
-        let mut rows = Vec::new();
+        let mut rows = Rows::default();
         // Each row wrapped under its rail rather than cut at the edge
         // (`materializeExpandedOverride`, `tool_group_projection.zig:
         // 1061-1092@481104fd`).
@@ -2030,7 +2299,7 @@ impl FullTranscript {
             }
         }
         let (heading, heading_fits) = self.heading(call, &block, 1 + position, cols);
-        rows.extend(heading.iter().cloned());
+        rows.run(Run::Shared(heading));
         // An argument the heading already shows has no row of its own -- but
         // only one in the heading's first line, all the heading shows of a
         // status, and only while the heading fits one row: a short value
@@ -2052,29 +2321,19 @@ impl FullTranscript {
         });
         if call.change.is_none() {
             for argument in &call.arguments {
+                let value = argument.value();
                 let shown_already = argument.text
-                    && !argument.value.is_empty()
+                    && !value.is_empty()
                     && first_line
                         .as_deref()
-                        .is_some_and(|line| line.contains(argument.value.as_str()));
+                        .is_some_and(|line| line.contains(value));
                 let exec = call.shown.presentation.activity == Activity::Command
-                    && argument.name == "action"
-                    && argument.value == "exec";
+                    && argument.name() == "action"
+                    && value == "exec";
                 if shown_already || exec {
                     continue;
                 }
-                // Without the one break it may end on: upstream wraps an
-                // argument's text short of it (`full_transcript_screen.zig:
-                // 6381-6383`), so `content: …\n` is no rail row of its own.
-                let line = format!("{}: {}", argument.name, argument.value);
-                #[cfg(test)]
-                self.arguments_wrapped.set(self.arguments_wrapped.get() + 1);
-                rows.extend(railed(
-                    line.strip_suffix('\n').unwrap_or(&line),
-                    "  ",
-                    cols,
-                    palette,
-                ));
+                rows.run(Run::Railed(self.argument_rows(argument, cols), palette));
             }
         }
         match &call.result {
@@ -2223,30 +2482,15 @@ fn unpainted(text: &str) -> String {
 /// Wrapped by upstream's assistant wrap in its literal form
 /// ([`super::prose::literal_drawn`]), as both of upstream's are: no word is left
 /// alone on a line's last row, and no markdown is read into the text.
-fn railed(text: &str, gutter: &str, cols: u16, palette: Palette) -> Vec<String> {
-    let rail = 1 + wrap::width(gutter);
-    let width = cols.saturating_sub(rail).max(1);
-    let dim = palette.dim();
-    let reset = palette.reset();
-    let mut rows = Vec::new();
-    for line in text.split('\n') {
-        let line = line.trim_end_matches('\r');
-        if line.is_empty() {
-            rows.push(clip(&format!("\u{2502}{dim}{gutter}{reset}"), cols).to_string());
-            continue;
-        }
-        // A command's tab, as the spaces the wrap measured it to where it met
-        // it -- a stop of the screen, the rail and the gutter included -- and
-        // as many where the reflow moved it down with its word
-        // (`wrapLiteralCommandOutput`, `assistant_wrap.zig:524-546@481104fd`;
-        // [`super::prose::literal_drawn`]).
-        for piece in super::prose::literal_drawn(line, width, rail) {
-            let piece = piece.trim_end_matches([' ', '\n']);
-            let piece = clip(piece, width);
-            rows.push(format!("\u{2502}{dim}{gutter}{piece}{reset}"));
-        }
-    }
-    rows
+///
+/// Wrapped and painted at once; an argument's rows are wrapped once and
+/// painted when shown ([`Railed`], [`FullTranscript::argument_rows`]) -- the
+/// same rows.
+fn railed(text: &str, gutter: &'static str, cols: u16, palette: Palette) -> Vec<String> {
+    let wrapped = Railed::new(Rc::from(text), text.len(), gutter, cols);
+    (0..wrapped.len())
+        .map(|index| wrapped.row(index, palette))
+        .collect()
 }
 
 /// A tool's result as upstream's full transcript writes a stored one

@@ -211,30 +211,45 @@ pub(crate) fn literal(text: &str, cols: u16, gutter: u16) -> Vec<Row> {
 /// `b x…`, one space). A tab measured again where it lands would be wider than
 /// the row was measured for, and the row's last characters would be cut off
 /// by the clip.
+#[cfg(test)]
 pub(crate) fn literal_drawn(text: &str, cols: u16, gutter: u16) -> Vec<String> {
-    let (rows, tabs) = Layout::new(text, cols, gutter, true, Opening::Line).run_with_tabs();
-    let mut next = 0usize;
+    let (rows, tabs) = literal_layout(text, cols, gutter);
     rows.into_iter()
-        .map(|laid| {
-            let Row { start, end, .. } = laid.row;
-            let mut out = String::with_capacity(end - start);
-            let mut written = start;
-            while let Some(&(at, cells)) = tabs.get(next) {
-                if at >= end {
-                    break;
-                }
-                next += 1;
-                if at < start {
-                    continue;
-                }
-                out.push_str(&text[written..at]);
-                out.extend(std::iter::repeat_n(' ', cells));
-                written = at + 1;
-            }
-            out.push_str(&text[written..end]);
-            out
-        })
+        .map(|row| literal_piece(text, row, &tabs))
         .collect()
+}
+
+/// [`literal_drawn`] before anything is drawn: the rows, as ranges of `text`,
+/// and each tab's byte offset and the cells the wrap gave it -- what a
+/// row's text is made from ([`literal_piece`]), at any time after.
+pub(crate) fn literal_layout(
+    text: &str,
+    cols: u16,
+    gutter: u16,
+) -> (Vec<Row>, Vec<(usize, usize)>) {
+    let (rows, tabs) = Layout::new(text, cols, gutter, true, Opening::Line).run_with_tabs();
+    (rows.into_iter().map(|laid| laid.row).collect(), tabs)
+}
+
+/// One of [`literal_layout`]'s rows as the text to draw: `text`'s bytes in
+/// `row`, each tab in it written as the spaces `tabs` gives it. `text` and
+/// `tabs` are the layout's, or the same with every offset moved on by one
+/// amount (a line's layout inside a longer text).
+pub(crate) fn literal_piece(text: &str, row: Row, tabs: &[(usize, usize)]) -> String {
+    let Row { start, end, .. } = row;
+    let mut out = String::with_capacity(end - start);
+    let mut written = start;
+    let first = tabs.partition_point(|&(at, _)| at < start);
+    for &(at, cells) in &tabs[first..] {
+        if at >= end {
+            break;
+        }
+        out.push_str(&text[written..at]);
+        out.extend(std::iter::repeat_n(' ', cells));
+        written = at + 1;
+    }
+    out.push_str(&text[written..end]);
+    out
 }
 
 /// `row` -- the text of one prose row -- with every tab written as the spaces
