@@ -13222,23 +13222,27 @@ fn a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_res
     // this thread looks.
     //
     // - Nothing but the restore's clear after the last heartbeat: no frame
-    //   and no report. Every heartbeat is written before the tool dies, xfx
-    //   writes nothing of the end until it has reaped it, and the pty keeps
-    //   the writes in the order they were made -- so anything xfx writes
-    //   after the copy's end lands after every heartbeat, and this catches it
-    //   however late. It also needs a heartbeat after the last frame: the end
-    //   gives the tool its grace (1 s, `copy.rs` `GRACE`) to write one, and a
-    //   tool starved for all of it would fail this case rather than pass it.
+    //   and no report. Every heartbeat is written before the tool dies, the
+    //   copy's end returns only after it has reaped the tool, and the pty
+    //   keeps the writes in the order they were made -- so anything xfx
+    //   writes after the copy's end lands after every heartbeat, and this
+    //   catches it however soon or late. (A frame written during the grace,
+    //   while the tool still beats, is not caught here.) It also needs a
+    //   heartbeat after the last frame: the end gives the tool its grace
+    //   (1 s, `copy.rs` `GRACE`) to write one, and a tool starved for all of
+    //   it would fail this case rather than pass it.
     // - No heartbeat after the restore began: a tool still alive after the
     //   restore was written. This catches a restore written before the copy's
-    //   end only when the tool beats between the two -- with the grace
-    //   between them, that is one heartbeat in a second; a restore written
-    //   within the last heartbeat before the kill would not be caught.
+    //   end only when the tool beats between the two. A restore written
+    //   ahead of the end has the grace (1 s, about a hundred heartbeats)
+    //   after it before the kill; one written within the last heartbeat
+    //   before the kill would not be caught.
     // - One restore; nothing after it but its clear; the tool alive when the
     //   session is asked to end (it never ends by itself) and dead once the
     //   session has exited.
-    // The two waits are bounds on a tool that never starts and a session that
-    // never ends (`WAIT`), not clocks any order is read from.
+    // Every wait is a bound (`WAIT`) on something that never comes -- the
+    // session's start, the turn's end, the tool's start, the exit -- not a
+    // clock any order is read from.
     use support::fake_clipboard::BEAT;
     const REPORT: &str = "\u{1b}]7501;";
     const CLEAR: &str = "\u{1b}]7501;state=clear\u{1b}\\";
