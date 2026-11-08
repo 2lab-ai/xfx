@@ -265,9 +265,17 @@ pub(crate) enum UiEvent {
     ///
     /// One event per load. The load happens on the runtime thread because it
     /// opens a socket, and the UI thread must never be the thread that waits.
+    ///
+    /// `due` is when activity -- a submitted prompt, a frame of the inline
+    /// column -- next owes these rows a read by the runtime's clock: the
+    /// refresh interval after the read that brought them **began**, as
+    /// upstream's `beginLoad` counts it (`expired`,
+    /// `model_cache_runtime.zig:609-611@481104fd`;
+    /// `crate::provider::model::LoadClock::activity_due`).
     CatalogLoaded {
         provider: crate::provider::ProviderId,
         entries: Vec<crate::provider::model::CatalogEntry>,
+        due: std::time::Instant,
     },
     /// The provider's catalog could not be read.
     ///
@@ -290,11 +298,15 @@ pub(crate) enum UiEvent {
     /// `model_cache_runtime.zig:969-975@481104fd`): the menu says `retry`'s
     /// sentence in its note's place when asking again could change it
     /// (`loadedCatalogStatusText`, `model_menu_presentation.zig:403-404`),
-    /// and the next activity past `retry_at` reads again.
+    /// and activity reads again at `due`, by the runtime's clock: once the
+    /// failure's hold is over -- and, for a failure asking again could not
+    /// change, once the rows are the refresh interval old, counted from the
+    /// failed read's start (`beginLoad`, `model_cache_runtime.zig:609-623`;
+    /// `crate::provider::model::LoadClock::activity_due`).
     CatalogRefreshFailed {
         provider: crate::provider::ProviderId,
         retry: Option<crate::provider::model::CatalogRetry>,
-        retry_at: std::time::Instant,
+        due: std::time::Instant,
     },
     /// What a **completed** turn's answering request read: the context
     /// meter's numerator.
@@ -632,8 +644,13 @@ impl UiEvent {
             // on a port serves, so its ids, its display names and its effort
             // labels are all text the terminal would obey if it were let
             // through -- and they are about to be painted, one per row.
-            Self::CatalogLoaded { provider, entries } => Self::CatalogLoaded {
+            Self::CatalogLoaded {
                 provider,
+                entries,
+                due,
+            } => Self::CatalogLoaded {
+                provider,
+                due,
                 entries: entries
                     .into_iter()
                     .map(|entry| crate::provider::model::CatalogEntry {
@@ -662,11 +679,11 @@ impl UiEvent {
             Self::CatalogRefreshFailed {
                 provider,
                 retry,
-                retry_at,
+                due,
             } => Self::CatalogRefreshFailed {
                 provider,
                 retry,
-                retry_at,
+                due,
             },
             // Numbers. There is nothing here a terminal can be made to obey.
             Self::Usage { input } => Self::Usage { input },
@@ -2746,6 +2763,7 @@ mod tests {
         // policy is applied at the channel rather than at the painter, so a
         // later reader of this event inherits it.
         let event = UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: crate::provider::ProviderId::Llmux,
             entries: vec![hostile_entry()],
         }
@@ -2959,6 +2977,7 @@ mod tests {
         assert!(!UiEvent::Usage { input: Some(1) }.is_terminal());
         assert!(!UiEvent::Output(crate::agent::tokens::Progress::Settled(2)).is_terminal());
         assert!(!UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: crate::provider::ProviderId::Gateway,
             entries: Vec::new()
         }
@@ -2972,7 +2991,7 @@ mod tests {
         assert!(!UiEvent::CatalogRefreshFailed {
             provider: crate::provider::ProviderId::Gateway,
             retry: None,
-            retry_at: std::time::Instant::now(),
+            due: std::time::Instant::now(),
         }
         .is_terminal());
         assert!(!UiEvent::ProviderSelected {

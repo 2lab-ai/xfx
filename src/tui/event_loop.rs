@@ -4471,6 +4471,7 @@ mod tests {
         let mut band = Band::new();
         shell.save_speeds_by_hand();
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: crate::provider::ProviderId::Gateway,
             entries: vec![crate::provider::model::CatalogEntry {
                 // The model a session over an empty profile is in.

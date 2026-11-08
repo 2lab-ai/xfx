@@ -2949,7 +2949,8 @@ impl Runtime {
             self.config.provider,
             self.selector.catalog(),
             self.selector.failure_retry(),
-            self.selector.retry_at(),
+            self.selector.refresh_retry(),
+            self.selector.clock(),
         )
     }
 
@@ -3199,27 +3200,42 @@ enum CatalogAnswer {
 /// the same fact from the UI's side -- there is nothing to browse -- and
 /// answering rather than panicking keeps a report from taking the session down.
 /// What the UI is told about `provider`'s catalog in `catalog`, `retry`
-/// saying whether asking again could change a failure and `retry_at` when the
-/// hold the failure put on the next read ends ([`Runtime::catalog_event`]). A
-/// failure with no hold on record -- only a test's -- is due from now.
+/// saying whether asking again could change a failure, `refresh_retry`
+/// whether a refresh behind rows failed in a way asking again could change,
+/// and `clock` when the next read is due ([`Runtime::catalog_event`]): for a
+/// failure, when the hold it put on the next read ends; for rows, when
+/// activity next owes them a read ([`LoadClock::activity_due`]). A clock
+/// that holds nothing back -- only a test's -- is due from now.
 fn catalog_event_of(
     provider: ProviderId,
     catalog: &CatalogState,
     retry: Option<CatalogRetry>,
-    retry_at: Option<Instant>,
+    refresh_retry: Option<CatalogRetry>,
+    clock: LoadClock,
 ) -> UiEvent {
+    let now = Instant::now();
     match from_state(catalog) {
-        CatalogAnswer::Rows(entries) => UiEvent::CatalogLoaded { provider, entries },
+        CatalogAnswer::Rows(entries) => UiEvent::CatalogLoaded {
+            provider,
+            entries,
+            due: clock.activity_due(
+                Held::Rows {
+                    retry_due: refresh_retry.is_some(),
+                },
+                now,
+            ),
+        },
         // The provider has no catalog; nothing went wrong, and the menu
-        // says there is nothing in it.
+        // says there is nothing in it. Nothing reads it, so nothing is due.
         CatalogAnswer::NoneAdvertised => UiEvent::CatalogLoaded {
             provider,
             entries: Vec::new(),
+            due: now + crate::provider::model::REFRESH_INTERVAL,
         },
         CatalogAnswer::Unread(_) => UiEvent::CatalogUnread {
             provider,
             retry,
-            retry_at: retry_at.unwrap_or_else(Instant::now),
+            retry_at: clock.not_before.unwrap_or(now),
         },
     }
 }
@@ -4139,40 +4155,51 @@ fn telling(
     CatalogState,
     Option<CatalogRetry>,
     Instant,
+    Instant,
 ) -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>>
        + Send
        + 'static {
-    move |catalog, retry, answered| {
+    move |catalog, retry, began, answered| {
         Box::pin(async move {
-            let event = told_event(provider, &held, clock, &(catalog, retry), answered);
+            let event = told_event(provider, &held, clock, &(catalog, retry), began, answered);
             bridge::send_terminal(&events, event).await;
         })
     }
 }
 
-/// What the band is told of a read's `answer`, arrived at `answered`, given
-/// what the selector held when it began ([`telling`]).
+/// What the band is told of a read's `answer`, begun at `began` and arrived
+/// at `answered`, given what the selector held when it began ([`telling`]):
+/// the answer as the selector takes it, with the runtime's clock after it --
+/// when activity next owes the catalog a read, counted from the read's
+/// start as upstream's `beginLoad` counts the refresh interval
+/// (`model_cache_runtime.zig:609-623@481104fd`).
 fn told_event(
     provider: ProviderId,
     held: &CatalogState,
     clock: LoadClock,
     answer: &crate::provider::model::Loaded,
+    began: Instant,
     answered: Instant,
 ) -> UiEvent {
-    // When it began does not change what is told.
-    let applied = Applied::of(held, clock, answer, answered, answered);
+    let applied = Applied::of(held, clock, answer, began, answered);
     if applied.refresh_failed(answer) {
         UiEvent::CatalogRefreshFailed {
             provider,
             retry: applied.refresh_retry,
-            retry_at: applied.clock.not_before.unwrap_or(answered),
+            due: applied.clock.activity_due(
+                Held::Rows {
+                    retry_due: applied.refresh_retry.is_some(),
+                },
+                answered,
+            ),
         }
     } else {
         catalog_event_of(
             provider,
             &applied.catalog,
             applied.failure_retry,
-            applied.clock.not_before,
+            applied.refresh_retry,
+            applied.clock,
         )
     }
 }
@@ -4362,7 +4389,14 @@ impl CatalogAsks {
                 let unstarted = load.answer_unstarted();
                 seen.started.push(load);
                 let (answer, answered) = unstarted?;
-                let event = told_event(*provider, &seen.catalog, seen.clock, &answer, answered);
+                let event = told_event(
+                    *provider,
+                    &seen.catalog,
+                    seen.clock,
+                    &answer,
+                    answered,
+                    answered,
+                );
                 seen.on_its_way();
                 return Some(event);
             }
@@ -4372,7 +4406,8 @@ impl CatalogAsks {
                 *provider,
                 &seen.catalog,
                 seen.failure_retry,
-                seen.clock.not_before,
+                seen.refresh_retry,
+                seen.clock,
             )
         })
     }
@@ -5779,7 +5814,8 @@ impl ToolImageGate<'_> {
                         self.provider,
                         selector.catalog(),
                         selector.failure_retry(),
-                        selector.retry_at(),
+                        selector.refresh_retry(),
+                        selector.clock(),
                     );
                     let _ = bridge::send_ui(&self.events, &self.token, event).await;
                 }
@@ -9736,6 +9772,31 @@ mod tests {
         (home, workspace, state)
     }
 
+    /// The instant every catalog event's `due` reads as once [`undated`].
+    static UNDATED: std::sync::LazyLock<Instant> = std::sync::LazyLock::new(Instant::now);
+
+    /// `event` with the runtime's clock taken out: what these cases compare
+    /// is what the band is told, not when it next owes the catalog a read.
+    fn undated(event: UiEvent) -> UiEvent {
+        match event {
+            UiEvent::CatalogLoaded {
+                provider, entries, ..
+            } => UiEvent::CatalogLoaded {
+                provider,
+                entries,
+                due: *UNDATED,
+            },
+            UiEvent::CatalogRefreshFailed {
+                provider, retry, ..
+            } => UiEvent::CatalogRefreshFailed {
+                provider,
+                retry,
+                due: *UNDATED,
+            },
+            other => other,
+        }
+    }
+
     /// One catalog row, published under `id`.
     fn published(id: &str) -> CatalogEntry {
         CatalogEntry {
@@ -10583,8 +10644,9 @@ mod tests {
             told
         });
         assert_eq!(
-            told,
+            undated(told),
             UiEvent::CatalogLoaded {
+                due: *UNDATED,
                 provider: state.config.provider,
                 entries: vec![published("anthropic/claude-opus-5")],
             }
@@ -10728,8 +10790,9 @@ mod tests {
         // own and tells the band while the question is still up.
         let (told, reads, taken) = catalog_told_while_parked(Parked::Question);
         assert_eq!(
-            told,
+            told.into_iter().map(undated).collect::<Vec<_>>(),
             [UiEvent::CatalogLoaded {
+                due: *UNDATED,
                 provider: crate::provider::ProviderId::Gateway,
                 entries: vec![published("anthropic/claude-opus-5")],
             }],
@@ -10748,8 +10811,9 @@ mod tests {
         // the model's question's does, and the read is not held by it.
         let (told, reads, taken) = catalog_told_while_parked(Parked::Approval);
         assert_eq!(
-            told,
+            told.into_iter().map(undated).collect::<Vec<_>>(),
             [UiEvent::CatalogLoaded {
+                due: *UNDATED,
                 provider: crate::provider::ProviderId::Gateway,
                 entries: vec![published("anthropic/claude-opus-5")],
             }],
@@ -10889,8 +10953,9 @@ mod tests {
             told
         });
         assert_eq!(
-            told,
+            undated(told),
             UiEvent::CatalogLoaded {
+                due: *UNDATED,
                 provider: state.config.provider,
                 entries: vec![published("anthropic/claude-opus-5")],
             }
@@ -13169,8 +13234,12 @@ mod tests {
         let provider = state.config.provider;
         // No catalog at all: an empty list.
         assert_eq!(
-            asked(&mut state),
+            asked(&mut state)
+                .into_iter()
+                .map(undated)
+                .collect::<Vec<_>>(),
             [UiEvent::CatalogLoaded {
+                due: *UNDATED,
                 provider,
                 entries: Vec::new()
             }]
@@ -16404,7 +16473,9 @@ mod tests {
     /// event says.
     fn due_of(event: &UiEvent) -> Option<Instant> {
         match event {
-            UiEvent::CatalogRefreshFailed { retry_at, .. } => Some(*retry_at),
+            UiEvent::CatalogLoaded { due, .. } | UiEvent::CatalogRefreshFailed { due, .. } => {
+                Some(*due)
+            }
             _ => None,
         }
     }
@@ -16418,8 +16489,7 @@ mod tests {
         began: Instant,
         answered: Instant,
     ) -> UiEvent {
-        let _ = began;
-        told_event(ProviderId::Gateway, held, clock, &answer, answered)
+        told_event(ProviderId::Gateway, held, clock, &answer, began, answered)
     }
 
     /// A catalog that answers `entries` once `gate` opens.

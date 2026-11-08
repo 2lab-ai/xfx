@@ -141,7 +141,7 @@ use crate::markdown::{self, MarkdownProcessor};
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
 use crate::provider::effort::{intrinsic_fast, Effort, Speed, TurnSettings};
 use crate::provider::model::model_id_problem;
-use crate::provider::model::{resolve_in_order, CatalogEntry, CatalogRetry, REFRESH_INTERVAL};
+use crate::provider::model::{resolve_in_order, CatalogEntry, CatalogRetry};
 use crate::provider::ProviderId;
 use crate::session::store::title_of;
 use crate::tools::{LineChanges, Outcome as CallOutcome, Shown};
@@ -849,10 +849,13 @@ pub(crate) struct Shell {
     /// resolved here at all.
     catalog_known: CatalogKnown,
     /// When activity -- a submitted prompt, a frame of the inline column --
-    /// is next owed a read of the rows the band holds: five minutes after
-    /// they arrived, or, once a refresh behind them failed, when the hold it
-    /// put on the next read ends (`beginLoad`'s `expired` and `retry_due`,
-    /// `model_cache_runtime.zig:612-623@481104fd`). `None` beside any other
+    /// is next owed a read of the rows the band holds, by the runtime's
+    /// clock: five minutes after the read that brought them began, or, once
+    /// a refresh behind them failed, when the hold it put on the next read
+    /// ends -- and, for one asking again could not change, not before the
+    /// rows are five minutes old (`beginLoad`'s `expired` and `retry_due`,
+    /// `model_cache_runtime.zig:609-623@481104fd`; [`UiEvent::CatalogLoaded`]'s
+    /// and [`UiEvent::CatalogRefreshFailed`]'s `due`). `None` beside any other
     /// [`CatalogKnown`].
     catalog_due: Option<Instant>,
     /// A refresh behind the rows the band holds failed in a way asking again
@@ -4386,14 +4389,19 @@ impl Shell {
             // The catalog's rows, for `/model`'s menu and column if either is
             // waiting for them, for resolving a typed query on this side, and
             // for the context meter's denominator either way.
-            UiEvent::CatalogLoaded { provider, entries } => {
+            UiEvent::CatalogLoaded {
+                provider,
+                entries,
+                due,
+            } => {
                 self.catalog = entries;
                 self.catalog_known = CatalogKnown::Loaded;
                 self.provider = provider;
-                // Fresh rows: activity owes them a read once they are the
-                // refresh interval old, and no refresh of them has failed.
+                // Fresh rows: activity owes them a read when the runtime's
+                // clock says -- the refresh interval after the read that
+                // brought them began -- and no refresh of them has failed.
                 self.forget_catalog_clock();
-                self.catalog_due = Some(Instant::now() + REFRESH_INTERVAL);
+                self.catalog_due = Some(due);
                 self.settle_speed();
                 let note = self.menu_note();
                 if let Some(menu) = self.model_menu.as_mut() {
@@ -4439,15 +4447,11 @@ impl Shell {
             UiEvent::CatalogRefreshFailed {
                 provider,
                 retry,
-                retry_at,
+                due,
             } => {
                 if provider != self.provider {
                     return;
                 }
-                let due = match retry {
-                    Some(_) => retry_at,
-                    None => retry_at.max(Instant::now() + REFRESH_INTERVAL),
-                };
                 // An answer, whatever the band holds: activity may ask again
                 // once the runtime's clock says the next read is due
                 // ([`Self::note_catalog_activity`]). A band that holds no
@@ -15843,6 +15847,7 @@ mod tests {
     use super::super::bridge;
     use super::super::paste::MAX_PASTE_BYTES;
     use super::*;
+    use crate::provider::model::REFRESH_INTERVAL;
 
     use std::collections::BTreeMap;
     use std::sync::atomic::Ordering;
@@ -23811,6 +23816,7 @@ mod tests {
                     Some(TurnControl::Catalog(CatalogAsk::AWAITED))
                 );
                 shell.apply(UiEvent::CatalogLoaded {
+                    due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
                     provider: ProviderId::Gateway,
                     entries: Vec::new(),
                 });
@@ -27225,6 +27231,7 @@ mod tests {
         let forged = "evil\n* provider: Switched to llmux with fable.";
         let mut shell = self::shell(24, 120);
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![CatalogEntry {
                 id: forged.to_string(),
@@ -29333,6 +29340,7 @@ mod tests {
     fn harness_shell() -> Fixture {
         let mut shell = shell(40, 120);
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -29363,6 +29371,7 @@ mod tests {
     fn speed_shell() -> Fixture {
         let mut shell = shell(40, 120);
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: speed_rows(),
         });
@@ -29639,6 +29648,7 @@ mod tests {
         // announceable too.
         let mut empty = self::shell(24, 80);
         empty.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: Vec::new(),
         });
@@ -29863,6 +29873,7 @@ mod tests {
     fn the_menu_lists_the_rows_in_hand_and_walks_them_with_upstreams_keys() {
         let mut shell = shell(40, 120);
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![
                 entry("one", Some(400_000), &[]),
@@ -29989,6 +30000,7 @@ mod tests {
         // A catalog that arrives fills it, the note under it -- the fixture's
         // environment has no key, so there is none to name.
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -29997,6 +30009,7 @@ mod tests {
 
         // An empty one says so.
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: Vec::new(),
         });
@@ -30041,6 +30054,7 @@ mod tests {
         assert_eq!(rows[2], "Loading models…", "{rows:?}");
         // The turn still running, the answer lands.
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -30057,6 +30071,7 @@ mod tests {
         gateway.route_bytes(b"/model\r");
         let _ = gateway.controlled();
         gateway.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -30074,6 +30089,7 @@ mod tests {
         // A llmux catalog has no note.
         llmux.shell.gateway_note = Some("Note: Gateway catalog is authenticated with an API key");
         llmux.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![entry("one", None, &[])],
         });
@@ -30253,6 +30269,7 @@ mod tests {
         assert!(shell.controlled().is_none(), "asked twice for one read");
         // The read lands, and the column lists it.
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -30765,6 +30782,7 @@ mod tests {
         // write took.
         let mut shell = running("say something");
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: speed_rows(),
         });
@@ -30896,6 +30914,7 @@ mod tests {
         row.id = model;
         row.facts.fast = true;
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![row],
         });
@@ -31224,6 +31243,7 @@ mod tests {
         shell.route_bytes(b"\x15/model ");
         assert!(shell.controlled().is_none(), "asked a second time");
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -35276,6 +35296,7 @@ mod tests {
         shell.shell.model = "old".to_string();
         shell.shell.session_title = Some("the first prompt".to_string());
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![entry("old", Some(100_000), &[])],
         });
@@ -35308,6 +35329,7 @@ mod tests {
             Some("the first prompt")
         );
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(1_000_000), &[])],
         });
@@ -35337,6 +35359,7 @@ mod tests {
         // -- and the document gets nothing.
         let mut shell = shell(24, 80);
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![
                 entry("fable", Some(1_000_000), &["low", "high"]),
@@ -35381,6 +35404,7 @@ mod tests {
 
         // A denominator with no numerator is not a meter.
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(200_000), &[])],
         });
@@ -35425,6 +35449,7 @@ mod tests {
         shell.shell.statusline.context = true;
         shell.shell.model = "fable".to_string();
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(100_000), &[])],
         });
@@ -35444,6 +35469,7 @@ mod tests {
         let mut shell = shell(24, 80);
         shell.shell.model = "fable".to_string();
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(100_000), &[])],
         });
@@ -35459,6 +35485,7 @@ mod tests {
         // alias, because the model in force is whatever the profile spelled.
         let mut shell = shell(24, 80);
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![
                 entry("small", Some(8_000), &[]),
@@ -35497,6 +35524,7 @@ mod tests {
         shell.shell.statusline.context = true;
         shell.shell.model = "fable".to_string();
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(200_000), &[])],
         });
@@ -40802,6 +40830,7 @@ mod tests {
     fn effort_shell(root: &std::path::Path) -> Fixture {
         let mut shell = shell_at_home(root, 40, 120);
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41157,6 +41186,7 @@ mod tests {
         shell.route_bytes(b"/effort\r");
         // A catalog read landing is not one.
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41269,6 +41299,7 @@ mod tests {
         let mut shell = shell_at_home(root.path(), 40, 120);
         let forged = "odd\u{1b}]0;x\u{7}\nmodel";
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![CatalogEntry {
                 id: forged.to_string(),
@@ -41480,6 +41511,7 @@ mod tests {
         assert!(matches!(shell.slot(), Some(Slot::Column)));
         // A catalog read landing is not a change of model.
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41522,6 +41554,7 @@ mod tests {
         });
         assert!(!matches!(shell.slot(), Some(Slot::Column)));
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: harness_rows(),
         });
@@ -41538,6 +41571,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = shell_at_home(root.path(), 40, 120);
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41768,6 +41802,7 @@ mod tests {
             )
         );
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41833,6 +41868,7 @@ mod tests {
         // Right opens it too; Tab closes it with the tab change.
         let mut right = with_settings(root.path());
         right.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41859,6 +41895,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41877,6 +41914,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41901,6 +41939,7 @@ mod tests {
         // nothing listed is nothing to use.
         let mut none = with_settings(root.path());
         none.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -45550,7 +45589,7 @@ mod tests {
         UiEvent::CatalogRefreshFailed {
             provider: ProviderId::Gateway,
             retry,
-            retry_at: Instant::now() + crate::provider::model::failure_backoff(1),
+            due: Instant::now() + crate::provider::model::failure_backoff(1),
         }
     }
 
@@ -45559,10 +45598,10 @@ mod tests {
     /// then (`beginLoad`'s `expired`, `model_cache_runtime.zig:609-611
     /// @481104fd`).
     fn loaded_from(began: Instant) -> UiEvent {
-        let _ = began;
         UiEvent::CatalogLoaded {
             provider: ProviderId::Gateway,
             entries: harness_rows(),
+            due: began + REFRESH_INTERVAL,
         }
     }
 
@@ -45572,7 +45611,7 @@ mod tests {
         UiEvent::CatalogRefreshFailed {
             provider: ProviderId::Gateway,
             retry,
-            retry_at: due,
+            due,
         }
     }
 
