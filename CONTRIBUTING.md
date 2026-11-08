@@ -45,9 +45,9 @@ derive a path a script needs from `$TMPDIR` or `$HOME` when it runs.
 `scripts/check-no-local-paths.sh` refuses a home directory (`/Users/<name>/`,
 `/home/<name>/`), a harness scratch root (`/tmp/claude-<digits>`, with or
 without `/private`) and macOS's per-user temporary folder anywhere in a tracked
-file. A test fixture that must hold such a path says so on its own line with
-`local-path-ok`; a home that is nobody's (`/home/u/`) is on the check's own
-list of placeholders.
+file. A test fixture that must hold such a path says so with `local-path-ok`
+on that line itself, and only that line is excused. A home that is nobody's,
+a test's `/home/u/`, is on the check's own list of placeholders.
 
 ## The gate
 
