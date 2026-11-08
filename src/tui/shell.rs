@@ -37955,6 +37955,49 @@ mod tests {
     }
 
     #[test]
+    fn an_oversized_paste_with_input_behind_it_on_the_review_plane_ends_on_the_warning() {
+        // fx writes two notices here, the limit's and then the warning
+        // (`input_paste_runtime.zig:189-196@481104fd`); the plane has one
+        // status row, so it shows the later one. Nothing of the paste reaches
+        // the draft, nothing is answered, and nothing is said behind the
+        // plane.
+        let mut shell = shell(40, 100);
+        let started = turn_running(&mut shell, b"rewrite the notes\r");
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        let _ = shell.document();
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
+        shell.route_bytes(b"\tkeep");
+        let mut bytes = b"\x1b[200~".to_vec();
+        bytes.extend(std::iter::repeat_n(
+            b'x',
+            super::super::approval_amendment::MAX_FEEDBACK_BYTES + 1,
+        ));
+        bytes.extend(b"\x1b[201~\r");
+
+        shell.route_bytes(&bytes);
+        let painted = unwrapped(&shell.screen_rows());
+        assert!(
+            painted.contains("Input that arrived right after the paste was ignored."),
+            "{painted:?}"
+        );
+        assert!(
+            !painted.contains(super::super::approval_amendment::INPUT_LIMIT),
+            "the limit's sentence is the plane's last word: {painted:?}"
+        );
+        assert!(
+            painted.contains("keep") && !painted.contains("xxxxxxxxxx"),
+            "{painted:?}"
+        );
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the Enter behind the marker answered"
+        );
+        assert!(shell.document().is_empty(), "said behind the plane");
+    }
+
+    #[test]
     fn a_submitted_amendment_reaches_the_document_as_the_users_own_card() {
         // **Where the user reads back what they said.** The card is written
         // when the runtime says the sentence was delivered -- the same flush
