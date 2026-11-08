@@ -10214,7 +10214,7 @@ impl Shell {
         //
         // **A turn that started is not over until its end is read.** The
         // runtime gives a place back after it has sent the work's terminal
-        // event (`TurnEnded`, `worker.rs:3835`, then `turn_loop`'s
+        // event (`TurnEnded`, `worker.rs:3840`, then `turn_loop`'s
         // `fetch_sub`, `:3524`), so this can run between the two with a
         // started turn's end still in the channel -- and a stopped turn's end
         // says `the turn was cancelled`. A cancel taken here would leave that
