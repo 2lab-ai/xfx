@@ -1180,13 +1180,17 @@ impl Conversation {
     /// §Provenance asks ("a one-line user-visible notice"). A new
     /// conversation starts with nothing said.
     ///
-    /// **Said when shown, not when found.** A turn stopped before its request
-    /// shows nothing (the TUI refuses a stopped turn's events,
-    /// `crate::tui::bridge::send_ui`), so a notice it found belongs to the next
-    /// turn, which sends the history the notice is about. Upstream's one
-    /// notice said once a session, a source limit's, is likewise claimed only
-    /// by a turn past its stop checks (`prepareSkillCatalog`,
-    /// `orchestrator.zig:5950@481104fd`, after `:5893-5948`).
+    /// **Said when handed to the screen, not when found.** A turn stopped
+    /// before its request hands nothing on (the TUI refuses a stopped turn's
+    /// events, `crate::tui::bridge::send_ui`), so a notice it found belongs to
+    /// the next turn, which sends the history the notice is about. Upstream
+    /// says nothing about the history; its `[context]` lines, said once a
+    /// session (`claimContextNotice`), are not lost to such a stop either: a
+    /// project file's is claimed and written when the prompt is submitted
+    /// (`refreshProjectContext`, `app_agent_runtime.zig:906-938@481104fd`,
+    /// from `main.zig:1200`), and the skill and MCP catalogs' only once the
+    /// turn is past its stop checks (`orchestrator.zig:5950`, `:6001`, after
+    /// `:5893-5948`).
     pub(crate) fn unsaid(&self, notices: Vec<String>) -> Vec<String> {
         let mut found = std::collections::BTreeSet::new();
         notices
@@ -3990,6 +3994,58 @@ mod tests {
         let mut again = Vec::new();
         say_unsaid(&mut conversation, rebuilt(), &mut again).expect("written");
         assert!(again.is_empty(), "{:?}", String::from_utf8_lossy(&again));
+        assert!(conversation.unsaid(rebuilt()).is_empty());
+    }
+
+    #[test]
+    fn the_line_shell_leaves_unsaid_only_the_line_it_could_not_write() {
+        // Per line, not per batch: stderr takes the first notice whole and
+        // refuses the second. The first is said, the second is still unsaid,
+        // and the next turn writes the second alone.
+        struct TakesOnly {
+            written: Vec<u8>,
+            room: usize,
+        }
+        impl Write for TakesOnly {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                if self.room == 0 {
+                    return Err(io::ErrorKind::BrokenPipe.into());
+                }
+                let taken = bytes.len().min(self.room);
+                self.written.extend_from_slice(&bytes[..taken]);
+                self.room -= taken;
+                Ok(taken)
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let root = tempfile::tempdir().expect("a root");
+        let config = config_under(root.path());
+        let store = SessionStore::open(&root.path().join("home").join(".xfx")).expect("a store");
+        let mut conversation = open_conversation(
+            &store,
+            &config,
+            &config.model,
+            crate::app::permission_session(config.permission_mode, LiveRules::default()),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("a conversation");
+        let rebuilt = || ["xfx: one", "xfx: two"].map(str::to_string).to_vec();
+        let mut stderr = TakesOnly {
+            written: Vec::new(),
+            room: "xfx: one\n".len(),
+        };
+        assert!(say_unsaid(&mut conversation, rebuilt(), &mut stderr).is_err());
+        assert_eq!(
+            String::from_utf8(stderr.written).expect("utf-8"),
+            "xfx: one\n"
+        );
+        assert_eq!(conversation.unsaid(rebuilt()), ["xfx: two"]);
+        let mut next = Vec::new();
+        say_unsaid(&mut conversation, rebuilt(), &mut next).expect("written");
+        assert_eq!(String::from_utf8(next).expect("utf-8"), "xfx: two\n");
         assert!(conversation.unsaid(rebuilt()).is_empty());
     }
 }

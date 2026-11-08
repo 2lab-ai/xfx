@@ -22880,6 +22880,86 @@ mod tests {
     }
 
     #[test]
+    fn a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation(
+    ) {
+        // HISTORY-NOTICE-STOP: the runtime records a history notice said once
+        // `send_ui` queues it (`worker::one_turn`) -- a queue, not a paint. That
+        // is sound because this screen paints every notice it takes, and the
+        // paths that drop one -- a reset (its drain, and `reset_session`'s
+        // clear) and a resume's or a fork's replay -- come with the runtime
+        // dropping the conversation that recorded it, ledger and all
+        // (`worker::tests::the_history_notice_ledger_goes_with_its_conversation`).
+        const CARRY: &str =
+            "this session recorded reasoning on the anthropic_messages wire and is \
+                             continuing on vercel_gateway, so that reasoning was not carried over";
+        let said = |rows: &[String]| {
+            rows.iter()
+                .filter(|row| row.contains("not carried over"))
+                .count()
+        };
+        let carry = || UiEvent::Notice(notice::Notice::warning("session", CARRY));
+
+        // Taken after the stop: the turn queued it before it heard the
+        // Ctrl-C, and the screen takes it after. Painted, once, under the
+        // stop's own line.
+        let mut shell = shell(24, 240);
+        shell.route_bytes(b"and after the stop?\r");
+        let _taken = shell.picks_up();
+        shell.start_turn();
+        shell.route_bytes(&[0x03]);
+        assert_eq!(shell.controlled(), Some(TurnControl::Cancel { through: 1 }));
+        shell.apply(carry());
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some(bridge::TURN_CANCELLED.to_string()),
+        });
+        let rows = shell.released();
+        assert_eq!(said(&rows), 1, "{rows:#?}");
+        assert_eq!(
+            rows.iter().filter(|row| row.contains("Cancelled")).count(),
+            1,
+            "{rows:#?}"
+        );
+
+        // Owed behind an answer still being paced, then a resume: the replay
+        // clears what the screen still owed the conversation it replaces
+        // (`hydrate_as`), after the runtime bound another one.
+        let mut shell = self::shell(24, 240);
+        shell.route_bytes(b"read the notes\r");
+        let _taken = shell.picks_up();
+        shell.start_turn();
+        shell.apply(UiEvent::Delta(
+            "The notes say the meeting moved to Thursday. ".repeat(40),
+        ));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.route_bytes(b"and then?\r");
+        let _taken = shell.picks_up();
+        shell.start_turn();
+        shell.apply(carry());
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(said(&shell.document()), 0, "not held behind the answer");
+        shell.apply(UiEvent::Resumed(replay(
+            Some("another session"),
+            Vec::new(),
+        )));
+        let rows = shell.released();
+        assert_eq!(said(&rows), 0, "{rows:#?}");
+
+        // A reset's drain: the old conversation's notice, arriving before the
+        // fence, is dropped with it; the next conversation's is painted.
+        let mut shell = self::shell(24, 240);
+        shell.route_bytes(b"/new\r");
+        assert_eq!(shell.controlled(), Some(TurnControl::Reset { through: 0 }));
+        let _ = shell.document();
+        shell.apply(carry());
+        shell.apply(UiEvent::Fresh { through: 0 });
+        let rows = shell.released();
+        assert_eq!(said(&rows), 0, "{rows:#?}");
+        shell.apply(carry());
+        let rows = shell.released();
+        assert_eq!(said(&rows), 1, "{rows:#?}");
+    }
+
+    #[test]
     fn the_cancelled_line_is_upstreams_marker_word_and_question_in_upstreams_greys() {
         // fx v0.0.16's `p5-transcript-cancel` `esc` (receipts/cancel-marker):
         // `ESC[38;5;252m▪ESC[39m ESC[38;5;255mCancelledESC[39m · …` -- the

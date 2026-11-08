@@ -6201,12 +6201,15 @@ async fn one_turn(
         // history could not carry. The store's sentence is the line shell's
         // too, so its `xfx: ` comes off here where the glyph says it.
         let shown = super::notice::Notice::warning("session", super::notice::unattributed(&notice));
-        // **Said once it reaches the UI**, which paints every notice it is
-        // handed, a stopped turn's too. The send fails only for a turn
-        // cancelled before it began -- a stop in its catalog wait, which sends
-        // nothing -- and for a UI that is gone; the turn below reports both
-        // for itself. A notice refused here is still unsaid, and the next
-        // turn, which sends the history it is about, says it.
+        // **Said once it is handed to the UI** (queued: `send_ui` has no
+        // acknowledgement of a paint). The UI paints every notice it takes, a
+        // stopped turn's too; the paths that drop one -- a reset (its drain,
+        // and the screen it clears) and a resume's or a fork's replay -- drop
+        // this conversation with it, and its ledger. The send fails only for a turn cancelled before it began
+        // -- a stop in its catalog wait, which sends nothing -- and for a UI
+        // that is gone; the turn below reports both for itself. A notice
+        // refused here is still unsaid, and the next turn, which sends the
+        // history it is about, says it.
         if bridge::send_ui(events, &turn.token, UiEvent::Notice(shown))
             .await
             .is_ok()
@@ -18035,16 +18038,18 @@ mod tests {
         // here, reasoning llmux sealed, on the Gateway (`/provider` in
         // docs/parity.md; `.prd/04-providers.md` §Provenance: "a drop is never
         // silent"). Upstream drops it without a word (`projectProviderReplay`,
-        // `types.zig:1668-1680@481104fd`); the one notice it says once a
-        // session, a source limit's, is claimed where it is shown, and only by
-        // a turn past its stop checks (`claimContextNotice`, `session.zig:
-        // 1551-1561`, from `pushContextNotice`, `acp/prompt.zig:3219-3227`, at
-        // `prepareSkillCatalog`, `orchestrator.zig:5950`, after `:5893-5919`
-        // and `:5923-5948`). So a turn stopped in its catalog wait -- the
-        // default model's window behind a retry, a prompt image behind the
-        // first load -- sends nothing and shows nothing: the notice is the
-        // next turn's, which sends the history it is about. Without the stop,
-        // the first turn says it and the second does not say it again.
+        // `types.zig:1668-1680@481104fd`). Its `[context]` lines, said once a
+        // session (`claimContextNotice`, `session.zig:1551-1561`), survive such
+        // a stop too: a project file's is claimed and written at submission
+        // (`refreshProjectContext`, `app_agent_runtime.zig:906-938`, from
+        // `main.zig:1200`), and the skill and MCP catalogs' are claimed, then
+        // queued, only past the turn's stop checks (`orchestrator.zig:5950`,
+        // `:6001`, after `:5893-5919` and `:5923-5948`). So a turn stopped in
+        // its catalog wait -- the default model's window behind a retry, a
+        // prompt image behind the first load -- sends nothing and hands
+        // nothing on: the notice is the next turn's, which sends the history
+        // it is about. Without the stop, the first turn says it and the second
+        // does not say it again.
         let cancelled = Some(bridge::TURN_CANCELLED.to_string());
         let mut got = Vec::new();
         let mut want = Vec::new();
@@ -18076,6 +18081,121 @@ mod tests {
         assert_eq!(
             got, want,
             "each: both turns' ends, and how many times each turn said the history's notice"
+        );
+    }
+
+    #[test]
+    fn the_history_notice_ledger_goes_with_its_conversation() {
+        // `one_turn` records a history notice said once `send_ui` queues it.
+        // The screen drops a notice it took only on a reset (its drain, and
+        // the screen it clears) and on a resume's or a fork's replay
+        // (`shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation`)
+        // -- and each comes with this runtime dropping the conversation that
+        // recorded it, ledger and all: no ledger keeps a line its screen never
+        // painted. So: said once (one), not again (two); a resume away and
+        // back binds a new conversation of the same session, which says it
+        // again (three); a reset starts one whose history has nothing to say
+        // (four).
+        let model = "anthropic/claude-sonnet-5";
+        let (_home, _workspace, mut state) = under_model(model);
+        state.selector.set_fetcher_for_test(Box::new(Answering {
+            entries: vec![published(model)],
+            asked: Arc::new(AtomicUsize::new(0)),
+        }));
+        state.provider = Some(Bundle {
+            id: ProviderId::Gateway,
+            stream: Box::new(ScriptedProvider::new(vec![
+                answers("one"),
+                answers("two"),
+                answers("three"),
+                answers("four"),
+            ])),
+        });
+        sealed_on_llmux(&mut state);
+        let first = state
+            .conversation
+            .as_ref()
+            .expect("a conversation")
+            .recorder
+            .id()
+            .clone();
+        let other = a_saved_session(&state.config, &Grant::new("edit_file", "x".to_string()));
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(8);
+        for work in [
+            TurnWork::Submit("one".to_string()),
+            TurnWork::Submit("two".to_string()),
+            TurnWork::Resume(other.to_string()),
+            TurnWork::Resume(first.to_string()),
+            TurnWork::Submit("three".to_string()),
+        ] {
+            work_tx.try_send(work).expect("room");
+        }
+        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+        let (events, mut seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        let outstanding = AtomicUsize::new(4);
+        let log = on_a_runtime(async {
+            let run = turn_loop(
+                state,
+                &events,
+                &mut work_rx,
+                &mut changes,
+                ControlChannel::new(control_rx),
+                Cancellation::new(CancelToken::new()),
+                &outstanding,
+            );
+            let watch = async {
+                let mut work_tx = Some(work_tx);
+                let mut log = Vec::new();
+                let mut ends = 0;
+                while ends < 4 {
+                    match tokio::time::timeout(TEST_DRAIN, seen.recv()).await {
+                        Ok(Some(event)) => {
+                            let ended = matches!(event, UiEvent::TurnEnded { .. });
+                            log.push(event);
+                            if ended {
+                                ends += 1;
+                            }
+                            // The reset first: control is taken before work.
+                            if ended && ends == 3 {
+                                control_tx
+                                    .send(TurnControl::Reset { through: 0 })
+                                    .expect("alive");
+                                work_tx
+                                    .as_ref()
+                                    .expect("open")
+                                    .try_send(TurnWork::Submit("four".to_string()))
+                                    .expect("room");
+                            }
+                        }
+                        _ => break,
+                    }
+                }
+                // Closed: the loop runs out of work and returns.
+                drop(work_tx.take());
+                log
+            };
+            let (_, log) = tokio::join!(run, watch);
+            log
+        });
+        let mut said: Vec<usize> = Vec::new();
+        let (mut resumed, mut fresh) = (0, 0);
+        for event in &log {
+            match event {
+                UiEvent::TurnStarted { .. } => said.push(0),
+                UiEvent::Notice(notice) if notice.text().contains(NOT_CARRIED) => {
+                    *said.last_mut().expect("a notice inside a turn") += 1;
+                }
+                UiEvent::Resumed(_) => resumed += 1,
+                UiEvent::Fresh { .. } => fresh += 1,
+                UiEvent::ResumeFailed { .. } => panic!("a resume failed: {event:?}"),
+                _ => {}
+            }
+        }
+        assert_eq!(
+            (said, resumed, fresh),
+            (vec![1, 0, 1, 0], 2, 1),
+            "how many times each turn said the history's notice, the resumes, the reset"
         );
     }
 }
