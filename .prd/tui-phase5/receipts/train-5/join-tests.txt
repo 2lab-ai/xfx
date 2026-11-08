@@ -1,0 +1,30 @@
+# The join test in the gate's two cargo test runs at d6a10eeb (gates.txt), and the copy errand cases beside it: every line of the two logs that names one.
+# Its first runs: once at 150334d9 in job A, under the suite lock, before the gate (1 passed, 13.44 s; join-mutants.txt has its runs against the mutants and on each unit alone).
+== 04-test
+test a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore ... ok
+test a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ... ok
+test clipboard::tests::tool::a_file_copy_that_outlives_its_deadline_is_killed_and_a_failure ... ok
+test clipboard::tests::tool::a_gate_nobody_opens_gives_up_and_says_so ... ok
+test clipboard::tests::tool::a_tool_at_its_gate_ends_itself_once_its_case_is_gone ... ok
+test tui::copy::tests::a_copy_is_started_and_answered_later_rather_than_waited_for ... ok
+test tui::copy::tests::a_copy_that_cannot_reach_a_tool_says_so_rather_than_nothing ... ok
+test tui::copy::tests::a_selection_copy_is_answered_on_its_own_channel_with_its_purpose ... ok
+test tui::copy::tests::an_end_whose_look_at_the_grace_panics_still_stops_and_joins_every_copy ... ok
+test tui::copy::tests::an_ending_session_kills_a_copy_whose_answer_comes_after_its_grace ... ok
+test tui::copy::tests::an_ending_session_kills_a_copy_whose_tool_never_exits_and_joins_its_thread ... ok
+test tui::copy::tests::an_ending_session_lets_a_copy_that_answers_land ... ok
+test tui::trace::tests::an_ending_session_joins_a_report_whole_and_gives_its_copy_up ... ok
+== 05-test-fault
+test a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore ... ok
+test a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ... ok
+test clipboard::tests::tool::a_file_copy_that_outlives_its_deadline_is_killed_and_a_failure ... ok
+test clipboard::tests::tool::a_gate_nobody_opens_gives_up_and_says_so ... ok
+test clipboard::tests::tool::a_tool_at_its_gate_ends_itself_once_its_case_is_gone ... ok
+test tui::copy::tests::a_copy_is_started_and_answered_later_rather_than_waited_for ... ok
+test tui::copy::tests::a_copy_that_cannot_reach_a_tool_says_so_rather_than_nothing ... ok
+test tui::copy::tests::a_selection_copy_is_answered_on_its_own_channel_with_its_purpose ... ok
+test tui::copy::tests::an_end_whose_look_at_the_grace_panics_still_stops_and_joins_every_copy ... ok
+test tui::copy::tests::an_ending_session_kills_a_copy_whose_answer_comes_after_its_grace ... ok
+test tui::copy::tests::an_ending_session_kills_a_copy_whose_tool_never_exits_and_joins_its_thread ... ok
+test tui::copy::tests::an_ending_session_lets_a_copy_that_answers_land ... ok
+test tui::trace::tests::an_ending_session_joins_a_report_whole_and_gives_its_copy_up ... ok

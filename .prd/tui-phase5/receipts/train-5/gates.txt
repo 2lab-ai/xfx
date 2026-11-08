@@ -1,0 +1,198 @@
+# gates.sh at d6a10eeb (the receipt's first part committed on top of the join test 150334d9), one step after another, the whole script inside one hold of the machine's suite lock (suite-lock.sh gates.sh ...), TMPDIR a short scratch directory.
+# "tree clean: no" at the start and the end: this directory's untracked files only (osc/osc.py, osc/publish.py and test-counts.txt were written before the gate, the published wires while it ran); no tracked file changed.
+# clippy's 1 s: cargo's cached result of job A's `cargo clippy --locked --all-targets -- -D warnings` on the same tree minutes before (under the lock, exit 0); the step ran, and its log says so.
+# Step 16 failed one case (FAIL below); it was run again under the suite lock right after the gate, at the same head: the reruns follow the steps.
+# head d6a10eeb; tree clean: no
+01 fmt                                exit 0     1s  load 6.20
+02 clippy                             exit 0     1s  load 6.20
+03 clippy-fault                       exit 0    19s  load 6.20
+04 test                               exit 0   223s  load 6.26
+05 test-fault                         exit 0   225s  load 5.34
+06 check-xfx-identity                 exit 0     0s  load 6.39
+07 check-no-stubs                     exit 0    13s  load 6.39
+08 check-no-secrets                   exit 0    32s  load 5.95
+09 check-preview-contract             exit 0     8s  load 5.79
+10 check-tui-preflight-cost           exit 0   124s  load 5.45
+11 check-usage-clock                  exit 0     7s  load 9.61
+12 test-check-no-secrets              exit 0    90s  load 8.92
+13 test-gate-env                      exit 0    93s  load 5.84
+14 test-preview-contract              exit 0    54s  load 4.85
+15 fxcap-test-sweep                   exit 0    60s  load 5.34
+16 fxcap-test-capture                 exit 1   452s  load 7.89
+17 build-release                      exit 0    15s  load 6.95
+18 build-faulty                       exit 0    24s  load 7.08
+19 smoke                              exit 0     2s  load 7.92
+20 smoke-tui                          exit 0    63s  load 7.92
+# 20 steps, 1 failed; tree clean after: no
+gates exit=1
+
+===== 01-fmt (last lines; test suites: every 'test result' line and every failure)
+
+===== 02-clippy (last lines; test suites: every 'test result' line and every failure)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.19s
+===== 03-clippy-fault (last lines; test suites: every 'test result' line and every failure)
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 19.77s
+===== 04-test (last lines; test suites: every 'test result' line and every failure)
+test result: ok. 4412 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 52.19s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.31s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.17s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.72s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.09s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.08s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.25s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.76s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+test result: ok. 179 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.08s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+===== 05-test-fault (last lines; test suites: every 'test result' line and every failure)
+test result: ok. 4435 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 52.40s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.85s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.79s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.76s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.17s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.08s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.83s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+test result: ok. 193 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 27.29s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+===== 06-check-xfx-identity (last lines; test suites: every 'test result' line and every failure)
+check-xfx-identity: ok (13289 tracked file(s) scanned)
+===== 07-check-no-stubs (last lines; test suites: every 'test result' line and every failure)
+check-no-stubs: ok
+===== 08-check-no-secrets (last lines; test suites: every 'test result' line and every failure)
+check-no-secrets: ok (13289 tracked file(s) scanned)
+===== 09-check-preview-contract (last lines; test suites: every 'test result' line and every failure)
+check-preview-contract: ok (.github/workflows/preview.yml)
+===== 10-check-tui-preflight-cost (last lines; test suites: every 'test result' line and every failure)
+preflight 200x300 full: 61292 bytes in 1.02291ms mean, 931.209µs min, 1.03325ms median, 1.140667ms max (budget 32 ms)
+preflight 200x300 scroll: 9 bytes in 491.131µs mean, 472.75µs min, 490.041µs median, 510.542µs max (budget 32 ms)
+preflight 200x300 update: 85420 bytes in 635.872µs mean, 628.666µs min, 635.625µs median, 662.042µs max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 344.75µs mean, 340.375µs min, 344.75µs median, 352µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 1.191144ms mean, 1.182416ms min, 1.187291ms median, 1.211291ms max (budget 32 ms)
+check-tui-preflight-cost: ok
+===== 11-check-usage-clock (last lines; test suites: every 'test result' line and every failure)
+check-usage-clock: debug: honoured (debug assertions)
+check-usage-clock: release: ignored (release)
+check-usage-clock: release, fault injection: ignored (release)
+check-usage-clock: ok
+===== 12-test-check-no-secrets (last lines; test suites: every 'test result' line and every failure)
+test-check-no-secrets: ok grep-127           exit 1
+test-check-no-secrets: ok every-file         exit 1
+test-check-no-secrets: ok every-file-set     3472 of 3472 keys, each once
+test-check-no-secrets: ok nothing-tracked    exit 1
+test-check-no-secrets: ok only-a-symlink     exit 1
+test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
+===== 13-test-gate-env (last lines; test suites: every 'test result' line and every failure)
+test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code
+test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command
+test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break
+test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
+test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
+test-gate-env: ok (5 cases)
+===== 14-test-preview-contract (last lines; test suites: every 'test result' line and every failure)
+test-preview-contract: caught other-workflow-whole-context report.yml: job report reads a secret
+test-preview-contract: caught secrets-inherit              call.yml: job call passes secrets
+test-preview-contract: caught epoch-absent                 there is no .github/preview-epoch
+test-preview-contract: caught epoch-two-lines              .github/preview-epoch is "phase4\nphase5\n"
+test-preview-contract: caught epoch-crlf                   .github/preview-epoch is "phase4\r\n"
+test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+===== 15-fxcap-test-sweep (last lines; test suites: every 'test result' line and every failure)
+OK
+..........................
+----------------------------------------------------------------------
+Ran 26 tests in 49.105s
+
+OK
+===== 16-fxcap-test-capture (last lines; test suites: every 'test result' line and every failure)
+FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run (__main__.Verbs.test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run)
+AssertionError: 'executable /bin/cat' not found in 'no pid runs <tmpdir>/fxcapt.mllp41dq/wrapper: pane 984, pid 984, executable /bin/sh\n'
+
+----------------------------------------------------------------------
+Ran 59 tests in 447.239s
+
+FAILED (failures=1)
+===== 17-build-release (last lines; test suites: every 'test result' line and every failure)
+   Compiling rustix v1.1.4
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `release` profile [optimized] target(s) in 14.25s
+===== 18-build-faulty (last lines; test suites: every 'test result' line and every failure)
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling hyper-rustls v0.27.9
+   Compiling tower-http v0.6.11
+   Compiling reqwest v0.12.28
+    Finished `release` profile [optimized] target(s) in 24.51s
+===== 19-smoke (last lines; test suites: every 'test result' line and every failure)
+
+6. what was sent, and what was written down
+  ok    every request carried exactly the provided credential, and nothing else leaked (scanned 52 file(s), 11 request(s))
+
+47 check(s), 0 failure(s)
+evidence: <scratch>/gates/smoke/smoke
+===== 20-smoke-tui (last lines; test suites: every 'test result' line and every failure)
+  26-layout-stabilization               ok
+  26b-composer-yield-to-panel           ok
+  27-live-theme-retint                  ok
+
+smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+evidence: <scratch>/gates/smoke/smoke-tui
+===== rerun: test-capture.sh, whole, under the suite lock, after the gate (job C)
+...........................................................
+----------------------------------------------------------------------
+Ran 59 tests in 222.136s
+
+OK
+===== rerun: the failed case alone, 1 of 5
+.
+----------------------------------------------------------------------
+Ran 1 test in 5.064s
+
+OK
+===== rerun: the failed case alone, 2 of 5
+.
+----------------------------------------------------------------------
+Ran 1 test in 5.062s
+
+OK
+===== rerun: the failed case alone, 3 of 5
+.
+----------------------------------------------------------------------
+Ran 1 test in 5.073s
+
+OK
+===== rerun: the failed case alone, 4 of 5
+.
+----------------------------------------------------------------------
+Ran 1 test in 5.088s
+
+OK
+===== rerun: the failed case alone, 5 of 5
+.
+----------------------------------------------------------------------
+Ran 1 test in 5.586s
+
+OK
+
+===== job C, as it printed
+# jobC start 2026-11-08T01:45:46Z head d6a10eeb load { 6.31 7.88 7.49 }
+test-capture.sh exit=0
+Ran 59 tests in 222.136s
+
+OK
+alone 1 exit=0 OK load { 8.72 7.92 7.56 }
+alone 2 exit=0 OK load { 8.35 7.85 7.54 }
+alone 3 exit=0 OK load { 8.48 7.89 7.56 }
+alone 4 exit=0 OK load { 8.36 7.87 7.55 }
+alone 5 exit=0 OK load { 8.25 7.86 7.55 }
+# jobC end 2026-11-08T01:49:55Z
+jobC exit=0

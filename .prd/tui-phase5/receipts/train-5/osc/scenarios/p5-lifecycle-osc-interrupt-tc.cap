@@ -1,0 +1,26 @@
+# Train 5: p5-lifecycle-osc-interrupt in a session that claims truecolor (COLORTERM=truecolor, as the
+# `-tc` twins on main): the frames osc.py reads, every grey as each product spells it
+# under truecolor. Captured from a scratch copy of the scenario directory
+# (FXCAP_SCENARIOS); not a scenario of the repository. The rest is the twin's:
+# Phase 5 L-U1: a turn held mid-stream (working), stopped with two Escapes:
+# idle, not error and not done; the exit clears the record.
+env COLORTERM=truecolor
+gateway p5-lifecycle-osc-interrupt-turns.json
+xfx: env XFX_SOUND=off
+wait 4
+type first question
+key Enter
+held
+wire i00-working
+key Escape
+wait 0.2
+key Escape
+wait 1.5
+wire i01-after-esc
+release
+wait 1
+keep
+type /quit
+key Enter
+wait 2
+wire i02-exit

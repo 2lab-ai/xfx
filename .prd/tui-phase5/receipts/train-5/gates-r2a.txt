@@ -1,0 +1,168 @@
+# Round 2, first run: gates.sh at f788dc54 (round 2's join test ffd53286 and the first part of round 2's receipt), one step after another, the whole script and then the touched tests' three runs inside one hold of the machine's suite lock (job R2), TMPDIR a short scratch directory.
+# "tree clean: no" at the start and the end: this directory's files only (round 2's mutant records and README were being written); no file outside .prd/ changed (git diff f788dc54 <head> -- src tests scripts docs Cargo.toml Cargo.lock build.rs is empty).
+# clippy's 5 s: cargo's cached result of the same `cargo clippy --locked --all-targets -- -D warnings` (and with fault-injection) run on the same tree just before (exit 0); the step ran.
+# The load at the start (79.8) was other workers' jobs; it fell to 5 by step 16.
+# head f788dc54; tree clean: no
+01 fmt                                exit 0     1s  load 79.77
+02 clippy                             exit 0     5s  load 74.50
+03 clippy-fault                       exit 0     5s  load 70.78
+04 test                               exit 0   104s  load 69.19
+05 test-fault                         exit 0   116s  load 44.72
+06 check-xfx-identity                 exit 0     5s  load 26.34
+07 check-no-stubs                     exit 0     9s  load 24.95
+08 check-no-secrets                   exit 0    33s  load 23.59
+09 check-preview-contract             exit 0     2s  load 16.56
+10 check-tui-preflight-cost           exit 0   103s  load 17.32
+11 check-usage-clock                  exit 0     0s  load 11.34
+12 test-check-no-secrets              exit 0    99s  load 11.34
+13 test-gate-env                      exit 0   108s  load 7.44
+14 test-preview-contract              exit 0    49s  load 5.64
+15 fxcap-test-sweep                   exit 0    74s  load 5.75
+16 fxcap-test-capture                 exit 0   557s  load 5.01
+17 build-release                      exit 0    14s  load 4.84
+18 build-faulty                       exit 0    17s  load 5.42
+19 smoke                              exit 0     6s  load 7.17
+20 smoke-tui                          exit 0    68s  load 7.16
+# 20 steps, 0 failed; tree clean after: no
+
+===== 01-fmt (last lines; test suites: every 'test result' line and every failure)
+
+===== 02-clippy (last lines; test suites: every 'test result' line and every failure)
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.01s
+===== 03-clippy-fault (last lines; test suites: every 'test result' line and every failure)
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.73s
+===== 04-test (last lines; test suites: every 'test result' line and every failure)
+test result: ok. 4412 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 40.39s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.72s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.71s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.17s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.05s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.61s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+test result: ok. 179 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.18s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+===== 05-test-fault (last lines; test suites: every 'test result' line and every failure)
+test result: ok. 4435 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 39.83s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.75s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.72s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.16s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.10s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.60s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.01s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.12s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.45s
+test result: ok. 193 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.14s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+===== 06-check-xfx-identity (last lines; test suites: every 'test result' line and every failure)
+check-xfx-identity: ok (13493 tracked file(s) scanned)
+===== 07-check-no-stubs (last lines; test suites: every 'test result' line and every failure)
+check-no-stubs: ok
+===== 08-check-no-secrets (last lines; test suites: every 'test result' line and every failure)
+check-no-secrets: ok (13493 tracked file(s) scanned)
+===== 09-check-preview-contract (last lines; test suites: every 'test result' line and every failure)
+check-preview-contract: ok (.github/workflows/preview.yml)
+===== 10-check-tui-preflight-cost (last lines; test suites: every 'test result' line and every failure)
+preflight 200x300 full: 61292 bytes in 1.094239ms mean, 996.167µs min, 1.10925ms median, 1.193875ms max (budget 32 ms)
+preflight 200x300 scroll: 9 bytes in 480.354µs mean, 469.334µs min, 476.959µs median, 514.417µs max (budget 32 ms)
+preflight 200x300 update: 85420 bytes in 642.949µs mean, 631.833µs min, 640µs median, 665.375µs max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 337.602µs mean, 328.75µs min, 335.5µs median, 358.458µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 1.203202ms mean, 1.185833ms min, 1.200708ms median, 1.230334ms max (budget 32 ms)
+check-tui-preflight-cost: ok
+===== 11-check-usage-clock (last lines; test suites: every 'test result' line and every failure)
+check-usage-clock: debug: honoured (debug assertions)
+check-usage-clock: release: ignored (release)
+check-usage-clock: release, fault injection: ignored (release)
+check-usage-clock: ok
+===== 12-test-check-no-secrets (last lines; test suites: every 'test result' line and every failure)
+test-check-no-secrets: ok grep-127           exit 1
+test-check-no-secrets: ok every-file         exit 1
+test-check-no-secrets: ok every-file-set     3472 of 3472 keys, each once
+test-check-no-secrets: ok nothing-tracked    exit 1
+test-check-no-secrets: ok only-a-symlink     exit 1
+test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
+===== 13-test-gate-env (last lines; test suites: every 'test result' line and every failure)
+test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code
+test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command
+test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break
+test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
+test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
+test-gate-env: ok (5 cases)
+===== 14-test-preview-contract (last lines; test suites: every 'test result' line and every failure)
+test-preview-contract: caught other-workflow-whole-context report.yml: job report reads a secret
+test-preview-contract: caught secrets-inherit              call.yml: job call passes secrets
+test-preview-contract: caught epoch-absent                 there is no .github/preview-epoch
+test-preview-contract: caught epoch-two-lines              .github/preview-epoch is "phase4\nphase5\n"
+test-preview-contract: caught epoch-crlf                   .github/preview-epoch is "phase4\r\n"
+test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+===== 15-fxcap-test-sweep (last lines; test suites: every 'test result' line and every failure)
+OK
+..........................
+----------------------------------------------------------------------
+Ran 26 tests in 68.034s
+
+OK
+===== 16-fxcap-test-capture (last lines; test suites: every 'test result' line and every failure)
+...........................................................
+----------------------------------------------------------------------
+Ran 59 tests in 555.398s
+
+OK
+===== 17-build-release (last lines; test suites: every 'test result' line and every failure)
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `release` profile [optimized] target(s) in 13.26s
+===== 18-build-faulty (last lines; test suites: every 'test result' line and every failure)
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `release` profile [optimized] target(s) in 17.33s
+===== 19-smoke (last lines; test suites: every 'test result' line and every failure)
+
+6. what was sent, and what was written down
+  ok    every request carried exactly the provided credential, and nothing else leaked (scanned 52 file(s), 11 request(s))
+
+47 check(s), 0 failure(s)
+evidence: <scratch>/gates2/smoke/smoke
+===== 20-smoke-tui (last lines; test suites: every 'test result' line and every failure)
+  26-layout-stabilization               ok
+  26b-composer-yield-to-panel           ok
+  27-live-theme-retint                  ok
+
+smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+evidence: <scratch>/gates2/smoke/smoke-tui
+===== touched tests, run 1 of 3 (every test that uses the fake clipboard, and the join test)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 1.91s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 172 filtered out; finished in 1.98s
+===== touched, fault-injection's one, run 1 of 3
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 192 filtered out; finished in 2.12s
+===== touched tests, run 2 of 3
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 1.37s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 172 filtered out; finished in 2.28s
+===== touched, fault-injection's one, run 2 of 3
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 192 filtered out; finished in 1.90s
+===== touched tests, run 3 of 3
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 1.43s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 172 filtered out; finished in 2.36s
+===== touched, fault-injection's one, run 3 of 3
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 192 filtered out; finished in 1.97s
+
+===== job R2, as it printed
+# jobR2 start 2026-11-08T03:04:29Z load { 79.77 72.11 39.23 }
+gates exit=0
+touched run 1 exit=0 9 passed, 0 failed load { 7.69 7.13 14.41 }
+touched fault run 1 exit=0 1 passed, 0 failed
+touched run 2 exit=0 9 passed, 0 failed load { 7.88 7.18 14.39 }
+touched fault run 2 exit=0 1 passed, 0 failed
+touched run 3 exit=0 9 passed, 0 failed load { 7.81 7.18 14.34 }
+touched fault run 3 exit=0 1 passed, 0 failed
+# jobR2 end 2026-11-08T03:27:43Z load { 7.81 7.18 14.34 }
+jobR2 exit=0

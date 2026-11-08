@@ -927,17 +927,35 @@ mod tests {
         #[test]
         #[cfg(target_os = "macos")]
         fn a_file_copy_that_outlives_its_deadline_is_killed_and_a_failure() {
+            // The deadline counts from the tool's start (`run`), and so does
+            // this case's clock: the start itself -- which waits out any other
+            // start in the process (`SPAWNING`) -- is in neither. Before, the
+            // clock began ahead of the copy, so a slow start elsewhere could
+            // use up its ten seconds (FLAKE-COPYEND r2).
             let tool = FakeTool::keeping();
             tool.hang();
+            let copying = {
+                let clipboard = tool
+                    .clipboard()
+                    .waiting(std::time::Duration::from_millis(200));
+                std::thread::spawn(move || clipboard.copy_file(std::path::Path::new(REPORT)))
+            };
+            // A tool killed at its deadline before it got as far as saying
+            // who it is leaves nothing to time from: the copy is over first.
+            until(|| copying.is_finished() || tool.hung().is_some());
             let started = std::time::Instant::now();
-            assert!(!tool
-                .clipboard()
-                .waiting(std::time::Duration::from_millis(200))
-                .copy_file(std::path::Path::new(REPORT)));
+            let pid = tool.hung();
+            assert!(
+                !copying.join().expect("the copy's thread"),
+                "a copy past its deadline was a success"
+            );
             assert!(
                 started.elapsed() < std::time::Duration::from_secs(10),
                 "the copy waited for a tool that never answered"
             );
+            if let Some(pid) = pid {
+                assert!(!FakeTool::alive(pid), "the tool outlived its deadline");
+            }
         }
 
         /// Waits, up to a minute, until `ready` says so: a fresh fake tool is
@@ -948,6 +966,71 @@ mod tests {
                 assert!(std::time::Instant::now() < deadline, "never happened");
                 std::thread::sleep(std::time::Duration::from_millis(5));
             }
+        }
+
+        /// Waits, up to a minute, for a copy's thread to be over, and fails
+        /// naming the tool still running -- by `pid`, so a run that failed
+        /// here can be cleaned up after.
+        fn over_or_name(copying: &std::thread::JoinHandle<bool>, tool: Option<i32>, what: &str) {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+            while !copying.is_finished() {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "{what} (tool pid {tool:?})"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
+
+        #[test]
+        fn a_gate_nobody_opens_gives_up_and_says_so() {
+            // A case whose tool waits at a gate the case never opens -- a start
+            // that waits for its tool, an end that never kills it -- is over
+            // when the gate gives up, and says why, rather than hanging
+            // (FLAKE-COPYEND r2).
+            let tool = FakeTool::running(&format!(
+                "cat >/dev/null\necho $$ > \"${{0%/*}}/hung\"\n{}",
+                FakeTool::gate_after(3)
+            ));
+            let copying = {
+                let clipboard = tool.clipboard();
+                std::thread::spawn(move || clipboard.copy("reply"))
+            };
+            until(|| tool.hung().is_some());
+            over_or_name(&copying, tool.hung(), "the gate never gave up");
+            assert!(
+                !copying.join().expect("the copy's thread"),
+                "a tool whose gate gave up was a success"
+            );
+            assert!(tool.gave_up(), "the gate gave up without saying so");
+        }
+
+        #[test]
+        fn a_tool_at_its_gate_ends_itself_once_its_case_is_gone() {
+            // A case that fails before it opens its tool's gate drops the
+            // tool's directory on the way out; a tool still waiting there ends
+            // rather than polling for ever (FLAKE-COPYEND r2).
+            let tool = FakeTool::running(&format!(
+                "cat >/dev/null\necho $$ > \"${{0%/*}}/hung\"\n{}",
+                FakeTool::gate()
+            ));
+            let copying = {
+                let clipboard = tool.clipboard();
+                std::thread::spawn(move || clipboard.copy("reply"))
+            };
+            until(|| tool.hung().is_some());
+            let pid = tool.hung().expect("the tool started");
+            drop(tool);
+            over_or_name(
+                &copying,
+                Some(pid),
+                "the tool kept waiting at a gate whose case was gone",
+            );
+            assert!(
+                !copying.join().expect("the copy's thread"),
+                "a tool that left its gate was a success"
+            );
+            assert!(!FakeTool::alive(pid), "the tool outlived its case");
         }
 
         #[test]
@@ -1240,17 +1323,21 @@ pub(crate) mod fake {
             // (`tests/e2e/tui-command-permissions.test.ts:1842-1845`); `exec`
             // so a deadline's kill reaches the `sleep` and leaves nothing.
             let osascript = dir.path().join("osascript");
-            std::fs::write(
-                &osascript,
+            let body = format!(
                 concat!(
                     "#!/bin/sh\n",
-                    "if [ -f \"${0%/*}/fail\" ]; then exit 1; fi\n",
-                    "if [ -f \"${0%/*}/hang\" ]; then echo $$ > \"${0%/*}/hung\"; exec sleep 30; fi\n",
+                    "if [ -f \"${{0%/*}}/fail\" ]; then exit 1; fi\n",
+                    "if [ -f \"${{0%/*}}/hang\" ]; then echo $$ > \"${{0%/*}}/hung\"; exec sleep 30; fi\n",
+                    "if [ -f \"${{0%/*}}/gated\" ]; then\n",
+                    "echo $$ > \"${{0%/*}}/hung\"\n",
+                    "{gate}",
+                    "fi\n",
                     "for arg in \"$@\"; do last=$arg; done\n",
-                    "printf '%s' \"$last\" > \"${0%/*}/copied-file\"\n",
+                    "printf '%s' \"$last\" > \"${{0%/*}}/copied-file\"\n",
                 ),
-            )
-            .expect("write a fake osascript");
+                gate = Self::gate()
+            );
+            std::fs::write(&osascript, body).expect("write a fake osascript");
             std::fs::set_permissions(&osascript, std::fs::Permissions::from_mode(0o755))
                 .expect("make it executable");
             Self { dir }
@@ -1319,9 +1406,63 @@ pub(crate) mod fake {
             std::fs::write(self.path("fail"), "").expect("arm the failure");
         }
 
+        /// Lines of a tool's body that wait, polling, until [`Self::open`]
+        /// is called: what comes after them runs at a point in the case's
+        /// order of events rather than after a second count.
+        ///
+        /// A wait nobody ends is not a hang. The tool gives up after
+        /// [`Self::GATE_LOOKS`] looks, says so ([`Self::gave_up`]) and exits
+        /// 1, so a case that never opens its gate -- a start that waits for
+        /// its tool, an end that never kills it -- fails rather than waits
+        /// for ever. And it ends as soon as its directory is gone: a case
+        /// that failed, or a test binary killed, leaves no tool polling.
+        pub(crate) fn gate() -> String {
+            Self::gate_after(Self::GATE_LOOKS)
+        }
+
+        /// How many times a tool looks for its gate before it gives up. Each
+        /// look sleeps 0.01 s, so at least two minutes: past the minute a
+        /// case gives a tool to start or to answer (`START_PATIENCE`,
+        /// `crate::tui::copy`'s `LOADED`), whose watchdogs open a gate
+        /// first.
+        pub(crate) const GATE_LOOKS: u32 = 12_000;
+
+        /// [`Self::gate`], giving up after `looks` looks.
+        pub(crate) fn gate_after(looks: u32) -> String {
+            format!(
+                concat!(
+                    "n=0\n",
+                    "until [ -f \"${{0%/*}}/open\" ]; do\n",
+                    "  [ -d \"${{0%/*}}\" ] || exit 1\n",
+                    "  [ \"$n\" -lt {looks} ] || {{ : > \"${{0%/*}}/gave-up\"; exit 1; }}\n",
+                    "  n=$((n + 1))\n",
+                    "  sleep 0.01\n",
+                    "done\n",
+                ),
+                looks = looks
+            )
+        }
+
+        /// Whether a tool gave up waiting at its gate ([`Self::gate`]):
+        /// nobody opened it in [`Self::GATE_LOOKS`] looks.
+        pub(crate) fn gave_up(&self) -> bool {
+            self.path("gave-up").exists()
+        }
+
+        /// Lets every tool waiting at [`Self::gate`] go on.
+        pub(crate) fn open(&self) {
+            std::fs::write(self.path("open"), "").expect("open the gate");
+        }
+
         /// Makes every file copy from now on wait far past any deadline.
         pub(crate) fn hang(&self) {
             std::fs::write(self.path("hang"), "").expect("arm the wait");
+        }
+
+        /// Makes every file copy from now on say who it is ([`Self::hung`])
+        /// and wait at the gate ([`Self::gate`]) before it keeps its path.
+        pub(crate) fn gate_file_copies(&self) {
+            std::fs::write(self.path("gated"), "").expect("arm the gate");
         }
 
         /// The process id of the last tool that hung -- a file copy armed

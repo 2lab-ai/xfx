@@ -13203,6 +13203,131 @@ fn a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_
     }
 }
 
+#[test]
+fn a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore() {
+    // Where three things come at a session's end, and in which order (train
+    // 5's join of FLAKE-COPYEND and L-U1+U2). The loop writes the last frame
+    // and the last program status report (`tui::event_loop::run`: a report
+    // comes only from `commit_tick`, and `shut_down`'s drain only draws).
+    // The shell drops when `tui::hold` returns, and with it a copy still
+    // running: `tui::copy::Errands` gives it its grace, then stops it and
+    // joins it, the tool killed and reaped. Then `term::shutdown` writes the
+    // restore, the program status clear in it.
+    //
+    // The copy is `/copy`, whose tool has no deadline (`copy_until` passes
+    // none) and is the same fake on both platforms; held, it writes a
+    // heartbeat (`BEAT`, one `write(2)`, about every 10 ms) into the pty's
+    // slave, the stream xfx writes to. Every check reads the whole stream
+    // once the session has exited (`settled_text`), so none depends on when
+    // this thread looks.
+    //
+    // - After the last heartbeat, no frame and no report but the ones the
+    //   restore carries, at their places in it -- its clear, the only one:
+    //   xfx writes the clear nowhere else (`term.rs`'s four restore
+    //   literals), so a second clear is as wrong as any other report. Every heartbeat is written
+    //   before the tool dies, the copy's end returns only after it has
+    //   reaped the tool, and the pty keeps the writes in the order they were
+    //   made -- so anything xfx writes after the copy's end lands after every
+    //   heartbeat, and this catches it however soon or late. (A frame
+    //   written during the grace, while the tool still beats, is not caught
+    //   here.) It also needs a heartbeat after the last frame, which the end
+    //   gives the tool its grace (1 s, `copy.rs` `GRACE`) to write: in that
+    //   it is a scheduling-dependent oracle -- a tool starved for the whole
+    //   grace would fail the case falsely; starvation cannot make it pass.
+    // - No heartbeat after the restore began: the tool wrote nothing after
+    //   the restore. That does not prove the tool was dead by then -- a live
+    //   tool that did not beat before its kill shows the same -- so this
+    //   catches a restore written before the copy's end only when the tool
+    //   beats between the two, a sample at the heartbeat's rate. A restore
+    //   written ahead of the end has the grace (1 s, about a hundred
+    //   heartbeats) after it before the kill; one written within the last
+    //   heartbeat before the kill would not be caught.
+    // - One restore; nothing after it but its clear; the tool alive when the
+    //   session is asked to end (it never ends by itself) and dead once the
+    //   session has exited.
+    // Every wait is a bound (`WAIT`) on something that never comes -- the
+    // session's start, the turn's end, the tool's start, the exit -- not a
+    // clock any order is read from.
+    use support::fake_clipboard::BEAT;
+    const REPORT: &str = "\u{1b}]7501;";
+    const FRAME_OPEN: &str = "\u{1b}[?2026h";
+    let alive = |pid: i32| {
+        rustix::process::Pid::from_raw(pid)
+            .is_some_and(|pid| rustix::process::test_kill_process(pid).is_ok())
+    };
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-COPY-AT-THE-END"]),
+    )]);
+    let clipboard = support::fake_clipboard::FakeClipboard::new();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    clipboard.hold_copies_on(&pty.slave_path);
+    let mut command = tui_with(&sandbox, &gateway);
+    clipboard.first_on_path(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+
+    // A reply to copy: the turn is over once the session is titled by its
+    // first prompt (as `slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it`).
+    session.type_bytes(b"say the marker\r");
+    session.wait_for("\u{1b}]2;say the marker\u{7}");
+    session.type_bytes(b"/copy\r");
+    let asked = Instant::now();
+    let tool = loop {
+        if let Some(pid) = clipboard.holding() {
+            break pid;
+        }
+        assert!(
+            asked.elapsed() < WAIT,
+            "the copy never started its tool; terminal so far:\n{}",
+            session.text()
+        );
+        std::thread::sleep(IDLE_POLL);
+    };
+    assert!(alive(tool), "the copy's tool ended before the quit");
+    assert_eq!(
+        clipboard.copied().as_deref(),
+        Some(b"MARKER-COPY-AT-THE-END".as_slice()),
+        "the copy was not fed the reply"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert!(!alive(tool), "the copy's tool outlived the session");
+    let text = session.settled_text();
+
+    assert_eq!(text.matches(RESTORE).count(), 1, "{text:?}");
+    let restore = text.find(RESTORE).expect("the planned exit's restore");
+    assert!(
+        !text[restore..].contains(BEAT),
+        "the copy's tool wrote after the restore began: {:?}",
+        &text[restore..]
+    );
+    assert!(
+        !text[restore + RESTORE.len()..].contains(REPORT) && !text[restore..].contains(FRAME_OPEN),
+        "a frame or a report after the restore: {:?}",
+        &text[restore..]
+    );
+    // The reports the restore itself carries, at their places in it: its
+    // program status clear (`term.rs`), the only one.
+    let restore_reports: Vec<usize> = RESTORE
+        .match_indices(REPORT)
+        .map(|(at, _)| restore + at)
+        .collect();
+    let beat = text.rfind(BEAT).expect("the copy's tool never beat") + BEAT.len();
+    let after_beat = &text[beat..];
+    let reports: Vec<usize> = after_beat
+        .match_indices(REPORT)
+        .map(|(at, _)| beat + at)
+        .collect();
+    assert!(
+        !after_beat.contains(FRAME_OPEN) && reports == restore_reports,
+        "after the copy's tool last beat, a frame or a report that is not the restore's own \
+         (reports at {reports:?}, the restore's at {restore_reports:?}): {after_beat:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // input typed before the session is up
 // ---------------------------------------------------------------------------

@@ -1,0 +1,36 @@
+scripts/smoke-tui.sh cites src/tui/check.rs:1084 for what the oracle licenses (train 4: stale since 9acf15d1)
+  at the head: 4956:# licenses (`src/tui/check.rs:1084`), spelled out rather than imported for the
+  main src/tui/check.rs:1084: /// so its first rows are in the terminal's own scrollback before the vector has
+tests/tui.rs cites src/tui/shell.rs:2015 for `Reason::ExternalDamage`
+  at the head: 9002:    // `Reason::ExternalDamage` (`src/tui/shell.rs:2015`) and answers nothing,
+  main src/tui/shell.rs:2015: .saturating_add(self.streamed.estimate())
+tests/tui.rs cites src/tui/shell.rs:2703 for `resize_pending || screen != geometry`
+  at the head: 8962:    // (`src/tui/shell.rs:2703`) is `resize_pending || screen != geometry`, and
+  main src/tui/shell.rs:2703: Some(Slot::Provider(column)) => column.rows(
+tests/tui.rs cites tests/tui.rs:1191 for a case that clears the line
+  at the head: 2483:    // (`tests/tui.rs:1191,1654,1777,2103,4607,4803` all clear the line
+  main tests/tui.rs:1191: .clone();
+scripts/smoke-tui.sh cites shell.rs:2597 for one `editor.insert()` call
+  at the head: 11193:    # through one `editor.insert()` call (`shell.rs:2597`), which is one
+  main src/tui/shell.rs:2597: row.push_str(self.palette.reset());
+src/tui/event_loop.rs cites event_loop.rs:959-962 for the frame after a refused append not run (at 063fc66e, 2026-10-06: `if !commit_document(..)? { return Ok(()) }`)
+  at the head: 12680:    // it must not run at all (`event_loop.rs:959-962`). Nothing here caches a
+  main src/tui/event_loop.rs:959: // painter of this branch's own: a second one would be the copy that
+  main src/tui/event_loop.rs:960: // forgot the invalidate, or the cursor, or the budget.
+  main src/tui/event_loop.rs:961: if !commit_primary(shell, band, out, failures, now)? {
+  main src/tui/event_loop.rs:962: // The write was refused and counted, or the rows landed and
+src/tui/event_loop.rs cites shell.rs:2706 for `InsertNewline`
+  at the head: 12579:        // Two `\n` (`InsertNewline`, `shell.rs:2706`) over three lines: this
+  main src/tui/shell.rs:2706: self.geometry.panel,
+src/tui/shell.rs cites shell.rs:5816 for how the too-small assertions read it
+  at the head: 21844:        // how the existing too-small assertions read it (`shell.rs:5816`,
+  main src/tui/shell.rs:5816: if changed {
+src/tui/wrap.rs cites check.rs:1689-1694 for the check handing wrap a segmented ASCII run
+  at the head: 1663:    // `check.rs:1689-1694` already hand it a single already-segmented ASCII
+  main src/tui/check.rs:1689: let moves = declared.footprint.moves;
+  main src/tui/check.rs:1690: // `?1049h` saves the caret into the slot and `?1049l` drains it, so the slot
+  main src/tui/check.rs:1691: // follows the declared transition rather than being asserted unchanged.
+  main src/tui/check.rs:1692: let saved_cursor = match (moves, seed.caret) {
+  main src/tui/check.rs:1693: (PlaneMove::Take, Caret::Known(caret)) => Some(caret),
+  main src/tui/check.rs:1694: (PlaneMove::Take, Caret::Unknown) | (PlaneMove::Give, _) => None,
+9 references, each naming other code on main

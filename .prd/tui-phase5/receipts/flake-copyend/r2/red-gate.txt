@@ -1,0 +1,15 @@
+# RED, gate cap: the two cases at a093bb36 (the gate uncapped behind gate()/gate_after()), run alone
+test clipboard::tests::tool::a_gate_nobody_opens_gives_up_and_says_so ... FAILED
+the gate never gave up (tool pid Some(69474))
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4261 filtered out; finished in 62.97s
+== a_gate_nobody_opens_gives_up_and_says_so exit 101
+test clipboard::tests::tool::a_tool_at_its_gate_ends_itself_once_its_case_is_gone ... FAILED
+the tool kept waiting at a gate whose case was gone (tool pid Some(98776))
+    clipboard::tests::tool::a_tool_at_its_gate_ends_itself_once_its_case_is_gone
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4261 filtered out; finished in 63.66s
+== a_tool_at_its_gate_ends_itself_once_its_case_is_gone exit 101
+pid 69474: 69474     1 02:26 /bin/sh <tmp>/.tmpYjkWj0/pbcopy
+pid 98776: 98776     1 01:23 /bin/sh <tmp>/.tmpRuIUfZ/pbcopy
+69474 gone
+98776 gone
+# both leaked tools (ppid 1, their directories gone, still polling) killed by hand at 02:22:43

@@ -1,0 +1,24 @@
+# fxcap test-capture in the gate at f39790e1 (load 7 to 9): 2 of 42 failed. This branch changes nothing under scripts/ (git diff e6cde019 f39790e1 -- scripts is empty); the same suite passed 42 of 42 at d42ab154 and alone right after (r2/gate.txt).
+## the run's failures
+======================================================================
+ERROR: test_models2_and_modelsdelay (__main__.Verbs.test_models2_and_modelsdelay)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<path>", line 455, in test_models2_and_modelsdelay
+    self.assertLess(a.index('{"data":[{"id":"fake/one"}]}'), a.index('{"data":[{"id":"fake/two"}]}'))
+                    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: substring not found
+
+======================================================================
+FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run (__main__.Verbs.test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<path>", line 393, in test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run
+    self.assertIn("executable /bin/cat", r.stderr)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'executable /bin/cat' not found in 'no pid runs <path> pane 52867, pid 52867, executable /bin/sh\n'
+
+----------------------------------------------------------------------
+Ran 42 tests in 337.355s
+
+FAILED (failures=1, errors=1)

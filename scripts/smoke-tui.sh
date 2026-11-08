@@ -2594,7 +2594,7 @@ FRAME_CLOSE = "\x1b[?2026l"
 FRAME_END = FRAME_CLOSE + "\x1b[?25h"
 
 # The whole interactive mode sequence and the two restores, in order
-# (`src/tui/term.rs:56-90`). Spelled out rather than imported: a harness that
+# (`src/tui/term.rs:56-101`). Spelled out rather than imported: a harness that
 # read the constant it is checking would pass for whatever the module declared.
 # The title push (`22;2t`) is the last thing in the mode set and its pop
 # (`23;2t`) leads every restore's own modes -- the only last/first pair here.
@@ -2613,7 +2613,7 @@ FRAME_END = FRAME_CLOSE + "\x1b[?25h"
 # bytes longer than the terminal had taken.
 #
 # **And every restore opens with `?2026l`**, synchronized output off, ahead of
-# all of that (T8 round 2, `40e5ffcd`; `src/tui/term.rs:74-98`; fx's both
+# all of that (T8 round 2, `40e5ffcd`; `src/tui/term.rs:74-109`; fx's both
 # restores, `app_lifecycle.zig:41,44`): a session can end with an update open
 # -- a torn frame, a signal between a frame's two ends -- and a terminal handed
 # back holding one would keep every later byte, the user's shell included,

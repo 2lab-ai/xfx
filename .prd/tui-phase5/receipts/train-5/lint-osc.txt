@@ -1,0 +1,18 @@
+# 13 scenarios: ask autocompactfail compact compactfail hostile hup interrupt interruptnext picker retry states suspend term
+# timers: the full-access warning, the Ctrl-C exit hint
+1. as the repository runs it: 0 races
+2. every `wire` read as a `snap` (43 wire lines): 0 races
+3. control, interruptnext with full access at launch: 4 races -- refused
+    p5-lifecycle-osc-interruptnext (fx): `key Escape` is 4.3 to unbounded s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+    p5-lifecycle-osc-interruptnext (fx): `key Escape` is 4.5 to unbounded s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+3. control, interruptnext with a Ctrl-C, 2.5 s, and a snap after the first wire: 2 races -- refused
+    p5-lifecycle-osc-interruptnext (fx): `snap n00-hint` is 2.5 to 2.5 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+    p5-lifecycle-osc-interruptnext (xfx): `snap n00-hint` is 2.5 to 2.5 s after the Ctrl-C exit hint is armed, inside its window (2 to 6 s), and no `until gone` names 'press ctrl+c again to exit' before it
+arming lines in the 13 (and the files their seeds name):
+    p5-lifecycle-osc-hostile.cap:7 seeds p5-lifecycle-ask-settings.json: permission_mode 'ask'
+    p5-lifecycle-osc-hostile.cap:8: fx: env FX_PERMISSION_MODE=ask
+    p5-lifecycle-osc-hostile.cap:9: xfx: env XFX_PERMISSION_MODE=ask
+    p5-lifecycle-osc-states.cap:11 seeds p5-lifecycle-ask-settings.json: permission_mode 'ask'
+    p5-lifecycle-osc-states.cap:12: fx: env FX_PERMISSION_MODE=ask
+    p5-lifecycle-osc-states.cap:13: xfx: env XFX_PERMISSION_MODE=ask
+OK

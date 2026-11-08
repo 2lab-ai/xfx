@@ -1,0 +1,11 @@
+== merge 2fefa1fb: ours 884497c0, theirs 0b432f9a, base e6cde019; files both changed: 0
+== merge 7d91f833: ours 2fefa1fb, theirs e636db48, base e6cde019; files both changed: 8
+  docs/parity.md: ours 2 hunks, theirs 4 hunks; nearest: 0 unchanged base lines (ours 241-241, theirs 241-240)
+    touching: ours 241-241, theirs 241-240
+  scripts/smoke-tui.sh: ours 11 hunks, theirs 16 hunks; nearest: 2 unchanged base lines (ours 252-252, theirs 255-255)
+  src/tui/approval.rs: ours 1 hunks, theirs 1 hunks; nearest: 1292 unchanged base lines (ours 1635-1635, theirs 343-342)
+  src/tui/check.rs: ours 4 hunks, theirs 32 hunks; nearest: 74 unchanged base lines (ours 2789-2789, theirs 2715-2714)
+  src/tui/event_loop.rs: ours 26 hunks, theirs 21 hunks; nearest: 78 unchanged base lines (ours 13138-13138, theirs 13217-13216)
+  src/tui/mod.rs: ours 1 hunks, theirs 2 hunks; nearest: 248 unchanged base lines (ours 467-467, theirs 716-715)
+  src/tui/question.rs: ours 2 hunks, theirs 1 hunks; nearest: 1777 unchanged base lines (ours 2237-2237, theirs 460-459)
+  src/tui/shell.rs: ours 8 hunks, theirs 18 hunks; nearest: 39 unchanged base lines (ours 10829-10829, theirs 10790-10789)

@@ -1,0 +1,51 @@
+# models_cell.py over five sweeps: the three pairs that passed on L-U1+U2's own sweep and not on the train's. 'asks' = every models request the fake gateway logged, ms after the gateway started, and its answer; modelsdown 6000 (model-parked, model-reask) and 15000 (p5-input-model-fail) answer 503 for that long. Every sweep rescored with the train's ledger. The last two ran one after the other under one suite-lock hold (jobs 2, 40x120).
+## L-U1+U2's own sweep (its xfx 75f70b03, its harness): xfx sha256 b47a4e46f8c7
+model-parked/menu-loading: normalized-identical
+    fx  asks 34292 ms 200; the screen: Models 4
+    xfx asks 33561 ms 200; the screen: Models 4
+model-reask/menu-failed: normalized-identical
+    fx  asks 13724 ms 200, 21846 ms 200; the screen: Models 4
+    xfx asks 3493 ms 503, 6020 ms 200; the screen: Models 4
+p5-input-model-fail/fail-open: normalized-identical
+    fx  asks no gateway log; the screen: Models 8
+    xfx asks no gateway log; the screen: Models 8
+## main's sweep: xfx sha256 b9242e06400a
+model-parked/menu-loading: unresolved-defect
+    fx  asks 3470 ms 503, 10009 ms 200; the screen: Models 0 | Loading models…
+    xfx asks 11722 ms 200; the screen: Models 4
+model-reask/menu-failed: unresolved-defect
+    fx  asks 1079 ms 503, 9189 ms 200; the screen: Models 0 | Could not reach AI Gateway; fx retries automatically.
+    xfx asks 751 ms 503, 3272 ms 503, 8854 ms 200; the screen: Models 0 | Could not reach AI Gateway; retry /model.
+p5-input-model-fail/fail-open: unresolved-defect
+    fx  asks no gateway log; the screen: Models 0 | Could not reach AI Gateway; fx retries automatically.
+    xfx asks no gateway log; the screen: Models 0 | Could not reach AI Gateway; retry /model.
+## the head's sweep: xfx sha256 1dbb3c3e7aea
+model-parked/menu-loading: unresolved-defect
+    fx  asks 758 ms 503, 7290 ms 200; the screen: Models 0 | Loading models…
+    xfx asks 833 ms 503, 8381 ms 200; the screen: Models 0 | Loading models…
+model-reask/menu-failed: unresolved-defect
+    fx  asks 5230 ms 503, 13321 ms 200; the screen: Models 0 | Could not reach AI Gateway; fx retries automatically.
+    xfx asks 1243 ms 503, 3771 ms 503, 9337 ms 200; the screen: Models 0 | Could not reach AI Gateway; retry /model.
+p5-input-model-fail/fail-open: unresolved-defect
+    fx  asks no gateway log; the screen: Models 0 | Could not reach AI Gateway; fx retries automatically.
+    xfx asks no gateway log; the screen: Models 0 | Could not reach AI Gateway; retry /model.
+## the cell: L-U1+U2's own xfx under the train's harness, locked: xfx sha256 b47a4e46f8c7
+model-parked/menu-loading: unresolved-defect
+    fx  asks 3093 ms 503, 9627 ms 200; the screen: Models 0 | Loading models…
+    xfx asks 4987 ms 503, 10491 ms 200; the screen: Models 0 | Loading models…
+model-reask/menu-failed: unresolved-defect
+    fx  asks 3758 ms 503, 11864 ms 200; the screen: Models 0 | Could not reach AI Gateway; fx retries automatically.
+    xfx asks 2544 ms 503, 5073 ms 503, 10646 ms 200; the screen: Models 0 | Could not reach AI Gateway; retry /model.
+p5-input-model-fail/fail-open: unresolved-defect
+    fx  asks no gateway log; the screen: Models 0 | Could not reach AI Gateway; fx retries automatically.
+    xfx asks no gateway log; the screen: Models 0 | Could not reach AI Gateway; retry /model.
+## beside it: the head's xfx again, the same harness, right after: xfx sha256 1dbb3c3e7aea
+model-parked/menu-loading: unresolved-defect
+    fx  asks 3548 ms 503, 10086 ms 200; the screen: Models 0 | Loading models…
+    xfx asks 2330 ms 503, 9845 ms 200; the screen: Models 0 | Loading models…
+model-reask/menu-failed: unresolved-defect
+    fx  asks 3509 ms 503, 11607 ms 200; the screen: Models 0 | Could not reach AI Gateway; fx retries automatically.
+    xfx asks 2252 ms 503, 4788 ms 503, 10373 ms 200; the screen: Models 0 | Could not reach AI Gateway; retry /model.
+p5-input-model-fail/fail-open: unresolved-defect
+    fx  asks no gateway log; the screen: Models 0 | Could not reach AI Gateway; fx retries automatically.
+    xfx asks no gateway log; the screen: Models 0 | Could not reach AI Gateway; retry /model.

@@ -1,0 +1,64 @@
+# Round 2, first gate run: round 2's join test, and every test that uses the fake clipboard, in round 2's gate's two cargo test runs at f788dc54 (gates-r2.txt), and in the touched tests' three runs under the same lock hold.
+== 04-test
+test a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore ... ok
+test a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ... ok
+test compact_with_no_credential_is_not_started_and_asks_nobody ... ok
+test every_slash_command_is_answered_by_the_session_rather_than_by_the_model ... ok
+test slash_copy_puts_the_last_answer_on_the_clipboard_as_the_model_wrote_it ... ok
+test slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it ... ok
+test slash_trace_writes_a_private_report_about_this_shells_conversation ... ok
+test slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text ... ok
+test trace_records_a_failed_compaction_and_the_one_after_it ... ok
+== 05-test-fault
+test a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore ... ok
+test a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ... ok
+test compact_with_no_credential_is_not_started_and_asks_nobody ... ok
+test every_slash_command_is_answered_by_the_session_rather_than_by_the_model ... ok
+test faults::a_session_killed_between_a_reports_write_and_its_publication_leaves_no_report ... ok
+test slash_copy_puts_the_last_answer_on_the_clipboard_as_the_model_wrote_it ... ok
+test slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it ... ok
+test slash_trace_writes_a_private_report_about_this_shells_conversation ... ok
+test slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text ... ok
+test trace_records_a_failed_compaction_and_the_one_after_it ... ok
+== touched run 1
+test faults::a_session_killed_between_a_reports_write_and_its_publication_leaves_no_report ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 192 filtered out; finished in 2.12s
+test slash_trace_writes_a_private_report_about_this_shells_conversation ... ok
+test slash_copy_puts_the_last_answer_on_the_clipboard_as_the_model_wrote_it ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 1.91s
+test slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text ... ok
+test trace_records_a_failed_compaction_and_the_one_after_it ... ok
+test slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it ... ok
+test compact_with_no_credential_is_not_started_and_asks_nobody ... ok
+test every_slash_command_is_answered_by_the_session_rather_than_by_the_model ... ok
+test a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ... ok
+test a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 172 filtered out; finished in 1.98s
+== touched run 2
+test faults::a_session_killed_between_a_reports_write_and_its_publication_leaves_no_report ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 192 filtered out; finished in 1.90s
+test slash_trace_writes_a_private_report_about_this_shells_conversation ... ok
+test slash_copy_puts_the_last_answer_on_the_clipboard_as_the_model_wrote_it ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 1.37s
+test slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text ... ok
+test compact_with_no_credential_is_not_started_and_asks_nobody ... ok
+test trace_records_a_failed_compaction_and_the_one_after_it ... ok
+test every_slash_command_is_answered_by_the_session_rather_than_by_the_model ... ok
+test a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ... ok
+test slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it ... ok
+test a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 172 filtered out; finished in 2.28s
+== touched run 3
+test faults::a_session_killed_between_a_reports_write_and_its_publication_leaves_no_report ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 192 filtered out; finished in 1.97s
+test slash_trace_writes_a_private_report_about_this_shells_conversation ... ok
+test slash_copy_puts_the_last_answer_on_the_clipboard_as_the_model_wrote_it ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 1.43s
+test slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text ... ok
+test every_slash_command_is_answered_by_the_session_rather_than_by_the_model ... ok
+test slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it ... ok
+test compact_with_no_credential_is_not_started_and_asks_nobody ... ok
+test trace_records_a_failed_compaction_and_the_one_after_it ... ok
+test a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ... ok
+test a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 172 filtered out; finished in 2.36s

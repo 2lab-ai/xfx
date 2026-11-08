@@ -1,0 +1,45 @@
+merge 2fefa1fb: ours 884497c0, theirs 0b432f9a, base e6cde019 -- OK
+  parity row 'MCP client runtime': changed by ours; 846 tokens added, 91 deleted, all as expected
+  parity row 'colored and hyperlinked TTY output': changed by ours; 27 tokens added, 137 deleted, all as expected
+  parity order: every row in each side's order
+  ledger cause call-row-page-edge: changed by ours, kept so
+  ledger cause cancelled-marker: changed by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause submit-multi-card-whole: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger cause truecolor-grey-notation: deleted by ours, kept so
+  ledger divergence call-row-arabic-letter-mark: changed by ours, kept so
+  ledger divergence call-row-raw-argument: changed by ours, kept so
+  ledger divergence call-row-source-cut: changed by ours, kept so
+  ledger normalization capture-tmpdir: changed by ours, kept so
+  ledger normalization run-directory: changed by ours, kept so
+  ledger normalization tmux-dead-pane: changed by ours, kept so
+  ledger comments: 0 added, 4 deleted, all as expected
+merge 7d91f833: ours 2fefa1fb, theirs e636db48, base e6cde019 -- OK
+  parity row 'transport-owned retry and team routing': changed by theirs; 49 tokens added, 0 deleted, all as expected
+  parity row 'MCP client runtime': changed by ours; 846 tokens added, 91 deleted, all as expected
+  parity row 'full-screen TUI': changed by theirs; 18 tokens added, 1 deleted, all as expected
+  parity row 'colored and hyperlinked TTY output': changed by ours; 27 tokens added, 137 deleted, all as expected
+  parity row 'terminal program status (OSC 7501)': changed by theirs; 1164 tokens added, 0 deleted, all as expected
+  parity row "a question's line breaks in a program status message": changed by theirs; 106 tokens added, 0 deleted, all as expected
+  parity row 'A program status report (OSC 7501)': changed by theirs; 82 tokens added, 0 deleted, all as expected
+  parity order: every row in each side's order
+  ledger cause call-row-page-edge: changed by ours, kept so
+  ledger cause cancelled-marker: changed by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause submit-multi-card-whole: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger cause truecolor-grey-notation: deleted by ours, kept so
+  ledger divergence call-row-arabic-letter-mark: changed by ours, kept so
+  ledger divergence call-row-raw-argument: changed by ours, kept so
+  ledger divergence call-row-source-cut: changed by ours, kept so
+  ledger normalization capture-tmpdir: changed by ours, kept so
+  ledger normalization run-directory: changed by ours, kept so
+  ledger normalization tmux-dead-pane: changed by ours, kept so
+  ledger comments: 0 added, 4 deleted, all as expected

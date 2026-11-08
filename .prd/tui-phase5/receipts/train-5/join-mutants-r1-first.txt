@@ -1,0 +1,14 @@
+# The first run, before J4's frame was flushed: J4 was killed by the after-the-restore check, because its unflushed frame reached the terminal at the process's exit (join_mutants.py's docstring). Kept for that.
+# jobM start 2026-11-08T01:25:19Z load { 4.29 6.27 6.83 }
+# the test at the train head 150334d9
+unchanged: PASSED (exit 0, 25 s: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 178 filtered out; finished in 3.14s)
+J1 the restore written before the shell drops (before the copy's end): KILLED (exit 101, 5 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 1.95s | said: the restore reached the terminal while the copy's tool was alive: "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t\u{1b}]11;?\u{1b}\\\u{1b}[?996n\u{1b}[6n\u{1b}]2;xfx v0.1.0 | workspace\u{7}\u{1b}]) [1 orphaned sleep 30 appeared during it]
+J2 a session's end leaves its copies running (the errands' drop detaches them): KILLED (exit 101, 6 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 1.60s | said: the restore reached the terminal while the copy's tool was alive: "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t\u{1b}]11;?\u{1b}\\\u{1b}[?996n\u{1b}[6n\u{1b}]2;xfx v0.1.0 | workspace\u{7}\u{1b}]) [1 orphaned sleep 30 appeared during it]
+J3 a program status report after the restore: KILLED (exit 101, 7 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 2.94s | said: a report after the restore began: "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t\u{1b}]11;?\u{1b}\\\u{1b}[?996n\u{1b}[6n\u{1b}]2;xfx v0.1.0 | workspace\u{7}\u{1b}]7501;state=idle:app=xfx\u{1b}\\\)
+J4 a frame written half a second after the copy's end, before the restore: KILLED (exit 101, 7 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 3.65s | said: a frame or a report after the restore: "\u{1b}[?2026l\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}]7501;state=clear\u{1b}\\\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h\u{1b}[3;1H\u{1b}[J\u{1b}[?25h\r\n\u{1b}[?)
+# the test's text added to L-U1+U2 alone e636db48
+L-U1+U2 alone: PASSED (exit 0, 13 s: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 178 filtered out; finished in 2.94s)
+# the test's text added to FLAKE-COPYEND alone 0b432f9a
+FLAKE-COPYEND alone: PASSED (exit 0, 12 s: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 176 filtered out; finished in 2.33s)
+# jobM end 2026-11-08T01:26:37Z load { 5.88 6.33 6.80 }
+jobM exit=0

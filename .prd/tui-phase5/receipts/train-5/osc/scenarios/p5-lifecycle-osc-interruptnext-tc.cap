@@ -1,0 +1,37 @@
+# Train 5: p5-lifecycle-osc-interruptnext in a session that claims truecolor (COLORTERM=truecolor, as the
+# `-tc` twins on main): the frames osc.py reads, every grey as each product spells it
+# under truecolor. Captured from a scratch copy of the scenario directory
+# (FXCAP_SCENARIOS); not a scenario of the repository. The rest is the twin's:
+# Phase 5 L-U1+U2e: a turn held mid-stream (working), stopped with two
+# Escapes (idle), then a second prompt typed after the stop. fx's stop stays
+# requested until its worker takes the next item, so the second prompt is
+# not busy until then and its keystroke frame shows its activity: working
+# after a frame that shows Thinking, as for a prompt typed at an idle
+# session; then done, and the exit clears the record.
+env COLORTERM=truecolor
+gateway p5-lifecycle-osc-interruptnext-turns.json
+xfx: env XFX_SOUND=off
+wait 4
+type first question
+key Enter
+held
+wire n00-working
+key Escape
+wait 0.2
+key Escape
+wait 1.5
+wire n01-after-esc
+release
+wait 1
+type second question
+key Enter
+held
+wire n02-second
+release
+wait 2
+wire n03-done
+keep
+type /quit
+key Enter
+wait 2
+wire n04-exit
