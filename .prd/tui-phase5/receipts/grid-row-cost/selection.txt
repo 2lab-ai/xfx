@@ -1,0 +1,26 @@
+# GRID-ROW-COST: ARGROW-CACHE's selection, unchanged but for this line -- every
+# ctrl-o and transcript family, the tool groups, the wraps and the resize.
+# The sweep's selection, one --only glob a line, each with why (the README's Sweep).
+# The brief's: every p5-transcript-*, the cancel scenarios (train 6's: interrupt*,
+# question*, compact-cancel; p5-transcript-cancel is in the first glob), every
+# p5-ctrlo-wider-* and p5-toolgroup-*
+p5-transcript-*
+interrupt*
+question*
+compact-cancel
+p5-ctrlo-wider-*
+p5-toolgroup-*
+# This unit's third commit (1a9652cc) takes a faster route through the wraps
+# every surface uses (`wrap::painting`, `cluster_cells`, the answer's prose wrap,
+# a tool heading's scan): the scenarios named for a wrap, a resize or Ctrl-O's
+# screen, and the answer's code and tables
+prose-wrap
+table-wrap
+card-wrap
+cmd-wrap
+composer-wrap
+notice-wrap
+h1-resize
+fulltranscript*
+toolgroup*
+p5-inline-code-*

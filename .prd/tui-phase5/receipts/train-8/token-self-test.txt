@@ -1,0 +1,37 @@
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (activity-tokens-before-request) dropped: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('terminal program status (OSC 7501)') as the other side has it: found
+  self-test parity, a row one side changed ('`/model`'), two tokens swapped: found
+self-test 9a465471: 7 of 7 found
+# exit 0
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (ctrl-o-drawn-wider-named) dropped: found
+  self-test ledger, a deleted entry (ctrl-o-drawn-wider-raw) back: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`/resume`') as the other side has it: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('`/allowlist`') as the other side has it: found
+  self-test parity, a row a side changed ('full-screen TUI') as the other side has it: found
+  self-test parity, a row a side changed ('full transcript (`C-o`)') as the other side has it: found
+  self-test parity, a row a side changed ('terminal program status (OSC 7501)') as the other side has it: found
+  self-test parity, a row one side changed ('`/resume`'), two tokens swapped: found
+self-test 056b1b01: 12 of 12 found
+# exit 0
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (ctrl-o-drawn-wider-named) dropped: found
+  self-test ledger, a deleted entry (ctrl-o-drawn-wider-raw) back: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`/resume`') as the other side has it: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('`/allowlist`') as the other side has it: found
+  self-test parity, a row a side changed ('full-screen TUI') as the other side has it: found
+  self-test parity, a row a side changed ('full transcript (`C-o`)') as the other side has it: found
+  self-test parity, a row a side changed ('terminal program status (OSC 7501)') as the other side has it: found
+  self-test parity, a row one side changed ('`/resume`'), two tokens swapped: found
+self-test c4bb4c7f: 12 of 12 found
+# exit 0

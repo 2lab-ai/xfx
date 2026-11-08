@@ -1,0 +1,10 @@
+| family | head | main | unit-grid-row-cost | unit-flake-mcpmode-f |
+|---|---|---|---|---|
+| Ctrl-O (*ctrlo*, fulltranscript*) | 21 / 54 | 21 / 54 | 21 / 54 | 1 / 4 |
+| p5-transcript-* | 51 / 107 | 51 / 107 | 51 / 107 | 9 / 16 |
+| tool groups (toolgroup*, p5-toolgroup-*) | 34 / 49 | 34 / 49 | 34 / 49 | - |
+| the cancel scenarios (interrupt*, question*, compact-cancel) | 84 / 93 | 84 / 93 | 84 / 93 | 5 / 5 |
+| the wraps, the resize, p5-inline-code-* | 44 / 49 | 44 / 49 | 44 / 49 | - |
+| GRID-ROW-COST's selection (75) | 228 / 340 | 228 / 340 | 228 / 340 | 15 / 25 |
+| FLAKE-MCPMODE's 48 (scenarios.tsv) | 174 / 214 | 174 / 214 | 21 / 25 | 164 / 214 |
+| every scenario swept | 381 / 529 | 381 / 529 | 228 / 340 | 164 / 214 |

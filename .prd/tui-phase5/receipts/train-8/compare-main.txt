@@ -1,0 +1,274 @@
+pairs: reference 529, train 529, shared 529; only the reference: 0
+reference: 529 pairs, pass 381; approved-divergence 20, approved-divergence-cascade 3, identical 14, normalized-identical 367, unresolved-defect 125
+train: 529 pairs, pass 381; approved-divergence 20, approved-divergence-cascade 3, identical 14, normalized-identical 367, unresolved-defect 125
+h1-rehomefile status: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+interrupt-recovery full: 2 differing rows left, 2 new
+    left: fx '' / xfx '! network: provider: gateway · model: fake/model-a · 0ms'
+    left: fx '! network: provider: gateway · model: fake/model-a · 14ms' / xfx ''
+    NEW:  fx '' / xfx '! network: provider: gateway · model: fake/model-a · 1ms'
+    NEW:  fx '! network: provider: gateway · model: fake/model-a · 13ms' / xfx ''
+p5-ctrlo-wider-ri answer: 1 differing rows left, 0 new
+    left: fx '  ri 🇿🇺🇸 end  )' / xfx '  ri 🇿🇺🇸 end'
+p5-ctrlo-wider-ri erased: 1 differing rows left, 0 new
+    left: fx '  ri 🇿🇺🇸 end  )' / xfx '  ri 🇿🇺🇸 end'
+p5-ctrlo-wider-ri typed: 1 differing rows left, 0 new
+    left: fx '  ri 🇿🇺🇸 end  )' / xfx '  ri 🇿🇺🇸 end'
+p5-effort-fork-fork-edge status-empty: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-panels-status-badsettings open: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-usage-turns credits: 1 differing rows left, 1 new
+    left: fx '652, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '175, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '585, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '027, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-usage-turns stats: 1 differing rows left, 1 new
+    left: fx '652, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '175, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '585, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '027, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+verdicts moved: 0
+fx screens not the same in the two sweeps: 112
+    composer-wrap badge-111
+    composer-wrap badge-71
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    h1-rehomefile status
+    image-paste ctrl-v
+    image-paste end.full
+    image-paste images
+    image-paste paste
+    image-paste sent
+    interrupt mid2
+    interrupt-cmd cmd-running
+    interrupt-recovery full
+    interrupt2 cd-streaming
+    p5-ctrlo-wider-diff full
+    p5-ctrlo-wider-diff-fam full
+    p5-ctrlo-wider-fence ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo-resized
+    p5-ctrlo-wider-ri answer
+    p5-ctrlo-wider-ri erased
+    p5-ctrlo-wider-ri typed
+    p5-effort-fork-fork-edge fork-of-empty
+    p5-effort-fork-fork-edge forked-first
+    p5-effort-fork-fork-edge forked-first.full
+    p5-effort-fork-fork-edge quit
+    p5-effort-fork-fork-edge resume
+    p5-effort-fork-fork-edge status-empty
+    p5-mcp-discover-http-hostile show
+    p5-mcp-discover-http-malformed show
+    p5-mcp-discover-http-modern show
+    p5-mcp-discover-http-modern turn
+    p5-mcp-discover-http-notimpl show
+    p5-mcp-discover-http-notimpl turn
+    p5-mcp-discover-http-old2024 show
+    p5-mcp-discover-http-ssefail show
+    p5-mcp-discover-http-ssehold show
+    p5-mcp-discover-http-sseidless show
+    p5-mcp-discover-http-ssestrid show
+    p5-mcp-live full
+    p5-panels-status-badsettings open
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-toolgroup-live running-light
+    p5-toolgroup-live-tc running-dark
+    p5-toolgroup-live-tc running-light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-cancel full
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 full
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-tools end
+    p5-transcript-tools end.full
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    p5-usage-turns credits
+    p5-usage-turns stats
+xfx screens not the same in the two sweeps: 122
+    cmd-wrap cmd-a
+    cmd-wrap cmd-b
+    composer-wrap badge-111
+    composer-wrap badge-71
+    fulltranscript cmd-ask
+    fulltranscript cmd-ask-ctrl-o
+    fulltranscript edit-ask
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice end
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    h1-rehomefile status
+    image-paste ctrl-v
+    image-paste end.full
+    image-paste images
+    image-paste paste
+    image-paste sent
+    interrupt-recovery full
+    notice-wire version
+    p5-ctrlo-wider-diff full
+    p5-ctrlo-wider-diff-fam full
+    p5-ctrlo-wider-fence ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo-resized
+    p5-effort-fork-fork-edge fork-of-empty
+    p5-effort-fork-fork-edge forked-first
+    p5-effort-fork-fork-edge forked-first.full
+    p5-effort-fork-fork-edge midturn
+    p5-effort-fork-fork-edge quit
+    p5-effort-fork-fork-edge resume
+    p5-effort-fork-fork-edge status-empty
+    p5-mcp-discover-http-hostile show
+    p5-mcp-discover-http-malformed show
+    p5-mcp-discover-http-modern show
+    p5-mcp-discover-http-modern turn
+    p5-mcp-discover-http-notimpl show
+    p5-mcp-discover-http-notimpl turn
+    p5-mcp-discover-http-old2024 show
+    p5-mcp-discover-http-ssefail show
+    p5-mcp-discover-http-ssehold show
+    p5-mcp-discover-http-sseidless show
+    p5-mcp-discover-http-ssestrid show
+    p5-mcp-live full
+    p5-panels-status-badsettings open
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-cancel full
+    p5-transcript-diffask ask
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 full
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-tools end
+    p5-transcript-tools end.full
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    p5-usage-turns credits
+    p5-usage-turns stats
+    question-field answered
+    question-field end.full
+    question-field q2
+    question-field q2-cc
+    toolgroup again-ask
+    toolgroup cmd-ask
+    toolgroup edit-ask
+    toolgroup exit-ask
+    toolgroup long-ask
+    toolgroup write-ask
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 6

@@ -27,6 +27,7 @@
 // FAKEGW_MODELS2 names a file the models path serves instead while it exists (`capture.sh`'s
 // `models2` line renames a catalog into place): a model released while the binary runs, at a
 // point in the scenario rather than a moment on the gateway's clock, which load moves.
+// Both files are read whole (`settled`): one read empty or half written is read again.
 // FAKEGW_USAGE names a file read on every request (`capture.sh`'s `usage` verb swaps it): while it
 // exists, the usage reads fx v0.0.16 makes are answered from it, in the shapes of its own e2e fake
 // (vercel-labs/fx@481104fd tests/e2e/usage-fakes.ts) -- GET /v1/report (`{"results":[rows]}`),
@@ -206,13 +207,39 @@ const usagePaths = new Set([
   "/settings",
 ]);
 
+// A JSON file a run swaps while the gateway serves it (FAKEGW_USAGE, FAKEGW_MODELS2), read whole:
+// its text, or null while it is absent. A read that does not parse -- the file empty or half
+// written by a writer that truncates and then writes -- is read again every 10 ms, for up to
+// SETTLE_MS, before it is taken as it is (FLAKE-MCPMODE, registry #19). One read, no `exists()`
+// first: a file removed between the two (`usage off`) is absent, not a failed read.
+const SETTLE_MS = 2000;
+async function settled(path: string): Promise<string | null> {
+  const until = Date.now() + SETTLE_MS;
+  for (;;) {
+    let text: string;
+    try {
+      text = await Bun.file(path).text();
+    } catch (e: any) {
+      if (e?.code === "ENOENT") return null;
+      throw e;
+    }
+    try {
+      JSON.parse(text);
+      return text;
+    } catch {
+      if (Date.now() >= until) return text;
+    }
+    await Bun.sleep(10);
+  }
+}
+
 // A usage read answered from FAKEGW_USAGE, or null while that file is absent (the path is then
 // unknown here) or for a path that is not one of them.
 async function usage(url: URL): Promise<Response | null> {
   if (!process.env.FAKEGW_USAGE || !usagePaths.has(url.pathname)) return null;
-  const file = Bun.file(process.env.FAKEGW_USAGE);
-  if (!(await file.exists())) return null;
-  const route: any = JSON.parse(await file.text())[url.pathname] ?? {};
+  const text = await settled(process.env.FAKEGW_USAGE);
+  if (text === null) return null;
+  const route: any = JSON.parse(text)[url.pathname] ?? {};
   if (route.delayMs) await Bun.sleep(route.delayMs);
   let json = route.json;
   let what = "";
@@ -345,9 +372,10 @@ async function answer(req: Request, asked: number): Promise<Response> {
         if (timed) log(`GET ${url.pathname} -> 200${at(Date.now() - started)}`);
         // FAKEGW_MODELS2 (`models2`): the second catalog, once its file is in place by the time
         // the answer goes (after any `modelsdelay`).
-        if (process.env.FAKEGW_MODELS2 && (await Bun.file(process.env.FAKEGW_MODELS2).exists())) {
+        const second = process.env.FAKEGW_MODELS2 ? await settled(process.env.FAKEGW_MODELS2) : null;
+        if (second !== null) {
           log(`GET ${url.pathname} -> second catalog`);
-          return new Response(await Bun.file(process.env.FAKEGW_MODELS2).text(), { headers: { "content-type": "application/json" } });
+          return new Response(second, { headers: { "content-type": "application/json" } });
         }
         if (process.env.FAKEGW_MODELS) return new Response(await Bun.file(process.env.FAKEGW_MODELS).text(), { headers: { "content-type": "application/json" } });
         return Response.json({ data: [{ id: "fake/model-a", type: "language", tags: ["tool-use"] }] });
@@ -431,6 +459,8 @@ async function hold(after: number, gone: () => boolean) {
   }
 }
 
+// Whole lines only: a read that finds the file empty or a line half written counts fewer, never
+// more, so it holds one poll longer at most (the FLAKE-MCPMODE class needs nothing more here).
 async function released(path: string) {
   const file = Bun.file(path);
   if (!(await file.exists())) return 0;

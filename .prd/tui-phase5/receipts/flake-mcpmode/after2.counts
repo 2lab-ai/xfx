@@ -1,0 +1,26 @@
+# after, second pass: the fix 29fb72d8, the same four tests, 20 runs under the suite lock, no added load
+test_a_file_a_verb_changes_mid_run_is_replaced_whole                        passed 20/20
+test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory             passed 20/20
+test_clock                                                                  passed 20/20
+test_rehomefile                                                             passed 20/20
+# per run:
+run 1 rc=0 Ran 4 tests in 21.117s OK 
+run 2 rc=0 Ran 4 tests in 21.039s OK 
+run 3 rc=0 Ran 4 tests in 20.906s OK 
+run 4 rc=0 Ran 4 tests in 20.997s OK 
+run 5 rc=0 Ran 4 tests in 21.066s OK 
+run 6 rc=0 Ran 4 tests in 26.617s OK 
+run 7 rc=0 Ran 4 tests in 21.191s OK 
+run 8 rc=0 Ran 4 tests in 21.308s OK 
+run 9 rc=0 Ran 4 tests in 21.411s OK 
+run 10 rc=0 Ran 4 tests in 25.947s OK 
+run 11 rc=0 Ran 4 tests in 25.423s OK 
+run 12 rc=0 Ran 4 tests in 22.659s OK 
+run 13 rc=0 Ran 4 tests in 24.311s OK 
+run 14 rc=0 Ran 4 tests in 23.790s OK 
+run 15 rc=0 Ran 4 tests in 19.693s OK 
+run 16 rc=0 Ran 4 tests in 25.023s OK 
+run 17 rc=0 Ran 4 tests in 20.266s OK 
+run 18 rc=0 Ran 4 tests in 19.677s OK 
+run 19 rc=0 Ran 4 tests in 27.060s OK 
+run 20 rc=0 Ran 4 tests in 19.448s OK 

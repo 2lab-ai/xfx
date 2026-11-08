@@ -1193,6 +1193,11 @@ impl Railed {
             }));
             tabs.extend(line_tabs.into_iter().map(|(tab, cells)| (at + tab, cells)));
         }
+        // Held as long as the layout is, so held at their count: an argument
+        // of megabytes is a hundred thousand rows and more, laid line by line
+        // into vectors the growth leaves larger than what they hold.
+        rows.shrink_to_fit();
+        tabs.shrink_to_fit();
         Self {
             text,
             gutter,
@@ -3262,6 +3267,26 @@ mod tests {
 
     fn record() -> FullTranscript {
         FullTranscript::with_clock(fixed)
+    }
+
+    #[test]
+    fn an_arguments_rows_are_held_at_their_count() {
+        // GRID-ROW-COST, item 5: Ctrl-O keeps an argument's rows for as long
+        // as its layout, and an argument of megabytes is a hundred thousand
+        // rows and more -- laid line by line into a vector the growth leaves
+        // larger than its rows (28 672 for 21 001 here, `red-memory.txt`).
+        // The rows are the same rows.
+        let lines = format!("{}\n", "x\ty ".repeat(100)).repeat(3000);
+        let text: Rc<str> = Rc::from(format!("content: {lines}"));
+        let railed = Railed::new(Rc::clone(&text), text.len(), "  ", 120);
+        assert!(
+            railed.rows.len() > 6000,
+            "the repro's text is not long: {}",
+            railed.rows.len()
+        );
+        assert_eq!(railed.rows.capacity(), railed.rows.len());
+        assert!(!railed.tabs.is_empty());
+        assert_eq!(railed.tabs.capacity(), railed.tabs.len());
     }
 
     /// Upstream's own cases (`transcript_blocks.zig:3220-3247`): a body row

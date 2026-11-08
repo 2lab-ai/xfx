@@ -1,0 +1,7 @@
+# The file checks with the receipt in its final form, at 25bdf117, in a `git clone --no-local`; each exit from `$?` right after its command.
+# tree clean: yes
+cargo fmt --check: exit 0; 
+scripts/check-xfx-identity.sh: exit 0; check-xfx-identity: ok (15521 tracked file(s) scanned)
+scripts/check-no-stubs.sh: exit 0; check-no-stubs: ok
+scripts/check-no-secrets.sh: exit 0; check-no-secrets: ok (15521 tracked file(s) scanned)
+# added lines of git diff 58c92ba2..HEAD (origin/main) holding the home root, the account's name or the scratch root: 0

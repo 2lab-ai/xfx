@@ -1,0 +1,10 @@
+commit 9a465471f18324d7d3d285a786564be533883f29
+Merge: 58c92ba2 a3f90ef5
+
+Merge GRID-ROW-COST (feat/p5-grid-row-cost @ a3f90ef5) into train 8
+
+Grid rows remember what they were laid from (row_holds), preflight_kept,
+a one-generation transcript cut cache, exact-size call rows.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+

@@ -1,0 +1,47 @@
+commit 056b1b01e21eb8d51cc775574fadfa488a933414
+Merge: 866ba6c3 2971aeff
+
+Merge FLAKE-MCPMODE (fix/p5-flake-mcpmode @ 2971aeff) into train 8
+
+Harness only: atomic writers (swap(), temp + mv, put_in_home), tolerant
+readers (mcphttp mode(), fakegw settled()).
+
+Conflict: scripts/fxcap/capture.sh, after since(): LAUNCH-SETTLE's
+await_up (train 7, the launch waits for the pane's first frame or its
+death) and FLAKE-MCPMODE's put_in_home (a HOME file renamed into place)
+were both added there. Both kept, await_up first.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+
+diff --git a/scripts/fxcap/capture.sh b/scripts/fxcap/capture.sh
+remerge CONFLICT (content): Merge conflict in scripts/fxcap/capture.sh
+index 08f321ef..9186aec1 100755
+--- a/scripts/fxcap/capture.sh
++++ b/scripts/fxcap/capture.sh
+@@ -459,7 +459,6 @@ since() {
+   /usr/bin/perl -MTime::HiRes=stat,time -e 'printf "%.2f", time - (stat $ARGV[0])[9]' "$1"
+ }
+ 
+-<<<<<<< 866ba6c3 (test(tui): GRID-ROW-COST's session test starts its turn with start_turn() (train 8, a build conflict with STOP-NEXT))
+ # Waits until the binary just launched (or relaunched) is up: its first frame
+ # on the pane's screen, or, under `keep`, its pane dead. Fails the run (exit
+ # 1) if the pane is gone, if it is dead without `keep`, or if nothing is on
+@@ -493,7 +492,8 @@ await_up() {
+     sleep 0.05
+   done
+   : > "$run/launched"
+-=======
++}
++
+ # Puts <tmp> in place as <dest>, a file in HOME the binary may be reading,
+ # by a rename: the binary finds it old or new, whole, never half written
+ # (FLAKE-MCPMODE, registry #19). A <dest> that is a link or a directory is
+@@ -507,7 +507,6 @@ put_in_home() {
+     exit 2
+   fi
+   mv -f "$tmp" "$dest"
+->>>>>>> 2971aeff (docs(receipt): FLAKE-MCPMODE -- the second pass under load, and the loaded runs' overlap)
+ }
+ 
+ main() {

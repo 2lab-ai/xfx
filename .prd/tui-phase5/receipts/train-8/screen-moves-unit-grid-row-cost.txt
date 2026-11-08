@@ -1,0 +1,18 @@
+snaps whose screen differs only in clock-like or run-local text: 164; otherwise: 15
+  of them, snaps where fx's screen moved at the same rows as xfx's: 0 snaps
+  snaps where xfx's screen moved alone or at other rows than fx's: 15
+    xfx cmd-wrap cmd-a rows [37]: [('  1794152245264-33ef3f181355d584` of this saved session', '  1794162822877-4b3a8eff7960be26` of this saved session')]
+    xfx cmd-wrap cmd-b rows [23]: [('ume-id 1794152245264-33ef3f181355d584` of this saved session', 'ume-id 1794162822877-4b3a8eff7960be26` of this saved session')]
+    xfx fulltranscript cmd-ask rows [23]: [('ume-id 1794152752778-aa867e9314b63a26` of this saved session', 'ume-id 1794163669480-45f9df0f018c88d6` of this saved session')]
+    xfx fulltranscript cmd-ask-ctrl-o rows [23]: [('ume-id 1794152752778-aa867e9314b63a26` of this saved session', 'ume-id 1794163669480-45f9df0f018c88d6` of this saved session')]
+    xfx fulltranscript edit-ask rows [25]: [('ume-id 1794152752778-aa867e9314b63a26` of this saved session', 'ume-id 1794163669480-45f9df0f018c88d6` of this saved session')]
+    fx p5-ctrlo-wider-ri answer rows [5]: [('  ri 🇿🇺🇸 end  )', '  ri 🇿🇺🇸 end')]
+    fx p5-ctrlo-wider-ri erased rows [5]: [('  ri 🇿🇺🇸 end  )', '  ri 🇿🇺🇸 end')]
+    fx p5-ctrlo-wider-ri typed rows [5]: [('  ri 🇿🇺🇸 end  )', '  ri 🇿🇺🇸 end')]
+    xfx p5-transcript-diffask ask rows [24]: [('ume-id 1794153076881-e0e8f63d03f19606` of this saved session', 'ume-id 1794164110961-943f937baaea6b78` of this saved session')]
+    xfx toolgroup again-ask rows [35]: [('ume-id 1794152447281-fd01b9afbf9b7319` of this saved session', 'ume-id 1794163146386-9ca6a814bcc3567b` of this saved session')]
+    xfx toolgroup cmd-ask rows [26]: [('ume-id 1794152447281-fd01b9afbf9b7319` of this saved session', 'ume-id 1794163146386-9ca6a814bcc3567b` of this saved session')]
+    xfx toolgroup edit-ask rows [28]: [('ume-id 1794152447281-fd01b9afbf9b7319` of this saved session', 'ume-id 1794163146386-9ca6a814bcc3567b` of this saved session')]
+    xfx toolgroup exit-ask rows [30]: [('ume-id 1794152447281-fd01b9afbf9b7319` of this saved session', 'ume-id 1794163146386-9ca6a814bcc3567b` of this saved session')]
+    xfx toolgroup long-ask rows [37]: [('ume-id 1794152447281-fd01b9afbf9b7319` of this saved session', 'ume-id 1794163146386-9ca6a814bcc3567b` of this saved session')]
+    xfx toolgroup write-ask rows [27]: [('ume-id 1794152447281-fd01b9afbf9b7319` of this saved session', 'ume-id 1794163146386-9ca6a814bcc3567b` of this saved session')]

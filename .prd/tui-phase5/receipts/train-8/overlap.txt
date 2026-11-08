@@ -1,0 +1,9 @@
+== merge 9a465471: ours 58c92ba2, theirs a3f90ef5, base fdc5ac0b; files both changed: 2
+  src/tui/event_loop.rs: ours 55 hunks, theirs 1 hunks; nearest: 158 unchanged base lines (ours 5837-5837, theirs 5996-5995)
+  src/tui/toolgroup.rs: ours 12 hunks, theirs 3 hunks; nearest: 181 unchanged base lines (ours 557-556, theirs 738-740)
+== merge 056b1b01: ours 866ba6c3, theirs 2971aeff, base 690aa505; files both changed: 2
+  scripts/fxcap/capture.sh: ours 15 hunks, theirs 9 hunks; nearest: 0 unchanged base lines (ours 436-435, theirs 436-435)
+    touching: ours 436-435, theirs 436-435
+  scripts/fxcap/test_capture.py: ours 9 hunks, theirs 16 hunks; nearest: 13 unchanged base lines (ours 369-369, theirs 356-355)
+== merge c4bb4c7f: ours 387a0104, theirs 6a9a6a9d, base 2971aeff; files both changed: 1
+  scripts/fxcap/test_capture.py: ours 9 hunks, theirs 2 hunks; nearest: 252 unchanged base lines (ours 681-680, theirs 933-932)

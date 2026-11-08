@@ -1,0 +1,28 @@
+# after under load, second pass: the fix 29fb72d8, the four second-pass tests, 20 runs under the suite lock (one slot)
+# with one 'yes > /dev/null' per core (18, load.sh). Spinners 2026-11-08T16:34:49Z-16:42:16Z, loop 16:35:32Z-16:42:16Z;
+# two other suites ran at the same time in the other two lock slots (GRID-ROW-COST's gate, train 7's head sweep).
+test_a_file_a_verb_changes_mid_run_is_replaced_whole                        passed 20/20
+test_a_home_file_a_verb_replaces_is_never_a_link_or_a_directory             passed 20/20
+test_clock                                                                  passed 20/20
+test_rehomefile                                                             passed 20/20
+# per run:
+run 1 rc=0 Ran 4 tests in 19.315s OK 
+run 2 rc=0 Ran 4 tests in 19.384s OK 
+run 3 rc=0 Ran 4 tests in 20.808s OK 
+run 4 rc=0 Ran 4 tests in 20.268s OK 
+run 5 rc=0 Ran 4 tests in 24.665s OK 
+run 6 rc=0 Ran 4 tests in 19.700s OK 
+run 7 rc=0 Ran 4 tests in 19.815s OK 
+run 8 rc=0 Ran 4 tests in 19.713s OK 
+run 9 rc=0 Ran 4 tests in 19.753s OK 
+run 10 rc=0 Ran 4 tests in 20.574s OK 
+run 11 rc=0 Ran 4 tests in 19.821s OK 
+run 12 rc=0 Ran 4 tests in 20.032s OK 
+run 13 rc=0 Ran 4 tests in 20.250s OK 
+run 14 rc=0 Ran 4 tests in 19.831s OK 
+run 15 rc=0 Ran 4 tests in 20.035s OK 
+run 16 rc=0 Ran 4 tests in 19.385s OK 
+run 17 rc=0 Ran 4 tests in 19.522s OK 
+run 18 rc=0 Ran 4 tests in 19.704s OK 
+run 19 rc=0 Ran 4 tests in 20.175s OK 
+run 20 rc=0 Ran 4 tests in 19.371s OK 

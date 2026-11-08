@@ -1,0 +1,215 @@
+# run.sh on probe-main (690aa505), probe-base (fdc5ac0b), probe-head (01149542, the code of 96c3c88a), one hold of the suite lock, ROUNDS=2; output as printed.
+# probe-main: 690aa505 Merge pull request #81 from 2lab-ai/train/p5-1108b; build exit 0
+# probe-base: fdc5ac0b docs(receipt): P5 train 6 round 4 -- the file checks with the; build exit 0
+# probe-head: 01149542 test(tui): the rows-vector test cites its own numbers (GRID-R; build exit 0
+FRAME round=1 clone=probe-main load=48.43 exit=0 FRAMEPROBE case=heavy rows=1 events=40 detail=false raw_bytes=8388614 start_worst_ms=1.021 start_bytes=4379 apply_median_ms=0.047 apply_worst_ms=0.070 frame_median_ms=0.673 frame_p90_ms=0.788 frame_worst_ms=1.008 event_median_ms=0.721 event_p90_ms=0.845 event_worst_ms=1.075 bytes_median=332 bytes_worst=4426 peak_rss_mib=52
+FRAME round=1 clone=probe-base load=47.04 exit=0 FRAMEPROBE case=heavy rows=1 events=40 detail=false raw_bytes=8388614 start_worst_ms=1298.089 start_bytes=8388898 apply_median_ms=3.127 apply_worst_ms=8.308 frame_median_ms=271.372 frame_p90_ms=541.518 frame_worst_ms=1490.123 event_median_ms=274.467 event_p90_ms=545.966 event_worst_ms=1497.080 bytes_median=332 bytes_worst=8388945 peak_rss_mib=270
+FRAME round=1 clone=probe-head load=41.32 exit=0 FRAMEPROBE case=heavy rows=1 events=40 detail=false raw_bytes=8388614 start_worst_ms=689.533 start_bytes=8388898 apply_median_ms=1.176 apply_worst_ms=1.320 frame_median_ms=3.291 frame_p90_ms=3.535 frame_worst_ms=767.949 event_median_ms=4.466 event_p90_ms=4.754 event_worst_ms=769.157 bytes_median=332 bytes_worst=8388945 peak_rss_mib=259
+FRAME round=1 clone=probe-main load=38.73 exit=0 FRAMEPROBE case=heavy rows=3 events=40 detail=false raw_bytes=8388614 start_worst_ms=1.151 start_bytes=21393 apply_median_ms=0.079 apply_worst_ms=0.096 frame_median_ms=0.817 frame_p90_ms=0.845 frame_worst_ms=0.897 event_median_ms=0.900 event_p90_ms=0.932 event_worst_ms=0.968 bytes_median=332 bytes_worst=4426 peak_rss_mib=51
+FRAME round=1 clone=probe-base load=38.73 exit=0 FRAMEPROBE case=heavy rows=3 events=40 detail=false raw_bytes=8388614 start_worst_ms=1903.147 start_bytes=41943988 apply_median_ms=11.118 apply_worst_ms=12.827 frame_median_ms=973.506 frame_p90_ms=1047.701 frame_worst_ms=1452.156 event_median_ms=984.490 event_p90_ms=1059.128 event_worst_ms=1464.227 bytes_median=332 bytes_worst=8388945 peak_rss_mib=614
+FRAME round=1 clone=probe-head load=21.48 exit=0 FRAMEPROBE case=heavy rows=3 events=40 detail=false raw_bytes=8388614 start_worst_ms=1537.889 start_bytes=41943988 apply_median_ms=3.260 apply_worst_ms=3.842 frame_median_ms=8.423 frame_p90_ms=8.521 frame_worst_ms=714.856 event_median_ms=11.586 event_p90_ms=11.812 event_worst_ms=718.516 bytes_median=332 bytes_worst=8388945 peak_rss_mib=669
+FRAME round=1 clone=probe-main load=20.00 exit=0 FRAMEPROBE case=zw rows=1 events=40 detail=false raw_bytes=8388607 start_worst_ms=0.596 start_bytes=4380 apply_median_ms=0.023 apply_worst_ms=0.030 frame_median_ms=0.449 frame_p90_ms=0.487 frame_worst_ms=0.630 event_median_ms=0.472 event_p90_ms=0.512 event_worst_ms=0.653 bytes_median=332 bytes_worst=4427 peak_rss_mib=42
+FRAME round=1 clone=probe-base load=20.00 exit=0 FRAMEPROBE case=zw rows=1 events=40 detail=false raw_bytes=8388607 start_worst_ms=864.893 start_bytes=8388891 apply_median_ms=3.050 apply_worst_ms=5.497 frame_median_ms=373.395 frame_p90_ms=435.540 frame_worst_ms=888.988 event_median_ms=376.186 event_p90_ms=438.627 event_worst_ms=891.767 bytes_median=332 bytes_worst=8388938 peak_rss_mib=692
+FRAME round=1 clone=probe-head load=16.90 exit=0 FRAMEPROBE case=zw rows=1 events=40 detail=false raw_bytes=8388607 start_worst_ms=906.876 start_bytes=8388891 apply_median_ms=1.099 apply_worst_ms=1.225 frame_median_ms=3.001 frame_p90_ms=3.124 frame_worst_ms=949.399 event_median_ms=4.019 event_p90_ms=4.302 event_worst_ms=950.452 bytes_median=332 bytes_worst=8388938 peak_rss_mib=286
+FRAME round=1 clone=probe-main load=16.27 exit=0 FRAMEPROBE case=zw rows=3 events=40 detail=false raw_bytes=8388607 start_worst_ms=1.356 start_bytes=21398 apply_median_ms=0.057 apply_worst_ms=0.070 frame_median_ms=0.930 frame_p90_ms=0.947 frame_worst_ms=1.197 event_median_ms=0.987 event_p90_ms=1.004 event_worst_ms=1.248 bytes_median=332 bytes_worst=4427 peak_rss_mib=43
+FRAME round=1 clone=probe-base load=16.27 exit=0 FRAMEPROBE case=zw rows=3 events=40 detail=false raw_bytes=8388607 start_worst_ms=2336.907 start_bytes=41943953 apply_median_ms=11.638 apply_worst_ms=16.068 frame_median_ms=1239.233 frame_p90_ms=1390.277 frame_worst_ms=1737.897 event_median_ms=1250.818 event_p90_ms=1403.434 event_worst_ms=1749.608 bytes_median=332 bytes_worst=8388938 peak_rss_mib=910
+FRAME round=1 clone=probe-head load=9.84 exit=0 FRAMEPROBE case=zw rows=3 events=40 detail=false raw_bytes=8388607 start_worst_ms=2033.450 start_bytes=41943953 apply_median_ms=3.276 apply_worst_ms=4.024 frame_median_ms=8.486 frame_p90_ms=8.939 frame_worst_ms=956.635 event_median_ms=11.686 event_p90_ms=12.311 event_worst_ms=960.426 bytes_median=332 bytes_worst=8388938 peak_rss_mib=720
+FRAME round=1 clone=probe-main load=8.95 exit=0 FRAMEPROBE case=short rows=1 events=40 detail=false raw_bytes=10 start_worst_ms=0.196 start_bytes=294 apply_median_ms=0.008 apply_worst_ms=0.012 frame_median_ms=0.226 frame_p90_ms=0.263 frame_worst_ms=0.273 event_median_ms=0.234 event_p90_ms=0.275 event_worst_ms=0.283 bytes_median=332 bytes_worst=341 peak_rss_mib=10
+FRAME round=1 clone=probe-base load=8.95 exit=0 FRAMEPROBE case=short rows=1 events=40 detail=false raw_bytes=10 start_worst_ms=0.197 start_bytes=294 apply_median_ms=0.008 apply_worst_ms=0.011 frame_median_ms=0.218 frame_p90_ms=0.245 frame_worst_ms=0.258 event_median_ms=0.226 event_p90_ms=0.254 event_worst_ms=0.269 bytes_median=332 bytes_worst=341 peak_rss_mib=10
+FRAME round=1 clone=probe-head load=8.95 exit=0 FRAMEPROBE case=short rows=1 events=40 detail=false raw_bytes=10 start_worst_ms=0.194 start_bytes=294 apply_median_ms=0.005 apply_worst_ms=0.007 frame_median_ms=0.197 frame_p90_ms=0.215 frame_worst_ms=0.223 event_median_ms=0.202 event_p90_ms=0.222 event_worst_ms=0.230 bytes_median=332 bytes_worst=341 peak_rss_mib=10
+FRAME round=1 clone=probe-main load=8.95 exit=0 FRAMEPROBE case=c1 rows=1 events=40 detail=false raw_bytes=8388609 start_worst_ms=0.434 start_bytes=392 apply_median_ms=0.040 apply_worst_ms=0.077 frame_median_ms=0.407 frame_p90_ms=0.480 frame_worst_ms=0.597 event_median_ms=0.448 event_p90_ms=0.538 event_worst_ms=0.639 bytes_median=332 bytes_worst=439 peak_rss_mib=50
+FRAME round=1 clone=probe-base load=8.95 exit=0 FRAMEPROBE case=c1 rows=1 events=40 detail=false raw_bytes=8388609 start_worst_ms=3.539 start_bytes=392 apply_median_ms=0.018 apply_worst_ms=0.025 frame_median_ms=0.249 frame_p90_ms=0.270 frame_worst_ms=0.570 event_median_ms=0.267 event_p90_ms=0.291 event_worst_ms=0.586 bytes_median=332 bytes_worst=439 peak_rss_mib=116
+FRAME round=1 clone=probe-head load=8.95 exit=0 FRAMEPROBE case=c1 rows=1 events=40 detail=false raw_bytes=8388609 start_worst_ms=3.571 start_bytes=392 apply_median_ms=0.015 apply_worst_ms=0.021 frame_median_ms=0.223 frame_p90_ms=0.246 frame_worst_ms=0.611 event_median_ms=0.237 event_p90_ms=0.262 event_worst_ms=0.629 bytes_median=332 bytes_worst=439 peak_rss_mib=115
+FRAME round=1 clone=probe-main load=8.95 exit=0 FRAMEPROBE case=wider rows=1 events=40 detail=false raw_bytes=6291457 start_worst_ms=0.349 start_bytes=606 apply_median_ms=0.022 apply_worst_ms=0.027 frame_median_ms=0.347 frame_p90_ms=0.373 frame_worst_ms=0.384 event_median_ms=0.369 event_p90_ms=0.397 event_worst_ms=0.410 bytes_median=332 bytes_worst=653 peak_rss_mib=40
+FRAME round=1 clone=probe-base load=8.95 exit=0 FRAMEPROBE case=wider rows=1 events=40 detail=false raw_bytes=6291457 start_worst_ms=6.597 start_bytes=606 apply_median_ms=0.037 apply_worst_ms=0.048 frame_median_ms=0.273 frame_p90_ms=0.299 frame_worst_ms=3.015 event_median_ms=0.310 event_p90_ms=0.336 event_worst_ms=3.063 bytes_median=332 bytes_worst=653 peak_rss_mib=43
+FRAME round=1 clone=probe-head load=8.95 exit=0 FRAMEPROBE case=wider rows=1 events=40 detail=false raw_bytes=6291457 start_worst_ms=6.414 start_bytes=606 apply_median_ms=0.031 apply_worst_ms=0.041 frame_median_ms=0.230 frame_p90_ms=0.252 frame_worst_ms=2.861 event_median_ms=0.264 event_p90_ms=0.283 event_worst_ms=2.893 bytes_median=332 bytes_worst=653 peak_rss_mib=42
+MEM round=1 clone=probe-main case=wider load=8.95 exit=0 MEM stage=pattern live_mib=6.0 heap_peak_mib=0.0 peak_rss_mib=11.0
+MEM round=1 clone=probe-main case=wider load=8.95 exit=0 MEM stage=shell live_mib=6.1 heap_peak_mib=0.0 peak_rss_mib=13.7
+MEM round=1 clone=probe-main case=wider load=8.95 exit=0 MEM stage=start live_mib=6.1 heap_peak_mib=0.0 peak_rss_mib=32.1
+MEM round=1 clone=probe-main case=wider load=8.95 exit=0 MEM stage=detail live_mib=12.1 heap_peak_mib=0.0 peak_rss_mib=32.1
+MEM round=1 clone=probe-main case=wider load=8.95 exit=0 MEM stage=rebuilds live_mib=12.1 heap_peak_mib=0.0 peak_rss_mib=32.6
+MEM round=1 clone=probe-main case=wider load=8.95 exit=0 MEM stage=ctrlo_open live_mib=25.7 heap_peak_mib=0.0 peak_rss_mib=59.8
+MEM round=1 clone=probe-main case=wider load=8.95 exit=0 MEM stage=ctrlo_pageup live_mib=25.7 heap_peak_mib=0.0 peak_rss_mib=59.8
+MEM round=1 clone=probe-main case=wider load=8.95 exit=0 MEM stage=ctrlo_join live_mib=25.7 heap_peak_mib=0.0 peak_rss_mib=74.3
+MEM round=1 clone=probe-main case=wider load=8.95 exit=0 MEM stage=ctrlo_closed live_mib=25.7 heap_peak_mib=0.0 peak_rss_mib=74.3
+MEM round=1 clone=probe-main case=wider load=8.95 exit=0 MEM stage=ctrlo_theme live_mib=25.7 heap_peak_mib=0.0 peak_rss_mib=74.3
+MEM round=1 clone=probe-main case=wider load=8.95 exit=0 MEM stage=ctrlo_resize live_mib=25.9 heap_peak_mib=0.0 peak_rss_mib=83.0
+MEM round=1 clone=probe-main case=wider load=8.95 exit=0 MEM stage=ctrlo_closed_again live_mib=25.9 heap_peak_mib=0.0 peak_rss_mib=83.0
+MEM round=1 clone=probe-main case=wider load=8.95 exit=0 MEM stage=dropped live_mib=6.1 heap_peak_mib=0.0 peak_rss_mib=83.0
+MEM round=1 clone=probe-base case=wider load=8.95 exit=0 MEM stage=pattern live_mib=6.0 heap_peak_mib=0.0 peak_rss_mib=11.1
+MEM round=1 clone=probe-base case=wider load=8.95 exit=0 MEM stage=shell live_mib=6.1 heap_peak_mib=0.0 peak_rss_mib=13.5
+MEM round=1 clone=probe-base case=wider load=8.95 exit=0 MEM stage=start live_mib=18.9 heap_peak_mib=0.0 peak_rss_mib=32.8
+MEM round=1 clone=probe-base case=wider load=8.95 exit=0 MEM stage=detail live_mib=35.0 heap_peak_mib=0.0 peak_rss_mib=87.0
+MEM round=1 clone=probe-base case=wider load=8.95 exit=0 MEM stage=rebuilds live_mib=35.4 heap_peak_mib=0.0 peak_rss_mib=88.2
+MEM round=1 clone=probe-base case=wider load=8.95 exit=0 MEM stage=ctrlo_open live_mib=60.7 heap_peak_mib=0.0 peak_rss_mib=116.5
+MEM round=1 clone=probe-base case=wider load=8.95 exit=0 MEM stage=ctrlo_pageup live_mib=60.7 heap_peak_mib=0.0 peak_rss_mib=116.5
+MEM round=1 clone=probe-base case=wider load=8.95 exit=0 MEM stage=ctrlo_join live_mib=61.7 heap_peak_mib=0.0 peak_rss_mib=122.5
+MEM round=1 clone=probe-base case=wider load=8.95 exit=0 MEM stage=ctrlo_closed live_mib=61.7 heap_peak_mib=0.0 peak_rss_mib=122.5
+MEM round=1 clone=probe-base case=wider load=8.95 exit=0 MEM stage=ctrlo_theme live_mib=61.7 heap_peak_mib=0.0 peak_rss_mib=122.5
+MEM round=1 clone=probe-base case=wider load=8.95 exit=0 MEM stage=ctrlo_resize live_mib=61.7 heap_peak_mib=0.0 peak_rss_mib=138.0
+MEM round=1 clone=probe-base case=wider load=8.95 exit=0 MEM stage=ctrlo_closed_again live_mib=61.7 heap_peak_mib=0.0 peak_rss_mib=138.0
+MEM round=1 clone=probe-base case=wider load=8.95 exit=0 MEM stage=dropped live_mib=6.1 heap_peak_mib=0.0 peak_rss_mib=138.3
+MEM round=1 clone=probe-head case=wider load=8.95 exit=0 MEM stage=pattern live_mib=6.0 heap_peak_mib=0.0 peak_rss_mib=11.1
+MEM round=1 clone=probe-head case=wider load=8.95 exit=0 MEM stage=shell live_mib=6.1 heap_peak_mib=0.0 peak_rss_mib=13.5
+MEM round=1 clone=probe-head case=wider load=8.95 exit=0 MEM stage=start live_mib=18.9 heap_peak_mib=0.0 peak_rss_mib=32.8
+MEM round=1 clone=probe-head case=wider load=8.95 exit=0 MEM stage=detail live_mib=35.0 heap_peak_mib=0.0 peak_rss_mib=87.0
+MEM round=1 clone=probe-head case=wider load=8.95 exit=0 MEM stage=rebuilds live_mib=35.0 heap_peak_mib=0.0 peak_rss_mib=87.7
+MEM round=1 clone=probe-head case=wider load=8.95 exit=0 MEM stage=ctrlo_open live_mib=54.3 heap_peak_mib=0.0 peak_rss_mib=115.0
+MEM round=1 clone=probe-head case=wider load=8.95 exit=0 MEM stage=ctrlo_pageup live_mib=54.3 heap_peak_mib=0.0 peak_rss_mib=115.0
+MEM round=1 clone=probe-head case=wider load=8.95 exit=0 MEM stage=ctrlo_join live_mib=60.9 heap_peak_mib=0.0 peak_rss_mib=121.0
+MEM round=1 clone=probe-head case=wider load=8.95 exit=0 MEM stage=ctrlo_closed live_mib=60.9 heap_peak_mib=0.0 peak_rss_mib=121.0
+MEM round=1 clone=probe-head case=wider load=8.95 exit=0 MEM stage=ctrlo_theme live_mib=54.9 heap_peak_mib=0.0 peak_rss_mib=121.1
+MEM round=1 clone=probe-head case=wider load=8.95 exit=0 MEM stage=ctrlo_resize live_mib=54.9 heap_peak_mib=0.0 peak_rss_mib=137.6
+MEM round=1 clone=probe-head case=wider load=8.95 exit=0 MEM stage=ctrlo_closed_again live_mib=54.9 heap_peak_mib=0.0 peak_rss_mib=137.6
+MEM round=1 clone=probe-head case=wider load=8.95 exit=0 MEM stage=dropped live_mib=6.1 heap_peak_mib=0.0 peak_rss_mib=137.8
+MEM round=1 clone=probe-main case=heavy load=8.95 exit=0 MEM stage=pattern live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=21.1
+MEM round=1 clone=probe-main case=heavy load=8.95 exit=0 MEM stage=shell live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=23.7
+MEM round=1 clone=probe-main case=heavy load=8.95 exit=0 MEM stage=start live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=48.2
+MEM round=1 clone=probe-main case=heavy load=8.95 exit=0 MEM stage=detail live_mib=24.1 heap_peak_mib=0.0 peak_rss_mib=48.2
+MEM round=1 clone=probe-main case=heavy load=8.95 exit=0 MEM stage=rebuilds live_mib=24.1 heap_peak_mib=0.0 peak_rss_mib=48.6
+MEM round=1 clone=probe-main case=heavy load=8.95 exit=0 MEM stage=ctrlo_open live_mib=44.9 heap_peak_mib=0.0 peak_rss_mib=79.3
+MEM round=1 clone=probe-main case=heavy load=8.95 exit=0 MEM stage=ctrlo_pageup live_mib=44.9 heap_peak_mib=0.0 peak_rss_mib=79.3
+MEM round=1 clone=probe-main case=heavy load=8.95 exit=0 MEM stage=ctrlo_join live_mib=45.0 heap_peak_mib=0.0 peak_rss_mib=100.8
+MEM round=1 clone=probe-main case=heavy load=8.95 exit=0 MEM stage=ctrlo_closed live_mib=45.0 heap_peak_mib=0.0 peak_rss_mib=100.8
+MEM round=1 clone=probe-main case=heavy load=8.95 exit=0 MEM stage=ctrlo_theme live_mib=45.0 heap_peak_mib=0.0 peak_rss_mib=100.8
+MEM round=1 clone=probe-main case=heavy load=8.95 exit=0 MEM stage=ctrlo_resize live_mib=45.0 heap_peak_mib=0.0 peak_rss_mib=100.8
+MEM round=1 clone=probe-main case=heavy load=8.95 exit=0 MEM stage=ctrlo_closed_again live_mib=45.0 heap_peak_mib=0.0 peak_rss_mib=100.8
+MEM round=1 clone=probe-main case=heavy load=8.95 exit=0 MEM stage=dropped live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=100.8
+MEM round=1 clone=probe-base case=heavy load=8.95 exit=0 MEM stage=pattern live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=21.1
+MEM round=1 clone=probe-base case=heavy load=8.95 exit=0 MEM stage=shell live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=23.6
+MEM round=1 clone=probe-base case=heavy load=8.95 exit=0 MEM stage=start live_mib=88.2 heap_peak_mib=0.0 peak_rss_mib=144.4
+MEM round=1 clone=probe-base case=heavy load=8.95 exit=0 MEM stage=detail live_mib=96.2 heap_peak_mib=0.0 peak_rss_mib=144.4
+MEM round=1 clone=probe-base case=heavy load=8.95 exit=0 MEM stage=rebuilds live_mib=128.3 heap_peak_mib=0.0 peak_rss_mib=185.0
+MEM round=1 clone=probe-base case=heavy load=8.95 exit=0 MEM stage=ctrlo_open live_mib=152.3 heap_peak_mib=0.0 peak_rss_mib=185.2
+MEM round=1 clone=probe-base case=heavy load=8.95 exit=0 MEM stage=ctrlo_pageup live_mib=152.3 heap_peak_mib=0.0 peak_rss_mib=185.2
+MEM round=1 clone=probe-base case=heavy load=8.95 exit=0 MEM stage=ctrlo_join live_mib=192.4 heap_peak_mib=0.0 peak_rss_mib=193.3
+MEM round=1 clone=probe-base case=heavy load=8.95 exit=0 MEM stage=ctrlo_closed live_mib=192.4 heap_peak_mib=0.0 peak_rss_mib=193.3
+MEM round=1 clone=probe-base case=heavy load=8.95 exit=0 MEM stage=ctrlo_theme live_mib=192.4 heap_peak_mib=0.0 peak_rss_mib=193.3
+MEM round=1 clone=probe-base case=heavy load=8.95 exit=0 MEM stage=ctrlo_resize live_mib=192.4 heap_peak_mib=0.0 peak_rss_mib=193.3
+MEM round=1 clone=probe-base case=heavy load=8.95 exit=0 MEM stage=ctrlo_closed_again live_mib=192.4 heap_peak_mib=0.0 peak_rss_mib=193.3
+MEM round=1 clone=probe-base case=heavy load=8.95 exit=0 MEM stage=dropped live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=193.6
+MEM round=1 clone=probe-head case=heavy load=8.95 exit=0 MEM stage=pattern live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=21.2
+MEM round=1 clone=probe-head case=heavy load=8.95 exit=0 MEM stage=shell live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=23.5
+MEM round=1 clone=probe-head case=heavy load=8.95 exit=0 MEM stage=start live_mib=72.2 heap_peak_mib=0.0 peak_rss_mib=128.3
+MEM round=1 clone=probe-head case=heavy load=8.95 exit=0 MEM stage=detail live_mib=80.2 heap_peak_mib=0.0 peak_rss_mib=128.3
+MEM round=1 clone=probe-head case=heavy load=8.95 exit=0 MEM stage=rebuilds live_mib=80.2 heap_peak_mib=0.0 peak_rss_mib=144.8
+MEM round=1 clone=probe-head case=heavy load=8.95 exit=0 MEM stage=ctrlo_open live_mib=96.2 heap_peak_mib=0.0 peak_rss_mib=145.1
+MEM round=1 clone=probe-head case=heavy load=8.95 exit=0 MEM stage=ctrlo_pageup live_mib=96.2 heap_peak_mib=0.0 peak_rss_mib=145.1
+MEM round=1 clone=probe-head case=heavy load=8.95 exit=0 MEM stage=ctrlo_join live_mib=120.3 heap_peak_mib=0.0 peak_rss_mib=145.1
+MEM round=1 clone=probe-head case=heavy load=8.95 exit=0 MEM stage=ctrlo_closed live_mib=120.3 heap_peak_mib=0.0 peak_rss_mib=145.1
+MEM round=1 clone=probe-head case=heavy load=8.95 exit=0 MEM stage=ctrlo_theme live_mib=120.3 heap_peak_mib=0.0 peak_rss_mib=145.2
+MEM round=1 clone=probe-head case=heavy load=8.95 exit=0 MEM stage=ctrlo_resize live_mib=120.3 heap_peak_mib=0.0 peak_rss_mib=145.2
+MEM round=1 clone=probe-head case=heavy load=8.95 exit=0 MEM stage=ctrlo_closed_again live_mib=120.3 heap_peak_mib=0.0 peak_rss_mib=145.2
+MEM round=1 clone=probe-head case=heavy load=8.95 exit=0 MEM stage=dropped live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=145.4
+CTRLO round=1 clone=probe-main load=8.95 exit=0 PROBE3 case=c1 detail=true key=false bridge_ms=1.482 start_ms=0.223 detail_ms=69.559 rebuild_median_ms=0.211 rebuild_worst_ms=0.248 ctrlo_open_ms=587.759 ctrlo_key_ms=NaN ctrlo_cached_ms=0.007 ctrlo_pageup_ms=0.075 ctrlo_join_ms=585.247 ctrlo_theme_ms=580.726 ctrlo_resize_ms=591.668 peak_rss_mib=455
+CTRLO round=1 clone=probe-base load=8.47 exit=0 PROBE3 case=c1 detail=true key=false bridge_ms=63.009 start_ms=2.878 detail_ms=69.614 rebuild_median_ms=0.026 rebuild_worst_ms=0.424 ctrlo_open_ms=75.995 ctrlo_key_ms=NaN ctrlo_cached_ms=0.006 ctrlo_pageup_ms=0.012 ctrlo_join_ms=34.332 ctrlo_theme_ms=33.298 ctrlo_resize_ms=58.170 peak_rss_mib=415
+CTRLO round=1 clone=probe-head load=8.47 exit=0 PROBE3 case=c1 detail=true key=false bridge_ms=66.319 start_ms=3.039 detail_ms=69.250 rebuild_median_ms=0.025 rebuild_worst_ms=0.407 ctrlo_open_ms=71.801 ctrlo_key_ms=NaN ctrlo_cached_ms=0.008 ctrlo_pageup_ms=0.015 ctrlo_join_ms=25.901 ctrlo_theme_ms=24.150 ctrlo_resize_ms=56.076 peak_rss_mib=383
+CTRLO round=1 clone=probe-main load=8.47 exit=0 PROBE3 case=wider detail=true key=false bridge_ms=1.114 start_ms=0.131 detail_ms=2.774 rebuild_median_ms=0.120 rebuild_worst_ms=0.134 ctrlo_open_ms=107.696 ctrlo_key_ms=NaN ctrlo_cached_ms=0.009 ctrlo_pageup_ms=0.011 ctrlo_join_ms=107.913 ctrlo_theme_ms=108.563 ctrlo_resize_ms=109.396 peak_rss_mib=84
+CTRLO round=1 clone=probe-base load=8.47 exit=0 PROBE3 case=wider detail=true key=false bridge_ms=3.186 start_ms=6.117 detail_ms=34.896 rebuild_median_ms=0.052 rebuild_worst_ms=2.692 ctrlo_open_ms=27.207 ctrlo_key_ms=NaN ctrlo_cached_ms=0.006 ctrlo_pageup_ms=0.011 ctrlo_join_ms=3.074 ctrlo_theme_ms=2.665 ctrlo_resize_ms=25.144 peak_rss_mib=138
+CTRLO round=1 clone=probe-head load=8.47 exit=0 PROBE3 case=wider detail=true key=false bridge_ms=3.339 start_ms=6.133 detail_ms=38.441 rebuild_median_ms=0.045 rebuild_worst_ms=2.826 ctrlo_open_ms=27.635 ctrlo_key_ms=NaN ctrlo_cached_ms=0.007 ctrlo_pageup_ms=0.013 ctrlo_join_ms=3.140 ctrlo_theme_ms=2.715 ctrlo_resize_ms=23.277 peak_rss_mib=137
+FRAME round=2 clone=probe-main load=8.47 exit=0 FRAMEPROBE case=heavy rows=1 events=40 detail=false raw_bytes=8388614 start_worst_ms=0.540 start_bytes=4379 apply_median_ms=0.030 apply_worst_ms=0.037 frame_median_ms=0.412 frame_p90_ms=0.437 frame_worst_ms=0.683 event_median_ms=0.441 event_p90_ms=0.471 event_worst_ms=0.715 bytes_median=332 bytes_worst=4426 peak_rss_mib=51
+FRAME round=2 clone=probe-base load=8.47 exit=0 FRAMEPROBE case=heavy rows=1 events=40 detail=false raw_bytes=8388614 start_worst_ms=666.573 start_bytes=8388898 apply_median_ms=2.791 apply_worst_ms=3.345 frame_median_ms=263.346 frame_p90_ms=270.134 frame_worst_ms=717.832 event_median_ms=266.207 event_p90_ms=272.855 event_worst_ms=720.377 bytes_median=332 bytes_worst=8388945 peak_rss_mib=268
+FRAME round=2 clone=probe-head load=7.47 exit=0 FRAMEPROBE case=heavy rows=1 events=40 detail=false raw_bytes=8388614 start_worst_ms=643.204 start_bytes=8388898 apply_median_ms=1.079 apply_worst_ms=1.161 frame_median_ms=2.901 frame_p90_ms=2.982 frame_worst_ms=706.952 event_median_ms=3.941 event_p90_ms=4.067 event_worst_ms=707.941 bytes_median=332 bytes_worst=8388945 peak_rss_mib=259
+FRAME round=2 clone=probe-main load=7.47 exit=0 FRAMEPROBE case=heavy rows=3 events=40 detail=false raw_bytes=8388614 start_worst_ms=1.133 start_bytes=21393 apply_median_ms=0.075 apply_worst_ms=0.083 frame_median_ms=0.755 frame_p90_ms=0.780 frame_worst_ms=0.922 event_median_ms=0.830 event_p90_ms=0.855 event_worst_ms=0.998 bytes_median=332 bytes_worst=4426 peak_rss_mib=51
+FRAME round=2 clone=probe-base load=7.47 exit=0 FRAMEPROBE case=heavy rows=3 events=40 detail=false raw_bytes=8388614 start_worst_ms=1765.233 start_bytes=41943988 apply_median_ms=10.688 apply_worst_ms=13.894 frame_median_ms=930.319 frame_p90_ms=1016.691 frame_worst_ms=1320.260 event_median_ms=940.539 event_p90_ms=1029.555 event_worst_ms=1330.967 bytes_median=332 bytes_worst=8388945 peak_rss_mib=614
+FRAME round=2 clone=probe-head load=5.56 exit=0 FRAMEPROBE case=heavy rows=3 events=40 detail=false raw_bytes=8388614 start_worst_ms=1583.274 start_bytes=41943988 apply_median_ms=3.292 apply_worst_ms=4.104 frame_median_ms=8.567 frame_p90_ms=8.727 frame_worst_ms=720.317 event_median_ms=11.735 event_p90_ms=12.103 event_worst_ms=723.709 bytes_median=332 bytes_worst=8388945 peak_rss_mib=669
+FRAME round=2 clone=probe-main load=5.43 exit=0 FRAMEPROBE case=zw rows=1 events=40 detail=false raw_bytes=8388607 start_worst_ms=0.946 start_bytes=4380 apply_median_ms=0.025 apply_worst_ms=0.159 frame_median_ms=0.465 frame_p90_ms=0.767 frame_worst_ms=0.857 event_median_ms=0.491 event_p90_ms=0.797 event_worst_ms=0.985 bytes_median=332 bytes_worst=4427 peak_rss_mib=44
+FRAME round=2 clone=probe-base load=5.43 exit=0 FRAMEPROBE case=zw rows=1 events=40 detail=false raw_bytes=8388607 start_worst_ms=911.686 start_bytes=8388891 apply_median_ms=2.978 apply_worst_ms=3.540 frame_median_ms=336.211 frame_p90_ms=368.737 frame_worst_ms=1115.778 event_median_ms=339.165 event_p90_ms=371.970 event_worst_ms=1118.743 bytes_median=332 bytes_worst=8388938 peak_rss_mib=690
+FRAME round=2 clone=probe-head load=4.76 exit=0 FRAMEPROBE case=zw rows=1 events=40 detail=false raw_bytes=8388607 start_worst_ms=852.961 start_bytes=8388891 apply_median_ms=1.090 apply_worst_ms=1.180 frame_median_ms=2.914 frame_p90_ms=3.048 frame_worst_ms=878.956 event_median_ms=3.990 event_p90_ms=4.160 event_worst_ms=879.907 bytes_median=332 bytes_worst=8388938 peak_rss_mib=285
+FRAME round=2 clone=probe-main load=4.76 exit=0 FRAMEPROBE case=zw rows=3 events=40 detail=false raw_bytes=8388607 start_worst_ms=1.390 start_bytes=21398 apply_median_ms=0.059 apply_worst_ms=0.066 frame_median_ms=0.925 frame_p90_ms=0.949 frame_worst_ms=1.111 event_median_ms=0.985 event_p90_ms=1.010 event_worst_ms=1.168 bytes_median=332 bytes_worst=4427 peak_rss_mib=43
+FRAME round=2 clone=probe-base load=4.76 exit=0 FRAMEPROBE case=zw rows=3 events=40 detail=false raw_bytes=8388607 start_worst_ms=2258.856 start_bytes=41943953 apply_median_ms=12.905 apply_worst_ms=31.012 frame_median_ms=1376.158 frame_p90_ms=1661.728 frame_worst_ms=1813.197 event_median_ms=1387.632 event_p90_ms=1677.496 event_worst_ms=1844.209 bytes_median=332 bytes_worst=8388938 peak_rss_mib=916
+FRAME round=2 clone=probe-head load=6.96 exit=0 FRAMEPROBE case=zw rows=3 events=40 detail=false raw_bytes=8388607 start_worst_ms=2980.917 start_bytes=41943953 apply_median_ms=3.427 apply_worst_ms=4.452 frame_median_ms=9.666 frame_p90_ms=10.225 frame_worst_ms=1221.541 event_median_ms=13.141 event_p90_ms=14.062 event_worst_ms=1225.965 bytes_median=332 bytes_worst=8388938 peak_rss_mib=725
+FRAME round=2 clone=probe-main load=8.32 exit=0 FRAMEPROBE case=short rows=1 events=40 detail=false raw_bytes=10 start_worst_ms=0.431 start_bytes=294 apply_median_ms=0.007 apply_worst_ms=0.102 frame_median_ms=0.217 frame_p90_ms=0.249 frame_worst_ms=0.321 event_median_ms=0.224 event_p90_ms=0.258 event_worst_ms=0.423 bytes_median=332 bytes_worst=341 peak_rss_mib=10
+FRAME round=2 clone=probe-base load=8.32 exit=0 FRAMEPROBE case=short rows=1 events=40 detail=false raw_bytes=10 start_worst_ms=0.201 start_bytes=294 apply_median_ms=0.007 apply_worst_ms=0.015 frame_median_ms=0.226 frame_p90_ms=0.256 frame_worst_ms=0.276 event_median_ms=0.233 event_p90_ms=0.265 event_worst_ms=0.291 bytes_median=332 bytes_worst=341 peak_rss_mib=10
+FRAME round=2 clone=probe-head load=8.32 exit=0 FRAMEPROBE case=short rows=1 events=40 detail=false raw_bytes=10 start_worst_ms=0.197 start_bytes=294 apply_median_ms=0.005 apply_worst_ms=0.010 frame_median_ms=0.198 frame_p90_ms=0.216 frame_worst_ms=0.222 event_median_ms=0.202 event_p90_ms=0.221 event_worst_ms=0.229 bytes_median=332 bytes_worst=341 peak_rss_mib=10
+FRAME round=2 clone=probe-main load=8.32 exit=0 FRAMEPROBE case=c1 rows=1 events=40 detail=false raw_bytes=8388609 start_worst_ms=0.444 start_bytes=392 apply_median_ms=0.039 apply_worst_ms=0.047 frame_median_ms=0.413 frame_p90_ms=0.435 frame_worst_ms=0.470 event_median_ms=0.452 event_p90_ms=0.479 event_worst_ms=0.511 bytes_median=332 bytes_worst=439 peak_rss_mib=50
+FRAME round=2 clone=probe-base load=8.32 exit=0 FRAMEPROBE case=c1 rows=1 events=40 detail=false raw_bytes=8388609 start_worst_ms=3.833 start_bytes=392 apply_median_ms=0.018 apply_worst_ms=0.025 frame_median_ms=0.240 frame_p90_ms=0.268 frame_worst_ms=0.581 event_median_ms=0.259 event_p90_ms=0.288 event_worst_ms=0.598 bytes_median=332 bytes_worst=439 peak_rss_mib=116
+FRAME round=2 clone=probe-head load=8.32 exit=0 FRAMEPROBE case=c1 rows=1 events=40 detail=false raw_bytes=8388609 start_worst_ms=3.824 start_bytes=392 apply_median_ms=0.014 apply_worst_ms=0.021 frame_median_ms=0.216 frame_p90_ms=0.250 frame_worst_ms=0.580 event_median_ms=0.231 event_p90_ms=0.265 event_worst_ms=0.594 bytes_median=332 bytes_worst=439 peak_rss_mib=115
+FRAME round=2 clone=probe-main load=8.32 exit=0 FRAMEPROBE case=wider rows=1 events=40 detail=false raw_bytes=6291457 start_worst_ms=0.356 start_bytes=606 apply_median_ms=0.022 apply_worst_ms=0.027 frame_median_ms=0.348 frame_p90_ms=0.376 frame_worst_ms=0.389 event_median_ms=0.370 event_p90_ms=0.400 event_worst_ms=0.416 bytes_median=332 bytes_worst=653 peak_rss_mib=40
+FRAME round=2 clone=probe-base load=8.32 exit=0 FRAMEPROBE case=wider rows=1 events=40 detail=false raw_bytes=6291457 start_worst_ms=6.611 start_bytes=606 apply_median_ms=0.038 apply_worst_ms=0.059 frame_median_ms=0.271 frame_p90_ms=0.286 frame_worst_ms=3.015 event_median_ms=0.307 event_p90_ms=0.324 event_worst_ms=3.061 bytes_median=332 bytes_worst=653 peak_rss_mib=43
+FRAME round=2 clone=probe-head load=8.32 exit=0 FRAMEPROBE case=wider rows=1 events=40 detail=false raw_bytes=6291457 start_worst_ms=6.411 start_bytes=606 apply_median_ms=0.034 apply_worst_ms=0.050 frame_median_ms=0.237 frame_p90_ms=0.258 frame_worst_ms=3.086 event_median_ms=0.272 event_p90_ms=0.290 event_worst_ms=3.136 bytes_median=332 bytes_worst=653 peak_rss_mib=43
+MEM round=2 clone=probe-main case=wider load=7.90 exit=0 MEM stage=pattern live_mib=6.0 heap_peak_mib=0.0 peak_rss_mib=11.0
+MEM round=2 clone=probe-main case=wider load=7.90 exit=0 MEM stage=shell live_mib=6.1 heap_peak_mib=0.0 peak_rss_mib=13.7
+MEM round=2 clone=probe-main case=wider load=7.90 exit=0 MEM stage=start live_mib=6.1 heap_peak_mib=0.0 peak_rss_mib=32.1
+MEM round=2 clone=probe-main case=wider load=7.90 exit=0 MEM stage=detail live_mib=12.1 heap_peak_mib=0.0 peak_rss_mib=32.1
+MEM round=2 clone=probe-main case=wider load=7.90 exit=0 MEM stage=rebuilds live_mib=12.1 heap_peak_mib=0.0 peak_rss_mib=32.6
+MEM round=2 clone=probe-main case=wider load=7.90 exit=0 MEM stage=ctrlo_open live_mib=25.7 heap_peak_mib=0.0 peak_rss_mib=59.8
+MEM round=2 clone=probe-main case=wider load=7.90 exit=0 MEM stage=ctrlo_pageup live_mib=25.7 heap_peak_mib=0.0 peak_rss_mib=59.8
+MEM round=2 clone=probe-main case=wider load=7.90 exit=0 MEM stage=ctrlo_join live_mib=25.7 heap_peak_mib=0.0 peak_rss_mib=74.3
+MEM round=2 clone=probe-main case=wider load=7.90 exit=0 MEM stage=ctrlo_closed live_mib=25.7 heap_peak_mib=0.0 peak_rss_mib=74.3
+MEM round=2 clone=probe-main case=wider load=7.90 exit=0 MEM stage=ctrlo_theme live_mib=25.7 heap_peak_mib=0.0 peak_rss_mib=74.3
+MEM round=2 clone=probe-main case=wider load=7.90 exit=0 MEM stage=ctrlo_resize live_mib=25.9 heap_peak_mib=0.0 peak_rss_mib=83.1
+MEM round=2 clone=probe-main case=wider load=7.90 exit=0 MEM stage=ctrlo_closed_again live_mib=25.9 heap_peak_mib=0.0 peak_rss_mib=83.1
+MEM round=2 clone=probe-main case=wider load=7.90 exit=0 MEM stage=dropped live_mib=6.1 heap_peak_mib=0.0 peak_rss_mib=83.1
+MEM round=2 clone=probe-base case=wider load=7.90 exit=0 MEM stage=pattern live_mib=6.0 heap_peak_mib=0.0 peak_rss_mib=11.1
+MEM round=2 clone=probe-base case=wider load=7.90 exit=0 MEM stage=shell live_mib=6.1 heap_peak_mib=0.0 peak_rss_mib=13.5
+MEM round=2 clone=probe-base case=wider load=7.90 exit=0 MEM stage=start live_mib=18.9 heap_peak_mib=0.0 peak_rss_mib=32.8
+MEM round=2 clone=probe-base case=wider load=7.90 exit=0 MEM stage=detail live_mib=35.0 heap_peak_mib=0.0 peak_rss_mib=87.0
+MEM round=2 clone=probe-base case=wider load=7.90 exit=0 MEM stage=rebuilds live_mib=35.4 heap_peak_mib=0.0 peak_rss_mib=88.2
+MEM round=2 clone=probe-base case=wider load=7.90 exit=0 MEM stage=ctrlo_open live_mib=60.7 heap_peak_mib=0.0 peak_rss_mib=116.6
+MEM round=2 clone=probe-base case=wider load=7.90 exit=0 MEM stage=ctrlo_pageup live_mib=60.7 heap_peak_mib=0.0 peak_rss_mib=116.6
+MEM round=2 clone=probe-base case=wider load=7.90 exit=0 MEM stage=ctrlo_join live_mib=61.7 heap_peak_mib=0.0 peak_rss_mib=122.6
+MEM round=2 clone=probe-base case=wider load=7.90 exit=0 MEM stage=ctrlo_closed live_mib=61.7 heap_peak_mib=0.0 peak_rss_mib=122.6
+MEM round=2 clone=probe-base case=wider load=7.90 exit=0 MEM stage=ctrlo_theme live_mib=61.7 heap_peak_mib=0.0 peak_rss_mib=122.6
+MEM round=2 clone=probe-base case=wider load=7.90 exit=0 MEM stage=ctrlo_resize live_mib=61.7 heap_peak_mib=0.0 peak_rss_mib=138.1
+MEM round=2 clone=probe-base case=wider load=7.90 exit=0 MEM stage=ctrlo_closed_again live_mib=61.7 heap_peak_mib=0.0 peak_rss_mib=138.1
+MEM round=2 clone=probe-base case=wider load=7.90 exit=0 MEM stage=dropped live_mib=6.1 heap_peak_mib=0.0 peak_rss_mib=138.4
+MEM round=2 clone=probe-head case=wider load=7.90 exit=0 MEM stage=pattern live_mib=6.0 heap_peak_mib=0.0 peak_rss_mib=11.1
+MEM round=2 clone=probe-head case=wider load=7.90 exit=0 MEM stage=shell live_mib=6.1 heap_peak_mib=0.0 peak_rss_mib=13.5
+MEM round=2 clone=probe-head case=wider load=7.90 exit=0 MEM stage=start live_mib=18.9 heap_peak_mib=0.0 peak_rss_mib=32.8
+MEM round=2 clone=probe-head case=wider load=7.90 exit=0 MEM stage=detail live_mib=35.0 heap_peak_mib=0.0 peak_rss_mib=87.0
+MEM round=2 clone=probe-head case=wider load=7.90 exit=0 MEM stage=rebuilds live_mib=35.0 heap_peak_mib=0.0 peak_rss_mib=87.8
+MEM round=2 clone=probe-head case=wider load=7.90 exit=0 MEM stage=ctrlo_open live_mib=54.3 heap_peak_mib=0.0 peak_rss_mib=115.0
+MEM round=2 clone=probe-head case=wider load=7.90 exit=0 MEM stage=ctrlo_pageup live_mib=54.3 heap_peak_mib=0.0 peak_rss_mib=115.1
+MEM round=2 clone=probe-head case=wider load=7.90 exit=0 MEM stage=ctrlo_join live_mib=60.9 heap_peak_mib=0.0 peak_rss_mib=121.1
+MEM round=2 clone=probe-head case=wider load=7.90 exit=0 MEM stage=ctrlo_closed live_mib=60.9 heap_peak_mib=0.0 peak_rss_mib=121.1
+MEM round=2 clone=probe-head case=wider load=7.90 exit=0 MEM stage=ctrlo_theme live_mib=54.9 heap_peak_mib=0.0 peak_rss_mib=121.1
+MEM round=2 clone=probe-head case=wider load=7.90 exit=0 MEM stage=ctrlo_resize live_mib=54.9 heap_peak_mib=0.0 peak_rss_mib=137.6
+MEM round=2 clone=probe-head case=wider load=7.90 exit=0 MEM stage=ctrlo_closed_again live_mib=54.9 heap_peak_mib=0.0 peak_rss_mib=137.6
+MEM round=2 clone=probe-head case=wider load=7.90 exit=0 MEM stage=dropped live_mib=6.1 heap_peak_mib=0.0 peak_rss_mib=137.9
+MEM round=2 clone=probe-main case=heavy load=7.90 exit=0 MEM stage=pattern live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=21.1
+MEM round=2 clone=probe-main case=heavy load=7.90 exit=0 MEM stage=shell live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=23.7
+MEM round=2 clone=probe-main case=heavy load=7.90 exit=0 MEM stage=start live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=48.2
+MEM round=2 clone=probe-main case=heavy load=7.90 exit=0 MEM stage=detail live_mib=24.1 heap_peak_mib=0.0 peak_rss_mib=48.2
+MEM round=2 clone=probe-main case=heavy load=7.90 exit=0 MEM stage=rebuilds live_mib=24.1 heap_peak_mib=0.0 peak_rss_mib=48.7
+MEM round=2 clone=probe-main case=heavy load=7.90 exit=0 MEM stage=ctrlo_open live_mib=44.9 heap_peak_mib=0.0 peak_rss_mib=79.4
+MEM round=2 clone=probe-main case=heavy load=7.90 exit=0 MEM stage=ctrlo_pageup live_mib=44.9 heap_peak_mib=0.0 peak_rss_mib=79.4
+MEM round=2 clone=probe-main case=heavy load=7.90 exit=0 MEM stage=ctrlo_join live_mib=45.0 heap_peak_mib=0.0 peak_rss_mib=100.8
+MEM round=2 clone=probe-main case=heavy load=7.90 exit=0 MEM stage=ctrlo_closed live_mib=45.0 heap_peak_mib=0.0 peak_rss_mib=100.8
+MEM round=2 clone=probe-main case=heavy load=7.90 exit=0 MEM stage=ctrlo_theme live_mib=45.0 heap_peak_mib=0.0 peak_rss_mib=100.8
+MEM round=2 clone=probe-main case=heavy load=7.90 exit=0 MEM stage=ctrlo_resize live_mib=45.0 heap_peak_mib=0.0 peak_rss_mib=100.8
+MEM round=2 clone=probe-main case=heavy load=7.90 exit=0 MEM stage=ctrlo_closed_again live_mib=45.0 heap_peak_mib=0.0 peak_rss_mib=100.8
+MEM round=2 clone=probe-main case=heavy load=7.90 exit=0 MEM stage=dropped live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=100.8
+MEM round=2 clone=probe-base case=heavy load=7.90 exit=0 MEM stage=pattern live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=21.1
+MEM round=2 clone=probe-base case=heavy load=7.90 exit=0 MEM stage=shell live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=23.6
+MEM round=2 clone=probe-base case=heavy load=7.90 exit=0 MEM stage=start live_mib=88.2 heap_peak_mib=0.0 peak_rss_mib=144.4
+MEM round=2 clone=probe-base case=heavy load=7.90 exit=0 MEM stage=detail live_mib=96.2 heap_peak_mib=0.0 peak_rss_mib=144.4
+MEM round=2 clone=probe-base case=heavy load=7.90 exit=0 MEM stage=rebuilds live_mib=128.3 heap_peak_mib=0.0 peak_rss_mib=185.0
+MEM round=2 clone=probe-base case=heavy load=7.90 exit=0 MEM stage=ctrlo_open live_mib=152.3 heap_peak_mib=0.0 peak_rss_mib=185.2
+MEM round=2 clone=probe-base case=heavy load=7.90 exit=0 MEM stage=ctrlo_pageup live_mib=152.3 heap_peak_mib=0.0 peak_rss_mib=185.2
+MEM round=2 clone=probe-base case=heavy load=7.90 exit=0 MEM stage=ctrlo_join live_mib=192.4 heap_peak_mib=0.0 peak_rss_mib=193.3
+MEM round=2 clone=probe-base case=heavy load=7.90 exit=0 MEM stage=ctrlo_closed live_mib=192.4 heap_peak_mib=0.0 peak_rss_mib=193.3
+MEM round=2 clone=probe-base case=heavy load=7.90 exit=0 MEM stage=ctrlo_theme live_mib=192.4 heap_peak_mib=0.0 peak_rss_mib=193.3
+MEM round=2 clone=probe-base case=heavy load=7.90 exit=0 MEM stage=ctrlo_resize live_mib=192.4 heap_peak_mib=0.0 peak_rss_mib=193.3
+MEM round=2 clone=probe-base case=heavy load=7.90 exit=0 MEM stage=ctrlo_closed_again live_mib=192.4 heap_peak_mib=0.0 peak_rss_mib=193.3
+MEM round=2 clone=probe-base case=heavy load=7.90 exit=0 MEM stage=dropped live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=193.6
+MEM round=2 clone=probe-head case=heavy load=7.90 exit=0 MEM stage=pattern live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=21.2
+MEM round=2 clone=probe-head case=heavy load=7.90 exit=0 MEM stage=shell live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=23.6
+MEM round=2 clone=probe-head case=heavy load=7.90 exit=0 MEM stage=start live_mib=72.2 heap_peak_mib=0.0 peak_rss_mib=128.3
+MEM round=2 clone=probe-head case=heavy load=7.90 exit=0 MEM stage=detail live_mib=80.2 heap_peak_mib=0.0 peak_rss_mib=128.4
+MEM round=2 clone=probe-head case=heavy load=7.90 exit=0 MEM stage=rebuilds live_mib=80.2 heap_peak_mib=0.0 peak_rss_mib=144.8
+MEM round=2 clone=probe-head case=heavy load=7.90 exit=0 MEM stage=ctrlo_open live_mib=96.2 heap_peak_mib=0.0 peak_rss_mib=145.1
+MEM round=2 clone=probe-head case=heavy load=7.90 exit=0 MEM stage=ctrlo_pageup live_mib=96.2 heap_peak_mib=0.0 peak_rss_mib=145.1
+MEM round=2 clone=probe-head case=heavy load=7.90 exit=0 MEM stage=ctrlo_join live_mib=120.3 heap_peak_mib=0.0 peak_rss_mib=145.1
+MEM round=2 clone=probe-head case=heavy load=7.90 exit=0 MEM stage=ctrlo_closed live_mib=120.3 heap_peak_mib=0.0 peak_rss_mib=145.1
+MEM round=2 clone=probe-head case=heavy load=7.90 exit=0 MEM stage=ctrlo_theme live_mib=120.3 heap_peak_mib=0.0 peak_rss_mib=145.2
+MEM round=2 clone=probe-head case=heavy load=7.90 exit=0 MEM stage=ctrlo_resize live_mib=120.3 heap_peak_mib=0.0 peak_rss_mib=145.2
+MEM round=2 clone=probe-head case=heavy load=7.90 exit=0 MEM stage=ctrlo_closed_again live_mib=120.3 heap_peak_mib=0.0 peak_rss_mib=145.2
+MEM round=2 clone=probe-head case=heavy load=7.90 exit=0 MEM stage=dropped live_mib=16.1 heap_peak_mib=0.0 peak_rss_mib=145.5
+CTRLO round=2 clone=probe-main load=7.90 exit=0 PROBE3 case=c1 detail=true key=false bridge_ms=1.441 start_ms=0.227 detail_ms=68.450 rebuild_median_ms=0.219 rebuild_worst_ms=0.232 ctrlo_open_ms=595.196 ctrlo_key_ms=NaN ctrlo_cached_ms=0.007 ctrlo_pageup_ms=0.080 ctrlo_join_ms=596.569 ctrlo_theme_ms=590.233 ctrlo_resize_ms=599.869 peak_rss_mib=455
+CTRLO round=2 clone=probe-base load=7.42 exit=0 PROBE3 case=c1 detail=true key=false bridge_ms=66.283 start_ms=2.924 detail_ms=70.989 rebuild_median_ms=0.027 rebuild_worst_ms=0.388 ctrlo_open_ms=73.487 ctrlo_key_ms=NaN ctrlo_cached_ms=0.005 ctrlo_pageup_ms=0.015 ctrlo_join_ms=30.774 ctrlo_theme_ms=34.515 ctrlo_resize_ms=59.154 peak_rss_mib=415
+CTRLO round=2 clone=probe-head load=7.42 exit=0 PROBE3 case=c1 detail=true key=false bridge_ms=65.562 start_ms=2.747 detail_ms=73.220 rebuild_median_ms=0.022 rebuild_worst_ms=0.391 ctrlo_open_ms=77.688 ctrlo_key_ms=NaN ctrlo_cached_ms=0.007 ctrlo_pageup_ms=0.014 ctrlo_join_ms=27.877 ctrlo_theme_ms=28.457 ctrlo_resize_ms=58.411 peak_rss_mib=383
+CTRLO round=2 clone=probe-main load=7.42 exit=0 PROBE3 case=wider detail=true key=false bridge_ms=1.157 start_ms=0.131 detail_ms=2.806 rebuild_median_ms=0.120 rebuild_worst_ms=0.133 ctrlo_open_ms=107.758 ctrlo_key_ms=NaN ctrlo_cached_ms=0.007 ctrlo_pageup_ms=0.012 ctrlo_join_ms=107.394 ctrlo_theme_ms=108.319 ctrlo_resize_ms=109.094 peak_rss_mib=84
+CTRLO round=2 clone=probe-base load=7.42 exit=0 PROBE3 case=wider detail=true key=false bridge_ms=3.960 start_ms=6.700 detail_ms=39.006 rebuild_median_ms=0.055 rebuild_worst_ms=2.863 ctrlo_open_ms=29.044 ctrlo_key_ms=NaN ctrlo_cached_ms=0.007 ctrlo_pageup_ms=0.010 ctrlo_join_ms=3.598 ctrlo_theme_ms=2.774 ctrlo_resize_ms=24.415 peak_rss_mib=138
+CTRLO round=2 clone=probe-head load=7.42 exit=0 PROBE3 case=wider detail=true key=false bridge_ms=3.651 start_ms=6.575 detail_ms=38.458 rebuild_median_ms=0.046 rebuild_worst_ms=3.018 ctrlo_open_ms=29.277 ctrlo_key_ms=NaN ctrlo_cached_ms=0.009 ctrlo_pageup_ms=0.014 ctrlo_join_ms=3.151 ctrlo_theme_ms=2.650 ctrlo_resize_ms=24.627 peak_rss_mib=137
+wrapper exit 0

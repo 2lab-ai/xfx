@@ -160,15 +160,20 @@ pub(crate) struct Band {
     /// frames so building one allocates nothing after the first, and swapped
     /// with [`shadow`](Self::shadow) only by a write that succeeded.
     target: Grid,
-    /// One row of scratch space [`Grid::row_matches`] renders a candidate
+    /// One row of scratch space [`Grid::row_holds`] renders a candidate
     /// settled row into, reused across a whole append so only this row's own
     /// cell-vector storage is (re)allocated once, not once per row compared
-    /// -- narrower than "the check allocates nothing": [`Grid::place_row`]
-    /// still allocates a `String` per grapheme cluster it writes into
-    /// `scratch`, on every row it renders, matched or not. Disposable:
+    /// -- narrower than "the check allocates nothing": a row it places
+    /// there still allocates a `String` per grapheme cluster, on every row it
+    /// renders, matched or not (a row the grid placed itself from the same
+    /// text is answered without one, [`Grid::row_holds`]). Disposable:
     /// nothing ever reads it as a claim about the screen, only as the last
-    /// thing [`Grid::row_matches`] rendered into it.
+    /// thing [`Grid::row_holds`] rendered into it.
     scratch: Grid,
+    /// What the output check's replay of this band's appends laid for long
+    /// rows, kept for the next append ([`check::preflight_kept`]): the check's
+    /// own record, which nothing here reads.
+    replays: check::Replays,
     /// The window title this session wants, and `None` for a session that has
     /// not asked for one -- which is every session until [`Band::set_title`] is
     /// called, and therefore every test below.
@@ -391,6 +396,7 @@ impl Band {
             shadow: Grid::blank(0, 0),
             target: Grid::blank(0, 0),
             scratch: Grid::blank(0, 0),
+            replays: check::Replays::default(),
             title: None,
             shown_title: None,
             caret: None,
@@ -1625,8 +1631,9 @@ impl Band {
         // band top as the frame that landed last, and no extra blank scroll
         // ahead of it (`scroll != fresh` means `Transcript` handed back more
         // scroll than rows, which is not a screen this reasoning covers).
-        // Row-by-row it still costs a real rendered-cell comparison
-        // ([`Grid::row_matches`]) rather than trusting the frame-level facts
+        // Row-by-row it still costs a real rendered-cell comparison, or the
+        // grid's record that the row was laid from this text
+        // ([`Grid::row_holds`]), rather than trusting the frame-level facts
         // alone -- those rule out *why* a row could be stale, not whether
         // this particular one is.
         let reuse_eligible = !self.damaged
@@ -1644,7 +1651,7 @@ impl Band {
             let reused = reuse_eligible
                 && self
                     .target
-                    .row_matches(line, row, geometry, &mut self.scratch);
+                    .row_holds(line, row, geometry, &mut self.scratch);
             if !reused {
                 place(&mut self.buffer, line, row, geometry);
                 self.target.place_row(line, row, geometry);
@@ -2200,7 +2207,7 @@ impl Band {
     /// `released` is the top of what the frame is about to write -- the old top
     /// while a shrinking band's erasures are still owed -- and the erase runs
     /// from there to the screen's **last** row rather than to the hint row,
-    /// because that is what [`Grid::paint_band`] does (`grid.rs:240-243`).
+    /// because that is what [`Grid::paint_band`] does (`grid.rs:242-245`).
     /// Placement stops at the hint row, because that is where `paint_band`
     /// breaks. Nothing above `released` may be touched: that is the terminal's
     /// own document, and this phase never repaints one.
@@ -2662,7 +2669,7 @@ impl Band {
         // the rows that may be reached, and the exact number of scrolls, since
         // a row carried off the top of the screen is in native scrollback for
         // good.
-        check::preflight(
+        check::preflight_kept(
             &seed,
             &appended,
             &check::Declared::new(
@@ -2684,6 +2691,7 @@ impl Band {
                 },
                 footprint,
             ),
+            &mut self.replays,
         )
         .map_err(Emit::rejected)?;
         out.emit(&appended)?;
@@ -7609,6 +7617,45 @@ mod tests {
     }
 
     #[test]
+    fn an_append_that_leaves_a_long_row_where_it_is_reads_none_of_it_again() {
+        // GRID-ROW-COST (T-U4 round 3's residual): a tool group's block is
+        // written again on every change to the group, and a call's row in it
+        // can hold megabytes that paint one cell. An append that leaves that
+        // row where it is read all of it twice: the grid, to say the row had
+        // not changed (`Grid::row_matches`), and the output check, to replay
+        // the row the append declares (`check::preflight`) -- 262 ms an event
+        // for 8 MiB of marks, of which these two are 99 % (this unit's
+        // receipt, `profile-base.txt`).
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame clears `damaged`");
+        let long = format!("a{}tail", "\u{301}".repeat(64 * 1024));
+        let first = vec![long.clone(), "marker-B".to_string()];
+        band.append_document(&mut screen, 0, &first, &geometry)
+            .expect("the first settled block lands");
+
+        screen.written.clear();
+        // The group grew by a row: the two rows it had stay where they are.
+        let second = vec![long.clone(), "marker-B".to_string(), "marker-C".to_string()];
+        let (landed, read) = crate::tui::grid::bytes_tokenized(|| {
+            band.append_document(&mut screen, 1, &second, &geometry)
+        });
+        landed.expect("the grown block lands");
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        assert!(
+            !text.contains("tail") && text.contains("marker-C"),
+            "the repro's own append did not keep the long row and add the new one: {text:?}"
+        );
+        assert!(
+            read < long.len(),
+            "an append that left a row of {} bytes where it was read {read} bytes of rows",
+            long.len()
+        );
+    }
+
+    #[test]
     fn invalidating_between_appends_disables_reuse_and_repaints_every_settled_row() {
         // `invalidate` also blanks the shadow unconditionally (`Grid::resize`),
         // so this exercises the combined effect a Ctrl-L or a stop's resume
@@ -7754,13 +7801,13 @@ mod tests {
 
     /// Regression characterization, not TDD-first: `render_append` already
     /// rebuilds `target` from `shadow` at the top of every call
-    /// (`frame.rs:1085`), so a refused attempt's speculative `target` writes
+    /// (`frame.rs:1091`), so a refused attempt's speculative `target` writes
     /// cannot leak into a retry -- this test only makes that existing
     /// behavior observable, no production line changed to make it pass.
     ///
     /// The tamper strips the changed row's own placement, which
-    /// `check::preflight` must still catch (`frame.rs:1593-1616`, strictly
-    /// before `out.emit` at `frame.rs:1617`): the sink is never called and
+    /// `check::preflight` must still catch (`frame.rs:1599-1622`, strictly
+    /// before `out.emit` at `frame.rs:1623`): the sink is never called and
     /// `shadow` is never swapped in. Clearing the tamper through the
     /// existing seam (`Band.tamper`, `#[cfg(test)]`, a private field `mod
     /// tests` can reach directly) and retrying the identical append must
@@ -7843,7 +7890,7 @@ mod tests {
     /// bytes, which `deliver::classify` reports as `Emit::ZeroProgress`
     /// (`deliver.rs:190-196`) -- a delivery failure `out.emit` returns
     /// strictly *after* `check::preflight` already accepted the vector and
-    /// strictly *before* the `shadow`/`target` swap (`frame.rs:1617-1620`).
+    /// strictly *before* the `shadow`/`target` swap (`frame.rs:1623-1626`).
     /// Regression characterization, not TDD-first; no production line
     /// changed to make this pass.
     #[test]
@@ -7909,9 +7956,9 @@ mod tests {
     /// P3-WRAP diagnostic (not a gate): splits the `append` bucket already
     /// isolated by `event_loop::tests`'s near-cap breakdown (controller:
     /// 300x200 median 23.09ms) into `append_document`'s own three calls --
-    /// `seed` (`frame.rs:1456`), `render_append` (`frame.rs:1063-1228`:
+    /// `seed` (`frame.rs:1462`), `render_append` (`frame.rs:1069-1234`:
     /// clone shadow, place, clip, script) and `check::preflight`
-    /// (`frame.rs:1533-1585`) -- plus the sink write and the drop of what
+    /// (`frame.rs:1539-1591`) -- plus the sink write and the drop of what
     /// they built. Two runs: `whole` calls the real, unmodified
     /// `append_document`; `substeps` repeats its calls inline with its own
     /// separately measured `whole` span -- neither assumes the substeps sum
@@ -8086,7 +8133,7 @@ mod tests {
                 let sink_elapsed = t.elapsed();
 
                 // The same tail `append_document` runs after a landed emit
-                // (`frame.rs:1587-1598`), untimed here as it is there.
+                // (`frame.rs:1593-1604`), untimed here as it is there.
                 std::mem::swap(&mut band.shadow, &mut band.target);
                 band.document_bottom =
                     Some(geometry.band_top().saturating_sub(1)).filter(|row| *row > 0);

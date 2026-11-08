@@ -1,0 +1,23 @@
+# base 690aa505's test_hang_holds_until_the_mode_changes failing on its own, unprovoked:
+# run 4 of 9 of the first before-loop (the RED commit's first form, whose base tests are the base's),
+# on this Mac while other workers' gates ran; the other 8 runs passed it.
+Ran 27 tests in 47.990s
+FAILED (failures=7)
+FAIL: test_hang_holds_until_the_mode_changes (__main__.McpHttp.test_hang_holds_until_the_mode_changes)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/scripts/fxcap/test_capture.py", line 994, in test_hang_holds_until_the_mode_changes
+    self.assertRegex(s.lines(), r"rpc=ping id=1 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Regex didn't match: 'rpc=ping id=1 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200' not found in '[mcphttp] listening 53663\n[mcphttp] +99ms POST /mcp rpc=ping id=1 session=no version=- mcp-method=- mcp-name=- mode=unknown() -> 500 +925ms\n[mcphttp] +935ms POST /mcp rpc=ping id=2 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200 +935ms\n'
+
+# the 9 runs of that loop (stopped at 9 to amend the RED test's timing; the RED tests failed in all 9):
+run-1: Ran 27 tests in 43.135s FAILED (failures=6) test_hang_holds_until_the_mode_changes passed
+run-2: Ran 27 tests in 42.640s FAILED (failures=6) test_hang_holds_until_the_mode_changes passed
+run-3: Ran 27 tests in 48.394s FAILED (failures=6) test_hang_holds_until_the_mode_changes passed
+run-4: Ran 27 tests in 47.990s FAILED (failures=7) test_hang_holds_until_the_mode_changes FAILED
+run-5: Ran 27 tests in 42.789s FAILED (failures=6) test_hang_holds_until_the_mode_changes passed
+run-6: Ran 27 tests in 42.407s FAILED (failures=6) test_hang_holds_until_the_mode_changes passed
+run-7: Ran 27 tests in 42.493s FAILED (failures=6) test_hang_holds_until_the_mode_changes passed
+run-8: Ran 27 tests in 42.796s FAILED (failures=6) test_hang_holds_until_the_mode_changes passed
+run-9: Ran 27 tests in 47.384s FAILED (failures=6) test_hang_holds_until_the_mode_changes passed

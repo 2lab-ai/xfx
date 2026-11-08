@@ -1,0 +1,17 @@
+# Merge 3's sweep (sweep-f.sh): FLAKE-MCPMODE-F changes one file a sweep runs, scripts/fxcap/mcphttp.ts,
+# so every scenario of FLAKE-MCPMODE's 48 (scenarios.tsv) with a line for the mcphttp verb, swept again with the
+# head's harness at c4bb4c7f.
+h1-mcphttp
+h1-mcphttp-fail
+h1-mcphttp-methodnotfound
+p5-mcp-discover-http-hostile
+p5-mcp-discover-http-malformed
+p5-mcp-discover-http-modern
+p5-mcp-discover-http-notimpl
+p5-mcp-discover-http-old2024
+p5-mcp-discover-http-ssefail
+p5-mcp-discover-http-ssehold
+p5-mcp-discover-http-sseidless
+p5-mcp-discover-http-ssestrid
+p5-mcp-live
+p5-mcp-rpcerror

@@ -1,0 +1,24 @@
+# Join check 3: the merged scripts/fxcap/capture.sh at c4bb4c7f (merge 3 does not change it: git diff 056b1b01 c4bb4c7f -- scripts/fxcap/capture.sh is 0 lines)
+# LAUNCH-SETTLE (train 7): the launch wait, its function and its two callers
+scripts/fxcap/capture.sh:467:await_up() {
+scripts/fxcap/capture.sh:494:  : > "$run/launched"
+scripts/fxcap/capture.sh:834:  if [[ -n $nodraw ]]; then
+scripts/fxcap/capture.sh:836:    : > "$run/launched"
+scripts/fxcap/capture.sh:838:    await_up "$sock" "$run" "$keep"
+scripts/fxcap/capture.sh:1007:        if [[ -n $nodraw ]]; then
+scripts/fxcap/capture.sh:1008:          : > "$run/launched"
+scripts/fxcap/capture.sh:1010:          await_up "$sock" "$run" "$keep"
+# FLAKE-MCPMODE: put_in_home, and every control file a verb changes mid-run, renamed into place
+scripts/fxcap/capture.sh:502:put_in_home() {
+scripts/fxcap/capture.sh:509:  mv -f "$tmp" "$dest"
+scripts/fxcap/capture.sh:862:      release) { cat "$run/gw-release" 2>/dev/null || true; echo release; } > "$run/gw-release.tmp"; mv -f "$run/gw-release.tmp" "$run/gw-release" ;;
+scripts/fxcap/capture.sh:1017:        put_in_home "$run/home.tmp" "$run/home/.$which/settings.json"
+scripts/fxcap/capture.sh:1025:        put_in_home "$run/home.tmp" "$run/home/$dest"
+scripts/fxcap/capture.sh:1057:      clock) (umask 077 && printf '%s\n' "$rest" > "$run/home.tmp"); put_in_home "$run/home.tmp" "$run/home/.fxcap-usage-clock" ;;
+scripts/fxcap/capture.sh:1062:          *) cp "$scenarios/$rest" "$run/usage.tmp"; mv -f "$run/usage.tmp" "$run/usage.json" ;;
+scripts/fxcap/capture.sh:1065:      mcphttp) printf '%s\n' "$rest" > "$run/mcphttp.tmp"; mv -f "$run/mcphttp.tmp" "$run/mcphttp.mode" ;;
+scripts/fxcap/capture.sh:1067:      models2) cp "$scenarios/$rest" "$run/models2.tmp"; mv -f "$run/models2.tmp" "$run/models2.json" ;;
+scripts/fxcap/capture.sh:1090:          *) cp "$scenarios/$rest" "$run/clipimage.tmp"; mv -f "$run/clipimage.tmp" "$run/clipimage" ;;
+# the fake osascript's copy (FLAKE-MCPMODE: cp, not cat >)
+scripts/fxcap/capture.sh:767:      cp "$run/clipimage" "\$out" 2>/dev/null
+scripts/fxcap/capture.sh:1090:          *) cp "$scenarios/$rest" "$run/clipimage.tmp"; mv -f "$run/clipimage.tmp" "$run/clipimage" ;;

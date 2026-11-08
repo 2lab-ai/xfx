@@ -1,0 +1,12 @@
+# lines holding #[test] under src and tests (git grep -c '#\[test\]'), and '    def test_' under scripts/fxcap, per commit
+fdc5ac0b docs(receipt): P5 train 6 round 4 -- the file checks with th rust  5280  fxcap 153
+a3f90ef5 docs(receipt): GRID-ROW-COST review round 1 -- the Ctrl-O se rust  5293  fxcap 153
+690aa505 Merge pull request #81 from 2lab-ai/train/p5-1108b           rust  5241  fxcap 151
+2971aeff docs(receipt): FLAKE-MCPMODE -- the second pass under load,  rust  5241  fxcap 155
+6a9a6a9d docs(receipt): FLAKE-MCPMODE -- the gate, loop and mutant sc rust  5241  fxcap 159
+58c92ba2 Merge pull request #84 from 2lab-ai/train/p5-1108d           rust  5360  fxcap 165
+9a465471 Merge GRID-ROW-COST (feat/p5-grid-row-cost @ a3f90ef5) into  rust  5373  fxcap 165
+866ba6c3 test(tui): GRID-ROW-COST's session test starts its turn with rust  5373  fxcap 165
+056b1b01 Merge FLAKE-MCPMODE (fix/p5-flake-mcpmode @ 2971aeff) into t rust  5373  fxcap 169
+3bf99857 test(tui): a stop's held rows over a group's long rows are w rust  5374  fxcap 169
+c4bb4c7f Merge FLAKE-MCPMODE-F (fix/p5-flake-mcpmode-f @ 6a9a6a9d) in rust  5374  fxcap 173

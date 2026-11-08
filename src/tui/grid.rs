@@ -150,6 +150,8 @@ pub(crate) fn tokenize_row(
     geometry: &Geometry,
     mut put: impl FnMut(Placed<'_>),
 ) {
+    #[cfg(test)]
+    note_tokenized(row.len());
     let budget = usize::from(cols);
     // Clipped to the narrower of the two, because a row built for a screen
     // this row is not the width of is a row it cannot hold.
@@ -437,13 +439,45 @@ pub(crate) struct Grid {
 }
 
 /// What a row's writer said about it: what it is, and how it draws it in each
-/// mode when it can be drawn again ([`Redraw`]). One record per row rather
-/// than a vector of each, so nothing that moves a row can move one half of
-/// what is known about it.
+/// mode when it can be drawn again ([`Redraw`]) -- and what this grid knows of
+/// how its cells were made ([`Laid`]). One record per row rather than a vector
+/// of each, so nothing that moves a row can move one half of what is known
+/// about it.
 #[derive(Debug, Clone, Default)]
 struct Record {
     kind: DocumentRow,
     redraw: Option<Redraw>,
+    laid: Option<Laid>,
+}
+
+/// The text whose placement ([`Grid::place_row`]) a row's cells are, and
+/// everything else the placement read: the grid's width and the screen's
+/// ([`tokenize_row`] cuts at the narrower and places within the grid's).
+///
+/// **Kept only while no cell of the row has changed since.** Every method that
+/// changes a cell without placing a text forgets it -- an erase, a recolour, a
+/// drawing put on the row ([`Grid::retint_document`]) -- and the moves
+/// ([`Grid::scroll_up`], [`Grid::remove_rows`]) carry it with the cells. So
+/// "the row was laid from this text" is a fact about the cells, which is what
+/// lets [`Grid::row_holds`] answer for a row without reading it: comparing
+/// the text costs one pass over its bytes, where placing it again reads it
+/// cluster by cluster -- 133-171 ms for 8 MiB of marks
+/// (`.prd/tui-phase5/receipts/cancel-marker/round3/probe.txt`).
+///
+/// Shared, not copied, between the shadow and the target cloned from it.
+#[derive(Debug, Clone)]
+struct Laid {
+    text: std::sync::Arc<str>,
+    cols: u16,
+    screen: u16,
+}
+
+/// How [`Grid::row_holds`] found a row holding a text: from what it was laid
+/// from ([`Laid`]), or by placing the text again and comparing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Found {
+    Known,
+    Placed,
 }
 
 /// What a tool group's header row opens with (`super::toolgroup`'s header,
@@ -518,26 +552,36 @@ impl Grid {
         for cell in &mut self.cells[span] {
             *cell = Cell::Empty;
         }
-        self.set_kind(line, DocumentRow::Plain);
+        // Plain, with nothing to draw it again from, and laid from no text.
+        if let Some(slot) = self.slot(line) {
+            *slot = Record::default();
+        }
     }
 
     /// Records what row `line` is, as its writer says
     /// (`super::transcript::Append::kinds`), with nothing to draw it again
     /// from. A row with no such line is nothing to record.
+    #[cfg(test)]
     pub(crate) fn set_kind(&mut self, line: u16, kind: DocumentRow) {
         self.record(line, kind, None);
     }
 
     /// Records what row `line` is and, when its writer can draw it again, how
     /// it draws it in each mode (`super::transcript::Append::redraws`): the
-    /// whole of what is known about the row, replacing what was.
+    /// whole of what its writer says about the row, replacing what it said.
+    /// What the row's cells were laid from ([`Laid`]) is not the writer's to
+    /// say, and stays.
     pub(crate) fn record(&mut self, line: u16, kind: DocumentRow, redraw: Option<Redraw>) {
-        if let Some(slot) = line
-            .checked_sub(1)
-            .and_then(|index| self.records.get_mut(usize::from(index)))
-        {
-            *slot = Record { kind, redraw };
+        if let Some(slot) = self.slot(line) {
+            slot.kind = kind;
+            slot.redraw = redraw;
         }
+    }
+
+    /// Row `line`'s record, or `None` when this grid has no such row.
+    fn slot(&mut self, line: u16) -> Option<&mut Record> {
+        line.checked_sub(1)
+            .and_then(|index| self.records.get_mut(usize::from(index)))
     }
 
     /// What row `line` was recorded as, and plain for a row with no record.
@@ -561,7 +605,31 @@ impl Grid {
     /// is the point of there being one tokenizer: the same function decides
     /// what a row may carry when it is written to a terminal and what this grid
     /// believes a terminal is showing.
+    ///
+    /// And remembers the text the cells were laid from ([`Laid`]).
     pub(crate) fn place_row(&mut self, line: u16, row: &str, geometry: &Geometry) {
+        self.put_row(line, row, geometry);
+        self.remember(line, row, geometry);
+    }
+
+    /// Keeps that row `line`'s cells are what placing `row` for `geometry`'s
+    /// screen leaves ([`Laid`]): said only by a placement, or by a comparison
+    /// with one ([`Self::row_holds`]).
+    fn remember(&mut self, line: u16, row: &str, geometry: &Geometry) {
+        let (cols, screen) = (self.cols, geometry.cols);
+        if let Some(slot) = self.slot(line) {
+            slot.laid = Some(Laid {
+                text: std::sync::Arc::from(row),
+                cols,
+                screen,
+            });
+        }
+    }
+
+    /// [`Self::place_row`]'s cells, and nothing remembered about them: the
+    /// scratch row a comparison or a drawing is placed on, which nothing
+    /// asks what it was laid from.
+    fn put_row(&mut self, line: u16, row: &str, geometry: &Geometry) {
         self.erase_row(line);
         let Some(span) = self.span(line) else {
             return;
@@ -598,19 +666,25 @@ impl Grid {
     /// `scratch` is caller-owned so a loop over many settled rows reuses one
     /// row's own backing storage instead of allocating a fresh one per row --
     /// see [`super::frame::Band`]'s field of the same name. Narrower than
-    /// "allocates nothing": [`Self::place_row`] still allocates a `String`
-    /// per grapheme cluster it writes ([`Cell::Lead`]), every call, whether
-    /// the row it renders ends up matching or not -- what is reused here is
+    /// "allocates nothing": [`Self::put_row`] still allocates a `String`
+    /// per grapheme cluster it writes ([`Cell::Lead`]), every call that reaches
+    /// it, whether the row it renders ends up matching or not -- what is reused here is
     /// only the row's own cell-vector storage, not each cell's content. It is
     /// resized here whenever it is not already one row of this grid's own
-    /// width, and then filled through [`Self::place_row`]: the **one**
+    /// width, and then filled through [`Self::put_row`]: the **one**
     /// tokenizer, so this cannot agree where a real placement would
     /// disagree, or the reverse.
+    ///
+    /// **Not placed again when the row's cells were laid from `row`** at this
+    /// grid's width and the geometry's ([`Laid`]): those cells are what the
+    /// placement leaves, and comparing the text is one pass over its bytes
+    /// where placing it reads it cluster by cluster.
     ///
     /// `false` on anything this grid cannot make a real comparison from --
     /// `line` outside it, no columns, or a geometry whose columns disagree
     /// with its own -- rather than a slice equality that would hold
     /// vacuously on a row with nothing in it.
+    #[cfg(test)]
     pub(crate) fn row_matches(
         &self,
         line: u16,
@@ -618,20 +692,57 @@ impl Grid {
         geometry: &Geometry,
         scratch: &mut Grid,
     ) -> bool {
-        if self.cols == 0 || self.cols != geometry.cols {
-            return false;
+        self.matched(line, row, geometry, scratch).is_some()
+    }
+
+    /// Whether row `line` already holds what placing `row` on it would leave
+    /// (`row_matches`, the tests' question, which keeps nothing), and when
+    /// the row was found by placing it again
+    /// -- its cells are what `row` lays, and it was not known -- that is kept
+    /// ([`Laid`]), so the next asking does not read it again: a row a theme
+    /// report recoloured, drawn in the new palette by the append after it.
+    pub(crate) fn row_holds(
+        &mut self,
+        line: u16,
+        row: &str,
+        geometry: &Geometry,
+        scratch: &mut Grid,
+    ) -> bool {
+        match self.matched(line, row, geometry, scratch) {
+            Some(Found::Placed) => {
+                self.remember(line, row, geometry);
+                true
+            }
+            Some(Found::Known) => true,
+            None => false,
         }
-        let Some(span) = self.span(line) else {
-            return false;
-        };
+    }
+
+    /// How row `line` was found to hold what `row` lays, or `None` when it
+    /// does not or nothing can be said ([`Self::row_holds`]).
+    fn matched(
+        &self,
+        line: u16,
+        row: &str,
+        geometry: &Geometry,
+        scratch: &mut Grid,
+    ) -> Option<Found> {
+        if self.cols == 0 || self.cols != geometry.cols {
+            return None;
+        }
+        let span = self.span(line)?;
+        let laid = self.records[usize::from(line - 1)].laid.as_ref();
+        if laid.is_some_and(|laid| {
+            laid.cols == self.cols && laid.screen == geometry.cols && *laid.text == *row
+        }) {
+            return Some(Found::Known);
+        }
         if scratch.rows != 1 || scratch.cols != self.cols {
             scratch.resize(1, self.cols);
         }
-        scratch.place_row(1, row, geometry);
-        let Some(scratch_span) = scratch.span(1) else {
-            return false;
-        };
-        self.cells[span] == scratch.cells[scratch_span]
+        scratch.put_row(1, row, geometry);
+        let scratch_span = scratch.span(1)?;
+        (self.cells[span] == scratch.cells[scratch_span]).then_some(Found::Placed)
     }
 
     /// Repaints the document's own cells on rows `1..=last` in `palette`, and
@@ -691,29 +802,37 @@ impl Grid {
             let Some(span) = self.span(line) else {
                 continue;
             };
+            let mut here = 0usize;
             if let Some(redraw) = self.redraw(line).cloned() {
                 let cols = self.cols;
                 let scratch = scratch.get_or_insert_with(|| Grid::blank(1, cols));
-                moved += self.redraw_row(line, redraw.drawn(palette.mode), geometry, scratch);
-                continue;
+                here = self.redraw_row(line, redraw.drawn(palette.mode), geometry, scratch);
+            } else {
+                // What its writer recorded the row as ([`DocumentRow`]), not
+                // what its first cell looks like: an answer row and a summary
+                // open with the same painted blank.
+                let row = self.kind(line);
+                for cell in &mut self.cells[span] {
+                    let Cell::Lead { sgr, .. } = cell else {
+                        continue;
+                    };
+                    let Ok(colour) = sgr.color() else {
+                        continue;
+                    };
+                    let Some(wanted) = palette.document_retint_in(row, colour) else {
+                        continue;
+                    };
+                    sgr.observe(wanted);
+                    here += 1;
+                }
             }
-            // What its writer recorded the row as ([`DocumentRow`]), not what
-            // its first cell looks like: an answer row and a summary open with
-            // the same painted blank.
-            let row = self.kind(line);
-            for cell in &mut self.cells[span] {
-                let Cell::Lead { sgr, .. } = cell else {
-                    continue;
-                };
-                let Ok(colour) = sgr.color() else {
-                    continue;
-                };
-                let Some(wanted) = palette.document_retint_in(row, colour) else {
-                    continue;
-                };
-                sgr.observe(wanted);
-                moved += 1;
+            // A cell moved, so the row is no longer what its text lays.
+            if here > 0 {
+                if let Some(slot) = self.slot(line) {
+                    slot.laid = None;
+                }
             }
+            moved += here;
         }
         moved
     }
@@ -727,7 +846,7 @@ impl Grid {
     /// to draw a claim onto.
     ///
     /// `scratch` is one row of this grid's width, reused across rows: the
-    /// drawing is placed there by the one tokenizer ([`Self::place_row`]),
+    /// drawing is placed there by the one tokenizer ([`Self::put_row`]),
     /// so what a cell is given is what a fresh paint of the drawing would
     /// leave in it.
     fn redraw_row(
@@ -743,7 +862,7 @@ impl Grid {
         if scratch.cols != self.cols {
             return 0;
         }
-        scratch.place_row(1, drawing, geometry);
+        scratch.put_row(1, drawing, geometry);
         let same_text = self.cells[span.clone()]
             .iter()
             .zip(&scratch.cells[drawn.clone()])
@@ -842,6 +961,42 @@ impl Grid {
         records.resize(usize::from(last), Record::default());
         self.cells.splice(..end, cells);
         self.records.splice(..usize::from(last), records);
+    }
+
+    /// The rows whose cells are not what placing the text they were laid from
+    /// ([`Laid`]) leaves, at the widths it was laid at: none while every
+    /// change to a row's cells forgets its text. For the tests that hold a
+    /// whole session's frames to it (`super::event_loop`'s).
+    #[cfg(test)]
+    pub(crate) fn stale_laid_rows(&self, geometry: &Geometry) -> Vec<u16> {
+        (1..=self.rows)
+            .filter(|&line| {
+                let Some(laid) = self.records[usize::from(line - 1)].laid.as_ref() else {
+                    return false;
+                };
+                let mut screen = *geometry;
+                screen.cols = laid.screen;
+                let mut fresh = Grid::blank(1, laid.cols);
+                fresh.put_row(1, &laid.text, &screen);
+                laid.cols != self.cols
+                    || self
+                        .span(line)
+                        .is_some_and(|span| self.cells[span] != fresh.cells[..])
+            })
+            .collect()
+    }
+
+    /// The longest text a row of this grid was laid from and still holds, in
+    /// bytes: what says a case's rows really went through the remembered
+    /// answer ([`Grid::row_holds`]).
+    #[cfg(test)]
+    pub(crate) fn longest_laid(&self) -> usize {
+        self.records
+            .iter()
+            .filter_map(|record| record.laid.as_ref())
+            .map(|laid| laid.text.len())
+            .max()
+            .unwrap_or(0)
     }
 
     /// Whether row `line`'s first cell is `grapheme`.
@@ -1113,6 +1268,30 @@ pub(crate) fn rows_compared<T>(run: impl FnOnce() -> T) -> (T, usize) {
     ROWS_COMPARED.with(|counted| counted.set(0));
     let answered = run();
     (answered, ROWS_COMPARED.with(std::cell::Cell::get))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many bytes of row text [`tokenize_row`] was handed on **this
+    /// thread**, since [`bytes_tokenized`] last reset it: per-thread for the
+    /// reason [`ROWS_COMPARED`] is.
+    static BYTES_TOKENIZED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// A row of `bytes` more was read cluster by cluster.
+#[cfg(test)]
+fn note_tokenized(bytes: usize) {
+    BYTES_TOKENIZED.with(|counted| counted.set(counted.get() + bytes));
+}
+
+/// What `run` answered, and how many bytes of row text the tokenizer read
+/// inside it: the grid's placements and comparisons, and the output check's
+/// replay of a declared row, all read a row through [`tokenize_row`].
+#[cfg(test)]
+pub(crate) fn bytes_tokenized<T>(run: impl FnOnce() -> T) -> (T, usize) {
+    BYTES_TOKENIZED.with(|counted| counted.set(0));
+    let answered = run();
+    (answered, BYTES_TOKENIZED.with(std::cell::Cell::get))
 }
 
 /// How many columns of `row` have been written on.
@@ -2137,6 +2316,154 @@ mod tests {
         let mut inside = long.to_string();
         inside.replace_range(2..3, "X");
         assert!(!grid.row_matches(10, &inside, &geometry, &mut scratch));
+    }
+
+    /// A row of bytes that paint one cell: one letter under 64 Ki combining
+    /// marks, then `tail` (T-U4 round 3's `heavy` case, smaller). Its
+    /// placement and its comparison read every byte of it, cluster by
+    /// cluster.
+    fn heavy() -> String {
+        format!("a{}tail", "\u{301}".repeat(64 * 1024))
+    }
+
+    #[test]
+    fn a_row_this_grid_placed_is_matched_again_without_reading_it() {
+        // GRID-ROW-COST (T-U4 round 3's residual): an append that leaves a
+        // settled row where it is asks this whether the row already holds it,
+        // and answered by placing the row again on a scratch row, cluster by
+        // cluster -- 133-171 ms a frame for 8 MiB of marks
+        // (`.prd/tui-phase5/receipts/cancel-marker/round3/probe.txt`).
+        let geometry = geometry();
+        let row = heavy();
+        let grid = painted(10, &row);
+        let mut scratch = Grid::blank(0, 0);
+        let (matched, read) =
+            bytes_tokenized(|| grid.row_matches(10, &row, &geometry, &mut scratch));
+        assert!(matched, "the row it placed is not the row it holds");
+        assert_eq!(read, 0, "the row was read again to say it had not changed");
+    }
+
+    /// What [`Grid::row_matches`] answers with nothing remembered about the
+    /// row: `row` placed on a blank row of the grid's width and compared cell
+    /// for cell -- the oracle the remembered answer is held to.
+    fn freshly_matches(grid: &Grid, line: u16, row: &str, geometry: &Geometry) -> bool {
+        if grid.cols != geometry.cols {
+            return false;
+        }
+        let Some(span) = grid.span(line) else {
+            return false;
+        };
+        let mut fresh = Grid::blank(1, grid.cols);
+        fresh.put_row(1, row, geometry);
+        grid.cells[span] == fresh.cells[..]
+    }
+
+    /// [`Grid::row_matches`]'s answer, held to [`freshly_matches`]'s.
+    fn matches(grid: &Grid, line: u16, row: &str, geometry: &Geometry) -> bool {
+        let answered = grid.row_matches(line, row, geometry, &mut Grid::blank(0, 0));
+        assert_eq!(
+            answered,
+            freshly_matches(grid, line, row, geometry),
+            "row {line}: the remembered answer is not a fresh placement's"
+        );
+        answered
+    }
+
+    #[test]
+    fn a_rows_text_moves_with_its_cells_and_goes_with_any_change_to_them() {
+        // What a row was laid from is a claim about its cells, so it holds
+        // exactly as long as they do: a scroll and a removal carry it with
+        // them, and an erase, a placement and a resize -- every change but a
+        // move -- leave a row that answers as a fresh placement does.
+        let geometry = geometry();
+        let row = heavy();
+        let mut grid = painted(10, &row);
+        assert!(matches(&grid, 10, &row, &geometry));
+
+        grid.scroll_up(1);
+        assert!(
+            matches(&grid, 9, &row, &geometry),
+            "scrolled with its cells"
+        );
+        assert!(!matches(&grid, 10, &row, &geometry));
+
+        grid.place_row(1, "above it", &geometry);
+        grid.remove_rows(&[1], 12);
+        assert!(
+            matches(&grid, 8, &row, &geometry),
+            "moved up with its cells"
+        );
+        assert!(!matches(&grid, 9, &row, &geometry));
+
+        // The writer's record of what the row is says nothing about its cells.
+        grid.record(8, DocumentRow::ToolGroup, Some(call_row()));
+        let (matched, read) =
+            bytes_tokenized(|| grid.row_matches(8, &row, &geometry, &mut Grid::blank(0, 0)));
+        assert!(
+            matched && read == 0,
+            "a record forgot what the row was laid from"
+        );
+
+        grid.place_row(8, "another text", &geometry);
+        assert!(!matches(&grid, 8, &row, &geometry));
+        assert!(matches(&grid, 8, "another text", &geometry));
+
+        grid.place_row(8, &row, &geometry);
+        grid.erase_row(8);
+        assert!(!matches(&grid, 8, &row, &geometry), "an erased row");
+        assert!(matches(&grid, 8, "", &geometry));
+
+        grid.place_row(8, &row, &geometry);
+        grid.resize(geometry.rows, geometry.cols);
+        assert!(!matches(&grid, 8, &row, &geometry), "a resized grid");
+
+        // And a band painted over it.
+        grid.place_row(geometry.band_top(), &row, &geometry);
+        grid.paint_band(&["> ".to_string()], &geometry);
+        assert!(!matches(&grid, geometry.band_top(), &row, &geometry));
+    }
+
+    #[test]
+    fn a_retint_leaves_a_row_that_answers_as_a_fresh_placement() {
+        // A theme report moves a row's colours without placing it: recoloured
+        // or drawn again, the row holds other cells than its text lays, and
+        // asking about the text must say so.
+        let geometry = geometry();
+        let marks = "\u{301}".repeat(64 * 1024);
+        let notice = format!("{NOTICE_DARK}[tool] a{marks}{RESET}");
+        let mut grid = painted(3, &notice);
+        let drawing = call_row();
+        let drawn = format!("{}{marks}", drawing.drawn(crate::tui::theme::Mode::Dark));
+        let drawing = Redraw::new(
+            drawn.clone(),
+            format!("{}{marks}", drawing.drawn(crate::tui::theme::Mode::Light)),
+        );
+        grid.place_row(4, &drawn, &geometry);
+        grid.record(4, DocumentRow::ToolGroup, Some(drawing));
+        // Nothing moved: what the rows were laid from still holds.
+        assert_eq!(grid.retint_document(10, &dark(), &geometry), 0);
+        assert!(matches(&grid, 3, &notice, &geometry));
+        assert!(matches(&grid, 4, &drawn, &geometry));
+
+        assert!(grid.retint_document(10, &light(), &geometry) > 0);
+        assert!(!matches(&grid, 3, &notice, &geometry), "recoloured");
+        assert!(!matches(&grid, 4, &drawn, &geometry), "drawn again");
+    }
+
+    #[test]
+    fn a_row_laid_for_a_narrower_screen_is_not_the_row_this_screen_lays() {
+        // The tokenizer cuts a row at the narrower of the grid and the screen,
+        // so the screen's width is part of what a row was laid from: the same
+        // text laid for 40 columns on this 80-column grid holds 40 columns of
+        // it, and the whole 80 is what this screen's placement leaves.
+        let geometry = geometry();
+        let narrower = crate::tui::layout::solve(24, 40, 1).expect("a narrower band");
+        let row = format!("{}{}", "x".repeat(70), heavy());
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        grid.place_row(10, &row, &narrower);
+        assert!(!matches(&grid, 10, &row, &geometry));
+        grid.place_row(10, &row, &geometry);
+        assert!(matches(&grid, 10, &row, &geometry));
     }
 
     // -- a variation selector, and the cells after it ------------------------

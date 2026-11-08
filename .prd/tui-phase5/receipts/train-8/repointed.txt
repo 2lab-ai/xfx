@@ -1,0 +1,43 @@
+SAME  scripts/fxcap/capture.sh:315-317@58c92ba2 -> :317-319@c4bb4c7f (+-2 lines)  [ledger (capture.sh's TMPDIR comment)]
+    first: # Each binary gets a TMPDIR inside the run (fx `$run/fxtmp`, xfx
+SAME  scripts/fxcap/capture.sh:521@58c92ba2 -> :538@c4bb4c7f (+-2 lines)  [ledger (capture.sh's run directory)]
+    first: run=$(mktemp -d "${TMPDIR:-/tmp}/fxcap.XXXXXX")
+SAME  scripts/fxcap/capture.sh:952@58c92ba2 -> :973@c4bb4c7f (+-2 lines)  [ledger (capture.sh's remain-on-exit)]
+    first: keep) tmux -f /dev/null -S "$sock" set-option -w -t cap remain-on-exit on > /dev/null ;;
+SAME  src/tui/frame.rs:2749@58c92ba2 -> :2757@c4bb4c7f (+-2 lines)  [ledger (frame.rs)]
+    first: fn place(buffer: &mut Vec<u8>, line: u16, row: &str, geometry: &Geometry) {
+SAME  src/tui/full_transcript.rs:3005@58c92ba2 -> :3010@c4bb4c7f (+-2 lines)  [ledger (full_transcript.rs, two entries)]
+    first: pub(crate) fn drawn_wider_named(text: &str) -> Cow<'_, str> {
+SAME  src/tui/full_transcript.rs:3056@58c92ba2 -> :3061@c4bb4c7f (+-2 lines)  [ledger (full_transcript.rs, two entries)]
+    first: /// (`scripts/fxcap/parity-ledger.toml`, `answer-drawn-wider-named`).
+SAME  src/tui/grid.rs:933@58c92ba2 -> :1088@c4bb4c7f (+-2 lines)  [ledger (grid.rs)]
+    first: pub(crate) fn diff(&self, target: &Grid, geometry: &Geometry, out: &mut Vec<u8>) -> usize {
+SAME  src/tui/toolgroup.rs:922@58c92ba2 -> :940@c4bb4c7f (+-2 lines)  [ledger call-row-raw-argument, call-row-page-edge: T-U4's `spelled`]
+    first: pub(crate) fn spelled(target: &str, presentation: Presentation) -> String {
+SAME  src/tui/toolgroup.rs:999@58c92ba2 -> :1017@c4bb4c7f (+-2 lines)  [ledger call-row-source-cut: `command_spelled`]
+    first: fn command_spelled(target: &str, max: usize, mark_unread: bool) -> String {
+SAME  src/tui/toolgroup.rs:1113@58c92ba2 -> :1131@c4bb4c7f (+-2 lines)  [ledger call-row-arabic-letter-mark: the U+061C arm]
+    first: if character == '\u{061c}' {
+SAME  src/tui/frame.rs:1063-1228@58c92ba2 -> :1069-1234@c4bb4c7f (+-2 lines)  [frame.rs comment]
+    first: for (offset, row) in rows.iter().enumerate() {
+SAME  src/tui/frame.rs:1085@58c92ba2 -> :1091@c4bb4c7f (+-2 lines)  [frame.rs comment]
+    first: /// `term::shutdown_with`'s is: "the session gives up on a screen that
+SAME  src/tui/frame.rs:1456@58c92ba2 -> :1462@c4bb4c7f (+-2 lines)  [frame.rs comment]
+    first: /// The screen is scrolled with literal newlines from the bottom row
+SAME  src/tui/frame.rs:1533-1585@58c92ba2 -> :1539-1591@c4bb4c7f (+-2 lines)  [frame.rs comment]
+    first: // the numbers they were painted at only until the first linefeed of
+SAME  src/tui/frame.rs:1587-1598@58c92ba2 -> :1593-1604@c4bb4c7f (+-2 lines)  [frame.rs comment]
+    first: // row and the exit clears only from the band's top downward. Without
+SAME  src/tui/frame.rs:1593-1616@58c92ba2 -> :1599-1622@c4bb4c7f (+-2 lines)  [frame.rs comment]
+    first: // and nothing when there is no settled block to have vacated anything,
+SAME  src/tui/frame.rs:1617@58c92ba2 -> :1623@c4bb4c7f (+-2 lines)  [frame.rs comment]
+    first: for _ in 0..scroll - fresh {
+SAME  src/tui/frame.rs:1617-1620@58c92ba2 -> :1623-1626@c4bb4c7f (+-2 lines)  [frame.rs comment]
+    first: for _ in 0..scroll - fresh {
+SAME  src/tui/grid.rs:240-243@58c92ba2 -> :242-245@c4bb4c7f (+-2 lines)  [frame.rs comment (grid.rs)]
+    first: cols: usize,
+SAME  src/tui/check.rs:1689-1694@58c92ba2 -> :1808-1813@c4bb4c7f (+-2 lines)  [wrap.rs comment (check.rs; stale on main already, train 7's stale.txt)]
+    first: /// What the terminal's metadata is, as decoded.
+SAME  src/tui/grid.rs:210-214@58c92ba2 -> :212-216@c4bb4c7f (+-2 lines)  [wrap.rs comment (grid.rs)]
+    first: /// writes each cell through this and [`write_row_text`] each unit of a row
+# 21 of 21 the same code

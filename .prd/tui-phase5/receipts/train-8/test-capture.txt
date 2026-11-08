@@ -1,0 +1,7 @@
+## join check 3: test-capture x5, at c4bb4c7f
+test-capture run 1: exit 0, 306 s, load 7.87; Ran 76 tests in 305.275s OK 
+test-capture run 2: exit 0, 310 s, load 9.44; Ran 76 tests in 309.572s OK 
+test-capture run 3: exit 0, 305 s, load 2.80; Ran 76 tests in 305.289s OK 
+test-capture run 4: exit 0, 296 s, load 3.44; Ran 76 tests in 295.396s OK 
+test-capture run 5: exit 0, 289 s, load 3.12; Ran 76 tests in 288.683s OK 
+# jobs-a done at 2026-11-08T19:30:44Z

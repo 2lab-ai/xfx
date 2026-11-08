@@ -1,0 +1,8 @@
+# Row 1 of every xfx capture in each sweep, the revision its banner names (escapes taken out), counted; "(none)" is a
+# capture whose row 1 is not the banner (the banner scrolled off, or Ctrl-O's screen, which opens on an entry's stamp).
+== base (340 captures)
+  85 (none)
+ 255 v0.1.0-fdc5ac0
+== head (340 captures)
+  85 (none)
+ 255 v0.1.0-50a099b

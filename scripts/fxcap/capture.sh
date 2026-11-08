@@ -176,7 +176,8 @@
 #                          what the first one saved (`fx: relaunch
 #                          --resume-last`, `xfx: relaunch --resume last`)
 #   reseed <settings.json> writes scenarios/<settings.json> over the binary's
-#                          own profile now, `@PORT@` written in, owner-only --
+#                          own profile now, `@PORT@` written in, owner-only,
+#                          renamed into place as `rehomefile` is --
 #                          between an exit and a `relaunch`, so the second
 #                          launch reads a profile the first one did not leave
 #   rmhome <path>          deletes HOME/<path> now (a relative path, no `..`)
@@ -224,7 +225,8 @@
 #                          `homefile` now: writes scenarios/<file> over
 #                          HOME/<path>, placeholders written in, owner-only
 #                          (the file 0600, every directory made for it 0700;
-#                          an existing file is written in place), and prints
+#                          the file is renamed into place, and a <path> that
+#                          is a link or a directory is refused), and prints
 #                          the mode and size -- a settings file made malformed
 #                          after launch; the same <path> rules as `homefile`
 #   clock <ms>             pins fx's usage clock (FX_E2E_USAGE_CLOCK_FILE,
@@ -492,6 +494,21 @@ await_up() {
   : > "$run/launched"
 }
 
+# Puts <tmp> in place as <dest>, a file in HOME the binary may be reading,
+# by a rename: the binary finds it old or new, whole, never half written
+# (FLAKE-MCPMODE, registry #19). A <dest> that is a link or a directory is
+# refused, not followed: `>` would write through a link, and `mv` would move
+# <tmp> into the directory a link names.
+put_in_home() {
+  local tmp=$1 dest=$2
+  if [[ -L $dest || -d $dest ]]; then
+    rm -f "$tmp"
+    echo "refusing to replace $dest: it is a link or a directory" >&2
+    exit 2
+  fi
+  mv -f "$tmp" "$dest"
+}
+
 main() {
   local which=${1:?fx or xfx} scenario=${2:?scenario} size=${3:?rowsxcols}
   local here root out
@@ -747,7 +764,7 @@ case \$2 in
     if [ "\$1" = "-e" ] && [ -f "$run/clipimage" ]; then
       out=\${2#*POSIX file \\"}
       out=\${out%%\\"*}
-      cat "$run/clipimage" > "\$out"
+      cp "$run/clipimage" "\$out" 2>/dev/null
     fi
     exit 0
     ;;
@@ -838,7 +855,11 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
           sleep 0.05
         done
         grep -m1 "^\[fakegw\] hold $holds after " "$run/gateway.log" ;;
-      release) echo release >> "$run/gw-release" ;;
+      # Every file a verb changes while something reads it is renamed into
+      # place, never rewritten: a reader finds it old or new, whole
+      # (FLAKE-MCPMODE, registry #19; test_capture.py
+      # test_a_file_a_verb_changes_mid_run_is_replaced_whole).
+      release) { cat "$run/gw-release" 2>/dev/null || true; echo release; } > "$run/gw-release.tmp"; mv -f "$run/gw-release.tmp" "$run/gw-release" ;;
       until)
         local cond=${rest%% *} text=${rest#* } screen on seen='' looks=0 began=$SECONDS
         : > "$run/until"
@@ -991,15 +1012,17 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         ;;
       reseed)
         can_fill "$mcpport" "$scenarios/$rest"
-        (umask 077 && mkdir -p "$run/home/.$which" && fill "$port" "$run/home" "$mcpport" < "$scenarios/$rest" > "$run/home/.$which/settings.json")
-        chmod 600 "$run/home/.$which/settings.json"
+        (umask 077 && mkdir -p "$run/home/.$which" && fill "$port" "$run/home" "$mcpport" < "$scenarios/$rest" > "$run/home.tmp")
+        chmod 600 "$run/home.tmp"
+        put_in_home "$run/home.tmp" "$run/home/.$which/settings.json"
         ;;
       rehomefile)
         local dest from
         read -r dest from <<< "$rest"
         can_fill "$mcpport" "$scenarios/$from"
-        (umask 077 && mkdir -p "$run/home/$(dirname "$dest")" && fill "$port" "$run/home" "$mcpport" < "$scenarios/$from" > "$run/home/$dest")
-        chmod 600 "$run/home/$dest"
+        (umask 077 && mkdir -p "$run/home/$(dirname "$dest")" && fill "$port" "$run/home" "$mcpport" < "$scenarios/$from" > "$run/home.tmp")
+        chmod 600 "$run/home.tmp"
+        put_in_home "$run/home.tmp" "$run/home/$dest"
         echo "rehomefile ~/$dest: mode $(stat -f %Lp "$run/home/$dest" 2>/dev/null || stat -c %a "$run/home/$dest"), $(wc -c < "$run/home/$dest" | tr -d ' ') bytes"
         ;;
       resize)
@@ -1029,7 +1052,9 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         esac
         echo "signal SIG$sig -> pid $pid: ${state}$dead"
         ;;
-      clock) (umask 077 && printf '%s\n' "$rest" > "$run/home/.fxcap-usage-clock") ;;
+      # Renamed into place, owner-only: the binary reads its clock whenever
+      # it asks the time, and a file caught empty is the system clock to it.
+      clock) (umask 077 && printf '%s\n' "$rest" > "$run/home.tmp"); put_in_home "$run/home.tmp" "$run/home/.fxcap-usage-clock" ;;
       usage)
         # Renamed into place, so fakegw never reads a file half written.
         case $rest in
@@ -1062,7 +1087,7 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
       clipimage)
         case $rest in
           off) rm -f "$run/clipimage" ;;
-          *) cp "$scenarios/$rest" "$run/clipimage" ;;
+          *) cp "$scenarios/$rest" "$run/clipimage.tmp"; mv -f "$run/clipimage.tmp" "$run/clipimage" ;;
         esac
         ;;
       clipfile)
