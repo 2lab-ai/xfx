@@ -16573,6 +16573,48 @@ mod tests {
     }
 
     #[test]
+    fn the_catalog_as_held_is_told_with_the_runtimes_clock() {
+        // What an ask the band waits on is told when no read is due: the rows
+        // and when activity next owes them a read by `beginLoad`'s rule
+        // (`model_cache_runtime.zig:609-623@481104fd`) -- the hold's end over
+        // a refresh asking again could change, else five minutes from the
+        // last read's start -- and a failure with its hold's end.
+        let rows = CatalogState::Loaded(vec![published("anthropic/claude-opus-5")]);
+        let began = Instant::now();
+        let hold = began + Duration::from_secs(8);
+        let clock = LoadClock {
+            began: Some(began),
+            streak: 1,
+            not_before: Some(hold),
+        };
+        let retrying = catalog_event_of(
+            ProviderId::Gateway,
+            &rows,
+            None,
+            Some(CatalogRetry::Unreachable),
+            clock,
+        );
+        assert_eq!(due_of(&retrying), Some(hold), "{retrying:?}");
+        let aging = catalog_event_of(ProviderId::Gateway, &rows, None, None, clock);
+        assert_eq!(
+            due_of(&aging),
+            Some(began + crate::provider::model::REFRESH_INTERVAL),
+            "{aging:?}"
+        );
+        let failed = catalog_event_of(
+            ProviderId::Gateway,
+            &CatalogState::Failed("down".to_string()),
+            Some(CatalogRetry::Unreachable),
+            None,
+            clock,
+        );
+        assert!(
+            matches!(failed, UiEvent::CatalogUnread { retry_at, .. } if retry_at == hold),
+            "{failed:?}"
+        );
+    }
+
+    #[test]
     fn a_failed_refresh_is_due_again_when_the_runtimes_clock_says() {
         // `beginLoad` over rows whose refresh failed (`model_cache_runtime.zig:
         // 609-623@481104fd`): never inside the failure's backoff; past it at
