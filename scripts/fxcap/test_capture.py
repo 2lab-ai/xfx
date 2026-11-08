@@ -1091,6 +1091,18 @@ class McpHttp(unittest.TestCase):
         self.assertGreaterEqual(self.answered(s, "ping id=1"), self.SETTLE_MS, "it read again until the deadline")
         self.assertRegex(s.lines(), r"rpc=ping id=1 .* mode=unknown\(bogus\) -> 500 \+\d+ms\n")
 
+    def test_a_mode_file_that_cannot_be_read_is_answered_unknown_with_its_error(self):
+        # The same deadline for a file that is gone: `unknown()` and 500 as
+        # before, and the log line says why the read found no word.
+        s = self.server("ready")
+        os.remove(self.mode)
+        status, _, body = s.ask("POST", "/mcp", body='{"jsonrpc":"2.0","id":1,"method":"ping"}', timeout=self.SETTLE_MS / 1000 + 2)
+        self.assertEqual((status, body), (500, b"fixture failing"))
+        self.assertRegex(s.lines(), r"rpc=ping id=1 .* mode=unknown\(\) -> 500 \+\d+ms mode-file=ENOENT\n")
+        swap(self.mode, "ready\n")
+        self.assertEqual(self.rpc(s, "ping", 2)[0], 200)
+        self.assertRegex(s.lines(), r"rpc=ping id=2 .* mode=ready -> 200 \+\d+ms\n", "no error once the file reads")
+
     def test_malformed_and_hostile_are_modes_and_answer_without_the_wait(self):
         # The two modes whose answers are garbage are still modes: read once,
         # answered at once, never held to the deadline.
