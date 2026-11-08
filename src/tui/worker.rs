@@ -6893,6 +6893,18 @@ mod tests {
                 None,
                 Some("cannot write turn output: gone".into()),
             ),
+            (
+                // A compaction that compacted nothing ends nothing: the
+                // turn's own failure is its end, as upstream fails it for the
+                // overflow it could not reduce (`orchestrator.zig:7934-7937`).
+                "failed after a compaction that compacted nothing",
+                Err(TurnError::ContextNotReduced {
+                    reason: "nothing to drop",
+                }),
+                Some(Feedback::NoOp),
+                None,
+                Some("request failed: nothing to drop".into()),
+            ),
         ];
         for (case, outcome, compaction, log_failure, said) in cases {
             assert_eq!(
@@ -6901,6 +6913,13 @@ mod tests {
                 "{case}"
             );
         }
+        // And a stop read before the turn's request is built is the same one
+        // word (`image_refusal`).
+        assert_eq!(
+            TurnError::Cancelled.to_string(),
+            bridge::TURN_CANCELLED,
+            "the machine's word for a stop"
+        );
     }
 
     #[test]

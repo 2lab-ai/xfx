@@ -13461,6 +13461,13 @@ mod tests {
             .any(|window| window == needle)
     }
 
+    /// Where `needle` first is in `haystack`.
+    fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        haystack
+            .windows(needle.len())
+            .position(|window| window == needle)
+    }
+
     impl StatusScreen {
         /// The vectors that carry a report.
         fn reports(&self) -> Vec<String> {
@@ -13802,7 +13809,7 @@ mod tests {
             status_tick(&mut shell, &mut band, &mut out);
             let before = out.vectors.len();
             shell.apply(UiEvent::TurnEnded {
-                failure: Some("xfx: the turn was cancelled".to_string()),
+                failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
             });
             if !one_drain {
                 shell.settle_band(Instant::now());
@@ -13818,10 +13825,10 @@ mod tests {
                 .iter()
                 .map(|vector| String::from_utf8_lossy(vector))
                 .collect();
-            let report = ticks
-                .iter()
-                .position(|vector| vector.as_slice() == WORKING.as_bytes());
-            let frame = ticks.iter().position(|vector| holds(vector, b"Thinking"));
+            // In the wire's order: a report may ride a frame's lead.
+            let wire = ticks.concat();
+            let report = find(&wire, WORKING.as_bytes());
+            let frame = find(&wire, b"Thinking");
             assert!(
                 report.is_some() && frame.is_some() && report < frame,
                 "one drain {one_drain}: the prompt's working is not ahead of the frame \
@@ -13833,6 +13840,64 @@ mod tests {
                 "one drain {one_drain}: {shown:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_stopped_turns_title_goes_out_ahead_of_the_next_prompts_working() {
+        // Upstream commits the stopped turn `.interrupted` when it drains its
+        // end, and its title is set there (`ensureCachedSessionTitle`,
+        // `app_session_runtime.zig:2766-2769@481104fd`), on the pass before
+        // the one whose worker takes the next prompt and reports `working`
+        // (`p5-lifecycle-osc-stopnext` on fx v0.0.16, three runs: `idle`, the
+        // `Cancelled` frame, `OSC 2`, `working`). So the stopped turn's title
+        // is on the wire ahead of the next prompt's `working`, whether the
+        // stopped turn's end and the prompt's start land in one drain or in
+        // two. (A finished turn's title follows its `done`, as upstream's
+        // does: `a_title_its_own_tick_asked_for_follows_that_ticks_report`.)
+        let mut ahead = Vec::new();
+        let mut shown = Vec::new();
+        for one_drain in [true, false] {
+            let mut shell = shell();
+            let mut band = Band::new();
+            let mut out = StatusScreen::default();
+            launch_title(&mut shell, &mut band);
+            status_tick(&mut shell, &mut band, &mut out);
+            shell.route_bytes(b"go\r");
+            status_tick(&mut shell, &mut band, &mut out);
+            shell.apply(UiEvent::TurnStarted);
+            status_tick(&mut shell, &mut band, &mut out);
+            shell.route_bytes(&[0x03]);
+            status_tick(&mut shell, &mut band, &mut out);
+            shell.route_bytes(b"next\r");
+            status_tick(&mut shell, &mut band, &mut out);
+            let before = out.vectors.len();
+            shell.apply(UiEvent::TurnEnded {
+                failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+            });
+            if !one_drain {
+                shell.settle_band(Instant::now());
+                status_tick(&mut shell, &mut band, &mut out);
+            }
+            shell.apply(UiEvent::TurnStarted);
+            for _ in 0..2 {
+                shell.settle_band(Instant::now());
+                status_tick(&mut shell, &mut band, &mut out);
+            }
+            let wire = out.vectors[before..].concat();
+            let title = find(&wire, b"\x1b]2;go\x07");
+            let working = find(&wire, WORKING.as_bytes());
+            ahead.push((
+                one_drain,
+                title.is_some() && working.is_some() && title < working,
+            ));
+            shown.push(String::from_utf8_lossy(&wire).into_owned());
+        }
+        assert_eq!(
+            ahead,
+            [(true, true), (false, true)],
+            "one drain, two: the stopped turn's title ahead of the next prompt's \
+             working: {shown:?}"
+        );
     }
 
     #[test]

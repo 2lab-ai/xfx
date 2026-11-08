@@ -45460,6 +45460,76 @@ mod tests {
     }
 
     #[test]
+    fn a_stop_after_an_automatic_compaction_settled_leaves_its_turns_end_quiet() {
+        // The compaction has settled and the turn's end is still unread when
+        // the user presses Ctrl-C. The end belongs to the compaction:
+        // upstream's keystroke returns once the worker's cancel is requested
+        // (`input_interrupt_runtime.zig:94@481104fd`), and the turn finishes
+        // as the compaction left it -- `.interrupted` after its stop
+        // (`persistCompactionInterruptedTurnOnce`, `orchestrator.zig:
+        // 7847-7862`), which titles the session, and failed after its failure
+        // (`:7864-7865`), which does not. Neither one is a finish: no `done`,
+        // no summary.
+        let cases = [
+            (compaction::Feedback::Cancelled, Some("first question")),
+            (compaction::Feedback::Failed, None),
+        ];
+        let mut got = Vec::new();
+        let mut owed = Vec::new();
+        for (feedback, title) in cases {
+            let mut shell = running("first question");
+            shell.apply(UiEvent::Compaction(compaction::Update::Began {
+                automatic: true,
+            }));
+            shell.apply(UiEvent::Compaction(compaction::Update::Settled(feedback)));
+            shell.route_bytes(&[0x03]);
+            let stopped = status_of(&mut shell);
+            shell.apply(UiEvent::TurnEnded { failure: None });
+            shell.work.give_back();
+            shell.settle_band(Instant::now());
+            let ended = status_of(&mut shell);
+            let after = shell.released();
+            got.push((
+                feedback,
+                ended.as_deref() == Some("done") || stopped.as_deref() == Some("done"),
+                after.iter().any(|row| row.starts_with("  0s")),
+                shell.session_title.clone(),
+            ));
+            owed.push((feedback, false, false, title.map(str::to_string)));
+        }
+        assert_eq!(got, owed, "each case: a done, a summary row, the title");
+    }
+
+    #[test]
+    fn a_completed_turns_text_unread_at_the_stop_leaves_the_cancelled_line_above_its_summary() {
+        // The answer's text is still in the channel when the user stops a
+        // turn the runtime has already finished. Upstream's keystroke writes
+        // its `Cancelled` line at once (`input_interrupt_runtime.zig:91-127@481104fd`)
+        // and its drain then presents the finished turn's summary
+        // (`finishPromptPresentation`, `app_callbacks.zig:276-283`), so the
+        // line is above the summary. (What becomes of the late text is
+        // STOP-NEXT's: xfx drops it under the cancel, where upstream's drain
+        // presents a segment that is not an interrupted one.)
+        let mut shell = running("first question");
+        shell.route_bytes(&[0x03]);
+        shell.apply(UiEvent::Delta("an answer\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        let _ = status_of(&mut shell);
+        let after = shell.released();
+        let cancelled = after
+            .iter()
+            .position(|row| row.contains("\u{25a0} Cancelled"))
+            .unwrap_or_else(|| panic!("no Cancelled line: {after:?}"));
+        let summary = after
+            .iter()
+            .position(|row| row.starts_with("  0s"))
+            .unwrap_or_else(|| panic!("no summary row: {after:?}"));
+        assert!(cancelled < summary, "{after:?}");
+    }
+
+    #[test]
     fn a_prompt_sent_while_the_last_answer_is_still_paced_out_is_reported_on_its_keystroke() {
         // Upstream does not hold a prompt as a pending submission while its
         // pacer still holds text (`installPendingSubmission`,
