@@ -1,0 +1,24 @@
+# RED at 2e724248 (the base 58c92ba2 + the test alone)
+$ cargo test --locked --lib a_stopped_compactions_sentence_the_next_line_took_away_stays_away
+
+running 1 test
+test tui::event_loop::tests::a_stopped_compactions_sentence_the_next_line_took_away_stays_away ... FAILED
+
+failures:
+
+---- tui::event_loop::tests::a_stopped_compactions_sentence_the_next_line_took_away_stays_away stdout ----
+
+thread 'tui::event_loop::tests::a_stopped_compactions_sentence_the_next_line_took_away_stays_away' (355489814) panicked at src/tui/event_loop.rs:15971:9:
+assertion `left == right` failed: each: (the line took the sentence away, the sentence on the row three drains later, the new compaction's own row)
+  left: [("a prompt", true, true, false), ("/compact", true, true, false), ("a prompt after an automatic one", true, true, false)]
+ right: [("a prompt", true, false, false), ("/compact", true, false, true), ("a prompt after an automatic one", true, false, false)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::event_loop::tests::a_stopped_compactions_sentence_the_next_line_took_away_stays_away
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4536 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--lib`
+exit: 101
