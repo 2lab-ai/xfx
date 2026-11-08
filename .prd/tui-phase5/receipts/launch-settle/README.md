@@ -28,7 +28,8 @@ sightings of registry #19 (timing flakes in the xfx tests and harness).
 | `f644afd7` | the round-2 receipt |
 | `40fdbc85` | `final-checks-r2.txt`, run at `f644afd7`: the head train 7 takes |
 | `9c01878f` | LAUNCH-SETTLE-F, on `fix/p5-launch-settle-f`: the divergence snaps pinned per side, the relaunch case (section below) |
-| this one | the LAUNCH-SETTLE-F receipt |
+| `c4806582` | the LAUNCH-SETTLE-F receipt |
+| this one | `final-checks-f.txt`, run at `c4806582` |
 
 Round 2 answers the two reviews of `a0f7edef` (section "Round 2" below).
 
@@ -521,7 +522,8 @@ Both round-2 reviews approved `40fdbc85` with no MUST. This follow-up, on
   on fx; F2 an `fx:` line running on xfx; F3 `expect` never failing; F4
   above.
 
-The file checks at the receipt head are in `final-checks-f.txt`.
+The file checks and `test-sweep.sh` (under the lock) at the receipt commit
+`c4806582` all pass: `final-checks-f.txt`.
 
 ## Registry #19
 
