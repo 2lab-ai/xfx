@@ -230,8 +230,22 @@ measurement.
 
 ## Local paths in the captures
 
-The image scenarios' card badges link to the run's file. 78 cells hold
-`/private/tmp/claude-501/fxcap.<run>/work/shot.png` as an OSC 8 target, on
-fx's side and on xfx's alike. That is the harness's temp folder, which the
-common brief allows (`main` already carries it). It is left in place,
-because redacting it would change the bytes compared against fx's.
+The image scenarios' card badges link to the run's file, so the captures
+held `<scratch>/fxcap.<run>/work/shot.png` as an OSC 8 target. `<scratch>`
+is the harness temp folder. The target is a wire byte, and no cell shows
+it.
+
+- **The rewrite.** Every capture in `fx/`, `red/` and `xfx/` was rewritten
+  after capture, all three sides alike, by `rewrite_root.py`. Each
+  `<scratch>/fxcap.<run>/` became `<work>/`, rewritten on bytes so every
+  other byte is unchanged. The script builds the root from `$TMPDIR` when it
+  runs and holds no path of its own.
+- **What changed.** It rewrote 78 links in 58 files and left none
+  (`rewrite.txt`).
+- **What did not change.**
+  - `check.py`'s output, all 69 claims and the base's 7 failures, is byte
+    for byte what it was before the rewrite.
+  - So is `cells.py`'s output over every image pair, and over the two block
+    pairs whose captures held a link, snaps and frames alike.
+  - The rewritten wires, replayed, give the rewritten screens: 45 of 45
+    (`rewrite-check.txt`).

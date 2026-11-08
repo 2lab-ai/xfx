@@ -1,4 +1,4 @@
-# TMPDIR=/private/tmp/claude-501 suite-lock.sh gates.sh <worktree> <log dir>   (one slot, every step in turn)
+# TMPDIR=<scratch> suite-lock.sh gates.sh <worktree> <log dir>   (one slot, every step in turn; <scratch> is the harness temp folder)
 # head be6fd7f9847a25f5b112980b6ad3a1d36abe28d4, tree: 0 tracked changes
 # slot taken 2026-11-08T20:45:02Z
 00 false rc=1 0s
