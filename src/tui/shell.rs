@@ -1553,7 +1553,8 @@ pub(crate) struct Shell {
     title_owed: bool,
     /// Whether the title owed is one a stopped turn's end gave the session,
     /// which goes out ahead of the tick's report
-    /// ([`Self::take_leading_title`]).
+    /// ([`Self::take_leading_title`]): set by that end, and taken back by any
+    /// title asked for after it ([`Self::retitle`]).
     title_leads: bool,
     /// The directory the session works in, whose last component the window
     /// title names until the session has a title of its own.
@@ -15339,8 +15340,13 @@ impl Shell {
     }
 
     /// Owes the band the window title, and the frame that writes it.
+    ///
+    /// A title owed now is not a stopped turn's end's to lead with any
+    /// more ([`Self::title_leads`]): whatever asked for it is the tick's own,
+    /// and the one title the tick ends with follows the report.
     fn retitle(&mut self) {
         self.title_owed = true;
+        self.title_leads = false;
         self.render.request(Reason::Footer);
     }
 
