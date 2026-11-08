@@ -278,6 +278,13 @@ and `/stats`'s `ansi_bytes` (`p5-usage-turns/credits`, `/stats`), which moved
 on fx's side as on xfx's (fx 15585 -> 15652) between two runs of the same
 binary.
 
+**Gate, follow-up F.** Every CI step at `708fe464` (the code of `a2c0265a`
+plus receipt text), the heavy ones under the suite lock (`gate.sh`, its
+scratch paths renamed; `gate-f.txt`): all exit 0 -- cargo test 5327 passed,
+0 failed, and 5364 with fault injection; `test-capture.sh` 67 (63 + the 4
+new); `test-sweep.sh` 66 + 26; smoke 47; smoke-tui 37 scenarios, 1168 checks.
+No loaded run in this follow-up.
+
 ## Gate
 
 Every CI step, at `7266e29d` (the code of `29fb72d8` plus receipt text),
