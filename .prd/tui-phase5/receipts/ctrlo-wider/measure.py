@@ -84,7 +84,7 @@ FORMS.append((MOD, "answer", "answer", True, "with modifiers, short", "mod " + T
 for pair in PAIRS:
     named = 8 if ord(pair[0]) <= 0xFFFF else 9
     FORMS.append((MOD, "answer", "answer", True, "U+%04X U+%04X at the margin" % (ord(pair[0]), ord(pair[1])),
-                  W(118 - named - 2) + pair + "TAIL5678", r"^  w{107,108}(?!w)", B))
+                  W(118 - named - 2) + pair + "TAIL5678" + W(100) + "END", r"^  w{107,108}(?!w)", B))
 for other in ("\U0001f46f\U0001f3fb", "\U0001f93c\U0001f3fb"):
     FORMS.append((MOD, "more", "answer, not the family", False, "U+%04X U+%04X at the margin" % (ord(other[0]), ord(other[1])),
                   W(110) + other + "TAIL5678", r"^  w{110}(?!w)", B))

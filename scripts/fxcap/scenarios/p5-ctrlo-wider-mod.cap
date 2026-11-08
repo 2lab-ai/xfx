@@ -3,7 +3,9 @@
 # U+1F575, U+1F590) each with a skin-tone modifier, in an answer: a short
 # line, then each at the margin -- placed so that xfx's named form
 # (`\u{XXXX}` and the modifier) ends on the row's last cells, before
-# `TAIL5678`. A second answer: two modifier sequences on bases outside the
+# `TAIL5678`, then 100 `w` and `END`, so each is two rows on both sides
+# (fx's first row ends `TAIL5678` by its count, xfx's at the name). A
+# second answer: two modifier sequences on bases outside the
 # family (U+1F46F, U+1F93C with U+1F3FB: tmux 3.7b draws both four cells,
 # `approval_view`'s measured cases) at the margin, the short line in a
 # code panel and in a table's cell. fx counts a base and its modifier as

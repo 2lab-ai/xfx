@@ -1,21 +1,26 @@
-x𝒇x v0.1.0-0802692 [debug] · Run /help for commands
+  filler 01
 
-  2026-11-08 11:58:41.763 KST · Notice
-* session: provider: gateway · model: fake/model-a · effort: auto
-  tools: 12 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,
-  +4 more)
-  mcp: none
+  filler 02
 
-  2026-11-08 11:58:42.934 KST · Notice
-* network: provider: gateway · model: fake/model-a · 1ms
-  finish: stop
-  tokens: 1200 in · 40 out
+  filler 03
 
-  2026-11-08 11:58:42.858 KST · Prompt
-┃ go
+  filler 04
 
-  2026-11-08 11:58:42.945 KST · Response
-  fence
+  filler 05
+
+  filler 06
+
+  filler 07
+
+  filler 08
+
+  filler 09
+
+  filler 10
+
+  filler 11
+
+  filler 12
 
   ─ fam☝⸺🖐xb c ─
   plain code
@@ -27,13 +32,8 @@ x𝒇x v0.1.0-0802692 [debug] · Run /help for commands
 
   END-FENCE
 
-  2026-11-08 11:58:43.333 KST · Usage
+  2026-11-08 12:13:04.597 KST · Usage
   0s (↑1 ↓40)
-
-
-
-
-
 
 ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
 

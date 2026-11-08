@@ -2,7 +2,9 @@
 # the family of p5-ctrlo-wider-inline-fam (`src/tui/drawn_wider.rs`): fx and
 # xfx draw it into the panel's header rule (`blocks::append_code_panel_header`,
 # `transcript_blocks.zig:1221-1238@481104fd`), on the screen and on Ctrl-O.
-# Two panels: the short label (U+261D U+2E3A U+1F590, U+E0002, `a` U+FE0F,
+# Twelve filler paragraphs first, so Ctrl-O's last page starts past the
+# session record (whose rows are the two products' own). Two panels: the
+# short label (U+261D U+2E3A U+1F590, U+E0002, `a` U+FE0F,
 # a soft hyphen and U+FE0F) over one line of code, and four U+261D and
 # `TAIL` over 110 `w`, the panel as wide as the screen allows. `wire` keeps
 # every byte written (the answer ends `END-FENCE`), for a replay on libghostty-vt
