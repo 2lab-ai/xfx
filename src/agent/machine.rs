@@ -721,7 +721,13 @@ impl TurnMachine {
         // `orchestrator.zig:7413-7423`).
         let mut start = Start::Fresh;
         let mut stopped = None;
-        if self.compactor.is_some() {
+        // **A turn stopped before it began is asked and stopped, and measures
+        // nothing**: upstream's turn checks its stop before it plans the
+        // request, a compaction included, and ends interrupted there, its
+        // prompt kept (`orchestrator.zig:5923-5948@481104fd`).
+        if self.request.cancel.is_cancelled() {
+            stopped = Some(TurnError::Cancelled);
+        } else if self.compactor.is_some() {
             match self
                 .compact_before_step(provider, journal, false, false)
                 .await
@@ -2128,6 +2134,46 @@ mod tests {
         let kinds: Vec<&str> = journal.0.iter().map(SessionEvent::kind).collect();
         assert_eq!(kinds, ["user_message", "turn_concluded"]);
         assert!(provider.asked.borrow().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_turn_stopped_before_it_began_is_asked_and_stopped_and_measures_nothing() {
+        // `orchestrator.zig:5923-5948@481104fd`: a stop that came before the
+        // turn plans its request -- in the catalog's wait, say -- ends it
+        // interrupted, its prompt kept, before any compaction is measured.
+        // Here a compactor that would compact the first request is never
+        // asked, nothing is sent, and the log has the prompt and the stop.
+        let (_dir, context) = tools();
+        let asked: Checks = std::rc::Rc::default();
+        let mut turn = machine(context).with_compactor(Box::new(Compacting {
+            asked: std::rc::Rc::clone(&asked),
+            compact_on: vec![0],
+        }));
+        turn.request.cancel.cancel();
+        let provider = Script::new(vec![answer("never")]);
+        let mut journal = Kept::default();
+        assert!(matches!(
+            turn.run_journaled(&provider, &mut Quiet, &mut journal)
+                .await,
+            Err(TurnError::Cancelled)
+        ));
+        assert!(asked.borrow().is_empty(), "measured: {:?}", asked.borrow());
+        assert!(provider.asked.borrow().is_empty());
+        assert_eq!(
+            journal.0,
+            [
+                SessionEvent::UserMessage {
+                    text: "now".to_string()
+                },
+                SessionEvent::TurnConcluded {
+                    outcome: TurnConclusion::Interrupted {
+                        reason: TurnError::Cancelled.to_string(),
+                        terminal_reason: Some(TerminalReason::Cancelled),
+                        cancellation_origin: CancellationOrigin::Turn,
+                    }
+                }
+            ]
+        );
     }
 
     #[tokio::test]

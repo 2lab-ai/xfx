@@ -5778,7 +5778,10 @@ async fn image_refusal(
     }
     if turn.token.is_cancelled() {
         // The stop's one word, which the band compares against
-        // ([`bridge::TURN_CANCELLED`]).
+        // ([`bridge::TURN_CANCELLED`]), and nothing kept, as upstream keeps
+        // nothing of a turn stopped in this wait. Upstream's turn also says
+        // `request failed: Cancelled` here (its `try`, `orchestrator.zig:7508
+        // @481104fd`); this one does not (`docs/parity.md`, `/model`).
         return Some(bridge::TURN_CANCELLED.to_string());
     }
     if fresh {
@@ -6053,12 +6056,23 @@ async fn one_turn(
             let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
         }
     }
+    // **A stop that came while the catalog was waited for is the turn's end,
+    // not a refusal.** Upstream's wait ends on the turn's stop, and so does
+    // its turn, there or at the check right after it -- before anything is
+    // planned from the catalog, Ultra's and the image's refusals included --
+    // as a turn asked and stopped: interrupted, its prompt and its images
+    // kept (`resolveForRequest`, `model_cache_runtime.zig:855-865@481104fd`;
+    // `orchestrator.zig:5893-5919`, `:5923-5948`; `persistInterruptedTurnOnce`,
+    // `interruption.zig:198-223`). Here the machine below is what ends it so,
+    // sending nothing ([`crate::agent::TurnMachine::run_journaled`]): a turn
+    // stopped by now is refused nothing on its way there.
+    //
     // **Whether the model reads images, before anything is sent or written.**
     // A turn whose prompt -- or whose history, which every request re-sends --
     // carries one goes inline only to a model the catalog tags `vision` and
     // `file-input`; any other is refused here, with upstream's words, and no
     // request leaves (`visionPolicy`, `orchestrator.zig:5971-5986`, `:7147-7158`).
-    if carries_images {
+    if carries_images && !turn.token.is_cancelled() {
         if let Some(refusal) = image_refusal(state, events, turn).await {
             return Some(refusal);
         }
@@ -6096,6 +6110,9 @@ async fn one_turn(
     say_skills(&skills, events, turn).await;
     let options = match state.request_options() {
         Ok(options) => options,
+        // Stopped: nothing will be sent, so nothing is asked for, and the
+        // machine ends the turn as the stop (above).
+        Err(_) if turn.token.is_cancelled() => crate::gateway::protocol::RequestOptions::default(),
         Err(refusal) => return Some(refusal),
     };
     // Fast asked for and dropped because the catalog is down: said once, at
