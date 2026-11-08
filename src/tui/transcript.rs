@@ -4492,6 +4492,10 @@ mod tests {
         assert_eq!(kept.kept.len(), 1, "the last write's one row");
         assert_eq!(kept.kept[0].row, long("A"));
         assert!(
+            kept.kept[0].written.is_none(),
+            "a row that fits, cut to itself, was kept twice"
+        );
+        assert!(
             kept.cut.is_empty(),
             "a write's cuts were left out of the turn"
         );
