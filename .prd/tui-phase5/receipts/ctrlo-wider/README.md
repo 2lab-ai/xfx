@@ -255,6 +255,147 @@ whole, every form's verdict the same as before the merge on every build.
 
 **Gates**: `gates-train4.txt` (**Gates**, below).
 
+## CTRLO-WIDER-F (follow-up, stacked on `eeb0f7a7`)
+
+Both reviews of round 2 approved with no MUST; this is their SHOULDs, on
+`feat/p5-ctrlo-wider-f`. `red3/` is `08026927`'s build, whose code is
+`eeb0f7a7`'s.
+
+1. **A code panel's label** (opus SHOULD 1). `shown_event` named
+   `block.code` and not `block.language`, and the panel's header rule draws
+   the fence's word (`blocks::append_code_panel_header`). RED `b7cf0107`:
+   `a_code_panels_label_names_what_a_terminal_draws_wider` fails on
+   `eeb0f7a7`'s code (`red-test-f.txt`), and `measure.py --check red3` over
+   `p5-ctrlo-wider-fence` finds 2 forms not whole (`red-f.txt`): Ctrl-O's
+   label `fam☝⸺🖐x` U+E0002 `ya` U+FE0F `b` U+00AD U+FE0F `c` loses `y a`
+   U+00AD on tmux and `a` on libghostty-vt -- the anchor after `a` U+FE0F
+   on a frame row -- while xfx's document row reads whole (fx's does not).
+   Fix `9730ac86`: the label is named with the code; a language name that
+   resolves is ASCII and stays. GREEN: the test passes; `measure.py
+   --check xfx`, 0 forms not whole (`measure.txt`; the F scenarios' forms
+   below). Divergence `answer-label-and-modifier-named` takes the rows the
+   names change, in place.
+2. **Ownership, ledger only** (`aef34ed8`).
+   - `ri-run-pairing` belongs to **RI-COUNT**, and says every regional
+     indicator against the terminals: a pair that is no flag counted four,
+     drawn two; a lone one counted two, drawn one on tmux (main counted it
+     one, exactly: part 1 brought the over-count); a run paired otherwise.
+     **opus's stale-cell repro, captured** (`p5-ctrlo-wider-ri` `typed`,
+     `erased`): U+1F1E6 twice and `abcd` in the composer, four backspaces,
+     `Q` -- `┃ 🇦🇦abQ` on tmux and on libghostty-vt, on fx and on xfx alike,
+     where the draft is `🇦🇦Q`: the count put the letters at cells 7-10, the
+     terminal drew them at 5-8, and the grid erased 8-10 (`Grid::diff`
+     writes only what changed, at the columns it counted). Not fixed;
+     recorded in the cause, with fx's `  ri 🇿🇺🇸 end  )`.
+   - `resize-document-repaint` belongs to **RESIZE-REPAINT**, with
+     `h1-resize`'s `small` and `large` in scope, and records that fx's
+     repaint opens with `ESC[2J ESC[3J` -- it erases the scrollback -- so
+     the unit owns a copy-or-diverge decision.
+3. **Waits** (`46a840e1`). The draft in `inline-fam` ends `ZZ` and the
+   composer waits on `f end ZZ` (`┃ fam` came with its first three
+   characters). After `resize 40x140` fx waits on `w`x117 U+261D
+   `TAIL5678`, one row only after its 140-column repaint; **xfx keeps
+   `wait 2`, a registry #19 instance**: its screen changes only in the band
+   after a widening, and no text says the repaint is done.
+4. **Skin-tone modifiers** (`p5-ctrlo-wider-mod`). The nine counted bases
+   with a modifier are named past the base (`\u{261d}🏻`) and read whole on
+   both terminals -- short, at the margin (each placed so its named form
+   ends on the row's last cells), in a code panel and in a table's cell:
+   no RED, nothing more named. fx's raw forms lose glyphs on tmux (seven of
+   nine margin rows, and its table row U+1F574). The token list (part 2)
+   says so. The margin lines go on for 100 `w` and `END`, so each takes two
+   rows on both sides and the rows differ in place. Modifier sequences on bases outside the 43 (U+1F46F U+1F3FB,
+   U+1F93C U+1F3FB at the margin) lose `L 5` on tmux on fx and xfx alike:
+   the unowned defect cause `answer-modifier-sequence-wider`.
+5. **`/copy` from a real reply** (gpt6 SHOULD, `6bcc58cc`):
+   `a_reply_a_terminal_draws_wider_is_named_on_the_screen_and_kept_as_written_everywhere_else`
+   (`tests/tui.rs`) sends the family through a fake Gateway: the session
+   log's `assistant_message`, `/copy`, `/trace`'s turn blocks
+   (`user:`/`assistant:`), a resumed `/copy` and the second request's
+   assistant message hold the model's bytes; the screen, the resumed screen
+   and `/trace`'s timeline hold the names; the timeline's `] user` entry is
+   the prompt as typed. It passes at `eeb0f7a7`'s code and at the head.
+
+**Measure, the F scenarios** (`measure.txt`; `red-f.txt` for `red3`):
+
+| scenario `snap` | surface, form | fx: tmux | fx: ghostty | 08026927: tmux | 08026927: ghostty | head: tmux | head: ghostty |
+|---|---|---|---|---|---|---|---|
+| fence `answer` | code panel's label, short | lost y a U+00AD | lost a | ok | ok | ok | ok |
+| fence `answer` | code panel's label, four U+261D | ok | ok | ok | ok | ok | ok |
+| fence `ctrlo` | Ctrl-O code panel's label, short | lost y a U+00AD | lost a | lost y a U+00AD | lost a | ok | ok |
+| fence `ctrlo` | Ctrl-O code panel's label, four U+261D | ok | ok | ok | ok | ok | ok |
+| mod `answer` | answer, with modifiers, short | ok | ok | ok | ok | ok | ok |
+| mod `answer` | answer, U+261D U+1F3FB at the margin | lost 6 7 | ok | ok | ok | ok | ok |
+| mod `answer` | answer, U+26F9 U+1F3FC at the margin | lost 6 7 | ok | ok | ok | ok | ok |
+| mod `answer` | answer, U+270C U+1F3FD at the margin | lost 6 7 | ok | ok | ok | ok | ok |
+| mod `answer` | answer, U+270D U+1F3FE at the margin | lost 6 7 | ok | ok | ok | ok | ok |
+| mod `answer` | answer, U+1F3CB U+1F3FF at the margin | lost 7 8 | ok | ok | ok | ok | ok |
+| mod `answer` | answer, U+1F3CC U+1F3FB at the margin | lost 7 8 | ok | ok | ok | ok | ok |
+| mod `answer` | answer, U+1F574 U+1F3FC at the margin | lost 7 8 | ok | ok | ok | ok | ok |
+| mod `answer` | answer, U+1F575 U+1F3FD at the margin | ok | ok | ok | ok | ok | ok |
+| mod `answer` | answer, U+1F590 U+1F3FE at the margin | ok | ok | ok | ok | ok | ok |
+| mod `more` | answer, not the family, U+1F46F U+1F3FB at the margin (not checked) | lost L 5 | ok | lost L 5 | ok | lost L 5 | ok |
+| mod `more` | answer, not the family, U+1F93C U+1F3FB at the margin (not checked) | lost L 5 | ok | lost L 5 | ok | lost L 5 | ok |
+| mod `more` | code panel, with modifiers, short | ok | ok | ok | ok | ok | ok |
+| mod `more` | table cell, with modifiers, short | lost U+1F574 | ok | ok | ok | ok | ok |
+
+`p5-ctrlo-wider-fence` was realigned twice after its RED (`ce379c71`,
+`aab52c47`): twelve filler paragraphs so Ctrl-O's last page starts past the
+session record, and its end marker moved inside the last panel -- text after
+a code panel starts a Response entry of its own on fx's Ctrl-O and not on
+xfx's, the gap `p5-transcript-md` `full` sweeps unresolved with no cause
+(not this unit's; found here). Each re-capture of `red3` found the same 2
+forms.
+
+**Pairs** (`pairs-f.txt`; `sweep-f-base.md`, `sweep-f-head.md`, and
+`sweep-f-fence-*.md` for the realigned fence): the touched scenarios and
+`h1-resize`, swept alone under `suite-lock.sh` on `08026927` (eeb0f7a7's
+code) and on `9730ac86`'s code, scored with the ledger at `aab52c47`. Pass:
+10 of 26 on the base, 9 on the head.
+
+| scenario | snap | base (eeb0f7a7's code), rows differing | head (9730ac86's code), rows differing | head's rows covered by |
+|---|---|---|---|---|
+| h1-resize | large | unresolved-defect (8) | unresolved-defect (8) | - |
+| h1-resize | small | unresolved-defect (10) | unresolved-defect (10) | - |
+| h1-resize | start | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff | closed | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff | edited | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff | full | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | closed | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | edited | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | full | approved-divergence (14) | approved-divergence (14) | ctrl-o-drawn-wider-named |
+| p5-ctrlo-wider-fence | answer | unresolved-defect (1) | approved-divergence (3) | answer-label-and-modifier-named |
+| p5-ctrlo-wider-fence | ctrlo | normalized-identical (0) | approved-divergence (3) | answer-label-and-modifier-named |
+| p5-ctrlo-wider-inline | answer | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline | composer | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline | margin | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline-fam | answer | approved-divergence (11) | approved-divergence (11) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | composer | approved-divergence (11) | approved-divergence (11) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | ctrlo | approved-divergence (12) | approved-divergence (12) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | ctrlo-resized | approved-divergence (8) | approved-divergence (8) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | margin | approved-divergence (12) | approved-divergence (12) | answer-drawn-wider-named, inline-band-row-anchor |
+| p5-ctrlo-wider-inline-fam | prompt | approved-divergence (12) | approved-divergence (12) | answer-drawn-wider-named, inline-band-row-anchor |
+| p5-ctrlo-wider-inline-fam | resized | unresolved-defect (23) | unresolved-defect (23) | answer-drawn-wider-named, inline-band-row-anchor |
+| p5-ctrlo-wider-mod | answer | approved-divergence (19) | approved-divergence (19) | answer-label-and-modifier-named |
+| p5-ctrlo-wider-mod | more | approved-divergence (15) | approved-divergence (15) | answer-label-and-modifier-named |
+| p5-ctrlo-wider-ri | answer | unresolved-defect (2) | unresolved-defect (2) | - |
+| p5-ctrlo-wider-ri | erased | unresolved-defect (2) | unresolved-defect (2) | - |
+| p5-ctrlo-wider-ri | typed | unresolved-defect (2) | unresolved-defect (2) | - |
+
+- `p5-ctrlo-wider-fence` `ctrlo` leaves the pass set: on the base xfx's
+  Ctrl-O label is fx's bytes and loses fx's glyphs; at the head it is named
+  (item 1). The decision, as `inline-fam` `ctrlo` in round 2. Its `answer`
+  goes from unresolved (fx's document label loses glyphs, the base's does
+  not) to approved.
+- `p5-ctrlo-wider-mod`: approved on both (the base already named the
+  modifier forms); `p5-ctrlo-wider-ri` `typed` and `erased` add no row of
+  their own -- the composer rows are the same bytes on both sides, `abQ`
+  and all -- and stay unresolved by the answer rows (`ri-run-pairing`).
+- `h1-resize` `small` and `large`, and `inline-fam` `resized`: unresolved,
+  the cause `resize-document-repaint` (RESIZE-REPAINT) on all three.
+
+**Gates** (`gates-f.txt`): below, the commit after this one.
+
 ## fx's count, read at the pin
 
 fx counts a line a display unit at a time (`displayUnitAt`,
@@ -447,12 +588,20 @@ for cell but on the answer's short row, which it wrote as the document's.
   decision, the cause `composer-drawn-wider` (owner COMPOSER-WIDER).
 
 **What starts showing as a token, where fx shows the glyph:** in an answer
-(round 2) and a prompt's row on Ctrl-O, and in a file's or a tool's line on
-Ctrl-O, ☝ ⛹ ✌ ✍ 🏋 🏌 🕴 🕵 🖐 without their U+FE0F (with it
-they stay), the two- and three-em dashes ⸺ ⸻, U+FE0F after a character that
-takes no emoji presentation (a letter, a space, a soft hyphen), and the tags
-U+E0002-E001F; in the review, the 417 regional-indicator pairs that are no
-flag (part 1).
+(round 2; a code panel's label too, CTRLO-WIDER-F) and a prompt's row on
+Ctrl-O, and in a file's or a tool's line on Ctrl-O, ☝ ⛹ ✌ ✍ 🏋 🏌 🕴 🕵 🖐
+without their U+FE0F (with it they stay) -- and with a skin-tone modifier,
+the base alone: ☝🏻 shows as `\u{261d}🏻`, ⛹🏼 as `\u{26f9}🏼`, 🖐🏾 as
+`\u{1f590}🏾`, the modifier itself as it is (CTRLO-WIDER-F,
+`p5-ctrlo-wider-mod`: every one of the nine reads whole on tmux and
+libghostty-vt, short and at the margin, in prose, a code panel and a
+table's cell; fx's raw forms lose glyphs on tmux -- seven of the nine at
+the margin lose digits of `5678` (`6 7` for the four BMP bases, `7` for
+three of the five others), and its table row loses
+U+1F574 to the cell's border -- `red-f.txt`) -- the two- and three-em dashes ⸺
+⸻, U+FE0F after a character that takes no emoji presentation (a letter, a
+space, a soft hyphen), and the tags U+E0002-E001F; in the review, the 417
+regional-indicator pairs that are no flag (part 1).
 
 Tests (`src/tui/full_transcript.rs`):
 `a_character_a_terminal_draws_wider_than_it_is_counted_is_named_in_a_files_line`
