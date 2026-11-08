@@ -1,4 +1,4 @@
-# python3 -I measure.py . <replay_ghostty built from replay_ghostty.c> --check xfx (fx v0.0.16; red = e6cde019; red2 = 88c2fec1, inline-fam only; xfx = the head, 340589af's code)
+# python3 -I measure.py . <replay_ghostty built from replay_ghostty.c> --check xfx (fx v0.0.16 and xfx = 08026927's code, the head after train 4, from the afa80eaf scenarios' sweep runs; red = e6cde019; red2 = 88c2fec1, inline-fam only, both with the fixed waits)
 
 ## p5-ctrlo-wider-diff-fam `full`
 

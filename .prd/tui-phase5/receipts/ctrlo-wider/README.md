@@ -201,9 +201,10 @@ lines 10-51) has every Ctrl-O file form, both four-U+261D ones included,
 the inline answer's and the composer's. This round's table says the same of
 the file forms.
 
-**(i)** `origin/main` was `e6cde019` when this round ended (2026-11-08):
-train 4, with FLAKE-HINT4's `until`, had not landed, so the scenarios keep
-their fixed waits (**Waits**, below, lists the `until` lines to swap in).
+**(i)** Train 4 (#80, `884497c0`), with FLAKE-HINT4's `until`, landed as
+round 2 ended: merged at `e7a2e041`, and the five scenarios wait on the
+screen since `08026927` (**Waits**, below). The pairs, the measure and the
+gates below were taken again after it (**After train 4**).
 
 **Pre-existing scenarios.** Round 2's code changes a row only where its
 text holds one of the 43 (`drawn_wider_named` returns the text it was
@@ -212,6 +213,47 @@ one but the five here and `p5-transcript-diffwrap2`'s U+FE0F right after a
 tab, in a file's line, which `drawn_wider_named` leaves as it is (every
 file under `scripts/fxcap/scenarios/` read, JSON escapes decoded).
 
+
+## After train 4
+
+Train 4 (#80) merged into main as `884497c0` while round 2 ended; merged
+here at `e7a2e041` (no conflict), then `08026927` (the `until` waits,
+**Waits**), `2f15923b` (the ledger's `shell.rs` lines, which the merge moved
+by three) and `afa80eaf` (two waits that held only where the head wraps).
+No `src/` change of this unit's after the merge; the code is `08026927`'s.
+
+**Pairs** (`pairs-train4.txt`; `sweep-train4-base.md`,
+`sweep-train4-head.md`): the five swept alone under `suite-lock.sh` with the
+`afa80eaf` scenarios, on main (`884497c0`) and on `08026927`'s code, scored
+with the ledger at `2f15923b`. Pass: 7 of 17 on main, 8 on the head; every
+`until` came on both binaries of both sweeps. The same verdicts as before
+the merge, pair for pair (**Pairs, round 2**, with `e6cde019` for the base).
+
+| scenario | snap | base (884497c0), rows differing | head (08026927), rows differing | head's rows covered by |
+|---|---|---|---|---|
+| p5-ctrlo-wider-diff | closed | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff | edited | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff | full | unresolved-defect (16) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | closed | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | edited | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | full | normalized-identical (0) | approved-divergence (14) | ctrl-o-drawn-wider-named |
+| p5-ctrlo-wider-inline | answer | unresolved-defect (8) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline | composer | unresolved-defect (8) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline | margin | unresolved-defect (12) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline-fam | answer | unresolved-defect (1) | approved-divergence (11) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | composer | unresolved-defect (1) | approved-divergence (11) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | ctrlo | normalized-identical (0) | approved-divergence (12) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | ctrlo-resized | normalized-identical (0) | approved-divergence (8) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | margin | unresolved-defect (2) | approved-divergence (12) | answer-drawn-wider-named, inline-band-row-anchor |
+| p5-ctrlo-wider-inline-fam | prompt | unresolved-defect (2) | approved-divergence (12) | answer-drawn-wider-named, inline-band-row-anchor |
+| p5-ctrlo-wider-inline-fam | resized | unresolved-defect (23) | unresolved-defect (23) | answer-drawn-wider-named, inline-band-row-anchor |
+| p5-ctrlo-wider-ri | answer | unresolved-defect (3) | unresolved-defect (3) | - |
+
+**Measure**: `measure.txt` is now the head sweep's captures (fx and
+`08026927`'s code, the `until` scenarios; `fx/`, `xfx/`): 0 forms not
+whole, every form's verdict the same as before the merge on every build.
+
+**Gates**: `gates-train4.txt` (**Gates**, below).
 
 ## fx's count, read at the pin
 
@@ -390,7 +432,7 @@ for cell but on the answer's short row, which it wrote as the document's.
 **The decision, by surface:**
 - **Ctrl-O, a file's or a tool's line** (diff rows, a call's argument,
   result and output): named, `\u{261d}` (`drawn_wider_named`,
-  `src/tui/full_transcript.rs:2596`), as the review names them
+  `src/tui/full_transcript.rs:2615` at the head), as the review names them
   (`approval_view`'s `tamed`): an emoji base with its U+FE0F, a U+FE0F after
   one, a flag and a keycap stay; a scalar of no cells right after a tab,
   which the row's walker draws nowhere, stays as fx's does. Unsafe to copy:
@@ -432,24 +474,32 @@ round 2's:
 | `p5-ctrlo-wider-inline-fam` | part 2's in an answer (the short line; U+261D, U+2E3A, `a` U+FE0F, U+E0002 `z` at the margin, each before `TAIL5678`; four U+261D, 110 `w`, `TAIL`, 20 `w`, `END`), the short line typed and sent (its card), Ctrl-O, then the composer (four U+261D, 110 `w`, `TAIL`; 117 `w`, U+261D, `TAIL`), a resize to 140 columns and Ctrl-O again; `wire` for each | `answer`, `composer`, `prompt`, `ctrlo`, `margin`, `resized`, `ctrlo-resized` |
 | `p5-ctrlo-wider-ri` | Z U S (U+1F1FF U+1F1FA U+1F1F8) in an answer, short and before `TAIL5678` at the margin; `wire` | `answer` |
 
-**Waits.** The base has no `until` verb (capture.sh at `e6cde019` refuses
-an unknown verb, `scripts/fxcap/capture.sh:921`; it is FLAKE-HINT4's, not
-merged). These wait as `p5-transcript-diffwide2` does, every snap at least
-ten seconds after launch, past the full-access warning's four, with
-`xfx: wait 3` after the first wait as `composer-keys.cap` has it for a debug
-build's later launch. Once `until` is on main: `until gone Full access`
-before the first `type` of the two `diff` scenarios, `until shown Edited.`
-before `snap edited`, `until shown full detail` before `snap full`,
-`until gone full detail` before `snap closed`; in the two `inline`
-scenarios `until shown TAIL5678` (`TAIL`; `END` in `inline-fam`) before
-`snap answer` and `until shown end` before `snap composer`; in
-`inline-fam`, `until shown Spare.` before `snap prompt`, `until shown
-Response` before `snap ctrlo` and `snap ctrlo-resized`, `until gone
-Response` after each closing `C-o`, and `until shown TAIL` before `snap
-margin`; `snap resized` keeps its fixed wait (xfx's screen changes only in
-its band there, nothing a text can wait for); in `ri`,
-`until shown IL5678` before `snap answer` (`5678` on fx). Not swapped:
-**(i)**, above.
+**Waits.** Round 1 had no `until` verb (capture.sh at `e6cde019` refuses
+an unknown verb; it is FLAKE-HINT4's), so these waited as
+`p5-transcript-diffwide2` does, every snap at least ten seconds after
+launch, with `xfx: wait 3` for a debug build's later launch. Train 4
+(`884497c0`, merged at `e7a2e041`) brought it, and `08026927` swaps every
+snap's wait for the screen: the launch (`until shown Full access`, `until
+gone Full access` in the two `diff` scenarios; `until shown Run /help for
+commands` in the others), an answer's last text and then `until gone
+Generating (` (`Edited.`, `w🇦`, `END`, `Spare.`, `678`), the draft's
+first row or last (`until shown ┃ p1`, `┃ fam`, `┃ TAIL`; in `inline`'s
+`margin` the draft's first 113 cells, `┃`, 112 `w` and `a`), and Ctrl-O's
+footer (`until shown full detail` before its snap, `until gone full
+detail` after each closing `C-o`). Fixed waits stay in two places: one
+second between a `type` and its `Enter`, and two seconds after `resize
+40x140`, where xfx's screen changes only in its band and no text tells the
+repaint done.
+Round 1's list said `until shown end` before `snap composer`; an answer
+already on the screen holds `end` in both `inline` scenarios, so the
+draft's first row is waited for instead. And a text that is on one row only
+where the head wraps it is no wait for the base: on `884497c0` `inline`'s
+draft row reads `┃`, 112 `w`, `a` U+302E `a L` (it counts U+302E as one
+cell, the defect part 1 fixes) and `ri`'s answer row ends `TAIL5`, so
+`until shown ┃ TAIL` and `until shown 5678` timed out there and its sweep
+failed those two scenarios; `afa80eaf` waits on text every build draws (the first
+113 cells, `678`). `capfile.races` finds none, and `test-sweep.sh` passes
+(66 and 26 tests) after the merge.
 
 **Pairs** (`pairs.txt`):
 
@@ -604,7 +654,10 @@ never the worktree: all killed.
 - M11 a diff row is not named (a call's detail only): killed by a_character_a_terminal_draws_wider_than_it_is_counted_is_named_in_a_files_line
 
 **Round 2** (`mutants-r2.txt`): eleven more, on a `git clone --no-local` of
-`8e611525`, under `suite-lock.sh`: all killed.
+`8e611525`, under `suite-lock.sh`: all killed. M1-M11 again on the same
+clone after them, since `c5414ae0` rewrote `drawn_wider_named` (M7-M9's
+function, M10-M11's callers): every pattern still applied and all eleven
+were killed by the same tests (`mutants-r2.txt`, second block).
 
 - M12 the presenter writes an answer's event as it came: killed by an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written
 - M13 Ctrl-O's Response rows are not named: killed by an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written

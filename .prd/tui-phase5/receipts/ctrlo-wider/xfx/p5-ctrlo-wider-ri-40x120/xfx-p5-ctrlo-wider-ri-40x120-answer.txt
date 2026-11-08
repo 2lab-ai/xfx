@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-340589a [debug] · Run /help for commands
+x𝒇x v0.1.0-0802692 [debug] · Run /help for commands
 
 ┃ go
 
