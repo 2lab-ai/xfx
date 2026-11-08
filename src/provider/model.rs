@@ -1719,6 +1719,16 @@ impl StartedLoad {
     pub(crate) fn view(&self) -> LoadView {
         self.0.view.clone()
     }
+
+    /// The answer of a read that could not start -- for want of a thread or
+    /// of a runtime -- and when it arrived, its telling let go: for work that
+    /// tells it at once, with its answer to the ask that started it. `None`
+    /// for a read that started, which tells its own.
+    pub(crate) fn answer_unstarted(&mut self) -> Option<(Loaded, Instant)> {
+        // Dropped unpolled: a telling sends nothing until it is awaited.
+        drop(self.0.unstarted.take()?);
+        Some(self.0.taken())
+    }
 }
 
 impl CatalogReader {

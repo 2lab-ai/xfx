@@ -817,9 +817,10 @@ pub(crate) struct ControlChannel {
 pub(crate) trait CatalogAsker: Send + Sync {
     /// Starts the read `ask` is due for, or says what the band is told now
     /// instead -- the catalog as it is held, when the band waits on an answer
-    /// and no read is due (`crate::provider::model::LoadTrigger`). `None` when
-    /// a read is started, or one is on its way that will tell its own answer,
-    /// or the band waits on nothing.
+    /// and no read is due (`crate::provider::model::LoadTrigger`), or the
+    /// failure of a read that could not start. `None` when a read is
+    /// started, or one is on its way that will tell its own answer, or the
+    /// band waits on nothing.
     fn ask_catalog(&self, control: &ControlChannel, ask: CatalogAsk) -> Option<UiEvent>;
 }
 

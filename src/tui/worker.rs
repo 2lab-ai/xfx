@@ -4144,25 +4144,36 @@ fn telling(
        + 'static {
     move |catalog, retry, answered| {
         Box::pin(async move {
-            let answer = (catalog, retry);
-            // When it began does not change what is told.
-            let applied = Applied::of(&held, clock, &answer, answered, answered);
-            let event = if applied.refresh_failed(&answer) {
-                UiEvent::CatalogRefreshFailed {
-                    provider,
-                    retry: applied.refresh_retry,
-                    retry_at: applied.clock.not_before.unwrap_or(answered),
-                }
-            } else {
-                catalog_event_of(
-                    provider,
-                    &applied.catalog,
-                    applied.failure_retry,
-                    applied.clock.not_before,
-                )
-            };
+            let event = told_event(provider, &held, clock, &(catalog, retry), answered);
             bridge::send_terminal(&events, event).await;
         })
+    }
+}
+
+/// What the band is told of a read's `answer`, arrived at `answered`, given
+/// what the selector held when it began ([`telling`]).
+fn told_event(
+    provider: ProviderId,
+    held: &CatalogState,
+    clock: LoadClock,
+    answer: &crate::provider::model::Loaded,
+    answered: Instant,
+) -> UiEvent {
+    // When it began does not change what is told.
+    let applied = Applied::of(held, clock, answer, answered, answered);
+    if applied.refresh_failed(answer) {
+        UiEvent::CatalogRefreshFailed {
+            provider,
+            retry: applied.refresh_retry,
+            retry_at: applied.clock.not_before.unwrap_or(answered),
+        }
+    } else {
+        catalog_event_of(
+            provider,
+            &applied.catalog,
+            applied.failure_retry,
+            applied.clock.not_before,
+        )
     }
 }
 
@@ -4342,9 +4353,18 @@ impl CatalogAsks {
             .is_some_and(|held| seen.clock.due(held, ask.trigger, now));
         if due {
             let told = telling(*provider, events.clone(), seen.catalog.clone(), seen.clock);
-            if let Some(load) = reader.begin(told) {
+            if let Some(mut load) = reader.begin(told) {
+                // A read that could not start has its answer already: told
+                // now, with the answer to this ask, as upstream's interface
+                // reads the `.runtime` failure it completes at once on its
+                // next poll (`model_cache_runtime.zig:537-546@481104fd`) --
+                // not once the work is over and the selector takes it.
+                let unstarted = load.answer_unstarted();
                 seen.started.push(load);
-                return None;
+                let (answer, answered) = unstarted?;
+                let event = told_event(*provider, &seen.catalog, seen.clock, &answer, answered);
+                seen.on_its_way();
+                return Some(event);
             }
         }
         ask.awaited.then(|| {
