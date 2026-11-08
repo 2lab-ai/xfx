@@ -31,7 +31,7 @@ tags: [xfx, tui, phase5, fx-0.0.16, transcript, submit]
 
 ## What fx does (`fx-src.txt`, `fx-trace.txt`)
 
-`fx-src.txt` quotes every line cited here, by block (F1 to F7).
+`fx-src.txt` quotes every line cited here, by block (F1 to F8).
 
 - **When.** A submitted prompt is a pending submission (`awaiting_frame`).
   The first frame after Enter paints its card's *tail*. When that frame
@@ -39,8 +39,11 @@ tags: [xfx, tui, phase5, fx-0.0.16, transcript, submit]
   transcript. The next frame shows the card
   (`noteCommittedFrame` -> `adoptPendingSubmission` ->
   `adoptPendingUserPrompt`, `input_submit_runtime.zig:289-307`, `:572-584`,
-  `src/main.zig:1234-1243`; F7). Only a prompt submitted when nothing is
-  running gets this path; a queued one is written when its turn starts.
+  `src/main.zig:1234-1243`; F7). Only a prompt submitted with no stream
+  open, no output paced and Ctrl-O shut, whose turn start the worker holds,
+  gets this path; any other is enqueued and its card waits for its turn
+  (`installPendingSubmission`, `input_submit_runtime.zig:1123-1150`; F8).
+  xfx's `send` already draws only such a card at once.
 - **How many rows.** The tail is the card's newest visual rows, at most
   `available_rows`, and at least one
   (`buildPendingCardProjection`, `app_render_runtime.zig:250-264`; F1):

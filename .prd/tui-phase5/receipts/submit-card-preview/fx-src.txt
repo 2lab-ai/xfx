@@ -401,3 +401,36 @@
  1277      pub fn notePendingFrameCommitted(self: *App) void {
  1278          InputSubmitRuntime.noteCommittedFrame(self);
  1279      }
+
+## F8: which prompts get the pending path at all: none while a stream is open, the pacer holds output or Ctrl-O is
+## open, or the worker will not hold the turn start (a turn running); those are enqueued and their card waits for the turn
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n '1123,1150p'
+ 1123          fn installPendingSubmission(
+ 1124              app: *App,
+ 1125              prompt: []const u8,
+ 1126              skill_tokens: []const registered_entities.SkillTokenSpan,
+ 1127          ) !PendingInstall {
+ 1128              if (comptime !@hasField(App, "submission") or
+ 1129                  !@hasField(App, "worker") or
+ 1130                  !@hasDecl(@TypeOf(app.worker), "tryHoldTurnStart") or
+ 1131                  !@hasDecl(@TypeOf(app.worker), "releaseTurnStartHold"))
+ 1132              {
+ 1133                  return .unavailable;
+ 1134              }
+ 1135              if (comptime @hasField(App, "stream")) {
+ 1136                  if (app.stream.active) return .unavailable;
+ 1137              }
+ 1138              if (comptime @hasField(App, "pacer") and
+ 1139                  @hasDecl(@TypeOf(app.pacer), "hasPending"))
+ 1140              {
+ 1141                  if (app.pacer.hasPending()) return .unavailable;
+ 1142              }
+ 1143              if (comptime @hasField(App, "shell") and
+ 1144                  @hasDecl(@TypeOf(app.shell), "fullTranscriptActive"))
+ 1145              {
+ 1146                  if (app.shell.fullTranscriptActive()) return .unavailable;
+ 1147              }
+ 1148              std.debug.assert(app.submission.pending == null);
+ 1149              if (!app.worker.tryHoldTurnStart()) return .unavailable;
+ 1150              errdefer app.worker.releaseTurnStartHold();
