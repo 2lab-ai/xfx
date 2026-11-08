@@ -551,11 +551,17 @@ mod tests {
         }
     }
 
+    /// The capture's run directory, as upstream's request named it. The
+    /// namespace (`skill:<hash>`) is a hash of the roots under it, so the
+    /// block is upstream's only for these bytes: a fixture that keeps a
+    /// local path's shape on purpose.
+    const BASE: &str = "/private/tmp/claude-501/fxcap.BElQiS"; // local-path-ok: upstream's bytes
+
     /// The capture's own skills and paths (`research/media-ext/cap/
     /// fx-skills-40x120-bodies/001-completion.json`), so the block is checked
     /// against the bytes upstream sent, namespace included.
     fn captured() -> Vec<Skill> {
-        let base = "/scratch/workdir/claude/fxcap.BElQiS";
+        let base = BASE;
         vec![
             skill(
                 "demo",
@@ -581,18 +587,19 @@ mod tests {
     #[test]
     fn the_block_is_upstreams_byte_for_byte() {
         let catalog = build(&captured(), &[], None);
+        let base = BASE;
         assert_eq!(
             catalog.text,
-            "Skills provide task instructions. Use named skills and clearly matching skills before substantive work.\n\
+            format!("Skills provide task instructions. Use named skills and clearly matching skills before substantive work.\n\
 Read selected skills completely, including required references. Descriptions may be shortened; metadata is not loaded instructions.\n\
 <available_skills>\n\
-Root 0: /scratch/workdir/claude/fxcap.BElQiS/work/.fx/skills\n\
-Root 1: /scratch/workdir/claude/fxcap.BElQiS/work/skills\n\
-Root 2: /scratch/workdir/claude/fxcap.BElQiS/home/.fx/skills\n\
+Root 0: {base}/work/.fx/skills\n\
+Root 1: {base}/work/skills\n\
+Root 2: {base}/home/.fx/skills\n\
 - demo: Demo workspace skill for the capture (location: skill:779085e8a24f238b:0/demo)\n\
 - release-notes: Write release notes from the git log (location: skill:779085e8a24f238b:1/release-notes)\n\
 - foo: A skill installed from a local directory (location: skill:779085e8a24f238b:2/foo)\n\
-</available_skills>\n"
+</available_skills>\n")
         );
         assert_eq!(catalog.notice, None);
         assert_eq!(catalog.diagnostic_notice, None);

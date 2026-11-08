@@ -488,7 +488,7 @@ mod tests {
             ]
         );
         menu.step(true, &entries);
-        assert!(rows(&menu)[6].starts_with("\u{276f} /private/tmp"));
+        assert!(rows(&menu)[6].starts_with("\u{276f} /scratch/workdir"));
         assert_eq!(
             menu.command(&entries),
             "/workspace remove /scratch/workdir/claude/fxcap.6JMQe1/extra"
