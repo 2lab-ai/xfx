@@ -2256,7 +2256,10 @@ impl FullTranscript {
                 return Rc::clone(wrapped);
             }
         }
-        // Let go of the old width's rows before wrapping for the new one.
+        // This cache's hold on the old width's rows goes before the new ones
+        // are wrapped. The entry's last layout (`Entry::drawn`) still holds
+        // them until `laid_out` replaces it, right after: while a resize is
+        // laid out, two widths' rows are held, then one.
         *kept = None;
         let line = &argument.line;
         let len = line.strip_suffix('\n').unwrap_or(line).len();
