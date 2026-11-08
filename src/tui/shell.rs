@@ -9227,13 +9227,16 @@ impl Shell {
             return;
         };
         compaction.settle(compaction::Feedback::Cancelled, Instant::now());
+        // A manual one's result: `idle` (`noteCompaction`,
+        // `src/ui/terminal/program_status.zig:80-96@481104fd`). Its sentence
+        // asks for its own frame: the tick's settle comes after the drain,
+        // and a row that changed is repainted ([`Self::tick_activity`]).
         if !compaction.automatic() {
             self.program_status
                 .compaction(program_status::of_compaction(
                     compaction::Feedback::Cancelled,
                 ));
         }
-        self.render.request(Reason::Footer);
     }
 
     /// A tool row's mark, in its place in the turn: behind what
@@ -43353,6 +43356,37 @@ mod tests {
             compaction_row(&mut shell, Instant::now()).as_deref(),
             Some("Compaction cancelled. Try /compact again when ready.")
         );
+    }
+
+    #[test]
+    fn a_compaction_dropped_unstarted_reports_idle_after_a_failed_ones_error() {
+        // `noteCompaction`: a manual compaction's cancel is `idle`
+        // (`src/ui/terminal/program_status.zig:80-96@481104fd`), and upstream's
+        // worker settles the one a stop drops from its queue
+        // (`worker_runtime.zig:1002-1021`). Typed and stopped in one read and
+        // dropped before the tick's drain, it never reports `working`, so
+        // only its own result moves the report off the failure before it.
+        let mut shell = with_a_turn();
+        shell.route_bytes(b"/compact\r");
+        let _ = shell.picks_up();
+        shell.settle_band(Instant::now());
+        assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Failed,
+        )));
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        assert_eq!(status_of(&mut shell).as_deref(), Some("error"));
+        shell.route_bytes(b"/compact\r\x03");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        shell.take_ui_events(|_| true);
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            compaction_row(&mut shell, Instant::now()).as_deref(),
+            Some("Compaction cancelled. Try /compact again when ready.")
+        );
+        assert_eq!(status_of(&mut shell).as_deref(), Some("idle"));
     }
 
     #[test]
