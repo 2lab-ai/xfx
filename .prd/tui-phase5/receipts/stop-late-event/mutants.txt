@@ -29,6 +29,18 @@
 26  KILLED    runtime: the log's failure on a stopped turn dropped                             tui::worker::tests::a_turns_end_says_a_stop_in_one_word_and_anything_else_in_its_own 
 27  KILLED    runtime: a compaction that compacted nothing ends the turn (the base)            tui::worker::tests::a_turns_end_says_a_stop_in_one_word_and_anything_else_in_its_own 
 
+## mutant 23's every failing test (the column above lists four), the same replacement on the clone at 06ca9f1a, the same command, run by hand after the round-3 slot (outside the lock)
+test tui::event_loop::tests::a_held_prompt_reports_nothing_until_its_turn_starts_and_nothing_if_it_never_does ... FAILED
+test tui::event_loop::tests::a_program_status_goes_out_before_the_frame_on_its_own_and_is_counted ... FAILED
+test tui::event_loop::tests::a_prompt_queued_behind_a_running_turn_writes_nothing_new_when_its_turn_starts ... FAILED
+test tui::event_loop::tests::a_prompt_the_runtime_drops_after_a_stop_reports_no_work ... FAILED
+test tui::event_loop::tests::a_refused_program_status_is_dropped_as_upstreams_is ... FAILED
+test tui::event_loop::tests::a_report_the_terminal_took_part_of_ends_the_session_and_the_restore_ends_the_string ... FAILED
+test tui::event_loop::tests::a_resume_writes_the_record_its_stop_cleared_again ... FAILED
+test tui::event_loop::tests::a_title_its_tick_asked_for_over_one_still_owed_follows_the_report ... FAILED
+test tui::event_loop::tests::a_title_its_own_tick_asked_for_follows_that_ticks_report ... FAILED
+test result: FAILED. 2768 passed; 9 failed; 5 ignored; 0 measured; 1650 filtered out
+
 ## the same clone unmutated at 06ca9f1a, the same command
 test result: ok. 2777 passed; 0 failed; 5 ignored; 0 measured; 1650 filtered out; finished in 22.88s
 

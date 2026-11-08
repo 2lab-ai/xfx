@@ -315,8 +315,12 @@ left it.
   same `.interrupted` commit as a stopped turn, `interruption.zig:197-223`). Every commit path
   derives the session's title (`ensureCachedSessionTitle`, `app_session_runtime.zig:2766-2769`,
   `:2781-2784`, `:2793-2795`). **So a compaction-stopped turn titles the session.**
-- After a compaction's failure, the branch returns its error without committing (`:7864-7865`), so
-  there is no title.
+- After a compaction's failure, **that branch** returns its error without committing
+  (`:7864-7865`). So there is no title from that branch for a turn with no partial answer and no
+  completed step. Whether a caller further out commits such a turn was not traced
+  (`fx-src.txt`, "Mutant 20"). A failed turn that does carry a partial answer or a completed step
+  is committed and titled (`interruption.zig:226-293`), which is STOP-NEXT's item "a failed turn's
+  title".
 - I read this from the code; the capture does not cover it.
 
 **Fix** (`8ad40741`, option (b), which does not depend on order):
@@ -429,9 +433,22 @@ Each is older than this unit or lies outside what one keystroke's bookkeeping ca
 - **The same-read card**: xfx's `Cancelled` frame shows the card of a prompt typed in the same read
   as the stop (`s03-exit`, `osc-stopnext.txt`: on `xfx/` `Cancelled`, then `second question`, then
   `working`); fx shows nothing of it until its worker takes it. The report order is the same.
-- **A stop while the cancel is still requested** (round 3): a second Ctrl-C after the first, or
-  one after an automatic compaction ended its turn, writes a `■ Cancelled` line. fx's keystroke
-  returns (`input_interrupt_runtime.zig:94`). This is older than this unit.
+- **A stop while the cancel is still requested** (round 3). This is a second Ctrl-C after the
+  first, or one after an automatic compaction ended its turn. fx's keystroke returns at
+  `input_interrupt_runtime.zig:94`. Older than this unit, xfx's keystroke does two things:
+  - It writes a `■ Cancelled` line.
+  - It sends the cancel again with `Cancel{through: accepted()}` (`shell.rs:12385-12387` at
+    `06ca9f1a`). That drops every prompt typed since the first stop, clears their entries
+    (`:12396`) and writes the queue notice.
+- **The leading title takes whatever title is owed** (round-3 reviews, opus SHOULD 2 and gpt6 NTH 1).
+  `title_leads` is set from `title_owed` (`shell.rs:4593`). A title another event of the same
+  drain owed, such as a `SessionTitled` read before the stopped turn's end in a session that already
+  had a title, would then lead the tick's report, where the tick's own titles follow it. Neither a
+  capture nor a test shows it.
+- **A stop and its turn's end in one tick** (round-3 review, opus). If the keystroke and the stopped
+  turn's end are read in the same tick, the stopped turn's title would go ahead of the stop's own
+  `idle`. fx's order is `idle`, the `Cancelled` frame, the title. This needs the runtime to finish a
+  stop within one tick, and no capture or test shows it.
 - **A finished turn's text read after the keystroke**: dropped by xfx (`Delta` under a cancel),
   presented by fx's drain, as its segment is no interrupted one [read from the code].
 - **A failed turn's title** (found by code mutant 20): fx keeps a failed turn that carries a partial
@@ -513,7 +530,11 @@ the receipt), on a `--no-local` clone. 2 of 5 fail:
   - All three `cargo test` runs pass in the round-3 slot (`gates.txt`, round 3). All-targets passes
     5338, fault-injection `tui` 192 and fault-injection `--lib` 4448, with 0 failed.
   - Every TUI library test passes on the `--no-local` clone unmutated: 2777 of 2777.
-  - `fmt` and `clippy` are clean.
+  - `fmt` and `clippy` are clean: `cargo fmt --check`, and `cargo clippy --locked --all-targets
+    -- -D warnings` without and with `--features fault-injection`. These ran at `6d2dc987` (code
+    `06ca9f1a`) in their own lock slot after round 3's, from a fresh target directory so that
+    neither clippy replayed a cached result (`gates.txt`, "round 3, fmt and clippy"). The
+    dispatcher's clean-tree gate at `6d2dc987` ran them too ("Gates", below).
 - **Wires** (`osc-all.txt`): every osc scenario, on four builds:
   - `red/`: the base, `e636db4`;
   - `base/`: `1230329`, the base with main `884497c0` merged in (L-U1+U2 and main, without this
@@ -557,7 +578,8 @@ unmutated, passes 2777 of 2777.
 The three round-3 rows on the title are killed as follows:
 - Mutant 22 (the title not marked to lead) and mutant 24 (the loop not handing the title over) are
   killed by `a_stopped_turns_title_goes_out_ahead_of_the_next_prompts_working`.
-- Mutant 23 (every owed title leads) fails 9 event-loop tests. Among them:
+- Mutant 23 (every owed title leads) fails 9 event-loop tests (all nine are listed in
+  `mutants.txt`, under the table). Among them:
   - `a_title_its_own_tick_asked_for_follows_that_ticks_report`: a finished turn's title would go
     ahead of its `done`;
   - `a_title_its_tick_asked_for_over_one_still_owed_follows_the_report`.
@@ -625,6 +647,15 @@ wire (above).
 | the osc wire check and `stopnext` ×3 | 47 pairs, 0 failing claims at the head; 4 pairs × 3 runs, 0 failing (`osc-all.txt`, `osc-stopnext.txt`) |
 | the 16 captures (14 scenarios, then `stopnext` twice more) | 16 of 16 exit 0 |
 | code mutants; the unmutated clone | 27 of 27 killed; 2777 of 2777 passed |
+| `cargo fmt --check`; both `clippy --all-targets -- -D warnings` (a later slot, a fresh target dir) | ok; 0 warnings without and with `fault-injection` |
+
+**The dispatcher's clean-tree gate at `6d2dc987`**, as the dispatcher reported it (its logs are not
+in this receipt):
+- all 20 steps exited 0, among them `fmt` and both clippys;
+- `cargo test` passed 5339 and 5376 with 0 failed;
+- `test-capture` passed 59 OK;
+- `smoke-tui` had 1168 checks and 0 failures;
+- the tree was unchanged by the run.
 
 **The tree was not clean for the whole slot.** A `refs.py --apply` against the wrong frame changed
 two test comments (`shell.rs:2706` and `:5816` re-pointed in an `event_loop.rs` and a `shell.rs`

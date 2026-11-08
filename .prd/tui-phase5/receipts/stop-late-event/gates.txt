@@ -222,3 +222,21 @@ event_loop.rs test comment and `shell.rs:5816` -> `:5843` in a shell.rs test com
   `xfx status`, and step 08's faulty build were built from a clean tree.
 - The mutants and the unmutated clone ran on a --no-local clone at the commit. Neither change is code, and the tree
   matched 06ca9f1a again from 06:11:34Z on (the files' mtime).
+
+## round 3, fmt and clippy: at 6d2dc987 (code 06ca9f1a), one suite-lock slot of their own, from a fresh CARGO_TARGET_DIR (<local-path>)
+# so neither clippy could replay an earlier result. While it ran, only receipt files under .prd were dirty
+# (dirty:  M .prd/tui-phase5/receipts/stop-late-event/README.md  M .prd/tui-phase5/receipts/stop-late-event/mutants.txt ; dirty outside .prd: 0).
+slot taken 07:26:48
+01 rc-selftest rc=1 0s 07:26:48
+02 fmt rc=0 3s 07:26:51
+03 clippy rc=0 43s 07:27:34
+04 clippy-fault rc=0 31s 07:28:05
+done 07:28:05
+02-fmt: cargo fmt --check, 0 bytes of output
+03-clippy: cargo clippy --locked --all-targets -- -D warnings: 0 warnings or errors; Compiling xfx v0.1.0 (<repo>); Finished `dev` profile [unoptimized + debuginfo] target(s) in 43.09s
+04-clippy-fault: the same with --features fault-injection: 0 warnings or errors; Compiling xfx v0.1.0 (<repo>); Finished `dev` profile [unoptimized + debuginfo] target(s) in 30.78s
+# (A first run in the shared target dir, 07:23:51Z, also passed, in 0s and 1s: replayed cached results.)
+
+## the dispatcher's clean-tree gate at 6d2dc987 (reported by the dispatcher; its logs are not in this receipt)
+all 20 steps rc=0: fmt, both clippys, cargo test 5339 passed / 0 failed and 5376 passed / 0 failed,
+fxcap test-capture 59 OK, smoke-tui 1168 checks / 0 failures; the tree unchanged by the run.
