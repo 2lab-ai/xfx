@@ -2308,6 +2308,41 @@ mod tests {
     }
 
     #[test]
+    fn a_call_row_with_a_long_argument_is_held_at_its_length() {
+        // GRID-ROW-COST, item 5: a call's row keeps its whole argument, and
+        // the reset written after it grew the row's buffer to twice the row --
+        // Ctrl-O's block held 12 MiB for a row of 6 (2 Mi U+261D, this unit's
+        // receipt, `memory.txt`). The bytes are the same row.
+        let pattern = "\u{261d}".repeat(1 << 16);
+        let mut group = ToolGroup::default();
+        group.start(
+            "g".into(),
+            shown(&read::GLOB_FILES, json!({ "pattern": pattern })),
+        );
+        group.start(
+            "r".into(),
+            shown(&read::READ_FILE, json!({ "path": "a.txt" })),
+        );
+        for rows in [group.expanded(DARK), group.rows(DARK)] {
+            let long = rows
+                .iter()
+                .max_by_key(|row| row.len())
+                .expect("the group's rows");
+            assert!(
+                long.len() > pattern.len(),
+                "the row does not hold the argument whole"
+            );
+            assert!(
+                long.capacity() < long.len() + long.len() / 8,
+                "a row of {} bytes held {}",
+                long.len(),
+                long.capacity()
+            );
+            assert!(strip(long).starts_with("\u{251c} "));
+        }
+    }
+
+    #[test]
     fn no_calls_row_hands_the_terminal_a_control_or_a_mark_at_any_width() {
         let group = unsafe_calls();
         for cols in [10u16, 24, 40, 80, 120] {

@@ -3264,6 +3264,26 @@ mod tests {
         FullTranscript::with_clock(fixed)
     }
 
+    #[test]
+    fn an_arguments_rows_are_held_at_their_count() {
+        // GRID-ROW-COST, item 5: Ctrl-O keeps an argument's rows for as long
+        // as its layout, and an argument of megabytes is a hundred thousand
+        // rows and more, laid line by line into a vector the growth leaves up
+        // to twice their size (6 MiB held for the rows of 2 Mi U+261D, this
+        // unit's receipt, `memory.txt`). The rows are the same rows.
+        let lines = format!("{}\n", "x\ty ".repeat(100)).repeat(3000);
+        let text: Rc<str> = Rc::from(format!("content: {lines}"));
+        let railed = Railed::new(Rc::clone(&text), text.len(), "  ", 120);
+        assert!(
+            railed.rows.len() > 6000,
+            "the repro's text is not long: {}",
+            railed.rows.len()
+        );
+        assert_eq!(railed.rows.capacity(), railed.rows.len());
+        assert!(!railed.tabs.is_empty());
+        assert_eq!(railed.tabs.capacity(), railed.tabs.len());
+    }
+
     /// Upstream's own cases (`transcript_blocks.zig:3220-3247`): a body row
     /// that opens with a tree branch stands under the notice's glyph, where
     /// every other row is two columns in, and the branch's own wrapped rows
