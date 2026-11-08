@@ -22884,7 +22884,7 @@ mod tests {
         shell.route_bytes(&[0x03]);
         shell.apply(UiEvent::Delta("word2 MARKER-TAIL".to_string()));
         shell.apply(UiEvent::TurnEnded {
-            failure: Some("xfx: the turn was cancelled".to_string()),
+            failure: Some("the turn was cancelled".to_string()),
         });
 
         let after = shell.released();
@@ -32451,7 +32451,7 @@ mod tests {
         let mut shell = shell(24, 80);
         shell.apply(UiEvent::Delta("part of an answer".to_string()));
         shell.apply(UiEvent::TurnEnded {
-            failure: Some("xfx: the turn was cancelled".to_string()),
+            failure: Some("the turn was cancelled".to_string()),
         });
 
         // An error under `system`, upstream's topic for a request that failed
@@ -45163,7 +45163,7 @@ mod tests {
         shell.settle_band(Instant::now());
         wire.push(status_of(&mut shell));
         shell.apply(UiEvent::TurnEnded {
-            failure: Some("xfx: the turn was cancelled".to_string()),
+            failure: Some("the turn was cancelled".to_string()),
         });
         shell.settle_band(Instant::now());
         wire.push(status_of(&mut shell));
@@ -45190,6 +45190,184 @@ mod tests {
     }
 
     #[test]
+    fn a_stopped_turn_whose_end_carries_a_real_failure_reports_it_as_upstream_does() {
+        // Upstream suppresses only the stop's own end. A stopped turn is
+        // finished `.interrupted` -- and an error after that, such as the
+        // interrupted turn's history failing to propagate, is still returned
+        // (`interruption.zig:208-223@481104fd`), as is any error that is not
+        // the cancellation (`orchestrator.zig:5957`). It leaves the worker as
+        // `request failed` under `system` (`app_process_runtime.zig:157-169`),
+        // which a cancelled drain still admits (`.error_text => .admit`,
+        // `app_worker_runtime.zig:386`) and which is `error`
+        // (`noteFailure`, `:1215`). Whether the end is read before the place
+        // comes back or after the band has settled without it.
+        for late in [false, true] {
+            let mut shell = running("stream please");
+            let mut wire = vec![status_of(&mut shell)];
+            shell.apply(UiEvent::Delta("a whole line\n".to_string()));
+            shell.flush_paced();
+            shell.route_bytes(&[0x03]);
+            wire.push(status_of(&mut shell));
+            if late {
+                shell.work.give_back();
+                shell.settle_band(Instant::now());
+            }
+            shell.apply(UiEvent::TurnEnded {
+                failure: Some("xfx: the session log could not be written: disk full".to_string()),
+            });
+            if !late {
+                shell.work.give_back();
+            }
+            shell.settle_band(Instant::now());
+            wire.push(status_of(&mut shell));
+            let after = shell.released();
+            let text = after.join("\n");
+            assert_eq!(
+                (
+                    wire,
+                    text.contains("system: the session log could not be written: disk full"),
+                    text.matches("\u{25a0} Cancelled").count()
+                ),
+                (
+                    vec![
+                        Some("working".to_string()),
+                        Some("idle".to_string()),
+                        Some("error".to_string())
+                    ],
+                    true,
+                    1
+                ),
+                "late {late}: the reports, the failure's line, the `Cancelled` lines: {after:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_stop_read_before_a_completed_turns_end_takes_the_runtimes_word() {
+        // The user stops a turn whose answer the runtime has already finished:
+        // its end, saying nothing failed, is still in the channel. Upstream's
+        // keystroke writes the `Cancelled` line while its stream is active
+        // (`cancelActiveOperation`, `input_interrupt_runtime.zig:91-127@481104fd`),
+        // but the turn was finished `.completed` and stays so: a second finish
+        // is ignored (`finalization.zig:126-136`), the batch that carries it
+        // is no interrupted segment (`batchSegmentIsInterrupted`,
+        // `app_worker_runtime.zig:301-325`; the worker holds no turn by then,
+        // `worker_runtime.zig:930-935`), so the turn's summary is written
+        // (`finishPromptPresentation`, `app_callbacks.zig:276-283`) and the
+        // result is `done` (`program_status.zig:62-64`).
+        let mut shell = running("first question");
+        let mut wire = vec![status_of(&mut shell)];
+        shell.apply(UiEvent::Delta("an answer\n".to_string()));
+        shell.flush_paced();
+        shell.route_bytes(&[0x03]);
+        wire.push(status_of(&mut shell));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        let after = shell.released();
+        assert_eq!(
+            (
+                wire,
+                after.iter().any(|row| row.starts_with("  0s")),
+                after.join("\n").matches("\u{25a0} Cancelled").count(),
+                shell.session_title.as_deref()
+            ),
+            (
+                vec![
+                    Some("working".to_string()),
+                    Some("idle".to_string()),
+                    Some("done".to_string())
+                ],
+                true,
+                1,
+                Some("first question")
+            ),
+            "the reports, a summary row, the `Cancelled` lines, the title: {after:?}"
+        );
+    }
+
+    #[test]
+    fn a_stopped_turn_whose_start_was_read_titles_the_session_as_upstream_does() {
+        // Upstream's stopped turn is still a turn of the history -- it is
+        // committed `.interrupted` (`interruption.zig:197-221@481104fd`) --
+        // and the session takes its title from it, as the stopnext capture's
+        // `]2;first question` after the stopped first turn shows. One whose
+        // end is a real failure is not one this surface can say was recorded,
+        // and titles nothing, as before.
+        let mut shell = running("first question");
+        shell.route_bytes(&[0x03]);
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the turn was cancelled".to_string()),
+        });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        let titled = shell.session_title.clone();
+
+        let mut failed = running("first question");
+        failed.route_bytes(&[0x03]);
+        failed.apply(UiEvent::TurnEnded {
+            failure: Some("xfx: the session log could not be written: disk full".to_string()),
+        });
+        failed.work.give_back();
+        failed.settle_band(Instant::now());
+        assert_eq!(
+            (titled.as_deref(), failed.session_title.as_deref()),
+            (Some("first question"), None),
+            "the stopped turn's title, the failed one's"
+        );
+    }
+
+    #[test]
+    fn a_prompt_sent_while_the_last_answer_is_still_paced_out_is_reported_on_its_keystroke() {
+        // Upstream does not hold a prompt as a pending submission while its
+        // pacer still holds text (`installPendingSubmission`,
+        // `input_submit_runtime.zig:1138-1142@481104fd`): it queues it at once
+        // (`:1112-1118`), which is busy (`queued_count`,
+        // `app_worker_runtime.zig:762-765`), so `working` is the next pass's,
+        // after the keystroke's frame and ahead of any frame that shows the
+        // prompt's turn -- not held for that frame.
+        let mut shell = running("go");
+        shell.apply(UiEvent::Delta("word ".repeat(400)));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        let _ = shell.take_status_moved_by_input();
+        let _ = status_of(&mut shell);
+        assert!(
+            shell.pacer.pending() > 0,
+            "the answer was released at once, so this proves nothing"
+        );
+        shell.route_bytes(b"next\r");
+        assert_eq!(
+            (shell.take_status_moved_by_input(), status_of(&mut shell)),
+            (Keyed::AfterFrame, Some("working".to_string())),
+            "the prompt's report waits for its turn's frame"
+        );
+    }
+
+    #[test]
+    fn a_prompt_sent_from_under_the_full_transcript_is_reported_on_its_keystroke() {
+        // Nor while the full transcript is open (`installPendingSubmission`,
+        // `input_submit_runtime.zig:1143-1147@481104fd`): the same queue, and
+        // the same `working` on the pass after the keystroke.
+        let mut shell = shell(24, 80);
+        let _ = status_of(&mut shell);
+        shell.route_bytes(b"\x0f");
+        assert!(shell.full.is_open(), "Ctrl-O opened no full transcript");
+        shell.route_bytes(b"next\r");
+        assert!(
+            matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "next"),
+            "the prompt was not sent"
+        );
+        assert_eq!(
+            (shell.take_status_moved_by_input(), status_of(&mut shell)),
+            (Keyed::AfterFrame, Some("working".to_string())),
+            "the prompt's report waits for its turn's frame"
+        );
+    }
+
+    #[test]
     fn a_stopped_turn_with_a_call_running_keeps_its_line_and_its_idle_through_a_late_end() {
         // The same window with a file call still running at the stop: the
         // turn's row and its `■ Cancelled` line wait for the turn's end
@@ -45209,7 +45387,7 @@ mod tests {
         wire.push(status_of(&mut shell));
         shell.apply(tool_result("c1", "read_file", true, ""));
         shell.apply(UiEvent::TurnEnded {
-            failure: Some("xfx: the turn was cancelled".to_string()),
+            failure: Some("the turn was cancelled".to_string()),
         });
         shell.settle_band(Instant::now());
         wire.push(status_of(&mut shell));

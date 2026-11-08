@@ -2516,6 +2516,9 @@ mod tests {
     /// held and not read.
     struct Fixture {
         shell: Shell,
+        /// The shell's work handle, shared: what the runtime's side does to
+        /// it -- a place given back, a turn's steering opened -- in a test.
+        handle: crate::tui::worker::WorkHandle,
         _work: tokio::sync::mpsc::Receiver<crate::tui::bridge::TurnWork>,
         _control: tokio::sync::mpsc::UnboundedReceiver<crate::tui::bridge::TurnControl>,
         // Kept for the fixture's life: a setting the shell saves goes into
@@ -2580,7 +2583,9 @@ mod tests {
         )
         .expect("load a configuration");
         let (work, _work, _control) = crate::tui::worker::WorkHandle::detached();
+        let handle = work.clone();
         Fixture {
+            handle,
             shell: Shell::new(
                 &config,
                 crate::tui::layout::solve(rows, cols, 1).expect("a band"),
@@ -13881,6 +13886,111 @@ mod tests {
         }
     }
 
+    const ERROR: &str = "\u{1b}]7501;state=error:app=xfx\u{1b}\\";
+
+    #[test]
+    fn a_steer_a_failed_compactions_turn_hands_on_is_reported_when_that_turn_ends() {
+        // A steer the turn never took is upstream's queued work: the finished
+        // turn's `finishProcessing` defers it to the next turn as a
+        // continuation (`worker_runtime.zig:1548-1551@481104fd`) and `busy`
+        // counts it (`queued_count`, `app_worker_runtime.zig:762-765`). After
+        // an automatic compaction failed its turn (`error`), the steer the
+        // turn hands on is `working` on the next pass, ahead of the frame that
+        // shows its turn -- the compaction's failure and the turn's end each
+        // read on a tick of their own. (The frame that starts the steer's turn
+        // still shows the compaction's failure on the row, so the claim is
+        // the tick: `working` on the end's, not held for the start's.)
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.apply(UiEvent::TurnStarted);
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        let steering = shell.handle.steering();
+        steering.open();
+        shell.route_bytes(b"steer me\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.apply(UiEvent::Compaction(crate::tui::compaction::Update::Began {
+            automatic: true,
+        }));
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.apply(UiEvent::Compaction(
+            crate::tui::compaction::Update::Settled(crate::tui::compaction::Feedback::Failed),
+        ));
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(
+            out.reports().last().map(String::as_str),
+            Some(ERROR),
+            "{:?}",
+            out.reports()
+        );
+        steering.close();
+        let before = out.vectors.len();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.handle.give_back();
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        let ended = out.vectors.len();
+        shell.apply(UiEvent::TurnStarted);
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        let shown: Vec<_> = out.vectors[before..]
+            .iter()
+            .map(|vector| String::from_utf8_lossy(vector))
+            .collect();
+        let at = out.vectors[before..]
+            .iter()
+            .position(|vector| vector.as_slice() == WORKING.as_bytes())
+            .map(|at| before + at);
+        assert!(
+            at.is_some_and(|at| at < ended),
+            "the handed-on steer's working was held for its turn's start: {shown:?}"
+        );
+    }
+
+    #[test]
+    fn a_prompt_the_runtime_drops_after_a_stop_reports_no_work() {
+        // A prompt typed behind a running turn, the turn ended by the runtime
+        // and its place given back, then a stop the runtime reads before it
+        // takes the prompt: it drops the prompt (`Taken::Abandon`,
+        // `super::worker`'s `turn_loop`) and says nothing of it. Nothing runs,
+        // so nothing is reported as work -- as on the base, where the prompt's
+        // entry, left behind (STOP-NEXT), was held silent.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"first\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.apply(UiEvent::TurnStarted);
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"second\r");
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.handle.give_back();
+        shell.route_bytes(&[0x03]);
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(out.reports(), [IDLE, WORKING, IDLE]);
+        shell.handle.give_back();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        for _ in 0..3 {
+            shell.settle_band(Instant::now());
+            status_tick(&mut shell, &mut band, &mut out);
+        }
+        assert!(
+            !out.reports()[3..].iter().any(|report| report == WORKING),
+            "working with nothing running: {:?}",
+            out.reports()
+        );
+    }
+
     #[test]
     fn a_held_prompt_reports_nothing_until_its_turn_starts_and_nothing_if_it_never_does() {
         // A prompt the runtime has not started -- behind a provider switch, a
@@ -14704,6 +14814,7 @@ mod tests {
         .expect("load a configuration");
         let (work, _work, _control) = crate::tui::worker::WorkHandle::detached();
         let mut shell = Fixture {
+            handle: work.clone(),
             shell: Shell::new(
                 &config,
                 crate::tui::layout::solve(24, 120, 1).expect("a band"),
