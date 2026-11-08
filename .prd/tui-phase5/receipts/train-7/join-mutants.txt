@@ -1,0 +1,41 @@
+# join_mutants.py on a git clone --no-local at 29786ced; each run's timeout 900 s (build first, outside it)
+BASELINE T (unmutated): exit 0; test result: ok. 2871 passed; 0 failed; 5 ignored; 0 measured; 1660 filtered out; finished in 23.89s
+BASELINE J (unmutated): exit 0; test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4533 filtered out; finished in 13.14s
+KILLED T1 unit_at: a cluster keeps the spelling it took in (T-U4's rule) (src/tui/toolgroup.rs): 2 failed
+    tui::toolgroup::tests::a_unit_ends_before_a_spelling_whatever_joins_its_backslash
+    tui::toolgroup::tests::the_transcripts_row_cuts_a_spelled_argument_between_its_spellings
+    test result: FAILED. 2869 passed; 2 failed; 5 ignored; 0 measured; 1660 filtered out; finished in 23.62s
+KILLED T2 unit_at: a cluster ends before any `\` it took in, spelling or not (src/tui/toolgroup.rs): 2 failed
+    tui::toolgroup::tests::a_unit_of_the_row_is_a_cluster_or_a_spelling_with_what_joins_its_last_character
+    tui::toolgroup::tests::a_unit_ends_before_a_spelling_whatever_joins_its_backslash
+    test result: FAILED. 2869 passed; 2 failed; 5 ignored; 0 measured; 1660 filtered out; finished in 23.95s
+KILLED (hang) T3 unit_at: a cluster ends before its second character, whatever it is (T-U4-F's hang) (src/tui/toolgroup.rs): the tests ran past 900 s and were killed
+KILLED T4 unit_at: a spelling's unit ends at its last character, a mark after it left out (src/tui/toolgroup.rs): 1 failed
+    tui::toolgroup::tests::a_unit_of_the_row_is_a_cluster_or_a_spelling_with_what_joins_its_last_character
+    test result: FAILED. 2870 passed; 1 failed; 5 ignored; 0 measured; 1660 filtered out; finished in 24.57s
+KILLED T5 inline: each unit measured raw, not as spelled (src/tui/toolgroup.rs): 1 failed
+    tui::toolgroup::tests::the_transcripts_row_shows_at_every_width_what_the_whole_row_does_and_ctrl_o_the_whole
+    test result: FAILED. 2870 passed; 1 failed; 5 ignored; 0 measured; 1660 filtered out; finished in 24.39s
+KILLED T6 inline: the bound one cell short (`>=`) (src/tui/toolgroup.rs): 1 failed
+    tui::toolgroup::tests::the_transcripts_row_shows_at_every_width_what_the_whole_row_does_and_ctrl_o_the_whole
+    test result: FAILED. 2870 passed; 1 failed; 5 ignored; 0 measured; 1660 filtered out; finished in 24.97s
+KILLED T7 first_cluster: a printable ASCII byte is its own cluster even before a mark (src/tui/wrap.rs): 4 failed
+    tui::approval_view::tests::every_default_ignorable_code_point_in_text_is_named_and_an_agreed_emoji_kept
+    tui::full_transcript::tests::a_character_a_terminal_draws_wider_than_it_is_counted_is_named_in_a_files_line
+    tui::wrap::tests::painting_reads_the_clusters_graphemes_reads
+    tui::wrap::tests::the_first_cluster_is_the_segmentations_first_cluster
+    test result: FAILED. 2867 passed; 4 failed; 5 ignored; 0 measured; 1660 filtered out; finished in 24.39s
+KILLED T8 cluster_cells: any one-byte cluster below DEL, a control too, one cell (src/tui/wrap.rs): 5 failed
+    tui::frame::tests::a_tab_is_painted_as_the_cells_the_wrap_measured_it_at
+    tui::wrap::tests::a_printable_ascii_character_is_one_cell
+    tui::wrap::tests::a_tab_measures_the_cells_the_painter_writes_for_it
+    tui::wrap::tests::ascii_fast_path_never_claims_a_control_escape_or_unicode_byte
+    tui::wrap::tests::control_characters_cost_no_cells
+    test result: FAILED. 2866 passed; 5 failed; 5 ignored; 0 measured; 1660 filtered out; finished in 24.53s
+KILLED J1 the band drops a catalog answer read under a stop (held like late text, never presented) (src/tui/shell.rs): 1 failed
+    tui::event_loop::tests::a_catalog_answer_read_in_a_stops_window_reaches_the_band_and_leaves_the_stop_as_it_was
+    test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 4533 filtered out; finished in 13.15s
+KILLED J2 a turn's wait for a failed catalog's retry not raced against its stop (src/tui/worker.rs): 1 failed
+    tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number
+    test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 4533 filtered out; finished in 16.55s
+clone after: clean

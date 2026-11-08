@@ -1,0 +1,152 @@
+# MODELS-REASK mutants on a git clone --no-local of 0a14906f (the code head)
+# each: the change applied, `cargo test --locked --lib -- catalog backoff model column reask refresh retry revalidat hold` (timeout 900s), FAILED lines and the result line, then `git checkout -- .`
+## unmutated
+test result: ok. 449 passed; 0 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 6.98s
+=> baseline ok (7s)
+## A-no-backoff
+applied A-no-backoff in src/provider/model.rs
+test provider::model::tests::a_failure_holds_every_read_off_for_upstreams_backoff_which_doubles_to_five_minutes ... FAILED
+test provider::model::tests::a_refresh_that_fails_keeps_the_rows_says_so_and_is_tried_again_after_its_backoff ... FAILED
+test provider::model::tests::the_clock_decides_a_read_as_upstreams_begin_load_does ... FAILED
+test tui::worker::tests::a_catalog_request_answers_the_menu_and_never_the_document ... FAILED
+test tui::worker::tests::a_prompt_inside_a_failed_catalogs_backoff_reads_nothing_and_one_after_it_reads_again ... FAILED
+test tui::worker::tests::the_sessions_own_read_failing_mid_work_is_read_again_once_its_backoff_is_up ... FAILED
+test result: FAILED. 443 passed; 6 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 6.96s
+=> KILLED (19s)
+## B-no-doubling
+applied B-no-doubling in src/provider/model.rs
+test provider::model::tests::a_failure_holds_every_read_off_for_upstreams_backoff_which_doubles_to_five_minutes ... FAILED
+test provider::model::tests::the_clock_decides_a_read_as_upstreams_begin_load_does ... FAILED
+test tui::worker::tests::the_sessions_own_read_failing_mid_work_is_read_again_once_its_backoff_is_up ... FAILED
+test result: FAILED. 446 passed; 3 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 6.96s
+=> KILLED (20s)
+## C-no-cap
+applied C-no-cap in src/provider/model.rs
+test provider::model::tests::a_failure_holds_every_read_off_for_upstreams_backoff_which_doubles_to_five_minutes ... FAILED
+test provider::model::tests::the_clock_decides_a_read_as_upstreams_begin_load_does ... FAILED
+test result: FAILED. 447 passed; 2 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 6.93s
+=> KILLED (17s)
+## D-picker-no-floor
+applied D-picker-no-floor in src/provider/model.rs
+test provider::model::tests::a_held_catalog_is_read_again_by_the_menu_five_seconds_on_and_by_activity_five_minutes_on ... FAILED
+test tui::worker::tests::the_menu_over_a_held_catalog_reads_it_again_five_seconds_on_and_tells_the_new_rows ... FAILED
+test result: FAILED. 447 passed; 2 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 7.04s
+=> KILLED (16s)
+## E-never-stale
+applied E-never-stale in src/provider/model.rs
+test provider::model::tests::a_held_catalog_is_read_again_by_the_menu_five_seconds_on_and_by_activity_five_minutes_on ... FAILED
+test provider::model::tests::the_clock_decides_a_read_as_upstreams_begin_load_does ... FAILED
+test result: FAILED. 447 passed; 2 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 6.99s
+=> KILLED (14s)
+## F-failed-refresh-drops-rows
+applied F-failed-refresh-drops-rows in src/provider/model.rs
+test provider::model::tests::a_refresh_that_fails_keeps_the_rows_says_so_and_is_tried_again_after_its_backoff ... FAILED
+test result: FAILED. 448 passed; 1 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 7.03s
+=> KILLED (14s)
+## G-backoff-from-start
+applied G-backoff-from-start in src/provider/model.rs
+test provider::model::tests::a_background_read_counts_its_age_from_when_it_began_and_its_backoff_from_when_it_failed ... FAILED
+test tui::worker::tests::a_catalog_request_answers_the_menu_and_never_the_document ... FAILED
+test tui::worker::tests::the_sessions_own_read_failing_mid_work_is_read_again_once_its_backoff_is_up ... FAILED
+test result: FAILED. 446 passed; 3 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 7.33s
+=> KILLED (18s)
+## H-retry-hides-failure
+applied H-retry-hides-failure in src/provider/model.rs
+test provider::model::tests::a_held_catalog_is_read_again_by_the_menu_five_seconds_on_and_by_activity_five_minutes_on ... FAILED
+test provider::model::tests::a_refresh_that_fails_keeps_the_rows_says_so_and_is_tried_again_after_its_backoff ... FAILED
+test provider::model::tests::a_retry_reads_behind_the_failure_it_retries ... FAILED
+test tui::worker::tests::a_turn_waits_two_seconds_at_most_for_the_retry_behind_a_failed_catalog ... FAILED
+test result: FAILED. 445 passed; 4 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 7.05s
+=> KILLED (14s)
+## I-menu-no-revalidate
+applied I-menu-no-revalidate in src/tui/shell.rs
+test tui::shell::tests::enter_on_a_menu_row_with_levels_goes_on_into_the_effort_column ... FAILED
+test tui::shell::tests::the_menu_over_a_held_catalog_lists_its_rows_and_asks_the_runtime_to_read_it_again ... FAILED
+test result: FAILED. 447 passed; 2 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 7.29s
+=> KILLED (19s)
+## J-menu-asks-inside-hold
+applied J-menu-asks-inside-hold in src/tui/shell.rs
+test tui::shell::tests::a_model_inside_a_failures_backoff_opens_on_the_failure_says_xfx_retries_and_asks_nothing ... FAILED
+test tui::shell::tests::a_model_inside_a_failures_hold_opens_over_the_failure_and_asks_nothing ... FAILED
+test result: FAILED. 447 passed; 2 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 7.03s
+=> KILLED (25s)
+## K-prompt-no-activity
+applied K-prompt-no-activity in src/tui/shell.rs
+test tui::shell::tests::a_model_menu_asking_again_after_a_failed_read_mid_turn_is_control_and_takes_the_answer_when_it_lands ... FAILED
+test tui::shell::tests::a_prompt_past_a_failed_catalogs_backoff_asks_for_it_and_one_inside_asks_nothing ... FAILED
+test result: FAILED. 447 passed; 2 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 7.03s
+=> KILLED (18s)
+## L-activity-ignores-hold
+applied L-activity-ignores-hold in src/tui/shell.rs
+test tui::shell::tests::a_prompt_past_a_failed_catalogs_backoff_asks_for_it_and_one_inside_asks_nothing ... FAILED
+test tui::shell::tests::the_columns_frames_wait_out_a_failed_catalogs_backoff ... FAILED
+test tui::shell::tests::the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_its_hold_is_over ... FAILED
+test result: FAILED. 446 passed; 3 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 7.38s
+=> KILLED (23s)
+## T-retry-shows-loading
+applied T-retry-shows-loading in src/tui/shell.rs
+test tui::shell::tests::a_model_menu_asking_again_after_a_failed_read_mid_turn_is_control_and_takes_the_answer_when_it_lands ... FAILED
+test tui::shell::tests::the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_its_hold_is_over ... FAILED
+test tui::shell::tests::the_columns_frames_wait_out_a_failed_catalogs_backoff ... FAILED
+test result: FAILED. 446 passed; 3 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 7.43s
+=> KILLED (20s)
+## U-unstartable-not-retryable
+applied U-unstartable-not-retryable in src/provider/model.rs
+test provider::model::tests::a_read_that_could_not_start_says_upstreams_third_sentence ... FAILED
+test result: FAILED. 448 passed; 1 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 7.54s
+=> KILLED (23s)
+## M-refresh-note-ignored
+applied M-refresh-note-ignored in src/tui/shell.rs
+test tui::shell::tests::a_refresh_that_failed_keeps_the_rows_and_says_xfx_retries_automatically_in_the_notes_place ... FAILED
+test result: FAILED. 448 passed; 1 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 7.49s
+=> KILLED (15s)
+## N-menu-resets-mark
+applied N-menu-resets-mark in src/tui/model_menu.rs
+test tui::model_menu::tests::a_revalidated_catalog_keeps_the_tab_and_the_marked_model ... FAILED
+test result: FAILED. 448 passed; 1 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 9.51s
+=> KILLED (25s)
+## O-turn-no-retry-wait
+applied O-turn-no-retry-wait in src/tui/worker.rs
+test tui::worker::tests::a_turn_waits_two_seconds_at_most_for_the_retry_behind_a_failed_catalog ... FAILED
+test result: FAILED. 448 passed; 1 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 7.72s
+=> KILLED (24s)
+## P-turn-unbounded-wait
+applied P-turn-unbounded-wait in src/tui/worker.rs
+test tui::worker::tests::a_turn_waits_two_seconds_at_most_for_the_retry_behind_a_failed_catalog ... FAILED
+test result: FAILED. 448 passed; 1 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 12.13s
+=> KILLED (29s)
+## Q-work-asks-ignore-due
+applied Q-work-asks-ignore-due in src/tui/worker.rs
+test tui::worker::tests::the_sessions_own_read_failing_mid_work_is_read_again_once_its_backoff_is_up ... FAILED
+test result: FAILED. 448 passed; 1 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 7.07s
+=> KILLED (25s)
+## R-idle-ask-ignores-trigger
+applied R-idle-ask-ignores-trigger in src/tui/worker.rs
+test result: ok. 449 passed; 0 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 7.17s
+=> SURVIVED (14s)
+## S-old-sentence
+applied S-old-sentence in src/provider/model.rs
+test provider::model::tests::a_refresh_that_fails_keeps_the_rows_says_so_and_is_tried_again_after_its_backoff ... FAILED
+test provider::model::tests::a_gateway_failure_says_whether_asking_again_could_help ... FAILED
+test provider::model::tests::the_retryable_failure_sentences_say_xfx_retries_automatically ... FAILED
+test tui::model_menu::tests::the_states_before_and_without_rows ... FAILED
+test tui::shell::tests::a_failed_catalog_says_upstreams_retry_sentence_and_the_next_model_asks_again ... FAILED
+test tui::shell::tests::a_model_inside_a_failures_backoff_opens_on_the_failure_says_xfx_retries_and_asks_nothing ... FAILED
+test tui::shell::tests::a_model_inside_a_failures_hold_opens_over_the_failure_and_asks_nothing ... FAILED
+test tui::shell::tests::a_refresh_that_failed_keeps_the_rows_and_says_xfx_retries_automatically_in_the_notes_place ... FAILED
+test result: FAILED. 441 passed; 8 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 7.78s
+=> KILLED (19s)
+
+# again, after the case 765bbc4d added for R's survival: R, and R2 -- the same rule changed where the read is started, not only where it is prechecked
+## unmutated
+test result: ok. 450 passed; 0 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 7.05s
+=> baseline ok (14s)
+## R-idle-ask-ignores-trigger
+applied R-idle-ask-ignores-trigger in src/tui/worker.rs
+test result: ok. 450 passed; 0 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 7.04s
+=> SURVIVED (15s)
+## R2-idle-ask-reads-as-the-menu
+applied R2-idle-ask-reads-as-the-menu in src/tui/worker.rs
+test tui::worker::tests::a_prompt_over_a_held_catalog_reads_it_again_only_once_it_is_five_minutes_old ... FAILED
+test result: FAILED. 449 passed; 1 failed; 1 ignored; 0 measured; 3984 filtered out; finished in 7.34s
+=> KILLED (15s)

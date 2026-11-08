@@ -1,0 +1,7 @@
+# the launch wait then an early Ctrl-C
+gateway interrupt-words.json
+keep
+wait 0.5
+key C-c
+wait 3
+snap a

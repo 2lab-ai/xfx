@@ -1,0 +1,9 @@
+| family | head | base | unit-launch-settle | unit-launch-settle-r2 | unit-launch-settle-f | unit-models-reask | unit-stop-next-2 |
+|---|---|---|---|---|---|---|---|
+| p5-lifecycle-* | 28 / 69 | 28 / 69 | 28 / 69 | - | - | - | 28 / 69 |
+| model and catalog (model*, h1-models*, p5-input-model*) | 75 / 84 | 64 / 80 | 68 / 80 | 1 / 2 | - | 75 / 84 | - |
+| Ctrl-O (*ctrlo*, fulltranscript*) | 21 / 54 | 21 / 54 | 13 / 31 | - | - | - | - |
+| p5-transcript-* | 51 / 107 | 51 / 107 | 45 / 107 | - | - | - | - |
+| the cancel scenarios (interrupt*, question*) | 78 / 87 | 78 / 87 | 50 / 87 | - | - | - | - |
+| LAUNCH-SETTLE-F's (p5-esc-clear, p5-mcp-fail*, p5-mcp-menu-old, h1-models2) | 24 / 29 | 21 / 24 | 22 / 28 | 23 / 29 | 2 / 5 | 2 / 2 | - |
+| every scenario swept | 293 / 476 | 280 / 467 | 1102 / 1716 | 23 / 29 | 2 / 5 | 75 / 84 | 28 / 69 |

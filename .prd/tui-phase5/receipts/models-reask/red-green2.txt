@@ -1,0 +1,159 @@
+# RED at 92ad8f13: test(models-reask): RED -- a read that finds no runtime is told, and any answer lets activ
+test provider::model::tests::a_read_that_finds_no_runtime_tells_its_failure_as_every_read_tells_its_answer ... FAILED
+
+failures:
+
+--
+thread 'provider::model::tests::a_read_that_finds_no_runtime_tells_its_failure_as_every_read_tells_its_answer' panicked at src/provider/model.rs:3749:49:
+the read's failure was not told: Disconnected
+
+test tui::worker::tests::a_read_that_finds_no_runtime_tells_the_band_its_failure_and_is_read_again_past_its_backoff ... FAILED
+
+failures:
+
+--
+thread 'tui::worker::tests::a_read_that_finds_no_runtime_tells_the_band_its_failure_and_is_read_again_past_its_backoff' panicked at src/tui/worker.rs:16303:9:
+the band was not told the read's failure: []
+
+test tui::shell::tests::every_answer_lets_activity_ask_again_a_refresh_failure_over_a_failed_band_too ... FAILED
+
+failures:
+
+--
+thread 'tui::shell::tests::every_answer_lets_activity_ask_again_a_refresh_failure_over_a_failed_band_too' panicked at src/tui/shell.rs:45709:9:
+the answer left activity unable to ask again
+
+# RED at 38a96c55: test(models-reask): RED -- a read asked for mid-work that finds no runtime is told at once
+test tui::worker::tests::a_read_asked_for_mid_work_that_finds_no_runtime_is_told_at_once_and_once ... FAILED
+
+failures:
+
+--
+thread 'tui::worker::tests::a_read_asked_for_mid_work_that_finds_no_runtime_is_told_at_once_and_once' panicked at src/tui/worker.rs:16365:9:
+the menu was not told the read's failure while the work ran: []
+
+# RED at 3ad38109: test(models-reask): RED -- the band's activity clock is the runtime's, counted from the re
+test tui::shell::tests::rows_a_slow_read_brought_are_read_again_five_minutes_after_it_began ... FAILED
+
+failures:
+
+--
+thread 'tui::shell::tests::rows_a_slow_read_brought_are_read_again_five_minutes_after_it_began' panicked at src/tui/shell.rs:45802:9:
+assertion `left == right` failed: the prompt did not ask for rows five minutes past their read's start
+  left: []
+ right: [("activity", false)]
+test tui::shell::tests::a_refresh_that_failed_for_good_is_read_again_when_the_runtimes_clock_says ... FAILED
+
+failures:
+
+--
+thread 'tui::shell::tests::a_refresh_that_failed_for_good_is_read_again_when_the_runtimes_clock_says' panicked at src/tui/shell.rs:45828:9:
+activity did not ask when the runtime's clock said
+
+test tui::worker::tests::the_band_is_told_rows_are_due_again_five_minutes_after_their_read_began ... FAILED
+
+failures:
+
+--
+thread 'tui::worker::tests::the_band_is_told_rows_are_due_again_five_minutes_after_their_read_began' panicked at src/tui/worker.rs:16464:9:
+assertion `left == right` failed: CatalogLoaded { provider: Gateway, entries: [CatalogEntry { id: "anthropic/claude-opus-5", aliases: [], name: None, efforts: [], max_context: None, facts: ModelFacts { owned_by: None, released: 0, tool_use: false, image_input: false, max_output: None, fast: false, ultrafast: false } }] }
+  left: None
+ right: Some(Instant { tv_sec: 852048, tv_nsec: 592432958 })
+test tui::worker::tests::a_failed_refresh_is_due_again_when_the_runtimes_clock_says ... FAILED
+
+failures:
+
+--
+thread 'tui::worker::tests::a_failed_refresh_is_due_again_when_the_runtimes_clock_says' panicked at src/tui/worker.rs:16492:9:
+assertion `left == right` failed: CatalogRefreshFailed { provider: Gateway, retry: None, retry_at: Instant { tv_sec: 851756, tv_nsec: 630382666 } }
+  left: Some(Instant { tv_sec: 851756, tv_nsec: 630382666 })
+ right: Some(Instant { tv_sec: 852048, tv_nsec: 630382666 })
+# RED at 39ccc85d: test(models-reask): RED -- the image route waits for a failed catalog's retry once a turn
+test tui::worker::tests::a_request_carrying_tool_images_waits_for_the_retry_behind_a_failed_catalog ... FAILED
+
+failures:
+
+--
+thread 'tui::worker::tests::a_request_carrying_tool_images_waits_for_the_retry_behind_a_failed_catalog' panicked at src/tui/worker.rs:16640:9:
+assertion `left == right` failed: the request did not wait for the retry
+  left: Some("[Tool images were retained but not sent: xfx could not confirm image input support for this model (the model is not listed in the model catalog, or the catalog is unavailable). This can recover later in the session, so a retry may succeed; otherwise ask the user to attach the image directly.]\n")
+ right: None
+test tui::worker::tests::the_image_route_waits_two_seconds_at_most_and_once_a_turn ... FAILED
+
+failures:
+
+--
+thread 'tui::worker::tests::the_image_route_waits_two_seconds_at_most_and_once_a_turn' panicked at src/tui/worker.rs:16667:9:
+the request did not wait for the retry: 169.417µs
+
+test tui::worker::tests::a_prompts_images_wait_for_the_retry_behind_a_failed_catalog ... FAILED
+
+failures:
+
+--
+thread 'tui::worker::tests::a_prompts_images_wait_for_the_retry_behind_a_failed_catalog' panicked at src/tui/worker.rs:16712:9:
+assertion `left == right` failed: the prompt's images did not wait for the retry
+  left: Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")
+ right: None
+# GREEN at ba6670a8: test(models-reask): the catalog as held is told with the runtime's clock
+test provider::model::tests::a_read_that_finds_no_runtime_tells_its_failure_as_every_read_tells_its_answer ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.00s
+
+test tui::worker::tests::a_read_that_finds_no_runtime_tells_the_band_its_failure_and_is_read_again_past_its_backoff ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.05s
+
+test tui::shell::tests::every_answer_lets_activity_ask_again_a_refresh_failure_over_a_failed_band_too ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.00s
+
+test tui::worker::tests::a_read_asked_for_mid_work_that_finds_no_runtime_is_told_at_once_and_once ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.02s
+
+test tui::shell::tests::rows_a_slow_read_brought_are_read_again_five_minutes_after_it_began ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.00s
+
+test tui::shell::tests::a_refresh_that_failed_for_good_is_read_again_when_the_runtimes_clock_says ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.00s
+
+test tui::worker::tests::the_band_is_told_rows_are_due_again_five_minutes_after_their_read_began ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.04s
+
+test tui::worker::tests::a_failed_refresh_is_due_again_when_the_runtimes_clock_says ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.00s
+
+test tui::worker::tests::a_request_carrying_tool_images_waits_for_the_retry_behind_a_failed_catalog ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.12s
+
+test tui::worker::tests::the_image_route_waits_two_seconds_at_most_and_once_a_turn ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 2.02s
+
+test tui::worker::tests::a_prompts_images_wait_for_the_retry_behind_a_failed_catalog ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.13s
+
+# beside them at the head: the band's half of the no-runtime read, and the pins added after the fixes
+test tui::shell::tests::a_read_that_found_no_runtime_ends_the_menus_wait_and_activity_asks_again_past_its_hold ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.00s
+
+test provider::model::tests::activity_is_due_exactly_when_the_clock_says_it_is ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.00s
+
+test tui::worker::tests::the_historys_images_wait_at_the_image_route_and_not_at_the_turns_start ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 2.11s
+
+test tui::worker::tests::the_catalog_as_held_is_told_with_the_runtimes_clock ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4449 filtered out; finished in 0.00s
+

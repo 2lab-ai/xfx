@@ -1,0 +1,38 @@
+# MODELS-REASK: the inline column's frames read a failed catalog again only
+# past the failure's hold -- 5 s after the first failure in a row, 10 s after
+# the second (`failureBackoffMs`, `beginLoad`, `model_cache_runtime.zig:40-54`,
+# `:617`, `:621@481104fd`) -- where c1db9191 read it again a second after the
+# read that failed began; and the column says `unable to load models` while
+# that retry is on its way, the cache staying `.failed` (`:633-634`;
+# `app_render_runtime.zig:752-753`). Against each binary's own clock, not the
+# fake gateway's: the catalog is a body neither binary can read until the
+# `models2` line, rather than an outage counted from the gateway's start
+# (`modelsdown`, registry #19), and the launch read's failure is waited for on
+# the screen. `modelsdelay 1500` holds every answer a second and a half, so a
+# read is on its way long enough to be seen, and stamps the gateway log's
+# catalog lines with when they were asked. From the launch read's failure:
+# the column's first frame past 5 s reads again (6.5 s, the second failure,
+# held 10 s from its answer at 8 s); a frame inside that hold (11.5 s) reads
+# nothing, where c1db9191's one-second floor read the catalog back; one past
+# it (21.5 s) reads it back.
+models model-column-hold-bad.json
+modelsdelay 1500
+type /model
+key Space
+until shown unable to load models
+snap col-first
+wait 6.5
+type o
+wait 0.5
+snap col-retry
+wait 2.5
+models2 models.json
+wait 2
+key BSpace
+wait 3
+snap col-held
+wait 7
+type o
+until shown gpt-6-astra
+snap col-back
+gwlog

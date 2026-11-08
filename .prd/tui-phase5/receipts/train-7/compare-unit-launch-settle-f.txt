@@ -1,0 +1,8 @@
+pairs: reference 5, train 476, shared 5; only the reference: 0
+reference: 5 pairs, pass 2; normalized-identical 2, unresolved-defect 3
+train: 5 pairs, pass 2; normalized-identical 2, unresolved-defect 3
+verdicts moved: 0
+fx screens not the same in the two sweeps: 0
+xfx screens not the same in the two sweeps: 0
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 0

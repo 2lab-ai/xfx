@@ -1,0 +1,72 @@
+scripts/smoke-tui.sh cites src/tui/check.rs:1084 for what the oracle licenses (train 4: stale since 9acf15d1)
+  at the head: 4956:# licenses (`src/tui/check.rs:1084`), spelled out rather than imported for the
+  main src/tui/check.rs:1084: 
+tests/tui.rs cites src/tui/shell.rs:2015 for `Reason::ExternalDamage`
+  at the head: 9002:    // `Reason::ExternalDamage` (`src/tui/shell.rs:2015`) and answers nothing,
+  main src/tui/shell.rs:2015: changes: Option<LineChanges>,
+tests/tui.rs cites src/tui/shell.rs:2703 for `resize_pending || screen != geometry`
+  at the head: 8962:    // (`src/tui/shell.rs:2703`) is `resize_pending || screen != geometry`, and
+  main src/tui/shell.rs:2703: Some(Slot::Skills(menu)) => {
+tests/tui.rs cites tests/tui.rs:1191 for a case that clears the line
+  at the head: 2483:    // (`tests/tui.rs:1191,1654,1777,2103,4607,4803` all clear the line
+  main tests/tui.rs:1191: // log, a history or a lock kept under it would change the sandbox's tree.
+scripts/smoke-tui.sh cites shell.rs:2597 for one `editor.insert()` call
+  at the head: 11193:    # through one `editor.insert()` call (`shell.rs:2597`), which is one
+  main src/tui/shell.rs:2597: } else if more > 0 && padding == more + 1 {
+src/tui/event_loop.rs cites event_loop.rs:972-975 for the frame after a refused append not run (at 063fc66e, 2026-10-06: `if !commit_document(..)? { return Ok(()) }`); STOP-NEXT-2's re-point of main's `:959-962`, the head's lines below
+  at the head: 12714:    // it must not run at all (`event_loop.rs:972-975`). Nothing here caches a
+  main src/tui/event_loop.rs:959: // **Except what the primary plane already owed, which is paid before the
+  main src/tui/event_loop.rs:960: // plane changes hands.** One tick takes a *batch* of events
+  main src/tui/event_loop.rs:961: // ([`take_ui_events`]) and composes one frame afterwards, so the row a tool
+  main src/tui/event_loop.rs:962: // call put in the document and the question that follows it are both
+  head src/tui/event_loop.rs:972: // **Except what the primary plane already owed, which is paid before the
+  head src/tui/event_loop.rs:973: // plane changes hands.** One tick takes a *batch* of events
+  head src/tui/event_loop.rs:974: // ([`take_ui_events`]) and composes one frame afterwards, so the row a tool
+  head src/tui/event_loop.rs:975: // call put in the document and the question that follows it are both
+src/tui/event_loop.rs cites shell.rs:2706 for `InsertNewline`
+  at the head: 12613:        // Two `\n` (`InsertNewline`, `shell.rs:2706`) over three lines: this
+  main src/tui/shell.rs:2706: // The same, with the values in force.
+src/tui/shell.rs cites shell.rs:5816 for how the too-small assertions read it
+  at the head: 22578:        // how the existing too-small assertions read it (`shell.rs:5816`,
+  main src/tui/shell.rs:5816: self.open_models_with("");
+src/tui/wrap.rs cites check.rs:1689-1694 for the check handing wrap a segmented ASCII run
+  at the head: 2181:    // `check.rs:1689-1694` already hand it a single already-segmented ASCII
+  main src/tui/check.rs:1689: /// What the terminal's metadata is, as decoded.
+  main src/tui/check.rs:1690: fn of(model: &TerminalModel) -> Self {
+  main src/tui/check.rs:1691: Self {
+  main src/tui/check.rs:1692: plane: model.plane,
+  main src/tui/check.rs:1693: cursor_visible: model.cursor_visible,
+  main src/tui/check.rs:1694: shown_title: model.shown_title.clone(),
+src/tui/event_loop.rs cites transcript.rs:136 for `MAX_TAIL_ROWS` (256)
+  at the head: 12055:    /// `transcript.rs:136`'s `MAX_TAIL_ROWS` (256, private to that module and
+  main src/tui/transcript.rs:136: return;
+src/tui/event_loop.rs cites transcript.rs:505-531 for the transcript adopting only on `Landed::All`
+  at the head: 12711:    // (`transcript.rs:505-531` adopts only on `Landed::All`). So an append the
+  main src/tui/transcript.rs:505: }
+  main src/tui/transcript.rs:506: }
+  main src/tui/transcript.rs:507: }
+  main src/tui/transcript.rs:508: 
+  main src/tui/transcript.rs:509: /// One thing the document was told, in the shape it was told it.
+  main src/tui/transcript.rs:510: ///
+  main src/tui/transcript.rs:511: /// **Logical rather than visual, and that is the whole point of the queue.** A
+  main src/tui/transcript.rs:512: /// `Push` carries the text itself -- normalized, and with a carried CRLF
+  main src/tui/transcript.rs:513: /// already resolved, because both of those are answers about the *stream* and
+  main src/tui/transcript.rs:514: /// the stream is gone by the time the rows are measured. Nothing here knows how
+  main src/tui/transcript.rs:515: /// wide the screen is; that question is asked once, at the moment the terminal
+  main src/tui/transcript.rs:516: /// is offered the rows ([`Transcript::emit_front`]).
+  main src/tui/transcript.rs:517: enum Op {
+  main src/tui/transcript.rs:518: /// This text arrived, and what it is. Never empty: an operation that adds
+  main src/tui/transcript.rs:519: /// no bytes would ask the terminal for nothing and is not queued at all.
+  main src/tui/transcript.rs:520: Push(String, Role),
+  main src/tui/transcript.rs:521: /// The same for a text made of runs that mean different things, with the
+  main src/tui/transcript.rs:522: /// runs beside it ([`Transcript::queue_push_runs`]). One operation, so the
+  main src/tui/transcript.rs:523: /// line it writes lands once rather than once per part.
+  main src/tui/transcript.rs:524: Runs(String, Roles),
+  main src/tui/transcript.rs:525: /// The line ended. Carries no bytes of its own and is queued anyway,
+  main src/tui/transcript.rs:526: /// because it is a **state transition**: the line it closes stops being
+  main src/tui/transcript.rs:527: /// rewritable, and the text after it starts a row of its own.
+  main src/tui/transcript.rs:528: EndLine,
+  main src/tui/transcript.rs:529: /// Lines from here on carry this gutter. Queued only at a line boundary
+  main src/tui/transcript.rs:530: /// ([`Transcript::queue_gutter`]), so no row already on the screen is
+  main src/tui/transcript.rs:531: /// re-prefixed.
+11 references, each naming other code on main

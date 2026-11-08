@@ -586,7 +586,12 @@ class Capfile(unittest.TestCase):
         for cap, want in (
             # p5-transcript-records before FLAKE-HINT4: `wait 4`, `snap start`.
             (YOLO + "env TZ=UTC\nwait 4\nsnap start\n", both),
-            (YOLO + "wait 4\nuntil gone Full access\nsnap start\n", []),
+            # LAUNCH-SETTLE r2 (gpt6 NTH): an `until gone` over the warning a
+            # launch armed counts only once an `until shown` has seen it --
+            # gone on a look that may precede the first frame's warning says
+            # nothing, as `absent` there says nothing.
+            (YOLO + "wait 4\nuntil gone Full access\nsnap start\n", both),
+            (YOLO + "until shown Full access\nwait 4\nuntil gone Full access\nsnap start\n", []),
             (YOLO + "wait 2\nwait 1.5\nsnapfull start\n", [("fx", "snapfull start"), ("xfx", "snapfull start")]),
             # Before the window and after it.
             (YOLO + "wait 2.9\nsnap start\n", []),
@@ -601,8 +606,12 @@ class Capfile(unittest.TestCase):
             (YOLO + "wait 3.5\nuntil shown Full access\nsnap start\n", both),
             # `wire` and `bells` sleep 0.3 s each.
             (YOLO + "wait 2.5\nwire w\nbells b\nsnap start\n", both),
-            # A relaunch arms it again; `until gone` before it does not carry over.
-            (YOLO + "wait 1\nuntil gone Full access\nrelaunch\nwait 4\nsnap start\n", both),
+            # A relaunch arms it again: an `until gone` that counted it gone
+            # before does not carry over (LAUNCH-SETTLE-F, opus r2 SHOULD 2:
+            # an unseen `until gone` counts nothing since round 2, so the
+            # warning is seen first, and the relaunch is what makes this race).
+            (YOLO + "until shown Full access\nuntil gone Full access\nrelaunch\nwait 4\nsnap start\n", both),
+            (YOLO + "until shown Full access\nuntil gone Full access\nwait 4\nsnap start\n", []),
             # Each binary's own environment, and fx's other spelling.
             ("fx: env FX_PERMISSION_MODE=full-access\nwait 4\nsnap start\n", [("fx", "snap start")]),
             ("xfx: env XFX_PERMISSION_MODE=yolo\nfx: until gone Full access\nwait 4\nsnap start\n", [("xfx", "snap start")]),
@@ -613,7 +622,7 @@ class Capfile(unittest.TestCase):
 
     def test_a_line_that_takes_the_warnings_row_inside_its_window_is_refused(self):
         # interrupt-next-cmd before FLAKE-HINT4: a Ctrl-C 4.5 s after launch.
-        cc = self.YOLO + "wait 2\ntype run cmd\nkey Enter\nwait 2.5\n%skey C-c\nwait 7\ntype next\n"
+        cc = self.YOLO + "until shown Full access\nwait 2\ntype run cmd\nkey Enter\nwait 2.5\n%skey C-c\nwait 7\ntype next\n"
         self.assertEqual(self.raced(cc % ""), [("fx", "key C-c"), ("xfx", "key C-c")])
         self.assertEqual(self.raced(cc % "until gone Full access\n"), [])
         for line, want in (("type /model", True), ("key Escape", True), ("key -N 2 Escape", True),
@@ -681,6 +690,9 @@ class Capfile(unittest.TestCase):
         # FLAKE-HINT4 r2 (gpt6 MUST 1): `until gone Full access never-rendered`
         # is true while the warning is up.
         both = [("fx", "snap start"), ("xfx", "snap start")]
+        # Over the warning an `until shown` saw (neither `until gone` nor
+        # `absent` speaks for the one a launch armed unseen:
+        # test_absent_says_a_ctrl_c_armed_nothing).
         for line, want in (
             ("until gone Full access", []),
             ("until gone Full access never-rendered", both),
@@ -690,7 +702,7 @@ class Capfile(unittest.TestCase):
             ("absent Full access never-rendered", both),
         ):
             with self.subTest(line=line):
-                self.assertEqual(self.raced(self.YOLO + "wait 3.5\n%s\nsnap start\n" % line), want)
+                self.assertEqual(self.raced(self.YOLO + "until shown Full access\nwait 3.5\n%s\nsnap start\n" % line), want)
         hint = "key C-c\nwait 1.5\n%s\nwait 1\nsnap a\n"
         for line, want in (("absent press ctrl+c again to exit", []), ("absent press ctrl+c", True),
                            ("until gone press ctrl+c again to exit, please", True)):
@@ -710,11 +722,45 @@ class Capfile(unittest.TestCase):
         # Too soon to say anything: the hint may not be drawn yet.
         self.assertEqual(self.raced("key C-c\nabsent press ctrl+c again to exit\nwait 2.5\nsnap after\n"), both)
         self.assertEqual(self.raced("key C-c\nwait 0.5\nabsent press ctrl+c again to exit\nwait 2\nsnap after\n"), both)
-        self.assertEqual(self.raced(self.YOLO + "wait 2\nabsent Full access\nwait 2\nsnap a\n"), [("fx", "snap a"), ("xfx", "snap a")])
-        self.assertEqual(self.raced(self.YOLO + "wait 3\nabsent Full access\nwait 1\nsnap a\n"), [])
+        snap_a = [("fx", "snap a"), ("xfx", "snap a")]
+        # The warning a launch armed (opus r2 SHOULD 1): the check knows it is
+        # armed, so an `absent` that passes there looked where it was not yet
+        # drawn, however long after the launch; only the screen showing it
+        # (`until shown`) and then not (`until gone`, `absent`) counts it gone.
+        self.assertEqual(self.raced(self.YOLO + "wait 2\nabsent Full access\nwait 2\nsnap a\n"), snap_a)
+        self.assertEqual(self.raced(self.YOLO + "wait 3\nabsent Full access\nwait 1\nsnap a\n"), snap_a)
+        self.assertEqual(self.raced(self.YOLO + "wait 3.5\nabsent Full access\nsnap a\n"), snap_a)
+        self.assertEqual(self.raced(self.YOLO + "until shown Full access\nwait 0.5\nabsent Full access\nwait 3.5\nsnap a\n"), [])
+        # A relaunch arms it again, unseen.
+        self.assertEqual(self.raced("keep\n" + self.YOLO + "until shown Full access\nwait 1\nrelaunch\nwait 3\nabsent Full access\nwait 1\nsnap a\n"),
+                         snap_a)
+        # `until gone` is held to the same rule (gpt6 NTH): over a launch's
+        # warning unseen it counts nothing, nor right after the key that arms
+        # the hint; from the settle on, or once seen, it does.
+        self.assertEqual(self.raced(self.YOLO + "wait 3.5\nuntil gone Full access\nsnap a\n"), snap_a)
+        self.assertEqual(self.raced("key C-c\nuntil gone press ctrl+c again to exit\nwait 1\nsnap after\n"), both)
+        self.assertEqual(self.raced("key C-c\nwait 1.5\nuntil gone press ctrl+c again to exit\nwait 1\nsnap after\n"), [])
+        self.assertEqual(self.raced("key C-c\nuntil shown press ctrl+c again to exit\nuntil gone press ctrl+c again to exit\nwait 1\nsnap after\n"), [])
+        # A row an `until shown` saw is drawn: `absent` needs no settle after it.
+        self.assertEqual(self.raced("key C-c\nuntil shown press ctrl+c again to exit\nabsent press ctrl+c again to exit\nwait 2.5\nsnap after\n"), [])
         # Not while the row is paused: a hidden warning is not a spent one.
         menu = self.YOLO + "wait 1\ntype /model\nkey Escape\nabsent Full access\nwait 9\nsnap a\n"
-        self.assertEqual(self.raced(menu), [("fx", "snap a"), ("xfx", "snap a")])
+        self.assertEqual(self.raced(menu), snap_a)
+        menu = self.YOLO + "until shown Full access\nwait 1\ntype /model\nkey Escape\nabsent Full access\nwait 9\nsnap a\n"
+        self.assertEqual(self.raced(menu), snap_a)
+
+    def test_settle_is_an_allowance_for_a_key_only(self):
+        # A row a key arms may not be drawn yet just after the key: an
+        # `absent` that soon says nothing. The allowance is measured, and well
+        # inside the row's own time. A row only a launch arms has none: no
+        # `absent` speaks for it (above).
+        for timer in capfile.TIMERS:
+            with self.subTest(timer=timer.name):
+                if timer.keys:
+                    self.assertIsInstance(timer.settle, float)
+                    self.assertLess(timer.settle, timer.seconds)
+                else:
+                    self.assertIsNone(timer.settle)
 
     def test_an_until_shown_nothing_counted_armed_reaches_back_to_the_last_input(self):
         # opus SHOULD: a Shift-Tab is not counted, but it is input, and the
@@ -731,6 +777,21 @@ class Capfile(unittest.TestCase):
         for line in ("until shown Something else", "until gone Something else", "signal SIGCONT", "held"):
             with self.subTest(line=line):
                 self.assertEqual(self.raced(self.YOLO + "wait 1\n%s\nwait 1\nsnap a\n" % line), both)
+
+    def test_nodraw_is_the_harness_tests_own(self):
+        # LAUNCH-SETTLE r2 (opus SHOULD): `nodraw` skips the launch wait, so a
+        # scenario's first key could race the binary's start again. Only
+        # test_capture.py's stub binaries may use it; the check names any
+        # scenario that does, on the side it is for.
+        d = scratch()
+        with open(os.path.join(d, "t.cap"), "w") as f:
+            f.write("xfx: nodraw\nwait 1\nsnap a\n")
+        (unit,) = capfile.units(d)
+        self.assertEqual(capfile.harness_only(unit.reading("fx")), [])
+        (line,) = capfile.harness_only(unit.reading("xfx"))
+        self.assertIn("t (xfx): `nodraw`", line)
+        here = [line for u in capfile.units(os.path.join(HERE, "scenarios")) for side in ("fx", "xfx") for line in capfile.harness_only(u.reading(side))]
+        self.assertEqual(here, [], "\n".join(here))
 
     def test_each_timer_cites_both_binaries_sources(self):
         for timer in capfile.TIMERS:
@@ -999,6 +1060,15 @@ class Sweep(unittest.TestCase):
         self.assertIn("a snap or keystroke inside a timer's window, timed by a second count", r.stderr)
         self.assertIn("racy (xfx): `snap start` is 4.0 to 4.0 s after the full-access warning is armed", r.stderr)
         self.assertNotIn("racy (fx)", r.stderr)
+        self.assertFalse(os.path.exists(out), "nothing was captured")
+
+    def test_a_scenario_with_nodraw_runs_nothing(self):
+        with open(os.path.join(self.scen, "stub.cap"), "w") as f:
+            f.write("nodraw\nwait 1\nsnap a\n")
+        r, out = self.sweep("--fx", self.fx, "--pin-sha", self.sha)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("a verb only the harness's own tests use", r.stderr)
+        self.assertIn("stub (fx): `nodraw`", r.stderr)
         self.assertFalse(os.path.exists(out), "nothing was captured")
 
     def test_the_out_directory_is_outside_the_repository(self):

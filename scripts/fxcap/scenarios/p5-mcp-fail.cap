@@ -11,6 +11,17 @@ key Enter
 wait 2
 snap list
 key Enter
+# The server is tried at a 1 s backoff that doubles (src/mcp/runtime.rs:90),
+# near 1, 3, 7, 15 and 31 s; this Enter lands near the try at 15 s. The two
+# binaries answer its screen's tools request differently: xfx at once, from
+# the last try's failure (src/tui/mcp_menu.rs:786-791), `Its tools couldn't
+# load`; fx at its next try, so opened just after the one at 15 s it says
+# `Loading tools…` until the one at 31 s. `server-1` waits for the failure
+# row, which both reach, rather than snapping 3 s on (LAUNCH-SETTLE); the
+# difference itself is p5-mcp-fail-held's snap, a ledger cause of MCP-HOLD.
+until shown Its tools couldn't load
+# The try that answered may still be on its status row (fx says
+# `connecting` until it ends); the next is 16 s away.
 wait 3
 snap server-1
 key Escape

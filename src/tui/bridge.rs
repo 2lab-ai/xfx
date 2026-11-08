@@ -102,6 +102,14 @@ pub(crate) const DELTA_SLICE: usize = 64 * 1024;
 /// the turn rather than buffering an answer no one is reading.
 pub(crate) const UI_EVENTS: usize = 256;
 
+/// What a turn the user stopped ends with when the stop is all that ended it
+/// ([`UiEvent::TurnEnded`]): the runtime's one word for it, whichever layer
+/// read the cancellation first, so the band can tell the stop's own end --
+/// which it has already answered at the keystroke -- from a real failure
+/// that came after the stop, which upstream still reports
+/// (`interruption.zig:208-223`, `app_process_runtime.zig:157-169@481104fd`).
+pub(crate) const TURN_CANCELLED: &str = "the turn was cancelled";
+
 /// Something the runtime did that the UI has to show.
 ///
 /// Every `String` in here is text the UI will eventually place on a row, and
@@ -121,7 +129,16 @@ pub(crate) enum UiEvent {
     /// concluded turn holds is given back *after* its conclusion is sent
     /// (`super::worker`'s `turn_loop`), so a UI counting places would read
     /// either number depending on which thread ran last.
-    TurnStarted,
+    ///
+    /// `submission` is which piece of work this turn is: its place among
+    /// everything the UI ever submitted, counted from 1 -- the runtime's
+    /// `Queue::taken` once it has taken the item, which is the UI's
+    /// `WorkHandle::accepted` once it submitted it, the work channel having
+    /// one sender (`super::worker`). A stop quotes the same count
+    /// (`TurnControl::Cancel`'s `through`), so the UI can tell a turn the
+    /// runtime took before it read a stop, and stops, from one typed after it
+    /// -- without guessing from what it still holds.
+    TurnStarted { submission: usize },
     /// A fragment of the answer, in arrival order.
     Delta(String),
     /// A sentence the runtime adds to the answer about how it is being served
@@ -265,24 +282,48 @@ pub(crate) enum UiEvent {
     ///
     /// One event per load. The load happens on the runtime thread because it
     /// opens a socket, and the UI thread must never be the thread that waits.
+    ///
+    /// `due` is when activity -- a submitted prompt, a frame of the inline
+    /// column -- next owes these rows a read by the runtime's clock: the
+    /// refresh interval after the read that brought them **began**, as
+    /// upstream's `beginLoad` counts it (`expired`,
+    /// `model_cache_runtime.zig:609-611@481104fd`;
+    /// `crate::provider::model::LoadClock::activity_due`).
     CatalogLoaded {
         provider: crate::provider::ProviderId,
         entries: Vec<crate::provider::model::CatalogEntry>,
+        due: std::time::Instant,
     },
     /// The provider's catalog could not be read.
     ///
     /// No reason rides with it: what `/model`'s menu says is upstream's
     /// `Unable to load models.` -- or, for a failure asking again could
-    /// change, its `retry /model.` sentence, which `retry` names
+    /// change, its `xfx retries automatically.` sentence, which `retry` names
     /// (`crate::provider::model::CatalogRetry`). The selector remembers the
-    /// failure, so a `/model <id>` still applies the id as typed, and the next
-    /// `/model` asks again -- once a second has passed since `attempted`, when
-    /// the read that failed began, as upstream's model cache asks again
-    /// (`crate::provider::model::RETRY_FLOOR`).
+    /// failure, so a `/model <id>` still applies the id as typed, and the
+    /// model cache's next trigger reads it again -- the menu opening, a
+    /// prompt, the column's frame -- once `retry_at` has come: the end of the
+    /// hold the failure put on the next read, as upstream's backoff holds it
+    /// (`crate::provider::model::failure_backoff`).
     CatalogUnread {
         provider: crate::provider::ProviderId,
         retry: Option<crate::provider::model::CatalogRetry>,
-        attempted: std::time::Instant,
+        retry_at: std::time::Instant,
+    },
+    /// A read of the provider's catalog **behind the rows the band holds**
+    /// failed, and the rows stand (`applyFetchLocked`,
+    /// `model_cache_runtime.zig:969-975@481104fd`): the menu says `retry`'s
+    /// sentence in its note's place when asking again could change it
+    /// (`loadedCatalogStatusText`, `model_menu_presentation.zig:403-404`),
+    /// and activity reads again at `due`, by the runtime's clock: once the
+    /// failure's hold is over -- and, for a failure asking again could not
+    /// change, once the rows are the refresh interval old, counted from the
+    /// failed read's start (`beginLoad`, `model_cache_runtime.zig:609-623`;
+    /// `crate::provider::model::LoadClock::activity_due`).
+    CatalogRefreshFailed {
+        provider: crate::provider::ProviderId,
+        retry: Option<crate::provider::model::CatalogRetry>,
+        due: std::time::Instant,
     },
     /// What a **completed** turn's answering request read: the context
     /// meter's numerator.
@@ -317,7 +358,9 @@ pub(crate) enum UiEvent {
     /// (`crate::output::EventSink::recovered`): the row says so for a moment
     /// ([`super::retry::Row::Recovered`]).
     Recovered { attempt: u32 },
-    /// The turn is over, whichever way it went. **Terminal.**
+    /// The turn is over, whichever way it went. **Terminal.** `failure` is
+    /// `None` for a turn that finished, [`TURN_CANCELLED`] for one a stop
+    /// ended, and what went wrong otherwise.
     TurnEnded { failure: Option<String> },
     /// The conversation has been dropped: a [`TurnControl::Reset`] was acted
     /// on, and the next prompt opens a new session.
@@ -476,8 +519,9 @@ impl UiEvent {
     /// which hand it events the way the channel does.
     pub(crate) fn made_inert(self) -> Self {
         match self {
-            // No text at all: what it carries is the fact that it arrived.
-            Self::TurnStarted => Self::TurnStarted,
+            // No text at all: what it carries is the fact that it arrived,
+            // and a count.
+            Self::TurnStarted { submission } => Self::TurnStarted { submission },
             Self::Delta(text) => Self::Delta(inert_owned(text)),
             Self::Operational(text) => Self::Operational(inert_owned(text)),
             // `call_id` and `tool` are the registry's and the provider's, and
@@ -620,8 +664,13 @@ impl UiEvent {
             // on a port serves, so its ids, its display names and its effort
             // labels are all text the terminal would obey if it were let
             // through -- and they are about to be painted, one per row.
-            Self::CatalogLoaded { provider, entries } => Self::CatalogLoaded {
+            Self::CatalogLoaded {
                 provider,
+                entries,
+                due,
+            } => Self::CatalogLoaded {
+                provider,
+                due,
                 entries: entries
                     .into_iter()
                     .map(|entry| crate::provider::model::CatalogEntry {
@@ -641,11 +690,20 @@ impl UiEvent {
             Self::CatalogUnread {
                 provider,
                 retry,
-                attempted,
+                retry_at,
             } => Self::CatalogUnread {
                 provider,
                 retry,
-                attempted,
+                retry_at,
+            },
+            Self::CatalogRefreshFailed {
+                provider,
+                retry,
+                due,
+            } => Self::CatalogRefreshFailed {
+                provider,
+                retry,
+                due,
             },
             // Numbers. There is nothing here a terminal can be made to obey.
             Self::Usage { input } => Self::Usage { input },
@@ -962,6 +1020,43 @@ fn spelled_shown(shown: Shown) -> Shown {
     }
 }
 
+/// What asked the runtime for the catalog ([`TurnControl::Catalog`]): which
+/// of upstream's triggers, and whether the band waits on the answer -- it says
+/// `Loading models…` or `loading models...` until one comes -- or lists what
+/// it holds meanwhile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CatalogAsk {
+    pub(crate) trigger: crate::provider::model::LoadTrigger,
+    /// The band waits on an answer: one is told even when no read starts.
+    pub(crate) awaited: bool,
+}
+
+impl CatalogAsk {
+    /// `/model`'s menu opening over nothing it can list, waiting on the
+    /// answer.
+    pub(crate) const MENU: Self = Self {
+        trigger: crate::provider::model::LoadTrigger::PickerOpen,
+        awaited: true,
+    };
+    /// `/model`'s menu opening over the rows it lists meanwhile.
+    pub(crate) const REVALIDATE: Self = Self {
+        trigger: crate::provider::model::LoadTrigger::PickerOpen,
+        awaited: false,
+    };
+    /// A submitted prompt, or a frame of the column over rows it lists.
+    pub(crate) const ACTIVITY: Self = Self {
+        trigger: crate::provider::model::LoadTrigger::Activity,
+        awaited: false,
+    };
+    /// A frame of the inline column -- or `/settings`' rows, or `/fast`,
+    /// which read the rows too -- over nothing it can list, waiting on the
+    /// answer.
+    pub(crate) const AWAITED: Self = Self {
+        trigger: crate::provider::model::LoadTrigger::Activity,
+        awaited: true,
+    };
+}
+
 /// What the UI tells a turn that is already running.
 ///
 /// Unbounded and drained mid-turn: an answer to a question the turn is blocked
@@ -1080,23 +1175,27 @@ pub(crate) enum TurnControl {
     /// channel, so a title typed before a `/new` is the session the reset
     /// drops and one typed after it is the session the reset starts.
     Rename { title: String, announced: bool },
-    /// `/model`'s menu or its column wants the configured provider's model
-    /// catalog: told to the UI as it is when the runtime holds it, and read
-    /// otherwise -- read **again** after a read that failed, which is the
-    /// `retry /model.` the menu says -- with the answer told the moment it
-    /// arrives ([`UiEvent::CatalogLoaded`], [`UiEvent::CatalogUnread`]).
+    /// One of upstream's model-cache triggers ([`CatalogAsk`]): `/model`'s
+    /// menu opening, a submitted prompt, or a frame of the inline column. The
+    /// runtime reads the configured provider's catalog when that trigger is
+    /// due -- a first load, a failure past its backoff, rows the menu last
+    /// read five seconds ago or that are five minutes old
+    /// (`crate::provider::model::LoadTrigger`) -- and tells the answer the
+    /// moment it arrives ([`UiEvent::CatalogLoaded`],
+    /// [`UiEvent::CatalogUnread`], [`UiEvent::CatalogRefreshFailed`]);
+    /// otherwise it tells the catalog as it holds it, when the band waits on
+    /// an answer, and nothing when it does not.
     ///
     /// **A control message rather than work**, because upstream's is not
-    /// queued behind anything: opening the menu starts the load on a thread of
-    /// its own at once, a turn streaming or not (`ensureModelCache` from
-    /// `openModelBrowseCatalog`, `vercel-labs/fx@c1db9191
-    /// src/core/app/app_input_runtime.zig:2346-2349`; `startWarmup`,
-    /// `src/core/app/model_cache_runtime.zig:321-349`), and the open menu is
-    /// refreshed when it lands (`pollLoadTransition`, `:549-557`). The read
-    /// is a task beside whatever the runtime is doing
-    /// ([`crate::provider::model::CatalogReader`]), so the socket is still
-    /// not the UI thread's.
-    Catalog,
+    /// queued behind anything: the trigger starts the load on a thread of its
+    /// own at once, a turn streaming or not (`revalidateModelCache` from
+    /// `openModelMenu`, `src/core/app/app_input_runtime.zig:1897-1902
+    /// @481104fd`; `startWarmup`, `src/core/app/model_cache_runtime.zig:
+    /// 519-551`), and the open menu is refreshed when it lands
+    /// (`pollLoadTransition`, `:745-760`). The read is a task beside whatever
+    /// the runtime is doing ([`crate::provider::model::CatalogReader`]), so
+    /// the socket is still not the UI thread's.
+    Catalog(CatalogAsk),
     /// `/clear`, `/new` and `/reset`: everything [`Self::Cancel`] does, and
     /// then the conversation is dropped -- the recorder closed, the tool
     /// context's grants and read proofs with it -- so the next prompt opens a
@@ -1653,10 +1752,9 @@ impl UiEventSink {
             // kind is what a reader will be shown. An interrupted turn was
             // stopped on purpose; a broken pipe is a session that ended under
             // it.
-            Err(Stopped::Cancelled) => Err(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "the turn was cancelled",
-            )),
+            Err(Stopped::Cancelled) => {
+                Err(io::Error::new(io::ErrorKind::Interrupted, TURN_CANCELLED))
+            }
             Err(Stopped::UiGone) => Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
                 "the terminal session is gone",
@@ -2239,7 +2337,7 @@ mod tests {
             UiEvent::Notice(super::super::notice::Notice::neutral("", "n")),
             // A turn beginning is the *opposite* of one ending, and a drain
             // loop that stopped at it would leave before the answer.
-            UiEvent::TurnStarted,
+            UiEvent::TurnStarted { submission: 1 },
         ] {
             assert!(!event.is_terminal(), "{event:?} ended the turn");
         }
@@ -2684,6 +2782,7 @@ mod tests {
         // policy is applied at the channel rather than at the painter, so a
         // later reader of this event inherits it.
         let event = UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: crate::provider::ProviderId::Llmux,
             entries: vec![hostile_entry()],
         }
@@ -2897,6 +2996,7 @@ mod tests {
         assert!(!UiEvent::Usage { input: Some(1) }.is_terminal());
         assert!(!UiEvent::Output(crate::agent::tokens::Progress::Settled(2)).is_terminal());
         assert!(!UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: crate::provider::ProviderId::Gateway,
             entries: Vec::new()
         }
@@ -2904,7 +3004,13 @@ mod tests {
         assert!(!UiEvent::CatalogUnread {
             provider: crate::provider::ProviderId::Gateway,
             retry: None,
-            attempted: std::time::Instant::now(),
+            retry_at: std::time::Instant::now(),
+        }
+        .is_terminal());
+        assert!(!UiEvent::CatalogRefreshFailed {
+            provider: crate::provider::ProviderId::Gateway,
+            retry: None,
+            due: std::time::Instant::now(),
         }
         .is_terminal());
         assert!(!UiEvent::ProviderSelected {

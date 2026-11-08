@@ -1,0 +1,7 @@
+# The full-access warning after the launch wait (item 2): probe/zyolo.cap (yolo on each binary / gateway interrupt-words.json / until shown Full access / snap a) on b734d834's capture.sh, 40x120, three fresh copies each of fx v0.0.16 and xfx at b734d834. Run 2026-11-08 08:00. The 'until shown' line's first number is how long after the launch wait returned the warning was on the screen.
+fx run 1: exit 0 | up: a first frame after 0.15 s (3 looks)|until shown 'Full access': after 0.01 s, 0.02 s since launch|
+xfx run 1: exit 0 | up: a first frame after 0.98 s (15 looks)|until shown 'Full access': after 0.02 s, 0.04 s since launch|
+fx run 2: exit 0 | up: a first frame after 0.15 s (3 looks)|until shown 'Full access': after 0.01 s, 0.02 s since launch|
+xfx run 2: exit 0 | up: a first frame after 3.54 s (47 looks)|until shown 'Full access': after 0.01 s, 0.02 s since launch|
+fx run 3: exit 0 | up: a first frame after 0.16 s (3 looks)|until shown 'Full access': after 0.01 s, 0.02 s since launch|
+xfx run 3: exit 0 | up: a first frame after 1.14 s (17 looks)|until shown 'Full access': after 0.01 s, 0.02 s since launch|

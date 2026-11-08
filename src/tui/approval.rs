@@ -65,7 +65,7 @@ use super::approval_readiness::{ApprovalId, Disclosure};
 use super::approval_view::{
     blank, choice_rows, draft_cols, draft_column, scope_rows, subject_rows, Kind, Review, Styles,
 };
-use super::bridge::{park_on, send_ui, Cancellation, Stopped, TurnControl, UiEvent};
+use super::bridge::{park_on, send_ui, Cancellation, CatalogAsk, Stopped, TurnControl, UiEvent};
 use super::theme::Palette;
 use crate::permission::{ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse};
 
@@ -815,11 +815,13 @@ pub(crate) struct ControlChannel {
 /// it starts runs on a thread of its own as well
 /// (`crate::provider::model::CatalogReader`), and tells the band from there.
 pub(crate) trait CatalogAsker: Send + Sync {
-    /// Starts the read, or says what the band is told now instead -- the
-    /// catalog as it is held, or a failure asked about again too soon
-    /// (`crate::provider::model::RETRY_FLOOR`). `None` when the read is
-    /// started, or one is on its way that will tell its own answer.
-    fn ask_catalog(&self, control: &ControlChannel) -> Option<UiEvent>;
+    /// Starts the read `ask` is due for, or says what the band is told now
+    /// instead -- the catalog as it is held, when the band waits on an answer
+    /// and no read is due (`crate::provider::model::LoadTrigger`), or the
+    /// failure of a read that could not start. `None` when a read is
+    /// started, or one is on its way that will tell its own answer, or the
+    /// band waits on nothing.
+    fn ask_catalog(&self, control: &ControlChannel, ask: CatalogAsk) -> Option<UiEvent>;
 }
 
 /// A [`CatalogAsker`] lent to a [`ControlChannel`]: given back -- whatever
@@ -872,7 +874,7 @@ pub(crate) enum Deferred {
     /// [`TurnControl::Catalog`] read while work that could not start a read
     /// ran -- a provider switch, whose catalog is not yet the one to read --
     /// answered as soon as it is over.
-    Catalog,
+    Catalog(CatalogAsk),
 }
 
 impl ControlChannel {
@@ -903,13 +905,13 @@ impl ControlChannel {
     /// and handed back to the loop when nothing was lent. **A catalog request
     /// answers no question**: the question stays up. What the band is to be
     /// told now, if anything.
-    pub(crate) fn ask_catalog(&self) -> Option<UiEvent> {
+    pub(crate) fn ask_catalog(&self, ask: CatalogAsk) -> Option<UiEvent> {
         // Cloned out, so the lock is not held while it is asked.
         let asker = self.catalog.guarded().clone();
         match asker {
-            Some(asker) => asker.ask_catalog(self),
+            Some(asker) => asker.ask_catalog(self, ask),
             None => {
-                self.give_back(TurnControl::Catalog);
+                self.give_back(TurnControl::Catalog(ask));
                 None
             }
         }
@@ -966,8 +968,8 @@ impl ControlChannel {
     /// Puts a catalog request aside until the work that is running ends
     /// ([`Deferred::Catalog`]). **A catalog request answers no question**
     /// either.
-    pub(crate) fn defer_catalog(&self) {
-        self.deferred.guarded().push(Deferred::Catalog);
+    pub(crate) fn defer_catalog(&self, ask: CatalogAsk) {
+        self.deferred.guarded().push(Deferred::Catalog(ask));
     }
 
     /// Whether a `/rename` of the conversation the work is in is put aside
@@ -1283,8 +1285,8 @@ impl ApprovalPrompter for TuiPrompter {
                     // ([`ControlChannel::ask_catalog`]) -- and the question
                     // stays up. What the band is told instead, when it is told
                     // something now, goes from here.
-                    Some(TurnControl::Catalog) => {
-                        if let Some(answer) = self.control.ask_catalog() {
+                    Some(TurnControl::Catalog(ask)) => {
+                        if let Some(answer) = self.control.ask_catalog(ask) {
                             let _ = send_ui(&self.events, &token, answer).await;
                         }
                         continue;

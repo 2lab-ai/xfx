@@ -1,0 +1,79 @@
+# The RED tests of 8d074c47 over a2995eea's code (the protocol change; 8d074c47 adds tests only), in the worktree at 8d074c47, tree clean.
+# TMPDIR=<short> cargo test --locked --lib -- <the six names>
+
+
+running 6 tests
+test tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_is_that_turns ... FAILED
+test tui::shell::tests::a_covered_start_read_after_a_settle_cleared_the_stop_is_still_the_stops ... FAILED
+test tui::shell::tests::a_second_stop_while_the_first_is_requested_does_nothing ... FAILED
+test tui::event_loop::tests::a_prompt_typed_in_the_stops_read_shows_nothing_of_itself_until_its_turn_starts ... FAILED
+test tui::event_loop::tests::a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report ... FAILED
+test tui::event_loop::tests::a_turn_that_finished_before_a_stop_that_dropped_the_prompt_behind_it_is_done ... FAILED
+
+failures:
+
+---- tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_is_that_turns stdout ----
+
+thread 'tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_is_that_turns' (337766051) panicked at src/tui/shell.rs:45730:9:
+assertion `left == right` failed: the reports, the stopped turn's answer, a `system` line, the `Cancelled` lines, the first turn's summary above the second's card: [
+    "■ Cancelled · What can xfx do differently?",
+    "",
+    "  0s (↑2 ↓0)",
+    "",
+    "┃ \u{1b}[1msecond",
+    "",
+    "  MARKER-SECOND",
+    "",
+    "✗ system: the turn was cancelled",
+    "",
+]
+  left: ([Some("working"), Some("idle"), Some("working"), Some("error")], true, true, 1, true)
+ right: ([Some("working"), Some("idle"), Some("done"), Some("idle")], false, false, 1, true)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::shell::tests::a_covered_start_read_after_a_settle_cleared_the_stop_is_still_the_stops stdout ----
+
+thread 'tui::shell::tests::a_covered_start_read_after_a_settle_cleared_the_stop_is_still_the_stops' (337766049) panicked at src/tui/shell.rs:45786:9:
+assertion `left == right` failed: each end: a `system` line, the activity row, the summaries
+  left: [(true, true, false, true), (false, false, false, true)]
+ right: [(true, false, false, true), (false, false, false, true)]
+
+---- tui::shell::tests::a_second_stop_while_the_first_is_requested_does_nothing stdout ----
+
+thread 'tui::shell::tests::a_second_stop_while_the_first_is_requested_does_nothing' (337766050) panicked at src/tui/shell.rs:45844:9:
+assertion `left == right` failed: each: the `Cancelled` lines, a stop sent again, the prompts still waiting
+  left: [("a second stop", 2, true, 0), ("after a compaction's stop", 1, true, 0), ("after a compaction's failure", 1, true, 0)]
+ right: [("a second stop", 1, false, 1), ("after a compaction's stop", 0, false, 0), ("after a compaction's failure", 1, true, 0)]
+
+---- tui::event_loop::tests::a_prompt_typed_in_the_stops_read_shows_nothing_of_itself_until_its_turn_starts stdout ----
+
+thread 'tui::event_loop::tests::a_prompt_typed_in_the_stops_read_shows_nothing_of_itself_until_its_turn_starts' (337766046) panicked at src/tui/event_loop.rs:14152:9:
+assertion `left == right` failed: the stop's frame: a Cancelled line, the prompt; its turn: working ahead of its card. The stop: "\u{1b}]7501;state=idle:app=xfx\u{1b}\\\u{1b}[?2026h\u{1b}[?25l\u{1b}[20;1H\u{1b}[K\u{1b}[20;1H\u{1b}[38;5;252m■\u{1b}[0m \u{1b}[38;5;255mCancelled\u{1b}[0m · What can xfx do differently?\u{1b}[K\u{1b}[21;1H\u{1b}[K\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[1msecond question\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[22;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[K\u{1b}[24;1H\u{1b}[38;5;245mrun `xfx setup` · \u{1b}[0m\u{1b}[38;5;252mauto\u{1b}[0m\u{1b}[38;5;245m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h"; the turn: "\u{1b}]2;first question\u{7}\u{1b}]7501;state=working:app=xfx\u{1b}\\\u{1b}[?2026h\u{1b}[?25l\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[20;1H\u{1b}[38;5;252m• Thinking (0s)\u{1b}[0m\u{1b}[38;5;245m (↑4 ↓0)\u{1b}[22;1H\u{1b}[0m\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[K\u{1b}[24;1H\u{1b}[38;5;245mrun `xfx setup` · \u{1b}[0m\u{1b}[38;5;252mauto\u{1b}[0m\u{1b}[38;5;245m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h"
+  left: (true, true, false)
+ right: (true, false, true)
+
+---- tui::event_loop::tests::a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report stdout ----
+
+thread 'tui::event_loop::tests::a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report' (337766047) panicked at src/tui/event_loop.rs:14203:9:
+the model's title is not behind the tick's working: "\u{1b}]2;Named\u{7}\u{1b}]7501;state=working:app=xfx\u{1b}\\\u{1b}[?2026h\u{1b}[?25l\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[20;1H\u{1b}[38;5;252m• Thinking (0s)\u{1b}[0m\u{1b}[38;5;245m (↑2 ↓0)\u{1b}[22;1H\u{1b}[0m\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[K\u{1b}[24;1H\u{1b}[38;5;245mrun `xfx setup` · \u{1b}[0m\u{1b}[38;5;252mauto\u{1b}[0m\u{1b}[38;5;245m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h"
+
+---- tui::event_loop::tests::a_turn_that_finished_before_a_stop_that_dropped_the_prompt_behind_it_is_done stdout ----
+
+thread 'tui::event_loop::tests::a_turn_that_finished_before_a_stop_that_dropped_the_prompt_behind_it_is_done' (337766048) panicked at src/tui/event_loop.rs:14103:9:
+assertion `left == right` failed: the reports
+  left: ["\u{1b}]7501;state=idle:app=xfx\u{1b}\\", "\u{1b}]7501;state=working:app=xfx\u{1b}\\", "\u{1b}]7501;state=idle:app=xfx\u{1b}\\"]
+ right: ["\u{1b}]7501;state=idle:app=xfx\u{1b}\\", "\u{1b}]7501;state=working:app=xfx\u{1b}\\", "\u{1b}]7501;state=idle:app=xfx\u{1b}\\", "\u{1b}]7501;state=done:app=xfx\u{1b}\\"]
+
+
+failures:
+    tui::event_loop::tests::a_prompt_typed_in_the_stops_read_shows_nothing_of_itself_until_its_turn_starts
+    tui::event_loop::tests::a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report
+    tui::event_loop::tests::a_turn_that_finished_before_a_stop_that_dropped_the_prompt_behind_it_is_done
+    tui::shell::tests::a_covered_start_read_after_a_settle_cleared_the_stop_is_still_the_stops
+    tui::shell::tests::a_second_stop_while_the_first_is_requested_does_nothing
+    tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_is_that_turns
+
+test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 4438 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--lib`
+rc=101

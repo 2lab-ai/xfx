@@ -1,0 +1,23 @@
+# Item 6's other half: the test of 8ee259ae over c1c2fbd0's code (8ee259ae adds this test only), in the worktree at 8ee259ae, tree clean.
+# TMPDIR=<short> cargo test --locked --lib -- a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report
+
+
+running 1 test
+test tui::event_loop::tests::a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report ... FAILED
+
+failures:
+
+---- tui::event_loop::tests::a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report stdout ----
+
+thread 'tui::event_loop::tests::a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report' (338551828) panicked at src/tui/event_loop.rs:14221:9:
+the model's title behind the tick's working, read before the stopped end and after it: [(true, true, "\u{1b}]7501;state=working:app=xfx\u{1b}\\\u{1b}]2;Named\u{7}\u{1b}[?2026h\u{1b}[?25l\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[19;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[1mafter\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[19;1H\u{1b}[K\u{1b}[20;1H\u{1b}[38;5;252m• Thinking (0s)\u{1b}[0m\u{1b}[38;5;245m (↑2 ↓0)\u{1b}[0m\u{1b}[K\u{1b}[22;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[24;1H\u{1b}[38;5;245mrun `xfx setup` · \u{1b}[0m\u{1b}[38;5;252mauto\u{1b}[0m\u{1b}[38;5;245m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h"), (false, false, "\u{1b}]2;Named\u{7}\u{1b}]7501;state=working:app=xfx\u{1b}\\\u{1b}[?2026h\u{1b}[?25l\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[19;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[1mafter\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[19;1H\u{1b}[K\u{1b}[20;1H\u{1b}[38;5;252m• Thinking (0s)\u{1b}[0m\u{1b}[38;5;245m (↑2 ↓0)\u{1b}[0m\u{1b}[K\u{1b}[22;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[24;1H\u{1b}[38;5;245mrun `xfx setup` · \u{1b}[0m\u{1b}[38;5;252mauto\u{1b}[0m\u{1b}[38;5;245m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h")]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::event_loop::tests::a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4445 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--lib`
+rc=101

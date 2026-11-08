@@ -1,0 +1,34 @@
+# The sweep's selection, one --only glob a line, each with why (the README's Sweep).
+# The brief's families: every p5-lifecycle-* (STOP-NEXT-2's OSC 7501 and lifecycle
+# scenarios, its own sweep's selection), every model and catalog scenario
+# (MODELS-REASK's own sweep's selection), the Ctrl-O and transcript scenarios
+p5-lifecycle-*
+h1-models*
+model*
+p5-input-model*
+*ctrlo*
+p5-transcript-*
+fulltranscript*
+# every scenario a unit added or edited and the globs above miss
+# (`git diff --name-only fdc5ac0b HEAD -- scripts/fxcap/scenarios`: LAUNCH-SETTLE-F's
+# p5-esc-clear, p5-mcp-fail, p5-mcp-fail-held, p5-mcp-menu-old)
+p5-esc-clear
+p5-mcp-fail
+p5-mcp-fail-held
+p5-mcp-menu-old
+# the scenarios of every ledger entry the train changed (since fdc5ac0b) the globs
+# above miss, but the two '*' entries changed in their reference numbers only
+# (session-record, stats-bytes), which no sweep reads: amendment-card-after-stop,
+# call-row-page-edge, call-row-raw-argument, call-row-source-cut,
+# full-transcript-shift, resize-document-repaint
+approvals
+p5-call-row-*
+links
+read-failures
+resume-tools
+timeout
+h1-resize
+# T-U4-F's code path (the transcript row's cut: every call row, above) and
+# STOP-NEXT-2's (the stop): the cancel scenarios train 6 swept for T-U4's marker
+interrupt*
+question*

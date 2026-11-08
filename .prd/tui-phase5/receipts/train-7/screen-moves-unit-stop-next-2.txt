@@ -1,0 +1,19 @@
+snaps whose screen differs only in clock-like or run-local text: 3; otherwise: 23
+  of them, snaps where fx's screen moved at the same rows as xfx's: 7 snaps
+    p5-lifecycle-relhome h01-sessions.full: rows [42]
+    p5-lifecycle-relhome-made h02-sessions.full: rows [42]
+    p5-lifecycle-relhome-resume r00-resume.full: rows [42]
+    p5-lifecycle-update u00-update: rows [40]
+    p5-lifecycle-update u01-update-dev: rows [40]
+    p5-lifecycle-update u02-upgrade-json: rows [40]
+    p5-lifecycle-v1bad b02-launch-refused.full: rows [41]
+  snaps where xfx's screen moved alone or at other rows than fx's: 7
+    fx p5-lifecycle-osc s09-exit rows [29, 40]: [('Continue session with: fx --resume ruqJx8UVFJ0G', 'Continue session with: fx --resume WVIIWWK6r7Nk'), ('Pane is dead (status 0, Sun Nov  8 21:22:59 2026)', 'Pane is dead (status 0, Mon Nov  9 01:19:23 2026)')]
+    xfx p5-lifecycle-relhome-unsaved u02-status rows [24]: [('  Build             debug · 7d5e3d4bce73', '  Build             debug · 29786cede481')]
+    fx p5-lifecycle-relhome-unsaved u08-quit.full rows [56]: [('Pane is dead (status 0, Sun Nov  8 21:23:52 2026)', 'Pane is dead (status 0, Mon Nov  9 01:29:13 2026)')]
+    xfx p5-lifecycle-relhome-unsaved u08-quit.full rows [16, 56]: [('x𝒇x v0.1.0-7d5e3d4 [debug] · Run /help for commands', 'x𝒇x v0.1.0-29786ce [debug] · Run /help for commands'), ('Pane is dead (status 0, Sun Nov  8 21:24:13 2026)', 'Pane is dead (status 0, Mon Nov  9 01:29:33 2026)')]
+    fx p5-lifecycle-update u03-help.full rows [83]: [('Pane is dead (status 0, Sun Nov  8 21:22:52 2026)', 'Pane is dead (status 0, Mon Nov  9 01:21:17 2026)')]
+    xfx p5-lifecycle-update u03-help.full rows [45]: [('Pane is dead (status 0, Sun Nov  8 21:23:19 2026)', 'Pane is dead (status 0, Mon Nov  9 01:21:45 2026)')]
+    xfx p5-lifecycle-v1resume v01-resumed rows [40]: [('Pane is dead (status 1, Sun Nov  8 21:24:46 2026)', 'Pane is dead (status 1, Mon Nov  9 01:30:44 2026)')]
+    xfx p5-lifecycle-v1resume v01-resumed.full rows [42]: [('Pane is dead (status 1, Sun Nov  8 21:24:46 2026)', 'Pane is dead (status 1, Mon Nov  9 01:30:44 2026)')]
+    xfx p5-lifecycle-v1resume v02-continued rows [40]: [('Pane is dead (status 1, Sun Nov  8 21:24:46 2026)', 'Pane is dead (status 1, Mon Nov  9 01:30:44 2026)')]

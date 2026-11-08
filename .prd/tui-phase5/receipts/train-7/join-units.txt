@@ -1,0 +1,72 @@
+# join_units.sh in jobs-a.sh's hold of the suite lock (jobs-a.txt), the head 29786ced's three join-check-1 tests appended to each unit's tip
+## join check 1 on each unit alone
+== models-reask at 66854557 docs(receipt): models-reask round 2 -- the reviews' fixes, RED/GREEN, m
+src/tui/event_loop.rs: 247 lines appended
+src/tui/worker.rs: 230 lines appended
+src/tui/shell.rs: 127 lines appended
+build exit 101
+error[E0425]: cannot find value `TURN_CANCELLED` in module `super::super::bridge`
+     --> src/tui/event_loop.rs:14884:48
+error[E0425]: cannot find function `find` in this scope
+     --> src/tui/event_loop.rs:14910:28
+error[E0425]: cannot find function `find` in this scope
+     --> src/tui/event_loop.rs:14911:33
+error[E0425]: cannot find function `find` in this scope
+     --> src/tui/event_loop.rs:14912:29
+error[E0425]: cannot find value `TURN_CANCELLED` in module `super::super::bridge`
+     --> src/tui/shell.rs:45960:53
+error[E0425]: cannot find value `TURN_CANCELLED` in module `bridge`
+     --> src/tui/worker.rs:17183:43
+error[E0599]: no method named `start_turn` found for struct `event_loop::tests::Fixture` in the current scope
+     --> src/tui/event_loop.rs:14832:23
+error[E0609]: no field `handle` on type `event_loop::tests::Fixture`
+     --> src/tui/event_loop.rs:14892:23
+error[E0559]: variant `tui::bridge::UiEvent::TurnStarted` has no field named `submission`
+     --> src/tui/shell.rs:45965:48
+error[E0026]: variant `tui::bridge::UiEvent::TurnStarted` does not have a field named `submission`
+     --> src/tui/worker.rs:17154:48
+error: could not compile `xfx` (lib test) due to 10 previous errors
+error: could not compile `xfx` (lib test) due to 10 previous errors
+clone restored: clean
+== stop-next-2 at f8d625c3 docs(prd): STOP-NEXT-2 round 2's gate
+src/tui/event_loop.rs: 247 lines appended
+src/tui/worker.rs: 230 lines appended
+src/tui/shell.rs: 127 lines appended
+build exit 101
+error[E0433]: cannot find `CatalogAsk` in `bridge`
+     --> src/tui/event_loop.rs:15693:45
+error[E0433]: cannot find `CatalogAsk` in `bridge`
+     --> src/tui/event_loop.rs:15760:41
+error[E0422]: cannot find struct, variant or union type `FailsThenGated` in this scope
+     --> src/tui/worker.rs:16252:44
+error[E0559]: variant `tui::bridge::UiEvent::CatalogUnread` has no field named `retry_at`
+     --> src/tui/event_loop.rs:15677:21
+error[E0618]: expected function, found `tui::bridge::TurnControl`
+     --> src/tui/event_loop.rs:15692:37
+error[E0559]: variant `tui::bridge::UiEvent::CatalogLoaded` has no field named `due`
+     --> src/tui/event_loop.rs:15721:29
+error[E0618]: expected function, found `tui::bridge::TurnControl`
+     --> src/tui/event_loop.rs:15759:50
+error[E0559]: variant `tui::bridge::UiEvent::CatalogUnread` has no field named `retry_at`
+     --> src/tui/shell.rs:47070:21
+error[E0433]: cannot find type `CatalogAsk` in this scope
+     --> src/tui/shell.rs:47136:42
+error[E0618]: expected function, found `tui::bridge::TurnControl`
+     --> src/tui/shell.rs:47136:21
+error[E0433]: cannot find type `CatalogAsk` in this scope
+     --> src/tui/shell.rs:47139:42
+error[E0618]: expected function, found `tui::bridge::TurnControl`
+     --> src/tui/shell.rs:47139:21
+error[E0433]: cannot find type `CatalogAsk` in this scope
+     --> src/tui/shell.rs:47141:42
+error[E0618]: expected function, found `tui::bridge::TurnControl`
+     --> src/tui/shell.rs:47141:21
+error[E0425]: cannot find function `one_turn_with_images` in this scope
+     --> src/tui/worker.rs:16239:13
+error[E0425]: cannot find function `backdate_catalog` in this scope
+     --> src/tui/worker.rs:16260:9
+error[E0425]: cannot find function `retry_behind_failure` in this scope
+     --> src/tui/worker.rs:16261:9
+error: could not compile `xfx` (lib test) due to 17 previous errors
+error: could not compile `xfx` (lib test) due to 17 previous errors
+clone restored: clean

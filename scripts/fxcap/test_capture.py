@@ -83,11 +83,12 @@ class Run:
         return self.file(label).replace("\n", "")
 
 
-def capture(cap, files=None, which="fx", binary="/bin/bash", size="30x200", scen_name="scenarios", timeout=120):
+def capture(cap, files=None, which="fx", binary="/bin/bash", size="30x200", scen_name="scenarios", timeout=120, stale=None):
     """capture.sh on a scenario `t` made of `cap` and `files` (relative path ->
     text, bytes, or `("link", target)` for a symbolic link), the binary a
     link to `binary` (or, for a binary that is not a link, that file
-    itself)."""
+    itself). `stale` (file name -> text) is written into the out directory
+    before the run, as an earlier run would have left it."""
     d = scratch()
     scen = os.path.join(d, scen_name)
     os.makedirs(scen)
@@ -106,6 +107,8 @@ def capture(cap, files=None, which="fx", binary="/bin/bash", size="30x200", scen
     else:
         link = binary
     out = os.path.join(d, "out")
+    for name, text in (stale or {}).items():
+        write(os.path.join(out, name), text)
     env = dict(os.environ, FXCAP_SCENARIOS=scen, TMPDIR=d)
     for k in ("TMUX", "TMUX_PANE", "FX_BIN", "XFX_BIN"):
         env.pop(k, None)
@@ -158,6 +161,7 @@ class Refusals(unittest.TestCase):
             ("usage missing.json\nsnap a\n", "usage takes a file in"),
             ("mcphttp sometimes\nsnap a\n", "mcphttp takes ready, methodnotfound, hang, fail, rpcerror, modern, notimpl, old2024, malformed, hostile, ssehold, sseidless, ssestrid or ssefail, not sometimes"),
             ("jobctl now\nsnap a\n", "jobctl takes no argument, not now"),
+            ("nodraw please\nsnap a\n", "nodraw takes no argument, not please"),
             ("held now\nsnap a\n", "held takes no argument, not now"),
             ("release 1\nsnap a\n", "release takes no argument, not 1"),
             ("until\nsnap a\n", "until takes an argument"),
@@ -366,7 +370,7 @@ class Verbs(unittest.TestCase):
 
     # A dead pane's signal is named by number or, by tmux 3.7, by name.
     def test_signal_stop_continue_and_end_under_jobctl(self):
-        r = capture("jobctl\nkeep\nwait 1\nsignal SIGTSTP\nsignal SIGCONT\ntype hello\nkey Enter\nwait 0.5\nsnap a\nsignal HUP\nwait 0.3\nsnap b\n",
+        r = capture("nodraw\njobctl\nkeep\nwait 1\nsignal SIGTSTP\nsignal SIGCONT\ntype hello\nkey Enter\nwait 0.5\nsnap a\nsignal HUP\nwait 0.3\nsnap b\n",
                     binary="/bin/cat")
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         self.assertRegex(r.stdout, r"signal SIGTSTP -> pid \d+: T")
@@ -385,23 +389,33 @@ class Verbs(unittest.TestCase):
         self.assertRegex(r.file("a"), r"Pane is dead \(status 0, ")
 
     def test_a_stop_is_discarded_without_jobctl_and_a_term_ends_it(self):
-        r = capture("keep\nwait 1\nsignal TSTP\nsignal SIGTERM\nwait 0.3\nsnap a\n", binary="/bin/cat")
+        r = capture("nodraw\nkeep\nwait 1\nsignal TSTP\nsignal SIGTERM\nwait 0.3\nsnap a\n", binary="/bin/cat")
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         # The pane's session leader's group is orphaned: the stop never lands.
         self.assertRegex(r.stdout, r"signal SIGTSTP -> pid \d+: [^T]")
         self.assertRegex(r.stdout, r"signal SIGTERM -> pid \d+: \S*; pane dead, signal (?:15|term)\n")
 
     def test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run(self):
-        d = scratch()
-        script = os.path.join(d, "wrapper")
-        write(script, "#!/bin/sh\nexec /bin/cat\n")
-        os.chmod(script, 0o755)
-        r = capture("wait 1\nsignal SIGTERM\nsnap a\n", binary=script)
-        self.assertEqual(r.code, 1, r.stdout + r.stderr)
-        self.assertIn("no pid runs %s: pane" % os.path.realpath(script), r.stderr)
-        self.assertIn("executable /bin/cat", r.stderr)
-        # A run that launched fx checks its guards on the way out, failed or not.
-        self.assertRegex(r.stdout, r"guards: %s sha256 [0-9a-f]{12} unchanged" % re.escape(script))
+        # A wrapper that execs /bin/cat: the pane's pid runs /bin/sh until the
+        # exec lands, and /bin/cat after. Once at once, and once with the exec
+        # 4 s late, as a loaded machine made it (registry #19, 16th sighting:
+        # still /bin/sh after `wait 1` and binary_pid's 2 s of looks). So the
+        # scenario waits for the exec, not for a second count: the wrapper
+        # turns the terminal's echo off and says `armed`, and a line typed
+        # after that is on the screen only once cat has read it and written
+        # it back -- once the pid runs /bin/cat.
+        for late in ("", "sleep 4\n"):
+            with self.subTest(late=late):
+                d = scratch()
+                script = os.path.join(d, "wrapper")
+                write(script, "#!/bin/sh\nstty -echo\nprintf 'armed\\n'\n%sexec /bin/cat\n" % late)
+                os.chmod(script, 0o755)
+                r = capture("until shown armed\ntype ready\nkey Enter\nuntil shown ready\nsignal SIGTERM\nsnap a\n", binary=script)
+                self.assertEqual(r.code, 1, r.stdout + r.stderr)
+                self.assertIn("no pid runs %s: pane" % os.path.realpath(script), r.stderr)
+                self.assertIn("executable /bin/cat", r.stderr)
+                # A run that launched fx checks its guards on the way out, failed or not.
+                self.assertRegex(r.stdout, r"guards: %s sha256 [0-9a-f]{12} unchanged" % re.escape(script))
 
     def test_rehomefile(self):
         r = capture(
@@ -600,11 +614,130 @@ class Verbs(unittest.TestCase):
         self.assertEqual(missing.code, 1, missing.stdout + missing.stderr)
         self.assertIn("expect nothing: no snap nothing was written before it", missing.stderr)
 
+    def test_expect_on_one_side_only(self):
+        # LAUNCH-SETTLE-F (opus r2 SHOULD 1): a divergence pair's snap says
+        # each side's own row, so a side that flips under load fails the run
+        # instead of the pair turning identical without a sound. A line for
+        # one binary runs on that binary only (capture.sh `for_this`).
+        cap = ("wait 0.5\ntype printf 'side-%s\\n' one\nkey Enter\nuntil shown side-one\nsnap a\n"
+               "fx: expect a side-one\nxfx: expect a side-two\nsnap after\n")
+        fx = capture(cap, which="fx")
+        self.assertEqual(fx.code, 0, fx.stdout + fx.stderr)
+        self.assertIn("expect a 'side-one': the snap holds it", fx.stdout)
+        self.assertNotIn("side-two", fx.stdout + fx.stderr, "xfx's line did not run on fx")
+        # The side whose row is not the one its line names: the run fails
+        # there, with the frame, and takes no snap after.
+        xfx = capture(cap, which="xfx")
+        self.assertEqual(xfx.code, 1, xfx.stdout + xfx.stderr)
+        self.assertIn("expect a 'side-two': the snap does not hold it; its rows that are not blank:", xfx.stderr)
+        self.assertIn("  | side-one", xfx.stderr, "the frame it read")
+        self.assertNotIn("expect a 'side-one'", xfx.stdout + xfx.stderr, "fx's line did not run on xfx")
+        self.assertFalse(os.path.exists(os.path.join(xfx.out, "xfx-t-30x200-after.txt")), "the run went on")
+
+    def test_expect_reads_only_a_frame_this_run_wrote(self):
+        # opus r2 SHOULD 3: capture.sh never clears the out directory, so a
+        # frame an earlier run left there holds whatever that run saw.
+        stale = {"fx-t-30x200-a.txt": "a row an earlier run saw\n"}
+        r = capture("wait 0.5\nexpect a an earlier run saw\nsnap after\n", stale=stale)
+        self.assertEqual(r.code, 1, r.stdout + r.stderr)
+        self.assertIn("expect a: no snap a was written before it in this run", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-after.txt")), "the run went on")
+        # The same label snapped in this run is read, over the stale frame;
+        # and a `snapfull` label is `<label>.full`, as the sweep names it.
+        ok = capture("wait 0.5\ntype printf 'fresh-%s\\n' row\nkey Enter\nuntil shown fresh-row\nsnap a\nexpect a fresh-row\n"
+                     "snapfull b\nexpect b.full fresh-row\n", stale=stale)
+        self.assertEqual(ok.code, 0, ok.stdout + ok.stderr)
+        self.assertIn("expect a 'fresh-row': the snap holds it", ok.stdout)
+        self.assertIn("expect b.full 'fresh-row': the snap holds it", ok.stdout)
+
+    def test_never_seen_is_of_the_binary_since_its_last_launch(self):
+        # opus r2 SHOULD 4: a relaunch starts the binary again on a cleared
+        # screen, so what an `until` saw before it says nothing of what the
+        # new one showed.
+        r = capture("keep\nwait 0.5\ntype printf 'X%sY\\n' 1\nkey Enter\nuntil shown X1Y\n"
+                    "relaunch\nwait 0.5\nuntil gone X1Y\nsnap a\n")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertRegex(r.stdout, r"until gone 'X1Y': after \d+\.\d\d s, \d+\.\d\d s since launch; never seen\n")
+
     def test_sockets(self):
         r = capture("env P=@PORT@\nwait 1\ntype exec 3<>/dev/tcp/127.0.0.1/$P\nkey Enter\nwait 0.5\nsockets s\n")
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         self.assertIn("1 socket(s)", r.stdout)
         self.assertRegex(r.file("s", ".sockets"), r"TCP 127\.0\.0\.1:\d+->127\.0\.0\.1:\d+ \(ESTABLISHED\)")
+
+
+class LaunchWait(unittest.TestCase):
+    """A scenario's first line, and the line after each `relaunch`, wait for
+    the binary to be up (registry #19, 15th sighting: xfx's first frame 2.13 s
+    after the launch of a freshly copied binary, and `interrupt`'s Ctrl-C at
+    2 s ended it by SIGINT, `.prd/tui-phase5/receipts/flake-hint4/r2/
+    launch-probe.txt`)."""
+
+    # A binary that comes up late and then leaves ISIG, as fx and xfx do when
+    # they go raw before their first frame: until then a Ctrl-C is SIGINT.
+    SLOW = "#!/bin/sh\nsleep 1.5\nstty -isig\nprintf 'stub-is-%s\\n' up\nexec /bin/cat\n"
+
+    def slow(self):
+        d = scratch()
+        script = os.path.join(d, "slow")
+        write(script, self.SLOW)
+        os.chmod(script, 0o755)
+        return script
+
+    def test_the_first_line_waits_for_the_first_frame(self):
+        r = capture("keep\nkey C-c\nwait 0.5\nsnap a\n", binary=self.slow())
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertNotIn("Pane is dead", r.file("a"), "the Ctrl-C came before the binary was up")
+        self.assertIn("stub-is-up", r.file("a").split("\n"))
+        up = re.search(r"up: a first frame after (\d+\.\d\d) s \(\d+ looks\)\n", r.stdout)
+        self.assertTrue(up, r.stdout)
+        self.assertGreater(float(up.group(1)), 1.0)
+
+    def test_a_relaunch_waits_for_its_first_frame_too(self):
+        r = capture("keep\nwait 2\nrelaunch\nkey C-c\nwait 0.5\nsnap a\n", binary=self.slow())
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertNotIn("Pane is dead", r.file("a"), "the Ctrl-C came before the relaunched binary was up")
+        self.assertIn("stub-is-up", r.file("a").split("\n"))
+        self.assertEqual(len(re.findall(r"up: a first frame after \d+\.\d\d s \(\d+ looks\)\n", r.stdout)), 2, r.stdout)
+
+    def test_since_launch_counts_from_the_first_frame(self):
+        # The full-access warning's 4 s start at the first frame (xfx
+        # src/tui/permissions.rs `observe`), and so does a scenario's clock.
+        r = capture("until shown stub-is-up\nsnap a\n", binary=self.slow())
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        since = re.search(r"until shown 'stub-is-up': after \d+\.\d\d s, (\d+\.\d\d) s since launch\n", r.stdout)
+        self.assertTrue(since, r.stdout)
+        self.assertLess(float(since.group(1)), 1.0)
+
+    def test_a_binary_that_never_draws_fails_the_run(self):
+        r = capture("snap a\n", binary="/bin/cat")
+        self.assertEqual(r.code, 1, r.stdout + r.stderr)
+        self.assertRegex(r.stderr, r"up: nothing on the screen after \d+\.\d\d s \(\d+ looks\)")
+        waited = float(re.search(r"up: nothing on the screen after (\d+\.\d\d) s", r.stderr).group(1))
+        self.assertGreaterEqual(waited, 29.0)
+        self.assertLess(waited, 32.0)
+        self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-a.txt")))
+        self.assertIn("guards:", r.stdout, "the guards still ran")
+
+    def test_a_binary_gone_at_once_is_final_under_keep_and_fails_the_run_without(self):
+        kept = capture("keep\nsnap a\n", binary="/bin/echo")
+        self.assertEqual(kept.code, 0, kept.stdout + kept.stderr)
+        self.assertRegex(kept.stdout, r"up: the pane is dead after \d+\.\d\d s \(\d+ looks\)\n")
+        self.assertRegex(kept.file("a"), r"Pane is dead \(status 0, ")
+        # `home` reads no pane: the run stops at the wait, not at a later
+        # line that happens to need one.
+        gone = capture("home h\n", binary="/bin/echo")
+        self.assertEqual(gone.code, 1, gone.stdout + gone.stderr)
+        self.assertIn("up: the pane is gone", gone.stderr)
+        self.assertFalse(os.path.exists(os.path.join(gone.out, "fx-t-30x200-h.files")), "the run went on")
+        self.assertIn("guards:", gone.stdout, "the guards still ran")
+
+    def test_nodraw_runs_a_stub_that_draws_nothing_at_once(self):
+        r = capture("nodraw\nkeep\nsnap a\nrelaunch\nsnap b\n", binary="/bin/cat")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertIn("up: not waited for (nodraw)\n", r.stdout)
+        self.assertNotIn("up: a first frame", r.stdout)
+        self.assertEqual(r.file("b").strip(), "")
 
 
 class Server:

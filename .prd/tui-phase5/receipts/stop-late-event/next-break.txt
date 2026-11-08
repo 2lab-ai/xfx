@@ -1,0 +1,153 @@
+# Outside STOP-LATE-EVENT, for unit STOP-NEXT: a stop pressed after the runtime took the next prompt.
+# A scratch test, not committed, inserted into src/tui/shell.rs's tests ahead of
+# a_prompt_typed_while_an_answer_streams_waits_in_the_band_and_never_splits_its_line, on c389ba9d:
+
+    #[test]
+    fn a_stop_pressed_after_the_runtime_took_the_next_prompt_stops_that_turn_too() {
+        // The runtime ends a turn, gives its place back and takes the prompt
+        // queued behind it (`super::worker`'s `turn_loop`) before this side
+        // has read any of it, and the user stops the turn the screen still
+        // shows running. The stop quotes every submission so far, so the
+        // runtime stops the next turn as well, and that turn's end says `the
+        // turn was cancelled`: it is answered by the stop's one `■ Cancelled`
+        // line and its `idle`, as upstream's stop answers the turn its worker
+        // has taken (`interruption.zig:219@481104fd`) -- not painted, and not
+        // reported as a failure.
+        let mut shell = running("first");
+        let mut wire = vec![status_of(&mut shell)];
+        shell.route_bytes(b"second\r");
+        shell.work.give_back();
+        assert!(
+            matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "second"),
+            "the prompt was not queued"
+        );
+        shell.route_bytes(&[0x03]);
+        assert!(
+            matches!(shell.controlled(), Some(TurnControl::Cancel { .. })),
+            "the press was not answered from the running column"
+        );
+        wire.push(status_of(&mut shell));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("xfx: the turn was cancelled".to_string()),
+        });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        let written = shell.released();
+        let text = written.join("\n");
+        assert_eq!(
+            (
+                wire,
+                text.contains("MARKER-SECOND"),
+                text.contains("system"),
+                text.matches("\u{25a0} Cancelled").count()
+            ),
+            (
+                vec![
+                    Some("working".to_string()),
+                    Some("idle".to_string()),
+                    None,
+                    None
+                ],
+                false,
+                false,
+                1
+            ),
+            "the reports, the stopped turn's answer, a `system` line, the `Cancelled` lines: \
+             {written:#?}"
+        );
+    }
+
+# TMPDIR=<local-path> cargo test --locked --lib -- a_stop_pressed_after_the_runtime_took (the worktree at c389ba9d plus this test):
+
+running 1 test
+test tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_stops_that_turn_too ... FAILED
+
+failures:
+
+---- tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_stops_that_turn_too stdout ----
+
+thread 'tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_stops_that_turn_too' (315702383) panicked at src/tui/shell.rs:23331:9:
+assertion `left == right` failed: the reports, the stopped turn's answer, a `system` line, the `Cancelled` lines: [
+    "■ Cancelled · What can xfx do differently?",
+    "",
+    "┃ \u{1b}[1msecond",
+    "",
+    "  MARKER-SECOND",
+    "",
+    "✗ system: the turn was cancelled",
+    "",
+]
+  left: ([Some("working"), Some("idle"), Some("working"), Some("error")], true, true, 1)
+ right: ([Some("working"), Some("idle"), None, None], false, false, 1)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_stops_that_turn_too
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4366 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
+
+# Why: the stop's keystroke reads one place held and the second prompt still in `prompts`, so it
+# counts the prompt as covered (`cancel_covers = 1`, shell.rs `cancel_turn_with`), and the first
+# turn's `TurnEnded` then takes the cancel and zeroes the count (shell.rs TurnEnded arm,
+# `self.cancel_covers = 0;` and `std::mem::take(&mut self.cancelling)`). The runtime stops the
+# second turn (the stop quotes every submission so far), whose end says `the turn was cancelled`:
+# `working` again, then `error`, its answer painted and a `✗ system:` line.
+#
+# Why it is not fixed in STOP-LATE-EVENT: keeping the cancel through the first turn's end when
+# `cancel_covers > 0` passes this test, but the UI cannot tell a prompt the runtime took from one
+# its next loop drops on reading the stop (`turn_loop`, `biased`): when it was dropped and a third
+# prompt is typed in the same read as the stop, that third turn's start would take the count and
+# be silenced. The count is a guess at which turn a start belongs to. The fix that removes the
+# guess: `TurnStarted` carries the submission number of the turn it starts, and the UI compares
+# it with the last cancel's `through`, so a start is covered exactly when the runtime's stop
+# covered it. That changes the event every TUI test applies; owner unit STOP-NEXT.
+
+# The same scratch test at round 2's head, 2b21b797 (the worktree's code plus this test, on a --no-local clone):
+
+running 1 test
+test tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_stops_that_turn_too ... FAILED
+
+failures:
+
+---- tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_stops_that_turn_too stdout ----
+
+thread 'tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_stops_that_turn_too' (326347735) panicked at src/tui/shell.rs:23401:9:
+assertion `left == right` failed: the reports, the stopped turn's answer, a `system` line, the `Cancelled` lines: [
+    "■ Cancelled · What can xfx do differently?",
+    "",
+    "  0s (↑2 ↓0)",
+    "",
+    "┃ \u{1b}[1msecond",
+    "",
+    "  MARKER-SECOND",
+    "",
+    "✗ system: the turn was cancelled",
+    "",
+]
+  left: ([Some("working"), Some("idle"), Some("working"), Some("error")], true, true, 1)
+ right: ([Some("working"), Some("idle"), None, None], false, false, 1)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_stops_that_turn_too
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4428 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--lib`
+
+# Unchanged by round 2: the second turn -- which the runtime stops -- is still painted and ends `working`,
+# `error`, `✗ system:`. The expectation in the test (`[working, idle, None, None]`) is this receipt's guess and
+# not fx's word: in fx the take of the second prompt comes before the stop, so the stop is the second turn's
+# (`takeEventBatch`'s `cancelled_turn_id`, worker_runtime.zig:923-937@481104fd), the first turn's segment is
+# no interrupted one (`batchSegmentIsInterrupted`, app_worker_runtime.zig:301-325) and is presented whole, and
+# the second's is one, its end `.interrupted` and quiet [read from the code, not captured]. STOP-NEXT captures fx's word for this schedule before it fixes it.

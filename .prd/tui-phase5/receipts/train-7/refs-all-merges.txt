@@ -1,0 +1,52 @@
+# head 85b13f84; sides: train6 fdc5ac0b, launch-settle-f 2f1c80e7, t-u4-f a8c7a87d, models-reask 66854557, stop-next-2 f8d625c3
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/approval.rs:552-585
+    launch-settle-f MOVED -> 557-590 | t-u4-f MOVED -> 557-590
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/bridge.rs:112-172
+    train6 MOVED -> 120-189 | launch-settle-f MOVED -> 120-189 | t-u4-f MOVED -> 120-189 | models-reask MOVED -> 120-189
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:3108
+    train6 MOVED -> 3265 | launch-settle-f MOVED -> 3332 | t-u4-f MOVED -> 3332 | models-reask MOVED -> 3240 | stop-next-2 MOVED -> 3133
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:433
+    train6 MOVED -> 435 | launch-settle-f MOVED -> 436 | t-u4-f MOVED -> 436 | stop-next-2 MOVED -> 435
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/worker.rs:2376
+    train6 MOVED -> 2382 | launch-settle-f MOVED -> 2382 | t-u4-f MOVED -> 2382 | models-reask MOVED -> 2382
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:499-522
+    launch-settle-f MOVED -> 504-527 | t-u4-f MOVED -> 504-527
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:782
+    launch-settle-f MOVED -> 787 | t-u4-f MOVED -> 787
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/shell.rs:1593
+    train6 MOVED -> 1705 | launch-settle-f MOVED -> 1766 | t-u4-f MOVED -> 1766 | models-reask MOVED -> 1684 | stop-next-2 MOVED -> 1614
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/theme.rs:333
+    launch-settle-f MOVED -> 350 | models-reask MOVED -> 350 | stop-next-2 MOVED -> 350
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: scripts/smoke-tui.sh:2203
+    launch-settle-f MOVED -> 2369 | t-u4-f MOVED -> 2369
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/bridge.rs:112-147
+    train6 MOVED -> 120-164 | launch-settle-f MOVED -> 120-164 | t-u4-f MOVED -> 120-164 | models-reask MOVED -> 120-164
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/event_loop.rs:889-923
+    train6 MOVED -> 902-936 | launch-settle-f MOVED -> 951-985 | t-u4-f MOVED -> 951-985 | models-reask MOVED -> 902-936
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/shell.rs:1117
+    train6 MOVED -> 1186 | launch-settle-f MOVED -> 1244 | t-u4-f MOVED -> 1244 | models-reask MOVED -> 1165 | stop-next-2 MOVED -> 1138
+scripts/fxcap/parity-ledger.toml: scripts/fxcap/capture.sh:291-293
+    train6 MOVED -> 315-317 | t-u4-f MOVED -> 315-317 | models-reask MOVED -> 315-317 | stop-next-2 MOVED -> 315-317
+scripts/fxcap/parity-ledger.toml: scripts/fxcap/capture.sh:462
+    train6 MOVED -> 521 | t-u4-f MOVED -> 521 | models-reask MOVED -> 521 | stop-next-2 MOVED -> 521
+scripts/fxcap/parity-ledger.toml: scripts/fxcap/capture.sh:878
+    train6 MOVED -> 952 | t-u4-f MOVED -> 952 | models-reask MOVED -> 952 | stop-next-2 MOVED -> 952
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:12859
+    train6 MOVED -> 13423
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:15607
+    train6 MOVED -> 16321
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:37764
+    train6 MOVED -> 38615
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:4131
+    models-reask CHANGED
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:9762
+    train6 MOVED -> 10194
+scripts/smoke-tui.sh: src/tui/check.rs:1084
+    launch-settle-f MOVED -> 1101 | t-u4-f MOVED -> 1101
+tests/tui.rs: src/tui/shell.rs:2015
+    train6 MOVED -> 2148 | launch-settle-f MOVED -> 2222 | t-u4-f MOVED -> 2222 | models-reask MOVED -> 2127 | stop-next-2 MOVED -> 2036
+tests/tui.rs: src/tui/shell.rs:2703
+    train6 MOVED -> 2860 | launch-settle-f MOVED -> 2927 | t-u4-f MOVED -> 2927 | models-reask MOVED -> 2835 | stop-next-2 MOVED -> 2728
+tests/tui.rs: tests/tui.rs:1191
+    launch-settle-f MOVED -> 1304 | t-u4-f MOVED -> 1304
+# 192 references in 589 files; 25 moved or changed on some side that cites them

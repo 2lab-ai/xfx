@@ -1,0 +1,10 @@
+pairs: reference 84, train 476, shared 84; only the reference: 0
+reference: 84 pairs, pass 75; normalized-identical 75, unresolved-defect 9
+train: 84 pairs, pass 75; normalized-identical 75, unresolved-defect 9
+verdicts moved: 0
+fx screens not the same in the two sweeps: 0
+xfx screens not the same in the two sweeps: 2
+    model-reask reask-midturn
+    model-reask turn-running
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 0

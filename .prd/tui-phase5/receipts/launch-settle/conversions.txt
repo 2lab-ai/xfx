@@ -1,0 +1,91 @@
+# The two dropped scenarios, converted: every form tried, in order. Each sweep = one run of each binary, 40x120, under the suite lock, fx v0.0.16. 'base' = the four base sweeps of sweep-compare.txt.
+
+## 5bd5c05f's form ('until shown' then the snap at once), four sweeps, xfx at 5bd5c05f
+conv-1: started 2026-11-08T15:28:17+09:00 load 10.11
+conv-2: started 2026-11-08T15:30:01+09:00 load 8.47
+conv-3: started 2026-11-08T15:31:29+09:00 load 8.61
+conv-4: started 2026-11-08T15:32:58+09:00 load 7.7
+     p5-mcp-fail/end.full: base unresolved-defect,unresolved-defect,unresolved-defect,unresolved-defect -> head unresolved-defect,unresolved-defect,unresolved-defect,unresolved-defect
+     p5-mcp-fail/list: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+DROP p5-mcp-fail/server-1: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head unresolved-defect,unresolved-defect,unresolved-defect,unresolved-defect
+     p5-mcp-fail/server-2: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-fail/show-bad: base unresolved-defect,unresolved-defect,unresolved-defect,unresolved-defect -> head unresolved-defect,unresolved-defect,unresolved-defect,unresolved-defect
+     p5-mcp-fail/startup: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/closed: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/d-key: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/details-1: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/details-2: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/details-3: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/dismissed: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+DROP p5-mcp-menu-old/end.full: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,unresolved-defect,normalized-identical
+     p5-mcp-menu-old/info: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/list: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/list-down: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/prompts: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/resources: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/servers: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/startup: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/tools: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/x-key: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+drops: 2
+server-1's diff in conv-1 (fx's try still on its status row):
+#   [1] fx   8:   status    connecting -> UNCOVERED
+#   [1] xfx  8:   status    retrying -> UNCOVERED
+#   [1] xfx  9:   error     its process exited with code 3; its last stderr lines: "boom-stderr" -> UNCOVERED
+end.full's diff in conv-3 (the hint row, xfx's window over before fx's):
+# [1] fx 5: auto · model-a esc again to clear -> UNCOVERED
+# [1] xfx 5: auto · model-a proj is waiting for approval · /mcp -> UNCOVERED
+
+## trials on the way to 84ee1680 (working-tree scenarios over 5bd5c05f, xfx at 5bd5c05f)
+- try-2, menu-old ending 'Escape / until shown / key Left / until gone': left-after-escape.txt (xfx's draft came back empty).
+- late-2, p5-mcp-fail as at 84ee1680 ('until shown' then 'wait 3') forced 0.3 s late (the try near 31 s):
+       p5-mcp-fail/end.full: base unresolved-defect,unresolved-defect,unresolved-defect,unresolved-defect -> head unresolved-defect
+       p5-mcp-fail/list: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical
+       p5-mcp-fail/server-1: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical
+       p5-mcp-fail/server-2: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical
+       p5-mcp-fail/show-bad: base unresolved-defect,unresolved-defect,unresolved-defect,unresolved-defect -> head unresolved-defect
+       p5-mcp-fail/startup: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical
+  drops: 0
+  until shown 'Its tools couldn't load': after 15.85 s, 31.23 s since launch
+  until shown 'Its tools couldn't load': after 0.01 s, 15.40 s since launch
+- try-5, menu-old as at 84ee1680:
+       p5-mcp-menu-old/closed: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical
+       p5-mcp-menu-old/end.full: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical
+  drops: 0
+  until shown 'esc again to clear': after 0.15 s, 20.33 s since launch
+  until gone 'esc again to clear': after 0.01 s, 20.37 s since launch
+  until shown 'esc again to clear': after 0.08 s, 20.31 s since launch
+  until gone 'esc again to clear': after 0.52 s, 20.84 s since launch
+
+## 84ee1680's form (the committed one), four sweeps, xfx at 84ee1680 (row 1 v0.1.0-84ee168)
+conv2-1: repo 84ee1680 started 2026-11-08T15:47:56+09:00 load 8.43 at the start, 9.21 at the peak
+conv2-2: repo 84ee1680 started 2026-11-08T15:49:47+09:00 load 8.54 at the start, 18.66 at the peak
+conv2-3: repo 84ee1680 started 2026-11-08T15:51:37+09:00 load 13.55 at the start, 13.55 at the peak
+conv2-4: repo 84ee1680 started 2026-11-08T15:53:16+09:00 load 6.98 at the start, 8.33 at the peak
+     p5-mcp-fail/end.full: base unresolved-defect,unresolved-defect,unresolved-defect,unresolved-defect -> head unresolved-defect,unresolved-defect,unresolved-defect,unresolved-defect
+     p5-mcp-fail/list: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-fail/server-1: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-fail/server-2: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-fail/show-bad: base unresolved-defect,unresolved-defect,unresolved-defect,unresolved-defect -> head unresolved-defect,unresolved-defect,unresolved-defect,unresolved-defect
+     p5-mcp-fail/startup: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/closed: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/d-key: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/details-1: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/details-2: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/details-3: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/dismissed: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/end.full: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/info: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/list: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/list-down: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/prompts: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/resources: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/servers: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/startup: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/tools: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/x-key: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical,normalized-identical
+drops: 0
+every until line of the eight runs (run, binary: waited, since launch):
+  until shown "Its tools couldn't load": conv2-1 fx 16.03 s (31.22 s); conv2-1 xfx 0.01 s (15.10 s); conv2-2 fx 0.13 s (15.21 s); conv2-2 xfx 0.03 s (15.23 s); conv2-3 fx 16.04 s (31.12 s); conv2-3 xfx 0.01 s (15.06 s); conv2-4 fx 0.07 s (15.13 s); conv2-4 xfx 0.01 s (15.07 s)
+  until shown 'esc again to clear': conv2-1 fx 0.17 s (21.03 s); conv2-1 xfx 0.08 s (20.43 s); conv2-2 fx 0.14 s (20.45 s); conv2-2 xfx 0.10 s (20.63 s); conv2-3 fx 0.19 s (20.37 s); conv2-3 xfx 0.07 s (20.23 s); conv2-4 fx 0.18 s (20.33 s); conv2-4 xfx 0.08 s (20.22 s)
+  until gone 'esc again to clear': conv2-1 fx 0.02 s (21.07 s); conv2-1 xfx 0.51 s (20.96 s); conv2-2 fx 0.01 s (20.48 s); conv2-2 xfx 0.42 s (21.11 s); conv2-3 fx 0.01 s (20.39 s); conv2-3 xfx 0.50 s (20.75 s); conv2-4 fx 0.01 s (20.36 s); conv2-4 xfx 0.53 s (20.77 s)

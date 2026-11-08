@@ -1,0 +1,13 @@
+# Item 1 RED -> GREEN on the real binaries: probe/zearly.cap (gateway interrupt-words.json / keep / wait 0.5 / key C-c / wait 3 / snap a), 40x120, each run on a fresh copy (cp) of its binary. base = 7589ec42's capture.sh with xfx built at 7589ec4; head = b734d834's capture.sh with xfx built at b734d834; fx v0.0.16 (sha256 8e6cda2e...) on both. Run 2026-11-08 07:55, load 8.3. 'snap a' is the first row of the frame that is not blank (the banner's version written v<ver>).
+base fx run 1: exit 0; no launch wait; snap a: Pane is dead (signal int, Sun Nov  8 07:55:08 2026)
+base xfx run 1: exit 0; no launch wait; snap a: Pane is dead (signal int, Sun Nov  8 07:55:16 2026)
+base fx run 2: exit 0; no launch wait; snap a: Pane is dead (signal int, Sun Nov  8 07:55:22 2026)
+base xfx run 2: exit 0; no launch wait; snap a: Pane is dead (signal int, Sun Nov  8 07:55:30 2026)
+base fx run 3: exit 0; no launch wait; snap a: Pane is dead (signal int, Sun Nov  8 07:55:38 2026)
+base xfx run 3: exit 0; no launch wait; snap a: Pane is dead (signal int, Sun Nov  8 07:55:55 2026)
+head fx run 1: exit 0; up: a first frame after 6.04 s (88 looks); snap a: 𝒇x v0.0.16 · Run /help for commands
+head xfx run 1: exit 0; up: a first frame after 4.14 s (63 looks); snap a: x𝒇x v<ver> [debug] · Run /help for commands
+head fx run 2: exit 0; up: a first frame after 1.57 s (24 looks); snap a: 𝒇x v0.0.16 · Run /help for commands
+head xfx run 2: exit 0; up: a first frame after 2.26 s (34 looks); snap a: x𝒇x v<ver> [debug] · Run /help for commands
+head fx run 3: exit 0; up: a first frame after 0.69 s (11 looks); snap a: 𝒇x v0.0.16 · Run /help for commands
+head xfx run 3: exit 0; up: a first frame after 6.25 s (94 looks); snap a: x𝒇x v<ver> [debug] · Run /help for commands

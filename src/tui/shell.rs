@@ -80,7 +80,9 @@ use super::approval::{self, Panel};
 use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface};
 use super::approval_screen::ApprovalScreen;
 use super::blocks;
-use super::bridge::{ModelAnswer, ModelChange, SpeedChange, TurnControl, TurnWork, UiEvent};
+use super::bridge::{
+    CatalogAsk, ModelAnswer, ModelChange, SpeedChange, TurnControl, TurnWork, UiEvent,
+};
 use super::clipboard_image::ClipboardReads;
 use super::compaction::{self, Compaction};
 use super::copy::Copies;
@@ -139,7 +141,7 @@ use crate::markdown::{self, MarkdownProcessor};
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
 use crate::provider::effort::{intrinsic_fast, Effort, Speed, TurnSettings};
 use crate::provider::model::model_id_problem;
-use crate::provider::model::{may_read_again, resolve_in_order, CatalogEntry, CatalogRetry};
+use crate::provider::model::{resolve_in_order, CatalogEntry, CatalogRetry};
 use crate::provider::ProviderId;
 use crate::session::store::title_of;
 use crate::tools::{LineChanges, Outcome as CallOutcome, Shown};
@@ -846,6 +848,25 @@ pub(crate) struct Shell {
     /// this side can say at once; a catalog nobody has read cannot be
     /// resolved here at all.
     catalog_known: CatalogKnown,
+    /// When activity -- a submitted prompt, a frame of the inline column --
+    /// is next owed a read of the rows the band holds, by the runtime's
+    /// clock: five minutes after the read that brought them began, or, once
+    /// a refresh behind them failed, when the hold it put on the next read
+    /// ends -- and, for one asking again could not change, not before the
+    /// rows are five minutes old (`beginLoad`'s `expired` and `retry_due`,
+    /// `model_cache_runtime.zig:609-623@481104fd`; [`UiEvent::CatalogLoaded`]'s
+    /// and [`UiEvent::CatalogRefreshFailed`]'s `due`). `None` beside any other
+    /// [`CatalogKnown`].
+    catalog_due: Option<Instant>,
+    /// A refresh behind the rows the band holds failed in a way asking again
+    /// could change: `/model`'s menu says so in its note's place
+    /// (`loadedCatalogStatusText`, `model_menu_presentation.zig:403-404
+    /// @481104fd`).
+    catalog_note: Option<CatalogRetry>,
+    /// Activity has asked the runtime since the catalog's last answer: it is
+    /// not asked again for the same one by every frame
+    /// ([`Self::note_catalog_activity`]).
+    catalog_nudged: bool,
     /// The session's reasoning effort and its two speed switches, as the band
     /// shows and announces them.
     ///
@@ -1017,10 +1038,11 @@ pub(crate) struct Shell {
     /// already the turn's result.
     ///
     /// It rides with [`Self::cancelling`], which keeps the turn's conclusion
-    /// silent (the row has said why), and outlives it: the band clears
-    /// `cancelling` once no place is held, which can be before the turn's end
-    /// is read ([`Self::settle_band`]), and the status reads the turn as
-    /// settled until `TurnEnded` takes this (or a new turn clears it).
+    /// silent (the row has said why), and the status reads the turn as
+    /// settled until `TurnEnded` takes this -- or a new turn clears it, or a
+    /// reset drops it with the conversation ([`Self::reset_session`]). The
+    /// band's settle takes neither while the turn's end is still to be read
+    /// ([`Self::settle_band`]).
     /// Upstream finishes such a turn `.failed`
     /// -- the compaction's error leaves the turn
     /// (`orchestrator.zig:7864-7865@481104fd`) and the turn is finished
@@ -1049,10 +1071,57 @@ pub(crate) struct Shell {
     /// settle ([`Self::cancel_turn_with`]), and whether the queue notice waits
     /// with it.
     cancel_owed: Option<bool>,
-    /// How many of the turns still to start were submitted before the cancel,
-    /// and so are the cancelled work starting late rather than a new turn
-    /// ([`UiEvent::TurnStarted`]).
-    cancel_covers: usize,
+    /// What the last stop quoted (`TurnControl::Cancel`'s `through`): every
+    /// piece of work numbered up to it was submitted before the keystroke,
+    /// so the runtime drops it unstarted or -- having taken it before it read
+    /// the stop -- stops it. A start numbered up to it is the stop's, however
+    /// late it is read and whatever ended or settled in between
+    /// ([`UiEvent::TurnStarted`]), and a waiting prompt numbered up to it is
+    /// no longer waiting ([`Self::waiting_prompts`]). Upstream's worker knows which
+    /// turn its stop is for, its own active one (`takeEventBatch`'s
+    /// `cancelled_turn_id`, `worker_runtime.zig:923-937@481104fd`); here the
+    /// count the stop was sent with says it.
+    cancel_through: Option<usize>,
+    /// A stop this session sent has not yet been overtaken: the runtime has
+    /// started no later turn, and still holds a place. Upstream's keystroke
+    /// returns while its worker's cancel is requested
+    /// (`if (app.worker.isCancelRequested()) return;`,
+    /// `input_interrupt_runtime.zig:94@481104fd`) -- a request the keystroke
+    /// sets (`requestInteractiveCancel`, `worker_runtime.zig:753-773`) and the
+    /// worker's next take clears (`:1512`) -- so a second Ctrl-C writes no
+    /// second line and stops nothing more ([`Self::cancel_turn`]). Only the
+    /// Ctrl-C and Escape-pair stop of a turn is held by it: a manual
+    /// compaction, a provider switch, a `/resume` or a fork typed since the
+    /// stop is stopped ahead of the check (`:69-90`;
+    /// [`Self::work_typed_since_the_stop`]), and an approval's or a
+    /// question's Escape is a stop of its own (`cancelApprovalTurn`). Read
+    /// against the start this side has read, not the runtime's take:
+    /// upstream's press is cancelled by stream state its UI sets when it
+    /// drains the next turn's `begin_prompt` (`app_worker_runtime.zig:965-975`),
+    /// so until then it finds no operation to cancel either
+    /// (`activeCancellationTarget`, `input_interrupt_runtime.zig:178-187`).
+    stop_requested: bool,
+    /// The cancel in effect includes the user's stop of a turn
+    /// ([`Self::cancel_turn_with`]), so -- unless a compaction ended the turn
+    /// ([`Self::compaction_ended_turn`]) -- the turn's end says what the
+    /// turn came to: its stop ([`bridge::TURN_CANCELLED`]), a failure after
+    /// it, or a finish the runtime had already reached when the stop came
+    /// ([`UiEvent::TurnEnded`]). Upstream's stop does not rewrite a turn
+    /// that finished first: the second finish is ignored
+    /// (`finalization.zig:126-136@481104fd`).
+    stop_reads_end: bool,
+    /// An automatic compaction ended the turn in hand -- it settled with
+    /// anything but a success or nothing to do, its stop included
+    /// ([`Self::compaction_update`]; the runtime always sends that settle,
+    /// `super::worker`'s `settle`) -- so that turn's end is the compaction's
+    /// and says nothing more, whatever stop comes after it
+    /// ([`UiEvent::TurnEnded`]). A flag of its own rather than
+    /// a [`Self::stop_reads_end`] cleared, because a Ctrl-C pressed after the
+    /// compaction settled and before the end is read stops the turn again
+    /// ([`Self::cancel_turn_with`]): upstream's keystroke returns there, its
+    /// worker's cancel already requested (`input_interrupt_runtime.zig:94`),
+    /// and the turn finishes as the compaction left it.
+    compaction_ended_turn: bool,
     /// What the activity row says about the turn's recovery, while it says
     /// anything ([`super::retry::Row`]).
     ///
@@ -1457,21 +1526,30 @@ pub(crate) struct Shell {
     trailer: Vec<Trailed>,
     /// What the summary under the turn's answer will say ([`Tally`]).
     tally: Tally,
-    /// The token estimate of every prompt that was sent and whose turn has
-    /// not started yet, oldest first: a prompt may wait behind another turn,
-    /// and the summary counts the prompt of the turn it is under.
+    /// Every prompt that was sent and whose turn has not started yet, oldest
+    /// first ([`WaitingPrompt`]): a prompt may wait behind another turn, and the
+    /// summary counts the prompt of the turn it is under.
+    ///
+    /// Each by its number among the runtime's work, which its start repeats.
     ///
     /// Beside each, the title that prompt would give a session it opened
     /// ([`title_of`], the store's own rule, so the window says what a listing
     /// of the session says): which prompt opens the session is only known
     /// when its turn starts.
     ///
-    /// The third is the prompt's card while it is **waiting**: a prompt
-    /// submitted while the runtime had work in hand is shown in the band
+    /// Then the prompt's card while it is **waiting**: a prompt submitted
+    /// while the runtime had work in hand is shown in the band
     /// ([`Self::banner_rows`]) and its card is written when its turn starts,
     /// as upstream delivers a steer (`fx-steer-40x120-steer-done`) -- never at
     /// the keystroke, in the middle of the answer it was typed under.
-    prompts: VecDeque<(u64, Option<String>, Option<WaitingCard>)>,
+    ///
+    /// And whether upstream would have queued the prompt at once rather than
+    /// hold it as a pending submission: a turn that had started was still in
+    /// hand -- running, or stopped and not yet ended -- the last answer was
+    /// still being paced out, or the full transcript was open. Its `working`
+    /// is then not held for the frame that shows its turn
+    /// ([`Self::take_status_moved_by_input`]).
+    prompts: VecDeque<WaitingPrompt>,
     /// The prompts sent into the running turn and not yet taken by it
     /// ([`crate::agent::steering`]), oldest first: the number the runtime
     /// knows each by, the prompt as the model is given it, and its card.
@@ -1500,6 +1578,40 @@ pub(crate) struct Shell {
     /// wants now ([`Self::take_title`]). `true` at launch, so the first frame
     /// carries one.
     title_owed: bool,
+    /// The title a stopped turn's end gave the session, which goes out ahead
+    /// of the tick's report ([`Self::take_leading_title`]) -- the string, as
+    /// it was then, so a title asked for after it does not replace it but
+    /// follows it: in the same tick, or, when the stop's own tick holds it
+    /// back, in the next.
+    title_leads: Option<String>,
+    /// The title owed waits past this tick's frame and goes out with the
+    /// next tick's ([`Self::take_leading_title`], [`Self::tick_committed`]).
+    title_held: bool,
+    /// What the user's stop of a turn whose end may still say it finished
+    /// first ([`Self::stop_reads_end`]) read of that turn, in the order it
+    /// came: its answer text and operational lines, and a tool row read
+    /// behind them ([`Late`]). Kept for the drain it arrived in: presented
+    /// in order if that drain also reads the turn's end and the end is not
+    /// the stop's own, and otherwise the text dropped and the rows written
+    /// ([`Self::release_late`]).
+    ///
+    /// **Not counted against the drain's bound** ([`Self::paced_backlog`]):
+    /// only the turn's end, or a drain that empties the channel, lets go of
+    /// it, so counted it would keep the loop from the one event that does.
+    /// Its own bound is the channel's: what it holds was on the channel when
+    /// the stop was pressed, or decoded before the stop reached the
+    /// provider's decode, which polls the turn's flag the keystroke raises
+    /// before anything is sent (`WorkHandle::control`; `gateway::sse`'s
+    /// `push`); once the runtime reads the stop, the turn's token is
+    /// cancelled and `bridge::send_ui` sends nothing more. A turn the stop
+    /// did not cancel had finished, so everything it sent is on the channel
+    /// ahead of its end, [`super::bridge::UI_EVENTS`] events of at most
+    /// [`super::bridge::DELTA_SLICE`] each.
+    late: Vec<Late>,
+    /// The user stopped work at a keystroke of this tick
+    /// ([`Self::cancel_turn_with`], [`Self::stop_compaction`]), so its `idle`
+    /// and its `Cancelled` frame are this tick's ([`Self::take_leading_title`]).
+    stop_in_tick: bool,
     /// The directory the session works in, whose last component the window
     /// title names until the session has a title of its own.
     workspace: std::path::PathBuf,
@@ -1871,6 +1983,27 @@ type SkillRuns = Vec<std::ops::Range<usize>>;
 /// images, and its skill tokens ([`Shell::prompts`]).
 type WaitingCard = (String, BadgeLinks, SkillRuns);
 
+/// A prompt the runtime has taken and not yet started ([`Shell::prompts`]).
+#[derive(Debug, Default)]
+struct WaitingPrompt {
+    /// Which piece of work it is, counted as the runtime counts it: what
+    /// [`super::worker::WorkHandle::accepted`] said once it was taken, which
+    /// its turn's start repeats ([`UiEvent::TurnStarted`]).
+    submission: usize,
+    /// The token estimate the turn's summary counts for it.
+    estimate: u64,
+    /// The title the prompt would give a session it opened ([`title_of`]).
+    title: Option<String>,
+    /// Its card, written when its turn starts -- `None` for one written at
+    /// the keystroke.
+    card: Option<WaitingCard>,
+    /// Whether the band shows the card while it waits ([`Shell::banner_rows`]).
+    shown: bool,
+    /// Upstream would have queued it at once rather than hold it as a
+    /// pending submission ([`Shell::take_status_moved_by_input`]).
+    queued_at_once: bool,
+}
+
 /// [`BadgeLinks`] for these images.
 fn badge_links<'a>(images: impl IntoIterator<Item = (u32, &'a std::path::Path)>) -> BadgeLinks {
     images
@@ -2025,6 +2158,19 @@ enum Mark {
     /// write answers ([`Shell::saves_said`]) it holds everything behind it,
     /// the stream included, so the order said is the order given.
     Saving { save: Held, then: notice::Notice },
+}
+
+/// One thing a stop's turn read, held for that turn's end ([`Shell::late`]).
+#[derive(Debug)]
+enum Late {
+    /// Answer text: presented only with the turn's finish.
+    Text(String),
+    /// An operational line ([`Mark::Operational`]): the same.
+    Operational(String),
+    /// A tool row ([`Mark::ToolStart`], [`Mark::ToolResult`]) read behind
+    /// held text: written whatever the end says, as a row read with nothing
+    /// held is, at once -- held only so it does not go ahead of that text.
+    Tool(Mark),
 }
 
 /// Which writer a [`Mark::Saving`] waits for, and which of its saves.
@@ -2233,9 +2379,10 @@ enum CatalogKnown {
     /// The runtime's answer is [`Shell::catalog`].
     Loaded,
     /// The runtime could not read it, whether asking again could help, and
-    /// when the read that failed began: a `/model` within a second of that
-    /// opens the menu over the failure and asks nothing
-    /// (`crate::provider::model::RETRY_FLOOR`).
+    /// when the hold the failure put on the next read ends: a `/model` before
+    /// then opens the menu over the failure and asks nothing, as upstream's
+    /// model cache starts no load inside a failure's backoff
+    /// (`crate::provider::model::failure_backoff`).
     Unread(Option<CatalogRetry>, Instant),
 }
 
@@ -2366,6 +2513,9 @@ impl Shell {
             provider: config.provider,
             catalog: Vec::new(),
             catalog_known: CatalogKnown::Unasked,
+            catalog_due: None,
+            catalog_note: None,
+            catalog_nudged: false,
             settings: TurnSettings {
                 effort: config.effort.clone(),
                 fast: config.fast_mode,
@@ -2408,7 +2558,10 @@ impl Shell {
             status_resume_owed: false,
             launch_status: None,
             cancel_owed: None,
-            cancel_covers: 0,
+            cancel_through: None,
+            stop_requested: false,
+            stop_reads_end: false,
+            compaction_ended_turn: false,
             retry: None,
             compaction: None,
             activity: Activity::new(),
@@ -2518,6 +2671,10 @@ impl Shell {
             titled_by_user: false,
             turn_title: None,
             title_owed: true,
+            title_leads: None,
+            title_held: false,
+            stop_in_tick: false,
+            late: Vec::new(),
             workspace: config.workspace_root.clone(),
             document_rows: 0,
             fatal: None,
@@ -3706,6 +3863,11 @@ impl Shell {
         self.abandoned.clear();
         self.raw_gap = false;
         self.prompts.clear();
+        // The runtime took the work this answers, after any stop; and a
+        // stopped turn's title is the replaced conversation's.
+        self.stop_requested = false;
+        self.title_leads = None;
+        self.late.clear();
         // A landed fork's prompt held under a search is the replaced
         // conversation's draft: a resume (the session picker is a search) or
         // a later fork must not hand it to this one. A fork landing now
@@ -3752,6 +3914,7 @@ impl Shell {
             self.missing_credential = missing_credential;
             self.catalog.clear();
             self.catalog_known = CatalogKnown::Unasked;
+            self.forget_catalog_clock();
             self.column.reset();
             self.held_speed.clear();
             self.usage_sign_in_changed();
@@ -4003,6 +4166,28 @@ impl Shell {
         self.transcript.emit_front(self.palette, emit)
     }
 
+    /// What the runtime says when it starts the oldest prompt still
+    /// waiting -- one no stop covered ([`Self::waiting_prompts`]) -- which is the turn
+    /// its loop takes next: for a case about what follows a start rather than
+    /// about which turn a start is. A case about that names the number
+    /// itself.
+    #[cfg(test)]
+    pub(crate) fn turn_starts(&self) -> UiEvent {
+        UiEvent::TurnStarted {
+            submission: self
+                .waiting_prompts()
+                .next()
+                .map_or(self.work.accepted(), |prompt| prompt.submission),
+        }
+    }
+
+    /// [`Self::apply`]s [`Self::turn_starts`].
+    #[cfg(test)]
+    pub(crate) fn start_turn(&mut self) {
+        let started = self.turn_starts();
+        self.apply(started);
+    }
+
     /// Shows what the runtime just did.
     ///
     /// Exhaustive on purpose: a [`UiEvent`] added later has to be given a home
@@ -4080,40 +4265,84 @@ impl Shell {
             // and the *moment* is the next settle's, so the row is timed by the
             // same clock every other row of the band is settled against
             // ([`Self::tick_activity`]).
-            UiEvent::TurnStarted => {
+            UiEvent::TurnStarted { submission } => {
                 // A new turn must not report an earlier turn's result once it
                 // settles (`noteTurnStarted`, `app_worker_runtime.zig:972`).
                 self.program_status.turn_started();
                 self.compaction_failed = false;
                 self.retry = None;
-                // A turn the user already stopped can still say it started --
-                // the runtime took it before it read the cancellation -- and
-                // its row must not come back under the line that says so. Any
-                // other turn is a new one, and what it says is painted: a
-                // cancel that landed after its turn had already ended is
-                // answered by no conclusion, and must not silence this one.
-                if self.cancel_covers > 0 {
-                    self.cancel_covers -= 1;
+                // **Which turn this is, by its number.** One the last stop
+                // covered was taken by the runtime before it read the stop,
+                // which stops it -- or it had finished already: it is the
+                // stop's, whatever the turn before it ended in or a settle
+                // took back meanwhile, and its end says what it came to
+                // ([`Self::stop_reads_end`]). Upstream's stop requested after
+                // its worker took a prompt is that turn's (`takeEventBatch`'s
+                // `cancelled_turn_id`, `worker_runtime.zig:923-937@481104fd`;
+                // the take, `:1484-1512`), and the drain admits the turn's
+                // prompt, finish and history and drops its answer
+                // (`cancelledEventAdmission`, `app_worker_runtime.zig:339-389`):
+                // no activity row, as nothing is busy under a stop
+                // (`cancellation_stops_turn`, `:734-738`), and no bell. Any
+                // other turn is a new one, typed after the stop, and what it
+                // says is painted: a stop that landed after its turn had
+                // already ended is answered by no end, and must not silence
+                // this one.
+                if self
+                    .cancel_through
+                    .is_some_and(|through| submission <= through)
+                {
+                    self.cancelling = true;
+                    self.stop_reads_end = true;
+                    self.sound.interrupted();
                 } else {
                     self.cancelling = false;
-                    self.cancel_owed = None;
+                    self.stop_reads_end = false;
+                    self.stop_requested = false;
                 }
+                self.compaction_ended_turn = false;
+                self.cancel_owed = None;
                 if !self.cancelling {
                     self.activity.set(Work::Thinking);
                 }
-                let (input, title, card) = self.prompts.pop_front().unwrap_or_default();
-                self.tally.begin(Instant::now(), input);
+                // The runtime takes its work in order, so a prompt numbered
+                // before this one started earlier or was dropped by a stop
+                // (`Taken::Abandon`, `super::worker`'s `turn_loop`), and the
+                // one numbered this is this turn's.
+                while self
+                    .prompts
+                    .front()
+                    .is_some_and(|prompt| prompt.submission < submission)
+                {
+                    self.prompts.pop_front();
+                }
+                let WaitingPrompt {
+                    estimate,
+                    title,
+                    card,
+                    ..
+                } = if self
+                    .prompts
+                    .front()
+                    .is_some_and(|prompt| prompt.submission == submission)
+                {
+                    self.prompts.pop_front().unwrap_or_default()
+                } else {
+                    WaitingPrompt::default()
+                };
+                self.tally.begin(Instant::now(), estimate);
                 self.turn_title = title;
                 // The waiting prompt is delivered: its card goes into the
                 // document behind whatever the last turn still has to say,
-                // and its rows leave the band.
+                // and its rows leave the band -- a stopped one's too, as
+                // upstream writes the card of a prompt its worker took before
+                // the stop (`begin_prompt`'s `write_user_prompt`,
+                // `app_worker_runtime.zig:965-975@481104fd`).
                 if let Some((card, links, skills)) = card {
-                    if !self.cancelling {
-                        self.echo(&card, links, skills);
-                    }
-                    self.refit();
-                    self.render.request(Reason::Footer);
+                    self.echo(&card, links, skills);
                 }
+                self.refit();
+                self.render.request(Reason::Footer);
             }
             // The answer, as it arrives -- into the pacer rather than into the
             // document, so a provider that sends a kilobyte in one frame and
@@ -4122,7 +4351,8 @@ impl Shell {
             // **Not after a cancel**: what is still crossing the channel when
             // the user stopped the turn is the tail of the answer they stopped,
             // and the line saying so is already under what they read
-            // ([`Self::cancel_turn`]).
+            // ([`Self::cancel_turn`]) -- unless the turn's end, read in the
+            // same drain, says it came to something else ([`Self::late`]).
             UiEvent::Delta(text) => {
                 if !self.cancelling {
                     // A retried answer arriving leaves the row as it is:
@@ -4130,6 +4360,8 @@ impl Shell {
                     // through (`fx-interrupt-recovered-40x120-slow-2.8`), and
                     // then says that ([`UiEvent::Recovered`]).
                     self.stream(&text);
+                } else if self.keeps_late_text() {
+                    self.late.push(Late::Text(text));
                 }
             }
             // In the place the stream has reached, not at once: it is about the
@@ -4137,6 +4369,8 @@ impl Shell {
             UiEvent::Operational(text) => {
                 if !self.cancelling {
                     self.mark(Mark::Operational(text));
+                } else if self.keeps_late_text() {
+                    self.late.push(Late::Operational(text));
                 }
             }
             // A request failed and the turn will try it again. Not after a
@@ -4204,7 +4438,7 @@ impl Shell {
                 if !self.cancelling {
                     self.activity.set(Work::Tool { name: tool });
                 }
-                self.mark(Mark::ToolStart { id: call_id, shown });
+                self.mark_tool(Mark::ToolStart { id: call_id, shown });
             }
             UiEvent::ToolResult {
                 call_id,
@@ -4220,7 +4454,7 @@ impl Shell {
                 if !self.cancelling {
                     self.activity.set(Work::Thinking);
                 }
-                self.mark(Mark::ToolResult {
+                self.mark_tool(Mark::ToolResult {
                     id: call_id,
                     ok,
                     // Spelled and bounded as the call's row has it, by the
@@ -4276,6 +4510,7 @@ impl Shell {
                 // against, and the meter waits for it.
                 self.catalog.clear();
                 self.catalog_known = CatalogKnown::Unasked;
+                self.forget_catalog_clock();
                 self.column.reset();
                 // The speed switches went off with the model the switch
                 // replaced, on the runtime too (`super::worker`'s `adopt`), and
@@ -4362,14 +4597,21 @@ impl Shell {
             // The catalog's rows, for `/model`'s menu and column if either is
             // waiting for them, for resolving a typed query on this side, and
             // for the context meter's denominator either way.
-            UiEvent::CatalogLoaded { provider, entries } => {
+            UiEvent::CatalogLoaded {
+                provider,
+                entries,
+                due,
+            } => {
                 self.catalog = entries;
                 self.catalog_known = CatalogKnown::Loaded;
                 self.provider = provider;
+                // Fresh rows: activity owes them a read when the runtime's
+                // clock says -- the refresh interval after the read that
+                // brought them began -- and no refresh of them has failed.
+                self.forget_catalog_clock();
+                self.catalog_due = Some(due);
                 self.settle_speed();
-                let note = (provider == ProviderId::Gateway)
-                    .then_some(self.gateway_note)
-                    .flatten();
+                let note = self.menu_note();
                 if let Some(menu) = self.model_menu.as_mut() {
                     menu.loaded(&self.catalog, note);
                     self.render.request(Reason::Modal);
@@ -4384,12 +4626,14 @@ impl Shell {
                 self.render.request(Reason::Footer);
             }
             // Nothing to list, and the menu and the column say so -- the menu
-            // in upstream's `retry /model.` words when asking again could
-            // help, which the next `/model` then does.
+            // in upstream's `xfx retries automatically.` words when asking
+            // again could help, which the model cache's next trigger past
+            // `retry_at` then does.
             UiEvent::CatalogUnread {
-                retry, attempted, ..
+                retry, retry_at, ..
             } => {
-                self.catalog_known = CatalogKnown::Unread(retry, attempted);
+                self.catalog_known = CatalogKnown::Unread(retry, retry_at);
+                self.forget_catalog_clock();
                 // No row says the model offers a mode, as upstream's generic
                 // capabilities say none (`capabilitiesForModel`).
                 self.settle_speed();
@@ -4400,6 +4644,41 @@ impl Shell {
                 }
                 self.render.request(Reason::Modal);
                 self.render.request(Reason::Footer);
+            }
+            // A refresh behind the rows the band holds failed: the rows stand
+            // (`applyFetchLocked`, `model_cache_runtime.zig:969-975@481104fd`),
+            // the menu says the failure in its note's place when asking again
+            // could help (`loadedCatalogStatusText`,
+            // `model_menu_presentation.zig:403-404`), and activity is owed
+            // the next read once its hold ends -- or, for one asking again
+            // could not change, once the rows are the refresh interval old.
+            UiEvent::CatalogRefreshFailed {
+                provider,
+                retry,
+                due,
+            } => {
+                if provider != self.provider {
+                    return;
+                }
+                // An answer, whatever the band holds: activity may ask again
+                // once the runtime's clock says the next read is due
+                // ([`Self::note_catalog_activity`]). A band that holds no
+                // rows to keep asks then, and is told what the runtime holds.
+                self.catalog_nudged = false;
+                if let CatalogKnown::Unread(failed, _) = self.catalog_known {
+                    self.catalog_known = CatalogKnown::Unread(failed, due);
+                }
+                if self.catalog_known != CatalogKnown::Loaded {
+                    return;
+                }
+                self.catalog_note = retry;
+                self.catalog_due = Some(due);
+                let note = self.menu_note();
+                if let Some(menu) = self.model_menu.as_mut() {
+                    menu.set_note(note);
+                    self.refit();
+                    self.render.request(Reason::Modal);
+                }
             }
             // The numerator, and only the numerator: see [`Self::context_used`]
             // for why the output half is deliberately left out of it.
@@ -4440,8 +4719,31 @@ impl Shell {
                 // A turn an automatic compaction failed had its result noted
                 // when the compaction settled ([`Self::compaction_failed`]).
                 let noted = std::mem::take(&mut self.compaction_failed);
-                let outcome = (self.tally.started.is_some() && !noted).then(|| {
-                    if self.cancelling {
+                // **What a stop leaves unsaid is the stop's own end.** A
+                // compaction's ending or its stop says nothing more at the
+                // turn's end (the row has said it). The user's stop of a turn
+                // has written its line at the keystroke, and the end that is
+                // the stop -- [`bridge::TURN_CANCELLED`] -- adds nothing; but
+                // the end is the runtime's word for what the turn came to,
+                // and upstream does not rewrite it. A turn that finished
+                // before the stop reached it stays finished -- the second
+                // finish is ignored (`finalization.zig:126-136@481104fd`), its
+                // summary is written (`finishPromptPresentation`,
+                // `app_callbacks.zig:276-283`) and it is `done` -- and a
+                // failure after the stop is still reported, `request failed`
+                // under `system` and `error` (`interruption.zig:208-223`,
+                // `app_process_runtime.zig:157-169`; a cancelled drain admits
+                // it, `app_worker_runtime.zig:386`).
+                let stopped = self.cancelling;
+                let reads_end = std::mem::take(&mut self.stop_reads_end) && stopped;
+                let compactions = std::mem::take(&mut self.compaction_ended_turn) && stopped;
+                let quiet = stopped
+                    && (compactions
+                        || !reads_end
+                        || failure.as_deref() == Some(super::bridge::TURN_CANCELLED));
+                let ran = self.tally.started.is_some();
+                let outcome = (ran && !noted).then(|| {
+                    if quiet {
                         program_status::Outcome::Interrupted
                     } else if failure.is_some() {
                         program_status::Outcome::Failed
@@ -4462,9 +4764,27 @@ impl Shell {
                 // A cancel that waited for a running call is answered now: the
                 // call's own line if the turn ends with it still running, and
                 // otherwise the turn's ([`Self::cancel_turn_with`]).
+                //
+                // What the stop held of this turn in this drain ([`Self::late`]):
+                // under the stop's own end its rows alone, where they were
+                // read; under any other end the whole of it, in the order it
+                // came, as upstream's drain presents a batch that holds the
+                // turn's own finish, or that its worker had already let go
+                // of, as no interrupted segment (`batchSegmentIsInterrupted`,
+                // `app_worker_runtime.zig:301-325@481104fd`; `takeEventBatch`'s
+                // `cancelled_turn_id`, `worker_runtime.zig:923-937`) -- under
+                // the keystroke's `Cancelled` line, the owed one included,
+                // which is asked about the calls as the held rows leave them,
+                // and above the group's end and the summary or the failure.
                 let owed = self.cancel_owed.take();
-                let stops_a_call = self.group.running();
-                self.mark(Mark::TurnOver);
+                let presented = !quiet && !self.late.is_empty();
+                if !presented {
+                    self.release_late(false);
+                }
+                let stops_a_call = self.runs_a_call_past_late();
+                if !presented {
+                    self.mark(Mark::TurnOver);
+                }
                 if let Some(waiting) = owed {
                     if !stops_a_call {
                         self.write_cancelled();
@@ -4472,6 +4792,10 @@ impl Shell {
                     if waiting {
                         self.write_notice(&notice::Notice::cancelled("queue", QUEUE_DROPPED));
                     }
+                }
+                if presented {
+                    self.release_late(true);
+                    self.mark(Mark::TurnOver);
                 }
                 // A summary only under a turn the runtime ran: `/model`, `/setup`
                 // and a catalog listing end with this event too, and they
@@ -4496,9 +4820,10 @@ impl Shell {
                 // at the keystroke: no summary under an answer that was cut
                 // off, and no `✗ system:` for a failure the user asked for --
                 // upstream writes the one `▪ Cancelled` line and nothing after
-                // it (`fx-interrupt-40x120-cc-1.5`).
-                self.cancel_covers = 0;
-                let (failure, summary) = if std::mem::take(&mut self.cancelling) {
+                // it (`fx-interrupt-40x120-cc-1.5`). Unless the end says the
+                // turn came to something else (above).
+                self.cancelling = false;
+                let (failure, summary) = if quiet {
                     (None, None)
                 } else {
                     (failure, summary)
@@ -4511,9 +4836,32 @@ impl Shell {
                     }
                     (None, Some(summary)) => {
                         self.mark(Mark::Summary(summary));
-                        self.title_session();
+                        let _ = self.title_session();
                     }
-                    (None, None) => self.mark(Mark::EndOfLine),
+                    (None, None) => {
+                        self.mark(Mark::EndOfLine);
+                        // A stopped turn is still a turn of the session's
+                        // history -- upstream commits it `.interrupted`
+                        // (`interruption.zig:197-221@481104fd`) and titles the
+                        // session from it, as `p5-lifecycle-osc-stopnext`'s
+                        // `]2;first question` after the stopped turn shows.
+                        // Not one a compaction failed (`noted`): a turn that
+                        // failed titles nothing ([`Self::title_session`]).
+                        // Ahead of the tick's report, as upstream's is on
+                        // the pass before the next prompt's `working`
+                        // ([`Self::take_leading_title`]) -- the title this
+                        // end gave and no other: a session with one already
+                        // takes none from it (`ensureCachedSessionTitle`,
+                        // `app_session_runtime.zig:2997-3010@481104fd`), and
+                        // a title another event of the drain asked for is
+                        // the tick's own, which follows the report.
+                        if quiet && ran && !noted && self.title_session() {
+                            self.title_leads = Some(super::frame::title(
+                                self.session_title.as_deref(),
+                                &self.workspace,
+                            ));
+                        }
+                    }
                 }
                 // Whichever way it went, the prompt this turn carried is no
                 // longer the one a later conclusion is about.
@@ -8816,7 +9164,88 @@ impl Shell {
     /// at `TurnStarted` and clears at its end, and the prompts sent whose turn
     /// has not started.
     fn provider_work_busy(&self) -> bool {
-        self.activity.working() || !self.prompts.is_empty()
+        self.activity.working() || self.waiting_prompts().next().is_some()
+    }
+
+    /// Whether answer text read now is kept for the turn's end to place
+    /// ([`Self::late`]): under the user's stop of a turn whose end may say it
+    /// came to something else, and not one a compaction ended.
+    fn keeps_late_text(&self) -> bool {
+        self.stop_reads_end && !self.compaction_ended_turn
+    }
+
+    /// A drain of the runtime's events is over (`super::event_loop`'s
+    /// `take_ui_events`). One that emptied the channel is upstream's batch:
+    /// answer text it read under a stop with no end of its turn behind it was
+    /// read while the stopped turn still ran, and upstream drops such a
+    /// batch's text (`cancelledEventAdmission`,
+    /// `app_worker_runtime.zig:339-389@481104fd`). One its bound cut short is
+    /// not: what is still on the channel is the same batch.
+    pub(crate) fn ui_events_taken(&mut self, emptied: bool) {
+        if emptied {
+            self.release_late(false);
+        }
+    }
+
+    /// A tool row's mark, in its place in the turn: behind what
+    /// [`Self::late`] holds when it holds anything, so the row does not go
+    /// ahead of text read before it; at once otherwise, as any mark.
+    fn mark_tool(&mut self, mark: Mark) {
+        if self.late.is_empty() {
+            self.mark(mark);
+        } else {
+            self.late.push(Late::Tool(mark));
+        }
+    }
+
+    /// Lets go of what [`Self::late`] holds: all of it in the order it came
+    /// when `presented`, and otherwise the tool rows alone, the text and the
+    /// operational lines dropped.
+    fn release_late(&mut self, presented: bool) {
+        for held in std::mem::take(&mut self.late) {
+            match held {
+                Late::Text(text) if presented => self.stream(&text),
+                Late::Operational(text) if presented => self.mark(Mark::Operational(text)),
+                Late::Tool(mark) => self.mark(mark),
+                Late::Text(_) | Late::Operational(_) => {}
+            }
+        }
+    }
+
+    /// Whether a call of the turn is still running once the tool rows
+    /// [`Self::late`] holds have been written: the group's own calls and
+    /// those a held row starts, less those a held row settles. A question
+    /// is never one ([`ToolGroup::start`]).
+    fn runs_a_call_past_late(&self) -> bool {
+        let mut started = Vec::new();
+        let mut settled = Vec::new();
+        for held in &self.late {
+            match held {
+                Late::Tool(Mark::ToolStart { id, shown })
+                    if shown.presentation.activity != crate::tools::Activity::Ask =>
+                {
+                    started.push(id.as_str());
+                }
+                Late::Tool(Mark::ToolResult { id, .. }) => settled.push(id.as_str()),
+                _ => {}
+            }
+        }
+        self.group
+            .running_ids()
+            .chain(started)
+            .any(|id| !settled.contains(&id))
+    }
+
+    /// The prompts still waiting for their turn: those [`Self::prompts`]
+    /// holds that no stop covered ([`Self::cancel_through`]). A covered one
+    /// is the runtime's to drop or to stop, and is neither shown nor work;
+    /// its entry is kept for the turn it may still start, and goes with the
+    /// next start, a reset or a resume.
+    fn waiting_prompts(&self) -> impl Iterator<Item = &WaitingPrompt> {
+        let through = self.cancel_through;
+        self.prompts
+            .iter()
+            .filter(move |prompt| !through.is_some_and(|through| prompt.submission <= through))
     }
 
     /// Hands a provider switch to the runtime, and says it is under way.
@@ -9660,7 +10089,10 @@ impl Shell {
     /// [`PACED_BACKLOG`]. That is where the bound on this queue lives: the
     /// channel fills behind a UI that has stopped listening, the runtime parks
     /// in its `send().await`, and the socket feels it -- rather than a `String`
-    /// here growing to the length of the answer.
+    /// here growing to the length of the answer. What a stop holds for its
+    /// turn's end ([`Self::late`]) is not counted: the clock does not let go
+    /// of it, the turn's end does, so counted it would keep the loop from the
+    /// event that empties it -- and its bound is the channel's.
     pub(crate) fn paced_backlog(&self) -> usize {
         self.pacer.pending()
     }
@@ -10005,18 +10437,37 @@ impl Shell {
         // cancel covered can be dropped without ever saying it started -- and
         // a cancel that landed after its turn had already concluded is
         // answered by nothing at all. Either way the place is given back, and
-        // once none is held, no cancelled work is still to start. **Its end
-        // can still be on its way**: the runtime gives a place back after it
-        // has sent the work's terminal event (`TurnEnded`, `worker.rs:3835`,
-        // then `turn_loop`'s `fetch_sub`, `:3524`), so this can run between
-        // the two, with the `TurnEnded` still in the channel. What that event
-        // reads is left for it: a turn an automatic compaction failed keeps
-        // [`Self::compaction_failed`] until its end takes it, or the turn
-        // would read as working again and its end report the error twice.
-        if self.cancelling && self.work.outstanding() == 0 {
+        // once none is held, no cancelled work is still to start.
+        //
+        // **A turn that started is not over until its end is read.** The
+        // runtime gives a place back after it has sent the work's terminal
+        // event (`TurnEnded`, `worker.rs:3867`, then `turn_loop`'s
+        // `fetch_sub`, `:3524`), so this can run between the two with a
+        // started turn's end still in the channel -- and a stopped turn's end
+        // says `the turn was cancelled`. A cancel taken here would leave that
+        // end to read as the turn's failure: an `error` report after the
+        // stop's `idle` and a `✗ system:` line under the `▪ Cancelled` one --
+        // or, with a call still running, `working` again and no `▪ Cancelled`
+        // line at all ([`Self::cancel_owed`]). Upstream's stopped turn is
+        // finished `.interrupted` and returns (`interruption.zig:219`,
+        // `orchestrator.zig:7233-7235@481104fd`), so its result is `idle`
+        // (`program_status.zig:62-69`) and no `request failed` follows it
+        // (`app_process_runtime.zig:157-169`). So whenever a turn has started
+        // -- `TurnStarted` begins the tally and `TurnEnded` takes it -- the
+        // cancel waits for that end; the two cases above have no turn in
+        // hand. A turn an automatic compaction failed is one of them, and its
+        // end takes [`Self::compaction_failed`] too.
+        // Nor, then, is a stop still requested: nothing is left it could be
+        // about ([`Self::stop_requested`]).
+        if self.work.outstanding() == 0 {
+            self.stop_requested = false;
+        }
+        if self.cancelling && self.work.outstanding() == 0 && self.tally.started.is_none() {
+            self.release_late(false);
             self.cancelling = false;
+            self.stop_reads_end = false;
+            self.compaction_ended_turn = false;
             self.cancel_owed = None;
-            self.cancel_covers = 0;
         }
         // The same for a compaction the user stopped before the runtime took it
         // off the queue: it never began, so it never says how it ended. Once
@@ -10154,7 +10605,7 @@ impl Shell {
         } else if !self.cancelling
             && !self.compaction_failed
             && (self.activity.working()
-                || !self.prompts.is_empty()
+                || self.waiting_prompts().next().is_some()
                 || self
                     .compaction
                     .as_ref()
@@ -10190,26 +10641,52 @@ impl Shell {
     /// **Nor is one that waits for anything else**, typed or not: work that
     /// is only a prompt waiting is held the same way ([`Self::status_held`]),
     /// and the tick whose frame first shows its turn writes the report after
-    /// that frame. A prompt typed after a stop, before the stopped turn has
-    /// ended, is one: the stop keeps the status settled across the keystroke,
-    /// so nothing above marks it as typed, and the stopped turn's end would
-    /// otherwise report `working` ahead of every frame that shows the prompt's
-    /// turn. Upstream's stop stays requested until the worker takes the next
-    /// item (`takeNextWorkLocked`, `worker_runtime.zig:1512@481104fd`;
-    /// `finishProcessing` leaves it, `:1541-1563`) and nothing is busy while it
-    /// is (`app_worker_runtime.zig:785-788`), while the prompt's keystroke
-    /// frame shows its activity (`pendingPromptActivityVisible`,
-    /// `app_render_runtime.zig:286-290`): the `Thinking` frame, then `working`.
-    /// A hold that ends without its turn -- the prompt stopped, reset or
-    /// replaced before it started -- owes no frame anything: what is reported
-    /// then goes where it would have.
+    /// that frame. A hold that ends without its turn -- the prompt stopped,
+    /// reset or replaced before it started -- owes no frame anything: what is
+    /// reported then goes where it would have.
+    ///
+    /// **Except a prompt upstream would have queued at once**
+    /// ([`Self::prompts`]' fourth). Upstream installs a pending submission --
+    /// whose keystroke frame shows its activity -- only while no turn streams,
+    /// its pacer holds no text, the full transcript is closed and the worker
+    /// can hold the next start (`installPendingSubmission`,
+    /// `input_submit_runtime.zig:1123-1149@481104fd`; `tryHoldTurnStart`
+    /// refuses while it processes, has work queued or holds another start,
+    /// `worker_runtime.zig:1273-1280`). Otherwise it queues the prompt at
+    /// once (`enqueuePromptForSubmit`, `input_submit_runtime.zig:1112-1118`).
+    /// xfx reads the first three: a turn that started still in hand, the
+    /// pacer, the full transcript; a start held by another waiting prompt or
+    /// by a session transition is STOP-NEXT-2's. A queued prompt shows nothing
+    /// of its turn until the worker takes it, in the pass that reports
+    /// `working` and then paints the prompt
+    /// (`p5-lifecycle-osc-stopnext` on fx v0.0.16: `idle`, the `Cancelled`
+    /// frame, `working`, then the frame with the prompt). A stop stays
+    /// requested until that take
+    /// (`takeNextWorkLocked`, `worker_runtime.zig:1512@481104fd`;
+    /// `finishProcessing` leaves it, `:1541-1563`), and nothing is busy while
+    /// it is (`cancellation_stops_turn`, `app_worker_runtime.zig:734-735`,
+    /// `:762-765`). So such a prompt is not held: its `working` goes ahead of
+    /// the frame that shows its turn, whether the turn it waited behind ends
+    /// in the tick its own starts in -- the runtime sends the two with no wait
+    /// on this thread -- or in an earlier one. Behind a turn that was not
+    /// stopped, that report is the running turn's `working`, which is not
+    /// written again. Only a prompt still waiting, while the runtime still
+    /// holds a place: one a stop covered is no work ([`Self::waiting_prompts`]).
     pub(crate) fn take_status_moved_by_input(&mut self) -> Keyed {
         let compacting = self
             .compaction
             .as_ref()
             .is_some_and(|compaction| compaction.active() && !compaction.stopped());
         let working = self.status_activity() == StatusActivity::Working;
-        if working && !self.activity.working() && !compacting {
+        // Queued work, while the runtime still holds a place for it: a prompt
+        // a stop covered -- dropped by the runtime's loop (`Taken::Abandon`),
+        // which says nothing, or stopped -- is no work at all.
+        let behind_a_turn = self.work.outstanding() > 0
+            && self
+                .waiting_prompts()
+                .next()
+                .is_some_and(|prompt| prompt.queued_at_once);
+        if working && !self.activity.working() && !compacting && !behind_a_turn {
             self.status_held = true;
             return Keyed::NotYet;
         }
@@ -11095,6 +11572,7 @@ impl Shell {
                     // conclusion adds nothing (`compactionErrorHandled`,
                     // `app_process_runtime.zig:10-17`, `:55-56`).
                     self.cancelling = true;
+                    self.compaction_ended_turn = true;
                     // And unless the user stopped it, the turn failed, and that
                     // is its result now ([`Self::compaction_failed`]).
                     if feedback != compaction::Feedback::Cancelled && self.tally.started.is_some() {
@@ -11115,9 +11593,11 @@ impl Shell {
     /// turn's conclusion says nothing either.
     fn stop_compaction(&mut self) {
         let waiting = self.work.queued() > 0;
-        self.work.control(TurnControl::Cancel {
-            through: self.work.accepted(),
-        });
+        let through = self.work.accepted();
+        self.work.control(TurnControl::Cancel { through });
+        self.cancel_through = Some(through);
+        self.stop_requested = true;
+        self.stop_in_tick = true;
         let automatic = self.compaction.as_ref().is_some_and(Compaction::automatic);
         if let Some(compaction) = self.compaction.as_mut() {
             compaction.stopping();
@@ -11130,13 +11610,13 @@ impl Shell {
             self.retry = None;
         }
         if waiting {
-            self.prompts.clear();
+            // What was waiting is the stop's now ([`Self::cancel_through`]),
+            // and its rows go.
             self.refit();
             // xfx's queue is its own, and so is the sentence that says it went
             // with the keystroke ([`Self::cancel_turn_with`]).
             self.write_notice(&notice::Notice::cancelled("queue", QUEUE_DROPPED));
         }
-        self.cancel_covers = self.prompts.len();
     }
 
     /// What a theme report says, applied to the palette.
@@ -12220,8 +12700,41 @@ impl Shell {
     /// (`fx-interrupt-40x120-cmd-cc`: no activity row under the line), and the
     /// one line upstream writes for a cancelled turn takes the place of the
     /// rest ([`Self::write_cancelled`]).
+    ///
+    /// **Not while a stop is still requested** ([`Self::stop_requested`]):
+    /// upstream's keystroke returns there, so a second Ctrl-C after the
+    /// first, or one after an automatic compaction's stop, writes no second
+    /// `▪ Cancelled` line and sends no second stop -- which would drop the
+    /// prompts typed since the first (`input_interrupt_runtime.zig:94@481104fd`).
+    /// Work typed since that stop is stopped ahead of that check, as
+    /// upstream's compaction and provider preparation are (`:69-90`): a
+    /// manual compaction no press has stopped yet, or a provider switch, a
+    /// `/resume` or a fork the stop's count does not cover. **Not the stop's
+    /// own work while it unwinds**: a second press there only asks the same
+    /// work to stop again (`cancelContextCompaction`,
+    /// `worker_runtime.zig:1002-1035`; `cancelProviderPreparation`,
+    /// `auth_runtime.zig:2052-2056`), and would otherwise quote the count
+    /// again and drop what was typed between the presses.
     fn cancel_turn(&mut self) {
+        if self.stop_requested && !self.work_typed_since_the_stop() {
+            return;
+        }
         self.cancel_turn_with(false);
+    }
+
+    /// Whether work a stop still requested did not cover is in hand: a
+    /// manual compaction no press has stopped, or a switch -- a provider
+    /// switch, a `/resume`, a fork -- numbered past the stop's count
+    /// ([`Self::cancel_turn`]).
+    fn work_typed_since_the_stop(&self) -> bool {
+        let compaction = self.compaction.as_ref().is_some_and(|compaction| {
+            compaction.active() && !compaction.stopped() && !compaction.automatic()
+        });
+        let switch = self
+            .work
+            .pending_switch()
+            .is_some_and(|at| !self.cancel_through.is_some_and(|through| at <= through));
+        compaction || switch
     }
 
     /// The same, told whether the keystroke has already written a call's own
@@ -12265,25 +12778,24 @@ impl Shell {
         // from reaching past this keystroke: a prompt typed while this message
         // is still in flight is a new intention, and the runtime is told
         // exactly where the old ones stop.
-        self.work.control(TurnControl::Cancel {
-            through: self.work.accepted(),
-        });
+        let through = self.work.accepted();
+        self.work.control(TurnControl::Cancel { through });
+        // Every prompt still waiting is the stop's now: the runtime drops it,
+        // or stops its turn if it took it first ([`Self::cancel_through`]).
+        self.cancel_through = Some(through);
+        self.stop_requested = true;
+        self.stop_in_tick = true;
         // The turn this stops ends with no bell: the user is here, and
         // upstream's turn-end cue is silent for an interrupted turn.
         self.sound.interrupted();
         self.cancelling = true;
+        self.stop_reads_end = true;
         self.abandon_answer();
         self.retry = None;
-        if waiting {
-            self.prompts.clear();
+        if waiting || steered {
             // The waiting prompt's rows go with it.
             self.refit();
-        } else if steered {
-            self.refit();
         }
-        // A prompt the runtime took before it read this is still to say it
-        // started; with nothing waiting behind it, it is the only entry left.
-        self.cancel_covers = self.prompts.len();
         let written = written || (self.group.running_command() && self.settle_group());
         if !written && self.group.running() {
             self.cancel_owed = Some(waiting);
@@ -12633,6 +13145,15 @@ impl Shell {
         // draft goes.
         let sent = self.editor.entities().expand(text);
         let (card, runs) = self.editor.entities().card(text);
+        // **A submitted prompt is activity**, a steer too: the model cache
+        // reads a stale or failed catalog again in the background, as the
+        // prompt is enqueued (`noteModelCatalogActivity`, from
+        // `enqueuePromptWithSkillBindings`, `src/main.zig:1193-1201`,
+        // `:1225-1232@481104fd`) -- asked ahead of the work, on the channel
+        // the runtime reads first, so the retry is on its way before the turn
+        // asks for the catalog's limits (`resolveForRequest`'s wait,
+        // `super::worker`'s `await_failed_catalog_retry`).
+        let _ = self.note_catalog_activity(Instant::now());
         // **Into the turn that is running**, as upstream's steer
         // (`admitInteractivePrompt`, `worker_runtime.zig:1080-1104`): the turn
         // takes it at its next boundary -- at once over an answer, after a
@@ -12678,9 +13199,16 @@ impl Shell {
         // Whether it will wait behind a turn that is running -- the turn the
         // activity row is about, as upstream's steer waits on an active
         // operation. Work the session has stopped or reset is not one: a
-        // prompt typed after it goes out as soon as that work unwinds, and its
-        // card is written at once, as it always was.
+        // prompt typed after it goes out as soon as that work unwinds, and is
+        // not shown waiting (below).
         let waits = self.activity.working();
+        // Whether upstream would queue this prompt at once rather than hold it
+        // as a pending submission ([`Self::prompts`]' fourth): a turn that
+        // started is still in hand, stopped or not; the last answer is still
+        // being paced out; or the full transcript is open
+        // (`installPendingSubmission`, `input_submit_runtime.zig:1136-1149@481104fd`).
+        let behind =
+            self.tally.started.is_some() || self.pacer.pending() > 0 || self.full.is_open();
         match self.work.submit(work) {
             Ok(()) => {
                 self.ask_for_title(excerpt.as_deref(), Some(self.work.accepted()));
@@ -12694,13 +13222,38 @@ impl Shell {
                 self.edited(None);
                 let mut estimate = Estimator::default();
                 estimate.consume(&sent);
+                // A prompt upstream queues at once with no turn of its own
+                // running -- typed under a stop whose turn has not ended, or
+                // while the last answer is paced out, or from under the full
+                // transcript -- shows nothing of itself until its worker
+                // takes it: the band lists only steering prompts
+                // (`snapshotSteeringPresentation`, `worker_runtime.zig:
+                // 1749-1792@481104fd`) and the card is the `begin_prompt` the
+                // take pushes (`takeNextPromptLocked`, `:1484-1505`), so the
+                // `Cancelled` frame of a stop typed with a prompt in one read
+                // has nothing of it (`p5-lifecycle-osc-stopnext`, fx's three
+                // runs). Its card waits for its turn, unshown. Any other
+                // prompt not behind a running turn is upstream's pending
+                // submission, whose card is drawn at once.
+                let submission = self.work.accepted();
+                let (card, echoed) = if waits || behind {
+                    (Some((card, links, runs)), None)
+                } else {
+                    (None, Some((card, links, runs)))
+                };
+                self.prompts.push_back(WaitingPrompt {
+                    submission,
+                    estimate: estimate.estimate(),
+                    title,
+                    card,
+                    shown: waits,
+                    queued_at_once: behind,
+                });
                 if waits {
-                    self.prompts
-                        .push_back((estimate.estimate(), title, Some((card, links, runs))));
                     self.refit();
                     self.render.request(Reason::Footer);
-                } else {
-                    self.prompts.push_back((estimate.estimate(), title, None));
+                }
+                if let Some((card, links, runs)) = echoed {
                     self.echo(&card, links, runs);
                 }
                 self.gestures.submitted();
@@ -12753,11 +13306,22 @@ impl Shell {
                 Ok(()) => {
                     let mut estimate = Estimator::default();
                     estimate.consume(&card);
-                    self.prompts.push_back((
-                        estimate.estimate(),
-                        title_of(&prompt),
-                        Some((card, BadgeLinks::new(), SkillRuns::new())),
-                    ));
+                    // Sent while the turn that missed it was still in hand:
+                    // upstream's is already queued work, deferred to the
+                    // next turn (`finishProcessing`'s `.continuation`,
+                    // `worker_runtime.zig:1548-1551@481104fd`), and busy. It
+                    // matters when the turn's last report was a result -- an
+                    // automatic compaction's `error` -- rather than `working`:
+                    // the steer's `working` is then the tick's own, not held
+                    // for its turn's start.
+                    self.prompts.push_back(WaitingPrompt {
+                        submission: self.work.accepted(),
+                        estimate: estimate.estimate(),
+                        title: title_of(&prompt),
+                        card: Some((card, BadgeLinks::new(), SkillRuns::new())),
+                        shown: true,
+                        queued_at_once: true,
+                    });
                 }
                 Err(rejected) => {
                     if self.editor.is_empty() {
@@ -13687,7 +14251,7 @@ impl CommandHandlers for Shell {
         // `queuedPromptCount` (`input_submit_runtime.zig:148-153`). Other work
         // -- a catalog read, a listing -- is not a conversation a compaction
         // would cut into, and it queues behind that as it would behind a turn.
-        if self.activity.working() || !self.prompts.is_empty() {
+        if self.activity.working() || self.waiting_prompts().next().is_some() {
             self.compaction = Some(Compaction::refused(compaction::Feedback::Busy, now));
             return;
         }
@@ -14093,9 +14657,12 @@ impl Shell {
     /// the catalog ([`TurnControl::Catalog`]) -- a control message, so the
     /// read starts at once beside whatever the runtime is doing, as upstream's
     /// starts on a thread of its own; the one network call a bare `/model`
-    /// makes, and never one this thread waits on. A load that failed is asked
-    /// again: that is the `retry /model.` the menu said. The rows arrive as
-    /// [`UiEvent::CatalogLoaded`], and the open menu takes them.
+    /// makes, and never one this thread waits on. Rows in hand are listed at
+    /// once and read again behind them, five seconds after the last read
+    /// began; a load that failed is read again once its backoff is over --
+    /// the retry `xfx retries automatically.` says ([`Self::open_models_with`]).
+    /// The rows arrive as [`UiEvent::CatalogLoaded`], and the open menu takes
+    /// them.
     ///
     /// **With one word, it asks for that model** ([`Self::request_model`]):
     /// upstream's router form. Two or three words are the explicit form,
@@ -14205,43 +14772,63 @@ impl Shell {
     }
 
     /// The same, searching for `query` rather than for the draft.
+    ///
+    /// Upstream's `openModelMenu`: the model cache is asked first -- the
+    /// picker's trigger -- and the menu opens on what it holds then
+    /// (`revalidateModelCache`, then `openMenu`, `app_input_runtime.zig:
+    /// 1897-1902@481104fd`; `refreshMenuLocked`, `model_cache_runtime.zig:
+    /// 1039-1054`).
     fn open_models_with(&mut self, query: &str) {
         // The completion menu shares the slot, and the menu is what the user
         // asked for.
         self.picker = None;
         self.file_picker = None;
         self.effort_menu = None;
-        let note = (self.provider == ProviderId::Gateway)
-            .then_some(self.gateway_note)
-            .flatten();
         let menu = match self.catalog_known {
-            CatalogKnown::Loaded => ModelMenu::ready(&self.catalog, note, query),
+            // The rows in hand, listed at once; the runtime is asked to read
+            // them again, which it does five seconds after the last read
+            // began (`picker_revalidate_floor_ms`, `:37-38`) -- behind them,
+            // the open menu taking the new rows, its tab and mark kept, when
+            // they land ([`UiEvent::CatalogLoaded`], `pollLoadTransition`,
+            // `:745-760`).
+            CatalogKnown::Loaded => {
+                self.work
+                    .control(TurnControl::Catalog(CatalogAsk::REVALIDATE));
+                ModelMenu::ready(&self.catalog, self.menu_note(), query)
+            }
             // A load is on its way already: the menu waits for it rather than
             // asking twice.
             CatalogKnown::Asked => ModelMenu::loading(query),
-            // Failed, and within a second of the start of the read that did:
+            // Failed, and inside the hold the failure put on the next read:
             // upstream's cache starts no load then, and the menu opens over
-            // the failure it holds -- `Could not reach AI Gateway; retry
-            // /model.` at once, and nothing asked (`beginLoad`,
-            // `model_cache_runtime.zig:441-442`; `openMenu` ->
-            // `refreshMenuLocked`, `:529-539`, `:792-806`).
-            CatalogKnown::Unread(retry, attempted)
-                if !may_read_again(attempted, Instant::now()) =>
-            {
+            // the failure it holds -- `Could not reach AI Gateway; xfx retries
+            // automatically.` at once, and nothing asked (`beginLoad`,
+            // `:617`, `:621`; `refreshMenuLocked`, `:1046-1050`).
+            CatalogKnown::Unread(retry, retry_at) if Instant::now() < retry_at => {
                 let mut menu = ModelMenu::loading(query);
                 menu.failed(retry);
                 menu
             }
-            // Never asked, or failed longer ago than that -- in which case this
-            // is the retry upstream's sentence asks for. Asked as a control
-            // message, so the read starts at once, a turn running or not, as
-            // upstream's `ensureModelCache` starts one on a thread of its own
-            // (`openModelBrowseCatalog`, `app_input_runtime.zig:2346-2349`); the
-            // menu is refreshed when the answer lands ([`UiEvent::CatalogLoaded`],
-            // `pollLoadTransition`, `model_cache_runtime.zig:549-557`).
-            CatalogKnown::Unasked | CatalogKnown::Unread(..) => {
-                self.work.control(TurnControl::Catalog);
+            // Never answered: the first load, which every reader waits on
+            // (`.loading`, `model_cache_runtime.zig:633-634`). Asked as a
+            // control message, so the read starts at once, a turn running or
+            // not, as upstream's starts one on a thread of its own
+            // (`startWarmup`, `:519-551`).
+            CatalogKnown::Unasked => {
+                self.work.control(TurnControl::Catalog(CatalogAsk::MENU));
                 self.catalog_known = CatalogKnown::Asked;
+                ModelMenu::loading(query)
+            }
+            // Failed and past its hold: the cache reads it again behind the
+            // failure, and the menu says `Loading models…` while it does
+            // (`fetch_in_flight`, `:1049`) -- but the catalog is still the
+            // failure for every other reader (`:485-486`): the column says
+            // `unable to load models` (`isModelCacheLoading`, `src/main.zig:
+            // 2047-2050`), so the band's state stays [`CatalogKnown::Unread`]
+            // until the answer lands.
+            CatalogKnown::Unread(..) => {
+                self.work.control(TurnControl::Catalog(CatalogAsk::MENU));
+                self.catalog_nudged = true;
                 ModelMenu::loading(query)
             }
         };
@@ -14251,33 +14838,88 @@ impl Shell {
         self.render.request(Reason::Modal);
     }
 
+    /// What `/model`'s menu says in its note's place under the rows: a
+    /// refresh that failed in a way asking again could change
+    /// ([`Self::catalog_note`]), else where a Gateway catalog came from
+    /// ([`Self::gateway_note`]) -- upstream's `loadedCatalogStatusText`
+    /// (`model_menu_presentation.zig:403-433@481104fd`), whose first answer
+    /// is the failure's sentence.
+    fn menu_note(&self) -> Option<&'static str> {
+        if let Some(retry) = self.catalog_note {
+            return Some(retry.text());
+        }
+        (self.provider == ProviderId::Gateway)
+            .then_some(self.gateway_note)
+            .flatten()
+    }
+
+    /// What the band knows of when the runtime next reads the catalog, let
+    /// go: a new answer, or a provider whose catalog is not this one.
+    fn forget_catalog_clock(&mut self) {
+        self.catalog_due = None;
+        self.catalog_note = None;
+        self.catalog_nudged = false;
+    }
+
+    /// Activity -- a submitted prompt, a frame of the inline column -- asks
+    /// the runtime for the catalog when the model cache would read it then
+    /// (`LoadTrigger.activity`, `model_cache_runtime.zig:27-31@481104fd`;
+    /// `beginLoad`, `:612-623`): a failure whose hold has ended, rows that
+    /// are the refresh interval old, or rows whose refresh failed and whose
+    /// hold has ended. Once per answer: the runtime decides by its own clock,
+    /// and its answer, whatever it is, lets the band ask again. Nothing waits
+    /// on it: the band goes on saying what it says until the answer lands.
+    /// Whether it asked.
+    fn note_catalog_activity(&mut self, now: Instant) -> bool {
+        if self.catalog_nudged {
+            return false;
+        }
+        let due = match self.catalog_known {
+            CatalogKnown::Unread(_, retry_at) => now >= retry_at,
+            CatalogKnown::Loaded => self.catalog_due.is_some_and(|due| now >= due),
+            // Asked, or the launch's read still on its way: one is coming.
+            CatalogKnown::Unasked | CatalogKnown::Asked => false,
+        };
+        if !due {
+            return false;
+        }
+        self.work
+            .control(TurnControl::Catalog(CatalogAsk::ACTIVITY));
+        self.catalog_nudged = true;
+        true
+    }
+
     /// Asks the runtime for the catalog on the inline column's behalf, when
     /// nothing has yet: a control message, as [`Self::open_models`]'s is, so
     /// the column says `loading models...` only until the read lands, a turn
     /// running or not. A catalog that could not be read is not asked again
     /// from an edit: the column says `unable to load models`, and the frame
-    /// that paints it asks again once the read that failed is a second old
+    /// that paints it asks again once the failure's hold has ended
     /// ([`Self::settle_column`]).
     fn want_catalog(&mut self) {
         if self.catalog_known != CatalogKnown::Unasked {
             return;
         }
-        self.work.control(TurnControl::Catalog);
+        self.work.control(TurnControl::Catalog(CatalogAsk::AWAITED));
         self.catalog_known = CatalogKnown::Asked;
     }
 
-    /// The inline column's own redraw asking for the catalog again after a
-    /// read that failed, as upstream's does: every frame that draws the column
-    /// on its models stage lists them through `modelPickerCompletions` ->
-    /// `modelCompletions` -> `ensureModelCache` (`app_render_runtime.zig:561-563`,
-    /// in `footerContext`; `input_completion_runtime.zig:1029-1030`;
-    /// `main.zig:2370-2373`), which starts a load again once the one that
-    /// failed began a second ago (`beginLoad`, `model_cache_runtime.zig:441-442`),
-    /// and the same frame says `loading models...` (`isModelCacheLoading`,
-    /// `app_render_runtime.zig:745-746`). So here: called as a frame is about
-    /// to be committed (`super::event_loop`'s `commit_counted`), and acting
-    /// only when one is owed -- the column in the band's slot, on its models
-    /// stage, over a failure past its floor ([`may_read_again`]).
+    /// The inline column's own redraw asking for the catalog again, as
+    /// upstream's does: every frame that draws the column on its models stage
+    /// lists them through `modelPickerCompletions` -> `modelCompletions` ->
+    /// `ensureModelCache` (`app_render_runtime.zig:559-568@481104fd`, in
+    /// `footerContext`; `input_completion_runtime.zig:1108-1109`;
+    /// `src/main.zig:2043-2045`, `:2167-2169`) -- activity, which reads a
+    /// failure again once its backoff is over (`beginLoad`,
+    /// `model_cache_runtime.zig:617`, `:621-622`), and rows once they are the
+    /// refresh interval old or a refresh of them failed. Either way the
+    /// column goes on saying what it said until the answer lands -- `unable
+    /// to load models` over a failure, whose retry leaves the cache's state
+    /// `.failed` (`isModelCacheLoading`, `app_render_runtime.zig:752`), or the
+    /// rows. So here: called as a frame is about to be committed
+    /// (`super::event_loop`'s `commit_counted`), and acting only when one is
+    /// owed -- the column in the band's slot, on its models stage, over a
+    /// catalog a read is due for ([`Self::note_catalog_activity`]).
     ///
     /// **No clock of its own.** What paints the column paints it again: an
     /// edit, the catalog's answer, a resize, and while a turn or a compaction
@@ -14290,8 +14932,8 @@ impl Shell {
     /// a band that waited for the row to change would ask up to half a second
     /// late. With none of those an idle tick owes no frame, paints nothing and
     /// asks nothing, here and upstream (`flushRequestedFrame` begins no
-    /// attempt without a request, `app_render_runtime.zig:928-929`): the
-    /// column says `unable to load models` until the next keystroke.
+    /// attempt without a request): the column says `unable to load models`
+    /// until the next keystroke.
     pub(crate) fn settle_column(&mut self, now: Instant) {
         let ticked = std::mem::take(&mut self.animation_turned);
         if !(self.render.owed() || ticked) || !matches!(self.slot(), Some(Slot::Column)) {
@@ -14303,16 +14945,12 @@ impl Shell {
         if query.stage != model_column::Stage::Model {
             return;
         }
-        let CatalogKnown::Unread(_, attempted) = self.catalog_known else {
-            return;
-        };
-        if !may_read_again(attempted, now) {
-            return;
-        }
-        self.work.control(TurnControl::Catalog);
-        self.catalog_known = CatalogKnown::Asked;
-        // The column says `loading models...` now, in this frame.
-        self.render.request(Reason::Modal);
+        // Behind a failure the column goes on saying `unable to load models`
+        // while the read is on its way, as upstream's does: a retry leaves
+        // the cache's state `.failed` (`model_cache_runtime.zig:633-634`),
+        // and its column reads that state (`app_render_runtime.zig:752-753`,
+        // `picker_presentation.zig:914-921`).
+        let _ = self.note_catalog_activity(now);
     }
 
     /// Asks for `query`, typed after `/model`, with the router form's meaning
@@ -14352,7 +14990,7 @@ impl Shell {
     /// Whether a turn is running or waiting to, so a change made now is for the
     /// turn after it.
     fn turn_pending(&self) -> bool {
-        self.tally.started.is_some() || !self.prompts.is_empty()
+        self.tally.started.is_some() || self.waiting_prompts().next().is_some()
     }
 
     /// Hands one model change to the runtime, and -- when this side knows the
@@ -14749,8 +15387,17 @@ impl Shell {
         // A cancel this session was waiting to hear the end of belongs to the
         // conversation being dropped, and so does its line.
         self.cancelling = false;
+        self.stop_reads_end = false;
+        self.compaction_ended_turn = false;
         self.cancel_owed = None;
-        self.cancel_covers = 0;
+        self.stop_requested = false;
+        self.title_leads = None;
+        self.late.clear();
+        // So is a failed automatic compaction's turn: its result was reported
+        // when the compaction settled, and the end that would have taken this
+        // is drained. Kept, it would read the next conversation's first prompt
+        // or `/compact` as settled ([`Self::status_activity`]).
+        self.compaction_failed = false;
         self.retry = None;
         // A compaction's sentence is about the conversation being dropped
         // (`retireLiveSessionCompaction`, `app_session_runtime.zig:1958-1964`).
@@ -14822,7 +15469,7 @@ impl Shell {
         match event {
             // The old conversation's words and numbers, on a screen that is no
             // longer about it.
-            UiEvent::TurnStarted
+            UiEvent::TurnStarted { .. }
             | UiEvent::Delta(_)
             | UiEvent::Operational(_)
             | UiEvent::ToolStart { .. }
@@ -14904,6 +15551,7 @@ impl Shell {
             | UiEvent::EffortApplied { .. }
             | UiEvent::CatalogLoaded { .. }
             | UiEvent::CatalogUnread { .. }
+            | UiEvent::CatalogRefreshFailed { .. }
             | UiEvent::Fatal(_) => false,
         }
     }
@@ -14917,7 +15565,7 @@ impl Shell {
     /// Asked for once per change rather than per frame, so a frame that changes
     /// nothing about the title allocates nothing for it.
     pub(crate) fn take_title(&mut self) -> Option<String> {
-        if !std::mem::take(&mut self.title_owed) {
+        if self.title_held || !std::mem::take(&mut self.title_owed) {
             return None;
         }
         Some(super::frame::title(
@@ -14927,25 +15575,86 @@ impl Shell {
     }
 
     /// Whether a window title this session wants has not yet been handed to
-    /// the band ([`Self::take_title`]) -- one the tick's own events asked for.
+    /// the band ([`Self::take_title`]) -- one the tick's own events asked for
+    /// and this tick's frame is to write: one held past it is the next
+    /// tick's.
     pub(crate) fn owes_title(&self) -> bool {
-        self.title_owed
+        self.title_owed && !self.title_held
+    }
+
+    /// The title a stopped turn's end gave the session, for the band to
+    /// write **ahead of** the tick's report rather than behind it.
+    ///
+    /// Upstream commits a stopped turn `.interrupted` when it drains the
+    /// turn's end and sets the session's title there
+    /// (`ensureCachedSessionTitle`, `app_session_runtime.zig:2766-2769@481104fd`),
+    /// on a pass before the one whose worker takes the next prompt and
+    /// reports `working` (`p5-lifecycle-osc-stopnext`: `idle`, the
+    /// `Cancelled` frame, `OSC 2`, `working`). xfx reads that end and the
+    /// next prompt's work in one tick, so the title is the band's before the
+    /// report is taken, as a title it already owed when the tick began is
+    /// (`super::event_loop`'s `commit_tick`). A finished turn's title is
+    /// not one: upstream sets it after it reported `done` (`osc/w02-done`),
+    /// and it stays the frame's, behind the report.
+    ///
+    /// Two ticks read it otherwise, each as upstream's passes order it:
+    ///
+    /// * **The stop was pressed in this tick.** Upstream handles keys after
+    ///   a pass collects its facts (`src/ui/event_loop.zig:77-117@481104fd`),
+    ///   so the end is drained on a pass after the keystroke's: `idle`, the
+    ///   `Cancelled` frame, then the title (`stop-late-event/osc-stopnext.txt`,
+    ///   @1256, @1340, @1404). The title waits past this tick's frame, kept
+    ///   as the end gave it, and leads the next tick's as below -- ahead of a
+    ///   title asked for after it, in this tick or the next.
+    /// * **Another title was asked for after the end, in this tick** -- a
+    ///   model naming the session. Upstream writes each title when it is set
+    ///   (`syncTerminalTitleWith`, `app_session_runtime.zig:2965-2987`), the
+    ///   model's on a pass after the end's: the end's leads the report here,
+    ///   and the other waits past this tick's frame.
+    pub(crate) fn take_leading_title(&mut self) -> Option<String> {
+        let lead = self.title_leads.take()?;
+        if self.stop_in_tick {
+            self.title_leads = Some(lead);
+            self.title_held = true;
+            return None;
+        }
+        let now = super::frame::title(self.session_title.as_deref(), &self.workspace);
+        if now == lead {
+            self.title_owed = false;
+        } else {
+            self.title_held = true;
+        }
+        Some(lead)
+    }
+
+    /// The tick's frame is committed: a title held past it is owed to the
+    /// next tick's frame, which this asks for, and a stop pressed in it is
+    /// an earlier tick's from now on ([`Self::take_leading_title`]).
+    pub(crate) fn tick_committed(&mut self) {
+        self.stop_in_tick = false;
+        if std::mem::take(&mut self.title_held) {
+            self.render.request(Reason::Footer);
+        }
     }
 
     /// Gives the session its title, from the prompt of the turn that just
-    /// finished, when it has none yet.
+    /// ended -- finished, or stopped -- when it has none yet.
     ///
     /// Upstream derives it when the first turn's history is committed and
-    /// freezes it there (`ensureCachedSessionTitle`); a turn that failed is
-    /// not one this surface can say was recorded, so it titles nothing.
-    fn title_session(&mut self) {
+    /// freezes it there (`ensureCachedSessionTitle`), and a stopped turn is
+    /// committed too (`.interrupted`); a turn that failed is not one this
+    /// surface can say was recorded, so it titles nothing. Whether it gave
+    /// the session its title.
+    fn title_session(&mut self) -> bool {
         if self.session_title.is_some() {
-            return;
+            return false;
         }
-        if let Some(title) = self.turn_title.take() {
-            self.session_title = Some(title);
-            self.retitle();
-        }
+        let Some(title) = self.turn_title.take() else {
+            return false;
+        };
+        self.session_title = Some(title);
+        self.retitle();
+        true
     }
 
     /// Forgets the session's title, for a conversation that is being dropped.
@@ -15525,9 +16234,14 @@ impl Shell {
             .iter()
             .map(|(_, _, card)| Some((card.as_str(), &none)));
         let waiting = self
-            .prompts
-            .iter()
-            .map(|(_, _, card)| card.as_ref().map(|(card, links, _)| (card.as_str(), links)));
+            .waiting_prompts()
+            .filter(|prompt| prompt.shown)
+            .map(|prompt| {
+                prompt
+                    .card
+                    .as_ref()
+                    .map(|(card, links, _)| (card.as_str(), links))
+            });
         for card in steers.chain(waiting) {
             let Some((card, links)) = card else {
                 continue;
@@ -15698,6 +16412,7 @@ mod tests {
     use super::super::bridge;
     use super::super::paste::MAX_PASTE_BYTES;
     use super::*;
+    use crate::provider::model::REFRESH_INTERVAL;
 
     use std::collections::BTreeMap;
     use std::sync::atomic::Ordering;
@@ -15881,6 +16596,18 @@ mod tests {
         /// anything.
         fn controlled(&mut self) -> Option<TurnControl> {
             self.control.try_recv().ok()
+        }
+
+        /// The same, past the asks a menu opening over rows makes to read
+        /// them again behind them ([`CatalogAsk::REVALIDATE`]), which change
+        /// nothing the case is about.
+        fn controlled_past_reask(&mut self) -> Option<TurnControl> {
+            loop {
+                match self.controlled() {
+                    Some(TurnControl::Catalog(CatalogAsk::REVALIDATE)) => {}
+                    other => return other,
+                }
+            }
         }
 
         /// The row the caret is on, on whichever plane the session is composing
@@ -16112,17 +16839,18 @@ mod tests {
         mode: super::super::theme::Mode::Dark,
     };
 
-    /// When a read that failed began, long enough ago that a `/model` asks
-    /// again ([`crate::provider::model::RETRY_FLOOR`]).
+    /// When the hold a failed read put on the next one ended: long enough
+    /// ago that a `/model` asks again
+    /// ([`crate::provider::model::failure_backoff`]).
     fn failed_long_ago() -> Instant {
         Instant::now()
-            .checked_sub(crate::provider::model::RETRY_FLOOR * 2)
+            .checked_sub(std::time::Duration::from_secs(2))
             .expect("a clock older than two seconds")
     }
 
-    /// When a read that failed began, inside the floor however long the test
-    /// thread is held up between the failure and the `/model`: later than
-    /// now, which the floor counts as no time at all.
+    /// When the hold a failed read put on the next one ends: still to come
+    /// however long the test thread is held up between the failure and the
+    /// `/model`.
     fn failed_just_now() -> Instant {
         Instant::now() + std::time::Duration::from_secs(3600)
     }
@@ -19652,7 +20380,7 @@ mod tests {
     /// asserting against a row that is not there yet.
     fn turn_running(shell: &mut Fixture, bytes: &[u8]) -> Instant {
         shell.route_bytes(bytes);
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         let started = Instant::now();
         shell.settle_band(started);
         let _ = shell.document();
@@ -19673,7 +20401,7 @@ mod tests {
 
         // `turn_running`, with the document it hands over kept.
         shell.route_bytes(b"ask something\r");
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         let started = Instant::now();
         shell.settle_band(started);
         let document = shell.document();
@@ -19824,7 +20552,7 @@ mod tests {
         );
 
         shell.apply(UiEvent::TurnEnded { failure: None });
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         let _ = shell.document();
         shell.settle_band(started + Duration::from_secs(3));
 
@@ -22301,10 +23029,45 @@ mod tests {
         shell.route_bytes(prompt.as_bytes());
         shell.route_bytes(b"\r");
         let _taken = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.settle_band(Instant::now());
         let _ = shell.take_pending();
         shell
+    }
+
+    #[test]
+    fn a_waiting_prompt_is_numbered_as_the_runtime_numbers_its_turn() {
+        // The band's half of the count a start carries
+        // (`super::worker`'s `a_turns_start_names_its_submission_past_the_work_a_stop_dropped`):
+        // each prompt is the submission `accepted` counted once the channel
+        // took it, and a steer the turn did not take is numbered when it is
+        // handed on.
+        let mut shell = running("first");
+        shell.route_bytes(b"second\r");
+        let numbers = |shell: &Fixture| -> Vec<usize> {
+            shell.prompts.iter().map(|p| p.submission).collect()
+        };
+        assert_eq!(
+            (numbers(&shell), shell.work.accepted()),
+            (vec![2], 2),
+            "the prompt behind the turn, and the count"
+        );
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        let _ = shell.picks_up();
+        shell.start_turn();
+        shell.route_bytes(b"third\r");
+        assert_eq!(numbers(&shell), [3], "the prompt behind the second turn");
+        let steering = shell.work.steering();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        let _ = shell.picks_up();
+        steering.open();
+        shell.start_turn();
+        shell.route_bytes(b"steered\r");
+        steering.close();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(numbers(&shell), [4], "the steer handed on as a prompt");
     }
 
     #[test]
@@ -22835,7 +23598,7 @@ mod tests {
         shell.route_bytes(&[0x03]);
         shell.apply(UiEvent::Delta("word2 MARKER-TAIL".to_string()));
         shell.apply(UiEvent::TurnEnded {
-            failure: Some("xfx: the turn was cancelled".to_string()),
+            failure: Some("the turn was cancelled".to_string()),
         });
 
         let after = shell.released();
@@ -22868,7 +23631,7 @@ mod tests {
         shell.route_bytes(&[0x03]);
         shell.route_bytes(b"second\r");
         let _second = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
         let shown = shell.released();
         assert!(
@@ -23183,7 +23946,7 @@ mod tests {
         shell.apply(UiEvent::TurnEnded {
             failure: Some("the turn was cancelled".to_string()),
         });
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
         shell.apply(UiEvent::TurnEnded { failure: None });
         let written = shell.released();
@@ -23216,8 +23979,9 @@ mod tests {
         shell.work.give_back();
         shell.settle_band(Instant::now());
 
+        // Typed after the stop: submission 2, past the stop's 1.
         shell.route_bytes(b"second\r");
-        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::TurnStarted { submission: 2 });
         shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
         let written = shell.released();
         assert!(
@@ -23237,8 +24001,9 @@ mod tests {
             matches!(shell.controlled(), Some(TurnControl::Cancel { .. })),
             "the press was not answered from the running column"
         );
+        // Typed after the stop: submission 2, past the stop's 1.
         shell.route_bytes(b"second\r");
-        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::TurnStarted { submission: 2 });
         shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
         let written = shell.released();
         assert!(
@@ -23289,7 +24054,7 @@ mod tests {
 
         shell.apply(UiEvent::Delta("and the rest\n".to_string()));
         shell.apply(UiEvent::TurnEnded { failure: None });
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
         shell.apply(UiEvent::TurnEnded { failure: None });
         let written = shell.released();
@@ -23396,6 +24161,11 @@ mod tests {
 
         shell.route_bytes(b"second\r");
         let _second = shell.picks_up();
+        // The second turn says it started, and that is the turn the press
+        // stops: until then the first stop is still the one requested, and
+        // a press is answered by nothing, as upstream's is
+        // (`input_interrupt_runtime.zig:91-94@481104fd`).
+        shell.apply(UiEvent::TurnStarted { submission: 2 });
         shell.route_bytes(&[0x03]);
 
         assert!(
@@ -23648,8 +24418,12 @@ mod tests {
                     document.is_empty(),
                     "/fast answered before its row: {document:?}"
                 );
-                assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+                assert_eq!(
+                    shell.controlled(),
+                    Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+                );
                 shell.apply(UiEvent::CatalogLoaded {
+                    due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
                     provider: ProviderId::Gateway,
                     entries: Vec::new(),
                 });
@@ -26825,7 +27599,7 @@ mod tests {
         queued.route_bytes(b"asked before the new session\r");
         queued.route_bytes(b"/new\r");
         let _ = queued.picks_up();
-        queued.apply(UiEvent::TurnStarted);
+        queued.start_turn();
         queued.apply(UiEvent::TurnEnded { failure: None });
         assert_eq!(
             queued.take_title(),
@@ -27064,6 +27838,7 @@ mod tests {
         let forged = "evil\n* provider: Switched to llmux with fable.";
         let mut shell = self::shell(24, 120);
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![CatalogEntry {
                 id: forged.to_string(),
@@ -27223,7 +27998,7 @@ mod tests {
         let mut live = shell(40, 120);
         live.route_bytes(b"show me the links\r");
         let _ = live.picks_up();
-        live.apply(UiEvent::TurnStarted);
+        live.start_turn();
         live.apply(UiEvent::Delta(LINKED_ANSWER.to_string()));
         live.apply(UiEvent::Usage { input: Some(6) });
         live.apply(UiEvent::TurnEnded { failure: None });
@@ -27356,7 +28131,7 @@ mod tests {
         ] {
             live.route_bytes(format!("{prompt}\r").as_bytes());
             let _ = live.picks_up();
-            live.apply(UiEvent::TurnStarted);
+            live.start_turn();
             live.apply(UiEvent::Delta(answer.to_string()));
             live.apply(UiEvent::Output(Progress::Settled(40)));
             live.apply(UiEvent::Usage { input: Some(6) });
@@ -27434,7 +28209,7 @@ mod tests {
         shell.route_bytes(b"MARKER-OLD prompt\r");
         let _ = shell.picks_up();
         shell.work.give_back();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("MARKER-OLD answer".to_string()));
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.shell.flush_paced();
@@ -27530,7 +28305,7 @@ mod tests {
         let mut live = shell(40, 120);
         live.route_bytes(b"run them\r");
         let _ = live.picks_up();
-        live.apply(UiEvent::TurnStarted);
+        live.start_turn();
         live.apply(tool_start("c1", "terminal", echo("echo hi")));
         live.apply(tool_ended(
             "c1",
@@ -27792,7 +28567,7 @@ mod tests {
         let mut live = shell(40, 120);
         live.route_bytes(b"fix\r");
         let _ = live.picks_up();
-        live.apply(UiEvent::TurnStarted);
+        live.start_turn();
         live.apply(UiEvent::Delta("Looking.".to_string()));
         let endings = [
             (
@@ -28125,7 +28900,7 @@ mod tests {
         let mut live = shell(40, 300);
         live.route_bytes(b"read\r");
         let _ = live.picks_up();
-        live.apply(UiEvent::TurnStarted.made_inert());
+        live.start_turn();
         live.apply(
             tool_start("r", "read_file", serde_json::json!({"path": "gone.txt"})).made_inert(),
         );
@@ -28153,7 +28928,7 @@ mod tests {
         let mut narrow = shell(40, 120);
         narrow.route_bytes(b"read\r");
         let _ = narrow.picks_up();
-        narrow.apply(UiEvent::TurnStarted);
+        narrow.start_turn();
         narrow.apply(
             tool_start("r", "read_file", serde_json::json!({"path": "gone.txt"})).made_inert(),
         );
@@ -28257,7 +29032,7 @@ mod tests {
             let mut live = shell(40, 300);
             live.route_bytes(b"echo\r");
             let _ = live.picks_up();
-            live.apply(UiEvent::TurnStarted.made_inert());
+            live.start_turn();
             live.apply(
                 UiEvent::ToolStart {
                     call_id: "m".to_string(),
@@ -29172,6 +29947,7 @@ mod tests {
     fn harness_shell() -> Fixture {
         let mut shell = shell(40, 120);
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -29202,6 +29978,7 @@ mod tests {
     fn speed_shell() -> Fixture {
         let mut shell = shell(40, 120);
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: speed_rows(),
         });
@@ -29211,7 +29988,7 @@ mod tests {
 
     /// The next model change the shell put on the control channel.
     fn change(shell: &mut Fixture) -> ModelChange {
-        match shell.controlled() {
+        match shell.controlled_past_reask() {
             Some(TurnControl::Model(change)) => change,
             other => panic!("expected a model change, got {other:?}"),
         }
@@ -29231,7 +30008,10 @@ mod tests {
         // one piece of *work* in this, because it opens a socket.
         let mut shell = shell(24, 80);
         shell.route_bytes(b"/model second-model\r");
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
         assert_eq!(
             change(&mut shell),
             ModelChange {
@@ -29297,7 +30077,10 @@ mod tests {
         // network call a bare `/model` makes**.
         let mut fresh = self::shell(24, 80);
         fresh.shell.use_model("");
-        assert_eq!(fresh.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            fresh.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::MENU))
+        );
     }
 
     #[test]
@@ -29472,6 +30255,7 @@ mod tests {
         // announceable too.
         let mut empty = self::shell(24, 80);
         empty.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: Vec::new(),
         });
@@ -29696,6 +30480,7 @@ mod tests {
     fn the_menu_lists_the_rows_in_hand_and_walks_them_with_upstreams_keys() {
         let mut shell = shell(40, 120);
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![
                 entry("one", Some(400_000), &[]),
@@ -29802,7 +30587,10 @@ mod tests {
     fn a_catalog_that_arrives_or_fails_is_what_the_open_menu_shows() {
         let mut shell = shell(40, 120);
         shell.route_bytes(b"/model\r");
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::MENU))
+        );
         // Enter on a menu still loading has nothing to use, and is spent.
         shell.route_bytes(b"\r");
         assert!(shell.sent.try_recv().is_err());
@@ -29811,7 +30599,7 @@ mod tests {
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: None,
-            attempted: failed_long_ago(),
+            retry_at: failed_long_ago(),
         });
         let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
         assert_eq!(rows, ["Models 0  [All]", "", "Unable to load models."]);
@@ -29819,6 +30607,7 @@ mod tests {
         // A catalog that arrives fills it, the note under it -- the fixture's
         // environment has no key, so there is none to name.
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -29827,6 +30616,7 @@ mod tests {
 
         // An empty one says so.
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: Vec::new(),
         });
@@ -29852,16 +30642,26 @@ mod tests {
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
-            attempted: failed_long_ago(),
+            retry_at: failed_long_ago(),
         });
         let _started = turn_running(&mut shell, b"ask something\r");
+        // The prompt was activity past the failure's hold: it asked, without
+        // waiting on the answer (`noteModelCatalogActivity`).
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::ACTIVITY))
+        );
         shell.route_bytes(b"/model\r");
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::MENU))
+        );
         assert_eq!(shell.work.queued(), 0, "the ask waits behind the turn");
         let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
         assert_eq!(rows[2], "Loading models…", "{rows:?}");
         // The turn still running, the answer lands.
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -29878,6 +30678,7 @@ mod tests {
         gateway.route_bytes(b"/model\r");
         let _ = gateway.controlled();
         gateway.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -29895,6 +30696,7 @@ mod tests {
         // A llmux catalog has no note.
         llmux.shell.gateway_note = Some("Note: Gateway catalog is authenticated with an API key");
         llmux.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![entry("one", None, &[])],
         });
@@ -30007,14 +30809,17 @@ mod tests {
     fn the_column_asks_for_the_catalog_once_and_says_where_it_is() {
         let mut shell = shell(40, 120);
         shell.route_bytes(b"/model ");
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
         assert_eq!(column(&shell)[0], "         loading models...");
         shell.route_bytes(b"x");
         assert!(shell.sent.try_recv().is_err(), "asked twice");
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
-            attempted: failed_long_ago(),
+            retry_at: failed_long_ago(),
         });
         assert_eq!(column(&shell)[0], "         unable to load models");
         // An edit does not ask again; the frame that draws the column does,
@@ -30025,28 +30830,29 @@ mod tests {
     }
 
     #[test]
-    fn the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_a_second_has_passed(
-    ) {
+    fn the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_its_hold_is_over()
+    {
         // Upstream's column lists its models through `ensureModelCache` in
         // every frame that draws it (`footerContext`,
-        // `app_render_runtime.zig:561-563`), which loads again a second after
-        // the failed load began (`beginLoad`, `model_cache_runtime.zig:441-442`)
-        // and says `loading models...` in that same frame (`:745-746`); a tick
-        // that owes no frame draws nothing and asks nothing (`:928-929`).
+        // `app_render_runtime.zig:559-568@481104fd`), which loads again once
+        // the failure's backoff is over (`beginLoad`,
+        // `model_cache_runtime.zig:617`, `:621`) behind the failure, which the
+        // column goes on saying (`:633-634`, `app_render_runtime.zig:752-753`);
+        // a tick that owes no frame draws nothing and asks nothing.
         let mut shell = shell(40, 120);
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
-            attempted: failed_just_now(),
+            retry_at: failed_just_now(),
         });
         shell.route_bytes(b"/model ");
         assert_eq!(column(&shell)[0], "         unable to load models");
-        // A frame inside the second: asks nothing.
+        // A frame inside the hold: asks nothing.
         assert!(shell.render.owed());
         shell.settle_column(Instant::now());
-        assert!(shell.controlled().is_none(), "asked inside the floor");
+        assert!(shell.controlled().is_none(), "asked inside the hold");
         let _ = shell.render.begin();
-        // Past the second, an idle tick -- no frame owed -- asks nothing:
+        // Past the hold, an idle tick -- no frame owed -- asks nothing:
         // there is no clock of the column's own.
         shell.shell.catalog_known =
             CatalogKnown::Unread(Some(CatalogRetry::Unreachable), failed_long_ago());
@@ -30055,20 +30861,22 @@ mod tests {
         assert!(shell.controlled().is_none(), "an idle tick asked");
         // The activity row's tick turning over while a turn works -- a frame
         // upstream draws every 50 ms, though no row of this band changed and
-        // none is owed -- asks, once, and asks for the frame that says so.
+        // none is owed -- asks, once; and the column goes on saying the
+        // failure while the read is on its way.
         shell.shell.animation_turned = true;
         assert!(!shell.render.owed());
         shell.settle_column(Instant::now());
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
-        assert!(
-            shell.render.owed(),
-            "the frame that says so was not asked for"
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::ACTIVITY))
         );
-        assert_eq!(column(&shell)[0], "         loading models...");
+        assert_eq!(column(&shell)[0], "         unable to load models");
+        shell.shell.animation_turned = true;
         shell.settle_column(Instant::now());
         assert!(shell.controlled().is_none(), "asked twice for one read");
         // The read lands, and the column lists it.
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -30081,7 +30889,7 @@ mod tests {
         asked.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
-            attempted: failed_long_ago(),
+            retry_at: failed_long_ago(),
         });
         asked.apply(UiEvent::Question(a_batch()));
         assert!(asked.render.owed());
@@ -30109,7 +30917,10 @@ mod tests {
         // The runtime gives the turn's place back as it ends it.
         shell.work.finished_one();
         shell.apply(UiEvent::TurnEnded { failure: None });
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
     }
 
     #[test]
@@ -30578,6 +31389,7 @@ mod tests {
         // write took.
         let mut shell = running("say something");
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: speed_rows(),
         });
@@ -30701,11 +31513,15 @@ mod tests {
         shell.route_bytes(b"/fast\r");
         shell.route_bytes(b"/fast\r");
         assert!(shell.document().is_empty(), "said before the row was read");
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
         let mut row = harness_rows().remove(3);
         row.id = model;
         row.facts.fast = true;
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![row],
         });
@@ -30726,12 +31542,15 @@ mod tests {
         other.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Llmux,
             retry: None,
-            attempted: failed_long_ago(),
+            retry_at: failed_long_ago(),
         });
         assert!(other.document().is_empty(), "{:?}", other.document());
         // The held command's ask for the old provider's catalog, and no
         // speed change.
-        assert_eq!(other.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            other.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
         assert!(other.controlled().is_none());
     }
 
@@ -30855,6 +31674,11 @@ mod tests {
         // `fx-model2-40x120-menu-enter`: `beginExactModelSelection`.
         let mut shell = harness_shell();
         shell.route_bytes(b"/model\r");
+        // The menu over rows asks for them again behind them.
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::REVALIDATE))
+        );
         shell.route_bytes(b"\x1b[B\r");
         assert!(shell.model_menu.is_none());
         assert_eq!(shell.editor.text(), "/model anthropic/claude-opus-5 ");
@@ -30890,7 +31714,10 @@ mod tests {
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         assert_eq!(shell.editor.text(), "half a thought");
-        assert!(shell.controlled().is_none(), "a model was applied");
+        assert!(
+            shell.controlled_past_reask().is_none(),
+            "a model was applied"
+        );
 
         // A level chosen: the change is made, and the draft comes back.
         let mut shell = harness_shell();
@@ -30913,7 +31740,7 @@ mod tests {
             assert_eq!(shell.editor.text(), "half a thought", "{key:#04x}");
             assert!(shell.model_menu.is_none(), "{key:#04x}");
             assert!(
-                shell.controlled().is_none(),
+                shell.controlled_past_reask().is_none(),
                 "{key:#04x} reached the runtime"
             );
             assert!(!shell.leaving(), "{key:#04x} ended the session");
@@ -30922,44 +31749,47 @@ mod tests {
 
     #[test]
     fn a_failed_catalog_says_upstreams_retry_sentence_and_the_next_model_asks_again() {
-        // `retryableFailureText` (`model_menu_presentation.zig:435-443`), and
-        // `retry /model.` made true.
+        // `retryableFailureText` (`model_menu_presentation.zig:435-443
+        // @481104fd`), and the next `/model` past the failure's backoff
+        // reading it again.
         let mut shell = shell(40, 120);
         shell.route_bytes(b"/model\r");
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::MENU))
+        );
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
-            attempted: failed_long_ago(),
+            retry_at: failed_long_ago(),
         });
         assert_eq!(
             visible_text(&menu(&shell)[2]),
-            "Could not reach AI Gateway; retry /model."
+            "Could not reach AI Gateway; xfx retries automatically."
         );
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         shell.route_bytes(b"/model\r");
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Catalog),
+            Some(TurnControl::Catalog(CatalogAsk::MENU)),
             "the retry was not asked for"
         );
     }
 
     #[test]
-    fn a_model_inside_the_second_after_a_failed_read_began_opens_over_the_failure_and_asks_nothing()
-    {
-        // `fx-model-floor-*`: upstream's cache starts no load within a second
-        // of the start of the one that failed, and `/model` then opens the
-        // menu over the failure it holds -- the retryable sentence at once,
-        // never `Loading models…`, and nothing asked (`beginLoad`,
-        // `model_cache_runtime.zig:441-442`; `openMenu` -> `refreshMenuLocked`,
-        // `:529-539`, `:792-806`).
+    fn a_model_inside_a_failures_hold_opens_over_the_failure_and_asks_nothing() {
+        // `fx-model-floor-*`: upstream's cache starts no load inside a
+        // failure's backoff, and `/model` then opens the menu over the
+        // failure it holds -- the retryable sentence at once, never `Loading
+        // models…`, and nothing asked (`beginLoad`,
+        // `model_cache_runtime.zig:617`, `:621@481104fd`; `openMenu` ->
+        // `refreshMenuLocked`, `:725-735`, `:1046-1050`).
         let mut shell = shell(40, 120);
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
-            attempted: failed_just_now(),
+            retry_at: failed_just_now(),
         });
         shell.route_bytes(b"/model\r");
         let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
@@ -30968,21 +31798,24 @@ mod tests {
             [
                 "Models 0  [All]",
                 "",
-                "Could not reach AI Gateway; retry /model."
+                "Could not reach AI Gateway; xfx retries automatically."
             ]
         );
         assert!(
             shell.controlled().is_none(),
-            "asked inside the second the failure holds"
+            "asked inside the hold the failure put on the next read"
         );
         // And the band still knows the failure for what it is: the next
-        // `/model` after the second asks.
+        // `/model` after the hold asks.
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         shell.shell.catalog_known =
             CatalogKnown::Unread(Some(CatalogRetry::Unreachable), failed_long_ago());
         shell.route_bytes(b"/model\r");
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::MENU))
+        );
         let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
         assert_eq!(rows[2], "Loading models…", "{rows:?}");
     }
@@ -30998,7 +31831,10 @@ mod tests {
         let mut shell = shell(40, 120);
         let _started = turn_running(&mut shell, b"first\r");
         shell.route_bytes(b"/model ");
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
         assert_eq!(
             shell.work.queued(),
             0,
@@ -31014,6 +31850,7 @@ mod tests {
         shell.route_bytes(b"\x15/model ");
         assert!(shell.controlled().is_none(), "asked a second time");
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -31209,7 +32046,7 @@ mod tests {
         // The fence, and what follows it is the new conversation's: the turn
         // the prompt typed straight away started.
         shell.apply(UiEvent::Fresh { through: 1 });
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("a fresh answer".to_string()));
         shell.shell.flush_paced();
         assert_eq!(
@@ -31431,7 +32268,7 @@ mod tests {
             // The new session's first turn, and its first call: the group is
             // that call alone.
             shell.apply(UiEvent::Fresh { through: 1 });
-            shell.apply(UiEvent::TurnStarted);
+            shell.start_turn();
             shell.apply(tool_start(
                 "call_2",
                 "read_file",
@@ -31467,7 +32304,7 @@ mod tests {
         let _ = shell.document();
 
         shell.apply(UiEvent::Fresh { through: 0 });
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("dropped by the second reset".to_string()));
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.shell.flush_paced();
@@ -31587,7 +32424,7 @@ mod tests {
     #[test]
     fn the_answer_arrives_as_deltas_and_lands_in_the_document() {
         let mut shell = shell(24, 80);
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("MARKER-TURN-".to_string()));
         shell.apply(UiEvent::Delta("ONE".to_string()));
         shell.apply(UiEvent::TurnEnded { failure: None });
@@ -32402,7 +33239,7 @@ mod tests {
         let mut shell = shell(24, 80);
         shell.apply(UiEvent::Delta("part of an answer".to_string()));
         shell.apply(UiEvent::TurnEnded {
-            failure: Some("xfx: the turn was cancelled".to_string()),
+            failure: Some("the turn was cancelled".to_string()),
         });
 
         // An error under `system`, upstream's topic for a request that failed
@@ -32866,7 +33703,10 @@ mod tests {
                 .is_some(),
             "the completed /model opened no column"
         );
-        assert_eq!(with_argument.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            with_argument.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
 
         // A command that takes no argument is completed exactly, and the word
         // is still a slash word, so upstream's menu follows it: one command,
@@ -33864,7 +34704,10 @@ mod tests {
             assert_eq!(shell.editor.text(), held, "{way_out} lost the draft");
             assert_eq!(shell.editor.caret(), caret, "{way_out} moved the caret");
             assert_eq!(shell.editor.entities().len(), 1, "{way_out} lost the block");
-            assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Catalog(CatalogAsk::MENU))
+            );
             assert!(
                 shell.sent.try_recv().is_err() && shell.controlled().is_none(),
                 "{way_out} sent something besides the catalog request"
@@ -34887,7 +35730,7 @@ mod tests {
             .any(|row| row.starts_with("* provider: Provider switching is unavailable")));
 
         // The turn starts and ends: nothing is running or waiting any more.
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::TurnEnded { failure: None });
         let _ = shell.released();
         shell.route_bytes(b"/provider\r");
@@ -35060,6 +35903,7 @@ mod tests {
         shell.shell.model = "old".to_string();
         shell.shell.session_title = Some("the first prompt".to_string());
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![entry("old", Some(100_000), &[])],
         });
@@ -35092,6 +35936,7 @@ mod tests {
             Some("the first prompt")
         );
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(1_000_000), &[])],
         });
@@ -35121,6 +35966,7 @@ mod tests {
         // -- and the document gets nothing.
         let mut shell = shell(24, 80);
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![
                 entry("fable", Some(1_000_000), &["low", "high"]),
@@ -35165,6 +36011,7 @@ mod tests {
 
         // A denominator with no numerator is not a meter.
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(200_000), &[])],
         });
@@ -35209,6 +36056,7 @@ mod tests {
         shell.shell.statusline.context = true;
         shell.shell.model = "fable".to_string();
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(100_000), &[])],
         });
@@ -35228,6 +36076,7 @@ mod tests {
         let mut shell = shell(24, 80);
         shell.shell.model = "fable".to_string();
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(100_000), &[])],
         });
@@ -35243,6 +36092,7 @@ mod tests {
         // alias, because the model in force is whatever the profile spelled.
         let mut shell = shell(24, 80);
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![
                 entry("small", Some(8_000), &[]),
@@ -35281,6 +36131,7 @@ mod tests {
         shell.shell.statusline.context = true;
         shell.shell.model = "fable".to_string();
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(200_000), &[])],
         });
@@ -37792,7 +38643,7 @@ mod tests {
         let mut shell = shell(40, 120);
         shell.route_bytes(b"look\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("Looking.".to_string()));
         shell.apply(tool_start(
             "c1",
@@ -37927,7 +38778,7 @@ mod tests {
     fn a_turn_that_ran_a_command(shell: &mut Fixture) {
         shell.route_bytes(b"run the loop\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         let input = serde_json::json!({"action": "exec", "command": "echo boom; exit 3"});
         shell.apply(UiEvent::ToolDetail {
             call_id: "c1".into(),
@@ -38039,7 +38890,7 @@ mod tests {
         shell.route_bytes(FAMILY_RAW.as_bytes());
         shell.route_bytes(b"\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Delta("Spare.\n".into()));
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.shell.flush_paced();
@@ -38179,7 +39030,7 @@ mod tests {
         let mut shell = shell(40, 80);
         shell.route_bytes(b"a prompt\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::Notice(notice::Notice::warning(
             "session",
             "two lines\nof it",
@@ -38248,12 +39099,18 @@ mod tests {
         assert!(shell.sent.try_recv().is_err(), "nothing was submitted yet");
 
         // Enter submits it, from behind the screen, and the screen shows the
-        // prompt it sent as soon as the document is given it.
+        // prompt it sent as soon as the document is given it: when its turn
+        // starts, as upstream queues a prompt typed under the full transcript
+        // at once (`installPendingSubmission`,
+        // `input_submit_runtime.zig:1143-1147@481104fd`) and writes its card
+        // when its worker takes it (`takeNextPromptLocked`,
+        // `worker_runtime.zig:1484-1505`).
         shell.route_bytes(b"\r");
         assert!(
             matches!(shell.sent.try_recv(), Ok(TurnWork::Submit(_))),
             "Enter behind the screen did not submit"
         );
+        shell.start_turn();
         assert!(shell.full.is_open());
         assert!(
             full_screen(&shell)
@@ -38719,10 +39576,7 @@ mod tests {
         // The summary's `↑` counts the tokens, as upstream's composer holds
         // them: 12 here, where the badges alone would be 11
         // (`fx-image-40x120-sent`, `0s (↑12 ↓40)`).
-        assert_eq!(
-            shell.prompts.back().map(|(estimate, ..)| *estimate),
-            Some(12)
-        );
+        assert_eq!(shell.prompts.back().map(|prompt| prompt.estimate), Some(12));
         assert!(images
             .iter()
             .all(|image| &*image.bytes == crate::image::fixture::SHOT_PNG));
@@ -40294,7 +41148,7 @@ mod tests {
         shell.work.publish_credits(Ok(a_credits_question()));
         shell.route_bytes(b"first\r");
         shell.route_bytes(b"second\r");
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.document();
         shell.route_bytes(b"/credits\r");
         assert_eq!(shell.credit_asks.asked(), 1, "/credits waited");
@@ -40440,7 +41294,10 @@ mod tests {
         assert_eq!(profile_at(root.path()), "", "opening it wrote the profile");
         // The one thing it asks the runtime for is the catalog its effort and
         // speed rows read.
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
         assert!(
             shell.sent.try_recv().is_err(),
             "/settings asked the runtime for more than the catalog"
@@ -40492,7 +41349,10 @@ mod tests {
         let mut shell = with_settings(root.path());
         // The menu's own ask, for its effort and speed rows; nothing typed
         // into the search asks for another.
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
         shell.route_bytes(b"@src");
         assert!(
             shell.file_picker.is_none(),
@@ -40705,6 +41565,7 @@ mod tests {
     fn effort_shell(root: &std::path::Path) -> Fixture {
         let mut shell = shell_at_home(root, 40, 120);
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -40971,7 +41832,7 @@ mod tests {
         loading.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: None,
-            attempted: Instant::now(),
+            retry_at: Instant::now(),
         });
         let _ = loading.document();
         loading.route_bytes(b"/effort\r");
@@ -41060,6 +41921,7 @@ mod tests {
         shell.route_bytes(b"/effort\r");
         // A catalog read landing is not one.
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41172,6 +42034,7 @@ mod tests {
         let mut shell = shell_at_home(root.path(), 40, 120);
         let forged = "odd\u{1b}]0;x\u{7}\nmodel";
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![CatalogEntry {
                 id: forged.to_string(),
@@ -41383,6 +42246,7 @@ mod tests {
         assert!(matches!(shell.slot(), Some(Slot::Column)));
         // A catalog read landing is not a change of model.
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41425,6 +42289,7 @@ mod tests {
         });
         assert!(!matches!(shell.slot(), Some(Slot::Column)));
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: harness_rows(),
         });
@@ -41441,6 +42306,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = shell_at_home(root.path(), 40, 120);
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41649,7 +42515,10 @@ mod tests {
         assert!(shell.settings_menu.is_some(), "the settings menu closed");
         assert!(shell.model_menu.is_some(), "no list under the row");
         assert_eq!(shell.editor.text(), "model used", "the search was taken");
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
         assert!(shell.document().is_empty());
         // Waiting for the catalog: one dim line, four columns in.
         assert_eq!(
@@ -41668,6 +42537,7 @@ mod tests {
             )
         );
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41733,6 +42603,7 @@ mod tests {
         // Right opens it too; Tab closes it with the tab change.
         let mut right = with_settings(root.path());
         right.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41759,6 +42630,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41777,6 +42649,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41801,6 +42674,7 @@ mod tests {
         // nothing listed is nothing to use.
         let mut none = with_settings(root.path());
         none.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41818,7 +42692,8 @@ mod tests {
         none.route_bytes(LEFT);
         assert!(none.model_menu.is_some());
         // The menu's own ask for the catalog, and no change.
-        assert!(std::iter::from_fn(|| none.controlled()).all(|asked| asked == TurnControl::Catalog));
+        assert!(std::iter::from_fn(|| none.controlled())
+            .all(|asked| matches!(asked, TurnControl::Catalog(_))));
     }
 
     #[test]
@@ -42709,7 +43584,7 @@ mod tests {
         // `$demo` (`TurnSummaryAccumulator.init` over `job.prompt`,
         // `telemetry.zig:87-96`, `orchestrator.zig:5482-5485`): `↑4` in
         // `fx-skills-40x120-sent`, where the name alone would be 3.
-        assert_eq!(shell.prompts.front().map(|prompt| prompt.0), Some(4));
+        assert_eq!(shell.prompts.front().map(|prompt| prompt.estimate), Some(4));
         let work = shell.work.clone();
         assert_eq!(
             skills,
@@ -43056,7 +43931,7 @@ mod tests {
         let mut shell = skilled();
         shell.route_bytes(b"first\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         assert!(shell.activity.working());
         dollar_word_without_a_menu(&mut shell, "dem");
         assert!(shell.ghost().is_some());
@@ -43969,7 +44844,7 @@ mod tests {
         recall_until(&mut shell, "hello");
         shell.route_bytes(b"\r");
         assert!(matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "hello"));
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
         assert!(
             shell.fork_menu.is_none(),
@@ -45061,7 +45936,7 @@ mod tests {
         shell.route_bytes(b"edit the notes\r");
         assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         assert_eq!(status_of(&mut shell), None);
 
         shell.apply(UiEvent::Approval(question(asked())));
@@ -45099,7 +45974,7 @@ mod tests {
                 .submit(TurnWork::Submit("again".into()))
                 .expect("a place");
             let _ = shell.picks_up();
-            shell.apply(UiEvent::TurnStarted);
+            shell.start_turn();
             assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
             shell.apply(UiEvent::TurnEnded {
                 failure: Some("request failed: ConnectionRefused".into()),
@@ -45115,7 +45990,7 @@ mod tests {
         assert_eq!(status_of(&mut shell).as_deref(), Some("idle"));
         shell.route_bytes(b"first\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.work.give_back();
         let _ = status_of(&mut shell);
@@ -45127,12 +46002,12 @@ mod tests {
             .submit(TurnWork::Submit("second".into()))
             .expect("a place");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
         shell.route_bytes(&[0x03]);
         assert_eq!(status_of(&mut shell).as_deref(), Some("idle"));
         shell.apply(UiEvent::TurnEnded {
-            failure: Some("cancelled".into()),
+            failure: Some(super::super::bridge::TURN_CANCELLED.into()),
         });
         shell.work.give_back();
         assert_eq!(status_of(&mut shell), None, "the stop was reported twice");
@@ -45146,7 +46021,7 @@ mod tests {
         let _ = status_of(&mut winding);
         winding.route_bytes(b"read it\r");
         let _ = winding.picks_up();
-        winding.apply(UiEvent::TurnStarted);
+        winding.start_turn();
         winding.apply(tool_start(
             "c1",
             "read_file",
@@ -45161,7 +46036,7 @@ mod tests {
         assert_eq!(status_of(&mut winding).as_deref(), Some("idle"));
         winding.apply(tool_result("c1", "read_file", false, "aborted by user"));
         winding.apply(UiEvent::TurnEnded {
-            failure: Some("cancelled".into()),
+            failure: Some(super::super::bridge::TURN_CANCELLED.into()),
         });
         winding.work.give_back();
         assert_eq!(status_of(&mut winding), None);
@@ -45176,7 +46051,7 @@ mod tests {
             .submit(TurnWork::Submit("third".into()))
             .expect("a place");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.work.give_back();
         assert_eq!(status_of(&mut shell).as_deref(), Some("done"));
@@ -45213,8 +46088,1068 @@ mod tests {
             .expect("a place");
         let _ = shell.picks_up();
         shell.settle_band(Instant::now());
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
+    }
+
+    #[test]
+    fn a_stopped_turn_whose_place_comes_back_before_its_end_is_read_ends_as_the_stop_said() {
+        // The runtime sends a turn's `TurnEnded` (`worker.rs`'s `run_turn`)
+        // before it gives the turn's place back (`turn_loop`), so the band can
+        // settle between the two with the stopped turn's end still in the
+        // channel -- and that end says `the turn was cancelled`. Upstream's
+        // stopped turn is finished `.interrupted` and returns, so no
+        // `request failed` follows it (`interruption.zig:219`,
+        // `orchestrator.zig:7233-7235`, `app_process_runtime.zig:157-169@481104fd`)
+        // and its result is `idle` (`program_status.zig:62-69`): one `idle`
+        // on the wire and one `▪ Cancelled` line in the document, however late
+        // the end is read.
+        let mut shell = running("stream please");
+        let mut wire = vec![status_of(&mut shell)];
+        shell.apply(UiEvent::Delta("a whole line\n".to_string()));
+        shell.flush_paced();
+        shell.route_bytes(&[0x03]);
+        wire.push(status_of(&mut shell));
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the turn was cancelled".to_string()),
+        });
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        let after = shell.released();
+        let text = after.join("\n");
+        assert_eq!(
+            (
+                wire,
+                text.contains("system"),
+                text.matches("\u{25aa} Cancelled").count()
+            ),
+            (
+                vec![
+                    Some("working".to_string()),
+                    Some("idle".to_string()),
+                    None,
+                    None
+                ],
+                false,
+                1
+            ),
+            "the reports, a `system` line, the `Cancelled` lines: {after:?}"
+        );
+    }
+
+    #[test]
+    fn a_stopped_turn_whose_end_carries_a_real_failure_reports_it_as_upstream_does() {
+        // Upstream suppresses only the stop's own end. A stopped turn is
+        // finished `.interrupted` -- and an error after that, such as the
+        // interrupted turn's history failing to propagate, is still returned
+        // (`interruption.zig:208-223@481104fd`), as is any error that is not
+        // the cancellation (`orchestrator.zig:5957`). It leaves the worker as
+        // `request failed` under `system` (`app_process_runtime.zig:157-169`),
+        // which a cancelled drain still admits (`.error_text => .admit`,
+        // `app_worker_runtime.zig:386`) and which is `error`
+        // (`noteFailure`, `:1215`). Whether the end is read before the place
+        // comes back or after the band has settled without it.
+        for late in [false, true] {
+            let mut shell = running("stream please");
+            let mut wire = vec![status_of(&mut shell)];
+            shell.apply(UiEvent::Delta("a whole line\n".to_string()));
+            shell.flush_paced();
+            shell.route_bytes(&[0x03]);
+            wire.push(status_of(&mut shell));
+            if late {
+                shell.work.give_back();
+                shell.settle_band(Instant::now());
+            }
+            shell.apply(UiEvent::TurnEnded {
+                failure: Some("xfx: the session log could not be written: disk full".to_string()),
+            });
+            if !late {
+                shell.work.give_back();
+            }
+            shell.settle_band(Instant::now());
+            wire.push(status_of(&mut shell));
+            let after = shell.released();
+            let text = after.join("\n");
+            assert_eq!(
+                (
+                    wire,
+                    text.contains("system: the session log could not be written: disk full"),
+                    text.matches("\u{25aa} Cancelled").count()
+                ),
+                (
+                    vec![
+                        Some("working".to_string()),
+                        Some("idle".to_string()),
+                        Some("error".to_string())
+                    ],
+                    true,
+                    1
+                ),
+                "late {late}: the reports, the failure's line, the `Cancelled` lines: {after:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_stop_read_before_a_completed_turns_end_takes_the_runtimes_word() {
+        // The user stops a turn whose answer the runtime has already finished:
+        // its end, saying nothing failed, is still in the channel. Upstream's
+        // keystroke writes the `Cancelled` line while its stream is active
+        // (`cancelActiveOperation`, `input_interrupt_runtime.zig:91-127@481104fd`),
+        // but the turn was finished `.completed` and stays so: a second finish
+        // is ignored (`finalization.zig:126-136`), the batch that carries it
+        // is no interrupted segment (`batchSegmentIsInterrupted`,
+        // `app_worker_runtime.zig:301-325`; the worker holds no turn by then,
+        // `worker_runtime.zig:930-935`), so the turn's summary is written
+        // (`finishPromptPresentation`, `app_callbacks.zig:276-283`) and the
+        // result is `done` (`program_status.zig:62-64`).
+        let mut shell = running("first question");
+        let mut wire = vec![status_of(&mut shell)];
+        shell.apply(UiEvent::Delta("an answer\n".to_string()));
+        shell.flush_paced();
+        shell.route_bytes(&[0x03]);
+        wire.push(status_of(&mut shell));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        let after = shell.released();
+        assert_eq!(
+            (
+                wire,
+                after.iter().any(|row| row.starts_with("  0s")),
+                after.join("\n").matches("\u{25aa} Cancelled").count(),
+                shell.session_title.as_deref()
+            ),
+            (
+                vec![
+                    Some("working".to_string()),
+                    Some("idle".to_string()),
+                    Some("done".to_string())
+                ],
+                true,
+                1,
+                Some("first question")
+            ),
+            "the reports, a summary row, the `Cancelled` lines, the title: {after:?}"
+        );
+    }
+
+    #[test]
+    fn a_stop_a_compaction_then_ends_is_that_compactions_and_its_turn_says_nothing_more() {
+        // The user stops a turn, and the runtime reads the stop at the
+        // compaction before its next step: the compaction settles cancelled,
+        // and the turn's end says nothing -- a compaction ended it
+        // (`super::worker`'s `end_of_turn`), as upstream's
+        // compaction-interrupted turn (`persistCompactionInterruptedTurnOnce`,
+        // `interruption.zig:50-71@481104fd`). Not a finish: no summary, no
+        // `done`.
+        let mut shell = running("first question");
+        let mut wire = vec![status_of(&mut shell)];
+        shell.route_bytes(&[0x03]);
+        wire.push(status_of(&mut shell));
+        shell.apply(UiEvent::Compaction(compaction::Update::Began {
+            automatic: true,
+        }));
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Cancelled,
+        )));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        let after = shell.released();
+        assert_eq!(
+            (wire, after.iter().any(|row| row.starts_with("  0s"))),
+            (
+                vec![Some("working".to_string()), Some("idle".to_string()), None],
+                false
+            ),
+            "the reports, a summary row: {after:?}"
+        );
+    }
+
+    #[test]
+    fn a_stopped_turn_whose_start_was_read_titles_the_session_as_upstream_does() {
+        // Upstream's stopped turn is still a turn of the history -- it is
+        // committed `.interrupted` (`interruption.zig:197-221@481104fd`) --
+        // and the session takes its title from it, as the stopnext capture's
+        // `]2;first question` after the stopped first turn shows. One whose
+        // end is a real failure is not one this surface can say was recorded,
+        // and titles nothing, as before.
+        let mut shell = running("first question");
+        shell.route_bytes(&[0x03]);
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the turn was cancelled".to_string()),
+        });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        let titled = shell.session_title.clone();
+
+        let mut failed = running("first question");
+        failed.route_bytes(&[0x03]);
+        failed.apply(UiEvent::TurnEnded {
+            failure: Some("xfx: the session log could not be written: disk full".to_string()),
+        });
+        failed.work.give_back();
+        failed.settle_band(Instant::now());
+        assert_eq!(
+            (titled.as_deref(), failed.session_title.as_deref()),
+            (Some("first question"), None),
+            "the stopped turn's title, the failed one's"
+        );
+    }
+
+    #[test]
+    fn a_failed_automatic_compactions_turn_titles_nothing_and_a_stopped_ones_does() {
+        // Upstream's in-turn compaction, stopped, commits its turn
+        // (`persistCompactionInterruptedTurnOnce`,
+        // `orchestrator.zig:7847-7862@481104fd`), and the session takes its
+        // title from it; one that failed returns its error from that branch
+        // without committing the turn (`:7864-7865`), and a failed turn is
+        // kept only for a partial answer or completed work it carries
+        // (`persistFailedPartialTurnOnce`, `persistFailedTurnWorkOnce`,
+        // `interruption.zig:226-293`), which this one has neither of. Both
+        // settle the band as stopped (`compaction_update`), so the end alone
+        // cannot tell them apart.
+        let mut stopped = running("first question");
+        stopped.apply(UiEvent::Compaction(compaction::Update::Began {
+            automatic: true,
+        }));
+        stopped.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Cancelled,
+        )));
+        stopped.apply(UiEvent::TurnEnded { failure: None });
+        stopped.work.give_back();
+        stopped.settle_band(Instant::now());
+
+        let mut failed = running("first question");
+        failed.apply(UiEvent::Compaction(compaction::Update::Began {
+            automatic: true,
+        }));
+        failed.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Failed,
+        )));
+        failed.apply(UiEvent::TurnEnded { failure: None });
+        failed.work.give_back();
+        failed.settle_band(Instant::now());
+        assert_eq!(
+            (
+                stopped.session_title.as_deref(),
+                failed.session_title.as_deref()
+            ),
+            (Some("first question"), None),
+            "the stopped compaction's turn's title, the failed one's"
+        );
+    }
+
+    #[test]
+    fn a_stop_after_an_automatic_compaction_settled_leaves_its_turns_end_quiet() {
+        // The compaction has settled and the turn's end is still unread when
+        // the user presses Ctrl-C. The end belongs to the compaction:
+        // upstream's keystroke returns once the worker's cancel is requested
+        // (`input_interrupt_runtime.zig:94@481104fd`), and the turn finishes
+        // as the compaction left it -- `.interrupted` after its stop
+        // (`persistCompactionInterruptedTurnOnce`, `orchestrator.zig:
+        // 7847-7862`), which titles the session, and failed after its failure
+        // (`:7864-7865`), which does not. Neither one is a finish: no `done`,
+        // no summary.
+        let cases = [
+            (compaction::Feedback::Cancelled, Some("first question")),
+            (compaction::Feedback::Failed, None),
+        ];
+        let mut got = Vec::new();
+        let mut owed = Vec::new();
+        for (feedback, title) in cases {
+            let mut shell = running("first question");
+            shell.apply(UiEvent::Compaction(compaction::Update::Began {
+                automatic: true,
+            }));
+            shell.apply(UiEvent::Compaction(compaction::Update::Settled(feedback)));
+            shell.route_bytes(&[0x03]);
+            let stopped = status_of(&mut shell);
+            shell.apply(UiEvent::TurnEnded { failure: None });
+            shell.work.give_back();
+            shell.settle_band(Instant::now());
+            let ended = status_of(&mut shell);
+            let after = shell.released();
+            got.push((
+                feedback,
+                ended.as_deref() == Some("done") || stopped.as_deref() == Some("done"),
+                after.iter().any(|row| row.starts_with("  0s")),
+                shell.session_title.clone(),
+            ));
+            owed.push((feedback, false, false, title.map(str::to_string)));
+        }
+        assert_eq!(got, owed, "each case: a done, a summary row, the title");
+    }
+
+    #[test]
+    fn a_finished_turns_tool_row_read_after_a_stop_keeps_its_place_in_its_text() {
+        // opus's SHOULD 1 on STOP-NEXT-2. A turn that finished before the stop
+        // reached it: its text, a tool call, more text and its finish, read
+        // after the keystroke. Upstream presents that batch as it came, being
+        // no interrupted segment (`batchSegmentIsInterrupted`,
+        // `app_worker_runtime.zig:301-325@481104fd`): the first text, the
+        // call's row, the second text. The row does not go ahead of the text
+        // held for the end.
+        let mut shell = running("first question");
+        shell.route_bytes(&[0x03]);
+        let _ = shell.painted_document();
+        shell.apply(UiEvent::Delta("FIRST-PART\n\n".to_string()));
+        shell.apply(tool_start(
+            "r",
+            "read_file",
+            serde_json::json!({"path": "notes.txt"}),
+        ));
+        shell.apply(tool_result("r", "read_file", true, ""));
+        shell.apply(UiEvent::Delta("SECOND-PART\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        shell.shell.flush_paced();
+        let rows = shell.painted_document();
+        let at = |needle: &str| rows.iter().position(|row| row.contains(needle));
+        let (first, row, second) = (at("FIRST-PART"), at("notes.txt"), at("SECOND-PART"));
+        assert!(
+            first.is_some() && row.is_some() && second.is_some() && first < row && row < second,
+            "the first text, the row, the second text: {rows:#?}"
+        );
+    }
+
+    #[test]
+    fn a_cancel_that_waited_for_a_call_whose_result_is_held_writes_the_turns_line() {
+        // The owed line ([`Shell::cancel_owed`]) beside the rows a stop holds:
+        // a call that does not poll the turn's flag was running at the
+        // keystroke, so the line waited for the turn's end; the turn
+        // finished, with the call's result read behind text the stop held.
+        // Once the held rows are written no call is running, so the line is
+        // the turn's -- above the held text, as upstream's keystroke line is
+        // (`cancelActiveOperation`, `input_interrupt_runtime.zig:91-127@481104fd`).
+        let mut shell = running("first question");
+        shell.apply(tool_start(
+            "r",
+            "read_file",
+            serde_json::json!({"path": "notes.txt"}),
+        ));
+        shell.route_bytes(&[0x03]);
+        let _ = shell.painted_document();
+        shell.apply(UiEvent::Delta("FIRST-PART\n\n".to_string()));
+        shell.apply(tool_result("r", "read_file", true, ""));
+        shell.apply(UiEvent::Delta("SECOND-PART\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        shell.shell.flush_paced();
+        let rows: Vec<String> = shell
+            .painted_document()
+            .iter()
+            .map(|row| colourless(row))
+            .collect();
+        let at = |needle: &str| rows.iter().position(|row| row.contains(needle));
+        let (cancelled, first, summary) = (
+            at("\u{25aa} Cancelled \u{b7}"),
+            at("FIRST-PART"),
+            at("0s ("),
+        );
+        assert!(
+            cancelled.is_some()
+                && first.is_some()
+                && summary.is_some()
+                && cancelled < first
+                && first < summary,
+            "the turn's Cancelled line, the held text, the summary: {rows:#?}"
+        );
+    }
+
+    #[test]
+    fn a_cancel_that_waited_for_a_call_leaves_a_held_call_still_running_its_own_line() {
+        // The owed line's other answer beside held rows: the call that was
+        // running at the keystroke returned at once, then the turn read text
+        // and started a call whose row is held behind it, and failed after
+        // the stop. Once the held rows are written that call is still
+        // running, so the line the cancel owes is the call's own, which the
+        // turn's end writes as it stops it ([`Mark::TurnOver`]), and the
+        // turn writes no `Cancelled` line of its own.
+        let mut shell = running("first question");
+        shell.apply(tool_start(
+            "r",
+            "read_file",
+            serde_json::json!({"path": "notes.txt"}),
+        ));
+        shell.route_bytes(&[0x03]);
+        let _ = shell.painted_document();
+        shell.apply(tool_result("r", "read_file", true, ""));
+        shell.apply(UiEvent::Delta("FIRST-PART\n\n".to_string()));
+        shell.apply(tool_start(
+            "s",
+            "read_file",
+            serde_json::json!({"path": "later.txt"}),
+        ));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the provider went away".to_string()),
+        });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        shell.shell.flush_paced();
+        let rows: Vec<String> = shell
+            .painted_document()
+            .iter()
+            .map(|row| colourless(row))
+            .collect();
+        let has = |needle: &str| rows.iter().any(|row| row.contains(needle));
+        assert_eq!(
+            (
+                has("\u{25aa} Cancelled \u{b7}"),
+                has("later.txt"),
+                has("FIRST-PART")
+            ),
+            (false, true, true),
+            "no turn's Cancelled line; the held call's row; the held text: {rows:#?}"
+        );
+    }
+
+    #[test]
+    fn a_completed_turns_text_unread_at_the_stop_leaves_the_cancelled_line_above_its_summary() {
+        // The answer's text is still in the channel when the user stops a
+        // turn the runtime has already finished. Upstream's keystroke writes
+        // its `Cancelled` line at once (`input_interrupt_runtime.zig:91-127@481104fd`)
+        // and its drain then presents the finished turn's summary
+        // (`finishPromptPresentation`, `app_callbacks.zig:276-283`), so the
+        // line is above the summary. (The late text is presented between the
+        // two, as upstream's drain presents a segment that is not an
+        // interrupted one: `a_finished_turns_late_text_is_presented_with_its_end_in_one_drain`.)
+        let mut shell = running("first question");
+        shell.route_bytes(&[0x03]);
+        shell.apply(UiEvent::Delta("an answer\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        let _ = status_of(&mut shell);
+        let after = shell.released();
+        let cancelled = after
+            .iter()
+            .position(|row| row.contains("\u{25aa} Cancelled"))
+            .unwrap_or_else(|| panic!("no Cancelled line: {after:?}"));
+        let summary = after
+            .iter()
+            .position(|row| row.starts_with("  0s"))
+            .unwrap_or_else(|| panic!("no summary row: {after:?}"));
+        assert!(cancelled < summary, "{after:?}");
+    }
+
+    // -----------------------------------------------------------------------
+    // STOP-NEXT: which turn a start belongs to
+    // -----------------------------------------------------------------------
+
+    /// The first turn finished, the runtime gave its place back and took the
+    /// prompt queued behind it, and the user stops before this side has read
+    /// any of it: the stop quotes both submissions, so it is the second
+    /// turn's.
+    fn stopped_after_the_runtime_took_the_next_prompt() -> Fixture {
+        let mut shell = running("first");
+        shell.route_bytes(b"second\r");
+        shell.work.give_back();
+        assert!(
+            matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "second"),
+            "the prompt was not queued"
+        );
+        shell.route_bytes(&[0x03]);
+        assert!(
+            matches!(shell.controlled(), Some(TurnControl::Cancel { through: 2 })),
+            "the stop did not quote both submissions"
+        );
+        shell
+    }
+
+    #[test]
+    fn a_stop_pressed_after_the_runtime_took_the_next_prompt_is_that_turns() {
+        // STOP-LATE-EVENT's next-break (`stop-late-event/next-break.txt`). Upstream's
+        // worker took the second prompt -- pushing its `begin_prompt` and
+        // clearing the stop (`takeNextPromptLocked`,
+        // `worker_runtime.zig:1484-1512@481104fd`) -- so the stop requested
+        // after it is that turn's (`takeEventBatch`'s `cancelled_turn_id`,
+        // `:923-937`). The drain presents the first turn's segment whole,
+        // its own finish `.completed` (`batchSegmentIsInterrupted`,
+        // `app_worker_runtime.zig:301-325`): its summary and `done`. The second
+        // turn's segment is an interrupted one: its prompt's card, its finish
+        // and its history are admitted and its answer is dropped
+        // (`cancelledEventAdmission`, `:339-389`), and its end is
+        // `.interrupted`: `idle`. One `Cancelled` line, the keystroke's; no
+        // `✗ system:`.
+        let mut shell = stopped_after_the_runtime_took_the_next_prompt();
+        let mut wire = vec![Some("working".to_string()), status_of(&mut shell)];
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        shell.apply(UiEvent::TurnStarted { submission: 2 });
+        shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+        });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        let written = shell.released();
+        let text = written.join("\n");
+        let card = written.iter().position(|row| row.contains("second"));
+        let summary = written.iter().position(|row| row.starts_with("  0s"));
+        assert_eq!(
+            (
+                wire,
+                text.contains("MARKER-SECOND"),
+                text.contains("system"),
+                text.matches("\u{25aa} Cancelled").count(),
+                summary.is_some() && card.is_some() && summary < card,
+            ),
+            (
+                vec![
+                    Some("working".to_string()),
+                    Some("idle".to_string()),
+                    Some("done".to_string()),
+                    Some("idle".to_string()),
+                ],
+                false,
+                false,
+                1,
+                true,
+            ),
+            "the reports, the stopped turn's answer, a `system` line, the `Cancelled` lines, \
+             the first turn's summary above the second's card: {written:#?}"
+        );
+    }
+
+    #[test]
+    fn a_covered_start_read_after_a_settle_cleared_the_stop_is_still_the_stops() {
+        // The same schedule, but the runtime has also run the second turn to
+        // its end -- stopped, or finished before the stop reached it -- and
+        // given every place back before this side reads either: a settle
+        // between the first turn's end and the second's start finds nothing
+        // in hand and takes the stop back (`settle_band`). The start's number
+        // still says the stop covered it, and its end says what it came to,
+        // as upstream's interrupted segment does
+        // (`app_worker_runtime.zig:301-325@481104fd`): the stop's own end is
+        // quiet, a finish is a summary.
+        let mut got = Vec::new();
+        for (end, summaries) in [(Some(super::super::bridge::TURN_CANCELLED), 1), (None, 2)] {
+            let mut shell = stopped_after_the_runtime_took_the_next_prompt();
+            shell.apply(UiEvent::TurnEnded { failure: None });
+            shell.work.give_back();
+            shell.settle_band(Instant::now());
+            shell.apply(UiEvent::TurnStarted { submission: 2 });
+            shell.apply(UiEvent::TurnEnded {
+                failure: end.map(str::to_string),
+            });
+            shell.settle_band(Instant::now());
+            let written = shell.released();
+            let text = written.join("\n");
+            got.push((
+                end.is_some(),
+                text.contains("system"),
+                shell.activity.working(),
+                written.iter().filter(|row| row.starts_with("  0s")).count() == summaries,
+            ));
+        }
+        assert_eq!(
+            got,
+            [(true, false, false, true), (false, false, false, true)],
+            "each end: a `system` line, the activity row, the summaries"
+        );
+    }
+
+    #[test]
+    fn a_second_stop_while_the_first_is_requested_does_nothing() {
+        // Upstream's keystroke returns once its worker's cancel is requested
+        // (`if (app.worker.isCancelRequested()) return;`,
+        // `input_interrupt_runtime.zig:94@481104fd`), and the request stands
+        // until the worker takes the next item (`worker_runtime.zig:1512`):
+        // a second Ctrl-C after the first, with the stopped turn's end still
+        // unread, writes no second line and stops nothing more -- the prompt
+        // typed between the two still runs. After an automatic compaction's
+        // stop the same; after its failure the cancel was never requested, so
+        // the Ctrl-C is a stop of its own, with its line.
+        let now = Instant::now();
+        let mut shell = running("first");
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { through: 1 })
+        ));
+        shell.route_bytes(b"second\r");
+        shell.consume(vec![Input::Action(Action::Cancel)], now + EXIT_WINDOW);
+        let again = shell.controlled();
+        let written = shell.released().join("\n");
+        let mut got = vec![(
+            "a second stop",
+            written.matches("\u{25aa} Cancelled").count(),
+            again.is_some(),
+            shell.prompts.len(),
+        )];
+        for (feedback, label) in [
+            (compaction::Feedback::Cancelled, "after a compaction's stop"),
+            (compaction::Feedback::Failed, "after a compaction's failure"),
+        ] {
+            let mut shell = running("first");
+            shell.apply(UiEvent::Compaction(compaction::Update::Began {
+                automatic: true,
+            }));
+            if feedback == compaction::Feedback::Cancelled {
+                shell.consume(vec![Input::Action(Action::Cancel)], now);
+                let _ = shell.controlled();
+            }
+            shell.apply(UiEvent::Compaction(compaction::Update::Settled(feedback)));
+            shell.consume(vec![Input::Action(Action::Cancel)], now + EXIT_WINDOW);
+            let again = shell.controlled();
+            let written = shell.released().join("\n");
+            got.push((
+                label,
+                written.matches("\u{25aa} Cancelled").count(),
+                again.is_some(),
+                0,
+            ));
+        }
+        assert_eq!(
+            got,
+            [
+                ("a second stop", 1, false, 1),
+                ("after a compaction's stop", 0, false, 0),
+                ("after a compaction's failure", 1, true, 0),
+            ],
+            "each: the `Cancelled` lines, a stop sent again, the prompts still waiting"
+        );
+    }
+
+    #[test]
+    fn work_typed_after_a_stop_that_is_not_a_turn_is_still_stopped_by_the_next_press() {
+        // Upstream cancels a manual compaction and a provider's preparation
+        // ahead of its check on the worker's cancel
+        // (`cancelActiveOperation`, `input_interrupt_runtime.zig:69-90@481104fd`),
+        // so a `/compact` or a provider switch typed after a stop, with the
+        // stopped turn still in hand, is stopped by the next press -- the
+        // stop the first press requested is a turn's.
+        let now = Instant::now();
+        let mut got = Vec::new();
+        for what in ["/compact", "a provider switch"] {
+            let mut shell = running("first");
+            // A conversation with a turn in it, for `/compact` to compact.
+            shell.work.publish_status(a_status(1, 0));
+            shell.consume(vec![Input::Action(Action::Cancel)], now);
+            let _ = shell.controlled();
+            if what == "/compact" {
+                shell.route_bytes(b"/compact\r");
+            } else {
+                shell.switch_provider(ProviderId::Llmux);
+            }
+            shell.apply(UiEvent::TurnEnded {
+                failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+            });
+            shell.work.give_back();
+            shell.settle_band(now);
+            shell.consume(vec![Input::Action(Action::Cancel)], now + EXIT_WINDOW);
+            got.push((what, shell.controlled()));
+        }
+        assert_eq!(
+            got,
+            [
+                ("/compact", Some(TurnControl::Cancel { through: 2 })),
+                (
+                    "a provider switch",
+                    Some(TurnControl::Cancel { through: 2 })
+                ),
+            ],
+            "what each second press sent"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // STOP-NEXT-2
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_second_press_while_the_first_ones_own_work_unwinds_stops_nothing_more() {
+        // opus's SHOULD 1 on STOP-NEXT: the press's own `/compact` or provider
+        // switch is still unwinding -- the compaction `Stopping`, the switch
+        // not yet got past -- when a prompt is typed and a second press
+        // comes. Upstream's second press only asks the same work to stop
+        // again (`cancelContextCompaction`, `worker_runtime.zig:1002-1035@481104fd`;
+        // `cancelProviderPreparation`, `auth_runtime.zig:2052-2056`), and its
+        // stop drops no queued prompt: no second stop is sent, and the prompt
+        // typed between the presses still waits.
+        let now = Instant::now();
+        let mut got = Vec::new();
+        for what in ["/compact", "a provider switch"] {
+            let mut shell = shell(24, 80);
+            shell.work.publish_status(a_status(1, 0));
+            if what == "/compact" {
+                shell.route_bytes(b"/compact\r");
+                assert_eq!(shell.picks_up(), TurnWork::Compact);
+            } else {
+                shell.switch_provider(ProviderId::Llmux);
+                assert_eq!(shell.picks_up(), TurnWork::Setup(ProviderId::Llmux));
+            }
+            shell.consume(vec![Input::Action(Action::Cancel)], now);
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Cancel { through: 1 }),
+                "{what}: the first press"
+            );
+            let lines = shell.released().join("\n").matches("Cancelled").count();
+            shell.route_bytes(b"next\r");
+            shell.consume(vec![Input::Action(Action::Cancel)], now + EXIT_WINDOW);
+            let again = shell.controlled();
+            let more = shell.released().join("\n").matches("Cancelled").count();
+            got.push((
+                what,
+                again,
+                more,
+                shell
+                    .waiting_prompts()
+                    .map(|prompt| prompt.submission)
+                    .collect::<Vec<_>>(),
+                lines <= 1,
+            ));
+        }
+        assert_eq!(
+            got,
+            [
+                ("/compact", None, 0, vec![2], true),
+                ("a provider switch", None, 0, vec![2], true),
+            ],
+            "each: the second press's stop, the `Cancelled` lines it wrote, the prompts \
+             still waiting"
+        );
+    }
+
+    #[test]
+    fn a_press_after_the_runtime_took_a_turn_typed_after_the_stop_waits_for_its_start() {
+        // gpt6's NTH 1 on STOP-NEXT: the runtime has taken the turn typed after
+        // a stop -- upstream's take clears its worker's stop
+        // (`worker_runtime.zig:1512@481104fd`) -- and a press comes before this
+        // side has read the turn's start. Upstream's press is cancelled by
+        // the stream the UI sets when it drains the turn's `begin_prompt`
+        // (`app_worker_runtime.zig:965-975`), which its stop's keystroke had
+        // cleared (`input_interrupt_runtime.zig:132`): until that drain the
+        // press finds no operation to cancel (`activeCancellationTarget`,
+        // `:178-187`; `handleSemanticCtrlC`, `app_input_runtime.zig:1510-1547`).
+        // So here: the press stops nothing until the start is read, and the
+        // next one stops that turn.
+        let now = Instant::now();
+        let mut shell = running("first");
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        let _ = shell.controlled();
+        shell.route_bytes(b"next\r");
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+        });
+        shell.work.give_back();
+        assert!(
+            matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "next"),
+            "the runtime did not take the prompt"
+        );
+        shell.settle_band(now);
+        shell.consume(vec![Input::Action(Action::Cancel)], now + EXIT_WINDOW);
+        let before = shell.controlled();
+        shell.apply(UiEvent::TurnStarted { submission: 2 });
+        shell.settle_band(now);
+        shell.consume(
+            vec![Input::Action(Action::Cancel)],
+            now + EXIT_WINDOW + EXIT_WINDOW,
+        );
+        let after = shell.controlled();
+        assert_eq!(
+            (before, after),
+            (None, Some(TurnControl::Cancel { through: 2 })),
+            "the press before the start was read, the one after"
+        );
+    }
+
+    #[test]
+    fn a_prompt_queued_at_once_writes_no_card_before_its_turn_starts() {
+        // gpt6's NTH 2 on STOP-NEXT: the pacer and full-transcript branches of
+        // upstream's queue-at-once (`installPendingSubmission`,
+        // `input_submit_runtime.zig:1138-1147@481104fd`), each with the card
+        // absent until the start and present after it (`takeNextPromptLocked`'s
+        // `begin_prompt`, `worker_runtime.zig:1484-1505`).
+        let mut got = Vec::new();
+        for branch in ["the pacer", "the full transcript"] {
+            let mut shell = running("go");
+            if branch == "the pacer" {
+                shell.apply(UiEvent::Delta("word ".repeat(400)));
+            }
+            shell.apply(UiEvent::TurnEnded { failure: None });
+            shell.work.give_back();
+            shell.settle_band(Instant::now());
+            if branch == "the full transcript" {
+                shell.route_bytes(b"\x0f");
+                assert!(shell.full.is_open(), "the full transcript did not open");
+            } else {
+                assert!(shell.pacer.pending() > 0, "the answer was released at once");
+            }
+            // Taken without releasing the pacer, which would empty it.
+            let _ = shell.document();
+            shell.route_bytes(b"queued card\r");
+            let before = shell.document().join("\n").contains("queued card");
+            shell.start_turn();
+            if branch == "the full transcript" {
+                shell.route_bytes(b"\x0f");
+            }
+            let mut now = Instant::now();
+            for _ in 0..2_000 {
+                if shell.pacer.pending() == 0 && shell.marks.is_empty() {
+                    break;
+                }
+                now += Duration::from_millis(TICK_MILLIS);
+                shell.settle_band(now);
+            }
+            let after = shell.released().join("\n").contains("queued card");
+            got.push((branch, before, after));
+        }
+        assert_eq!(
+            got,
+            [
+                ("the pacer", false, true),
+                ("the full transcript", false, true)
+            ],
+            "each branch: the card before the start, after it"
+        );
+    }
+
+    #[test]
+    fn a_prompt_queued_at_once_under_a_manual_compactions_row_is_not_shown_waiting() {
+        // A prompt upstream queues at once is not a steer, and its band lists
+        // only steering prompts (`snapshotSteeringPresentation`,
+        // `worker_runtime.zig:1749-1792@481104fd`). Typed while the last
+        // answer is still paced out (`installPendingSubmission`,
+        // `input_submit_runtime.zig:1138-1142`) and a manual compaction's row
+        // is up, it is not among the band's rows.
+        let mut shell = running("go");
+        shell.work.publish_status(a_status(1, 0));
+        shell.apply(UiEvent::Delta("word ".repeat(400)));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        shell.route_bytes(b"/compact\r");
+        assert_eq!(shell.picks_up(), TurnWork::Compact);
+        shell.route_bytes(b"next\r");
+        shell.settle_band(Instant::now());
+        assert!(
+            shell.pacer.pending() > 0 && shell.compacting(),
+            "the answer was released, or no compaction is on the row"
+        );
+        let rows = shell.band_rows();
+        assert!(
+            !rows.join("\n").contains("next"),
+            "the band shows it waiting: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn the_turn_a_stop_took_from_the_runtime_rings_no_bell() {
+        // The stop is the covered turn's too: its end is the user's, and
+        // upstream's turn-end cue is silent for an interrupted turn. The
+        // keystroke's silence is taken by the turn before it, which ended
+        // first.
+        let mut shell = stopped_after_the_runtime_took_the_next_prompt();
+        shell.sound = Sound::new(crate::config::Notifications::both(true), None);
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.settle_band(Instant::now() + Duration::from_secs(5));
+        let _ = shell.take_bells();
+        shell.apply(UiEvent::TurnStarted { submission: 2 });
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+        });
+        shell.work.give_back();
+        shell.settle_band(Instant::now() + Duration::from_secs(10));
+        assert_eq!(shell.take_bells(), 0, "the stopped turn rang");
+    }
+
+    #[test]
+    fn a_start_past_a_prompt_the_stop_dropped_is_its_own_prompts_turn() {
+        // The runtime dropped the waiting prompt on reading the stop and
+        // started the one typed after it: the start's number is past the
+        // dropped one's, which the runtime takes in order, so the dropped
+        // entry goes and the turn is the new prompt's -- no card of the
+        // dropped prompt, and nothing left waiting once it ends.
+        let mut shell = running("first");
+        shell.route_bytes(b"second\r");
+        shell.route_bytes(&[0x03]);
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { through: 2 })
+        ));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+        });
+        shell.work.give_back();
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        let _ = shell.released();
+        shell.route_bytes(b"third\r");
+        let _ = status_of(&mut shell);
+        shell.apply(UiEvent::TurnStarted { submission: 3 });
+        shell.apply(UiEvent::Delta("an answer\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        let ended = status_of(&mut shell);
+        let written = shell.released();
+        assert_eq!(
+            (
+                ended.as_deref(),
+                written.iter().any(|row| row.contains("second")),
+            ),
+            (Some("done"), false),
+            "the report once the turn ended, the dropped prompt's card: {written:#?}"
+        );
+    }
+
+    #[test]
+    fn a_prompt_behind_a_stopped_automatic_compaction_is_no_work() {
+        // A compaction's stop quotes the count as a turn's does
+        // (`stop_compaction`), and what was waiting behind it is the stop's:
+        // the runtime drops it, and nothing is reported as work for it.
+        let mut shell = running("first");
+        shell.route_bytes(b"second\r");
+        shell.apply(UiEvent::Compaction(compaction::Update::Began {
+            automatic: true,
+        }));
+        let mut wire = vec![status_of(&mut shell)];
+        shell.route_bytes(&[0x03]);
+        wire.push(status_of(&mut shell));
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Cancelled,
+        )));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        assert!(
+            !wire[1..].contains(&Some("working".to_string())),
+            "work reported for the dropped prompt: {wire:?}"
+        );
+    }
+
+    #[test]
+    fn a_stop_whose_work_has_all_ended_holds_no_later_press() {
+        // Once nothing is in hand, nothing is left a stop could be about: a
+        // press after it is answered as in a session that was never stopped
+        // -- here a prompt typed after the stop's turn ended and gave its
+        // place back, pressed before its start is read.
+        let now = Instant::now();
+        let mut shell = running("first");
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        let _ = shell.controlled();
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+        });
+        shell.work.give_back();
+        shell.settle_band(now);
+        shell.route_bytes(b"second\r");
+        shell.consume(vec![Input::Action(Action::Cancel)], now + EXIT_WINDOW);
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { through: 2 }),
+            "the press was held by a stop whose work had ended"
+        );
+    }
+
+    #[test]
+    fn a_prompt_sent_while_the_last_answer_is_still_paced_out_is_reported_on_its_keystroke() {
+        // Upstream does not hold a prompt as a pending submission while its
+        // pacer still holds text (`installPendingSubmission`,
+        // `input_submit_runtime.zig:1138-1142@481104fd`): it queues it at once
+        // (`:1112-1118`), which is busy (`queued_count`,
+        // `app_worker_runtime.zig:762-765`), so `working` is the next pass's,
+        // after the keystroke's frame and ahead of any frame that shows the
+        // prompt's turn -- not held for that frame.
+        let mut shell = running("go");
+        shell.apply(UiEvent::Delta("word ".repeat(400)));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        let _ = shell.take_status_moved_by_input();
+        let _ = status_of(&mut shell);
+        assert!(
+            shell.pacer.pending() > 0,
+            "the answer was released at once, so this proves nothing"
+        );
+        shell.route_bytes(b"next\r");
+        assert_eq!(
+            (shell.take_status_moved_by_input(), status_of(&mut shell)),
+            (Keyed::AfterFrame, Some("working".to_string())),
+            "the prompt's report waits for its turn's frame"
+        );
+    }
+
+    #[test]
+    fn a_prompt_sent_from_under_the_full_transcript_is_reported_on_its_keystroke() {
+        // Nor while the full transcript is open (`installPendingSubmission`,
+        // `input_submit_runtime.zig:1143-1147@481104fd`): the same queue, and
+        // the same `working` on the pass after the keystroke.
+        let mut shell = shell(24, 80);
+        let _ = status_of(&mut shell);
+        shell.route_bytes(b"\x0f");
+        assert!(shell.full.is_open(), "Ctrl-O opened no full transcript");
+        shell.route_bytes(b"next\r");
+        assert!(
+            matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "next"),
+            "the prompt was not sent"
+        );
+        assert_eq!(
+            (shell.take_status_moved_by_input(), status_of(&mut shell)),
+            (Keyed::AfterFrame, Some("working".to_string())),
+            "the prompt's report waits for its turn's frame"
+        );
+    }
+
+    #[test]
+    fn a_stopped_turn_with_a_call_running_keeps_its_line_and_its_idle_through_a_late_end() {
+        // The same window with a file call still running at the stop: the
+        // turn's row and its `▪ Cancelled` line wait for the turn's end
+        // (`cancel_owed`), and a settle between the place and the end must
+        // neither put the turn back to work nor take that line away.
+        let mut shell = running("read it");
+        shell.apply(tool_start(
+            "c1",
+            "read_file",
+            serde_json::json!({"path": "a.txt"}),
+        ));
+        let mut wire = vec![status_of(&mut shell)];
+        shell.route_bytes(&[0x03]);
+        wire.push(status_of(&mut shell));
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        shell.apply(tool_result("c1", "read_file", true, ""));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the turn was cancelled".to_string()),
+        });
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        let after = shell.released();
+        let text = after.join("\n");
+        assert_eq!(
+            (
+                wire,
+                text.contains("system"),
+                text.contains("\u{25aa} Cancelled \u{b7} What can xfx")
+            ),
+            (
+                vec![
+                    Some("working".to_string()),
+                    Some("idle".to_string()),
+                    None,
+                    None
+                ],
+                false,
+                true
+            ),
+            "the reports, a `system` line, the turn's `Cancelled` line: {after:?}"
+        );
     }
 
     #[test]
@@ -45229,7 +47164,7 @@ mod tests {
         );
         shell.route_bytes(b"first\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.work.give_back();
         assert_eq!(status_of(&mut shell).as_deref(), Some("done"));
@@ -45273,7 +47208,7 @@ mod tests {
         let _ = status_of(&mut shell);
         shell.route_bytes(b"third question\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
         shell.apply(UiEvent::Compaction(compaction::Update::Began {
             automatic: true,
@@ -45314,7 +47249,7 @@ mod tests {
         let _ = status_of(&mut shell);
         shell.route_bytes(b"third question\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
         shell.apply(UiEvent::Compaction(compaction::Update::Began {
             automatic: true,
@@ -45345,7 +47280,7 @@ mod tests {
         // One the user stopped is the turn's interrupt: idle.
         shell.route_bytes(b"fourth question\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted);
+        shell.start_turn();
         assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
         shell.apply(UiEvent::Compaction(compaction::Update::Began {
             automatic: true,
@@ -45357,6 +47292,81 @@ mod tests {
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.work.give_back();
         assert_eq!(status_of(&mut shell), None);
+    }
+
+    #[test]
+    fn a_reset_before_a_failed_compactions_turn_ends_takes_that_result_with_its_conversation() {
+        // `/new` typed after an automatic compaction failed its turn and
+        // before the turn's end is read: the end is drained with the
+        // conversation it was about, and what the next conversation does is
+        // reported as upstream's is -- a prompt typed, or a manual
+        // `/compact`, is work (`app_worker_runtime.zig:762-765@481104fd`).
+        // A prompt typed before the dropped turn's end is read runs in the
+        // next conversation too, so the reset itself is what lets it go.
+        #[derive(Debug, Clone, Copy, PartialEq)]
+        enum Next {
+            PromptBeforeTheEnd,
+            PromptAfterTheFence,
+            CompactionAfterTheFence,
+        }
+        let mut found = Vec::new();
+        for next in [
+            Next::PromptBeforeTheEnd,
+            Next::PromptAfterTheFence,
+            Next::CompactionAfterTheFence,
+        ] {
+            let mut shell = shell(24, 80);
+            let _ = status_of(&mut shell);
+            shell.route_bytes(b"third question\r");
+            let _ = shell.picks_up();
+            shell.start_turn();
+            assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
+            shell.apply(UiEvent::Compaction(compaction::Update::Began {
+                automatic: true,
+            }));
+            shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+                compaction::Feedback::Failed,
+            )));
+            assert_eq!(status_of(&mut shell).as_deref(), Some("error"));
+            let through = shell.work.accepted();
+            shell.route_bytes(b"/new\r");
+            let mut wire = Vec::new();
+            if next == Next::PromptBeforeTheEnd {
+                shell.route_bytes(b"next question\r");
+                wire.push(status_of(&mut shell));
+            }
+            shell.apply(UiEvent::TurnEnded {
+                failure: Some("compaction failed".into()),
+            });
+            shell.work.give_back();
+            shell.apply(UiEvent::Fresh { through });
+            shell.settle_band(Instant::now());
+            wire.push(status_of(&mut shell));
+            match next {
+                Next::PromptBeforeTheEnd => {}
+                Next::PromptAfterTheFence => shell.route_bytes(b"next question\r"),
+                Next::CompactionAfterTheFence => {
+                    shell
+                        .work
+                        .submit(TurnWork::Compact)
+                        .expect("the compaction");
+                    let _ = shell.picks_up();
+                    shell.compaction = Some(Compaction::began(false));
+                }
+            }
+            wire.push(status_of(&mut shell));
+            found.push((next, wire));
+        }
+        let working = || Some("working".to_string());
+        assert_eq!(
+            found,
+            [
+                (Next::PromptBeforeTheEnd, vec![working(), None, None]),
+                (Next::PromptAfterTheFence, vec![None, working()]),
+                (Next::CompactionAfterTheFence, vec![None, working()]),
+            ],
+            "the dropped conversation's failed compaction still holds the status"
+        );
     }
 
     #[test]
@@ -45372,7 +47382,7 @@ mod tests {
             let _ = status_of(&mut shell);
             shell.route_bytes(b"a question\r");
             let _ = shell.picks_up();
-            shell.apply(UiEvent::TurnStarted);
+            shell.start_turn();
             assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
             shell.apply(UiEvent::Compaction(compaction::Update::Began {
                 automatic: true,
@@ -45592,7 +47602,7 @@ mod tests {
     fn a_turn_that_read_a_wider_path(shell: &mut Fixture) {
         shell.route_bytes(b"read it\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted.made_inert());
+        shell.start_turn();
         let filler: String = (1..=30)
             .map(|n| format!("Paragraph {n} before the read.\n\n"))
             .collect();
@@ -45802,7 +47812,7 @@ mod tests {
         };
         shell.route_bytes(b"go\r");
         let _ = shell.picks_up();
-        shell.apply(UiEvent::TurnStarted.made_inert());
+        shell.start_turn();
         shell.apply(
             tool_start(
                 "g",
@@ -46217,5 +48227,464 @@ mod tests {
         );
         fresh.route_bytes(b"\x0f");
         shown_and_whole(&fresh)
+    }
+
+    // -----------------------------------------------------------------------
+    // MODELS-REASK: when the band asks the runtime for the catalog again
+    // -----------------------------------------------------------------------
+
+    /// The runtime could not read the catalog, the read that failed having
+    /// failed at `failed` -- the first failure in a row.
+    fn unread_at(retry: Option<CatalogRetry>, failed: Instant) -> UiEvent {
+        UiEvent::CatalogUnread {
+            provider: ProviderId::Gateway,
+            retry,
+            retry_at: failed + crate::provider::model::failure_backoff(1),
+        }
+    }
+
+    /// A read of the catalog behind the rows the band holds failed just now:
+    /// the first failure in a row.
+    fn refresh_failed(retry: Option<CatalogRetry>) -> UiEvent {
+        UiEvent::CatalogRefreshFailed {
+            provider: ProviderId::Gateway,
+            retry,
+            due: Instant::now() + crate::provider::model::failure_backoff(1),
+        }
+    }
+
+    /// The harness's rows, read by a read begun at `began`: activity owes them
+    /// the next read once they are the refresh interval old, counted from
+    /// then (`beginLoad`'s `expired`, `model_cache_runtime.zig:609-611
+    /// @481104fd`).
+    fn loaded_from(began: Instant) -> UiEvent {
+        UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+            due: began + REFRESH_INTERVAL,
+        }
+    }
+
+    /// A refresh behind the rows the band holds failed, the runtime's clock
+    /// owing activity the next read at `due`.
+    fn refresh_failed_due(retry: Option<CatalogRetry>, due: Instant) -> UiEvent {
+        UiEvent::CatalogRefreshFailed {
+            provider: ProviderId::Gateway,
+            retry,
+            due,
+        }
+    }
+
+    /// Every catalog ask the shell has sent so far, as what asked -- `menu`
+    /// or `activity` -- and whether the band waits on its answer.
+    fn catalog_asks(shell: &mut Fixture) -> Vec<(&'static str, bool)> {
+        let mut asks = Vec::new();
+        while let Some(message) = shell.controlled() {
+            if let TurnControl::Catalog(ask) = message {
+                let trigger = match ask.trigger {
+                    crate::provider::model::LoadTrigger::PickerOpen => "menu",
+                    crate::provider::model::LoadTrigger::Activity => "activity",
+                };
+                asks.push((trigger, ask.awaited));
+            }
+        }
+        asks
+    }
+
+    #[test]
+    fn the_menu_over_a_held_catalog_lists_its_rows_and_asks_the_runtime_to_read_it_again() {
+        // `openModelMenu` revalidates whatever the cache holds and opens the
+        // menu on it at once (`app_input_runtime.zig:1897-1902@481104fd`;
+        // `refreshMenuLocked`, `model_cache_runtime.zig:1051`): the rows in
+        // hand are listed, and the runtime is asked without the band waiting
+        // on it -- the five seconds are the runtime's to count
+        // (`picker_revalidate_floor_ms`, `:37-38`).
+        let mut shell = harness_shell();
+        shell.route_bytes(b"/model\r");
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert!(rows[0].starts_with("Models 4 "), "{rows:?}");
+        assert!(
+            rows.iter().any(|row| row.contains("openai/gpt-6-astra")),
+            "{rows:?}"
+        );
+        assert_eq!(
+            catalog_asks(&mut shell),
+            [("menu", false)],
+            "the menu did not ask for the catalog again"
+        );
+    }
+
+    #[test]
+    fn a_model_inside_a_failures_backoff_opens_on_the_failure_says_xfx_retries_and_asks_nothing() {
+        // `beginLoad` starts no load inside a failure's backoff, five seconds
+        // after the first (`model_cache_runtime.zig:40-54`, `:617`,
+        // `:621@481104fd`), and `openMenu` then shows the failure it holds
+        // (`refreshMenuLocked`, `:1046-1050`) in `retryableFailureText`'s
+        // words (`model_menu_presentation.zig:439-441`): the train-5 receipt's
+        // `model-reask/menu-failed` and `p5-input-model-fail/fail-open`, where
+        // fx said `Could not reach AI Gateway; fx retries automatically.`.
+        let two_seconds_ago = Instant::now()
+            .checked_sub(Duration::from_secs(2))
+            .expect("a clock older than two seconds");
+        let mut shell = shell(40, 120);
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), two_seconds_ago));
+        shell.route_bytes(b"/model\r");
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(
+            rows,
+            [
+                "Models 0  [All]",
+                "",
+                "Could not reach AI Gateway; xfx retries automatically."
+            ]
+        );
+        assert_eq!(
+            catalog_asks(&mut shell),
+            [],
+            "asked inside the failure's backoff"
+        );
+        // Past it, the menu reads again: `Loading models…` while it does
+        // (`:1049`), the band waiting on the answer.
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        let ten_seconds_ago = Instant::now()
+            .checked_sub(Duration::from_secs(10))
+            .expect("a clock older than ten seconds");
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), ten_seconds_ago));
+        shell.route_bytes(b"/model\r");
+        assert_eq!(catalog_asks(&mut shell), [("menu", true)]);
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(rows[2], "Loading models…", "{rows:?}");
+    }
+
+    #[test]
+    fn a_refresh_that_failed_keeps_the_rows_and_says_xfx_retries_automatically_in_the_notes_place()
+    {
+        // `applyFetchLocked` keeps a ready catalog over a failed fetch
+        // (`model_cache_runtime.zig:969-975@481104fd`), and the menu says the
+        // failure on its status row, the note's (`loadedCatalogStatusText`,
+        // `model_menu_presentation.zig:403-404`, laid out at `:80-81`; fx's
+        // test `model_cache_runtime.zig:1445-1465`).
+        let mut shell = harness_shell();
+        shell.route_bytes(b"/model\r");
+        let _ = catalog_asks(&mut shell);
+        shell.apply(refresh_failed(Some(CatalogRetry::Unreachable)));
+        let rows: Vec<String> = menu(&shell)
+            .iter()
+            .map(|row| visible_text(row).trim_end().to_string())
+            .collect();
+        assert!(rows[0].starts_with("Models 4 "), "{rows:?}");
+        for id in [
+            "openai/gpt-6-astra",
+            "anthropic/claude-opus-5",
+            "fake/model-a",
+            "xai/grok-4.7",
+        ] {
+            assert!(
+                rows.iter().any(|row| row.contains(id)),
+                "{id} went: {rows:?}"
+            );
+        }
+        assert_eq!(
+            rows.last().map(String::as_str),
+            Some("Could not reach AI Gateway; xfx retries automatically."),
+            "{rows:?}"
+        );
+    }
+
+    #[test]
+    fn a_prompt_past_a_failed_catalogs_backoff_asks_for_it_and_one_inside_asks_nothing() {
+        // `noteModelCatalogActivity` (`src/main.zig:1201`, `:1225-1232
+        // @481104fd`): a submitted prompt is activity, which reads a failed
+        // catalog again once its backoff is over (`beginLoad`,
+        // `model_cache_runtime.zig:617`, `:621-622`) -- the band asks the
+        // runtime, without waiting on the answer, as the prompt is submitted.
+        let ten_seconds_ago = Instant::now()
+            .checked_sub(Duration::from_secs(10))
+            .expect("a clock older than ten seconds");
+        let mut shell = shell(40, 120);
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), ten_seconds_ago));
+        shell.route_bytes(b"hello\r");
+        assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
+        assert_eq!(
+            catalog_asks(&mut shell),
+            [("activity", false)],
+            "the prompt did not ask"
+        );
+        // Inside it: nothing.
+        let mut shell = self::shell(40, 120);
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), Instant::now()));
+        shell.route_bytes(b"hello\r");
+        assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
+        assert_eq!(catalog_asks(&mut shell), [], "asked inside the backoff");
+    }
+
+    #[test]
+    fn a_read_that_found_no_runtime_ends_the_menus_wait_and_activity_asks_again_past_its_hold() {
+        // The band's half of a read that could not start (the runtime's half:
+        // `a_read_that_finds_no_runtime_tells_the_band_its_failure_and_is_read_again_past_its_backoff`):
+        // the menu reading again behind a failure (`fetch_in_flight`,
+        // `model_cache_runtime.zig:1046-1050@481104fd`) is answered with
+        // upstream's `.runtime` failure (`:537-546`), says its sentence
+        // (`model_menu_presentation.zig:441`), and activity asks again once
+        // that failure's hold is over.
+        let ten_seconds_ago = Instant::now()
+            .checked_sub(Duration::from_secs(10))
+            .expect("a clock older than ten seconds");
+        let mut shell = shell(40, 120);
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), ten_seconds_ago));
+        shell.route_bytes(b"/model\r");
+        assert_eq!(catalog_asks(&mut shell), [("menu", true)]);
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(rows[2], "Loading models…", "{rows:?}");
+        shell.apply(unread_at(Some(CatalogRetry::Runtime), Instant::now()));
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(
+            rows[2], "Could not refresh model catalog; xfx retries automatically.",
+            "{rows:?}"
+        );
+        assert!(
+            !shell.shell.note_catalog_activity(Instant::now()),
+            "asked inside the new failure's hold"
+        );
+        assert!(
+            shell
+                .shell
+                .note_catalog_activity(Instant::now() + Duration::from_secs(6)),
+            "activity did not ask again past the hold"
+        );
+        assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
+    }
+
+    #[test]
+    fn every_answer_lets_activity_ask_again_a_refresh_failure_over_a_failed_band_too() {
+        // "Once per answer: ... its answer, whatever it is, lets the band ask
+        // again" (`Self::note_catalog_activity`): activity asked, and the
+        // runtime answered that a refresh behind rows failed -- rows this
+        // band does not hold. The band asks again when the runtime's clock
+        // says the next read is due (the answer's `retry_at`), not never.
+        let ten_seconds_ago = Instant::now()
+            .checked_sub(Duration::from_secs(10))
+            .expect("a clock older than ten seconds");
+        let mut shell = shell(40, 120);
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), ten_seconds_ago));
+        assert!(shell.shell.note_catalog_activity(Instant::now()));
+        assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
+        shell.apply(refresh_failed(Some(CatalogRetry::Unreachable)));
+        assert!(
+            !shell.shell.note_catalog_activity(Instant::now()),
+            "asked inside the hold the answer put on the next read"
+        );
+        assert!(
+            shell
+                .shell
+                .note_catalog_activity(Instant::now() + Duration::from_secs(6)),
+            "the answer left activity unable to ask again"
+        );
+        assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
+    }
+
+    #[test]
+    fn rows_a_slow_read_brought_are_read_again_five_minutes_after_it_began() {
+        // `beginLoad` counts the five minutes from when the last read began
+        // (`last_attempt_ms`, set as it starts, `model_cache_runtime.zig:636`;
+        // `expired`, `:609-611@481104fd`), so rows a slow read brought are
+        // due that much sooner after they land: a prompt at the read's start
+        // plus five minutes asks, however long the read took.
+        let began = Instant::now()
+            .checked_sub(REFRESH_INTERVAL + Duration::from_secs(1))
+            .expect("a clock older than five minutes");
+        let mut shell = shell(40, 120);
+        shell.apply(loaded_from(began));
+        shell.route_bytes(b"hello\r");
+        assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
+        assert_eq!(
+            catalog_asks(&mut shell),
+            [("activity", false)],
+            "the prompt did not ask for rows five minutes past their read's start"
+        );
+        // Rows whose read began just now are not.
+        let mut shell = self::shell(40, 120);
+        shell.apply(loaded_from(Instant::now()));
+        shell.route_bytes(b"hello\r");
+        assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
+        assert_eq!(catalog_asks(&mut shell), [], "asked for fresh rows");
+    }
+
+    #[test]
+    fn a_refresh_that_failed_for_good_is_read_again_when_the_runtimes_clock_says() {
+        // A refresh failure asking again cannot change leaves the rows to the
+        // refresh interval (`beginLoad`: `retry_due` false, `expired` from the
+        // failed read's start, the backoff over, `model_cache_runtime.zig:
+        // 609-623@481104fd`): the band asks when the runtime says, not five
+        // minutes after hearing it.
+        let mut shell = harness_shell();
+        let due = Instant::now() + Duration::from_secs(120);
+        shell.apply(refresh_failed_due(None, due));
+        assert!(!shell
+            .shell
+            .note_catalog_activity(due - Duration::from_millis(1)));
+        assert!(
+            shell.shell.note_catalog_activity(due),
+            "activity did not ask when the runtime's clock said"
+        );
+        assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
+    }
+
+    #[test]
+    fn the_columns_frames_wait_out_a_failed_catalogs_backoff() {
+        // The column's frames ask the model cache
+        // (`app_render_runtime.zig:564@481104fd` -> `modelPickerCompletions`
+        // -> `modelCompletions` -> `ensureModelCache`, `src/main.zig:2043-2045`,
+        // `:2167-2169`), which reads a failed catalog again only past its
+        // backoff -- not a second after the read that failed began, as
+        // c1db9191's did.
+        let two_seconds_ago = Instant::now()
+            .checked_sub(Duration::from_secs(2))
+            .expect("a clock older than two seconds");
+        let mut shell = shell(40, 120);
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), two_seconds_ago));
+        shell.route_bytes(b"/model ");
+        assert_eq!(column(&shell)[0], "         unable to load models");
+        assert!(shell.render.owed());
+        shell.settle_column(Instant::now());
+        assert_eq!(catalog_asks(&mut shell), [], "asked inside the backoff");
+        assert_eq!(column(&shell)[0], "         unable to load models");
+        // Past it, the frame asks -- and the column goes on saying the
+        // failure while the read is on its way: upstream's retry leaves the
+        // cache `.failed` (`model_cache_runtime.zig:633-634`), which its
+        // column reads (`app_render_runtime.zig:752-753`).
+        shell.shell.animation_turned = true;
+        shell.settle_column(Instant::now() + Duration::from_secs(4));
+        assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
+        assert_eq!(column(&shell)[0], "         unable to load models");
+    }
+
+    // -----------------------------------------------------------------------
+    // Train 7, join check 1 (b), the band's half: MODELS-REASK's asks around
+    // STOP-NEXT-2's stop
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn catalog_asks_around_a_stop_leave_its_count_and_the_next_start_its_own() {
+        // MODELS-REASK's asks are control messages and take no place among
+        // the submissions (`TurnControl::Catalog`); STOP-NEXT's count is the
+        // work handle's (`accepted`), and a stop quotes it
+        // (`TurnControl::Cancel { through }`). One schedule, with and
+        // without a failed catalog behind it: `go`, a Ctrl-C, a `/model`
+        // while the stopped turn unwinds (closed with Escape: a Ctrl-C is no
+        // key of its menu), `next`, the stopped turn's own end, then the
+        // runtime's start for submission 2 -- which a stop inside a catalog
+        // wait does not hold back (the worker's
+        // `a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number`)
+        // -- its answer and its finish. `/model` asks for the catalog either
+        // way (the first load, or the failure past its hold), and with the
+        // failure `go` asks too; nothing else does. The stop
+        // quotes 1 and `next` is 2 either way, and every report, `next`'s
+        // answer and `done`, and the one `Cancelled` line are the same:
+        // STOP-NEXT-2 reads `next`'s start as a turn of its own.
+        let mut runs = Vec::new();
+        for failed in [false, true] {
+            let mut shell = shell(40, 120);
+            if failed {
+                shell.apply(UiEvent::CatalogUnread {
+                    provider: ProviderId::Gateway,
+                    retry: Some(CatalogRetry::Unreachable),
+                    retry_at: failed_long_ago(),
+                });
+            }
+            let mut sent = Vec::new();
+            let mut sent_now = |shell: &mut Fixture| {
+                while let Some(message) = shell.controlled() {
+                    sent.push(message);
+                }
+            };
+            let _started = turn_running(&mut shell, b"go\r");
+            sent_now(&mut shell);
+            let mut wire = vec![status_of(&mut shell)];
+            shell.route_bytes(&[0x03]);
+            sent_now(&mut shell);
+            shell.settle_band(Instant::now());
+            wire.push(status_of(&mut shell));
+            shell.route_bytes(b"/model\r");
+            sent_now(&mut shell);
+            shell.route_bytes(b"\x1b");
+            shell.settle_input(Instant::now() + Duration::from_millis(60));
+            assert!(shell.model_menu.is_none(), "Escape left the menu open");
+            shell.route_bytes(b"next\r");
+            sent_now(&mut shell);
+            shell.settle_band(Instant::now());
+            wire.push(status_of(&mut shell));
+            let accepted = shell.work.accepted();
+            shell.apply(UiEvent::TurnEnded {
+                failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+            });
+            shell.work.give_back();
+            shell.settle_band(Instant::now());
+            wire.push(status_of(&mut shell));
+            shell.apply(UiEvent::TurnStarted { submission: 2 });
+            shell.settle_band(Instant::now());
+            wire.push(status_of(&mut shell));
+            shell.apply(UiEvent::Delta("MARKER-NEXT\n".to_string()));
+            shell.apply(UiEvent::TurnEnded { failure: None });
+            shell.work.give_back();
+            shell.settle_band(Instant::now());
+            wire.push(status_of(&mut shell));
+            let written = shell.released();
+            let text = written.join("\n");
+            let card = written.iter().position(|row| row.contains("next"));
+            let answer = written.iter().position(|row| row.contains("MARKER-NEXT"));
+            runs.push((
+                sent,
+                (
+                    accepted,
+                    wire,
+                    card.is_some() && answer.is_some() && card < answer,
+                    text.matches("\u{25aa} Cancelled").count(),
+                    text.contains("system"),
+                ),
+            ));
+        }
+        let (without, with) = (&runs[0], &runs[1]);
+        assert_eq!(
+            with.1, without.1,
+            "the count, the reports, `next`'s card above its answer, the `Cancelled` \
+             lines and a `system` line, with the catalog's asks and without them"
+        );
+        assert_eq!(
+            (&without.0, &with.0),
+            (
+                &vec![
+                    TurnControl::Cancel { through: 1 },
+                    TurnControl::Catalog(CatalogAsk::MENU),
+                ],
+                &vec![
+                    TurnControl::Catalog(CatalogAsk::ACTIVITY),
+                    TurnControl::Cancel { through: 1 },
+                    TurnControl::Catalog(CatalogAsk::MENU),
+                ],
+            ),
+            "the control messages, without the failed catalog and with it"
+        );
+        // And what both say: submission 2, `next` a turn of its own --
+        // `working` once the stopped turn's end lets its stop go, its answer
+        // presented, `done` -- and one `Cancelled` line.
+        assert_eq!(
+            with.1,
+            (
+                2,
+                vec![
+                    Some("working".to_string()),
+                    Some("idle".to_string()),
+                    None,
+                    Some("working".to_string()),
+                    None,
+                    Some("done".to_string()),
+                ],
+                true,
+                1,
+                false,
+            )
+        );
     }
 }

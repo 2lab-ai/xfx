@@ -1,0 +1,4 @@
+# refs.py <repo> d2459a37 7d5e3d4b, in the worktree at 2a6e8fa7 (the guard tests' commit): every ref the parity commit
+# left, checked against the code after the last code-side commit. The guard tests moved none.
+refs into changed files: 57 hold, 0 moved, 0 lost; 142 into unchanged files; 128 names not resolved to one file
+# exit 0

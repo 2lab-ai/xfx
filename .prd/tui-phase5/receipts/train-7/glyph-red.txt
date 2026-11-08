@@ -1,0 +1,38 @@
+# The ten lines of STOP-NEXT-2's tests that count or find the turn's Cancelled line, at merge 4 (before 06189ce8 changed U+25A0 to U+25AA in them),
+# a git clone --no-local of the train checked out there, in one hold of the suite lock. The run was at c080f5a5, merge 4 before the branch's messages
+# took their Co-Authored-By trailer (git filter-branch --msg-filter); its tree is 54e3196b's, 1df1c437:
+#   cargo test --locked --lib -- <the nine tests by name>
+# 8 fail (each its count 0 where 1 was expected, or no line found); a_cancel_that_waited_for_a_call_leaves_a_held_call_still_running_its_own_line passes vacuously (it asserts the line is absent).
+test tui::shell::tests::a_stopped_turn_whose_end_carries_a_real_failure_reports_it_as_upstream_does ... FAILED
+test tui::shell::tests::a_stop_read_before_a_completed_turns_end_takes_the_runtimes_word ... FAILED
+test tui::shell::tests::a_stopped_turn_whose_place_comes_back_before_its_end_is_read_ends_as_the_stop_said ... FAILED
+test tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_is_that_turns ... FAILED
+test tui::shell::tests::a_completed_turns_text_unread_at_the_stop_leaves_the_cancelled_line_above_its_summary ... FAILED
+test tui::shell::tests::a_stopped_turn_with_a_call_running_keeps_its_line_and_its_idle_through_a_late_end ... FAILED
+test tui::shell::tests::a_cancel_that_waited_for_a_call_leaves_a_held_call_still_running_its_own_line ... ok
+test tui::shell::tests::a_cancel_that_waited_for_a_call_whose_result_is_held_writes_the_turns_line ... FAILED
+test tui::shell::tests::a_second_stop_while_the_first_is_requested_does_nothing ... FAILED
+thread 'tui::shell::tests::a_stopped_turn_whose_end_carries_a_real_failure_reports_it_as_upstream_does' (347846721) panicked at src/tui/shell.rs:46176:13:
+  left: ([Some("working"), Some("idle"), Some("error")], true, 0)
+ right: ([Some("working"), Some("idle"), Some("error")], true, 1)
+thread 'tui::shell::tests::a_stop_read_before_a_completed_turns_end_takes_the_runtimes_word' (347846720) panicked at src/tui/shell.rs:46220:9:
+  left: ([Some("working"), Some("idle"), Some("done")], true, 0, Some("first question"))
+ right: ([Some("working"), Some("idle"), Some("done")], true, 1, Some("first question"))
+thread 'tui::shell::tests::a_stopped_turn_whose_place_comes_back_before_its_end_is_read_ends_as_the_stop_said' (347846722) panicked at src/tui/shell.rs:46123:9:
+  left: ([Some("working"), Some("idle"), None, None], false, 0)
+ right: ([Some("working"), Some("idle"), None, None], false, 1)
+thread 'tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_is_that_turns' (347846719) panicked at src/tui/shell.rs:46600:9:
+  left: ([Some("working"), Some("idle"), Some("done"), Some("idle")], false, false, 0, true)
+ right: ([Some("working"), Some("idle"), Some("done"), Some("idle")], false, false, 1, true)
+thread 'tui::shell::tests::a_completed_turns_text_unread_at_the_stop_leaves_the_cancelled_line_above_its_summary' (347846717) panicked at src/tui/shell.rs:46536:32:
+no Cancelled line: ["▪ Cancelled · What can xfx do differently?", "", "  an answer", "", "  0s (↑4 ↓3)", ""]
+thread 'tui::shell::tests::a_stopped_turn_with_a_call_running_keeps_its_line_and_its_idle_through_a_late_end' (347846723) panicked at src/tui/shell.rs:47135:9:
+  left: ([Some("working"), Some("idle"), None, None], false, false)
+ right: ([Some("working"), Some("idle"), None, None], false, true)
+thread 'tui::shell::tests::a_cancel_that_waited_for_a_call_whose_result_is_held_writes_the_turns_line' (347846716) panicked at src/tui/shell.rs:46458:9:
+thread 'tui::shell::tests::a_second_stop_while_the_first_is_requested_does_nothing' (347846718) panicked at src/tui/shell.rs:46714:9:
+  left: [("a second stop", 0, false, 1), ("after a compaction's stop", 0, false, 0), ("after a compaction's failure", 0, true, 0)]
+ right: [("a second stop", 1, false, 1), ("after a compaction's stop", 0, false, 0), ("after a compaction's failure", 1, true, 0)]
+test result: FAILED. 1 passed; 8 failed; 0 ignored; 0 measured; 4524 filtered out; finished in 0.02s
+error: test failed, to rerun pass `--lib`
+exit 101

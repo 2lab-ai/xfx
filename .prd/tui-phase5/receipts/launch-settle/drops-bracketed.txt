@@ -1,0 +1,22 @@
+# The three DROP pairs of sweep-compare.txt, bracketed on the BASE harness (7589ec42's capture.sh, xfx at 7589ec4, fx v0.0.16), each a scratch copy of the base scenario with one line changed. Run 2026-11-08 15:19, load 4.7.
+## p5-mcp-menu-old: the last 'wait 0.5' before 'snap closed' as 0.45 and 0.6 (row 5, the hint row, of 'closed')
+wait 0.45 fx: auto · model-a esc again to clear
+wait 0.45 xfx: auto · model-a esc again to clear
+wait 0.60 fx: auto · model-a esc again to clear
+wait 0.60 xfx: auto · model-a proj is waiting for approval · /mcp
+## p5-mcp-fail: 'wait 0.2' before 'wait 13' (every later line 0.2 s later against fx's own clock); server-1's tools row, fx
+run 1:  Loading tools…
+run 2:  Loading tools…
+run 3:  Loading tools…
+(the unshifted base scenario: 'Its tools couldn't load: ...' in 4 of 4 base sweeps, sweep-compare.txt)
+
+# The converted p5-mcp-fail (5bd5c05f's form) forced into the late phase: a scratch copy with 'wait 0.3' before 'wait 13', on 85428cc9's harness, xfx at 85428cc9, one sweep under the lock (started 2026-11-08T15:25:25+09:00 load 6.48). Every pair against the four base sweeps:
+     p5-mcp-fail/end.full: base unresolved-defect,unresolved-defect,unresolved-defect,unresolved-defect -> head unresolved-defect
+     p5-mcp-fail/list: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical
+     p5-mcp-fail/server-1: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical
+     p5-mcp-fail/server-2: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical
+     p5-mcp-fail/show-bad: base unresolved-defect,unresolved-defect,unresolved-defect,unresolved-defect -> head unresolved-defect
+     p5-mcp-fail/startup: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical
+drops: 0
+fx: until shown 'Its tools couldn't load': after 15.80 s, 31.16 s since launch
+xfx: until shown 'Its tools couldn't load': after 0.01 s, 15.38 s since launch

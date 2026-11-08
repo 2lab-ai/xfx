@@ -121,10 +121,21 @@ const INLINE_CELLS: usize = u16::MAX as usize + 1;
 /// [`CUT`].
 ///
 /// A unit is one of `target`'s grapheme clusters, or a spelling it already
-/// holds (`\xNN`, `\u{N}`, [`spelling_at`]) with whatever joins that
-/// spelling's last character -- the channel's argument is spelled
-/// (`super::bridge`'s `spelled_shown`), and spelling it again changes nothing
-/// -- so the cut never falls inside a cluster or a spelling.
+/// holds (`\xNN`, `\u{N}`, [`spelling_at`]) with whatever joins its last
+/// character, so the cut never falls inside a spelling, and inside a cluster
+/// only before a spelling's `\` that a Prepend character took in (UAX #29
+/// GB9b, [`unit_at`]). That is past 65 536 columns, in a cell no screen
+/// shows: a screen of up to 65 534 columns cuts the kept row and the whole
+/// at the same cell and draws them the same (the equality test, at 40, 120,
+/// 1000 and 65 534 columns).
+///
+/// **`target` is the channel's, spelled** wherever a session gives one
+/// (`super::bridge`'s `made_inert`, a turn's calls and a resumed session's),
+/// and spelling it again changes nothing: its units are the spelled text's
+/// clusters, so a ZWJ family spelled in pieces may be cut between them. Raw
+/// text, which only the row's own spelling tests give it (so no assertion),
+/// is cut between raw clusters; a raw cluster spelled wider than `u16::MAX`
+/// cells is measured at that (`super::wrap::width` saturates), kept whole.
 fn inline(target: &str) -> String {
     let mut out = String::new();
     let mut cells = 0usize;
@@ -144,7 +155,13 @@ fn inline(target: &str) -> String {
 }
 
 /// How many bytes of `rest` its first unit takes ([`inline`]): a spelling and
-/// what joins its last character, or one grapheme cluster.
+/// what joins its last character, or one grapheme cluster -- ended before a
+/// spelling it took in.
+///
+/// A character UAX #29 calls Prepend (GB9b: U+0600-0605, U+06DD, U+070F,
+/// ...) joins the character after it, a spelling's `\` too, and no spelling
+/// names one: so a cluster that took in a `\` starting a spelling ends
+/// before it, and the spelling is the next unit.
 fn unit_at(rest: &str) -> usize {
     use unicode_segmentation::UnicodeSegmentation;
     let cluster = |text: &str| text.graphemes(true).next().map_or(text.len(), str::len);
@@ -152,7 +169,15 @@ fn unit_at(rest: &str) -> usize {
         // Its last character is `}` or a hex digit, and a mark after it joins
         // it, so the cluster that character starts is the spelling's end.
         Some(len) => len - 1 + cluster(&rest[len - 1..]),
-        None => cluster(rest),
+        // `rest` starts with no spelling, so a `\` that starts one is past
+        // the cluster's first character and the unit is never empty.
+        None => {
+            let whole = cluster(rest);
+            rest[..whole]
+                .char_indices()
+                .find(|&(at, character)| character == '\\' && spelling_at(&rest[at..]).is_some())
+                .map_or(whole, |(at, _)| at)
+        }
     }
 }
 
@@ -552,6 +577,14 @@ impl ToolGroup {
     /// the block is: the shell redraws an open group at once.
     pub(crate) fn set_collapsed(&mut self, collapsed: bool) {
         self.collapsed = collapsed;
+    }
+
+    /// The ids of the group's calls that have not returned yet.
+    pub(crate) fn running_ids(&self) -> impl Iterator<Item = &str> {
+        self.calls
+            .iter()
+            .filter(|call| call.state == State::Running)
+            .map(|call| call.id.as_str())
     }
 
     /// Whether any call of the group has not returned yet.
@@ -2560,7 +2593,10 @@ mod tests {
                 );
             }
             // What it keeps is the argument up to the end of one of its
-            // clusters, and no further than the widest screen shows.
+            // clusters, and no further than the widest screen shows. Its
+            // *raw* clusters: these arguments reach the group unspelled, as
+            // only a test hands one; through the channel the units are the
+            // spelled text's (the next test).
             let kept = strip(&rows[1]);
             let kept = kept.strip_prefix("\u{2514} Matching ").expect("the row");
             let (kept, cut) = match kept.strip_suffix("...") {
@@ -2598,11 +2634,14 @@ mod tests {
         // (`super::super::bridge`'s `spelled_shown`), so the row is given
         // `\u{009b}` and `\x01` as text. Wherever the row's bound falls, it
         // falls between two of them, never inside one -- whatever runs
-        // before them.
+        // before them. T-U4-F: an Arabic number sign (U+0600), which no
+        // spelling names, joins the `\` after it into one cluster (UAX #29
+        // GB9b), so it runs before a spelling too, as the lead and between
+        // spellings.
         let wide = usize::from(u16::MAX) + 1;
         let whole_spellings = |mut text: &str| {
             while !text.is_empty() {
-                match ["\\u{009b}", "\\x01"]
+                match ["\\u{009b}", "\\x01", "\u{600}"]
                     .iter()
                     .find(|token| text.starts_with(**token))
                 {
@@ -2612,8 +2651,21 @@ mod tests {
             }
             true
         };
-        for lead in ["", "a", "ab", "abc", "abcd", "abcde", "abcdef", "abcdefg"] {
-            let pattern = format!("{lead}{}", "\u{9b}\u{1}".repeat(wide / 6));
+        let leads = ["", "a", "ab", "abc", "abcd", "abcde", "abcdef", "abcdefg"];
+        let prepended = ["\u{600}", "a\u{600}", "ab\u{600}", "\u{600}\u{600}"];
+        let cases = leads
+            .iter()
+            .chain(&prepended)
+            .map(|lead| (*lead, "\u{9b}\u{1}"))
+            .chain(leads.iter().map(|lead| (*lead, "\u{600}\u{1}")))
+            .chain(
+                leads
+                    .iter()
+                    .map(|lead| (*lead, "\u{600}\u{9b}\u{600}\u{1}")),
+            );
+        for (lead, body) in cases {
+            // Every body at least four cells a repeat: past any screen.
+            let pattern = format!("{lead}{}", body.repeat(wide / 3));
             let event = super::super::bridge::UiEvent::ToolStart {
                 call_id: "1".into(),
                 tool: "glob_files".into(),
@@ -2635,17 +2687,17 @@ mod tests {
             let kept = kept
                 .strip_prefix("\u{2514} Matching ")
                 .and_then(|kept| kept.strip_suffix("..."))
-                .expect("cut");
+                .unwrap_or_else(|| panic!("{lead:?} {body:?}: not cut"));
             let tokens = kept.strip_prefix(lead).expect("the lead");
             assert!(
                 whole_spellings(tokens),
-                "{lead:?}: cut inside a spelling, ...{:?}",
+                "{lead:?} {body:?}: cut inside a spelling, ...{:?}",
                 &tokens[tokens.len() - 12..]
             );
             let whole = format!("{TEXT}\u{2514} Matching {spelled_whole}{RESET}");
             for cols in WIDTHS {
                 let (row, all) = shown_at(&rows[1], &whole, cols);
-                assert!(row == all, "{lead:?}, {cols} columns");
+                assert!(row == all, "{lead:?} {body:?}, {cols} columns");
             }
         }
     }
@@ -2785,5 +2837,40 @@ mod tests {
                 spelled.len()
             );
         }
+    }
+
+    #[test]
+    fn a_unit_ends_before_a_spelling_whatever_joins_its_backslash() {
+        // T-U4-F: a character UAX #29 calls Prepend (GB9b: U+0600-0605,
+        // U+06DD, U+070F, ...) joins the character after it into one cluster,
+        // a spelling's `\` included, and the channel leaves every one of them
+        // as it is. Every character that joins a following `\` and is not
+        // spelled is its own unit, and the spelling after it is one.
+        use unicode_segmentation::UnicodeSegmentation;
+        let mut joiners = Vec::new();
+        for character in (0..=0x10_ffff).filter_map(char::from_u32) {
+            let text = format!("{character}\\x01z");
+            let joins = text.graphemes(true).next().map(str::len) != Some(character.len_utf8());
+            let unspelled = matches!(
+                crate::tools::question::terminal_safe(&text[..character.len_utf8()]),
+                std::borrow::Cow::Borrowed(_)
+            ) && character != '\u{061c}';
+            if joins && unspelled {
+                joiners.push(character);
+                assert_eq!(
+                    unit_at(&text),
+                    character.len_utf8(),
+                    "U+{:04X} took the spelling's `\\` into its unit",
+                    u32::from(character)
+                );
+                assert_eq!(unit_at(&text[character.len_utf8()..]), 4, "the spelling");
+            }
+        }
+        assert!(
+            joiners.contains(&'\u{600}') && joiners.contains(&'\u{70f}'),
+            "{joiners:?}"
+        );
+        // A `\` that starts no spelling stays in the cluster that took it.
+        assert_eq!(unit_at("\u{600}\\q"), "\u{600}\\".len());
     }
 }

@@ -1,0 +1,92 @@
+# The parity sweep, base vs head, every p5-lifecycle-* scenario (osc and lifecycle), inside this unit's round-3 suite-lock slot:
+# scripts/fxcap/sweep.sh --fx <fx v0.0.16> --pin-sha 8e6cda2e... --xfx <build> --jobs 3 --only 'p5-lifecycle-*' --out <dir>
+# base = 1230329: e636db48 (L-U1+U2's head, this unit's base) with main 884497c0 merged in -- L-U1+U2 and main without this
+# unit. A throwaway merge in scratch; `git show --remerge-diff` on it is empty for src/ (its one conflict was docs/parity.md),
+# so its build is its two parents' code. head = 06ca9f1a, round 3's code head.
+
+## base
+- fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
+- xfx: `x𝒇x v0.1.0-1230329 [debug] · Run /help for commands`, sha256 `10c87be171df1433d95272fbd161547d0976f6a7dcb2ba7fc50c805bff9499a6`
+scenarios 30: ran 30, failed 0, timeout 0; pass = 28 / 69 = 40.6%
+
+## head
+- fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
+- xfx: `x𝒇x v0.1.0-06ca9f1 [debug] · Run /help for commands`, sha256 `28fb1a9d92c46f5722b96aa02601f8241eadbd775438808c7a9588d4cf0c4b6d`
+scenarios 30: ran 30, failed 0, timeout 0; pass = 28 / 69 = 40.6%
+
+## pair by pair (pairs.json): each pair's verdict, base -> head
+pairs: base 69, head 69; only on one side: 0
+changed: 0
+base: {'normalized-identical': 28, 'unresolved-defect': 40, 'approved-divergence-cascade': 1}
+head: {'normalized-identical': 28, 'unresolved-defect': 40, 'approved-divergence-cascade': 1}
+  p5-lifecycle-compactfail                     f01-failed               normalized-identical
+  p5-lifecycle-compactok                       c00-noop                 normalized-identical
+  p5-lifecycle-compactok                       c02-compacting           normalized-identical
+  p5-lifecycle-compactok                       c03-compacted            normalized-identical
+  p5-lifecycle-login                           l00-picker               unresolved-defect
+  p5-lifecycle-login                           l01-down                 unresolved-defect
+  p5-lifecycle-login                           l02-down2                unresolved-defect
+  p5-lifecycle-login                           l03-down3                unresolved-defect
+  p5-lifecycle-login                           l04-first-enter          unresolved-defect
+  p5-lifecycle-login                           l05-esc                  unresolved-defect
+  p5-lifecycle-login2                          m00-vercel-methods       unresolved-defect
+  p5-lifecycle-login2                          m01-vercel-oauth-1s      unresolved-defect
+  p5-lifecycle-login2                          m02-vercel-oauth-5s      unresolved-defect
+  p5-lifecycle-login2                          m03-esc                  unresolved-defect
+  p5-lifecycle-login2                          m04-codex-methods        unresolved-defect
+  p5-lifecycle-login2                          m05-codex-signin         unresolved-defect
+  p5-lifecycle-login2                          m06-grok-methods         unresolved-defect
+  p5-lifecycle-login2                          m07-grok-signin          unresolved-defect
+  p5-lifecycle-login2                          m08-esc                  unresolved-defect
+  p5-lifecycle-osc                             s00-start                unresolved-defect
+  p5-lifecycle-osc                             s01-working              unresolved-defect
+  p5-lifecycle-osc                             s02-done                 unresolved-defect
+  p5-lifecycle-osc                             s04-error                unresolved-defect
+  p5-lifecycle-osc                             s05-permission           unresolved-defect
+  p5-lifecycle-osc                             s06-after-permission     unresolved-defect
+  p5-lifecycle-osc                             s07-question             unresolved-defect
+  p5-lifecycle-osc                             s08-after-question       unresolved-defect
+  p5-lifecycle-osc                             s09-exit                 unresolved-defect
+  p5-lifecycle-relhome                         h00-launch               normalized-identical
+  p5-lifecycle-relhome                         h01-sessions.full        normalized-identical
+  p5-lifecycle-relhome-image                   again                    normalized-identical
+  p5-lifecycle-relhome-image                   sent                     normalized-identical
+  p5-lifecycle-relhome-made                    h00-launch               normalized-identical
+  p5-lifecycle-relhome-made                    h01-turn                 normalized-identical
+  p5-lifecycle-relhome-made                    h02-sessions.full        normalized-identical
+  p5-lifecycle-relhome-resume                  r00-resume.full          unresolved-defect
+  p5-lifecycle-relhome-unsaved                 u00-launch               normalized-identical
+  p5-lifecycle-relhome-unsaved                 u01-turn                 normalized-identical
+  p5-lifecycle-relhome-unsaved                 u02-status               approved-divergence-cascade
+  p5-lifecycle-relhome-unsaved                 u03-resume               normalized-identical
+  p5-lifecycle-relhome-unsaved                 u04-fork                 normalized-identical
+  p5-lifecycle-relhome-unsaved                 u05-rename               normalized-identical
+  p5-lifecycle-relhome-unsaved                 u06-new                  normalized-identical
+  p5-lifecycle-relhome-unsaved                 u07-turn                 normalized-identical
+  p5-lifecycle-relhome-unsaved                 u08-quit.full            normalized-identical
+  p5-lifecycle-retry                           r00-0.6s                 normalized-identical
+  p5-lifecycle-retry                           r01-2.1s                 unresolved-defect
+  p5-lifecycle-retry                           r02-4.6s                 unresolved-defect
+  p5-lifecycle-retry                           r03-8.6s                 unresolved-defect
+  p5-lifecycle-retry                           r04-after-esc            unresolved-defect
+  p5-lifecycle-retry                           r04a-esc-armed           unresolved-defect
+  p5-lifecycle-retry                           r05-after-esc-4.5s       unresolved-defect
+  p5-lifecycle-retryok                         k00-0.5s                 normalized-identical
+  p5-lifecycle-retryok                         k01-1.5s                 normalized-identical
+  p5-lifecycle-retryok                         k02-4.5s                 normalized-identical
+  p5-lifecycle-suspend                         z01-after-ctrlz          normalized-identical
+  p5-lifecycle-suspend                         z02-next-turn            normalized-identical
+  p5-lifecycle-update                          u00-update               unresolved-defect
+  p5-lifecycle-update                          u01-update-dev           unresolved-defect
+  p5-lifecycle-update                          u02-upgrade-json         unresolved-defect
+  p5-lifecycle-update                          u03-help.full            unresolved-defect
+  p5-lifecycle-v1bad                           b00-picker-all           normalized-identical
+  p5-lifecycle-v1bad                           b01-picked               normalized-identical
+  p5-lifecycle-v1bad                           b02-launch-refused.full  unresolved-defect
+  p5-lifecycle-v1resume                        v00-picker               normalized-identical
+  p5-lifecycle-v1resume                        v00b-picker-all          unresolved-defect
+  p5-lifecycle-v1resume                        v01-resumed              unresolved-defect
+  p5-lifecycle-v1resume                        v01-resumed.full         unresolved-defect
+  p5-lifecycle-v1resume                        v02-continued            unresolved-defect
+
+The osc scenarios take no snap (their evidence is the wire, osc-all.txt), so they add no pair here.

@@ -1,0 +1,19 @@
+# Round 2: refs.py <repo> 6ae96c6a 6ae96c6a over the working tree at 49b63de3's code (before fe9dee99 re-pointed them):
+# every xfx file:line ref the documents and the code held at round 1's head, checked against round 2's code.
+MOVED scripts/fxcap/parity-ledger.toml:377 src/tui/toolgroup.rs:749 -> :757 (frame 6ae96c6a): 'pub(crate) fn spelled(target: &str, activity: Activity) -> String {'
+MOVED scripts/fxcap/parity-ledger.toml:391 src/tui/toolgroup.rs:797 -> :805 (frame 6ae96c6a): 'fn command_spelled(target: &str, max: usize, mark_unread: bool) -> Str'
+MOVED scripts/fxcap/parity-ledger.toml:405 src/tui/toolgroup.rs:911 -> :919 (frame 6ae96c6a): "if character == '\\u{061c}' {"
+MOVED scripts/fxcap/parity-ledger.toml:507 src/tui/shell.rs:12959 -> :13041 (frame 6ae96c6a): 'fn send(&mut self, prompt: String, text: &str) -> bool {'
+MOVED scripts/fxcap/parity-ledger.toml:539 src/tui/toolgroup.rs:710 -> :718 (frame 6ae96c6a): '"{}\\u{25a0}{reset}{} Cancelled{reset} {base}{target}{reset}{CANCELLED_'
+MOVED scripts/fxcap/parity-ledger.toml:723 src/tui/shell.rs:38274 -> :38359 (frame 6ae96c6a): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:734 src/tui/shell.rs:38274 -> :38359 (frame 6ae96c6a): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:746 src/tui/shell.rs:38274 -> :38359 (frame 6ae96c6a): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:757 src/tui/shell.rs:38274 -> :38359 (frame 6ae96c6a): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:768 src/tui/toolgroup.rs:749 -> :757 (frame 6ae96c6a): 'pub(crate) fn spelled(target: &str, activity: Activity) -> String {'
+MOVED scripts/fxcap/parity-ledger.toml:813 src/tui/shell.rs:38274 -> :38359 (frame 6ae96c6a): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:849 src/tui/shell.rs:1719 -> :1735 (frame 6ae96c6a): '"ansi_bytes={}, redraws={}, debounced_resizes={}, footer_updates=0, st'
+MOVED scripts/fxcap/capfile.py:159 src/tui/shell.rs:14435-14460 -> :14517-14542 (frame 6ae96c6a): "fn warning_shown(&self) -> Option<&'static str> {"
+MOVED src/tui/event_loop.rs:12609 src/tui/shell.rs:2706 -> :2735 (frame 6ae96c6a): 'if show_banner {'
+MOVED src/tui/event_loop.rs:12710 src/tui/event_loop.rs:970-973 -> :972-975 (frame 6ae96c6a): '// **Except what the primary plane already owed, which is paid before '
+MOVED src/tui/shell.rs:22403 src/tui/shell.rs:5816 -> :5849 (frame 6ae96c6a): 'statusline: self.statusline,'
+refs into changed files: 41 hold, 16 moved, 0 lost; 142 into unchanged files; 128 names not resolved to one file

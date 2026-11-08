@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-ba6670a [debug] · Run /help for commands
+
+┃ say something
+
+  Generating (4s) (↑4 ↓6)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

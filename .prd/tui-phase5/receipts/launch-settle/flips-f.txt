@@ -1,0 +1,28 @@
+# LAUNCH-SETTLE-F item 1: each divergence snap flipped on purpose, on 40fdbc85's scenario (old, no expect) and 9c01878f's (new, a per-side expect after the snap). Both on 9c01878f's harness, xfx built at 9c01878f, fx v0.0.16, one run per binary, 2026-11-08 17:33 KST, load 64. The flips:
+- zflip-b: 'wait 0.6' between (b)'s edit and its second Escape, so xfx's second Escape comes after its 500 ms window and arms the clear again;
+- zflip-c: 'wait 0.6' before 'snap c-deleted', past xfx's window;
+- zflip-held: 'wait 7' instead of 'wait 1' before 'snap held', so the snap comes after fx's try near 15 s, which answers the screen.
+
+## each run: exit, and its launch wait and expect lines
+zflip-b old fx: exit 0 | up: a first frame after 0.11 s (2 looks) 
+zflip-b old xfx: exit 0 | up: a first frame after 1.79 s (20 looks) 
+zflip-b new fx: exit 0 | up: a first frame after 0.15 s (2 looks) expect b-edit-escape 'beta twoxzz9': the snap holds it 
+zflip-b new xfx: exit 1 | up: a first frame after 0.11 s (2 looks) expect b-edit-escape '┃ zz9': the snap does not hold it; its rows that are not blank: 
+zflip-c old fx: exit 0 | up: a first frame after 0.11 s (2 looks) 
+zflip-c old xfx: exit 0 | up: a first frame after 0.12 s (2 looks) 
+zflip-c new fx: exit 0 | up: a first frame after 0.11 s (2 looks) expect b-edit-escape 'beta twoxzz9': the snap holds it 
+zflip-c new xfx: exit 1 | up: a first frame after 0.10 s (2 looks) expect b-edit-escape '┃ zz9': the snap holds it expect c-deleted 'esc again to clear': the snap does not hold it; its rows that are not blank: 
+zflip-held old fx: exit 0 | up: a first frame after 0.11 s (2 looks) 
+zflip-held old xfx: exit 0 | up: a first frame after 0.10 s (2 looks) 
+zflip-held new fx: exit 1 | up: a first frame after 0.10 s (2 looks) expect held 'Loading tools…': the snap does not hold it; its rows that are not blank: 
+zflip-held new xfx: exit 0 | up: a first frame after 0.11 s (2 looks) expect held 'Its tools couldn't load': the snap holds it 
+
+## the flipped pairs, row by row (banner and product name normalized)
+old zflip-b/b-edit-escape: rows that differ (text, banner and product name normalized): none
+old zflip-c/c-deleted: rows that differ (text, banner and product name normalized): none
+old zflip-held/held: rows that differ (text, banner and product name normalized): none
+new zflip-b/b-edit-escape: rows that differ (text, banner and product name normalized): none
+new zflip-c/c-deleted: rows that differ (text, banner and product name normalized): none
+new zflip-held/held: rows that differ (text, banner and product name normalized): none
+
+So the old scenario lets every flip through as an identical pair with exit 0, which a [[cause]] would not show (sweep.py `cause_table`, :870-873, counts a cause over unresolved pairs only). The new one fails the run on the side that flipped, at its own expect.

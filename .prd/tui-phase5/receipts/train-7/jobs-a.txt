@@ -1,0 +1,91 @@
+# jobs-a at 2026-11-08T15:40:28Z, load 3.07
+## join check 1 on each unit alone
+== models-reask at 66854557 docs(receipt): models-reask round 2 -- the reviews' fixes, RED/GREEN, m
+src/tui/event_loop.rs: 247 lines appended
+src/tui/worker.rs: 230 lines appended
+src/tui/shell.rs: 127 lines appended
+build exit 101
+error[E0425]: cannot find value `TURN_CANCELLED` in module `super::super::bridge`
+     --> src/tui/event_loop.rs:14884:48
+error[E0425]: cannot find function `find` in this scope
+     --> src/tui/event_loop.rs:14910:28
+error[E0425]: cannot find function `find` in this scope
+     --> src/tui/event_loop.rs:14911:33
+error[E0425]: cannot find function `find` in this scope
+     --> src/tui/event_loop.rs:14912:29
+error[E0425]: cannot find value `TURN_CANCELLED` in module `super::super::bridge`
+     --> src/tui/shell.rs:45960:53
+error[E0425]: cannot find value `TURN_CANCELLED` in module `bridge`
+     --> src/tui/worker.rs:17183:43
+error[E0599]: no method named `start_turn` found for struct `event_loop::tests::Fixture` in the current scope
+     --> src/tui/event_loop.rs:14832:23
+error[E0609]: no field `handle` on type `event_loop::tests::Fixture`
+     --> src/tui/event_loop.rs:14892:23
+error[E0559]: variant `tui::bridge::UiEvent::TurnStarted` has no field named `submission`
+     --> src/tui/shell.rs:45965:48
+error[E0026]: variant `tui::bridge::UiEvent::TurnStarted` does not have a field named `submission`
+     --> src/tui/worker.rs:17154:48
+error: could not compile `xfx` (lib test) due to 10 previous errors
+error: could not compile `xfx` (lib test) due to 10 previous errors
+clone restored: clean
+== stop-next-2 at f8d625c3 docs(prd): STOP-NEXT-2 round 2's gate
+src/tui/event_loop.rs: 247 lines appended
+src/tui/worker.rs: 230 lines appended
+src/tui/shell.rs: 127 lines appended
+build exit 101
+error[E0433]: cannot find `CatalogAsk` in `bridge`
+     --> src/tui/event_loop.rs:15693:45
+error[E0433]: cannot find `CatalogAsk` in `bridge`
+     --> src/tui/event_loop.rs:15760:41
+error[E0422]: cannot find struct, variant or union type `FailsThenGated` in this scope
+     --> src/tui/worker.rs:16252:44
+error[E0559]: variant `tui::bridge::UiEvent::CatalogUnread` has no field named `retry_at`
+     --> src/tui/event_loop.rs:15677:21
+error[E0618]: expected function, found `tui::bridge::TurnControl`
+     --> src/tui/event_loop.rs:15692:37
+error[E0559]: variant `tui::bridge::UiEvent::CatalogLoaded` has no field named `due`
+     --> src/tui/event_loop.rs:15721:29
+error[E0618]: expected function, found `tui::bridge::TurnControl`
+     --> src/tui/event_loop.rs:15759:50
+error[E0559]: variant `tui::bridge::UiEvent::CatalogUnread` has no field named `retry_at`
+     --> src/tui/shell.rs:47070:21
+error[E0433]: cannot find type `CatalogAsk` in this scope
+     --> src/tui/shell.rs:47136:42
+error[E0618]: expected function, found `tui::bridge::TurnControl`
+     --> src/tui/shell.rs:47136:21
+error[E0433]: cannot find type `CatalogAsk` in this scope
+     --> src/tui/shell.rs:47139:42
+error[E0618]: expected function, found `tui::bridge::TurnControl`
+     --> src/tui/shell.rs:47139:21
+error[E0433]: cannot find type `CatalogAsk` in this scope
+     --> src/tui/shell.rs:47141:42
+error[E0618]: expected function, found `tui::bridge::TurnControl`
+     --> src/tui/shell.rs:47141:21
+error[E0425]: cannot find function `one_turn_with_images` in this scope
+     --> src/tui/worker.rs:16239:13
+error[E0425]: cannot find function `backdate_catalog` in this scope
+     --> src/tui/worker.rs:16260:9
+error[E0425]: cannot find function `retry_behind_failure` in this scope
+     --> src/tui/worker.rs:16261:9
+error: could not compile `xfx` (lib test) due to 17 previous errors
+error: could not compile `xfx` (lib test) due to 17 previous errors
+clone restored: clean
+## join check 5: the network
+# net-clone at 29786ced
+# logger pid 69805, 127.0.0.1:<ephemeral>; HTTPS_PROXY, https_proxy, HTTP_PROXY, http_proxy at it; NO_PROXY, no_proxy, ALL_PROXY, all_proxy unset
+## lib: `cargo test --locked --lib --no-fail-fast` exit 0, 74 s
+   test result: ok. 4529 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 41.50s
+   connections logged during it: 2
+     2 x CONNECT w.example:443 HTTP/1.1
+## tui: `cargo test --locked --test tui --no-fail-fast` exit 0, 27 s
+   test result: ok. 181 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.98s
+   connections logged during it: 0
+# logger 69805 ended (-15)
+## join check 3: test-capture x5, at 29786ced
+test-capture run 1: exit 0, 270 s, load 4.70; Ran 68 tests in 270.393s OK 
+test-capture run 2: exit 0, 273 s, load 2.46; Ran 68 tests in 270.208s OK 
+test-capture run 3: exit 0, 281 s, load 3.63; Ran 68 tests in 281.136s OK 
+test-capture run 4: exit 0, 291 s, load 25.72; Ran 68 tests in 291.193s OK 
+test-capture run 5: exit 0, 300 s, load 41.98; Ran 68 tests in 299.345s OK 
+# jobs-a done at 2026-11-08T16:06:40Z
+exit 0

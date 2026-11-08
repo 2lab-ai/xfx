@@ -1,0 +1,163 @@
+# head c468f5e1; sides: train6 fdc5ac0b, launch-settle-f 2f1c80e7, t-u4-f a8c7a87d, models-reask 66854557, stop-next-2 f8d625c3
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/approval.rs:552-585
+    launch-settle-f MOVED -> 557-590 | t-u4-f MOVED -> 557-590
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/bridge.rs:112-172
+    train6 MOVED -> 120-189 | launch-settle-f MOVED -> 120-189 | t-u4-f MOVED -> 120-189 | models-reask MOVED -> 120-189
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:3108
+    train6 MOVED -> 3265 | launch-settle-f MOVED -> 3332 | t-u4-f MOVED -> 3332 | models-reask MOVED -> 3240 | stop-next-2 MOVED -> 3133
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:433
+    train6 MOVED -> 435 | launch-settle-f MOVED -> 436 | t-u4-f MOVED -> 436 | stop-next-2 MOVED -> 435
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/worker.rs:2376
+    train6 MOVED -> 2382 | launch-settle-f MOVED -> 2382 | t-u4-f MOVED -> 2382 | models-reask MOVED -> 2382
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:499-522
+    launch-settle-f MOVED -> 504-527 | t-u4-f MOVED -> 504-527
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:782
+    launch-settle-f MOVED -> 787 | t-u4-f MOVED -> 787
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/shell.rs:1593
+    train6 MOVED -> 1705 | launch-settle-f MOVED -> 1766 | t-u4-f MOVED -> 1766 | models-reask MOVED -> 1684 | stop-next-2 MOVED -> 1614
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/theme.rs:333
+    launch-settle-f MOVED -> 350 | models-reask MOVED -> 350 | stop-next-2 MOVED -> 350
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: scripts/smoke-tui.sh:2203
+    launch-settle-f MOVED -> 2369 | t-u4-f MOVED -> 2369
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/bridge.rs:112-147
+    train6 MOVED -> 120-164 | launch-settle-f MOVED -> 120-164 | t-u4-f MOVED -> 120-164 | models-reask MOVED -> 120-164
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/event_loop.rs:889-923
+    train6 MOVED -> 902-936 | launch-settle-f MOVED -> 951-985 | t-u4-f MOVED -> 951-985 | models-reask MOVED -> 902-936
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/shell.rs:1117
+    train6 MOVED -> 1186 | launch-settle-f MOVED -> 1244 | t-u4-f MOVED -> 1244 | models-reask MOVED -> 1165 | stop-next-2 MOVED -> 1138
+scripts/smoke-tui.sh: src/tui/check.rs:1084
+    launch-settle-f MOVED -> 1101 | t-u4-f MOVED -> 1101
+tests/tui.rs: src/tui/shell.rs:2015
+    train6 MOVED -> 2148 | launch-settle-f MOVED -> 2222 | t-u4-f MOVED -> 2222 | models-reask MOVED -> 2127 | stop-next-2 MOVED -> 2036
+tests/tui.rs: src/tui/shell.rs:2703
+    train6 MOVED -> 2860 | launch-settle-f MOVED -> 2927 | t-u4-f MOVED -> 2927 | models-reask MOVED -> 2835 | stop-next-2 MOVED -> 2728
+tests/tui.rs: tests/tui.rs:1191
+    launch-settle-f MOVED -> 1304 | t-u4-f MOVED -> 1304
+# 191 references in 589 files; 17 moved or changed on some side that cites them
+
+# head c468f5e1; sides: train6 fdc5ac0b, launch-settle-f 2f1c80e7, t-u4-f a8c7a87d, models-reask 66854557, stop-next-2 f8d625c3
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1295-1307 (src/tui/shell.rs)
+    train6 MOVED -> 1364-1376 | launch-settle-f MOVED -> 1422-1434 | t-u4-f MOVED -> 1422-1434 | models-reask MOVED -> 1343-1355 | stop-next-2 MOVED -> 1316-1328
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1296 (src/tui/shell.rs)
+    train6 MOVED -> 1365 | launch-settle-f MOVED -> 1423 | t-u4-f MOVED -> 1423 | models-reask MOVED -> 1344 | stop-next-2 MOVED -> 1317
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1881-1905 (src/tui/shell.rs)
+    train6 MOVED -> 2014-2038 | launch-settle-f MOVED -> 2075-2099 | t-u4-f MOVED -> 2075-2099 | models-reask MOVED -> 1972-2017 | stop-next-2 MOVED -> 1902-1926
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1900-1905 (src/tui/shell.rs)
+    train6 MOVED -> 2033-2038 | launch-settle-f MOVED -> 2094-2099 | t-u4-f MOVED -> 2094-2099 | models-reask MOVED -> 2012-2017 | stop-next-2 MOVED -> 1921-1926
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1911 (src/tui/shell.rs)
+    train6 MOVED -> 2044 | launch-settle-f MOVED -> 2105 | t-u4-f MOVED -> 2105 | models-reask MOVED -> 2023 | stop-next-2 MOVED -> 1932
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:1924-1948 (src/tui/shell.rs)
+    train6 MOVED -> 2057-2081 | launch-settle-f MOVED -> 2118-2142 | t-u4-f MOVED -> 2118-2142 | models-reask MOVED -> 2036-2060 | stop-next-2 MOVED -> 1945-1969
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2110-2113 (src/tui/shell.rs)
+    train6 MOVED -> 2256-2259 | launch-settle-f MOVED -> 2317-2320 | t-u4-f MOVED -> 2317-2320 | models-reask MOVED -> 2235-2238 | stop-next-2 MOVED -> 2131-2134
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2114-2118 (src/tui/shell.rs)
+    train6 MOVED -> 2260-2264 | launch-settle-f MOVED -> 2321-2325 | t-u4-f MOVED -> 2321-2325 | models-reask MOVED -> 2239-2243 | stop-next-2 MOVED -> 2135-2139
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2126 (src/tui/shell.rs)
+    train6 MOVED -> 2272 | launch-settle-f MOVED -> 2333 | t-u4-f MOVED -> 2333 | models-reask MOVED -> 2251 | stop-next-2 MOVED -> 2147
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2126-2132 (src/tui/shell.rs)
+    train6 MOVED -> 2272-2278 | launch-settle-f MOVED -> 2333-2339 | t-u4-f MOVED -> 2333-2339 | models-reask MOVED -> 2251-2257 | stop-next-2 MOVED -> 2147-2153
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2189 (src/tui/shell.rs)
+    train6 MOVED -> 2335 | launch-settle-f MOVED -> 2397 | t-u4-f MOVED -> 2397 | models-reask MOVED -> 2314 | stop-next-2 MOVED -> 2210
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2565-2573 (src/tui/shell.rs)
+    train6 MOVED -> 2722-2730 | launch-settle-f MOVED -> 2789-2797 | t-u4-f MOVED -> 2789-2797 | models-reask MOVED -> 2697-2705 | stop-next-2 MOVED -> 2590-2598
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2570-2573 (src/tui/shell.rs)
+    train6 MOVED -> 2727-2730 | launch-settle-f MOVED -> 2794-2797 | t-u4-f MOVED -> 2794-2797 | models-reask MOVED -> 2702-2705 | stop-next-2 MOVED -> 2595-2598
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:2589-2592 (src/tui/shell.rs)
+    train6 MOVED -> 2746-2749 | launch-settle-f MOVED -> 2813-2816 | t-u4-f MOVED -> 2813-2816 | models-reask MOVED -> 2721-2724 | stop-next-2 MOVED -> 2614-2617
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:348 (src/tui/shell.rs)
+    train6 MOVED -> 350 | launch-settle-f MOVED -> 351 | t-u4-f MOVED -> 351 | stop-next-2 MOVED -> 350
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: shell.rs:3965 (src/tui/shell.rs)
+    train6 MOVED -> 4128 | launch-settle-f MOVED -> 4217 | t-u4-f MOVED -> 4217 | models-reask MOVED -> 4102 | stop-next-2 MOVED -> 3991
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: approval.rs:557-563 (src/tui/approval.rs)
+    launch-settle-f MOVED -> 562-568 | t-u4-f MOVED -> 562-568
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: bridge.rs:427 (src/tui/bridge.rs)
+    train6 MOVED -> 470 | launch-settle-f MOVED -> 470 | t-u4-f MOVED -> 470 | models-reask MOVED -> 446 | stop-next-2 MOVED -> 451
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: bridge.rs:574 (src/tui/bridge.rs)
+    train6 MOVED -> 618 | launch-settle-f MOVED -> 618 | t-u4-f MOVED -> 618 | models-reask MOVED -> 594 | stop-next-2 MOVED -> 598
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: shell.rs:3108 (src/tui/shell.rs)
+    train6 MOVED -> 3265 | launch-settle-f MOVED -> 3332 | t-u4-f MOVED -> 3332 | models-reask MOVED -> 3240 | stop-next-2 MOVED -> 3133
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: shell.rs:5379 (src/tui/shell.rs)
+    train6 MOVED -> 5727 | launch-settle-f MOVED -> 5824 | t-u4-f MOVED -> 5824 | models-reask MOVED -> 5656 | stop-next-2 MOVED -> 5450
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: shell.rs:5816 (src/tui/shell.rs)
+    train6 MOVED -> 6164 | launch-settle-f MOVED -> 6261 | t-u4-f MOVED -> 6261 | models-reask MOVED -> 6093 | stop-next-2 MOVED -> 5887
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: worker.rs:1287-1304 (src/tui/worker.rs)
+    train6 MOVED -> 1293-1310 | launch-settle-f MOVED -> 1293-1310 | t-u4-f MOVED -> 1293-1310 | models-reask MOVED -> 1293-1310
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:318-365 (src/tui/approval.rs)
+    launch-settle-f MOVED -> 318-370 | t-u4-f MOVED -> 318-370
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:345-349 (src/tui/approval.rs)
+    launch-settle-f MOVED -> 350-354 | t-u4-f MOVED -> 350-354
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:354-356 (src/tui/approval.rs)
+    launch-settle-f MOVED -> 359-361 | t-u4-f MOVED -> 359-361
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:458-483 (src/tui/approval.rs)
+    launch-settle-f MOVED -> 463-488 | t-u4-f MOVED -> 463-488
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:460-472 (src/tui/approval.rs)
+    launch-settle-f MOVED -> 465-477 | t-u4-f MOVED -> 465-477
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:519-527 (src/tui/approval.rs)
+    launch-settle-f MOVED -> 524-532 | t-u4-f MOVED -> 524-532
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:624 (src/tui/approval.rs)
+    launch-settle-f MOVED -> 629 | t-u4-f MOVED -> 629
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:640-650 (src/tui/approval.rs)
+    launch-settle-f MOVED -> 645-655 | t-u4-f MOVED -> 645-655
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:715-718 (src/tui/approval.rs)
+    launch-settle-f MOVED -> 720-723 | t-u4-f MOVED -> 720-723
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:741 (src/tui/approval.rs)
+    launch-settle-f MOVED -> 746 | t-u4-f MOVED -> 746
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:743 (src/tui/approval.rs)
+    launch-settle-f MOVED -> 748 | t-u4-f MOVED -> 748
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval.rs:907 (src/tui/approval.rs)
+    train6 MOVED -> 909 | launch-settle-f CHANGED | t-u4-f CHANGED | stop-next-2 MOVED -> 909
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:274-289 (src/tui/approval_screen.rs)
+    launch-settle-f MOVED -> 279-294 | t-u4-f MOVED -> 279-294
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:298-314 (src/tui/approval_screen.rs)
+    launch-settle-f MOVED -> 303-319 | t-u4-f MOVED -> 303-319
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:304 (src/tui/approval_screen.rs)
+    launch-settle-f MOVED -> 309 | t-u4-f MOVED -> 309
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:371-373 (src/tui/approval_screen.rs)
+    launch-settle-f MOVED -> 376-378 | t-u4-f MOVED -> 376-378
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:374-375 (src/tui/approval_screen.rs)
+    launch-settle-f MOVED -> 379-380 | t-u4-f MOVED -> 379-380
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:393 (src/tui/approval_screen.rs)
+    launch-settle-f MOVED -> 398 | t-u4-f MOVED -> 398
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: approval_screen.rs:406 (src/tui/approval_screen.rs)
+    launch-settle-f MOVED -> 411 | t-u4-f MOVED -> 411
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:1246 (src/tui/event_loop.rs)
+    train6 MOVED -> 1271 | launch-settle-f MOVED -> 1470 | t-u4-f MOVED -> 1470 | models-reask MOVED -> 1271
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:619-620 (src/tui/event_loop.rs)
+    train6 MOVED -> 632-633 | launch-settle-f MOVED -> 655-656 | t-u4-f MOVED -> 655-656 | models-reask MOVED -> 632-633
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:622 (src/tui/event_loop.rs)
+    train6 MOVED -> 635 | launch-settle-f MOVED -> 658 | t-u4-f MOVED -> 658 | models-reask MOVED -> 635
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: event_loop.rs:889-923 (src/tui/event_loop.rs)
+    train6 MOVED -> 902-936 | launch-settle-f MOVED -> 951-985 | t-u4-f MOVED -> 951-985 | models-reask MOVED -> 902-936
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1117 (src/tui/shell.rs)
+    train6 MOVED -> 1186 | launch-settle-f MOVED -> 1244 | t-u4-f MOVED -> 1244 | models-reask MOVED -> 1165 | stop-next-2 MOVED -> 1138
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1220-1227 (src/tui/shell.rs)
+    train6 MOVED -> 1289-1296 | launch-settle-f MOVED -> 1347-1354 | t-u4-f MOVED -> 1347-1354 | models-reask MOVED -> 1268-1275 | stop-next-2 MOVED -> 1241-1248
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1459-1541 (src/tui/shell.rs)
+    train6 MOVED -> 1528-1653 | launch-settle-f MOVED -> 1629-1714 | t-u4-f MOVED -> 1629-1714 | models-reask MOVED -> 1507-1632 | stop-next-2 MOVED -> 1480-1562
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1532 (src/tui/shell.rs)
+    train6 MOVED -> 1644 | launch-settle-f MOVED -> 1705 | t-u4-f MOVED -> 1705 | models-reask MOVED -> 1623 | stop-next-2 MOVED -> 1553
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:1693-1695 (src/tui/shell.rs)
+    train6 MOVED -> 1805-1807 | launch-settle-f MOVED -> 1866-1868 | t-u4-f MOVED -> 1866-1868 | models-reask MOVED -> 1784-1786 | stop-next-2 MOVED -> 1714-1716
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:3329 (src/tui/shell.rs)
+    train6 MOVED -> 3486 | launch-settle-f MOVED -> 3553 | t-u4-f MOVED -> 3553 | models-reask MOVED -> 3461 | stop-next-2 MOVED -> 3354
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:5590-5597 (src/tui/shell.rs)
+    train6 MOVED -> 5938-5945 | launch-settle-f MOVED -> 6035-6042 | t-u4-f MOVED -> 6035-6042 | models-reask MOVED -> 5867-5874 | stop-next-2 MOVED -> 5661-5668
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:5600-5602 (src/tui/shell.rs)
+    train6 MOVED -> 5948-5950 | launch-settle-f MOVED -> 6045-6047 | t-u4-f MOVED -> 6045-6047 | models-reask MOVED -> 5877-5879 | stop-next-2 MOVED -> 5671-5673
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:664-677 (src/tui/shell.rs)
+    train6 MOVED -> 666-679 | launch-settle-f MOVED -> 691-704 | t-u4-f MOVED -> 691-704 | stop-next-2 MOVED -> 666-679
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: shell.rs:863 (src/tui/shell.rs)
+    train6 MOVED -> 884 | launch-settle-f MOVED -> 909 | t-u4-f MOVED -> 909 | stop-next-2 MOVED -> 884
+scripts/smoke-tui.sh: shell.rs:2597 (src/tui/shell.rs)
+    train6 MOVED -> 2754 | launch-settle-f MOVED -> 2821 | t-u4-f MOVED -> 2821 | models-reask MOVED -> 2729 | stop-next-2 MOVED -> 2622
+src/tui/event_loop.rs: shell.rs:2706 (src/tui/shell.rs)
+    train6 MOVED -> 2863 | launch-settle-f MOVED -> 2930 | t-u4-f MOVED -> 2930 | models-reask MOVED -> 2838 | stop-next-2 MOVED -> 2731
+src/tui/event_loop.rs: transcript.rs:136 (src/tui/transcript.rs)
+    launch-settle-f MOVED -> 137 | models-reask MOVED -> 137 | stop-next-2 MOVED -> 137
+src/tui/event_loop.rs: transcript.rs:505-531 (src/tui/transcript.rs)
+    launch-settle-f MOVED -> 506-532 | models-reask MOVED -> 506-532 | stop-next-2 MOVED -> 506-532
+src/tui/shell.rs: shell.rs:5816 (src/tui/shell.rs)
+    train6 MOVED -> 6164 | launch-settle-f MOVED -> 6261 | t-u4-f MOVED -> 6261 | models-reask MOVED -> 6093 | stop-next-2 MOVED -> 5887
+src/tui/wrap.rs: check.rs:1689-1694 (src/tui/check.rs)
+    launch-settle-f MOVED -> 1755-1760 | t-u4-f MOVED -> 1755-1760
+# 73 short references into changed files; 62 moved or changed on some side that cites them

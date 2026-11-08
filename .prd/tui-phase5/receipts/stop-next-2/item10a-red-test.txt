@@ -1,0 +1,26 @@
+# Item 10a: the tests of 103bb986 over cc231700's code (103bb986 adds tests only), in the worktree, tree clean (tracked).
+# TMPDIR=<short> cargo test --locked --lib -- <the names>
+
+
+running 2 tests
+test tui::shell::tests::a_pending_submission_ends_when_its_turn_starts_or_a_stop_covers_it ... ok
+test tui::shell::tests::a_line_sent_while_a_prompt_is_a_pending_submission_stays_in_the_composer ... FAILED
+
+failures:
+
+---- tui::shell::tests::a_line_sent_while_a_prompt_is_a_pending_submission_stays_in_the_composer stdout ----
+
+thread 'tui::shell::tests::a_line_sent_while_a_prompt_is_a_pending_submission_stays_in_the_composer' (343032759) panicked at src/tui/shell.rs:46346:9:
+assertion `left == right` failed: each: the submissions the two lines made, the work sent, the composer, a refusal said
+  left: [("a prompt", 2, [Submit("first"), Submit("second")], "", false), ("a command", 1, [Submit("first")], "", false), ("behind a switch", 1, [Submit("first")], "second", true)]
+ right: [("a prompt", 1, [Submit("first")], "second", false), ("a command", 1, [Submit("first")], "/stats", false), ("behind a switch", 1, [Submit("first")], "second", false)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::shell::tests::a_line_sent_while_a_prompt_is_a_pending_submission_stays_in_the_composer
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4458 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--lib`
+rc=101

@@ -1,0 +1,36 @@
+# Round 3 RED: the tests of 5e4ade58 (tests only) over 27714762's code (no code between them: 593b3319 is the receipt), on a --no-local clone: git rev-parse HEAD = 5e4ade58, parent 593b3319
+# cargo test --locked --lib -- a_stopped_turns_title_goes_out_ahead a_stop_after_an_automatic_compaction_settled a_completed_turns_text_unread_at_the_stop a_turns_end_says_a_stop_in_one_word a_prompt_typed_before_a_stopped_turn_ends
+
+
+running 5 tests
+test tui::worker::tests::a_turns_end_says_a_stop_in_one_word_and_anything_else_in_its_own ... ok
+test tui::shell::tests::a_completed_turns_text_unread_at_the_stop_leaves_the_cancelled_line_above_its_summary ... ok
+test tui::shell::tests::a_stop_after_an_automatic_compaction_settled_leaves_its_turns_end_quiet ... FAILED
+test tui::event_loop::tests::a_prompt_typed_before_a_stopped_turn_ends_is_reported_ahead_of_the_frame_that_shows_its_turn ... ok
+test tui::event_loop::tests::a_stopped_turns_title_goes_out_ahead_of_the_next_prompts_working ... FAILED
+
+failures:
+
+---- tui::shell::tests::a_stop_after_an_automatic_compaction_settled_leaves_its_turns_end_quiet stdout ----
+
+thread 'tui::shell::tests::a_stop_after_an_automatic_compaction_settled_leaves_its_turns_end_quiet' (330693780) panicked at src/tui/shell.rs:45500:9:
+assertion `left == right` failed: each case: a done, a summary row, the title
+  left: [(Cancelled, true, true, Some("first question")), (Failed, false, true, Some("first question"))]
+ right: [(Cancelled, false, false, Some("first question")), (Failed, false, false, None)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::event_loop::tests::a_stopped_turns_title_goes_out_ahead_of_the_next_prompts_working stdout ----
+
+thread 'tui::event_loop::tests::a_stopped_turns_title_goes_out_ahead_of_the_next_prompts_working' (330693778) panicked at src/tui/event_loop.rs:13895:9:
+assertion `left == right` failed: one drain, two: the stopped turn's title ahead of the next prompt's working: ["\u{1b}]7501;state=working:app=xfx\u{1b}\\\u{1b}]2;go\u{7}\u{1b}[?2026h\u{1b}[?25l\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[20;1H\u{1b}[38;5;252m• Thinking (0s)\u{1b}[0m\u{1b}[38;5;245m (↑1 ↓0)\u{1b}[22;1H\u{1b}[0m\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[K\u{1b}[24;1H\u{1b}[38;5;245mrun `xfx setup` · \u{1b}[0m\u{1b}[38;5;252mauto\u{1b}[0m\u{1b}[38;5;245m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h", "\u{1b}]7501;state=working:app=xfx\u{1b}\\\u{1b}]2;go\u{7}\u{1b}[?2026h\u{1b}[?25l\u{1b}[24;1H\u{1b}[38;5;245mrun `xfx setup` · \u{1b}[0m\u{1b}[38;5;252mauto\u{1b}[0m\u{1b}[38;5;245m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h\u{1b}[?2026h\u{1b}[?25l\u{1b}[24;1H\n\u{1b}[24;1H\n\u{1b}[20;1H\u{1b}[38;5;252m• Thinking (0s)\u{1b}[0m\u{1b}[38;5;245m (↑1 ↓0)\u{1b}[22;1H\u{1b}[0m\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[K\u{1b}[24;1H\u{1b}[38;5;245mrun `xfx setup` · \u{1b}[0m\u{1b}[38;5;252mauto\u{1b}[0m\u{1b}[38;5;245m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h"]
+  left: [(true, false), (false, false)]
+ right: [(true, true), (false, true)]
+
+
+failures:
+    tui::event_loop::tests::a_stopped_turns_title_goes_out_ahead_of_the_next_prompts_working
+    tui::shell::tests::a_stop_after_an_automatic_compaction_settled_leaves_its_turns_end_quiet
+
+test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 4427 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `--lib`

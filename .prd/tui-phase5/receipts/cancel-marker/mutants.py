@@ -4,10 +4,12 @@ commit, never on the worktree: one textual change, the TUI's lib tests
 (`cargo test --locked --lib tui::`), the failing tests counted, the change
 undone.
 
-    python3 -I -B mutants.py <clone> <out.txt>
+    python3 -I -B mutants.py <clone> <out.txt> [<n>,<n>...]
 
-A mutant is killed when at least one test fails. Each reverts or half-reverts
-one of the unit's rules: the three writers of the cancelled mark one at a
+A mutant is killed when at least one test fails, and killed (hang) when the
+tests run past TIMEOUT_S, its process group killed then. With a list, only
+those mutants run (1-based). Each reverts or half-reverts one of the unit's
+rules: the three writers of the cancelled mark one at a
 time and the mark itself; the plural table's entries and its count rule;
 the argument bounds (a file change's path cut at 4 096 bytes, every other
 argument but a command whole); a live cancel's line on Ctrl-O and in
@@ -18,6 +20,7 @@ the transcript's kept long rows.
 """
 import os
 import re
+import signal
 import subprocess
 import sys
 
@@ -115,22 +118,42 @@ MUTANTS = [
 ]
 
 
+#: How long one mutant's test run may take before it is a hang: the TUI's
+#: lib tests take under a minute here, and a mutant that makes a loop never
+#: advance would otherwise run until somebody kills it (T-U4-F's third ran
+#: 1 h 27 min at 1 600 % CPU).
+TIMEOUT_S = 600
+
+
 def run(clone, env):
-    proc = subprocess.run(
+    """The TUI's lib tests in `clone`: the failed tests, the result lines,
+    whether it did not compile, and whether it ran past TIMEOUT_S -- then
+    its whole process group (cargo and the test binary) is killed."""
+    proc = subprocess.Popen(
         ["cargo", "test", "--locked", "-j", "4", "--lib", "tui::", "--no-fail-fast"],
-        cwd=clone, env=env, capture_output=True, text=True)
-    out = proc.stdout + proc.stderr
+        cwd=clone, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        start_new_session=True)
+    try:
+        out, _ = proc.communicate(timeout=TIMEOUT_S)
+        hung = False
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        out, _ = proc.communicate()
+        hung = True
     failed = sorted(set(re.findall(r"^test (\S+) \.\.\. FAILED$", out, re.M)))
     result = re.findall(r"^test result: .*$", out, re.M)
     compile_error = "error[E" in out or "could not compile" in out
-    return failed, result, compile_error
+    return failed, result, compile_error, hung
 
 
 def main():
     clone, out_path = sys.argv[1], sys.argv[2]
+    only = {int(n) for n in sys.argv[3].split(",")} if len(sys.argv) > 3 else None
     env = dict(os.environ)
     lines = []
-    for name, path, old, new in MUTANTS:
+    for index, (name, path, old, new) in enumerate(MUTANTS, 1):
+        if only is not None and index not in only:
+            continue
         full = os.path.join(clone, path)
         text = open(full, encoding="utf-8").read()
         if text.count(old) != 1:
@@ -138,12 +161,16 @@ def main():
             continue
         open(full, "w", encoding="utf-8").write(text.replace(old, new))
         try:
-            failed, result, compile_error = run(clone, env)
+            failed, result, compile_error, hung = run(clone, env)
         finally:
             open(full, "w", encoding="utf-8").write(text)
-        verdict = "KILLED" if failed or compile_error else "SURVIVED"
-        lines.append("%s %s (%s): %d failed%s" % (
-            verdict, name, path, len(failed), " (did not compile)" if compile_error else ""))
+        if hung:
+            lines.append("KILLED (hang) %s (%s): the tests ran past %d s and were killed" % (
+                name, path, TIMEOUT_S))
+        else:
+            verdict = "KILLED" if failed or compile_error else "SURVIVED"
+            lines.append("%s %s (%s): %d failed%s" % (
+                verdict, name, path, len(failed), " (did not compile)" if compile_error else ""))
         lines.extend("    " + t for t in failed)
         lines.extend("    " + r for r in result)
         print(lines[-1 - len(failed) - len(result)], flush=True)

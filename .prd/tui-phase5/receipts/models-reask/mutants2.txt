@@ -1,0 +1,103 @@
+# MODELS-REASK mutants on a git clone --no-local of ba6670a8 (the code head)
+# each: the change applied, `cargo test --locked --lib -- catalog backoff model column reask refresh retry revalidat hold runtime image due answer slow_read historys` (timeout 900s), FAILED lines and the result line, then `git checkout -- .`
+## unmutated
+test result: ok. 798 passed; 0 failed; 1 ignored; 0 measured; 3651 filtered out; finished in 20.09s
+=> baseline ok (55s)
+## V-no-runtime-untold
+applied V-no-runtime-untold in src/provider/model.rs
+test provider::model::tests::a_read_that_finds_no_runtime_tells_its_failure_as_every_read_tells_its_answer ... FAILED
+test tui::worker::tests::a_read_asked_for_mid_work_that_finds_no_runtime_is_told_at_once_and_once ... FAILED
+test tui::worker::tests::a_read_that_finds_no_runtime_tells_the_band_its_failure_and_is_read_again_past_its_backoff ... FAILED
+test result: FAILED. 795 passed; 3 failed; 1 ignored; 0 measured; 3651 filtered out; finished in 19.43s
+=> KILLED (26s)
+## W-midwork-unstarted-waits-for-the-work
+applied W-midwork-unstarted-waits-for-the-work in src/tui/worker.rs
+test tui::worker::tests::a_read_asked_for_mid_work_that_finds_no_runtime_is_told_at_once_and_once ... FAILED
+test result: FAILED. 797 passed; 1 failed; 1 ignored; 0 measured; 3651 filtered out; finished in 19.55s
+=> KILLED (29s)
+## X-refresh-failure-keeps-the-latch
+applied X-refresh-failure-keeps-the-latch in src/tui/shell.rs
+test tui::shell::tests::every_answer_lets_activity_ask_again_a_refresh_failure_over_a_failed_band_too ... FAILED
+test result: FAILED. 797 passed; 1 failed; 1 ignored; 0 measured; 3651 filtered out; finished in 19.29s
+=> KILLED (30s)
+## Y-unread-hold-not-moved
+applied Y-unread-hold-not-moved in src/tui/shell.rs
+test tui::shell::tests::every_answer_lets_activity_ask_again_a_refresh_failure_over_a_failed_band_too ... FAILED
+test result: FAILED. 797 passed; 1 failed; 1 ignored; 0 measured; 3651 filtered out; finished in 19.35s
+=> KILLED (27s)
+## Z1-rows-due-from-receipt
+applied Z1-rows-due-from-receipt in src/tui/shell.rs
+test tui::shell::tests::rows_a_slow_read_brought_are_read_again_five_minutes_after_it_began ... FAILED
+test result: FAILED. 797 passed; 1 failed; 1 ignored; 0 measured; 3651 filtered out; finished in 19.23s
+=> KILLED (27s)
+## Z2-refresh-due-from-receipt
+applied Z2-refresh-due-from-receipt in src/tui/shell.rs
+test tui::shell::tests::a_refresh_that_failed_for_good_is_read_again_when_the_runtimes_clock_says ... FAILED
+test result: FAILED. 797 passed; 1 failed; 1 ignored; 0 measured; 3651 filtered out; finished in 19.15s
+=> KILLED (28s)
+## Z3-told-clock-from-answer
+applied Z3-told-clock-from-answer in src/tui/worker.rs
+test tui::worker::tests::a_failed_refresh_is_due_again_when_the_runtimes_clock_says ... FAILED
+test tui::worker::tests::the_band_is_told_rows_are_due_again_five_minutes_after_their_read_began ... FAILED
+test result: FAILED. 796 passed; 2 failed; 1 ignored; 0 measured; 3651 filtered out; finished in 19.44s
+=> KILLED (25s)
+## Z4-activity-due-ignores-hold
+applied Z4-activity-due-ignores-hold in src/provider/model.rs
+test provider::model::tests::activity_is_due_exactly_when_the_clock_says_it_is ... FAILED
+test tui::worker::tests::a_failed_refresh_is_due_again_when_the_runtimes_clock_says ... FAILED
+test tui::worker::tests::the_catalog_as_held_is_told_with_the_runtimes_clock ... FAILED
+test result: FAILED. 795 passed; 3 failed; 1 ignored; 0 measured; 3651 filtered out; finished in 19.24s
+=> KILLED (24s)
+## Z5-activity-due-ages-a-retryable-refresh
+applied Z5-activity-due-ages-a-retryable-refresh in src/provider/model.rs
+test provider::model::tests::activity_is_due_exactly_when_the_clock_says_it_is ... FAILED
+test tui::worker::tests::a_failed_refresh_is_due_again_when_the_runtimes_clock_says ... FAILED
+test tui::worker::tests::the_catalog_as_held_is_told_with_the_runtimes_clock ... FAILED
+test result: FAILED. 795 passed; 3 failed; 1 ignored; 0 measured; 3651 filtered out; finished in 19.54s
+=> KILLED (25s)
+## Z6-activity-due-otherwise-later
+applied Z6-activity-due-otherwise-later in src/provider/model.rs
+test provider::model::tests::activity_is_due_exactly_when_the_clock_says_it_is ... FAILED
+test result: FAILED. 797 passed; 1 failed; 1 ignored; 0 measured; 3651 filtered out; finished in 19.50s
+=> KILLED (24s)
+## Z7-refresh-failure-due-ignores-retry
+applied Z7-refresh-failure-due-ignores-retry in src/tui/worker.rs
+test tui::worker::tests::a_failed_refresh_is_due_again_when_the_runtimes_clock_says ... FAILED
+test result: FAILED. 797 passed; 1 failed; 1 ignored; 0 measured; 3651 filtered out; finished in 19.66s
+=> KILLED (28s)
+## Z8-held-rows-due-ignores-refresh-retry
+applied Z8-held-rows-due-ignores-refresh-retry in src/tui/worker.rs
+test tui::worker::tests::the_catalog_as_held_is_told_with_the_runtimes_clock ... FAILED
+test result: FAILED. 797 passed; 1 failed; 1 ignored; 0 measured; 3651 filtered out; finished in 19.40s
+=> KILLED (25s)
+## AA-tool-images-never-wait
+applied AA-tool-images-never-wait in src/tui/worker.rs
+test tui::worker::tests::a_request_carrying_tool_images_waits_for_the_retry_behind_a_failed_catalog ... FAILED
+test tui::worker::tests::the_image_route_waits_two_seconds_at_most_and_once_a_turn ... FAILED
+test result: FAILED. 796 passed; 2 failed; 1 ignored; 0 measured; 3651 filtered out; finished in 19.21s
+=> KILLED (28s)
+## AB-tool-images-wait-every-request
+applied AB-tool-images-wait-every-request in src/tui/worker.rs
+test tui::worker::tests::the_image_route_waits_two_seconds_at_most_and_once_a_turn ... FAILED
+test result: FAILED. 797 passed; 1 failed; 1 ignored; 0 measured; 3651 filtered out; finished in 19.30s
+=> KILLED (26s)
+## AC-tool-gate-forgets-the-prompts-images
+applied AC-tool-gate-forgets-the-prompts-images in src/tui/worker.rs
+test result: ok. 798 passed; 0 failed; 1 ignored; 0 measured; 3651 filtered out; finished in 19.54s
+=> SURVIVED (26s)
+## AD-prompt-images-no-wait
+applied AD-prompt-images-no-wait in src/tui/worker.rs
+test tui::worker::tests::a_prompts_images_wait_for_the_retry_behind_a_failed_catalog ... FAILED
+test tui::worker::tests::the_historys_images_wait_at_the_image_route_and_not_at_the_turns_start ... FAILED
+test result: FAILED. 796 passed; 2 failed; 1 ignored; 0 measured; 3651 filtered out; finished in 19.28s
+=> KILLED (25s)
+## AE-turn-start-waits-for-the-historys-images
+applied AE-turn-start-waits-for-the-historys-images in src/tui/worker.rs
+test tui::worker::tests::the_historys_images_wait_at_the_image_route_and_not_at_the_turns_start ... FAILED
+test result: FAILED. 797 passed; 1 failed; 1 ignored; 0 measured; 3651 filtered out; finished in 19.20s
+=> KILLED (25s)
+# AC is equivalent: `asked` starts true only for a turn whose first request carried images, and
+# `image_refusal` refuses such a turn unless the catalog lists the model as reading images -- so a turn
+# that reaches a tool-image request with `asked` true has a model the gate knows, and the gate's wait
+# (which needs an unknown model) cannot run whatever `asked` starts as. It is kept for fx's
+# ResolveOncePerTurn, which it states.

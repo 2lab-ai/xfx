@@ -1,0 +1,242 @@
+# STOP-LATE-EVENT gate at e27f9bcf5f1c5197d19ca23946908f41450b6b31, every step of ci.yml and sweep.yml's two test scripts, one at a time, TMPDIR=<local-path>;
+# the whole run inside one suite-lock slot (taken 02:18:39Z, released 03:02:54Z, with the sweeps and the mutants before it).
+
+## the steps (number, name, exit, seconds)
+01 fmt rc=0 1s
+02 clippy rc=0 15s
+03 clippy-fault rc=0 17s
+04 test rc=0 257s
+05 test-fault-tui rc=0 67s
+06 test-fault-lib rc=0 84s
+07 check-no-stubs rc=0 12s
+08 check-no-secrets rc=0 29s
+09 test-check-no-secrets rc=0 83s
+10 test-gate-env rc=0 85s
+11 check-xfx-identity rc=0 1s
+12 check-preview-contract rc=0 2s
+13 test-preview-contract rc=0 57s
+14 check-tui-preflight-cost rc=0 90s
+15 check-usage-clock rc=0 3s
+16 fxcap-test-sweep rc=0 40s
+17 fxcap-test-capture rc=1 271s
+18 build-release rc=0 13s
+19 build-faulty rc=0 35s
+20 status-release rc=0 2s
+21 status-faulty rc=0 3s
+22 smoke rc=0 3s
+23 smoke-tui rc=0 66s
+done
+
+## cargo test totals (sum of each binary's 'test result' line)
+04-test: 14 binaries, 5272 passed, 0 failed, 7 ignored
+05-test-fault-tui: 1 binaries, 192 passed, 0 failed, 0 ignored
+06-test-fault-lib: 1 binaries, 4382 passed, 0 failed, 7 ignored
+
+## each script's last line
+07-check-no-stubs.log: check-no-stubs: ok
+08-check-no-secrets.log: check-no-secrets: ok (12840 tracked file(s) scanned)
+09-test-check-no-secrets.log: test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
+10-test-gate-env.log: test-gate-env: ok (5 cases)
+11-check-xfx-identity.log: check-xfx-identity: ok (12840 tracked file(s) scanned)
+12-check-preview-contract.log: check-preview-contract: ok (.github/workflows/preview.yml)
+13-test-preview-contract.log: test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+14-check-tui-preflight-cost.log: check-tui-preflight-cost: ok
+15-check-usage-clock.log: check-usage-clock: ok
+16-fxcap-test-sweep.log: Ran 50 tests in 5.154s Ran 26 tests in 31.882s 2 x OK
+22-smoke.log: 47 check(s), 0 failure(s)
+23-smoke-tui.log: smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+20/21 xfx status, release and faulty: [status] build_revision=e27f9bcf5f1c [status] build_revision=e27f9bcf5f1c 
+
+## 17 fxcap-test-capture: 41 of 42 OK; the failure
+ERROR: test_models2_and_modelsdelay (__main__.Verbs.test_models2_and_modelsdelay)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/scripts/fxcap/test_capture.py", line 455, in test_models2_and_modelsdelay
+    self.assertLess(a.index('{"data":[{"id":"fake/one"}]}'), a.index('{"data":[{"id":"fake/two"}]}'))
+                    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: substring not found
+
+----------------------------------------------------------------------
+Ran 42 tests in 268.080s
+
+FAILED (errors=1)
+
+## its one test alone, three runs, under the lock (17b)
+== run 1 03:04:40
+----------------------------------------------------------------------
+Ran 1 test in 7.518s
+
+OK
+== run 2 03:04:48
+----------------------------------------------------------------------
+Ran 1 test in 11.337s
+
+FAILED (errors=1)
+== run 3 03:04:59
+----------------------------------------------------------------------
+Ran 1 test in 8.160s
+
+OK
+
+## the same on the base's --no-local clone (e636db48), three runs, under the lock (17c)
+== run 1 03:05:19
+----------------------------------------------------------------------
+Ran 1 test in 7.563s
+
+OK
+== run 2 03:05:27
+----------------------------------------------------------------------
+Ran 1 test in 7.579s
+
+OK
+== run 3 03:05:35
+----------------------------------------------------------------------
+Ran 1 test in 7.518s
+
+OK
+
+## then five interleaved pairs, head worktree / base clone, one after another under the lock (17d)
+run 1 head FAILED (errors=1)
+run 1 base FAILED (errors=1)
+run 2 head FAILED (errors=1)
+run 2 base FAILED (errors=1)
+run 3 head FAILED (errors=1)
+run 3 base FAILED (errors=1)
+run 4 head FAILED (errors=1)
+run 4 base FAILED (errors=1)
+run 5 head FAILED (errors=1)
+run 5 base FAILED (errors=1)
+
+## what the test runs: capture.sh with the binary a link to /bin/bash (scripts/fxcap/test_capture.py capture(), binary="/bin/bash"),
+## so no xfx code is in it; and the harness files are the same at base and head:
+## git diff --stat e636db48 e27f9bcf -- scripts/fxcap/test_capture.py scripts/fxcap/capture.sh scripts/fxcap/fakegw.ts
+(empty: unchanged)
+## The test types a curl at 0.5 s and at 5.0+0.8 s against a catalog swapped at 5000 ms; under this machine's load
+## one of the two answers is missing from the snap (`substring not found`; which one is not recorded) on either build alike:
+## registry #19's load class, not this unit.
+
+# ================================================================
+# Round 2: the dispatcher's list at 2b21b797c216f16d6aa02639a8e6870980b1cdfd, one job after another in ONE suite-lock slot
+# (taken 04:26:57Z, released 05:13:23Z): cargo test x3, test-capture, test-sweep, the release and faulty builds, smoke-tui,
+# the two sweeps (sweep.txt), the captures (osc-all.txt, osc-stopnext.txt) and the code mutants (mutants.txt). TMPDIR=<local-path>.
+#
+# The runner's rc column is NOT evidence: its step helper read $? after a command substitution in the same echo,
+# so it printed rc=0 for every step whatever the step's exit (checked: bash -c 'false; echo "$(printf %02d 4) rc=$?"'
+# prints 'rc=0'). Every outcome below is read from the step's own log. (The capture loop read $? first; its rc is real.)
+
+## each step's outcome, from its log
+01-test: 14 binaries, 5334 passed, 0 failed, 7 ignored
+02-test-fault-tui: 1 binaries, 192 passed, 0 failed, 0 ignored
+03-test-fault-lib: 1 binaries, 4444 passed, 0 failed, 7 ignored
+04-fxcap-test-capture: Ran 59 tests in 484.669s -- FAILED (failures=2)
+    FAIL: test_hang_holds_until_the_mode_changes
+    FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run
+05-fxcap-test-sweep: Ran 66 tests in 5.244s OK Ran 26 tests in 35.735s OK 
+06-build-release: Finished `release` profile [optimized] target(s) in 13.25s
+07-build-faulty: Finished `release` profile [optimized] target(s) in 13.21s
+08-smoke-tui: smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+09-sweep-base: pass = 28 / 69 = 40.6%; unresolved 40, failed 0, timeout 0
+10-sweep-head: pass = 28 / 69 = 40.6%; unresolved 40, failed 0, timeout 0
+captures: 32 of 32 exit 0
+
+## the two test-capture failures
+FAIL: test_hang_holds_until_the_mode_changes
+  AssertionError: Regex didn't match: 'rpc=ping id=1 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200' not found in '[mcphttp] listening 57926\n[mcphttp] +86ms POST /mcp rpc=ping id=1 session=no version=- mcp-method=- mcp-name=- mode=unknown() -> 500 +887ms\n[mcphttp] +887ms POST /mcp rpc=ping id=2 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200 +889ms\n'
+FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run
+  AssertionError: 'executable /bin/cat' not found in 'no pid runs <local-path> pane 32123, pid 32123, executable /bin/sh\n'
+
+## neither runs this unit's code: the harness files are main's
+## git diff --stat 884497c0 2b21b797 -- scripts/fxcap/test_capture.py scripts/fxcap/capture.sh scripts/fxcap/mcphttp.ts
+(empty: unchanged)
+## test_a_pid_... runs capture.sh with a /bin/sh wrapper that execs /bin/cat (no xfx); test_hang_... runs the fake MCP server alone.
+## both tests alone, five interleaved pairs, head worktree / base clone (1230329, the same harness files), run while the
+## slot's mutants ran (outside the lock, so under that load):
+run 1 head OK 
+run 1 base OK 
+run 2 head OK 
+run 2 base FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run FAILED (failures=1) 
+run 3 head FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run FAILED (failures=1) 
+run 3 base FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run FAILED (failures=1) 
+run 4 head FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run FAILED (failures=1) 
+run 4 base FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run FAILED (failures=1) 
+run 5 head OK 
+run 5 base OK 
+## test_a_pid_...: head 2 of 5 fail, base 3 of 5; test_hang_...: 0 of 5 on both. The same failure on both builds and
+## in harness code this unit does not change. [guess, not traced: the pid's executable was read before the wrapper's
+## exec (/bin/sh, not /bin/cat), and the first request read the mode file before it said `hang` (mode=unknown()).]
+
+## after the slot: d4ce0e0c (one test added, nothing else) and 27714762 (docs/parity.md only)
+cargo fmt --check: ok; cargo clippy --locked --all-targets -- -D warnings: ok (outside the lock)
+cargo test --locked --lib -- tui::shell::tests::a_failed_automatic_compactions_turn_titles_nothing_and_a_stopped_ones_does: 1 passed
+then in a second suite-lock slot (started 05:34:01Z):
+  mutants 20 and 21 on the --no-local clone at d4ce0e0c: both KILLED (mutants.txt)
+  the same clone unmutated, cargo test --locked --lib -- tui::: 2774 passed; 0 failed; 5 ignored
+  the worktree at 27714762, cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0
+
+# ================================================================
+# Round 3: the dispatcher's list at 06ca9f1a2bda30a65df66b553fef518c8897d88d, one job after another in ONE suite-lock slot
+# (taken 06:07:25Z, done 06:50:12Z): cargo test x3, the debug, release and faulty builds,
+# smoke-tui, the two sweeps (sweep.txt), the captures (osc-all.txt, osc-stopnext.txt), the code mutants (mutants.txt) and
+# the unmutated clone. TMPDIR=<local-path>. The runner now keeps each step's exit in rc before anything else runs;
+# its first step is `false`, which must read rc=1.
+
+## the steps (number, name, exit, seconds, end)
+slot taken 06:07:25
+01 rc-selftest rc=1 0s 06:07:25
+02 test rc=0 164s 06:10:09
+03 test-fault-tui rc=0 24s 06:10:33
+04 test-fault-lib rc=0 51s 06:11:24
+05 build-debug rc=0 5s 06:11:29
+06 status-debug rc=0 1s 06:11:30
+07 build-release rc=0 13s 06:11:43
+08 build-faulty rc=0 13s 06:11:56
+09 smoke-tui rc=0 64s 06:13:00
+10 sweep-base rc=0 532s 06:21:52
+11 sweep-head rc=0 514s 06:30:26
+clone at 06ca9f1a
+mutants rc=0 06:49:37
+clean-tui rc=0 06:50:12
+done 06:50:12
+
+## cargo test totals (sum of each binary's 'test result' line)
+02-test: 14 binaries, 5338 passed, 0 failed, 7 ignored
+03-test-fault-tui: 1 binaries, 192 passed, 0 failed, 0 ignored
+04-test-fault-lib: 1 binaries, 4448 passed, 0 failed, 7 ignored
+
+## the rest
+06-status-debug: build_revision=06ca9f1a2bda
+09-smoke-tui: smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+10-sweep-base: pass = 28 / 69 = 40.6%; unresolved 40, failed 0, timeout 0
+11-sweep-head: pass = 28 / 69 = 40.6%; unresolved 40, failed 0, timeout 0
+captures: 16 of 16 exit 0
+clean-tui (the --no-local clone at the code head, unmutated): test result: ok. 2777 passed; 0 failed; 5 ignored; 0 measured; 1650 filtered out; finished in 22.88s
+
+## the tree during the slot: two comment lines were dirty for part of it
+A refs.py --apply against the wrong frame changed two comments at 06:09:51Z: `shell.rs:2706` -> `:2725` in an
+event_loop.rs test comment and `shell.rs:5816` -> `:5843` in a shell.rs test comment. Both were reverted between
+06:10:33Z and 06:11:24Z. A second apply and revert, in one command, rewrote the same two files at 06:11:34Z.
+- So step 02 (all-targets) may have compiled them, step 03 (fault-injection tui) did, and step 04 (fault-injection
+  lib) did for part of its run. Step 07 (the release build, 06:11:30-06:11:43) may have read them in that second's
+  window.
+- Step 05's debug build (06:11:24-06:11:29), which made the binary behind every capture, the head sweep and
+  `xfx status`, and step 08's faulty build were built from a clean tree.
+- The mutants and the unmutated clone ran on a --no-local clone at the commit. Neither change is code, and the tree
+  matched 06ca9f1a again from 06:11:34Z on (the files' mtime).
+
+## round 3, fmt and clippy: at 6d2dc987 (code 06ca9f1a), one suite-lock slot of their own, from a fresh CARGO_TARGET_DIR (<local-path>)
+# so neither clippy could replay an earlier result. While it ran, only receipt files under .prd were dirty
+# (dirty:  M .prd/tui-phase5/receipts/stop-late-event/README.md  M .prd/tui-phase5/receipts/stop-late-event/mutants.txt ; dirty outside .prd: 0).
+slot taken 07:26:48
+01 rc-selftest rc=1 0s 07:26:48
+02 fmt rc=0 3s 07:26:51
+03 clippy rc=0 43s 07:27:34
+04 clippy-fault rc=0 31s 07:28:05
+done 07:28:05
+02-fmt: cargo fmt --check, 0 bytes of output
+03-clippy: cargo clippy --locked --all-targets -- -D warnings: 0 warnings or errors; Compiling xfx v0.1.0 (<repo>); Finished `dev` profile [unoptimized + debuginfo] target(s) in 43.09s
+04-clippy-fault: the same with --features fault-injection: 0 warnings or errors; Compiling xfx v0.1.0 (<repo>); Finished `dev` profile [unoptimized + debuginfo] target(s) in 30.78s
+# (A first run in the shared target dir, 07:23:51Z, also passed, in 0s and 1s: replayed cached results.)
+
+## the dispatcher's clean-tree gate at 6d2dc987 (reported by the dispatcher; its logs are not in this receipt)
+all 20 steps rc=0: fmt, both clippys, cargo test 5339 passed / 0 failed and 5376 passed / 0 failed,
+fxcap test-capture 59 OK, smoke-tui 1168 checks / 0 failures; the tree unchanged by the run.

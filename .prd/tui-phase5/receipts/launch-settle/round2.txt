@@ -1,0 +1,91 @@
+# LAUNCH-SETTLE round 2: every run, each holding one suite-lock slot, one at a time (r2/run-r2.sh, 2026-11-08 16:32-16:58 KST). Sweeps: 40x120, --jobs 2, fx v0.0.16 (sha256 8e6cda2e...). head = f525e50c's harness and scenarios with xfx built at f525e50c (row 1 v0.1.0-f525e50); base = 7589ec42's harness, xfx at 7589ec4. The load (71-81) was other workers' jobs.
+
+## the runs
+sweep head-1 exit 0 16:34:25
+sweep basenew-1 exit 0 16:35:04
+sweep head-2 exit 0 16:37:04
+sweep basenew-2 exit 0 16:37:45
+sweep head-3 exit 0 16:39:47
+sweep basenew-3 exit 0 16:40:26
+sweep basem2-2 exit 0 16:41:01
+sweep basem2-3 exit 0 16:41:35
+test-capture 1 exit 0 16:46:44: Ran 67 tests in 308.565s OK 
+test-capture 2 exit 0 16:52:00: Ran 67 tests in 315.090s OK 
+test-capture 3 exit 0 16:57:04: Ran 67 tests in 303.664s OK 
+mutants exit 0 16:58:39
+all done
+
+head-1: repo f525e50c started 2026-11-08T16:32:25+09:00 load 71.81 to 73.32
+basenew-1: repo 7589ec42 started 2026-11-08T16:34:25+09:00 load 71.63 to 72.53
+head-2: repo f525e50c started 2026-11-08T16:35:04+09:00 load 71.75 to 76.94
+basenew-2: repo 7589ec42 started 2026-11-08T16:37:04+09:00 load 75.39 to 77.62
+head-3: repo f525e50c started 2026-11-08T16:37:45+09:00 load 73.73 to 75.21
+basenew-3: repo 7589ec42 started 2026-11-08T16:39:47+09:00 load 74.15 to 75.85
+basem2-2: repo 7589ec42 started 2026-11-08T16:40:27+09:00 load 76.46 to 79.16
+basem2-3: repo 7589ec42 started 2026-11-08T16:41:01+09:00 load 78.84 to 80.66
+
+## p5-mcp-fail, p5-mcp-menu-old: base 1-4 (round 1's base sweeps) against head r2 1-3 (f525e50c)
+     p5-mcp-fail/end.full: base unresolved-defect,unresolved-defect,unresolved-defect,unresolved-defect -> head unresolved-defect,unresolved-defect,unresolved-defect
+     p5-mcp-fail/list: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-fail/server-1: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-fail/server-2: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-fail/show-bad: base unresolved-defect,unresolved-defect,unresolved-defect,unresolved-defect -> head unresolved-defect,unresolved-defect,unresolved-defect
+     p5-mcp-fail/startup: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/closed: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/d-key: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/details-1: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/details-2: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/details-3: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/dismissed: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/end.full: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/info: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/list: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/list-down: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/prompts: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/resources: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/servers: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/startup: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/tools: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-menu-old/x-key: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+drops: 0
+## h1-models2: base 1 (the full base sweep) and 2-3, against head r2 1-3
+     h1-models2/after: base unresolved-defect,unresolved-defect,unresolved-defect -> head unresolved-defect,unresolved-defect,unresolved-defect
+     h1-models2/before: base normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+drops: 0
+## the new two: 7589ec42's harness (no launch wait) with f525e50c's scenario files, against the head's harness
+     p5-esc-clear/a-cleared: base normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-esc-clear/b-edit-escape: base unresolved-defect,unresolved-defect,unresolved-defect -> head unresolved-defect,unresolved-defect,unresolved-defect
+     p5-esc-clear/c-deleted: base unresolved-defect,unresolved-defect,unresolved-defect -> head unresolved-defect,unresolved-defect,unresolved-defect
+     p5-esc-clear/c-later: base normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-fail-held/held: base unresolved-defect,unresolved-defect,unresolved-defect -> head unresolved-defect,unresolved-defect,unresolved-defect
+drops: 0
+## causes on the head's unresolved pairs of the new two, rescored with 53a0fc11's ledger (f525e50c's left fx's row 5 of c-deleted unattributed; 53a0fc11 names it)
+head-1 p5-esc-clear b-edit-escape causes: ['esc-clear-armed-through-an-edit'] unattributed: []
+head-1 p5-esc-clear c-deleted causes: ['esc-clear-hint-over-empty-composer'] unattributed: []
+head-1 p5-mcp-fail-held held causes: ['mcp-tools-at-a-reconnect'] unattributed: []
+head-2 p5-esc-clear b-edit-escape causes: ['esc-clear-armed-through-an-edit'] unattributed: []
+head-2 p5-esc-clear c-deleted causes: ['esc-clear-hint-over-empty-composer'] unattributed: []
+head-2 p5-mcp-fail-held held causes: ['mcp-tools-at-a-reconnect'] unattributed: []
+head-3 p5-esc-clear b-edit-escape causes: ['esc-clear-armed-through-an-edit'] unattributed: []
+head-3 p5-esc-clear c-deleted causes: ['esc-clear-hint-over-empty-composer'] unattributed: []
+head-3 p5-mcp-fail-held held causes: ['mcp-tools-at-a-reconnect'] unattributed: []
+
+## every until line of the new two in the head sweeps (text, seconds waited)
+head-1 fx: shown MCP servers  2 0.02;shown echo boom-stderr >&2; exit 3 0.01;shown alpha one 0.02;shown esc again to clear 0.15;gone esc again to clear 0.16;shown beta two 0.02;shown esc again to clear 0.16;shown zz9 0.02;gone zz9 0.02;shown qq 0.02;shown esc again to clear 0.15;gone ┃ q 0.02;gone esc again to clear 0.02;
+head-1 xfx: shown MCP servers  2 0.01;shown echo boom-stderr >&2; exit 3 0.02;shown alpha one 0.02;shown esc again to clear 0.09;gone esc again to clear 0.08;shown beta two 0.01;shown esc again to clear 0.08;shown zz9 0.02;gone zz9 0.02;shown qq 0.01;shown esc again to clear 0.09;gone ┃ q 0.02;gone esc again to clear 0.43;
+head-2 fx: shown MCP servers  2 0.02;shown echo boom-stderr >&2; exit 3 0.02;shown alpha one 0.01;shown esc again to clear 0.22;gone esc again to clear 0.19;shown beta two 0.02;shown esc again to clear 0.15;shown zz9 0.02;gone zz9 0.02;shown qq 0.01;shown esc again to clear 0.15;gone ┃ q 0.04;gone esc again to clear 0.02;
+head-2 xfx: shown MCP servers  2 0.02;shown echo boom-stderr >&2; exit 3 0.02;shown alpha one 0.02;shown esc again to clear 0.09;gone esc again to clear 0.10;shown beta two 0.02;shown esc again to clear 0.09;shown zz9 0.02;gone zz9 0.05;shown qq 0.02;shown esc again to clear 0.09;gone ┃ q 0.03;gone esc again to clear 0.44;
+head-3 fx: shown MCP servers  2 0.03;shown echo boom-stderr >&2; exit 3 0.03;shown alpha one 0.02;shown esc again to clear 0.15;gone esc again to clear 0.16;shown beta two 0.01;shown esc again to clear 0.15;shown zz9 0.02;gone zz9 0.02;shown qq 0.02;shown esc again to clear 0.16;gone ┃ q 0.02;gone esc again to clear 0.02;
+head-3 xfx: shown alpha one 0.02;shown esc again to clear 0.11;gone esc again to clear 0.10;shown beta two 0.01;shown esc again to clear 0.08;shown zz9 0.02;gone zz9 0.02;shown qq 0.01;shown esc again to clear 0.09;gone ┃ q 0.02;gone esc again to clear 0.44;shown MCP servers  2 0.02;shown echo boom-stderr >&2; exit 3 0.02;
+
+## the frames: row 3 (the composer) and row 5 (the hint row) of p5-esc-clear, and the tools row of p5-mcp-fail-held, head-1
+a-cleared fx: [┃] [auto · model-a]
+a-cleared xfx: [┃] [auto · model-a]
+b-edit-escape fx: [┃ beta twoxzz9] [auto · model-a]
+b-edit-escape xfx: [┃ zz9] [auto · model-a]
+c-deleted fx: [┃] [auto · model-a]
+c-deleted xfx: [┃] [auto · model-a esc again to clear]
+c-later fx: [┃] [auto · model-a]
+c-later xfx: [┃] [auto · model-a]
+held fx:   Loading tools…
+held xfx:   Its tools couldn't load: its process exited with code 3; its last stderr lines: "boom-stderr"

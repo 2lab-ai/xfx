@@ -1,0 +1,44 @@
+## sweep-head-1: 664 capture logs
+fx launch wait: a first frame 346, the pane is dead 16, the pane is gone 1; first frames: median 0.08, p90 0.09, max 0.12
+xfx launch wait: a first frame 347, the pane is dead 16; first frames: median 0.08, p90 0.09, max 1.09
+fx Ctrl-C hint, `until shown` straight after `key C-c`: n 4, median 0.01, p90 0.01, max 0.01
+fx full-access warning, `until shown` as the first line: n 12, median 0.01, p90 0.01, max 0.02
+xfx Ctrl-C hint, `until shown` straight after `key C-c`: n 4, median 0.01, p90 0.01, max 0.01
+xfx full-access warning, `until shown` as the first line: n 11, median 0.01, p90 0.01, max 0.01
+until gone fx 'Full access': 18, longest 1.96 s
+until gone fx 'Generating (': 1, longest 0.03 s; never seen 1
+until gone fx 'No context to compact.': 2, longest 0.02 s; never seen 2
+until gone fx 'Wait for the active work to finish': 1, longest 0.02 s; never seen 1
+until gone fx 'press ctrl+c again to exit': 10, longest 0.07 s; never seen 5
+until gone fx 'recovered · attempt 2': 1, longest 0.99 s
+until shown fx 'Full access': 18, longest 0.04 s
+until shown fx 'MCP config has 1 problem': 1, longest 0.01 s
+until shown fx 'MCP config has 2 problems': 1, longest 0.02 s
+until shown fx 'MCP config has 5 problems': 1, longest 0.04 s
+until shown fx 'Models 1  [All]': 1, longest 0.01 s
+until shown fx 'No context to compact.': 1, longest 0.01 s
+until shown fx 'Running sleep 4': 1, longest 0.01 s
+until shown fx 'press ctrl+c again to exit': 4, longest 0.01 s
+until shown fx 'proj is waiting for approval': 2, longest 0.01 s
+until shown fx 'recovered · attempt 2': 1, longest 0.34 s
+until shown fx 'steered answer.': 1, longest 0.46 s
+until gone xfx 'Full access': 17, longest 1.97 s
+until gone xfx 'Generating (': 1, longest 0.01 s; never seen 1
+until gone xfx 'No context to compact.': 2, longest 0.01 s; never seen 2
+until gone xfx 'Wait for the active work to finish': 1, longest 0.01 s; never seen 1
+until gone xfx 'press ctrl+c again to exit': 10, longest 0.02 s; never seen 7
+until gone xfx 'recovered · attempt 2': 1, longest 1.06 s
+until shown xfx 'Full access': 17, longest 0.01 s
+until shown xfx 'MCP config has 1 problem': 1, longest 0.01 s
+until shown xfx 'MCP config has 5 problems': 1, longest 0.01 s
+until shown xfx 'Models 1  [All]': 1, longest 0.01 s
+until shown xfx 'No context to compact.': 1, longest 0.01 s
+until shown xfx 'Running sleep 4': 1, longest 0.01 s
+until shown xfx 'press ctrl+c again to exit': 4, longest 0.01 s
+until shown xfx 'proj is waiting for approval': 2, longest 0.01 s
+until shown xfx 'recovered · attempt 2': 1, longest 0.33 s
+until shown xfx 'steered answer.': 1, longest 0.25 s
+absent fx 'press ctrl+c again to exit': not on the screen 2
+absent xfx 'press ctrl+c again to exit': not on the screen 2
+expect fx: the snap holds it 12
+expect xfx: the snap holds it 12

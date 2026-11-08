@@ -1,0 +1,12 @@
+# net.py in jobs-a.sh's hold of the suite lock, on a git clone --no-local at 29786ced
+## join check 5: the network
+# net-clone at 29786ced
+# logger pid 69805, 127.0.0.1:<ephemeral>; HTTPS_PROXY, https_proxy, HTTP_PROXY, http_proxy at it; NO_PROXY, no_proxy, ALL_PROXY, all_proxy unset
+## lib: `cargo test --locked --lib --no-fail-fast` exit 0, 74 s
+   test result: ok. 4529 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 41.50s
+   connections logged during it: 2
+     2 x CONNECT w.example:443 HTTP/1.1
+## tui: `cargo test --locked --test tui --no-fail-fast` exit 0, 27 s
+   test result: ok. 181 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.98s
+   connections logged during it: 0
+# logger 69805 ended (-15)

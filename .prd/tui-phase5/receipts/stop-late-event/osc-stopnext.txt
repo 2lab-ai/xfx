@@ -1,0 +1,244 @@
+# p5-lifecycle-osc-stopnext: fx v0.0.16 x3 (fx/, fx-run2/, fx-run3/), and three runs of each xfx build:
+# red* = the base e636db48; base* = 1230329, the base with main 884497c0 merged in (a throwaway merge, tree bb036b01);
+# r2* = round 2's head 2b21b797 (593b3319's code but for one test); xfx* = round 3's head 06ca9f1a;
+# prev* = this unit's first build 997d7b1f (the turn's start held its report, the brief's shape;
+# pinned by the local branch prev/stop-late-event-r1).
+
+## fx's three runs, from the stop's idle to the second turn's done (decoded: each report, each title, each frame's text)
+### fx
+REPORT state=idle:app=fx
+FRAME ▪ Cancelled · What can fx do differently?
+TITLE first question
+REPORT state=working:app=fx
+FRAME second question • Thinking (0s) (↑4 ↓0) ┃ auto · model-a
+FRAME Generating (0s) (↑4 ↓4)
+REPORT state=done:app=fx
+### fx-run2
+REPORT state=idle:app=fx
+FRAME ▪ Cancelled · What can fx do differently?
+TITLE first question
+REPORT state=working:app=fx
+FRAME second question • Generating (0s) (↑4 ↓4) ┃ auto · model-a
+REPORT state=done:app=fx
+### fx-run3
+REPORT state=idle:app=fx
+FRAME ▪ Cancelled · What can fx do differently?
+TITLE first question
+REPORT state=working:app=fx
+FRAME second question • Generating (0s) (↑4 ↓4) ┃ auto · model-a
+REPORT state=done:app=fx
+
+## the same for the first run of each xfx build
+### red
+REPORT state=idle:app=xfx
+FRAME ■ Cancelled · What can xfx do differently? ┃ second question ┃ auto · model-a
+REPORT state=working:app=xfx
+FRAME Thinking (0s) (↑4 ↓0) ┃ auto · model-a
+FRAME Generating (0s) (↑4 ↓4)
+FRAME 0)
+REPORT state=done:app=xfx
+### base
+REPORT state=idle:app=xfx
+FRAME ■ Cancelled · What can xfx do differently? ┃ second question ┃ auto · model-a
+REPORT state=working:app=xfx
+FRAME Thinking (0s) (↑4 ↓0) ┃ auto · model-a
+FRAME Generating (0s) (↑4 ↓4)
+FRAME 0)
+REPORT state=done:app=xfx
+### r2
+REPORT state=idle:app=xfx
+FRAME ■ Cancelled · What can xfx do differently? ┃ second question ┃ auto · model-a
+REPORT state=working:app=xfx
+TITLE first question
+FRAME Thinking (0s) (↑4 ↓0) ┃ auto · model-a
+FRAME Generating (0s) (↑4 ↓4)
+FRAME 0)
+REPORT state=done:app=xfx
+### xfx
+REPORT state=idle:app=xfx
+FRAME ■ Cancelled · What can xfx do differently? ┃ second question ┃ auto · model-a
+TITLE first question
+REPORT state=working:app=xfx
+FRAME • Thinking (0s) (↑4 ↓0) ┃ auto · model-a
+FRAME Generating (0s) (↑4 ↓4)
+FRAME 
+FRAME 0)
+REPORT state=done:app=xfx
+### prev
+REPORT state=idle:app=xfx
+FRAME ■ Cancelled · What can xfx do differently? ┃ second question ┃ auto · model-a
+FRAME • Thinking (0s) (↑4 ↓0) ┃ auto · model-a
+REPORT state=working:app=xfx
+FRAME Generating (0s) (↑4 ↓4)
+FRAME 
+FRAME 0)
+REPORT state=done:app=xfx
+
+## offsets on each s03-exit wire (bytes): the stop's idle, Cancelled, the stopped turn's title, the prompt's text, its working, the first Thinking after the stop
+fx    idle @1256  Cancelled @1340  title @1404  'second question' @1480  working @1423  Thinking @1520
+red   idle @797  Cancelled @883  title none  'second question' @987  working @1127  Thinking @1190
+base  idle @797  Cancelled @883  title none  'second question' @987  working @1127  Thinking @1190
+r2    idle @797  Cancelled @883  title @1157  'second question' @987  working @1127  Thinking @1209
+xfx   idle @797  Cancelled @883  title @1127  'second question' @987  working @1146  Thinking @1211
+prev  idle @797  Cancelled @883  title none  'second question' @987  working @1308  Thinking @1162
+
+## osc.py, every run (python3 -I -B osc.py <this dir> <side> <sha7> p5-lifecycle-osc-stopnext)
+### red (exit 1)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  red  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  red  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  red  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  red  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every red wire carries v0.1.0-e636db4 and no other banner
+FAIL title p5-lifecycle-osc-stopnext-40x120 s01-second: a window title since the report before each working: [False, True] on fx, [False, False] on red
+FAIL title p5-lifecycle-osc-stopnext-40x120 s02-done: a window title since the report before each working: [False, True] on fx, [False, False] on red
+FAIL title p5-lifecycle-osc-stopnext-40x120 s03-exit: a window title since the report before each working: [False, True] on fx, [False, False] on red
+4 wire pairs, 3 failing claims
+### red-run2 (exit 1)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  red-run2  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  red-run2  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  red-run2  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  red-run2  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every red-run2 wire carries v0.1.0-e636db4 and no other banner
+FAIL title p5-lifecycle-osc-stopnext-40x120 s01-second: a window title since the report before each working: [False, True] on fx, [False, False] on red-run2
+FAIL title p5-lifecycle-osc-stopnext-40x120 s02-done: a window title since the report before each working: [False, True] on fx, [False, False] on red-run2
+FAIL title p5-lifecycle-osc-stopnext-40x120 s03-exit: a window title since the report before each working: [False, True] on fx, [False, False] on red-run2
+4 wire pairs, 3 failing claims
+### red-run3 (exit 1)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  red-run3  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  red-run3  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  red-run3  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  red-run3  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every red-run3 wire carries v0.1.0-e636db4 and no other banner
+FAIL title p5-lifecycle-osc-stopnext-40x120 s01-second: a window title since the report before each working: [False, True] on fx, [False, False] on red-run3
+FAIL title p5-lifecycle-osc-stopnext-40x120 s02-done: a window title since the report before each working: [False, True] on fx, [False, False] on red-run3
+FAIL title p5-lifecycle-osc-stopnext-40x120 s03-exit: a window title since the report before each working: [False, True] on fx, [False, False] on red-run3
+4 wire pairs, 3 failing claims
+### base (exit 1)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  base  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  base  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  base  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  base  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every base wire carries v0.1.0-1230329 and no other banner
+FAIL title p5-lifecycle-osc-stopnext-40x120 s01-second: a window title since the report before each working: [False, True] on fx, [False, False] on base
+FAIL title p5-lifecycle-osc-stopnext-40x120 s02-done: a window title since the report before each working: [False, True] on fx, [False, False] on base
+FAIL title p5-lifecycle-osc-stopnext-40x120 s03-exit: a window title since the report before each working: [False, True] on fx, [False, False] on base
+4 wire pairs, 3 failing claims
+### base-run2 (exit 1)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  base-run2  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  base-run2  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  base-run2  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  base-run2  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every base-run2 wire carries v0.1.0-1230329 and no other banner
+FAIL title p5-lifecycle-osc-stopnext-40x120 s01-second: a window title since the report before each working: [False, True] on fx, [False, False] on base-run2
+FAIL title p5-lifecycle-osc-stopnext-40x120 s02-done: a window title since the report before each working: [False, True] on fx, [False, False] on base-run2
+FAIL title p5-lifecycle-osc-stopnext-40x120 s03-exit: a window title since the report before each working: [False, True] on fx, [False, False] on base-run2
+4 wire pairs, 3 failing claims
+### base-run3 (exit 1)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  base-run3  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  base-run3  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  base-run3  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  base-run3  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every base-run3 wire carries v0.1.0-1230329 and no other banner
+FAIL title p5-lifecycle-osc-stopnext-40x120 s01-second: a window title since the report before each working: [False, True] on fx, [False, False] on base-run3
+FAIL title p5-lifecycle-osc-stopnext-40x120 s02-done: a window title since the report before each working: [False, True] on fx, [False, False] on base-run3
+FAIL title p5-lifecycle-osc-stopnext-40x120 s03-exit: a window title since the report before each working: [False, True] on fx, [False, False] on base-run3
+4 wire pairs, 3 failing claims
+### r2 (exit 1)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  r2  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  r2  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  r2  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  r2  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every r2 wire carries v0.1.0-2b21b79 and no other banner
+FAIL title p5-lifecycle-osc-stopnext-40x120 s01-second: a window title since the report before each working: [False, True] on fx, [False, False] on r2
+FAIL title p5-lifecycle-osc-stopnext-40x120 s02-done: a window title since the report before each working: [False, True] on fx, [False, False] on r2
+FAIL title p5-lifecycle-osc-stopnext-40x120 s03-exit: a window title since the report before each working: [False, True] on fx, [False, False] on r2
+4 wire pairs, 3 failing claims
+### r2-run2 (exit 1)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  r2-run2  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  r2-run2  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  r2-run2  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  r2-run2  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every r2-run2 wire carries v0.1.0-2b21b79 and no other banner
+FAIL title p5-lifecycle-osc-stopnext-40x120 s01-second: a window title since the report before each working: [False, True] on fx, [False, False] on r2-run2
+FAIL title p5-lifecycle-osc-stopnext-40x120 s02-done: a window title since the report before each working: [False, True] on fx, [False, False] on r2-run2
+FAIL title p5-lifecycle-osc-stopnext-40x120 s03-exit: a window title since the report before each working: [False, True] on fx, [False, False] on r2-run2
+4 wire pairs, 3 failing claims
+### r2-run3 (exit 1)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  r2-run3  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  r2-run3  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  r2-run3  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  r2-run3  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every r2-run3 wire carries v0.1.0-2b21b79 and no other banner
+FAIL title p5-lifecycle-osc-stopnext-40x120 s01-second: a window title since the report before each working: [False, True] on fx, [False, False] on r2-run3
+FAIL title p5-lifecycle-osc-stopnext-40x120 s02-done: a window title since the report before each working: [False, True] on fx, [False, False] on r2-run3
+FAIL title p5-lifecycle-osc-stopnext-40x120 s03-exit: a window title since the report before each working: [False, True] on fx, [False, False] on r2-run3
+4 wire pairs, 3 failing claims
+### xfx (exit 0)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  xfx  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  xfx  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  xfx  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  xfx  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every xfx wire carries v0.1.0-06ca9f1 and no other banner
+4 wire pairs, 0 failing claims
+### xfx-run2 (exit 0)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  xfx-run2  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  xfx-run2  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  xfx-run2  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  xfx-run2  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every xfx-run2 wire carries v0.1.0-06ca9f1 and no other banner
+4 wire pairs, 0 failing claims
+### xfx-run3 (exit 0)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  xfx-run3  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  xfx-run3  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  xfx-run3  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  xfx-run3  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every xfx-run3 wire carries v0.1.0-06ca9f1 and no other banner
+4 wire pairs, 0 failing claims
+### prev (exit 1)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  prev  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  prev  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  prev  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  prev  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every prev wire carries v0.1.0-997d7b1 and no other banner
+FAIL order p5-lifecycle-osc-stopnext-40x120 s01-second: working [3] after Thinking: [False] on fx, [True] on prev
+FAIL activity p5-lifecycle-osc-stopnext-40x120 s01-second: a frame showing the turn's activity before each working: [True, False] on fx, [True, True] on prev
+FAIL title p5-lifecycle-osc-stopnext-40x120 s01-second: a window title since the report before each working: [False, True] on fx, [False, False] on prev
+FAIL order p5-lifecycle-osc-stopnext-40x120 s02-done: working [3] after Thinking: [False] on fx, [True] on prev
+FAIL activity p5-lifecycle-osc-stopnext-40x120 s02-done: a frame showing the turn's activity before each working: [True, False] on fx, [True, True] on prev
+FAIL title p5-lifecycle-osc-stopnext-40x120 s02-done: a window title since the report before each working: [False, True] on fx, [False, False] on prev
+FAIL order p5-lifecycle-osc-stopnext-40x120 s03-exit: working [3] after Thinking: [False] on fx, [True] on prev
+FAIL activity p5-lifecycle-osc-stopnext-40x120 s03-exit: a frame showing the turn's activity before each working: [True, False] on fx, [True, True] on prev
+FAIL title p5-lifecycle-osc-stopnext-40x120 s03-exit: a window title since the report before each working: [False, True] on fx, [False, False] on prev
+4 wire pairs, 9 failing claims
+### prev-run2 (exit 1)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  prev-run2  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  prev-run2  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  prev-run2  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  prev-run2  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every prev-run2 wire carries v0.1.0-997d7b1 and no other banner
+FAIL order p5-lifecycle-osc-stopnext-40x120 s01-second: working [3] after Thinking: [False] on fx, [True] on prev-run2
+FAIL activity p5-lifecycle-osc-stopnext-40x120 s01-second: a frame showing the turn's activity before each working: [True, False] on fx, [True, True] on prev-run2
+FAIL title p5-lifecycle-osc-stopnext-40x120 s01-second: a window title since the report before each working: [False, True] on fx, [False, False] on prev-run2
+FAIL order p5-lifecycle-osc-stopnext-40x120 s02-done: working [3] after Thinking: [False] on fx, [True] on prev-run2
+FAIL activity p5-lifecycle-osc-stopnext-40x120 s02-done: a frame showing the turn's activity before each working: [True, False] on fx, [True, True] on prev-run2
+FAIL title p5-lifecycle-osc-stopnext-40x120 s02-done: a window title since the report before each working: [False, True] on fx, [False, False] on prev-run2
+FAIL order p5-lifecycle-osc-stopnext-40x120 s03-exit: working [3] after Thinking: [False] on fx, [True] on prev-run2
+FAIL activity p5-lifecycle-osc-stopnext-40x120 s03-exit: a frame showing the turn's activity before each working: [True, False] on fx, [True, True] on prev-run2
+FAIL title p5-lifecycle-osc-stopnext-40x120 s03-exit: a window title since the report before each working: [False, True] on fx, [False, False] on prev-run2
+4 wire pairs, 9 failing claims
+### prev-run3 (exit 1)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  prev-run3  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  prev-run3  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  prev-run3  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  prev-run3  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every prev-run3 wire carries v0.1.0-997d7b1 and no other banner
+FAIL order p5-lifecycle-osc-stopnext-40x120 s01-second: working [3] after Thinking: [False] on fx, [True] on prev-run3
+FAIL activity p5-lifecycle-osc-stopnext-40x120 s01-second: a frame showing the turn's activity before each working: [True, False] on fx, [True, True] on prev-run3
+FAIL title p5-lifecycle-osc-stopnext-40x120 s01-second: a window title since the report before each working: [False, True] on fx, [False, False] on prev-run3
+FAIL order p5-lifecycle-osc-stopnext-40x120 s02-done: working [3] after Thinking: [False] on fx, [True] on prev-run3
+FAIL activity p5-lifecycle-osc-stopnext-40x120 s02-done: a frame showing the turn's activity before each working: [True, False] on fx, [True, True] on prev-run3
+FAIL title p5-lifecycle-osc-stopnext-40x120 s02-done: a window title since the report before each working: [False, True] on fx, [False, False] on prev-run3
+FAIL order p5-lifecycle-osc-stopnext-40x120 s03-exit: working [3] after Thinking: [False] on fx, [True] on prev-run3
+FAIL activity p5-lifecycle-osc-stopnext-40x120 s03-exit: a frame showing the turn's activity before each working: [True, False] on fx, [True, True] on prev-run3
+FAIL title p5-lifecycle-osc-stopnext-40x120 s03-exit: a window title since the report before each working: [False, True] on fx, [False, False] on prev-run3
+4 wire pairs, 9 failing claims

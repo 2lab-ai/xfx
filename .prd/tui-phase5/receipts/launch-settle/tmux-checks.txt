@@ -1,0 +1,6 @@
+# tmux 3.7b, a private server. (1) respawn-pane -k on a pane that drew a line: the screen read at once after it, then 2.5 s later. (2) an interactive bash, as test_capture.py's stub runs it (env -i, HOME empty, TERM xterm-256color): its tty's ISIG once its prompt is up.
+## before respawn: first-line|
+## at once after respawn-pane: []
+## 2.5 s later: second|
+## bash prompt: The default interactive shell is now zsh.
+## bash tty: -icanon isig -echo 

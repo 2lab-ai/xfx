@@ -1,0 +1,88 @@
+# Round 2: osc.py over every osc scenario's wires at the head a1b3451 (r2/), against fx v0.0.16's wires at the same pin
+# (stopnext: ../stop-late-event/fx/; the rest: ../osc-program-status/fx/). python3 -I -B osc.py <receipts>/stop-next-2 r2 a1b3451
+
+same p5-lifecycle-osc-ask-40x120        a00-quit               fx  2  r2  2  state=idle:app=<program> > state=clear
+same p5-lifecycle-osc-ask-40x120        a01-ask                fx  2  r2  2  state=idle:app=<program> > state=clear
+same p5-lifecycle-osc-autocompactfail-40x120 o00-answered           fx  5  r2  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-autocompactfail-40x120 o01-failed             fx  7  r2  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program>
+same p5-lifecycle-osc-compact-40x120    c00-noop               fx  1  r2  1  state=idle:app=<program>
+same p5-lifecycle-osc-compact-40x120    c01-answered           fx  5  r2  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-compact-40x120    c02-compacted          fx  7  r2  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-compactfail-40x120 f00-answered           fx  5  r2  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-compactfail-40x120 f01-failed             fx  7  r2  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program>
+same p5-lifecycle-osc-hostile-40x120    h00-permission         fx  3  r2  3  state=idle:app=<program> > state=working:app=<program> > state=blocked:kind=permission:app=<program>:msg='<command-tool> echo \\u{202e}evil\\u{202c}\\x09done > out.txt'
+same p5-lifecycle-osc-hostile-40x120    h01-question           fx  7  r2  7  state=idle:app=<program> > state=working:app=<program> > state=blocked:kind=permission:app=<program>:msg='<command-tool> echo \\u{202e}evil\\u{202c}\\x09done > out.txt' > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=blocked:kind=question:app=<program>:msg='Pick\\x1b]2;owned\\x07 a\\u{0085}branch\\u{202e}? now \\u{009b}31m'
+same p5-lifecycle-osc-hostile-40x120    h02-exit               fx 10  r2 10  state=idle:app=<program> > state=working:app=<program> > state=blocked:kind=permission:app=<program>:msg='<command-tool> echo \\u{202e}evil\\u{202c}\\x09done > out.txt' > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=blocked:kind=question:app=<program>:msg='Pick\\x1b]2;owned\\x07 a\\u{0085}branch\\u{202e}? now \\u{009b}31m' > state=working:app=<program> > state=done:app=<program> > state=clear
+same p5-lifecycle-osc-hup-40x120        u00-done               fx  3  r2  3  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-hup-40x120        u01-hung-up            fx  4  r2  4  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+same p5-lifecycle-osc-interrupt-40x120  i00-working            fx  2  r2  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-interrupt-40x120  i01-after-esc          fx  3  r2  3  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program>
+same p5-lifecycle-osc-interrupt-40x120  i02-exit               fx  4  r2  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=clear
+same p5-lifecycle-osc-interruptnext-40x120 n00-working            fx  2  r2  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-interruptnext-40x120 n01-after-esc          fx  3  r2  3  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program>
+same p5-lifecycle-osc-interruptnext-40x120 n02-second             fx  4  r2  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-interruptnext-40x120 n03-done               fx  5  r2  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-interruptnext-40x120 n04-exit               fx  6  r2  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+same p5-lifecycle-osc-picker-40x120     p00-done               fx  3  r2  3  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-picker-40x120     p01-picker             fx  3  r2  3  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-picker-40x120     p02-closed             fx  3  r2  3  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-picker-40x120     p03-exit               fx  4  r2  4  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+same p5-lifecycle-osc-retry-40x120      r00-retrying           fx  2  r2  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-states-40x120     w00-start              fx  1  r2  1  state=idle:app=<program>
+same p5-lifecycle-osc-states-40x120     w01-working            fx  2  r2  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-states-40x120     w02-done               fx  3  r2  3  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-states-40x120     w03-done2              fx  5  r2  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-states-40x120     w04-error              fx  7  r2  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program>
+same p5-lifecycle-osc-states-40x120     w05-permission         fx  9  r2  9  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program> > state=working:app=<program> > state=blocked:kind=permission:app=<program>:msg='<command-tool> echo hi > out.txt'
+same p5-lifecycle-osc-states-40x120     w06-after-permission   fx 11  r2 11  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program> > state=working:app=<program> > state=blocked:kind=permission:app=<program>:msg='<command-tool> echo hi > out.txt' > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-states-40x120     w07-question           fx 13  r2 13  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program> > state=working:app=<program> > state=blocked:kind=permission:app=<program>:msg='<command-tool> echo hi > out.txt' > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=blocked:kind=question:app=<program>:msg='Which branch?'
+same p5-lifecycle-osc-states-40x120     w08-after-question     fx 15  r2 15  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program> > state=working:app=<program> > state=blocked:kind=permission:app=<program>:msg='<command-tool> echo hi > out.txt' > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=blocked:kind=question:app=<program>:msg='Which branch?' > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-states-40x120     w09-exit               fx 16  r2 16  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program> > state=working:app=<program> > state=blocked:kind=permission:app=<program>:msg='<command-tool> echo hi > out.txt' > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=blocked:kind=question:app=<program>:msg='Which branch?' > state=working:app=<program> > state=done:app=<program> > state=clear
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  r2  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  r2  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  r2  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  r2  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+same p5-lifecycle-osc-suspend-40x120    s00-done               fx  3  r2  3  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-suspend-40x120    s01-stopped            fx  4  r2  4  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+same p5-lifecycle-osc-suspend-40x120    s02-resumed            fx  5  r2  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear > state=idle:app=<program>
+same p5-lifecycle-osc-suspend-40x120    s03-next-turn          fx  7  r2  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-term-40x120       t00-done               fx  3  r2  3  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-term-40x120       t01-terminated         fx  4  r2  4  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every r2 wire carries v0.1.0-a1b3451 and no other banner
+47 wire pairs, 0 failing claims
+# exit 0
+
+## stopnext, three runs of the head
+
+### r2 (a1b3451)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  r2  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  r2  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  r2  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  r2  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every r2 wire carries v0.1.0-a1b3451 and no other banner
+4 wire pairs, 0 failing claims
+# exit 0
+
+### r2-run2 (a1b3451)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  r2-run2  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  r2-run2  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  r2-run2  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  r2-run2  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every r2-run2 wire carries v0.1.0-a1b3451 and no other banner
+4 wire pairs, 0 failing claims
+# exit 0
+
+### r2-run3 (a1b3451)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  r2-run3  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  r2-run3  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  r2-run3  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  r2-run3  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every r2-run3 wire carries v0.1.0-a1b3451 and no other banner
+4 wire pairs, 0 failing claims
+# exit 0
+
+## offsets on s03-exit from the stop's idle on
+fx         idle @1256  Cancelled @1340  OSC 2 first question @1404  working @1423  second question @1480
+r2         idle @797  Cancelled @883  OSC 2 first question @969  working @988  second question @1070
+r2-run2    idle @797  Cancelled @883  OSC 2 first question @969  working @988  second question @1070
+r2-run3    idle @797  Cancelled @883  OSC 2 first question @969  working @988  second question @1070
