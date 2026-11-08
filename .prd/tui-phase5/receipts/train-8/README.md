@@ -470,6 +470,14 @@ clean before and after, load 2.4 to 5.0 [measured]. gates.txt's cargo,
 build and smoke steps stand for `c4bb4c7f`: `git diff 387a0104 c4bb4c7f --
 src tests Cargo.toml Cargo.lock scripts/*.sh` is empty.
 
+**The file checks with the receipt in its final form** (`gates-final.txt`, at
+`25bdf117`, in a clone): `cargo fmt --check`, `check-xfx-identity.sh`,
+`check-no-stubs.sh`, `check-no-secrets.sh` (15521 tracked files), each exit
+0, and no added line of `git diff 58c92ba2..25bdf117` holds the home root,
+the account's name or the scratch root [measured]. The code has not changed
+since `c4bb4c7f`; the one commit after `25bdf117` changes only
+`gates-final.txt` and this README.
+
 
 
 ## Sweep
