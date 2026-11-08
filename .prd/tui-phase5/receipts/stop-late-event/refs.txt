@@ -1,0 +1,26 @@
+# refs.py over the merged tree: every xfx file:line ref in the documents, checked against the code it was written about.
+
+## 1. On the merge as git made it (6958cdc4), before any re-point: frames f8285685 (this branch) and 884497c0 (main).
+# git worktree-free: a --no-local clone checked out at 6958cdc4; python3 -I -B refs.py <clone> f8285685 884497c0 --doc <the two READMEs>
+MOVED scripts/fxcap/parity-ledger.toml:507 src/tui/shell.rs:12272 -> :12634 (frame 884497c0): 'fn send(&mut self, prompt: String, text: &str) -> bool {'
+MOVED scripts/fxcap/parity-ledger.toml:723 src/tui/shell.rs:37424 -> :37813 (frame 884497c0): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:734 src/tui/shell.rs:37424 -> :37813 (frame 884497c0): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:746 src/tui/shell.rs:37424 -> :37813 (frame 884497c0): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:757 src/tui/shell.rs:37424 -> :37813 (frame 884497c0): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/parity-ledger.toml:813 src/tui/shell.rs:37424 -> :37813 (frame 884497c0): '"  tools: {} advertised ({},",'
+MOVED scripts/fxcap/capfile.py:159 src/tui/shell.rs:13705-13730 -> :14083-14108 (frame 884497c0): "fn warning_shown(&self) -> Option<&'static str> {"
+MOVED .prd/tui-phase5/receipts/stop-late-event/README.md:38 src/tui/shell.rs:12311 -> :12308 (frame f8285685): 'self.cancelling = true;'
+MOVED .prd/tui-phase5/receipts/stop-late-event/README.md:106 src/tui/shell.rs:12724 -> :12721 (frame f8285685): 'let behind = self.tally.started.is_some();'
+refs into changed files: 88 hold, 9 moved, 0 lost; 127 into unchanged files; 128 names not resolved to one file
+# exit 1
+
+## 2. Re-pointed: c711f016 (the seven MOVED above in parity-ledger.toml and capfile.py, and capfile.py's second ref
+## :13723-13725 -> :14101-14103 by hand, the same window check), 1fe55854 (parity-ledger.toml:250, docs/parity.md:241 -> :243),
+## and this receipt's README (its own shell.rs cites, at the merged tree). The ledger lines c711f016 and 1fe55854 rewrote
+## are in neither parent, so a rerun reads them as 'no frame holds this line'; each was checked when it was written.
+
+## 3. Every parity.md ref past this branch's inserted rows (:241-:242), across the repo outside .prd/:
+scripts/fxcap/parity-ledger.toml:250:source = [".prd/07-fx-parity-program.md:43", "docs/parity.md:243", "src/markdown/theme.rs:49", "src/markdown/theme.rs:69"]
+# That one is the colored-output row on main (:241) and here (:243). refs.py read it as holding: on this
+# branch's side :241 had already been L-U1+U2's OSC 7501 row (that unit inserted the rows and never moved
+# this ref), so the frame it matched was the wrong one. Found by this grep, not by refs.py; 1fe55854 fixes it.
