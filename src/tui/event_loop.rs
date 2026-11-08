@@ -14225,6 +14225,201 @@ mod tests {
         );
     }
 
+    // -----------------------------------------------------------------------
+    // STOP-NEXT-2
+    // -----------------------------------------------------------------------
+
+    /// A session with `prompt`'s turn started and every report and frame of it
+    /// on `out`.
+    fn status_running(prompt: &[u8]) -> (Fixture, Band, StatusScreen) {
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        launch_title(&mut shell, &mut band);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(prompt);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.start_turn();
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        (shell, band, out)
+    }
+
+    #[test]
+    fn a_model_title_after_a_stopped_end_in_one_tick_follows_the_ends_title_and_the_report() {
+        // One title per tick no more. Upstream writes each title when it is
+        // set (`syncTerminalTitleWith`, `app_session_runtime.zig:2965-2987@481104fd`):
+        // the stopped turn's on the pass that drains its end, ahead of the
+        // next prompt's `working` (`p5-lifecycle-osc-stopnext`), and a model's
+        // when it lands, on a pass of its own after that. Read in one tick
+        // here, the end's title still leads the report and the model's
+        // follows it.
+        let (mut shell, mut band, mut out) = status_running(b"go\r");
+        shell.route_bytes(&[0x03]);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"after\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        let before = out.vectors.len();
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+        });
+        shell.apply(UiEvent::SessionTitled("Named".into()));
+        shell.start_turn();
+        for _ in 0..2 {
+            shell.settle_band(Instant::now());
+            status_tick(&mut shell, &mut band, &mut out);
+        }
+        let wire = out.vectors[before..].concat();
+        let ended = find(&wire, b"\x1b]2;go\x07");
+        let working = find(&wire, WORKING.as_bytes());
+        let named = find(&wire, b"\x1b]2;Named\x07");
+        assert!(
+            ended.is_some()
+                && working.is_some()
+                && named.is_some()
+                && ended < working
+                && working < named,
+            "the stopped turn's title, working, the model's title: {:?}",
+            String::from_utf8_lossy(&wire)
+        );
+    }
+
+    #[test]
+    fn a_stop_and_its_turns_end_in_one_tick_put_the_title_after_the_cancelled_frame() {
+        // Item 7. Upstream handles keys after a pass collects its facts
+        // (`src/ui/event_loop.zig:77-117@481104fd`), so the stopped turn's end
+        // is drained on a pass after the keystroke's: `idle`, the `Cancelled`
+        // frame, then the title (`stop-late-event/osc-stopnext.txt`: @1256,
+        // @1340, @1404). Read in the keystroke's own tick here, the title is
+        // held past that tick's frame and the next tick writes it.
+        let (mut shell, mut band, mut out) = status_running(b"go\r");
+        let before = out.vectors.len();
+        shell.route_bytes(&[0x03]);
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+        });
+        shell.handle.give_back();
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        status_tick(&mut shell, &mut band, &mut out);
+        let wire = out.vectors[before..].concat();
+        let idle = find(&wire, IDLE.as_bytes());
+        let cancelled = find(&wire, b"Cancelled");
+        let title = find(&wire, b"\x1b]2;go\x07");
+        assert!(
+            idle.is_some()
+                && cancelled.is_some()
+                && title.is_some()
+                && idle < cancelled
+                && cancelled < title,
+            "idle, the Cancelled frame, the title: {:?}",
+            String::from_utf8_lossy(&wire)
+        );
+    }
+
+    #[test]
+    fn a_finished_turns_late_text_is_presented_with_its_end_in_one_drain() {
+        // Item 8. Upstream's drain presents a batch that holds the turn's own
+        // completed finish, or that its worker had already let go of
+        // (`batchSegmentIsInterrupted`, `app_worker_runtime.zig:301-325@481104fd`;
+        // `takeEventBatch`'s `cancelled_turn_id`, `worker_runtime.zig:923-937`,
+        // `active_turn_id` 0 after `finishProcessing`), and drops the text of
+        // a batch taken while the stopped turn still ran
+        // (`cancelledEventAdmission`, `app_worker_runtime.zig:339-389`). xfx's
+        // drain is its batch: text read in the drain that reads the turn's
+        // finished end is presented -- below the keystroke's `Cancelled` line,
+        // above the summary -- and text whose drain emptied the channel before
+        // the end came is dropped. A drain cut short by its bound
+        // (`bridge::UI_EVENTS`) is no batch boundary.
+        let mut got = Vec::new();
+        for case in ["one drain", "two drains", "a cut drain"] {
+            let (mut shell, mut band, mut out) = status_running(b"first question\r");
+            let before = out.vectors.len();
+            shell.route_bytes(&[0x03]);
+            status_tick(&mut shell, &mut band, &mut out);
+            let (events, mut receiver) = tokio::sync::mpsc::channel(4 * bridge::UI_EVENTS);
+            if case == "a cut drain" {
+                for _ in 0..bridge::UI_EVENTS {
+                    events
+                        .try_send(UiEvent::Delta(" ".to_string()))
+                        .expect("room");
+                }
+            }
+            events
+                .try_send(UiEvent::Delta("LATE-ANSWER\n".to_string()))
+                .expect("room");
+            if case == "two drains" {
+                take_ui_events(&mut shell, &mut receiver);
+            }
+            events
+                .try_send(UiEvent::TurnEnded { failure: None })
+                .expect("room");
+            for _ in 0..3 {
+                take_ui_events(&mut shell, &mut receiver);
+            }
+            shell.handle.give_back();
+            shell.flush_paced();
+            shell.settle_band(Instant::now());
+            status_tick(&mut shell, &mut band, &mut out);
+            let wire = out.vectors[before..].concat();
+            let (cancelled, text, summary) = (
+                find(&wire, b"Cancelled"),
+                find(&wire, b"LATE-ANSWER"),
+                find(&wire, b"0s ("),
+            );
+            got.push((
+                case,
+                text.is_some(),
+                cancelled.is_some() && summary.is_some() && cancelled < summary,
+                text.is_none() || (cancelled < text && text < summary),
+            ));
+        }
+        assert_eq!(
+            got,
+            [
+                ("one drain", true, true, true),
+                ("two drains", false, true, true),
+                ("a cut drain", true, true, true),
+            ],
+            "each: the late text, the Cancelled line above the summary, the text between them"
+        );
+    }
+
+    #[test]
+    fn a_covered_turn_that_finished_before_the_stop_presents_its_text() {
+        // Item 8 for a turn the stop covered: the runtime took it before it
+        // read the stop, and it finished first. Upstream's worker had let go
+        // of it, so its batch is no interrupted segment and is presented
+        // whole (`app_worker_runtime.zig:301-325@481104fd`).
+        let (mut shell, mut band, mut out) = status_running(b"first\r");
+        shell.route_bytes(b"second\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.handle.give_back();
+        shell.route_bytes(&[0x03]);
+        status_tick(&mut shell, &mut band, &mut out);
+        let before = out.vectors.len();
+        let (events, mut receiver) = tokio::sync::mpsc::channel(bridge::UI_EVENTS);
+        for event in [
+            UiEvent::TurnEnded { failure: None },
+            UiEvent::TurnStarted { submission: 2 },
+            UiEvent::Delta("SECOND-ANSWER\n".to_string()),
+            UiEvent::TurnEnded { failure: None },
+        ] {
+            events.try_send(event).expect("room");
+        }
+        take_ui_events(&mut shell, &mut receiver);
+        shell.handle.give_back();
+        shell.flush_paced();
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        let wire = out.vectors[before..].concat();
+        assert!(
+            holds(&wire, b"SECOND-ANSWER"),
+            "the covered turn's text was dropped: {:?}",
+            String::from_utf8_lossy(&wire)
+        );
+    }
+
     #[test]
     fn a_held_prompt_reports_nothing_until_its_turn_starts_and_nothing_if_it_never_does() {
         // A prompt the runtime has not started -- behind a provider switch, a

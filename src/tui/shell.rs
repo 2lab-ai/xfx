@@ -46028,6 +46028,159 @@ mod tests {
         );
     }
 
+    // -----------------------------------------------------------------------
+    // STOP-NEXT-2
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_second_press_while_the_first_ones_own_work_unwinds_stops_nothing_more() {
+        // opus's SHOULD 1 on STOP-NEXT: the press's own `/compact` or provider
+        // switch is still unwinding -- the compaction `Stopping`, the switch
+        // not yet got past -- when a prompt is typed and a second press
+        // comes. Upstream's second press only asks the same work to stop
+        // again (`cancelContextCompaction`, `worker_runtime.zig:1002-1035@481104fd`;
+        // `cancelProviderPreparation`, `auth_runtime.zig:2052-2056`), and its
+        // stop drops no queued prompt: no second stop is sent, and the prompt
+        // typed between the presses still waits.
+        let now = Instant::now();
+        let mut got = Vec::new();
+        for what in ["/compact", "a provider switch"] {
+            let mut shell = shell(24, 80);
+            shell.work.publish_status(a_status(1, 0));
+            if what == "/compact" {
+                shell.route_bytes(b"/compact\r");
+                assert_eq!(shell.picks_up(), TurnWork::Compact);
+            } else {
+                shell.switch_provider(ProviderId::Llmux);
+                assert_eq!(shell.picks_up(), TurnWork::Setup(ProviderId::Llmux));
+            }
+            shell.consume(vec![Input::Action(Action::Cancel)], now);
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Cancel { through: 1 }),
+                "{what}: the first press"
+            );
+            let lines = shell.released().join("\n").matches("Cancelled").count();
+            shell.route_bytes(b"next\r");
+            shell.consume(vec![Input::Action(Action::Cancel)], now + EXIT_WINDOW);
+            let again = shell.controlled();
+            let more = shell.released().join("\n").matches("Cancelled").count();
+            got.push((
+                what,
+                again,
+                more,
+                shell
+                    .waiting_prompts()
+                    .map(|prompt| prompt.submission)
+                    .collect::<Vec<_>>(),
+                lines <= 1,
+            ));
+        }
+        assert_eq!(
+            got,
+            [
+                ("/compact", None, 0, vec![2], true),
+                ("a provider switch", None, 0, vec![2], true),
+            ],
+            "each: the second press's stop, the `Cancelled` lines it wrote, the prompts \
+             still waiting"
+        );
+    }
+
+    #[test]
+    fn a_press_after_the_runtime_took_a_turn_typed_after_the_stop_waits_for_its_start() {
+        // gpt6's NTH 1 on STOP-NEXT: the runtime has taken the turn typed after
+        // a stop -- upstream's take clears its worker's stop
+        // (`worker_runtime.zig:1512@481104fd`) -- and a press comes before this
+        // side has read the turn's start. Upstream's press is cancelled by
+        // the stream the UI sets when it drains the turn's `begin_prompt`
+        // (`app_worker_runtime.zig:965-975`), which its stop's keystroke had
+        // cleared (`input_interrupt_runtime.zig:132`): until that drain the
+        // press finds no operation to cancel (`activeCancellationTarget`,
+        // `:178-187`; `handleSemanticCtrlC`, `app_input_runtime.zig:1510-1547`).
+        // So here: the press stops nothing until the start is read, and the
+        // next one stops that turn.
+        let now = Instant::now();
+        let mut shell = running("first");
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        let _ = shell.controlled();
+        shell.route_bytes(b"next\r");
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+        });
+        shell.work.give_back();
+        assert!(
+            matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "next"),
+            "the runtime did not take the prompt"
+        );
+        shell.settle_band(now);
+        shell.consume(vec![Input::Action(Action::Cancel)], now + EXIT_WINDOW);
+        let before = shell.controlled();
+        shell.apply(UiEvent::TurnStarted { submission: 2 });
+        shell.settle_band(now);
+        shell.consume(
+            vec![Input::Action(Action::Cancel)],
+            now + EXIT_WINDOW + EXIT_WINDOW,
+        );
+        let after = shell.controlled();
+        assert_eq!(
+            (before, after),
+            (None, Some(TurnControl::Cancel { through: 2 })),
+            "the press before the start was read, the one after"
+        );
+    }
+
+    #[test]
+    fn a_prompt_queued_at_once_writes_no_card_before_its_turn_starts() {
+        // gpt6's NTH 2 on STOP-NEXT: the pacer and full-transcript branches of
+        // upstream's queue-at-once (`installPendingSubmission`,
+        // `input_submit_runtime.zig:1138-1147@481104fd`), each with the card
+        // absent until the start and present after it (`takeNextPromptLocked`'s
+        // `begin_prompt`, `worker_runtime.zig:1484-1505`).
+        let mut got = Vec::new();
+        for branch in ["the pacer", "the full transcript"] {
+            let mut shell = running("go");
+            if branch == "the pacer" {
+                shell.apply(UiEvent::Delta("word ".repeat(400)));
+            }
+            shell.apply(UiEvent::TurnEnded { failure: None });
+            shell.work.give_back();
+            shell.settle_band(Instant::now());
+            if branch == "the full transcript" {
+                shell.route_bytes(b"\x0f");
+                assert!(shell.full.is_open(), "the full transcript did not open");
+            } else {
+                assert!(shell.pacer.pending() > 0, "the answer was released at once");
+            }
+            // Taken without releasing the pacer, which would empty it.
+            let _ = shell.document();
+            shell.route_bytes(b"queued card\r");
+            let before = shell.document().join("\n").contains("queued card");
+            shell.start_turn();
+            if branch == "the full transcript" {
+                shell.route_bytes(b"\x0f");
+            }
+            let mut now = Instant::now();
+            for _ in 0..2_000 {
+                if shell.pacer.pending() == 0 && shell.marks.is_empty() {
+                    break;
+                }
+                now += Duration::from_millis(TICK_MILLIS);
+                shell.settle_band(now);
+            }
+            let after = shell.released().join("\n").contains("queued card");
+            got.push((branch, before, after));
+        }
+        assert_eq!(
+            got,
+            [
+                ("the pacer", false, true),
+                ("the full transcript", false, true)
+            ],
+            "each branch: the card before the start, after it"
+        );
+    }
+
     #[test]
     fn a_prompt_queued_at_once_under_a_manual_compactions_row_is_not_shown_waiting() {
         // A prompt upstream queues at once is not a steer, and its band lists
