@@ -556,7 +556,9 @@ Two things reopened the unit under the confirm rule. Commits on `0978e02c`:
 row's cut), `8102aaef` (MUST 2, Ctrl-O's caches), `82ad8e26` (**RED**, alone:
 `round3/red-kept-row.txt`), `7a93d048` (the transcript's kept long rows),
 `fe3ce5c7` (the retint test's name), `6aa9a299` (pins), `71bd4f31` (two fx
-cites in a comment). Code head **`71bd4f31`**.
+cites in a comment), `1d52413d` (the argument spelled in one pass). Code head
+**`1d52413d`** (*corrected in T-U4-F*: this said `71bd4f31`, and the list
+left `1d52413d` out; the probe, the gates and the mutants are `1d52413d`'s).
 
 **MUST 1, the transcript's row: a regression against round 1, fixed.** Round
 2's `inline_cut` bounded the row at 256 KiB before it looked at columns, so
@@ -605,7 +607,11 @@ left, so `call-row-raw-argument`'s reason needs no clause for one (its
   last five block rows of 64 KiB or more with the width they were cut for
   and what they were cut to (`Transcript::cut_for_screen`, RED `82ad8e26`:
   three writes, three cuts; GREEN `7a93d048`; pinned for another width and
-  another row).
+  another row). Five bounds how many rows are kept, not their memory: each
+  is a row and its cut, so at worst about 5 x (8.3 + 8.3) MiB for rows of
+  the stream's 8 MiB of marks (a spelled ASCII argument is cut at 65 536
+  columns first, about 64 KiB); and Ctrl-O's blocks and headings are kept
+  per group and per call, so they grow with the session (*added in T-U4-F*).
 
 **MUST 2, Ctrl-O's layout.** Measured first (`round3/ctrl-o-breakdown.txt`,
 `ctrl_o_breakdown_probe.rs`, at round 2's code): for a 21-call group
@@ -720,7 +726,8 @@ costs well under a millisecond everywhere on both sides.
 
 **Mutants** (`mutants.txt`, `mutants.py`, at `1d52413d`, on a `git clone
 --no-local`, the clone clean after): **33, 32 killed, 1 equivalent** -- round
-2's mode guard, as before. Round 3's 15: a byte bound again (1 test); a
+2's mode guard, as before. Round 3's 14 (*corrected in T-U4-F*: this said
+15; `mutants.txt:144-190`): a byte bound again (1 test); a
 spelling cut like any text (2); what joins a spelling's last character left
 out of its unit (1); each member builds the block again (1); the block kept
 across a palette (1), across a change to the group (1); a heading laid out on
@@ -758,6 +765,86 @@ oracle, **1127 checks, 0 failures**). At `71bd4f31` one step, fxcap
 test-capture, failed once (a wrapper shell not yet exec'd into `/bin/cat`
 after 1 s) and passed run again alone; that run is superseded by this one.
 
+## T-U4-F (round 3's SHOULDs 3 and 4, and the receipt's nits)
+
+On `fix/p5-t-u4-f` from `5a7bb465`; `feat/p5-cancel-marker` stays at
+`5a7bb465`. Commits: `de917bf2` (**RED**, alone: `t-u4-f/red.txt`),
+`9129d727` (the fix), `bc0b5b90` (a redundant `skip(1)` removed), and the
+receipt.
+
+**1. A Prepend character took a spelling's `\` (opus SHOULD 3).** UAX #29
+GB9b joins a Prepend character to the character after it, so a cluster can
+begin with one and take in the `\` of the spelling that follows; the
+channel's spelling names none of them. `unit_at` took that cluster as the
+unit and then read the rest of the spelling a character at a time, so the
+row's cut could end inside it.
+
+- RED at `de917bf2` (`t-u4-f/red.txt`): U+0600's unit was 3 bytes with the
+  `\`, and through the bridge the row ended `...1\u{600}\x01\u{600}\x0`.
+- Fix (`9129d727`, `bc0b5b90`): a cluster that took in a `\` starting a
+  spelling ends before it (`unit_at`, `src/tui/toolgroup.rs`), and the
+  spelling is the next unit; a `\` that starts none stays in the cluster.
+  The text `unit_at` searches never starts with a spelling, so the unit is
+  never empty.
+- Tests: the bridge test (`the_transcripts_row_cuts_a_spelled_argument_between_its_spellings`)
+  adds U+0600 as a lead (`\u{600}`, `a\u{600}`, `ab\u{600}`,
+  `\u{600}\u{600}`) and between spellings (`\u{600}\u{1}` and
+  `\u{600}\u{9b}\u{600}\u{1}` after each of the 8 leads), each long enough
+  to be cut, through `made_inert`: whole spellings kept, and the row equal
+  to the whole row at 40, 120, 1000 and 65 534 columns.
+  `a_unit_ends_before_a_spelling_whatever_joins_its_backslash` walks every
+  code point and, for each one that joins a following `\` and is not
+  spelled, checks that its unit ends before the `\` and that the spelling is
+  the next unit.
+- **The other Prepend characters:** with this crate's segmentation, 27 code
+  points join a following `\`, and the spelling leaves all 27 as they are:
+  U+0600-0605, U+06DD, U+070F, U+0890, U+0891, U+08E2, U+0D4E, U+110BD,
+  U+110CD, U+111C2, U+111C3, U+113D1, U+1193F, U+11941, U+11A84-11A89,
+  U+11D46, U+11F02 (an ignored listing test on a throwaway clone; the
+  committed test checks the same set without listing it).
+
+**2. `inline` takes spelled text (opus SHOULD 4).** Its doc
+(`src/tui/toolgroup.rs`, `inline`) now says that wherever a session gives
+it an argument it is the channel's spelled one (`made_inert` spells every
+call's `Shown`), so its units are the spelled text's clusters, and what
+differs for raw text, which only a test hands it: raw clusters, and a raw
+cluster that spells wider than `u16::MAX` cells measured at that and kept
+whole. **No `debug_assert`:** one was tried, and the row's own spelling
+tests, which drive the raw path on purpose, failed with it (five named in
+the part of that run's output kept; the 9129d727 message says "five", which
+is that count, not a full one); the contract is the doc. The equality test's comment says its "ends where one
+of the raw argument's clusters ends" holds on the raw path, and that
+through the channel the units are the spelled text's.
+
+**3. Receipt nits.** Round 3's code head is `1d52413d` and the commit list
+has it; round 3's own mutants are 14, not 15 (`mutants.txt:144-190`);
+"five rows" is a count, not a memory bound -- at worst about 5 x (8.3 +
+8.3) MiB, and Ctrl-O's blocks and headings grow with the session. Each is
+marked where it was corrected above.
+
+**Mutants** (`t-u4-f/mutants.py`, the unit's runner with T-U4-F's three;
+on a `git clone --no-local` of `bc0b5b90`, the clone clean after;
+`t-u4-f/mutants.txt`): **3, all killed.** A cluster keeps the spelling it
+took in, 5a7bb465's rule (2 tests failed); a cluster ends before any `\` it
+took in, spelling or not (2); a cluster ends before its second character,
+whatever it is: **KILLED (hang)**, the tests ran past 600 s and were killed.
+
+The unit's runner (`mutants.py`) now has a per-mutant timeout: the test
+command runs in its own process group, and past 600 s the group is killed
+and the mutant recorded `KILLED (hang)`, apart from a `KILLED` with failed
+tests. That came from this round's third mutant: `.find(|_| true)` makes
+`unit_at` answer 0, so `inline` never advances. The first run had no timeout,
+ran 1 h 27 min at about 1 600 % CPU on a shared machine, and when its test
+process (mine) was killed the runner recorded it as `SURVIVED` with 0
+failed; that record is void, and the mutant was run again with the timeout.
+
+**Gates** (`t-u4-f/gates.txt`, at `bc0b5b90`, one at a time under the suite
+lock, each exit 0): fmt; clippy; `cargo test --locked` **5292 passed, 0
+failed, 7 ignored**, with fault injection **5329 / 0 / 7**; the toolgroup
+and bridge tests, 82 passed; check-xfx-identity and check-no-secrets (13 213
+tracked files), check-no-stubs; the ledger loads with every source ref it
+cites (refs into `toolgroup.rs` moved with the code: 914, 991, 1105).
+
 ## Files
 
 - `README.md` this file.
@@ -769,4 +856,5 @@ after 1 s) and passed run again alone; that run is superseded by this one.
 - `fx/`, `xfx/`, `xfx-base/` the `.ansi` captures of the 77 marker pairs; `marker_cells.py`; `green.txt`, `red.txt`.
 - `gates.txt`.
 - `round2/`: `render_cost_probe.rs`, `probe-before.txt`, `probe-after.txt` (MUST 2's measurements); `red.txt` (round 2's RED); `sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`, `sweep-mcp-verbs.md`, `sweep-cancel-base.md` (the touched scenarios); `gates.txt`.
+- `t-u4-f/`: `red.txt`, `mutants.py`, `mutants.txt`, `gates.txt`.
 - `round3/`: `red.txt`, `red-kept-row.txt` (the REDs); `ctrl_o_breakdown_probe.rs`, `ctrl-o-breakdown.txt` (where Ctrl-O's time went); `render_cost_probe.rs`, `probe.txt` (round 2 against round 3, one job), `probe-71bd4f31.txt`, `probe-busier.txt` (earlier runs); `sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`; `gates.txt`.
