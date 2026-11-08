@@ -1512,6 +1512,8 @@ fn landed_band(shell: &mut Shell, failures: &mut FrameFailures, ready: &BandAtte
         Built::Frame => Outcome::Painted,
         Built::Unchanged => Outcome::Unchanged,
     });
+    // And the `@` list's arrows scroll the rows this frame showed it in.
+    shell.file_picker_landed();
     // `/stats`'s `redraws`: a whole repaint that **landed**. A damaged attempt
     // that was refused is restored and counted by the tick that finally lands
     // it, so a screen that refused three times is still one repaint.
@@ -2181,8 +2183,10 @@ fn paint_alternate(
                     band.frame_landed(&frame, &shell.geometry, cursor);
                     debug_assert!(!band.on_alternate());
                     // The band on the primary plane is now exactly what this
-                    // frame painted, so whatever asked for a frame has had one.
+                    // frame painted, so whatever asked for a frame has had one
+                    // -- an `@` list it showed included.
                     let _ = shell.render.begin();
+                    shell.file_picker_landed();
                     failures.succeeded();
                     Ok(())
                 }

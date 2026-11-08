@@ -1232,6 +1232,12 @@ pub(crate) struct Shell {
     /// ([`super::picker::Trigger::File`]), and [`Self::reconcile_picker`] asks
     /// for this one first, as upstream does.
     file_picker: Option<FilePicker>,
+    /// The rows the last frame that landed painted the `@` list in, which its
+    /// arrows scroll (`visible_rows`, `file_completion_state.zig:106-108`,
+    /// `:248`, `:294@481104fd`): six until a frame paints one, and kept from
+    /// one `@` word to the next as upstream's picker state keeps it
+    /// ([`Self::file_picker_landed`]).
+    file_rows_painted: u16,
     /// Where the picker's rows come from: the workspace index and the last
     /// directory browsed, each read on a worker thread
     /// ([`super::file_index::Files`]). Nothing is read until a picker opens.
@@ -2576,6 +2582,7 @@ impl Shell {
             picker: None,
             dismissed: Dismissed::default(),
             file_picker: None,
+            file_rows_painted: file_picker::MOST_ROWS,
             files: {
                 // `~` is the profile's home, held to `HOME`'s one rule
                 // ([`crate::config::home_dir`]): an empty or relative
@@ -5351,6 +5358,24 @@ impl Shell {
         self.readiness.landed(outcome);
     }
 
+    /// A frame landed: when it showed the `@` list, the rows it painted the
+    /// list in are the rows the list's arrows scroll until the next one lands
+    /// (`paintedFilePickerReceipt`, `app_render_runtime.zig:2355-2360@481104fd`,
+    /// for a committed frame that showed the file picker in rows of its own,
+    /// `:1854-1857`; `acknowledge`, `file_completion_state.zig:294`).
+    ///
+    /// All of them are file rows. Upstream gives the first to a status line
+    /// only while it says `Selection unavailable` over rows
+    /// (`filePickerItemRows`, `picker_presentation.zig:668-672`); xfx's list
+    /// has no such state -- a refresh that loses the marked path puts the mark
+    /// back on the first row ([`FilePicker::settle`]) -- so its band rows are
+    /// its file rows.
+    pub(crate) fn file_picker_landed(&mut self) {
+        if self.geometry.panel > 0 && matches!(self.slot(), Some(Slot::Files(_))) {
+            self.file_rows_painted = self.geometry.panel;
+        }
+    }
+
     /// A write the screen refused: it may have left half a frame.
     pub(crate) fn approval_write_failed(&mut self) {
         self.readiness.write_failed();
@@ -6130,7 +6155,7 @@ impl Shell {
             }
             _ => return false,
         };
-        if files.step(delta) {
+        if files.step(delta, self.file_rows_painted) {
             self.render.request(Reason::Modal);
         }
         true
@@ -16093,7 +16118,10 @@ impl Shell {
             | None => 0,
         };
         let snapshot = self.settings_snapshot();
-        let panel = |input_rows: u16| match slot {
+        // Asked with the composer's height and the waiting prompt's rows the
+        // try below shows (none when it shows none): only the `@` list's
+        // height counts them.
+        let panel = |input_rows: u16, banner: u16| match slot {
             Some(Slot::Catalog(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Mcp(menu)) => {
                 let room = super::mcp_menu::room(rows, input_rows.saturating_sub(1));
@@ -16113,10 +16141,13 @@ impl Shell {
             Some(Slot::McpArgs(_)) => {
                 McpArgs::height(rows, input_rows.saturating_sub(1) + u16::from(activity))
             }
-            // Upstream's budget for a list (`activeListPickerReservedRows`)
-            // leaves no room for a running turn's row, which xfx's band puts
-            // above the composer; on a screen that short the list gives way
-            // first, down to the one row it never goes below.
+            // Upstream's budget for the `@` list (`filePickerReservedRows`,
+            // `surface_frame.zig:661-662@481104fd`) counts a waiting prompt's
+            // rows and the blank under them (`banner_rows`,
+            // `render_input.zig:548-551`) but leaves no room for a running
+            // turn's row, which xfx's band puts above the composer; on a
+            // screen that short the list gives way first, down to the one row
+            // it never goes below.
             Some(Slot::Files(_)) => {
                 let room = rows
                     .saturating_sub(
@@ -16125,7 +16156,8 @@ impl Shell {
                             .saturating_add(u16::from(activity)),
                     )
                     .max(1);
-                FilePicker::height(rows, input_rows.saturating_sub(1)).min(room)
+                let banner = if banner > 0 { banner + 1 } else { 0 };
+                FilePicker::height(rows, input_rows.saturating_sub(1), banner).min(room)
             }
             _ => fixed,
         };
@@ -16202,13 +16234,13 @@ impl Shell {
                             rows,
                             cols,
                             input_rows,
-                            panel(input_rows),
+                            panel(input_rows, banner),
                             more,
                             banner,
                         )
                     })
                     .or_else(|| {
-                        layout::solve_band(rows, cols, input_rows, activity, panel(input_rows))
+                        layout::solve_band(rows, cols, input_rows, activity, panel(input_rows, 0))
                     })
             })
             .map(|geometry| self.placed(geometry))
@@ -24109,6 +24141,39 @@ mod tests {
             rows.iter().all(|row| super::super::wrap::width(row) <= 40),
             "{band:#?}"
         );
+    }
+
+    #[test]
+    fn a_waiting_prompts_rows_come_out_of_the_at_lists_growth() {
+        // `filePickerReservedRows(rows, input_extra, banner_rows)`
+        // (`picker_presentation.zig:661-666@481104fd`, from
+        // `surface_frame.zig:526-533`, `:661-662`): the banner is the waiting
+        // prompt's rows and the blank under them (`render_input.zig:548-551`).
+        // On 20 rows the list grows to ten with nothing waiting, and to eight
+        // past a one-row waiting prompt: 20 - (5 + 2) - 5.
+        let mut alone = running("first");
+        alone.resize(20, 120);
+        alone.route_bytes(b"@");
+        alone.settle_band(Instant::now());
+        assert!(alone.file_picker.is_some());
+        assert_eq!(alone.geometry.panel, 10);
+
+        let mut shell = running("first");
+        shell.resize(20, 120);
+        shell.route_bytes(b"second\r");
+        shell.settle_band(Instant::now());
+        shell.route_bytes(b"@");
+        shell.settle_band(Instant::now());
+        let band = uncoloured_rows(&shell.band_rows());
+        assert_eq!(
+            band.iter()
+                .filter(|row| row.starts_with('\u{250b}'))
+                .count(),
+            1,
+            "{band:#?}"
+        );
+        assert!(shell.file_picker.is_some());
+        assert_eq!(shell.geometry.panel, 8, "{band:#?}");
     }
 
     #[test]
@@ -34161,9 +34226,12 @@ mod tests {
         shell.route_bytes(b"@");
         listed(&mut shell);
         let rows = shell.band_rows();
-        // `fx-composer-40x120-at.ansi`: the composer, a rule, six rows two
+        // `fx-composer-40x120-at.ansi`: the composer, a rule, the rows two
         // columns in with the first on the grey bar, a rule -- and the hint
-        // row as it was, because upstream's file picker has no key help.
+        // row as it was, because upstream's file picker has no key help. Ten
+        // rows on this screen in fx v0.0.16 (`filePickerReservedRows`,
+        // `picker_presentation.zig:661-666@481104fd`; `filepicker`'s `at` at
+        // 40x120): all nine of the workspace's, and a blank one.
         assert_eq!(rows[0], composer_row("@"));
         assert_eq!(rows[1], divider(120));
         assert_eq!(
@@ -34175,10 +34243,14 @@ mod tests {
                 file_row(2, "docs/guide.md", false),
                 file_row(2, "src/", false),
                 file_row(2, "src/deep/", false),
+                file_row(2, "src/deep/sched.rs", false),
+                file_row(2, "src/lib.rs", false),
+                file_row(2, "src/main.rs", false),
+                String::new(),
             ]
         );
-        assert_eq!(rows[8], divider(120));
-        assert_eq!(rows[9], hint_row(IDLE_HINT));
+        assert_eq!(rows[12], divider(120));
+        assert_eq!(rows[13], hint_row(IDLE_HINT));
         // The caret stays in the composer: the list is a view of it.
         assert_eq!(
             shell.cursor(),
@@ -34267,22 +34339,15 @@ mod tests {
         let (_workspace, mut shell) = in_ws2(40, 120);
         shell.route_bytes(b"@sch");
         listed(&mut shell);
-        // `fx-composer-40x120-at-sch.ansi`: one row, the rest blank.
+        // `fx-composer-40x120-at-sch.ansi`: one row, the rest blank -- nine
+        // of them in fx v0.0.16's ten (`filepicker`'s `at-sch` at 40x120).
         let selected = PALETTE.selected();
-        assert_eq!(
-            listed_rows(&shell),
-            [
-                format!(
-                    "  {selected}src/deep/\u{1b}[1msch\u{1b}[0m{selected}ed.rs{}",
-                    PALETTE.reset()
-                ),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-            ]
-        );
+        let mut expected = vec![format!(
+            "  {selected}src/deep/\u{1b}[1msch\u{1b}[0m{selected}ed.rs{}",
+            PALETTE.reset()
+        )];
+        expected.resize(10, String::new());
+        assert_eq!(listed_rows(&shell), expected);
     }
 
     #[test]

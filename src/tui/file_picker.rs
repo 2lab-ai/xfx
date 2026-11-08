@@ -21,10 +21,14 @@
 //!   (`paint_plan.zig:946-978`), so the statusline stays -- capture
 //!   `fx-composer-40x120-at.txt`, `auto · model-a` under the list.
 //!
-//! The list is always as tall as the screen gives a picker
-//! (`activeListPickerReservedRows`, `picker_presentation.zig:634-639`), at most
-//! [`MOST_ROWS`], and a query that matched fewer leaves the rest blank -- so
-//! the band does not jump while the user types.
+//! The list is always as tall as the screen gives it, and a query that matched
+//! fewer leaves the rest blank -- so the band does not jump while the user
+//! types. That is fx v0.0.16's height (a5fe00d7; `filePickerReservedRows`,
+//! `picker_presentation.zig:654-666@481104fd`): a list picker's six rows, or
+//! fewer on a screen without them, grown to [`MOST_FILE_ROWS`] while five
+//! transcript rows stay visible above the band ([`FilePicker::height`]). The
+//! arrows scroll the rows the last frame that landed painted (99e62b8e;
+//! [`FilePicker::step`]).
 //!
 //! # What opens it
 //!
@@ -53,12 +57,21 @@ use super::file_index::{is_terminal_safe, Found, Kind, Lookup};
 use super::picker::{cells, edge_start};
 use super::theme::Palette;
 
-/// The most rows the list takes (`default_max_picker_rows`,
-/// `list_window.zig:3`).
+/// A list picker's rows (`default_max_picker_rows`, `list_window.zig:3`): the
+/// height the `@` list keeps on a screen too short to grow it, and the rows
+/// its arrows scroll until a frame has painted it.
 pub(crate) const MOST_ROWS: u16 = 6;
 
+/// The most rows the `@` list grows to (`max_file_picker_rows`,
+/// `picker_presentation.zig:654-656@481104fd`).
+const MOST_FILE_ROWS: u16 = 10;
+
+/// The transcript rows the grown list leaves above the band
+/// (`minimum_transcript_rows`, `picker_presentation.zig:663@481104fd`).
+const TRANSCRIPT_ROWS: u16 = 5;
+
 /// The band's rows a list cannot have besides the composer's first
-/// (`activeListPickerReservedRows`' `fixed_rows`, `picker_presentation.zig:635`).
+/// (`fixed_rows`, `picker_presentation.zig:648`, `:662@481104fd`).
 const FIXED_ROWS: u16 = 5;
 
 /// What a row too narrow for its path is cut with.
@@ -455,7 +468,11 @@ pub(crate) struct FilePicker {
     shown: Shown,
     selected: usize,
     /// The first row in view, kept as the last move left it
-    /// (`list_window.zig:50-62`).
+    /// (`list_window.zig:55-68@481104fd`). A frame paints the rows that keep
+    /// the mark in view from here and does not write them back
+    /// (`paint_plan.zig:936-937`; `acknowledge` keeps the start it was given,
+    /// `file_completion_state.zig:293`), so a screen made shorter shows the
+    /// mark and the next move scrolls from where the last one left this.
     window_start: usize,
 }
 
@@ -528,17 +545,21 @@ impl FilePicker {
         if self.selected == 0 {
             self.window_start = 0;
         }
+        // The window stays where the last move left it: the frame paints the
+        // rows that keep the mark in view, and the next move scrolls from
+        // here (`acknowledge` keeps the start, `file_completion_state.zig:293`).
         self.rows = rows;
         self.shown = shown;
-        self.window_start =
-            edge_start(self.window_start, self.rows.len(), self.selected, MOST_ROWS);
         true
     }
 
-    /// Moves the mark `delta` rows (`advanceSelection`, `list_window.zig:40-48`):
-    /// past either end it goes to the other end, however far it was asked to
-    /// go, and the window scrolls only as far as keeps the mark in view.
-    pub(crate) fn step(&mut self, delta: i64) -> bool {
+    /// Moves the mark `delta` rows (`advanceSelectionWithin`,
+    /// `list_window.zig:44-53@481104fd`): past either end it goes to the other
+    /// end, however far it was asked to go, and the window scrolls only as far
+    /// as keeps the mark in view of `painted` rows -- the rows the last frame
+    /// that landed painted the list in (`navigate`,
+    /// `file_completion_state.zig:239-249`).
+    pub(crate) fn step(&mut self, delta: i64, painted: u16) -> bool {
         let count = self.rows.len();
         if count == 0 {
             return false;
@@ -554,7 +575,7 @@ impl FilePicker {
             next
         };
         self.selected = usize::try_from(next).unwrap_or(0);
-        self.window_start = edge_start(self.window_start, count, self.selected, MOST_ROWS);
+        self.window_start = edge_start(self.window_start, count, self.selected, painted);
         true
     }
 
@@ -574,14 +595,25 @@ impl FilePicker {
     }
 
     /// The rows the band gives the list on a screen `terminal_rows` tall with a
-    /// composer `input_extra` rows past its first
-    /// (`activeListPickerReservedRows`, `picker_presentation.zig:634-639`).
-    pub(crate) fn height(terminal_rows: u16, input_extra: u16) -> u16 {
-        let available = terminal_rows.saturating_sub(FIXED_ROWS.saturating_add(input_extra));
-        if available == 0 {
-            return 1;
-        }
-        available.min(MOST_ROWS)
+    /// composer `input_extra` rows past its first and a waiting prompt's
+    /// `banner_rows` (its rows and the blank under them) above it
+    /// (`filePickerReservedRows`, `picker_presentation.zig:658-666@481104fd`).
+    ///
+    /// A list picker's height (`activeListPickerReservedRows`, `:647-652`):
+    /// what the screen has past the band's fixed rows, at most six and never
+    /// none -- grown to ten while five transcript rows stay visible.
+    pub(crate) fn height(terminal_rows: u16, input_extra: u16, banner_rows: u16) -> u16 {
+        let fixed = FIXED_ROWS
+            .saturating_add(input_extra)
+            .saturating_add(banner_rows);
+        let available = terminal_rows.saturating_sub(fixed);
+        let list = if available == 0 {
+            1
+        } else {
+            available.min(MOST_ROWS)
+        };
+        let grown = MOST_FILE_ROWS.min(available.saturating_sub(TRANSCRIPT_ROWS));
+        list.max(grown)
     }
 
     /// The list's rows, top first, exactly `height` of them, starting at the
@@ -1026,12 +1058,12 @@ mod tests {
     #[test]
     fn a_move_wraps_and_the_window_follows_the_mark_to_its_edge() {
         let mut list = picker(&ws2());
-        list.step(1);
+        list.step(1, MOST_ROWS);
         assert_eq!(
             list.marked().map(|found| found.path.as_str()),
             Some("README.md")
         );
-        list.step(-2);
+        list.step(-2, MOST_ROWS);
         assert_eq!(
             list.marked().map(|found| found.path.as_str()),
             Some("src/main.rs")
@@ -1045,7 +1077,7 @@ mod tests {
         );
         assert!(rows[0].contains("docs/guide.md\u{1b}[0m"), "{rows:?}");
         // A page past the end goes to the other end, as one row past it does.
-        list.step(6);
+        list.step(6, MOST_ROWS);
         assert_eq!(
             list.marked().map(|found| found.path.as_str()),
             Some("Cargo.toml")
@@ -1055,7 +1087,7 @@ mod tests {
     #[test]
     fn a_refresh_keeps_the_mark_on_the_same_path() {
         let mut list = picker(&ws2());
-        list.step(3);
+        list.step(3, MOST_ROWS);
         assert_eq!(
             list.marked().map(|found| found.path.as_str()),
             Some("docs/guide.md")
@@ -1130,21 +1162,135 @@ mod tests {
     fn the_list_grows_to_ten_rows_while_five_transcript_rows_stay_visible() {
         // fx's own table (`file picker grows to ten rows while five transcript
         // rows stay visible`, `picker_presentation.zig:1588-1597@481104fd`).
-        assert_eq!(FilePicker::height(40, 0), 10);
-        assert_eq!(FilePicker::height(24, 0), 10);
-        assert_eq!(FilePicker::height(18, 0), 8);
+        assert_eq!(FilePicker::height(40, 0, 0), 10);
+        assert_eq!(FilePicker::height(24, 0, 0), 10);
+        assert_eq!(FilePicker::height(18, 0, 0), 8);
         // Short terminals keep the list picker's height.
-        assert_eq!(FilePicker::height(16, 0), 6);
-        assert_eq!(FilePicker::height(12, 0), 6);
-        assert_eq!(FilePicker::height(6, 0), 1);
+        assert_eq!(FilePicker::height(16, 0, 0), 6);
+        assert_eq!(FilePicker::height(12, 0, 0), 6);
+        assert_eq!(FilePicker::height(6, 0, 0), 1);
+        assert_eq!(FilePicker::height(20, 2, 4), 6);
     }
 
     #[test]
-    fn the_list_takes_six_rows_or_what_the_screen_has() {
-        assert_eq!(FilePicker::height(40, 0), 6);
-        assert_eq!(FilePicker::height(24, 0), 6);
-        assert_eq!(FilePicker::height(9, 0), 4);
-        assert_eq!(FilePicker::height(9, 2), 2);
-        assert_eq!(FilePicker::height(5, 0), 1, "never none");
+    fn below_six_rows_the_list_takes_what_the_screen_has_and_never_none() {
+        // `activeListPickerReservedRows`, `picker_presentation.zig:647-652`:
+        // the floor the grown height never goes under.
+        assert_eq!(FilePicker::height(9, 0, 0), 4);
+        assert_eq!(FilePicker::height(9, 2, 0), 2);
+        assert_eq!(FilePicker::height(11, 0, 2), 4);
+        assert_eq!(FilePicker::height(5, 0, 0), 1, "never none");
+        assert_eq!(FilePicker::height(0, 0, 0), 1, "never none");
+        // Every row the composer or a waiting prompt takes is one the list
+        // gives up, once it has grown.
+        assert_eq!(FilePicker::height(24, 3, 0), 10);
+        assert_eq!(FilePicker::height(24, 4, 0), 10);
+        assert_eq!(FilePicker::height(24, 5, 0), 9);
+        assert_eq!(FilePicker::height(24, 0, 5), 9);
+        assert_eq!(FilePicker::height(u16::MAX, u16::MAX, u16::MAX), 1);
+    }
+
+    /// Thirty files, `./00.txt` to `./29.txt`, as fx's own case has them.
+    fn thirty() -> FilePicker {
+        let rows: Vec<Found> = (0..30).map(|n| file(&format!("./{n:02}.txt"))).collect();
+        picker(&rows)
+    }
+
+    fn mark_and_window(list: &FilePicker) -> (usize, usize) {
+        (list.selected, list.window_start)
+    }
+
+    #[test]
+    fn the_arrows_scroll_within_the_rows_the_last_frame_painted() {
+        // fx's `file picker navigation scrolls within the rows the last frame
+        // painted` (`file_completion_state.zig:319-350@481104fd`).
+        let mut list = thirty();
+        for _ in 0..7 {
+            list.step(1, 6);
+        }
+        assert_eq!(list.window_start, 2);
+        // Moving back up keeps the window until the selection reaches its top.
+        for _ in 0..5 {
+            list.step(-1, 6);
+        }
+        assert_eq!(list.window_start, 2);
+        list.step(-1, 6);
+        assert_eq!(list.window_start, 1);
+        // A frame painted ten.
+        for _ in 0..8 {
+            list.step(1, 10);
+        }
+        assert_eq!(mark_and_window(&list), (9, 1));
+    }
+
+    #[test]
+    fn the_window_scrolls_only_past_the_rows_painted() {
+        // `selection scrolls only past the picker's own row count`
+        // (`list_window.zig:70-85@481104fd`).
+        let mut list = thirty();
+        for _ in 0..9 {
+            list.step(1, 10);
+        }
+        assert_eq!(mark_and_window(&list), (9, 0));
+        list.step(1, 10);
+        assert_eq!(mark_and_window(&list), (10, 1));
+        // Other pickers keep six rows.
+        let mut list = thirty();
+        for _ in 0..6 {
+            list.step(1, MOST_ROWS);
+        }
+        assert_eq!(list.window_start, 1);
+    }
+
+    #[test]
+    fn a_frame_paints_the_rows_that_keep_the_mark_in_view_and_keeps_the_window() {
+        // `paint_plan.zig:936-937`: the painted window is re-fitted from the
+        // window the last move left; the window itself is not written back
+        // (`acknowledge`, `file_completion_state.zig:293`). Captures
+        // `p5-input-at-resize`, 40x120 then 16x120.
+        let mut list = thirty();
+        for _ in 0..12 {
+            list.step(1, 10);
+        }
+        assert_eq!(mark_and_window(&list), (12, 3));
+        let rows = list.rows(1, 40, 10, DARK);
+        assert_eq!(plain(&rows[0]), "./03.txt");
+        assert_eq!(plain(&rows[9]), "./12.txt");
+        assert!(rows[9].contains("\u{1b}[48;5;239m"), "{rows:?}");
+        // Six rows now: the frame shows 07-12, and the window stays at 3.
+        let rows = list.rows(1, 40, 6, DARK);
+        assert_eq!(rows.len(), 6);
+        assert_eq!(plain(&rows[0]), "./07.txt");
+        assert_eq!(plain(&rows[5]), "./12.txt");
+        assert_eq!(list.window_start, 3);
+        // So one Up scrolls six rows from 3: the window moves to 6.
+        list.step(-1, 6);
+        assert_eq!(mark_and_window(&list), (11, 6));
+        let rows = list.rows(1, 40, 6, DARK);
+        assert_eq!(plain(&rows[0]), "./06.txt");
+        assert_eq!(plain(&rows[5]), "./11.txt");
+    }
+
+    #[test]
+    fn a_refresh_leaves_the_window_where_the_last_move_left_it() {
+        // `acknowledge` writes back the window the frame was given
+        // (`file_completion_state.zig:293`): rows that land while the user is
+        // choosing re-fit what is painted, not where the next move starts.
+        let mut list = thirty();
+        for _ in 0..12 {
+            list.step(1, 10);
+        }
+        let mut fewer: Vec<Found> = (0..30).map(|n| file(&format!("./{n:02}.txt"))).collect();
+        fewer.drain(0..10);
+        assert!(list.settle(Lookup::Rows(fewer)));
+        assert_eq!(
+            list.marked().map(|found| found.path.as_str()),
+            Some("./12.txt")
+        );
+        assert_eq!(mark_and_window(&list), (2, 3));
+        let rows = list.rows(1, 40, 10, DARK);
+        assert_eq!(plain(&rows[0]), "./12.txt");
+        list.step(1, 10);
+        assert_eq!(mark_and_window(&list), (3, 3));
     }
 }
