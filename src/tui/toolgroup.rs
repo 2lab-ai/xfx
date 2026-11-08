@@ -2738,6 +2738,14 @@ mod tests {
                 "a named one across the cut",
                 [filler(wide - 4), named.to_vec()].concat(),
             ),
+            // One of them with a skin-tone modifier: one cluster of two
+            // scalars, the base in the row's last column and the modifier
+            // past it. Cut between the two, the row would end on half of
+            // it.
+            (
+                "a raw one and its modifier across the cut",
+                [filler(wide - 1), vec!["\u{261d}\u{1f3fb}", "z"]].concat(),
+            ),
         ];
         for (why, units) in cases {
             let pattern: String = units.concat();
