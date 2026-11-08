@@ -14574,57 +14574,67 @@ mod tests {
     #[test]
     fn a_tool_row_read_with_text_a_stop_drops_is_still_written() {
         // The other half of opus's SHOULD 1 on STOP-NEXT-2: a tool row read
-        // after the stop waits behind the text read before it, and when a
-        // drain that empties the channel drops that text (upstream's batch
-        // taken while the stopped turn still ran,
-        // `cancelledEventAdmission`, `app_worker_runtime.zig:339-389@481104fd`),
-        // the row is still written, as it was when rows went out at once.
-        let (mut shell, mut band, mut out) = status_running(b"go\r");
-        let before = out.vectors.len();
-        shell.route_bytes(&[0x03]);
-        status_tick(&mut shell, &mut band, &mut out);
-        let spec = crate::tools::Registry::builtin()
-            .spec("read_file")
-            .expect("a tool the registry has");
-        let (events, mut receiver) = tokio::sync::mpsc::channel(bridge::UI_EVENTS);
-        for event in [
-            UiEvent::Delta("DROPPED-TEXT\n\n".to_string()),
-            UiEvent::ToolStart {
-                call_id: "r".to_string(),
-                tool: "read_file".to_string(),
-                shown: spec.shown(&serde_json::json!({"path": "notes.txt"})),
-            },
-            UiEvent::ToolResult {
-                call_id: "r".to_string(),
-                tool: "read_file".to_string(),
-                ok: true,
-                detail: String::new(),
-                outcome: crate::tools::Outcome::Finished,
-                changes: None,
-            },
-        ] {
-            events.try_send(event).expect("room");
-        }
-        take_ui_events(&mut shell, &mut receiver);
-        events
-            .try_send(UiEvent::TurnEnded {
-                failure: Some(bridge::TURN_CANCELLED.to_string()),
-            })
-            .expect("room");
-        take_ui_events(&mut shell, &mut receiver);
-        shell.handle.give_back();
-        shell.flush_paced();
-        shell.settle_band(Instant::now());
-        status_tick(&mut shell, &mut band, &mut out);
-        let wire = out.vectors[before..].concat();
-        assert_eq!(
-            (
+        // after the stop waits behind the text read before it, and when that
+        // text is dropped -- by a drain that empties the channel, upstream's
+        // batch taken while the stopped turn still ran, or by the stop's own
+        // end read with it (`cancelledEventAdmission`,
+        // `app_worker_runtime.zig:339-389@481104fd`) -- the row is still
+        // written, as it was when rows went out at once.
+        let mut got = Vec::new();
+        for case in ["an emptied drain", "the stop's own end, in the same drain"] {
+            let (mut shell, mut band, mut out) = status_running(b"go\r");
+            let before = out.vectors.len();
+            shell.route_bytes(&[0x03]);
+            status_tick(&mut shell, &mut band, &mut out);
+            let spec = crate::tools::Registry::builtin()
+                .spec("read_file")
+                .expect("a tool the registry has");
+            let (events, mut receiver) = tokio::sync::mpsc::channel(bridge::UI_EVENTS);
+            for event in [
+                UiEvent::Delta("DROPPED-TEXT\n\n".to_string()),
+                UiEvent::ToolStart {
+                    call_id: "r".to_string(),
+                    tool: "read_file".to_string(),
+                    shown: spec.shown(&serde_json::json!({"path": "notes.txt"})),
+                },
+                UiEvent::ToolResult {
+                    call_id: "r".to_string(),
+                    tool: "read_file".to_string(),
+                    ok: true,
+                    detail: String::new(),
+                    outcome: crate::tools::Outcome::Finished,
+                    changes: None,
+                },
+            ] {
+                events.try_send(event).expect("room");
+            }
+            if case == "an emptied drain" {
+                take_ui_events(&mut shell, &mut receiver);
+            }
+            events
+                .try_send(UiEvent::TurnEnded {
+                    failure: Some(bridge::TURN_CANCELLED.to_string()),
+                })
+                .expect("room");
+            take_ui_events(&mut shell, &mut receiver);
+            shell.handle.give_back();
+            shell.flush_paced();
+            shell.settle_band(Instant::now());
+            status_tick(&mut shell, &mut band, &mut out);
+            let wire = out.vectors[before..].concat();
+            got.push((
+                case,
                 find(&wire, b"notes.txt").is_some(),
-                find(&wire, b"DROPPED-TEXT").is_some()
-            ),
-            (true, false),
-            "the row, the dropped text: {:?}",
-            String::from_utf8_lossy(&wire)
+                find(&wire, b"DROPPED-TEXT").is_some(),
+            ));
+        }
+        assert_eq!(
+            got,
+            [
+                ("an emptied drain", true, false),
+                ("the stop's own end, in the same drain", true, false),
+            ],
+            "each: the row, the dropped text"
         );
     }
 

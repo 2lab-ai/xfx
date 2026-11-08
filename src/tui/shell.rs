@@ -46042,9 +46042,17 @@ mod tests {
         shell.work.give_back();
         shell.settle_band(Instant::now());
         shell.shell.flush_paced();
-        let rows = shell.painted_document();
+        let rows: Vec<String> = shell
+            .painted_document()
+            .iter()
+            .map(|row| colourless(row))
+            .collect();
         let at = |needle: &str| rows.iter().position(|row| row.contains(needle));
-        let (cancelled, first, summary) = (at("Cancelled"), at("FIRST-PART"), at("0s ("));
+        let (cancelled, first, summary) = (
+            at("\u{25a0} Cancelled \u{b7}"),
+            at("FIRST-PART"),
+            at("0s ("),
+        );
         assert!(
             cancelled.is_some()
                 && first.is_some()
@@ -46052,6 +46060,53 @@ mod tests {
                 && cancelled < first
                 && first < summary,
             "the turn's Cancelled line, the held text, the summary: {rows:#?}"
+        );
+    }
+
+    #[test]
+    fn a_cancel_that_waited_for_a_call_leaves_a_held_call_still_running_its_own_line() {
+        // The owed line's other answer beside held rows: the call that was
+        // running at the keystroke returned at once, then the turn read text
+        // and started a call whose row is held behind it, and failed after
+        // the stop. Once the held rows are written that call is still
+        // running, so the line the cancel owes is the call's own, which the
+        // turn's end writes as it stops it ([`Mark::TurnOver`]), and the
+        // turn writes no `Cancelled` line of its own.
+        let mut shell = running("first question");
+        shell.apply(tool_start(
+            "r",
+            "read_file",
+            serde_json::json!({"path": "notes.txt"}),
+        ));
+        shell.route_bytes(&[0x03]);
+        let _ = shell.painted_document();
+        shell.apply(tool_result("r", "read_file", true, ""));
+        shell.apply(UiEvent::Delta("FIRST-PART\n\n".to_string()));
+        shell.apply(tool_start(
+            "s",
+            "read_file",
+            serde_json::json!({"path": "later.txt"}),
+        ));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the provider went away".to_string()),
+        });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        shell.shell.flush_paced();
+        let rows: Vec<String> = shell
+            .painted_document()
+            .iter()
+            .map(|row| colourless(row))
+            .collect();
+        let has = |needle: &str| rows.iter().any(|row| row.contains(needle));
+        assert_eq!(
+            (
+                has("\u{25a0} Cancelled \u{b7}"),
+                has("later.txt"),
+                has("FIRST-PART")
+            ),
+            (false, true, true),
+            "no turn's Cancelled line; the held call's row; the held text: {rows:#?}"
         );
     }
 
