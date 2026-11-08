@@ -13221,22 +13221,27 @@ fn a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_res
     // once the session has exited (`settled_text`), so none depends on when
     // this thread looks.
     //
-    // - Nothing but the restore's clear after the last heartbeat: no frame
-    //   and no report. Every heartbeat is written before the tool dies, the
-    //   copy's end returns only after it has reaped the tool, and the pty
-    //   keeps the writes in the order they were made -- so anything xfx
-    //   writes after the copy's end lands after every heartbeat, and this
-    //   catches it however soon or late. (A frame written during the grace,
-    //   while the tool still beats, is not caught here.) It also needs a
-    //   heartbeat after the last frame: the end gives the tool its grace
-    //   (1 s, `copy.rs` `GRACE`) to write one, and a tool starved for all of
-    //   it would fail this case rather than pass it.
-    // - No heartbeat after the restore began: a tool still alive after the
-    //   restore was written. This catches a restore written before the copy's
-    //   end only when the tool beats between the two. A restore written
-    //   ahead of the end has the grace (1 s, about a hundred heartbeats)
-    //   after it before the kill; one written within the last heartbeat
-    //   before the kill would not be caught.
+    // - After the last heartbeat, no frame and exactly one report: the
+    //   restore's own clear, at its place in the restore -- xfx writes the
+    //   clear nowhere else (`term.rs`'s four restore literals), so a second
+    //   clear is as wrong as any other report. Every heartbeat is written
+    //   before the tool dies, the copy's end returns only after it has
+    //   reaped the tool, and the pty keeps the writes in the order they were
+    //   made -- so anything xfx writes after the copy's end lands after every
+    //   heartbeat, and this catches it however soon or late. (A frame
+    //   written during the grace, while the tool still beats, is not caught
+    //   here.) It also needs a heartbeat after the last frame, which the end
+    //   gives the tool its grace (1 s, `copy.rs` `GRACE`) to write: in that
+    //   it is a scheduling-dependent oracle -- a tool starved for the whole
+    //   grace would fail the case falsely; starvation cannot make it pass.
+    // - No heartbeat after the restore began: the tool wrote nothing after
+    //   the restore. That does not prove the tool was dead by then -- a live
+    //   tool that did not beat before its kill shows the same -- so this
+    //   catches a restore written before the copy's end only when the tool
+    //   beats between the two, a sample at the heartbeat's rate. A restore
+    //   written ahead of the end has the grace (1 s, about a hundred
+    //   heartbeats) after it before the kill; one written within the last
+    //   heartbeat before the kill would not be caught.
     // - One restore; nothing after it but its clear; the tool alive when the
     //   session is asked to end (it never ends by itself) and dead once the
     //   session has exited.
@@ -13293,26 +13298,30 @@ fn a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_res
     assert!(!alive(tool), "the copy's tool outlived the session");
     let text = session.settled_text();
 
-    let beat = text.rfind(BEAT).expect("the copy's tool never beat") + BEAT.len();
-    let after_beat = &text[beat..];
-    assert!(
-        !after_beat.contains(FRAME_OPEN)
-            && after_beat
-                .match_indices(REPORT)
-                .all(|(at, _)| after_beat[at..].starts_with(CLEAR)),
-        "a frame or a report after the copy's tool last beat: {after_beat:?}"
-    );
     assert_eq!(text.matches(RESTORE).count(), 1, "{text:?}");
     let restore = text.find(RESTORE).expect("the planned exit's restore");
     assert!(
         !text[restore..].contains(BEAT),
-        "the copy's tool was alive after the restore began: {:?}",
+        "the copy's tool wrote after the restore began: {:?}",
         &text[restore..]
     );
     assert!(
         !text[restore + RESTORE.len()..].contains(REPORT) && !text[restore..].contains(FRAME_OPEN),
         "a frame or a report after the restore: {:?}",
         &text[restore..]
+    );
+    // The restore's own clear: the one report it carries (`term.rs`).
+    let restore_clear = restore + RESTORE.find(CLEAR).expect("the restore carries the clear");
+    let beat = text.rfind(BEAT).expect("the copy's tool never beat") + BEAT.len();
+    let after_beat = &text[beat..];
+    let reports: Vec<usize> = after_beat
+        .match_indices(REPORT)
+        .map(|(at, _)| beat + at)
+        .collect();
+    assert!(
+        !after_beat.contains(FRAME_OPEN) && reports == [restore_clear],
+        "after the copy's tool last beat, something but the restore's own clear \
+         (reports at {reports:?}, the restore's clear at {restore_clear}): {after_beat:?}"
     );
 }
 
