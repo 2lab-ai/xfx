@@ -160,15 +160,15 @@ pub(crate) struct Band {
     /// frames so building one allocates nothing after the first, and swapped
     /// with [`shadow`](Self::shadow) only by a write that succeeded.
     target: Grid,
-    /// One row of scratch space [`Grid::row_matches`] renders a candidate
+    /// One row of scratch space [`Grid::row_holds`] renders a candidate
     /// settled row into, reused across a whole append so only this row's own
     /// cell-vector storage is (re)allocated once, not once per row compared
     /// -- narrower than "the check allocates nothing": a row it places
     /// there still allocates a `String` per grapheme cluster, on every row it
     /// renders, matched or not (a row the grid placed itself from the same
-    /// text is answered without one, [`Grid::row_matches`]). Disposable:
+    /// text is answered without one, [`Grid::row_holds`]). Disposable:
     /// nothing ever reads it as a claim about the screen, only as the last
-    /// thing [`Grid::row_matches`] rendered into it.
+    /// thing [`Grid::row_holds`] rendered into it.
     scratch: Grid,
     /// What the output check's replay of this band's appends laid for long
     /// rows, kept for the next append ([`check::preflight_kept`]): the check's
@@ -1631,8 +1631,9 @@ impl Band {
         // band top as the frame that landed last, and no extra blank scroll
         // ahead of it (`scroll != fresh` means `Transcript` handed back more
         // scroll than rows, which is not a screen this reasoning covers).
-        // Row-by-row it still costs a real rendered-cell comparison
-        // ([`Grid::row_matches`]) rather than trusting the frame-level facts
+        // Row-by-row it still costs a real rendered-cell comparison, or the
+        // grid's record that the row was laid from this text
+        // ([`Grid::row_holds`]), rather than trusting the frame-level facts
         // alone -- those rule out *why* a row could be stale, not whether
         // this particular one is.
         let reuse_eligible = !self.damaged
@@ -1650,7 +1651,7 @@ impl Band {
             let reused = reuse_eligible
                 && self
                     .target
-                    .row_matches(line, row, geometry, &mut self.scratch);
+                    .row_holds(line, row, geometry, &mut self.scratch);
             if !reused {
                 place(&mut self.buffer, line, row, geometry);
                 self.target.place_row(line, row, geometry);
