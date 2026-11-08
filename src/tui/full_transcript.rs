@@ -1170,6 +1170,9 @@ pub(crate) struct FullTranscript {
     /// heading laid out: what a layout of the record costs, for the tests.
     #[cfg(test)]
     built: Cell<(usize, usize)>,
+    /// How many times one of a call's arguments was wrapped into its rows.
+    #[cfg(test)]
+    arguments_wrapped: Cell<usize>,
 }
 
 /// The screen, while it is up.
@@ -1287,6 +1290,8 @@ impl FullTranscript {
             view: None,
             #[cfg(test)]
             built: Cell::default(),
+            #[cfg(test)]
+            arguments_wrapped: Cell::default(),
         }
     }
 
@@ -1758,6 +1763,14 @@ impl FullTranscript {
         out
     }
 
+    /// Every row of the record at `cols` in `palette`, through the caches the
+    /// screen lays it out with, and without asking the screen where it is.
+    #[cfg(test)]
+    pub(crate) fn all_rows(&self, cols: u16, palette: Palette) -> Vec<String> {
+        let (total, _) = self.measure(cols, palette);
+        self.window(0, total, cols, palette)
+    }
+
     /// One entry's rows -- its header, then what it says -- from its cache
     /// when that is still the layout of what it says now.
     fn laid_out(&self, entry: &Entry, cols: u16, palette: Palette) -> Rc<Vec<String>> {
@@ -2054,6 +2067,8 @@ impl FullTranscript {
                 // argument's text short of it (`full_transcript_screen.zig:
                 // 6381-6383`), so `content: …\n` is no rail row of its own.
                 let line = format!("{}: {}", argument.name, argument.value);
+                #[cfg(test)]
+                self.arguments_wrapped.set(self.arguments_wrapped.get() + 1);
                 rows.extend(railed(
                     line.strip_suffix('\n').unwrap_or(&line),
                     "  ",
@@ -6211,5 +6226,127 @@ mod tests {
         // Narrower: every heading again, the block as it was.
         let _ = record.measure(100, LIGHT);
         assert_eq!(record.built.get(), (3, 16), "after a resize");
+    }
+
+    /// ARGROW-CACHE: a group whose every call has an argument its heading does
+    /// not show -- a pattern too long for its heading to fit, holding words,
+    /// a scalar a terminal draws wider and a control; a command's `cwd`; four
+    /// reads' notes, one of them of three lines -- each through the channel's
+    /// spelling, and `late`'s too when it has joined.
+    fn a_group_with_arguments(record: &mut FullTranscript, late: bool) {
+        let pattern = format!(
+            "{} \u{261d} \u{9b} {}",
+            "x".repeat(3000),
+            "word ".repeat(400)
+        );
+        let given = |record: &mut FullTranscript, id: &str, tool: &str, input: &Value| {
+            record.observe(&UiEvent::ToolDetail {
+                call_id: id.into(),
+                detail: Detail::Arguments(arguments(tool, input)).made_inert(),
+            });
+        };
+        let input = json!({ "pattern": pattern });
+        record.tool_started("big", &read::GLOB_FILES.shown(&input));
+        given(record, "big", "glob_files", &input);
+        record.tool_finished("big", true, "", Outcome::Finished, None);
+        let input = json!({"action": "exec", "command": "ls -la src", "cwd": "sub"});
+        record.tool_started("ls", &command("ls -la src"));
+        given(record, "ls", "terminal", &input);
+        record.tool_finished("ls", true, "", Outcome::Exited(0), None);
+        for index in 0..4 {
+            let id = format!("r{index}");
+            let note = if index == 2 {
+                format!("one\n\n{}", "three ".repeat(60))
+            } else {
+                format!("n{index}")
+            };
+            let input = json!({"path": "a.txt", "note": note});
+            record.tool_started(&id, &read("a.txt"));
+            given(record, &id, "read_file", &input);
+            record.tool_finished(&id, true, "", Outcome::Finished, None);
+        }
+        if late {
+            let input = json!({"path": "b.txt", "note": "late"});
+            record.tool_started("late", &read("b.txt"));
+            given(record, "late", "read_file", &input);
+        }
+    }
+
+    #[test]
+    fn ctrl_o_wraps_a_calls_arguments_once_for_a_width_and_not_again_for_a_join_or_a_theme() {
+        // ARGROW-CACHE (train 6, join check 2): T-U4 caches a group's block
+        // and each call's heading, not a call's arguments, and the entry's
+        // layout is keyed on the group's revision, the width and the palette
+        // -- so a call joining the group, a theme switch and a resize each
+        // wrapped every member's arguments again: 1.4 s a join for a 4 Mi
+        // U+009B pattern. Each argument is wrapped once for the width it is
+        // shown at, and again only when that width or the argument changes;
+        // every layout is the record laid out from nothing.
+        const LIGHT: Palette = Palette { mode: Mode::Light };
+        let fresh = |late: bool, cols: u16, palette: Palette| {
+            let mut record = record();
+            a_group_with_arguments(&mut record, late);
+            record.all_rows(cols, palette)
+        };
+        let mut record = record();
+        a_group_with_arguments(&mut record, false);
+        let first = record.all_rows(120, DARK);
+        assert_eq!(first, fresh(false, 120, DARK), "the first layout");
+        assert!(
+            plain(&first).contains(&"\u{2502}  cwd: sub".to_string()),
+            "{:#?}",
+            plain(&first)
+        );
+        assert_eq!(record.arguments_wrapped.get(), 6, "the first layout");
+        let _ = record.measure(120, DARK);
+        assert_eq!(record.arguments_wrapped.get(), 6, "laid out already");
+        // A call joins: its own argument, and nobody else's.
+        record.tool_started("late", &read("b.txt"));
+        record.observe(&UiEvent::ToolDetail {
+            call_id: "late".into(),
+            detail: Detail::Arguments(arguments(
+                "read_file",
+                &json!({"path": "b.txt", "note": "late"}),
+            ))
+            .made_inert(),
+        });
+        assert_eq!(record.all_rows(120, DARK), fresh(true, 120, DARK), "joined");
+        assert_eq!(record.arguments_wrapped.get(), 7, "after a call joined");
+        // The other theme: the same rows in its colours, nothing wrapped.
+        assert_eq!(
+            record.all_rows(120, LIGHT),
+            fresh(true, 120, LIGHT),
+            "light"
+        );
+        assert_eq!(record.arguments_wrapped.get(), 7, "after a theme switch");
+        assert_eq!(record.all_rows(120, DARK), fresh(true, 120, DARK), "dark");
+        assert_eq!(record.arguments_wrapped.get(), 7, "and back");
+        // Narrower: every argument again; and back, again, byte for byte.
+        assert_eq!(
+            record.all_rows(100, LIGHT),
+            fresh(true, 100, LIGHT),
+            "narrow"
+        );
+        assert_eq!(record.arguments_wrapped.get(), 14, "after a resize");
+        let back = record.all_rows(120, DARK);
+        assert_eq!(back, fresh(true, 120, DARK), "back at 120");
+        assert_eq!(record.arguments_wrapped.get(), 21, "after the resize back");
+        // An argument that changes is wrapped again, and only it.
+        record.observe(&UiEvent::ToolDetail {
+            call_id: "r1".into(),
+            detail: Detail::Arguments(arguments(
+                "read_file",
+                &json!({"path": "a.txt", "note": "changed"}),
+            ))
+            .made_inert(),
+        });
+        let changed = record.all_rows(120, DARK);
+        assert!(
+            plain(&changed).contains(&"\u{2502}  note: changed".to_string()),
+            "{:#?}",
+            plain(&changed)
+        );
+        assert!(!plain(&changed).contains(&"\u{2502}  note: n1".to_string()));
+        assert_eq!(record.arguments_wrapped.get(), 22, "after r1's changed");
     }
 }
