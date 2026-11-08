@@ -2296,10 +2296,23 @@ mod tests {
 
     #[test]
     fn a_printable_ascii_character_is_one_cell() {
-        for byte in 0x20u8..=0x7e {
-            let text = (byte as char).to_string();
-            assert_eq!(cluster_width(&text), 1, "{text:?}");
-            assert_eq!(unicode_width::UnicodeWidthStr::width(text.as_str()), 1);
+        // And every other one-byte cluster what the general path counts it:
+        // the tab its stop's cells, every other control none.
+        for byte in 0x00u8..=0x7f {
+            let character = byte as char;
+            let text = character.to_string();
+            let general = if character == '\t' {
+                TAB_WIDTH
+            } else if character.is_control() {
+                0
+            } else {
+                u16::try_from(unicode_width::UnicodeWidthChar::width(character).unwrap_or(0))
+                    .expect("a cell or two")
+            };
+            assert_eq!(cluster_width(&text), general, "{text:?}");
+            if (0x20..=0x7e).contains(&byte) {
+                assert_eq!(general, 1, "{text:?}");
+            }
         }
     }
 
