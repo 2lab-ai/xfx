@@ -286,7 +286,12 @@ parity row; `2f6323a3`, main; `75f70b03`, a scenario), from the two reviews of `
   then the frame with the prompt (three runs). The keystroke frame does not show its activity, so
   the premise above is wrong for that window, and this bullet's hold for a stop-window prompt is
   reverted there: such a prompt is reported ahead of the frame that shows its turn, however the
-  runtime's two events split across ticks.
+  runtime's two events split across ticks. This receipt's `mutants.py` is as of `75f70b03`: on
+  STOP-LATE-EVENT's head its rows 16 and 25 no longer find their originals (the settle's guard and
+  the hold's condition changed) and would SKIP, and its `UNIT` filter
+  `a_prompt_typed_after_a_stop` matches no test (renamed
+  `a_prompt_typed_before_a_stopped_turn_ends_…`); those rules' mutants are in
+  `../stop-late-event/mutants.txt`.
 - **A prompt held behind other runtime work: no difference on the wire** (opus SHOULD 2, gpt6 NTH
   1). fx adopts a prompt at the keystroke and queues it only once it may run
   (`adoptPendingUserPrompt`, `finalizePendingSubmission`, `main.zig:1234-1266`), holding it while
