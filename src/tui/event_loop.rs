@@ -1528,9 +1528,10 @@ fn landed_band(shell: &mut Shell, failures: &mut FrameFailures, ready: &BandAtte
         Built::Frame => Outcome::Painted,
         Built::Unchanged => Outcome::Unchanged,
     });
-    // A submitted card's preview has been on the screen for its frame: the
-    // card is the next frame's to write (`Shell::preview_landed`).
-    shell.preview_landed();
+    // The screen the next preview is measured against, and a submitted
+    // card's preview that has been on it for its frame: the card is the next
+    // frame's to write (`Shell::band_landed`).
+    shell.band_landed();
     // `/stats`'s `redraws`: a whole repaint that **landed**. A damaged attempt
     // that was refused is restored and counted by the tick that finally lands
     // it, so a screen that refused three times is still one repaint.

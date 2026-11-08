@@ -1338,6 +1338,12 @@ pub(crate) struct Shell {
     /// tick writes the card's frame next, before it reads anything or takes
     /// a resize ([`Self::take_preview_shown`]).
     preview_shown: bool,
+    /// The content bottom of the band the last landed frame painted: the
+    /// screen upstream's preview is measured against, its last committed
+    /// frame's (`presentation_shell.cursor_row`, committed at
+    /// `src/ui/transcript/runtime.zig:9929-9932@481104fd`) -- not a composer
+    /// no frame has shown yet ([`Self::preview_room`]).
+    landed_bottom: Option<u16>,
     /// `/effort`'s menu, while it is up ([`super::effort_menu`]).
     ///
     /// The slot's occupant upstream ranks after `/model`'s menu
@@ -2630,6 +2636,7 @@ impl Shell {
             raw_gap: false,
             preview: None,
             preview_shown: false,
+            landed_bottom: None,
             effort_menu: None,
             gateway_note: crate::provider::model::gateway_catalog_note(config.credential.as_ref()),
             statusline: config.statusline,
@@ -4185,6 +4192,14 @@ impl Shell {
     /// (`noteCommittedFrame` -> `adoptPendingSubmission` ->
     /// `adoptPendingUserPrompt`, `src/core/app/input_submit_runtime.zig:
     /// 289-307`, `:572-584`, `src/main.zig:1234-1243@481104fd`).
+    /// A band frame landed: its content bottom is the screen the next
+    /// preview is measured against, and a preview it showed has had its
+    /// frame ([`Self::preview_landed`]).
+    pub(crate) fn band_landed(&mut self) {
+        self.landed_bottom = Some(self.geometry.content_bottom);
+        self.preview_landed();
+    }
+
     pub(crate) fn preview_landed(&mut self) {
         if self.previewing() {
             self.drop_preview();
@@ -13529,7 +13544,7 @@ impl Shell {
         let (rows, cols) = (self.geometry.rows, self.geometry.cols);
         let document = u16::try_from(self.document_rows)
             .unwrap_or(u16::MAX)
-            .min(self.geometry.content_bottom);
+            .min(self.landed_bottom.unwrap_or(self.geometry.content_bottom));
         let tail = rows
             .saturating_sub(UPSTREAM_FOOTER_ROWS)
             .saturating_sub(document)
@@ -16522,6 +16537,8 @@ impl Shell {
         self.screen = (rows, cols);
         self.document_rows = u32::MAX;
         self.tail_unknown = true;
+        // No frame has landed on this screen yet.
+        self.landed_bottom = None;
         // A card's preview was cut for the screen that is gone; the card is
         // written whole by the frame this owes ([`Self::preview`]).
         self.preview = None;
