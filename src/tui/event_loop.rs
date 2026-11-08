@@ -15890,11 +15890,20 @@ mod tests {
         // The schedule is the loop's own (`session`): the keys, then the
         // drain, then the settle, with the runtime's two steps between one
         // tick's drain and its settle. The next line is typed as a person
-        // types it: once the row says the sentence. Three lines: a prompt;
-        // `/compact`, whose new compaction the stale ending would settle; and
-        // a prompt after an automatic compaction stopped inside its turn.
+        // types it: once the row says the sentence. The lines: a prompt;
+        // `/compact`, whose new compaction the stale ending would settle; a
+        // command that sends the runtime nothing; a prompt after an automatic
+        // compaction stopped inside its turn. And the Escape, which takes the
+        // sentence away too (`dismissCompactionFeedback`,
+        // `src/core/app/input_interrupt_runtime.zig:57-65@481104fd`).
         let mut got = Vec::new();
-        for case in ["a prompt", "/compact", "a prompt after an automatic one"] {
+        for case in [
+            "a prompt",
+            "/compact",
+            "/version",
+            "an Escape",
+            "a prompt after an automatic one",
+        ] {
             let automatic = case.ends_with("automatic one");
             let mut shell = if automatic {
                 let (mut shell, _, _) = status_running(b"go\r");
@@ -15949,13 +15958,22 @@ mod tests {
                 take_ui_events(&mut shell, &mut receiver);
                 shell.settle_band(Instant::now());
             }
-            let line: &[u8] = if case == "/compact" {
-                b"/compact\r"
-            } else {
-                b"third question\r"
-            };
-            shell.route_bytes(line);
-            // The row as the line left it, before anything more is read.
+            match case {
+                "/compact" => shell.route_bytes(b"/compact\r"),
+                "/version" => shell.route_bytes(b"/version\r"),
+                "an Escape" => {
+                    shell.route_bytes(&[0x1b]);
+                    // Alone long enough to be the key (`settle_input`).
+                    shell.settle_input(
+                        Instant::now()
+                            + crate::tui::input::Decoder::ESC_TIMEOUT
+                            + Duration::from_millis(1),
+                    );
+                }
+                _ => shell.route_bytes(b"third question\r"),
+            }
+            // The row as the line or the Escape left it, before anything more
+            // is read.
             shell.settle_band(Instant::now());
             let cleared = !band_says(&shell, COMPACTION_CANCELLED);
             for _ in 0..3 {
@@ -15974,10 +15992,12 @@ mod tests {
             [
                 ("a prompt", true, false, false),
                 ("/compact", true, false, true),
+                ("/version", true, false, false),
+                ("an Escape", true, false, false),
                 ("a prompt after an automatic one", true, false, false),
             ],
-            "each: (the line took the sentence away, the sentence on the row three drains \
-             later, the new compaction's own row)"
+            "each: (the line or the Escape took the sentence away, the sentence on the row \
+             three drains later, the new compaction's own row)"
         );
     }
 }
