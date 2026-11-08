@@ -19,7 +19,8 @@ sightings of registry #19 (timing flakes in the xfx tests and harness).
 | `5bd5c05f` | two scenarios: the snaps the full sweep dropped wait for the screen (first form) |
 | `84ee1680` | the same two, settled (Sweep, below) |
 | `35e2e977` | a comment in `p5-mcp-menu-old.cap` corrected |
-| this one | the receipt |
+| `6f3cb284` | the receipt |
+| this one | `final-checks.txt`, run at `6f3cb284` |
 
 `85428cc9` is a third commit because its RED was found after the fix: the
 first form of `test_a_binary_gone_at_once_is_final_under_keep_and_fails_the_run_without`
@@ -350,5 +351,5 @@ not edit it.
 - `tmux-checks.txt`: respawn clears the screen; a bash stub keeps ISIG.
 - `gone-pane.txt`: `85428cc9`'s case on both harnesses.
 - `waits.py`, `waits-base-1.txt`, `waits-head-1.txt`: every wait line of the full sweeps, tallied.
-- `mutants.py`, `mutants.txt`; `gates.sh`, `gate.txt`.
+- `mutants.py`, `mutants.txt`; `gates.sh`, `gate.txt`; `final-checks.txt`.
 - `redacted.py`: how the logs here were redacted.
