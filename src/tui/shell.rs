@@ -45352,6 +45352,40 @@ mod tests {
     }
 
     #[test]
+    fn a_stop_a_compaction_then_ends_is_that_compactions_and_its_turn_says_nothing_more() {
+        // The user stops a turn, and the runtime reads the stop at the
+        // compaction before its next step: the compaction settles cancelled,
+        // and the turn's end says nothing -- a compaction ended it
+        // (`super::worker`'s `end_of_turn`), as upstream's
+        // compaction-interrupted turn (`persistCompactionInterruptedTurnOnce`,
+        // `interruption.zig:50-71@481104fd`). Not a finish: no summary, no
+        // `done`.
+        let mut shell = running("first question");
+        let mut wire = vec![status_of(&mut shell)];
+        shell.route_bytes(&[0x03]);
+        wire.push(status_of(&mut shell));
+        shell.apply(UiEvent::Compaction(compaction::Update::Began {
+            automatic: true,
+        }));
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Cancelled,
+        )));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        let after = shell.released();
+        assert_eq!(
+            (wire, after.iter().any(|row| row.starts_with("  0s"))),
+            (
+                vec![Some("working".to_string()), Some("idle".to_string()), None],
+                false
+            ),
+            "the reports, a summary row: {after:?}"
+        );
+    }
+
+    #[test]
     fn a_stopped_turn_whose_start_was_read_titles_the_session_as_upstream_does() {
         // Upstream's stopped turn is still a turn of the history -- it is
         // committed `.interrupted` (`interruption.zig:197-221@481104fd`) --
