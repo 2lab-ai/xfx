@@ -1,0 +1,27 @@
+# Phase 5 SUBMIT-CARD-PREVIEW (fx v0.0.16's 70611a91): five lines typed (a
+# line feed, Ctrl-J, between them) and their Enter in one write (`key -H`,
+# one tmux send-keys), on the screen p5-transcript-submit fills -- no frame
+# shows the five-row composer before the Enter is read. (A paste and an
+# Enter in one read is refused on both: `Paste was not applied because extra
+# input followed its end marker`.) Where fx measures the preview's room from the last
+# committed frame (the one-row composer's), the frame that clears the
+# composer shows what that frame left room for. The wires on both sides of
+# the write, the turn held at its first chunk.
+gateway p5-submit-preview-turns.json
+fx: env FX_AUTO_UPGRADE=0
+wait 4
+type fill the screen
+wait 1
+key Enter
+wait 8
+snap filled
+wire oneread-before
+key -H 6f 6e 65 72 65 61 64 20 6c 69 6e 65 20 31 0a 6f 6e 65 72 65 61 64 20 6c 69 6e 65 20 32 0a 6f 6e 65 72 65 61 64 20 6c 69 6e 65 20 33 0a 6f 6e 65 72 65 61 64 20 6c 69 6e 65 20 34 0a 6f 6e 65 72 65 61 64 20 6c 69 6e 65 20 35 0d
+held
+wait 1
+snap oneread-held
+release
+wait 3
+snap oneread
+wire oneread-after
+gwlog

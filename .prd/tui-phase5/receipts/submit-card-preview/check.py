@@ -116,13 +116,13 @@ def whole(what, path):
 fx_dir = os.path.join(receipt, "fx")
 for before in sorted(glob.glob(os.path.join(fx_dir, "*-before*.wire"))):
     name = os.path.basename(before)
-    m = re.match(r"fx-(.+)-40x120-(?:(.+)-)?before(-submit)?\.wire$", name)
-    scenario, pair = m.group(1), (m.group(2) or "submit")
+    m = re.match(r"fx-(.+)-(\d+x\d+)-(?:(.+)-)?before(-submit)?\.wire$", name)
+    scenario, size, pair = m.group(1), m.group(2), (m.group(3) or "submit")
     stem = name[: name.index("before")].rstrip("-")
-    unit = "%s %s" % (scenario, pair)
+    unit = "%s %s" % (scenario, pair) if size == "40x120" else "%s %s %s" % (scenario, size, pair)
 
     def path(who, k):
-        return os.path.join(receipt, who, "%s-%s-frame%d.ansi" % (who if who != "red" else "xfx", stem[3:], k)) \
+        return os.path.join(receipt, who, "%s-%s-frame%d.ansi" % ("xfx", stem[3:], k)) \
             if who != "fx" else os.path.join(fx_dir, "%s-frame%d.ansi" % (stem, k))
 
     for k in (1, 2):
@@ -140,18 +140,20 @@ for before in sorted(glob.glob(os.path.join(fx_dir, "*-before*.wire"))):
             a, b = (open(p.replace(".ansi", ".bytes"), "rb").read() for p in later)
             print("         its bytes: %s" % ("the base's" if a == b else "not the base's (%d against %d)" % (len(a), len(b))))
 
-for scenario in sorted({re.match(r"fx-(.+)-40x120-", os.path.basename(p)).group(1)
-                        for p in glob.glob(os.path.join(fx_dir, "fx-*-40x120-*.wire"))}):
-    for full in sorted(glob.glob(os.path.join(receipt, side, "xfx-%s-40x120-*.full.ansi" % scenario))):
-        label = os.path.basename(full)[len("xfx-%s-40x120-" % scenario): -len(".full.ansi")]
+for scenario, size in sorted({re.match(r"fx-(.+)-(\d+x\d+)-", os.path.basename(p)).groups()
+                              for p in glob.glob(os.path.join(fx_dir, "fx-*-*x*-*.wire"))}):
+    named = scenario if size == "40x120" else "%s %s" % (scenario, size)
+    prefix = "xfx-%s-%s-" % (scenario, size)
+    for full in sorted(glob.glob(os.path.join(receipt, side, prefix + "*.full.ansi"))):
+        label = os.path.basename(full)[len(prefix): -len(".full.ansi")]
         if label in ("block", "tall"):
-            whole("%s %s.full whole" % (scenario, label), full)
+            whole("%s %s.full whole" % (named, label), full)
     if base:
-        for snap in sorted(glob.glob(os.path.join(receipt, base, "xfx-%s-40x120-*.ansi" % scenario))):
-            label = os.path.basename(snap)[len("xfx-%s-40x120-" % scenario): -len(".ansi")]
+        for snap in sorted(glob.glob(os.path.join(receipt, base, prefix + "*.ansi"))):
+            label = os.path.basename(snap)[len(prefix): -len(".ansi")]
             if re.search(r"frame\d|wireend", label):
                 continue
-            compare("%s %s snap" % (scenario, label), snap, os.path.join(receipt, side, os.path.basename(snap)), False, False)
+            compare("%s %s snap" % (named, label), snap, os.path.join(receipt, side, os.path.basename(snap)), False, False)
 
 print("\n%d claims failed: %s" % (len(failed), ", ".join(failed) if failed else "none"))
 sys.exit(1 if failed else 0)

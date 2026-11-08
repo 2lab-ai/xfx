@@ -9716,6 +9716,47 @@ mod tests {
     }
 
     #[test]
+    fn a_draft_and_its_enter_in_one_read_measure_the_room_the_last_frame_left() {
+        // fx measures the preview from the last committed frame's flow
+        // endpoint (`buildPendingCardProjection`'s `presentation_shell
+        // .cursor_row`, committed at `runtime.zig:9929-9932@481104fd`). Five
+        // lines typed and their Enter in one read: no frame showed the
+        // five-row composer, so the room is the one the one-row composer's
+        // frame left -- one row on a full screen, not three
+        // (`fx-p5-submit-preview-oneread-40x120-oneread`, the frame that
+        // clears the composer).
+        let (mut shell, mut band, mut failures, mut out, _terminal) = full_with_draft(&[]);
+        out.written.clear();
+        shell.route_bytes(b"ONEREAD-ONE\nONEREAD-TWO\nONEREAD-THREE\nONEREAD-FOUR\nONEREAD-FIVE\r");
+        assert!(
+            shell.previewing(),
+            "no preview, so this case proves nothing"
+        );
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame that clears the composer");
+        let first = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(first.contains("ONEREAD-FIVE"), "no preview row: {first:?}");
+        for word in [
+            "ONEREAD-ONE",
+            "ONEREAD-TWO",
+            "ONEREAD-THREE",
+            "ONEREAD-FOUR",
+        ] {
+            assert!(
+                !first.contains(word),
+                "the preview was measured from a composer no frame showed: {word}: {first:?}"
+            );
+        }
+    }
+
+    #[test]
     fn a_question_that_takes_the_plane_before_the_preview_lands_gets_the_card_first() {
         // The barrier ahead of `1049h` pays what the primary plane owes
         // (`commit_frame`): a card held behind a preview its frame never

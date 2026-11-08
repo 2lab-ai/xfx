@@ -9,8 +9,9 @@ with its `<stem>-<pair>-after.wire`, and every `<stem>-before-submit.wire`
 with its `<stem>-after-submit.wire` (the bytes the binary had written before
 Enter, and the same bytes and more after it): the frames after Enter are the
 synchronized updates (`ESC[?2026h` ... `ESC[?2026l`) past the before-wire's
-end. For k = 0 (the before-wire's end) up to <frames> (default 3), every byte
-up to the end of frame k is written into a new 40x120 pane of a tmux server of
+end, but not an update that only probes the cursor (`frames`). For k = 0 (the before-wire's end) up to <frames> (default 3), every byte
+up to the end of frame k is written into a new pane of the capture's own size (its
+`-<rows>x<cols>-` in the file name) of a tmux server of
 its own (`-f /dev/null`, a socket in <socket-dir>, never the user's), by `cat`
 of a file, and the pane is captured as `capture.sh` captures a snap
 (`capture-pane -p -e`), to `<stem>-<pair>-frame<k>.ansi`; the whole after-wire
@@ -22,6 +23,7 @@ its socket when each replay is read; nothing else is started.
 """
 import glob
 import os
+import re
 import subprocess
 import sys
 import time
@@ -31,7 +33,13 @@ upto = int(sys.argv[3]) if len(sys.argv) > 3 else 3
 START, END = b"\x1b[?2026h", b"\x1b[?2026l"
 
 
+QUIET = re.compile(rb"\x1b\[\?2026[hl]|\x1b[78]|\x1b\[\d*G|\x1b\[6n|\x1b\[\?25[hl]")
+
+
 def frames(before, after):
+    """The updates past the before-wire, but not one that only asks the
+    terminal where its cursor is (fx's width probe: a save, `CHA`, `DSR 6`,
+    a restore), which moves no cell and is not a frame of the screen."""
     assert after.startswith(before), "the before-wire is not where the after-wire starts"
     spans, pos = [], len(before)
     while True:
@@ -39,17 +47,23 @@ def frames(before, after):
         if s < 0:
             return spans
         e = after.index(END, s) + len(END)
-        spans.append((s, e))
+        if QUIET.sub(b"", after[s:e]):
+            spans.append((s, e))
         pos = e
 
 
-def replay(data, out):
+def size_of(stem):
+    m = re.search(r"-(\d+)x(\d+)(?:-|$)", os.path.basename(stem))
+    return (m.group(1), m.group(2)) if m else ("40", "120")
+
+
+def replay(data, out, rows="40", cols="120"):
     feed = os.path.join(sockdir, "feed.bin")
     with open(feed, "wb") as f:
         f.write(data)
     sock = os.path.join(sockdir, "frames.sock")
     tm = ["tmux", "-f", "/dev/null", "-S", sock]
-    subprocess.run(tm + ["new-session", "-d", "-x", "120", "-y", "40", "-s", "r",
+    subprocess.run(tm + ["new-session", "-d", "-x", cols, "-y", rows, "-s", "r",
                          "stty -echo; cat '%s'; exec sleep 30" % feed], check=True)
     try:
         last, same = None, 0
@@ -77,12 +91,13 @@ for before_path, after_path, stem in sorted(pairs):
     before = open(before_path, "rb").read()
     after = open(after_path, "rb").read()
     spans = frames(before, after)
-    replay(before, stem + "-frame0.ansi")
+    rows, cols = size_of(stem)
+    replay(before, stem + "-frame0.ansi", rows, cols)
     for k in range(1, min(upto, len(spans)) + 1):
         s, e = spans[k - 1]
         with open("%s-frame%d.bytes" % (stem, k), "wb") as f:
             f.write(after[s:e])
-        replay(after[:e], "%s-frame%d.ansi" % (stem, k))
-    replay(after, stem + "-wireend.ansi")
+        replay(after[:e], "%s-frame%d.ansi" % (stem, k), rows, cols)
+    replay(after, stem + "-wireend.ansi", rows, cols)
     print("%s: %d frames after Enter; frames 0..%d and the whole wire replayed"
           % (os.path.relpath(stem, capture), len(spans), min(upto, len(spans))))
