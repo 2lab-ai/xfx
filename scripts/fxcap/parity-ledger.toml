@@ -247,7 +247,7 @@ reason = "v0.0.16 paints an answer's inline code in the theme's brightest neutra
 owner = "T-U3"
 resolution = "T-U3 ships v0.0.16's inline code shade against the v0.0.16 pin"
 expires = "pin:v0.0.16"
-source = [".prd/07-fx-parity-program.md:43", "docs/parity.md:241", "src/markdown/theme.rs:49", "src/markdown/theme.rs:69"]
+source = [".prd/07-fx-parity-program.md:43", "docs/parity.md:243", "src/markdown/theme.rs:49", "src/markdown/theme.rs:69"]
 
 # v0.0.16: the `/status` panel (P-status). Approved for the v0.0.16 pin only;
 # each lapses at the next pin's review, 2026-12-04 at the latest (there is no
