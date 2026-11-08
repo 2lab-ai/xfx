@@ -1,0 +1,8 @@
+# RED for the kept block row, at the RED commit (test and test-only counter on 8102aaef's code):
+# cargo test --locked --lib -- tui::transcript::tests::a_long_block_row
+test tui::transcript::tests::a_long_block_row_is_cut_for_the_screen_once_however_often_the_block_is_written_again ... FAILED
+thread 'tui::transcript::tests::a_long_block_row_is_cut_for_the_screen_once_however_often_the_block_is_written_again' panicked at src/tui/transcript.rs:4340:9:
+assertion `left == right` failed: cut once for 40 columns
+  left: 3
+ right: 1
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4381 filtered out; finished in 0.02s

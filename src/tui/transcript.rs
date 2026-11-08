@@ -652,7 +652,15 @@ pub(crate) struct Transcript {
     /// is on the terminal, and a vector the screen refused must leave them
     /// owed exactly as a refused append always did ([`Landed::None`]).
     staged: Option<Staged>,
+    /// How many times a block's row of [`KEPT_ROW_BYTES`] or more was cut
+    /// for the screen: what writing a block again costs, for the tests.
+    #[cfg(test)]
+    cut_long: std::cell::Cell<usize>,
 }
+
+/// How long a block's row is before what it was cut to is worth keeping.
+#[cfg(test)]
+const KEPT_ROW_BYTES: usize = 64 * 1024;
 
 /// The committed state [`Transcript::stage`] saved, and the operations taken
 /// off the queue since, oldest first.
@@ -695,6 +703,8 @@ impl Transcript {
             block_frozen: 0,
             block_open: false,
             staged: None,
+            #[cfg(test)]
+            cut_long: std::cell::Cell::new(0),
         }
     }
 
@@ -1075,6 +1085,13 @@ impl Transcript {
             (0, 0)
         };
         let redraw_of = |index: usize| redraws.get(index).and_then(Option::as_ref);
+        let ellipsized = |row: &str, cols: u16| {
+            #[cfg(test)]
+            if row.len() >= KEPT_ROW_BYTES {
+                self.cut_long.set(self.cut_long.get() + 1);
+            }
+            ellipsized(row, cols)
+        };
         let mut written: Vec<String> = rows
             .iter()
             .enumerate()
@@ -4297,5 +4314,30 @@ mod tests {
             out.push(character);
         }
         out
+    }
+
+    #[test]
+    fn a_long_block_row_is_cut_for_the_screen_once_however_often_the_block_is_written_again() {
+        // T-U4 round 3: a tool group's block is written again on every change
+        // to the group, and a call's row can hold megabytes that a screen
+        // shows -- one letter under 65 536 combining marks paints one cell --
+        // and cutting it for the screen measured all of it again on every
+        // write. What it was cut to is kept, by the row and the width.
+        let long = format!("a{}tail", "\u{301}".repeat(64 * 1024));
+        let mut transcript = Transcript::new(40);
+        for header in ["header 1", "header 2", "header 3"] {
+            transcript.queue_block(
+                rows(&[header, long.as_str(), ""]),
+                Vec::new(),
+                Vec::new(),
+                Mode::Dark,
+            );
+            let appends = drain(&mut transcript, DARK_256);
+            assert!(
+                appends.iter().any(|append| append.rows.contains(&long)),
+                "the row, whole: it fits"
+            );
+        }
+        assert_eq!(transcript.cut_long.get(), 1, "cut once for 40 columns");
     }
 }
