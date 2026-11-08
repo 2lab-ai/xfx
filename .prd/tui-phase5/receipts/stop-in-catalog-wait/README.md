@@ -264,7 +264,7 @@ the interrupted turn keeps the prompt and its images (F4,
   the stopped turn's token (`src/tui/worker.rs:6194-6205`). The notice is
   then never shown.
 - The added lines were checked for local paths (`git diff -U0 | grep '^+'`
-  for `/Users`, the user name and `/private/`): none. The receipt was
+  for the local roots and the user name): none. The receipt was
   scanned with `LC_ALL=C grep -rla`: nothing.
 - **Gate (`gates-r2.txt`).** `gates.sh` ran at `8b8d1944` (a clean tree
   before and after, one lock slot). Every step reads rc=0, and step 00
