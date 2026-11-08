@@ -171,9 +171,23 @@ empties the channel. `a_stopped_compaction_is_over_only_after_a_drain_that_began
 (`:43393`) pins the boundary: given back during a drain, no; a drain cut short, no; the next
 drain that empties, yes.
 
-## The original test under load (`loops-base.txt`, `loops-head.txt`)
+## The original test under load (`loops-base.txt`, `loops-head.txt`, `loops-both.sh`)
 
-Pending: waiting for every slot of the suite lock; the results land in the next commit.
+`ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes`, `--exact --test-threads 1`, 20 runs on
+each build (with the fault injector, as CI's failing step, and without), one after another,
+under 18 busy loops on this 18-core machine (`loaded.pl`), in one `SUITE_LOCK_EXCLUSIVE=1` hold:
+
+| build | fault-injection | plain | 1-minute load |
+|---|---|---|---|
+| base (`2e724248`'s pty tests = `58c92ba2`'s) | 20 / 20 pass | 20 / 20 pass | 10.4 to 24.3 |
+| head (`ed0e4e3a`) | 20 / 20 pass | 20 / 20 pass | 25.7 to 31.0 |
+
+The loaded loop did not reproduce the failure on the base, so the head's 40 passes prove
+nothing about the fix. The race needs the runtime's two steps between one tick's drain and its
+settle, and the next keys read before the next drain. Busy loops on idle cores do not make that
+order: CI's runner was slow in its own way. The proof is the deterministic schedule (RED above)
+and the frame-5 reading of CI's dump. What the loops do show is that the original test still
+passes under load with the fix, where the sentence now comes one drain later.
 
 ## Mutants (`mutants-r1.txt`, `mutants.txt`, `mutants.py`)
 
@@ -288,7 +302,7 @@ both cases.
 - `ci-dump.txt`: the failed run's message and frames.
 - `fx-src.txt`: every fx line cited, at `481104fd`.
 - `red.log`, `red-extended.log`: RED.
-- `loaded.pl`, `loops.sh`, `loops-base.txt`, `loops-head.txt`: the loaded loops.
+- `loaded.pl`, `loops.sh`, `loops-both.sh`, `loops-base.txt`, `loops-head.txt`: the loaded loops.
 - `mutants.py`, `mutants-r1.txt`, `mutants.txt`: mutants, on `git clone --no-local` copies.
 - `sweeps.sh` (base and head; head2 is the same loop with the side `head2`), `sweep-base.md`,
   `sweep-head.md`, `sweep-head2.md`, `pairs_compare.py`, `pairs.txt`, `osc.txt`: the compaction

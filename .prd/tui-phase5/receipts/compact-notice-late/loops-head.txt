@@ -1,0 +1,47 @@
+# head ed0e4e3a (the fix and its tests)  2026-11-08T20:28:47Z  cores=18
+## fault-injection build
+run 1 pass load=25.68
+run 2 pass load=27.62
+run 3 pass load=27.62
+run 4 pass load=27.62
+run 5 pass load=27.62
+run 6 pass load=27.62
+run 7 pass load=27.62
+run 8 pass load=27.62
+run 9 pass load=28.85
+run 10 pass load=28.85
+run 11 pass load=28.85
+run 12 pass load=28.85
+run 13 pass load=28.85
+run 14 pass load=28.85
+run 15 pass load=28.85
+run 16 pass load=30.95
+run 17 pass load=30.95
+run 18 pass load=30.95
+run 19 pass load=30.95
+run 20 pass load=30.95
+total: 20 passed, 0 failed of 20 (spinners=18)
+## plain build
+run 1 pass load=30.15
+run 2 pass load=29.58
+run 3 pass load=29.58
+run 4 pass load=29.58
+run 5 pass load=29.58
+run 6 pass load=29.58
+run 7 pass load=28.81
+run 8 pass load=28.81
+run 9 pass load=28.81
+run 10 pass load=28.81
+run 11 pass load=28.81
+run 12 pass load=28.81
+run 13 pass load=28.81
+run 14 pass load=29.07
+run 15 pass load=29.07
+run 16 pass load=29.07
+run 17 pass load=29.07
+run 18 pass load=29.07
+run 19 pass load=29.07
+run 20 pass load=29.07
+total: 20 passed, 0 failed of 20 (spinners=18)
+# done 2026-11-08T20:29:30Z
+exit 0
