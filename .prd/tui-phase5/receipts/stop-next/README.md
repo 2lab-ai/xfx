@@ -9,8 +9,8 @@ and the reviews of its rounds 2 and 3 (zbrain `p5/STOP-LATE-EVENT/reviews/r2-*.m
   `--no-local` clone at that commit (banner `v0.1.0-8c5e9e1`).
 - **Code:** `9712d8b8`, the commit every `xfx/` capture's and the head sweep's banner names (`v0.1.0-9712d8b`). Its
   last code change is `01212cf0`; `9712d8b8` changes the parity row, the ledger, `capfile.py` and one comment ref in
-  `shell.rs`. After it come `107168f5` (the parity row), `d6be6c30` (tests only) and the receipt, none of which
-  changes code; the gate ran at `d6be6c30` (below).
+  `shell.rs`. After it come `107168f5` (the parity row), `d6be6c30` (tests only) and the receipt's three commits,
+  none of which changes code; the gate ran at `c8666457`, the receipt's first commit (below).
 - **Commits** (`git log 8c5e9e16..`):
   - `a2995eea` the protocol change, no behaviour change: `UiEvent::TurnStarted { submission }`, the band's waiting
     prompts a struct with their number, two tests of the number;
@@ -22,7 +22,9 @@ and the reviews of its rounds 2 and 3 (zbrain `p5/STOP-LATE-EVENT/reviews/r2-*.m
   - `8ee259ae` **RED** for item 6's other half (`red2-test.txt`); `01212cf0` its fix;
   - `9712d8b8` the parity row and the refs the code moved; `107168f5` the parity row's one-title residual;
   - `d6be6c30` tests only: a guard for each mutant the first mutant run left;
-  - the receipt commit.
+  - the receipt: `c8666457` (the gate ran here), `47a33759` (the gate's record), and a last commit that quotes four
+    fx ranges this receipt cited whole into `fx-src.txt` (`input_interrupt_runtime.zig:69-90`, and the gaps in
+    three quoted in parts) and corrects this list.
 
 ## The merge (`remerge.txt`)
 `git merge --no-ff 690aa505` on `af4fbacf`. main's side since L-U1+U2 (`e636db48`, which both sides hold)
@@ -90,7 +92,7 @@ not needed: the stop's count already says which prompts it covers (item 3).
 | 2 | the covered start: a settle takes the stop back with the start and end unread | coverage reads the number, not `cancelling` | yes (`61f35ffb`) | as item 1 | read only (the same window) |
 | 3 | a dropped prompt's stale entry | the stop's count covers the entry: no work, not in the band | yes (`61f35ffb`) | fx's stop drops no queued prompt (`requestInteractiveCancel`, `worker_runtime.zig:753-773`; the take clears the stop, `:1512`), so its prompt would run next: the drop is xfx's own (`docs/parity.md`, the full-screen TUI row). What is left is the earlier turn's `done` (item 1) | read only |
 | 4 | the same-read card on the Cancelled frame | a prompt fx would queue at once, with no turn of its own running, keeps its card, unshown, for its start (`shell.rs:12983`) | yes (`8709876e`) | a prompt that cannot install a pending submission is queued at once (`input_submit_runtime.zig:1103-1149`); the band lists only steering prompts (`snapshotSteeringPresentation`, `worker_runtime.zig:1749-1792`); the card is the `begin_prompt`'s (item 1) | **captured**: `p5-lifecycle-osc-stopnext` (fx's three runs, `../stop-late-event/fx*/`: the `Cancelled` frame has nothing of the prompt); `osc.py`'s new `prompt` claim |
-| 5 | a stop while the cancel is still requested | `stop_requested` (`shell.rs:1076`): set by a stop, taken back by a start past `through`, by nothing left in hand, a reset or a resume; while set, the Ctrl-C and Escape-pair stop returns (`cancel_turn`, `:12483`), save for a manual compaction or a provider switch typed since | yes (`c2b71ed6`, `c1c2fbd0`) | `if (app.worker.isCancelRequested()) return;` (`input_interrupt_runtime.zig:94`), after the compaction and provider-preparation branches (`:69-90`); set by the keystroke (`worker_runtime.zig:753-773`), cleared at the next take (`:1512`) | read only: a second Ctrl-C inside the stopped turn's last moments |
+| 5 | a stop while the cancel is still requested | `stop_requested` (`shell.rs:1076`): set by a stop, taken back by a start past `through`, by nothing left in hand, a reset or a resume; while set, the Ctrl-C and Escape-pair stop returns (`cancel_turn`, `:12483`), save for a manual compaction or a provider switch typed since | yes (`c2b71ed6`, `c1c2fbd0`) | `if (app.worker.isCancelRequested()) return;` (`input_interrupt_runtime.zig:94`), after the provider-preparation and compaction branches (`:69-90`, quoted in `fx-src.txt`'s last section); set by the keystroke (`worker_runtime.zig:753-773`), cleared at the next take (`:1512`) | read only: a second Ctrl-C inside the stopped turn's last moments |
 | 6 | the leading title takes whatever title is owed | the lead is set only when the stopped end itself gave the session its title (`:4706`), and any later title in the tick takes it back (`retitle`, `:15347`) | yes (`0d021cd0`, `01212cf0`) | a title is derived from history only while the session has none (`ensureCachedSessionTitle`, `app_session_runtime.zig:2997-3010`) | read only: no scenario reads a model's title and a stopped end in one drain |
 | 7 | a stop and its turn's end in one tick | -- | STOP-NEXT-2 | | |
 | 8 | a finished turn's text read after the keystroke | -- | STOP-NEXT-2 | | |

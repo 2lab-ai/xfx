@@ -607,3 +607,143 @@
 ### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n '1148,1149p'
  1148              std.debug.assert(app.submission.pending == null);
  1149              if (!app.worker.tryHoldTurnStart()) return .unavailable;
+
+## Added after the review of the receipt's own cites: the ranges the code, the parity row and the README cite whole
+
+## Item 5: cancelActiveOperation stops a provider's preparation and a manual compaction ahead of its
+## isCancelRequested return (:94), so neither is held by a stop already requested
+
+### git -C fx-upstream show 481104fd:src/core/app/input_interrupt_runtime.zig | sed -n '69,90p'
+   69                  if (comptime @hasDecl(@TypeOf(app.auth), "cancelProviderPreparation")) {
+   70                      if (app.auth.cancelProviderPreparation()) {
+   71                          if (comptime @hasDecl(App, "cancelPendingSubmission")) _ = App.cancelPendingSubmission(app);
+   72                          app.shell.render_requests.request(.footer);
+   73                          return;
+   74                      }
+   75                  }
+   76              }
+   77              if (activeCancellationTarget(app) == .context_compaction) {
+   78                  if (comptime !@hasDecl(
+   79                      @TypeOf(app.worker),
+   80                      "cancelContextCompaction",
+   81                  )) return;
+   82                  const cancelled = app.worker.cancelContextCompaction(
+   83                      std.heap.c_allocator,
+   84                  );
+   85                  if (!cancelled) return;
+   86                  app.pacer.clear(app.alloc);
+   87                  if (comptime @hasDecl(App, "playCancelSound")) app.playCancelSound();
+   88                  app.shell.render_requests.request(.footer);
+   89                  return;
+   90              }
+
+## Items 1-2: the lines between the two quoted blocks of batchSegmentIsInterrupted and cancelledEventAdmission
+
+### git -C fx-upstream show 481104fd:src/core/app/app_worker_runtime.zig | sed -n '326,338p'
+  326  
+  327  pub fn Runtime(comptime App: type) type {
+  328      return struct {
+  329          fn cancelledToolStartAdmission(
+  330              presenter: activity_runtime.LifecyclePresenter,
+  331              id: types.ToolLifecycleId,
+  332              batch_events: []const WorkerEvent,
+  333          ) CancelledEventAdmission {
+  334              if (batchContainsTerminalClosure(batch_events, id)) return .admit;
+  335              if (id.turn_id <= presenter.snapshot().finalized_turn_watermark) return .drop;
+  336              return .defer_until_closure;
+  337          }
+  338  
+
+## Item 4: snapshotSteeringPresentation's middle (the feedback events, then the steering-only list)
+
+### git -C fx-upstream show 481104fd:src/core/agent/worker_runtime.zig | sed -n '1761,1778p'
+ 1761          snapshot.pending_feedback = pending: {
+ 1762              var count: usize = 0;
+ 1763              for (self.worker_events.items) |event| {
+ 1764                  if (event == .append_user_feedback) count += 1;
+ 1765              }
+ 1766              if (count == 0) break :pending &.{};
+ 1767              const feedback = try alloc.alloc([]u8, count);
+ 1768              errdefer alloc.free(feedback);
+ 1769              var written: usize = 0;
+ 1770              errdefer for (feedback[0..written]) |message| alloc.free(message);
+ 1771              for (self.worker_events.items) |event| {
+ 1772                  if (event == .append_user_feedback) {
+ 1773                      feedback[written] = try alloc.dupe(u8, event.append_user_feedback);
+ 1774                      written += 1;
+ 1775                  }
+ 1776              }
+ 1777              break :pending feedback;
+ 1778          };
+
+## STOP-NEXT-2 item 3: a failed turn kept for a partial answer or completed work, whole
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/interruption.zig | sed -n '226,293p'
+  226  pub fn persistFailedPartialTurnOnce(
+  227      hooks: *const AgentRuntimeDeps,
+  228      finalization: *TurnFinalizationGuard,
+  229      job: QueuedPrompt,
+  230      partial_assistant: []const u8,
+  231      persisted: *bool,
+  232      trace_ctx: TraceContext,
+  233      current_turn_messages: []const types.ChatMessage,
+  234      terminal_materializing: *bool,
+  235  ) !void {
+  236      if (persisted.*) return;
+  237      if (partial_assistant.len == 0) return;
+  238  
+  239      const full_execution = try runtime_execution_memory.buildInterruptedExecutionMemory(
+  240          std.heap.c_allocator,
+  241          current_turn_messages,
+  242          null,
+  243      );
+  244      defer types.freeExecutionMemory(std.heap.c_allocator, full_execution);
+  245      try persistFailedTurn(
+  246          hooks,
+  247          finalization,
+  248          job,
+  249          partial_assistant,
+  250          persisted,
+  251          trace_ctx,
+  252          full_execution,
+  253          terminal_materializing,
+  254      );
+  255  }
+  256  
+  257  /// Saves a failed turn that already did work, such as a stall-stopped turn,
+  258  /// so the next request still carries its prompt, any partial reply, and every
+  259  /// completed tool step. Returns true only when this call saved and finished
+  260  /// the turn; otherwise the caller still owns finishing it. An error can come
+  261  /// back after the turn is finished, when propagating the saved turn fails.
+  262  pub fn persistFailedTurnWorkOnce(
+  263      hooks: *const AgentRuntimeDeps,
+  264      finalization: *TurnFinalizationGuard,
+  265      job: QueuedPrompt,
+  266      partial_assistant: []const u8,
+  267      persisted: *bool,
+  268      trace_ctx: TraceContext,
+  269      current_turn_messages: []const types.ChatMessage,
+  270      terminal_materializing: *bool,
+  271  ) !bool {
+  272      if (persisted.*) return false;
+  273  
+  274      const full_execution = try runtime_execution_memory.buildInterruptedExecutionMemory(
+  275          std.heap.c_allocator,
+  276          current_turn_messages,
+  277          null,
+  278      );
+  279      defer types.freeExecutionMemory(std.heap.c_allocator, full_execution);
+  280      if (full_execution.isEmpty()) return false;
+  281      try persistFailedTurn(
+  282          hooks,
+  283          finalization,
+  284          job,
+  285          partial_assistant,
+  286          persisted,
+  287          trace_ctx,
+  288          full_execution,
+  289          terminal_materializing,
+  290      );
+  291      return true;
+  292  }
+  293  
