@@ -1,0 +1,332 @@
+=== STEP 01: Confirm the checkout is the commit under test (start 18:09:01Z)
+=== STEP 01: status 0, 0s
+=== STEP 02: Confirm the runner really is this target (start 18:09:01Z)
+=== STEP 02: status 0, 0s
+=== STEP 03: Formatting (start 18:09:01Z)
+=== STEP 03: status 0, 1s
+=== STEP 04: Lints (start 18:09:02Z)
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling libc v0.2.189
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.11
+   Compiling icu_normalizer_data v2.3.0
+   Compiling icu_properties_data v2.3.0
+   Compiling version_check v0.9.5
+   Compiling cc v1.4.3
+   Compiling serde_core v1.0.229
+   Compiling httparse v1.10.1
+   Compiling crossbeam-utils v0.8.22
+   Compiling rustls v0.23.43
+   Compiling generic-array v0.14.7
+   Compiling crossbeam-epoch v0.9.20
+   Compiling serde v1.0.229
+   Compiling crossbeam-deque v0.8.7
+   Compiling rustix v1.1.4
+   Compiling zmij v1.0.23
+   Compiling ring v0.17.14
+   Compiling serde_json v1.0.151
+   Compiling heck v0.5.0
+   Compiling getrandom v0.4.3
+   Compiling xfx v0.1.0 (<repo>)
+   Compiling syn v3.0.3
+   Compiling syn v2.0.119
+   Compiling synstructure v0.13.2
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling tokio-macros v2.7.2
+   Compiling serde_derive v1.0.229
+   Compiling clap_derive v4.6.4
+   Compiling async-trait v0.1.92
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 22.44s
+=== STEP 04: status 0, 23s
+=== STEP 05: Tests (start 18:09:25Z)
+   Compiling stable_deref_trait v1.2.1
+   Compiling bytes v1.12.1
+   Compiling pin-project-lite v0.2.17
+   Compiling futures-core v0.3.34
+   Compiling itoa v1.0.18
+   Compiling once_cell v1.21.4
+   Compiling cfg-if v1.0.4
+   Compiling smallvec v1.15.2
+   Compiling writeable v0.6.4
+   Compiling litemap v0.8.3
+   Compiling slab v0.4.12
+   Compiling utf8_iter v1.0.4
+   Compiling libc v0.2.189
+   Compiling equivalent v1.0.2
+   Compiling percent-encoding v2.3.2
+   Compiling zerofrom v0.1.8
+   Compiling zeroize v1.9.0
+   Compiling hashbrown v0.17.1
+   Compiling icu_properties_data v2.3.0
+   Compiling icu_normalizer_data v2.3.0
+   Compiling untrusted v0.9.0
+   Compiling memchr v2.8.3
+   Compiling yoke v0.8.3
+   Compiling futures-task v0.3.34
+   Compiling futures-sink v0.3.34
+   Compiling tower-service v0.3.3
+   Compiling rustls-pki-types v1.15.1
+   Compiling tracing-core v0.1.36
+   Compiling fnv v1.0.7
+   Compiling typenum v1.20.1
+   Compiling try-lock v0.2.5
+   Compiling atomic-waker v1.1.2
+   Compiling serde_core v1.0.229
+   Compiling httparse v1.10.1
+   Compiling form_urlencoded v1.2.2
+   Compiling futures-channel v0.3.34
+   Compiling subtle v2.6.1
+   Compiling bitflags v2.13.1
+   Compiling futures-util v0.3.34
+   Compiling want v0.3.1
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling utf8parse v0.2.2
+   Compiling anstyle-parse v1.0.0
+   Compiling crossbeam-utils v0.8.22
+   Compiling sync_wrapper v1.0.2
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling ipnet v2.12.1
+   Compiling base64 v0.22.1
+   Compiling http v1.5.0
+   Compiling aho-corasick v1.1.5
+   Compiling regex-syntax v0.8.11
+   Compiling errno v0.3.14
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.2
+   Compiling indexmap v2.14.0
+   Compiling getrandom v0.2.17
+   Compiling tracing v0.1.44
+   Compiling signal-hook-registry v1.4.8
+   Compiling tower-layer v0.3.3
+   Compiling ring v0.17.14
+   Compiling anstyle-query v1.1.5
+   Compiling log v0.4.33
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling generic-array v0.14.7
+   Compiling colorchoice v1.0.5
+   Compiling anstyle v1.0.14
+   Compiling crossbeam-epoch v0.9.20
+   Compiling bstr v1.13.1
+   Compiling icu_collections v2.3.0
+   Compiling webpki-roots v1.0.9
+   Compiling tokio v1.53.1
+   Compiling icu_locale_core v2.3.0
+   Compiling clap_lex v1.1.0
+   Compiling anstream v1.0.0
+   Compiling strsim v0.11.1
+   Compiling same-file v1.0.6
+   Compiling ryu v1.0.23
+   Compiling walkdir v2.5.0
+   Compiling crossbeam-deque v0.8.7
+   Compiling clap_builder v4.6.6
+   Compiling http-body v1.1.0
+   Compiling rustix v1.1.4
+   Compiling zmij v1.0.23
+   Compiling cpufeatures v0.2.17
+   Compiling xfx v0.1.0 (<repo>)
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling http-body-util v0.1.5
+   Compiling unicode-segmentation v1.13.3
+   Compiling unicode-width v0.2.2
+   Compiling getrandom v0.4.3
+   Compiling digest v0.10.7
+   Compiling fastrand v2.5.0
+   Compiling sha2 v0.10.9
+   Compiling regex-automata v0.4.18
+   Compiling icu_provider v2.3.1
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling rustls-webpki v0.103.14
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.151
+   Compiling rustls v0.23.43
+   Compiling serde_urlencoded v0.7.1
+   Compiling tempfile v3.27.0
+   Compiling idna_adapter v1.2.2
+   Compiling clap v4.6.6
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling globset v0.4.20
+   Compiling ignore v0.4.33
+   Compiling tokio-util v0.7.19
+   Compiling tower v0.5.3
+   Compiling tower-http v0.6.11
+   Compiling h2 v0.4.18
+   Compiling tokio-rustls v0.26.4
+   Compiling hyper v1.11.0
+   Compiling hyper-util v0.1.20
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.12.28
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 28.24s
+test tui::question::tests::a_screen_the_terminal_will_not_describe_is_refused_rather_than_panicked_on ... ok
+test tui::worker::tests::a_panic_that_carried_text_is_reported_in_the_words_it_panicked_with ... ok
+test result: ok. 4449 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 40.77s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.37s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.77s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.74s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.22s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.08s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.54s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.52s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.61s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+test result: ok. 181 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.59s
+=== STEP 05: status 0, 126s
+=== STEP 06: Tests, with the fault injector (start 18:11:31Z)
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.51s
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.86s
+test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.98s
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.11s
+test tui::question::tests::a_screen_the_terminal_will_not_describe_is_refused_rather_than_panicked_on ... ok
+test tui::worker::tests::a_panic_that_carried_text_is_reported_in_the_words_it_panicked_with ... ok
+test result: ok. 4472 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 40.60s
+=== STEP 06: status 0, 108s
+=== STEP 07: No stubs, and the parity ledger reconciles (start 18:13:19Z)
+check-no-stubs: ok
+=== STEP 07: status 0, 9s
+=== STEP 08: No credentials in tracked files (start 18:13:28Z)
+check-no-secrets: ok (14310 tracked file(s) scanned)
+=== STEP 08: status 0, 30s
+=== STEP 09: No gate takes its options, repository or config from the environment (start 18:13:58Z)
+test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code
+test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command
+test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break
+test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
+test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
+test-gate-env: ok identity-git-dir               the retired product name is still in tracked path names
+test-gate-env: ok identity-git-dir-work-tree     the retired product name is still in tracked path names
+test-gate-env: ok identity-index-file            the retired product name is still in tracked path names
+test-gate-env: ok identity-object-dir            the retired product name is still in tracked path names
+test-gate-env: ok identity-common-dir            the retired product name is still in tracked path names
+test-gate-env: ok identity-trace                 the retired product name is still in tracked path names
+test-gate-env: ok no-secrets-index-file          possible OpenAI-style key:
+test-gate-env: ok no-secrets-object-dir          possible OpenAI-style key:
+test-gate-env: ok no-secrets-common-dir          possible OpenAI-style key:
+test-gate-env: ok no-secrets-git-dir             possible OpenAI-style key:
+test-gate-env: ok preview-git-dir                does not document the qualified install command
+test-gate-env: ok preview-git-dir-work-tree      does not document the qualified install command
+test-gate-env: ok preview-object-dir             does not document the qualified install command
+test-gate-env: ok preview-common-dir             does not document the qualified install command
+test-gate-env: ok attributes-config-global       the retired product name is still in tracked content
+test-gate-env: ok attributes-config-system       the retired product name is still in tracked content
+test-gate-env: ok attributes-config-count        the retired product name is still in tracked content
+test-gate-env: ok attributes-config-parameters   the retired product name is still in tracked content
+test-gate-env: ok attributes-attr-source         the retired product name is still in tracked content
+test-gate-env: ok attributes-info                the retired product name is still in tracked content
+test-gate-env: ok attributes-local-config        the retired product name is still in tracked content
+test-gate-env: ok attributes-untracked           the retired product name is still in tracked content
+test-gate-env: ok identity-color-grep            the retired product name is still in tracked content
+test-gate-env: ok identity-grep.patternType      git grep could not search
+test-gate-env: ok identity-grep.extendedRegexp   git grep could not search
+test-gate-env: ok identity-grep.threads          git grep could not search
+test-gate-env: ok identity-core.quotePath        git cannot open it
+test-gate-env: ok identity-index-corrupt         git ls-files could not list
+test-gate-env: ok identity-core.quotePath-home   the path scan could not run in its own control
+test-gate-env: ok identity-unreadable            git grep could not search
+test-gate-env: ok identity-core.worktree         the retired product name is still in tracked content
+test-gate-env: ok identity-skip-worktree         git sparse-checkout disable
+test-gate-env: ok identity-assume-unchanged      marked assume-unchanged
+test-gate-env: ok identity-both-bits             git sparse-checkout disable
+test-gate-env: ok identity-deleted-file          tracked files missing from the working tree
+test-gate-env: ok identity-file-became-dir       tracked files missing from the working tree
+test-gate-env: ok identity-file-became-symlink   tracked files missing from the working tree
+test-gate-env: ok identity-unsearchable-dir      could not list the tracked files missing
+test-gate-env: ok identity-vendored              the root's .git cannot be opened
+test-gate-env: ok identity-vendored-gitfile      tracked files missing from the working tree
+test-gate-env: ok identity-vendored-git-symlink  tracked files missing from the working tree
+test-gate-env: ok identity-vendored-symlink      the root's .git cannot be opened
+test-gate-env: ok identity-vendored-colon        the root's .git cannot be opened
+test-gate-env: ok identity-vendored-miscased     the root's .git cannot be opened
+test-gate-env: ok identity-linked-worktree       the retired product name is still in tracked content
+test-gate-env: ok identity-own-symlink           the retired product name is still in tracked content
+test-gate-env: ok identity-own-miscased          the retired product name is still in tracked content
+test-gate-env: ok identity-submodule             the retired product name is still in tracked content
+test-gate-env: ok identity-home-programs         the retired product name is still in tracked content
+test-gate-env: ok no-secrets-home-programs       possible OpenAI-style key:
+test-gate-env: ok preview-home-programs          does not document the qualified install command
+test-gate-env: ok workflow-steps                 all 10 steps that run git drop GIT_* first
+test-gate-env: ok ci-script-tests-per-os         test-gate-env test-preview-contract test-check-no-secrets on macOS and Linux rows
+test-gate-env: ok ci-checkout-assertion          checked out
+test-gate-env: ok build-script                   stamps the checkout's HEAD (b20888724f55)
+test-gate-env: ok build-script-linked-worktree   stamps the worktree's HEAD (d9442466e63e), watches its HEAD and ref
+test-gate-env: ok test-check-no-secrets          test-check-no-secrets: ok (13 cases; 3473 tracked names past
+test-gate-env: ok (62 cases)
+=== STEP 09: status 0, 248s
+=== STEP 10: One product name in tracked files (start 18:18:06Z)
+check-xfx-identity: ok (14310 tracked file(s) scanned)
+=== STEP 10: status 0, 1s
+=== STEP 11: The preview publication contract holds (start 18:18:07Z)
+check-preview-contract: ok (.github/workflows/preview.yml)
+=== STEP 11: status 0, 3s
+=== STEP 12: The preview contract catches every mutant it exists for (start 18:18:10Z)
+test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+=== STEP 12: status 0, 62s
+=== STEP 13: The output check still fits inside a frame's budget (start 18:19:12Z)
+check-tui-preflight-cost: measuring (default features)
+preflight 24x80 unchanged: 0 bytes in 23.691µs mean, 19.333µs min, 19.459µs median, 103.208µs max (budget 8 ms)
+preflight 24x80 sparse: 26 bytes in 20.156µs mean, 19.708µs min, 19.834µs median, 23.792µs max (budget 8 ms)
+preflight 24x80 full: 2055 bytes in 39.093µs mean, 37.959µs min, 38.5µs median, 43.125µs max (budget 8 ms)
+preflight 24x80 scroll: 8 bytes in 18.773µs mean, 18.458µs min, 18.75µs median, 19.833µs max (budget 8 ms)
+preflight 24x80 update: 2815 bytes in 24.652µs mean, 24µs min, 24.167µs median, 31.917µs max (budget 8 ms)
+preflight 200x300 unchanged: 0 bytes in 592.508µs mean, 575.375µs min, 580.292µs median, 785.375µs max (budget 32 ms)
+preflight 200x300 sparse: 27 bytes in 583.387µs mean, 575.75µs min, 580.167µs median, 631.208µs max (budget 32 ms)
+preflight 200x300 full: 61292 bytes in 1.164143ms mean, 1.141666ms min, 1.165833ms median, 1.198042ms max (budget 32 ms)
+preflight 200x300 scroll: 9 bytes in 596.304µs mean, 593.209µs min, 595.75µs median, 602.542µs max (budget 32 ms)
+preflight 200x300 update: 85420 bytes in 785.918µs mean, 770.708µs min, 777.125µs median, 911µs max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 402.624µs mean, 395.667µs min, 398.583µs median, 428.167µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 1.461038ms mean, 1.436334ms min, 1.458833ms median, 1.51025ms max (budget 32 ms)
+check-tui-preflight-cost: measuring (fault injection)
+preflight 24x80 unchanged: 0 bytes in 20.166µs mean, 16.833µs min, 17.041µs median, 80.167µs max (budget 8 ms)
+preflight 24x80 sparse: 26 bytes in 17.439µs mean, 17.042µs min, 17.208µs median, 19.75µs max (budget 8 ms)
+preflight 24x80 full: 2055 bytes in 34.104µs mean, 33.542µs min, 33.75µs median, 36.75µs max (budget 8 ms)
+preflight 24x80 scroll: 8 bytes in 17.358µs mean, 16.459µs min, 16.708µs median, 25.875µs max (budget 8 ms)
+preflight 24x80 update: 2815 bytes in 21.497µs mean, 20.75µs min, 21.125µs median, 27.583µs max (budget 8 ms)
+preflight 200x300 unchanged: 0 bytes in 706.758µs mean, 500.917µs min, 717.458µs median, 918.375µs max (budget 32 ms)
+preflight 200x300 sparse: 27 bytes in 551.712µs mean, 524.917µs min, 556.375µs median, 607.916µs max (budget 32 ms)
+preflight 200x300 full: 61292 bytes in 1.070979ms mean, 1.047625ms min, 1.066166ms median, 1.117917ms max (budget 32 ms)
+preflight 200x300 scroll: 9 bytes in 536.512µs mean, 522.75µs min, 535.5µs median, 561.916µs max (budget 32 ms)
+preflight 200x300 update: 85420 bytes in 708.175µs mean, 697.542µs min, 708µs median, 721.125µs max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 361.185µs mean, 351.917µs min, 359.459µs median, 390.083µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 1.286399ms mean, 1.253958ms min, 1.282042ms median, 1.343083ms max (budget 32 ms)
+check-tui-preflight-cost: ok
+=== STEP 13: status 0, 88s
+=== STEP 14: A release build ignores the pinned usage clock (start 18:20:40Z)
+check-usage-clock: debug: honoured (debug assertions)
+check-usage-clock: release: ignored (release)
+check-usage-clock: release, fault injection: ignored (release)
+check-usage-clock: ok
+=== STEP 14: status 0, 1s
+=== STEP 15: Build the binary the restoration matrix drives (start 18:20:41Z)
+   Compiling rustix v1.1.4
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `release` profile [optimized] target(s) in 15.47s
+=== STEP 15: status 0, 15s
+=== STEP 16: Release build (start 18:20:56Z)
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `release` profile [optimized] target(s) in 13.41s
+176447904ef28d6587b51ab0e518e7a27efcd719411a89ac133859f1aeb66dba  target/release/xfx
+1e8a41dea5d9428f19bcd467184081005a68cedac285623c09c4329b98de7f06  target/faulty/xfx
+=== STEP 16: status 0, 14s
+=== STEP 17: Smoke the release binary (start 18:21:10Z)
+47 check(s), 0 failure(s)
+=== STEP 17: status 0, 2s
+=== STEP 18: Smoke the TUI on a real terminal (start 18:21:12Z)
+176447904ef28d6587b51ab0e518e7a27efcd719411a89ac133859f1aeb66dba  target/release/xfx
+1e8a41dea5d9428f19bcd467184081005a68cedac285623c09c4329b98de7f06  target/faulty/xfx
+smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+=== STEP 18: status 0, 63s
+=== GATE OK

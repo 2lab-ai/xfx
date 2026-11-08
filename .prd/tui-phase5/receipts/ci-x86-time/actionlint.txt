@@ -1,0 +1,10 @@
+head 8693d1b461f3cb5eed891ea28177d09877bb2362
+ci.yml sha256 a306e41964fac593d4be03ea7c481a1a2c851156beaf6d09b343633200e64038
+$ actionlint --version
+1.7.12
+
+$ actionlint .github/workflows/ci.yml
+exit status 0
+
+$ actionlint    (every workflow, as preview.yml's lint step runs it)
+exit status 0
