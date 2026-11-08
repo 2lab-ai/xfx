@@ -34667,6 +34667,34 @@ mod tests {
     }
 
     #[test]
+    fn only_a_frame_that_landed_showing_the_list_changes_the_rows_its_arrows_scroll() {
+        // `paintedFilePickerReceipt` reaches `acknowledge` only for a
+        // committed frame (`app_render_runtime.zig:1002-1003`, `:1022-1023`,
+        // `:1854-1857@481104fd`): a refused write on a shorter screen leaves
+        // the count as the last landed frame set it, and the keys wait.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@");
+        listed(&mut shell);
+        assert_eq!(shell.file_rows_painted, 10);
+        assert!(!matches!(shell.resize(16, 120), Resize::TooSmall));
+        assert_eq!(shell.geometry.panel, 6);
+        shell.approval_write_failed();
+        assert_eq!(shell.file_rows_painted, 10, "a refused frame set them");
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(|files| files.marked())
+                .map(|found| found.path.as_str()),
+            Some("Cargo.toml"),
+            "a key moved the bar after a refused frame"
+        );
+        shell.file_picker_landed();
+        assert_eq!(shell.file_rows_painted, 6);
+    }
+
+    #[test]
     fn a_frame_that_gave_the_list_no_rows_leaves_the_rows_its_arrows_scroll() {
         // fx sets the painted rows only from a frame whose footer gave the
         // file picker rows of its own (`picker_rows > 0`,

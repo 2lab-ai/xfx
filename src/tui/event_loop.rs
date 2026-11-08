@@ -15979,7 +15979,9 @@ mod tests {
         );
         // Up six: the bar moves and the window stays.
         assert_eq!(list.keys(&UP.repeat(6)), at_window(4, 13, 7), "after Up x6");
-        // Up three more: the bar passes the window's top, and the window moves.
+        // Up three more: the bar reaches the window's top row, f-04, and the
+        // window stays (`fx-p5-input-at-height-40x120-up9`; on 18 rows the
+        // window is 6-13 and moves to 4-11, `-18x120-up9`).
         assert_eq!(list.keys(&UP.repeat(3)), at_window(4, 13, 4), "after Up x9");
 
         // Back to f-13 and onto a 16-row screen: six rows, painted to keep
@@ -16010,6 +16012,17 @@ mod tests {
             "the Downs moved the bar"
         );
         assert_eq!(list.keys(&DOWN.repeat(3)), at_window(1, 10, 4));
+        // A query changed inside the word is a new query too: one more
+        // letter and a Down in one read leave the bar on the first row of the
+        // new rows.
+        let mut typed = b"0".to_vec();
+        typed.extend(DOWN);
+        assert_eq!(
+            list.keys(&typed),
+            at_window(1, 10, 1),
+            "@f-0's Down moved the bar"
+        );
+        assert_eq!(list.keys(DOWN), at_window(1, 10, 2));
     }
 
     #[test]

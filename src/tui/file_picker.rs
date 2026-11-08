@@ -1219,12 +1219,13 @@ mod tests {
     }
 
     #[test]
-    fn the_height_is_fxs_for_every_screen_composer_and_waiting_prompt() {
+    fn the_height_matches_fxs_table_over_21_screens_4_composers_and_3_banners() {
         // `filePickerReservedRows` over terminal rows 6-24, 30 and 40, a
         // composer zero to three rows past its first, and no waiting prompt,
-        // one of one row or one of two (each with the blank under it): the
-        // receipt's `height-table.txt`, from its line-for-line transcription
-        // of `picker_presentation.zig:647-666@481104fd` (`height_table.py`).
+        // one of one row or one of two (each with the blank under it): 252
+        // cells of the receipt's `height-table.txt`, from its line-for-line
+        // transcription of `picker_presentation.zig:647-666@481104fd`
+        // (`height_table.py`).
         const ROWS: [u16; 21] = [
             6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 30, 40,
         ];
@@ -1321,6 +1322,38 @@ mod tests {
                     height,
                     "{rows} rows, composer +{extra}, banner {banner}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn the_height_is_a_function_of_the_rows_left_past_the_fixed_ones() {
+        // The two functions read the screen, the composer and the banner only
+        // through `available = rows -| (5 + input_extra + banner_rows)`
+        // (`picker_presentation.zig:648-649`, `:662-664@481104fd`), and what
+        // they give for it is, piece by piece: none left, one row; up to six,
+        // all of them; then six until five more are past them; then grown,
+        // one row per row, to ten. Every screen to 64 rows, composer to 16
+        // rows past its first and banner to 16 rows, against that table.
+        fn by_rows_left(available: u16) -> u16 {
+            match available {
+                0 => 1,
+                1..=6 => available,
+                7..=11 => 6,
+                12..=15 => available - 5,
+                _ => 10,
+            }
+        }
+        for rows in 0..=64u16 {
+            for extra in 0..=16u16 {
+                for banner in 0..=16u16 {
+                    let available = rows.saturating_sub(5 + extra + banner);
+                    assert_eq!(
+                        FilePicker::height(rows, extra, banner),
+                        by_rows_left(available),
+                        "{rows} rows, composer +{extra}, banner {banner}"
+                    );
+                }
             }
         }
     }
