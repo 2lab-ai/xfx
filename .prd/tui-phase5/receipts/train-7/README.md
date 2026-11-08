@@ -199,8 +199,10 @@ textually (T-U4-F's four `call-row-*` entries: its re-points of T-U4's
   moved: under MODELS-REASK's rule `begin_catalog_read` starts only a
   first load, and the fixture pins the catalog as loaded, so the test now
   passes with no read begun rather than with one answered from the stand-in.
-  It still guards the pin (without it a first load starts and tells the
-  band).
+  It still guards the pin: without it the selector is `NotLoaded` with a
+  fetcher, so `wants_first_load` holds and a first load starts and tells the
+  band [read from the code: `src/provider/model.rs:1892-1896`,
+  `src/tui/worker.rs:4141`; not run without the pin].
 
 ### Merge 4's conflicts, its build conflict, and the marker
 
@@ -752,15 +754,23 @@ model rows above, and fx's are `p5-ctrlo-wider-ri`'s `)` and a resume id.
   above. Not this train's merge; no pair that passes on `fdc5ac0b` or on any
   unit's own sweep of this train's code fails on the head.
 
+- **T-U4-F** has no sweep of its own (its receipt is its RED, its gate and
+  its mutants: `../cancel-marker/t-u4-f/`); its path is the transcript
+  row's cut, and its scenarios -- every `p5-call-row-*`, the cancel set,
+  `p5-transcript-*` -- moved no verdict against `fdc5ac0b` (the seven moves
+  above are all model scenarios).
+
 So no pair that passes on `fdc5ac0b`, or on MODELS-REASK's, STOP-NEXT-2's
 or LAUNCH-SETTLE-F's own sweep, fails on the train.
 
 ## Found on the way, not changed here
 
-- **A local path in a unit's receipt.** STOP-NEXT-2's
-  `.prd/tui-phase5/receipts/stop-next-2/gates.sh:9` sets `TMPDIR` to a path
-  under the machine's scratch root with the account's uid in it; the merge
-  brought it onto this branch. `main` holds the same root in older receipts
+- **A local path in two of a unit's receipts.** STOP-NEXT-2's
+  `.prd/tui-phase5/receipts/stop-next-2/gates.sh:9` and STOP-NEXT's
+  `.prd/tui-phase5/receipts/stop-next/gates.sh:9` each set `TMPDIR` to a path
+  under the machine's temporary root with the account's uid in it; merge 4
+  brought both onto this branch (`git diff fdc5ac0b HEAD -- .prd`: the only
+  two such added lines; none outside `.prd/`). `main` holds the same root in older receipts
   already (`git grep` over `origin/main`: `.prd/tui-phase4/…`,
   `osc-program-status/mutants.py:13`). This train changes no unit's receipt;
   routed to the dispatcher (a one-line redaction there, or REF-LINT's sweep
@@ -773,7 +783,8 @@ or LAUNCH-SETTLE-F's own sweep, fails on the train.
   measured]; MODELS-REASK's own test backs out of `/model`'s column with
   Ctrl-C, not of the menu.
 - **The FLAKE-CATALOG-EVENT pin's first test** passes with no read begun
-  under MODELS-REASK's first-load rule (merge 3, above); its guard holds.
+  under MODELS-REASK's first-load rule (merge 3, above); its guard holds
+  [read from the code, there].
 
 ## Redaction
 
