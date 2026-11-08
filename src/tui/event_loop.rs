@@ -349,12 +349,11 @@ fn launch_title(shell: &mut Shell, band: &mut Band) {
 /// exists to prevent. What is left over is taken by the next turn, [`TICK`]
 /// later at the latest.
 fn take_ui_events(shell: &mut Shell, events: &mut Receiver<UiEvent>) {
-    // Inside the shell's account of the drain: what it reads before the drain
-    // begins, and what only a drain that emptied the channel settles -- the
-    // batch boundary a stopped turn's late text is read against, and a
-    // stopped compaction the runtime will say nothing more of
-    // ([`Shell::take_ui_events`]).
-    shell.take_ui_events(|shell| drain_ui_events(shell, events));
+    // The drain is over, and whether it emptied the channel: the batch
+    // boundary a stopped turn's late text is read against
+    // ([`Shell::ui_events_taken`]).
+    let emptied = drain_ui_events(shell, events);
+    shell.ui_events_taken(emptied);
 }
 
 /// [`take_ui_events`]' drain: whether it stopped because the channel was

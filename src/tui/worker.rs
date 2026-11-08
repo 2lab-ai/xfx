@@ -3288,11 +3288,17 @@ async fn turn_loop(
         work,
         outstanding,
         taken: 0,
+        owed: 0,
     };
     // Whether the UI can still send a change. A closed channel answers `recv`
     // at once, every time, so an arm left on it would spin this loop.
     let mut changes_open = true;
     loop {
+        // A compaction a stop dropped before it began is told first, whatever
+        // dropped it -- this loop's own read of the stop, or a race's while
+        // other work ran ([`Queue::abandon`]) -- before anything else is
+        // taken.
+        queue.tell_dropped(events).await;
         // Before anything else is taken: a switch the runtime has got past --
         // made, or dropped unstarted by an interrupt -- gives back the prompt
         // the band held for it, which asks now, ahead of its own turn
@@ -3384,7 +3390,7 @@ async fn turn_loop(
             }
             Taken::Reset(through) => {
                 queue.abandon(through);
-                drop_conversation(&mut state, events, through).await;
+                reset_conversation(&mut state, events, through, &mut queue).await;
                 continue;
             }
             Taken::Model(change) => {
@@ -3403,7 +3409,7 @@ async fn turn_loop(
                         return settled(state, changes);
                     }
                     Ended::Reset(through) => {
-                        drop_conversation(&mut state, events, through).await;
+                        reset_conversation(&mut state, events, through, &mut queue).await;
                         write_renamed_after_reset(&mut state, events, &cancel).await;
                     }
                     Ended::Turn => {}
@@ -3564,12 +3570,26 @@ async fn turn_loop(
             // ([`apply_deferred`]), and the ones typed after the reset written
             // into the session it starts.
             Ended::Reset(through) => {
-                drop_conversation(&mut state, events, through).await;
+                reset_conversation(&mut state, events, through, &mut queue).await;
                 write_renamed_after_reset(&mut state, events, &cancel).await;
             }
             Ended::Turn => {}
         }
     }
+}
+
+/// A reset, from the loop: what its stop dropped is told before the
+/// conversation goes ([`Queue::tell_dropped`]), so the ending of a compaction
+/// it dropped is on the near side of the fence, with the conversation it was
+/// about ([`drop_conversation`]).
+async fn reset_conversation(
+    state: &mut Runtime,
+    events: &Sender<UiEvent>,
+    through: usize,
+    queue: &mut Queue<'_>,
+) {
+    queue.tell_dropped(events).await;
+    drop_conversation(state, events, through).await;
 }
 
 /// `/new`, `/clear` and `/reset`, with the line shell's own meaning: the
@@ -3709,6 +3729,10 @@ struct Queue<'a> {
     /// arithmetic: paired with the count the UI quotes, it says exactly which
     /// waiting items an interrupt was about.
     taken: usize,
+    /// Compactions [`Self::abandon`] dropped before they began, whose ending
+    /// the band has not been sent yet, and whose places are still held until
+    /// it has ([`Self::tell_dropped`]).
+    owed: usize,
 }
 
 impl Queue<'_> {
@@ -3721,6 +3745,17 @@ impl Queue<'_> {
     /// Drops every piece of work submitted through `through` that nobody has
     /// started yet, giving each place back. Returns how many.
     ///
+    /// **A compaction's place is the exception**: it is kept until the band
+    /// has been told the compaction ended, cancelled ([`Self::tell_dropped`]).
+    /// The band put it on the row at the keystroke and has no other way to
+    /// learn that it never began -- with other work in hand, a dropped one and
+    /// a taken one whose ending is on its way look the same from there.
+    /// Upstream's worker settles the queued compaction it drops, cancelled, in
+    /// the same step (`cancelContextCompaction`,
+    /// `src/core/agent/worker_runtime.zig:1002-1021@481104fd`; a discard,
+    /// `:1846-1847`). The send has to wait: this runs inside a race's stop
+    /// ([`raced_against_control`]), which cannot await.
+    ///
     /// `through` is how many submissions the UI had made when the key was
     /// pressed, and **only the work before that line is dropped**. Work that
     /// arrived after the interrupt is a new intention, and eating it would make
@@ -3731,14 +3766,30 @@ impl Queue<'_> {
     fn abandon(&mut self, through: usize) -> usize {
         let mut dropped = 0usize;
         while self.taken < through {
-            if self.work.try_recv().is_err() {
+            let Ok(item) = self.work.try_recv() else {
                 break;
-            }
+            };
             self.taken += 1;
-            self.outstanding.fetch_sub(1, Ordering::Release);
+            if matches!(item, TurnWork::Compact) {
+                self.owed += 1;
+            } else {
+                self.outstanding.fetch_sub(1, Ordering::Release);
+            }
             dropped += 1;
         }
         dropped
+    }
+
+    /// Tells the band, for each compaction [`Self::abandon`] dropped, that it
+    /// ended without beginning ([`Update::Dropped`]), and only then gives its
+    /// place back -- the order every piece of work keeps, its last word before
+    /// its place ([`turn_loop`]).
+    async fn tell_dropped(&mut self, events: &Sender<UiEvent>) {
+        while self.owed > 0 {
+            bridge::send_terminal(events, UiEvent::Compaction(Update::Dropped)).await;
+            self.owed -= 1;
+            self.outstanding.fetch_sub(1, Ordering::Release);
+        }
     }
 }
 
@@ -6933,6 +6984,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &handle.outstanding,
             taken: 0,
+            owed: 0,
         };
         let dropped = queue.abandon(handle.accepted());
 
@@ -6980,6 +7032,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &handle.outstanding,
             taken: 1,
+            owed: 0,
         };
         let dropped = queue.abandon(through);
 
@@ -7010,6 +7063,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &handle.outstanding,
             taken: 0,
+            owed: 0,
         };
         let running = queue.work.try_recv().expect("the turn began");
         let _running = queue.took(running);
@@ -7179,6 +7233,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &counted,
             taken: 1,
+            owed: 0,
         };
         let (was_stopped, ended) = on_a_runtime(raced_against_control(
             body,
@@ -7926,6 +7981,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
 
         let ended = on_a_runtime(run_turn(
@@ -8178,6 +8234,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 1,
+            owed: 0,
         };
 
         let started = Instant::now();
@@ -8282,6 +8339,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 1,
+            owed: 0,
         };
         let (published, concluded) = on_a_runtime(async {
             let mut turn = std::pin::pin!(run_turn(
@@ -9065,6 +9123,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
         on_a_runtime(run_turn(
             state,
@@ -9619,6 +9678,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
         let ended = on_a_runtime(run_turn(
             state,
@@ -10152,6 +10212,57 @@ mod tests {
     }
 
     #[test]
+    fn a_dropped_compactions_place_is_held_until_its_ending_is_on_the_channel() {
+        // The order every piece of work keeps: its last word, then its place
+        // ([`turn_loop`]). Deterministic: the channel's one permit is taken,
+        // so the word parks, and the loop is polled by hand while it does --
+        // the place must still be held. The word is the drop's own.
+        let (handle, mut work_rx, _control) = WorkHandle::detached();
+        handle.submit(TurnWork::Compact).expect("idle");
+        let (_home, _workspace, state) = recording();
+        let (events, mut seen) = mpsc::channel::<UiEvent>(1);
+        let filler = UiEvent::Fresh { through: 0 };
+        events.try_send(filler.clone()).expect("the one permit");
+        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        control_tx
+            .send(TurnControl::Cancel { through: 1 })
+            .expect("open");
+        control_tx.send(TurnControl::Shutdown).expect("open");
+        let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+        on_a_runtime(async {
+            let mut looped = std::pin::pin!(turn_loop(
+                state,
+                &events,
+                &mut work_rx,
+                &mut changes,
+                ControlChannel::new(control_rx),
+                Cancellation::new(CancelToken::new()),
+                &handle.outstanding,
+            ));
+            for poll in 0..PARKED_POLLS {
+                let pending = std::future::poll_fn(|context| {
+                    std::task::Poll::Ready(looped.as_mut().poll(context).is_pending())
+                })
+                .await;
+                assert!(pending, "poll {poll}: the loop left without its word");
+            }
+            assert_eq!(
+                handle.outstanding(),
+                1,
+                "the place went back before the band was told"
+            );
+            assert_eq!(seen.recv().await, Some(filler));
+            let _ = looped.await;
+        });
+        assert_eq!(
+            seen.try_recv(),
+            Ok(UiEvent::Compaction(Update::Dropped)),
+            "the drop's word"
+        );
+        assert_eq!(handle.outstanding(), 0, "the place was kept");
+    }
+
+    #[test]
     fn a_reset_between_turns_drops_what_waits_and_then_says_the_conversation_is_gone() {
         // The fence a reset drains to (`UiEvent::Fresh`): sent once the drop
         // has happened, quoting the reset's count. What was submitted through
@@ -10169,6 +10280,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &handle.outstanding,
             taken: 0,
+            owed: 0,
         };
         assert_eq!(queue.abandon(through), 1);
         assert_eq!(handle.outstanding(), 1);
@@ -10533,6 +10645,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
         // Said by the shell already, as one typed while work runs is.
         control.defer_rename("Typed Before".to_string(), false, true);
@@ -10796,6 +10909,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
         for change in changes {
             match change {
@@ -10850,6 +10964,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
         let ended = on_a_runtime(change_model(
             state, change, &events_tx, &cancel, &control, &mut queue,
@@ -11560,6 +11675,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
         control.defer(ModelChange {
             name: "kept/model".to_string(),
@@ -13132,6 +13248,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
         let path = in_workspace(&state, "a.txt");
         assert!(
@@ -13181,6 +13298,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
         let first = in_workspace(&state, "a.txt");
         let second = in_workspace(&state, "b.txt");
@@ -15871,6 +15989,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
 
         let ended = on_a_runtime(run_turn(
@@ -17208,6 +17327,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
         on_a_runtime(run_turn(
             state,
