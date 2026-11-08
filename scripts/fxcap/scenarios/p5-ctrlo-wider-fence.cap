@@ -1,0 +1,27 @@
+# Phase 5 (CTRLO-WIDER-F): a code panel's label, the fence's word, holding
+# the family of p5-ctrlo-wider-inline-fam (`src/tui/drawn_wider.rs`): fx and
+# xfx draw it into the panel's header rule (`blocks::append_code_panel_header`,
+# `transcript_blocks.zig:1221-1238@481104fd`), on the screen and on Ctrl-O.
+# Two panels: the short label (U+261D U+2E3A U+1F590, U+E0002, `a` U+FE0F,
+# a soft hyphen and U+FE0F) over one line of code, and four U+261D and
+# `TAIL` over 110 `w`, the panel as wide as the screen allows. `wire` keeps
+# every byte written (the answer ends `END-FENCE`), for a replay on libghostty-vt
+# (.prd/tui-phase5/receipts/ctrlo-wider/replay_ghostty.c).
+gateway p5-ctrlo-wider-fence-turns.json
+fx: env FX_AUTO_UPGRADE=0
+keep
+until shown Run /help for commands
+type go
+wait 1
+key Enter
+until shown END-FENCE
+until gone Generating (
+snap answer
+wire answer
+key C-o
+until shown full detail
+snap ctrlo
+wire ctrlo
+key C-o
+until gone full detail
+gwlog

@@ -1,0 +1,40 @@
+  TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\u{1f574}🏼
+  TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\u{1f575}🏽
+  TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\u{1f590}🏾
+  TAIL5678
+
+  END-ONE
+
+  0s (↑1 ↓40)
+
+┃ more
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww👯🏻TAI6
+  78
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🤼🏻TAI6
+  78
+
+  ──────────────────────────────────────────────────────────────────────────────────────────────
+  code \u{261d}🏻 \u{26f9}🏼 \u{270c}🏽 \u{270d}🏾 \u{1f3cb}🏿 \u{1f3cc}🏻 \u{1f574}🏼 \u{1f575}🏽 \u{1f590}🏾 end
+  ──────────────────────────────────────────────────────────────────────────────────────────────
+
+  ┌────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │ cell                                                                                           │
+  ├────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ cell \u{261d}🏻 \u{26f9}🏼 \u{270c}🏽 \u{270d}🏾 \u{1f3cb}🏿 \u{1f3cc}🏻 \u{1f574}🏼 \u{1f575}🏽 \u{1f590}🏾 end │
+  └────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+  END-TWO
+
+  0s (↑1 ↓40)
+
+┃
+
+auto · model-a

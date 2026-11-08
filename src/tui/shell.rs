@@ -37721,6 +37721,41 @@ mod tests {
     }
 
     #[test]
+    fn a_code_panels_label_names_what_a_terminal_draws_wider() {
+        // The fence's word is the model's too, drawn into the panel's header
+        // rule (`blocks::append_code_panel_header`): on Ctrl-O's frame rows
+        // the anchor after `a` U+FE0F writes over what a wider glyph before
+        // it pushed right (`p5-ctrlo-wider-fence` `ctrlo`). Named there and
+        // in the document, as the code under it is.
+        let label = "fam\u{261d}\u{2e3a}\u{1f590}x\u{e0002}ya\u{fe0f}b";
+        let named = r"fam\u{261d}\u{2e3a}\u{1f590}x\u{e0002}ya\u{fe0f}b";
+        let mut shell = running("go");
+        shell.apply(UiEvent::Delta(format!("```{label}\nplain code\n```\n")));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        let header = format!("\u{2500} {named} \u{2500}");
+        let document: Vec<String> = shell.document().iter().map(|row| colourless(row)).collect();
+        assert!(
+            document.iter().any(|row| row.contains(&header)),
+            "the document's panel header: {document:#?}"
+        );
+        assert!(
+            !document.iter().any(|row| row.contains('\u{261d}')),
+            "{document:#?}"
+        );
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        assert!(
+            screen.iter().any(|row| row.contains(&header)),
+            "Ctrl-O's panel header: {screen:#?}"
+        );
+        assert!(
+            !screen.iter().any(|row| row.contains('\u{261d}')),
+            "{screen:#?}"
+        );
+    }
+
+    #[test]
     fn ctrl_o_opens_the_full_transcript_on_the_other_plane_and_each_closing_key_gives_it_back() {
         // `input_full_transcript_runtime.zig:177-198`: Ctrl-O toggles, and
         // Escape and Ctrl-C close (upstream's e2e

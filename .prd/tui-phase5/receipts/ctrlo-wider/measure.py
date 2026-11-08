@@ -6,7 +6,9 @@ usage: python3 -I measure.py <receipt-dir> <replay_ghostty> [--check <build>]
 Reads `<build>/<scenario>-40x120/<prefix>-<scenario>-40x120-<snap>.txt`
 (tmux's `capture-pane`) and `.wire` (every byte the binary wrote, capture.sh
 `wire`) for each build present among `fx` (v0.0.16), `red` (e6cde019),
-`red2` (88c2fec1) and `xfx` (the head), and runs <replay_ghostty>
+`red2` (88c2fec1), `red3` (08026927, whose code is CTRLO-WIDER's head
+eeb0f7a7's, before CTRLO-WIDER-F) and `xfx` (the head), and runs
+<replay_ghostty>
 (replay_ghostty.c) on each wire -- for `resized` and `ctrlo-resized`, with the
 terminal resized to 140x40 where the `margin` wire ended (capture.sh `resize`
 came next). fx writes the document again at the new width; xfx leaves the rows
@@ -37,7 +39,7 @@ import sys
 
 receipt, replay = sys.argv[1:3]
 check = sys.argv[4] if len(sys.argv) > 4 and sys.argv[3] == "--check" else None
-BUILDS = (("fx", "fx", "fx"), ("red", "xfx", "xfx e6cde01"), ("red2", "xfx", "xfx 88c2fec"), ("xfx", "xfx", "xfx head"))
+BUILDS = (("fx", "fx", "fx"), ("red", "xfx", "xfx e6cde01"), ("red2", "xfx", "xfx 88c2fec"), ("red3", "xfx", "xfx 0802692"), ("xfx", "xfx", "xfx head"))
 W = lambda n: "w" * n  # noqa: E731
 SHORT = "fam \u261d \u2e3a \U0001f590 x\U000e0002y a\ufe0fb \u00ad\ufe0fc \uffa0\ufe0fd \ufff0\ufe0fe \u2065f end"
 FOUR = "\u261d" * 4
@@ -66,13 +68,35 @@ for snap, surface in (("answer", "answer"), ("ctrlo", "Ctrl-O Response"), ("resi
         FORMS.append((INLINE, snap, surface, True, name, text, start, B))
     if snap.startswith("ctrlo"):
         FORMS.append((INLINE, snap, "Ctrl-O Prompt", True, "short", SHORT, r"^┃ fam ", B))
+# CTRLO-WIDER-F: a code panel's label (the fence's word), and the nine emoji
+# bases of the family with a skin-tone modifier.
+FENCE = "p5-ctrlo-wider-fence"
+LABEL = "fam\u261d\u2e3a\U0001f590x\U000e0002ya\ufe0fb\u00ad\ufe0fc"
+for snap, surface in (("answer", "code panel's label"), ("ctrlo", "Ctrl-O code panel's label")):
+    FORMS.append((FENCE, snap, surface, True, "short", LABEL, r"^  ─ fam", 1))
+    FORMS.append((FENCE, snap, surface, True, "four U+261D", FOUR + "TAIL", r"^  ─ (?:\u261d|\\u\{261d\})", 1))
+MOD = "p5-ctrlo-wider-mod"
+BASES = "\u261d\u26f9\u270c\u270d\U0001f3cb\U0001f3cc\U0001f574\U0001f575\U0001f590"
+TONES = "\U0001f3fb\U0001f3fc\U0001f3fd\U0001f3fe\U0001f3ff"
+PAIRS = [b + TONES[i % 5] for i, b in enumerate(BASES)]
+TONED = " ".join(PAIRS) + " end"
+FORMS.append((MOD, "answer", "answer", True, "with modifiers, short", "mod " + TONED, r"^  mod ", B))
+for pair in PAIRS:
+    named = 8 if ord(pair[0]) <= 0xFFFF else 9
+    FORMS.append((MOD, "answer", "answer", True, "U+%04X U+%04X at the margin" % (ord(pair[0]), ord(pair[1])),
+                  W(118 - named - 2) + pair + "TAIL5678", r"^  w{107,108}(?!w)", B))
+for other in ("\U0001f46f\U0001f3fb", "\U0001f93c\U0001f3fb"):
+    FORMS.append((MOD, "more", "answer, not the family", False, "U+%04X U+%04X at the margin" % (ord(other[0]), ord(other[1])),
+                  W(110) + other + "TAIL5678", r"^  w{110}(?!w)", B))
+FORMS.append((MOD, "more", "code panel", True, "with modifiers, short", "code " + TONED, r"^  code ", 1))
+FORMS.append((MOD, "more", "table cell", True, "with modifiers, short", "cell " + TONED, r"^  │ cell (?:\u261d|\\u)", 1))
 FORMS += [
     (INLINE, "composer", "composer", False, "short", SHORT, r"^┃ fam ", 1),
     (INLINE, "prompt", "card of the sent prompt", False, "short", SHORT, r"^┃ fam ", 1),
     (INLINE, "margin", "composer", False, "four U+261D in front", FOUR + W(110) + "TAIL", r"^┃ (?:\u261d|\\u\{261d\})", 1),
     (INLINE, "margin", "composer", False, "U+261D at the margin", W(117) + "\u261dTAIL", r"^┃ w{110}", 2),
 ]
-ORDER = {s: i for i, s in enumerate(["full", "answer", "composer", "prompt", "ctrlo", "margin", "resized", "ctrlo-resized"])}
+ORDER = {s: i for i, s in enumerate(["full", "answer", "composer", "prompt", "ctrlo", "margin", "resized", "ctrlo-resized", "more"])}
 FORMS.sort(key=lambda f: (f[0], ORDER[f[1]]))
 UNDRAWN = set("\U000e0002\ufe0f\u2065")
 GHOSTTY_UNDRAWN = UNDRAWN | set("\uffa0\ufff0")

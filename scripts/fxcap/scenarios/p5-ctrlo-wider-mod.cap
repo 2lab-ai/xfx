@@ -1,0 +1,29 @@
+# Phase 5 (CTRLO-WIDER-F): the nine emoji bases of the family a terminal
+# draws wider (U+261D, U+26F9, U+270C, U+270D, U+1F3CB, U+1F3CC, U+1F574,
+# U+1F575, U+1F590) each with a skin-tone modifier, in an answer: a short
+# line, then each at the margin -- placed so that xfx's named form
+# (`\u{XXXX}` and the modifier) ends on the row's last cells, before
+# `TAIL5678`. A second answer: two modifier sequences on bases outside the
+# family (U+1F46F, U+1F93C with U+1F3FB: tmux 3.7b draws both four cells,
+# `approval_view`'s measured cases) at the margin, the short line in a
+# code panel and in a table's cell. fx counts a base and its modifier as
+# one RGI sequence, two cells. `wire` keeps every byte written.
+gateway p5-ctrlo-wider-mod-turns.json
+fx: env FX_AUTO_UPGRADE=0
+keep
+until shown Run /help for commands
+type go
+wait 1
+key Enter
+until shown END-ONE
+until gone Generating (
+snap answer
+wire answer
+type more
+wait 1
+key Enter
+until shown END-TWO
+until gone Generating (
+snap more
+wire more
+gwlog

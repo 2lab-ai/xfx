@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-0802692 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;245m  2026-11-08 11:58:41.763 KST · Notice[39m
+[38;5;250m* session: provider: gateway · model: fake/model-a · effort: auto[39m
+  [38;5;250mtools: 12 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,[39m
+  [38;5;250m+4 more)[39m
+  [38;5;250mmcp: none[39m
+
+[38;5;245m  2026-11-08 11:58:42.934 KST · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 1ms[39m
+  [38;5;250mfinish: stop[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-08 11:58:42.858 KST · Prompt[39m
+[38;5;255m┃[39m [1mgo[0m
+
+[38;5;245m  2026-11-08 11:58:42.945 KST · Response[39m
+  fence
+
+  [2m─ fam☝⸺🖐xb[0m [2mc ─[0m
+  plain code
+  [2m────────────────[0m
+
+  [2m─ ☝☝☝☝TAIL ───────────────────────────────────────────────────────────────────────────────────────────────────[0m
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+  [2m──────────────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+
+  END-FENCE
+
+[38;5;245m  2026-11-08 11:58:43.333 KST · Usage[39m
+[38;5;245m  0s (↑1 ↓40)[39m
+
+
+
+
+
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m

@@ -4,8 +4,12 @@
 # indicator, two cells): Z 2 and U S 2, four. xfx counts a grapheme cluster
 # at a time, and the clusters pair from the run's start: Z U 4 and S 2, six.
 # A short line, and one that reaches the margin with it: 110 `w`, Z U S and
-# `TAIL5678`, cut where each count reaches the 118 cells of a row. `wire`
-# keeps every byte written.
+# `TAIL5678`, cut where each count reaches the 118 cells of a row. Then,
+# in the composer, a pair that is no flag (U+1F1E6 twice: counted four by
+# fx and xfx, drawn two) and `abcd`, the four letters erased and `Q` typed:
+# whether a cell the count put elsewhere is left behind (CTRLO-WIDER-F, the
+# grid writing only what changed at the columns it counted). `wire` keeps
+# every byte written.
 gateway p5-ctrlo-wider-ri-turns.json
 fx: env FX_AUTO_UPGRADE=0
 keep
@@ -17,4 +21,13 @@ until shown 678
 until gone Generating (
 snap answer
 wire answer
+type 🇦🇦abcd
+until shown abcd
+snap typed
+wire typed
+key BSpace BSpace BSpace BSpace
+type Q
+until shown Q
+snap erased
+wire erased
 gwlog

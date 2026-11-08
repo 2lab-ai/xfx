@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+  2026-11-08 11:58:33.163 KST · Notice
+* session: provider: gateway · model: fake/model-a · effort: auto
+  system prompt: ready · 6249 bytes
+  tools: 14 advertised (read_file, glob_files, grep_files, edit_file, write_file, shell, subagent, capability_search, +6
+  more)
+  skills: loading
+  mcp: none
+
+  2026-11-08 11:58:34.227 KST · Notice
+* network: provider: gateway · model: fake/model-a · 15ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-08 11:58:34.206 KST · Prompt
+┃ go
+
+  2026-11-08 11:58:34.218 KST · Response
+  fence
+
+  ─ fam☝⸺🖐xb c ─
+  plain code
+  ────────────────
+
+  ─ ☝☝☝☝TAIL ───────────────────────────────────────────────────────────────────────────────────────────────────
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2026-11-08 11:58:34.218 KST · Response
+  END-FENCE
+
+  2026-11-08 11:58:34.225 KST · Usage
+  0s (↑1 ↓40)
+
+
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a
