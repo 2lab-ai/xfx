@@ -45901,6 +45901,39 @@ mod tests {
     }
 
     #[test]
+    fn a_finished_turns_tool_row_read_after_a_stop_keeps_its_place_in_its_text() {
+        // opus's SHOULD 1 on STOP-NEXT-2. A turn that finished before the stop
+        // reached it: its text, a tool call, more text and its finish, read
+        // after the keystroke. Upstream presents that batch as it came, being
+        // no interrupted segment (`batchSegmentIsInterrupted`,
+        // `app_worker_runtime.zig:301-325@481104fd`): the first text, the
+        // call's row, the second text. The row does not go ahead of the text
+        // held for the end.
+        let mut shell = running("first question");
+        shell.route_bytes(&[0x03]);
+        let _ = shell.painted_document();
+        shell.apply(UiEvent::Delta("FIRST-PART\n\n".to_string()));
+        shell.apply(tool_start(
+            "r",
+            "read_file",
+            serde_json::json!({"path": "notes.txt"}),
+        ));
+        shell.apply(tool_result("r", "read_file", true, ""));
+        shell.apply(UiEvent::Delta("SECOND-PART\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        shell.shell.flush_paced();
+        let rows = shell.painted_document();
+        let at = |needle: &str| rows.iter().position(|row| row.contains(needle));
+        let (first, row, second) = (at("FIRST-PART"), at("notes.txt"), at("SECOND-PART"));
+        assert!(
+            first.is_some() && row.is_some() && second.is_some() && first < row && row < second,
+            "the first text, the row, the second text: {rows:#?}"
+        );
+    }
+
+    #[test]
     fn a_completed_turns_text_unread_at_the_stop_leaves_the_cancelled_line_above_its_summary() {
         // The answer's text is still in the channel when the user stops a
         // turn the runtime has already finished. Upstream's keystroke writes

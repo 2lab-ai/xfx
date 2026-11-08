@@ -14328,6 +14328,61 @@ mod tests {
     }
 
     #[test]
+    fn a_stop_its_end_and_a_model_title_write_each_title_once_in_upstreams_order() {
+        // MUST 2 of STOP-NEXT-2's review: item 7 and T1 together. The end of
+        // a turn stopped in this tick gives the session its title, and a
+        // model names the session -- in the same tick, or on the next before
+        // that tick's frame. Upstream writes each title when it is set
+        // (`syncTerminalTitleWith`, `app_session_runtime.zig:2965-2987@481104fd`):
+        // the end's on the pass that drains it, after the `Cancelled` frame
+        // (`src/ui/event_loop.zig:77-117`), and the model's after that. So
+        // after the frame, `go` and then `Named`, each once.
+        let mut got = Vec::new();
+        for case in ["one tick", "the next tick, before its frame"] {
+            let (mut shell, mut band, mut out) = status_running(b"go\r");
+            let before = out.vectors.len();
+            shell.route_bytes(&[0x03]);
+            shell.apply(UiEvent::TurnEnded {
+                failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+            });
+            if case == "one tick" {
+                shell.apply(UiEvent::SessionTitled("Named".into()));
+            }
+            shell.handle.give_back();
+            shell.settle_band(Instant::now());
+            status_tick(&mut shell, &mut band, &mut out);
+            if case != "one tick" {
+                shell.apply(UiEvent::SessionTitled("Named".into()));
+            }
+            for _ in 0..3 {
+                shell.settle_band(Instant::now());
+                status_tick(&mut shell, &mut band, &mut out);
+            }
+            let wire = out.vectors[before..].concat();
+            let after = &wire[find(&wire, b"Cancelled").unwrap_or(wire.len())..];
+            let count =
+                |needle: &[u8]| after.windows(needle.len()).filter(|w| *w == needle).count();
+            got.push((
+                case,
+                count(b"\x1b]2;go\x07"),
+                count(b"\x1b]2;Named\x07"),
+                matches!(
+                    (find(after, b"\x1b]2;go\x07"), find(after, b"\x1b]2;Named\x07")),
+                    (Some(go), Some(named)) if go < named
+                ),
+            ));
+        }
+        assert_eq!(
+            got,
+            [
+                ("one tick", 1, 1, true),
+                ("the next tick, before its frame", 1, 1, true),
+            ],
+            "each: `go` after the Cancelled frame, `Named`, `go` first"
+        );
+    }
+
+    #[test]
     fn a_compactions_stop_and_its_turns_end_in_one_tick_put_the_title_on_the_next_tick() {
         // Item 7 for the other stop. Ctrl-C on a turn's automatic compaction
         // stops the compaction and the turn with it (`cancelActiveOperation`,
@@ -14439,25 +14494,135 @@ mod tests {
     }
 
     #[test]
-    fn late_text_a_stop_holds_counts_against_the_drains_bound() {
-        // The text a stopped turn's end may still place is the answer held a
-        // drain longer, and the bound that keeps the pacer's queue short
-        // (`the_loop_stops_taking_events_while_the_stream_it_already_has_is_deep_enough`)
-        // keeps it short too.
+    fn late_text_a_stop_holds_never_keeps_the_drain_from_its_turns_end() {
+        // MUST 1 of STOP-NEXT-2's review. Text a stop's turn is still to place
+        // is no stream the pacer releases against a clock: only the turn's
+        // end, or a drain that empties the channel, lets go of it. Counted
+        // against the drain's bound it would shut the door on the one event
+        // that opens it, and the loop would never read the turn's end -- a
+        // wedge, where the pacer's bound is backpressure
+        // (`the_loop_stops_taking_events_while_the_stream_it_already_has_is_deep_enough`).
+        // So the end behind 64 KiB of it is read, in one drain or across
+        // drains cut by their count, and the text is presented under a finish
+        // and dropped under the stop's own end, as upstream's batch is
+        // (`batchSegmentIsInterrupted`, `app_worker_runtime.zig:301-325@481104fd`).
+        let mut got = Vec::new();
+        for case in [
+            "the stop's own end",
+            "a finish",
+            "a finish, across cut drains",
+        ] {
+            let (mut shell, mut band, mut out) = status_running(b"go\r");
+            let before = out.vectors.len();
+            shell.route_bytes(&[0x03]);
+            status_tick(&mut shell, &mut band, &mut out);
+            let (events, mut receiver) = tokio::sync::mpsc::channel(4 * bridge::UI_EVENTS);
+            if case == "a finish, across cut drains" {
+                // Past the bound after the first of three drains the count
+                // cuts.
+                for _ in 0..(5 * bridge::UI_EVENTS / 2) {
+                    events
+                        .try_send(UiEvent::Delta(
+                            "x".repeat(PACED_BACKLOG / bridge::UI_EVENTS),
+                        ))
+                        .expect("room");
+                }
+            } else {
+                events
+                    .try_send(UiEvent::Delta("x".repeat(PACED_BACKLOG)))
+                    .expect("room");
+            }
+            events
+                .try_send(UiEvent::Delta("\nLATE-ANSWER\n".to_string()))
+                .expect("room");
+            let failure =
+                (case == "the stop's own end").then(|| bridge::TURN_CANCELLED.to_string());
+            events
+                .try_send(UiEvent::TurnEnded { failure })
+                .expect("room");
+            for _ in 0..4 {
+                take_ui_events(&mut shell, &mut receiver);
+                shell.flush_paced();
+                shell.settle_band(Instant::now());
+                status_tick(&mut shell, &mut band, &mut out);
+            }
+            shell.handle.give_back();
+            shell.flush_paced();
+            shell.settle_band(Instant::now());
+            status_tick(&mut shell, &mut band, &mut out);
+            let wire = out.vectors[before..].concat();
+            got.push((
+                case,
+                receiver.try_recv().is_err(),
+                find(&wire, b"\x1b]2;go\x07").is_some(),
+                find(&wire, b"LATE-ANSWER").is_some(),
+            ));
+        }
+        assert_eq!(
+            got,
+            [
+                ("the stop's own end", true, true, false),
+                ("a finish", true, true, true),
+                ("a finish, across cut drains", true, true, true),
+            ],
+            "each: the channel drained, the end read (its title), the late text shown"
+        );
+    }
+
+    #[test]
+    fn a_tool_row_read_with_text_a_stop_drops_is_still_written() {
+        // The other half of opus's SHOULD 1 on STOP-NEXT-2: a tool row read
+        // after the stop waits behind the text read before it, and when a
+        // drain that empties the channel drops that text (upstream's batch
+        // taken while the stopped turn still ran,
+        // `cancelledEventAdmission`, `app_worker_runtime.zig:339-389@481104fd`),
+        // the row is still written, as it was when rows went out at once.
         let (mut shell, mut band, mut out) = status_running(b"go\r");
+        let before = out.vectors.len();
         shell.route_bytes(&[0x03]);
         status_tick(&mut shell, &mut band, &mut out);
-        shell.apply(UiEvent::Delta("x".repeat(PACED_BACKLOG)));
+        let spec = crate::tools::Registry::builtin()
+            .spec("read_file")
+            .expect("a tool the registry has");
         let (events, mut receiver) = tokio::sync::mpsc::channel(bridge::UI_EVENTS);
-        let waiting = UiEvent::Delta("STILL-ON-THE-CHANNEL".to_string());
-        events
-            .try_send(waiting.clone())
-            .expect("room on the channel");
+        for event in [
+            UiEvent::Delta("DROPPED-TEXT\n\n".to_string()),
+            UiEvent::ToolStart {
+                call_id: "r".to_string(),
+                tool: "read_file".to_string(),
+                shown: spec.shown(&serde_json::json!({"path": "notes.txt"})),
+            },
+            UiEvent::ToolResult {
+                call_id: "r".to_string(),
+                tool: "read_file".to_string(),
+                ok: true,
+                detail: String::new(),
+                outcome: crate::tools::Outcome::Finished,
+                changes: None,
+            },
+        ] {
+            events.try_send(event).expect("room");
+        }
         take_ui_events(&mut shell, &mut receiver);
+        events
+            .try_send(UiEvent::TurnEnded {
+                failure: Some(bridge::TURN_CANCELLED.to_string()),
+            })
+            .expect("room");
+        take_ui_events(&mut shell, &mut receiver);
+        shell.handle.give_back();
+        shell.flush_paced();
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        let wire = out.vectors[before..].concat();
         assert_eq!(
-            receiver.try_recv().ok(),
-            Some(waiting),
-            "the loop took an event past the bound while a stop held late text"
+            (
+                find(&wire, b"notes.txt").is_some(),
+                find(&wire, b"DROPPED-TEXT").is_some()
+            ),
+            (true, false),
+            "the row, the dropped text: {:?}",
+            String::from_utf8_lossy(&wire)
         );
     }
 
