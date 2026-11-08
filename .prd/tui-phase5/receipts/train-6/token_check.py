@@ -30,10 +30,18 @@ merge-base of the two):
   run of tokens a side wrote in place of the base's (`difflib` opcodes
   `insert` and `replace`, whitespace tokens, against the base's row), with
   the side's own token on either side of it, is in M's row whole, as one
-  contiguous run: a clause a side wrote is not split or reordered, and it
-  stands where that side put it. The multiset
-  check alone does not look at the order of tokens inside a row, and merges
-  2 and 3 of this train each resolved two such rows word by word.
+  contiguous run: a clause a side wrote is not split or reordered inside.
+  The multiset check alone does not look at the order of tokens inside a
+  row, and merges 2 and 3 of this train each resolved two such rows word by
+  word.
+- Train 6, round 2: the tokens' order in every row a side changed. For each
+  side, the tokens of its row the merge must keep -- every token it wrote,
+  and every base token it kept that the other side kept too -- appear in
+  M's row in that side's order (a subsequence of M's row). With the
+  clause rule that is "whole, contiguous and in place": a clause moved
+  whole, anchors and all, keeps its multiset and its contiguity and breaks
+  this order. A row only one side changed must so be that side's row,
+  token for token.
 
 Prints one line per difference from the expectation, then a summary per
 merge; exit 1 if any.
@@ -50,7 +58,12 @@ side added next to a row the other side changed, the two swapped (the order
 rule) -- each must be found. Train 6 adds, for every row both sides changed,
 M's row as ours has it and as theirs has it (one side's clauses lost), and
 the longest run a side wrote with its first two tokens swapped (the clause
-rule) -- each must be found.
+rule) -- each must be found. Round 2 adds, for every row both sides changed,
+its longest clause moved whole with its anchors to the start of the row's
+last cell (the key, the multiset and the contiguity unchanged; only the
+order rule sees it),
+and for the first row one side alone changed, two of its tokens swapped --
+each must be found.
 """
 import difflib
 import collections
@@ -113,6 +126,32 @@ def clause_runs(base_row, side_row):
     return runs
 
 
+def kept_base(base_row, side_row):
+    """The indices of `base_row`'s tokens `side_row` kept."""
+    sm = difflib.SequenceMatcher(None, base_row, side_row, autojunk=False)
+    return {a + k for a, _, size in sm.get_matching_blocks() for k in range(size)}
+
+
+def owed_in_order(base_row, side_row, other_row):
+    """The tokens of `side_row` the merge must keep, in `side_row`'s order:
+    every token the side wrote, and every base token it kept that the other
+    side kept too."""
+    other = kept_base(base_row, other_row)
+    out = []
+    sm = difflib.SequenceMatcher(None, base_row, side_row, autojunk=False)
+    for op, i1, i2, j1, j2 in sm.get_opcodes():
+        if op == "equal":
+            out += [side_row[j1 + k] for k in range(i2 - i1) if i1 + k in other]
+        else:
+            out += side_row[j1:j2]
+    return out
+
+
+def subsequence(seq, row):
+    it = iter(row)
+    return all(token in it for token in seq)
+
+
 def contiguous(run, row):
     n = len(run)
     return any(row[i:i + n] == run for i in range(len(row) - n + 1))
@@ -148,12 +187,20 @@ def check_parity(base, ours, theirs, merged, out):
                 deleted = sum(((cb - co) + (cb - ct)).values())
                 out.append(f"  parity row {label!r}: changed by ours+theirs; {added} tokens added, {deleted} "
                            f"deleted, all as expected; {len(runs)} clauses (each with its "
-                           f"side's token either side) whole and in place")
+                           f"side's token either side) whole and contiguous; each side's tokens in its order")
         else:
             added = sum(((co - cb) + (ct - cb)).values())
             deleted = sum(((cb - co) + (cb - ct)).values())
             out.append(f"  parity row {label!r}: changed by {'+'.join(sides) or 'none'}; "
-                       f"{added} tokens added, {deleted} deleted, all as expected")
+                       f"{added} tokens added, {deleted} deleted, all as expected, in order")
+        # Round 2: each side's owed tokens, in its order.
+        if lb is not None and lm is not None and cm == want:
+            for name, line, other in (("ours", lo, lt), ("theirs", lt, lo)):
+                if line is None or line == lb or other is None:
+                    continue
+                if not subsequence(owed_in_order(lb.split(), line.split(), other.split()), lm.split()):
+                    bad += 1
+                    out.append(f"  PARITY {label!r}: {name}'s tokens not in {name}'s order")
         changed.append((key, sides))
     # Train 5: the rows' order. For each side, the table rows it holds that M
     # holds too must come in M in the side's order.
@@ -338,6 +385,37 @@ def self_test(repo, merge):
               f"clause swapped: {'found' if bad else 'MISSED'}")
         found += bool(bad)
         extra += 1
+        # Round 2: the clause moved whole, anchors and all, to the start of
+        # the row's last cell (after its fourth `|`), so the row keeps its
+        # key, its multiset and every clause's contiguity.
+        words = row.split(" ")
+        at = next(i for i in range(len(words)) if words[i:i + len(run)] == run)
+        moved = words[:at] + words[at + len(run):]
+        cell = [i for i, w in enumerate(moved) if w == "|"][3] + 1
+        moved = moved[:cell] + run + moved[cell:]
+        out = []
+        bad = check_parity(pb, po, pt, pm.replace(row, " ".join(moved), 1), out)
+        print(f"  self-test parity, a row both sides changed ({key[1][:40]!r}), a side's clause moved "
+              f"whole with its anchors: {'found' if bad else 'MISSED'}")
+        found += bool(bad)
+        extra += 1
+    # Round 2: the first row one side alone changed, two of its tokens swapped.
+    for key in [k for k in m_rows if k[0] == "row"]:
+        lo, lt, lb, row = o.get(key), t.get(key), b.get(key), m_rows[key]
+        if lb is None or (lo != lb) == (lt != lb):
+            continue
+        words = row.split(" ")
+        i = next((i for i in range(3, len(words) - 1) if words[i] != words[i + 1]), None)
+        if i is None:
+            continue
+        words[i], words[i + 1] = words[i + 1], words[i]
+        out = []
+        bad = check_parity(pb, po, pt, pm.replace(row, " ".join(words), 1), out)
+        print(f"  self-test parity, a row one side changed ({key[1][:40]!r}), two tokens swapped: "
+              f"{'found' if bad else 'MISSED'}")
+        found += bool(bad)
+        extra += 1
+        break
     for i in range(len(lines) - 1):
         k1, k2 = (next((k for k, v in m_rows.items() if v == lines[j]), None) for j in (i, i + 1))
         if not (k1 and k2 and k1[0] == k2[0] == "row"):

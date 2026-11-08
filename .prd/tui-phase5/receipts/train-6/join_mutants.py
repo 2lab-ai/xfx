@@ -14,7 +14,7 @@ TESTS = [
     "tui::toolgroup::tests::the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width",
 ]
 SHORT = {TESTS[0]: "join-1 (Ctrl-O, caches)", TESTS[1]: "join-3 (retint, open)", TESTS[2]: "join-1 (row's cut)"}
-FT, TG = "src/tui/full_transcript.rs", "src/tui/toolgroup.rs"
+FT, TG, POS = "src/tui/full_transcript.rs", "src/tui/toolgroup.rs", "src/tui/full_transcript/position.rs"
 MUTANTS = [
     ("JM1 T-U4's group block kept across a palette", FT,
      "if kept.revision == revision && kept.palette == palette {", "if kept.revision == revision {"),
@@ -30,6 +30,12 @@ MUTANTS = [
      "        None => cluster(rest),", "        None => rest.chars().next().map_or(rest.len(), char::len_utf8),"),
     ("JM7 T-U4's row cut: a spelling is not a unit", TG,
      "        Some(len) => len - 1 + cluster(&rest[len - 1..]),", "        Some(_) => cluster(rest),"),
+    # Round 2 (gpt6's NTH 1): a screen at the tail pinned to the entry it
+    # showed when its page is rebuilt -- by a resize while it is open --
+    # instead of following the tail: every row a right one of the new width,
+    # the window not the tail's. Reopening starts at the tail again.
+    ("JM8 Ctrl-O at the tail stops following it when a resize rebuilds the page", POS,
+     "        if self.follow_tail || self.bookmark_pending {", "        if self.bookmark_pending {"),
 ]
 
 

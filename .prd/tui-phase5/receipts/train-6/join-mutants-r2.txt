@@ -1,0 +1,26 @@
+# Train 6 round 2 (round2-jobs.sh), one hold of the suite lock: JM8 against round 1's caches test (392ca22a's text), then the eight mutants against round 2's tests (4ac5ebfa), on a git clone --no-local of the head
+== JM8 against round 1's caches test (392ca22a's src/tui/shell.rs) on the head's clone
+round 1's caches test with JM8: exit 0; test tui::shell::tests::ctrl_o_names_what_a_terminal_draws_wider_and_its_caches_follow_the_palette_and_the_width ... ok test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4446 filtered out; finished in 0.02s 
+clone clean after: yes
+== the mutants, round 2's tests
+# 4ac5ebfa test(tui): train 6 join -- Ctrl-O right after a resize is the fresh 40-
+unchanged: exit 0; join-1 (Ctrl-O, caches) ok; join-3 (retint, open) ok; join-1 (row's cut) ok
+JM1 T-U4's group block kept across a palette: KILLED; join-1 (Ctrl-O, caches) FAILED; join-3 (retint, open) FAILED; join-1 (row's cut) ok
+    join-1 (Ctrl-O, caches) said: assertion `left == right` failed: light, 120
+    join-3 (retint, open) said: assertion `left == right` failed: the open screen after the report
+JM2 T-U4's heading kept across a resize: KILLED; join-1 (Ctrl-O, caches) FAILED; join-3 (retint, open) ok; join-1 (row's cut) ok
+    join-1 (Ctrl-O, caches) said: the heading, laid out again: [
+JM3 CTRLO-WIDER's code panel label not named: KILLED; join-1 (Ctrl-O, caches) FAILED; join-3 (retint, open) FAILED; join-1 (row's cut) ok
+    join-1 (Ctrl-O, caches) said: the code panel's label, named: [
+    join-3 (retint, open) said: [
+JM4 CTRLO-WIDER's file and tool lines not named: KILLED; join-1 (Ctrl-O, caches) FAILED; join-3 (retint, open) ok; join-1 (row's cut) ok
+    join-1 (Ctrl-O, caches) said: the argument row, named: [
+JM5 T-U4's retint of a Ctrl-O block off (drawn in one mode, shown as drawn): KILLED; join-1 (Ctrl-O, caches) ok; join-3 (retint, open) FAILED; join-1 (row's cut) ok
+    join-3 (retint, open) said: [
+JM6 T-U4's row cut: a unit is a character, not a cluster: KILLED; join-1 (Ctrl-O, caches) ok; join-3 (retint, open) ok; join-1 (row's cut) FAILED
+    join-1 (row's cut) said: a raw one and its modifier across the cut: cut at byte 65538 of 65543, inside a unit
+JM7 T-U4's row cut: a spelling is not a unit: KILLED; join-1 (Ctrl-O, caches) ok; join-3 (retint, open) ok; join-1 (row's cut) FAILED
+    join-1 (row's cut) said: named, past any screen: cut at byte 65536 of 72072, inside a unit
+JM8 Ctrl-O at the tail stops following it when a resize rebuilds the page: KILLED; join-1 (Ctrl-O, caches) FAILED; join-3 (retint, open) ok; join-1 (row's cut) ok
+    join-1 (Ctrl-O, caches) said: assertion `left == right` failed: light, 40, right after the resize
+# 8 of 8 killed; clone clean after: True

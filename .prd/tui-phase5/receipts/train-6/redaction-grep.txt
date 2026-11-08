@@ -1,4 +1,4 @@
-# The grep over this directory, wires and every other file included (grep -raoE, from the repository root):
+# The grep over this directory, wires and every other file included (grep -raoE, from the repository root), rerun with round 2's files in it:
 grep -raoE '50[1]/|scratchpa[d]|privat[e]/tmp|/tm[p]/|User[s]/|zhugehyu[k]' .prd/tui-phase5/receipts/train-6 | wc -l
 # the uid fragment before a slash, the machine's scratch root's name, the system temporary root (two spellings), the home root, the account's name -- each with a bracket class, so the command matches what it looks for and not its own text
 0

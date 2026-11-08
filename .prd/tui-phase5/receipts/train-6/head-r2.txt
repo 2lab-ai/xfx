@@ -1,0 +1,12 @@
+# Train 6 round 2 (round2-jobs.sh), one hold of the suite lock: at the head, fmt, clippy both ways (the commands as shown), the touched tests, and the token check with its negative control
+== the head (4ac5ebfa)
+$ cargo fmt --check -> exit 0
+$ cargo clippy --locked --all-targets -- -D warnings -> exit 0
+$ cargo clippy --locked --all-targets --features fault-injection -- -D warnings -> exit 0
+$ cargo test --locked --lib --no-fail-fast -- tui::toolgroup::tests <the two Ctrl-O join tests> -> exit 0; test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 4404 filtered out; finished in 2.60s
+$ token_check.py . <the four merges> -> exit 0; 4 of 4 OK
+$ token_check.py . --self-test a09e39c1 -> exit 0; self-test a09e39c1: 8 of 8 found
+$ token_check.py . --self-test 7fa4cc27 -> exit 0; self-test 7fa4cc27: 17 of 17 found
+$ token_check.py . --self-test d55e2317 -> exit 0; self-test d55e2317: 20 of 20 found
+$ token_check.py . --self-test 5f601851 -> exit 0; self-test 5f601851: 14 of 14 found
+job exit 0

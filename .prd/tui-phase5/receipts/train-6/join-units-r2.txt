@@ -1,0 +1,65 @@
+# Train 6 round 2 (round2-jobs.sh), one hold of the suite lock: the three join tests at 4ac5ebfa, their text unchanged, on each unit's tip alone
+## unit-tu4: 5a7bb465 receipt(cancel-marker): round 3 -- the row's cut, Ctrl-O's caches, numbers, mutan, the tests appended (git diff --stat:  2 files changed, 334 insertions(+))
+test tui::shell::tests::ctrl_o_names_what_a_terminal_draws_wider_and_its_caches_follow_the_palette_and_the_width ... FAILED
+test tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back ... FAILED
+test tui::toolgroup::tests::the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width ... ok
+thread 'tui::shell::tests::ctrl_o_names_what_a_terminal_draws_wider_and_its_caches_follow_the_palette_and_the_width' (339926273) panicked at src/tui/shell.rs:44768:9:
+thread 'tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back' (339926272) panicked at src/tui/shell.rs:44872:9:
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4386 filtered out; finished in 0.78s
+error: test failed, to rerun pass `--lib`
+error: 1 target failed:
+---- tui::shell::tests::ctrl_o_names_what_a_terminal_draws_wider_and_its_caches_follow_the_palette_and_the_width stdout ----
+thread 'tui::shell::tests::ctrl_o_names_what_a_terminal_draws_wider_and_its_caches_follow_the_palette_and_the_width' (339926273) panicked at src/tui/shell.rs:44768:9:
+the argument row, named: [
+    "",
+    "  Paragraph 20 before the read.",
+    "",
+    "  Paragraph 21 before the read.",
+    "",
+    "  Paragraph 22 before the read.",
+    "",
+    "  Paragraph 23 before the read.",
+    "",
+---- tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back stdout ----
+thread 'tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back' (339926272) panicked at src/tui/shell.rs:44872:9:
+[
+    "",
+    "  Paragraph 24 before the read.",
+    "",
+    "  Paragraph 25 before the read.",
+    "",
+    "  Paragraph 26 before the read.",
+    "",
+    "  Paragraph 27 before the read.",
+    "",
+exit 101
+## unit-wider: 1824e868 test(tui): a fenced reply's label is named on the screen and kept as written in t, the tests appended (git diff --stat:  2 files changed, 334 insertions(+))
+test tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back ... FAILED
+test tui::shell::tests::ctrl_o_names_what_a_terminal_draws_wider_and_its_caches_follow_the_palette_and_the_width ... ok
+test tui::toolgroup::tests::the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width ... FAILED
+thread 'tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back' (339932070) panicked at src/tui/shell.rs:44891:9:
+thread 'tui::toolgroup::tests::the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width' (339932072) panicked at src/tui/toolgroup.rs:2342:13:
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4385 filtered out; finished in 0.23s
+error: test failed, to rerun pass `--lib`
+error: 1 target failed:
+---- tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back stdout ----
+thread 'tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back' (339932070) panicked at src/tui/shell.rs:44891:9:
+[
+    "  Paragraph 23 before the read.",
+    "",
+    "  Paragraph 24 before the read.",
+    "",
+    "  Paragraph 25 before the read.",
+    "",
+    "  Paragraph 26 before the read.",
+    "",
+    "  Paragraph 27 before the read.",
+---- tui::toolgroup::tests::the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width stdout ----
+thread 'tui::toolgroup::tests::the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width' (339932072) panicked at src/tui/toolgroup.rs:2342:13:
+named, past any screen: cut at byte 4093 of 72072, inside a unit
+failures:
+    tui::shell::tests::a_theme_report_while_ctrl_o_is_open_recolours_a_named_label_and_a_cancelled_line_and_back
+    tui::toolgroup::tests::the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4385 filtered out; finished in 0.23s
+error: test failed, to rerun pass `--lib`
+exit 101

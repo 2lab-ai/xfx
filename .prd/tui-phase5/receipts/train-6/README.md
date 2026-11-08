@@ -23,8 +23,8 @@ by `sweep.py` before and after every run, `FX_AUTO_UPGRADE=0`.
   T-U4's marker line; both sides' appended tests) and two `docs/parity.md`
   rows; merge 3 (CTRLO-WIDER) the same two rows. Each row was merged word
   by word against the base, no word-level conflict; the token check
-  (with a new clause rule for rows both sides changed) is OK on all four,
-  and its negative control finds 52 of 52 planted losses. 13 references the
+  (with a clause rule and, in round 2, an order rule) is OK on all four,
+  and its negative control finds 59 of 59 planted losses. 13 references the
   merges moved, re-pointed and checked against their code (13 of 13).
 - **Join check 1:** on Ctrl-O CTRLO-WIDER's names (the arguments, the
   result, a code panel's label and its code) hold through T-U4's block and
@@ -33,19 +33,22 @@ by `sweep.py` before and after every run, `FX_AUTO_UPGRADE=0`.
   **The heading is raw, not named** -- CTRLO-WIDER's own design (its round
   2 (f)), not the brief's expectation; recorded, not changed. T-U4's row cut
   never splits a raw cluster or a named spelling, and equals the whole row
-  at 40, 120 and 1000 columns. 7 of 7 mutants killed (one survived the
-  first run; `392ca22a` adds the case that kills it). Each test needs both
-  units, but the caches test passes on CTRLO-WIDER alone (no caches there).
-- **Join check 2 (render cost), two findings, neither fixed here:** on
-  T-U4's own probe the train costs what T-U4's code does in the same run
-  (0.95-1.24×; both 2.0-2.9× T-U4's published numbers, the machine at load
-  71-73). With the call's arguments, which every live call sends and T-U4's
-  probe did not: (a) T-U4's own Ctrl-O opens a 4 Mi U+009B call in 1.9 s
-  and pays 1.4 s a join -- its caches do not cover argument rows; (b) for a
-  2 Mi argument of U+261D the train is **2.1-2.8×** T-U4 alone (open 0.73-0.76
-  s, join 0.69-0.71 s): CTRLO-WIDER's named form is 8 bytes and cells where
-  the raw scalar is 3 and 1, and the argument rows are laid out again on
-  every join, theme switch and resize.
+  at 40, 120 and 1000 columns. 8 of 8 mutants killed (round 1: one
+  survived its first run, and `392ca22a` adds the case that kills it; round
+  2's JM8, a screen that stops following the tail on a resize, passes round
+  1's caches test and fails round 2's, which compares the screen right after
+  the resize). Only the retint test fails on each unit alone. The caches test fails on T-U4 alone (no naming) and passes on CTRLO-WIDER alone (no caches); JM1 and JM2 show T-U4's part. The row-cut test passes on T-U4 alone and fails on CTRLO-WIDER alone (no column cut); CTRLO-WIDER names nothing on that row, so it guards that, and JM6 and JM7 pin T-U4's cut.
+- **Join check 2 (render cost), not fixed here:** on T-U4's own probe the
+  train costs what T-U4's code does in the same run (0.95-1.24×). With the
+  call's arguments, which every live call sends and T-U4's probe did not,
+  round 1 found the train 2.1-2.8× T-U4 alone for a 2 Mi U+261D argument;
+  round 2 measured all four builds in one hold: **the train costs what
+  CTRLO-WIDER alone does** (0.98-1.13×), which is 2.3-2.8× `main` -- its
+  named argument row, laid out on every layout of the entry -- so the cost is
+  CTRLO-WIDER's, not the combination's, and the train is 2.3-3.1× `main` there.
+  For 4 Mi U+009B the argument rows cost 0.6 s a step on `main` already; T-U4
+  adds its whole heading on open and resize. The argument rows are
+  ARGROW-CACHE's (this train's fifth unit, to come).
 - **Join check 3:** a theme report while Ctrl-O is open recolours the named
   label, the cancelled line and every other row to the fresh light session's,
   and the report back gives the first screen byte for byte.
@@ -63,6 +66,28 @@ by `sweep.py` before and after every run, `FX_AUTO_UPGRADE=0`.
   Against `main` 398 → 464 over the shared 661 (67 up -- T-U4's 62 marker
   pairs and 5 timing or run-local -- 0 down); against T-U4's own 462 → 462
   (3 up, 0 down); against CTRLO-WIDER's own 9 → 9 (0 moved).
+
+**Round 2** (reviews of `9681e9d8`: gpt6 not ready, one MUST -- the render
+cost; opus APPROVE-WITH-FIXES, one MUST -- a receipt sentence). gpt6's MUST
+is answered by a new unit, ARGROW-CACHE (`fix/p5-argrow-cache`, stacked on
+`9681e9d8`), to be merged as this train's fifth when it closes; the train
+does not fix the cost itself. In this round:
+- opus's MUST: the sentence on what the join tests need from each unit is
+  opus's wording now (join check 1), and two ratios in join check 2 are
+  corrected (15-18× on join, "grows with").
+- gpt6's NTH 1: the caches test compares the screen with the fresh
+  40-column session right after the resize (`4ac5ebfa`); JM8, which round 1's
+  test let through, fails it.
+- gpt6's NTH 3: the probe on `main`, CTRLO-WIDER alone, T-U4 alone and the
+  train in one hold; the 2.1-2.8× is CTRLO-WIDER's own cost, not the
+  combination's (join check 2, round 2).
+- opus's SHOULD 1: the token check's order rule, and its controls (a clause
+  moved whole with its anchors; a one-side row's tokens swapped).
+- opus's SHOULD 5: `join-head-r2.txt` shows its clippy commands, and its
+  script is here.
+- Routed by the dispatcher, unchanged here: opus's SHOULD 3 (the two stale
+  references, to REF-LINT) and SHOULD 4 (the raw heading at Ctrl-O's
+  margin, to a CTRLO-WIDER follow-up).
 
 ## Units and merges
 
@@ -94,7 +119,9 @@ After the merges, in order:
 | `033fdb33` | this receipt, the rest |
 | `3d3ee065` | `sweep.sh`'s comment reworded: the identity check found the retired name inside a directory name there |
 | `4bd99902` | `gates-final.txt` (both `cargo test` steps ran again here: `head-tests.txt`) |
-| the next two | this receipt's last corrections, then `gates-final.txt` again |
+| `fa18618c`, `9681e9d8` | three corrections and `head-tests.txt`; `gates-final.txt` again (the head round 1 handed back) |
+| `4ac5ebfa` | round 2: the caches join test compares the screen with the fresh 40-column session right after the resize, before Ctrl-O closes (gpt6's NTH 1); test only |
+| the next two | round 2's receipt, then `gates-final.txt` again |
 
 `git show --remerge-diff` of each merge is `remerge-1.txt` .. `remerge-4.txt`.
 Merges 1 and 4 have an empty body: git's own result, unchanged. Merge 2's
@@ -192,16 +219,25 @@ in, every one a side deleted is not), with train 4's numbers-only rule.
 **Added for train 6: the clauses of a row both sides changed.** Every run of
 tokens a side wrote in place of the base's (`difflib`, against the base's
 row), with that side's own token either side of it, is in the merged row
-whole and contiguous -- so a clause a side wrote is not split, reordered or
-moved. The multiset check does not look at the order of tokens inside a
-row, and merges 2 and 3 each resolved two rows word by word.
+whole and contiguous -- so a clause a side wrote is not split or
+reordered inside. The multiset check does not look at the order of tokens
+inside a row, and merges 2 and 3 each resolved two rows word by word.
+**Added in round 2 (opus's SHOULD 1): the tokens' order.** Round 1's clause
+rule matched a clause anywhere in the row, so a clause moved whole with its
+anchors would have passed it. Now, for every row a side changed, the
+tokens of that side's row the merge must keep -- every token the side
+wrote, and every base token it kept that the other side kept too -- appear
+in the merged row in that side's order. With the clause rule, a clause is
+whole, contiguous and in its side's place; and a row only one side changed
+is that side's row, token for token.
 
 **Result: all four merges OK.**
 
 - Merge 1: GATE-GITENV-F changed neither file; `main`'s rows and ledger as
   `main` has them.
 - Merge 2: `full-screen TUI` changed by both, 23 tokens added and 6 deleted,
-  as expected, its 6 clauses whole and in place; `full transcript (C-o)`
+  as expected, its 6 clauses whole and contiguous and each side's tokens
+  in its order; `full transcript (C-o)`
   T-U4's (54 added, 2 deleted); T-U4's `/resume` and `/allowlist` rows; the
   ledger: T-U4's two deleted causes (`cancelled-marker`,
   `U7-cancelled-glyph`) gone, its four added (`amendment-card-after-stop`,
@@ -210,7 +246,8 @@ row, and merges 2 and 3 each resolved two rows word by word.
   `call-row-raw-argument`, `call-row-source-cut`) as T-U4 has them; train
   5's entries as `main` has them.
 - Merge 3: both rows changed by both sides, 438 and 301 tokens added, 15
-  and 17 deleted, as expected, 9 and 12 clauses whole and in place; the
+  and 17 deleted, as expected, 9 and 12 clauses whole and contiguous and
+  each side's tokens in its order; the
   ledger: CTRLO-WIDER's `ctrl-o-drawn-wider-raw` gone, its four causes and
   four divergences in, every other entry the first parent's.
 - Merge 4: FLAKE-CATALOG-EVENT changed neither file.
@@ -225,10 +262,15 @@ has it, every row a side added dropped, a row a side added swapped with one
 the other side changed) and train 6's: every row both sides changed put
 back as ours has it and as theirs has it (one side's clauses lost), and its
 longest clause with two tokens swapped (the multiset unchanged; only the
-clause rule sees it). Merge 1: 7 of 7 found. Merge 2: 15 of 15, among them
-`full-screen TUI` as each side has it and with a clause's tokens swapped.
-Merge 3: 17 of 17, the same three for each of the two rows. Merge 4: 13 of
-13.
+clause rule sees it); and round 2's: that clause moved whole with its
+anchors to the start of the row's last cell (the row's key, its multiset
+and every clause's contiguity unchanged; only the order rule sees it), and
+the first row one side alone changed with two of its tokens swapped (only
+the order rule sees it). Each case was checked to be caught by the rule it
+is for. **Merge 1: 8 of 8 found. Merge 2: 17 of 17**, among them
+`full-screen TUI` as each side has it, with a clause's tokens swapped, and
+with a clause moved. **Merge 3: 20 of 20**, the same four for each of the
+two rows. **Merge 4: 14 of 14.** (Round 1: 7, 15, 17 and 13.)
 
 The re-point commit `dca1004e` changes ledger numbers after the merges; the
 token check is about the merges, and `repointed.py` checks each of those
@@ -341,12 +383,18 @@ gate, below):
   same session laid out from nothing (`shell_with`, the same events, Ctrl-O
   opened once) -- in the dark palette at 120 columns; after a theme switch
   (closed, `?997;2n`, opened) in the light one, whose rows differ from the
-  dark ones; after a resize to 40 columns with Ctrl-O open (the heading laid
-  out again: no row is the 120-column heading, every row fits 40 cells) and
-  opened again there, the light 40-column session's; and back to dark at
-  120 columns, the first screen exactly. A block or a heading kept across
-  a palette or a width would show here as a row the fresh session does not
-  have.
+  dark ones; after a resize to 40 columns with Ctrl-O open -- the heading
+  laid out again (no row is the 120-column heading, every row fits 40
+  cells) and, **right after the resize and before Ctrl-O closes, the light
+  40-column session's screen row for row** (round 2, `4ac5ebfa`; round 1
+  compared only after closing and opening again) -- and opened again there,
+  the same; and back to dark at 120 columns, the first screen exactly. The
+  turn opens with thirty short paragraphs, so the record is taller than the
+  screen at both widths (pinned: the first paragraph is off screen at 120
+  and at 40) and where the screen stands is part of what is compared. A
+  block or a heading kept across a palette or a width, or a screen that
+  stops following the tail when a resize rebuilds its page, would show here
+  as a row the fresh session does not have.
 - `the_transcripts_row_keeps_what_a_terminal_draws_wider_whole_at_every_width`
   (`src/tui/toolgroup.rs`): the transcript's own row (`inline`, T-U4's
   column cut, `toolgroup.rs:128`). CTRLO-WIDER names nothing on this row, so
@@ -370,10 +418,7 @@ gate, below):
 | the row's cut | pass | pass (its cut; the raw scalars are clusters) | **fails**: `named, past any screen: cut at byte 4093 of 72072, inside a unit` -- the 4 KiB byte bound T-U4 removed for a read's, list's or pattern's argument |
 | retint with Ctrl-O open (join check 3) | pass | **fails** at the label (not named) | **fails** at the first assertion: the stopped turn's line is not on Ctrl-O at all (T-U4's `95669160`) |
 
-So each test needs both units, but the first, whose subject is the caches,
-passes on CTRLO-WIDER alone: the caches change no screen there because
-there are none. That it would catch a cache kept too long is the mutants'
-question.
+Only the retint test fails on each unit alone. The caches test fails on T-U4 alone (no naming) and passes on CTRLO-WIDER alone (no caches); JM1 and JM2 show T-U4's part. The row-cut test passes on T-U4 alone and fails on CTRLO-WIDER alone (no column cut); CTRLO-WIDER names nothing on that row, so it guards that, and JM6 and JM7 pin T-U4's cut. That the caches test would catch a cache kept too long is the mutants' question.
 
 **Do they discriminate?** `join_mutants.py` on a `git clone --no-local` of
 the head, one mutant at a time, the clone restored after each and clean at
@@ -389,8 +434,16 @@ test said names what held it):
 | JM5 T-U4's retint of a Ctrl-O block off (shown as drawn) | ok | **FAILED** | ok | the open screen after the report |
 | JM6 T-U4's row cut a character at a time, not a cluster | ok | ok | **FAILED** | `a raw one and its modifier across the cut: cut at byte 65538 of 65543, inside a unit` |
 | JM7 T-U4's row cut not keeping a spelling whole | ok | ok | **FAILED** | `named, past any screen: cut at byte 65536 of 72072, inside a unit` |
+| JM8 (round 2) Ctrl-O at the tail pinned to the entry it showed when a resize rebuilds its page, instead of following the tail (`position.rs`, `pin_reading_position`) | **FAILED** | ok | ok | `light, 40, right after the resize` |
 
-**7 of 7 killed**, the unchanged tests passing. The first run
+**Round 2 (`join-mutants-r2.txt`, at `4ac5ebfa`): 8 of 8 killed**, the
+unchanged tests passing. JM8 is gpt6's case: after the resize every row on
+screen is a right row of the 40-column layout, but the window is not the
+tail's, and reopening starts at the tail again -- so **round 1's caches
+test passes with JM8 in** (the same run, round 1's text at `392ca22a`:
+`ok`), and round 2's fails it at the comparison right after the resize. The
+units' table is the same at `4ac5ebfa` (`join-units-r2.txt`). Round 1 at
+`392ca22a` (`join-mutants.txt`): **7 of 7 killed**, the unchanged tests passing. The first run
 (`join-mutants-first.txt`, at `0252c06f`) killed 6: **JM6 survived** -- no
 case put a cluster whose second scalar has cells of its own at the cut, so
 a cut a character at a time fell between clusters anyway. `392ca22a` adds
@@ -400,7 +453,10 @@ unit again (`join-units.txt`, the table above unchanged; the first run is
 `join-units-first.txt`), and at `392ca22a` clippy both ways, `cargo fmt
 --check` and the tests it touched (`tui::toolgroup::tests` and the two
 Ctrl-O join tests, 43 passed) (`join-head-r2.txt`). The gate and the sweep
-ran at `0252c06f`; `392ca22a` changes one test's cases and nothing else.
+ran at `0252c06f`; `392ca22a` and `4ac5ebfa` change two tests and nothing
+else, and at `4ac5ebfa` fmt, clippy both ways (`--all-targets`, without and
+with `fault-injection`) and the touched tests (43 passed) ran in round 2's
+hold (`head-r2.txt`).
 
 ### 2. T-U4's render cost on the train head (`probe/`)
 
@@ -454,10 +510,12 @@ against T-U4's published number. ms; the two rounds as `r1 / r2`.
    lays out; the train's numbers are T-U4's.
 3. **With the call's arguments -- the path every live call takes -- two
    findings.**
-   - **(a) T-U4's, on T-U4 alone too:** for 4 Mi U+009B Ctrl-O opens in 1.9 s,
+   - **(a) Round 1 called this T-U4's; round 2 (below) finds the cost on
+     `main` too.** For 4 Mi U+009B Ctrl-O opens in 1.9 s,
      a call joining the open group costs 1.4 s, a theme switch 1.4 s, a
-     resize 1.9 s, peak 775 MiB -- in the same run 3.5-4× (open, resize)
-     and 15× (join, theme) what the same code costs without the arguments,
+     resize 1.9 s, peak 775 MiB -- in the same run 3.5-4× (open, resize),
+     15-18× (join: 1451/94, 1428/81 ms) and 15-16× (theme: 1479/99,
+     1440/91) what the same code costs without the arguments,
      and 8-40× T-U4's published round 3 numbers. The argument row is the 32 MiB spelled argument
      (`│  pattern: \u{009b}…`), railed at 120 columns on every layout of the
      entry (`tool_rows`, `full_transcript.rs:2057`), and the entry's cache is
@@ -469,18 +527,19 @@ against T-U4's published number. ms; the two rounds as `r1 / r2`.
      of the worst case is 0.23 s" is the heading's cost, not a live call's.
      Not a train regression (the train is T-U4's cost: 0.96-1.04×), and
      not fixed here.
-   - **(b) The train's, past 2×:** for 2 Mi U+261D the train is **2.3-2.4×**
+   - **(b) Past 2× against T-U4 alone; round 2 (below) places it on
+     CTRLO-WIDER alone, not on the combination.** For 2 Mi U+261D the train is **2.3-2.4×**
      T-U4 alone on open, **2.7-2.8×** on join, **2.5×** on theme, **2.1×** on
      resize, peak 2.2× (307 MiB against 142), and the arguments' own
-     crossing 11× (61-64 ms against 5.6-5.7). The mechanism is the join of
-     the two units: CTRLO-WIDER names the scalar in the argument row
+     crossing 11× (61-64 ms against 5.6-5.7). Round 1 called the mechanism
+     the join of the two units: CTRLO-WIDER names the scalar in the argument row
      (`detail_spelled`, `:513`), 8 bytes and 8 cells where T-U4 alone writes
      the raw scalar's 3 bytes and 1 cell, so the row T-U4's layout rails on
      every join, theme switch and resize is 16 MiB and 16 Mi cells (about
      140 000 rows at 120 columns) where T-U4 alone rails 6 MiB in about
      18 000; and
      the naming itself is a pass over every character on its way across the
-     channel. The cost is (a)'s, multiplied by the named form's length.
+     channel. The cost is (a)'s, and grows with the named form's length.
      **A finding, recorded and not fixed here** (a train keeps each unit's
      code): its owner is the argument rows' layout -- T-U4's caches, extended
      to the rows `tool_rows` rails for each argument, or a bound on what
@@ -489,8 +548,58 @@ against T-U4's published number. ms; the two rounds as `r1 / r2`.
      8 MiB completion), not a common call; shorter arguments were not
      measured here.
 
+**Round 2: four builds** (gpt6's NTH 3; `probe/probe-r2.txt`). The same
+probe, the call's arguments sent (`DETAILS=1`), both cases, on `main`
+`690aa505`, CTRLO-WIDER-F alone `1824e868`, T-U4 alone `5a7bb465` and the
+train `4ac5ebfa` (its code is round 1's but for two tests), each a `git
+clone --no-local` with `probe/render_cost_probe.rs` appended, the four
+alternating case by case, two rounds, **one hold of the suite lock**; load
+10.6 to 16.1 (round 1's 71-73, so the absolute numbers are lower and only
+the same-run ratios compare). `probe/run.sh` takes the clones as arguments
+(`DETAILS=1 suite-lock.sh run.sh <clone>...`), so a later unit can rerun it
+against the same four. ms, `r1 / r2`; peak MiB.
+
+| case, with arguments | build | Ctrl-O open | join | theme | resize | crossing | peak |
+|---|---|---|---|---|---|---|---|
+| 4 Mi U+009B | `main` | 614 / 601 | 640 / 608 | 611 / 597 | 632 / 604 | 69 / 71 | 455 |
+| | CTRLO-WIDER alone | 663 / 646 | 644 / 647 | 660 / 643 | 660 / 660 | 69 / 68 | 455 |
+| | T-U4 alone | 909 / 879 | 684 / 680 | 692 / 673 | 996 / 853 | 67 / 68 | 773 |
+| | **train** | **1 177 / 864** | **651 / 643** | **692 / 644** | **902 / 848** | 91 / 69 | 780 |
+| 2 Mi U+261D | `main` | 123 / 115 | 139 / 114 | 120 / 114 | 118 / 116 | 2.7 / 2.7 | 84 |
+| | CTRLO-WIDER alone | 318 / 320 | 320 / 320 | 321 / 318 | 325 / 331 | 38 / 37 | 235 |
+| | T-U4 alone | 168 / 166 | 116 / 116 | 115 / 117 | 167 / 164 | 3.1 / 3.1 | 139 |
+| | **train** | **359 / 361** | **314 / 314** | **317 / 312** | **363 / 360** | 37 / 35 | 303 |
+
+What the four say:
+
+- **2 Mi U+261D: the train costs what CTRLO-WIDER alone does.** Train ÷
+  CTRLO-WIDER: join 0.98, theme 0.98-0.99, open 1.13, resize 1.09-1.12 (the
+  extra 40 ms on open and resize is T-U4's whole heading, laid out on those
+  two: T-U4 alone ÷ `main` is 1.36-1.44 there and 0.84-1.03 on join and
+  theme). CTRLO-WIDER alone ÷ `main` is 2.3-2.8× on every step, and its
+  arguments' crossing 13-14×: its named argument row, 8 bytes and cells a
+  scalar where `main` and T-U4 write 3 and 1, railed on every layout of the
+  entry. So round 1's (b) -- train ÷ T-U4 2.1-2.8×, here 2.15-2.75× -- is
+  CTRLO-WIDER's own cost, **not the combination's**: round 1's "the join of
+  the two units" is withdrawn. Against `main` the train is 2.3-3.1× on this
+  case, all of it CTRLO-WIDER's but T-U4's 9-13 % on open and resize.
+- **4 Mi U+009B: the argument rows' cost predates both units.** `main` pays
+  0.60-0.64 s on each of open, join, theme and resize, CTRLO-WIDER alone the
+  same (1.01-1.09×); the argument row is a 32 MiB spelled argument railed
+  whole on every layout on `main` too. T-U4 alone adds its whole heading on
+  open and resize (1.41-1.58× `main`) and costs `main`'s on join and theme
+  (1.07-1.13×); the train is T-U4's (0.90-1.29×; the 1.29 is round 1's
+  open, 1 177 ms, against 864 in round 2). Round 1's (a) stands as a
+  measurement and its owner moves: the uncached argument rows are `main`'s,
+  not T-U4's; T-U4's part is the heading it lays out whole, its design.
+- **Where it goes:** the argument rows' layout (`tool_rows`,
+  `full_transcript.rs:2040-2063`; `laid_out`'s key, `:1768-1772`) is
+  ARGROW-CACHE's, which will be merged as this train's fifth unit and rerun
+  this probe against these four; the train does not fix it. No step here
+  is a hang, a panic or a wrong screen.
+
 Input while Ctrl-O is open is still 0.0-0.3 ms a key once laid out (PageUp,
-every row). The probe's file and runner are kept; nothing of it is
+every row, both rounds). The probe's file and runner are kept; nothing of it is
 committed to `src`.
 
 ### 3. Retint x naming: a theme report while Ctrl-O is open (`03476db7`)
@@ -753,7 +862,8 @@ looks for and not its own text -- and the account's name: **0 hits**
 - `overlap.py`, `overlap.txt`: every file both sides of a merge changed, and
   the nearest pair of hunks.
 - `token_check.py`, `token-check.txt`, `token-self-test.txt`: train 5's token
-  check with the clause rule added, and its negative control with the
+  check with the clause rule and round 2's order rule added, and its
+  negative control with the
   both-sides cases added.
 - `refs.py`, `refs.txt` (merge 4), `refs-head.txt` (the head): the
   reference map, five sides; `refs_all.py`, `refs_short.py`,
@@ -766,10 +876,17 @@ looks for and not its own text -- and the account's name: **0 hits**
   `join-units-first.txt` at `03476db7`); `join_mutants.py`,
   `join-mutants.txt`: the join tests against seven mutants on a clone of
   the head (at `392ca22a`; `join-mutants-first.txt`, the run JM6 survived);
-  `join-head-r2.txt`: clippy, fmt and the touched tests at `392ca22a`.
+  `join-head-r2.txt`: clippy, fmt and the touched tests at `392ca22a`
+  (`join-r2-jobs.sh`, the script that ran them); round 2's
+  `round2-jobs.sh` (one hold: the probe, JM8 against both rounds' caches
+  test, the eight mutants, the units, the head's checks and the token
+  check), `join-mutants-r2.txt`, `join-units-r2.txt`, `head-r2.txt`.
 - `probe/`: `render_cost_probe.rs` (T-U4's round 3 probe, the `wider` case
-  and `XFX_PROBE_DETAIL` added), `run.sh`, `probe.txt` (both clones, both
-  cases, both modes, two rounds).
+  and `XFX_PROBE_DETAIL` added), `run.sh` (round 2's: the clones as
+  arguments, `DETAILS` and `ROUNDS`; round 1 ran its first form, in the
+  history), `probe.txt` (round 1: T-U4 alone and the train, both cases, both
+  modes, two rounds), `probe-r2.txt` (round 2: `main`, CTRLO-WIDER alone,
+  T-U4 alone and the train, with the arguments, two rounds).
 - `net.py`, `net.txt`, `connect.log`: join check 4.
 - `linux.sh`, `linux.txt`: the Linux row of CI's script tests, in a
   container.
