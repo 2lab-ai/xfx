@@ -1,16 +1,21 @@
-# HISTORY-NOTICE-STOP: provider-carry-back with the first turn after the switch
-# stopped before its request. The conversation starts on the provider that
-# seals its reasoning (fx on codex, xfx on llmux), reads a file and answers,
-# then `/provider` moves to the Gateway, whose catalog answers 10 s after it
-# is asked: the next prompt waits at its start for that first load (a window
-# nobody else gives, `orchestrator.zig:5665-5666@481104fd`), and Ctrl-C lands
-# 0.7 s into the wait. Upstream ends that turn interrupted and sends nothing
-# (`:5893-5919`); the prompt after it, once the catalog is in, is answered.
-# xfx says once per conversation that the llmux reasoning was not carried
-# (src/session/store.rs; fx drops it silently, `projectProviderReplay`,
-# `types.zig:1668-1680`): the stopped turn shows nothing, so the turn after it
-# says it. The turns file has no answer for the stopped turn: a request it
-# sent would take the next turn's.
+# HISTORY-NOTICE-STOP: provider-carry-back with the first prompt after the
+# switch stopped before its request. The conversation starts on the provider
+# that seals its reasoning (fx on codex, xfx on llmux), reads a file and
+# answers, then `/provider` moves to the Gateway, whose catalog answers 10 s
+# after it is asked, and Ctrl-C lands 0.7 s after the next prompt.
+# - xfx commits the switch at once and reads the catalog behind it: the prompt
+#   is a turn waiting at its start for that first load (a window nobody else
+#   gives, `orchestrator.zig:5665-5666@481104fd`), the stop ends it there,
+#   sending nothing, and the prompt after it is answered on the Gateway. xfx
+#   says once per conversation that the llmux reasoning was not carried (fx
+#   drops it silently, `projectProviderReplay`, `types.zig:1668-1680`): the
+#   stopped turn shows nothing, so the turn after it says it.
+# - fx's switch is a preparation that waits for that catalog, and the prompt
+#   waits behind it: the stop cancels the preparation ("The current provider
+#   is unchanged.", `app_auth_runtime.zig:1244-1257`), the prompt is not sent,
+#   and the prompt after it is answered on codex.
+# The turns file has no answer for the stopped prompt: a request it sent would
+# take the next prompt's.
 fx: seed provider-carry-back-fx.json
 xfx: seed provider-carry-back-xfx.json
 fx: homefile .fx/chatgpt-auth.json provider-carry-chatgpt-auth.json
