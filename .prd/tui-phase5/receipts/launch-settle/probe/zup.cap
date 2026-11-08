@@ -1,0 +1,5 @@
+# the launch wait, probed: the screen and ISIG
+gateway interrupt-words.json
+keep
+wait 0.5
+snap a

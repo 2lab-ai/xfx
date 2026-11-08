@@ -1,0 +1,52 @@
+# Each case through three checks (capfile_cases.py): 7589ec42 (the base), a0f7edef (round 1) and f525e50c (round 2, the head). want = the head's rule; race = a snap the check refuses.
+## base 7589ec42
+ok     want race got race  launch-armed, absent at 2 s
+DIFFER want race got none  launch-armed, absent at 3 s (test_sweep.py:714)
+DIFFER want race got none  launch-armed, absent at 3.5 s
+DIFFER want race got none  relaunch-armed, absent at 3 s
+DIFFER want none got race  seen, absent 0.5 s after
+ok     want none got none  seen, absent 3.5 s after
+ok     want race got race  seen, absent of a longer text
+ok     want race got race  seen then paused, absent
+DIFFER want none got race  hint seen, absent at once
+ok     want none got none  hint, absent at 1.25 s (settle 1.0)
+ok     want race got race  hint, absent at 0.5 s (inside settle)
+DIFFER want race got none  launch-armed, until gone at 3.5 s, unseen
+ok     want none got none  launch-armed, until gone at 3.5 s after an until shown
+DIFFER want race got none  hint, until gone at once (inside settle)
+ok     want none got none  hint, until gone at 1.5 s
+settle: the full-access warning 3.0, the Ctrl-C exit hint 1.0
+## round 1 a0f7edef
+ok     want race got race  launch-armed, absent at 2 s
+ok     want race got race  launch-armed, absent at 3 s (test_sweep.py:714)
+ok     want race got race  launch-armed, absent at 3.5 s
+ok     want race got race  relaunch-armed, absent at 3 s
+ok     want none got none  seen, absent 0.5 s after
+ok     want none got none  seen, absent 3.5 s after
+ok     want race got race  seen, absent of a longer text
+ok     want race got race  seen then paused, absent
+ok     want none got none  hint seen, absent at once
+ok     want none got none  hint, absent at 1.25 s (settle 1.0)
+ok     want race got race  hint, absent at 0.5 s (inside settle)
+DIFFER want race got none  launch-armed, until gone at 3.5 s, unseen
+ok     want none got none  launch-armed, until gone at 3.5 s after an until shown
+DIFFER want race got none  hint, until gone at once (inside settle)
+ok     want none got none  hint, until gone at 1.5 s
+settle: the full-access warning None, the Ctrl-C exit hint 1.0
+## head f525e50c
+ok     want race got race  launch-armed, absent at 2 s
+ok     want race got race  launch-armed, absent at 3 s (test_sweep.py:714)
+ok     want race got race  launch-armed, absent at 3.5 s
+ok     want race got race  relaunch-armed, absent at 3 s
+ok     want none got none  seen, absent 0.5 s after
+ok     want none got none  seen, absent 3.5 s after
+ok     want race got race  seen, absent of a longer text
+ok     want race got race  seen then paused, absent
+ok     want none got none  hint seen, absent at once
+ok     want none got none  hint, absent at 1.25 s (settle 1.0)
+ok     want race got race  hint, absent at 0.5 s (inside settle)
+ok     want race got race  launch-armed, until gone at 3.5 s, unseen
+ok     want none got none  launch-armed, until gone at 3.5 s after an until shown
+ok     want race got race  hint, until gone at once (inside settle)
+ok     want none got none  hint, until gone at 1.5 s
+settle: the full-access warning None, the Ctrl-C exit hint 1.0

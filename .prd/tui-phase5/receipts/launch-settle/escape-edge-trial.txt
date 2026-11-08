@@ -1,0 +1,12 @@
+# Trial try-2 of p5-mcp-menu-old's ending (conversions.txt): 'key Escape / wait 0.5 / key Escape / until shown esc again to clear / key Left / until gone esc again to clear / snap closed'. 5bd5c05f's harness with that scenario in the working tree, fx v0.0.16 and xfx at 5bd5c05f, one run each, under the lock.
+# fx kept the draft 'xd'; xfx's came back empty. [inference] Not the Left: the two Escapes 0.5 s apart before it sit on the clear window's edge (500 ms on both, xfx gesture.rs:70, fx gesture_state.zig:4@481104fd), and a second Escape inside it clears the draft (gesture.rs:53-55). In the base sweeps the second landed after the window: 'closed' shows 'xd' with the hint armed again. 84ee1680 drops the first of the two Escapes and deletes the draft with two Backspaces, so no Escape lands near another's window.
+## fx closed, rows 3 and 5
+┃ xd
+auto · model-a proj is waiting for approval · /mcp
+until shown 'esc again to clear': after 0.01 s, 20.81 s since launch
+until gone 'esc again to clear': after 0.14 s, 20.97 s since launch
+## xfx closed, rows 3 and 5
+┃
+auto · model-a proj is waiting for approval · /mcp
+until shown 'esc again to clear': after 0.01 s, 20.88 s since launch
+until gone 'esc again to clear': after 0.01 s, 20.90 s since launch

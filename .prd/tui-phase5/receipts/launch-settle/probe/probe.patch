@@ -1,0 +1,47 @@
+--- scripts/fxcap/capture.sh (b734d834)
++++ probe/capture.sh (ISIG sampled on every look)
+@@ -465,11 +465,14 @@
+ await_up() {
+   local sock=$1 run=$2 keep=$3 began=$SECONDS looks=0 dead screen
+   : > "$run/up"
++  local ptty st blank after=0
++  ptty=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_tty}')
++  : > "$run/upprobe"
+   while :; do
+     looks=$((looks + 1))
+-    # The screen, then whether the pane is dead: a kept dead pane says so in
+-    # a row of its own, which tmux writes as it marks the pane dead, so a
+-    # screen read first that holds that row is never read as a frame.
++    # PROBE: the pane's tty's ISIG, read before the screen is.
++    st=$(stty -a -f "$ptty" 2>/dev/null | tr ' ' '\n' | grep -E '^-?isig$' || echo '?')
++    # Dead first: a dead pane kept on the screen says so in a row of its own.
+     screen=$(tmux -f /dev/null -S "$sock" capture-pane -p -t cap 2>/dev/null) &&
+       dead=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_dead}' 2>/dev/null) ||
+       { echo "up: the pane is gone after $(since "$run/up") s ($looks looks): the binary ended before its first frame, and no \`keep\` held the pane" >&2; exit 1; }
+@@ -478,8 +481,17 @@
+       echo "up: the pane is dead after $(since "$run/up") s ($looks looks)"
+       break
+     fi
++    blank=blank; [[ $screen != *[![:space:]]* ]] || blank=drawn
++    printf '%s %s %s\n' "$(since "$run/up")" "$st" "$blank" >> "$run/upprobe"
+     if [[ $screen == *[![:space:]]* ]]; then
+       echo "up: a first frame after $(since "$run/up") s ($looks looks)"
++      # PROBE: ten more looks after it.
++      while (( after++ < 10 )); do
++        st=$(stty -a -f "$ptty" 2>/dev/null | tr ' ' '\n' | grep -E '^-?isig$' || echo '?')
++        printf '%s %s after\n' "$(since "$run/up")" "$st" >> "$run/upprobe"
++        sleep 0.01
++      done
++      cp "$run/upprobe" "$out/upprobe-$which-$(date +%s)-$looks.txt"
+       break
+     fi
+     # Elapsed time, whole seconds (bash's own clock), as `until` counts it.
+@@ -487,7 +499,7 @@
+       echo "up: nothing on the screen after $(since "$run/up") s ($looks looks): the binary never drew a frame" >&2
+       exit 1
+     fi
+-    sleep 0.05
++    sleep 0.01
+   done
+   : > "$run/launched"
+ }

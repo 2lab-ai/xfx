@@ -1,0 +1,6 @@
+# the full-access warning after the launch wait
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+gateway interrupt-words.json
+until shown Full access
+snap a

@@ -1,0 +1,4 @@
+# 85428cc9's gone-pane case (scenario 'home h', the binary /bin/echo, no keep) on each harness; 'home' needs no pane, so only the launch wait can stop the run. Run 2026-11-08 08:05.
+## b734d834 capture.sh: exit 1
+up: the pane is gone after 0.01 s (1 looks): the binary ended before its first frame, and no `keep` held the pane
+## 7589ec42 capture.sh: exit 0, the run wrote fx-t-30x200-h.files

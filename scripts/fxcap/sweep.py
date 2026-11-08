@@ -30,7 +30,8 @@ run and what it started, each by PID.
 A scenario with a snap a UI timer's window may hold, taken by a second count
 with no `until` before it, or a keystroke that would stop the full-access
 warning's clock inside its window (capfile.py `races`), is refused before
-anything runs: its pair would be a coin flip.
+anything runs: its pair would be a coin flip. So is one that uses a verb only
+the harness's own tests may (`nodraw`, capfile.py `harness_only`).
 
 A scenario is `ran` when both runs exit 0, `timeout` when either outlived its
 deadline, `failed` otherwise. The unit counted is the snap pair: every label a
@@ -975,6 +976,9 @@ def start(args, red, say):
     raced = [] if args.inventory_only else [line for u in units for side in ("fx", "xfx") for line in capfile.races(u.reading(side))]
     if raced:
         raise Refusal("a snap or keystroke inside a timer's window, timed by a second count (capfile.py TIMERS; take it after an `until`):\n  " + "\n  ".join(raced))
+    stubs = [line for u in units for side in ("fx", "xfx") for line in capfile.harness_only(u.reading(side))]
+    if stubs:
+        raise Refusal("a verb only the harness's own tests use:\n  " + "\n  ".join(stubs))
     if not args.inventory_only and not (os.path.isfile(args.xfx) and os.access(args.xfx, os.X_OK)):
         raise Refusal("--xfx is not an executable file (cargo build first)")
     if os.path.exists(out) and os.listdir(out):

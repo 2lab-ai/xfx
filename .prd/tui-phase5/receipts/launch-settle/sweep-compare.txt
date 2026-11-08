@@ -1,0 +1,47 @@
+# The full sweeps, base against head (pairs_compare.py from ../flake-hint4/). Every scenario (332 units; the brief's count, 313, is from before train 4) in run 1; runs 2-4 the five named below; 40x120, --jobs 2, each under the suite lock. base = 7589ec42's harness and scenarios, xfx built at 7589ec4 (a fresh copy); head = 85428cc9's, xfx built at 85428cc9 (a fresh copy). fx v0.0.16 on both.
+base-1: repo 7589ec42 wall 138m28s load 4.57 at the start, 25.1 at the peak; started 2026-11-08T07:40:31+09:00
+head-1: repo 85428cc9 wall 150m09s load 7.69 at the start, 156.41 at the peak; started 2026-11-08T10:53:47+09:00
+base-2: repo 7589ec42 wall 2m18s load 10.21 at the start, 14.62 at the peak; started 2026-11-08T14:59:15+09:00
+head-2: repo 85428cc9 wall 2m14s load 6.69 at the start, 9.6 at the peak; started 2026-11-08T15:01:44+09:00
+base-3: repo 7589ec42 wall 2m11s load 8.06 at the start, 8.67 at the peak; started 2026-11-08T15:03:59+09:00
+head-3: repo 85428cc9 wall 2m13s load 4.77 at the start, 8.86 at the peak; started 2026-11-08T15:06:10+09:00
+base-4: repo 7589ec42 wall 2m38s load 9.61 at the start, 9.61 at the peak; started 2026-11-08T15:08:24+09:00
+head-4: repo 85428cc9 wall 2m27s load 6.48 at the start, 8.28 at the peak; started 2026-11-08T15:11:03+09:00
+
+## run 1 of each side (the full sweep)
+pairs: base 1716, head 1716; runs: base 1, head 1
+base: 1102 of 1716 pair runs pass; pairs passing in every run: 1102 of 1716
+head: 1102 of 1716 pair runs pass; pairs passing in every run: 1102 of 1716
+     model-column-idle/col-down: base unresolved-defect -> head normalized-identical
+     model-column-idle/col-idle: base unresolved-defect -> head normalized-identical
+     model-parked/menu-loading: base unresolved-defect -> head normalized-identical
+DROP p5-mcp-fail/server-1: base normalized-identical -> head unresolved-defect
+DROP p5-mcp-menu-old/closed: base normalized-identical -> head unresolved-defect
+DROP p5-mcp-menu-old/end.full: base normalized-identical -> head unresolved-defect
+     read-failures/resumed: base identical -> head normalized-identical
+pairs whose verdicts are not one and the same across all runs: 7; drops: 3
+
+## runs 2-4: the five scenarios with a changed pair, rerun three times a side, alternating base and head
+### all four runs a side
+pairs: base 1716, head 1716; runs: base 4, head 4
+base: 1194 of 1824 pair runs pass; pairs passing in every run: 1101 of 1716
+head: 1193 of 1824 pair runs pass; pairs passing in every run: 1098 of 1716
+     model-column-idle/col-down: base unresolved-defect,unresolved-defect,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,unresolved-defect,normalized-identical
+     model-column-idle/col-idle: base unresolved-defect,unresolved-defect,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,unresolved-defect,normalized-identical
+     model-column-idle/col-typed: base normalized-identical,normalized-identical,unresolved-defect,unresolved-defect -> head normalized-identical,unresolved-defect,normalized-identical,normalized-identical
+     model-parked/menu-loading: base unresolved-defect,unresolved-defect,unresolved-defect,unresolved-defect -> head normalized-identical,unresolved-defect,unresolved-defect,unresolved-defect
+DROP p5-mcp-fail/server-1: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head unresolved-defect,unresolved-defect,normalized-identical,normalized-identical
+DROP p5-mcp-menu-old/closed: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head unresolved-defect,normalized-identical,normalized-identical,normalized-identical
+DROP p5-mcp-menu-old/end.full: base normalized-identical,normalized-identical,normalized-identical,normalized-identical -> head unresolved-defect,normalized-identical,unresolved-defect,normalized-identical
+     read-failures/resumed: base identical,identical,identical,identical -> head normalized-identical,identical,identical,identical
+pairs whose verdicts are not one and the same across all runs: 8; drops: 3
+### runs 2-4 only (both sides at normal load)
+pairs: base 36, head 36; runs: base 3, head 3
+base: 92 of 108 pair runs pass; pairs passing in every run: 29 of 36
+head: 91 of 108 pair runs pass; pairs passing in every run: 27 of 36
+     model-column-idle/col-down: base unresolved-defect,normalized-identical,normalized-identical -> head normalized-identical,unresolved-defect,normalized-identical
+     model-column-idle/col-idle: base unresolved-defect,normalized-identical,normalized-identical -> head normalized-identical,unresolved-defect,normalized-identical
+     model-column-idle/col-typed: base normalized-identical,unresolved-defect,unresolved-defect -> head unresolved-defect,normalized-identical,normalized-identical
+DROP p5-mcp-fail/server-1: base normalized-identical,normalized-identical,normalized-identical -> head unresolved-defect,normalized-identical,normalized-identical
+DROP p5-mcp-menu-old/end.full: base normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,unresolved-defect,normalized-identical
+pairs whose verdicts are not one and the same across all runs: 5; drops: 2

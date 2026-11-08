@@ -1,0 +1,9 @@
+# interrupt.cap (each side's own; the scenario of registry #19's 15th sighting: wait 2 / key C-c first), 40x120, each run on a fresh copy (cp). base = 7589ec42's harness and scenario with xfx at 7589ec4; head = b734d834's with xfx at b734d834. Run 2026-11-08 07:57, load 7.9. 'first error' is the first log line matching gone|no server|dead|still (an until line that matched 'gone' when the run was clean).
+base fx run 1: exit 0; no launch wait; first error: until gone 'press ctrl+c again to exit': after 0.02 s, 5.94 s since launch
+base xfx run 1: exit 0; no launch wait; first error: until gone 'press ctrl+c again to exit': after 0.02 s, 5.90 s since launch
+head fx run 1: exit 0; up: a first frame after 0.33 s (5 looks); first error: until gone 'press ctrl+c again to exit': after 0.01 s, 6.05 s since launch
+head xfx run 1: exit 0; up: a first frame after 0.81 s (13 looks); first error: until gone 'press ctrl+c again to exit': after 0.01 s, 5.91 s since launch
+base fx run 2: exit 0; no launch wait; first error: until gone 'press ctrl+c again to exit': after 0.01 s, 5.89 s since launch
+base xfx run 2: exit 1; no launch wait; first error: no server running on <scratch>
+head fx run 2: exit 0; up: a first frame after 7.83 s (116 looks); first error: until gone 'press ctrl+c again to exit': after 0.01 s, 5.93 s since launch
+head xfx run 2: exit 0; up: a first frame after 3.77 s (56 looks); first error: until gone 'press ctrl+c again to exit': after 0.02 s, 5.90 s since launch

@@ -1,0 +1,9 @@
+# Round 2: the quick checks and test-sweep.sh (it reads every .cap and the ledger) at f644afd7, the round-2 receipt commit (53a0fc11's code, scenarios and ledger plus the receipt). Light jobs: no lock.
+# head f644afd7, a git clone --no-local; tree clean: yes; 2026-11-08 17:01:17 KST
+bash -n scripts/fxcap/capture.sh: exit 0
+cargo fmt --check: exit 0
+scripts/check-xfx-identity.sh: exit 0 | check-xfx-identity: ok (12965 tracked file(s) scanned)
+scripts/check-no-stubs.sh: exit 0 | check-no-stubs: ok
+scripts/check-no-secrets.sh: exit 0 | check-no-secrets: ok (12965 tracked file(s) scanned)
+scripts/fxcap/test-sweep.sh: exit 0 | Ran 69 tests in 8.310s OK Ran 26 tests in 14.280s OK 
+# tree clean after: yes

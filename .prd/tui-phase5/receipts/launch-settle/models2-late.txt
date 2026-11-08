@@ -1,0 +1,25 @@
+# Item 3: h1-models2 with the launch's catalog ask held 15 s (h1-models2-late.cap = each side's h1-models2.cap with 'modelsdelay 15000' after its 'models' line), so it is answered after the 'models2' line unless the scenario waits for it. base = 7589ec42's scenario and harness, xfx at 7589ec4; head = b734d834's, xfx at b734d834; fx v0.0.16. Run 2026-11-08 08:02. 'before' is rows 4-5 of the snap before (the model menu's count row), 'asks' each catalog ask in the gateway's ms.
+base fx: exit 0 |  before: ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────/Models 0 [All]/ | asks: at=3317ms -> 200 at=18318ms ;
+base xfx: exit 0 |  before: ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────/Models 0 [All]/ | asks: at=1126ms -> 200 at=16129ms ;
+head fx: exit 0 | up: a first frame after 0.08 s (2 looks)|until shown 'Models 1  [All]': after 10.95 s, 14.98 s since launch|expect before 'Models 1  [All]': the snap holds it| before: ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────/Models 1 [All]/ | asks: at=1656ms -> 200 at=16660ms ;
+head xfx: exit 0 | up: a first frame after 6.62 s (99 looks)|until shown 'Models 1  [All]': after 10.97 s, 15.01 s since launch|expect before 'Models 1  [All]': the snap holds it| before: ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────/Models 1 [All]/ | asks: at=7847ms -> 200 at=22851ms ;
+
+## the catalog each ask got (gateway log) and the 'after' menu's count row
+== out-base-fx
+[fakegw] GET /coding-agent/v1/models -> 200 at=18318ms
+[fakegw] GET /coding-agent/v1/models -> second catalog
+[fakegw] request GET /coding-agent/v1/models at=3317ms -> 200 at=18318ms 
+== out-base-xfx
+[fakegw] GET /coding-agent/v1/models -> 200 at=16129ms
+[fakegw] GET /coding-agent/v1/models -> second catalog
+[fakegw] request GET /coding-agent/v1/models at=1126ms -> 200 at=16129ms 
+== out-head-fx
+[fakegw] GET /coding-agent/v1/models -> 200 at=16660ms
+[fakegw] request GET /coding-agent/v1/models at=1656ms -> 200 at=16660ms 
+== out-head-xfx
+[fakegw] GET /coding-agent/v1/models -> 200 at=22851ms
+[fakegw] request GET /coding-agent/v1/models at=7847ms -> 200 at=22851ms 
+base fx after: Models 2 [All]
+base xfx after: Models 2 [All]
+head fx after: Models 1 [All]
+head xfx after: Models 1 [All]
