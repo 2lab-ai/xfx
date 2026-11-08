@@ -20,7 +20,9 @@ LOCAL_ROOTS = ("Users", "private", "var", "tmp", "Volumes", "home", "opt", "nix"
 # is a run's HOME, `<work>/home/` a directory in its workspace -- names this
 # machine nowhere, and is left as it is. Only those placeholders: a bare `>`
 # (a redirect, `>/Users/...`) is no placeholder.
-AFTER_PLACEHOLDER = "".join("(?<!<%s>)" % p for p in ("work", "scratch", "tmp", "home", "scenarios", "bun"))
+AFTER_PLACEHOLDER = "".join(
+    "(?<!<%s%s>)" % (p, real) for p in ("work", "scratch", "tmp", "home", "scenarios", "bun") for real in ("", ":real")
+)
 GENERIC = re.compile(AFTER_PLACEHOLDER + r"/(?:%s)/[^\s'\"`)\]>|,;]*" % "|".join(LOCAL_ROOTS))
 LEFTOVER = re.compile(AFTER_PLACEHOLDER + r"/(?:Users|private|var/folders|tmp|Volumes|home)/")
 

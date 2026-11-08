@@ -46,6 +46,8 @@ BUN = shutil.which("bun")
 # The user's home as the password database has it: what a binary given no HOME
 # of the user's finds (`~user`), and what capture.sh is given as HOME here.
 HOMEDIR = __import__("pwd").getpwuid(os.getuid()).pw_dir
+sys.path.insert(0, HERE)
+import roots  # noqa: E402
 
 _SCRATCH = []
 atexit.register(lambda: [shutil.rmtree(d, True) for d in _SCRATCH])
@@ -306,129 +308,332 @@ class Placeholders(unittest.TestCase):
         self.assertIn("mode:700 mode:700 mode:600", r.screen("a"))
 
 
-class RunRoots(unittest.TestCase):
-    """Every file a run writes into the out directory names the run's own
-    roots by placeholder -- `<work>`, `<scratch>`, `<scenarios>`, `<bun>`,
-    `<tmp>`, `<home>` -- however the binary printed them: a snap's text and
-    its colours, an OSC 8 link's target, a title, the wire, a request body,
-    the workspace and HOME dumps. fx's side and xfx's alike, so a pair reads
-    the same."""
+class RootsRewrite(unittest.TestCase):
+    """roots.py on bytes, no tmux: each way a frame can carry a root, the
+    literal placeholders, and the refusal."""
 
-    # What the stub binary prints: its working directory (as `$PWD` says it
-    # and as `pwd -P` resolves it), its HOME and TMPDIR, the harness's own
-    # TMPDIR two levels up, the user's home (from the password database:
-    # the binary is given no HOME of its), the scenario directory, a link to
-    # a file in its workspace, a title, padding a path, and a request to the
-    # fake gateway with its directory in the body.
+    RUN = "/private/tmp/claude-501/fxcapt.njl2bbl3/fxcap.JTbdal"  # local-path-ok: a fixture root, never read
+
+    def rules(self):
+        return roots.rules_for([(self.RUN + "/work", "work"), (self.RUN, "scratch"), (os.path.dirname(self.RUN), "tmp")])
+
+    def rw(self, data):
+        return roots.rewrite(data, self.rules())[0]
+
+    def test_a_root_wrapped_at_the_margin_at_every_byte(self):
+        run = self.RUN.encode()
+        for k in range(1, len(run)):
+            with self.subTest(k=k):
+                got = self.rw(b"tmp=" + run[:k] + b"\n" + run[k:] + b"/fxtmp\n")
+                self.assertEqual(got, b"tmp=<scratch>\n/fxtmp\n")
+                self.assertEqual(roots.survivors(got, self.rules(), "fxcap.JTbdal"), [])
+
+    def test_a_root_a_binary_broke_behind_a_gutter_keeps_the_gutter_and_the_colours(self):
+        # fx's notice (receipts/s1 `bogus`, rows 19-20): the row ends with the
+        # root's head, the next opens with two spaces and a colour.
+        run = self.RUN.encode()
+        got = self.rw(b"Remove it from " + run[:13] + b"\n  \x1b[38;5;250m" + run[13:] + b"/work/.fx\x1b[39m\n")
+        self.assertEqual(got, b"Remove it from <work>\n  \x1b[38;5;250m/.fx\x1b[39m\n")
+        boxed = self.rw(b"\xe2\x94\x82 " + run[:20] + b" \xe2\x94\x82\n\xe2\x94\x82 " + run[20:] + b"/x \xe2\x94\x82\n")
+        self.assertEqual(boxed, b"\xe2\x94\x82 <scratch> \xe2\x94\x82\n\xe2\x94\x82 /x \xe2\x94\x82\n")
+
+    def test_a_root_a_colour_change_splits_is_one_root_and_its_colours_follow_it(self):
+        # The @plan picker bolds the letters a query matched, some inside the
+        # run directory (workspace-index `at-plan`).
+        run = self.RUN.encode()
+        ansi = b"  \x1b[38;5;245m" + run[:1] + b"\x1b[1m" + run[1:2] + b"\x1b[0m\x1b[38;5;245m" + run[2:] + b"/extra/\x1b[39m\n"
+        txt = b"  " + run + b"/extra/\n"
+        got = self.rw(ansi)
+        self.assertEqual(got, b"  \x1b[38;5;245m<scratch>\x1b[1m\x1b[0m\x1b[38;5;245m/extra/\x1b[39m\n")
+        # The .txt of the same frame reads the same text.
+        self.assertEqual(cells_text(got), self.rw(txt).decode())
+
+    def test_every_spelling_and_an_osc_8_target(self):
+        esc = self.RUN.replace("/", "\\/").encode()
+        self.assertEqual(self.rw(b'{"cwd":"' + esc + b'\\/work"}'), b'{"cwd":"<work>"}')
+        self.assertEqual(
+            self.rw(b"\x1b]8;;file://" + self.RUN.encode() + b"/work/a.png\x1b\\[i]\x1b]8;;\x1b\\\n"),
+            b"\x1b]8;;file://<work>/a.png\x1b\\[i]\x1b]8;;\x1b\\\n",
+        )
+        spaced = roots.rules_for([("/tmp/a b/fxcap.Q1w2E3", "scratch")])
+        self.assertEqual(roots.rewrite(b"file:///tmp/a%20b/fxcap.Q1w2E3/x", spaced)[0], b"file://<scratch>/x")
+
+    def test_a_root_ends_whole(self):
+        run = self.RUN.encode()
+        self.assertEqual(self.rw(run + b"/workx\n"), b"<scratch>/workx\n")
+        self.assertEqual(self.rw(run + b"/work\nabc\n"), b"<work>\nabc\n")
+
+    def test_a_literal_placeholder_is_never_a_root(self):
+        # One side shows the real root, the other the text `<work>`: they
+        # must not read the same.
+        real = self.rw(b"x=" + self.RUN.encode() + b"/work\n")
+        literal = self.rw(b"x=<work>\n")
+        self.assertEqual(real, b"x=<work>\n")
+        self.assertEqual(literal, b"x=<\\work>\n")
+        self.assertNotEqual(real, literal)
+        self.assertEqual(self.rw(b"<\\work> <wo\x1b[1mrk> <tmp:real>"), b"<\\\\work> <\\wo\x1b[1mrk> <\\tmp:real>")
+
+    def test_a_resolved_root_is_its_own_placeholder(self):
+        d = scratch()
+        os.makedirs(os.path.join(d, "real"))
+        os.symlink(os.path.join(d, "real"), os.path.join(d, "link"))
+        given = os.path.join(d, "link", "fxcap.Ab12Cd")
+        os.makedirs(given)
+        rules = roots.rules_for([(given, "scratch")])
+        resolved = os.path.realpath(given)
+        self.assertNotEqual(given, resolved)
+        got = roots.rewrite(("%s and %s\n" % (given, resolved)).encode(), rules)[0]
+        self.assertEqual(got, b"<scratch> and <scratch:real>\n")
+
+    def test_what_survives_refuses_the_file(self):
+        # A binary that cut the root's head off (an ellipsis), or a head that
+        # scrolled off the frame: the run directory's name is still there.
+        cut = self.rw(b"\xe2\x80\xa6/fxcap.JTbdal/work\n")
+        self.assertEqual(roots.survivors(cut, self.rules(), "fxcap.JTbdal"), ["the run directory's name"])
+        d = scratch()
+        path = os.path.join(d, "f.txt")
+        write(path, "\u2026/fxcap.JTbdal/work\n")
+        r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "roots.py"), "--suffix", "fxcap.JTbdal",
+                            "--root", self.RUN, "scratch", "--", path], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIn("still holds the run directory's name", r.stderr)
+        self.assertNotIn("JTbdal", r.stderr.replace(path, ""))
+
+    def test_a_file_without_a_root_is_left_byte_for_byte(self):
+        data = b"\x1b[1mnothing\x1b[0m here \xe2\x94\x82 /tmp/elsewhere\n<html>\n"
+        self.assertEqual(self.rw(data), data)
+
+
+def cells_text(data):
+    """A frame's rows as cells.py reads them, colours set aside."""
+    sys.path.insert(0, HERE)
+    import cells
+
+    return "".join(cells.text_of(r) + "\n" for r in cells.parse(data.decode())[:-1])
+
+
+class RunRoots(unittest.TestCase):
+    """Every file a run writes for the out directory names the run's own
+    roots by placeholder -- `<work>`, `<scratch>`, `<scenarios>`, `<bun>`,
+    `<tmp>`, `<home>` -- however the binary printed them: a snap's rows and
+    its colours, read apart, an OSC 8 link's target, a title, the wire, a
+    request body, mcphttp's log, a clipboard copy, a copied file's path, a
+    report, the workspace and HOME dumps. At any length of TMPDIR, fx's side
+    and xfx's alike."""
+
+    # The stub binary prints, one item a row: its working directory (as
+    # `$PWD` says it and as `pwd -P` resolves it), its HOME and TMPDIR, the
+    # harness's TMPDIR two levels up, the user's home (from the password
+    # database: the binary is given no HOME of the user's), the scenario
+    # directory; a root a name character follows; two padded roots; a root
+    # the terminal wraps at its margin (it starts seven columns before it,
+    # whatever its length); a root broken behind a box-drawing gutter, as a
+    # binary breaks one; a root a colour change splits; a coloured root; a
+    # link, a title, a bell; and it copies, copies a file, writes a report,
+    # and asks the fake gateway and the MCP server with its directory in the
+    # body and the path. One line and one Enter, so the shell echoes nothing
+    # in between; `clear` takes the line's own echo away.
     CAP = (
+        "mcphttp ready\n"
         "keep\n"
         "wait 1\n"
-        # One line, and one Enter: a shell given the next line while it runs
-        # this one echoes it at a moment of its own, and the two sides'
-        # screens would differ by when, not by what. `clear` takes the line's
-        # own echo away; `DO""NE` is on the screen only once it has run.
-        "type clear; echo \"$PWD\" > made.txt; echo \"$PWD\" > ~/note.txt; "
-        "printf 'cwd=%s real=%s home=%s tmp=%s\\n' \"$PWD\" \"$(pwd -P)\" \"$HOME\" \"$TMPDIR\"; "
-        "printf 'up=%s user=%s scen=%s\\n' \"$(dirname \"$(dirname \"$PWD\")\")\" \"$(eval echo ~\"$(id -un)\")\" @SCENARIOS@; "
-        "printf 'edge=%sx\\n' \"$PWD\"; "
-        "printf '\\033[38;5;245m%s\\033[39m\\n' \"$PWD\"; "
-        "printf 'pad=[%70s] [%80s]\\n' \"$PWD\" \"$TMPDIR\"; "
-        "printf '\\033]8;;file://%s/shot.png\\033\\\\[link]\\033]8;;\\033\\\\\\n' \"$PWD\"; "
-        "printf '\\033]2;at %s\\007' \"$PWD\"; "
-        "curl -s -m 5 -o /dev/null -X POST --data \"{\\\"cwd\\\":\\\"$PWD\\\"}\" http://127.0.0.1:@PORT@/v4/ai/language-model; "
+        "type clear; p=\"$PWD\"; echo \"$p\" > made.txt; echo \"$p\" > ~/note.txt; "
+        "printf 'cwd=%s\\nreal=%s\\nhome=%s\\ntmp=%s\\n' \"$p\" \"$(pwd -P)\" \"$HOME\" \"$TMPDIR\"; "
+        "printf 'up=%s\\nuser=%s\\nscen=%s\\n' \"$(dirname \"$(dirname \"$p\")\")\" \"$(eval echo ~\"$(id -un)\")\" @SCENARIOS@; "
+        "printf 'edge=%sx\\n' \"$p\"; "
+        "printf 'pad1=[%120s]\\npad2=[%120s]\\n' \"$p\" \"$TMPDIR\"; "
+        "printf 'wrap=%188s%s\\n' '' \"$p\"; "
+        "printf 'broke=%s\\n  \\342\\224\\202 %s/end\\n' \"${p:0:9}\" \"${p:9}\"; "
+        "printf 'bold=%s\\033[1m%s\\033[22m%s\\n' \"${p:0:3}\" \"${p:3:4}\" \"${p:7}\"; "
+        "printf 'tint=\\033[38;5;245m%s\\033[39m\\n' \"$p\"; "
+        "printf 'link=\\033]8;;file://%s/shot.png\\033\\\\[img]\\033]8;;\\033\\\\\\n' \"$p\"; "
+        "printf '\\033]2;at %s\\007\\a' \"$p\"; "
+        "printf %s \"$p\" | pbcopy; osascript -e copy \"$p/shot.png\"; "
+        "printf 'report %s\\n' \"$p\" > \"$TMPDIR/stub-trace-1.md\"; "
+        "curl -s -m 5 -o /dev/null -X POST --data \"{\\\"cwd\\\":\\\"$p\\\"}\" http://127.0.0.1:@PORT@/v4/ai/language-model; "
+        "curl -s -m 5 -o /dev/null \"http://127.0.0.1:@MCPPORT@$p/mcp\"; "
         "echo DO\"\"NE\n"
         "key Enter\n"
         "until shown DONE\n"
         "snap a\n"
         "snapfull a\n"
         "title t\n"
+        "cursor c\n"
+        "bells b\n"
         "wire w\n"
+        "clip k\n"
+        "clipfile f\n"
+        "reports r\n"
+        "sockets s\n"
         "gwlog\n"
         "workls w\n"
         "home h\n"
     )
 
-    def roots(self, r):
-        """The paths this run's files must not hold: its run directory, the
-        harness's TMPDIR, the scenario directory, bun and the user's home,
-        each as given and as resolved."""
-        tmp = os.path.dirname(r.scen)
-        runs = glob.glob(os.path.join(tmp, "fxcap.*"))
-        self.assertEqual(len(runs), 1 if r.which == "fx" else 2, runs)
-        paths = set(runs) | {tmp, r.scen, BUN, HOMEDIR}
-        return {q for p in paths for q in (p, os.path.realpath(p))}
+    def capture_at(self, extra, which="fx", d=None):
+        """The CAP at a TMPDIR `extra` bytes longer than the scratch base."""
+        if d is None:
+            d = scratch()
+            if extra:
+                d = os.path.join(d, "t" * (extra - 1))
+                os.makedirs(d)
+        return capture(self.CAP, which=which, d=d, env={"HOME": HOMEDIR}), d
 
-    def every_file(self, r):
+    def roots_of(self, d):
+        """The paths no file of a run in `d` may hold, as given and resolved,
+        and each run directory's name."""
+        runs = glob.glob(os.path.join(d, "fxcap.*"))
+        paths = set(runs) | {d, os.path.join(d, "scenarios"), BUN, HOMEDIR}
+        names = {os.path.basename(r) for r in runs}
+        return {q for p in paths for q in (p, os.path.realpath(p))} | names
+
+    def files(self, r):
         for top, _, names in os.walk(r.out):
             for name in names:
                 path = os.path.join(top, name)
                 with open(path, "rb") as f:
                     yield path, f.read()
 
-    def assert_written_by_placeholder(self, r):
+    def rows(self, r, label, ext=".txt"):
+        return r.file(label, ext).split("\n")
+
+    def row(self, rows, prefix):
+        hits = [i for i, x in enumerate(rows) if x.startswith(prefix)]
+        self.assertEqual(len(hits), 1, (prefix, rows))
+        return hits[0]
+
+    def assert_written_by_placeholder(self, r, d):
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
-        roots = self.roots(r)
-        files = list(self.every_file(r))
+        side, real = r.which, os.path.realpath(d) != d
+        files = list(self.files(r))
         kinds = {os.path.basename(p).split(".", 1)[-1] for p, _ in files}
-        for kind in ("txt", "ansi", "full.txt", "full.ansi", "title", "wire", "files", "log", "json"):
+        for kind in ("txt", "ansi", "full.txt", "full.ansi", "title", "cursor", "bells", "wire", "clip",
+                     "clipfile", "md", "sockets", "files", "log", "json", "port"):
             self.assertIn(kind, kinds, "the run wrote no .%s file" % kind)
         for path, data in files:
-            for root in roots:
+            for root in self.roots_of(d):
                 self.assertNotIn(root.encode(), data, "%s holds %s" % (path, root))
-        side = r.which
-        a = r.screen("a")
-        self.assertIn("cwd=<work> real=<work> home=<scratch>/home tmp=<scratch>/%stmp" % side, a)
-        self.assertIn("up=<tmp> user=<home> scen=<scenarios>", a)
-        # A root followed by a name character is not that root: `$PWD` then
-        # `x` is the run directory and `workx`.
-        self.assertIn("edge=<scratch>/workx", a)
-        # A coloured path, right after its SGR sequence's `m`; the link's
-        # target, in the .ansi; the title; the wire; the body.
-        ansi = r.file("a", ".ansi")
-        self.assertIn("m<work>\x1b[39m", ansi)
+        # What the binary derives from `getcwd()` is the run resolved; its
+        # HOME and TMPDIR are the run as given. Where TMPDIR goes through a
+        # link (macOS's /tmp, /var/folders), the two are each their own.
+        r_ = ":real" if real else ""
+        work, scr, tmp = "<work%s>" % r_, "<scratch%s>" % r_, "<tmp%s>" % r_
+        # The .txt, row by row: what the binary printed, each root in place.
+        rows = self.rows(r, "a")
+        for prefix, want in (
+            ("cwd=", "cwd=" + work),
+            ("real=", "real=" + work),
+            ("home=", "home=<scratch>/home"),
+            ("tmp=", "tmp=<scratch>/%stmp" % side),
+            ("up=", "up=" + tmp),
+            ("user=", "user=<home>"),
+            ("scen=", "scen=<scenarios>"),
+            ("edge=", "edge=%s/workx" % scr),
+            ("bold=", "bold=" + work),
+            ("tint=", "tint=" + work),
+        ):
+            self.assertEqual(rows[self.row(rows, prefix)], want)
+        # Wrapped at the margin: the placeholder ends the first row, and the
+        # root's rest is gone from the second, which is then empty.
+        i = self.row(rows, "wrap=")
+        self.assertEqual(rows[i], "wrap=" + " " * 188 + work)
+        self.assertEqual(rows[i + 1], "")
+        # Broken behind a gutter: the gutter stays.
+        i = self.row(rows, "broke=")
+        self.assertEqual(rows[i : i + 2], ["broke=" + work, "  \u2502 /end"])
+        # The .ansi, read apart from the .txt: the coloured root, the root a
+        # colour splits (its colour changes after the placeholder), the link.
+        ansi = self.rows(r, "a", ".ansi")
+        tint = ansi[self.row(ansi, "tint=")]
+        self.assertIn("\x1b[38;5;245m%s\x1b[39m" % work, tint)
+        bold = ansi[self.row(ansi, "bold=")]
+        self.assertTrue(bold.startswith("bold=" + work), repr(bold))
+        self.assertIn("\x1b[1m", bold[len("bold=" + work):])
+        self.assertEqual(ansi[self.row(ansi, "wrap=")].rstrip(), "wrap=" + " " * 188 + work)
+        link = ansi[self.row(ansi, "link=")]
         # tmux's `capture-pane -e` writes the link where it keeps hyperlinks
-        # (3.7b here); where it writes none, no file of the run holds a root
-        # all the same (above), and the wire holds the link (below).
-        if "\x1b]8;;" in ansi:
-            self.assertIn("\x1b]8;;file://<work>/shot.png", ansi)
-        self.assertEqual(r.file("t", ".title").strip(), "at <work>")
+        # (3.7b here); where it writes none, no file holds a root all the
+        # same (above), and the wire holds the link (below).
+        if "\x1b]8;;" in link:
+            self.assertIn("\x1b]8;;file://%s/shot.png" % work, link)
+        # Every other kind.
+        self.assertEqual(r.file("t", ".title").strip(), "at " + work)
+        self.assertRegex(r.file("c", ".cursor"), r"^\d+,\d+\n$")
+        self.assertEqual(r.file("b", ".bells"), "bells=1\nclients=0\n")
         wire = r.file("w", ".wire")
-        self.assertIn("cwd=<work>", wire)
-        self.assertIn("file://<work>/shot.png", wire)
+        for want in ("cwd=" + work, "file://%s/shot.png" % work, "broke=" + work, "wrap=" + " " * 188 + work):
+            self.assertIn(want, wire)
+        self.assertEqual(r.file("k", ".clip"), work)
+        self.assertEqual(r.file("f", ".clipfile"), work + "/shot.png\n")
+        self.assertEqual(r.file("r-1", ".md"), "report %s\n" % work)
+        self.assertRegex(r.file("s", ".sockets"), r"^pid \d+\n$")
+        self.assertRegex(r.file("mcphttp", ".port"), r"^\d+\n$")
+        self.assertIn(" GET %s/mcp " % work, r.file("mcphttp", ".log"))
         bodies = glob.glob(os.path.join(r.out, "%s-t-%s-bodies" % (side, r.size), "*"))
-        self.assertTrue(any('{"cwd":"<work>"}' in slurp(b) for b in bodies), bodies)
-        self.assertIn("== ./made.txt\n<work>\n", r.file("work-w"))
-        self.assertIn("<work>", r.file("h", ".files"))
-        # The `roots:` line says each placeholder's length on this run.
-        run = sorted(glob.glob(os.path.join(os.path.dirname(r.scen), "fxcap.*")), key=os.path.getmtime)[-1]
+        self.assertTrue(any('{"cwd":"%s"}' % work in slurp(b) for b in bodies), bodies)
+        self.assertIn("== ./made.txt\n%s\n" % work, r.file("work-w"))
+        self.assertIn(work, r.file("h", ".files"))
+        run = sorted(glob.glob(os.path.join(d, "fxcap.*")), key=os.path.getmtime)[-1]
         self.assertIn("roots: <work>=%d <scratch>=%d " % (len(run) + 5, len(run)), r.stdout)
 
-    def test_every_file_a_run_writes_names_its_roots_by_placeholder(self):
-        r = capture(self.CAP, env={"HOME": HOMEDIR})
-        self.assert_written_by_placeholder(r)
+    def test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir(self):
+        # Three lengths of TMPDIR: the wrap and the pads land at a different
+        # byte of each root on each.
+        for extra in (0, 9, 26):
+            with self.subTest(extra=extra):
+                r, d = self.capture_at(extra)
+                self.assert_written_by_placeholder(r, d)
+
+    def test_a_resolved_root_reads_as_its_own_placeholder(self):
+        # TMPDIR through a link. The binary's HOME and TMPDIR are the run as
+        # given; its working directory is the run resolved (`env -i` drops
+        # PWD, so the shell's `$PWD` is `getcwd()` too). One root, two
+        # placeholders: a binary that printed the other form would differ.
+        d = scratch()
+        os.makedirs(os.path.join(d, "r"))
+        os.symlink(os.path.join(d, "r"), os.path.join(d, "l"))
+        r, _ = self.capture_at(0, d=os.path.join(d, "l"))
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        rows = self.rows(r, "a")
+        for prefix, want in (("home=", "home=<scratch>/home"), ("tmp=", "tmp=<scratch>/fxtmp"),
+                             ("cwd=", "cwd=<work:real>"), ("real=", "real=<work:real>")):
+            self.assertEqual(rows[self.row(rows, prefix)], want)
 
     def test_both_sides_are_written_alike_and_keep_their_widths(self):
         # The sweep's way: both sides in one TMPDIR, one after the other, so
         # each run directory is as long as the other's.
-        fx = capture(self.CAP, env={"HOME": HOMEDIR})
+        fx, d = self.capture_at(0)
+        xfx, _ = self.capture_at(0, which="xfx", d=d)
+        self.assert_written_by_placeholder(xfx, d)
+        for ext in (".txt", ".ansi"):
+            a, b = fx.file("a", ext).split("\n"), xfx.file("a", ext).split("\n")
+            self.assertEqual(len(a), len(b))
+            for x, y in zip(a, b):
+                if x.startswith("pad2="):
+                    # Padded to the real TMPDIRs' widths: `<scratch>/fxtmp`
+                    # one column further right than xfx's `<scratch>/xfxtmp`,
+                    # as `fxtmp` is one byte shorter, and the bracket where
+                    # it was.
+                    self.assertEqual(x.rindex("]"), y.rindex("]"))
+                    self.assertEqual(x.index("<scratch>/fxtmp") - 1, y.index("<scratch>/xfxtmp"))
+                else:
+                    # Each binary's own TMPDIR keeps its own name, as the
+                    # ledger's `capture-tmpdir` reads it; nothing else differs.
+                    self.assertEqual(x.replace("<scratch>/fxtmp", "<scratch>/xfxtmp"), y)
+
+    def test_a_real_root_and_a_literal_placeholder_never_read_the_same(self):
+        # One side prints its working directory, the other the text `<work>`.
+        cap = ("keep\nwait 1\n"
+               "fx: type clear; printf 'x=%s\\n' \"$PWD\"; echo DO\"\"NE\n"
+               "xfx: type clear; printf 'x=<work>\\n'; echo DO\"\"NE\n"
+               "key Enter\nuntil shown DONE\nsnap a\n")
+        fx = capture(cap)
         d = os.path.dirname(fx.scen)
-        xfx = capture(self.CAP, which="xfx", d=d, env={"HOME": HOMEDIR})
-        self.assert_written_by_placeholder(xfx)
+        xfx = capture(cap, which="xfx", d=d)
         a, b = fx.file("a").split("\n"), xfx.file("a").split("\n")
-        self.assertEqual(len(a), len(b))
-        for x, y in zip(a, b):
-            if x.startswith("pad="):
-                # Padded to the real paths' widths: the same on both sides,
-                # and `<scratch>/fxtmp` one column further right than xfx's
-                # `<scratch>/xfxtmp`, as `fxtmp` is one byte shorter -- the
-                # widths the two binaries' rows had relative to each other.
-                self.assertEqual(x.index("]"), y.index("]"))
-                self.assertEqual(x.rindex("]"), y.rindex("]"))
-                self.assertEqual(x.index("<scratch>/fxtmp") - 1, y.index("<scratch>/xfxtmp"))
-            else:
-                # Each binary's own TMPDIR keeps its own name, as the
-                # ledger's `capture-tmpdir` reads it; nothing else differs.
-                self.assertEqual(x.replace("<scratch>/fxtmp", "<scratch>/xfxtmp"), y)
+        self.assertIn("x=<work%s>" % (":real" if os.path.realpath(d) != d else ""), a)
+        self.assertIn("x=<\\work>", b)
+        self.assertNotEqual(a, b)
 
 
 class Confinement(unittest.TestCase):
