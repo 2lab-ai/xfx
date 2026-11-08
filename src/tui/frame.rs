@@ -7609,6 +7609,45 @@ mod tests {
     }
 
     #[test]
+    fn an_append_that_leaves_a_long_row_where_it_is_reads_none_of_it_again() {
+        // GRID-ROW-COST (T-U4 round 3's residual): a tool group's block is
+        // written again on every change to the group, and a call's row in it
+        // can hold megabytes that paint one cell. An append that leaves that
+        // row where it is read all of it twice: the grid, to say the row had
+        // not changed (`Grid::row_matches`), and the output check, to replay
+        // the row the append declares (`check::preflight`) -- 262 ms an event
+        // for 8 MiB of marks, of which these two are 99 % (this unit's
+        // receipt, `profile-base.txt`).
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame clears `damaged`");
+        let long = format!("a{}tail", "\u{301}".repeat(64 * 1024));
+        let first = vec![long.clone(), "marker-B".to_string()];
+        band.append_document(&mut screen, 0, &first, &geometry)
+            .expect("the first settled block lands");
+
+        screen.written.clear();
+        // The group grew by a row: the two rows it had stay where they are.
+        let second = vec![long.clone(), "marker-B".to_string(), "marker-C".to_string()];
+        let (landed, read) = crate::tui::grid::bytes_tokenized(|| {
+            band.append_document(&mut screen, 1, &second, &geometry)
+        });
+        landed.expect("the grown block lands");
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        assert!(
+            !text.contains("tail") && text.contains("marker-C"),
+            "the repro's own append did not keep the long row and add the new one: {text:?}"
+        );
+        assert!(
+            read < long.len(),
+            "an append that left a row of {} bytes where it was read {read} bytes of rows",
+            long.len()
+        );
+    }
+
+    #[test]
     fn invalidating_between_appends_disables_reuse_and_repaints_every_settled_row() {
         // `invalidate` also blanks the shadow unconditionally (`Grid::resize`),
         // so this exercises the combined effect a Ctrl-L or a stop's resume

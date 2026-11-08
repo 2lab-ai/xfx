@@ -4404,4 +4404,46 @@ mod tests {
         }
         assert_eq!(transcript.cut_long.get(), 3, "the last two were kept");
     }
+
+    #[test]
+    fn a_block_with_three_long_rows_drawn_again_cuts_none_of_them_again() {
+        // GRID-ROW-COST (opus, T-U4 round 3, SHOULD 5): a call's row is cut in
+        // the mode it is written in and in each mode its drawing is kept for
+        // (`Redraw::map`), two long rows a call -- so a group holding three
+        // such calls asks for six, and five were kept: every later write of
+        // the block cut some of them again, each a read of the whole row.
+        let long = |k: usize, mode: &str| format!("{k}a{}tail {mode}", "\u{301}".repeat(64 * 1024));
+        let block = |extra: &[&str]| {
+            let mut rows: Vec<String> = (0..3).map(|k| long(k, "dark")).collect();
+            rows.extend(extra.iter().map(|row| row.to_string()));
+            let redraws: Vec<Option<Redraw>> = (0..3)
+                .map(|k| Some(Redraw::new(long(k, "dark"), long(k, "light"))))
+                .chain(extra.iter().map(|_| None))
+                .collect();
+            (rows, redraws)
+        };
+        let mut transcript = Transcript::new(40);
+        let (rows, redraws) = block(&[""]);
+        transcript.queue_block(rows, Vec::new(), redraws, Mode::Dark);
+        drain(&mut transcript, DARK_256);
+        let first = transcript.cut_long.get();
+        assert_eq!(
+            first, 6,
+            "three rows, each drawn in two modes, cut once each"
+        );
+        for extra in [
+            &["read a", ""][..],
+            &["read a", "read b", ""],
+            &["read a", "read b", "read c", ""],
+        ] {
+            let (rows, redraws) = block(extra);
+            transcript.queue_block(rows, Vec::new(), redraws, Mode::Dark);
+            drain(&mut transcript, DARK_256);
+        }
+        assert_eq!(
+            transcript.cut_long.get() - first,
+            0,
+            "the block was written again three times, and rows it had already cut were cut again"
+        );
+    }
 }

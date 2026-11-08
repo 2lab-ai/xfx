@@ -150,6 +150,8 @@ pub(crate) fn tokenize_row(
     geometry: &Geometry,
     mut put: impl FnMut(Placed<'_>),
 ) {
+    #[cfg(test)]
+    note_tokenized(row.len());
     let budget = usize::from(cols);
     // Clipped to the narrower of the two, because a row built for a screen
     // this row is not the width of is a row it cannot hold.
@@ -1113,6 +1115,30 @@ pub(crate) fn rows_compared<T>(run: impl FnOnce() -> T) -> (T, usize) {
     ROWS_COMPARED.with(|counted| counted.set(0));
     let answered = run();
     (answered, ROWS_COMPARED.with(std::cell::Cell::get))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many bytes of row text [`tokenize_row`] was handed on **this
+    /// thread**, since [`bytes_tokenized`] last reset it: per-thread for the
+    /// reason [`ROWS_COMPARED`] is.
+    static BYTES_TOKENIZED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// A row of `bytes` more was read cluster by cluster.
+#[cfg(test)]
+fn note_tokenized(bytes: usize) {
+    BYTES_TOKENIZED.with(|counted| counted.set(counted.get() + bytes));
+}
+
+/// What `run` answered, and how many bytes of row text the tokenizer read
+/// inside it: the grid's placements and comparisons, and the output check's
+/// replay of a declared row, all read a row through [`tokenize_row`].
+#[cfg(test)]
+pub(crate) fn bytes_tokenized<T>(run: impl FnOnce() -> T) -> (T, usize) {
+    BYTES_TOKENIZED.with(|counted| counted.set(0));
+    let answered = run();
+    (answered, BYTES_TOKENIZED.with(std::cell::Cell::get))
 }
 
 /// How many columns of `row` have been written on.
@@ -2137,6 +2163,31 @@ mod tests {
         let mut inside = long.to_string();
         inside.replace_range(2..3, "X");
         assert!(!grid.row_matches(10, &inside, &geometry, &mut scratch));
+    }
+
+    /// A row of bytes that paint one cell: one letter under 64 Ki combining
+    /// marks, then `tail` (T-U4 round 3's `heavy` case, smaller). Its
+    /// placement and its comparison read every byte of it, cluster by
+    /// cluster.
+    fn heavy() -> String {
+        format!("a{}tail", "\u{301}".repeat(64 * 1024))
+    }
+
+    #[test]
+    fn a_row_this_grid_placed_is_matched_again_without_reading_it() {
+        // GRID-ROW-COST (T-U4 round 3's residual): an append that leaves a
+        // settled row where it is asks this whether the row already holds it,
+        // and answered by placing the row again on a scratch row, cluster by
+        // cluster -- 133-171 ms a frame for 8 MiB of marks
+        // (`.prd/tui-phase5/receipts/cancel-marker/round3/probe.txt`).
+        let geometry = geometry();
+        let row = heavy();
+        let grid = painted(10, &row);
+        let mut scratch = Grid::blank(0, 0);
+        let (matched, read) =
+            bytes_tokenized(|| grid.row_matches(10, &row, &geometry, &mut scratch));
+        assert!(matched, "the row it placed is not the row it holds");
+        assert_eq!(read, 0, "the row was read again to say it had not changed");
     }
 
     // -- a variation selector, and the cells after it ------------------------
