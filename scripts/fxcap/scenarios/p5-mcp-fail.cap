@@ -17,6 +17,9 @@ key Enter
 # `Loading tools…` until the one near 31 s; so `server-1` waits for the
 # answer, not for 3 s (LAUNCH-SETTLE).
 until shown Its tools couldn't load
+# The try that answered may still be on its status row (fx says
+# `connecting` until it ends); the next is 16 s away.
+wait 3
 snap server-1
 key Escape
 wait 0.5

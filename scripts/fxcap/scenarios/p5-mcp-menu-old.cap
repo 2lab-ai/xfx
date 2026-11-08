@@ -62,13 +62,21 @@ wait 0.5
 type d
 wait 0.7
 snap d-key
+# The menus are closed by now (x and d went to the draft, `xd`). An Escape
+# at a prompt with a draft arms `esc again to clear` for 500 ms on both
+# binaries (xfx src/tui/gesture.rs CLEAR_WINDOW, fx
+# gesture_state.zig:4@481104fd): a second Escape inside it clears the
+# draft, a snap after it sees the row gone on xfx and still up on fx (fx
+# showed it 0.6 s after the Escape). This ending used to time both with
+# `wait 0.5`, on the window's edge each time (LAUNCH-SETTLE). Now it
+# waits for the row, then takes the draft away a character at a time,
+# which takes the row down on both at once: `closed` and `end` read an
+# empty prompt with no timer up.
 key Escape
-wait 0.5
-key Escape
-# The Escape that closes the menu arms `esc again to clear` for xfx's
-# 500 ms (src/tui/gesture.rs CLEAR_WINDOW): `closed` is snapped while it
-# is up, by the screen, not at 0.5 s, on its edge (LAUNCH-SETTLE).
 until shown esc again to clear
+key BSpace
+key BSpace
+until gone esc again to clear
 snap closed
 snapfull end
 home end
