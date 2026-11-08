@@ -1,0 +1,41 @@
+== platform
+Darwin arm64
+Python 3.14.6
+git version 2.54.0 (Apple Git-157)
+
+== scripts/fxcap/test_sweep.py at 45d99f52
+1 OK
+1 Ran 50 tests in 5.076s
+-> exit 0, 5 s
+
+== scripts/fxcap/test_ci_sweep.py at 45d99f52
+1 OK
+1 Ran 26 tests in 9.516s
+-> exit 0, 10 s
+
+== scripts/fxcap/test_sweep.py at 4ac0667e
+1 AssertionError: '/pri[15 chars]-501/gate-gitenv/fxsw-test.gfhjv52v/decoy' != '/pri[15 chars]-501/<scratch> chars]yrun'
+1 FAIL: test_the_out_guard_finds_this_checkout_whatever_git_variables_it_inherits (__main__.GitEnvironment.test_the_out_guard_finds_this_checkout_whatever_git_variables_i
+1 FAILED (failures=1)
+1 Ran 51 tests in 5.159s
+-> exit 1, 5 s
+
+== scripts/fxcap/test_ci_sweep.py at 4ac0667e
+1 AssertionError: Tuples differ: (0, 'same\tcore\nregress\tcore\nflaky\tcore\nalways\tcor[14 chars]e\n') != (0, 'same\tcore, changed\nregress\tcore\nflaky\tcore\nal[96 ch
+1 FAIL: test_the_selection_reads_this_checkout_whatever_git_variables_it_inherits (__main__.CiSweep.test_the_selection_reads_this_checkout_whatever_git_variables_it_inher
+1 FAILED (failures=1)
+1 Ran 27 tests in 9.150s
+-> exit 1, 10 s
+
+== scripts/fxcap/test_sweep.py at 5d33c5df
+1 OK
+1 Ran 51 tests in 5.025s
+-> exit 0, 5 s
+
+== scripts/fxcap/test_ci_sweep.py at 5d33c5df
+1 OK
+1 Ran 27 tests in 8.963s
+-> exit 0, 9 s
+
+== the clone afterwards
+clean

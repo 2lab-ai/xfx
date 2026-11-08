@@ -21,6 +21,30 @@ set -euo pipefail
 # options are its own.
 unset GREP_OPTIONS
 
+# Git takes where a repository is, which index it lists, where it writes
+# objects and which config and attributes apply from its environment:
+# `GIT_DIR`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, `GIT_COMMON_DIR`,
+# `GIT_CONFIG_*`, `GIT_ATTR_SOURCE` and more. One inherited from a caller --
+# an exported shell, a hook -- made it list another index: with
+# `GIT_INDEX_FILE` naming one without a file, the key in that file passed. With
+# `GIT_OBJECT_DIRECTORY` or `GIT_COMMON_DIR`, the control below wrote into
+# another repository. Inside a hook, git exports `GIT_DIR` and
+# `GIT_INDEX_FILE` for the commit it is making. This scan reads every file's
+# content from the working tree, never from an index, so it is a check of the
+# checkout there too, and it lists the checkout's own index.
+# This checks the checkout it is in, as CI does: that checkout's own
+# `.git`, index and working tree. So every `GIT_*` goes before any git runs,
+# read from the shell's own list of its variables, `${!GIT_@}`: no command to
+# be missing (`compgen`, a readline builtin, is not in every bash). A name that
+# is no identifier cannot be unset, and git reads none such.
+# scripts/test-gate-env.sh holds it to that.
+for name in "${!GIT_@}"; do
+	case "$name" in
+	*[!A-Za-z0-9_]*) ;;
+	*) unset "$name" ;;
+	esac
+done
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
@@ -68,12 +92,14 @@ list_files() {
 	local dir=$1 name
 	files=()
 	deleted=()
-	if git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
-		if ! git -C "$dir" ls-files -z >"$listing"; then
+	# `core.fsmonitor`, from any config, runs a program during `ls-files`;
+	# pinned off.
+	if git -c core.fsmonitor=false -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
+		if ! git -c core.fsmonitor=false -C "$dir" ls-files -z >"$listing"; then
 			fail "git ls-files did not finish; the listing is incomplete"
 		fi
 		read_listing files
-		if ! git -C "$dir" ls-files --deleted -z >"$listing"; then
+		if ! git -c core.fsmonitor=false -C "$dir" ls-files --deleted -z >"$listing"; then
 			fail "git ls-files --deleted did not finish; the listing is incomplete"
 		fi
 		read_listing deleted
@@ -370,8 +396,12 @@ printf 'A=1\n' >"$sample_dir/-x/.env"
 sample_tracked=no
 sample_report="$(
 	unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
-	if command -v git >/dev/null 2>&1 && git -C "$sample_dir" init -q 2>/dev/null &&
-		git -C "$sample_dir" add -f -- "$odd_text" "$odd_bytecode" ./- gone.pyc .env ./-x/.env; then
+	# A throwaway repository: no global or system config of the caller -- a
+	# hook, a template, an fsmonitor -- runs in it. (No apostrophe in a comment
+	# here: bash 3.2 reads one inside a command substitution as a quote.)
+	export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+	if command -v git >/dev/null 2>&1 && git -c core.fsmonitor=false -C "$sample_dir" init -q 2>/dev/null &&
+		git -c core.fsmonitor=false -C "$sample_dir" add -f -- "$odd_text" "$odd_bytecode" ./- gone.pyc .env ./-x/.env; then
 		rm -f "$sample_dir/gone.pyc"
 		printf 'tracked\n'
 	fi

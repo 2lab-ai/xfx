@@ -290,6 +290,46 @@ class CiSweep(unittest.TestCase):
         self.assertGreater(board["totals"]["unresolved-defect"], 0)
         self.assertEqual(board["meta"]["only"], [])
 
+    def test_the_selection_reads_this_checkout_whatever_git_variables_it_inherits(self):
+        """Git takes the repository it reads from GIT_DIR, GIT_WORK_TREE and the
+        rest. A decoy cloned at this repository's base, where the base and
+        HEAD are one commit, would make the selection diff nothing; it must
+        neither be read nor written."""
+        self.change()
+        plain = subprocess.run(
+            ["bash", CI_SWEEP, "--select", "--base", self.base, "--scenarios", self.scen, "--core", self.core],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(plain.returncode, 0, plain.stderr)
+        decoy = os.path.join(self.d, "decoy")
+        subprocess.run(["git", "clone", "-q", "--no-local", self.repo, decoy], check=True, capture_output=True)
+        subprocess.run(["git", "-C", decoy, "checkout", "-q", "--detach", self.base], check=True, capture_output=True)
+
+        def sums():
+            found = []
+            for directory, _, files in os.walk(os.path.join(decoy, ".git")):
+                for name in files:
+                    path = os.path.join(directory, name)
+                    with open(path, "rb") as f:
+                        found.append((path, hashlib.sha256(f.read()).hexdigest()))
+            return sorted(found)
+
+        before = sums()
+        for extra in (
+            {"GIT_DIR": os.path.join(decoy, ".git")},
+            {"GIT_DIR": os.path.join(decoy, ".git"), "GIT_WORK_TREE": decoy},
+            {"GIT_COMMON_DIR": os.path.join(decoy, ".git")},
+        ):
+            r = subprocess.run(
+                ["bash", CI_SWEEP, "--select", "--base", self.base, "--scenarios", self.scen, "--core", self.core],
+                capture_output=True,
+                text=True,
+                env=dict(os.environ, **extra),
+            )
+            self.assertEqual((r.returncode, r.stdout), (0, plain.stdout), "%r: %s" % (sorted(extra), r.stderr))
+        self.assertEqual(sums(), before, "the selection wrote into the decoy repository")
+
     def test_the_select_mode_runs_nothing(self):
         self.change()
         r = subprocess.run(

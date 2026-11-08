@@ -1,0 +1,396 @@
+== platform
+Darwin arm64
+GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+grep (BSD grep, GNU compatible) 2.6.0-FreeBSD
+git version 2.54.0 (Apple Git-157)
+ruby 4.0.6 (2026-07-14 revision 03b6d3f889) +PRISM [arm64-darwin25]
+uid 501
+
+== scripts/test-gate-env.sh at a67881dd
+test-gate-env: this grep reads GREP_OPTIONS (grep (BSD grep, GNU compatible) 2.6.0-FreeBSD): each case below is a RED for its gate
+test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code
+test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command
+test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break
+test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
+test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
+test-gate-env: identity-git-dir: the gate exited 0, expected 1; its last lines:
+check-xfx-identity: ok (2 tracked file(s) scanned)
+test-gate-env: identity-git-dir-work-tree: the gate failed, but not with 'the retired product name is still in tracked path names'; its last lines:
+check-xfx-identity: the content scan misses the 'protect' residue in its own control; this scan is not working
+check-xfx-identity: the content scan misses the 'project' residue in its own control; this scan is not working
+check-xfx-identity: the content scan misses the 'asset' residue in its own control; this scan is not working
+check-xfx-identity: the content scan misses the 'repo' residue in its own control; this scan is not working
+check-xfx-identity: the path scan misses a retired name in a control file name; this scan is not working
+check-xfx-identity: 7 problem(s) found
+test-gate-env: identity-index-file: the gate exited 0, expected 1; its last lines:
+check-xfx-identity: ok (2 tracked file(s) scanned)
+test-gate-env: identity-object-dir: the gate wrote into the decoy repository:
+0a1
+> 1127558999 49 ./objects/1a/a153f8097c69844149ca322dc51887768febf3
+11a13
+> 2864440320 45 ./objects/d4/cd6385397177347a4508c935f2bc69026101a4
+15a18
+> 3365810837 53 ./objects/98/79ba9a7b1d1541f2a7834486ccdf96b2cad09a
+test-gate-env: identity-common-dir: the gate wrote into the decoy repository:
+0a1
+> 1127558999 49 ./objects/1a/a153f8097c69844149ca322dc51887768febf3
+7a9
+> 2864440320 45 ./objects/d4/cd6385397177347a4508c935f2bc69026101a4
+11a14
+> 3365810837 53 ./objects/98/79ba9a7b1d1541f2a7834486ccdf96b2cad09a
+test-gate-env: no-secrets-index-file: the gate exited 0, expected 1; its last lines:
+check-no-secrets: ok (2 tracked file(s) scanned)
+test-gate-env: no-secrets-object-dir: the gate wrote into the decoy repository:
+4a5
+> 2522188678 22 ./objects/54/25ec0feb1edc20db0d742ffb8877b972b46134
+9a11
+> 2985189216 19 ./objects/bd/2c89c15cf5290bc8b5e0d71f071132864134c3
+11a14
+> 3236293353 23 ./objects/1b/5fed8b86dfa7a4e35a685ffe1ba35d64434758
+test-gate-env: no-secrets-common-dir: the gate wrote into the decoy repository:
+5a6
+> 2522188678 22 ./objects/54/25ec0feb1edc20db0d742ffb8877b972b46134
+9a11,12
+> 2985189216 19 ./objects/bd/2c89c15cf5290bc8b5e0d71f071132864134c3
+> 3236293353 23 ./objects/1b/5fed8b86dfa7a4e35a685ffe1ba35d64434758
+12a16
+test-gate-env: preview-git-dir: the gate exited 128, expected 1; its last lines:
+fatal: '<tmp>/xfx-preview-contract.CVODm3/epoch-origin' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+test-gate-env: preview-git-dir-work-tree: the gate failed, but not with 'does not document the qualified install command'; its last lines:
+On branch main
+nothing to commit, working tree clean
+test-gate-env: preview-object-dir: the gate exited 128, expected 1; its last lines:
+fatal: '<tmp>/xfx-preview-contract.aufXTd/epoch-origin' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+test-gate-env: preview-common-dir: the gate exited 128, expected 1; its last lines:
+fatal: 'main' is already used by worktree at '<tmp>/xfx-gate-env.kxyvvo/decoy'
+test-gate-env: attributes-config-global: the gate exited 0, expected 1; its last lines:
+check-xfx-identity: ok (2 tracked file(s) scanned)
+test-gate-env: attributes-config-system: the gate exited 0, expected 1; its last lines:
+check-xfx-identity: ok (2 tracked file(s) scanned)
+test-gate-env: attributes-config-count: the gate exited 0, expected 1; its last lines:
+check-xfx-identity: ok (2 tracked file(s) scanned)
+test-gate-env: attributes-config-parameters: the gate exited 0, expected 1; its last lines:
+check-xfx-identity: ok (2 tracked file(s) scanned)
+test-gate-env: attributes-attr-source: the gate exited 0, expected 1; its last lines:
+check-xfx-identity: ok (2 tracked file(s) scanned)
+test-gate-env: attributes-info: the gate exited 0, expected 1; its last lines:
+check-xfx-identity: ok (2 tracked file(s) scanned)
+test-gate-env: attributes-local-config: the gate exited 0, expected 1; its last lines:
+check-xfx-identity: ok (2 tracked file(s) scanned)
+test-gate-env: attributes-untracked: the gate exited 0, expected 1; its last lines:
+check-xfx-identity: ok (2 tracked file(s) scanned)
+test-gate-env: 20 problem(s), 5 case(s) passed
+-> exit 1, 143 s
+
+== scripts/test-gate-env.sh at 08f9025b
+test-gate-env: this grep reads GREP_OPTIONS (grep (BSD grep, GNU compatible) 2.6.0-FreeBSD): each case below is a RED for its gate
+test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code
+test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command
+test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break
+test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
+test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
+test-gate-env: ok identity-git-dir               the retired product name is still in tracked path names
+test-gate-env: ok identity-git-dir-work-tree     the retired product name is still in tracked path names
+test-gate-env: ok identity-index-file            the retired product name is still in tracked path names
+test-gate-env: ok identity-object-dir            the retired product name is still in tracked path names
+test-gate-env: ok identity-common-dir            the retired product name is still in tracked path names
+test-gate-env: ok no-secrets-index-file          possible OpenAI-style key:
+test-gate-env: ok no-secrets-object-dir          possible OpenAI-style key:
+test-gate-env: ok no-secrets-common-dir          possible OpenAI-style key:
+test-gate-env: ok preview-git-dir                does not document the qualified install command
+test-gate-env: ok preview-git-dir-work-tree      does not document the qualified install command
+test-gate-env: ok preview-object-dir             does not document the qualified install command
+test-gate-env: ok preview-common-dir             does not document the qualified install command
+test-gate-env: ok attributes-config-global       the retired product name is still in tracked content
+test-gate-env: ok attributes-config-system       the retired product name is still in tracked content
+test-gate-env: ok attributes-config-count        the retired product name is still in tracked content
+test-gate-env: ok attributes-config-parameters   the retired product name is still in tracked content
+test-gate-env: ok attributes-attr-source         the retired product name is still in tracked content
+test-gate-env: ok attributes-info                the retired product name is still in tracked content
+test-gate-env: ok attributes-local-config        the retired product name is still in tracked content
+test-gate-env: ok attributes-untracked           the retired product name is still in tracked content
+test-gate-env: ok identity-color-grep            the retired product name is still in tracked content
+test-gate-env: ok (26 cases)
+-> exit 0, 100 s
+
+== the sweep at 45d99f52
+
+== platform
+head 45d99f52
+Darwin arm64
+GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+git version 2.54.0 (Apple Git-157)
+
+== each gate on its fixture, under each variable
+ipath   (none)                             exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_DIR=decoy                      exit 0  decoy CHANGED    check-xfx-identity: ok (2 tracked file(s) scanned)
+ipath   GIT_WORK_TREE=decoy                exit 128  decoy unchanged  fatal: GIT_WORK_TREE (or --work-tree=<directory>) not allowed without specifying
+ipath   GIT_DIR+GIT_WORK_TREE=decoy        exit 1  decoy CHANGED    check-xfx-identity: the content scan misses the 'prose' residue in its own contr
+ipath   GIT_INDEX_FILE=<without it>        exit 0  decoy unchanged  check-xfx-identity: ok (2 tracked file(s) scanned)
+ipath   GIT_OBJECT_DIRECTORY=decoy         exit 1  decoy CHANGED    check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_ALTERNATE_OBJECT_DIRECTORIES   exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_COMMON_DIR=decoy               exit 1  decoy CHANGED    check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_NAMESPACE=elsewhere            exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_CEILING_DIRECTORIES=<parent>   exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_CONFIG_GLOBAL=<attributes>     exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_CONFIG_SYSTEM=<attributes>     exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_CONFIG_NOSYSTEM=1              exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_CONFIG_COUNT=<attributes>      exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_CONFIG_PARAMETERS=<attributes> exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_ATTR_SOURCE=<tree>             exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_EXTERNAL_DIFF=<recorder>       exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ilock   (none)                             exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_DIR=decoy                      exit 0  decoy CHANGED    check-xfx-identity: ok (2 tracked file(s) scanned)
+ilock   GIT_WORK_TREE=decoy                exit 128  decoy unchanged  fatal: GIT_WORK_TREE (or --work-tree=<directory>) not allowed without specifying
+ilock   GIT_DIR+GIT_WORK_TREE=decoy        exit 1  decoy CHANGED    check-xfx-identity: the content scan misses the 'prose' residue in its own contr
+ilock   GIT_INDEX_FILE=<without it>        exit 0  decoy unchanged  check-xfx-identity: ok (2 tracked file(s) scanned)
+ilock   GIT_OBJECT_DIRECTORY=decoy         exit 1  decoy CHANGED    check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_ALTERNATE_OBJECT_DIRECTORIES   exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_COMMON_DIR=decoy               exit 1  decoy CHANGED    check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_NAMESPACE=elsewhere            exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_CEILING_DIRECTORIES=<parent>   exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_CONFIG_GLOBAL=<attributes>     exit 0  decoy unchanged  check-xfx-identity: ok (2 tracked file(s) scanned)
+ilock   GIT_CONFIG_SYSTEM=<attributes>     exit 0  decoy unchanged  check-xfx-identity: ok (2 tracked file(s) scanned)
+ilock   GIT_CONFIG_NOSYSTEM=1              exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_CONFIG_COUNT=<attributes>      exit 0  decoy unchanged  check-xfx-identity: ok (2 tracked file(s) scanned)
+ilock   GIT_CONFIG_PARAMETERS=<attributes> exit 0  decoy unchanged  check-xfx-identity: ok (2 tracked file(s) scanned)
+ilock   GIT_ATTR_SOURCE=<tree>             exit 0  decoy unchanged  check-xfx-identity: ok (2 tracked file(s) scanned)
+ilock   GIT_EXTERNAL_DIFF=<recorder>       exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+keyed   (none)                             exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_DIR=decoy                      exit 1  decoy unchanged  
+keyed   GIT_WORK_TREE=decoy                exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_DIR+GIT_WORK_TREE=decoy        exit 1  decoy unchanged  check-no-secrets: d.txt is tracked and cannot be read
+keyed   GIT_INDEX_FILE=<without it>        exit 0  decoy unchanged  check-no-secrets: ok (2 tracked file(s) scanned)
+keyed   GIT_OBJECT_DIRECTORY=decoy         exit 1  decoy CHANGED    check-no-secrets: possible OpenAI-style key:
+keyed   GIT_ALTERNATE_OBJECT_DIRECTORIES   exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_COMMON_DIR=decoy               exit 1  decoy CHANGED    check-no-secrets: possible OpenAI-style key:
+keyed   GIT_NAMESPACE=elsewhere            exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_CEILING_DIRECTORIES=<parent>   exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_CONFIG_GLOBAL=<attributes>     exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_CONFIG_SYSTEM=<attributes>     exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_CONFIG_NOSYSTEM=1              exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_CONFIG_COUNT=<attributes>      exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_CONFIG_PARAMETERS=<attributes> exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_ATTR_SOURCE=<tree>             exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_EXTERNAL_DIFF=<recorder>       exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+readme  (none)                             exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.EsNkDP/re
+readme  GIT_DIR=decoy                      exit 128  decoy CHANGED    fatal: '<tmp>/xfx-preview-contract.TSwlqA/epoch-or
+readme  GIT_WORK_TREE=decoy                exit 128  decoy unchanged  fatal: GIT_WORK_TREE (or --work-tree=<directory>) not allowed without specifying
+readme  GIT_DIR+GIT_WORK_TREE=decoy        exit 1  decoy CHANGED    
+readme  GIT_INDEX_FILE=<without it>        exit 1  decoy unchanged  error: Your local changes to the following files would be overwritten by checkou
+readme  GIT_OBJECT_DIRECTORY=decoy         exit 128  decoy CHANGED    fatal: '<tmp>/xfx-preview-contract.0VbQom/epoch-or
+readme  GIT_ALTERNATE_OBJECT_DIRECTORIES   exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.EsNkDP/re
+readme  GIT_COMMON_DIR=decoy               exit 128  decoy CHANGED    fatal: 'main' is already used by worktree at '<local-path>
+readme  GIT_NAMESPACE=elsewhere            exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.EsNkDP/re
+readme  GIT_CEILING_DIRECTORIES=<parent>   exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.EsNkDP/re
+readme  GIT_CONFIG_GLOBAL=<attributes>     exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.EsNkDP/re
+readme  GIT_CONFIG_SYSTEM=<attributes>     exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.EsNkDP/re
+readme  GIT_CONFIG_NOSYSTEM=1              exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.EsNkDP/re
+readme  GIT_CONFIG_COUNT=<attributes>      exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.EsNkDP/re
+readme  GIT_CONFIG_PARAMETERS=<attributes> exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.EsNkDP/re
+readme  GIT_ATTR_SOURCE=<tree>             exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.EsNkDP/re
+readme  GIT_EXTERNAL_DIFF=<recorder>       exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.EsNkDP/re
+
+== identity: attributes a clone holds, not the environment
+ilock   .git/info/attributes               exit 0  decoy unchanged  check-xfx-identity: ok (2 tracked file(s) scanned)
+ilock   .git/config core.attributesFile    exit 0  decoy unchanged  check-xfx-identity: ok (2 tracked file(s) scanned)
+ilock   an untracked .gitattributes        exit 0  decoy unchanged  check-xfx-identity: ok (2 tracked file(s) scanned)
+ilock   .git/config color.grep=always      exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+-> exit 0, 55 s
+
+== the sweep at 08f9025b
+
+== platform
+head 08f9025b
+Darwin arm64
+GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+git version 2.54.0 (Apple Git-157)
+
+== each gate on its fixture, under each variable
+ipath   (none)                             exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_DIR=decoy                      exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_WORK_TREE=decoy                exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_DIR+GIT_WORK_TREE=decoy        exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_INDEX_FILE=<without it>        exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_OBJECT_DIRECTORY=decoy         exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_ALTERNATE_OBJECT_DIRECTORIES   exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_COMMON_DIR=decoy               exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_NAMESPACE=elsewhere            exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_CEILING_DIRECTORIES=<parent>   exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_CONFIG_GLOBAL=<attributes>     exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_CONFIG_SYSTEM=<attributes>     exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_CONFIG_NOSYSTEM=1              exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_CONFIG_COUNT=<attributes>      exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_CONFIG_PARAMETERS=<attributes> exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_ATTR_SOURCE=<tree>             exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ipath   GIT_EXTERNAL_DIFF=<recorder>       exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked path names:
+ilock   (none)                             exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_DIR=decoy                      exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_WORK_TREE=decoy                exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_DIR+GIT_WORK_TREE=decoy        exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_INDEX_FILE=<without it>        exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_OBJECT_DIRECTORY=decoy         exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_ALTERNATE_OBJECT_DIRECTORIES   exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_COMMON_DIR=decoy               exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_NAMESPACE=elsewhere            exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_CEILING_DIRECTORIES=<parent>   exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_CONFIG_GLOBAL=<attributes>     exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_CONFIG_SYSTEM=<attributes>     exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_CONFIG_NOSYSTEM=1              exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_CONFIG_COUNT=<attributes>      exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_CONFIG_PARAMETERS=<attributes> exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_ATTR_SOURCE=<tree>             exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   GIT_EXTERNAL_DIFF=<recorder>       exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+keyed   (none)                             exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_DIR=decoy                      exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_WORK_TREE=decoy                exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_DIR+GIT_WORK_TREE=decoy        exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_INDEX_FILE=<without it>        exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_OBJECT_DIRECTORY=decoy         exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_ALTERNATE_OBJECT_DIRECTORIES   exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_COMMON_DIR=decoy               exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_NAMESPACE=elsewhere            exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_CEILING_DIRECTORIES=<parent>   exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_CONFIG_GLOBAL=<attributes>     exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_CONFIG_SYSTEM=<attributes>     exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_CONFIG_NOSYSTEM=1              exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_CONFIG_COUNT=<attributes>      exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_CONFIG_PARAMETERS=<attributes> exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_ATTR_SOURCE=<tree>             exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+keyed   GIT_EXTERNAL_DIFF=<recorder>       exit 1  decoy unchanged  check-no-secrets: possible OpenAI-style key:
+readme  (none)                             exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.sC8ilk/re
+readme  GIT_DIR=decoy                      exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.sC8ilk/re
+readme  GIT_WORK_TREE=decoy                exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.sC8ilk/re
+readme  GIT_DIR+GIT_WORK_TREE=decoy        exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.sC8ilk/re
+readme  GIT_INDEX_FILE=<without it>        exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.sC8ilk/re
+readme  GIT_OBJECT_DIRECTORY=decoy         exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.sC8ilk/re
+readme  GIT_ALTERNATE_OBJECT_DIRECTORIES   exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.sC8ilk/re
+readme  GIT_COMMON_DIR=decoy               exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.sC8ilk/re
+readme  GIT_NAMESPACE=elsewhere            exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.sC8ilk/re
+readme  GIT_CEILING_DIRECTORIES=<parent>   exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.sC8ilk/re
+readme  GIT_CONFIG_GLOBAL=<attributes>     exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.sC8ilk/re
+readme  GIT_CONFIG_SYSTEM=<attributes>     exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.sC8ilk/re
+readme  GIT_CONFIG_NOSYSTEM=1              exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.sC8ilk/re
+readme  GIT_CONFIG_COUNT=<attributes>      exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.sC8ilk/re
+readme  GIT_CONFIG_PARAMETERS=<attributes> exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.sC8ilk/re
+readme  GIT_ATTR_SOURCE=<tree>             exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.sC8ilk/re
+readme  GIT_EXTERNAL_DIFF=<recorder>       exit 1  decoy unchanged  check-preview-contract: <tmp>/xfx-gitenv.sC8ilk/re
+
+== identity: attributes a clone holds, not the environment
+ilock   .git/info/attributes               exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   .git/config core.attributesFile    exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   an untracked .gitattributes        exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+ilock   .git/config color.grep=always      exit 1  decoy unchanged  check-xfx-identity: the retired product name is still in tracked content:
+-> exit 0, 82 s
+
+== the hook probe, the check at 45d99f52
+== platform
+the check: scripts/check-no-secrets.sh at 45d99f52
+Darwin arm64
+git version 2.54.0 (Apple Git-157)
+
+== git commit, a new file with a key staged
+hook: pwd=<scratch>/repo
+hook: GIT_DIR=<unset>
+hook: GIT_INDEX_FILE=.git/index
+hook: GIT_WORK_TREE=<unset>
+hook: the names in GIT_INDEX_FILE: a.txt b.txt scripts/check-no-secrets.sh 
+hook: the check exits 1: check-no-secrets: possible OpenAI-style key:
+published: b.txt in HEAD holds the key: 1
+
+== git commit -a, a tracked file edited to hold a key
+hook: pwd=<scratch>/repo
+hook: GIT_DIR=<unset>
+hook: GIT_INDEX_FILE=<scratch>/repo/.git/index.lock
+hook: GIT_WORK_TREE=<unset>
+hook: the names in GIT_INDEX_FILE: a.txt scripts/check-no-secrets.sh 
+hook: the check exits 1: check-no-secrets: possible OpenAI-style key:
+
+== git commit -- c.txt (a partial commit) while b.txt with a key is staged
+hook: pwd=<scratch>/repo
+hook: GIT_DIR=<unset>
+hook: GIT_INDEX_FILE=<scratch>/repo/.git/next-index-50319.lock
+hook: GIT_WORK_TREE=<unset>
+hook: the names in GIT_INDEX_FILE: a.txt c.txt scripts/check-no-secrets.sh 
+hook: the check exits 0: check-no-secrets: ok (3 tracked file(s) scanned)
+published: HEAD has b.txt: 0
+
+== a linked worktree: git commit there
+hook: pwd=<scratch>/linked
+hook: GIT_DIR=<scratch>/repo/.git/worktrees/linked
+hook: GIT_INDEX_FILE=<scratch>/repo/.git/worktrees/linked/index
+hook: GIT_WORK_TREE=<unset>
+hook: the names in GIT_INDEX_FILE: a.txt c.txt l.txt scripts/check-no-secrets.sh 
+hook: the check exits 0: check-no-secrets: ok (4 tracked file(s) scanned)
+
+== a key staged, then the working-tree file cleaned: what the commit publishes
+hook: pwd=<scratch>/repo
+hook: GIT_DIR=<unset>
+hook: GIT_INDEX_FILE=.git/index
+hook: GIT_WORK_TREE=<unset>
+hook: the names in GIT_INDEX_FILE: a.txt b.txt c.txt scripts/check-no-secrets.sh 
+hook: the check exits 0: check-no-secrets: ok (4 tracked file(s) scanned)
+published: b.txt in HEAD holds the key: 1
+-> exit 0, 4 s
+
+== the hook probe, the check at 08f9025b
+== platform
+the check: scripts/check-no-secrets.sh at 08f9025b
+Darwin arm64
+git version 2.54.0 (Apple Git-157)
+
+== git commit, a new file with a key staged
+hook: pwd=<scratch>/repo
+hook: GIT_DIR=<unset>
+hook: GIT_INDEX_FILE=.git/index
+hook: GIT_WORK_TREE=<unset>
+hook: the names in GIT_INDEX_FILE: a.txt b.txt scripts/check-no-secrets.sh 
+hook: the check exits 1: check-no-secrets: possible OpenAI-style key:
+published: b.txt in HEAD holds the key: 1
+
+== git commit -a, a tracked file edited to hold a key
+hook: pwd=<scratch>/repo
+hook: GIT_DIR=<unset>
+hook: GIT_INDEX_FILE=<scratch>/repo/.git/index.lock
+hook: GIT_WORK_TREE=<unset>
+hook: the names in GIT_INDEX_FILE: a.txt scripts/check-no-secrets.sh 
+hook: the check exits 1: check-no-secrets: possible OpenAI-style key:
+
+== git commit -- c.txt (a partial commit) while b.txt with a key is staged
+hook: pwd=<scratch>/repo
+hook: GIT_DIR=<unset>
+hook: GIT_INDEX_FILE=<scratch>/repo/.git/next-index-51968.lock
+hook: GIT_WORK_TREE=<unset>
+hook: the names in GIT_INDEX_FILE: a.txt c.txt scripts/check-no-secrets.sh 
+hook: the check exits 1: check-no-secrets: possible OpenAI-style key:
+published: HEAD has b.txt: 0
+
+== a linked worktree: git commit there
+hook: pwd=<scratch>/linked
+hook: GIT_DIR=<scratch>/repo/.git/worktrees/linked
+hook: GIT_INDEX_FILE=<scratch>/repo/.git/worktrees/linked/index
+hook: GIT_WORK_TREE=<unset>
+hook: the names in GIT_INDEX_FILE: a.txt c.txt l.txt scripts/check-no-secrets.sh 
+hook: the check exits 0: check-no-secrets: ok (4 tracked file(s) scanned)
+
+== a key staged, then the working-tree file cleaned: what the commit publishes
+hook: pwd=<scratch>/repo
+hook: GIT_DIR=<unset>
+hook: GIT_INDEX_FILE=.git/index
+hook: GIT_WORK_TREE=<unset>
+hook: the names in GIT_INDEX_FILE: a.txt b.txt c.txt scripts/check-no-secrets.sh 
+hook: the check exits 0: check-no-secrets: ok (4 tracked file(s) scanned)
+published: b.txt in HEAD holds the key: 1
+-> exit 0, 2 s
+
+== the clone afterwards
+clean
+runs exit=0

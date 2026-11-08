@@ -1,0 +1,76 @@
+# GATE-GITENV round 2b: per-row cost of the CI steps this unit touches.
+# before = test-check-no-secrets.sh + test-gate-env.sh at d6760929 (two ci.yml steps);
+# after  = test-gate-env.sh at 4a95372f (one step; it runs test-check-no-secrets.sh nested).
+# Local machines, not CI runners. macOS ran beside other sessions (load average 6-9).
+
+== a first pair, macOS (row-time.sh)
+== Darwin arm64 at d6760929
+git version 2.54.0 (Apple Git-157)
+test-check-no-secrets    exit 0,   68 s   test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1
+test-gate-env            exit 0,  228 s   test-gate-env: ok (45 cases)
+total                             296 s
+exit=0
+== Darwin arm64 at 4a95372f
+git version 2.54.0 (Apple Git-157)
+test-gate-env            exit 0,  288 s   test-gate-env: ok (48 cases)
+total                             288 s
+exit=0
+
+== alternated, macOS (row-time-rounds.sh)
+
+### round 1: before
+== Darwin arm64 at d6760929
+git version 2.54.0 (Apple Git-157)
+test-check-no-secrets    exit 0,   85 s   test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1
+test-gate-env            exit 0,  411 s   test-gate-env: ok (45 cases)
+total                             496 s
+
+### round 1: after
+== Darwin arm64 at 4a95372f
+git version 2.54.0 (Apple Git-157)
+test-gate-env            exit 0,  486 s   test-gate-env: ok (48 cases)
+total                             486 s
+
+### round 2: before
+== Darwin arm64 at d6760929
+git version 2.54.0 (Apple Git-157)
+test-check-no-secrets    exit 0,   94 s   test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1
+test-gate-env            exit 0,  500 s   test-gate-env: ok (45 cases)
+total                             594 s
+
+### round 2: after
+== Darwin arm64 at 4a95372f
+git version 2.54.0 (Apple Git-157)
+test-gate-env            exit 0,  265 s   test-gate-env: ok (48 cases)
+total                             265 s
+exit=0
+
+== alternated, Linux container (row-time-rounds.sh)
+docker run rust:1.99-bookworm; root installs ruby, then su to uid 1000
+
+### round 1: before
+== Linux aarch64 at d6760929
+git version 2.39.5
+test-check-no-secrets    exit 0,   41 s   test-check-no-secrets: ok (13 cases; 6959 tracked names past ARG_MAX 2
+test-gate-env            exit 0,   52 s   test-gate-env: ok (45 cases)
+total                              93 s
+
+### round 1: after
+== Linux aarch64 at 4a95372f
+git version 2.39.5
+test-gate-env            exit 0,   54 s   test-gate-env: ok (48 cases)
+total                              54 s
+
+### round 2: before
+== Linux aarch64 at d6760929
+git version 2.39.5
+test-check-no-secrets    exit 0,   43 s   test-check-no-secrets: ok (13 cases; 6959 tracked names past ARG_MAX 2
+test-gate-env            exit 0,   63 s   test-gate-env: ok (45 cases)
+total                             106 s
+
+### round 2: after
+== Linux aarch64 at 4a95372f
+git version 2.39.5
+test-gate-env            exit 0,   62 s   test-gate-env: ok (48 cases)
+total                              62 s
+docker exit=0

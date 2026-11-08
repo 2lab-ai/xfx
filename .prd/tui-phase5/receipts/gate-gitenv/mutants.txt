@@ -1,0 +1,10 @@
+clone head 08f9025b; Darwin arm64; GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25); git version 2.54.0 (Apple Git-157)
+control: test exit 0; failing: -
+CAUGHT no-secrets-keeps-git-env: test exit 1; failing: no-secrets-common-dir, no-secrets-index-file, no-secrets-object-dir
+CAUGHT identity-keeps-git-env: test exit 1; failing: identity-common-dir, identity-git-dir, identity-git-dir-work-tree, identity-index-file, identity-object-dir
+CAUGHT preview-keeps-git-env: test exit 1; failing: preview-common-dir, preview-git-dir, preview-git-dir-work-tree, preview-object-dir
+CAUGHT identity-binary-by-attributes: test exit 1; failing: attributes-info, attributes-local-config, attributes-untracked
+CAUGHT identity-coloured-names: test exit 1; failing: identity-color-grep
+5 of 5 mutants caught, each by exactly its own cases
+driver exit=0
+(clone status above; empty = clean)

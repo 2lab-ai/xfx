@@ -49,14 +49,25 @@ jobs:
       # `macos-15-intel` are free for public repositories; if either becomes
       # unavailable, the honest change is to drop that row and stop shipping
       # its archive, not to replace it with a build that is never run.
+      #
+      # `script_tests` marks one row per OS for the tests of the gate scripts
+      # themselves (test-gate-env.sh, which runs test-check-no-secrets.sh,
+      # and test-preview-contract.sh). They exercise the OS's bash, grep, git
+      # and getconf -- bash 3.2 and BSD grep on macOS, GNU grep on Linux --
+      # and build nothing for the target, so a second row of the same OS
+      # repeats them on the same userland. On the x86_64 macOS row they would
+      # have cost minutes against its 60-minute timeout (PR #80: 47m29s). The
+      # gates themselves (every check-*.sh) still run on every row.
       matrix:
         include:
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
+            script_tests: true
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
           - runner: macos-15
             target: aarch64-apple-darwin
+            script_tests: true
           - runner: macos-15-intel
             target: x86_64-apple-darwin
     steps:
@@ -72,6 +83,8 @@ jobs:
       - name: Confirm the checkout is the commit under test
         run: |
           set -eu
+          # Git reads its repository, index and config from GIT_*; none of a caller's.
+          for name in "${!GIT_@}"; do case "$name" in *[!A-Za-z0-9_]*) ;; *) unset "$name" ;; esac; done
           actual="$(git rev-parse HEAD)"
           if [ "$actual" != "$COMMIT_UNDER_TEST" ]; then
             echo "checked out $actual, expected $COMMIT_UNDER_TEST" >&2
@@ -122,19 +135,24 @@ jobs:
       - name: No credentials in tracked files
         run: ./scripts/check-no-secrets.sh
 
-      # The secrets check hands the tracked names to `grep` in batches that
-      # fit under ARG_MAX; the tree outgrew one command line on macOS. This
-      # builds a scratch tree that does not fit on one, proves it does not,
-      # and requires the check to read all of it: a key in the first, the
-      # last and every file reported, a file it cannot read a failure.
-      - name: The secrets check reads a tree past ARG_MAX
-        run: ./scripts/test-check-no-secrets.sh
-
       # BSD grep, on the macOS rows, puts GREP_OPTIONS in front of every
       # argument list, so a gate that decides by grep would decide by that
-      # variable. Each gate unsets it; this plants one violation per gate and
-      # requires it refused under the value that used to hide it.
-      - name: No gate takes its grep options from the environment
+      # variable; and git takes its repository, index and config from GIT_*
+      # and from config the gates do not own. Each gate drops them; this
+      # plants one violation per gate and requires it refused under the
+      # value that used to hide it.
+      #
+      # It is also the one run of scripts/test-check-no-secrets.sh,
+      # whole, under a decoy GIT_DIR, a GIT_TRACE and a HOME whose config
+      # runs programs: the secrets check hands the tracked names to `grep`
+      # in batches that fit under ARG_MAX, and that test builds a scratch
+      # tree past one command line and requires the check to read all of
+      # it -- a key in the first, the last and every file reported, a file
+      # it cannot read a failure. It used to run on its own as well, a
+      # second full run per row; the two differed only in the environment,
+      # and the run under the decoys is the one that tests it.
+      - name: No gate takes its options, repository or config from the environment
+        if: matrix.script_tests
         run: ./scripts/test-gate-env.sh
 
       - name: One product name in tracked files
@@ -152,6 +170,7 @@ jobs:
       # condition on the jobs behind it, and the epoch file, one at a time in
       # a scratch copy, and requires each break to be reported by name.
       - name: The preview contract catches every mutant it exists for
+        if: matrix.script_tests
         run: ./scripts/test-preview-contract.sh
 
       # The TUI output check runs in front of every frame a released binary

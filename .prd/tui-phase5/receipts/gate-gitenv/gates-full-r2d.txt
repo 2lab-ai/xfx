@@ -1,0 +1,252 @@
+head 96d1f424
+Darwin arm64
+GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+git version 2.54.0 (Apple Git-157)
+rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)
+cargo 1.99.1 (5f94df478 2026-08-27) (Homebrew)
+TMPDIR=<tmp>
+
+== cargo fmt --check
+load before: 4.26 4.98 5.34
+-> exit 0, 1 s
+
+== cargo clippy --locked --all-targets -- -D warnings
+load before: 4.26 4.98 5.34
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.16s
+-> exit 0, 1 s
+
+== cargo test --locked --all-targets
+load before: 4.26 4.98 5.34
+test the_thinking_clock_is_frozen_while_the_panel_is_up ... ok
+test a_clipboard_read_goes_under_the_real_tmp_whatever_tmpdir_says ... ok
+test a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ... ok
+test compact_with_no_credential_is_not_started_and_asks_nobody ... ok
+test every_slash_command_is_answered_by_the_session_rather_than_by_the_model ... ok
+test paste_reads_the_clipboard_through_the_tool_on_the_path_and_badges_it ... ok
+test slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text ... ok
+test trace_records_a_failed_compaction_and_the_one_after_it ... ok
+test slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it ... ok
+
+test result: ok. 176 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 43.33s
+
+-> exit 0, 194 s
+
+== cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+load before: 4.34 4.76 5.17
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+-> exit 0, 1 s
+
+== cargo test --locked --features fault-injection --test tui
+load before: 4.34 4.76 5.17
+test the_thinking_clock_is_frozen_while_the_panel_is_up ... ok
+test a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ... ok
+test every_slash_command_is_answered_by_the_session_rather_than_by_the_model ... ok
+test compact_with_no_credential_is_not_started_and_asks_nobody ... ok
+test paste_reads_the_clipboard_through_the_tool_on_the_path_and_badges_it ... ok
+test slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text ... ok
+test trace_records_a_failed_compaction_and_the_one_after_it ... ok
+test slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it ... ok
+test faults::a_session_killed_between_a_reports_write_and_its_publication_leaves_no_report ... ok
+
+test result: ok. 190 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 65.78s
+
+-> exit 0, 66 s
+
+== cargo test --locked --lib --features fault-injection
+load before: 4.50 4.73 5.13
+test tui::shell::tests::trace_writes_what_the_screen_was_given_into_a_private_file_and_says_so ... ok
+test tui::shell::tests::with_no_room_a_clipboard_image_or_slash_image_says_so_before_any_copy ... ok
+test usage::cache::tests::a_store_waits_five_seconds_for_the_lock_and_no_longer ... ok
+test usage::dashboard::tests::a_sign_in_switch_while_closed_cancels_the_fetch_unless_the_sign_in_is_the_same ... ok
+test tui::trace::tests::a_report_is_started_and_answered_later_with_the_file_it_wrote ... ok
+test tui::trace::tests::a_session_whose_log_cannot_be_read_is_a_problem_in_the_report_and_not_a_failure ... ok
+test tui::trace::tests::the_session_is_read_back_from_its_log_on_disk ... ok
+test tui::shell::tests::super_x_takes_the_text_out_only_once_the_clipboard_has_it ... ok
+test usage::report::tests::a_gateway_that_never_answers_fails_at_15_seconds ... ok
+
+test result: ok. 4275 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 59.69s
+
+-> exit 0, 59 s
+
+== ./scripts/check-no-stubs.sh
+load before: 7.21 5.45 5.37
+check-no-stubs: ok
+-> exit 0, 8 s
+
+== ./scripts/check-no-secrets.sh
+load before: 6.78 5.42 5.35
+check-no-secrets: ok (12161 tracked file(s) scanned)
+-> exit 0, 23 s
+
+== ./scripts/test-gate-env.sh
+load before: 7.08 5.56 5.40
+test-gate-env: ok identity-own-symlink           the retired product name is still in tracked content
+test-gate-env: ok identity-own-miscased          the retired product name is still in tracked content
+test-gate-env: ok identity-submodule             the retired product name is still in tracked content
+test-gate-env: ok identity-home-programs         the retired product name is still in tracked content
+test-gate-env: ok no-secrets-home-programs       possible OpenAI-style key:
+test-gate-env: ok preview-home-programs          does not document the qualified install command
+test-gate-env: ok workflow-steps                 all 10 steps that run git drop GIT_* first
+test-gate-env: ok ci-checkout-assertion          checked out
+test-gate-env: ok build-script                   stamps the checkout's HEAD (e87f2a458513)
+test-gate-env: ok build-script-linked-worktree   stamps the worktree's HEAD (fd9e5bcd2af8), watches its HEAD and ref
+test-gate-env: ok test-check-no-secrets          test-check-no-secrets: ok (13 cases; 3473 tracked names past
+test-gate-env: ok (59 cases)
+-> exit 0, 761 s
+
+== ./scripts/check-xfx-identity.sh
+load before: 6.41 6.07 5.66
+check-xfx-identity: ok (12161 tracked file(s) scanned)
+-> exit 0, 1 s
+
+== ./scripts/check-preview-contract.sh
+load before: 6.62 6.12 5.68
+check-preview-contract: ok (.github/workflows/preview.yml)
+-> exit 0, 9 s
+
+== ./scripts/test-preview-contract.sh
+load before: 6.49 6.10 5.67
+test-preview-contract: caught build-whole-context          the jobs reading secrets are ["build", "publish"]
+test-preview-contract: caught build-bracket-key            the jobs reading secrets are ["build", "publish"]
+test-preview-contract: caught build-brace-literal          the jobs reading secrets are ["build", "publish"]
+test-preview-contract: caught publish-action-whole-context hands a secret to the action actions/github-script@v7
+test-preview-contract: caught second-workflow              tap.yml mentions TAP_PUSH_KEY
+test-preview-contract: caught other-workflow-environment   dispatch.yml: job leak names environment "preview"
+test-preview-contract: caught other-workflow-whole-context report.yml: job report reads a secret
+test-preview-contract: caught secrets-inherit              call.yml: job call passes secrets
+test-preview-contract: caught epoch-absent                 there is no .github/preview-epoch
+test-preview-contract: caught epoch-two-lines              .github/preview-epoch is "phase4\nphase5\n"
+test-preview-contract: caught epoch-crlf                   .github/preview-epoch is "phase4\r\n"
+test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+-> exit 0, 315 s
+
+== ./scripts/check-tui-preflight-cost.sh
+load before: 7.50 7.30 6.39
+preflight 24x80 sparse: 26 bytes in 16.497µs mean, 15.75µs min, 16.333µs median, 19.166µs max (budget 8 ms)
+preflight 24x80 full: 2055 bytes in 34.904µs mean, 33.375µs min, 34.167µs median, 40.333µs max (budget 8 ms)
+preflight 24x80 scroll: 8 bytes in 16.087µs mean, 15.75µs min, 16.083µs median, 17.084µs max (budget 8 ms)
+preflight 24x80 update: 2815 bytes in 22.206µs mean, 21.667µs min, 21.833µs median, 27.625µs max (budget 8 ms)
+preflight 200x300 unchanged: 0 bytes in 503.093µs mean, 483µs min, 494.208µs median, 645.5µs max (budget 32 ms)
+preflight 200x300 sparse: 27 bytes in 483.393µs mean, 467.541µs min, 487.5µs median, 509.834µs max (budget 32 ms)
+preflight 200x300 full: 61292 bytes in 1.009091ms mean, 982.583µs min, 1.012292ms median, 1.028834ms max (budget 32 ms)
+preflight 200x300 scroll: 9 bytes in 491.631µs mean, 485.416µs min, 489.292µs median, 514.667µs max (budget 32 ms)
+preflight 200x300 update: 85420 bytes in 693.079µs mean, 684.709µs min, 691.583µs median, 722.709µs max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 352.619µs mean, 343.291µs min, 348.834µs median, 371.75µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 1.214802ms mean, 1.192ms min, 1.218ms median, 1.229292ms max (budget 32 ms)
+check-tui-preflight-cost: ok
+-> exit 0, 1 s
+
+== ./scripts/check-usage-clock.sh
+load before: 7.50 7.30 6.39
+check-usage-clock: debug: honoured (debug assertions)
+check-usage-clock: release: ignored (release)
+check-usage-clock: release, fault injection: ignored (release)
+check-usage-clock: ok
+-> exit 0, 0 s
+
+== cargo build --locked --release
+load before: 7.50 7.30 6.39
+    Finished `release` profile [optimized] target(s) in 0.05s
+-> exit 0, 0 s
+
+== ./scripts/smoke.sh target/release/xfx <smoke>/xfx-smoke
+load before: 7.50 7.30 6.39
+  ok    --no-save created nothing under the profile home
+
+5. the interactive shell
+  ok    the shell greeted, answered, refused an unknown command, and quit cleanly
+  ok    the shell listed its commands
+  ok    the shell streamed an answer
+
+6. what was sent, and what was written down
+  ok    every request carried exactly the provided credential, and nothing else leaked (scanned 52 file(s), 11 request(s))
+
+47 check(s), 0 failure(s)
+evidence: <smoke>/xfx-smoke
+-> exit 0, 12 s
+
+== cargo build --locked --release --features fault-injection --target-dir target/faulty
+load before: 7.57 7.33 6.41
+    Finished `release` profile [optimized] target(s) in 0.10s
+-> exit 0, 0 s
+
+== ./scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <smoke>/xfx-smoke-tui
+load before: 7.57 7.33 6.41
+  21-paste-entities                     ok
+  22-edit-history                       ok
+  23-question-panel                     ok
+  23b-question-cancelled                ok
+  24-approval-readiness                 ok
+  25-amended-approval                   ok
+  26-layout-stabilization               ok
+  26b-composer-yield-to-panel           ok
+  27-live-theme-retint                  ok
+
+smoke-tui: 37 scenarios + the oracle, 1111 checks, 0 failures
+evidence: <smoke>/xfx-smoke-tui
+-> exit 0, 75 s
+
+== ./scripts/test-check-no-secrets.sh
+load before: 7.66 7.71 6.65
+test-check-no-secrets: ok last-batch         exit 1
+test-check-no-secrets: ok dash-n-name        exit 1
+test-check-no-secrets: ok unreadable-middle  exit 1
+test-check-no-secrets: ok grep-options       exit 1
+test-check-no-secrets: ok grep-signal        exit 1
+test-check-no-secrets: ok grep-126           exit 1
+test-check-no-secrets: ok grep-127           exit 1
+test-check-no-secrets: ok every-file         exit 1
+test-check-no-secrets: ok every-file-set     3472 of 3472 keys, each once
+test-check-no-secrets: ok nothing-tracked    exit 1
+test-check-no-secrets: ok only-a-symlink     exit 1
+test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
+-> exit 0, 124 s
+
+== ./scripts/fxcap/test-sweep.sh
+load before: 7.65 7.83 6.85
+...................................................
+----------------------------------------------------------------------
+Ran 51 tests in 5.310s
+
+OK
+...........................
+----------------------------------------------------------------------
+Ran 27 tests in 102.301s
+
+OK
+-> exit 0, 107 s
+
+== ./scripts/fxcap/test-capture.sh
+load before: 9.68 8.90 7.41
+ERROR: test_models2_and_modelsdelay (__main__.Verbs.test_models2_and_modelsdelay)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<local-path>", line 455, in test_models2_and_modelsdelay
+    self.assertLess(a.index('{"data":[{"id":"fake/one"}]}'), a.index('{"data":[{"id":"fake/two"}]}'))
+                    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: substring not found
+
+----------------------------------------------------------------------
+Ran 42 tests in 585.676s
+
+FAILED (errors=1)
+-> exit 1, 588 s
+
+== actionlint -verbose
+load before: 13.77 18.20 13.57
+verbose: Found 0 parse errors in 0 ms for .github/workflows/preview.yml
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Found total 0 errors in 138 ms for .github/workflows/sweep-full.yml
+verbose: Found total 0 errors in 146 ms for .github/workflows/release.yml
+verbose: Found total 0 errors in 150 ms for .github/workflows/sweep.yml
+verbose: Found total 0 errors in 151 ms for .github/workflows/ci.yml
+verbose: Found total 0 errors in 199 ms for .github/workflows/preview.yml
+verbose: Found 0 errors in 5 files
+-> exit 0, 1 s
+
+1 gate(s) failed
+exit=1

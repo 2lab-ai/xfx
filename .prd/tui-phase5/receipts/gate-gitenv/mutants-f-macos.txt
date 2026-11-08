@@ -1,0 +1,12 @@
+suite-lock: slot-3 held by pid 19789 since 2026-11-08T00:37:22Z for: bash <local-path>> <local-path>> <local-path>> <local-path>> <local-path>> <local-path>> <local-path>>
+Darwin arm64
+git version 2.54.0 (Apple Git-157)
+a41695bf ci: run the gate scripts' own tests on one row per OS
+this file system folds case
+control: test exit 0; failing: -
+CAUGHT identity-own-git-failure-ignored: test exit 1; failing: identity-vendored, identity-vendored-colon, identity-vendored-miscased, identity-vendored-symlink
+CAUGHT identity-own-git-reason-dropped: test exit 1; failing: identity-vendored, identity-vendored-colon, identity-vendored-miscased, identity-vendored-symlink
+CAUGHT identity-ceiling-instead: test exit 1; failing: identity-vendored-colon, identity-vendored-miscased, identity-vendored-symlink
+CAUGHT identity-own-check-by-path: test exit 1; failing: identity-own-miscased
+4 of 4 mutants caught, each by exactly its own cases
+mutants-exit=0

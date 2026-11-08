@@ -1,0 +1,188 @@
+docker run rust:1.99-bookworm; root installs ruby, then su to uid 1000; mutants-r2d.py
+Linux aarch64
+git version 2.39.5
+96d1f424 test(gates): GATE-GITENV 2d -- the missing-file listing failing
+this file system does not fold case
+control: test exit 0; failing: -
+CAUGHT build-rs-keeps-git-env: test exit 1; failing: build-script, build-script-linked-worktree
+CAUGHT build-rs-watches-the-main-head: test exit 1; failing: build-script-linked-worktree
+CAUGHT ci-assertion-keeps-git-env: test exit 1; failing: ci-checkout-assertion, workflow-steps
+CAUGHT sweep-build-step-keeps-git-env: test exit 1; failing: workflow-steps
+CAUGHT test-check-no-secrets-seven-names: test exit 1; failing: test-check-no-secrets
+CAUGHT test-check-no-secrets-reads-home: test exit 1; failing: test-check-no-secrets
+CAUGHT identity-listing-ignores-errors: test exit 1; failing: identity-grep.extendedRegexp, identity-grep.patternType, identity-grep.threads, identity-unreadable
+CAUGHT identity-names-ignore-errors: test exit 1; failing: identity-core.quotePath-home
+CAUGHT identity-count-ignores-errors: test exit 1; failing: identity-index-corrupt
+CAUGHT identity-reads-flagged-entries: test exit 1; failing: identity-assume-unchanged, identity-both-bits, identity-skip-worktree
+OTHER identity-sparse-remedy-clears-the-bit: test exit 1; failing: identity-both-bits, identity-skip-worktree
+CAUGHT identity-own-git-failure-ignored: test exit 1; failing: identity-vendored, identity-vendored-colon, identity-vendored-symlink
+CAUGHT identity-own-git-reason-dropped: test exit 1; failing: identity-vendored, identity-vendored-colon, identity-vendored-symlink
+OTHER identity-ceiling-instead: test exit 1; failing: identity-core.quotePath, identity-vendored-colon, identity-vendored-symlink
+SKIP identity-own-check-by-path: only the miscased cases catch it, and they do not run here
+CAUGHT identity-skips-missing-files: test exit 1; failing: identity-deleted-file, identity-vendored-git-symlink, identity-vendored-gitfile
+CAUGHT identity-missing-listing-ignores-errors: test exit 1; failing: identity-unsearchable-dir
+CAUGHT identity-both-bits-one-list: test exit 1; failing: identity-both-bits
+CAUGHT identity-both-bits-other-list: test exit 1; failing: identity-both-bits
+OTHER identity-requires-a-git-directory: test exit 1; failing: identity-linked-worktree, identity-submodule, identity-vendored, identity-vendored-colon, identity-vendored-gitfile, identity-vendored-symlink
+CAUGHT identity-reads-config-worktree: test exit 1; failing: identity-core.worktree
+CAUGHT identity-scan-runs-fsmonitor: test exit 1; failing: identity-home-programs
+CAUGHT identity-controls-read-home: test exit 1; failing: identity-core.quotePath-home, identity-home-programs
+CAUGHT no-secrets-listing-runs-fsmonitor: test exit 1; failing: no-secrets-home-programs, test-check-no-secrets
+CAUGHT no-secrets-sample-reads-home: test exit 1; failing: no-secrets-home-programs, test-check-no-secrets
+CAUGHT preview-epoch-gate-reads-home: test exit 1; failing: preview-home-programs
+22 of 25 mutants caught, each by exactly its own cases
+mutants-exit=1
+== build-rs-keeps-git-env.log
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: build-script: it stamped '8ef201cea0a7', which is not the HEAD of its checkout, 897e75287090
+test-gate-env: build-script-linked-worktree: it stamped '8ef201cea0a7', which is not the HEAD of its checkout, 430d66ac313c
+test-gate-env: 2 problem(s), 55 case(s) passed
+== build-rs-watches-the-main-head.log
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: build-script-linked-worktree: it does not watch the worktree's own HEAD; it watches:
+test-gate-env: 1 problem(s), 56 case(s) passed
+== ci-assertion-keeps-git-env.log
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: workflow-steps: a step runs git before it drops GIT_*:
+test-gate-env: ci-checkout-assertion: the gate exited 0, expected 1; its last lines:
+test-gate-env: 2 problem(s), 55 case(s) passed
+== control.log
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: ok (57 cases)
+== identity-both-bits-one-list.log
+test-gate-env: identity-both-bits: the gate failed with 'git sparse-checkout disable', but not also with 'git update-index --no-assume-unchanged'; its last line
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: 1 problem(s), 56 case(s) passed
+== identity-both-bits-other-list.log
+test-gate-env: identity-both-bits: the gate failed, but not with 'git sparse-checkout disable'; its last lines:
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: 1 problem(s), 56 case(s) passed
+== identity-ceiling-instead.log
+test-gate-env: identity-core.quotePath: the gate failed, but not with 'git cannot open it'; its last lines:
+test-gate-env: identity-vendored-symlink: the gate failed, but not with 'the root's .git cannot be opened'; its last lines:
+test-gate-env: identity-vendored-colon: the gate failed, but not with 'the root's .git cannot be opened'; its last lines:
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: 3 problem(s), 54 case(s) passed
+== identity-controls-read-home.log
+test-gate-env: identity-core.quotePath-home: the gate exited 128, expected 1; its last lines:
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: identity-home-programs: a program from config ran: fsmonitor
+test-gate-env: 2 problem(s), 55 case(s) passed
+== identity-count-ignores-errors.log
+test-gate-env: identity-index-corrupt: the gate failed, but not with 'git ls-files could not list'; its last lines:
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: 1 problem(s), 56 case(s) passed
+== identity-listing-ignores-errors.log
+test-gate-env: identity-grep.patternType: the gate exited 0, expected 1; its last lines:
+test-gate-env: identity-grep.extendedRegexp: the gate exited 0, expected 1; its last lines:
+test-gate-env: identity-grep.threads: the gate exited 0, expected 1; its last lines:
+test-gate-env: identity-unreadable: the gate exited 0, expected 1; its last lines:
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: 4 problem(s), 53 case(s) passed
+== identity-missing-listing-ignores-errors.log
+test-gate-env: identity-unsearchable-dir: the gate failed, but not with 'could not list the tracked files missing'; its last lines:
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: 1 problem(s), 56 case(s) passed
+== identity-names-ignore-errors.log
+test-gate-env: identity-core.quotePath-home: the gate failed, but not with 'the path scan could not run in its own control'; its last lines:
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: 1 problem(s), 56 case(s) passed
+== identity-own-git-failure-ignored.log
+test-gate-env: identity-vendored: the gate failed, but not with 'the root's .git cannot be opened'; its last lines:
+test-gate-env: identity-vendored-symlink: the gate failed, but not with 'the root's .git cannot be opened'; its last lines:
+test-gate-env: identity-vendored-colon: the gate failed, but not with 'the root's .git cannot be opened'; its last lines:
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: 3 problem(s), 54 case(s) passed
+== identity-own-git-reason-dropped.log
+test-gate-env: identity-vendored: the gate failed with 'the root's .git cannot be opened', but not also with 'not a git repository'; its last lines:
+test-gate-env: identity-vendored-symlink: the gate failed with 'the root's .git cannot be opened', but not also with 'not a git repository'; its last lines:
+test-gate-env: identity-vendored-colon: the gate failed with 'the root's .git cannot be opened', but not also with 'not a git repository'; its last lines:
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: 3 problem(s), 54 case(s) passed
+== identity-reads-config-worktree.log
+test-gate-env: identity-core.worktree: the gate exited 0, expected 1; its last lines:
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: 1 problem(s), 56 case(s) passed
+== identity-reads-flagged-entries.log
+test-gate-env: identity-skip-worktree: the gate exited 0, expected 1; its last lines:
+test-gate-env: identity-assume-unchanged: the gate exited 0, expected 1; its last lines:
+test-gate-env: identity-both-bits: the gate exited 0, expected 1; its last lines:
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: 3 problem(s), 54 case(s) passed
+== identity-requires-a-git-directory.log
+test-gate-env: identity-vendored: the gate failed, but not with 'the root's .git cannot be opened'; its last lines:
+test-gate-env: identity-vendored-gitfile: the gate failed, but not with 'tracked files missing from the working tree'; its last lines:
+test-gate-env: identity-vendored-symlink: the gate failed, but not with 'the root's .git cannot be opened'; its last lines:
+test-gate-env: identity-vendored-colon: the gate failed, but not with 'the root's .git cannot be opened'; its last lines:
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: identity-linked-worktree: the gate failed, but not with 'the retired product name is still in tracked content'; its last lines:
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: identity-submodule: the gate failed, but not with 'the retired product name is still in tracked content'; its last lines:
+test-gate-env: 6 problem(s), 51 case(s) passed
+== identity-scan-runs-fsmonitor.log
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: identity-home-programs: a program from config ran: fsmonitor
+test-gate-env: 1 problem(s), 56 case(s) passed
+== identity-skips-missing-files.log
+test-gate-env: identity-deleted-file: the gate exited 0, expected 1; its last lines:
+test-gate-env: identity-vendored-gitfile: the gate exited 0, expected 1; its last lines:
+test-gate-env: identity-vendored-git-symlink: the gate exited 0, expected 1; its last lines:
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: 3 problem(s), 54 case(s) passed
+== identity-sparse-remedy-clears-the-bit.log
+test-gate-env: identity-skip-worktree: the gate failed, but not with 'git sparse-checkout disable'; its last lines:
+test-gate-env: identity-both-bits: the gate failed, but not with 'git sparse-checkout disable'; its last lines:
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: 2 problem(s), 55 case(s) passed
+== no-secrets-listing-runs-fsmonitor.log
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: no-secrets-home-programs: a program from config ran: fsmonitor
+test-gate-env: test-check-no-secrets: a program from config ran: fsmonitor
+test-gate-env: 2 problem(s), 55 case(s) passed
+== no-secrets-sample-reads-home.log
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: no-secrets-home-programs: a program from config ran: fsmonitor
+test-gate-env: test-check-no-secrets: a program from config ran: fsmonitor
+test-gate-env: 2 problem(s), 55 case(s) passed
+== preview-epoch-gate-reads-home.log
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: preview-home-programs: a program from config ran: fsmonitor
+test-gate-env: 1 problem(s), 56 case(s) passed
+== sweep-build-step-keeps-git-env.log
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: workflow-steps: a step runs git before it drops GIT_*:
+test-gate-env: 1 problem(s), 56 case(s) passed
+== test-check-no-secrets-reads-home.log
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: test-check-no-secrets: a program from config ran: fsmonitor
+test-gate-env: 1 problem(s), 56 case(s) passed
+== test-check-no-secrets-seven-names.log
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: test-check-no-secrets: git wrote the GIT_TRACE file
+test-gate-env: 1 problem(s), 56 case(s) passed
+docker exit=0

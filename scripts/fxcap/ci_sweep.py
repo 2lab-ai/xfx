@@ -101,7 +101,12 @@ class Refusal(Exception):
 
 
 def git(repo, *args):
-    r = subprocess.run(["git", "-C", repo] + list(args), capture_output=True)
+    # Git takes the repository it reads from its environment -- GIT_DIR,
+    # GIT_WORK_TREE, GIT_COMMON_DIR and the rest -- and an inherited one made
+    # the selection diff another repository. This reads the checkout the
+    # scenarios are in, so no GIT_* reaches git.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    r = subprocess.run(["git", "-C", repo] + list(args), capture_output=True, env=env)
     if r.returncode != 0:
         raise Refusal("git %s: %s" % (" ".join(args), r.stderr.decode(errors="replace").strip()))
     return r.stdout

@@ -1,0 +1,271 @@
+head a41695bf
+Darwin arm64
+GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+git version 2.54.0 (Apple Git-157)
+rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)
+cargo 1.99.1 (5f94df478 2026-08-27) (Homebrew)
+TMPDIR=<tmp>
+suite-lock: slot-3 held by pid 43698 since 2026-11-08T01:56:14Z for: bash <local-path>> <local-path> <smoke>
+
+== cargo fmt --check
+load before: 4.52 7.89 8.08
+-> exit 0, 2 s
+
+== cargo clippy --locked --all-targets -- -D warnings
+load before: 4.52 7.89 8.08
+    Checking potential_utf v0.1.6
+    Checking icu_collections v2.3.0
+    Checking icu_locale_core v2.3.0
+    Checking icu_provider v2.3.1
+    Checking icu_properties v2.3.0
+    Checking icu_normalizer v2.3.0
+    Checking idna_adapter v1.2.2
+    Checking idna v1.1.0
+    Checking url v2.5.8
+    Checking tower-http v0.6.11
+    Checking reqwest v0.12.28
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 24.91s
+-> exit 0, 25 s
+
+== cargo test --locked --all-targets
+load before: 4.70 7.67 7.99
+test with_session_titles_off_nothing_is_asked_and_the_prompt_titles_the_session ... ok
+test slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it ... ok
+test undo_takes_back_the_newest_change_one_at_a_time_and_a_reset_leaves_the_rest ... ok
+test xfx_sound_off_keeps_a_session_silent ... ok
+test what_the_backpressure_held_back_is_drained_and_painted_on_the_way_out ... ok
+test with_no_usable_home_the_session_runs_unsaved_and_writes_nothing ... ok
+test trace_records_a_failed_compaction_and_the_one_after_it ... ok
+test usage_reads_the_gateways_report_only_while_open_and_draws_its_names_inert ... ok
+test the_thinking_clock_is_frozen_while_the_panel_is_up ... ok
+
+test result: ok. 176 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.23s
+
+-> exit 0, 164 s
+
+== cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+load before: 6.41 7.52 7.89
+   Compiling xfx v0.1.0 (<local-path>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.86s
+-> exit 0, 15 s
+
+== cargo test --locked --features fault-injection --test tui
+load before: 6.02 7.38 7.83
+test the_speed_column_and_the_switches_ride_as_upstreams_provider_options ... ok
+test what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside ... ok
+test trace_records_a_failed_compaction_and_the_one_after_it ... ok
+test xfx_sound_off_keeps_a_session_silent ... ok
+test what_the_backpressure_held_back_is_drained_and_painted_on_the_way_out ... ok
+test undo_takes_back_the_newest_change_one_at_a_time_and_a_reset_leaves_the_rest ... ok
+test usage_reads_the_gateways_report_only_while_open_and_draws_its_names_inert ... ok
+test with_no_usable_home_the_session_runs_unsaved_and_writes_nothing ... ok
+test the_thinking_clock_is_frozen_while_the_panel_is_up ... ok
+
+test result: ok. 190 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.29s
+
+-> exit 0, 30 s
+
+== cargo test --locked --lib --features fault-injection
+load before: 5.85 7.22 7.76
+test usage::dashboard::tests::quit_waits_its_bound_for_a_worker_no_cancellation_reaches_then_lets_go ... ok
+test usage::dashboard::tests::an_admitted_answer_outlives_a_switch_or_quit_under_its_own_sign_in_only ... ok
+test usage::report::tests::a_dropped_fetch_stops_and_lets_go_of_the_key ... ok
+test usage::report::tests::a_fetch_runs_on_its_own_thread_and_can_be_cancelled_mid_body ... ok
+test usage::cache::tests::two_processes_making_the_same_lock_at_once_both_store ... ok
+test usage::cache::tests::two_processes_storing_at_once_never_tear_or_regress_the_file ... ok
+test usage::cache::tests::a_store_waits_five_seconds_for_the_lock_and_no_longer ... ok
+test usage::dashboard::tests::a_sign_in_switch_while_closed_cancels_the_fetch_unless_the_sign_in_is_the_same ... ok
+test usage::report::tests::a_gateway_that_never_answers_fails_at_15_seconds ... ok
+
+test result: ok. 4390 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 40.32s
+
+-> exit 0, 66 s
+
+== ./scripts/check-no-stubs.sh
+load before: 5.47 6.83 7.57
+check-no-stubs: ok
+-> exit 0, 15 s
+
+== ./scripts/check-no-secrets.sh
+load before: 5.70 6.82 7.55
+check-no-secrets: ok (12997 tracked file(s) scanned)
+-> exit 0, 30 s
+
+== ./scripts/test-gate-env.sh
+load before: 4.95 6.53 7.42
+test-gate-env: ok identity-own-miscased          the retired product name is still in tracked content
+test-gate-env: ok identity-submodule             the retired product name is still in tracked content
+test-gate-env: ok identity-home-programs         the retired product name is still in tracked content
+test-gate-env: ok no-secrets-home-programs       possible OpenAI-style key:
+test-gate-env: ok preview-home-programs          does not document the qualified install command
+test-gate-env: ok workflow-steps                 all 10 steps that run git drop GIT_* first
+test-gate-env: ok ci-script-tests-per-os         test-gate-env test-preview-contract test-check-no-secrets on macOS and Linux rows
+test-gate-env: ok ci-checkout-assertion          checked out
+test-gate-env: ok build-script                   stamps the checkout's HEAD (dc7e4ab344ca)
+test-gate-env: ok build-script-linked-worktree   stamps the worktree's HEAD (b883189126fd), watches its HEAD and ref
+test-gate-env: ok test-check-no-secrets          test-check-no-secrets: ok (13 cases; 3473 tracked names past
+test-gate-env: ok (62 cases)
+-> exit 0, 292 s
+
+== ./scripts/check-xfx-identity.sh
+load before: 5.26 6.00 6.92
+check-xfx-identity: ok (12997 tracked file(s) scanned)
+-> exit 0, 2 s
+
+== ./scripts/check-preview-contract.sh
+load before: 5.16 5.97 6.90
+check-preview-contract: ok (.github/workflows/preview.yml)
+-> exit 0, 2 s
+
+== ./scripts/test-preview-contract.sh
+load before: 5.16 5.97 6.90
+test-preview-contract: caught build-whole-context          the jobs reading secrets are ["build", "publish"]
+test-preview-contract: caught build-bracket-key            the jobs reading secrets are ["build", "publish"]
+test-preview-contract: caught build-brace-literal          the jobs reading secrets are ["build", "publish"]
+test-preview-contract: caught publish-action-whole-context hands a secret to the action actions/github-script@v7
+test-preview-contract: caught second-workflow              tap.yml mentions TAP_PUSH_KEY
+test-preview-contract: caught other-workflow-environment   dispatch.yml: job leak names environment "preview"
+test-preview-contract: caught other-workflow-whole-context report.yml: job report reads a secret
+test-preview-contract: caught secrets-inherit              call.yml: job call passes secrets
+test-preview-contract: caught epoch-absent                 there is no .github/preview-epoch
+test-preview-contract: caught epoch-two-lines              .github/preview-epoch is "phase4\nphase5\n"
+test-preview-contract: caught epoch-crlf                   .github/preview-epoch is "phase4\r\n"
+test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+-> exit 0, 51 s
+
+== ./scripts/check-tui-preflight-cost.sh
+load before: 4.62 5.71 6.75
+preflight 24x80 sparse: 26 bytes in 36.437µs mean, 35.208µs min, 35.917µs median, 41.583µs max (budget 8 ms)
+preflight 24x80 full: 2055 bytes in 73.006µs mean, 70.75µs min, 71.75µs median, 81.791µs max (budget 8 ms)
+preflight 24x80 scroll: 8 bytes in 34.122µs mean, 33.333µs min, 34µs median, 36.125µs max (budget 8 ms)
+preflight 24x80 update: 2815 bytes in 45.764µs mean, 44.667µs min, 45.209µs median, 53.167µs max (budget 8 ms)
+preflight 200x300 unchanged: 0 bytes in 771.422µs mean, 688.875µs min, 751.958µs median, 1.107792ms max (budget 32 ms)
+preflight 200x300 sparse: 27 bytes in 608.272µs mean, 532.458µs min, 619.167µs median, 685.75µs max (budget 32 ms)
+preflight 200x300 full: 61292 bytes in 1.041781ms mean, 946.708µs min, 991.417µs median, 1.27425ms max (budget 32 ms)
+preflight 200x300 scroll: 9 bytes in 486.9µs mean, 478.292µs min, 487.334µs median, 504.125µs max (budget 32 ms)
+preflight 200x300 update: 85420 bytes in 665.975µs mean, 635.167µs min, 648.5µs median, 812.334µs max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 336.933µs mean, 332.5µs min, 334.875µs median, 357µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 1.178077ms mean, 1.165125ms min, 1.173ms median, 1.205166ms max (budget 32 ms)
+check-tui-preflight-cost: ok
+-> exit 0, 77 s
+
+== ./scripts/check-usage-clock.sh
+load before: 7.30 6.25 6.86
+check-usage-clock: debug: honoured (debug assertions)
+check-usage-clock: release: ignored (release)
+check-usage-clock: release, fault injection: ignored (release)
+check-usage-clock: ok
+-> exit 0, 0 s
+
+== cargo build --locked --release
+load before: 7.30 6.25 6.86
+   Compiling rustix v1.1.4
+   Compiling xfx v0.1.0 (<local-path>)
+    Finished `release` profile [optimized] target(s) in 13.09s
+-> exit 0, 13 s
+
+== ./scripts/smoke.sh target/release/xfx <smoke>/xfx-smoke
+load before: 7.90 6.42 6.91
+  ok    --no-save created nothing under the profile home
+
+5. the interactive shell
+  ok    the shell greeted, answered, refused an unknown command, and quit cleanly
+  ok    the shell listed its commands
+  ok    the shell streamed an answer
+
+6. what was sent, and what was written down
+  ok    every request carried exactly the provided credential, and nothing else leaked (scanned 52 file(s), 11 request(s))
+
+47 check(s), 0 failure(s)
+evidence: <smoke>/xfx-smoke
+-> exit 0, 2 s
+
+== cargo build --locked --release --features fault-injection --target-dir target/faulty
+load before: 7.90 6.42 6.91
+   Compiling serde_urlencoded v0.7.1
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling h2 v0.4.18
+   Compiling url v2.5.8
+   Compiling tower-http v0.6.11
+   Compiling hyper v1.11.0
+   Compiling tokio-rustls v0.26.4
+   Compiling hyper-util v0.1.20
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.12.28
+    Finished `release` profile [optimized] target(s) in 21.28s
+-> exit 0, 21 s
+
+== ./scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <smoke>/xfx-smoke-tui
+load before: 8.09 6.58 6.95
+  21-paste-entities                     ok
+  22-edit-history                       ok
+  23-question-panel                     ok
+  23b-question-cancelled                ok
+  24-approval-readiness                 ok
+  25-amended-approval                   ok
+  26-layout-stabilization               ok
+  26b-composer-yield-to-panel           ok
+  27-live-theme-retint                  ok
+
+smoke-tui: 37 scenarios + the oracle, 1127 checks, 0 failures
+evidence: <smoke>/xfx-smoke-tui
+-> exit 0, 63 s
+
+== ./scripts/test-check-no-secrets.sh
+load before: 5.65 6.16 6.77
+test-check-no-secrets: ok last-batch         exit 1
+test-check-no-secrets: ok dash-n-name        exit 1
+test-check-no-secrets: ok unreadable-middle  exit 1
+test-check-no-secrets: ok grep-options       exit 1
+test-check-no-secrets: ok grep-signal        exit 1
+test-check-no-secrets: ok grep-126           exit 1
+test-check-no-secrets: ok grep-127           exit 1
+test-check-no-secrets: ok every-file         exit 1
+test-check-no-secrets: ok every-file-set     3472 of 3472 keys, each once
+test-check-no-secrets: ok nothing-tracked    exit 1
+test-check-no-secrets: ok only-a-symlink     exit 1
+test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
+-> exit 0, 74 s
+
+== ./scripts/fxcap/test-sweep.sh
+load before: 8.66 6.75 6.93
+...................................................................
+----------------------------------------------------------------------
+Ran 67 tests in 5.526s
+
+OK
+...........................
+----------------------------------------------------------------------
+Ran 27 tests in 27.451s
+
+OK
+-> exit 0, 33 s
+
+== ./scripts/fxcap/test-capture.sh
+load before: 9.19 7.09 7.04
+...........................................................
+----------------------------------------------------------------------
+Ran 59 tests in 360.694s
+
+OK
+-> exit 0, 363 s
+
+== actionlint -verbose
+load before: 22.97 13.19 9.49
+verbose: Found 0 parse errors in 0 ms for .github/workflows/preview.yml
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Found total 0 errors in 111 ms for .github/workflows/sweep-full.yml
+verbose: Found total 0 errors in 132 ms for .github/workflows/release.yml
+verbose: Found total 0 errors in 182 ms for .github/workflows/ci.yml
+verbose: Found total 0 errors in 192 ms for .github/workflows/sweep.yml
+verbose: Found total 0 errors in 243 ms for .github/workflows/preview.yml
+verbose: Found 0 errors in 5 files
+-> exit 0, 1 s
+
+0 gate(s) failed
+exit=0
