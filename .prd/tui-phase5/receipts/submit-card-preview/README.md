@@ -213,20 +213,88 @@ after Enter; `4139bd68` fixed them.
 
 fx's pending path is shut only by an open stream, paced output, Ctrl-O, or
 a turn start the worker will not hold (F8). xfx also writes the card whole
-at once in the cases below. That is a narrowing, xfx doing less than fx: no
-capture was taken of fx's frame for them, and `preview_room` would have to
-guess where fx measures from. `docs/parity.md` names them. No ledger row
-exists for them, because no scenario reaches them.
+at once in the cases below. That is a narrowing, xfx doing less than fx:
+no capture of fx's frame for them was taken. The dispatcher has queued
+SUBMIT-PREVIEW-EDGES to capture them and copy fx there. Each case, with
+the fx line it differs from:
 
-- a card after a fork's `original session` line;
-- a card under a row that is not blank;
-- a card submitted while the document still owes rows;
-- a resize between the two frames, which drops the preview.
+- **A row that is not blank.** A card under a line that does not end on a
+  blank row: fx measures from a mid-line endpoint with two rows of
+  separator (`pendingCardLeadingAdvanceRows`, F1 :209-218).
+- **A fork's line.** A card after a fork's `original session` line
+  (`raw_gap`).
+- **An open tool group.** A card under a tool group still open
+  (`group.drawn()`).
+- **Rows still owed.** A card submitted while the document still owes
+  rows, a reset's welcome among them. The departing-document guard was
+  deleted, because `owes` covers it.
+- **No room.** A screen of 8 rows or fewer, whose running band leaves the
+  preview no row (`room` 0). fx may still paint one row at its band's bottom
+  (`PendingCardPaintContext.init`, F5 :185-187).
+- **The band loses the room.** The band loses the room before the preview's
+  frame: the slash menu opened by a key read with the Enter, or a steer's
+  banner. The card is written whole that frame, and the preview is gone for
+  good (MUST 1).
+- **A resize** before the preview's frame. The preview is dropped.
+- **The other plane.** A question or Ctrl-O takes the other plane before
+  the preview's frame. The card is paid whole before `1049h`. fx paints no
+  pending card while the alternate screen owns rendering (`:1264-1268`).
+- **The exit.**
 
-The room's last term, the running band's content bottom less three, comes
-from fx's trace and captures at 40 rows only (`fx-trace.txt`). At other
-heights it is the same derivation from `layout::solve_with`, not a
-measurement.
+## Round 2 (both engines: APPROVE-WITH-FIXES)
+
+Every claim below rests on a file in `round2/` or on a test named in it.
+
+- **MUST 1: a preview that did not fit came back.**
+  - RED `35d8c94b` (`round2/must1-red.txt`). Two shell tests: the slash
+    menu opened by a key read with the Enter, and a steer's banner after the
+    turn started. Each took the band's room, the card was written whole,
+    and when the room came back the old card's tail came back with it.
+  - Fix `72d1b68f`: `refit` and `refloat` drop a preview that the band was
+    solved without (`unplaced_preview_gone`).
+- **MUST 2: a painted preview across resizes, refused writes, Ctrl-O and a
+  stream.**
+  - A `Terminal` with a history, in the event_loop tests, reads every byte.
+    It resizes as tmux does, as measured in `round2/tmux-resize-probe.txt`:
+    rows under the cursor go first, then rows off the top into the history.
+  - RED `05a6811b` (`round2/must2-red.txt`). The preview's tick wrote only
+    the preview. A 60-line first prompt's 32-row preview, then a shorter
+    screen, left 14 preview rows in the history ahead of the card.
+  - Fix `1577d48e`. The card's frame now follows the preview's in the same
+    tick, as fx builds it 1-2 ms after its preview's frame commits
+    (`fx-trace.txt`), so a resize never finds the preview's rows with the
+    card unwritten.
+  - `d37abb11` covers four more cases: the preview's frame refused, the
+    card's frame refused, the preview's frame torn, Ctrl-O read with the
+    Enter, and an answer starting with the preview. In each, the card is in
+    the history once, in order.
+  - **Found outside this unit.** Under a tmux shrink, the band's repaint
+    covers the document's last row, with no preview anywhere: a one-row card
+    under a filled screen loses its row. The tall-resize test allows that
+    one row, and says so. It is the base's resize, reported to the
+    dispatcher.
+- **SHOULD (a).** The list above is now complete, and `docs/parity.md`
+  matches it.
+- **SHOULD (b)** (`9f94af7e`). The `departing` guard is deleted (`owes`
+  covers it). A test pins the three guards that stay: an open tool group, a
+  reset still owed, and the 8-row screen whose room is 0.
+- **SHOULD (c).** The `first` and `full` scenarios were captured at 24x80
+  and 30x100 as well. Every frame1/frame2/card/later claim holds there, so
+  the room's last term, the running band's content bottom less three, is
+  now measured against fx at three heights.
+- **SHOULD (d)** (RED `05a6811b`, fix `1577d48e`). A question that takes
+  the plane before the preview's frame used to leave the card held under
+  it. The barrier now gives the preview up and pays the card before
+  `1049h`.
+- **SHOULD (e)** (RED `943d3f79`, `round2/e-red.txt`; fix `d82556e5`).
+  `p5-submit-preview-oneread` sends five typed lines and their Enter in one
+  write. fx previews one row, measured from its last committed frame
+  (`runtime.zig:9929-9932`); xfx showed three. `Shell::band_landed` now
+  records the content bottom of the last landed band, and the room is
+  measured against it.
+  - A paste followed by an Enter in the same read is refused on both
+    binaries, so the scenario types its lines instead (`frames.py` also
+    skips fx's cursor-probe update, which moves no cell).
 
 ## Local paths in the captures
 

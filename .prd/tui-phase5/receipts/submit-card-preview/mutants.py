@@ -6,7 +6,7 @@ changed, on a throwaway clone, and the unit's tests run against it.
 
 <clone-dir> is made with `git clone --no-local <repo>` and checked out at
 <head>; nothing is written into <repo>. Each mutant edits one file of the
-clone (its text must occur exactly once), runs the six tests below with a
+clone (its text must occur exactly once), runs the tests below with a
 600 s limit (CARGO_TARGET_DIR=<target-dir>), and puts the file back. A
 mutant is killed when the run fails; the unmutated clone runs first and must
 pass.
@@ -23,6 +23,16 @@ TESTS = [
     "a_cards_preview_is_upstreams",
     "a_preview_takes_rows_from_the_band_s_top",
     "a_card_is_held_from_the_document_while_its_preview_is_up",
+    "took_the_room_of_does_not_come_back",
+    "no_preview_under_an_open_tool_group",
+    "the_tick_that_shows_a_preview",
+    "a_tall_preview_leaves_the_card_once",
+    "a_painted_preview_leaves_the_card_once",
+    "a_question_that_takes_the_plane_before_the_preview",
+    "a_draft_and_its_enter_in_one_read",
+    "a_refused_or_torn_write_at_the_preview",
+    "ctrl_o_read_with_the_enter",
+    "an_answer_that_starts_with_the_preview",
 ]
 SHELL, LOOP, LAYOUT = "src/tui/shell.rs", "src/tui/event_loop.rs", "src/tui/layout.rs"
 MUTANTS = [
@@ -36,7 +46,24 @@ MUTANTS = [
      "if let Some(room) = room {\n                        self.preview_card(",
      "if let Some(room) = self.preview_room() {\n                        let _ = room;\n                        self.preview_card("),
     ("room: a document still owed rows", SHELL,
-     "if self.transcript.owes()\n            || self.departing.is_some()", "if self.departing.is_some()"),
+     "        if self.transcript.owes()\n            || !self.transcript.ends_blank()",
+     "        if !self.transcript.ends_blank()"),
+    ("room: under an open tool group", SHELL,
+     "            || self.group.drawn()\n        {\n            return None;",
+     "        {\n            return None;"),
+    ("room: none is room", SHELL,
+     "if room == 0 || rows.len() <= room {", "if rows.len() <= room {"),
+    ("room: measured against a composer no frame showed", SHELL,
+     ".min(self.landed_bottom.unwrap_or(self.geometry.content_bottom));",
+     ".min(self.geometry.content_bottom);"),
+    ("must 1: a preview the band was solved without kept", SHELL,
+     "        if geometry.preview == 0 {\n            self.preview = None;\n        }",
+     "        let _ = geometry;"),
+    ("the card's frame a tick after its preview's", LOOP,
+     "    if shell.take_preview_shown() {\n        commit_frame_led(shell, band, out, failures, now, Reconciled, &mut None)?;\n    }",
+     "    let _ = shell.take_preview_shown();"),
+    ("the barrier: a held card left under a question", LOOP,
+     "    if taking_the_plane && shell.previewing() {\n        shell.give_up_preview();\n    }", ""),
     ("room: under a row that is not blank", SHELL,
      "            || !self.transcript.ends_blank()\n", ""),
     ("room: under a fork's line", SHELL,

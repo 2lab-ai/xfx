@@ -33,7 +33,7 @@
 ┃ multi line two
 ┃ multi line three
 
-  Generating (1s) (↑13 ↓2)
+• Generating (1s) (↑13 ↓2)
 
 ┃
 

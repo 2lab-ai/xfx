@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-e4c678e [debug] · Run /help for commands
+x𝒇x v0.1.0-d82556e [debug] · Run /help for commands
 
 ┃ TALL_PROMPT_HEAD
 ┃ tall prompt body 01

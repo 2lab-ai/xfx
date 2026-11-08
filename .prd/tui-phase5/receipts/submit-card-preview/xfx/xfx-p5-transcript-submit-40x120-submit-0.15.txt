@@ -29,11 +29,11 @@
 
   Filler line 30 of the first answer.
 
-  0s (↑4 ↓40)
+  1s (↑4 ↓40)
 
 ┃ second prompt
 
-  Generating (1s) (↑4 ↓2)
+• Generating (1s) (↑4 ↓2)
 
 ┃
 
