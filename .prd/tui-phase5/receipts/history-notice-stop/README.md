@@ -19,7 +19,16 @@ to a file in this folder.
 | `b5bf9b8b` | the fix, the comment, `docs/parity.md` -- **the code head** |
 | `3899a8ba` | `scripts/fxcap/scenarios/provider-carry-back-stop.cap` and its turns: **the captures' and the sweep's xfx binary** |
 | `16cffa83` | the scenario's header says what fx does (its steps unchanged); parity cites the drain's whole drop arm |
-| (receipt commits) | this folder |
+| `f3cb88a7` | this folder, but the gate |
+| `f16a62ab` | fx's claim-then-drop race cites the push and the drain (`docs/parity.md`, `fx-src.txt` H5, this README): **the gated commit** |
+| (the next one) | `gates.txt` and the gate section |
+
+After the code head nothing under `src/`, `build.rs` or `Cargo.*` changes
+(`git diff --stat b5bf9b8b f16a62ab -- src build.rs Cargo.toml Cargo.lock`
+is empty). Outside this folder, `git diff --stat b5bf9b8b f16a62ab -- .
+':!.prd/tui-phase5/receipts'` lists only the scenario's two files (`+65`)
+and `docs/parity.md`'s one row (`2 +-`, the citation text). So the
+binary built at `3899a8ba` is the code head's code.
 
 ## What fx v0.0.16 does (every line quoted in `fx-src.txt`)
 
@@ -121,6 +130,15 @@ either way.
   25/14; 52 of interactive.rs's added lines are the line-shell pin), most
   of them comments; far under the 600-line split bar.
 
+## GREEN (`green-unit.txt`)
+
+At the head, the RED passes with both waits `[0, 1]` with the stop and
+`[1, 0]` without it. So does the line-shell pin, and both of
+STOP-IN-CATALOG-WAIT's tests (4 passed). The pty test that pins "once"
+for a switch with no stop
+(`a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind`,
+`tests/tui.rs`) also passes. The capture pair is in the next sections.
+
 ## Mutants (`mutants.txt`, the runner `mutants.py`)
 
 Six mutants, each on a `git clone --no-local` copy of `3899a8ba`, under the
@@ -203,3 +221,27 @@ ran with the binary built at `05a0a857`, the head with the one built at
   side answers the next prompt (`MARKER-AFTER-STOP`).
 - Load was high on both runs (13.4 and 17.6 at the peaks, `sweep-*.md`
   line 5). No pair's verdict depended on it.
+
+## Gate (`gates.txt`, the script `gates.sh`)
+
+`gates.sh` ran at `f16a62ab`, the gated commit, in one lock slot, with a
+clean tree before and after. It runs every step of `ci.yml` and the two
+test scripts of `sweep.yml`. Step 00 (`false`) reads `rc=1`; every other
+step reads `rc=0`:
+
+- fmt, clippy, clippy with fault-injection;
+- `cargo test --all-targets`: 5449 passed, 0 failed. With fault-injection:
+  the `tui` test, 195 passed; the lib, 4556 passed;
+- check-no-stubs, check-no-secrets, test-check-no-secrets, test-gate-env,
+  check-xfx-identity, check-preview-contract, test-preview-contract,
+  check-tui-preflight-cost, check-usage-clock;
+- fxcap test-sweep and test-capture;
+- both release builds, smoke, and smoke-tui (37 scenarios + the oracle,
+  1168 checks, 0 failures).
+
+**Run 1, the same commit, is kept below run 2 in `gates.txt`.** Its `TMPDIR`
+root was longer, and step 16 failed on that alone: five of
+`scripts/fxcap/test_sweep.py`'s tests refused the root as "too long for a tmux socket
+path under it" (`scripts/fxcap/sweep.py:159-161`; 100 bytes with the
+socket's suffix). Every other step read `rc=0`. Under the short root the
+step passes (97 tests), in run 2 and alone.
