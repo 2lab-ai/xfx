@@ -1,0 +1,30 @@
+# python3 -I compare.py <base sweep>/pairs.json <head sweep>/pairs.json (both rescored with this commit's ledger)
+pairs: base 146, head 146
+base: pass 64/146  normalized-identical 64, unresolved-defect 82
+head: pass 80/146  normalized-identical 80, unresolved-defect 66
+
+moved to passing: 16
+  filepicker at: unresolved-defect -> normalized-identical
+  filepicker at-claim: unresolved-defect -> normalized-identical
+  filepicker at-sch: unresolved-defect -> normalized-identical
+  filepicker-keys at-ck: unresolved-defect -> normalized-identical
+  filepicker-keys at-pgdn: unresolved-defect -> normalized-identical
+  filepicker-narrow at-alpha: unresolved-defect -> normalized-identical
+  filepicker-narrow at-alpha-down: unresolved-defect -> normalized-identical
+  filepicker-narrow at-deep: unresolved-defect -> normalized-identical
+  p5-input-at-dir dir-query: unresolved-defect -> normalized-identical
+  p5-input-at-height at: unresolved-defect -> normalized-identical
+  p5-input-at-height down12: unresolved-defect -> normalized-identical
+  p5-input-at-height pgup: unresolved-defect -> normalized-identical
+  p5-input-at-height up6: unresolved-defect -> normalized-identical
+  p5-input-at-height up9: unresolved-defect -> normalized-identical
+  p5-input-at-resize down12: unresolved-defect -> normalized-identical
+  workspace-index at-all: unresolved-defect -> normalized-identical
+
+dropped from passing: 0
+
+other verdict changes: 0
+
+# uncaused snaps (scoreboard.json causes.unattributed) in the picker and composer scenarios
+base: 16 -- filepicker at, filepicker at-sch, filepicker at-claim, filepicker-keys at-pgdn, filepicker-keys at-ck, filepicker-narrow at-alpha, filepicker-narrow at-alpha-down, filepicker-narrow at-deep, p5-input-at-dir dir-query, p5-input-at-height at, p5-input-at-height down12, p5-input-at-height up6, p5-input-at-height up9, p5-input-at-height pgup, p5-input-at-resize down12, workspace-index at-all
+head: 0 -- none
