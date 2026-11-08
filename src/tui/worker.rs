@@ -5757,6 +5757,14 @@ async fn image_refusal(
         () = turn.token.cancelled() => false,
         fresh = state.load_catalog() => fresh,
     };
+    // The image route, at the turn's first request, which carries these
+    // images: a model the turn's snapshot does not know is asked about once
+    // more (`onRequest`, `src/core/images/image_route.zig:180-184@481104fd`),
+    // and that waits a moment for the retry behind a failed catalog
+    // (`resolveForRequest`, `model_cache_runtime.zig:843-866`).
+    if state.selector.entry(state.selector.model()).is_none() {
+        await_failed_catalog_retry(state, turn).await;
+    }
     if turn.token.is_cancelled() {
         return Some(crate::agent::TurnError::Cancelled.to_string());
     }
@@ -5779,9 +5787,14 @@ async fn image_refusal(
 /// had any -- [`crate::image::TOOL_IMAGES_NOT_NATIVE`] for a listed model
 /// without the tags, [`crate::image::TOOL_IMAGES_UNKNOWN`] for one the catalog
 /// does not list or could not be read (`projectToolImageMessages`,
-/// `gateway_step.zig:256-283`). Upstream resolves the catalog the first time a
-/// tool image appears (`orchestrator.zig:7206-7214`); so does this, raced
-/// against the turn's cancellation and told to the UI when it is fresh.
+/// `gateway_step.zig:256-283`). Upstream's image route asks for the model's
+/// capabilities at most once a turn, at the first request carrying images
+/// while the turn's snapshot does not know the model (`onRequest`,
+/// `src/core/images/image_route.zig:180-184@481104fd`; `orchestrator.zig:
+/// 7502-7509`): a first load is waited for, and the retry behind a failed
+/// catalog two seconds at most (`resolveForRequest`,
+/// `model_cache_runtime.zig:843-866`). So does this, raced against the turn's
+/// cancellation and told to the UI when it is fresh.
 ///
 /// **On llmux the daemon decides**, as it does a prompt's image: it is sent,
 /// and a model that cannot read it is the daemon's 400.
@@ -5793,6 +5806,11 @@ struct ToolImageGate<'a> {
     selector: std::cell::RefCell<Option<&'a mut ModelSelector>>,
     events: Sender<UiEvent>,
     token: tokio_util::sync::CancellationToken,
+    /// The image route has asked for the model's capabilities this turn --
+    /// at the first request, when it carried the prompt's or the history's
+    /// images ([`image_refusal`]) -- and asks no more (`ImageRoute.tla`
+    /// ResolveOncePerTurn, `orchestrator.zig:7502-7503@481104fd`).
+    asked: std::cell::Cell<bool>,
 }
 
 impl ToolImageGate<'_> {
@@ -5819,6 +5837,18 @@ impl ToolImageGate<'_> {
                     );
                     let _ = bridge::send_ui(&self.events, &self.token, event).await;
                 }
+            }
+        }
+        // A model the snapshot does not know, the first time this turn: the
+        // retry behind a failed catalog is waited for a moment.
+        if selector.entry(selector.model()).is_none()
+            && !self.asked.replace(true)
+            && selector.retrying()
+        {
+            tokio::select! {
+                biased;
+                () = self.token.cancelled() => {}
+                _ = tokio::time::timeout(FAILED_CATALOG_RETRY_WAIT, selector.settle_load()) => {}
             }
         }
         let note = match selector.entry(selector.model()) {
@@ -5982,12 +6012,15 @@ async fn one_turn(
         });
     // **The catalog the request is planned from, before anything reads it**:
     // a first load the window waits for, and the retry behind a failed
-    // catalog, two seconds at most, when the window, a level, a speed or an
-    // image wants it (`requiresResolvedRequestCapabilities`,
-    // `orchestrator.zig:5658-5670@481104fd`, then `resolveForRequest`,
-    // `model_cache_runtime.zig:843-866`) -- once, ahead of the effort's and
-    // the images' own reads below, which then find it settled.
-    if carries_images && !request_needs_catalog(state) {
+    // catalog, two seconds at most, when the window, a level, a speed or the
+    // prompt's own images want it (`requiresResolvedRequestCapabilities`,
+    // `orchestrator.zig:5658-5670@481104fd`, from `:5884-5893`, whose images
+    // are this turn's; then `resolveForRequest`, `model_cache_runtime.zig:
+    // 843-866`) -- once, ahead of the effort's read below, which then finds
+    // it settled. The history's images, and the prompt's again when that did
+    // not settle it, are the image route's, at the first request
+    // ([`image_refusal`]).
+    if !images.is_empty() && !request_needs_catalog(state) {
         await_failed_catalog_retry(state, turn).await;
     }
     await_catalog_for_window(state, events, turn).await;
@@ -6181,6 +6214,7 @@ async fn one_turn(
         selector: std::cell::RefCell::new(Some(selector)),
         events: events.clone(),
         token: turn.token.clone(),
+        asked: std::cell::Cell::new(carries_images),
     };
     // And, in Ultra, whether each response was served at it
     // ([`ServedUltra`]).
@@ -16577,13 +16611,13 @@ mod tests {
         token: tokio_util::sync::CancellationToken,
         images_first: bool,
     ) -> ToolImageGate<'a> {
-        let _ = images_first;
         ToolImageGate {
             inner,
             provider: ProviderId::Gateway,
             selector: std::cell::RefCell::new(Some(selector)),
             events,
             token,
+            asked: std::cell::Cell::new(images_first),
         }
     }
 
