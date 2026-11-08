@@ -1,0 +1,746 @@
+# fx v0.0.16 (481104fd): when the model cache reads the catalog, quoted from `git -C fx-upstream show 481104fd:<path>`
+
+### src/core/app/model_cache_runtime.zig:27-54@481104fd
+   27  /// What asked for a catalog load. Every trigger is user activity, so an idle
+   28  /// session never polls the models endpoint.
+   29  pub const LoadTrigger = enum {
+   30      /// Refetches a loaded catalog only after the provider's refresh interval.
+   31      activity,
+   32      /// The model picker opened. Revalidates unless a fetch is in flight or
+   33      /// one started less than `picker_revalidate_floor_ms` ago.
+   34      picker_open,
+   35  };
+   36  
+   37  /// Reopening the picker within this window reuses the catalog it just fetched.
+   38  const picker_revalidate_floor_ms: i64 = 5_000;
+   39  
+   40  /// After consecutive failures no trigger fetches again for 5 s, then 10 s,
+   41  /// 20 s, and so on, up to five minutes, so an outage is never hammered.
+   42  const failure_backoff_base_ms: i64 = 5_000;
+   43  const failure_backoff_cap_ms: i64 = 5 * std.time.ms_per_min;
+   44  
+   45  /// How long a request waits for a failed catalog's retry before it goes out
+   46  /// without the catalog's limits.
+   47  const failed_catalog_retry_wait_ms: i64 = 2_000;
+   48  
+   49  fn failureBackoffMs(failure_streak: u32) i64 {
+   50      var delay = failure_backoff_base_ms;
+   51      var step: u32 = 1;
+   52      while (step < failure_streak and delay < failure_backoff_cap_ms) : (step += 1) delay *= 2;
+   53      return @min(delay, failure_backoff_cap_ms);
+   54  }
+
+### src/core/app/model_cache_runtime.zig:485-498@481104fd
+  485      /// A fetch is running. Only the first load for an access shows as
+  486      /// `.loading`; a revalidation or retry leaves the state readers see alone.
+  487      /// A request waits up to `failed_catalog_retry_wait_ms` for a failed
+  488      /// catalog's retry, and on nothing else but a first load.
+  489      fetch_in_flight: bool = false,
+  490      /// Consecutive failed fetches. A success or reset clears it.
+  491      failure_streak: u32 = 0,
+  492      /// After a failure, no fetch starts before this time, whatever the trigger.
+  493      retry_not_before_ms: i64 = 0,
+  494      /// A finished revalidation waiting for `pollLoadTransition` to adopt it.
+  495      /// Owns any loaded catalog.
+  496      staged: ?model_catalog.FetchResult = null,
+  497      completion_pending: bool = false,
+  498      last_attempt_ms: i64 = 0,
+
+### src/core/app/model_cache_runtime.zig:570-648@481104fd
+  570      fn beginLoad(
+  571          self: *Self,
+  572          access: credentials.CatalogAccess,
+  573          refresh_interval_ms: ?i64,
+  574          trigger: LoadTrigger,
+  575      ) bool {
+  576          self.finishThreadIfDone();
+  577  
+  578          const requested_access = model_catalog.AccessMetadata.init(access);
+  579          self.mutex.lockUncancelable(io_mod.getIo());
+  580          const access_changed = self.state != .idle and
+  581              (self.requested_access == null or
+  582                  !std.meta.eql(self.requested_access.?, requested_access));
+  583          var reused_public_catalog = false;
+  584          // A fetch started or staged under the old access would overwrite the
+  585          // reused provenance, so only an idle ready catalog is reused; anything
+  586          // else resets below.
+  587          if (access_changed and
+  588              self.state == .ready and
+  589              !self.fetch_in_flight and
+  590              self.staged == null and
+  591              requested_access.level == .public_only)
+  592          {
+  593              if (self.outcome.loaded) |*loaded| {
+  594                  if (loaded.access.level == .public_only) {
+  595                      self.requested_access = requested_access;
+  596                      loaded.* = .{ .access = requested_access };
+  597                      self.outcome.last_failure = null;
+  598                      if (self.menu.active) {
+  599                          self.menu.catalog_state = modelMenuCatalogState(self.outcome, self.from_profile_settings);
+  600                      }
+  601                      reused_public_catalog = true;
+  602                  }
+  603              }
+  604          }
+  605          self.mutex.unlock(io_mod.getIo());
+  606          if (reused_public_catalog) return false;
+  607          if (access_changed) self.reset();
+  608  
+  609          const now = model_catalog.clockMs();
+  610          self.mutex.lockUncancelable(io_mod.getIo());
+  611          // A clock that moved backwards makes every elapsed check due.
+  612          const elapsed = if (now < self.last_attempt_ms) std.math.maxInt(i64) else now - self.last_attempt_ms;
+  613          const expired = if (refresh_interval_ms) |interval| elapsed >= interval else false;
+  614          const picker_due = trigger == .picker_open and elapsed >= picker_revalidate_floor_ms;
+  615          // A retained catalog whose refresh failed retries once its backoff ends.
+  616          const retry_due = if (self.outcome.last_failure) |failed| failed.failure.retryable else false;
+  617          const backoff_over = now < self.last_attempt_ms or now >= self.retry_not_before_ms;
+  618          // A staged revalidation is newer than anything a fetch would start now.
+  619          // A fetch that finished after the join above still holds its thread;
+  620          // the next trigger joins it before starting another.
+  621          const should_load = !self.fetch_in_flight and self.staged == null and self.thread == null and backoff_over and switch (self.state) {
+  622              .idle, .failed => true,
+  623              .ready => expired or picker_due or retry_due,
+  624              .loading => false,
+  625          };
+  626          if (!should_load) {
+  627              self.mutex.unlock(io_mod.getIo());
+  628              return false;
+  629          }
+  630          // A first load blocks request resolution, and a failed catalog's retry
+  631          // holds it for at most `failed_catalog_retry_wait_ms`. A revalidation
+  632          // runs behind the state readers already see.
+  633          const first_load = self.state == .idle;
+  634          if (first_load) self.state = .loading;
+  635          self.fetch_in_flight = true;
+  636          self.last_attempt_ms = now;
+  637          self.requested_access = requested_access;
+  638          const failure_streak = self.failure_streak;
+  639          self.mutex.unlock(io_mod.getIo());
+  640          self.cancel_requested.store(false, .seq_cst);
+  641          debug_trace.logf("catalog", "model catalog load begin trigger={s} first_load={s} expired={s} failure_streak={d}", .{
+  642              @tagName(trigger),
+  643              boolLabel(first_load),
+  644              boolLabel(expired),
+  645              failure_streak,
+  646          });
+  647          return true;
+  648      }
+
+### src/core/app/model_cache_runtime.zig:725-760@481104fd
+  725      pub fn openMenu(self: *Self) !void {
+  726          self.finishThreadIfDone();
+  727          self.mutex.lockUncancelable(io_mod.getIo());
+  728          defer self.mutex.unlock(io_mod.getIo());
+  729  
+  730          var next: ModelMenu = .{ .active = true };
+  731          errdefer next.deinit(self.alloc);
+  732          try self.refreshMenuLocked(&next);
+  733          self.menu.deinit(self.alloc);
+  734          self.menu = next;
+  735      }
+  736  
+  737      pub fn closeMenu(self: *Self) void {
+  738          self.menu.deinit(self.alloc);
+  739      }
+  740  
+  741      pub fn setMenuQuery(self: *Self, query: []const u8) void {
+  742          self.menu.setQuery(query);
+  743      }
+  744  
+  745      /// The owner's publication boundary: adopts a staged revalidation and
+  746      /// refreshes an open menu. Call it where no borrowed catalog id is held.
+  747      pub fn pollLoadTransition(self: *Self) !bool {
+  748          self.finishThreadIfDone();
+  749          self.mutex.lockUncancelable(io_mod.getIo());
+  750          defer self.mutex.unlock(io_mod.getIo());
+  751          if (self.staged) |staged| {
+  752              self.staged = null;
+  753              self.applyFetchLocked(staged).record();
+  754          }
+  755          if (!self.completion_pending) return false;
+  756  
+  757          if (self.menu.active) try self.refreshMenuLocked(&self.menu);
+  758          self.completion_pending = false;
+  759          return true;
+  760      }
+
+### src/core/app/model_cache_runtime.zig:817-866@481104fd
+  817      pub fn resolveForRequest(
+  818          self: *Self,
+  819          model: []const u8,
+  820          cancel_flag: *std.atomic.Value(bool),
+  821      ) model_capabilities.ResolveError!model_capabilities.Capabilities {
+  822          var retry_wait_until_ms: ?i64 = null;
+  823          while (true) {
+  824              self.finishThreadIfDone();
+  825              self.mutex.lockUncancelable(io_mod.getIo());
+  826              const state = self.state;
+  827              if (state == .ready) {
+  828                  const metadata = if (findCatalogModel(self.catalog.items, model)) |entry|
+  829                      model_catalog_metadata.fromCatalogEntry(entry.*)
+  830                  else
+  831                      null;
+  832                  self.mutex.unlock(io_mod.getIo());
+  833                  debug_trace.logf(
+  834                      "gateway",
+  835                      "interactive model catalog lookup outcome={s} model={s}",
+  836                      .{ if (metadata != null) "ready_hit" else "missing_entry", model },
+  837                  );
+  838                  if (metadata == null) {
+  839                      diagnostics.recordModelCatalogEvent(false, .lookup, "outcome=missing_entry model={s}", .{model});
+  840                  }
+  841                  return model_capabilities.resolveCapabilities(model, metadata);
+  842              }
+  843              // A request waits a moment for a failed catalog's retry, such as
+  844              // the one a submitted prompt starts, so a retry that lands quickly
+  845              // gives this request its limits. A slow retry never holds it.
+  846              const retry_in_flight = state == .failed and self.fetch_in_flight;
+  847              self.mutex.unlock(io_mod.getIo());
+  848              const wait_for_retry = retry_in_flight and wait: {
+  849                  const now = model_catalog.clockMs();
+  850                  const until = retry_wait_until_ms orelse now + failed_catalog_retry_wait_ms;
+  851                  retry_wait_until_ms = until;
+  852                  break :wait now < until;
+  853              };
+  854  
+  855              switch (if (wait_for_retry) .loading else state) {
+  856                  .loading => {
+  857                      if (cancel_flag.load(.seq_cst)) {
+  858                          debug_trace.logf(
+  859                              "gateway",
+  860                              "interactive model catalog lookup outcome=cancelled model={s}",
+  861                              .{model},
+  862                          );
+  863                          diagnostics.recordModelCatalogEvent(false, .lookup, "outcome=cancelled model={s}", .{model});
+  864                          return error.Cancelled;
+  865                      }
+  866                      io_mod.sleep(std.time.ns_per_ms);
+
+### src/core/app/model_cache_runtime.zig:931-999@481104fd
+  931      /// Publishes a finished fetch and takes ownership of its catalog. A first
+  932      /// load lands at once: readers return nothing until the cache is ready, so
+  933      /// none holds catalog memory. A revalidation waits in `staged` for
+  934      /// `pollLoadTransition`, because UI readers borrow entry ids across calls
+  935      /// within one frame.
+  936      fn completeFetch(self: *Self, result: model_catalog.FetchResult) void {
+  937          self.mutex.lockUncancelable(io_mod.getIo());
+  938          defer self.mutex.unlock(io_mod.getIo());
+  939          self.fetch_in_flight = false;
+  940          self.completion_pending = true;
+  941          switch (result) {
+  942              .loaded => {
+  943                  self.failure_streak = 0;
+  944                  self.retry_not_before_ms = 0;
+  945              },
+  946              // Cancellation comes only from a reset or shutdown, which
+  947              // discards this result, so it is not a failure to back off from.
+  948              .failed => |failed| if (failed.failure.category != .cancellation) {
+  949                  self.failure_streak +|= 1;
+  950                  const delay_ms = failureBackoffMs(self.failure_streak);
+  951                  self.retry_not_before_ms = model_catalog.clockMs() + delay_ms;
+  952                  debug_trace.logf("catalog", "model catalog fetch failed category={s} failure_streak={d} retry_in_ms={d}", .{
+  953                      @tagName(failed.failure.category),
+  954                      self.failure_streak,
+  955                      delay_ms,
+  956                  });
+  957              },
+  958          }
+  959          if (self.state == .ready) {
+  960              std.debug.assert(self.staged == null);
+  961              self.staged = result;
+  962              return;
+  963          }
+  964          self.applyFetchLocked(result).record();
+  965      }
+  966  
+  967      /// Installs a fetch result, keeping the previous catalog when the new one
+  968      /// failed or came back empty. Takes ownership of a loaded catalog.
+  969      fn applyFetchLocked(self: *Self, result: model_catalog.FetchResult) AppliedFetch {
+  970          switch (result) {
+  971              .failed => |failure| {
+  972                  self.outcome.last_failure = failure;
+  973                  self.state = if (self.outcome.loaded != null and self.catalog.items.len > 0) .ready else .failed;
+  974                  return .{ .failed = .{ .outcome = failure, .kept_previous = self.state == .ready } };
+  975              },
+  976              .loaded => |loaded| {
+  977                  var catalog = loaded.catalog;
+  978                  const reuse_previous = catalog.items.len == 0 and self.outcome.loaded != null and self.catalog.items.len > 0;
+  979                  if (reuse_previous) {
+  980                      model_catalog.freeModelCatalog(self.alloc, &catalog);
+  981                      self.outcome.last_failure = if (loaded.provenance.fallback_failure) |failure| .{
+  982                          .access = loaded.provenance.access,
+  983                          .anonymous_fallback_used = loaded.provenance.anonymous_fallback_used,
+  984                          .failure = failure,
+  985                      } else null;
+  986                  } else {
+  987                      model_catalog.freeModelCatalog(self.alloc, &self.catalog);
+  988                      self.catalog = catalog;
+  989                      self.outcome = .{ .loaded = loaded.provenance };
+  990                  }
+  991                  self.state = .ready;
+  992                  return .{ .ready = .{
+  993                      .entries = self.catalog.items.len,
+  994                      .reused_previous = reuse_previous,
+  995                      .provenance = loaded.provenance,
+  996                  } };
+  997              },
+  998          }
+  999      }
+
+### src/core/app/model_cache_runtime.zig:1039-1054@481104fd
+ 1039      fn refreshMenuLocked(self: *Self, menu: *ModelMenu) !void {
+ 1040          if (!menu.active) return;
+ 1041          switch (self.state) {
+ 1042              .idle, .loading => {
+ 1043                  menu.clearSnapshot(self.alloc);
+ 1044                  menu.load_state = .loading;
+ 1045              },
+ 1046              .failed => {
+ 1047                  menu.clearSnapshot(self.alloc);
+ 1048                  // A retry runs behind the failed state; the picker shows it.
+ 1049                  menu.load_state = if (self.fetch_in_flight) .loading else .failed;
+ 1050              },
+ 1051              .ready => try hydrateMenuSnapshot(self.alloc, menu, self.catalog.items),
+ 1052          }
+ 1053          menu.catalog_state = modelMenuCatalogState(self.outcome, self.from_profile_settings);
+ 1054      }
+
+### src/core/app/model_cache_runtime.zig:1121-1146@481104fd
+ 1121      // A revalidated catalog replaces rows under an open menu; keep the
+ 1122      // provider tab and the selected model so the cursor does not jump.
+ 1123      const previous_ready = menu.load_state == .ready;
+ 1124      const filter = if (previous_ready and modelProviderFilterAvailable(items.items, menu.providerFilter()))
+ 1125          menu.providerFilter()
+ 1126      else
+ 1127          .all;
+ 1128      const selected_index = if (!previous_ready) 0 else selected: {
+ 1129          const previous = menu.itemAt(menu.selected_index) orelse break :selected 0;
+ 1130          if (modelMenuDisplayIndex(items.items, filter, menu.query(), previous.id)) |index| break :selected index;
+ 1131          const match_count = modelMenuFilteredItemCount(items.items, filter, menu.query());
+ 1132          break :selected @min(menu.selected_index, match_count -| 1);
+ 1133      };
+ 1134      // Shift the window with the selection so its row stays put on screen.
+ 1135      const window_start = if (previous_ready)
+ 1136          (menu.window_start + selected_index) -| menu.selected_index
+ 1137      else
+ 1138          0;
+ 1139  
+ 1140      menu.clearSnapshot(alloc);
+ 1141      menu.items = items;
+ 1142      menu.load_state = .ready;
+ 1143      menu.provider_index = @backingInt(filter);
+ 1144      menu.selected_index = selected_index;
+ 1145      menu.window_start = window_start;
+ 1146  }
+
+### src/core/app/model_cache_runtime.zig:1530-1574@481104fd
+ 1530  test "model catalog failures back off every trigger until a success or access change" {
+ 1531      try std.testing.expectEqual(@as(i64, 5_000), failureBackoffMs(1));
+ 1532      try std.testing.expectEqual(@as(i64, 10_000), failureBackoffMs(2));
+ 1533      try std.testing.expectEqual(@as(i64, 160_000), failureBackoffMs(6));
+ 1534      try std.testing.expectEqual(failure_backoff_cap_ms, failureBackoffMs(7));
+ 1535      try std.testing.expectEqual(failure_backoff_cap_ms, failureBackoffMs(std.math.maxInt(u32)));
+ 1536  
+ 1537      const public: credentials.CatalogAccess = .{ .public_only = .no_credential };
+ 1538      var runtime = Runtime.init(std.testing.allocator, "/v1/models");
+ 1539      defer runtime.deinit();
+ 1540      var source = GatedCatalog{ .fail = true };
+ 1541      runtime.startWarmup(source.provider(), public, .activity);
+ 1542      try waitForFetchToSettle(&runtime);
+ 1543      try std.testing.expectEqual(@as(u32, 1), runtime.failure_streak);
+ 1544  
+ 1545      // Neither activity nor the picker fetches during the backoff.
+ 1546      runtime.last_attempt_ms -= picker_revalidate_floor_ms;
+ 1547      runtime.startWarmup(source.provider(), public, .activity);
+ 1548      runtime.startWarmup(source.provider(), public, .picker_open);
+ 1549      try std.testing.expectEqual(@as(usize, 1), source.calls.load(.seq_cst));
+ 1550  
+ 1551      runtime.retry_not_before_ms = model_catalog.clockMs();
+ 1552      const before_second_failure = model_catalog.clockMs();
+ 1553      runtime.startWarmup(source.provider(), public, .picker_open);
+ 1554      try waitForFetchToSettle(&runtime);
+ 1555      try std.testing.expectEqual(@as(usize, 2), source.calls.load(.seq_cst));
+ 1556      try std.testing.expectEqual(@as(u32, 2), runtime.failure_streak);
+ 1557      try std.testing.expect(runtime.retry_not_before_ms >= before_second_failure + failureBackoffMs(2));
+ 1558  
+ 1559      // An access change starts over with an immediate load.
+ 1560      runtime.reset();
+ 1561      try std.testing.expectEqual(@as(u32, 0), runtime.failure_streak);
+ 1562      runtime.startWarmup(source.provider(), public, .activity);
+ 1563      try waitForFetchToSettle(&runtime);
+ 1564      try std.testing.expectEqual(@as(usize, 3), source.calls.load(.seq_cst));
+ 1565  
+ 1566      // A success clears the backoff.
+ 1567      source.fail = false;
+ 1568      runtime.retry_not_before_ms = model_catalog.clockMs();
+ 1569      runtime.startWarmup(source.provider(), public, .activity);
+ 1570      try waitForWarmup(&runtime);
+ 1571      try std.testing.expectEqual(@as(usize, 4), source.calls.load(.seq_cst));
+ 1572      try std.testing.expectEqual(@as(u32, 0), runtime.failure_streak);
+ 1573      try std.testing.expectEqual(@as(i64, 0), runtime.retry_not_before_ms);
+ 1574  }
+
+### src/main.zig:1225-1232@481104fd
+ 1225      /// A prompt the user submitted is activity, so a stale or failed model
+ 1226      /// catalog refetches in the background. Only these submission paths call
+ 1227      /// it: a recovery continuation can queue during startup, before the App
+ 1228      /// reaches the address a fetch thread may hold. Cooperative hosts fetch
+ 1229      /// inline and skip it.
+ 1230      fn noteModelCatalogActivity(self: *App) void {
+ 1231          if (comptime !host_profile.cooperative_agent) self.startModelCacheWarmup();
+ 1232      }
+
+### src/main.zig:1193-1223@481104fd
+ 1193      pub fn enqueuePromptWithSkillBindings(self: *App, prompt: []const u8, skill_tokens: []const registered_entities.SkillTokenSpan) !bool {
+ 1194          const context_targets = if (self.context_enabled)
+ 1195              try context_contract.applicableTargetsForImages(self.alloc, self.pending_images.items)
+ 1196          else
+ 1197              &.{};
+ 1198          defer if (context_targets.len > 0) self.alloc.free(context_targets);
+ 1199  
+ 1200          try AgentAppRuntime.refreshProjectContext(self, context_targets);
+ 1201          self.noteModelCatalogActivity();
+ 1202          self.session.setConversationLanguageFromUserMessage(prompt);
+ 1203  
+ 1204          debug_trace.logf(
+ 1205              "prompt",
+ 1206              "enqueue bytes={d} stream_active={s} queued_before={d} preview=\"{s}\"",
+ 1207              .{
+ 1208                  prompt.len,
+ 1209                  if (self.stream.active) "true" else "false",
+ 1210                  self.worker.queuedPromptCount(),
+ 1211                  debug_trace.preview(prompt, 120),
+ 1212              },
+ 1213          );
+ 1214          if (!try self.snapshotAndAdmitInteractivePromptWithSkillBindings(
+ 1215              prompt,
+ 1216              skill_tokens,
+ 1217          )) return false;
+ 1218          WorkerAppRuntime.syncState(
+ 1219              self,
+ 1220              app_callbacks.Bindings(App).worker_tool_lifecycle_presenter(self),
+ 1221          );
+ 1222          return true;
+ 1223      }
+
+### src/main.zig:2007-2045@481104fd
+ 2007      pub fn startModelCacheWarmup(self: *App) void {
+ 2008          self.loadModelCatalog(.activity);
+ 2009      }
+ 2010  
+ 2011      /// Opening the model picker revalidates the catalog in the background;
+ 2012      /// the picker lists the cached models until the refresh lands.
+ 2013      pub fn revalidateModelCache(self: *App) void {
+ 2014          self.loadModelCatalog(.picker_open);
+ 2015      }
+ 2016  
+ 2017      fn loadModelCatalog(self: *App, trigger: model_cache_runtime.LoadTrigger) void {
+ 2018          if (comptime host_profile.cooperative_agent) {
+ 2019              // Cooperative hosts fetch inline, so only stale catalogs reload there.
+ 2020              if (self.auth.credentialNeedsRefresh()) {
+ 2021                  debug_trace.logf("auth", "model_cache_warmup_deferred reason=credential_refresh_required", .{});
+ 2022                  return;
+ 2023              }
+ 2024              self.model_cache.loadCooperative(
+ 2025                  js_host_model_catalog.provider,
+ 2026                  self.auth.modelCatalogAccess(),
+ 2027              );
+ 2028          } else {
+ 2029              // Warming without the launch credential would fetch the catalog
+ 2030              // twice; the credential's arrival starts the warmup instead.
+ 2031              if (AuthAppRuntime.startupCredentialPending(self)) {
+ 2032                  debug_trace.logf("auth", "model_cache_warmup_deferred reason=startup_credential_pending", .{});
+ 2033                  return;
+ 2034              }
+ 2035              self.model_cache.startWarmup(
+ 2036                  self.providerSet().select(self.provider_selection.selection().provider).model_catalog orelse return,
+ 2037                  self.auth.modelCatalogAccess(),
+ 2038                  trigger,
+ 2039              );
+ 2040          }
+ 2041      }
+ 2042  
+ 2043      pub fn ensureModelCache(self: *App) void {
+ 2044          self.startModelCacheWarmup();
+ 2045      }
+
+### src/main.zig:2167-2175@481104fd
+ 2167      pub fn modelCompletions(self: *App, query: []const u8, out: [][]const u8) usize {
+ 2168          self.ensureModelCache();
+ 2169          return self.model_cache.modelCompletions(query, out);
+ 2170      }
+ 2171  
+ 2172      pub fn catalogModelCompletion(self: *App, model: []const u8) ?[]const u8 {
+ 2173          self.ensureModelCache();
+ 2174          return self.model_cache.catalogModelCompletion(model);
+ 2175      }
+
+### src/main.zig:2878-2880@481104fd
+ 2878          if (try self.model_cache.pollLoadTransition()) {
+ 2879              RenderAppRuntime.requestActiveSurfaceFrame(self, .footer);
+ 2880          }
+
+### src/core/app/app_input_runtime.zig:1897-1902@481104fd
+ 1897          /// Opens the model picker on the cached catalog and revalidates it in
+ 1898          /// the background, so models released mid-session appear once it lands.
+ 1899          fn openModelMenu(app: *App) !void {
+ 1900              if (comptime @hasDecl(App, "revalidateModelCache")) app.revalidateModelCache();
+ 1901              try app.model_cache.openMenu();
+ 1902          }
+
+### src/core/app/app_entry_runtime.zig:329-341@481104fd
+  329      if (comptime !cooperative) {
+  330          if (resume_requested) app.startResumedSessionWarmup();
+  331          if (@hasDecl(App, "configureNotifications")) try app.configureNotifications();
+  332          if (@hasDecl(App, "playStartupSound")) app.playStartupSound();
+  333          if (@hasDecl(App, "startAutoUpgrade")) app.startAutoUpgrade();
+  334          if (@hasDecl(App, "startFileIndex")) app.startFileIndex();
+  335          startWorkerThread(App, app, deps) catch |err| {
+  336              app.releaseTerminal();
+  337              reportUnexpectedInteractiveError(deps, err);
+  338              return err;
+  339          };
+  340          app.startModelCacheWarmup();
+  341      }
+
+### src/core/app/app_render_runtime.zig:559-568@481104fd
+  559              if (model_query) |picker_query| {
+  560                  model_picker_stage = picker_query.stage;
+  561                  picker_anchor = picker_query.token_start;
+  562                  switch (picker_query.stage) {
+  563                      .model => {
+  564                          const count = input_completion_runtime.CompletionRuntime(App).modelPickerCompletions(app, picker_query.query, &model_completions_buf);
+  565                          picker_items = model_completions_buf[0..count];
+  566                          picker_index = input_completion_runtime.CompletionRuntime(App).modelPickerIndex(app, picker_items);
+  567                          picker_window_start = input_completion_runtime.CompletionRuntime(App).modelPickerWindowStart(app, count, picker_index);
+  568                      },
+
+### src/builtins/gateway.zig:2346-2349@481104fd
+ 2346      // An active session refetches a stale catalog so newly released models
+ 2347      // appear without a restart. Only user activity starts the refetch.
+ 2348      .refresh_interval_ms = 5 * std.time.ms_per_min,
+ 2349  };
+
+### src/ui/footer/model_menu_presentation.zig:394-404@481104fd
+  394  fn composeStateRow(alloc: Allocator, projection: ModelMenuProjection, width: u16) !std.ArrayList(u8) {
+  395      const text = switch (projection.load_state) {
+  396          .loading => "Loading models…",
+  397          .failed => retryableFailureText(projection.catalog_state.failure) orelse "Unable to load models.",
+  398          .ready => if (projection.items.len == 0) "No models available." else "No models found.",
+  399      };
+  400      return composeDimmedRow(alloc, text, width);
+  401  }
+  402  
+  403  fn loadedCatalogStatusText(state: model_cache_runtime.ModelMenuCatalogState) ?[]const u8 {
+  404      if (retryableFailureText(state.failure)) |text| return text;
+
+### src/ui/footer/model_menu_presentation.zig:435-443@481104fd
+  435  fn retryableFailureText(failure: ?model_cache_runtime.ModelMenuCatalogState.Failure) ?[]const u8 {
+  436      const value = failure orelse return null;
+  437      if (!value.retryable) return null;
+  438      return switch (value.category) {
+  439          .rate_limited => "AI Gateway rate limited model discovery; fx retries automatically.",
+  440          .transport, .gateway_unavailable => "Could not reach AI Gateway; fx retries automatically.",
+  441          else => "Could not refresh model catalog; fx retries automatically.",
+  442      };
+  443  }
+
+### src/core/agent/runtime/orchestrator.zig:5658-5670@481104fd
+ 5658  fn requiresResolvedRequestCapabilities(
+ 5659      has_images: bool,
+ 5660      vision_policy_needs_capabilities: bool,
+ 5661      effort: types.ReasoningEffort,
+ 5662      fast_mode: bool,
+ 5663      available: model_capabilities.Capabilities,
+ 5664  ) bool {
+ 5665      return has_images or
+ 5666          available.context_window == null or
+ 5667          (vision_policy_needs_capabilities and available.image_input_support == .unknown) or
+ 5668          (!effort.isDefault() and !model_capabilities.reasoningEffortSupported(available, effort)) or
+ 5669          (fast_mode and !available.supports_fast_mode);
+ 5670  }
+
+### src/core/agent/runtime/orchestrator.zig:5884-5893@481104fd
+ 5884      var request_capabilities = deps.available_model_capabilities(deps.ctx, job.model);
+ 5885      if (config.ultrafast_mode or requiresResolvedRequestCapabilities(
+ 5886          job.images.len > 0 or job.authorized_image_catalog.len > 0,
+ 5887          vision_fallback_available,
+ 5888          config.effort,
+ 5889          config.fast_mode,
+ 5890          request_capabilities,
+ 5891      )) {
+ 5892          resolve_capabilities: while (true) {
+ 5893              request_capabilities = deps.resolve_model_capabilities(deps.ctx, arena, job.model) catch |err| {
+
+### src/core/agent/runtime/orchestrator.zig:7938-7941@481104fd
+ 7938              summary_accumulator.prepareTokenRequest();
+ 7939              runtime_assistant_stream.pushTokenProgressUpdate(&stream_ctx, .changed) catch |progress_err| {
+ 7940                  debug_trace.logf("agent", "token progress publication failed source=gateway_prepare err={s}", .{@errorName(progress_err)});
+ 7941              };
+
+### src/core/app/model_cache_runtime.zig:519-551@481104fd
+  519      pub fn startWarmup(
+  520          self: *Self,
+  521          provider: model_catalog.Provider,
+  522          access: credentials.CatalogAccess,
+  523          trigger: LoadTrigger,
+  524      ) void {
+  525          self.from_profile_settings = provider.provider_id == .configured;
+  526          if (!self.beginLoad(access, provider.refresh_interval_ms, trigger)) return;
+  527  
+  528          const owned_access = OwnedCatalogAccess.init(self.alloc, access) catch {
+  529              self.completeFetch(.{ .failed = .{
+  530                  .access = .init(access),
+  531                  .anonymous_fallback_used = false,
+  532                  .failure = .{ .category = .resource_exhausted },
+  533              } });
+  534              return;
+  535          };
+  536  
+  537          const thread = std.Thread.spawn(.{}, preloadThreadMain, .{ self, provider, owned_access }) catch {
+  538              var failed_access = owned_access;
+  539              const failure = model_catalog.FailedOutcome{
+  540                  .access = .init(failed_access.access),
+  541                  .anonymous_fallback_used = false,
+  542                  .failure = .{ .category = .runtime, .retryable = true },
+  543              };
+  544              failed_access.deinit(self.alloc);
+  545              self.completeFetch(.{ .failed = failure });
+  546              return;
+  547          };
+  548          self.mutex.lockUncancelable(io_mod.getIo());
+  549          self.thread = thread;
+  550          self.mutex.unlock(io_mod.getIo());
+  551      }
+
+### src/core/app/model_cache_runtime.zig:718-723@481104fd
+  718      pub fn isLoading(self: *Self) bool {
+  719          self.finishThreadIfDone();
+  720          self.mutex.lockUncancelable(io_mod.getIo());
+  721          defer self.mutex.unlock(io_mod.getIo());
+  722          return self.state == .loading;
+  723      }
+
+### src/core/app/model_cache_runtime.zig:762-767@481104fd
+  762      pub fn isFailed(self: *Self) bool {
+  763          self.finishThreadIfDone();
+  764          self.mutex.lockUncancelable(io_mod.getIo());
+  765          defer self.mutex.unlock(io_mod.getIo());
+  766          return self.state == .failed;
+  767      }
+
+### src/main.zig:2047-2054@481104fd
+ 2047      pub fn isModelCacheLoading(self: *App) bool {
+ 2048          // The catalog load waits for a deferred launch credential.
+ 2049          return self.model_cache.isLoading() or AuthAppRuntime.startupCredentialPending(self);
+ 2050      }
+ 2051  
+ 2052      pub fn isModelCacheFailed(self: *App) bool {
+ 2053          return self.model_cache.isFailed();
+ 2054      }
+
+### src/core/app/app_render_runtime.zig:750-753@481104fd
+  750                  .model_query_active = model_query != null and !effort_command_without_levels,
+  751                  .model_picker_stage = model_picker_stage,
+  752                  .model_completions_loading = if (model_query != null and model_picker_stage == .model) app.isModelCacheLoading() else false,
+  753                  .model_completions_failed = if (model_query != null and model_picker_stage == .model) app.isModelCacheFailed() else false,
+
+### src/ui/footer/picker_presentation.zig:914-921@481104fd
+  914      const label = switch (kind) {
+  915          .model_stage => switch (model_stage) {
+  916              .model => if (loading)
+  917                  "loading models..."
+  918              else if (failed)
+  919                  "unable to load models"
+  920              else
+  921                  "no matching models",
+
+### src/core/app/app_auth_runtime.zig:2015-2024@481104fd
+ 2015          fn applyCredentialChange(app: *App, changed: bool) void {
+ 2016              if (!changed) return;
+ 2017              if (comptime @hasDecl(@TypeOf(app.auth), "cancelPromptCredentialRefresh")) {
+ 2018                  app.auth.cancelPromptCredentialRefresh();
+ 2019              }
+ 2020              app.model_cache.reset();
+ 2021              if (comptime @hasDecl(App, "startModelCacheWarmup")) {
+ 2022                  app.startModelCacheWarmup();
+ 2023              }
+ 2024          }
+
+### src/core/app/input_submit_runtime.zig:1103-1121@481104fd
+ 1103          fn enqueuePromptForSubmit(
+ 1104              app: *App,
+ 1105              prompt: []const u8,
+ 1106              skill_tokens: []const registered_entities.SkillTokenSpan,
+ 1107          ) !PromptAdmission {
+ 1108              // Sending a prompt clears MCP notices the user has seen.
+ 1109              if (comptime @hasField(App, "mcp") and @hasDecl(@FieldType(App, "mcp"), "dismissHostStatus")) app.mcp.dismissHostStatus();
+ 1110              switch (try installPendingSubmission(app, prompt, skill_tokens)) {
+ 1111                  .installed => return .pending,
+ 1112                  .unavailable => {},
+ 1113              }
+ 1114              if (!try preflightPrompt(app)) return .rejected;
+ 1115              const accepted = if (comptime @hasDecl(App, "enqueuePromptWithSkillBindings"))
+ 1116                  try App.enqueuePromptWithSkillBindings(app, prompt, skill_tokens)
+ 1117              else
+ 1118                  try App.enqueuePrompt(app, prompt);
+ 1119              if (!accepted) return .rejected;
+ 1120              return .enqueued;
+ 1121          }
+
+### src/core/gateway/model_catalog.zig:81-100@481104fd
+   81  pub fn failureForHttpStatus(status: std.http.Status) Failure {
+   82      if (status == .unauthorized or status == .forbidden) {
+   83          return .{ .category = .authentication, .http_status = status };
+   84      }
+   85      if (status == .too_many_requests) {
+   86          return .{ .category = .rate_limited, .http_status = status, .retryable = true };
+   87      }
+   88  
+   89      const code = @backingInt(status);
+   90      if (code >= 500 and code < 600) {
+   91          return .{
+   92              .category = .gateway_unavailable,
+   93              .http_status = status,
+   94              .retryable = switch (status) {
+   95                  .internal_server_error, .bad_gateway, .service_unavailable, .gateway_timeout => true,
+   96                  else => false,
+   97              },
+   98          };
+   99      }
+  100      return .{ .category = .http_status, .http_status = status };
+
+### the old pin c1db9191, for what changed
+### src/ui/footer/model_menu_presentation.zig:439-441@c1db9191
+  439          .rate_limited => "AI Gateway rate limited model discovery; retry /model.",
+  440          .transport, .gateway_unavailable => "Could not reach AI Gateway; retry /model.",
+  441          else => "Could not refresh model catalog; retry /model.",
+
+### src/core/app/model_cache_runtime.zig:434-458@c1db9191
+  434          const now = io_mod.milliTimestamp();
+  435          self.mutex.lockUncancelable(io_mod.getIo());
+  436          const expired = if (refresh_interval_ms) |interval|
+  437              now < self.last_attempt_ms or now - self.last_attempt_ms >= interval
+  438          else
+  439              false;
+  440          const should_load = switch (self.state) {
+  441              .idle => true,
+  442              .failed => now - self.last_attempt_ms >= 1000,
+  443              .ready => if (self.outcome.last_failure) |failed|
+  444                  expired or (failed.failure.retryable and now - self.last_attempt_ms >= 1000)
+  445              else
+  446                  expired,
+  447              .loading => false,
+  448          };
+  449          if (!should_load) {
+  450              self.mutex.unlock(io_mod.getIo());
+  451              return false;
+  452          }
+  453          self.state = .loading;
+  454          self.last_attempt_ms = now;
+  455          self.requested_access = requested_access;
+  456          self.mutex.unlock(io_mod.getIo());
+  457          self.cancel_requested.store(false, .seq_cst);
+  458          return true;
+

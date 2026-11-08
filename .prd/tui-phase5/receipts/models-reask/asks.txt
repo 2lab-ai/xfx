@@ -1,0 +1,47 @@
+# every catalog ask each side's fake gateway logged: when it was asked (ms after the gateway started), its answer (and when, for the `modelsdelay` scenarios), and the POSTs (a title, the turn's requests); p5-input-model-fail takes no gateway log
+## sweep-base
+h1-models2 fx: catalog asks: 5219 ms -> 200 at 5221 ms; 17351 ms -> 200 at 17362 ms (second catalog)
+h1-models2 xfx: catalog asks: 5124 ms -> 200 at 5131 ms
+model-reask fx: catalog asks: 3849 ms -> 503 at 3850 ms; 11947 ms -> 200 at 11947 ms | POSTs: 7926 ms, 7928 ms
+model-reask xfx: catalog asks: 3907 ms -> 503 at 3908 ms; 6434 ms -> 200 at 6435 ms | POSTs: 7978 ms, 8048 ms
+model-parked fx: catalog asks: 3651 ms -> 503 at 3652 ms; 10186 ms -> 200 at 18202 ms | POSTs: 10184 ms, 12190 ms, 21602 ms
+model-parked xfx: catalog asks: 7192 ms -> 200 at 15194 ms | POSTs: 11038 ms, 15232 ms, 22256 ms
+model-floor fx: catalog asks: 7587 ms -> 503 at 7587 ms; 13909 ms -> 503 at 13909 ms
+model-floor xfx: catalog asks: 3013 ms -> 503 at 3014 ms; 7045 ms -> 503 at 7063 ms; 9313 ms -> 503 at 9313 ms
+model-column-idle fx: catalog asks: 4352 ms -> 503 at 4353 ms; 10356 ms -> 200 at 10356 ms
+model-column-idle xfx: catalog asks: 3636 ms -> 503 at 3637 ms; 9659 ms -> 200 at 9660 ms
+model-column-reask fx: catalog asks: 4425 ms -> 503 at 4426 ms; 9967 ms -> 200 at 9967 ms | POSTs: 8955 ms, 8957 ms
+model-column-reask xfx: catalog asks: 3804 ms -> 503 at 3805 ms; 9365 ms -> 200 at 9365 ms | POSTs: 8334 ms, 8400 ms
+## sweep-final
+h1-models2 fx: catalog asks: 1810 ms -> 200 at 1812 ms; 13870 ms -> 200 at 13871 ms (second catalog)
+h1-models2 xfx: catalog asks: 1199 ms -> 200 at 1200 ms; 13230 ms -> 200 at 13231 ms (second catalog)
+model-reask fx: catalog asks: 8874 ms -> 200 at 8875 ms; 17003 ms -> 200 at 17011 ms | POSTs: 12948 ms, 12969 ms
+model-reask xfx: catalog asks: 3306 ms -> 503 at 3307 ms; 11396 ms -> 200 at 11404 ms | POSTs: 7376 ms, 7436 ms
+model-parked fx: catalog asks: 2148 ms -> 503 at 2150 ms; 8682 ms -> 200 at 16684 ms | POSTs: 8680 ms, 10683 ms, 19848 ms
+model-parked xfx: catalog asks: 2042 ms -> 503 at 2043 ms; 8566 ms -> 200 at 16569 ms | POSTs: 8568 ms, 10650 ms, 19773 ms
+model-floor fx: catalog asks: 6149 ms -> 503 at 6168 ms; 12479 ms -> 503 at 12479 ms
+model-floor xfx: catalog asks: 4625 ms -> 503 at 4626 ms; 11038 ms -> 503 at 11045 ms
+model-column-idle fx: catalog asks: 6707 ms -> 503 at 6708 ms; 12726 ms -> 200 at 12726 ms
+model-column-idle xfx: catalog asks: 13591 ms -> 200 at 13592 ms
+model-column-reask fx: catalog asks: 7223 ms -> 503 at 7224 ms; 12766 ms -> 200 at 12766 ms | POSTs: 11750 ms, 11752 ms
+model-column-reask xfx: catalog asks: 2954 ms -> 503 at 2955 ms; 8502 ms -> 503 at 8502 ms | POSTs: 7484 ms, 7552 ms
+## rerun-head-1 (head, the three modelsdown scenarios again)
+model-column-idle fx: catalog asks: 3061 ms -> 503 at 3062 ms; 9079 ms -> 200 at 9091 ms
+model-column-idle xfx: catalog asks: 1181 ms -> 503 at 1182 ms; 7168 ms -> 503 at 7168 ms
+model-column-reask fx: catalog asks: 1884 ms -> 503 at 1885 ms; 7430 ms -> 503 at 7430 ms | POSTs: 6410 ms, 6412 ms
+model-column-reask xfx: catalog asks: 5722 ms -> 503 at 5723 ms; 11321 ms -> 200 at 11326 ms | POSTs: 10301 ms, 10705 ms
+model-reask fx: catalog asks: 4639 ms -> 503 at 4639 ms; 12794 ms -> 200 at 12796 ms | POSTs: 8782 ms, 8929 ms
+model-reask xfx: catalog asks: 7039 ms -> 200 at 7040 ms; 15194 ms -> 200 at 15203 ms | POSTs: 11114 ms, 11197 ms
+## rerun-head-2 (head, the three modelsdown scenarios again)
+model-column-idle fx: catalog asks: 13308 ms -> 200 at 13310 ms
+model-column-idle xfx: catalog asks: 12150 ms -> 200 at 12151 ms
+model-column-reask fx: catalog asks: 8479 ms -> 503 at 8480 ms; 14012 ms -> 200 at 14013 ms | POSTs: 12991 ms, 12994 ms
+model-column-reask xfx: catalog asks: 6619 ms -> 503 at 6619 ms; 12132 ms -> 200 at 12133 ms | POSTs: 11108 ms, 11164 ms
+model-reask fx: catalog asks: 3828 ms -> 503 at 3848 ms; 11939 ms -> 200 at 11940 ms | POSTs: 7910 ms, 7912 ms
+model-reask xfx: catalog asks: 7276 ms -> 200 at 7277 ms; 15375 ms -> 200 at 15382 ms | POSTs: 11297 ms, 11443 ms
+## hold-base
+model-column-hold fx: catalog asks: 2531 ms -> 200 at 4034 ms; 10635 ms -> 200 at 12137 ms; 25717 ms -> 200 at 27220 ms (second catalog)
+model-column-hold xfx: no gateway log (the run did not reach `gwlog`)
+## hold-final
+model-column-hold fx: catalog asks: 947 ms -> 200 at 2457 ms; 9095 ms -> 200 at 10598 ms; 24182 ms -> 200 at 25683 ms (second catalog)
+model-column-hold xfx: catalog asks: 3655 ms -> 200 at 5157 ms; 11752 ms -> 200 at 13255 ms; 26831 ms -> 200 at 28335 ms (second catalog)

@@ -1,0 +1,62 @@
+# connect_logger.py (fix/p5-flake-catalog-event) on 127.0.0.1:53389 as HTTPS_PROXY/https_proxy
+# 21 name filters, one by one: 20 MODELS-REASK and touched catalog cases ran; the 21st, catalog_told_while_parked, is the
+# helper of the two parked cases, not a case, and matched none (the `0 passed` line). The logger's log after all of them:
+# not created -- no connection reached it. The two parked cases are run on their own at the end.
+test provider::model::tests::a_failure_holds_every_read_off_for_upstreams_backoff_which_doubles_to_five_minutes ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.01s
+test provider::model::tests::a_held_catalog_is_read_again_by_the_menu_five_seconds_on_and_by_activity_five_minutes_on ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.00s
+test provider::model::tests::a_refresh_that_fails_keeps_the_rows_says_so_and_is_tried_again_after_its_backoff ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.00s
+test provider::model::tests::a_retry_reads_behind_the_failure_it_retries ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.00s
+test provider::model::tests::the_retryable_failure_sentences_say_xfx_retries_automatically ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.00s
+test tui::model_menu::tests::a_revalidated_catalog_keeps_the_tab_and_the_marked_model ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.01s
+test tui::worker::tests::a_prompt_inside_a_failed_catalogs_backoff_reads_nothing_and_one_after_it_reads_again ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.06s
+test tui::worker::tests::the_menu_over_a_held_catalog_reads_it_again_five_seconds_on_and_tells_the_new_rows ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.02s
+test tui::worker::tests::a_turn_waits_two_seconds_at_most_for_the_retry_behind_a_failed_catalog ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 2.02s
+test tui::shell::tests::the_menu_over_a_held_catalog_lists_its_rows_and_asks_the_runtime_to_read_it_again ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.01s
+test tui::shell::tests::a_model_inside_a_failures_backoff_opens_on_the_failure_says_xfx_retries_and_asks_nothing ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.00s
+test tui::shell::tests::a_refresh_that_failed_keeps_the_rows_and_says_xfx_retries_automatically_in_the_notes_place ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.00s
+test tui::shell::tests::a_prompt_past_a_failed_catalogs_backoff_asks_for_it_and_one_inside_asks_nothing ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.00s
+test tui::shell::tests::the_columns_frames_wait_out_a_failed_catalogs_backoff ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.00s
+test provider::model::tests::the_clock_decides_a_read_as_upstreams_begin_load_does ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.00s
+test tui::worker::tests::the_sessions_own_read_failing_mid_work_is_read_again_once_its_backoff_is_up ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.04s
+test tui::worker::tests::a_catalog_asked_for_again_while_a_turn_runs_is_read_at_once_and_told_before_it_ends ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.02s
+test tui::worker::tests::a_catalog_request_answers_the_menu_and_never_the_document ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.02s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4433 filtered out; finished in 0.00s
+test tui::shell::tests::a_model_inside_a_failures_hold_opens_over_the_failure_and_asks_nothing ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.00s
+test tui::shell::tests::a_model_menu_asking_again_after_a_failed_read_mid_turn_is_control_and_takes_the_answer_when_it_lands ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4432 filtered out; finished in 0.00s
+
+# positive control: base's a_title_that_comes_back_between_turns_is_written_and_then_shown (FLAKE-CATALOG-EVENT's case, unfixed on 690aa505), same logger:
+test tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown ... FAILED (the registry #19 race, not this unit's)
+connect.log: CONNECT ai-gateway.vercel.sh:443 HTTP/1.1
+
+# added after the mutants (765bbc4d), the same logger on port 52523:
+test tui::worker::tests::a_prompt_over_a_held_catalog_reads_it_again_only_once_it_is_five_minutes_old ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4434 filtered out; finished in 0.02s
+connect.log after it: not created -- no connection reached it
+
+# the two cases catalog_told_while_parked serves, after the gate, each by its exact name, the gate's test binary at
+# 765bbc4d, the same logger script, a new instance on port 58200:
+test tui::worker::tests::a_catalog_asked_for_while_a_question_has_parked_the_turn_is_told_before_it_is_answered ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4457 filtered out; finished in 0.08s
+test tui::worker::tests::a_catalog_asked_for_while_an_approval_has_parked_the_turn_is_told_before_it_is_answered ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4457 filtered out; finished in 0.03s
+connect.log after them: not created -- no connection reached it

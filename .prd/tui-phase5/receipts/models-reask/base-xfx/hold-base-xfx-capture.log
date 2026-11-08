@@ -1,0 +1,7 @@
+until shown 'unable to load models': still not shown after 29.97 s (472 looks); the screen's rows that are not blank:
+  | x𝒇x v0.1.0-690aa50 [debug] · Run /help for commands
+  | ┃ /model
+  | ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  |          loading models...
+  | ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  | auto · model-a

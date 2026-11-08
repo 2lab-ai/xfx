@@ -1,0 +1,27 @@
+# base 690aa505 (xfx sha256 e44245759efc) against the code head 0a14906f (xfx sha256 23719b94f33f), fx v0.0.16 8e6cda2e on both, every model* / h1-models* / p5-input-model* scenario, 40x120; model-column-hold (new) from its own runs of each binary
+pairs 84; base pass 65; head pass 72
+## up: 9
+- h1-models2 after: unresolved-defect -> normalized-identical
+- model-column-hold col-back: failed -> normalized-identical
+- model-column-hold col-first: failed -> normalized-identical
+- model-column-hold col-held: failed -> normalized-identical
+- model-column-hold col-retry: failed -> normalized-identical
+- model-floor after-floor: unresolved-defect -> normalized-identical
+- model-floor inside-floor: unresolved-defect -> normalized-identical
+- model-parked question-up: unresolved-defect -> normalized-identical
+- p5-input-model-fail fail-open: unresolved-defect -> normalized-identical
+## down: 2
+- model-column-reask col-back: normalized-identical -> unresolved-defect  (row 9: fx `         openai/gpt-6-astra` / xfx `         unable to load models`)
+- model-column-reask col-down: normalized-identical -> unresolved-defect  (row 9: fx `         openai/gpt-6-astra` / xfx `         unable to load models`)
+## fail-both: 10
+- model typed: unresolved-defect -> unresolved-defect  (row 7: fx `  /model   choose what model and reasoning effort to use                                                          Model` / xfx `  /model   show the model, or `/model <id>` to use another one from now on                                        Model`)
+- model-anchor alt-enter: unresolved-defect -> unresolved-defect  (row 6: fx `  xai/grok-4.7` / xfx `  no matching models`)
+- model-parked menu-loading: unresolved-defect -> unresolved-defect  (row 5: fx `~ Thinking (<s>)` / xfx `~ Thinking (<s>) (↑4 ↓0)`)
+- model-reask menu-failed: unresolved-defect -> unresolved-defect  (row 5: fx `Models 4  [All]  Anthropic  OpenAI  xAI  Others` / xfx `Models 0  [All]`)
+- p5-input-model inline-gpt6: unresolved-defect -> unresolved-defect  (row 5: fx `         openai/gpt-6-astra` / xfx `         no matching models`)
+- p5-input-model q-anthropic-opus: unresolved-defect -> unresolved-defect  (row 5: fx `Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+- p5-input-model q-cs45: unresolved-defect -> unresolved-defect  (row 5: fx `Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+- p5-input-model q-grok-fast: unresolved-defect -> unresolved-defect  (row 5: fx `Models 2  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+- p5-input-model q-sonnet45: unresolved-defect -> unresolved-defect  (row 5: fx `Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+- p5-input-model q-zai-glm: unresolved-defect -> unresolved-defect  (row 5: fx `Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+## pass both: 63
