@@ -1557,11 +1557,18 @@ pub(crate) struct Shell {
     /// wants now ([`Self::take_title`]). `true` at launch, so the first frame
     /// carries one.
     title_owed: bool,
-    /// Whether the title owed is one a stopped turn's end gave the session,
-    /// which goes out ahead of the tick's report
-    /// ([`Self::take_leading_title`]): set by that end, and taken back by any
-    /// title asked for after it ([`Self::retitle`]).
-    title_leads: bool,
+    /// The title a stopped turn's end gave the session, which goes out ahead
+    /// of the tick's report ([`Self::take_leading_title`]) -- the string, as
+    /// it was then, so a title asked for after it in the same tick does not
+    /// replace it but follows it.
+    title_leads: Option<String>,
+    /// The title owed waits past this tick's frame and goes out with the
+    /// next tick's ([`Self::take_leading_title`], [`Self::tick_committed`]).
+    title_held: bool,
+    /// The user stopped work at a keystroke of this tick
+    /// ([`Self::cancel_turn_with`], [`Self::stop_compaction`]), so its `idle`
+    /// and its `Cancelled` frame are this tick's ([`Self::take_leading_title`]).
+    stop_in_tick: bool,
     /// The directory the session works in, whose last component the window
     /// title names until the session has a title of its own.
     workspace: std::path::PathBuf,
@@ -2604,7 +2611,9 @@ impl Shell {
             titled_by_user: false,
             turn_title: None,
             title_owed: true,
-            title_leads: false,
+            title_leads: None,
+            title_held: false,
+            stop_in_tick: false,
             workspace: config.workspace_root.clone(),
             document_rows: 0,
             fatal: None,
@@ -3793,8 +3802,10 @@ impl Shell {
         self.abandoned.clear();
         self.raw_gap = false;
         self.prompts.clear();
-        // The runtime took the work this answers, after any stop.
+        // The runtime took the work this answers, after any stop; and a
+        // stopped turn's title is the replaced conversation's.
         self.stop_requested = false;
+        self.title_leads = None;
         // A landed fork's prompt held under a search is the replaced
         // conversation's draft: a resume (the session picker is a search) or
         // a later fork must not hand it to this one. A fork landing now
@@ -4710,7 +4721,10 @@ impl Shell {
                         // a title another event of the drain asked for is
                         // the tick's own, which follows the report.
                         if quiet && ran && !noted && self.title_session() {
-                            self.title_leads = true;
+                            self.title_leads = Some(super::frame::title(
+                                self.session_title.as_deref(),
+                                &self.workspace,
+                            ));
                         }
                     }
                 }
@@ -11375,6 +11389,7 @@ impl Shell {
         self.work.control(TurnControl::Cancel { through });
         self.cancel_through = Some(through);
         self.stop_requested = true;
+        self.stop_in_tick = true;
         let automatic = self.compaction.as_ref().is_some_and(Compaction::automatic);
         if let Some(compaction) = self.compaction.as_mut() {
             compaction.stopping();
@@ -12561,6 +12576,7 @@ impl Shell {
         // or stops its turn if it took it first ([`Self::cancel_through`]).
         self.cancel_through = Some(through);
         self.stop_requested = true;
+        self.stop_in_tick = true;
         // The turn this stops ends with no bell: the user is here, and
         // upstream's turn-end cue is silent for an interrupted turn.
         self.sound.interrupted();
@@ -15078,6 +15094,7 @@ impl Shell {
         self.compaction_ended_turn = false;
         self.cancel_owed = None;
         self.stop_requested = false;
+        self.title_leads = None;
         // So is a failed automatic compaction's turn: its result was reported
         // when the compaction settled, and the end that would have taken this
         // is drained. Kept, it would read the next conversation's first prompt
@@ -15249,7 +15266,7 @@ impl Shell {
     /// Asked for once per change rather than per frame, so a frame that changes
     /// nothing about the title allocates nothing for it.
     pub(crate) fn take_title(&mut self) -> Option<String> {
-        if !std::mem::take(&mut self.title_owed) {
+        if self.title_held || !std::mem::take(&mut self.title_owed) {
             return None;
         }
         Some(super::frame::title(
@@ -15259,9 +15276,11 @@ impl Shell {
     }
 
     /// Whether a window title this session wants has not yet been handed to
-    /// the band ([`Self::take_title`]) -- one the tick's own events asked for.
+    /// the band ([`Self::take_title`]) -- one the tick's own events asked for
+    /// and this tick's frame is to write: one held past it is the next
+    /// tick's.
     pub(crate) fn owes_title(&self) -> bool {
-        self.title_owed
+        self.title_owed && !self.title_held
     }
 
     /// The title a stopped turn's end gave the session, for the band to
@@ -15278,11 +15297,42 @@ impl Shell {
     /// (`super::event_loop`'s `commit_tick`). A finished turn's title is
     /// not one: upstream sets it after it reported `done` (`osc/w02-done`),
     /// and it stays the frame's, behind the report.
+    ///
+    /// Two ticks read it otherwise, each as upstream's passes order it:
+    ///
+    /// * **The stop was pressed in this tick.** Upstream handles keys after
+    ///   a pass collects its facts (`src/ui/event_loop.zig:77-117@481104fd`),
+    ///   so the end is drained on a pass after the keystroke's: `idle`, the
+    ///   `Cancelled` frame, then the title (`stop-late-event/osc-stopnext.txt`,
+    ///   @1256, @1340, @1404). The title waits past this tick's frame.
+    /// * **Another title was asked for after the end, in this tick** -- a
+    ///   model naming the session. Upstream writes each title when it is set
+    ///   (`syncTerminalTitleWith`, `app_session_runtime.zig:2965-2987`), the
+    ///   model's on a pass after the end's: the end's leads the report here,
+    ///   and the other waits past this tick's frame.
     pub(crate) fn take_leading_title(&mut self) -> Option<String> {
-        if !std::mem::take(&mut self.title_leads) {
+        let lead = self.title_leads.take()?;
+        if self.stop_in_tick {
+            self.title_held = true;
             return None;
         }
-        self.take_title()
+        let now = super::frame::title(self.session_title.as_deref(), &self.workspace);
+        if now == lead {
+            self.title_owed = false;
+        } else {
+            self.title_held = true;
+        }
+        Some(lead)
+    }
+
+    /// The tick's frame is committed: a title held past it is owed to the
+    /// next tick's frame, which this asks for, and a stop pressed in it is
+    /// an earlier tick's from now on ([`Self::take_leading_title`]).
+    pub(crate) fn tick_committed(&mut self) {
+        self.stop_in_tick = false;
+        if std::mem::take(&mut self.title_held) {
+            self.render.request(Reason::Footer);
+        }
     }
 
     /// Gives the session its title, from the prompt of the turn that just
@@ -15363,13 +15413,8 @@ impl Shell {
     }
 
     /// Owes the band the window title, and the frame that writes it.
-    ///
-    /// A title owed now is not a stopped turn's end's to lead with any
-    /// more ([`Self::title_leads`]): whatever asked for it is the tick's own,
-    /// and the one title the tick ends with follows the report.
     fn retitle(&mut self) {
         self.title_owed = true;
-        self.title_leads = false;
         self.render.request(Reason::Footer);
     }
 

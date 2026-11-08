@@ -1179,6 +1179,8 @@ fn commit_tick(
             write_program_status(&report, out, failures, now)?;
         }
     }
+    // A title held past this frame is the next tick's ([`Shell::tick_committed`]).
+    shell.tick_committed();
     commit_bells(shell, out, failures, now)
 }
 
@@ -14167,16 +14169,13 @@ mod tests {
     fn a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report() {
         // A stopped turn's end leads the tick's report with the title it gave
         // the session (`a_stopped_turns_title_goes_out_ahead_of_the_next_prompts_working`).
-        // Only that title, and only while it is still the title owed: a
-        // session that has one already takes none from the stopped turn
-        // (`ensureCachedSessionTitle`, `app_session_runtime.zig:2997-3010@481104fd`),
-        // and a title another event of the same drain asked for -- a model
-        // naming the session, read before the stopped turn's end or after it
-        // -- is the tick's own, which follows its report. (Upstream writes
-        // the stopped turn's title on the pass that drains its end and the
-        // model's on a later one; the band writes the one title a tick ends
-        // with, as it writes the launch's once where upstream writes it
-        // twice.)
+        // Only that title: a session that has one already takes none from
+        // the stopped turn (`ensureCachedSessionTitle`,
+        // `app_session_runtime.zig:2997-3010@481104fd`), and a title another
+        // event of the same drain asked for -- a model naming the session,
+        // read before the stopped turn's end or after it -- follows the
+        // tick's report. (Read after it, the end's title still leads:
+        // `a_model_title_after_a_stopped_end_in_one_tick_follows_the_ends_title_and_the_report`.)
         let mut got = Vec::new();
         for model_first in [true, false] {
             let mut shell = shell();
