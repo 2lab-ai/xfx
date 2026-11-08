@@ -14031,8 +14031,8 @@ mod tests {
         // and its place given back, then a stop the runtime reads before it
         // takes the prompt: it drops the prompt (`Taken::Abandon`,
         // `super::worker`'s `turn_loop`) and says nothing of it. Nothing runs,
-        // so nothing is reported as work -- as on the base, where the prompt's
-        // entry, left behind (STOP-NEXT), was held silent.
+        // so nothing is reported as work: the stop covered the prompt
+        // (`a_turn_that_finished_before_a_stop_that_dropped_the_prompt_behind_it_is_done`).
         let mut shell = shell();
         let mut band = Band::new();
         let mut out = StatusScreen::default();

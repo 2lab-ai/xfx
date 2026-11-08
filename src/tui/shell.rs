@@ -1050,10 +1050,17 @@ pub(crate) struct Shell {
     /// settle ([`Self::cancel_turn_with`]), and whether the queue notice waits
     /// with it.
     cancel_owed: Option<bool>,
-    /// How many of the turns still to start were submitted before the cancel,
-    /// and so are the cancelled work starting late rather than a new turn
-    /// ([`UiEvent::TurnStarted`]).
-    cancel_covers: usize,
+    /// What the last stop quoted (`TurnControl::Cancel`'s `through`): every
+    /// piece of work numbered up to it was submitted before the keystroke,
+    /// so the runtime drops it unstarted or -- having taken it before it read
+    /// the stop -- stops it. A start numbered up to it is the stop's, however
+    /// late it is read and whatever ended or settled in between
+    /// ([`UiEvent::TurnStarted`]), and a waiting prompt numbered up to it is
+    /// no longer waiting ([`Self::waiting_prompts`]). Upstream's worker knows which
+    /// turn its stop is for, its own active one (`takeEventBatch`'s
+    /// `cancelled_turn_id`, `worker_runtime.zig:923-937@481104fd`); here the
+    /// count the stop was sent with says it.
+    cancel_through: Option<usize>,
     /// The cancel in effect includes the user's stop of a turn
     /// ([`Self::cancel_turn_with`]), so -- unless a compaction ended the turn
     /// ([`Self::compaction_ended_turn`]) -- the turn's end says what the
@@ -1912,7 +1919,6 @@ struct WaitingPrompt {
     /// Which piece of work it is, counted as the runtime counts it: what
     /// [`super::worker::WorkHandle::accepted`] said once it was taken, which
     /// its turn's start repeats ([`UiEvent::TurnStarted`]).
-    #[cfg_attr(not(test), allow(dead_code))]
     submission: usize,
     /// The token estimate the turn's summary counts for it.
     estimate: u64,
@@ -2463,7 +2469,7 @@ impl Shell {
             status_resume_owed: false,
             launch_status: None,
             cancel_owed: None,
-            cancel_covers: 0,
+            cancel_through: None,
             stop_reads_end: false,
             compaction_ended_turn: false,
             retry: None,
@@ -4068,15 +4074,16 @@ impl Shell {
     /// event is a tool that ran invisibly or a turn that ended without saying
     /// so.
     /// What the runtime says when it starts the oldest prompt still
-    /// waiting, which is the turn its loop takes next when nothing was
-    /// dropped: for a case about what follows a start rather than about
-    /// which turn a start is. A case about that names the number itself.
+    /// waiting -- one no stop covered ([`Self::waiting_prompts`]) -- which is the turn
+    /// its loop takes next: for a case about what follows a start rather than
+    /// about which turn a start is. A case about that names the number
+    /// itself.
     #[cfg(test)]
     pub(crate) fn turn_starts(&self) -> UiEvent {
         UiEvent::TurnStarted {
             submission: self
-                .prompts
-                .front()
+                .waiting_prompts()
+                .next()
                 .map_or(self.work.accepted(), |prompt| prompt.submission),
         }
     }
@@ -4159,47 +4166,83 @@ impl Shell {
             // and the *moment* is the next settle's, so the row is timed by the
             // same clock every other row of the band is settled against
             // ([`Self::tick_activity`]).
-            UiEvent::TurnStarted { .. } => {
+            UiEvent::TurnStarted { submission } => {
                 // A new turn must not report an earlier turn's result once it
                 // settles (`noteTurnStarted`, `app_worker_runtime.zig:972`).
                 self.program_status.turn_started();
                 self.compaction_failed = false;
                 self.retry = None;
-                // A turn the user already stopped can still say it started --
-                // the runtime took it before it read the cancellation -- and
-                // its row must not come back under the line that says so. Any
-                // other turn is a new one, and what it says is painted: a
-                // cancel that landed after its turn had already ended is
-                // answered by no conclusion, and must not silence this one.
-                if self.cancel_covers > 0 {
-                    self.cancel_covers -= 1;
+                // **Which turn this is, by its number.** One the last stop
+                // covered was taken by the runtime before it read the stop,
+                // which stops it -- or it had finished already: it is the
+                // stop's, whatever the turn before it ended in or a settle
+                // took back meanwhile, and its end says what it came to
+                // ([`Self::stop_reads_end`]). Upstream's stop requested after
+                // its worker took a prompt is that turn's (`takeEventBatch`'s
+                // `cancelled_turn_id`, `worker_runtime.zig:923-937@481104fd`;
+                // the take, `:1484-1512`), and the drain admits the turn's
+                // prompt, finish and history and drops its answer
+                // (`cancelledEventAdmission`, `app_worker_runtime.zig:339-389`):
+                // no activity row, as nothing is busy under a stop
+                // (`cancellation_stops_turn`, `:734-738`), and no bell. Any
+                // other turn is a new one, typed after the stop, and what it
+                // says is painted: a stop that landed after its turn had
+                // already ended is answered by no end, and must not silence
+                // this one.
+                if self
+                    .cancel_through
+                    .is_some_and(|through| submission <= through)
+                {
+                    self.cancelling = true;
+                    self.stop_reads_end = true;
+                    self.sound.interrupted();
                 } else {
                     self.cancelling = false;
                     self.stop_reads_end = false;
-                    self.compaction_ended_turn = false;
-                    self.cancel_owed = None;
                 }
+                self.compaction_ended_turn = false;
+                self.cancel_owed = None;
                 if !self.cancelling {
                     self.activity.set(Work::Thinking);
+                }
+                // The runtime takes its work in order, so a prompt numbered
+                // before this one started earlier or was dropped by a stop
+                // (`Taken::Abandon`, `super::worker`'s `turn_loop`), and the
+                // one numbered this is this turn's.
+                while self
+                    .prompts
+                    .front()
+                    .is_some_and(|prompt| prompt.submission < submission)
+                {
+                    self.prompts.pop_front();
                 }
                 let WaitingPrompt {
                     estimate,
                     title,
                     card,
                     ..
-                } = self.prompts.pop_front().unwrap_or_default();
+                } = if self
+                    .prompts
+                    .front()
+                    .is_some_and(|prompt| prompt.submission == submission)
+                {
+                    self.prompts.pop_front().unwrap_or_default()
+                } else {
+                    WaitingPrompt::default()
+                };
                 self.tally.begin(Instant::now(), estimate);
                 self.turn_title = title;
                 // The waiting prompt is delivered: its card goes into the
                 // document behind whatever the last turn still has to say,
-                // and its rows leave the band.
+                // and its rows leave the band -- a stopped one's too, as
+                // upstream writes the card of a prompt its worker took before
+                // the stop (`begin_prompt`'s `write_user_prompt`,
+                // `app_worker_runtime.zig:965-975@481104fd`).
                 if let Some((card, links, skills)) = card {
-                    if !self.cancelling {
-                        self.echo(&card, links, skills);
-                    }
-                    self.refit();
-                    self.render.request(Reason::Footer);
+                    self.echo(&card, links, skills);
                 }
+                self.refit();
+                self.render.request(Reason::Footer);
             }
             // The answer, as it arrives -- into the pacer rather than into the
             // document, so a provider that sends a kilobyte in one frame and
@@ -4607,7 +4650,6 @@ impl Shell {
                 // upstream writes the one `■ Cancelled` line and nothing after
                 // it (`fx-interrupt-40x120-cc-1.5`). Unless the end says the
                 // turn came to something else (above).
-                self.cancel_covers = 0;
                 self.cancelling = false;
                 let (failure, summary) = if quiet {
                     (None, None)
@@ -8943,7 +8985,19 @@ impl Shell {
     /// at `TurnStarted` and clears at its end, and the prompts sent whose turn
     /// has not started.
     fn provider_work_busy(&self) -> bool {
-        self.activity.working() || !self.prompts.is_empty()
+        self.activity.working() || self.waiting_prompts().next().is_some()
+    }
+
+    /// The prompts still waiting for their turn: those [`Self::prompts`]
+    /// holds that no stop covered ([`Self::cancel_through`]). A covered one
+    /// is the runtime's to drop or to stop, and is neither shown nor work;
+    /// its entry is kept for the turn it may still start, and goes with the
+    /// next start, a reset or a resume.
+    fn waiting_prompts(&self) -> impl Iterator<Item = &WaitingPrompt> {
+        let through = self.cancel_through;
+        self.prompts
+            .iter()
+            .filter(move |prompt| !through.is_some_and(|through| prompt.submission <= through))
     }
 
     /// Hands a provider switch to the runtime, and says it is under way.
@@ -10157,7 +10211,6 @@ impl Shell {
             self.stop_reads_end = false;
             self.compaction_ended_turn = false;
             self.cancel_owed = None;
-            self.cancel_covers = 0;
         }
         // The same for a compaction the user stopped before the runtime took it
         // off the queue: it never began, so it never says how it ended. Once
@@ -10295,7 +10348,7 @@ impl Shell {
         } else if !self.cancelling
             && !self.compaction_failed
             && (self.activity.working()
-                || !self.prompts.is_empty()
+                || self.waiting_prompts().next().is_some()
                 || self
                     .compaction
                     .as_ref()
@@ -10346,7 +10399,7 @@ impl Shell {
     /// once (`enqueuePromptForSubmit`, `input_submit_runtime.zig:1112-1118`).
     /// xfx reads the first three: a turn that started still in hand, the
     /// pacer, the full transcript; a start held by another waiting prompt or
-    /// by a session transition is STOP-NEXT's. A queued prompt shows nothing
+    /// by a session transition is STOP-NEXT-2's. A queued prompt shows nothing
     /// of its turn until the worker takes it, in the pass that reports
     /// `working` and then paints the prompt
     /// (`p5-lifecycle-osc-stopnext` on fx v0.0.16: `idle`, the `Cancelled`
@@ -10360,8 +10413,8 @@ impl Shell {
     /// in the tick its own starts in -- the runtime sends the two with no wait
     /// on this thread -- or in an earlier one. Behind a turn that was not
     /// stopped, that report is the running turn's `working`, which is not
-    /// written again. Only while the runtime still holds a place: a prompt
-    /// it dropped on reading a stop leaves its entry and is no work.
+    /// written again. Only a prompt still waiting, while the runtime still
+    /// holds a place: one a stop covered is no work ([`Self::waiting_prompts`]).
     pub(crate) fn take_status_moved_by_input(&mut self) -> Keyed {
         let compacting = self
             .compaction
@@ -10369,12 +10422,12 @@ impl Shell {
             .is_some_and(|compaction| compaction.active() && !compaction.stopped());
         let working = self.status_activity() == StatusActivity::Working;
         // Queued work, while the runtime still holds a place for it: a prompt
-        // its loop dropped on reading a stop (`Taken::Abandon`) says nothing
-        // and leaves its entry here (STOP-NEXT), and is no work at all.
+        // a stop covered -- dropped by the runtime's loop (`Taken::Abandon`),
+        // which says nothing, or stopped -- is no work at all.
         let behind_a_turn = self.work.outstanding() > 0
             && self
-                .prompts
-                .front()
+                .waiting_prompts()
+                .next()
                 .is_some_and(|prompt| prompt.queued_at_once);
         if working && !self.activity.working() && !compacting && !behind_a_turn {
             self.status_held = true;
@@ -11283,9 +11336,9 @@ impl Shell {
     /// turn's conclusion says nothing either.
     fn stop_compaction(&mut self) {
         let waiting = self.work.queued() > 0;
-        self.work.control(TurnControl::Cancel {
-            through: self.work.accepted(),
-        });
+        let through = self.work.accepted();
+        self.work.control(TurnControl::Cancel { through });
+        self.cancel_through = Some(through);
         let automatic = self.compaction.as_ref().is_some_and(Compaction::automatic);
         if let Some(compaction) = self.compaction.as_mut() {
             compaction.stopping();
@@ -11298,13 +11351,13 @@ impl Shell {
             self.retry = None;
         }
         if waiting {
-            self.prompts.clear();
+            // What was waiting is the stop's now ([`Self::cancel_through`]),
+            // and its rows go.
             self.refit();
             // xfx's queue is its own, and so is the sentence that says it went
             // with the keystroke ([`Self::cancel_turn_with`]).
             self.write_notice(&notice::Notice::cancelled("queue", QUEUE_DROPPED));
         }
-        self.cancel_covers = self.prompts.len();
     }
 
     /// What a theme report says, applied to the palette.
@@ -12433,9 +12486,11 @@ impl Shell {
         // from reaching past this keystroke: a prompt typed while this message
         // is still in flight is a new intention, and the runtime is told
         // exactly where the old ones stop.
-        self.work.control(TurnControl::Cancel {
-            through: self.work.accepted(),
-        });
+        let through = self.work.accepted();
+        self.work.control(TurnControl::Cancel { through });
+        // Every prompt still waiting is the stop's now: the runtime drops it,
+        // or stops its turn if it took it first ([`Self::cancel_through`]).
+        self.cancel_through = Some(through);
         // The turn this stops ends with no bell: the user is here, and
         // upstream's turn-end cue is silent for an interrupted turn.
         self.sound.interrupted();
@@ -12443,16 +12498,10 @@ impl Shell {
         self.stop_reads_end = true;
         self.abandon_answer();
         self.retry = None;
-        if waiting {
-            self.prompts.clear();
+        if waiting || steered {
             // The waiting prompt's rows go with it.
             self.refit();
-        } else if steered {
-            self.refit();
         }
-        // A prompt the runtime took before it read this is still to say it
-        // started; with nothing waiting behind it, it is the only entry left.
-        self.cancel_covers = self.prompts.len();
         let written = written || (self.group.running_command() && self.settle_group());
         if !written && self.group.running() {
             self.cancel_owed = Some(waiting);
@@ -13879,7 +13928,7 @@ impl CommandHandlers for Shell {
         // `queuedPromptCount` (`input_submit_runtime.zig:148-153`). Other work
         // -- a catalog read, a listing -- is not a conversation a compaction
         // would cut into, and it queues behind that as it would behind a turn.
-        if self.activity.working() || !self.prompts.is_empty() {
+        if self.activity.working() || self.waiting_prompts().next().is_some() {
             self.compaction = Some(Compaction::refused(compaction::Feedback::Busy, now));
             return;
         }
@@ -14544,7 +14593,7 @@ impl Shell {
     /// Whether a turn is running or waiting to, so a change made now is for the
     /// turn after it.
     fn turn_pending(&self) -> bool {
-        self.tally.started.is_some() || !self.prompts.is_empty()
+        self.tally.started.is_some() || self.waiting_prompts().next().is_some()
     }
 
     /// Hands one model change to the runtime, and -- when this side knows the
@@ -14944,7 +14993,6 @@ impl Shell {
         self.stop_reads_end = false;
         self.compaction_ended_turn = false;
         self.cancel_owed = None;
-        self.cancel_covers = 0;
         // So is a failed automatic compaction's turn: its result was reported
         // when the compaction settled, and the end that would have taken this
         // is drained. Kept, it would read the next conversation's first prompt
@@ -15745,7 +15793,7 @@ impl Shell {
             .steers
             .iter()
             .map(|(_, _, card)| Some((card.as_str(), &none)));
-        let waiting = self.prompts.iter().map(|prompt| {
+        let waiting = self.waiting_prompts().map(|prompt| {
             prompt
                 .card
                 .as_ref()
@@ -23474,8 +23522,9 @@ mod tests {
         shell.work.give_back();
         shell.settle_band(Instant::now());
 
+        // Typed after the stop: submission 2, past the stop's 1.
         shell.route_bytes(b"second\r");
-        shell.start_turn();
+        shell.apply(UiEvent::TurnStarted { submission: 2 });
         shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
         let written = shell.released();
         assert!(
@@ -23495,8 +23544,9 @@ mod tests {
             matches!(shell.controlled(), Some(TurnControl::Cancel { .. })),
             "the press was not answered from the running column"
         );
+        // Typed after the stop: submission 2, past the stop's 1.
         shell.route_bytes(b"second\r");
-        shell.start_turn();
+        shell.apply(UiEvent::TurnStarted { submission: 2 });
         shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
         let written = shell.released();
         assert!(
@@ -45650,7 +45700,7 @@ mod tests {
         // and its drain then presents the finished turn's summary
         // (`finishPromptPresentation`, `app_callbacks.zig:276-283`), so the
         // line is above the summary. (What becomes of the late text is
-        // STOP-NEXT's: xfx drops it under the cancel, where upstream's drain
+        // STOP-NEXT-2's: xfx drops it under the cancel, where upstream's drain
         // presents a segment that is not an interrupted one.)
         let mut shell = running("first question");
         shell.route_bytes(&[0x03]);
@@ -45697,7 +45747,7 @@ mod tests {
 
     #[test]
     fn a_stop_pressed_after_the_runtime_took_the_next_prompt_is_that_turns() {
-        // STOP-NEXT's next-break (`stop-late-event/next-break.txt`). Upstream's
+        // STOP-LATE-EVENT's next-break (`stop-late-event/next-break.txt`). Upstream's
         // worker took the second prompt -- pushing its `begin_prompt` and
         // clearing the stop (`takeNextPromptLocked`,
         // `worker_runtime.zig:1484-1512@481104fd`) -- so the stop requested
