@@ -337,13 +337,13 @@
 # `<run>/workx`. What precedes it is not read -- a coloured path follows its
 # SGR sequence's `m` -- and the longest-first order is what keeps a root out
 # of a longer one (`/tmp/x` in `/private/tmp/x` is the longer one's). fx's
-# side and xfx's are rewritten by
-# the same rule, so a pair compares as it did: the two runs of a sweep unit
-# share one TMPDIR, so each root is as long on both sides. The two binaries'
-# own TMPDIRs are kept apart under <scratch> -- `fxtmp` is one byte shorter
-# than `xfxtmp`, and one placeholder for both would shorten xfx's rows by a
-# byte more than fx's -- so a row that names one keeps its width relative to
-# the other side's, as the ledger's `capture-tmpdir` reads it.
+# side and xfx's are rewritten by the same rule, so a pair compares as it
+# did: the two runs of a sweep unit share one TMPDIR, so each root is as long
+# on both sides. The two binaries' own TMPDIRs are kept apart under
+# <scratch> -- `fxtmp` is one byte shorter than `xfxtmp`, and one placeholder
+# for both would shorten xfx's rows by a byte more than fx's -- so a row that
+# names one keeps its width relative to the other side's, as the ledger's
+# `capture-tmpdir` reads it.
 #
 # The rewrite comes after the binary laid out its frame: a path it wrapped or
 # padded to its real width keeps that layout, and the stored row is shorter
