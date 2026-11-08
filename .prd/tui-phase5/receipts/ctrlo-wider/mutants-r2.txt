@@ -23,3 +23,6 @@ M8 Ctrl-O names an emoji base with its selector too: killed by a_character_a_ter
 M9 Ctrl-O names a selector right after a tab: killed by a_character_a_terminal_draws_wider_than_it_is_counted_is_named_in_a_files_line, a_mark_right_after_a_tab_is_not_drawn_as_fxs_screen_does_not_draw_it
 M10 a call's detail is not named (diff rows only): killed by a_character_a_terminal_draws_wider_than_it_is_counted_is_named_in_a_files_line
 M11 a diff row is not named (a call's detail only): killed by a_character_a_terminal_draws_wider_than_it_is_counted_is_named_in_a_files_line
+
+# CTRLO-WIDER-F: M23, a git clone --no-local at 566fbb8f, under suite-lock.sh
+M23 a code panel's label is not named: killed by a_code_panels_label_names_what_a_terminal_draws_wider

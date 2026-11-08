@@ -29,12 +29,16 @@ stays unresolved (below). Round 2 names the family in an answer too.
     sides) and `p5-ctrlo-wider-ri`;
   - `7e5c2222` tests: (g), (e), an escape in an answer, a table's cell;
   - `8e611525` the ledger and docs/parity.md; the receipt after it.
-- **Builds:** debug builds; `red/` is `e6cde019` (`v0.1.0-e6cde01`); `xfx/`
-  is `340589af`'s code (`v0.1.0-340589a`; round 1's were `0b4807bc`'s, in
-  this directory at `88c2fec1`) -- the commits after it change tests,
-  scenarios, the ledger and this receipt; `red2/` is `88c2fec1`
-  (`v0.1.0-88c2fec`), `p5-ctrlo-wider-inline-fam` only. Each checked in its
-  snaps' row 1.
+- **Builds:** debug builds; `red/` is `e6cde019` (`v0.1.0-e6cde01`);
+  `xfx/` is `9730ac86`'s code since CTRLO-WIDER-F, banner `v0.1.0-b7cf010`
+  -- built at `b7cf0107` with `9730ac86`'s one change in the tree, before it
+  was committed; the commits after `9730ac86` change tests, scenarios, the
+  ledger and this receipt (round 2's were `340589af`'s, `v0.1.0-340589a`,
+  and `08026927`'s after train 4; round 1's `0b4807bc`'s -- each in this
+  directory at that round's last commit); `red2/` is `88c2fec1`
+  (`v0.1.0-88c2fec`), `p5-ctrlo-wider-inline-fam` only; `red3/` is
+  `08026927` (`v0.1.0-0802692`, eeb0f7a7's code), the F scenarios only.
+  Each checked in its snaps' row 1.
 - **fx:** the v0.0.16 reference binary, sha256 `8e6cda2e…`, checked before
   every run; every capture's guard line says it was unchanged.
 - **Terminals:** tmux 3.7b (a private server per run, capture.sh) and
@@ -249,16 +253,18 @@ the merge, pair for pair (**Pairs, round 2**, with `e6cde019` for the base).
 | p5-ctrlo-wider-inline-fam | resized | unresolved-defect (23) | unresolved-defect (23) | answer-drawn-wider-named, inline-band-row-anchor |
 | p5-ctrlo-wider-ri | answer | unresolved-defect (3) | unresolved-defect (3) | - |
 
-**Measure**: `measure.txt` is now the head sweep's captures (fx and
+**Measure**: `measure.txt` was then the head sweep's captures (fx and
 `08026927`'s code, the `until` scenarios; `fx/`, `xfx/`): 0 forms not
 whole, every form's verdict the same as before the merge on every build.
+It is now CTRLO-WIDER-F's (below), the same verdicts on every form it had.
 
 **Gates**: `gates-train4.txt` (**Gates**, below).
 
 ## CTRLO-WIDER-F (follow-up, stacked on `eeb0f7a7`)
 
 Both reviews of round 2 approved with no MUST; this is their SHOULDs, on
-`feat/p5-ctrlo-wider-f`. `red3/` is `08026927`'s build, whose code is
+`feat/p5-ctrlo-wider-f`. The gates ran at `b69d8023`; the commits after it
+change this receipt and `mutants.py` (M23) only. `red3/` is `08026927`'s build, whose code is
 `eeb0f7a7`'s.
 
 1. **A code panel's label** (opus SHOULD 1). `shown_event` named
@@ -274,7 +280,9 @@ Both reviews of round 2 approved with no MUST; this is their SHOULDs, on
    resolves is ASCII and stays. GREEN: the test passes; `measure.py
    --check xfx`, 0 forms not whole (`measure.txt`; the F scenarios' forms
    below). Divergence `answer-label-and-modifier-named` takes the rows the
-   names change, in place.
+   names change, in place. Mutant M23 (the line taken out, on a
+   `--no-local` clone at `566fbb8f`, under the lock) is killed by the
+   label test (`mutants-r2.txt`, last block).
 2. **Ownership, ledger only** (`aef34ed8`).
    - `ri-run-pairing` belongs to **RI-COUNT**, and says every regional
      indicator against the terminals: a pair that is no flag counted four,
@@ -673,7 +681,10 @@ second between a `type` and its `Enter`, and two seconds after `resize
 repaint done.
 Round 1's list said `until shown end` before `snap composer`; an answer
 already on the screen holds `end` in both `inline` scenarios, so the
-draft's first row is waited for instead. And a text that is on one row only
+draft's first row was waited for instead -- and in `inline-fam` that
+(`┃ fam`) came with the first three characters typed, so CTRLO-WIDER-F's
+`46a840e1` ends the draft `ZZ` and waits on `f end ZZ`, and gives fx an
+`until` after the resize (item 3 there). And a text that is on one row only
 where the head wraps it is no wait for the base: on `884497c0` `inline`'s
 draft row reads `┃`, 112 `w`, `a` U+302E `a L` (it counts U+302E as one
 cell, the defect part 1 fixes) and `ri`'s answer row ends `TAIL5`, so

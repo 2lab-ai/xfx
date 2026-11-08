@@ -184,6 +184,14 @@ MUTANTS = [
         "                    && (first_line.contains(argument.value.as_str())\n                        || argument.value.contains(\"\\\\u{\"));",
         ["tui::full_transcript::tests::a_value_the_heading_had_to_spell_is_never_shown_by_it_already"],
     ),
+    # CTRLO-WIDER-F.
+    (
+        "M23 a code panel's label is not named",
+        FT,
+        "            block.language = named(std::mem::take(&mut block.language));\n",
+        "",
+        ["tui::shell::tests::a_code_panels_label_names_what_a_terminal_draws_wider"],
+    ),
 ]
 
 
