@@ -614,6 +614,26 @@ class Verbs(unittest.TestCase):
         self.assertEqual(missing.code, 1, missing.stdout + missing.stderr)
         self.assertIn("expect nothing: no snap nothing was written before it", missing.stderr)
 
+    def test_expect_on_one_side_only(self):
+        # LAUNCH-SETTLE-F (opus r2 SHOULD 1): a divergence pair's snap says
+        # each side's own row, so a side that flips under load fails the run
+        # instead of the pair turning identical without a sound. A line for
+        # one binary runs on that binary only (capture.sh `for_this`).
+        cap = ("wait 0.5\ntype printf 'side-%s\\n' one\nkey Enter\nuntil shown side-one\nsnap a\n"
+               "fx: expect a side-one\nxfx: expect a side-two\nsnap after\n")
+        fx = capture(cap, which="fx")
+        self.assertEqual(fx.code, 0, fx.stdout + fx.stderr)
+        self.assertIn("expect a 'side-one': the snap holds it", fx.stdout)
+        self.assertNotIn("side-two", fx.stdout + fx.stderr, "xfx's line did not run on fx")
+        # The side whose row is not the one its line names: the run fails
+        # there, with the frame, and takes no snap after.
+        xfx = capture(cap, which="xfx")
+        self.assertEqual(xfx.code, 1, xfx.stdout + xfx.stderr)
+        self.assertIn("expect a 'side-two': the snap does not hold it; its rows that are not blank:", xfx.stderr)
+        self.assertIn("  | side-one", xfx.stderr, "the frame it read")
+        self.assertNotIn("expect a 'side-one'", xfx.stdout + xfx.stderr, "fx's line did not run on xfx")
+        self.assertFalse(os.path.exists(os.path.join(xfx.out, "xfx-t-30x200-after.txt")), "the run went on")
+
     def test_expect_reads_only_a_frame_this_run_wrote(self):
         # opus r2 SHOULD 3: capture.sh never clears the out directory, so a
         # frame an earlier run left there holds whatever that run saw.

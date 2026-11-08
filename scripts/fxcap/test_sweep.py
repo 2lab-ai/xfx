@@ -606,8 +606,12 @@ class Capfile(unittest.TestCase):
             (YOLO + "wait 3.5\nuntil shown Full access\nsnap start\n", both),
             # `wire` and `bells` sleep 0.3 s each.
             (YOLO + "wait 2.5\nwire w\nbells b\nsnap start\n", both),
-            # A relaunch arms it again; `until gone` before it does not carry over.
-            (YOLO + "wait 1\nuntil gone Full access\nrelaunch\nwait 4\nsnap start\n", both),
+            # A relaunch arms it again: an `until gone` that counted it gone
+            # before does not carry over (LAUNCH-SETTLE-F, opus r2 SHOULD 2:
+            # an unseen `until gone` counts nothing since round 2, so the
+            # warning is seen first, and the relaunch is what makes this race).
+            (YOLO + "until shown Full access\nuntil gone Full access\nrelaunch\nwait 4\nsnap start\n", both),
+            (YOLO + "until shown Full access\nuntil gone Full access\nwait 4\nsnap start\n", []),
             # Each binary's own environment, and fx's other spelling.
             ("fx: env FX_PERMISSION_MODE=full-access\nwait 4\nsnap start\n", [("fx", "snap start")]),
             ("xfx: env XFX_PERMISSION_MODE=yolo\nfx: until gone Full access\nwait 4\nsnap start\n", [("xfx", "snap start")]),

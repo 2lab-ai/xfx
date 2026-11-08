@@ -33,6 +33,11 @@ wait 1
 type zz9
 until shown zz9
 snap b-edit-escape
+# Each side's own row, so a side that flips under load (xfx's second Escape
+# past its window, which arms the clear again and keeps the draft) fails
+# the run instead of turning the pair identical (LAUNCH-SETTLE-F).
+xfx: expect b-edit-escape ┃ zz9
+fx: expect b-edit-escape beta twoxzz9
 # (c) Escape, then the draft deleted. fx takes the hint down at the key; xfx
 # keeps it until its 500 ms run out, over an empty composer, which its own
 # rule says it should not show (gesture.rs:162-164).
@@ -46,5 +51,7 @@ key BSpace
 key BSpace
 until gone ┃ q
 snap c-deleted
+# xfx's hint is still in its window here: a snap past it fails the run.
+xfx: expect c-deleted esc again to clear
 until gone esc again to clear
 snap c-later

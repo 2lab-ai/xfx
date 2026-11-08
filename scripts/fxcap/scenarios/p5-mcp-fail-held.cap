@@ -1,12 +1,15 @@
 # p5 mcp: a stdio server that exits 3 at start (p5-mcp-fail's profile), its
 # screen opened between two of its tries. The tries come at a 1 s backoff
 # that doubles (xfx src/mcp/runtime.rs:90), near 1, 3, 7, 15 and 31 s after
-# launch; the screen is opened near 9 s, two seconds after one and six before
-# the next, and snapped a second later. xfx answers the screen's tools request
-# from the last try's failure (src/tui/mcp_menu.rs:786-791): `Its tools
-# couldn't load`. fx shows `Loading tools…` until its next try, near 15 s
-# (receipts/launch-settle). LAUNCH-SETTLE added this scenario to keep that
-# difference on a snap, since p5-mcp-fail now waits it out.
+# the binary starts. The screen is opened near 9 s and snapped a second
+# later: at least 2 s after the try before and 3.5 s before the try after.
+# Those margins are repeatedly observed, not guaranteed: the tries run on the
+# binary's own clock, and the harness's starts at its first frame
+# (receipts/launch-settle, LAUNCH-SETTLE-F). xfx answers the screen's tools
+# request from the last try's failure (src/tui/mcp_menu.rs:786-791): `Its
+# tools couldn't load`. fx shows `Loading tools…` until its next try. This
+# scenario keeps that difference on a snap (LAUNCH-SETTLE), since
+# p5-mcp-fail now waits it out.
 fx: homefile .fx/mcp.json p5-mcp-fail-profile.json
 xfx: homefile .xfx/mcp.json p5-mcp-fail-profile.json
 wait 9
@@ -17,6 +20,11 @@ key Enter
 until shown echo boom-stderr >&2; exit 3
 wait 1
 snap held
+# Each side's own row: a run in which fx's try came early enough to answer
+# the screen fails here instead of turning the pair identical
+# (LAUNCH-SETTLE-F).
+fx: expect held Loading tools…
+xfx: expect held Its tools couldn't load
 key Escape
 wait 0.5
 key Escape
