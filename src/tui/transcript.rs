@@ -41,6 +41,7 @@
 //! Text that the terminal has not seen is not the terminal's, so it is kept as
 //! text.
 
+use std::cell::RefCell;
 use std::collections::VecDeque;
 
 use unicode_segmentation::UnicodeSegmentation;
@@ -652,15 +653,30 @@ pub(crate) struct Transcript {
     /// is on the terminal, and a vector the screen refused must leave them
     /// owed exactly as a refused append always did ([`Landed::None`]).
     staged: Option<Staged>,
+    /// The long rows a block wrote last, each with the width it was cut for
+    /// and what it was cut to ([`Self::cut_for_screen`]).
+    kept_rows: RefCell<Vec<KeptRow>>,
     /// How many times a block's row of [`KEPT_ROW_BYTES`] or more was cut
     /// for the screen: what writing a block again costs, for the tests.
     #[cfg(test)]
     cut_long: std::cell::Cell<usize>,
 }
 
-/// How long a block's row is before what it was cut to is worth keeping.
-#[cfg(test)]
+/// How long a block's row is before what it was cut to is worth keeping: a
+/// row the screen's width of cells is a few hundred bytes, and a call's row
+/// can hold megabytes a screen shows ([`super::toolgroup`]'s inline argument).
 const KEPT_ROW_BYTES: usize = 64 * 1024;
+
+/// How many of those a transcript keeps: a block's call row in each mode,
+/// drawn and drawn again, and one more.
+const KEPT_ROWS: usize = 5;
+
+/// One long block row, the width it was cut for, and what it was cut to.
+struct KeptRow {
+    row: String,
+    cols: u16,
+    written: String,
+}
 
 /// The committed state [`Transcript::stage`] saved, and the operations taken
 /// off the queue since, oldest first.
@@ -703,6 +719,7 @@ impl Transcript {
             block_frozen: 0,
             block_open: false,
             staged: None,
+            kept_rows: RefCell::default(),
             #[cfg(test)]
             cut_long: std::cell::Cell::new(0),
         }
@@ -911,6 +928,40 @@ impl Transcript {
         true
     }
 
+    /// [`ellipsized`], for a block's row -- from what the block wrote last
+    /// for the same row at the same width when the row is [`KEPT_ROW_BYTES`]
+    /// or longer. A block is written again whole on every change to it
+    /// ([`Self::queue_block`]) and cutting a row reads all of it, where finding
+    /// the row kept is one comparison of its bytes.
+    fn cut_for_screen(&self, row: &str, cols: u16) -> String {
+        if row.len() < KEPT_ROW_BYTES {
+            return ellipsized(row, cols);
+        }
+        let mut kept = self.kept_rows.borrow_mut();
+        if let Some(at) = kept
+            .iter()
+            .position(|kept| kept.cols == cols && kept.row == row)
+        {
+            let found = kept.remove(at);
+            let written = found.written.clone();
+            kept.insert(0, found);
+            return written;
+        }
+        #[cfg(test)]
+        self.cut_long.set(self.cut_long.get() + 1);
+        let written = ellipsized(row, cols);
+        kept.insert(
+            0,
+            KeptRow {
+                row: row.to_string(),
+                cols,
+                written: written.clone(),
+            },
+        );
+        kept.truncate(KEPT_ROWS);
+        written
+    }
+
     /// Queues a change of gutter for the lines that follow.
     ///
     /// Ends the open line first, if there is one: a gutter is a property of a
@@ -1085,13 +1136,7 @@ impl Transcript {
             (0, 0)
         };
         let redraw_of = |index: usize| redraws.get(index).and_then(Option::as_ref);
-        let ellipsized = |row: &str, cols: u16| {
-            #[cfg(test)]
-            if row.len() >= KEPT_ROW_BYTES {
-                self.cut_long.set(self.cut_long.get() + 1);
-            }
-            ellipsized(row, cols)
-        };
+        let ellipsized = |row: &str, cols: u16| self.cut_for_screen(row, cols);
         let mut written: Vec<String> = rows
             .iter()
             .enumerate()
