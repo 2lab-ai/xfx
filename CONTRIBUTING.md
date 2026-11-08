@@ -37,11 +37,24 @@ plaintext under `~/.xfx/sessions/<id>/events.jsonl`, and `--no-save` is the only
 way to record nothing. Do not write a sentence that denies this; see "Safety, in
 plain terms" in [`README.md`](README.md).
 
+**6. No path of one machine.** This repository is public, and a capture, a
+receipt or a script written on your machine names your home and your scratch
+directory. `scripts/fxcap/capture.sh` writes a run's own roots as placeholders
+(`<work>`, `<scratch>`, `<tmp>`, `<home>`); write them so too in a README, and
+derive a path a script needs from `$TMPDIR` or `$HOME` when it runs.
+`scripts/check-no-local-paths.sh` refuses a home directory (`/Users/<name>/`,
+`/home/<name>/`), a harness scratch root (`/tmp/claude-<digits>`, with or
+without `/private`) and macOS's per-user temporary folder anywhere in a tracked
+file. A test fixture that must hold such a path says so on its own line with
+`local-path-ok`; a home that is nobody's (`/home/u/`) is on the check's own
+list of placeholders.
+
 ## The gate
 
 Everything below must pass before a change is ready. This is exactly what CI
-runs, on Linux and macOS, on x86_64 and aarch64 -- except the two script tests
-(`test-gate-env.sh` and `test-preview-contract.sh`), which test the gate scripts
+runs, on Linux and macOS, on x86_64 and aarch64 -- except the three script tests
+(`test-gate-env.sh`, `test-preview-contract.sh` and
+`test-check-no-local-paths.sh`), which test the gate scripts
 on the OS's own bash, grep and git rather than anything built for the target,
 so CI runs them on one row per OS: aarch64 macOS and x86_64 Linux. Run them
 locally all the same:
@@ -56,7 +69,9 @@ cargo build --locked --release
 cargo build --locked --release --features fault-injection --target-dir target/faulty
 ./scripts/check-no-stubs.sh
 ./scripts/check-no-secrets.sh
+./scripts/check-no-local-paths.sh
 ./scripts/test-gate-env.sh   # runs ./scripts/test-check-no-secrets.sh too
+./scripts/test-check-no-local-paths.sh
 ./scripts/check-xfx-identity.sh
 ./scripts/check-preview-contract.sh
 ./scripts/test-preview-contract.sh

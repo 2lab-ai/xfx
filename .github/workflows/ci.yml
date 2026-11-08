@@ -51,7 +51,7 @@ jobs:
       #
       # `script_tests` marks one row per OS for the tests of the gate scripts
       # themselves (test-gate-env.sh, which runs test-check-no-secrets.sh,
-      # and test-preview-contract.sh). They exercise the OS's bash, grep, git
+      # test-preview-contract.sh and test-check-no-local-paths.sh). They exercise the OS's bash, grep, git
       # and getconf -- bash 3.2 and BSD grep on macOS, GNU grep on Linux --
       # and build nothing for the target, so a second row of the same OS
       # repeats them on the same userland. On the x86_64 macOS row they would
@@ -156,6 +156,22 @@ jobs:
       - name: No credentials in tracked files
         if: matrix.part != 'release'
         run: ./scripts/check-no-secrets.sh
+
+      # The repository is public, and captures, receipts and scripts written
+      # on a worker's machine carried its scratch root and home into it
+      # (LOCAL-PATHS, 2026-11-09). The check refuses those paths by shape,
+      # never by one machine's name.
+      - name: No path of one machine in tracked files
+        if: matrix.part != 'release'
+        run: ./scripts/check-no-local-paths.sh
+
+      # The check plants every shape in every kind of file, and the forms
+      # that must pass, under the environment variables and config that
+      # could make it read another tree; one row per OS, as the other script
+      # tests, because it exercises the OS's bash and git.
+      - name: The local-path check refuses what it exists for
+        if: matrix.script_tests
+        run: ./scripts/test-check-no-local-paths.sh
 
       # BSD grep, on the macOS rows, puts GREP_OPTIONS in front of every
       # argument list, so a gate that decides by grep would decide by that
