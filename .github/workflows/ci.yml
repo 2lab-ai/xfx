@@ -218,42 +218,9 @@ jobs:
         if: matrix.part != 'checks'
         run: ./scripts/check-usage-clock.sh
 
-      # The restoration matrix the TUI gate drives has rows only a deliberate
-      # failure can reach, and it drives them against a *release* build of the
-      # same source. It is built in the shared target directory: `fault-injection`
-      # turns on no dependency feature, so every release dependency is a unit
-      # the step above already compiled, and only xfx itself (and rustix, whose
-      # test-only `pty` feature the steps above turned on) is compiled here.
-      # Its own `--target-dir` used to compile every dependency a second time,
-      # 2.5 of the x86_64 macOS row's minutes (PR #82). Cargo writes either
-      # feature set's binary to `target/release/xfx`, so this one is built
-      # first and copied out, and the next step's build replaces it there with
-      # the binary a release would ship. The copy is a new file, never one
-      # written over in place: on Apple silicon the kernel can kill a signed
-      # binary rewritten in place after it has run.
-      - name: Build the binary the restoration matrix drives
-        if: matrix.part != 'checks'
-        run: |
-          set -eu
-          cargo build --locked --release --features fault-injection
-          mkdir -p target/faulty
-          rm -f target/faulty/xfx
-          cp target/release/xfx target/faulty/xfx
-
-      # `cmp` holds the order above: if this build left the fault-injection
-      # binary where a release binary belongs, every check below would be
-      # checking the wrong program. The digests are the run's record of which
-      # bytes the two smoke steps drove.
       - name: Release build
         if: matrix.part != 'checks'
-        run: |
-          set -eu
-          cargo build --locked --release
-          if cmp -s target/release/xfx target/faulty/xfx; then
-            echo "target/release/xfx is the fault-injection build, not the release one" >&2
-            exit 1
-          fi
-          shasum -a 256 target/release/xfx target/faulty/xfx
+        run: cargo build --locked --release
 
       - name: Smoke the release binary
         if: matrix.part != 'checks'
@@ -268,12 +235,19 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      # The restoration matrix the TUI gate drives has rows only a deliberate
+      # failure can reach, and it drives them against a *release* build of the
+      # same source. Built into its own target directory so the binary the
+      # previous step smoked is still the one a release would ship.
+      - name: Build the binary the restoration matrix drives
+        if: matrix.part != 'checks'
+        run: cargo build --locked --release --features fault-injection --target-dir target/faulty
+
       - name: Smoke the TUI on a real terminal
         if: matrix.part != 'checks'
         run: |
-          shasum -a 256 target/release/xfx target/faulty/xfx
           ./scripts/smoke-tui.sh target/release/xfx \
-            --faulty target/faulty/xfx \
+            --faulty target/faulty/release/xfx \
             "${RUNNER_TEMP}/xfx-smoke-tui"
 
       - name: Keep the TUI evidence of a failed run
