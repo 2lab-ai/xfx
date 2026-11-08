@@ -33,6 +33,15 @@ where it ends whole. It runs before `expect` reads a snap and before the
 sweep compares, and a run that fails halfway leaves only rewritten files.
 `home`, `clipfile` and `reports` lose their own `sed`s for it.
 
+The sweep writes its committed summaries through `scripts/fxcap/redact.py`,
+which wrote any path under a local root as `<local-path>`: a row naming a
+run's HOME, `<scratch>/home/.fx/mcp.json`, would have become
+`<scratch><local-path>`. A path that continues one of these placeholders is
+now left as it is; a bare `>` (a redirect) is no placeholder and is still
+redacted (`Redaction.test_a_path_under_a_capture_placeholder_is_left_and_a_redirect_is_not`,
+red on the old redactor: `harness.txt`). Neither sweep's `summary.md` or
+`scoreboard.md` in section 2 held such a row.
+
 **Identical on both sides.** One function and one rule for fx's run and
 xfx's. In a sweep unit the two runs share one TMPDIR, so every root is as long
 on both sides. The two binaries' own TMPDIRs are the exception, `fxtmp` a byte
@@ -63,6 +72,10 @@ where it was on each, and the `fxtmp`/`xfxtmp` offset is the one byte it was.
   own TMPDIR name, the padded columns where they were.
 - `Placeholders.test_every_place_a_placeholder_is_written` now reads
   `<scenarios>`/`<bun>`/`<scratch>/home` where the snap used to hold the paths.
+- The `.ansi` link assertion applies where the frame holds an OSC 8 sequence
+  (tmux 3.7b here writes one; the sweep workflow installs Homebrew's stable
+  tmux); that no file holds a root is asserted unconditionally, and the
+  `.wire` assertion pins the link's target from the raw bytes.
 - RED: against `ccced1f5`'s capture.sh all three fail on a raw path; against
   `afbb866d`'s (the first version, which would not find a root right after an
   SGR sequence's `m`, i.e. a coloured path) the first fails. GREEN three runs
@@ -176,8 +189,14 @@ remaining hit is a placeholder home or a marked line, and the check passes.
 ## 5. Gate
 
 Every step of CI's gate job, and the sweep workflow's `test-sweep.sh`, at
-this receipt's own commit, one at a time under the suite lock: `gate.txt`
-(exit status, seconds, step). `gate.sh` is the script.
+`6b507197`, one at a time under the suite lock: 20 steps, 0 failed, the tree
+clean after; `cargo test` 5459 passed and with the fault injector 5497, 0
+failed (`gate.txt`, exit status, seconds, step; `gate.sh` is the script).
+`26d6c639` then changed `redact.py`, two tests and CHANGELOG.md only; at the
+receipt's last commit `test-sweep.sh`, RunRoots three times, and the four
+gates that read the tree (`check-no-local-paths`, `check-no-secrets`,
+`check-xfx-identity`, `check-no-stubs`) ran again (`gate.txt`, after the
+table).
 
 ## Left as it is
 

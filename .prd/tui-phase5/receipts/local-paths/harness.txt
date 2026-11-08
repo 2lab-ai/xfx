@@ -22,3 +22,13 @@ FAILED (failures=1)
 run 1: Ran 4 tests in 15.719s OK 
 run 2: Ran 4 tests in 15.908s OK 
 run 3: Ran 4 tests in 18.283s OK 
+
+== the redactor's new test against the committed (old) redact.py: RED
+FAIL: test_a_path_under_a_capture_placeholder_is_left_and_a_redirect_is_not (__main__.Redaction...)
+AssertionError: 'mcp <scratch><local-path>; ws <work><local-path>; log ><local-path>' != 'mcp <scratch>/home/.fx/mcp.json; ws <work>/home/a; log ><local-path>'
+FAILED (failures=1)
+
+== at 26d6c639 (the .ansi link assertion guarded): RunRoots + Placeholders, three runs
+run 1: Ran 4 tests in 17.550s OK
+run 2: Ran 4 tests in 15.929s OK
+run 3: Ran 4 tests in 17.768s OK
