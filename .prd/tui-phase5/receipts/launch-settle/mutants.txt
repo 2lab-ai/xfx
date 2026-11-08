@@ -48,3 +48,10 @@ C8 `harness_only` names nothing: KILLED (Capfile.test_nodraw_is_the_harness_test
 C9 the sweep runs a scenario with `nodraw`: KILLED (Sweep.test_a_scenario_with_nodraw_runs_nothing, exit 1: FAILED (failures=1))
 
 Round 2 total: 20 mutants, 20 killed; none NOT APPLIED.
+
+## LAUNCH-SETTLE-F: F1-F4, on a git clone --no-local at 9c01878f, the run holding one suite-lock slot; finished 2026-11-08 17:39 KST
+F1 an `xfx:` line runs on fx too: KILLED (Verbs.test_expect_on_one_side_only, exit 1: FAILED (failures=1))
+F2 an `fx:` line runs on xfx too: KILLED (Verbs.test_expect_on_one_side_only, exit 1: FAILED (failures=1))
+F3 `expect` never fails: KILLED (Verbs.test_expect_on_one_side_only, exit 1: FAILED (failures=1))
+F4 a relaunch does not arm the warning again: KILLED (Capfile.test_a_snap_inside_the_warnings_window_is_refused, exit 1: FAILED (failures=1))
+F4 alone at 40fdbc85, where the relaunch case's warning was never seen: SURVIVED (round-f.txt). Over all rounds, 24 mutants: round 2's 20 killed at f525e50c, F1-F4 killed at 9c01878f, while capture.sh, capfile.py and sweep.py, the files the 20 mutate, are the same at both.

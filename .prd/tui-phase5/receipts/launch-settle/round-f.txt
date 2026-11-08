@@ -1,0 +1,61 @@
+# LAUNCH-SETTLE-F: every run, each holding one suite-lock slot, one at a time (rf/run-f.sh, 2026-11-08 17:36-17:40 KST). Sweeps: 40x120, --jobs 2, fx v0.0.16 (sha256 8e6cda2e...), 9c01878f's harness and scenarios, xfx built at 9c01878f (row 1 v0.1.0-9c01878). Load 61-65, other workers' jobs.
+
+## the runs
+sweep f-1 exit 0 17:37:41
+sweep f-2 exit 0 17:38:24
+sweep f-3 exit 0 17:39:08
+test-sweep exit 0 17:39:41: Ran 69 tests in 8.591s OK Ran 26 tests in 24.123s OK 
+mutants F exit 0 17:39:54
+mutant F4 on 40fdbc85 exit 0 17:39:55
+all done
+sweep f-1: repo 9c01878f started 2026-11-08T17:37:01+09:00 load 60.92 to 61.52
+sweep f-2: repo 9c01878f started 2026-11-08T17:37:42+09:00 load 60.87 to 64.18
+sweep f-3: repo 9c01878f started 2026-11-08T17:38:25+09:00 load 64.49 to 64.85
+
+## the two scenarios, round 2's three head sweeps (f525e50c, no expect) against these three
+     p5-esc-clear/a-cleared: base normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-esc-clear/b-edit-escape: base unresolved-defect,unresolved-defect,unresolved-defect -> head unresolved-defect,unresolved-defect,unresolved-defect
+     p5-esc-clear/c-deleted: base unresolved-defect,unresolved-defect,unresolved-defect -> head unresolved-defect,unresolved-defect,unresolved-defect
+     p5-esc-clear/c-later: base normalized-identical,normalized-identical,normalized-identical -> head normalized-identical,normalized-identical,normalized-identical
+     p5-mcp-fail-held/held: base unresolved-defect,unresolved-defect,unresolved-defect -> head unresolved-defect,unresolved-defect,unresolved-defect
+drops: 0
+
+## every expect line of the three sweeps
+f-1 fx: expect held 'Loading tools…': the snap holds it
+f-1 fx: expect b-edit-escape 'beta twoxzz9': the snap holds it
+f-1 xfx: expect held 'Its tools couldn't load': the snap holds it
+f-1 xfx: expect b-edit-escape '┃ zz9': the snap holds it
+f-1 xfx: expect c-deleted 'esc again to clear': the snap holds it
+f-2 fx: expect held 'Loading tools…': the snap holds it
+f-2 fx: expect b-edit-escape 'beta twoxzz9': the snap holds it
+f-2 xfx: expect held 'Its tools couldn't load': the snap holds it
+f-2 xfx: expect b-edit-escape '┃ zz9': the snap holds it
+f-2 xfx: expect c-deleted 'esc again to clear': the snap holds it
+f-3 fx: expect held 'Loading tools…': the snap holds it
+f-3 fx: expect b-edit-escape 'beta twoxzz9': the snap holds it
+f-3 xfx: expect held 'Its tools couldn't load': the snap holds it
+f-3 xfx: expect b-edit-escape '┃ zz9': the snap holds it
+f-3 xfx: expect c-deleted 'esc again to clear': the snap holds it
+
+## p5-mcp-fail-held's timing, run by run (held_timing.py): round 2's three head sweeps and these three
+sweep-head-1 fx: launch to first frame 0.11 s; first frame to screen open 9.12 s; screen open 9.23 s after launch: 2.23 s after the try near 7 s, snap 4.77 s before the try near 15 s
+sweep-head-1 xfx: launch to first frame 0.11 s; first frame to screen open 9.12 s; screen open 9.23 s after launch: 2.23 s after the try near 7 s, snap 4.77 s before the try near 15 s
+sweep-head-2 fx: launch to first frame 0.10 s; first frame to screen open 9.14 s; screen open 9.24 s after launch: 2.24 s after the try near 7 s, snap 4.76 s before the try near 15 s
+sweep-head-2 xfx: launch to first frame 0.11 s; first frame to screen open 9.13 s; screen open 9.24 s after launch: 2.24 s after the try near 7 s, snap 4.76 s before the try near 15 s
+sweep-head-3 fx: launch to first frame 0.16 s; first frame to screen open 9.26 s; screen open 9.42 s after launch: 2.42 s after the try near 7 s, snap 4.58 s before the try near 15 s
+sweep-head-3 xfx: launch to first frame 0.11 s; first frame to screen open 9.13 s; screen open 9.24 s after launch: 2.24 s after the try near 7 s, snap 4.76 s before the try near 15 s
+sweep-f-1 fx: launch to first frame 0.11 s; first frame to screen open 9.15 s; screen open 9.26 s after launch: 2.26 s after the try near 7 s, snap 4.74 s before the try near 15 s
+sweep-f-1 xfx: launch to first frame 0.10 s; first frame to screen open 9.17 s; screen open 9.27 s after launch: 2.27 s after the try near 7 s, snap 4.73 s before the try near 15 s
+sweep-f-2 fx: launch to first frame 0.10 s; first frame to screen open 9.12 s; screen open 9.22 s after launch: 2.22 s after the try near 7 s, snap 4.78 s before the try near 15 s
+sweep-f-2 xfx: launch to first frame 0.10 s; first frame to screen open 9.14 s; screen open 9.24 s after launch: 2.24 s after the try near 7 s, snap 4.76 s before the try near 15 s
+sweep-f-3 fx: launch to first frame 0.11 s; first frame to screen open 9.13 s; screen open 9.24 s after launch: 2.24 s after the try near 7 s, snap 4.76 s before the try near 15 s
+sweep-f-3 xfx: launch to first frame 0.10 s; first frame to screen open 9.22 s; screen open 9.32 s after launch: 2.32 s after the try near 7 s, snap 4.68 s before the try near 15 s
+runs 12; smallest margin after the try before 2.22 s, before the try after 4.58 s
+
+## mutants F1-F4 (mutants.py, prefix F) on a git clone --no-local at 9c01878f
+F1 an `xfx:` line runs on fx too: KILLED (Verbs.test_expect_on_one_side_only, exit 1: FAILED (failures=1))
+F2 an `fx:` line runs on xfx too: KILLED (Verbs.test_expect_on_one_side_only, exit 1: FAILED (failures=1))
+F3 `expect` never fails: KILLED (Verbs.test_expect_on_one_side_only, exit 1: FAILED (failures=1))
+F4 a relaunch does not arm the warning again: KILLED (Capfile.test_a_snap_inside_the_warnings_window_is_refused, exit 1: FAILED (failures=1))
+## F4 alone on a clone at 40fdbc85 (the relaunch case before item 2)
+F4 a relaunch does not arm the warning again: SURVIVED (Capfile.test_a_snap_inside_the_warnings_window_is_refused, exit 0: OK)

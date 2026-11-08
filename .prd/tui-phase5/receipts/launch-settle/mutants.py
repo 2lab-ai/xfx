@@ -105,11 +105,33 @@ MUTANTS = [
      '    if stubs:\n        raise Refusal(',
      '    if False:\n        raise Refusal(',
      SWEEP + ["Sweep.test_a_scenario_with_nodraw_runs_nothing"]),
+    # LAUNCH-SETTLE-F (the reviews of 40fdbc85).
+    ("F1 an `xfx:` line runs on fx too", CAP,
+     "    'xfx: '*) [[ $which == xfx ]] && printf '%s' \"${line#xfx: }\" ;;\n",
+     "    'xfx: '*) printf '%s' \"${line#xfx: }\" ;;\n",
+     CAPTURE + ["Verbs.test_expect_on_one_side_only"]),
+    ("F2 an `fx:` line runs on xfx too", CAP,
+     "    'fx: '*) [[ $which == fx ]] && printf '%s' \"${line#fx: }\" ;;\n",
+     "    'fx: '*) printf '%s' \"${line#fx: }\" ;;\n",
+     CAPTURE + ["Verbs.test_expect_on_one_side_only"]),
+    ("F3 `expect` never fails", CAP,
+     '        if ! grep -qF -- "$text" "$frame"; then\n',
+     '        if false; then\n',
+     CAPTURE + ["Verbs.test_expect_on_one_side_only"]),
+    ("F4 a relaunch does not arm the warning again", CHECK,
+     '            if verb == "relaunch":\n                clock, frozen, seen, by_key = (0.0, 0.0) if at_launch else None, False, False, False\n',
+     '            if verb == "relaunch":\n                pass\n',
+     SWEEP + ["Capfile.test_a_snap_inside_the_warnings_window_is_refused"]),
 ]
 
+# `python3 -I mutants.py <clone> F` runs only the mutants whose name starts
+# with that prefix.
 
-def main(clone):
+
+def main(clone, prefix=""):
     for name, path, old, new, test in MUTANTS:
+        if not name.startswith(prefix):
+            continue
         full = os.path.join(clone, path)
         with open(full, encoding="utf-8") as f:
             text = f.read()
@@ -125,4 +147,4 @@ def main(clone):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else "")

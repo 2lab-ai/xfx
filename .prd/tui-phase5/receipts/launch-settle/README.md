@@ -26,7 +26,9 @@ sightings of registry #19 (timing flakes in the xfx tests and harness).
 | `f525e50c` | round 2 fixes: the two new scenarios, three ledger causes, the rule, the refusal |
 | `53a0fc11` | the `c-deleted` cause names fx's hint row too |
 | `f644afd7` | the round-2 receipt |
-| this one | `final-checks-r2.txt`, run at `f644afd7` |
+| `40fdbc85` | `final-checks-r2.txt`, run at `f644afd7`: the head train 7 takes |
+| `9c01878f` | LAUNCH-SETTLE-F, on `fix/p5-launch-settle-f`: the divergence snaps pinned per side, the relaunch case (section below) |
+| this one | the LAUNCH-SETTLE-F receipt |
 
 Round 2 answers the two reviews of `a0f7edef` (section "Round 2" below).
 
@@ -345,8 +347,10 @@ so the boundary is named in the cause, not snapped.
 **`p5-mcp-fail-held`: a tools request between two tries.** The failing
 server's screen opens near 9 s, two seconds after its try near 7 s and six
 before the one near 15 s, and is snapped a second later: fx `Loading tools…`,
-xfx `Its tools couldn't load: …`. The moment is defined for both: xfx
-answered at once, and fx's next try is about five seconds away.
+xfx `Its tools couldn't load: …`. xfx answered at once; fx's next try is
+seconds away. That margin is repeatedly observed, not guaranteed: the tries
+run on the binary's own clock (LAUNCH-SETTLE-F, below, times it on every
+run).
 - Cause `mcp-tools-at-a-reconnect`, owner MCP-HOLD, re-scoped: a tools
   request at a reconnect, which fx holds until the next try and xfx answers
   from the last failure.
@@ -433,8 +437,9 @@ The two reviews of `a0f7edef` approved the harness code with fixes.
   - It is now a parity divergence in the Sweep table and in the paragraphs
     after it.
   - `p5-mcp-fail.cap`'s comment says how each binary answers.
-  - `p5-mcp-fail-held` keeps the difference on a deterministic snap, opened
-    between two tries, as a cause owned by MCP-HOLD (re-scoped).
+  - `p5-mcp-fail-held` keeps the difference on a snap opened between two
+    tries, as a cause owned by MCP-HOLD (re-scoped). Its margins are
+    repeatedly observed, not guaranteed (LAUNCH-SETTLE-F).
 - **SHOULD: refuse `nodraw` in a scenario.** capfile.py `harness_only`; the
   sweep refuses before anything runs; `test_sweep.py` checks the repository.
   RED: `red-r2.txt`.
@@ -450,6 +455,73 @@ The two reviews of `a0f7edef` approved the harness code with fixes.
   the base runs for each (`round2.txt`, 0 drops); `test-capture.sh` ×3;
   the 20 mutants. A full sweep was not needed: only the harness, the check
   and these scenarios changed.
+
+## LAUNCH-SETTLE-F
+
+Both round-2 reviews approved `40fdbc85` with no MUST. This follow-up, on
+`fix/p5-launch-settle-f` from `40fdbc85`, takes their remaining items:
+- `9c01878f`: the tests and scenarios;
+- this receipt.
+
+`fix/p5-launch-settle` stays at `40fdbc85`.
+
+**1. The divergence snaps pinned per side** (opus r2 SHOULD 1).
+- The problem: a pair a `[[cause]]` names can flip under load and turn
+  identical. Nothing then shows it, because sweep.py's `cause_table`
+  (`:870-873`) counts a cause over unresolved pairs only.
+- The fix: each divergence snap now carries a per-side `expect` of its own
+  side's row. A `fx:` or `xfx:` line runs on that binary only (capture.sh
+  `for_this`, `:328-336`).
+  - `p5-esc-clear` `b-edit-escape`: `xfx: expect … ┃ zz9`,
+    `fx: expect … beta twoxzz9`.
+  - `c-deleted`: `xfx: expect … esc again to clear`.
+  - `p5-mcp-fail-held` `held`: `fx: expect held Loading tools…`,
+    `xfx: expect held Its tools couldn't load`.
+- `test_capture` `test_expect_on_one_side_only` pins it. On fx the run
+  passes and xfx's line does not run. On xfx, the line naming a row that
+  is not on its screen fails the run with the frame, and nothing after it
+  is snapped.
+- **RED → GREEN, each flip injected** (`flips-f.txt`). The three flips:
+  `wait 0.6` before (b)'s second Escape; `wait 0.6` before `c-deleted`;
+  `wait 7` before `held`.
+  - On `40fdbc85`'s scenario every flip runs to exit 0, and its pair has no
+    differing row.
+  - On `9c01878f`'s, the side that flipped fails at its own `expect`: xfx
+    for b and c, fx for `held`.
+- Unflipped, three sweeps of both scenarios under the lock (`round-f.txt`,
+  load 61-65): every `expect` holds (5 a run). The verdicts equal round 2's
+  three head sweeps pair for pair, with 0 drops.
+
+**2. The relaunch case discriminates again** (opus r2 SHOULD 2).
+- Since round 2, an unseen `until gone` counts nothing. So
+  `YOLO / wait 1 / until gone Full access / relaunch / wait 4 / snap start`
+  raced whether or not a relaunch re-arms the clock.
+- The case now sees the warning and counts it gone first (`until shown` and
+  `until gone`), so its race comes from the relaunch alone. Its twin without
+  the relaunch races nothing.
+- Mutant F4 removes the re-arm (`capfile.py:286-287` → `pass`). It is killed
+  at `9c01878f` and survives `40fdbc85`'s test (`round-f.txt`).
+
+**3. p5-mcp-fail-held's margins, timed on every run** (gpt6 r2 NTH).
+- `held_timing.py` reads each run's `up:` line (launch to first frame) and
+  the `until` of the server's screen (first frame to screen open).
+- Over round 2's three head sweeps and these three, 12 runs (`round-f.txt`):
+  - first frame 0.10 to 0.16 s;
+  - screen open 9.22 to 9.42 s after launch, so 2.22 s or more after the
+    try near 7 s;
+  - the snap a second later, 4.58 s or more before the try near 15 s.
+- So it is repeatedly observed with at least 2 s and 3.5 s of margin, not
+  deterministic. The tries run on the binary's own clock; the scenario's
+  header says so too.
+
+**Runs, under the lock** (`round-f.txt`):
+- the two scenarios ×3 on both binaries;
+- `test-sweep.sh`: test_sweep 69 OK, test_ci_sweep 26 OK;
+- mutants F1-F4, 4 of 4 killed (`mutants.txt`): F1 an `xfx:` line running
+  on fx; F2 an `fx:` line running on xfx; F3 `expect` never failing; F4
+  above.
+
+The file checks at the receipt head are in `final-checks-f.txt`.
 
 ## Registry #19
 
@@ -474,4 +546,5 @@ not edit it.
 - `waits.py`, `waits-base-1.txt`, `waits-head-1.txt`: every wait line of the full sweeps, tallied.
 - `mutants.py`, `mutants.txt`; `gates.sh`, `gate.txt`; `final-checks.txt`.
 - Round 2: `red-r2.txt`; `round2.txt` (the runs, the pairs, the causes, the waits); `final-checks-r2.txt`.
+- LAUNCH-SETTLE-F: `flips-f.txt`; `round-f.txt`; `held_timing.py`; `final-checks-f.txt`.
 - `redacted.py`: how the logs here were redacted.
