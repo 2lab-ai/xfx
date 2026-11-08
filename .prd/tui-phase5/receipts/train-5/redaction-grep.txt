@@ -1,0 +1,5 @@
+# The round 2 grep over every file of this receipt directory, wires and binary files included (-a): the uid fragment before a slash, the machine's scratch root's name, the system temporary root, the home root. Each pattern is spelt with a bracket class so it matches those strings and not this file's own text.
+$ grep -raoE -e '-50[1]/|claude-50[1]|/privat[e]/tmp|/User[s]/' .prd/tui-phase5/receipts/train-5 | wc -l
+0
+$ grep -rlaE -e '-50[1]/|claude-50[1]|/privat[e]/tmp|/User[s]/' .prd/tui-phase5/receipts/train-5
+(end of the list)

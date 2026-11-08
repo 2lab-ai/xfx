@@ -11,3 +11,5 @@ e636db48 | L-U1+U2 | 5183 | 50 | 42
 81a71203 | re-points | 5240 | 66 | 59
 150334d9 | join-test | 5241 | 66 | 59
 d6a10eeb | receipt-1 | 5241 | 66 | 59
+ffd53286 | r2-join-test | 5241 | 66 | 59
+f788dc54 | r2-receipt-1 | 5241 | 66 | 59
