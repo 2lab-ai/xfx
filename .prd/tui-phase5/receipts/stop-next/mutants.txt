@@ -1,0 +1,42 @@
+# python3 -I -B mutants.py <a --no-local clone> <target> <out>: TEST = cargo test --locked --lib -- tui:: per mutant, 900 s each.
+## The first run, at 9712d8b8 (the code head), inside one suite-lock slot (10:06:51Z to 10:16:55Z)
+ 1  KILLED    1-3: a start covered only below the stop's count (off by one)            tui::shell::tests::a_covered_start_read_after_a_settle_cleared_the_stop_is_still_the_stops ; tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_is_that_turns 
+ 2  KILLED    1-3: no start covered (the count ignored)                                tui::shell::tests::a_covered_start_read_after_a_settle_cleared_the_stop_is_still_the_stops ; tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_is_that_turns 
+ 3  KILLED    1-3: every start after a stop covered                                    tui::event_loop::tests::a_prompt_typed_before_a_stopped_turn_ends_is_reported_ahead_of_the_frame_that_shows_its_turn ; tui::event_loop::tests::a_prompt_typed_in_the_stops_read_shows_nothing_of_itself_until_its_turn_starts ; tui::event_loop::tests::a_stopped_turns_title_goes_out_ahead_of_the_next_prompts_working ; tui::event_loop::tests::a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report ; +7 more
+ 4  KILLED    1-3: a covered start does not let its end say what it came to            tui::shell::tests::a_covered_start_read_after_a_settle_cleared_the_stop_is_still_the_stops 
+ 5  SURVIVED  1-3: a covered start rings the turn-end bell                             exit 0
+ 6  KILLED    1-3: a covered start's card not written (the base)                       tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_is_that_turns 
+ 7  SURVIVED  1-3: the prompts numbered below a start not swept                        exit 0
+ 8  SURVIVED  1-3: a start takes the oldest entry, whatever its number (the base)      exit 0
+ 9  KILLED    1-3: a covered prompt still waiting (the base's stale entry)             tui::event_loop::tests::a_turn_that_finished_before_a_stop_that_dropped_the_prompt_behind_it_is_done ; tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_is_that_turns 
+10  KILLED    1-3: a turn's stop records no count                                      tui::event_loop::tests::a_turn_that_finished_before_a_stop_that_dropped_the_prompt_behind_it_is_done ; tui::shell::tests::a_covered_start_read_after_a_settle_cleared_the_stop_is_still_the_stops ; tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_is_that_turns 
+11  SURVIVED  1-3: a compaction's stop records no count                                exit 0
+12  KILLED    1-3: the band numbers a prompt before its submit                         tui::event_loop::tests::a_prompt_typed_in_the_stops_read_shows_nothing_of_itself_until_its_turn_starts ; tui::shell::tests::a_stop_pressed_after_the_runtime_took_the_next_prompt_is_that_turns ; tui::shell::tests::a_waiting_prompt_is_numbered_as_the_runtime_numbers_its_turn 
+13  KILLED    1-3: a handed-on steer unnumbered                                        tui::shell::tests::a_waiting_prompt_is_numbered_as_the_runtime_numbers_its_turn 
+14  KILLED    1-3: the runtime's number one past the item                              tui::worker::tests::a_concluded_turn_reaches_the_ui_through_a_channel_that_had_no_room_for_it ; tui::worker::tests::a_turns_start_names_its_submission_past_the_work_a_stop_dropped ; tui::worker::tests::a_turn_publishes_the_reply_before_its_conclusion_is_sent 
+15  KILLED    1-3: the runtime counts its turns, not the work it took                  tui::worker::tests::a_turns_start_names_its_submission_past_the_work_a_stop_dropped 
+16  KILLED    4: a prompt queued at once echoed at the keystroke (the base)            tui::event_loop::tests::a_prompt_typed_in_the_stops_read_shows_nothing_of_itself_until_its_turn_starts 
+17  KILLED    4: a held card shown waiting in the band                                 tui::shell::tests::a_prompt_queued_at_once_under_a_manual_compactions_row_is_not_shown_waiting 
+18  KILLED    5: no guard (the base)                                                   tui::shell::tests::a_second_stop_while_the_first_is_requested_does_nothing 
+19  KILLED    5: a manual compaction typed since held by the guard                     tui::shell::tests::work_typed_after_a_stop_that_is_not_a_turn_is_still_stopped_by_the_next_press 
+20  KILLED    5: a provider switch typed since held by the guard                       tui::shell::tests::work_typed_after_a_stop_that_is_not_a_turn_is_still_stopped_by_the_next_press 
+21  KILLED    5: a later turn's start does not take the stop back                      tui::shell::tests::the_ctrl_c_that_stopped_one_turn_does_not_end_the_session_on_the_next 
+22  SURVIVED  5: nothing in hand does not take the stop back                           exit 0
+23  KILLED    5: a turn's stop not recorded as requested                               tui::shell::tests::a_second_stop_while_the_first_is_requested_does_nothing 
+24  KILLED    5: a compaction's stop not recorded as requested                         tui::shell::tests::a_second_stop_while_the_first_is_requested_does_nothing 
+25  KILLED    6: the lead taken from whatever title is owed (the base)                 tui::event_loop::tests::a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report 
+26  KILLED    6: a later title keeps the stopped end's lead                            tui::event_loop::tests::a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report 
+# unmutated rc=0 test result: ok. 2789 passed; 0 failed; 5 ignored; 0 measured; 1652 filtered out; finished in 11.09s
+
+## The five survivors again, at d6be6c30 (9712d8b8 plus the four guard tests, tests only), inside one slot (10:20:27Z to 10:23:16Z)
+ 5  KILLED    1-3: a covered start rings the turn-end bell                             tui::shell::tests::the_turn_a_stop_took_from_the_runtime_rings_no_bell 
+ 7  KILLED    1-3: the prompts numbered below a start not swept                        tui::shell::tests::a_start_past_a_prompt_the_stop_dropped_is_its_own_prompts_turn 
+ 8  KILLED    1-3: a start takes the oldest entry, whatever its number (the base)      tui::shell::tests::a_start_past_a_prompt_the_stop_dropped_is_its_own_prompts_turn ; tui::worker::tests::a_switch_to_ask_mid_turn_gates_that_turns_next_tool_call 
+11  KILLED    1-3: a compaction's stop records no count                                tui::shell::tests::a_prompt_behind_a_stopped_automatic_compaction_is_no_work 
+22  KILLED    5: nothing in hand does not take the stop back                           tui::shell::tests::a_stop_whose_work_has_all_ended_holds_no_later_press 
+# unmutated rc=0 test result: ok. 2793 passed; 0 failed; 5 ignored; 0 measured; 1652 filtered out; finished in 10.91s
+
+# Row 8's second failing test, tui::worker::tests::a_switch_to_ask_mid_turn_gates_that_turns_next_tool_call, is a worker test the
+# shell mutation does not touch, and it passed in the unmutated run of the same clone right after; read as a timing failure under
+# another job's load [inferred, not reproduced]. The row's kill is the shell test before it.
+# 26 of 26 killed: 21 in the first run, the other 5 at d6be6c30; 0 NOCOMPILE, 0 SKIP, 0 hang.

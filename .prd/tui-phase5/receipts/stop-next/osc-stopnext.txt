@@ -1,0 +1,75 @@
+# p5-lifecycle-osc-stopnext, three runs of each build against fx's three runs (../stop-late-event/fx*/; the stable claim)
+
+## xfx (9712d8b)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  xfx  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  xfx  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  xfx  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  xfx  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every xfx wire carries v0.1.0-9712d8b and no other banner
+4 wire pairs, 0 failing claims
+# exit 0
+
+## xfx-run2 (9712d8b)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  xfx-run2  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  xfx-run2  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  xfx-run2  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  xfx-run2  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every xfx-run2 wire carries v0.1.0-9712d8b and no other banner
+4 wire pairs, 0 failing claims
+# exit 0
+
+## xfx-run3 (9712d8b)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  xfx-run3  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  xfx-run3  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  xfx-run3  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  xfx-run3  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every xfx-run3 wire carries v0.1.0-9712d8b and no other banner
+4 wire pairs, 0 failing claims
+# exit 0
+
+## base (8c5e9e1)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  base  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  base  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  base  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  base  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every base wire carries v0.1.0-8c5e9e1 and no other banner
+FAIL prompt p5-lifecycle-osc-stopnext-40x120 s01-second: a frame showing the stop's prompt before each report: [False, False, False, False] on fx, [False, False, False, True] on base
+FAIL prompt p5-lifecycle-osc-stopnext-40x120 s02-done: a frame showing the stop's prompt before each report: [False, False, False, False, True] on fx, [False, False, False, True, False] on base
+FAIL prompt p5-lifecycle-osc-stopnext-40x120 s03-exit: a frame showing the stop's prompt before each report: [False, False, False, False, True] on fx, [False, False, False, True, False] on base
+4 wire pairs, 3 failing claims
+# exit 1
+
+## base-run2 (8c5e9e1)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  base-run2  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  base-run2  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  base-run2  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  base-run2  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every base-run2 wire carries v0.1.0-8c5e9e1 and no other banner
+FAIL prompt p5-lifecycle-osc-stopnext-40x120 s01-second: a frame showing the stop's prompt before each report: [False, False, False, False] on fx, [False, False, False, True] on base-run2
+FAIL prompt p5-lifecycle-osc-stopnext-40x120 s02-done: a frame showing the stop's prompt before each report: [False, False, False, False, True] on fx, [False, False, False, True, False] on base-run2
+FAIL prompt p5-lifecycle-osc-stopnext-40x120 s03-exit: a frame showing the stop's prompt before each report: [False, False, False, False, True] on fx, [False, False, False, True, False] on base-run2
+4 wire pairs, 3 failing claims
+# exit 1
+
+## base-run3 (8c5e9e1)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  base-run3  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  base-run3  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  base-run3  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  base-run3  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every base-run3 wire carries v0.1.0-8c5e9e1 and no other banner
+FAIL prompt p5-lifecycle-osc-stopnext-40x120 s01-second: a frame showing the stop's prompt before each report: [False, False, False, False] on fx, [False, False, False, True] on base-run3
+FAIL prompt p5-lifecycle-osc-stopnext-40x120 s02-done: a frame showing the stop's prompt before each report: [False, False, False, False, True] on fx, [False, False, False, True, False] on base-run3
+FAIL prompt p5-lifecycle-osc-stopnext-40x120 s03-exit: a frame showing the stop's prompt before each report: [False, False, False, False, True] on fx, [False, False, False, True, False] on base-run3
+4 wire pairs, 3 failing claims
+# exit 1
+
+## offsets on each s03-exit wire (bytes), from the stop's idle: the Cancelled line, the stopped turn's title, the prompt's text, its working, the first Thinking after the stop
+stop-late-event/fx       idle @1256  Cancelled @1340  title @1404  'second question' @1480  working @1423  Thinking @1520
+stop-late-event/fx-run2  idle @1256  Cancelled @1340  title @1404  'second question' @1480  working @1423  Thinking none
+stop-late-event/fx-run3  idle @1256  Cancelled @1340  title @1404  'second question' @1480  working @1423  Thinking none
+stop-next/base           idle @797  Cancelled @883  title @1127  'second question' @987  working @1146  Thinking @1211
+stop-next/base-run2      idle @797  Cancelled @883  title @1127  'second question' @987  working @1146  Thinking @1211
+stop-next/base-run3      idle @797  Cancelled @883  title @1127  'second question' @987  working @1146  Thinking @1211
+stop-next/xfx            idle @797  Cancelled @883  title @969  'second question' @1070  working @988  Thinking @1131
+stop-next/xfx-run2       idle @797  Cancelled @883  title @969  'second question' @1070  working @988  Thinking @1129
+stop-next/xfx-run3       idle @797  Cancelled @883  title @969  'second question' @1070  working @988  Thinking @1131

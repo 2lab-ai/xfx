@@ -1,0 +1,36 @@
+# python3 -I -B wire_mutants.py <this dir> <scratch> 9712d8b
+== unchanged wires: exit 0, 0 failing claims
+== mutant: the prompt's working behind the frame that shows its Thinking (round 1's order)
+   exit 1, 3 failing claims
+   FAIL order p5-lifecycle-osc-stopnext-40x120 s01-second: working [3] after Thinking: [False] on fx, [True] on xfx
+   FAIL activity p5-lifecycle-osc-stopnext-40x120 s01-second: a frame showing the turn's activity before each working: [True, False] on fx, [True, True] on xfx
+== mutant: the same, on the exit's wire
+   exit 1, 3 failing claims
+   FAIL order p5-lifecycle-osc-stopnext-40x120 s03-exit: working [3] after Thinking: [False] on fx, [True] on xfx
+   FAIL activity p5-lifecycle-osc-stopnext-40x120 s03-exit: a frame showing the turn's activity before each working: [True, False] on fx, [True, True] on xfx
+== mutant: the stopped turn's end reported as its failure
+   exit 1, 1 failing claims
+   FAIL same p5-lifecycle-osc-stopnext-40x120 s03-exit: fx ['state=idle:app=<program>', 'state=working:app=<program>', 'state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<program>
+== mutant: the stopped turn working again, then failed
+   exit 1, 3 failing claims
+   FAIL activity p5-lifecycle-osc-stopnext-40x120 s03-exit: a frame showing the turn's activity before each working: [True, False] on fx, [True, False, False] on xfx
+   FAIL title p5-lifecycle-osc-stopnext-40x120 s03-exit: a window title since the report before each working: [False, True] on fx, [False, False, True] on xfx
+== mutant: an fx run whose working follows the prompt's frame
+   exit 1, 1 failing claims
+   FAIL stable fx-run2 p5-lifecycle-osc-stopnext-40x120 s03-exit: (['state=idle:app=<program>', 'state=working:app=<program>', 'state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<
+== mutant: the stopped turn's title behind the next prompt's working (round 2's order)
+   exit 1, 1 failing claims
+   FAIL title p5-lifecycle-osc-stopnext-40x120 s03-exit: a window title since the report before each working: [False, True] on fx, [False, False] on xfx
+== mutant: the same, on the second's wire
+   exit 1, 1 failing claims
+   FAIL title p5-lifecycle-osc-stopnext-40x120 s01-second: a window title since the report before each working: [False, True] on fx, [False, False] on xfx
+== mutant: an fx run whose title follows the next working
+   exit 1, 1 failing claims
+   FAIL stable fx-run2 p5-lifecycle-osc-stopnext-40x120 s03-exit: (['state=idle:app=<program>', 'state=working:app=<program>', 'state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<
+== mutant: the prompt typed in the stop's read on the stop's Cancelled frame (the base)
+   exit 1, 1 failing claims
+   FAIL prompt p5-lifecycle-osc-stopnext-40x120 s03-exit: a frame showing the stop's prompt before each report: [False, False, False, False, True] on fx, [False, False, False, True, True] on xfx
+== mutant: an fx run with the prompt on its Cancelled frame
+   exit 1, 1 failing claims
+   FAIL stable fx-run2 p5-lifecycle-osc-stopnext-40x120 s03-exit: (['state=idle:app=<program>', 'state=working:app=<program>', 'state=idle:app=<program>', 'state=working:app=<program>', 'state=done:app=<
+# exit 0
