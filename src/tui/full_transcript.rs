@@ -76,6 +76,7 @@
 //!   presentation (`writeCommittedFilePresentation`,
 //!   `app_session_runtime.zig:4978`).
 
+use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -481,7 +482,9 @@ const FOUR_CELLS: &str = "    ";
 /// * and the Arabic letter mark (`U+061C`), which fx writes as itself, is
 ///   `\u{061c}` too: it reorders the text around it as the marks fx names do
 ///   (`approval_view`'s `reorders`; `scripts/fxcap/parity-ledger.toml`,
-///   `ctrl-o-command-marks`).
+///   `ctrl-o-command-marks`);
+/// * and so is a character a terminal draws wider than it is counted
+///   ([`drawn_wider_named`]), which fx also writes as itself.
 ///
 /// A command's output reaches this after [`command_stream`] has done what
 /// fx's decoder does with its escapes and carriage returns; what is left of
@@ -495,17 +498,19 @@ fn detail_spelled(text: &str, tab: &str) -> String {
         if index > 0 {
             out.push('\n');
         }
+        let mut spelled_line = String::with_capacity(line.len());
         for (index, piece) in line.split('\t').enumerate() {
             if index > 0 {
-                out.push_str(tab);
+                spelled_line.push_str(tab);
             }
             let spelled = crate::tools::question::terminal_safe(piece);
             if spelled.contains('\u{061c}') {
-                out.push_str(&spelled.replace('\u{061c}', "\\u{061c}"));
+                spelled_line.push_str(&spelled.replace('\u{061c}', "\\u{061c}"));
             } else {
-                out.push_str(&spelled);
+                spelled_line.push_str(&spelled);
             }
         }
+        out.push_str(&drawn_wider_named(&spelled_line));
     }
     out
 }
@@ -1793,7 +1798,14 @@ impl FullTranscript {
     /// header calls it -- [`Self::lay_out`] without the header.
     fn content(&self, entry: &Entry, cols: u16, palette: Palette) -> (Option<Kind>, Vec<String>) {
         match &entry.body {
-            Body::Prompt(text) => (Some(Kind::Prompt), card(text, cols, palette)),
+            // A prompt's row is a frame's here, and written with the anchor
+            // after a glyph with a variation selector: named, as an answer's
+            // are (`p5-ctrlo-wider-inline-fam` `ctrlo`). `/trace` lists what
+            // was typed.
+            Body::Prompt(text) => (
+                Some(Kind::Prompt),
+                card(&drawn_wider_named(text), cols, palette),
+            ),
             Body::Response(events) => (Some(Kind::Response), answer(events, cols, palette)),
             Body::Notice(notice) => (
                 Some(if notice.tone == Tone::Error {
@@ -2565,11 +2577,11 @@ fn walked(row: &str, cols: u16, style: &str, reset: &str) -> Vec<String> {
 ///   point). They count apart for a skin-tone modifier after no emoji,
 ///   which fx counts as none and a terminal draws two cells wide, so fx's
 ///   row runs past the margin where this one breaks before it
-///   (`parity-ledger.toml`'s `filler-modifier-count`); and for the scalars
-///   `super::drawn_wider` lists, which this measure counts fewer cells than
-///   fx and a terminal do, so a row holding one can still run past the
-///   margin here as it could before (`ctrl-o-drawn-wider-raw`, owner
-///   CTRLO-WIDER). They cut apart in a cluster of two characters fx counts a
+///   (`parity-ledger.toml`'s `filler-modifier-count`). A scalar a terminal
+///   draws wider than this measure and fx both count it
+///   (`super::drawn_wider`) never reaches here: a file's line names it
+///   ([`terminal_safe_line`]'s `drawn_wider_named`). They cut apart in a
+///   cluster of two characters fx counts a
 ///   cell or more each, conjoining jamo (`U+1100 U+1161`), which fx may cut
 ///   between them where this keeps the cluster whole.
 ///
@@ -2688,7 +2700,123 @@ fn terminal_safe_line(line: &str) -> String {
             out.push(character);
         }
     }
-    out
+    drawn_wider_named(&out).into_owned()
+}
+
+/// `text` with every character a terminal was measured drawing wider than
+/// xfx -- and fx v0.0.16 -- counts it written `\u{NNNN}`, as fx writes a mark
+/// it names (`writeCodepointEscape`, `text_utils.zig:688-701@481104fd`): what
+/// `super::drawn_wider` lists, but `U+FE0F` after a character that takes an
+/// emoji presentation and such a character with its `U+FE0F` after it, which
+/// both terminals draw at the two cells xfx counts (`super::approval_view`'s
+/// `agreed_presentation`, the review's rule); and one that takes no cell right
+/// after a tab, which the row's walker draws nowhere, as fx's does
+/// (`full_transcript_screen.zig:4017-4034@481104fd`).
+///
+/// fx writes them as themselves on this screen. Copied, a file's or a tool's
+/// line does not read here as it holds: tmux 3.7b draws `U+261D`, `U+26F9`,
+/// `U+270C`-`U+270D`, `U+1F3CB`-`U+1F3CC`, `U+1F574`-`U+1F575`, `U+1F590`
+/// two cells and `U+E0002`-`U+E001F` one, libghostty-vt `U+2E3A`-`U+2E3B`
+/// two, where both count one or none, and tmux a letter or a soft hyphen
+/// with `U+FE0F` after it two, where both count one; so the cells after one
+/// stand right of where the frame holds them, a row that ends at the margin
+/// by the count runs past it, and the anchor after the next glyph with a
+/// variation selector (`super::grid`'s `put_unit`, upstream's own) puts the
+/// cursor back over glyphs already drawn, which the glyphs after it then
+/// overwrite. `p5-ctrlo-wider-diff-fam`'s line 2,
+/// `fam ☝ ⸺ 🖐 x` U+E0002 `y a` U+FE0F `b`, reads `fam ☝ ⸺ 🖐 x` U+E0002
+/// `b` on tmux under fx and under the bytes xfx wrote before this, and
+/// `fam ☝ ⸺ 🖐 xy b` on libghostty-vt (`.prd/tui-phase5/receipts/ctrlo-wider/`;
+/// `scripts/fxcap/parity-ledger.toml`, `ctrl-o-drawn-wider-named`).
+///
+/// **Display only, and on every surface that writes the model's or a file's
+/// text through a frame or as the document's rows:** a file's or a tool's line
+/// here, an answer -- prose, a code panel, a table's cells, operational text
+/// -- in the document and on this screen, and a prompt's row on this screen
+/// ([`shown_event`]; `super::shell`'s `present`). What is kept is the text as
+/// written: the journal, the reply `/copy` copies (`WorkHandle::last_reply`)
+/// and the events this screen records (`FullTranscript::presented`) are untouched,
+/// and only the rows drawn from them name. An escape sequence the presenter
+/// wrote (a colour, an OSC 8 link) is passed over whole, so a link's target is
+/// never rewritten; a character on either side of one is not taken as the
+/// other's neighbour.
+pub(crate) fn drawn_wider_named(text: &str) -> Cow<'_, str> {
+    use std::fmt::Write as _;
+    if text.is_ascii() || !text.chars().any(super::drawn_wider::drawn_wider) {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len() + 16);
+    // The character before this one, when it was written as itself.
+    let mut before: Option<char> = None;
+    let mut rest = text;
+    while !rest.is_empty() {
+        if let Some(len) = super::pacer::escape_at(rest) {
+            out.push_str(&rest[..len]);
+            rest = &rest[len..];
+            before = None;
+            continue;
+        }
+        let Some(character) = rest.chars().next() else {
+            break;
+        };
+        rest = &rest[character.len_utf8()..];
+        let agreed = if character == '\u{fe0f}' {
+            before.is_some_and(super::approval_view::agreed_presentation)
+        } else {
+            rest.starts_with('\u{fe0f}') && super::approval_view::agreed_presentation(character)
+        };
+        let undrawn = before == Some('\t') && wrap::width(character.encode_utf8(&mut [0; 4])) == 0;
+        if super::drawn_wider::drawn_wider(character) && !agreed && !undrawn {
+            let _ = write!(out, "\\u{{{:04x}}}", u32::from(character));
+            before = None;
+        } else {
+            out.push(character);
+            before = Some(character);
+        }
+    }
+    Cow::Owned(out)
+}
+
+/// `event` as a row of an answer shows it: every character a terminal draws
+/// wider than it is counted named ([`drawn_wider_named`]) in its prose, its
+/// code and its label and its table's cells, before any of them is laid
+/// out, so the rows
+/// are measured as they are drawn. Display only; the event the screen records
+/// is the presenter's (`FullTranscript::presented`).
+///
+/// fx v0.0.16 writes an answer's text as itself, and the rows lose glyphs on
+/// both measured terminals (`p5-ctrlo-wider-inline-fam`, xfx at `88c2fec1`
+/// like fx: a U+261D at the margin dropped on tmux 3.7b, a U+2E3A on
+/// libghostty-vt, four U+261D in front costing the row its `TAIL` on tmux,
+/// and on this screen's rows the anchor after a glyph with a variation
+/// selector writing over `y a`; `.prd/tui-phase5/receipts/ctrlo-wider/`,
+/// `red-r2.txt`): unsafe to copy, as a file's line is
+/// (`scripts/fxcap/parity-ledger.toml`, `answer-drawn-wider-named`).
+pub(crate) fn shown_event(event: markdown::Event) -> markdown::Event {
+    let named = |text: String| match drawn_wider_named(&text) {
+        Cow::Borrowed(_) => text,
+        Cow::Owned(named) => named,
+    };
+    match event {
+        markdown::Event::Text(text) => markdown::Event::Text(named(text)),
+        markdown::Event::CodeBlock(mut block) => {
+            block.code = named(std::mem::take(&mut block.code));
+            // The fence's word, drawn into the panel's header rule
+            // (`blocks::append_code_panel_header`): the model's too. A
+            // language name that resolves is ASCII and stays.
+            block.language = named(std::mem::take(&mut block.language));
+            markdown::Event::CodeBlock(block)
+        }
+        markdown::Event::Table(mut table) => {
+            for row in &mut table.rows {
+                for cell in &mut row.cells {
+                    *cell = named(std::mem::take(cell));
+                }
+            }
+            markdown::Event::Table(table)
+        }
+        markdown::Event::ThematicRule => markdown::Event::ThematicRule,
+    }
 }
 
 /// fx's `isNonPrintingCodepoint` (`text_utils.zig:703-708@481104fd`).
@@ -2767,7 +2895,7 @@ fn answer(events: &[markdown::Event], cols: u16, palette: Palette) -> Vec<String
         light: palette.mode == Mode::Light,
     };
     for event in events {
-        writer.present(event.clone());
+        writer.present(shown_event(event.clone()));
     }
     writer.close();
     drained(writer.transcript, palette)
@@ -3846,6 +3974,89 @@ mod tests {
         for (line, row, why) in table {
             assert_eq!(terminal_safe_line(line), *row, "{why}");
         }
+    }
+
+    #[test]
+    fn a_character_a_terminal_draws_wider_than_it_is_counted_is_named_in_a_files_line() {
+        // `p5-ctrlo-wider-diff-fam`'s line 2: fx writes each as itself, and
+        // tmux 3.7b and libghostty-vt draw the row with glyphs lost
+        // (.prd/tui-phase5/receipts/ctrlo-wider/): named here, as the review
+        // names them (`approval_view`'s `tamed`).
+        let line =
+            "fam \u{261d} \u{2e3a} \u{1f590} x\u{e0002}y a\u{fe0f}b \u{ad}\u{fe0f}c \u{2065}f end";
+        let named = "fam \\u{261d} \\u{2e3a} \\u{1f590} x\\u{e0002}y a\\u{fe0f}b \u{ad}\\u{fe0f}c \\u{2065}f end";
+        assert_eq!(terminal_safe_line(line), named);
+        assert_eq!(detail_spelled(line, FOUR_CELLS), named);
+        assert_eq!(detail_spelled(line, "\t"), named);
+        // What both terminals draw at the two cells xfx counts stays: an
+        // emoji base with its selector, a selector after one, a flag, a
+        // keycap. (A joiner is fx's own `\u{200d}`, `isNonPrintingCodepoint`.)
+        for kept in [
+            "\u{261d}\u{fe0f} up",
+            "\u{2600}\u{fe0f} sun",
+            "\u{2764}\u{fe0f}",
+            "\u{1f1f0}\u{1f1f7}",
+            "#\u{fe0f}\u{20e3}",
+        ] {
+            assert_eq!(terminal_safe_line(kept), kept, "{kept:?}");
+            assert_eq!(detail_spelled(kept, FOUR_CELLS), kept, "{kept:?}");
+        }
+        // A selector right after a tab is drawn nowhere by the row's walker,
+        // as fx's is (`full_transcript_screen.zig:4017-4034@481104fd`); after
+        // the four cells an argument's tab becomes, it follows a space.
+        assert_eq!(terminal_safe_line("x\t\u{fe0f}y"), "x\t\u{fe0f}y");
+        assert_eq!(detail_spelled("x\t\u{fe0f}y", "\t"), "x\t\u{fe0f}y");
+        assert_eq!(
+            detail_spelled("x\t\u{fe0f}y", FOUR_CELLS),
+            "x    \\u{fe0f}y"
+        );
+        // Every scalar between two letters: named exactly when the table
+        // holds it, where fx's spelling leaves it as itself.
+        let mut wrong = Vec::new();
+        for code in 0x20..0x11_0000u32 {
+            let Some(c) = char::from_u32(code) else {
+                continue;
+            };
+            if code == 0x7f || (0x80..=0x9f).contains(&code) || fx_names(code) || c == '\u{61c}' {
+                continue;
+            }
+            let line = format!("a{c}b");
+            let want = if super::super::drawn_wider::drawn_wider(c) {
+                format!("a\\u{{{code:04x}}}b")
+            } else {
+                line.clone()
+            };
+            if terminal_safe_line(&line) != want || detail_spelled(&line, FOUR_CELLS) != want {
+                wrong.push(format!("U+{code:04X}"));
+            }
+        }
+        assert_eq!(wrong, Vec::<String>::new());
+    }
+
+    #[test]
+    fn an_escape_sequence_in_an_answers_text_is_passed_over_whole() {
+        // An answer's prose comes to `shown_event` rendered, with its colours
+        // and its OSC 8 links (`markdown::Event::Text`): a link's target is
+        // never rewritten, while the same glyph in its text is named.
+        let link = |target: &str, text: &str| {
+            format!("\u{1b}]8;;{target}\u{1b}\\{text}\u{1b}]8;;\u{1b}\\")
+        };
+        let target = "https://x.io/\u{261d}";
+        assert_eq!(
+            drawn_wider_named(&link(target, "\u{261d} up")),
+            link(target, "\\u{261d} up")
+        );
+        // A colour between a glyph and a U+FE0F: the selector is not the
+        // glyph's, so both are named, and the colour stands as it was.
+        assert_eq!(
+            drawn_wider_named("\u{1b}[1m\u{261d}\u{1b}[0m\u{fe0f}"),
+            "\u{1b}[1m\\u{261d}\u{1b}[0m\\u{fe0f}"
+        );
+        // And an emoji base with its selector stays, inside a colour.
+        assert_eq!(
+            drawn_wider_named("\u{1b}[1m\u{261d}\u{fe0f}\u{1b}[0m"),
+            "\u{1b}[1m\u{261d}\u{fe0f}\u{1b}[0m"
+        );
     }
 
     #[test]
@@ -5880,6 +6091,17 @@ mod tests {
                 json!({"path": "plain.txt"}),
                 read("plain.txt"),
                 None,
+            ),
+            // A character a terminal draws wider than it is counted
+            // (`super::drawn_wider`): the heading holds it raw, as fx's
+            // does, and the argument row names it (`drawn_wider_named`), so
+            // the value is not found in the heading and its row stays -- the
+            // name is on the screen once.
+            (
+                "read_file",
+                json!({"path": "\u{261d}x\u{2e3a}.txt"}),
+                read("\u{261d}x\u{2e3a}.txt"),
+                Some(r"│  path: \u{261d}x\u{2e3a}.txt"),
             ),
         ] {
             let mut record = record();

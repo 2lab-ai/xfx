@@ -10831,6 +10831,209 @@ fn slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it() {
     assert_eq!(session.wait_exit().code(), Some(0));
 }
 
+/// The text of every assistant message in a captured Gateway request body.
+fn assistant_messages(body: &Value) -> Vec<String> {
+    body["prompt"]
+        .as_array()
+        .expect("the request carries a prompt")
+        .iter()
+        .filter(|message| message["role"] == "assistant")
+        .filter_map(|message| message["content"].as_array())
+        .flat_map(|parts| parts.iter())
+        .filter_map(|part| part["text"].as_str())
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn a_reply_a_terminal_draws_wider_is_named_on_the_screen_and_kept_as_written_everywhere_else() {
+    // CTRLO-WIDER: an answer's characters a terminal draws wider than they
+    // are counted (`src/tui/drawn_wider.rs`) are named where they are drawn
+    // (`full_transcript::shown_event`), and nowhere else. Through the real
+    // binary and a reply the model sent, not one put in the handle: the
+    // session's log, `/copy`, `/trace`'s turns, a resume's `/copy` and the
+    // history the next request carries hold the model's text byte for byte;
+    // the screen, the resumed screen and `/trace`'s timeline (the screen's
+    // rows) hold the names; the timeline's prompt is the prompt as typed.
+    let reply = "fam \u{261d} \u{2e3a} x\u{e0002}y a\u{fe0f}b end";
+    let named = r"fam \u{261d} \u{2e3a} x\u{e0002}y a\u{fe0f}b end";
+    let prompt = "ask \u{261d} now";
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[reply])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-SECOND"])),
+    ]);
+    let clipboard = support::fake_clipboard::FakeClipboard::new();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    clipboard.first_on_path(&mut command);
+    clipboard.reports_into(&mut command);
+    let mut first = Session::spawn_without_taking_the_terminal(&pty, command);
+    first.wait_for(READY);
+    first.type_bytes(format!("{prompt}\r").as_bytes());
+    wait_for_the_turn_to_conclude(&sandbox);
+    on_screen(&first, (40, 120), &[named], &["fam \u{261d}"]);
+
+    // The log: the reply as the model sent it.
+    let ids = sandbox.session_ids();
+    assert_eq!(ids.len(), 1, "{ids:?}");
+    let log = std::fs::read_to_string(sandbox.sessions_dir().join(&ids[0]).join("events.jsonl"))
+        .expect("the log");
+    let logged: Vec<String> = log
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|frame| frame["event"]["kind"] == "assistant_message")
+        .filter_map(|frame| frame["event"]["text"].as_str().map(str::to_string))
+        .collect();
+    assert_eq!(logged, vec![reply.to_string()], "{log}");
+
+    // `/copy`: the model's bytes.
+    first.type_bytes(b"/copy\r");
+    first.wait_for("Copied to clipboard.");
+    assert_eq!(
+        clipboard.copied().expect("the clipboard was written"),
+        reply.as_bytes()
+    );
+
+    // `/trace`: its turns are the session's (raw), its timeline the screen's
+    // rows (named), and the timeline's prompt the prompt as typed.
+    first.type_bytes(b"/trace\r");
+    first.wait_for(if cfg!(target_os = "macos") {
+        "Trace copied to clipboard."
+    } else {
+        "Trace saved at"
+    });
+    let reports = clipboard.reports();
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    let report = std::fs::read_to_string(&reports[0]).expect("the report");
+    for needle in [
+        format!("\n  user:\n    {prompt}\n"),
+        format!("\n  assistant:\n    {reply}\n"),
+        format!("] user\n  {prompt}\n"),
+        format!("] assistant\n  {named}\n"),
+    ] {
+        assert!(report.contains(&needle), "{needle:?} is not in:\n{report}");
+    }
+    first.type_bytes(&[0x04]);
+    assert_eq!(first.wait_exit().code(), Some(0));
+
+    // A resume: the replayed answer is named on the screen, and `/copy`
+    // copies the reply the log holds.
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut resumed = tui_with(&sandbox, &gateway);
+    clipboard.first_on_path(&mut resumed);
+    resumed.arg("--resume").arg(&ids[0]);
+    let mut second = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    second.wait_for(READY);
+    second.wait_for("session resumed:");
+    on_screen(&second, (40, 120), &[named], &["fam \u{261d}"]);
+    second.type_bytes(b"/copy\r");
+    second.wait_for("Copied to clipboard.");
+    assert_eq!(
+        clipboard.copied().expect("the clipboard was written"),
+        reply.as_bytes(),
+        "a resumed /copy"
+    );
+
+    // The next request carries the reply as the model wrote it.
+    second.type_bytes(b"second question\r");
+    second.wait_for("MARKER-SECOND");
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 2, "two turns, two requests");
+    assert_eq!(
+        assistant_messages(&requests[1].json()),
+        vec![reply.to_string()],
+        "the history the model was sent"
+    );
+    wait_for_conclusions(&sandbox, 2);
+    second.type_bytes(&[0x04]);
+    assert_eq!(second.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_code_panels_label_a_terminal_draws_wider_is_named_on_the_screen_and_kept_as_written_everywhere_else(
+) {
+    // xfx's own contract, not an fx capture: fx v0.0.16 draws a fence's word
+    // raw into the panel's header rule, and `p5-ctrlo-wider-fence` measures
+    // what that loses. The label is named where it is drawn
+    // (`full_transcript::shown_event`, CTRLO-WIDER-F) and nowhere else: the
+    // session's log, `/copy` and the history the next request carries hold
+    // the fence as the model wrote it; the screen and a resumed screen hold
+    // the name.
+    let label = "\u{261d}x\u{2e3a}";
+    let named = r"\u{261d}x\u{2e3a}";
+    let reply = format!("```{label}\nPANEL-BODY\n```");
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[&reply])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-SECOND"])),
+    ]);
+    let clipboard = support::fake_clipboard::FakeClipboard::new();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    clipboard.first_on_path(&mut command);
+    let mut first = Session::spawn_without_taking_the_terminal(&pty, command);
+    first.wait_for(READY);
+    first.type_bytes(b"show a panel\r");
+    wait_for_the_turn_to_conclude(&sandbox);
+    let header = format!("\u{2500} {named} \u{2500}");
+    on_screen(&first, (40, 120), &[&header, "PANEL-BODY"], &[label]);
+
+    let ids = sandbox.session_ids();
+    assert_eq!(ids.len(), 1, "{ids:?}");
+    let log = std::fs::read_to_string(sandbox.sessions_dir().join(&ids[0]).join("events.jsonl"))
+        .expect("the log");
+    let logged: Vec<String> = log
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|frame| frame["event"]["kind"] == "assistant_message")
+        .filter_map(|frame| frame["event"]["text"].as_str().map(str::to_string))
+        .collect();
+    assert_eq!(logged, vec![reply.clone()], "{log}");
+
+    first.type_bytes(b"/copy\r");
+    first.wait_for("Copied to clipboard.");
+    assert_eq!(
+        clipboard.copied().expect("the clipboard was written"),
+        reply.as_bytes()
+    );
+    first.type_bytes(&[0x04]);
+    assert_eq!(first.wait_exit().code(), Some(0));
+
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut resumed = tui_with(&sandbox, &gateway);
+    clipboard.first_on_path(&mut resumed);
+    resumed.arg("--resume").arg(&ids[0]);
+    let mut second = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    second.wait_for(READY);
+    second.wait_for("session resumed:");
+    on_screen(&second, (40, 120), &[&header, "PANEL-BODY"], &[label]);
+    second.type_bytes(b"/copy\r");
+    second.wait_for("Copied to clipboard.");
+    assert_eq!(
+        clipboard.copied().expect("the clipboard was written"),
+        reply.as_bytes(),
+        "a resumed /copy"
+    );
+
+    second.type_bytes(b"second question\r");
+    second.wait_for("MARKER-SECOND");
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 2, "two turns, two requests");
+    assert_eq!(
+        assistant_messages(&requests[1].json()),
+        vec![reply.clone()],
+        "the history the model was sent"
+    );
+    wait_for_conclusions(&sandbox, 2);
+    second.type_bytes(&[0x04]);
+    assert_eq!(second.wait_exit().code(), Some(0));
+}
+
 // -- /image, /images, /paste --------------------------------------------------
 
 /// Upstream's capture fixture (`shot.png`, a 4x4 red PNG, 73 bytes).

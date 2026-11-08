@@ -1,0 +1,28 @@
+| scenario | snap | base (eeb0f7a7's code), rows differing | head (9730ac86's code), rows differing | head's rows covered by |
+|---|---|---|---|---|
+| h1-resize | large | unresolved-defect (8) | unresolved-defect (8) | - |
+| h1-resize | small | unresolved-defect (10) | unresolved-defect (10) | - |
+| h1-resize | start | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff | closed | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff | edited | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff | full | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | closed | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | edited | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-diff-fam | full | approved-divergence (14) | approved-divergence (14) | ctrl-o-drawn-wider-named |
+| p5-ctrlo-wider-fence | answer | unresolved-defect (1) | approved-divergence (3) | answer-label-and-modifier-named |
+| p5-ctrlo-wider-fence | ctrlo | normalized-identical (0) | approved-divergence (3) | answer-label-and-modifier-named |
+| p5-ctrlo-wider-inline | answer | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline | composer | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline | margin | normalized-identical (0) | normalized-identical (0) | - |
+| p5-ctrlo-wider-inline-fam | answer | approved-divergence (11) | approved-divergence (11) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | composer | approved-divergence (11) | approved-divergence (11) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | ctrlo | approved-divergence (12) | approved-divergence (12) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | ctrlo-resized | approved-divergence (8) | approved-divergence (8) | answer-drawn-wider-named |
+| p5-ctrlo-wider-inline-fam | margin | approved-divergence (12) | approved-divergence (12) | answer-drawn-wider-named, inline-band-row-anchor |
+| p5-ctrlo-wider-inline-fam | prompt | approved-divergence (12) | approved-divergence (12) | answer-drawn-wider-named, inline-band-row-anchor |
+| p5-ctrlo-wider-inline-fam | resized | unresolved-defect (23) | unresolved-defect (23) | answer-drawn-wider-named, inline-band-row-anchor |
+| p5-ctrlo-wider-mod | answer | approved-divergence (19) | approved-divergence (19) | answer-label-and-modifier-named |
+| p5-ctrlo-wider-mod | more | approved-divergence (15) | approved-divergence (15) | answer-label-and-modifier-named |
+| p5-ctrlo-wider-ri | answer | unresolved-defect (2) | unresolved-defect (2) | - |
+| p5-ctrlo-wider-ri | erased | unresolved-defect (2) | unresolved-defect (2) | - |
+| p5-ctrlo-wider-ri | typed | unresolved-defect (2) | unresolved-defect (2) | - |

@@ -1,0 +1,51 @@
+x𝒇x v0.1.0-0b4807b [debug] · Run /help for commands
+
+┃ go
+
+  p1 ؅١ কা a〮 ｶﾞ 🇦 🇰🇷 🇦🇦 xy end
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwa〮a〮TA
+  IL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwকা
+  TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+  TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww🇦
+  TAIL5678
+
+  0s (↑1 ↓40)
+
+┃ wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwa〮a〮
+┃ TAIL
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--- cells
+row 1: 2:U+1D487/n 28:U+00B7/n
+row 3: 1:U+2503/n
+row 5: 6:U+0605+U+0661/w 7:/s 9:U+0995+U+09BE/w 10:/s 12:U+0061+U+302E/w 13:/s 15:U+FF76+U+FF9E/w 16:/s 18:U+1F1E6/w 19:/s 21:U+1F1F0+U+1F1F7/w 22:/s 24:U+1F1E6+U+1F1E6/w 25:/s
+row 7: 113:U+0061+U+302E/w 114:/s 115:U+0061+U+302E/w 116:/s
+row 10: 119:U+0995+U+09BE/w 120:/s
+row 16: 119:U+1F1E6/w 120:/s
+row 19: 7:U+2191/n 10:U+2193/n
+row 21: 1:U+2503/n 115:U+0061+U+302E/w 116:/s 117:U+0061+U+302E/w 118:/s
+row 22: 1:U+2503/n
+row 24: 6:U+00B7/n

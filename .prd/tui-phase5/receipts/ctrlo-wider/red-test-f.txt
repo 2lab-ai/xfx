@@ -1,0 +1,25 @@
+# RED, CTRLO-WIDER-F: the code panel label test on eeb0f7a7's product code (only the test added)
+
+running 1 test
+test tui::shell::tests::a_code_panels_label_names_what_a_terminal_draws_wider ... FAILED
+
+failures:
+
+---- tui::shell::tests::a_code_panels_label_names_what_a_terminal_draws_wider stdout ----
+
+thread 'tui::shell::tests::a_code_panels_label_names_what_a_terminal_draws_wider' (322476882) panicked at src/tui/shell.rs:37738:9:
+the document's panel header: [
+    "  ─ fam☝⸺🖐x\u{e0002}ya\u{fe0f}b ─",
+    "  plain code",
+    "  ──────────────",
+    "",
+    "  0s (↑1 ↓11)",
+    "",
+]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::shell::tests::a_code_panels_label_names_what_a_terminal_draws_wider
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4384 filtered out; finished in 0.02s

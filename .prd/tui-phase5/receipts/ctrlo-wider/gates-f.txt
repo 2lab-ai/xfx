@@ -1,0 +1,145 @@
+# gates at b69d8023, 2026-11-08T03:28:50Z; git status --short: 0 entries
+## fmt
+$ cargo fmt --check
+exit 0, 2 s
+
+## clippy
+$ cargo clippy --locked --all-targets -- -D warnings
+exit 0, 27 s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 26.92s
+
+## clippy-fault
+$ cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+exit 0, 20 s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 20.16s
+
+## test
+$ /private/tmp/claude-501/bin/suite-lock.sh cargo test --locked --no-fail-fast
+exit 0, 210 s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.34s
+test result: ok. 4378 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 51.59s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.40s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.18s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.66s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.74s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.18s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.17s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.80s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.18s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.73s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+test result: ok. 177 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.93s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+## test-fault
+$ /private/tmp/claude-501/bin/suite-lock.sh cargo test --locked --features fault-injection --no-fail-fast
+exit 0, 204 s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 37.18s
+test result: ok. 4401 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 59.58s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.00s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.76s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.23s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.11s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.36s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.52s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.78s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+test result: ok. 191 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 25.73s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+## identity
+$ scripts/check-xfx-identity.sh
+exit 0, 1 s
+check-xfx-identity: ok (13246 tracked file(s) scanned)
+
+## no-stubs
+$ scripts/check-no-stubs.sh
+exit 0, 13 s
+check-no-stubs: ok
+
+## no-secrets
+$ scripts/check-no-secrets.sh
+exit 0, 28 s
+check-no-secrets: ok (13246 tracked file(s) scanned)
+
+## preview-contract
+$ scripts/check-preview-contract.sh
+exit 0, 7 s
+check-preview-contract: ok (.github/workflows/preview.yml)
+
+## preflight-cost
+$ scripts/check-tui-preflight-cost.sh
+exit 0, 136 s
+check-tui-preflight-cost: ok
+
+## usage-clock
+$ scripts/check-usage-clock.sh
+exit 0, 5 s
+check-usage-clock: ok
+
+## test-no-secrets
+$ scripts/test-check-no-secrets.sh
+exit 0, 116 s
+test-check-no-secrets: ok clean              exit 0
+test-check-no-secrets: ok first-batch        exit 1
+test-check-no-secrets: ok last-batch         exit 1
+test-check-no-secrets: ok dash-n-name        exit 1
+test-check-no-secrets: ok unreadable-middle  exit 1
+test-check-no-secrets: ok grep-options       exit 1
+test-check-no-secrets: ok grep-signal        exit 1
+test-check-no-secrets: ok grep-126           exit 1
+test-check-no-secrets: ok grep-127           exit 1
+test-check-no-secrets: ok every-file         exit 1
+test-check-no-secrets: ok every-file-set     3472 of 3472 keys, each once
+test-check-no-secrets: ok nothing-tracked    exit 1
+test-check-no-secrets: ok only-a-symlink     exit 1
+test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
+
+## test-gate-env
+$ scripts/test-gate-env.sh
+exit 0, 110 s
+test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code
+test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command
+test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break
+test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
+test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
+test-gate-env: ok (5 cases)
+
+## test-preview-contract
+$ scripts/test-preview-contract.sh
+exit 0, 56 s
+test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+
+## test-sweep
+$ scripts/fxcap/test-sweep.sh
+exit 0, 31 s
+
+## test-capture
+$ scripts/fxcap/test-capture.sh
+exit 0, 428 s
+
+## release
+$ cargo build --locked --release
+exit 0, 19 s
+    Finished `release` profile [optimized] target(s) in 18.86s
+
+## faulty
+$ cargo build --locked --release --features fault-injection --target-dir target/faulty
+exit 0, 53 s
+    Finished `release` profile [optimized] target(s) in 52.44s
+
+## smoke
+$ scripts/smoke.sh target/release/xfx /private/tmp/claude-501/cw/smoke-f/smoke
+exit 0, 10 s
+
+## smoke-tui
+$ /private/tmp/claude-501/bin/suite-lock.sh scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx /private/tmp/claude-501/cw/smoke-f/smoke-tui
+exit 0, 76 s
+
+# done 2026-11-08T03:54:42Z

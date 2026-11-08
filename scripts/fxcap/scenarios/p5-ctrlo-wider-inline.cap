@@ -1,0 +1,30 @@
+# Phase 5 (CTRLO-WIDER): the scalars of p5-ctrlo-wider-diff in an answer
+# (the inline transcript, 118 cells of text a row) and in the composer: the
+# short line, then four paragraphs that reach a row's last cell by fx's count
+# (`a` U+302E twice, U+0995 U+09BE, U+E0000, U+1F1E6, each before
+# `TAIL5678`); then the short line typed, and 112 `w`, `a` U+302E twice and
+# `TAIL`, which reaches the composer's last cell by fx's count. `cursor` says
+# where the caret is.
+gateway p5-ctrlo-wider-inline-turns.json
+fx: env FX_AUTO_UPGRADE=0
+keep
+until shown Run /help for commands
+type go
+wait 1
+key Enter
+until shown w🇦
+until gone Generating (
+snap answer
+wire answer
+type p1 ؅١ কা a〮 ｶﾞ 🇦 🇰🇷 🇦🇦 x󠀀y end
+until shown ┃ p1
+snap composer
+cursor composer
+wire composer
+key C-u
+type wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwa〮a〮TAIL
+until shown ┃ wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwa
+snap margin
+cursor margin
+wire margin
+gwlog

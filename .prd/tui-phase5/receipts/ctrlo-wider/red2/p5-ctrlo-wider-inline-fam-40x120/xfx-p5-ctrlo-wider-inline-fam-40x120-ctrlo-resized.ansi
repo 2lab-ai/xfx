@@ -1,0 +1,40 @@
+  [38;5;250mfinish: stop[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-08 07:38:12.182 KST · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 61ms[39m
+  [38;5;250mfinish: stop[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-08 07:38:06.402 KST · Prompt[39m
+[38;5;255m┃[39m [1mgo[0m
+
+[38;5;245m  2026-11-08 07:38:06.511 KST · Response[39m
+  fam ☝ ⸺ 🖐 x󠀂b  c  d  e ⁥f end
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww☝TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww⸺TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww TAIL5678
+
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww󠀂zTAIL5678
+
+  ☝☝☝☝wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwTAILwwwwwwwwwwwwwwww
+  END
+
+[38;5;245m  2026-11-08 07:38:07.116 KST · Usage[39m
+[38;5;245m  0s (↑1 ↓40)[39m
+
+[38;5;245m  2026-11-08 07:38:12.082 KST · Prompt[39m
+[38;5;255m┃[39m [1mfam ☝ ⸺ 🖐 x󠀂b [0m [1mc [0m [1md [0m [1me ⁥f end[0m
+
+[38;5;245m  2026-11-08 07:38:12.228 KST · Response[39m
+  Spare.
+
+[38;5;245m  2026-11-08 07:38:12.228 KST · Usage[39m
+[38;5;245m  0s (↑16 ↓40)[39m
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m

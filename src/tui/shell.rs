@@ -9538,7 +9538,7 @@ impl Shell {
             Mark::Amendment(text) => self.write_card(&text, &BadgeLinks::new(), &SkillRuns::new()),
             Mark::Operational(text) => {
                 self.full.presented(&markdown::Event::Text(text.clone()));
-                self.write_prose(&text);
+                self.write_prose(&full_transcript::drawn_wider_named(&text));
             }
             Mark::Notice(notice) => self.write_notice(&notice),
             Mark::Block(rows, _) => self.write_block(&rows),
@@ -12849,8 +12849,14 @@ impl Shell {
     }
 
     /// One thing the presenter completed, in the shape upstream gives it.
+    ///
+    /// The screen records the event as the presenter made it; the document
+    /// is given it as an answer's rows show it
+    /// ([`full_transcript::shown_event`]: a character a terminal draws wider
+    /// than it is counted, named).
     fn present(&mut self, event: markdown::Event) {
         self.full.presented(&event);
+        let event = full_transcript::shown_event(event);
         let cols = self.geometry.cols;
         match event {
             markdown::Event::Text(text) => self.write_prose(&text),
@@ -37956,6 +37962,131 @@ mod tests {
         shell.apply(UiEvent::Delta("All done.\n".into()));
         shell.apply(UiEvent::TurnEnded { failure: None });
         shell.shell.flush_paced();
+    }
+
+    /// `p5-ctrlo-wider-inline-fam`'s family: characters a terminal draws
+    /// wider than xfx and fx count them (`super::drawn_wider`), raw and as
+    /// the screen names them, with an emoji base and its `U+FE0F` that both
+    /// terminals draw at the two cells counted, which stays.
+    const FAMILY_RAW: &str =
+        "fam \u{261d} \u{2e3a} \u{1f590} x\u{e0002}y a\u{fe0f}b \u{2e3b} up \u{261d}\u{fe0f} end";
+    const FAMILY_NAMED: &str =
+        r"fam \u{261d} \u{2e3a} \u{1f590} x\u{e0002}y a\u{fe0f}b \u{2e3b} up ☝️ end";
+
+    #[test]
+    fn an_answers_characters_a_terminal_draws_wider_are_named_on_the_screen_and_kept_as_written() {
+        // Display only: the document's row and Ctrl-O's Response row name
+        // them; the reply `/copy` puts on the clipboard is the model's text,
+        // byte for byte (`WorkHandle::last_reply`, the journal's). Written
+        // raw, the rows lose glyphs on tmux 3.7b and libghostty-vt
+        // (.prd/tui-phase5/receipts/ctrlo-wider/, `measure.txt`).
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = running("go");
+        shell.copies = Copies::new(tool.clipboard());
+        shell.apply(UiEvent::Delta(format!(
+            "{FAMILY_RAW}\n\n```\n{FAMILY_RAW}\n```\n\n| cell |\n|---|\n| {FAMILY_RAW} |\n\n"
+        )));
+        shell.apply(UiEvent::Operational(format!("{FAMILY_RAW}\n")));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        let document: Vec<String> = shell.document().iter().map(|row| colourless(row)).collect();
+        let named: Vec<&String> = document
+            .iter()
+            .filter(|row| row.contains(FAMILY_NAMED))
+            .collect();
+        assert_eq!(
+            named.len(),
+            4,
+            "the prose, the code panel, the table's cell and the operational line: {document:#?}"
+        );
+        assert!(
+            !document
+                .iter()
+                .any(|row| row.contains("\u{261d} ") || row.contains('\u{2e3a}')),
+            "a raw character a terminal draws wider: {document:#?}"
+        );
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        assert!(
+            screen
+                .iter()
+                .filter(|row| row.contains(FAMILY_NAMED))
+                .count()
+                >= 3,
+            "Ctrl-O's Response rows: {screen:#?}"
+        );
+        assert!(
+            !screen.iter().any(|row| row.contains('\u{2e3a}')),
+            "{screen:#?}"
+        );
+        shell.route_bytes(b"\x0f");
+        shell.work.replied(FAMILY_RAW);
+        shell.route_bytes(b"/copy\r");
+        let _ = copy_settled(&mut shell);
+        assert_eq!(
+            tool.copied().expect("the clipboard tool was fed"),
+            FAMILY_RAW.as_bytes()
+        );
+    }
+
+    #[test]
+    fn a_prompts_characters_a_terminal_draws_wider_are_named_on_ctrl_o() {
+        // Ctrl-O's Prompt row is a frame's row, written with the anchor after
+        // a glyph with a variation selector, which a scalar drawn wider
+        // before it turns into an overwrite (`p5-ctrlo-wider-inline-fam`
+        // `ctrlo`: `y a` lost on tmux, `a` on libghostty-vt): named there.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(FAMILY_RAW.as_bytes());
+        shell.route_bytes(b"\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Delta("Spare.\n".into()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        let _ = shell.written();
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        assert!(
+            screen
+                .iter()
+                .any(|row| row == &format!("\u{2503} {FAMILY_NAMED}")),
+            "{screen:#?}"
+        );
+    }
+
+    #[test]
+    fn a_code_panels_label_names_what_a_terminal_draws_wider() {
+        // The fence's word is the model's too, drawn into the panel's header
+        // rule (`blocks::append_code_panel_header`): on Ctrl-O's frame rows
+        // the anchor after `a` U+FE0F writes over what a wider glyph before
+        // it pushed right (`p5-ctrlo-wider-fence` `ctrlo`). Named there and
+        // in the document, as the code under it is.
+        let label = "fam\u{261d}\u{2e3a}\u{1f590}x\u{e0002}ya\u{fe0f}b";
+        let named = r"fam\u{261d}\u{2e3a}\u{1f590}x\u{e0002}ya\u{fe0f}b";
+        let mut shell = running("go");
+        shell.apply(UiEvent::Delta(format!("```{label}\nplain code\n```\n")));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        let header = format!("\u{2500} {named} \u{2500}");
+        let document: Vec<String> = shell.document().iter().map(|row| colourless(row)).collect();
+        assert!(
+            document.iter().any(|row| row.contains(&header)),
+            "the document's panel header: {document:#?}"
+        );
+        assert!(
+            !document.iter().any(|row| row.contains('\u{261d}')),
+            "{document:#?}"
+        );
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        assert!(
+            screen.iter().any(|row| row.contains(&header)),
+            "Ctrl-O's panel header: {screen:#?}"
+        );
+        assert!(
+            !screen.iter().any(|row| row.contains('\u{261d}')),
+            "{screen:#?}"
+        );
     }
 
     #[test]

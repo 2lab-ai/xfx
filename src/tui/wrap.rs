@@ -605,7 +605,10 @@ pub(crate) fn cluster_width(cluster: &str) -> u16 {
 ///
 /// **A cluster that holds a soft hyphen or a Hangul filler takes the cells
 /// upstream counts** ([`counted_as_upstream`]), where the width table counts
-/// them as none.
+/// them as none; **and so does one that holds a scalar a terminal was measured
+/// drawing wider than the width table counted it, where upstream counts it
+/// wider too** ([`FX_COUNTED`]: `U+302E` after a letter, a vowel sign such as
+/// Bengali `U+09BE`, a regional indicator).
 fn cluster_cells(cluster: &str) -> usize {
     if cluster == "\t" {
         return usize::from(TAB_WIDTH);
@@ -613,7 +616,10 @@ fn cluster_cells(cluster: &str) -> usize {
     if cluster.chars().all(char::is_control) {
         return 0;
     }
-    if cluster.chars().any(counted_as_upstream) {
+    if cluster
+        .chars()
+        .any(|character| counted_as_upstream(character) || fx_counted(character))
+    {
         return upstream_cells(cluster).max(cluster.width());
     }
     let mut chars = cluster.chars();
@@ -623,10 +629,18 @@ fn cluster_cells(cluster: &str) -> usize {
     cluster.width()
 }
 
-/// A cluster holding one of [`counted_as_upstream`]'s code points, counted
-/// one code point at a time as upstream counts a line
-/// ([`crate::markdown::display_width`]) -- but no code point under the width
-/// table's own count of it.
+/// A cluster holding one of [`counted_as_upstream`]'s or [`FX_COUNTED`]'s
+/// code points, counted a display unit at a time as upstream counts a line
+/// (`displayUnitAt`, `src/core/shared/display_width.zig:234-263@481104fd`;
+/// [`crate::markdown::display_width::display_unit_at`] is its port): an RGI
+/// emoji sequence whole, a character and its variation selector together,
+/// and every other code point alone -- but no unit under the width table's
+/// own count of it.
+///
+/// A unit, not a code point, for the regional indicators: upstream counts one
+/// alone as two cells (`emoji_presentation_ranges`,
+/// `unicode_display_data.zig:204@481104fd`) and a pair that is an RGI flag as
+/// two cells whole, so a flag counted a code point at a time would be four.
 ///
 /// The one place the two disagree in such a cluster is a skin-tone modifier
 /// (`U+1F3FB`-`U+1F3FF`): upstream counts it as none wherever it stands (a
@@ -636,19 +650,33 @@ fn cluster_cells(cluster: &str) -> usize {
 /// modifier after it is three cells on tmux 3.7b, where upstream's count is
 /// one (`.prd/tui-phase5/receipts/width-disputed/clusters.txt`). Every other
 /// code point these clusters were measured with -- the 14, `U+0301`,
-/// `U+FE0E`, `U+034F`, `U+200D`, the jamo -- the table counts no more than
-/// upstream does, so for them this is upstream's count exactly.
+/// `U+FE0E`, `U+034F`, `U+200D`, the jamo, and every scalar of
+/// [`FX_COUNTED`] -- the table counts no more than upstream does, so for them
+/// this is upstream's count exactly.
 fn upstream_cells(cluster: &str) -> usize {
-    let mut buf = [0u8; 4];
-    cluster
-        .chars()
-        .map(|character| {
-            let upstream = crate::markdown::display_width::visible_width(
-                character.encode_utf8(&mut buf).as_bytes(),
-            );
-            upstream.max(unicode_width::UnicodeWidthChar::width(character).unwrap_or(0))
-        })
-        .sum()
+    let bytes = cluster.as_bytes();
+    let mut cells = 0;
+    let mut index = 0;
+    while index < bytes.len() {
+        let unit = crate::markdown::display_width::display_unit_at(bytes, index);
+        // A unit of a valid `str` ends on a character boundary; walked on to
+        // one regardless, so a slice here can never split a character.
+        let mut end = (index + unit.byte_len.max(1)).min(bytes.len());
+        while !cluster.is_char_boundary(end) {
+            end += 1;
+        }
+        let text = &cluster[index..end];
+        let mut chars = text.chars();
+        let table = match (chars.next(), chars.next()) {
+            (Some(character), None) => {
+                unicode_width::UnicodeWidthChar::width(character).unwrap_or(0)
+            }
+            _ => text.width(),
+        };
+        cells += unit.cell_width.max(table);
+        index = end;
+    }
+    cells
 }
 
 /// Whether a cluster holding `character` is counted as upstream counts it --
@@ -687,10 +715,12 @@ fn upstream_cells(cluster: &str) -> usize {
 /// that takes no emoji presentation, which tmux widens by a cell when the
 /// character before it draws narrower than two cells: `U+115F U+FE0F` stays
 /// two, as `U+115F` alone does, where `U+1160 U+FE0F` and `U+3164 U+FE0F`
-/// take one (clusters.txt). It is `super::drawn_wider`'s `U+FE0F`; the
-/// ledger's `ctrl-o-drawn-wider-raw`, owner CTRLO-WIDER, owns it on Ctrl-O,
-/// in the inline transcript and in the composer, and says only naming
-/// closes it.
+/// take one (clusters.txt). It is `super::drawn_wider`'s `U+FE0F`, which
+/// fx counts as this does: no count closes it. A file's or a tool's line on
+/// Ctrl-O names it (`super::full_transcript`'s `drawn_wider_named`), the
+/// review names it, and an answer and the composer write it as fx does
+/// (`scripts/fxcap/parity-ledger.toml`, `ctrl-o-drawn-wider-named`;
+/// `.prd/tui-phase5/receipts/ctrlo-wider/`).
 ///
 /// **It is more than they draw, often**, and that is upstream's count kept
 /// rather than a terminal's: `U+1160` one cell and `U+3164` two where both
@@ -714,6 +744,56 @@ fn counted_as_upstream(character: char) -> bool {
         u32::from(character),
         0x00ad | 0x115f | 0x1160 | 0x3164 | 0xffa0 | 0xfff0..=0xfff8
     )
+}
+
+/// The scalars a terminal was measured to draw wider than xfx counted them
+/// and that upstream counts as more cells than xfx did, one code point at a
+/// time: 3,838 in 64 ranges, first and last code point, in order.
+///
+/// Read off `super::drawn_wider`'s sweep before it was taken again
+/// (`scripts/drawn-wider/sweep.sh` at `e6cde019`, the 3,881 scalars that table
+/// listed then), set against upstream's own count of each alone (`runeWidth`,
+/// `src/core/shared/display_width.zig:275-282@481104fd`):
+/// `.prd/tui-phase5/receipts/ctrlo-wider/`. They are combining and spacing
+/// marks the width table counts as none or as part of the character before
+/// them (`U+0605`, `U+09BE`, `U+302E`, `U+FF9E`, ...), the regional
+/// indicators `U+1F1E6`-`U+1F1FF` (one cell alone to the width table, two to
+/// upstream, which holds them in `emoji_presentation_ranges`,
+/// `unicode_display_data.zig:204@481104fd`), and the unassigned
+/// default-ignorable `U+E0000`, `U+E0080`-`U+E00FF` and `U+E01F0`-`U+E0FFF`.
+/// Upstream's count of every one of them is no less than either terminal
+/// draws it.
+#[rustfmt::skip]
+pub(super) const FX_COUNTED: [(u32, u32); 64] = [
+    (0x00605, 0x00605), (0x0070f, 0x0070f), (0x00890, 0x00891), (0x008e2, 0x008e2), (0x009be, 0x009be),
+    (0x009d7, 0x009d7), (0x00b3e, 0x00b3e), (0x00b57, 0x00b57), (0x00bbe, 0x00bbe), (0x00bd7, 0x00bd7),
+    (0x00cc0, 0x00cc0), (0x00cc2, 0x00cc2), (0x00cc7, 0x00cc8), (0x00cca, 0x00ccb), (0x00cd5, 0x00cd6),
+    (0x00d3e, 0x00d3e), (0x00d4e, 0x00d4e), (0x00d57, 0x00d57), (0x00dcf, 0x00dcf), (0x00ddf, 0x00ddf),
+    (0x01715, 0x01715), (0x01734, 0x01734), (0x01b35, 0x01b35), (0x01b3b, 0x01b3b), (0x01b3d, 0x01b3d),
+    (0x01b43, 0x01b44), (0x01baa, 0x01baa), (0x01bf2, 0x01bf3), (0x0302e, 0x0302f), (0x0a8fa, 0x0a8fa),
+    (0x0a953, 0x0a953), (0x0a9c0, 0x0a9c0), (0x0ff9e, 0x0ff9f), (0x111c0, 0x111c0), (0x111c2, 0x111c3),
+    (0x11235, 0x11235), (0x1133e, 0x1133e), (0x1134d, 0x1134d), (0x11357, 0x11357), (0x113b8, 0x113b8),
+    (0x113c2, 0x113c2), (0x113c5, 0x113c5), (0x113c7, 0x113c9), (0x113cf, 0x113cf), (0x113d1, 0x113d1),
+    (0x114b0, 0x114b0), (0x114bd, 0x114bd), (0x115af, 0x115af), (0x116b6, 0x116b6), (0x11930, 0x11930),
+    (0x1193d, 0x1193d), (0x1193f, 0x1193f), (0x11941, 0x11941), (0x11a84, 0x11a89), (0x11d46, 0x11d46),
+    (0x11f02, 0x11f02), (0x11f41, 0x11f41), (0x16ff0, 0x16ff1), (0x1d165, 0x1d166), (0x1d16d, 0x1d172),
+    (0x1f1e6, 0x1f1ff), (0xe0000, 0xe0000), (0xe0080, 0xe00ff), (0xe01f0, 0xe0fff),
+];
+
+/// Whether `character` is one of [`FX_COUNTED`]'s.
+fn fx_counted(character: char) -> bool {
+    let code = u32::from(character);
+    FX_COUNTED
+        .binary_search_by(|&(first, last)| {
+            if last < code {
+                std::cmp::Ordering::Less
+            } else if first > code {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
+        .is_ok()
 }
 
 /// The cells the composer's gutter takes in front of every row, the first
@@ -1409,6 +1489,250 @@ mod tests {
             Vec::<(String, usize, usize, usize)>::new(),
             "(cluster, painter, tmux, libghostty-vt)"
         );
+    }
+
+    /// The `[` `]` and `a` `b` forms `super::drawn_wider`'s sweep and the
+    /// tests here measure a scalar in.
+    fn framed(character: char) -> (usize, usize) {
+        (
+            usize::from(width(&format!("[{character}]"))) - 2,
+            usize::from(width(&format!("a{character}b"))) - 2,
+        )
+    }
+
+    #[test]
+    fn the_scalars_a_terminal_drew_wider_take_the_cells_fx_counts() {
+        // fx counts each alone (`runeWidth`,
+        // `src/core/shared/display_width.zig:275-282@481104fd`; the port,
+        // `crate::markdown::display_width`, the oracle here), between two
+        // markers and between two letters alike: `U+0605` joins the
+        // character after it and `U+302E` the one before it in a cluster,
+        // and still takes its own cells.
+        let mut scalars = 0;
+        let mut wrong = Vec::new();
+        for &(first, last) in &FX_COUNTED {
+            for code in first..=last {
+                let character = char::from_u32(code).expect("a scalar");
+                let fx =
+                    crate::markdown::display_width::visible_width(character.to_string().as_bytes());
+                let painter = framed(character);
+                if painter != (fx, fx) {
+                    wrong.push((format!("U+{code:04X}"), painter, fx));
+                }
+                scalars += 1;
+            }
+        }
+        assert_eq!(scalars, 3838);
+        assert!(FX_COUNTED.windows(2).all(|pair| pair[0].1 + 1 < pair[1].0));
+        assert_eq!(
+            wrong.len(),
+            0,
+            "(scalar, painter, fx): {:?}",
+            &wrong[..wrong.len().min(12)]
+        );
+        // Some, by name: fx's count, and what tmux 3.7b and libghostty-vt
+        // 1.3.2 advance for each between two markers (the sweep's
+        // `tmux.txt` and `ghostty.txt` in the receipt): never more.
+        for (code, fx, tmux, ghostty) in [
+            (0x0605, 1, 0, 1),
+            (0x09be, 1, 0, 1),
+            (0x302e, 2, 2, 1),
+            (0xff9e, 1, 1, 1),
+            (0x1d165, 1, 0, 1),
+            (0x1f1e6, 2, 1, 2),
+            (0xe0000, 1, 1, 0),
+            (0xe0fff, 1, 1, 0),
+        ] {
+            let character = char::from_u32(code).expect("a scalar");
+            assert_eq!(framed(character), (fx, fx), "U+{code:04X}");
+            assert!(fx >= tmux && fx >= ghostty, "U+{code:04X}");
+        }
+    }
+
+    #[test]
+    fn a_cluster_with_one_of_them_takes_the_cells_fx_counts_and_a_flag_stays_two() {
+        // fx's units (`displayUnitAt`, `display_width.zig:234-263@481104fd`):
+        // an RGI sequence whole, two cells; else a code point at a time.
+        for (text, cells) in [
+            // Bengali `কা`: `U+0995` and its vowel sign, one cluster the
+            // width table counts as one cell.
+            ("\u{995}\u{9be}", 2),
+            ("a\u{302e}", 3),
+            ("\u{ff76}\u{ff9e}", 2),
+            ("\u{605}\u{661}", 2),
+            ("\u{1f1e6}", 2),
+            // A flag is one RGI sequence: two cells, as before.
+            ("\u{1f1fa}\u{1f1f8}", 2),
+            // A pair that is no flag is two units of two.
+            ("\u{1f1e6}\u{1f1e6}", 4),
+        ] {
+            assert_eq!(usize::from(width(text)), cells, "{text:?}");
+            assert_eq!(
+                crate::markdown::display_width::visible_width(text.as_bytes()),
+                cells,
+                "{text:?}"
+            );
+        }
+        // Every pair of regional indicators: a flag (an RGI flag sequence,
+        // upstream's trie) stays two cells, the width table's count of every
+        // pair; any other pair is fx's four.
+        let mut flags = 0;
+        let mut wrong = Vec::new();
+        for first in 0x1f1e6..=0x1f1ffu32 {
+            for second in 0x1f1e6..=0x1f1ffu32 {
+                let pair: String = [first, second]
+                    .iter()
+                    .map(|&c| char::from_u32(c).expect("a scalar"))
+                    .collect();
+                let flag = crate::markdown::display_width::rgi_sequence_len(pair.as_bytes(), 0)
+                    == pair.len();
+                flags += usize::from(flag);
+                let cells = if flag { 2 } else { 4 };
+                if usize::from(width(&pair)) != cells || pair.width() != 2 {
+                    wrong.push((format!("{first:X} {second:X}"), width(&pair), cells));
+                }
+            }
+        }
+        // Emoji 17.0's 259 RGI flag sequences (`emoji-sequences.txt`, the
+        // version `unicode_display_data.zig@481104fd` was generated from).
+        assert_eq!(flags, 259);
+        assert_eq!(wrong, Vec::<(String, u16, usize)>::new());
+    }
+
+    #[test]
+    fn a_scalar_counted_two_cells_is_cut_placed_and_measured_at_two_by_every_consumer() {
+        // The four `FX_COUNTED` scalars the count took from none to two cells
+        // (East Asian Wide marks: U+302E-302F, U+16FF0-16FF1) and a regional
+        // indicator, which went from one to two, through the painter's cut
+        // (`frame::clip`), the composer's caret (`composer_cells`) and the
+        // status line's measure (`picker::cells`): each agrees with fx's count
+        // (the port, `crate::markdown::display_width`) wherever the scalar
+        // stands -- alone, joined to a letter before it, doubled, after a
+        // space -- and no cut keeps more cells than it was given or stops
+        // short of a cluster that would have fit.
+        let port = |text: &str| crate::markdown::display_width::visible_width(text.as_bytes());
+        for c in [
+            '\u{302e}',
+            '\u{302f}',
+            '\u{16ff0}',
+            '\u{16ff1}',
+            '\u{1f1e6}',
+        ] {
+            for text in [
+                c.to_string(),
+                format!("ab{c}cd"),
+                format!("{c}{c}x"),
+                format!("x {c}"),
+                format!("{}{c}", "a".repeat(37)),
+            ] {
+                let cells = port(&text);
+                assert_eq!(usize::from(width(&text)), cells, "{text:?}");
+                assert_eq!(super::super::picker::cells(&text), cells, "{text:?}");
+                for cols in 0..=u16::try_from(cells + 1).expect("a short text") {
+                    let cut = super::super::frame::clip(&text, cols);
+                    assert!(
+                        port(cut) <= usize::from(cols),
+                        "{text:?} at {cols}: {cut:?}"
+                    );
+                    if let Some(next) = first_cluster(&text[cut.len()..]) {
+                        assert!(
+                            port(cut) + port(next) > usize::from(cols),
+                            "{text:?} at {cols}: {cut:?} stops short of {next:?}"
+                        );
+                    }
+                }
+                // The caret after every cluster of a draft one row holds, at
+                // 40 columns of text and at the row's last cell.
+                for cols in [40u16, u16::try_from(cells).expect("a short text").max(2)] {
+                    let rows = composer(&text, cols, &[]);
+                    for row in &rows {
+                        let mut at = row.start;
+                        while at < row.end {
+                            let cluster = first_cluster(&text[at..]).expect("a cluster");
+                            at += cluster.len();
+                            assert_eq!(
+                                usize::from(composer_cells(&text, row, at, cols)),
+                                port(&text[row.start..at]),
+                                "{text:?} at {cols}, caret at {at}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn an_odd_run_of_regional_indicators_counts_no_fewer_cells_than_fx() {
+        // fx pairs a run along the line, an RGI flag whole where its trie
+        // holds one (`displayUnitAt`, `display_width.zig:246-247@481104fd`);
+        // the painter counts a grapheme cluster at a time, and the clusters
+        // pair from the run's start (UAX #29, GB12-13). Z U S, where U S is a
+        // flag and Z U none: fx Z 2 and U S 2, four; xfx [Z U] 4 and [S] 2,
+        // six (`scripts/fxcap/parity-ledger.toml`, `ri-run-pairing`;
+        // `p5-ctrlo-wider-ri`). Never fewer: every run of three, between
+        // letters.
+        let port = |text: &str| crate::markdown::display_width::visible_width(text.as_bytes());
+        let zus = "\u{1f1ff}\u{1f1fa}\u{1f1f8}";
+        assert_eq!((usize::from(width(zus)), port(zus)), (6, 4));
+        let indicator = |n: u32| char::from_u32(0x1f1e6 + n).expect("an indicator");
+        let mut differ = 0;
+        for a in 0..26 {
+            for b in 0..26 {
+                for c in 0..26 {
+                    let text = format!("x{}{}{}y", indicator(a), indicator(b), indicator(c));
+                    let (painter, fx) = (usize::from(width(&text)), port(&text));
+                    assert!(painter >= fx, "{text:?}: {painter} < {fx}");
+                    differ += usize::from(painter != fx);
+                }
+            }
+        }
+        assert!(differ > 0);
+    }
+
+    #[test]
+    fn no_other_scalar_is_counted_otherwise() {
+        // Every scalar the drawn-wider sweep measures that is neither one of
+        // `FX_COUNTED` nor one of the fourteen `counted_as_upstream` names
+        // keeps the count it had: the width table's, cluster by cluster, a
+        // text-presentation selector leaving its base at its own width.
+        fn table(text: &str) -> usize {
+            text.graphemes(true)
+                .map(|cluster| {
+                    let mut chars = cluster.chars();
+                    if cluster.chars().all(char::is_control) {
+                        0
+                    } else if let (Some(base), Some('\u{fe0e}'), None) =
+                        (chars.next(), chars.next(), chars.next())
+                    {
+                        unicode_width::UnicodeWidthChar::width(base).unwrap_or(0)
+                    } else {
+                        cluster.width()
+                    }
+                })
+                .sum()
+        }
+        let mut measured = 0;
+        let mut moved = Vec::new();
+        for code in 0..0x11_0000u32 {
+            if code < 0x20 || (0x7f..=0x9f).contains(&code) {
+                continue;
+            }
+            let Some(character) = char::from_u32(code) else {
+                continue;
+            };
+            measured += 1;
+            if fx_counted(character) || counted_as_upstream(character) {
+                continue;
+            }
+            for text in [format!("[{character}]"), format!("a{character}b")] {
+                if usize::from(width(&text)) != table(&text) {
+                    moved.push(format!("U+{code:04X}"));
+                }
+            }
+        }
+        assert_eq!(measured, 1_111_999);
+        assert_eq!(moved, Vec::<String>::new());
     }
 
     #[test]
