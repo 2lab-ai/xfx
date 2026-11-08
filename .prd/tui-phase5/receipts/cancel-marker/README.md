@@ -28,7 +28,17 @@ which approve nothing) and this directory.
 | `95669160` | a live cancel's line on Ctrl-O and in `/trace` (found by deleting the cause); `p5-transcript-cancel` gets xfx's own turns |
 | `5a7c80dd` | ledger: four causes for rows the deleted cause had been standing over |
 
+Line numbers in xfx's source below are the branch head's (`3857d983`, after
+the merge of `origin/main`), unless a commit is named.
+
 ## fx's rules (all `@481104fd`)
+
+Each read with `git -C fx-upstream show 481104fd:<path>` by this worker; the
+four opus could not reach (round 1) -- the plural table at
+`tool_group_projection.zig:520-545`, `formatExpandedChild`'s "Expanded rows
+are never clipped" at `:786-787`, `presentationLabelValue` at
+`tool_dispatch.zig:626-647` and the timeline's `.raw_bytes => "raw"` at
+`app_commands.zig:2682` -- verified at the pin by the dispatcher too.
 
 - **The marker is U+25AA, the colours as before.** `lifecycleMarker(.cancelled)`
   (`src/ui/transcript/runtime.zig:613-618`: `warning_style`, `"▪"`) writes a
@@ -71,10 +81,10 @@ which approve nothing) and this directory.
 
 ## 1. The marker, at every site
 
-`src/tui/theme.rs:195` `CANCELLED_MARK = "\u{25aa}"`, used by the three
+`src/tui/theme.rs:198` `CANCELLED_MARK = "\u{25aa}"`, used by the three
 writers and nothing else (`writers.txt`): the turn's line
 (`src/tui/shell.rs:155`), a cancelled call's own line
-(`src/tui/toolgroup.rs:732`), a refused question batch
+(`src/tui/toolgroup.rs:800`), a refused question batch
 (`src/tui/question.rs:1027`). The colours are untouched: the tests assert
 `38;5;252`/`38;5;255` dark and `38;5;238`/`38;5;235` light around the new
 glyph (`shell.rs` `the_cancelled_line_is_upstreams_marker_word_and_question_in_upstreams_greys`,
@@ -92,7 +102,7 @@ the transcript Ctrl-O lays out (`writeTurnCancellation`,
 document alone -- a resumed turn's reached Ctrl-O (`Shell::hydrate`'s
 `Mark::Block`, `src/tui/shell.rs:3850-3853`), a live one's did not. The
 deleted cause had been taking fx's row. `Shell::write_cancelled`
-(`src/tui/shell.rs:12001-12018`) now records the line as a block, once
+(`src/tui/shell.rs:11998-12016`) now records the line as a block, once
 (`a_turn_stopped_over_its_answer_leaves_its_cancelled_line_on_ctrl_o_too`;
 RED on the base, `red-unit.txt`: the three rows under the card blank).
 A cancel that stopped a running call writes no turn line on either
@@ -111,12 +121,12 @@ c1db919 capture reworded to say "the call's own `Cancelled …` line"), 44
 test lines (31 expectations, 13 comments; changed), 8 `smoke-tui.sh` lines,
 3 `docs/parity.md` rows (7 glyphs), 1 scenario comment
 (`interrupt-question.cap`), and in the ledger the two causes and their
-comment (deleted). Kept, each said why in `sites.txt`:
+comment (deleted). Kept -- 3 sites over 4 lines -- each said why in `sites.txt`:
 `src/markdown/unicode_display_data.rs:563` (`0x2025A0` is a packed word of
 `RGI_DATA`, not the character), `p5-transcript-cancel.cap:4` (names the
 change, `U+25A0 -> U+25AA`), and `truecolor-grey-notation`'s
-`^[▪■] Cancelled ` selector (ledger, TC-NOTATION's). On this branch the
-grep finds only those, and `theme.rs:186,193`, the constant's doc naming
+`^[▪■] Cancelled ` selector (ledger lines 537-538, TC-NOTATION's). On this branch the
+grep finds only those, and `theme.rs:189,196`, the constant's doc naming
 c1db919's U+25A0 and fx's legacy reader.
 
 ## 2. Older sessions: xfx keeps no rendered row it reads back
@@ -158,7 +168,7 @@ c1db919's U+25A0 and fx's legacy reader.
 
 ## 3. The plural table, and MCP
 
-`src/tui/toolgroup.rs` `category_word` (`:671-693`): `PLURALS` =
+`src/tui/toolgroup.rs` `category_word` (`:739-761`): `PLURALS` =
 `command`/`commands`, `subagent`/`subagents`, `MCP call`/`MCP calls`; a
 count of 1 the label, any other label as written. `subagent` is in the
 table for a tool xfx does not have (`docs/parity.md:172`, deferred): no xfx
@@ -167,7 +177,7 @@ call is counted as one, and the category is not invented. Pinned by
 nine labels at 1, 2, 3 and 12, and upstream's own case).
 
 **MCP: already fx's on the base, nothing missing.** MCP-T counts a call to a
-server's own tool as `MCP call` (`toolgroup.rs:197` `calls_mcp`, `:114` `MCP_CALL`,
+server's own tool as `MCP call` (`toolgroup.rs:248` `calls_mcp`, `:161` `MCP_CALL`,
 after `command` in a tie), `N MCP calls` past one; the sweep's `p5-mcp-*`
 pairs show it on both sides (Sweep). The activity row's `calling` / `made`
 is not on fx's screen (above), and xfx's says `Running` under a running MCP
@@ -188,7 +198,7 @@ the escape-bearing rows of `p5-call-row-safe`, not a cut row), and no
 safety reason needs it: the spelling, which is the divergence, keeps every
 character inert at any length.
 
-`0aa9a299`: `toolgroup::spelled` (`:775`) takes the call's presentation: a
+`0aa9a299`: `toolgroup::spelled` (`:843` at the merged head) takes the call's presentation: a
 command as before, `write_file`/`edit_file` at `TARGET_BYTES`, anything else
 spelled whole. The test pins a 20 000-byte read path, glob pattern and
 folder path whole; `a_long_argument_is_bounded_after_it_is_spelled_and_never_inside_an_escape`
@@ -200,7 +210,7 @@ xfx's is the one on the answer it came in: `MAX_COMPLETION_BYTES`, 8 MiB of
 text and streamed tool arguments together, in both stream decoders
 (`src/gateway/sse.rs:47`, enforced `:207`; `src/llmux/sse.rs:44`, `:447`).
 The transcript's own row is still cut at the screen's width by cells
-(`src/tui/transcript.rs:1469` `ellipsized`), as fx clips it; only Ctrl-O's
+(`src/tui/transcript.rs:1470` `ellipsized`), as fx clips it; only Ctrl-O's
 heading, which fx never clips, shows it whole. Every character stays spelled
 (`Spelling::push`, `terminal_safe`), so the length is the only thing that
 changed. No scenario's turns carry a read, list, pattern or folder argument
@@ -243,10 +253,12 @@ receipt.
 
 ## Mutants (`mutants.txt`, `mutants.py`)
 
-On a `git clone --no-local` of the branch at `95669160`, never the
-worktree; the clone clean after. Each reverts or half-reverts one rule and
-runs the TUI's lib tests (`cargo test --locked --lib tui::`). **14 of 14
-killed**, at `95669160`:
+On a `git clone --no-local` of the branch, never the worktree; the clone
+clean after. Each reverts or half-reverts one rule and runs the TUI's lib
+tests (`cargo test --locked --lib tui::`). Round 1, at `95669160`: 14 of 14
+killed (`edit_file`'s mutant survived at `0aa9a299`, where only
+`write_file`'s cut was pinned; `0aaff75f` pins it). **`mutants.txt` is the
+round-2 run, at `3857d983`: 20 mutants, 19 killed, 1 equivalent**:
 
 | mutant | failed tests |
 |---|---|
@@ -259,14 +271,48 @@ killed**, at `95669160`:
 | the table's `command` keeps its singular | 6 |
 | a count of 1 takes the plural too | 22 |
 | every label takes a plural past 1 | 9 |
-| every argument but a command at a file change's bound (the base's rule) | 2 |
+| every argument but a command at a file change's bound (the base's rule) | 3 |
 | a file change's path unbounded | 2 |
 | `edit_file`'s path unbounded | 1 |
-| a live cancel's line not recorded for Ctrl-O (the base's rule) | 1 |
+| a live cancel's line not recorded for Ctrl-O (the base's rule) | 2 |
 | `/trace` names a block `questions` again | 1 |
+| round 2: the transcript's row keeps the whole argument (no inline cut) | 1 |
+| round 2: the inline cut by bytes only (no column bound) | 1 |
+| round 2: Ctrl-O's heading reads the transcript's cut argument | 1 |
+| round 2: the inline cut at a screen's width, 512 columns | 2 |
+| round 2: Ctrl-O lays a block out in the palette it was written in (round 1's rule) | 1 |
+| round 2: Ctrl-O recolours a block in its own mode too (no mode guard) | 0, **equivalent** |
 
-`edit_file`'s mutant survived at `0aa9a299` (only `write_file`'s cut was
-pinned); `0aaff75f` pins it.
+**The equivalent one.** Recolouring a block in the mode it was painted in
+gives the same bytes, so the guard (`if *drawn_in == palette.mode`,
+`full_transcript.rs:1790`) saves a scan and changes no row -- fx's own
+`retintEntriesForTheme` returns the same way when `from.light == to.light`
+(`store.zig:3728@481104fd`). Shown three ways:
+
+1. *The kinds' roles.* `document_retint_in` maps a colour to the first
+   role of the row's kind holding it in either mode (`theme.rs:614-638`;
+   Plain `[NOTICE, BODY, DIM, LABEL, WARNING]` through `document_retint`,
+   `:559-579`; ToolStopped `[WARNING, HINT, NOTICE, DIM]`, Answer
+   `[ANSWER]`, Code `[COMMENT, COMMAND, NOTICE]`). Over every 38;5 index,
+   for each kind and mode, no colour that is one of the kind's roles in
+   that mode is taken by a role whose shade in that mode differs: 0 cases.
+2. *What a block holds.* Every caller of `FullTranscript::block`, through
+   `Mark::Block` or directly (`shell.rs`): the fork line (`:3564`,
+   `original session xfx --resume <id>`, no colour); a stopped turn's line
+   on resume (`:3850`, ToolStopped) and a live one (`:12012`, Plain), both
+   `cancelled_line` (`:153-161`: WARNING 252 / 238, HINT 255 / 235); a
+   question batch's answers (`:9192`, `answered_rows`, `question.rs:738-775`:
+   the questions as Plain rows with no colour, the answers as Answer rows in
+   ANSWER 245 / 241); a refused batch (`:9200`, `cancelled_row`,
+   `question.rs:1025-1031`: LABEL 252 / 238). The text in them is spelled
+   (`safe_rows`, `tamed`: no escape a terminal obeys). Each of those colours
+   in its own mode is its first role's shade in that mode, so
+   `document_retint_in` answers `None` and `recoloured` copies the sequence.
+3. *What would break it.* In a block painted light, a 245 (TOOL) or a 250
+   (DIVIDER) would be repainted in its own mode; in one painted dark,
+   nothing. No caller paints `tool_output()` or the divider. If one ever
+   did, the fix is that kind's role list, not this guard: the same 245
+   would go to 247 after a real switch too.
 
 ## Sweep
 
@@ -339,9 +385,9 @@ side and compares its glyph and `Cancelled` cells with their attributes:
 
 The sweep's own verdicts for the same pairs are `pairs-base-head.txt`.
 
-## Gates (`gates.txt`)
+## Gates (`gates.txt`; round 2's are `round2/gates.txt`, below)
 
-At `95669160`, the code's last commit, every step of CI one at a time,
+Round 1, at `95669160`, the code's last commit, every step of CI one at a time,
 each exit 0: fmt; clippy, default and fault injection; `cargo test --locked`
 **5229 passed, 0 failed, 7 ignored**, and with fault injection **5266 / 0 /
 7**; check-xfx-identity, check-no-stubs, check-no-secrets,
@@ -355,6 +401,128 @@ test-sweep (26 tests) OK. This receipt's commit was staged and checked with
 check-no-secrets and check-xfx-identity over the whole tree, 12808 tracked
 files (`gates.txt`'s 12550 is the tree before the receipt's captures).
 
+## Round 2 (reviews: gpt6 APPROVE-WITH-FIXES, opus APPROVE)
+
+Commits: `5461923d` (ledger owners), `ab1c67f8` (**RED**, alone:
+`round2/red.txt`), `ce574fba` and `5fceb01d` (Ctrl-O recolouring), `547c8e28`
+(the row's bound), `3857d983` (merge of `origin/main` 884497c0, #80).
+Captures from a debug build of **`3857d983`** (`v0.1.0-3857d98`, sha256
+`8d5bd880…`); the base side from `origin/main` 884497c0 (`v0.1.0-884497c`).
+
+**MUST 1, owners.** `cancel-page-edge` is owned with the causes it follows
+(`session-record and tool-schema's owners`, closed when both are).
+`amendment-card-after-stop` is now unit **AMEND-CARD-ROW** (`kind = ["unit",
+"defect"]`, so its source lines stay checked), the evidence in its `why`:
+fx's `after-esc` rows 14-15 (`┃ use capitals`, then the composer) against
+xfx's 14-16 (a blank row between), xfx's `trailer_rows`
+(`src/tui/shell.rs:9665`) and `queue_card` (`:1658`, which ends a card on a
+blank row), and two fx screens where the document ends on a cancelled line
+with one blank row before the composer (`p5-transcript-cancel` `esc` rows
+5-7, `interrupt2` `esc2` rows 36-38).
+
+**MUST 2, the render cost -- measured first** (`round2/`). `render_cost_probe.rs`,
+appended to `shell.rs`'s tests on a throwaway clone and run in release, one
+case a process, under the suite lock: a live turn's `glob_files` call through
+the bridge's `made_inert` and `Shell::apply`, then 40 redraws of the open
+group (a short read's start and result, 20 times, each with the frame's
+`take_pending`), then Ctrl-O open, cached, and after a call joins the group.
+
+| pattern | round 1 (`bc6c9afc`): start / redraw (median) / Ctrl-O / peak | round 2 (`547c8e28`) |
+|---|---|---|
+| 9 bytes | 0.2 ms / 0.0 ms / 0.5 ms / 9 MiB | 0.2 / 0.0 / 0.5 ms / 9 MiB |
+| 8 MiB of `a` | 450 ms / **452 ms** / 937 ms / 614 MiB | 5.4 / **3.5 ms** / 956 ms / 436 MiB |
+| 4 Mi U+009B (32 MiB spelled) | 1 768 ms / **1 749 ms** / 3 455 ms / 1 350 MiB | 7.1 / **3.4 ms** / 3 658 ms / 1 022 MiB |
+| 2 Mi U+202E (16 MiB spelled) | 881 ms / **883 ms** / 1 759 ms / 1 162 MiB | 6.7 / **3.5 ms** / 1 832 ms / 518 MiB |
+
+Material: every change to the open group cost up to 1.8 s. So
+`ToolGroup::start` keeps, beside the whole argument, the transcript's own
+row's (`inline_cut`, `src/tui/toolgroup.rs`): spelled, up to 65 536 columns
+-- one past the widest screen there is, so every screen's ellipsis
+(`super::transcript`'s `ellipsized`) falls where the whole row's does -- and
+256 KiB, cut `...` past either. The transcript's rows, a stopped call's own
+line and both modes' redraws read it; Ctrl-O's heading (`expanded`) reads
+the whole argument, as fx's expanded row is never clipped. Commands and
+write/edit paths keep their own, smaller bounds. Pinned:
+`the_transcripts_row_keeps_what_any_screen_can_show_and_ctrl_o_the_whole`
+(RED at `ab1c67f8`: a 196 608-byte pattern's row kept 196 619 cells), and
+the whole-heading test still holds 20 000-byte arguments whole on Ctrl-O.
+**What it leaves:** the bridge spells the whole argument once per call
+(34-134 ms), and Ctrl-O lays a multi-MiB heading out whole -- 0.96-3.7 s
+on opening and again on each change to the record while it is open (the
+layout is cached per revision, not per entry) -- the cost of showing fx's
+whole row; no scenario's turns carry an argument past 4 096 bytes.
+
+**(a) Ctrl-O blocks after a theme report.** fx rewrites a question's
+resolution and a cancelled turn's line through its token table on a switch
+(`retintEntriesForTheme`, `src/ui/transcript/store.zig:3722-3760@481104fd`,
+returning when `from.light == to.light`, `:3728`; `themeOwnsRawEntry`
+holding `.question_resolution` and `.turn_cancellation`, `:3802-3812`), and
+Ctrl-O lays those entries out. xfx's Ctrl-O kept a block in the palette it
+was written in. Now `Body::Block` keeps each row's `DocumentRow` and the
+mode it was painted in (`Mark::Block` carries it from where the rows were
+made), and Ctrl-O recolours a block by the document's rule
+(`transcript::recoloured`) only out of that mode. RED at `ab1c67f8`
+(`a_theme_report_recolours_ctrl_os_cancelled_lines_as_upstreams_token_table_does`:
+after a light report the dark `▪ Cancelled` rows were still on Ctrl-O);
+GREEN, and back to dark the rows are byte for byte as drawn.
+
+**(b)** The whole-heading test has `list_files`' case (a 20 000-byte path,
+`Listed …` whole).
+
+**(c)** `truecolor-grey-notation`'s `[▪■]`: merged `origin/main` 884497c0
+(#80, train 4) at `3857d983`. The ledger conflict was the two deletions
+meeting -- main deleted `truecolor-grey-notation`, this branch
+`cancelled-marker` -- and both stay deleted, so no ledger line takes `■`. The
+call-row refs into `toolgroup.rs` and `cancel-page-edge`'s into `shell.rs`
+point at the merged lines (843, 904, 1018; 37424), each checked against the
+code its entry names. `p5-transcript-cancel.cap` took main's state-based wait
+for the full-access warning (`until shown` / `until gone Full access`) for
+both products, since this branch runs xfx in yolo too. After the merge the
+grep for `■|25a0` over src, tests, scripts, docs and .github finds only
+`theme.rs:189,196` (the constant's doc), `unicode_display_data.rs:563` (a
+table word) and the scenario's note.
+
+**Sweep, the touched scenarios** (`round2/`). The 132 scenarios that
+exercise what round 2 and the merge touch (the transcript, tool groups and
+stops, call rows, MCP turns, questions, interrupts, approvals, Ctrl-O,
+resume), `--jobs 2` under the suite lock, from `git clone --no-local`s of
+`origin/main` 884497c0 and of `3857d983`, both scored with this branch's
+ledger (`--rescore`):
+
+| sweep | pass | identical | normalized-identical | approved (+cascade) | unresolved | failed |
+|---|---|---|---|---|---|---|
+| base `884497c0` (`sweep-base.md`) | 400 / 651 | 14 | 386 | 4 + 2 | 245 | 0 |
+| head `3857d983` (`sweep-head.md`) | 461 / 651 | 14 | 447 | 4 + 2 | 156 | 28 |
+| head, `p5-mcp-verbs` run again (`sweep-mcp-verbs.md`) | **462 / 651** | 14 | 448 | 4 + 2 | 183 | **0** |
+
+**Pair by pair (`sweep-compare.txt`): 62 pairs unresolved → normalized-identical**
+(the marker rows, in 19 scenarios; the four `p5-toolstop-retint*` among
+them, their truecolor grey already main's), 6 lose their uncaused rows and keep their cause
+(`approvals` `after-esc*`: AMEND-CARD-ROW; `p5-input-question` `q6*`:
+`question-cap-four`; `p5-transcript-cancel` `full`: 13 → 0, its three
+causes), and **no pair gains an uncaused row**. The comparison's 28 drops are
+all `p5-mcp-verbs`, whose xfx capture failed in the head sweep: its
+`until shown 'proj is waiting for approval'` timed out after 29.8 s, with
+the screen holding `┃ mcp list` -- the slash of the typed `/mcp list` lost
+-- at a load of 8.5. Run again alone at head under the lock, it captured
+all 28 pairs and every one has the base's verdict and the base's uncaused
+rows, except `show-remote`, which has 4 where the base had 11 (the base's
+xfx showed the `remote` server's detail panel, `status retrying`, under the
+table; the run's timing). The branch changes no `/mcp` code: its only
+`mcp` lines against main are the tool group's plural and the cancel mark.
+
+**Gates (`round2/gates.txt`)**, at `3857d983`, every step of CI one at a
+time under the suite lock, each exit 0: fmt; clippy, default and fault
+injection; `cargo test --locked` **5284 passed, 0 failed, 7 ignored**, and
+with fault injection **5321 / 0 / 7**; check-xfx-identity and
+check-no-secrets (13190 tracked files), check-no-stubs,
+check-preview-contract, check-tui-preflight-cost, check-usage-clock;
+test-check-no-secrets (13 cases), test-gate-env (5), test-preview-contract
+(24 mutants caught); fxcap test-sweep (66 and 26 tests) and test-capture
+(59); the release and faulty builds; smoke (47 checks, 0 failures) and
+smoke-tui (37 scenarios and the oracle, **1127 checks, 0 failures**).
+Nothing re-run.
+
 ## Files
 
 - `README.md` this file.
@@ -365,3 +533,4 @@ files (`gates.txt`'s 12550 is the tree before the receipt's captures).
 - `cmp_sweeps.py` (TG-REDRAW's); `sweep-base.md`, `sweep-base-ledger-head.md`, `sweep-cancel-base.md`, `sweep-head.md`, `sweep-head-retimed.md` (scoreboards); `sweep-compare.txt`; `pairs.txt`, `pairs-base-head.txt`.
 - `fx/`, `xfx/`, `xfx-base/` the `.ansi` captures of the 77 marker pairs; `marker_cells.py`; `green.txt`, `red.txt`.
 - `gates.txt`.
+- `round2/`: `render_cost_probe.rs`, `probe-before.txt`, `probe-after.txt` (MUST 2's measurements); `red.txt` (round 2's RED); `sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`, `sweep-mcp-verbs.md` (the touched scenarios); `gates.txt`.

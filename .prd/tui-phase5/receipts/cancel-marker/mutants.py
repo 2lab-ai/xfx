@@ -10,8 +10,9 @@ A mutant is killed when at least one test fails. Each reverts or half-reverts
 one of the unit's rules: the three writers of the cancelled mark one at a
 time and the mark itself; the plural table's entries and its count rule;
 the argument bounds (a file change's path cut at 4 096 bytes, every other
-argument but a command whole); and a live cancel's line on Ctrl-O and in
-/trace's timeline.
+argument but a command whole); a live cancel's line on Ctrl-O and in
+/trace's timeline; and, round 2, the transcript row's own cut of an
+argument and Ctrl-O's recolouring of a block.
 """
 import os
 import re
@@ -46,18 +47,32 @@ MUTANTS = [
      '        .map_or(label, |(_, plural)| plural)',
      '        .map_or("reads", |(_, plural)| plural)'),
     ("every argument but a command at a file change's bound (the base's rule)", "src/tui/toolgroup.rs",
-     '    let mut spelling = Spelling::new(if file_change {\n        TARGET_BYTES\n    } else {\n        usize::MAX\n    });',
-     '    let mut spelling = Spelling::new(TARGET_BYTES);\n    let _ = file_change;'),
+     '    let mut spelling = Spelling::new(if names_a_changed_file(presentation) {\n        TARGET_BYTES\n    } else {\n        usize::MAX\n    });',
+     '    let mut spelling = Spelling::new(TARGET_BYTES);'),
     ("a file change's path unbounded", "src/tui/toolgroup.rs",
-     '    let mut spelling = Spelling::new(if file_change {\n        TARGET_BYTES\n    } else {',
-     '    let mut spelling = Spelling::new(if file_change {\n        usize::MAX\n    } else {'),
+     '    let mut spelling = Spelling::new(if names_a_changed_file(presentation) {\n        TARGET_BYTES\n    } else {',
+     '    let mut spelling = Spelling::new(if names_a_changed_file(presentation) {\n        usize::MAX\n    } else {'),
     ("edit_file's path unbounded (write_file's alone kept)", "src/tui/toolgroup.rs",
-     '    let file_change = [mutate::WRITE_FILE, mutate::EDIT_FILE]',
-     '    let file_change = [mutate::WRITE_FILE, mutate::WRITE_FILE]'),
+     '    [mutate::WRITE_FILE, mutate::EDIT_FILE]',
+     '    [mutate::WRITE_FILE, mutate::WRITE_FILE]'),
     ("a live cancel's line is not recorded for Ctrl-O (the base's rule)", "src/tui/shell.rs",
-     '        self.full.block(&[line]);\n', ''),
+     '        self.full.block(&[(line, DocumentRow::Plain)], mode);\n', '        let _ = (line, mode);\n'),
     ("/trace names a block `questions` again", "src/tui/full_transcript.rs",
      '                        _ => "raw",', '                        _ => "questions",'),
+    # Round 2.
+    ("the transcript's row keeps the whole argument (no inline cut)", "src/tui/toolgroup.rs",
+     '            .and_then(inline_cut);', '            .and_then(|_| None::<String>);'),
+    ("the inline cut by bytes only (no column bound)", "src/tui/toolgroup.rs",
+     '        if cells > INLINE_CELLS {', '        if cells > usize::MAX - 1 {'),
+    ("Ctrl-O's heading reads the transcript's cut argument", "src/tui/toolgroup.rs",
+     '        self.header_and_calls(palette, "", true)', '        self.header_and_calls(palette, "", false)'),
+    ("the inline cut at a screen's width, 512 columns (a cut a screen shows)", "src/tui/toolgroup.rs",
+     'const INLINE_CELLS: usize = u16::MAX as usize + 1;', 'const INLINE_CELLS: usize = 512;'),
+    ("Ctrl-O lays a block out in the palette it was written in (the round-1 rule)", "src/tui/full_transcript.rs",
+     '                            run_on(&recoloured(row, *kind, palette), cols)',
+     '                            run_on(row, cols)'),
+    ("Ctrl-O recolours a block in its own mode too (no mode guard)", "src/tui/full_transcript.rs",
+     '                        if *drawn_in == palette.mode {', '                        if *drawn_in != *drawn_in {'),
 ]
 
 

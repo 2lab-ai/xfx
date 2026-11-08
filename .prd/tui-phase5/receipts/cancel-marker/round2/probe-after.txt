@@ -1,0 +1,10 @@
+# render_cost_probe.rs on a clone at 547c8e28 (round 2: the transcript's row keeps 65 536 columns / 256 KiB; Ctrl-O the whole).
+# Release build, macOS, one case a process, under the suite lock (the same run as probe-before.txt); ms per step, peak RSS.
+PROBE case=short raw_bytes=9 bridge_ms=0.2 start_ms=0.2 rebuild_median_ms=0.0 rebuild_worst_ms=0.1 ctrlo_open_ms=0.5 ctrlo_cached_ms=0.0 ctrlo_after_event_ms=0.5 peak_rss_mib=9
+case short exit 0
+PROBE case=plain raw_bytes=8388608 bridge_ms=34.9 start_ms=5.4 rebuild_median_ms=3.5 rebuild_worst_ms=3.7 ctrlo_open_ms=956.3 ctrlo_cached_ms=0.0 ctrlo_after_event_ms=976.7 peak_rss_mib=436
+case plain exit 0
+PROBE case=c1 raw_bytes=8388608 bridge_ms=123.8 start_ms=7.1 rebuild_median_ms=3.4 rebuild_worst_ms=3.7 ctrlo_open_ms=3658.0 ctrlo_cached_ms=0.0 ctrlo_after_event_ms=3802.4 peak_rss_mib=1022
+case c1 exit 0
+PROBE case=marks raw_bytes=6291456 bridge_ms=67.3 start_ms=6.7 rebuild_median_ms=3.5 rebuild_worst_ms=3.6 ctrlo_open_ms=1831.5 ctrlo_cached_ms=0.0 ctrlo_after_event_ms=1894.6 peak_rss_mib=518
+case marks exit 0
