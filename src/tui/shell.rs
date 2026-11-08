@@ -45854,10 +45854,17 @@ mod tests {
     /// them holds the running turn's status), and every row of the record,
     /// each with its time taken out.
     fn shown_and_whole(shell: &Fixture) -> (Vec<String>, Vec<String>) {
+        let (shown, whole) = shown_and_whole_raw(shell);
+        (timeless(&shown), timeless(&whole))
+    }
+
+    /// [`shown_and_whole`] with the times in: what one session's screen is
+    /// compared with byte for byte.
+    fn shown_and_whole_raw(shell: &Fixture) -> (Vec<String>, Vec<String>) {
         let mut shown = shell.screen_rows();
         shown.truncate(36);
         let whole = shell.full.all_rows(shell.geometry.cols, shell.palette);
-        (timeless(&shown), timeless(&whole))
+        (shown, whole)
     }
 
     #[test]
@@ -45896,6 +45903,7 @@ mod tests {
         // A call joins the open group.
         a_join(&mut live);
         let joined = shown_and_whole(&live);
+        let joined_raw = shown_and_whole_raw(&live);
         assert_eq!(joined, fresh_arguments(120, PALETTE, true), "joined");
         assert!(
             joined
@@ -45912,8 +45920,11 @@ mod tests {
         assert_ne!(light, joined, "the palette is in the rows");
         assert_eq!(light, fresh_arguments(120, LIGHT, true), "light");
         live.route_bytes(WENT_DARK);
-        let dark = shown_and_whole(&live);
-        assert_eq!(dark, joined, "dark again, byte for byte");
+        assert_eq!(
+            shown_and_whole_raw(&live),
+            joined_raw,
+            "dark again, byte for byte"
+        );
 
         // Narrower while it is open, compared at once; and back.
         let _ = live.resize(40, 40);
@@ -45928,12 +45939,20 @@ mod tests {
             narrow.1
         );
         let _ = live.resize(40, 120);
-        assert_eq!(shown_and_whole(&live), joined, "back at 120, byte for byte");
+        assert_eq!(
+            shown_and_whole_raw(&live),
+            joined_raw,
+            "back at 120, byte for byte"
+        );
 
         // Closed and opened again.
         live.route_bytes(b"\x0f");
         live.route_bytes(b"\x0f");
-        assert_eq!(shown_and_whole(&live), joined, "reopened");
+        assert_eq!(
+            shown_and_whole_raw(&live),
+            joined_raw,
+            "reopened, byte for byte"
+        );
 
         // The glob's arguments again, another pattern, while it is open.
         let other = "lib/**/\u{2e3a}\u{2e3a} one two three \u{200b} four *.toml";
