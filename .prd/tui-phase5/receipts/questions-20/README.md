@@ -34,6 +34,17 @@ FX_BIN=<fx v0.0.16> TMPDIR=<short dir>  scripts/fxcap/capture.sh fx  <scenario> 
 XFX_BIN=<xfx>       TMPDIR=<short dir>  scripts/fxcap/capture.sh xfx <scenario> <size> {red,xfx}/
 ```
 
+- **Scrubbed**: fx's system prompt names the run's folder, `$TMPDIR/fxcap.<run>/`,
+  so its request bodies carried the capture's scratch root. `scrub.py` (run as
+  `TMPDIR=<the capture's TMPDIR> python3 -I scrub.py .`) rewrote every
+  `$TMPDIR/fxcap.<run>` in `fx/`, `xfx/`, `red/` and `probe/` to `<work>`, one
+  byte-exact substitution: 12 fx bodies, 3 each; no xfx file held one; `--check`
+  finds none left. Every check below was run again on the rewritten files and
+  printed the same bytes as before (`cells.py` over all 42 RED, 42 GREEN and 2
+  probe pairs, the wire of every body, the 863-byte answer documents);
+  `red.txt`'s and `green.txt`'s pair and wire sections regenerate byte for byte.
+  Each rewritten body is the committed one with only that substitution, and
+  parses to the same JSON but for the path.
 - `p5-input-question` (on `main`): two questions, Escape, then six, Escape. 40x120.
 - `p5-input-question20` (**new**): one batch of 20, `Pick N?` with `Keep N` and
   `Change N`. The panel (`q20-panel`), Left at the first page (`q20-left`), Tab
@@ -222,7 +233,9 @@ in a row on their own.
 ## Mutants (`mutants.txt`)
 
 `mutants.py` ran each mutant on a `git clone --no-local` throwaway of this
-branch (no remote), one at a time, with the file restored after each, under the
+branch (no remote) under `$TMPDIR/mut/` (the capture's short `TMPDIR`; the
+script reads it from the environment and refuses a clone anywhere else), one
+at a time, with the file restored after each, under the
 suite lock. The tests per mutant: `cargo test --lib question`, then
 `--test tool_loop`, then the two pty tests, each with a 900 s timeout; the first
 run that fails kills it. **13 of 13 killed** (`mutants.txt`, with the tests that
@@ -303,6 +316,8 @@ unchanged.
 - `probe/`: the two-question resume probe, both binaries.
 - `red.txt`, `green.txt`: the pairs, the wire, the tests.
 - `fx-src.txt`: every fx line cited above.
+- `scrub.py`: the scratch-root substitution above; `scrub-check.txt`: what it
+  rewrote and the checks' output, the same before and after.
 - `mutants.py`, `mutants.txt`; `sweep-base.md`, `sweep-head.md`, `sweep-diff.txt`;
   `refs.txt` (every `path:line` the ledger and `docs/parity.md` cite, checked at
   the head against the base: none moved); `gate.txt`; `src-after-code-head.diff`;

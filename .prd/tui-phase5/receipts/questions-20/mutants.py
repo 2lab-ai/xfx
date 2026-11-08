@@ -1,10 +1,13 @@
-"""usage: python3 -I mutants.py <throwaway-clone> <out.txt>
+"""usage: TMPDIR=<short dir> python3 -I mutants.py "$TMPDIR/mut/repo" <out.txt>
 Applies each mutant to the clone alone, runs the unit's tests there under a
 per-mutant timeout, and restores the file. A mutant is killed when a test
-fails. Never run against the worktree."""
+fails. Never run against the worktree: the clone must sit under
+`$TMPDIR/mut/`, and its build and temp files go beside it there."""
 import os, subprocess, sys, time
 repo, out = sys.argv[1], sys.argv[2]
-assert "/q20/mut/" in repo + "/", "mutants run only in the throwaway clone"
+mut = os.path.join(os.environ["TMPDIR"].rstrip("/"), "mut")
+assert os.path.realpath(repo).startswith(os.path.realpath(mut) + os.sep), \
+    "mutants run only in the throwaway clone under $TMPDIR/mut/"
 Q = "src/tools/question.rs"
 P = "src/tui/question.rs"
 MUTANTS = [
@@ -27,7 +30,7 @@ TESTS = [
     ["cargo", "test", "--locked", "--test", "tool_loop"],
     ["cargo", "test", "--locked", "--test", "tui", "--", "twenty_questions_are_one_panel", "six_questions_open_the_panel"],
 ]
-env = dict(os.environ, CARGO_TARGET_DIR="/private/tmp/claude-501/q20/mut/target", TMPDIR="/private/tmp/claude-501/q20/mut/tmp")
+env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(mut, "target"), TMPDIR=os.path.join(mut, "tmp"))
 os.makedirs(env["TMPDIR"], exist_ok=True)
 lines = []
 def say(text):
