@@ -1,0 +1,15 @@
+# p5 mcp discover: four stdio servers whose discover answer nests `supportedVersions` 126,
+# 2582, 2583 and 4000 arrays deep (p5-mcp-discover-stdio.ts `deep:<n>`), inside the line's
+# object and its result: 128, 2584, 2585 and 4002 levels in all. fx v0.0.16's decoder reads
+# a line nested as deep as its scanner's stack allows (`scan_stack_bytes`,
+# src/mcp/protocol/wire.zig:100-101@481104fd) -- 2584 levels, found by these captures: such
+# an answer lists no version (retrying); a deeper line is no answer at all, so its probe
+# waits out its 10 s and `initialize` follows (ready). `/mcp list` at 16 s.
+fx: homefile .fx/mcp.json p5-mcp-discover-stdio-depth-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-discover-stdio-depth-profile.json
+gateway p5-mcp-hello.json
+wait 16
+type /mcp list
+key Enter
+wait 2
+snap list

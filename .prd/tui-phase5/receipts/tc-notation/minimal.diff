@@ -1,0 +1,267 @@
+diff --git a/src/tui/theme.rs b/src/tui/theme.rs
+index 1f4b21fb..4478f11c 100644
+--- a/src/tui/theme.rs
++++ b/src/tui/theme.rs
+@@ -437,11 +437,9 @@ impl Palette {
+     /// a theme report repaint it: the retint replaces the foreground and
+     /// leaves the bold where it is (`super::grid`'s `retint_document`).
+     pub(crate) fn notice_heading(&self) -> &'static str {
+-        match (self.mode, self.depth) {
+-            (Mode::Dark, Depth::Ansi256) => "\u{1b}[1;38;5;252m",
+-            (Mode::Light, Depth::Ansi256) => "\u{1b}[1;38;5;238m",
+-            (Mode::Dark, Depth::TrueColor) => "\u{1b}[1;38;2;208;208;208m",
+-            (Mode::Light, Depth::TrueColor) => "\u{1b}[1;38;2;68;68;68m",
++        match self.mode {
++            Mode::Dark => "\u{1b}[1;38;5;252m",
++            Mode::Light => "\u{1b}[1;38;5;238m",
+         }
+     }
+ 
+@@ -500,22 +498,18 @@ impl Palette {
+     /// `super::grid` closes every attribute before an `EL`, so the bar never
+     /// bleeds into the rest of the row.
+     pub(crate) fn selected(&self) -> String {
+-        let background = match (self.mode, self.depth) {
+-            (Mode::Dark, Depth::Ansi256) => "\u{1b}[48;5;239m",
+-            (Mode::Light, Depth::Ansi256) => "\u{1b}[48;5;251m",
+-            (Mode::Dark, Depth::TrueColor) => "\u{1b}[48;2;78;78;78m",
+-            (Mode::Light, Depth::TrueColor) => "\u{1b}[48;2;198;198;198m",
++        let background = match self.mode {
++            Mode::Dark => "\u{1b}[48;5;239m",
++            Mode::Light => "\u{1b}[48;5;251m",
+         };
+         format!("{background}{}", self.paint(SELECTED))
+     }
+ 
+     /// The welcome line's brand: the hint grey, bold (`subtitle_style`).
+     pub(crate) fn subtitle(&self) -> &'static str {
+-        match (self.mode, self.depth) {
+-            (Mode::Dark, Depth::Ansi256) => "\u{1b}[1;38;5;255m",
+-            (Mode::Light, Depth::Ansi256) => "\u{1b}[1;38;5;235m",
+-            (Mode::Dark, Depth::TrueColor) => "\u{1b}[1;38;2;238;238;238m",
+-            (Mode::Light, Depth::TrueColor) => "\u{1b}[1;38;2;38;38;38m",
++        match self.mode {
++            Mode::Dark => "\u{1b}[1;38;5;255m",
++            Mode::Light => "\u{1b}[1;38;5;235m",
+         }
+     }
+ 
+@@ -679,13 +673,7 @@ impl Palette {
+             Mode::Dark => DARK[role],
+             Mode::Light => LIGHT[role],
+         };
+-        match self.depth {
+-            Depth::Ansi256 => Some(Color::Indexed(index)),
+-            Depth::TrueColor => {
+-                let level = index.checked_sub(232)?.checked_mul(10)?.checked_add(8)?;
+-                Some(Color::Rgb(level, level, level))
+-            }
+-        }
++        Some(Color::Indexed(index))
+     }
+ 
+     /// One role's sequence.
+@@ -698,10 +686,7 @@ impl Palette {
+             Mode::Dark => DARK[role],
+             Mode::Light => LIGHT[role],
+         };
+-        match self.depth {
+-            Depth::Ansi256 => ansi256(index),
+-            Depth::TrueColor => truecolor(index),
+-        }
++        ansi256(index)
+     }
+ }
+ 
+@@ -732,37 +717,6 @@ fn ansi256(index: u8) -> &'static str {
+     }
+ }
+ 
+-/// The same shade, said exactly, for a terminal that can take it.
+-///
+-/// Every index here is on xterm's greyscale ramp, where index `i` in
+-/// `232..=255` is the level `8 + (i - 232) * 10` on all three channels -- so
+-/// these are not approximations of the sequences above, they are the same
+-/// colours spelled in the notation a truecolor terminal reads without
+-/// consulting a palette. That is the whole of what [`Depth::TrueColor`] buys
+-/// here: indices 232-255 are a *palette*, and a terminal whose theme has
+-/// remapped them paints a band grey xfx did not choose.
+-///
+-/// Upstream reserves truecolor for the diff markers, where the fallback index
+-/// really is an approximation of a brand colour
+-/// (`render.zig:41-48`); this is the same "exact when the terminal said it can"
+-/// rule applied to the greys.
+-fn truecolor(index: u8) -> &'static str {
+-    match index {
+-        235 => "\u{1b}[38;2;38;38;38m",
+-        237 => "\u{1b}[38;2;58;58;58m",
+-        238 => "\u{1b}[38;2;68;68;68m",
+-        240 => "\u{1b}[38;2;88;88;88m",
+-        241 => "\u{1b}[38;2;98;98;98m",
+-        243 => "\u{1b}[38;2;118;118;118m",
+-        245 => "\u{1b}[38;2;138;138;138m",
+-        247 => "\u{1b}[38;2;158;158;158m",
+-        250 => "\u{1b}[38;2;188;188;188m",
+-        252 => "\u{1b}[38;2;208;208;208m",
+-        255 => "\u{1b}[38;2;238;238;238m",
+-        _ => "",
+-    }
+-}
+-
+ /// What a whole `OSC 11` reply says the background is, when it is one
+ /// (`theme_protocol.zig:11-40`).
+ ///
+@@ -941,6 +895,153 @@ pub(crate) const ULTRA_TRUECOLOR: &str = "\u{1b}[38;2;255;204;0m";
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn red_tc_notation_every_builtin_grey_is_spelt_as_upstreams_at_every_depth() {
++        for depth in [Depth::Ansi256, Depth::TrueColor] {
++            let dark = Palette {
++                mode: Mode::Dark,
++                depth,
++            };
++            let light = Palette {
++                mode: Mode::Light,
++                depth,
++            };
++            for (what, got, wanted) in [
++                (
++                    "divider dark",
++                    dark.divider().to_string(),
++                    "\u{1b}[38;5;240m",
++                ),
++                (
++                    "divider light",
++                    light.divider().to_string(),
++                    "\u{1b}[38;5;250m",
++                ),
++                ("hint dark", dark.hint().to_string(), "\u{1b}[38;5;255m"),
++                ("hint light", light.hint().to_string(), "\u{1b}[38;5;235m"),
++                ("notice dark", dark.notice().to_string(), "\u{1b}[38;5;250m"),
++                (
++                    "notice light",
++                    light.notice().to_string(),
++                    "\u{1b}[38;5;241m",
++                ),
++                (
++                    "activity dark",
++                    dark.activity().to_string(),
++                    "\u{1b}[38;5;252m",
++                ),
++                (
++                    "activity light",
++                    light.activity().to_string(),
++                    "\u{1b}[38;5;238m",
++                ),
++                (
++                    "statusline dark",
++                    dark.statusline().to_string(),
++                    "\u{1b}[38;5;245m",
++                ),
++                (
++                    "statusline light",
++                    light.statusline().to_string(),
++                    "\u{1b}[38;5;241m",
++                ),
++                ("dim dark", dark.dim().to_string(), "\u{1b}[38;5;245m"),
++                ("dim light", light.dim().to_string(), "\u{1b}[38;5;247m"),
++                (
++                    "selected dark",
++                    dark.selected(),
++                    "\u{1b}[48;5;239m\u{1b}[38;5;255m",
++                ),
++                (
++                    "selected light",
++                    light.selected(),
++                    "\u{1b}[48;5;251m\u{1b}[38;5;237m",
++                ),
++                (
++                    "subtitle dark",
++                    dark.subtitle().to_string(),
++                    "\u{1b}[1;38;5;255m",
++                ),
++                (
++                    "subtitle light",
++                    light.subtitle().to_string(),
++                    "\u{1b}[1;38;5;235m",
++                ),
++                (
++                    "heading dark",
++                    dark.notice_heading().to_string(),
++                    "\u{1b}[1;38;5;252m",
++                ),
++                (
++                    "heading light",
++                    light.notice_heading().to_string(),
++                    "\u{1b}[1;38;5;238m",
++                ),
++            ] {
++                assert_eq!(got, wanted, "{what} at {depth:?}");
++            }
++        }
++    }
++
++    /// Every row kind a theme report reads ([`DocumentRow`]).
++    const RED_TC_NOTATION_KINDS: [DocumentRow; 6] = [
++        DocumentRow::Plain,
++        DocumentRow::ToolGroup,
++        DocumentRow::ToolStopped,
++        DocumentRow::Answer,
++        DocumentRow::Code,
++        DocumentRow::Table,
++    ];
++
++    #[test]
++    fn red_tc_notation_an_indexed_cell_is_answered_alike_at_either_depth() {
++        // The collision check: does any rule tell a palette grey from a
++        // highlighter colour by its notation? A `38;5` cell is answered the
++        // same in a truecolor session as in a 256-colour one, on every row
++        // kind, in either mode, for every index.
++        for mode in [Mode::Dark, Mode::Light] {
++            let ansi = Palette {
++                mode,
++                depth: Depth::Ansi256,
++            };
++            let direct = Palette {
++                mode,
++                depth: Depth::TrueColor,
++            };
++            for kind in RED_TC_NOTATION_KINDS {
++                for index in 0..=255u8 {
++                    assert_eq!(
++                        direct.document_retint_in(kind, Color::Indexed(index)),
++                        ansi.document_retint_in(kind, Color::Indexed(index)),
++                        "{mode:?} {kind:?} {index}"
++                    );
++                }
++            }
++        }
++    }
++
++    #[test]
++    fn red_tc_notation_a_direct_grey_is_nobodys_at_either_depth() {
++        // Nothing this crate writes spells a builtin grey `38;2`, as nothing
++        // of fx's builtins does (`theme.zig:75-159@481104fd`), so a direct
++        // grey on the screen is not this session's painting at either depth.
++        for mode in [Mode::Dark, Mode::Light] {
++            for depth in [Depth::Ansi256, Depth::TrueColor] {
++                let palette = Palette { mode, depth };
++                for kind in RED_TC_NOTATION_KINDS {
++                    for step in 0..24u8 {
++                        let level = 8 + step * 10;
++                        assert_eq!(
++                            palette.document_retint_in(kind, Color::Rgb(level, level, level)),
++                            None,
++                            "{mode:?} {depth:?} {kind:?} {level}"
++                        );
++                    }
++                }
++            }
++        }
++    }
++
+     #[test]
+     fn the_ultra_marker_follows_upstreams_truecolor_rule() {
+         // `theme_protocol.zig:95-106`.

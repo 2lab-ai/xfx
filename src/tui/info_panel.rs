@@ -665,13 +665,10 @@ fn next_break(text: &str, width: usize) -> Break {
 
 #[cfg(test)]
 mod tests {
-    use super::super::theme::{Depth, Mode};
+    use super::super::theme::Mode;
     use super::*;
 
-    const PALETTE: Palette = Palette {
-        mode: Mode::Dark,
-        depth: Depth::Ansi256,
-    };
+    const PALETTE: Palette = Palette { mode: Mode::Dark };
 
     /// `row` with the palette taken off, and the blank cells a terminal would
     /// not keep after its last character.

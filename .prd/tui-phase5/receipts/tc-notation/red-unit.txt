@@ -1,0 +1,43 @@
+# RED, unit: the five red_tc_notation_* cases inserted into ec390074's src (no other change)
+# cargo test --locked --lib red_tc_notation
+
+test tui::theme::tests::red_tc_notation_an_indexed_cell_is_answered_alike_at_either_depth ... ok
+test tui::theme::tests::red_tc_notation_a_direct_grey_is_nobodys_at_either_depth ... FAILED
+test tui::theme::tests::red_tc_notation_every_builtin_grey_is_spelt_as_upstreams_at_every_depth ... FAILED
+test tui::event_loop::tests::red_tc_notation_a_stopped_call_and_a_notice_land_in_upstreams_greys_at_every_depth ... FAILED
+test tui::event_loop::tests::red_tc_notation_a_truecolor_session_writes_what_a_256_colour_session_writes ... FAILED
+
+
+
+thread 'tui::theme::tests::red_tc_notation_a_direct_grey_is_nobodys_at_either_depth' (285441341) panicked at src/tui/theme.rs:1080:25:
+assertion `left == right` failed: Dark TrueColor Plain 38
+  left: Some("\u{1b}[38;2;238;238;238m")
+ right: None
+
+
+thread 'tui::theme::tests::red_tc_notation_every_builtin_grey_is_spelt_as_upstreams_at_every_depth' (285441343) panicked at src/tui/theme.rs:1027:17:
+assertion `left == right` failed: divider dark at TrueColor
+  left: "\u{1b}[38;2;88;88;88m"
+ right: "\u{1b}[38;5;240m"
+
+
+thread 'tui::event_loop::tests::red_tc_notation_a_stopped_call_and_a_notice_land_in_upstreams_greys_at_every_depth' (285441339) panicked at src/tui/event_loop.rs:6425:13:
+assertion `left == right` failed: TrueColor: row, mark, Cancelled, argument, string, comment, label, notice, rail
+  left: [None, None, None, None, Some(241), Some(247), None, None, None]
+ right: [Some(241), Some(238), Some(235), Some(247), Some(241), Some(247), Some(238), Some(241), Some(235)]
+
+
+thread 'tui::event_loop::tests::red_tc_notation_a_truecolor_session_writes_what_a_256_colour_session_writes' (285441340) panicked at src/tui/event_loop.rs:6406:13:
+assertion `left == right` failed: tick 0
+  left: "\u{1b}[?2026h\u{1b}[?25l\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;2;238;238;238m┃\u{1b}[0m \u{1b}[1mhello\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[22;1H\u{1b}[38;2;238;238;238m┃\u{1b}[0m \u{1b}[K\u{1b}[24;1H\u{1b}[38;2;138;138;138mrun `xfx setup` · \u{1b}[0m\u{1b}[38;2;208;208;208mauto\u{1b}[0m\u{1b}[38;2;138;138;138m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h"
+ right: "\u{1b}[?2026h\u{1b}[?25l\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[1mhello\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[22;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[K\u{1b}[24;1H\u{1b}[38;5;245mrun `xfx setup` · \u{1b}[0m\u{1b}[38;5;252mauto\u{1b}[0m\u{1b}[38;5;245m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h"
+
+
+    tui::event_loop::tests::red_tc_notation_a_stopped_call_and_a_notice_land_in_upstreams_greys_at_every_depth
+    tui::event_loop::tests::red_tc_notation_a_truecolor_session_writes_what_a_256_colour_session_writes
+    tui::theme::tests::red_tc_notation_a_direct_grey_is_nobodys_at_either_depth
+    tui::theme::tests::red_tc_notation_every_builtin_grey_is_spelt_as_upstreams_at_every_depth
+
+test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 4274 filtered out; finished in 0.10s
+
+error: test failed, to rerun pass `--lib`

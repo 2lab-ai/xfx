@@ -1,0 +1,74 @@
+# T-U3-TC's notation.py over every -tc pair (ramp: rows that differ once a direct ramp grey is read as its index; notation: cells that differ in spelling alone; kept: cells whose notation changed since the run's first snap)
+# python3 -I ../inline-code-truecolor/notation.py scripts/fxcap <fx.ansi> <xfx.ansi> <xfx first-snap.ansi>
+
+## base
+p5-inline-code-retint-light-tc dark: ramp: 0 rows differ (row 1 not compared) notation: 23 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-retint-light-tc light-again: ramp: 0 rows differ (row 1 not compared) notation: 23 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-retint-light-tc light: ramp: 0 rows differ (row 1 not compared) notation: 23 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-retint-tc dark-again: ramp: 0 rows differ (row 1 not compared) notation: 23 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-retint-tc dark: ramp: 0 rows differ (row 1 not compared) notation: 23 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-retint-tc light: ramp: 0 rows differ (row 1 not compared) notation: 23 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-table-light-tc dark: ramp: 0 rows differ (row 1 not compared) notation: 23 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-table-light-tc light-again: ramp: 0 rows differ (row 1 not compared) notation: 23 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-table-light-tc light: ramp: 0 rows differ (row 1 not compared) notation: 23 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-table-tc dark-again: ramp: 0 rows differ (row 1 not compared) notation: 23 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-table-tc dark: ramp: 0 rows differ (row 1 not compared) notation: 23 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-table-tc light: ramp: 0 rows differ (row 1 not compared) notation: 23 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-ctrlo-tc dark-again: ramp: 0 rows differ (row 1 not compared) notation: 56 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-ctrlo-tc dark: ramp: 0 rows differ (row 1 not compared) notation: 56 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-ctrlo-tc full-dark-again: ramp: 31 rows differ (row 1 not compared) notation: 152 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-ctrlo-tc full-dark: ramp: 31 rows differ (row 1 not compared) notation: 152 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-ctrlo-tc full-light: ramp: 31 rows differ (row 1 not compared) notation: 152 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-ctrlo-tc light: ramp: 0 rows differ (row 1 not compared) notation: 56 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-live-tc dark: ramp: 0 rows differ (row 1 not compared) notation: 55 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-live-tc light: ramp: 0 rows differ (row 1 not compared) notation: 55 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-live-tc running-dark: ramp: 1 rows differ (row 1 not compared) notation: 67 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-live-tc running-light: ramp: 1 rows differ (row 1 not compared) notation: 68 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-retint-light-tc dark: ramp: 0 rows differ (row 1 not compared) notation: 56 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-retint-light-tc light-again: ramp: 0 rows differ (row 1 not compared) notation: 56 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-retint-light-tc light: ramp: 0 rows differ (row 1 not compared) notation: 56 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-retint-tc dark-again: ramp: 0 rows differ (row 1 not compared) notation: 56 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-retint-tc dark: ramp: 0 rows differ (row 1 not compared) notation: 56 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-retint-tc light: ramp: 0 rows differ (row 1 not compared) notation: 56 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolstop-retint-light-tc dark: ramp: 1 rows differ (row 1 not compared) notation: 71 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolstop-retint-light-tc light-again: ramp: 1 rows differ (row 1 not compared) notation: 71 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolstop-retint-light-tc light: ramp: 1 rows differ (row 1 not compared) notation: 71 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolstop-retint-tc dark-again: ramp: 1 rows differ (row 1 not compared) notation: 71 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolstop-retint-tc dark: ramp: 1 rows differ (row 1 not compared) notation: 71 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolstop-retint-tc light: ramp: 1 rows differ (row 1 not compared) notation: 71 cells in all kept: 0 cells changed notation since the drawn snap 
+
+## head
+p5-inline-code-retint-light-tc dark: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-retint-light-tc light-again: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-retint-light-tc light: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-retint-tc dark-again: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-retint-tc dark: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-retint-tc light: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-table-light-tc dark: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-table-light-tc light-again: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-table-light-tc light: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-table-tc dark-again: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-table-tc dark: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-inline-code-table-tc light: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-ctrlo-tc dark-again: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-ctrlo-tc dark: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-ctrlo-tc full-dark-again: ramp: 31 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-ctrlo-tc full-dark: ramp: 31 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-ctrlo-tc full-light: ramp: 31 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-ctrlo-tc light: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-live-tc dark: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-live-tc light: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-live-tc running-dark: ramp: 1 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-live-tc running-light: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-retint-light-tc dark: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-retint-light-tc light-again: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-retint-light-tc light: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-retint-tc dark-again: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-retint-tc dark: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolgroup-retint-tc light: ramp: 0 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolstop-retint-light-tc dark: ramp: 1 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolstop-retint-light-tc light-again: ramp: 1 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolstop-retint-light-tc light: ramp: 1 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolstop-retint-tc dark-again: ramp: 1 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolstop-retint-tc dark: ramp: 1 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 
+p5-toolstop-retint-tc light: ramp: 1 rows differ (row 1 not compared) notation: 0 cells in all kept: 0 cells changed notation since the drawn snap 

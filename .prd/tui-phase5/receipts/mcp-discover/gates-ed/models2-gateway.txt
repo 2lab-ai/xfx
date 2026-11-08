@@ -1,0 +1,11 @@
+# test_models2_and_modelsdelay's capture run by hand at 7ff9864b: the gateway's models lines (ms since it started) and the screen's curl output
+[fakegw] GET /coding-agent/v1/models bearer=no at=9042ms
+[fakegw] GET /coding-agent/v1/models -> 200 at=9244ms
+[fakegw] GET /coding-agent/v1/models -> second catalog
+[fakegw] request GET /coding-agent/v1/models at=9041ms -> 200 at=9244ms headers=-
+[fakegw] GET /coding-agent/v1/models bearer=no at=14373ms
+[fakegw] GET /coding-agent/v1/models -> 200 at=14574ms
+[fakegw] GET /coding-agent/v1/models -> second catalog
+[fakegw] request GET /coding-agent/v1/models at=14372ms -> 200 at=14574ms headers=-
+The default interactive shell is now zsh.To update your account to use zsh, please run `chsh -s /bin/zsh`.For more details, please visit https://support.apple.com/kb/HT208050.it-3.2$ curl -s "$FX_E2E_GATEWAY_MODELS_URL"; echo{"data":[{"id":"fake/two"}]}it-3.2$ curl -s "$FX_E2E_GATEWAY_MODELS_URL"; echo{"data":[{"id":"fake/two"}]}it-3.2$
+load 14.34 11.20 11.07

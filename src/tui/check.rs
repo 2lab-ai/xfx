@@ -3008,7 +3008,7 @@ fn wire_link(body: &str, at: usize) -> Result<Option<Arc<str>>, Reject> {
 /// it -- nor reverse video `7`/`27`, a draft's caret cell and a composer
 /// selection), one foreground colour
 /// (`38;5;n`, `38;2;r;g;b`), or the file picker's
-/// background and its close (`48;5;n`, `48;2;r;g;b`, `49`) -- read whole and
+/// background and its close (`48;5;n`, `49`) -- read whole and
 /// range-checked like a foreground, and carried no further than the text
 /// attributes are, because the comparison is about the pen's foreground.
 /// Anything else is a sequence this crate does not write.
@@ -3023,16 +3023,12 @@ fn wire_color(params: &str, at: usize) -> Result<Option<Color>, Reject> {
         match part {
             "0" | "39" => pen = Some(Color::Default),
             "1" | "2" | "3" | "4" | "7" | "9" | "22" | "23" | "24" | "27" | "29" | "49" => {}
-            "48" => {
-                let wanted = match parts.next() {
-                    Some("5") => 1,
-                    Some("2") => 3,
-                    _ => return Err(malformed()),
-                };
-                for _ in 0..wanted {
+            "48" => match parts.next() {
+                Some("5") => {
                     number(parts.next().ok_or_else(malformed)?).ok_or_else(malformed)?;
                 }
-            }
+                _ => return Err(malformed()),
+            },
             "38" => match parts.next() {
                 Some("5") => {
                     let index = parts.next().ok_or_else(malformed)?;
@@ -3740,6 +3736,9 @@ mod tests {
         assert!(wire_color("38;2;1;2", 0).is_err());
         assert!(wire_color("48;5;256", 0).is_err());
         assert!(wire_color("48;2;1;2", 0).is_err());
+        // A direct background is no shape this crate writes: the file
+        // picker's bar is `48;5` at every depth (`super::theme::Palette`).
+        assert!(wire_color("48;2;78;78;78", 0).is_err());
         // The file picker's background is in the vocabulary, and moves no
         // foreground: the pen it leaves is the one the group after it sets.
         assert_eq!(

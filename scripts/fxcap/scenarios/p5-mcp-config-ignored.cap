@@ -5,6 +5,12 @@ fx: homefile .fx/mcp.json p5-mcp-config-ignored-profile.json
 xfx: homefile .xfx/mcp.json p5-mcp-config-ignored-profile.json
 keep
 wait 12
+# The status line keeps its MCP text back while a server is still
+# starting, up to 10 s (statusline.rs MCP_STARTUP_QUIET,
+# menu.zig:443@481104fd). The snap is the config's problems once fx says
+# them, not a second count 2 s past the 10 (FLAKE-HINT4). xfx says nothing
+# of them -- a difference, not a timing -- so only fx waits.
+fx: until shown MCP config has 2 problems
 snap startup
 type /mcp
 key Enter

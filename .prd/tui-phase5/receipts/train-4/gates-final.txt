@@ -1,0 +1,14 @@
+# with the receipt in its final form staged (b7d47a93 + the index; the index differs from b7d47a93 only under this directory)
+$ cargo fmt --check
+exit 0
+$ scripts/check-xfx-identity.sh
+check-xfx-identity: ok (12927 tracked file(s) scanned)
+exit 0
+$ scripts/check-no-stubs.sh
+check-no-stubs: ok
+exit 0
+$ scripts/check-no-secrets.sh
+check-no-secrets: ok (12927 tracked file(s) scanned)
+exit 0
+$ git diff --cached --stat b7d47a93 -- . ':!.prd/tui-phase5/receipts/train-4' | tail -1
+(empty: nothing else staged)

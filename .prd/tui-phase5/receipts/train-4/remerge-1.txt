@@ -1,0 +1,7 @@
+commit a76f4e3776b85493779e7ddbf8e53e14836eafa9
+parents e6cde019fb53e04743173760917bc4e595b4e806 d56ab017165edfda6cc05ce5a3278199dacfa07f
+
+Merge feat/p5-mcp-discover @ d56ab017 (MCP-E + b/c/d: fx's server/discover era handshake before initialize, src/mcp/era.rs + wire.rs, the HTTP admission bound 32+32, stdio banner handling) into the 2026-11-08 train 4
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+

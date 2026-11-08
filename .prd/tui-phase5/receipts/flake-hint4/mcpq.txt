@@ -1,0 +1,43 @@
+# One base run (24a6b912 scenarios, fx v0.0.16 and xfx built at 24a6b91) of each MCP scenario with a snap near the status line's 10 s quiet: the last row of each snap (the status line, or a menu's key help), runs of spaces as ' | '.
+p5-mcp-menu-new/startup fx: auto · model-a
+p5-mcp-menu-new/startup xfx: auto · model-a
+p5-mcp-menu-new/startup-settled fx: auto · model-a | proj is waiting for approval · /mcp
+p5-mcp-menu-new/startup-settled xfx: auto · model-a | proj is waiting for approval · /mcp
+p5-mcp-verbs/startup fx: auto · model-a
+p5-mcp-verbs/startup xfx: auto · model-a
+p5-mcp-verbs/list fx: auto · model-a
+p5-mcp-verbs/list xfx: auto · model-a
+p5-mcp-verbs/show-fixture fx: auto · model-a | proj is waiting for approval · /mcp
+p5-mcp-verbs/show-fixture xfx: auto · model-a | proj is waiting for approval · /mcp
+p5-mcp-config-vars/startup fx: auto · model-a | MCP config has 5 problems · /mcp list
+p5-mcp-config-vars/startup xfx: auto · model-a | MCP config has 5 problems · /mcp list
+p5-mcp-notes/startup fx: auto · model-a | MCP config has 1 problem · /mcp list
+p5-mcp-notes/startup xfx: auto · model-a | MCP config has 1 problem · /mcp list
+p5-mcp-config-ignored/startup fx: auto · model-a | MCP config has 2 problems · /mcp list
+p5-mcp-config-ignored/startup xfx: auto · model-a
+p5-mcp-menu-old/startup fx: auto · model-a
+p5-mcp-menu-old/startup xfx: auto · model-a
+p5-mcp-menu-old/resources fx: ↑↓ navigate | enter open | esc close
+p5-mcp-menu-old/resources xfx: ↑↓ navigate | enter open | esc close
+p5-mcp-menu-old/prompts fx: ↑↓ navigate | enter open | esc close
+p5-mcp-menu-old/prompts xfx: ↑↓ navigate | enter open | esc close
+p5-mcp-menu-old/servers fx: ↑↓ navigate | enter open | esc close
+p5-mcp-menu-old/servers xfx: ↑↓ navigate | enter open | esc close
+p5-mcp-menu-old/details-1 fx: ↑↓ navigate | enter run | esc back
+p5-mcp-menu-old/details-1 xfx: ↑↓ navigate | enter run | esc back
+h1-mcphttp/hanging fx: auto · model-a
+h1-mcphttp/hanging xfx: auto · model-a
+h1-mcphttp/ready fx: auto · model-a
+h1-mcphttp/ready xfx: auto · model-a
+h1-mcphttp-fail/failed fx: auto · model-a
+h1-mcphttp-fail/failed xfx: auto · model-a
+h1-mcphttp-fail/rpcerror fx: auto · model-a
+h1-mcphttp-fail/rpcerror xfx: auto · model-a
+p5-input-mcp/reject-yes fx: ↑↓ navigate | enter run | esc back
+p5-input-mcp/reject-yes xfx: ↑↓ navigate | enter run | esc back
+p5-input-mcp/reject-esc fx: ↑↓ navigate | enter run | esc back
+p5-input-mcp/reject-esc xfx: ↑↓ navigate | enter run | esc back
+p5-input-mcp/remove-ask fx: ↑↓ navigate | enter run | esc back
+p5-input-mcp/remove-ask xfx: ↑↓ navigate | enter run | esc back
+p5-input-mcp/remove-enter-no fx: ↑↓ navigate | enter run | esc back
+p5-input-mcp/remove-enter-no xfx: ↑↓ navigate | enter run | esc back

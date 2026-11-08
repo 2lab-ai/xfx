@@ -1505,19 +1505,16 @@ mod tests {
 
     // -- Grid::retint_document (P3-THEME, the document's visible cells) --
 
-    /// The two palettes a retint case moves between, at the depth every case
-    /// here paints in.
+    /// The two palettes a retint case moves between.
     fn dark() -> Palette {
         Palette {
             mode: crate::tui::theme::Mode::Dark,
-            depth: crate::tui::theme::Depth::Ansi256,
         }
     }
 
     fn light() -> Palette {
         Palette {
             mode: crate::tui::theme::Mode::Light,
-            depth: crate::tui::theme::Depth::Ansi256,
         }
     }
 

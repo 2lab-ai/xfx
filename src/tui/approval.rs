@@ -1637,7 +1637,6 @@ mod tests {
         // `2` -- so the row says `↑↓ or tab options` there.
         let palette = crate::tui::theme::Palette {
             mode: crate::tui::theme::Mode::Dark,
-            depth: crate::tui::theme::Depth::Ansi256,
         };
         let mut panel = Panel::new(request("edit_file"));
         assert!(panel.hint(120, &palette).contains("tab amend"));

@@ -6,7 +6,12 @@
 gateway p5-transcript-cancel-turns.json
 fx: env FX_AUTO_UPGRADE=0
 fx: env FX_PERMISSION_MODE=yolo
+# fx's full-access warning is up from the first frame for 4 s (capfile.py
+# TIMERS): the turn starts once it has come and gone, so no snap below
+# races it. xfx runs in auto, with no warning.
+fx: until shown Full access
 wait 4
+fx: until gone Full access
 type stream please
 wait 1
 key Enter

@@ -1,0 +1,47 @@
+# lint: capfile.py at HEAD
+== e6cde019 Merge pull request #79 from 2lab-ai/train/p5-1107c
+  313 scenarios; 79 races, in 20 scenarios
+    approvals, interrupt, interrupt-cmd, interrupt-help, interrupt-next-cmd, interrupt-recovered, interrupt-steer, interrupt-steer-retract, p5-effort-fork-effort-ctrlc, p5-mcp-live, p5-mcp-turn, p5-toolstop-retint, p5-toolstop-retint-light, p5-toolstop-retint-light-tc, p5-toolstop-retint-tc, p5-transcript-cancel, p5-transcript-records, p5-transcript-resize, permissions-midturn, settings-collapse
+  models2 lines: 1; in the old timed form: 1
+    h1-models2.cap: models2 h1-models-two.json 9000
+== d56ab017 docs(receipt): MCP-Ed -- the merge of main 6c93f359 and its gate at 7ff9864b
+  325 scenarios; 85 races, in 23 scenarios
+    approvals, interrupt, interrupt-cmd, interrupt-help, interrupt-next-cmd, interrupt-recovered, interrupt-steer, interrupt-steer-retract, p5-effort-fork-effort-ctrlc, p5-mcp-discover-http-modern, p5-mcp-discover-http-notimpl, p5-mcp-discover-stdio-modern, p5-mcp-live, p5-mcp-turn, p5-toolstop-retint, p5-toolstop-retint-light, p5-toolstop-retint-light-tc, p5-toolstop-retint-tc, p5-transcript-cancel, p5-transcript-records, p5-transcript-resize, permissions-midturn, settings-collapse
+  models2 lines: 1; in the old timed form: 1
+    h1-models2.cap: models2 h1-models-two.json 9000
+== e1d4016b docs: TC-NOTATIONb -- stale depth references, the 48;2 refusal's premise
+  311 scenarios; 79 races, in 20 scenarios
+    approvals, interrupt, interrupt-cmd, interrupt-help, interrupt-next-cmd, interrupt-recovered, interrupt-steer, interrupt-steer-retract, p5-effort-fork-effort-ctrlc, p5-mcp-live, p5-mcp-turn, p5-toolstop-retint, p5-toolstop-retint-light, p5-toolstop-retint-light-tc, p5-toolstop-retint-tc, p5-transcript-cancel, p5-transcript-records, p5-transcript-resize, permissions-midturn, settings-collapse
+  models2 lines: 1; in the old timed form: 1
+    h1-models2.cap: models2 h1-models-two.json 9000
+== 31a6ef79 docs(receipt): FLAKE-HINT4 round 2 -- main e6cde019 merged, gates at the head
+  313 scenarios; 0 races, in 0 scenarios
+  models2 lines: 1; in the old timed form: 0
+    h1-models2.cap: models2 h1-models-two.json
+== e3035c92 Merge fix/p5-flake-hint4 @ 31a6ef79 (FLAKE-HINT4 r2: the `until shown|gone` verb, `absent`/`expect`, 
+  331 scenarios; 6 races, in 3 scenarios
+    p5-mcp-discover-http-modern (fx): `type /mcp show fixture` is 6.0 to 6.0 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+    p5-mcp-discover-http-modern (xfx): `type /mcp show fixture` is 6.0 to 6.0 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+    p5-mcp-discover-http-notimpl (fx): `type /mcp show fixture` is 6.0 to 6.0 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+    p5-mcp-discover-http-notimpl (xfx): `type /mcp show fixture` is 6.0 to 6.0 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+    p5-mcp-discover-stdio-modern (fx): `type /mcp show fixture` is 6.0 to 6.0 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+    p5-mcp-discover-stdio-modern (xfx): `type /mcp show fixture` is 6.0 to 6.0 s after the full-access warning is armed, inside its window (3 to 7 s), and no `until gone` names 'Full access' before it: it can take the row, and the clock stops while it is off it
+  models2 lines: 1; in the old timed form: 0
+    h1-models2.cap: models2 h1-models-two.json
+== d2e25b0a test(fxcap): train 4 -- three MCP-E scenarios wait for the full-access warning to come and go before 
+  331 scenarios; 0 races, in 0 scenarios
+  models2 lines: 1; in the old timed form: 0
+    h1-models2.cap: models2 h1-models-two.json
+== 3bd15c89 test(fxcap): train 4 -- p5-mcp-discover-stdio-modern-tc, the 2026 server's notice and tool group unde
+  332 scenarios; 0 races, in 0 scenarios
+  models2 lines: 1; in the old timed form: 0
+    h1-models2.cap: models2 h1-models-two.json
+
+# The repository check itself (test-sweep.sh runs it; CI's "The sweep's own tests" step too), at merge 3 and after the conversion:
+== e3035c92: python3 -I scripts/fxcap/test_sweep.py Capfile.test_no_snap_of_the_repos_scenarios_races_a_timer (git archive of the commit's scripts/fxcap)
+AssertionError: Lists differ: ["p5-mcp-discover-http-modern (fx): `type [1514 chars] it"] != []
+Ran 1 test in 0.044s
+FAILED (failures=1)
+== d2e25b0a: python3 -I scripts/fxcap/test_sweep.py Capfile.test_no_snap_of_the_repos_scenarios_races_a_timer (git archive of the commit's scripts/fxcap)
+Ran 1 test in 0.041s
+OK

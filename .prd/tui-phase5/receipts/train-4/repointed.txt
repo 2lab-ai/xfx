@@ -1,0 +1,34 @@
+call-row-raw-argument (source), call-row-page-edge (xfx)
+  src/tui/toolgroup.rs:750 (e6cde019) -> :749
+  SAME (5 lines): 'pub(crate) fn spelled(target: &str, activity: Activity) -> String {'
+call-row-source-cut (source)
+  src/tui/toolgroup.rs:798 (e6cde019) -> :797
+  SAME (5 lines): 'fn command_spelled(target: &str, max: usize, mark_unread: bool) -> String {'
+call-row-arabic-letter-mark (source)
+  src/tui/toolgroup.rs:912 (e6cde019) -> :911
+  SAME (5 lines): "if character == '\\u{061c}' {"
+cancelled-marker (xfx)
+  src/tui/toolgroup.rs:711 (e6cde019) -> :710
+  SAME (5 lines): '"{}\\u{25a0}{reset}{} Cancelled{reset} {base}{target}{reset}{CANCELLED_FOLLOW_UP}",'
+submit-multi-card-whole (why; `send`)
+  src/tui/shell.rs:12275 (e6cde019) -> :12272
+  SAME (5 lines): 'fn send(&mut self, prompt: String, text: &str) -> bool {'
+session-record, transcript-page-offset, toolgroup-ctrlo-record-short, safe-page-edge, full-transcript-shift
+  src/tui/shell.rs:37458 (e6cde019) -> :37424
+  SAME (5 lines): '"  tools: {} advertised ({},",'
+run-directory (source)
+  scripts/fxcap/capture.sh:430 (d56ab017) -> :462
+  SAME (5 lines): 'run=$(mktemp -d "${TMPDIR:-/tmp}/fxcap.XXXXXX")'
+capture-tmpdir (source)
+  scripts/fxcap/capture.sh:266-268 (d56ab017) -> :291-293
+  SAME (7 lines): '# Each binary gets a TMPDIR inside the run (fx `$run/fxtmp`, xfx'
+tmux-dead-pane (source)
+  scripts/fxcap/capture.sh:794 (d56ab017) -> :878
+  SAME (5 lines): 'keep) tmux -f /dev/null -S "$sock" set-option -w -t cap remain-on-exit on > /dev/null ;;'
+capfile.py TIMERS, `warning_shown`
+  src/tui/shell.rs:13708-13733 (31a6ef79) -> :13705-13730
+  SAME (30 lines): "fn warning_shown(&self) -> Option<&'static str> {"
+capfile.py TIMERS, the full transcript
+  src/tui/shell.rs:13726-13728 (31a6ef79) -> :13723-13725
+  SAME (7 lines): 'if self.owner != ScreenOwner::Primary {'
+11 of 11 the same code

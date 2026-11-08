@@ -1,0 +1,43 @@
+# HINT='press ctrl+c again to exit' hint-runs.sh <fx v0.0.16> <xfx built at e2937ae> 5 p5-toolstop-retint; the scenario, capture.sh and src are the same at ba24235
+run 1 fx dark-again hint=0 load=21.49
+run 1 fx dark hint=0 load=21.49
+run 1 fx light hint=0 load=21.49
+run 1 xfx dark-again hint=0 load=20.59
+run 1 xfx dark hint=0 load=20.59
+run 1 xfx light hint=0 load=20.59
+run 2 fx dark-again hint=0 load=20.98
+run 2 fx dark hint=0 load=20.98
+run 2 fx light hint=0 load=20.98
+run 2 xfx dark-again hint=0 load=22.97
+run 2 xfx dark hint=0 load=22.97
+run 2 xfx light hint=0 load=22.97
+run 3 fx dark-again hint=0 load=21.49
+run 3 fx dark hint=0 load=21.49
+run 3 fx light hint=0 load=21.49
+run 3 xfx dark-again hint=0 load=21.10
+run 3 xfx dark hint=0 load=21.10
+run 3 xfx light hint=0 load=21.10
+run 4 fx dark-again hint=0 load=20.67
+run 4 fx dark hint=0 load=20.67
+run 4 fx light hint=0 load=20.67
+run 4 xfx dark-again hint=0 load=19.60
+run 4 xfx dark hint=0 load=19.60
+run 4 xfx light hint=0 load=19.60
+run 5 fx dark-again hint=0 load=19.04
+run 5 fx dark hint=0 load=19.04
+run 5 fx light hint=0 load=19.04
+run 5 xfx dark-again hint=0 load=19.79
+run 5 xfx dark hint=0 load=19.79
+run 5 xfx light hint=0 load=19.79
+count fx dark-again: hint shown in 0 of 5
+count fx dark: hint shown in 0 of 5
+count fx light: hint shown in 0 of 5
+count xfx dark-again: hint shown in 0 of 5
+count xfx dark: hint shown in 0 of 5
+count xfx light: hint shown in 0 of 5
+label dark-again: the two binaries agree in 5 of 5 runs
+label dark: the two binaries agree in 5 of 5 runs
+label light: the two binaries agree in 5 of 5 runs
+# how long each `until` waited, s:
+fx: gone Full access=0.02;gone press ctrl+c again to exit=0.02;gone Full access=0.02;gone press ctrl+c again to exit=0.02;gone Full access=0.03;gone press ctrl+c again to exit=0.04;gone Full access=0.02;gone press ctrl+c again to exit=0.02;gone Full access=0.02;gone press ctrl+c again to exit=0.02;
+xfx: gone Full access=0.02;gone press ctrl+c again to exit=0.01;gone Full access=0.02;gone press ctrl+c again to exit=0.01;gone Full access=0.02;gone press ctrl+c again to exit=0.02;gone Full access=0.02;gone press ctrl+c again to exit=0.01;gone Full access=0.02;gone press ctrl+c again to exit=0.02;

@@ -6,6 +6,11 @@ fx: homefile .fx/mcp.json p5-mcp-notes-profile.json
 xfx: homefile .xfx/mcp.json p5-mcp-notes-profile.json
 keep
 wait 12
+# The status line keeps its MCP text back while a server is still
+# starting, up to 10 s (statusline.rs MCP_STARTUP_QUIET,
+# menu.zig:443@481104fd). The snap is the config's problem once it is
+# said, not a second count 2 s past the 10 (FLAKE-HINT4).
+until shown MCP config has 1 problem
 snap startup
 type /mcp
 key Enter

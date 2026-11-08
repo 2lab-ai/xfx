@@ -2812,7 +2812,6 @@ mod tests {
         // of it in the statusline grey (`approval_ui.zig:1652-1687`).
         let styles = Styles::of(&Palette {
             mode: super::super::theme::Mode::Dark,
-            depth: super::super::theme::Depth::Ansi256,
         });
         let typed = Block {
             choice: 0,
@@ -2852,7 +2851,6 @@ mod tests {
         // tmux: `ESC[1m…ESC[0m`, `ESC[38;5;245m…ESC[39m`).
         let styles = Styles::of(&Palette {
             mode: super::super::theme::Mode::Dark,
-            depth: super::super::theme::Depth::Ansi256,
         });
         let marked = choice_rows(Kind::Edit, 0, true, None, 0, 120, &styles).0;
         assert_eq!(marked, ["  \u{1b}[1;38;5;255m❯ 1  Apply once\u{1b}[0m"]);

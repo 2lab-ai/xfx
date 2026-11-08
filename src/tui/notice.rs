@@ -159,7 +159,7 @@ pub(crate) fn unattributed(text: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::super::theme::{Depth, Mode};
+    use super::super::theme::Mode;
     use super::*;
 
     #[test]
@@ -207,14 +207,8 @@ mod tests {
         // `:125-140` (light): information is `system_notice_label_style`, the
         // three outcomes are `red/green/warning_style`, cancelled is
         // `dim_style`, and neutral is `system_notice_text_style`.
-        let dark = Palette {
-            mode: Mode::Dark,
-            depth: Depth::Ansi256,
-        };
-        let light = Palette {
-            mode: Mode::Light,
-            depth: Depth::Ansi256,
-        };
+        let dark = Palette { mode: Mode::Dark };
+        let light = Palette { mode: Mode::Light };
         for (tone, on_dark, on_light) in [
             (Tone::Neutral, "\u{1b}[38;5;250m", "\u{1b}[38;5;241m"),
             (

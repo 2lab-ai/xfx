@@ -1,0 +1,15 @@
+pairs: base 34, head 34, both 34
+base fails, head passes (11):
+  p5-mcp-menu-new/left-back: unresolved-defect -> normalized-identical
+  p5-mcp-menu-new/list: unresolved-defect -> normalized-identical
+  p5-mcp-menu-new/list-after-approve: unresolved-defect -> normalized-identical
+  p5-mcp-menu-new/list-filter: unresolved-defect -> normalized-identical
+  p5-mcp-menu-new/list-proj: unresolved-defect -> normalized-identical
+  p5-mcp-menu-new/list-unfilter: unresolved-defect -> normalized-identical
+  p5-mcp-menu-new/remove-cancel: unresolved-defect -> normalized-identical
+  p5-mcp-menu-new/remove-inplace: unresolved-defect -> normalized-identical
+  p5-mcp-menu-new/remove-no: unresolved-defect -> normalized-identical
+  p5-mcp-menu-new/reopened: unresolved-defect -> normalized-identical
+  p5-mcp-menu-new/server-remote: unresolved-defect -> normalized-identical
+base passes, head fails (0):
+same side, another verdict (0):

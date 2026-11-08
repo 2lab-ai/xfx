@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-58b463c [debug] · Run /help for commands
+
+* mcp: fixture
+    status     ready, 1 tool
+    version    2025-06-18
+    transport  stdio
+    command    <bun> <repo>/scripts/fxcap/
+  scenarios/p5-mcp-discover-stdio.ts malformed
+    source     ~/.xfx/mcp.json
+    tools      1
+      echo  Echo text through the malformed discover fixture
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
