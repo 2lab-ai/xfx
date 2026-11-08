@@ -34719,6 +34719,17 @@ mod tests {
         assert!(matches!(shell.slot(), Some(Slot::Files(_))));
         shell.file_picker_landed();
         assert_eq!(shell.file_rows_painted, 10, "a frame with no list set them");
+        // And a frame that landed without the list leaves its keys waiting.
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(|files| files.marked())
+                .map(|found| found.path.as_str()),
+            Some("Cargo.toml"),
+            "a key moved the bar after a frame without the list"
+        );
     }
 
     #[test]

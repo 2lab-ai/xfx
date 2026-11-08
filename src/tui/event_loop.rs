@@ -16060,6 +16060,34 @@ mod tests {
     }
 
     #[test]
+    fn a_resize_spends_the_at_lists_keys_until_its_frame_lands() {
+        // fx distrusts the list from the screen's signal to the frame at its
+        // new size, and while no layout fits the screen
+        // (`resizeLifecyclePending`, `terminal_dimensions_invalid`,
+        // `input_completion_runtime.zig:803-806@481104fd`).
+        let mut list = AtList::open(40, 120);
+        // A signal not answered yet: the Down is spent.
+        list.shell.render.mark_resize(Instant::now());
+        list.shell.route_bytes(DOWN);
+        // Answered, as the loop answers it (`take_resize`, then the resolve).
+        assert!(list.shell.render.force_resize());
+        assert_eq!(
+            list.resize(40, 121),
+            at_window(1, 10, 1),
+            "a Down moved the bar mid-resize"
+        );
+        assert_eq!(list.keys(DOWN), at_window(1, 10, 2));
+        // A screen no band fits on, a Down, and the screen back: spent.
+        list.resize(5, 121);
+        list.shell.route_bytes(DOWN);
+        assert_eq!(
+            list.resize(40, 121),
+            at_window(1, 10, 2),
+            "a Down moved the bar off screen"
+        );
+    }
+
+    #[test]
     fn under_the_full_transcript_the_at_list_takes_no_key() {
         // fx's list is not eligible while the full transcript is up
         // (`filePickerEligible`, `input_completion_runtime.zig:783`, `:798-799
