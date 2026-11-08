@@ -13524,7 +13524,14 @@ impl Shell {
         let shown = rows.split_off(rows.len() - room);
         self.preview = Some(shown);
         self.refit();
-        if !self.previewing() {
+    }
+
+    /// A preview the band was solved without is gone for good: the card is
+    /// not held behind it, so the next frame writes the card whole, and a
+    /// band that has the room again later must not show the tail of a card
+    /// already written, nor hold the document behind it ([`Self::preview`]).
+    fn unplaced_preview_gone(&mut self, geometry: &Geometry) {
+        if geometry.preview == 0 {
             self.preview = None;
         }
     }
@@ -15942,6 +15949,7 @@ impl Shell {
     /// landed under a panel are the document's new tail.
     fn refloat(&mut self) {
         let geometry = self.placed(self.geometry);
+        self.unplaced_preview_gone(&geometry);
         if geometry != self.geometry {
             self.geometry = geometry;
             self.render.request(Reason::Resize);
@@ -16179,6 +16187,7 @@ impl Shell {
         let Some(geometry) = self.fit(rows, cols) else {
             return;
         };
+        self.unplaced_preview_gone(&geometry);
         if geometry == self.geometry {
             return;
         }
