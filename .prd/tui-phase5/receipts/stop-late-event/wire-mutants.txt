@@ -1,4 +1,4 @@
-# python3 -I -B wire_mutants.py <this dir> <scratch> e27f9bc (exit 0: the unchanged copy passes and every mutant fails)
+# python3 -I -B wire_mutants.py <this dir> <scratch> 2b21b79 (exit 0: the unchanged copy passes and every mutant fails)
 == unchanged wires: exit 0, 0 failing claims
 == mutant: the prompt's working behind the frame that shows its Thinking (round 1's order)
    exit 1, 2 failing claims

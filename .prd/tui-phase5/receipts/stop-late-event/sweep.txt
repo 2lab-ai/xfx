@@ -1,15 +1,18 @@
-# The parity sweep, base vs head, every p5-lifecycle-* scenario (osc and lifecycle), inside this unit's one suite-lock slot:
+# The parity sweep, base vs head, every p5-lifecycle-* scenario (osc and lifecycle), inside this unit's round-2 suite-lock slot:
 # scripts/fxcap/sweep.sh --fx <fx v0.0.16> --pin-sha 8e6cda2e... --xfx <build> --jobs 3 --only 'p5-lifecycle-*' --out <dir>
+# base = 1230329: e636db48 (L-U1+U2's head, this unit's base) with main 884497c0 merged in -- L-U1+U2 and main without this
+# unit. A throwaway merge in scratch; `git show --remerge-diff` on it is empty for src/ (its one conflict was docs/parity.md),
+# so its build is its two parents' code. head = 2b21b79.
 
 ## base
 - fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
-- xfx: `x𝒇x v0.1.0-e636db4 [debug] · Run /help for commands`, sha256 `9fd08e5bca8a3f6bdbbaa94a3fa24998adc356c449b373765685cac421ae87e5`
-pass = 28 / 69 = 40.6%; unresolved 40, failed 0, timeout 0
+- xfx: `x𝒇x v0.1.0-1230329 [debug] · Run /help for commands`, sha256 `10c87be171df1433d95272fbd161547d0976f6a7dcb2ba7fc50c805bff9499a6`
+scenarios 30: ran 30, failed 0, timeout 0; pass = 28 / 69 = 40.6%
 
 ## head
 - fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
-- xfx: `x𝒇x v0.1.0-e27f9bc [debug] · Run /help for commands`, sha256 `3896e408aae1dbf82c8a41ef9e3d79650851262b0b9999b76354488abe01d060`
-pass = 28 / 69 = 40.6%; unresolved 40, failed 0, timeout 0
+- xfx: `x𝒇x v0.1.0-2b21b79 [debug] · Run /help for commands`, sha256 `6e7867efdefa2e2caaf311118ce07d3407149c59ec85b5295e7044c016067904`
+scenarios 30: ran 30, failed 0, timeout 0; pass = 28 / 69 = 40.6%
 
 ## pair by pair (pairs.json): each pair's verdict, base -> head
 pairs: base 69, head 69; only on one side: 0

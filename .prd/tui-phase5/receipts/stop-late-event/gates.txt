@@ -114,3 +114,61 @@ run 5 base FAILED (errors=1)
 ## The test types a curl at 0.5 s and at 5.0+0.8 s against a catalog swapped at 5000 ms; under this machine's load
 ## one of the two answers is missing from the snap (`substring not found`; which one is not recorded) on either build alike:
 ## registry #19's load class, not this unit.
+
+# ================================================================
+# Round 2: the dispatcher's list at 2b21b797c216f16d6aa02639a8e6870980b1cdfd, one job after another in ONE suite-lock slot
+# (taken 04:26:57Z, released 05:13:23Z): cargo test x3, test-capture, test-sweep, the release and faulty builds, smoke-tui,
+# the two sweeps (sweep.txt), the captures (osc-all.txt, osc-stopnext.txt) and the code mutants (mutants.txt). TMPDIR=<local-path>.
+#
+# The runner's rc column is NOT evidence: its step helper read $? after a command substitution in the same echo,
+# so it printed rc=0 for every step whatever the step's exit (checked: bash -c 'false; echo "$(printf %02d 4) rc=$?"'
+# prints 'rc=0'). Every outcome below is read from the step's own log. (The capture loop read $? first; its rc is real.)
+
+## each step's outcome, from its log
+01-test: 14 binaries, 5334 passed, 0 failed, 7 ignored
+02-test-fault-tui: 1 binaries, 192 passed, 0 failed, 0 ignored
+03-test-fault-lib: 1 binaries, 4444 passed, 0 failed, 7 ignored
+04-fxcap-test-capture: Ran 59 tests in 484.669s -- FAILED (failures=2)
+    FAIL: test_hang_holds_until_the_mode_changes
+    FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run
+05-fxcap-test-sweep: Ran 66 tests in 5.244s OK Ran 26 tests in 35.735s OK 
+06-build-release: Finished `release` profile [optimized] target(s) in 13.25s
+07-build-faulty: Finished `release` profile [optimized] target(s) in 13.21s
+08-smoke-tui: smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+09-sweep-base: pass = 28 / 69 = 40.6%; unresolved 40, failed 0, timeout 0
+10-sweep-head: pass = 28 / 69 = 40.6%; unresolved 40, failed 0, timeout 0
+captures: 32 of 32 exit 0
+
+## the two test-capture failures
+FAIL: test_hang_holds_until_the_mode_changes
+  AssertionError: Regex didn't match: 'rpc=ping id=1 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200' not found in '[mcphttp] listening 57926\n[mcphttp] +86ms POST /mcp rpc=ping id=1 session=no version=- mcp-method=- mcp-name=- mode=unknown() -> 500 +887ms\n[mcphttp] +887ms POST /mcp rpc=ping id=2 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200 +889ms\n'
+FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run
+  AssertionError: 'executable /bin/cat' not found in 'no pid runs <local-path> pane 32123, pid 32123, executable /bin/sh\n'
+
+## neither runs this unit's code: the harness files are main's
+## git diff --stat 884497c0 2b21b797 -- scripts/fxcap/test_capture.py scripts/fxcap/capture.sh scripts/fxcap/mcphttp.ts
+(empty: unchanged)
+## test_a_pid_... runs capture.sh with a /bin/sh wrapper that execs /bin/cat (no xfx); test_hang_... runs the fake MCP server alone.
+## both tests alone, five interleaved pairs, head worktree / base clone (1230329, the same harness files), run while the
+## slot's mutants ran (outside the lock, so under that load):
+run 1 head OK 
+run 1 base OK 
+run 2 head OK 
+run 2 base FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run FAILED (failures=1) 
+run 3 head FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run FAILED (failures=1) 
+run 3 base FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run FAILED (failures=1) 
+run 4 head FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run FAILED (failures=1) 
+run 4 base FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run FAILED (failures=1) 
+run 5 head OK 
+run 5 base OK 
+## test_a_pid_...: head 2 of 5 fail, base 3 of 5; test_hang_...: 0 of 5 on both. The same failure on both builds and
+## in harness code this unit does not change. [guess, not traced: the pid's executable was read before the wrapper's
+## exec (/bin/sh, not /bin/cat), and the first request read the mode file before it said `hang` (mode=unknown()).]
+
+## after the slot: d4ce0e0c (one test added, nothing else) and 27714762 (docs/parity.md only)
+cargo fmt --check: ok; cargo clippy --locked --all-targets -- -D warnings: ok (outside the lock)
+cargo test --locked --lib -- tui::shell::tests::a_failed_automatic_compactions_turn_titles_nothing_and_a_stopped_ones_does: 1 passed
+then in a second suite-lock slot (started 05:34:01Z):
+  mutants 20 and 21 on the --no-local clone at d4ce0e0c: both KILLED (mutants.txt)
+  the same clone unmutated, cargo test --locked --lib -- tui::: 2774 passed; 0 failed; 5 ignored
+  the worktree at 27714762, cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0

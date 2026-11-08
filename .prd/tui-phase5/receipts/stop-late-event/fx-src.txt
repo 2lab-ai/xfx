@@ -1,4 +1,4 @@
-# fx v0.0.16 (481104fd) text for every fx citation STOP-LATE-EVENT adds.
+# fx v0.0.16 (481104fd) text for every fx citation STOP-LATE-EVENT adds, rounds 1 and 2.
 # Each block: the command (repo = the fx upstream checkout, read through git show at the pin, never its
 # working tree), then the lines with their numbers.
 
@@ -195,7 +195,202 @@
  5631          };
  5632      }
 
-## Item 2: a prompt sent while a turn streams or the worker is busy is queued at once, not held as a pending submission
+## Round 2, MUST 1: a real failure after a stop is still returned -- the interrupted finish, then the
+## propagation error (interruption.zig:208-223 above); and an error that is not the cancellation is returned
+## even with the cancel flag set; a cancelled drain admits the error_text
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '5955,5958p'
+ 5955          explicit_section = load_explicit: while (true) {
+ 5956              const prepared = skill_invocation.buildExplicitPromptSection(arena, config.skill_catalog, job.prompt, config.skill_bindings, config.context_limits, config.cancel_flag) catch |err| {
+ 5957                  if (err != error.Cancelled or !config.cancel_flag.load(.seq_cst)) return err;
+ 5958                  if (try append_immediate_steering_after_cancel(deps, arena, &within_turn_suffix, turn_id, "")) continue :load_explicit;
+
+### git -C fx-upstream show 481104fd:src/core/app/app_worker_runtime.zig | sed -n '339,389p'
+  339          fn cancelledEventAdmission(
+  340              presenter: activity_runtime.LifecyclePresenter,
+  341              event: WorkerEvent,
+  342              batch_events: []const WorkerEvent,
+  343          ) CancelledEventAdmission {
+  344              return switch (event) {
+  345                  .assistant_presentation,
+  346                  .open_model_picker,
+  347                  .semantic_notice,
+  348                  .full_detail_record,
+  349                  .command_output,
+  350                  .turn_token_update,
+  351                  .turn_phase_update,
+  352                  .diff_block,
+  353                  .restore_failed_prompt,
+  354                  => .drop,
+  355                  .route_recovery_status => |status| if (status.action == .paused)
+  356                      .admit
+  357                  else
+  358                      .drop,
+  359                  .command_output_complete => |lifecycle_id| if (cancelledCommandCompletionMatches(presenter, lifecycle_id))
+  360                      .admit
+  361                  else
+  362                      .drop,
+  363                  .tool_lifecycle => |lifecycle| switch (lifecycle) {
+  364                      .provisional => |started| cancelledToolStartAdmission(presenter, started.id, batch_events),
+  365                      .authoritative_started => |started| cancelledToolStartAdmission(presenter, started.id, batch_events),
+  366                      .progress => .drop,
+  367                      .terminal => |terminal| if (presenter.record(terminal.id) == null)
+  368                          .drop
+  369                      else
+  370                          .admit,
+  371                      .turn_finished => .admit,
+  372                  },
+  373                  .begin_prompt,
+  374                  .begin_prompt_with_skill_bindings,
+  375                  .begin_presented_prompt,
+  376                  .append_user_feedback,
+  377                  .notification,
+  378                  .question_requested,
+  379                  .clear_route_recovery_status,
+  380                  .provider_resolved,
+  381                  .api_status_text,
+  382                  .context_compaction,
+  383                  .credential_refreshed,
+  384                  .finish_prompt,
+  385                  .session_grant,
+  386                  .error_text,
+  387                  => .admit,
+  388              };
+  389          }
+
+## Round 2, MUST 2: the keystroke writes the Cancelled line while the stream is active, whatever the worker
+## has done; a batch the worker has already finished is no interrupted segment; a completed turn's summary
+## is written; a second finish is ignored (finalization.zig:120-136 above)
+
+### git -C fx-upstream show 481104fd:src/core/app/input_interrupt_runtime.zig | sed -n '91,134p'
+   91              if (!app.stream.active) return;
+   92              // Pending approval keeps the stream active until resolution.
+   93              // Avoid duplicate cancellation notices once the worker is cancelled.
+   94              if (app.worker.isCancelRequested()) return;
+   95              const compacting = if (comptime @hasDecl(@TypeOf(app.worker), "compactionActivitySnapshot")) blk: {
+   96                  const observed = app.worker.compactionActivitySnapshot();
+   97                  break :blk if (observed.operation) |op| op.active() else false;
+   98              } else false;
+   99              const tool_active = activeToolStatusCount(app) > 0;
+  100              debug_trace.logf("input", "cancel active operation queued={d}", .{app.worker.queuedPromptCount()});
+  101              traceInterruptRequested(app, "input_active_stream");
+  102              if (comptime @hasDecl(@TypeOf(app.worker), "requestInteractiveCancel")) {
+  103                  app.worker.requestInteractiveCancel();
+  104              } else {
+  105                  app.worker.requestCancel();
+  106              }
+  107              app.pacer.clear(app.alloc);
+  108              if (comptime @hasDecl(App, "playCancelSound")) app.playCancelSound();
+  109              if (compacting) {
+  110                  app.shell.render_requests.request(.footer);
+  111                  return;
+  112              }
+  113              if (tool_active) {
+  114                  _ = try shell_runtime.presentActiveToolCancellation(
+  115                      app.alloc,
+  116                      &app.shell,
+  117                  );
+  118              } else {
+  119                  if (comptime @hasField(App, "metrics")) {
+  120                      try shell_runtime.writeTurnCancellation(
+  121                          app.alloc,
+  122                          &app.shell,
+  123                          &app.metrics,
+  124                          true,
+  125                      );
+  126                  }
+  127              }
+  128              if (tool_active) {
+  129                  app.shell.render_requests.request(.footer);
+  130                  return;
+  131              }
+  132              app.stream = .{};
+  133              app.shell.render_requests.request(.footer);
+  134          }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_worker_runtime.zig | sed -n '301,325p'
+  301  fn batchSegmentIsInterrupted(events: []const WorkerEvent, cancelled_turn_id: ?u64) bool {
+  302      var turn_id: ?u64 = null;
+  303      scan: for (events, 0..) |event, index| {
+  304          if (index > 0) switch (event) {
+  305              .begin_prompt, .begin_prompt_with_skill_bindings, .begin_presented_prompt => break :scan,
+  306              else => {},
+  307          };
+  308          switch (event) {
+  309              .begin_presented_prompt => |id| turn_id = id,
+  310              .turn_phase_update => |phase| turn_id = phase.turn_id,
+  311              .tool_lifecycle => |lifecycle| {
+  312                  turn_id = switch (lifecycle) {
+  313                      .turn_finished => |finished| return finished.outcome == .interrupted,
+  314                      .provisional => |value| value.id.turn_id,
+  315                      .authoritative_started => |value| value.id.turn_id,
+  316                      .progress => |value| value.id.turn_id,
+  317                      .terminal => |value| value.id.turn_id,
+  318                  };
+  319              },
+  320              else => {},
+  321          }
+  322      }
+  323      const cancelled = cancelled_turn_id orelse return false;
+  324      return turn_id == null or turn_id.? == cancelled;
+  325  }
+
+### git -C fx-upstream show 481104fd:src/core/agent/worker_runtime.zig | sed -n '923,937p'
+  923      pub fn takeEventBatch(self: *WorkerRuntime) WorkerEventBatch {
+  924          self.worker_mutex.lockUncancelable(io_mod.getIo());
+  925          defer self.worker_mutex.unlock(io_mod.getIo());
+  926          const events = self.worker_events;
+  927          self.worker_events = .empty;
+  928          return .{
+  929              .events = events,
+  930              .cancelled_turn_id = if (self.worker_cancel_requested.load(.seq_cst) and
+  931                  self.active_turn_id != 0 and
+  932                  self.steering_cancel_turn_id != self.active_turn_id)
+  933                  self.active_turn_id
+  934              else
+  935                  null,
+  936          };
+  937      }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_callbacks.zig | sed -n '276,284p'
+  276          pub fn finishPromptPresentation(app: *App, finished: types.FinishedPrompt) !assistant_pacer.FinishResult {
+  277              try app_session_runtime.Runtime(App).appendFinishedPrompt(app, finished);
+  278              if (finished.summary) |summary| {
+  279                  _ = app.shell.appendTurnSummaryEntry(app.alloc, summary) catch |err| {
+  280                      return .{ .presentation_failed = err };
+  281                  };
+  282              }
+  283              return .committed;
+  284          }
+
+## Round 2: a compaction-interrupted turn is persisted .interrupted too
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/interruption.zig | sed -n '50,71p'
+   50  
+   51  pub fn persistCompactionInterruptedTurnOnce(
+   52      hooks: *const AgentRuntimeDeps,
+   53      finalization: *TurnFinalizationGuard,
+   54      job: QueuedPrompt,
+   55      completed_tool_names: [][]u8,
+   56      persisted: *bool,
+   57      trace_ctx: TraceContext,
+   58      current_turn_messages: []const types.ChatMessage,
+   59      retained_candidate: ?[]const u8,
+   60      terminal_materializing: *bool,
+   61  ) !void {
+   62      return persistInterruptedTurnWithPresentation(
+   63          hooks,
+   64          finalization,
+   65          job,
+   66          null,
+   67          null,
+   68          completed_tool_names,
+   69          persisted,
+   70          trace_ctx,
+   71          current_turn_messages,
+
+## Item 2: a prompt sent while a turn streams, the pacer holds text, the full transcript is open, or the worker
+## is busy is queued at once, not held as a pending submission
 
 ### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n '1103,1121p'
  1103          fn enqueuePromptForSubmit(
@@ -340,3 +535,118 @@
  1553          }
 
 ## Item 3: a manual compaction and a prompt are work (busy): app_worker_runtime.zig:762-765 above
+
+## Mutant 20 (round 2, after the slot): a stopped in-turn compaction commits its turn; a failed one returns its error
+## from that branch without committing it (whether a caller further out commits it is not traced here)
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n '7847,7866p'
+ 7847                      }) catch |err| {
+ 7848                          if (compaction_activity.failure(err, .summary, config.cancel_flag.load(.seq_cst)).outcome == .cancelled) {
+ 7849                              runtime_telemetry.traceCancelObserved(step_ctx, false);
+ 7850                              try runtime_interruption.persistCompactionInterruptedTurnOnce(
+ 7851                                  deps,
+ 7852                                  finalization,
+ 7853                                  job,
+ 7854                                  completed_tool_names.items,
+ 7855                                  &interrupted_persisted,
+ 7856                                  step_ctx,
+ 7857                                  within_turn_suffix.items,
+ 7858                                  stop_state.retained_candidate,
+ 7859                                  &stop_state.terminal_materializing,
+ 7860                              );
+ 7861                              finish_trace.finish("interrupted");
+ 7862                              return;
+ 7863                          }
+ 7864                          if (deps.compaction_failure) |out| out.* = compaction_failure;
+ 7865                          return err;
+ 7866                      };
+
+## A failed turn is kept for a partial answer or completed work: the two early returns, then persistFailedTurn
+## commits it as an .interrupted history turn and finishes .failed
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/interruption.zig | sed -n '226,237p'
+  226  pub fn persistFailedPartialTurnOnce(
+  227      hooks: *const AgentRuntimeDeps,
+  228      finalization: *TurnFinalizationGuard,
+  229      job: QueuedPrompt,
+  230      partial_assistant: []const u8,
+  231      persisted: *bool,
+  232      trace_ctx: TraceContext,
+  233      current_turn_messages: []const types.ChatMessage,
+  234      terminal_materializing: *bool,
+  235  ) !void {
+  236      if (persisted.*) return;
+  237      if (partial_assistant.len == 0) return;
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/interruption.zig | sed -n '262,281p'
+  262  pub fn persistFailedTurnWorkOnce(
+  263      hooks: *const AgentRuntimeDeps,
+  264      finalization: *TurnFinalizationGuard,
+  265      job: QueuedPrompt,
+  266      partial_assistant: []const u8,
+  267      persisted: *bool,
+  268      trace_ctx: TraceContext,
+  269      current_turn_messages: []const types.ChatMessage,
+  270      terminal_materializing: *bool,
+  271  ) !bool {
+  272      if (persisted.*) return false;
+  273  
+  274      const full_execution = try runtime_execution_memory.buildInterruptedExecutionMemory(
+  275          std.heap.c_allocator,
+  276          current_turn_messages,
+  277          null,
+  278      );
+  279      defer types.freeExecutionMemory(std.heap.c_allocator, full_execution);
+  280      if (full_execution.isEmpty()) return false;
+  281      try persistFailedTurn(
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/interruption.zig | sed -n '308,311p'
+  308      terminal_materializing.* = true;
+  309  
+  310      const turn: HistoryTurn = .{ .interrupted = .{
+  311          .user = .{ .text = job.prompt, .images = job.images },
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/interruption.zig | sed -n '324,328p'
+  324      persisted.* = true;
+  325      var propagation_error: ?anyerror = null;
+  326      hooks.propagate_history_turn(hooks.ctx, turn) catch |err| {
+  327          propagation_error = err;
+  328      };
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/interruption.zig | sed -n '336,336p'
+  336      try finalization.finish(.failed, null, finished);
+
+## ... and a committed history turn derives the session's title (each commit path calls ensureCachedSessionTitle)
+
+### git -C fx-upstream show 481104fd:src/core/app/app_session_runtime.zig | sed -n '2766,2769p'
+ 2766                  }
+ 2767                  if (snapshot_file_ownership) |ownership| ownership.transfer();
+ 2768                  ensureCachedSessionTitle(app) catch {};
+ 2769                  commitJsHostSnapshot(app, "history_turn");
+
+### git -C fx-upstream show 481104fd:src/core/app/app_session_runtime.zig | sed -n '2781,2784p'
+ 2781                  }
+ 2782                  if (snapshot_file_ownership) |ownership| ownership.transfer();
+ 2783                  ensureCachedSessionTitle(app) catch {};
+ 2784                  return .committed;
+
+### git -C fx-upstream show 481104fd:src/core/app/app_session_runtime.zig | sed -n '2793,2795p'
+ 2793              if (snapshot_file_ownership) |ownership| ownership.transfer();
+ 2794              ensureCachedSessionTitle(app) catch {};
+ 2795              commitJsHostSnapshot(app, "history_turn");
+
+### git -C fx-upstream show 481104fd:src/core/app/app_session_runtime.zig | sed -n '2997,3010p'
+ 2997          pub fn ensureCachedSessionTitle(app: *App) !void {
+ 2998              if (comptime !@hasField(App, "session_title")) return;
+ 2999              if (app.session_title.items.len > 0) return;
+ 3000              var display = session_display_metadata.deriveFromHistory(
+ 3001                  app.alloc,
+ 3002                  app.session.agent.history.items,
+ 3003              ) catch |err| switch (err) {
+ 3004                  error.OutOfMemory => return error.OutOfMemory,
+ 3005                  else => return,
+ 3006              };
+ 3007              defer display.deinit(app.alloc);
+ 3008              if (!display.present) return;
+ 3009              try setCachedSessionTitle(app, display.title);
+ 3010          }

@@ -1,0 +1,68 @@
+# Round 2 RED: the tests of 4abcc8c4 (tests only) over 91f03d71's code (this branch after the merge of main 884497c0),
+# on a --no-local clone: git rev-parse HEAD = 4abcc8c4, parent aca87fc8
+# cargo test --locked --lib -- a_stopped_turn_whose_end_carries a_stop_read_before_a_completed a_stopped_turn_whose_start_was_read a_prompt_sent_while_the_last_answer a_prompt_sent_from_under_the_full a_prompt_the_runtime_drops_after a_steer_a_failed_compactions
+
+running 7 tests
+test tui::shell::tests::a_stop_read_before_a_completed_turns_end_takes_the_runtimes_word ... FAILED
+test tui::event_loop::tests::a_prompt_the_runtime_drops_after_a_stop_reports_no_work ... FAILED
+test tui::shell::tests::a_prompt_sent_from_under_the_full_transcript_is_reported_on_its_keystroke ... FAILED
+test tui::shell::tests::a_stopped_turn_whose_end_carries_a_real_failure_reports_it_as_upstream_does ... FAILED
+test tui::shell::tests::a_prompt_sent_while_the_last_answer_is_still_paced_out_is_reported_on_its_keystroke ... FAILED
+test tui::event_loop::tests::a_steer_a_failed_compactions_turn_hands_on_is_reported_when_that_turn_ends ... ok
+test tui::shell::tests::a_stopped_turn_whose_start_was_read_titles_the_session_as_upstream_does ... FAILED
+
+failures:
+
+---- tui::shell::tests::a_stop_read_before_a_completed_turns_end_takes_the_runtimes_word stdout ----
+
+thread 'tui::shell::tests::a_stop_read_before_a_completed_turns_end_takes_the_runtimes_word' (326195181) panicked at src/tui/shell.rs:45269:9:
+assertion `left == right` failed: the reports, a summary row, the `Cancelled` lines, the title: ["  an answer", "", "■ Cancelled · What can xfx do differently?", ""]
+  left: ([Some("working"), Some("idle"), None], false, 1, None)
+ right: ([Some("working"), Some("idle"), Some("done")], true, 1, Some("first question"))
+
+---- tui::event_loop::tests::a_prompt_the_runtime_drops_after_a_stop_reports_no_work stdout ----
+
+thread 'tui::event_loop::tests::a_prompt_the_runtime_drops_after_a_stop_reports_no_work' (326195177) panicked at src/tui/event_loop.rs:13987:9:
+working with nothing running: ["\u{1b}]7501;state=idle:app=xfx\u{1b}\\", "\u{1b}]7501;state=working:app=xfx\u{1b}\\", "\u{1b}]7501;state=idle:app=xfx\u{1b}\\", "\u{1b}]7501;state=working:app=xfx\u{1b}\\"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::shell::tests::a_prompt_sent_from_under_the_full_transcript_is_reported_on_its_keystroke stdout ----
+
+thread 'tui::shell::tests::a_prompt_sent_from_under_the_full_transcript_is_reported_on_its_keystroke' (326195179) panicked at src/tui/shell.rs:45363:9:
+assertion `left == right` failed: the prompt's report waits for its turn's frame
+  left: (NotYet, Some("working"))
+ right: (AfterFrame, Some("working"))
+
+---- tui::shell::tests::a_stopped_turn_whose_end_carries_a_real_failure_reports_it_as_upstream_does stdout ----
+
+thread 'tui::shell::tests::a_stopped_turn_whose_end_carries_a_real_failure_reports_it_as_upstream_does' (326195182) panicked at src/tui/shell.rs:45225:13:
+assertion `left == right` failed: late false: the reports, the failure's line, the `Cancelled` lines: ["  a whole line", "", "■ Cancelled · What can xfx do differently?", ""]
+  left: ([Some("working"), Some("idle"), None], false, 1)
+ right: ([Some("working"), Some("idle"), Some("error")], true, 1)
+
+---- tui::shell::tests::a_prompt_sent_while_the_last_answer_is_still_paced_out_is_reported_on_its_keystroke stdout ----
+
+thread 'tui::shell::tests::a_prompt_sent_while_the_last_answer_is_still_paced_out_is_reported_on_its_keystroke' (326195180) panicked at src/tui/shell.rs:45342:9:
+assertion `left == right` failed: the prompt's report waits for its turn's frame
+  left: (NotYet, Some("working"))
+ right: (AfterFrame, Some("working"))
+
+---- tui::shell::tests::a_stopped_turn_whose_start_was_read_titles_the_session_as_upstream_does stdout ----
+
+thread 'tui::shell::tests::a_stopped_turn_whose_start_was_read_titles_the_session_as_upstream_does' (326195183) panicked at src/tui/shell.rs:45314:9:
+assertion `left == right` failed: the stopped turn's title, the failed one's
+  left: (None, None)
+ right: (Some("first question"), None)
+
+
+failures:
+    tui::event_loop::tests::a_prompt_the_runtime_drops_after_a_stop_reports_no_work
+    tui::shell::tests::a_prompt_sent_from_under_the_full_transcript_is_reported_on_its_keystroke
+    tui::shell::tests::a_prompt_sent_while_the_last_answer_is_still_paced_out_is_reported_on_its_keystroke
+    tui::shell::tests::a_stop_read_before_a_completed_turns_end_takes_the_runtimes_word
+    tui::shell::tests::a_stopped_turn_whose_end_carries_a_real_failure_reports_it_as_upstream_does
+    tui::shell::tests::a_stopped_turn_whose_start_was_read_titles_the_session_as_upstream_does
+
+test result: FAILED. 1 passed; 6 failed; 0 ignored; 0 measured; 4419 filtered out; finished in 0.21s
+
+error: test failed, to rerun pass `--lib`

@@ -1,8 +1,9 @@
-# p5-lifecycle-osc-stopnext: fx v0.0.16 x3 (fx/, fx-run2/, fx-run3/), the base x3 (red*), the head x3 (xfx*),
-# this unit's first build 997d7b1f x3 (prev*: the turn's start held its report, the brief's shape;
+# p5-lifecycle-osc-stopnext: fx v0.0.16 x3 (fx/, fx-run2/, fx-run3/), and three runs of each xfx build:
+# red* = the base e636db48; base* = 1230329, the base with main 884497c0 merged in (a throwaway merge, tree bb036b01);
+# xfx* = the head 2b21b797; prev* = this unit's first build 997d7b1f (the turn's start held its report, the brief's shape;
 # pinned by the local branch prev/stop-late-event-r1).
 
-## fx's three runs, from the stop's idle on (decoded: each report, each frame's text)
+## fx's three runs, from the stop's idle to the second turn's done (decoded: each report, each title, each frame's text)
 ### fx
 REPORT state=idle:app=fx
 FRAME ▪ Cancelled · What can fx do differently?
@@ -10,6 +11,7 @@ TITLE first question
 REPORT state=working:app=fx
 FRAME second question • Thinking (0s) (↑4 ↓0) ┃ auto · model-a
 FRAME Generating (0s) (↑4 ↓4)
+REPORT state=done:app=fx
 ### fx-run2
 REPORT state=idle:app=fx
 FRAME ▪ Cancelled · What can fx do differently?
@@ -33,13 +35,24 @@ REPORT state=working:app=xfx
 FRAME Thinking (0s) (↑4 ↓0) ┃ auto · model-a
 FRAME Generating (0s) (↑4 ↓4)
 FRAME 0)
+REPORT state=done:app=xfx
+### base
+REPORT state=idle:app=xfx
+FRAME ■ Cancelled · What can xfx do differently? ┃ second question ┃ auto · model-a
+REPORT state=working:app=xfx
+FRAME Thinking (0s) (↑4 ↓0) ┃ auto · model-a
+FRAME Generating (0s) (↑4 ↓4)
+FRAME 0)
+REPORT state=done:app=xfx
 ### xfx
 REPORT state=idle:app=xfx
 FRAME ■ Cancelled · What can xfx do differently? ┃ second question ┃ auto · model-a
 REPORT state=working:app=xfx
-FRAME • Thinking (0s) (↑4 ↓0) ┃ auto · model-a
+TITLE first question
+FRAME Thinking (0s) (↑4 ↓0) ┃ auto · model-a
 FRAME Generating (0s) (↑4 ↓4)
-FRAME 
+FRAME 0)
+REPORT state=done:app=xfx
 ### prev
 REPORT state=idle:app=xfx
 FRAME ■ Cancelled · What can xfx do differently? ┃ second question ┃ auto · model-a
@@ -47,57 +60,81 @@ FRAME • Thinking (0s) (↑4 ↓0) ┃ auto · model-a
 REPORT state=working:app=xfx
 FRAME Generating (0s) (↑4 ↓4)
 FRAME 
+FRAME 0)
+REPORT state=done:app=xfx
 
-## offsets on each s03-exit wire (bytes): the stop's idle, Cancelled, the prompt's text, its working, the first Thinking after the stop
-fx    idle @1256  Cancelled @1340  'second question' @1480  working @1423  Thinking @1520
-red   idle @797  Cancelled @883  'second question' @987  working @1127  Thinking @1190
-xfx   idle @913  Cancelled @999  'second question' @1103  working @1243  Thinking @1308
-prev  idle @797  Cancelled @883  'second question' @987  working @1308  Thinking @1162
+## offsets on each s03-exit wire (bytes): the stop's idle, Cancelled, the stopped turn's title, the prompt's text, its working, the first Thinking after the stop
+fx    idle @1256  Cancelled @1340  title @1404  'second question' @1480  working @1423  Thinking @1520
+red   idle @797  Cancelled @883  title none  'second question' @987  working @1127  Thinking @1190
+base  idle @797  Cancelled @883  title none  'second question' @987  working @1127  Thinking @1190
+xfx   idle @797  Cancelled @883  title @1157  'second question' @987  working @1127  Thinking @1209
+prev  idle @797  Cancelled @883  title none  'second question' @987  working @1308  Thinking @1162
 
 ## osc.py, every run (python3 -I -B osc.py <this dir> <side> <sha7> p5-lifecycle-osc-stopnext)
-### red
+### red (exit 0)
 same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  red  2  state=idle:app=<program> > state=working:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  red  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  red  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  red  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
 build: every red wire carries v0.1.0-e636db4 and no other banner
 4 wire pairs, 0 failing claims
-### red-run2
+### red-run2 (exit 0)
 same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  red-run2  2  state=idle:app=<program> > state=working:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  red-run2  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  red-run2  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  red-run2  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
 build: every red-run2 wire carries v0.1.0-e636db4 and no other banner
 4 wire pairs, 0 failing claims
-### red-run3
+### red-run3 (exit 0)
 same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  red-run3  2  state=idle:app=<program> > state=working:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  red-run3  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  red-run3  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  red-run3  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
 build: every red-run3 wire carries v0.1.0-e636db4 and no other banner
 4 wire pairs, 0 failing claims
-### xfx
+### base (exit 0)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  base  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  base  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  base  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  base  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every base wire carries v0.1.0-1230329 and no other banner
+4 wire pairs, 0 failing claims
+### base-run2 (exit 0)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  base-run2  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  base-run2  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  base-run2  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  base-run2  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every base-run2 wire carries v0.1.0-1230329 and no other banner
+4 wire pairs, 0 failing claims
+### base-run3 (exit 0)
+same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  base-run3  2  state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  base-run3  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  base-run3  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  base-run3  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
+build: every base-run3 wire carries v0.1.0-1230329 and no other banner
+4 wire pairs, 0 failing claims
+### xfx (exit 0)
 same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  xfx  2  state=idle:app=<program> > state=working:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  xfx  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  xfx  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  xfx  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
-build: every xfx wire carries v0.1.0-e27f9bc and no other banner
+build: every xfx wire carries v0.1.0-2b21b79 and no other banner
 4 wire pairs, 0 failing claims
-### xfx-run2
+### xfx-run2 (exit 0)
 same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  xfx-run2  2  state=idle:app=<program> > state=working:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  xfx-run2  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  xfx-run2  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  xfx-run2  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
-build: every xfx-run2 wire carries v0.1.0-e27f9bc and no other banner
+build: every xfx-run2 wire carries v0.1.0-2b21b79 and no other banner
 4 wire pairs, 0 failing claims
-### xfx-run3
+### xfx-run3 (exit 0)
 same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  xfx-run3  2  state=idle:app=<program> > state=working:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  xfx-run3  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  xfx-run3  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s03-exit               fx  6  xfx-run3  6  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=clear
-build: every xfx-run3 wire carries v0.1.0-e27f9bc and no other banner
+build: every xfx-run3 wire carries v0.1.0-2b21b79 and no other banner
 4 wire pairs, 0 failing claims
-### prev
+### prev (exit 1)
 same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  prev  2  state=idle:app=<program> > state=working:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  prev  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  prev  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
@@ -110,7 +147,7 @@ FAIL activity p5-lifecycle-osc-stopnext-40x120 s02-done: a frame showing the tur
 FAIL order p5-lifecycle-osc-stopnext-40x120 s03-exit: working [3] after Thinking: [False] on fx, [True] on prev
 FAIL activity p5-lifecycle-osc-stopnext-40x120 s03-exit: a frame showing the turn's activity before each working: [True, False] on fx, [True, True] on prev
 4 wire pairs, 6 failing claims
-### prev-run2
+### prev-run2 (exit 1)
 same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  prev-run2  2  state=idle:app=<program> > state=working:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  prev-run2  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  prev-run2  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>
@@ -123,7 +160,7 @@ FAIL activity p5-lifecycle-osc-stopnext-40x120 s02-done: a frame showing the tur
 FAIL order p5-lifecycle-osc-stopnext-40x120 s03-exit: working [3] after Thinking: [False] on fx, [True] on prev-run2
 FAIL activity p5-lifecycle-osc-stopnext-40x120 s03-exit: a frame showing the turn's activity before each working: [True, False] on fx, [True, True] on prev-run2
 4 wire pairs, 6 failing claims
-### prev-run3
+### prev-run3 (exit 1)
 same p5-lifecycle-osc-stopnext-40x120   s00-working            fx  2  prev-run3  2  state=idle:app=<program> > state=working:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s01-second             fx  4  prev-run3  4  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program>
 same p5-lifecycle-osc-stopnext-40x120   s02-done               fx  5  prev-run3  5  state=idle:app=<program> > state=working:app=<program> > state=idle:app=<program> > state=working:app=<program> > state=done:app=<program>

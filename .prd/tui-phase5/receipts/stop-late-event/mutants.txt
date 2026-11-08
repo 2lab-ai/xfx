@@ -1,13 +1,36 @@
-# python3 -I -B mutants.py <a --no-local clone at e27f9bcf> <target> <out>, inside the unit's suite-lock slot;
+# python3 -I -B mutants.py <a --no-local clone at 2b21b797> <target> <out>, inside the unit's round-2 suite-lock slot;
 # each mutant runs every TUI library test (cargo test --locked --lib -- tui::). Numbered in order.
+# Then, at d4ce0e0c (2b21b797 plus one test, nothing else), in a second lock slot: mutants 20 and 21 again
+# (python3 -I -B mutants.py <the clone at d4ce0e0c> <target> <out> 20,21), below the table.
  1  KILLED   item 1: the settle takes a started turn's cancel (the base)                      tui::shell::tests::a_stopped_turn_whose_place_comes_back_before_its_end_is_read_ends_as_the_stop_said ; tui::shell::tests::a_stopped_turn_with_a_call_running_keeps_its_line_and_its_idle_through_a_late_end 
  2  KILLED   item 1: the guard inverted (only a started turn's cancel is taken)               tui::shell::tests::a_prompt_the_cancel_dropped_before_it_started_does_not_silence_the_next ; tui::shell::tests::a_stopped_turn_whose_place_comes_back_before_its_end_is_read_ends_as_the_stop_said ; tui::shell::tests::a_stopped_turn_with_a_call_running_keeps_its_line_and_its_idle_through_a_late_end 
  3  KILLED   item 1: the settle's cancel clear deleted (what the settle is for)               tui::shell::tests::a_prompt_the_cancel_dropped_before_it_started_does_not_silence_the_next 
- 4  KILLED   item 2: the hold ignores the marker (the base: held behind a Thinking frame)     tui::event_loop::tests::a_prompt_typed_before_a_stopped_turn_ends_is_reported_ahead_of_the_frame_that_shows_its_turn 
- 5  KILLED   item 2: no prompt is marked                                                      tui::event_loop::tests::a_prompt_typed_before_a_stopped_turn_ends_is_reported_ahead_of_the_frame_that_shows_its_turn 
+ 4  KILLED   item 2: the hold ignores the marker (the base: held behind a Thinking frame)     tui::event_loop::tests::a_prompt_typed_before_a_stopped_turn_ends_is_reported_ahead_of_the_frame_that_shows_its_turn ; tui::event_loop::tests::a_steer_a_failed_compactions_turn_hands_on_is_reported_when_that_turn_ends ; tui::shell::tests::a_prompt_sent_from_under_the_full_transcript_is_reported_on_its_keystroke ; tui::shell::tests::a_prompt_sent_while_the_last_answer_is_still_paced_out_is_reported_on_its_keystroke 
+ 5  KILLED   item 2: no prompt is marked                                                      tui::event_loop::tests::a_prompt_typed_before_a_stopped_turn_ends_is_reported_ahead_of_the_frame_that_shows_its_turn ; tui::shell::tests::a_prompt_sent_from_under_the_full_transcript_is_reported_on_its_keystroke ; tui::shell::tests::a_prompt_sent_while_the_last_answer_is_still_paced_out_is_reported_on_its_keystroke 
  6  KILLED   item 2: every prompt is marked (an idle session's prompt reported ahead of its Thinking) tui::event_loop::tests::a_held_prompt_reports_nothing_until_its_turn_starts_and_nothing_if_it_never_does ; tui::event_loop::tests::a_working_a_keystroke_caused_follows_the_frame_that_shows_the_keystroke ; tui::event_loop::tests::keys_typed_ahead_of_the_session_are_read_after_its_launch_reports_idle 
  7  KILLED   item 2: marked while the turn's activity runs, not while it is in hand           tui::event_loop::tests::a_prompt_typed_before_a_stopped_turn_ends_is_reported_ahead_of_the_frame_that_shows_its_turn 
- 8  SURVIVED item 2: a steer handed on after its turn is not marked (expected to survive: see README) exit 0
- 9  KILLED   item 2: round 1's shape -- the turn's start holds its report (frame first)       tui::event_loop::tests::a_prompt_typed_before_a_stopped_turn_ends_is_reported_ahead_of_the_frame_that_shows_its_turn 
-10  KILLED   item 3: the reset keeps a failed compaction's mark (the base)                    tui::shell::tests::a_reset_before_a_failed_compactions_turn_ends_takes_that_result_with_its_conversation 
-11  KILLED   item 3: the mark dropped by the drained end instead of the reset                 tui::shell::tests::a_reset_before_a_failed_compactions_turn_ends_takes_that_result_with_its_conversation 
+ 8  KILLED   item 2: the pacer not read (round 1's marker)                                    tui::shell::tests::a_prompt_sent_while_the_last_answer_is_still_paced_out_is_reported_on_its_keystroke 
+ 9  KILLED   item 2: the full transcript not read                                             tui::shell::tests::a_prompt_sent_from_under_the_full_transcript_is_reported_on_its_keystroke 
+10  KILLED   item 2: a steer handed on after its turn is not marked (round 1's 8)             tui::event_loop::tests::a_steer_a_failed_compactions_turn_hands_on_is_reported_when_that_turn_ends 
+11  KILLED   item 2: a dropped prompt's entry still marks work (round 1's gate)               tui::event_loop::tests::a_prompt_the_runtime_drops_after_a_stop_reports_no_work 
+12  KILLED   item 2: round 1's shape -- the turn's start holds its report (frame first)       tui::event_loop::tests::a_prompt_typed_before_a_stopped_turn_ends_is_reported_ahead_of_the_frame_that_shows_its_turn 
+13  KILLED   item 3: the reset keeps a failed compaction's mark (the base)                    tui::shell::tests::a_reset_before_a_failed_compactions_turn_ends_takes_that_result_with_its_conversation 
+14  KILLED   item 3: the mark dropped by the drained end instead of the reset                 tui::shell::tests::a_reset_before_a_failed_compactions_turn_ends_takes_that_result_with_its_conversation 
+15  KILLED   end: every end of a stopped turn is quiet (round 1)                              tui::shell::tests::a_stop_read_before_a_completed_turns_end_takes_the_runtimes_word ; tui::shell::tests::a_stopped_turn_whose_end_carries_a_real_failure_reports_it_as_upstream_does ; tui::shell::tests::a_stopped_turn_whose_start_was_read_titles_the_session_as_upstream_does 
+16  KILLED   end: the user's stop not marked as reading the end                               tui::shell::tests::a_stop_read_before_a_completed_turns_end_takes_the_runtimes_word ; tui::shell::tests::a_stopped_turn_whose_end_carries_a_real_failure_reports_it_as_upstream_does ; tui::shell::tests::a_stopped_turn_whose_start_was_read_titles_the_session_as_upstream_does 
+17  KILLED   end: a compaction's ending leaves the stop reading the end                       tui::shell::tests::a_stop_a_compaction_then_ends_is_that_compactions_and_its_turn_says_nothing_more 
+18  KILLED   end: a real failure after the stop read as the stop's own                        tui::shell::tests::a_stopped_turn_whose_end_carries_a_real_failure_reports_it_as_upstream_does ; tui::shell::tests::a_stopped_turn_whose_start_was_read_titles_the_session_as_upstream_does 
+19  KILLED   end: a stopped turn titles nothing (the base)                                    tui::shell::tests::a_stopped_turn_whose_start_was_read_titles_the_session_as_upstream_does 
+20  SURVIVED end: a turn an automatic compaction failed titles the session                       exit 0
+21  KILLED   runtime: a refused send's stop not said in the stop's word                       [NOCOMPILE, not a kill: the replacement made `if false if`] error: expected one of `.`, `=>`, `?`, or an operator, found keyword `if`
+22  KILLED   runtime: the log's failure on a stopped turn dropped                             tui::worker::tests::a_turns_end_says_a_stop_in_one_word_and_anything_else_in_its_own 
+23  KILLED   runtime: a compaction that compacted nothing ends the turn (the base)            tui::worker::tests::a_turns_end_says_a_stop_in_one_word_and_anything_else_in_its_own 
+
+## mutants 20 and 21 at d4ce0e0c (mutant 21's replacement fixed to `if false && ...`)
+20  KILLED    end: a turn an automatic compaction failed titles the session                    tui::shell::tests::a_failed_automatic_compactions_turn_titles_nothing_and_a_stopped_ones_does 
+21  KILLED    runtime: a refused send's stop not said in the stop's word                       tui::worker::tests::a_turns_end_says_a_stop_in_one_word_and_anything_else_in_its_own 
+
+## the same clone unmutated at d4ce0e0c, the same command
+test result: ok. 2774 passed; 0 failed; 5 ignored; 0 measured; 1650 filtered out
+
+At 2b21b797: 21 killed, 1 survived (20), 1 did not build (21). At d4ce0e0c: 20 and 21 killed, so 23 of 23.
