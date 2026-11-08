@@ -10215,11 +10215,18 @@ impl Shell {
     ///
     /// **Except a prompt sent while a turn that started was still in hand** --
     /// running, or stopped and not yet ended ([`Self::prompts`]' fourth).
-    /// Upstream queues it behind that turn and shows nothing of its turn
-    /// until the worker takes it, in the pass that reports `working` and
-    /// then paints the prompt and its activity (`p5-lifecycle-osc-stopnext`
-    /// on fx v0.0.16: `idle`, the `Cancelled` frame, `working`, then the
-    /// frame with the prompt). A stop stays requested until that take
+    /// Upstream does not hold such a prompt as a pending submission -- it
+    /// installs one only while no turn streams and the worker can hold the
+    /// next start (`installPendingSubmission`,
+    /// `input_submit_runtime.zig:1136`, `:1149@481104fd`; `tryHoldTurnStart`
+    /// refuses while it processes or has work queued,
+    /// `worker_runtime.zig:1273-1280`) -- but queues it with the worker at
+    /// once (`enqueuePromptForSubmit`, `input_submit_runtime.zig:1112-1118`),
+    /// so no frame shows its activity until the worker takes it, in the pass
+    /// that reports `working` and then paints the prompt
+    /// (`p5-lifecycle-osc-stopnext` on fx v0.0.16: `idle`, the `Cancelled`
+    /// frame, `working`, then the frame with the prompt). A stop stays
+    /// requested until that take
     /// (`takeNextWorkLocked`, `worker_runtime.zig:1512@481104fd`;
     /// `finishProcessing` leaves it, `:1541-1563`), and nothing is busy while
     /// it is (`cancellation_stops_turn`, `app_worker_runtime.zig:734-735`,
@@ -12792,7 +12799,12 @@ impl Shell {
                 Ok(()) => {
                     let mut estimate = Estimator::default();
                     estimate.consume(&card);
-                    // Sent while the turn that missed it was still in hand.
+                    // Sent while the turn that missed it was still in hand:
+                    // upstream's is already queued work, deferred to the
+                    // next turn (`finishProcessing`'s `.continuation`,
+                    // `worker_runtime.zig:1548-1551@481104fd`). The report
+                    // reads the same either way -- the turn's `working` is
+                    // what is on the terminal when this runs.
                     self.prompts.push_back((
                         estimate.estimate(),
                         title_of(&prompt),
