@@ -52,8 +52,9 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo clippy --locked --all-targets --features fault-injection -- -D warnings
 cargo test --locked --all-targets
 cargo test --locked --features fault-injection --test tui
+cargo build --locked --release --features fault-injection
+mkdir -p target/faulty && rm -f target/faulty/xfx && cp target/release/xfx target/faulty/xfx
 cargo build --locked --release
-cargo build --locked --release --features fault-injection --target-dir target/faulty
 ./scripts/check-no-stubs.sh
 ./scripts/check-no-secrets.sh
 ./scripts/test-gate-env.sh   # runs ./scripts/test-check-no-secrets.sh too
@@ -61,7 +62,7 @@ cargo build --locked --release --features fault-injection --target-dir target/fa
 ./scripts/check-preview-contract.sh
 ./scripts/test-preview-contract.sh
 ./scripts/smoke.sh target/release/xfx
-./scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx
+./scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/xfx
 ```
 
 `cargo test --all-targets` runs `scripts/check-xfx-identity.sh` too
@@ -134,10 +135,15 @@ crashed binary and a hung turn all satisfy "the wrong thing did not appear".
 can only be driven by a build that fails on purpose -- a panic while the terminal
 is raw, an initialization that dies on either side of raw mode -- and a runner
 that skipped them when it was not given such a build would report a green
-restoration matrix that had proven nothing. Build it with:
+restoration matrix that had proven nothing. Build it first and copy it out,
+because Cargo writes either feature set's binary to `target/release/xfx`; the
+plain release build after it puts the shipping binary back there, and reuses
+every release dependency the fault-injection build compiled:
 
 ```bash
-cargo build --locked --release --features fault-injection --target-dir target/faulty
+cargo build --locked --release --features fault-injection
+mkdir -p target/faulty && rm -f target/faulty/xfx && cp target/release/xfx target/faulty/xfx
+cargo build --locked --release
 ```
 
 A failing scenario prints the exact command that re-runs it by hand against the
