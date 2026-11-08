@@ -16267,6 +16267,87 @@ mod tests {
         assert_eq!(asked.load(Ordering::SeqCst), 3);
     }
 
+    /// A catalog no read of which finds a runtime to run on: a machine out
+    /// of what one needs.
+    struct NoRuntime;
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::provider::model::ModelCatalog for NoRuntime {
+        async fn fetch(&self) -> Result<Vec<CatalogEntry>, crate::provider::model::CatalogError> {
+            Ok(Vec::new())
+        }
+
+        fn runtime_fails_for_test(&self) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn a_read_that_finds_no_runtime_tells_the_band_its_failure_and_is_read_again_past_its_backoff()
+    {
+        // Upstream completes a fetch it could not start as a retryable
+        // `.runtime` failure (`model_cache_runtime.zig:537-546@481104fd`),
+        // counted into the backoff like any other (`completeFetch`,
+        // `:946-951`) and read by the interface on its next poll
+        // (`pollLoadTransition`, `:745-760`): the open menu says `Could not
+        // refresh model catalog; fx retries automatically.`
+        // (`retryableFailureText`, `model_menu_presentation.zig:441`), and the
+        // next trigger past the backoff reads again. As `turn_loop` takes it
+        // between turns: the band's ask, then the read's answer settled.
+        let (_home, _workspace, mut state) = recording();
+        state.selector.set_fetcher_for_test(Box::new(NoRuntime));
+        let (events, mut received) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(ask_catalog(&mut state, &events, bridge::CatalogAsk::MENU));
+        on_a_runtime(state.selector.settle_load());
+        let first = told(&mut received);
+        assert!(
+            matches!(
+                first.as_slice(),
+                [UiEvent::CatalogUnread {
+                    retry: Some(CatalogRetry::Runtime),
+                    ..
+                }]
+            ),
+            "the band was not told the read's failure: {first:?}"
+        );
+        // Inside its backoff: the menu, waiting, is told the failure as held,
+        // and nothing is read.
+        on_a_runtime(ask_catalog(&mut state, &events, bridge::CatalogAsk::MENU));
+        assert!(!state.selector.is_loading(), "read inside the backoff");
+        assert!(matches!(
+            told(&mut received).as_slice(),
+            [UiEvent::CatalogUnread {
+                retry: Some(CatalogRetry::Runtime),
+                ..
+            }]
+        ));
+        // Past it, activity reads again, and that failure is told too, its
+        // backoff twice the first's.
+        backdate_catalog(&mut state, Duration::from_secs(6));
+        on_a_runtime(ask_catalog(
+            &mut state,
+            &events,
+            bridge::CatalogAsk::ACTIVITY,
+        ));
+        assert!(
+            state.selector.is_loading(),
+            "not read again past the backoff"
+        );
+        on_a_runtime(state.selector.settle_load());
+        let again = told(&mut received);
+        assert!(
+            matches!(
+                again.as_slice(),
+                [UiEvent::CatalogUnread {
+                    retry: Some(CatalogRetry::Runtime),
+                    retry_at,
+                    ..
+                }] if *retry_at >= Instant::now() + Duration::from_secs(9)
+            ),
+            "{again:?}"
+        );
+    }
+
     #[test]
     fn a_turn_waits_two_seconds_at_most_for_the_retry_behind_a_failed_catalog() {
         // `resolveForRequest` (`model_cache_runtime.zig:843-866@481104fd`;

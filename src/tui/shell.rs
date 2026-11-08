@@ -45688,6 +45688,34 @@ mod tests {
     }
 
     #[test]
+    fn every_answer_lets_activity_ask_again_a_refresh_failure_over_a_failed_band_too() {
+        // "Once per answer: ... its answer, whatever it is, lets the band ask
+        // again" (`Self::note_catalog_activity`): activity asked, and the
+        // runtime answered that a refresh behind rows failed -- rows this
+        // band does not hold. The band asks again when the runtime's clock
+        // says the next read is due (the answer's `retry_at`), not never.
+        let ten_seconds_ago = Instant::now()
+            .checked_sub(Duration::from_secs(10))
+            .expect("a clock older than ten seconds");
+        let mut shell = shell(40, 120);
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), ten_seconds_ago));
+        assert!(shell.shell.note_catalog_activity(Instant::now()));
+        assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
+        shell.apply(refresh_failed(Some(CatalogRetry::Unreachable)));
+        assert!(
+            !shell.shell.note_catalog_activity(Instant::now()),
+            "asked inside the hold the answer put on the next read"
+        );
+        assert!(
+            shell
+                .shell
+                .note_catalog_activity(Instant::now() + Duration::from_secs(6)),
+            "the answer left activity unable to ask again"
+        );
+        assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
+    }
+
+    #[test]
     fn the_columns_frames_wait_out_a_failed_catalogs_backoff() {
         // The column's frames ask the model cache
         // (`app_render_runtime.zig:564@481104fd` -> `modelPickerCompletions`

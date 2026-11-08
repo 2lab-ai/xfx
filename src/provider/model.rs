@@ -184,6 +184,13 @@ impl std::error::Error for CatalogError {}
 #[async_trait::async_trait(?Send)]
 pub trait ModelCatalog {
     async fn fetch(&self) -> Result<Vec<CatalogEntry>, CatalogError>;
+
+    /// Whether a read of this catalog finds no runtime to run on: a test's
+    /// stand-in for a machine out of what one needs ([`read_runtime`]).
+    #[cfg(test)]
+    fn runtime_fails_for_test(&self) -> bool {
+        false
+    }
 }
 
 /// How long the catalog fetch may take to open a connection.
@@ -1487,6 +1494,19 @@ fn unstartable(err: &std::io::Error) -> Loaded {
     )
 }
 
+/// The runtime a read runs on: a current-thread one of its own.
+fn read_runtime(fetcher: &Fetcher) -> std::io::Result<tokio::runtime::Runtime> {
+    #[cfg(test)]
+    if fetcher.runtime_fails_for_test() {
+        return Err(std::io::Error::other("no runtime to be had (a test's)"));
+    }
+    #[cfg(not(test))]
+    let _ = fetcher;
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+}
+
 /// [`Loaded`] for one attempt's answer.
 fn loaded(answer: Result<Vec<CatalogEntry>, CatalogError>) -> Loaded {
     match answer {
@@ -1542,10 +1562,7 @@ impl PendingLoad {
                 else {
                     return;
                 };
-                let runtime = match tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                {
+                let runtime = match read_runtime(&fetcher) {
                     Ok(runtime) => runtime,
                     Err(err) => {
                         let _ = outcome.set((unstartable(&err), Instant::now()));
@@ -3693,6 +3710,47 @@ mod tests {
             CatalogRetry::RateLimited.text(),
             "AI Gateway rate limited model discovery; xfx retries automatically."
         );
+    }
+
+    /// A catalog no read of which finds a runtime to run on.
+    struct NoRuntime;
+
+    #[async_trait::async_trait(?Send)]
+    impl ModelCatalog for NoRuntime {
+        async fn fetch(&self) -> Result<Vec<CatalogEntry>, CatalogError> {
+            Ok(Vec::new())
+        }
+
+        fn runtime_fails_for_test(&self) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn a_read_that_finds_no_runtime_tells_its_failure_as_every_read_tells_its_answer() {
+        // Upstream completes a fetch it could not start as a retryable
+        // `.runtime` failure (`model_cache_runtime.zig:537-546@481104fd`),
+        // which its interface reads on its next poll like any answer
+        // (`pollLoadTransition`, `:745-760`): the read is told, whatever kept
+        // it from running.
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Gateway, "m", SettingSource::UserGlobal);
+        selector.catalog_fetcher = Some(std::sync::Arc::new(NoRuntime));
+        selector.catalog_state = CatalogState::NotLoaded;
+        let (told, heard) = std::sync::mpsc::channel();
+        selector.begin_load(move |catalog, retry, _| async move {
+            let _ = told.send((catalog, retry));
+        });
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a runtime")
+            .block_on(selector.settle_load());
+        let (catalog, retry) = heard.try_recv().expect("the read's failure was not told");
+        assert!(matches!(catalog, CatalogState::Failed(_)), "{catalog:?}");
+        assert_eq!(retry, Some(CatalogRetry::Runtime));
+        assert_eq!(selector.failure_retry(), Some(CatalogRetry::Runtime));
+        assert!(selector.retry_at().is_some(), "no backoff");
     }
 
     #[test]
