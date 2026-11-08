@@ -2651,7 +2651,8 @@ pub(crate) fn drawn_wider_named(text: &str) -> Cow<'_, str> {
 
 /// `event` as a row of an answer shows it: every character a terminal draws
 /// wider than it is counted named ([`drawn_wider_named`]) in its prose, its
-/// code and its table's cells, before any of them is laid out, so the rows
+/// code and its label and its table's cells, before any of them is laid
+/// out, so the rows
 /// are measured as they are drawn. Display only; the event the screen records
 /// is the presenter's (`FullTranscript::presented`).
 ///
@@ -2672,6 +2673,10 @@ pub(crate) fn shown_event(event: markdown::Event) -> markdown::Event {
         markdown::Event::Text(text) => markdown::Event::Text(named(text)),
         markdown::Event::CodeBlock(mut block) => {
             block.code = named(std::mem::take(&mut block.code));
+            // The fence's word, drawn into the panel's header rule
+            // (`blocks::append_code_panel_header`): the model's too. A
+            // language name that resolves is ASCII and stays.
+            block.language = named(std::mem::take(&mut block.language));
             markdown::Event::CodeBlock(block)
         }
         markdown::Event::Table(mut table) => {
