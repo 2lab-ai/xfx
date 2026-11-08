@@ -20,7 +20,9 @@ run) or **[derived]** (arithmetic on measured figures, the operands named).
 | `b6c192b9` | this receipt, first part (the measurements, the sweep, the mutants, the gate at `01149542`) |
 | `87783167` | RED, after review: a long row a theme report recoloured is never known to be laid from its text again |
 | `0bddf3d8` | GREEN: a row found by placing it again is kept as laid (`Grid::row_holds`) |
-| then | this receipt, second part (the theme probe, mutant G8, the banners, the gate at `0bddf3d8`) |
+| `d90ad8b5` | this receipt, second part (the theme probe, mutant G8, the banners, the gate at `0bddf3d8`) |
+| `60ff598a` | review round 1 (opus SHOULD 4), tests only: the session case runs Ctrl-O over the long rows and a collapse |
+| then | this receipt, round 1's fixes: the Ctrl-O sentence, the lock's path redacted, the line references, the themed peak, every mutant at one code point, GRID-KEY-HASH named |
 
 `d2b603be`..`01149542` touch only `#[cfg(test)]` code (tests, a test helper, a
 test's comment; `git diff 96c3c88a 01149542 -- src`), so the first part's
@@ -33,10 +35,10 @@ measurements at `01149542` are `96c3c88a`'s code. The final code is
 (the group's rows rebuilt, `toolgroup.rs`), then one tick of the loop's writer,
 `event_loop::commit_frame` -> `commit_document` (`event_loop.rs:1940`): the
 transcript cuts the block's rows for the screen (`Transcript::prepare_block`,
-`transcript.rs`), and `Band::append_floating` (`frame.rs:2639`) builds the
+`transcript.rs`), and `Band::append_floating` (`frame.rs:2640`) builds the
 append (`render_append_recorded`, `frame.rs:1521`): the shadow cloned, each
-settled row asked whether the screen already holds it (`Grid::row_matches`,
-`frame.rs:1653`) and placed if not, the new rows placed; then
+settled row asked whether the screen already holds it (`Grid::row_matches`
+at the base, `Grid::row_holds` now, `frame.rs:1654`) and placed if not, the new rows placed; then
 `check::preflight` replays the declared script beside the decoded bytes; then
 the bytes are written and the band's own frame follows.
 
@@ -65,14 +67,14 @@ the first placement of each long row.
 Each row's record keeps the text its cells were laid from and the two widths
 the tokenizer read (`Laid`, `grid.rs:469`: the grid's, the screen's), shared
 by the shadow and the target cloned from it (`Arc<str>`). `place_row`
-(`:602`) sets it; `put_row` (`:617`) is the same cells with nothing kept, for
+(`:610`) sets it; `put_row` (`:632`) is the same cells with nothing kept, for
 the scratch rows a comparison or a drawing uses. It is forgotten by every
-change to a cell that is not a placement -- `erase_row` (`:540`, the whole
-record), a recolour or a drawing put on the row (`retint_document`, `:783`,
-when a cell of the row moved) -- carried by the moves (`scroll_up`,
+change to a cell that is not a placement -- `erase_row` (`:548`, the whole
+record), a recolour or a drawing put on the row (`retint_document`, `:793`,
+when a cell of the row moved, `:830`) -- carried by the moves (`scroll_up`,
 `remove_rows`: the records move with the cells), and dropped by `resize`.
-`record` (`:566`), the writer's own say about the row, leaves it.
-`row_matches` (`:672`) answers `true` from it when the text and both widths
+`record` (`:574`), the writer's own say about the row, leaves it.
+`row_matches` (`:688`; the frame's `row_holds`, `:704`, since fix 4) answers `true` from it when the text and both widths
 are the same, after the width guard it always had, and places the row again
 otherwise. A comparison of the text is one pass over its bytes.
 
@@ -85,7 +87,7 @@ before laid (`turn`, `:1215`), so every long row a block declares again is
 found however many there are, and nothing outlives the vector after the last
 one that declared it. `Expected::place` (`:1251`) lays a found row from it;
 `preflight_kept` (`:1439`) is `preflight` with the band's `Replays`
-(`frame.rs:176`, `:2671`). **The check's own record, never the emitter's:**
+(`frame.rs:176`, `:2672`). **The check's own record, never the emitter's:**
 nothing in `check.rs` reads the grid's `Laid`, so a screen (seed or bytes)
 that does not hold the declared row is refused as before
 (`a_kept_replay_still_refuses_a_screen_that_does_not_hold_the_declared_row`).
@@ -228,8 +230,13 @@ theme report [measured]. The same run, without the theme report, at
 | wider | base | 27.2 / 29.0 | 3.1 / 3.6 | 2.7 / 2.8 | 25.1 / 24.4 | 138 |
 | wider | head | 27.6 / 29.3 | 3.1 / 3.2 | 2.7 / 2.6 | 23.3 / 24.6 | 137 |
 
-No Ctrl-O figure moved up; `c1`'s join and theme fell 3-9 ms and its peak
-32 MiB (the call row built at its length) [measured].
+No Ctrl-O figure moved past round-to-round noise [measured]: `c1` open 76.0 /
+73.5 -> 71.8 / 77.7; `wider`'s open, join, theme and resize within 0.4 ms of
+the base's in the same round, or below them; `wider`'s detail 34.9 / 39.0 ->
+38.4 / 38.5, inside the base's own spread across its two rounds. `c1`'s join
+and theme fell 3-9 ms and its peak 32 MiB (415 -> 383; the call row built at
+its length). Two rounds a build: not a statistically established
+non-regression.
 
 ## RED -> GREEN
 
@@ -271,9 +278,12 @@ answer, or holds the session to it after every tick):
   `check::a_kept_replay_still_refuses_a_screen_that_does_not_hold_the_declared_row`;
 - `event_loop::a_groups_long_rows_stay_what_their_text_lays_through_scrolls_themes_and_a_resize`:
   a whole session -- two long calls (64 Ki marks each) in an open group, reads
-  joining it, a theme report to light and reads, back to dark, a resize, 12
-  more reads that scroll the rows away, the long calls finishing, the turn
-  ending -- held after every tick to no refused vector and every row the
+  joining it, Ctrl-O opened over them and closed (from `60ff598a`: the plane
+  taken and given back, the primary frame planned from the saved shadow), a
+  theme report to light and reads, back to dark, a resize, 12 more reads that
+  scroll the rows away, the long calls finishing, the turn ending, collapse
+  switched on (from `60ff598a`: `remove_rows` on the live shadow) -- held
+  after every tick to no refused vector and every row the
   shadow says it laid from a text holding a fresh placement of it
   (`Grid::stale_laid_rows`, test-only); with its premise checked mid-way
   (`Grid::longest_laid`: a long call's row is on the screen, laid from its
@@ -282,28 +292,31 @@ answer, or holds the session to it after every tick):
 
 ## Mutants
 
-`mutants.py`, `mutants.txt`: 22 mutants, each one textual change on a
-`git clone --no-local` at `8dd4604e` (never the worktree), the clone restored
-after each and clean at the end, each test run bounded at 600 s (its process
-group killed; a hang counts as killed). One hold of the suite lock.
-**21 of 22 killed**; none hung. After review, G8 (the re-laying fix), run alone
-on a clone at `0bddf3d8` (`mutants-g8.txt`): **killed** by `session`. In all,
-22 of 23, G3 declared equivalent.
+`mutants.py`, **`mutants-final.txt`**: all 23 mutants at one code point, a
+`git clone --no-local` at `60ff598a` (the final code, `0bddf3d8`'s; the commit
+adds only the session test's Ctrl-O and collapse), never the worktree, each
+one textual change, the clone restored after each and clean at the end, each
+test run bounded at 600 s (its process group killed; a hang counts as killed),
+one hold of the suite lock. **22 of 23 killed; none hung; G3 survives, declared
+equivalent before the run.** The earlier runs -- 22 mutants at `8dd4604e`
+(`mutants.txt`) and G8 alone at `0bddf3d8` (`mutants-g8.txt`) -- gave the same
+verdict for every mutant.
+
 The tests' short names are `mutants.py`'s (`SHORT`): `red-grid`, `red-frame`,
 `red-thrash`, `red-row`, `red-rail` are the five REDs; `moves`, `retint`,
 `narrower` the grid's; `kept-cells`, `kept-key`, `kept-refuses` the check's;
 `session` the event loop's; `let-go` the transcript's.
 
-| mutant | killed by (this unit's tests that failed, `mutants.txt`) |
+| mutant | killed by (this unit's tests that failed, `mutants-final.txt`) |
 |---|---|
 | G1 a row laid from any text answers for every text | `moves`, `session` |
 | G2 the screen's width left out of the key | `narrower` |
 | G3 the grid's width left out of the key | **survives, declared equivalent before the run**: a grid's width changes only through `Grid::resize`, which forgets every record, so the width kept with a text always equals the grid's; kept in the key because the tokenizer reads it |
-| G4 an erased row keeps its text | `moves` |
+| G4 an erased row keeps its text | `moves`, `session` |
 | G5 a retinted row keeps its text | `retint`, `session` |
 | G6 a writer's record forgets the text | `red-frame`, `moves`, `session` |
-| G8 a row found by placing it again is not kept (`0bddf3d8`, `mutants-g8.txt`) | `session` |
 | G7 a placement remembers no text | `red-grid`, `red-frame`, `moves`, `session` |
+| G8 a row found by placing it again is not kept | `session` |
 | C1 the screen's width left out of a kept replay's key | `kept-key` |
 | C2 the plane's width left out of a kept replay's key | `kept-key` |
 | C3 a kept replay found for any text at its widths | `session` |
@@ -425,7 +438,7 @@ isolated]".
 `malloc_history` at the probe's last stage, base and head) and the stage table
 above. At the base's end the heap holds 61.7 MiB to main's 25.9: +35.8.
 
-| what is held (base, end of the probe) | MiB | main | whose |
+| what is held (base, end of the probe; the base's lines, as `memory.txt` prints them) | MiB | main | whose |
 |---|---|---|---|
 | the argument as Ctrl-O's argument line, spelled (`full_transcript.rs:1124`, `CallArgument::of`) | 16.0 | 6 (raw) | CTRLO-WIDER: fx spells U+261D `\u{261d}`, 8 bytes where the scalar is 3 |
 | Ctrl-O's group block: its 22 rows, the long call's whole (`toolgroup.rs:738` via `full_transcript.rs:2069`) | **12.0** | small (main cuts the row) | T-U4 keeps a call's row whole -- **of it, 6 MiB a buffer twice its row** |
@@ -463,6 +476,9 @@ screen is held once more as the text its cells were laid from (`Laid`), and
 the check holds the cells and the text of each long row it replayed, for one
 append. Three heavy calls: 614 -> 669 MiB (+55); for `zw` the base's churn was
 larger than that and the peak fell (910-916 -> 720-725, one call 690 -> 285).
+After a theme report (`probe-theme.txt:8-10`, `:18-20`), three heavy calls
+peak at **781 MiB at the final code**, against 700-701 at the base (+81) and
+765 at `01149542` (+16: the two long rows fix 4 re-lays, now kept as laid).
 
 ## Residuals (what still costs, and where)
 
@@ -470,8 +486,8 @@ larger than that and the peak fell (910-916 -> 720-725, one call 690 -> 285).
   are written, as fx writes them, but it is also read four times on the way:
   the transcript cuts it (`ellipsized`, `transcript.rs:1559`: `wrap::width`
   of the whole row), the frame clips it and asks its width to decide the erase
-  after it (`place`, `frame.rs:2756-2760`: `row_text`, then `wrap::width`),
-  the grid places it (`put_row`, `grid.rs:617`) and the check replays it once
+  after it (`place`, `frame.rs:2757-2761`: `row_text`, then `wrap::width`),
+  the grid places it (`put_row`, `grid.rs:632`) and the check replays it once
   (then keeps it). The erase's width could be read off the placement; not done
   here.
 - **A long call's first placement** (0.6-0.9 s a call): the same reads, once.
@@ -484,6 +500,14 @@ larger than that and the peak fell (910-916 -> 720-725, one call 690 -> 285).
   **[추론]**: the base's profile put them in its other 2 %, and the head was
   not profiled.
 - **Memory**: the wider peak (above); `Shown` twice; what this unit adds.
+- **Whole-text keys, scanned linearly** (opus, review round 1, SHOULD 5,
+  PLAUSIBLE, deferred to queue unit **GRID-KEY-HASH**): the grid's `Laid`
+  (`grid.rs:736`), the check's `Replays::find` (`check.rs:1202-1212`) and the
+  transcript's `cut_for_screen` (`transcript.rs:963-971`) each compare a long
+  row's whole text, and the last two scan their entries in order, so N
+  long rows of one length sharing a long prefix cost about N^2 * L bytes of
+  comparison an append [추론, no test shows it; the probe's rows differ in
+  their first byte]. Hashing the text into the key would close it.
 - **The other emitters whose check replays a script of rows**
   (`Band::restore_primary`, `carry_document`, `hand_off`: `frame.rs:798`,
   `:1894`, `:2053`, each `Intent::Document`) go through plain
@@ -541,7 +565,8 @@ error and exit 2, not the gate's (`gates.txt`'s header says so).
   `apply_memory_probe.py`; `apply_ctrlo_probe.py` (ARGROW-CACHE's probe);
   `run.sh`, `probe.txt`, `summarize.py`, `probe-summary.txt`: main / base / head.
 - `memory.txt`, `live_sites.py`: what is live at the probe's end.
-- `mutants.py`, `mutants.txt`.
+- `mutants.py`, `mutants-final.txt` (all 23 at the final code); `mutants.txt`
+  (22 at `8dd4604e`), `mutants-g8.txt` (G8 at `0bddf3d8`).
 - `sweep.sh`, `selection.txt`, `sweep-run.txt`, `sweep-base.md`,
   `sweep-head.md`, `compare.py`, `compare.txt`, `families.py`, `families.txt`,
   `xfx_moved.py`, `xfx-moved.txt`, `redacted.py`: the sweep (every
@@ -552,4 +577,3 @@ error and exit 2, not the gate's (`gates.txt`'s header says so).
 - `banners.txt`: the sweeps' binaries.
 - `gates.sh`, `gates-final.txt`, `gate-tests-final.txt`: the gate at the final
   code; `gates.txt`, `gate-tests.txt`: at `01149542`.
-- `mutants-g8.txt`: mutant G8.

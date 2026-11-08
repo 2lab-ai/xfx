@@ -1,7 +1,7 @@
 # gates.sh on a --no-local clone at 01149542 (the head), one hold of the suite lock, 16:20:55Z -> 16:38:43Z; per step:
 # exit, seconds, the 1-minute load at its start. Steps 17-20 (both release builds, smoke, smoke-tui) ran inside another
 # worker's CPU load loop (from 16:35Z, load 29-37): they passed; their seconds are not clean timings.
-# The last two lines are the lock wrapper's, not the gate's: /private/tmp/claude-501/bin/suite-lock.sh was rewritten on
+# The last two lines are the lock wrapper's, not the gate's: <lock script> was rewritten on
 # disk at 16:38:47Z while this hold ran, and bash read the new file at the old offset after the gate returned (exit 2 is
 # the wrapper's syntax error). The gate's own result is its line '# 20 steps, 0 failed'.
 # head 01149542; tree clean: yes
@@ -26,6 +26,6 @@
 19 smoke                              exit 0     2s  load 36.52
 20 smoke-tui                          exit 0    66s  load 36.52
 # 20 steps, 0 failed; tree clean after: yes
-/private/tmp/claude-501/bin/suite-lock.sh: line 77: unexpected EOF while looking for matching `"'
-/private/tmp/claude-501/bin/suite-lock.sh: line 78: syntax error: unexpected end of file
+<lock script>: line 77: unexpected EOF while looking for matching `"'
+<lock script>: line 78: syntax error: unexpected end of file
 gate exit 2
