@@ -1,0 +1,304 @@
+# The code path, hop by hop, as excerpts of main @ 884497c0 (git show 884497c0:<path>).
+
+## H1 the fixture: a Gateway key in the configuration's own map -- src/tui/worker.rs:14777-14798@884497c0
+ 14777      fn titled_runtime(
+ 14778          answer: impl Fn(&str) -> super::super::titles::Outcome + Send + Sync + 'static,
+ 14779      ) -> (tempfile::TempDir, tempfile::TempDir, Runtime) {
+ 14780          let home = tempfile::tempdir().expect("a home");
+ 14781          let workspace = tempfile::tempdir().expect("a workspace");
+ 14782          let config = RuntimeConfig::load_with(
+ 14783              &Environment::new(
+ 14784                  Some(home.path().to_path_buf()),
+ 14785                  BTreeMap::from([("AI_GATEWAY_API_KEY".to_string(), "key".to_string())]),
+ 14786              ),
+ 14787              workspace.path(),
+ 14788          )
+ 14789          .expect("load a configuration");
+ 14790          assert_eq!(config.provider, ProviderId::Gateway);
+ 14791          let store = open_store(&config).expect("a store");
+ 14792          let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+ 14793          let (desk, answers) = super::super::titles::TitleDesk::answering(true, answer);
+ 14794          state.titles = desk;
+ 14795          state.title_answers = Some(answers);
+ 14796          state.publish();
+ 14797          (home, workspace, state)
+ 14798      }
+
+## H2 Runtime::new builds the selector from that configuration -- src/tui/worker.rs:1772-1776@884497c0
+  1772          questioner: Arc<TuiQuestioner>,
+  1773      ) -> Self {
+  1774          let selector = ModelSelector::new(&config);
+  1775          let board = StatusBoard::new(status_snapshot(&config, selector.model(), None));
+  1776          let settings = crate::provider::effort::TurnSettings {
+
+## H3 ModelSelector::new: a fetcher makes the catalog NotLoaded -- src/provider/model.rs:1465-1471@884497c0
+  1465      pub fn new(config: &RuntimeConfig) -> Self {
+  1466          let catalog_fetcher = catalog_for(config);
+  1467          let catalog_state = if catalog_fetcher.is_some() {
+  1468              CatalogState::NotLoaded
+  1469          } else {
+  1470              CatalogState::Unavailable
+  1471          };
+
+## H4 catalog_for: the Gateway's catalog, at the endpoint the PROCESS environment names -- src/provider/model.rs:991-1000@884497c0
+   991  pub fn catalog_for(config: &RuntimeConfig) -> Option<Box<dyn ModelCatalog + Send + Sync>> {
+   992      if config.provider_rejected.is_some() {
+   993          return None;
+   994      }
+   995      match config.provider {
+   996          ProviderId::Gateway => {
+   997              let credential = config.credential.clone()?;
+   998              let endpoint = Endpoint::from_process().ok()?;
+   999              Some(Box::new(GatewayCatalog::new(&endpoint, credential)))
+  1000          }
+
+## H5 Endpoint::from_process: XFX_GATEWAY_URL from the process (unset in cargo test) or the default -- src/gateway/mod.rs:357-361@884497c0
+   357      pub fn from_process() -> Result<Self, EndpointError> {
+   358          let raw = std::env::var(GATEWAY_URL_ENV).ok();
+   359          let candidate = raw.as_deref().map(str::trim).filter(|s| !s.is_empty());
+   360          Self::resolve(candidate)
+   361      }
+
+## H5b the default endpoint -- src/gateway/mod.rs:45-45@884497c0
+    45  pub const DEFAULT_CHAT_URL: &str = "https://ai-gateway.vercel.sh/v4/ai/language-model";
+
+## H6 turn_loop's every tick, first thing after worked_through -- src/tui/worker.rs:3275-3291@884497c0
+  3275          // made, or dropped unstarted by an interrupt -- gives back the prompt
+  3276          // the band held for it, which asks now, ahead of its own turn
+  3277          // ([`Runtime::worked_through`]).
+  3278          state.worked_through(queue.taken);
+  3279          // **The catalog, read in the background** whenever the session holds
+  3280          // none and is not reading one: at launch, as upstream reads it on a
+  3281          // thread of its own once the session is up (`app.startModelCacheWarmup()`,
+  3282          // `vercel-labs/fx@c1db9191 src/core/app/app_entry_runtime.zig:335`;
+  3283          // `startWarmup`, `model_cache_runtime.zig:321-349`), and after a
+  3284          // provider switch, as it reads one when the credential a catalog is
+  3285          // read with changes (`applyCredentialChange`,
+  3286          // `app_auth_runtime.zig:2026-2036`). Nothing waits for it here: the
+  3287          // first thing that needs it takes its answer, waiting if it has not
+  3288          // come ([`await_catalog_for_window`]); the UI is told it the moment it
+  3289          // comes, a turn running or not. A failed one is not read again until `/model`
+  3290          // asks ([`ModelSelector::retry_after_failure`]).
+  3291          begin_catalog_read(&mut state, events);
+
+## H7 begin_catalog_read -> begin_load with the telling -- src/tui/worker.rs:4109-4133@884497c0
+  4109  fn begin_catalog_read(state: &mut Runtime, events: &Sender<UiEvent>) {
+  4110      state
+  4111          .selector
+  4112          .begin_load(telling(state.config.provider, events.clone()));
+  4113  }
+  4114  
+  4115  /// How a read's answer is told to the band, from the thread the read ran on
+  4116  /// ([`crate::provider::model::CatalogReader`]): `attempted` is when it began,
+  4117  /// which a failure's floor counts from.
+  4118  fn telling(
+  4119      provider: ProviderId,
+  4120      events: Sender<UiEvent>,
+  4121  ) -> impl FnOnce(
+  4122      CatalogState,
+  4123      Option<crate::provider::model::CatalogRetry>,
+  4124      Instant,
+  4125  ) -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>>
+  4126         + Send
+  4127         + 'static {
+  4128      move |catalog, retry, attempted| {
+  4129          Box::pin(async move {
+  4130              let event = catalog_event_of(provider, &catalog, retry, Some(attempted));
+  4131              bridge::send_terminal(&events, event).await;
+  4132          })
+  4133      }
+
+## H8 begin_load: NotLoaded and nothing pending -> a read on a thread of its own -- src/provider/model.rs:1555-1567@884497c0
+  1555      pub(crate) fn begin_load<Told, Telling>(&mut self, told: Told)
+  1556      where
+  1557          Told: FnOnce(CatalogState, Option<CatalogRetry>, Instant) -> Telling + Send + 'static,
+  1558          Telling: std::future::Future<Output = ()> + Send + 'static,
+  1559      {
+  1560          if !matches!(self.catalog_state, CatalogState::NotLoaded) || self.pending.is_some() {
+  1561              return;
+  1562          }
+  1563          let Some(fetcher) = self.catalog_fetcher.clone() else {
+  1564              return;
+  1565          };
+  1566          self.pending = Some(PendingLoad::start(fetcher, told));
+  1567      }
+
+## H9 PendingLoad::start: the fetch, then the telling, each raced against the stop -- src/provider/model.rs:1320-1359@884497c0
+  1320          let thread = std::thread::Builder::new()
+  1321              .name("xfx-catalog".to_string())
+  1322              .spawn(move || {
+  1323                  let Some((fetcher, told, finished)) = on_thread
+  1324                      .lock()
+  1325                      .unwrap_or_else(std::sync::PoisonError::into_inner)
+  1326                      .take()
+  1327                  else {
+  1328                      return;
+  1329                  };
+  1330                  let runtime = match tokio::runtime::Builder::new_current_thread()
+  1331                      .enable_all()
+  1332                      .build()
+  1333                  {
+  1334                      Ok(runtime) => runtime,
+  1335                      Err(err) => {
+  1336                          let _ = outcome.set(loaded(Err(CatalogError::Unavailable {
+  1337                              detail: format!("could not start the catalog read: {err}"),
+  1338                          })));
+  1339                          let _ = finished.send(());
+  1340                          return;
+  1341                      }
+  1342                  };
+  1343                  runtime.block_on(async move {
+  1344                      // A stop that was never sent -- its sender dropped -- is
+  1345                      // no stop: the pattern disables the branch.
+  1346                      let answer = tokio::select! {
+  1347                          biased;
+  1348                          Ok(()) = &mut stopped => return,
+  1349                          answer = fetcher.fetch() => loaded(answer),
+  1350                      };
+  1351                      tokio::select! {
+  1352                          biased;
+  1353                          Ok(()) = &mut stopped => return,
+  1354                          () = told(answer.0.clone(), answer.1, began) => {}
+  1355                      }
+  1356                      let _ = outcome.set(answer);
+  1357                      let _ = finished.send(());
+  1358                  });
+  1359              });
+
+## H10 the telling's event: a failed read is CatalogUnread -- src/tui/worker.rs:3205-3224@884497c0
+  3205  fn catalog_event_of(
+  3206      provider: ProviderId,
+  3207      catalog: &CatalogState,
+  3208      retry: Option<crate::provider::model::CatalogRetry>,
+  3209      attempted: Option<Instant>,
+  3210  ) -> UiEvent {
+  3211      match from_state(catalog) {
+  3212          CatalogAnswer::Rows(entries) => UiEvent::CatalogLoaded { provider, entries },
+  3213          // The provider has no catalog; nothing went wrong, and the menu
+  3214          // says there is nothing in it.
+  3215          CatalogAnswer::NoneAdvertised => UiEvent::CatalogLoaded {
+  3216              provider,
+  3217              entries: Vec::new(),
+  3218          },
+  3219          CatalogAnswer::Unread(_) => UiEvent::CatalogUnread {
+  3220              provider,
+  3221              retry,
+  3222              attempted: attempted.unwrap_or_else(Instant::now),
+  3223          },
+  3224      }
+
+## H11 retry None vs Some(Unreachable): only 429/5xx carry a retry; a transport error is Unreachable -- src/provider/model.rs:129-135@884497c0
+   129      pub fn for_status(status: u16) -> Option<Self> {
+   130          match status {
+   131              429 => Some(Self::RateLimited),
+   132              500 | 502 | 503 | 504 => Some(Self::Unreachable),
+   133              _ => None,
+   134          }
+   135      }
+
+## H11b the transport error's retry -- src/provider/model.rs:953-962@884497c0
+   953              .get(&self.url)
+   954              .header(reqwest::header::AUTHORIZATION, authorization)
+   955              .send()
+   956              .await
+   957              // Nothing answered: upstream's `transport`, which it asks again
+   958              // about.
+   959              .map_err(|err| CatalogError::Gateway {
+   960                  detail: err.to_string(),
+   961                  retry: Some(CatalogRetry::Unreachable),
+   962              })?;
+
+## H12 the title arm and its event, and the shutdown arm -- src/tui/worker.rs:3346-3352@884497c0
+  3346              // needed it yet: taken now, the UI having been told already.
+  3347              () = state.selector.settle_load(), if state.selector.is_loading() => Taken::Catalog,
+  3348              // A session title, written down and shown between pieces of work
+  3349              // by the recorder that owns the log; never during one, which may
+  3350              // be writing that log itself.
+  3351              titled = next_title(&mut state.title_answers) => Taken::Title(titled),
+  3352              item = queue.work.recv() => Taken::Work(item),
+
+## H12b -- src/tui/worker.rs:3401-3407@884497c0
+  3401              Taken::Title(titled) => {
+  3402                  if let Some(title) = state.title_arrived(&titled, false) {
+  3403                      bridge::send_terminal(events, UiEvent::SessionTitled(title)).await;
+  3404                  }
+  3405                  continue;
+  3406              }
+  3407              Taken::Shutdown => return settled(state, changes),
+
+## H12c the title desk the fixture installs answers on the asking thread, at once -- src/tui/titles.rs:426-442@884497c0
+   426  
+   427      /// A desk whose questions `answer` answers, from the excerpt, on the
+   428      /// asking thread.
+   429      #[cfg(test)]
+   430      pub(crate) fn answering(
+   431          on: bool,
+   432          answer: impl Fn(&str) -> Outcome + Send + Sync + 'static,
+   433      ) -> (Self, Answers) {
+   434          let answer = Arc::new(answer);
+   435          Self::asking(
+   436              on,
+   437              Arc::new(move |question: Question| -> Asked {
+   438                  let outcome = answer(&question.excerpt);
+   439                  Box::pin(async move { (outcome, None) })
+   440              }),
+   441          )
+   442      }
+
+## H13 the stopper: Shutdown once session_renamed is in the log, polled every 5 ms -- src/tui/worker.rs:15408-15427@884497c0
+ 15408                  // Once the loop has written the title down, and not before.
+ 15409                  let deadline = Instant::now() + TEST_DRAIN;
+ 15410                  while !std::fs::read_to_string(&watched)
+ 15411                      .is_ok_and(|log| log.contains("\"kind\":\"session_renamed\""))
+ 15412                      && Instant::now() < deadline
+ 15413                  {
+ 15414                      std::thread::sleep(Duration::from_millis(5));
+ 15415                  }
+ 15416                  let _ = control_tx.send(TurnControl::Shutdown);
+ 15417              });
+ 15418              let _ = on_a_runtime(turn_loop(
+ 15419                  state,
+ 15420                  &events_tx,
+ 15421                  &mut work_rx,
+ 15422                  &mut changes_rx,
+ 15423                  control,
+ 15424                  Cancellation::new(CancelToken::new()),
+ 15425                  &outstanding,
+ 15426              ));
+ 15427              stopper.join().expect("the stopper");
+
+## H14 the drop that ends the race: stop, then join; nothing is told after -- src/provider/model.rs:1289-1298@884497c0
+  1289  impl Drop for PendingLoad {
+  1290      fn drop(&mut self) {
+  1291          if let Some(stop) = self.stop.take() {
+  1292              let _ = stop.send(());
+  1293          }
+  1294          if let Some(thread) = self.thread.take() {
+  1295              let _ = thread.join();
+  1296          }
+  1297      }
+  1298  }
+
+## H15 bearer_rules honours an https proxy from the environment (how the RED runs stay on this machine) -- src/gateway/mod.rs:120-141@884497c0
+   120  pub(crate) fn bearer_rules(builder: reqwest::ClientBuilder, url: &str) -> reqwest::ClientBuilder {
+   121      let builder = builder.redirect(reqwest::redirect::Policy::none());
+   122      if may_use_a_proxy(url) {
+   123          builder
+   124      } else {
+   125          builder.no_proxy()
+   126      }
+   127  }
+   128  
+   129  /// Whether a request carrying the bearer to `url` may go through a proxy that
+   130  /// `HTTPS_PROXY`, `HTTP_PROXY` or `ALL_PROXY` names.
+   131  ///
+   132  /// Over https the proxy is handed a `CONNECT` and a TLS stream it cannot read,
+   133  /// and an endpoint on the internet may be reachable no other way. A cleartext
+   134  /// request -- which the bearer rule allows only to loopback -- goes to the proxy
+   135  /// as written, key and prompt, and reqwest exempts no loopback host from one.
+   136  /// Anything that is not plainly https gets no proxy, so a mistake here costs a
+   137  /// direct connection and never the key. Upstream loads no proxy at all: it
+   138  /// never calls `initDefaultProxies` (`vercel-labs/fx@c1db9191 src/`).
+   139  pub(crate) fn may_use_a_proxy(url: &str) -> bool {
+   140      ParsedUrl::parse(url.trim()).is_some_and(|parsed| parsed.scheme == "https")
+   141  }

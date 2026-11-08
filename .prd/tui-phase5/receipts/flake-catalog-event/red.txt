@@ -1,0 +1,43 @@
+# RED, on the RED commit's tree (base 884497c0 + the new test, uncommitted at the time of this run)
+# HTTPS_PROXY = a loopback logger (connect_logger.py, here) that logs each CONNECT line and answers 403; nothing is forwarded.
+# date: 2026-11-08T05:47:13Z  uptime: load averages: 8.54 12.04 12.08
+## run 1: tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band
+test tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band ... FAILED
+thread 'tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band' (330260715) panicked at src/tui/worker.rs:15467:9:
+the fixture's catalog read told the band: [CatalogUnread { provider: Gateway, retry: Some(Unreachable), attempted: Instant { tv_sec: 830501, tv_nsec: 865132708 } }]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4374 filtered out; finished in 0.06s
+## run 2: tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band
+test tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band ... FAILED
+thread 'tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band' (330260738) panicked at src/tui/worker.rs:15467:9:
+the fixture's catalog read told the band: [CatalogUnread { provider: Gateway, retry: Some(Unreachable), attempted: Instant { tv_sec: 830501, tv_nsec: 896920250 } }]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4374 filtered out; finished in 0.03s
+## run 3: tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band
+test tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band ... FAILED
+thread 'tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band' (330260762) panicked at src/tui/worker.rs:15467:9:
+the fixture's catalog read told the band: [CatalogUnread { provider: Gateway, retry: Some(Unreachable), attempted: Instant { tv_sec: 830501, tv_nsec: 929272541 } }]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4374 filtered out; finished in 0.03s
+## run 1: tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown
+test tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown ... FAILED
+thread 'tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown' (330260778) panicked at src/tui/worker.rs:15433:9:
+  left: [CatalogUnread { provider: Gateway, retry: Some(Unreachable), attempted: Instant { tv_sec: 830501, tv_nsec: 961322708 } }, SessionTitled("Between turns")]
+ right: [SessionTitled("Between turns")]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4374 filtered out; finished in 0.04s
+## run 2: tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown
+test tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown ... FAILED
+thread 'tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown' (330260801) panicked at src/tui/worker.rs:15433:9:
+  left: [CatalogUnread { provider: Gateway, retry: Some(Unreachable), attempted: Instant { tv_sec: 830502, tv_nsec: 6082500 } }, SessionTitled("Between turns")]
+ right: [SessionTitled("Between turns")]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4374 filtered out; finished in 0.04s
+## run 3: tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown
+test tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown ... FAILED
+thread 'tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown' (330260824) panicked at src/tui/worker.rs:15433:9:
+  left: [CatalogUnread { provider: Gateway, retry: Some(Unreachable), attempted: Instant { tv_sec: 830502, tv_nsec: 50339083 } }, SessionTitled("Between turns")]
+ right: [SessionTitled("Between turns")]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4374 filtered out; finished in 0.04s
+## the logger's connect.log after these 6 runs
+CONNECT ai-gateway.vercel.sh:443 HTTP/1.1
+CONNECT ai-gateway.vercel.sh:443 HTTP/1.1
+CONNECT ai-gateway.vercel.sh:443 HTTP/1.1
+CONNECT ai-gateway.vercel.sh:443 HTTP/1.1
+CONNECT ai-gateway.vercel.sh:443 HTTP/1.1
+CONNECT ai-gateway.vercel.sh:443 HTTP/1.1

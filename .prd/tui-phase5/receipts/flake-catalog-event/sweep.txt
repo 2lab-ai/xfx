@@ -1,0 +1,144 @@
+# Class sweep (line numbers at this branch's fix commit, src/tui/worker.rs unless named)
+
+## The rule a case must break to race the same read
+A background catalog read starts only where the selector has a fetcher and
+holds no catalog: `begin_load` returns at once otherwise
+(src/provider/model.rs:1560-1565). A fetcher exists only for a keyed Gateway
+or a llmux with a URL (`catalog_for`, src/provider/model.rs:991-1007), or one
+a case set itself (`set_fetcher_for_test`). The places that start one:
+`turn_loop`'s every tick (:3291), `ask_catalog` (:4154), a work's
+`CatalogAsks::Reading` on a `TurnControl::Catalog` (:4228), and the in-line
+`load_catalog` of `one_turn`'s effort/Fast branch, `image_refusal`,
+`change_model` and `await_catalog_for_window` (:4364, :5004, :5629, :5854).
+
+## Fixtures (who holds a fetcher)
+- `config(home, workspace)` (:6253-6259): an empty environment map, so no
+  credential; `catalog_for`'s Gateway arm returns None on
+  `config.credential.clone()?` (model.rs:997), the catalog is `Unavailable`
+  (model.rs:1467-1471) and no read can start. `recording()` (:9616),
+  `published_runtime()` (:7505) and `two_writes` (:14135) are built on it.
+- `titled_runtime` (:14786): a Gateway key -> the remote Gateway's catalog,
+  unread. FIXED here: an in-process stand-in, pinned as loaded.
+- `a_runtime_that_can_open_one` (:13536) and the no-home case (:8044): a key,
+  but no case on them runs `turn_loop` or reads the catalog (they call
+  `ready`, `adopt`, `conversation`, `title_asker`).
+- llmux URLs in fixtures: `127.0.0.1:9` (:12437, `unauthenticated` only) and
+  `127.0.0.1:3456` (:13492, :13899, via `adopt`, which builds a selector and
+  does no I/O, model.rs:1462-1464); neither case reads the catalog.
+
+## turn_loop callers (every one)
+1311:            turn_loop(
+7420:        let left = on_a_runtime(turn_loop(
+7461:        let looped = turn_loop(
+7611:        on_a_runtime(turn_loop(
+7907:                on_a_runtime(turn_loop(
+9685:        on_a_runtime(turn_loop(
+9870:        on_a_runtime(turn_loop(
+15435:            let _ = on_a_runtime(turn_loop(
+- :1311 is `spawn`'s thread. Its test callers: :7942
+  (the_runtime_thread_is_started_with_every_owned_signal_blocked) and :13663
+  (the_session_spawn_names_at_launch_is_the_one_the_runtime_opens), both on
+  `config(..)` -> no fetcher; neither asserts an event list.
+- :7420 a_change_sent_after_work_was_queued_is_applied_before_that_work_starts
+  (recording(); events unread)
+- :7461 a_change_lands_while_the_loop_is_idle_and_one_typed_before_leaving_is_not_lost
+  (recording(); events unread)
+- :7611 a_grant_a_model_and_a_new_conversation_each_reach_what_status_reads
+  (recording() + a pinned Loaded catalog; events unread)
+- :7907 a_reset_that_drops_the_conversation_takes_its_reply_with_it
+  (recording(); asserts the first event is `Fresh`) -- no fetcher, and every
+  input is a control message queued before the loop runs: no timed source.
+- :9685 a_reset_between_turns_drops_what_waits_and_then_says_the_conversation_is_gone
+  (recording(); asserts exactly [Fresh]) -- same: no fetcher, no timed source.
+- :9870 between_turns_a_rename_is_written_into_the_session_it_was_typed_in
+  (recording(); asserts exactly [Renamed, Fresh, Renamed]) -- same.
+- :15435 a_title_that_comes_back_between_turns_is_written_and_then_shown
+  (titled_runtime; asserts exactly [SessionTitled]) -- THE FLAKE; fixed.
+Other timed sources in the loop: the title answer (`next_title`, :3351) needs
+a desk that answers -- only `titled_runtime` installs one (`TitleDesk::answering`);
+`settle_load` (:3347) needs a pending read; changes and work are the case's own.
+
+## Every worker test that drains UiEvents with try_recv (35), by fixture
+6269 a_stop_raises_the_running_turns_flag_before_the_message_goes | fx=[ WorkHandle::detached] |
+6504 a_third_submission_is_refused_though_the_channel_is_empty | fx=[ WorkHandle::detached] | EXACT
+6557 the_runtime_takes_work_again_once_the_work_it_was_given_is_over | fx=[ WorkHandle::detached] | EXACT
+6584 what_the_band_says_is_the_number_the_refusal_was_decided_from | fx=[ WorkHandle::detached] | EXACT
+6629 both_of_two_submissions_are_taken_before_the_runtime_has_picked_up_either | fx=[ WorkHandle::detached] | EXACT
+6663 an_interrupt_drops_the_work_nobody_has_started_and_gives_its_places_back | fx=[ WorkHandle::detached] | EXACT
+6701 an_interrupt_does_not_eat_the_prompt_the_user_typed_after_it | fx=[ WorkHandle::detached] | EXACT
+6740 the_work_a_turn_is_running_is_already_counted_and_is_not_dropped_twice | fx=[ WorkHandle::detached] | EXACT
+6771 a_cancellation_mid_turn_drops_the_queue_at_the_moment_it_arrives | fx=[ WorkHandle::detached] | EXACT
+7262 a_keystroke_puts_the_mode_and_a_reset_in_force_before_the_runtime_hears_of_it | fx=[ WorkHandle::detached] | EXACT
+7533 a_turn_is_in_the_published_count_before_the_ui_is_told_it_ended | fx=[ published_runtime] |
+7705 a_concluded_turn_reaches_the_ui_through_a_channel_that_had_no_room_for_it | fx=[ recording()] | EXACT
+7826 a_turn_publishes_the_reply_before_its_conclusion_is_sent | fx=[ recording()] | EXACT
+7883 a_reset_that_drops_the_conversation_takes_its_reply_with_it | fx=[ recording()] | turn_loop EXACT
+9109 rules_held_for_a_session_the_store_refuses_go_with_the_next_one | fx=[ config(home] | EXACT
+9648 a_reset_between_turns_drops_what_waits_and_then_says_the_conversation_is_gone | fx=[ WorkHandle::detached recording()] | turn_loop EXACT
+9842 between_turns_a_rename_is_written_into_the_session_it_was_typed_in | fx=[ recording()] | turn_loop EXACT
+9914 a_rename_is_answered_once_by_what_became_of_its_write | fx=[ recording()] | EXACT
+10010 renames_put_aside_land_on_either_side_of_the_reset_they_were_typed_around | fx=[ recording()] | EXACT
+10223 a_model_a_loaded_catalog_does_not_list_is_applied_and_recorded_as_typed | fx=[ recording()] | EXACT
+10432 a_catalog_asked_for_again_while_a_turn_runs_is_read_at_once_and_told_before_it_ends | fx=[ recording()] | spawn fake-fetcher EXACT
+10640 a_catalog_asked_for_while_an_approval_has_parked_the_turn_is_told_before_it_is_answered | fx=[] | EXACT
+10740 a_catalog_that_answers_while_a_turn_runs_is_told_to_the_band_at_once | fx=[ recording()] | fake-fetcher EXACT
+11023 a_change_put_aside_is_applied_before_the_next_piece_of_work_and_survives_the_end | fx=[ recording()] |
+12426 a_resume_says_what_the_provider_in_force_lacks_whichever_it_is | fx=[ config(home] |
+12513 a_reset_or_a_resume_leaves_the_changes_before_it_behind | fx=[ recording()] | EXACT
+13034 a_catalog_request_answers_the_menu_and_never_the_document | fx=[ recording()] | fake-fetcher EXACT
+14009 a_turn_in_ultra_says_once_when_a_response_was_not_served_at_it | fx=[] | EXACT
+14067 fast_with_no_catalog_to_offer_it_is_dropped_and_said_only_when_the_catalog_is_down | fx=[ recording() config(home WorkHandle::detached] | EXACT
+14261 a_reset_mid_turn_takes_the_grants_away_from_that_turns_next_call | fx=[] | spawn
+14923 a_title_that_comes_after_a_rename_the_turn_put_aside_is_dropped | fx=[ titled_runtime] |
+15251 a_question_asked_after_a_new_is_the_next_conversations | fx=[ titled_runtime] | EXACT
+15318 a_title_that_comes_back_mid_turn_is_shown_then_and_written_when_the_turn_ends | fx=[ titled_runtime] |
+15398 a_title_that_comes_back_between_turns_is_written_and_then_shown | fx=[ titled_runtime] | turn_loop spawn EXACT
+15465 a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band | fx=[ titled_runtime] |
+
+Reading of the 35 (the awk above files a helper's drain under the case
+before it, so 10640's line is `catalog_told_while_parked`'s, shared with
+10614):
+- WorkHandle::detached alone (10: 6269 ... 7262): no Runtime, no selector --
+  nothing can read a catalog.
+- A Runtime with no fetcher (15): published_runtime 7533; recording() 7705,
+  7826, 7883, 9648, 9842, 9914, 10010, 10223, 11023, 12513, 14067 (pins
+  Failed/Loaded itself); config() 9109, 12426; two_writes on config() 14261.
+  The three that run turn_loop are 7883, 9648, 9842 (above).
+- An in-process fake fetcher (4: 10432, 10640 via catalog_told_while_parked,
+  10740, 13034 -- Answering / Gated / CountedUnreachable / BackAfterOne):
+  the catalog event IS what these assert, from a deterministic fake; not
+  this class.
+- No Runtime at all (1: 14009, ScriptedProvider + ServedUltra).
+- titled_runtime (5: 14923, 15251, 15318, 15398, 15465): covered by the fix;
+  only 15398 ran turn_loop, and only 15251 and 15398 assert an exact list.
+10 + 15 + 4 + 1 + 5 = 35.
+
+## Bridge and the other tui files
+src/tui/bridge.rs has no try_recv. approval.rs, question.rs, event_loop.rs,
+shell.rs and the rest drain the prompter's, the shell's or their own
+channels; none builds a Runtime with a selector or calls turn_loop (the
+`turn_loop` hits in shell.rs/approval.rs/question.rs are comments or test
+names), so none can race a catalog read.
+
+## Integration tests (not UiEvent lists; noted for the hermeticity half)
+Every tests/*.rs file that names AI_GATEWAY_API_KEY, from
+`grep -n AI_GATEWAY_API_KEY tests/*.rs` at the fix (round 2's list; round 1
+named only some). A line can set the key, scrub it, remove it or quote it in
+an assertion; which of these runs reach a remote host was not classified
+here and none was run through the proxy:
+- tests/cli.rs: 14 lines name AI_GATEWAY_API_KEY (44 655 689 698 701 705 723 1320 1973 1982 2059 2101 2108 2268); 0 name XFX_GATEWAY_URL
+- tests/gateway.rs: 25 lines name AI_GATEWAY_API_KEY (41 1568 1604 1626 1668 1686 1738 1760 1782 1798 1816 1862 1891 1932 1966 1999 2022 2057 2081 2096 2116 2164 2241 2261 2278); 25 name XFX_GATEWAY_URL
+- tests/interactive.rs: 4 lines name AI_GATEWAY_API_KEY (528 1649 1656 1660); 0 name XFX_GATEWAY_URL
+- tests/ledger_compat.rs: 1 lines name AI_GATEWAY_API_KEY (349); 0 name XFX_GATEWAY_URL
+- tests/llmux.rs: 7 lines name AI_GATEWAY_API_KEY (1449 1603 1687 1710 2581 2689 2968); 1 name XFX_GATEWAY_URL
+- tests/parity.rs: 2 lines name AI_GATEWAY_API_KEY (682 1048); 0 name XFX_GATEWAY_URL
+- tests/permissions.rs: 7 lines name AI_GATEWAY_API_KEY (57 4764 4804 4843 4984 5063 5150); 7 name XFX_GATEWAY_URL
+- tests/sessions.rs: 2 lines name AI_GATEWAY_API_KEY (49 1591); 2 name XFX_GATEWAY_URL
+- tests/tool_loop.rs: 7 lines name AI_GATEWAY_API_KEY (58 3696 3734 3777 3820 3864 3893); 7 name XFX_GATEWAY_URL
+- tests/tui.rs: 5 lines name AI_GATEWAY_API_KEY (5554 9222 9613 11508 12069); 2 name XFX_GATEWAY_URL
+For example tests/cli.rs:1318-1321 and :2099-2102 run the binary with a
+planted key, and tests/llmux.rs:2968 builds an environment with one, none
+naming XFX_GATEWAY_URL in the same call (whether the sandbox supplies one
+there was not checked). The sandbox (tests/support/sandbox.rs:25,
+:90, :152) scrubs or sets XFX_GATEWAY_URL. Sorting these out is unit
+TEST-NET-ISOLATION's (the dispatcher's), not this unit's.

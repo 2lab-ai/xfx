@@ -1,0 +1,38 @@
+# Gate at the fix commit, every CI step one at a time (gate.sh), TMPDIR=<local-path>;
+# the heavy steps (both cargo test runs, both fxcap tests, smoke-tui) each under <local-path>
+
+head=b03074c08067815ab2f9d15ff2c4427f00baa303 start=2026-11-08T05:59:21Z
+fmt                          rc=0      1s  cargo fmt --check
+clippy                       rc=0     20s  cargo clippy --locked --all-targets -- -D warnings
+clippy-fault                 rc=0     17s  cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+test                         rc=0    109s  <local-path> cargo test --locked --no-fail-fast
+test-fault                   rc=0    126s  <local-path> cargo test --locked --features fault-injection --no-fail-fast
+check-no-stubs               rc=0      8s  ./scripts/check-no-stubs.sh
+check-no-secrets             rc=0     24s  ./scripts/check-no-secrets.sh
+test-check-no-secrets        rc=0     71s  ./scripts/test-check-no-secrets.sh
+test-gate-env                rc=0     65s  ./scripts/test-gate-env.sh
+check-xfx-identity           rc=0      1s  ./scripts/check-xfx-identity.sh
+check-preview-contract       rc=0      2s  ./scripts/check-preview-contract.sh
+test-preview-contract        rc=0     48s  ./scripts/test-preview-contract.sh
+check-tui-preflight-cost     rc=0    108s  ./scripts/check-tui-preflight-cost.sh
+check-usage-clock            rc=0      4s  ./scripts/check-usage-clock.sh
+fxcap-test-sweep             rc=0    119s  <local-path> ./scripts/fxcap/test-sweep.sh
+fxcap-test-capture           rc=0    335s  <local-path> ./scripts/fxcap/test-capture.sh
+build-release                rc=0     19s  cargo build --locked --release
+build-faulty                 rc=0     46s  cargo build --locked --release --features fault-injection --target-dir target/faulty
+smoke                        rc=0     15s  ./scripts/smoke.sh target/release/xfx <local-path>
+smoke-tui                    rc=0     72s  <local-path> ./scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <local-path>
+end=2026-11-08T06:19:31Z
+
+## totals and summaries, from each step's log
+cargo test: 15 binaries, 5280 passed, 0 failed
+cargo test --features fault-injection: 15 binaries, 5317 passed, 0 failed
+the two cases of this unit, in both runs:
+  [test] test tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band ... ok
+  [test] test tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown ... ok
+  [test-fault] test tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band ... ok
+  [test-fault] test tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown ... ok
+fxcap test-sweep: OK
+fxcap test-capture: Ran 59 tests in 334.705s -> OK
+smoke: 47 check(s), 0 failure(s)
+smoke-tui: smoke-tui: 37 scenarios + the oracle, 1127 checks, 0 failures

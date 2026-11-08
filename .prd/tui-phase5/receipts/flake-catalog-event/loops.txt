@@ -1,0 +1,44 @@
+# Loops of the touched tests (the 12 cases on titled_runtime, the RED case among them), --test-threads at the default,
+# each loop under <local-path> 'loaded' = loaded.py: one /usr/bin/yes per core (18) beside the loop,
+# started and killed by loaded.py itself. Driver: loop.sh (one binary run per iteration), per-test counts: pertest.sh.
+# RED binary = the lib test binary built at 8f82e4a3 (sha256 prefix 5f99ff19715686f2); GREEN = built at b03074c0 (a8624f8ffaaeb043).
+# 'forced' = HTTPS_PROXY set to connect_logger.py answering 403 at once, so the read answers as fast as it can -- the losing schedule.
+
+## BEFORE (RED binary), forced, idle
+start=2026-11-08T05:48:29Z end=2026-11-08T05:49:00Z runs=50 pass=0 fail=50 load=[6.37 10.33 11.42]
+connects=     100
+
+[exited with code 0]
+  tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band: fail 50 / 50
+  tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown: fail 50 / 50
+  (every other touched test: fail 0 / 50)
+
+## BEFORE (RED binary), forced, loaded
+spinners: 18 started, pids 97936..97958
+start=2026-11-08T05:49:36Z end=2026-11-08T05:50:11Z runs=50 pass=0 fail=50 load=[33.63 16.07 13.40]
+spinners: 18 killed
+connects=     100
+  tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band: fail 50 / 50
+  tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown: fail 50 / 50
+  (every other touched test: fail 0 / 50)
+
+[exited with code 0]
+
+## AFTER (GREEN binary): forced idle, forced loaded, then the plain environment (no proxy) idle and loaded
+== after, forced-fast schedule (instant loopback refusal as HTTPS_PROXY)
+start=2026-11-08T05:53:35Z end=2026-11-08T05:54:09Z runs=50 pass=50 fail=0 load=[12.20 15.91 14.12]
+  (every other touched test: fail 0 / 50)
+spinners: 18 started, pids 46952..46970
+start=2026-11-08T05:54:09Z end=2026-11-08T05:54:43Z runs=50 pass=50 fail=0 load=[41.95 23.00 16.77]
+spinners: 18 killed
+  (every other touched test: fail 0 / 50)
+connects=       0
+== after, plain environment (no proxy, as the gate runs)
+start=2026-11-08T05:54:43Z end=2026-11-08T05:55:17Z runs=50 pass=50 fail=0 load=[28.02 21.45 16.43]
+  (every other touched test: fail 0 / 50)
+spinners: 18 started, pids 54799..54824
+start=2026-11-08T05:55:17Z end=2026-11-08T05:55:51Z runs=50 pass=50 fail=0 load=[61.67 30.53 19.93]
+spinners: 18 killed
+  (every other touched test: fail 0 / 50)
+
+[exited with code 0]

@@ -1,0 +1,22 @@
+# Review round 2, at 1ec85e11 (the lib test binary built there, sha256 prefix 86bb54b570e42d21). TMPDIR=<local-path>
+
+## the 12 cases on titled_runtime plus a_title_runtime_answers_a_forced_catalog_read_from_its_stand_in, x10,
+## --test-threads at the default, under the suite lock, HTTPS_PROXY = connect_logger.py (403 at once, forwards nothing)
+start=2026-11-08T06:36:58Z end=2026-11-08T06:37:16Z runs=10 pass=10 fail=0 load=[5.55 6.34 7.49]
+  (every other touched test: fail 0 / 10)
+connects=       0
+
+## the lib tests once, plain environment, under the suite lock
+rc=0
+test result: ok. 4369 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 52.78s
+test tui::worker::tests::a_title_runtime_answers_a_forced_catalog_read_from_its_stand_in ... ok
+test tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band ... ok
+test tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown ... ok
+
+## checks at 1ec85e11 (fmt, clippy) and on the tracked tree with this receipt staged (the scripts)
+cargo fmt --check rc=0
+cargo clippy --locked --all-targets -- -D warnings rc=0
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings rc=0
+check-no-secrets rc=0
+check-xfx-identity rc=0
+check-no-stubs rc=0

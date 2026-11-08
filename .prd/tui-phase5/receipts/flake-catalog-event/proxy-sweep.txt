@@ -1,0 +1,22 @@
+# The whole lib test binary at the fix (GREEN, b03074c0), --test-threads at the default, under the suite lock,
+# with HTTPS_PROXY = connect_logger.py (answers 403 at once, forwards nothing): every reqwest client that
+# honours an https proxy and reaches for a remote host logs its CONNECT here instead of leaving the machine.
+# date: 2026-11-08 (UTC ~05:56-05:58)
+
+test result: ok. 4368 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 41.78s
+failed cases: 0
+
+## connect.log for that run
+CONNECT w.example:443 HTTP/1.1
+CONNECT w.example:443 HTTP/1.1
+
+## which case: every mcp:: case run alone through the same logger, the log's line count before and after
+mcp::command::tests::a_header_or_env_value_is_never_said_back_and_never_planted_in_the_project: +2
+(no other mcp:: case added a line)
+
+## reading
+- No CONNECT to ai-gateway.vercel.sh: no lib case reads the Gateway's catalog any more (the RED tree's
+  runs logged one per run of either title case, red.txt).
+- w.example is under .example, a name reserved never to resolve (RFC 6761 s6.5), so outside this logger
+  the case's two probes end at a DNS miss. It is an MCP probe, not a catalog read, and that case asserts
+  no UiEvent list: outside this unit's class; reported, not changed.
