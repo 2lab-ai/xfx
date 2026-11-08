@@ -45554,6 +45554,28 @@ mod tests {
         }
     }
 
+    /// The harness's rows, read by a read begun at `began`: activity owes them
+    /// the next read once they are the refresh interval old, counted from
+    /// then (`beginLoad`'s `expired`, `model_cache_runtime.zig:609-611
+    /// @481104fd`).
+    fn loaded_from(began: Instant) -> UiEvent {
+        let _ = began;
+        UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        }
+    }
+
+    /// A refresh behind the rows the band holds failed, the runtime's clock
+    /// owing activity the next read at `due`.
+    fn refresh_failed_due(retry: Option<CatalogRetry>, due: Instant) -> UiEvent {
+        UiEvent::CatalogRefreshFailed {
+            provider: ProviderId::Gateway,
+            retry,
+            retry_at: due,
+        }
+    }
+
     /// Every catalog ask the shell has sent so far, as what asked -- `menu`
     /// or `activity` -- and whether the band waits on its answer.
     fn catalog_asks(shell: &mut Fixture) -> Vec<(&'static str, bool)> {
@@ -45759,6 +45781,53 @@ mod tests {
                 .shell
                 .note_catalog_activity(Instant::now() + Duration::from_secs(6)),
             "the answer left activity unable to ask again"
+        );
+        assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
+    }
+
+    #[test]
+    fn rows_a_slow_read_brought_are_read_again_five_minutes_after_it_began() {
+        // `beginLoad` counts the five minutes from when the last read began
+        // (`last_attempt_ms`, set as it starts, `model_cache_runtime.zig:636`;
+        // `expired`, `:609-611@481104fd`), so rows a slow read brought are
+        // due that much sooner after they land: a prompt at the read's start
+        // plus five minutes asks, however long the read took.
+        let began = Instant::now()
+            .checked_sub(REFRESH_INTERVAL + Duration::from_secs(1))
+            .expect("a clock older than five minutes");
+        let mut shell = shell(40, 120);
+        shell.apply(loaded_from(began));
+        shell.route_bytes(b"hello\r");
+        assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
+        assert_eq!(
+            catalog_asks(&mut shell),
+            [("activity", false)],
+            "the prompt did not ask for rows five minutes past their read's start"
+        );
+        // Rows whose read began just now are not.
+        let mut shell = self::shell(40, 120);
+        shell.apply(loaded_from(Instant::now()));
+        shell.route_bytes(b"hello\r");
+        assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
+        assert_eq!(catalog_asks(&mut shell), [], "asked for fresh rows");
+    }
+
+    #[test]
+    fn a_refresh_that_failed_for_good_is_read_again_when_the_runtimes_clock_says() {
+        // A refresh failure asking again cannot change leaves the rows to the
+        // refresh interval (`beginLoad`: `retry_due` false, `expired` from the
+        // failed read's start, the backoff over, `model_cache_runtime.zig:
+        // 609-623@481104fd`): the band asks when the runtime says, not five
+        // minutes after hearing it.
+        let mut shell = harness_shell();
+        let due = Instant::now() + Duration::from_secs(120);
+        shell.apply(refresh_failed_due(None, due));
+        assert!(!shell
+            .shell
+            .note_catalog_activity(due - Duration::from_millis(1)));
+        assert!(
+            shell.shell.note_catalog_activity(due),
+            "activity did not ask when the runtime's clock said"
         );
         assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
     }

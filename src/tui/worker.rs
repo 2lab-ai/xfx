@@ -16400,6 +16400,102 @@ mod tests {
         assert_eq!(state.selector.failure_retry(), Some(CatalogRetry::Runtime));
     }
 
+    /// When the band is told activity next owes the catalog a read, if the
+    /// event says.
+    fn due_of(event: &UiEvent) -> Option<Instant> {
+        match event {
+            UiEvent::CatalogRefreshFailed { retry_at, .. } => Some(*retry_at),
+            _ => None,
+        }
+    }
+
+    /// What the band is told of `answer`, from a read begun at `began` and
+    /// answered at `answered`, over `held` and `clock`.
+    fn event_of_read(
+        held: &CatalogState,
+        clock: LoadClock,
+        answer: crate::provider::model::Loaded,
+        began: Instant,
+        answered: Instant,
+    ) -> UiEvent {
+        let _ = began;
+        told_event(ProviderId::Gateway, held, clock, &answer, answered)
+    }
+
+    /// A catalog that answers `entries` once `gate` opens.
+    struct Slow {
+        entries: Vec<CatalogEntry>,
+        gate: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::provider::model::ModelCatalog for Slow {
+        async fn fetch(&self) -> Result<Vec<CatalogEntry>, crate::provider::model::CatalogError> {
+            let gate = self.gate.lock().expect("gate").take();
+            if let Some(gate) = gate {
+                let _ = gate.await;
+            }
+            Ok(self.entries.clone())
+        }
+    }
+
+    #[test]
+    fn the_band_is_told_rows_are_due_again_five_minutes_after_their_read_began() {
+        // `beginLoad` counts the refresh interval from when the last read
+        // began (`last_attempt_ms = now` as it starts, `model_cache_runtime.zig:
+        // 636`; `expired`, `:609-611@481104fd`): the band's activity clock is
+        // the runtime's, a slow read's included.
+        let (_home, _workspace, mut state) = recording();
+        let (open, gate) = tokio::sync::oneshot::channel();
+        state.selector.set_fetcher_for_test(Box::new(Slow {
+            entries: vec![published("anthropic/claude-opus-5")],
+            gate: Mutex::new(Some(gate)),
+        }));
+        let (events, mut received) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(ask_catalog(&mut state, &events, bridge::CatalogAsk::MENU));
+        std::thread::sleep(Duration::from_millis(20));
+        open.send(()).expect("the read waits");
+        on_a_runtime(state.selector.settle_load());
+        let began = state.selector.last_attempt().expect("a read");
+        let rows = told(&mut received)
+            .into_iter()
+            .find(|event| matches!(event, UiEvent::CatalogLoaded { .. }))
+            .expect("the rows were told");
+        assert_eq!(
+            due_of(&rows),
+            Some(began + crate::provider::model::REFRESH_INTERVAL),
+            "{rows:?}"
+        );
+    }
+
+    #[test]
+    fn a_failed_refresh_is_due_again_when_the_runtimes_clock_says() {
+        // `beginLoad` over rows whose refresh failed (`model_cache_runtime.zig:
+        // 609-623@481104fd`): never inside the failure's backoff; past it at
+        // once when asking again could change the failure (`retry_due`), and
+        // otherwise once the rows are the refresh interval old, counted from
+        // the failed read's start (`expired`).
+        let rows = CatalogState::Loaded(vec![published("anthropic/claude-opus-5")]);
+        let failed = (
+            CatalogState::Failed("down".to_string()),
+            Some(CatalogRetry::Unreachable),
+        );
+        let refused = (CatalogState::Failed("refused".to_string()), None);
+        let began = Instant::now();
+        let answered = began + Duration::from_secs(3);
+        let hold = answered + crate::provider::model::failure_backoff(1);
+        let clock = LoadClock::default();
+        let retryable = event_of_read(&rows, clock, failed, began, answered);
+        assert!(matches!(retryable, UiEvent::CatalogRefreshFailed { .. }));
+        assert_eq!(due_of(&retryable), Some(hold));
+        let for_good = event_of_read(&rows, clock, refused, began, answered);
+        assert_eq!(
+            due_of(&for_good),
+            Some(began + crate::provider::model::REFRESH_INTERVAL),
+            "{for_good:?}"
+        );
+    }
+
     #[test]
     fn a_turn_waits_two_seconds_at_most_for_the_retry_behind_a_failed_catalog() {
         // `resolveForRequest` (`model_cache_runtime.zig:843-866@481104fd`;
