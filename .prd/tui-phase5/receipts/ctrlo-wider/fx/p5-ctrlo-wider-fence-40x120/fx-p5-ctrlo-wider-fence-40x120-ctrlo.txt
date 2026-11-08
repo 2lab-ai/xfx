@@ -1,4 +1,6 @@
 
+  filler 01
+
   filler 02
 
   filler 03
@@ -27,12 +29,10 @@
 
   ─ ☝☝☝☝TAIL ───────────────────────────────────────────────────────────────────────────────────────────────────
   wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+  END-FENCE
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-  2026-11-08 12:12:49.966 KST · Response
-  END-FENCE
-
-  2026-11-08 12:12:49.972 KST · Usage
+  2026-11-08 12:24:41.359 KST · Usage
   0s (↑1 ↓40)
 
 ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close

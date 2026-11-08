@@ -7,7 +7,9 @@
 # short label (U+261D U+2E3A U+1F590, U+E0002, `a` U+FE0F,
 # a soft hyphen and U+FE0F) over one line of code, and four U+261D and
 # `TAIL` over 110 `w`, the panel as wide as the screen allows. `wire` keeps
-# every byte written (the answer ends `END-FENCE`), for a replay on libghostty-vt
+# every byte written (the last panel's last line is `END-FENCE`: no text
+# after a panel, where fx's Ctrl-O starts a Response entry of its own and
+# xfx's does not -- `p5-transcript-md` `full`, no cause yet), for a replay on libghostty-vt
 # (.prd/tui-phase5/receipts/ctrlo-wider/replay_ghostty.c).
 gateway p5-ctrlo-wider-fence-turns.json
 fx: env FX_AUTO_UPGRADE=0

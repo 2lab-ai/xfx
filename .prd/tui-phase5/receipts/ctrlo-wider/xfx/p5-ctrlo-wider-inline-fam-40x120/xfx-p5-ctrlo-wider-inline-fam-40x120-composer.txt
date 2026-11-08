@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-0802692 [debug] · Run /help for commands
+x𝒇x v0.1.0-b7cf010 [debug] · Run /help for commands
 
 ┃ go
 
@@ -21,7 +21,7 @@ x𝒇x v0.1.0-0802692 [debug] · Run /help for commands
 
   0s (↑1 ↓40)
 
-┃ fam ☝ ⸺ 🖐 x󠀂b  c  d  e ⁥f end
+┃ fam ☝ ⸺ 🖐 x󠀂b  c  d  e ⁥f end ZZ
 
 auto · model-a
 

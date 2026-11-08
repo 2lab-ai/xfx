@@ -1,4 +1,4 @@
-# RED, CTRLO-WIDER-F: python3 -I measure.py . <replay_ghostty> --check red3 -- p5-ctrlo-wider-fence and -mod (realigned: twelve filler paragraphs; margin lines two rows on both sides) and -ri captured on fx v0.0.16 and on 08026927 (red3; CTRLO-WIDER's head eeb0f7a7 has the same code). The first run, before the realignment, is this file at b7cf0107: the same 2 forms.
+# RED, CTRLO-WIDER-F: python3 -I measure.py . <replay_ghostty> --check red3 -- p5-ctrlo-wider-fence (twelve filler paragraphs; END-FENCE inside the last panel) and -mod (margin lines two rows on both sides), captured on fx v0.0.16 and on 08026927 (red3; CTRLO-WIDER's head eeb0f7a7 has the same code). Earlier runs of the same forms: this file at b7cf0107 and ce379c71, the same 2 forms.
 
 ## p5-ctrlo-wider-diff-fam `full`
 
@@ -151,26 +151,26 @@ answer, four U+261D in front: '\u261d\u261d\u261d\u261dwwwwwwwwwwwwwwwwwwwwwwwww
 ## p5-ctrlo-wider-inline-fam `composer`
 
 composer, short (not checked): 'fam \u261d \u2e3a \U0001f590 x\U000e0002y a\ufe0fb \xad\ufe0fc \uffa0\ufe0fd \ufff0\ufe0fe \u2065f end'
-  fx           tmux           LOST y space a U+00AD U+FFA0 U+FFF0 'fam ☝ ⸺ 🖐 x\U000e0002b  c  d  e \u2065f end'
-  fx           libghostty-vt  LOST a                         'fam ☝ ⸺ 🖐 xy b \xadc  d  e f end'
+  fx           tmux           LOST y space a U+00AD U+FFA0 U+FFF0 'fam ☝ ⸺ 🖐 x\U000e0002b  c  d  e \u2065f end ZZ'
+  fx           libghostty-vt  LOST a                         'fam ☝ ⸺ 🖐 xy b \xadc  d  e f end ZZ'
   xfx e6cde01  tmux           LOST y space a U+00AD U+FFA0 U+FFF0 'fam ☝ ⸺ 🖐 x\U000e0002b  c  d  e \u2065f end'
   xfx e6cde01  libghostty-vt  LOST a                         'fam ☝ ⸺ 🖐 xy b \xadc  d  e f end'
   xfx 88c2fec  tmux           LOST y space a U+00AD U+FFA0 U+FFF0 'fam ☝ ⸺ 🖐 x\U000e0002b  c  d  e \u2065f end'
   xfx 88c2fec  libghostty-vt  LOST a                         'fam ☝ ⸺ 🖐 xy b \xadc  d  e f end'
-  xfx head     tmux           LOST y space a U+00AD U+FFA0 U+FFF0 'fam ☝ ⸺ 🖐 x\U000e0002b  c  d  e \u2065f end'
-  xfx head     libghostty-vt  LOST a                         'fam ☝ ⸺ 🖐 xy b \xadc  d  e f end'
+  xfx head     tmux           LOST y space a U+00AD U+FFA0 U+FFF0 'fam ☝ ⸺ 🖐 x\U000e0002b  c  d  e \u2065f end ZZ'
+  xfx head     libghostty-vt  LOST a                         'fam ☝ ⸺ 🖐 xy b \xadc  d  e f end ZZ'
 
 ## p5-ctrlo-wider-inline-fam `prompt`
 
 card of the sent prompt, short (not checked): 'fam \u261d \u2e3a \U0001f590 x\U000e0002y a\ufe0fb \xad\ufe0fc \uffa0\ufe0fd \ufff0\ufe0fe \u2065f end'
-  fx           tmux           LOST y space a U+00AD U+FFA0 U+FFF0 'fam ☝ ⸺ 🖐 x\U000e0002b  c  d  e \u2065f end'
-  fx           libghostty-vt  LOST a                         'fam ☝ ⸺ 🖐 xy b \xadc  d  e f end'
+  fx           tmux           LOST y space a U+00AD U+FFA0 U+FFF0 'fam ☝ ⸺ 🖐 x\U000e0002b  c  d  e \u2065f end ZZ'
+  fx           libghostty-vt  LOST a                         'fam ☝ ⸺ 🖐 xy b \xadc  d  e f end ZZ'
   xfx e6cde01  tmux           ok                             'fam ☝ ⸺ 🖐 x\U000e0002y a️b \xad️c ﾠ️d \ufff0️e \u2065f end'
   xfx e6cde01  libghostty-vt  ok                             'fam ☝ ⸺ 🖐 xy ab \xadc d e f end'
   xfx 88c2fec  tmux           ok                             'fam ☝ ⸺ 🖐 x\U000e0002y a️b \xad️c ﾠ️d \ufff0️e \u2065f end'
   xfx 88c2fec  libghostty-vt  ok                             'fam ☝ ⸺ 🖐 xy ab \xadc d e f end'
-  xfx head     tmux           ok                             'fam ☝ ⸺ 🖐 x\U000e0002y a️b \xad️c ﾠ️d \ufff0️e \u2065f end'
-  xfx head     libghostty-vt  ok                             'fam ☝ ⸺ 🖐 xy ab \xadc d e f end'
+  xfx head     tmux           ok                             'fam ☝ ⸺ 🖐 x\U000e0002y a️b \xad️c ﾠ️d \ufff0️e \u2065f end ZZ'
+  xfx head     libghostty-vt  ok                             'fam ☝ ⸺ 🖐 xy ab \xadc d e f end ZZ'
 
 ## p5-ctrlo-wider-inline-fam `ctrlo`
 
@@ -235,8 +235,8 @@ Ctrl-O Response, four U+261D in front: '\u261d\u261d\u261d\u261dwwwwwwwwwwwwwwww
   xfx head     libghostty-vt  ok                             '\\u{261d}\\u{261d}\\u{261d}\\u{261d}wwwwwwwwwwwwwwwwwwwwwwwwwwww'...
 
 Ctrl-O Prompt, short: 'fam \u261d \u2e3a \U0001f590 x\U000e0002y a\ufe0fb \xad\ufe0fc \uffa0\ufe0fd \ufff0\ufe0fe \u2065f end'
-  fx           tmux           LOST y space a U+00AD U+FFA0 U+FFF0 'fam ☝ ⸺ 🖐 x\U000e0002b  c  d  e \u2065f end'
-  fx           libghostty-vt  LOST a                         'fam ☝ ⸺ 🖐 xy b \xadc  d  e f end'
+  fx           tmux           LOST y space a U+00AD U+FFA0 U+FFF0 'fam ☝ ⸺ 🖐 x\U000e0002b  c  d  e \u2065f end ZZ'
+  fx           libghostty-vt  LOST a                         'fam ☝ ⸺ 🖐 xy b \xadc  d  e f end ZZ'
   xfx e6cde01  tmux           LOST y space a U+00AD U+FFA0 U+FFF0 'fam ☝ ⸺ 🖐 x\U000e0002b  c  d  e \u2065f end'
   xfx e6cde01  libghostty-vt  LOST a                         'fam ☝ ⸺ 🖐 xy b \xadc  d  e f end'
   xfx 88c2fec  tmux           LOST y space a U+00AD U+FFA0 U+FFF0 'fam ☝ ⸺ 🖐 x\U000e0002b  c  d  e \u2065f end'
@@ -391,8 +391,8 @@ Ctrl-O Response, 140 columns, four U+261D in front: '\u261d\u261d\u261d\u261dwww
   xfx head     libghostty-vt  ok                             '\\u{261d}\\u{261d}\\u{261d}\\u{261d}wwwwwwwwwwwwwwwwwwwwwwwwwwww'...
 
 Ctrl-O Prompt, short: 'fam \u261d \u2e3a \U0001f590 x\U000e0002y a\ufe0fb \xad\ufe0fc \uffa0\ufe0fd \ufff0\ufe0fe \u2065f end'
-  fx           tmux           LOST y space a U+00AD U+FFA0 U+FFF0 'fam ☝ ⸺ 🖐 x\U000e0002b  c  d  e \u2065f end'
-  fx           libghostty-vt  LOST a                         'fam ☝ ⸺ 🖐 xy b \xadc  d  e f end'
+  fx           tmux           LOST y space a U+00AD U+FFA0 U+FFF0 'fam ☝ ⸺ 🖐 x\U000e0002b  c  d  e \u2065f end ZZ'
+  fx           libghostty-vt  LOST a                         'fam ☝ ⸺ 🖐 xy b \xadc  d  e f end ZZ'
   xfx e6cde01  tmux           LOST y space a U+00AD U+FFA0 U+FFF0 'fam ☝ ⸺ 🖐 x\U000e0002b  c  d  e \u2065f end'
   xfx e6cde01  libghostty-vt  LOST a                         'fam ☝ ⸺ 🖐 xy b \xadc  d  e f end'
   xfx 88c2fec  tmux           LOST y space a U+00AD U+FFA0 U+FFF0 'fam ☝ ⸺ 🖐 x\U000e0002b  c  d  e \u2065f end'

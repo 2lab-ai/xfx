@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-0802692 [debug] · Run /help for commands
+x𝒇x v0.1.0-b7cf010 [debug] · Run /help for commands
 
 ┃ go
 
@@ -21,11 +21,11 @@ x𝒇x v0.1.0-0802692 [debug] · Run /help for commands
 
   0s (↑1 ↓40)
 
-┃ fam ☝ ⸺ 🖐 x󠀂y a️b ­️c ﾠ️d ￰️e ⁥f end
+┃ fam ☝ ⸺ 🖐 x󠀂y a️b ­️c ﾠ️d ￰️e ⁥f end ZZ
 
   Spare.
 
-  0s (↑16 ↓40)
+  0s (↑17 ↓40)
 
 ┃ ☝☝☝☝wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwL
 ┃ wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww

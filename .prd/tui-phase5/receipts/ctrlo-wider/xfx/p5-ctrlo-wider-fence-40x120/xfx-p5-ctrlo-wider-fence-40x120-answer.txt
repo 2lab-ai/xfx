@@ -1,0 +1,40 @@
+  fence
+
+  filler 01
+
+  filler 02
+
+  filler 03
+
+  filler 04
+
+  filler 05
+
+  filler 06
+
+  filler 07
+
+  filler 08
+
+  filler 09
+
+  filler 10
+
+  filler 11
+
+  filler 12
+
+  ─ fam\u{261d}\u{2e3a}\u{1f590}x\u{e0002}ya\u{fe0f}b­\u{fe0f}c ─
+  plain code
+  ───────────────────────────────────────────────────────────────
+
+  ─ \u{261d}\u{261d}\u{261d}\u{261d}TAIL ───────────────────────────────────────────────────────────────────────
+  wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+  END-FENCE
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  0s (↑1 ↓40)
+
+┃
+
+auto · model-a

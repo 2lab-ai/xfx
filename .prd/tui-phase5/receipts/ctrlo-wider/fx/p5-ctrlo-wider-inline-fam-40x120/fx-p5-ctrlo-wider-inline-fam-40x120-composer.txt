@@ -21,7 +21,7 @@
 
   0s (↑1 ↓40)
 
-┃ fam ☝ ⸺ 🖐 x󠀂b  c  d  e ⁥f end
+┃ fam ☝ ⸺ 🖐 x󠀂b  c  d  e ⁥f end ZZ
 
 auto · model-a
 
