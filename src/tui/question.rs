@@ -1449,8 +1449,8 @@ impl QuestionRequester for TuiQuestioner {
                     // the approval prompter's does
                     // (`super::approval::ControlChannel::ask_catalog`), and the
                     // batch stays up.
-                    Some(TurnControl::Catalog) => {
-                        if let Some(answer) = self.control.ask_catalog() {
+                    Some(TurnControl::Catalog(ask)) => {
+                        if let Some(answer) = self.control.ask_catalog(ask) {
                             let _ = send_ui(&self.events, &token, answer).await;
                         }
                         continue;

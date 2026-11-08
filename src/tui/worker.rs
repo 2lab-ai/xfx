@@ -102,8 +102,8 @@ use crate::interactive::{
 use crate::output::{ShellSession, StatusSnapshot};
 use crate::permission::{LiveAuthority, LiveRules, PermissionSession};
 use crate::provider::model::{
-    may_read_again, CatalogEntry, CatalogReader, CatalogState, LoadView, ModelOutcome,
-    ModelRequest, ModelSelector, StartedLoad,
+    Applied, CatalogEntry, CatalogReader, CatalogRetry, CatalogState, Held, LoadClock, LoadView,
+    ModelOutcome, ModelRequest, ModelSelector, StartedLoad, FAILED_CATALOG_RETRY_WAIT,
 };
 use crate::provider::setup::{setup_transaction, SetupProblem};
 use crate::provider::{Bundle, ProviderId};
@@ -2949,7 +2949,7 @@ impl Runtime {
             self.config.provider,
             self.selector.catalog(),
             self.selector.failure_retry(),
-            self.selector.last_attempt(),
+            self.selector.retry_at(),
         )
     }
 
@@ -3199,14 +3199,14 @@ enum CatalogAnswer {
 /// the same fact from the UI's side -- there is nothing to browse -- and
 /// answering rather than panicking keeps a report from taking the session down.
 /// What the UI is told about `provider`'s catalog in `catalog`, `retry`
-/// saying whether asking again could change a failure and `attempted` when
-/// the read that failed began ([`Runtime::catalog_event`]). A failure with
-/// no attempt on record -- only a test's -- is counted from now.
+/// saying whether asking again could change a failure and `retry_at` when the
+/// hold the failure put on the next read ends ([`Runtime::catalog_event`]). A
+/// failure with no hold on record -- only a test's -- is due from now.
 fn catalog_event_of(
     provider: ProviderId,
     catalog: &CatalogState,
-    retry: Option<crate::provider::model::CatalogRetry>,
-    attempted: Option<Instant>,
+    retry: Option<CatalogRetry>,
+    retry_at: Option<Instant>,
 ) -> UiEvent {
     match from_state(catalog) {
         CatalogAnswer::Rows(entries) => UiEvent::CatalogLoaded { provider, entries },
@@ -3219,7 +3219,7 @@ fn catalog_event_of(
         CatalogAnswer::Unread(_) => UiEvent::CatalogUnread {
             provider,
             retry,
-            attempted: attempted.unwrap_or_else(Instant::now),
+            retry_at: retry_at.unwrap_or_else(Instant::now),
         },
     }
 }
@@ -3286,8 +3286,12 @@ async fn turn_loop(
         // `app_auth_runtime.zig:2026-2036`). Nothing waits for it here: the
         // first thing that needs it takes its answer, waiting if it has not
         // come ([`await_catalog_for_window`]); the UI is told it the moment it
-        // comes, a turn running or not. A failed one is not read again until `/model`
-        // asks ([`ModelSelector::retry_after_failure`]).
+        // comes, a turn running or not. **The first read only**: after it, a
+        // read is the model cache's triggers' -- the menu opening, a prompt,
+        // the column's frame -- each a control message ([`ask_catalog`]),
+        // because "an idle session never polls the models endpoint"
+        // (`LoadTrigger`, `model_cache_runtime.zig:27-28@481104fd`) and this
+        // loop goes round for a title or a change as well.
         begin_catalog_read(&mut state, events);
         // The select borrows `work` for its own branch, so the cancellation arm
         // cannot drain the queue where it is decided; it says so and the drain
@@ -3320,7 +3324,7 @@ async fn turn_loop(
                     Taken::Rename { title, announced }
                 }
                 // Nothing holds the selector: asked of it now.
-                Some(TurnControl::Catalog) => Taken::CatalogAsked,
+                Some(TurnControl::Catalog(ask)) => Taken::CatalogAsked(ask),
                 // No question is outstanding between turns, so an answer is
                 // consumed and dropped rather than left to be misread by the
                 // next one: the prompter that could have asked one is only
@@ -3394,8 +3398,8 @@ async fn turn_loop(
             }
             Taken::Nothing => continue,
             Taken::Catalog => continue,
-            Taken::CatalogAsked => {
-                ask_catalog(&mut state, events).await;
+            Taken::CatalogAsked(ask) => {
+                ask_catalog(&mut state, events, ask).await;
                 continue;
             }
             Taken::Title(titled) => {
@@ -3647,8 +3651,9 @@ enum Taken {
     /// The catalog read in the background has answered, and its answer is
     /// taken.
     Catalog,
-    /// `/model`'s menu or column asked for the catalog ([`TurnControl::Catalog`]).
-    CatalogAsked,
+    /// One of the model cache's triggers asked for the catalog
+    /// ([`TurnControl::Catalog`]).
+    CatalogAsked(bridge::CatalogAsk),
     /// What a model said the session is called.
     Title(super::titles::Titled),
     /// The session is over.
@@ -4100,59 +4105,92 @@ fn gateway_credential(config: &RuntimeConfig) -> Option<&crate::config::Credenti
 /// answer the moment it arrives: upstream's interface takes a load's end on
 /// its own loop's next tick and redraws an open menu and the footer then,
 /// whatever its worker is doing (`pollLoadTransition`,
-/// `vercel-labs/fx@c1db9191 src/core/app/model_cache_runtime.zig:549-557`,
-/// from `loopCollectFacts`, `src/main.zig:3050-3083`). Here the read runs on
-/// a thread of its own, so it tells the band itself -- through the send that
-/// does not depend on a turn's token, since a turn may be running or none at
-/// all, or a question may have parked this thread -- and the selector takes
-/// the answer when it is next asked.
+/// `src/core/app/model_cache_runtime.zig:745-760@481104fd`, from
+/// `src/main.zig:2878-2880`). Here the read runs on a thread of its own, so it
+/// tells the band itself -- through the send that does not depend on a turn's
+/// token, since a turn may be running or none at all, or a question may have
+/// parked this thread -- and the selector takes the answer when it is next
+/// asked.
 fn begin_catalog_read(state: &mut Runtime, events: &Sender<UiEvent>) {
-    state
-        .selector
-        .begin_load(telling(state.config.provider, events.clone()));
+    if !state.selector.wants_first_load() {
+        return;
+    }
+    let told = telling(
+        state.config.provider,
+        events.clone(),
+        CatalogState::NotLoaded,
+        state.selector.clock(),
+    );
+    state.selector.begin_load(told);
 }
 
 /// How a read's answer is told to the band, from the thread the read ran on
-/// ([`crate::provider::model::CatalogReader`]): `attempted` is when it began,
-/// which a failure's floor counts from.
+/// ([`crate::provider::model::CatalogReader`]), given what the selector held
+/// when the read began: the answer as the selector will take it
+/// ([`Applied`]) -- the rows, the failure and when the hold it puts on the
+/// next read ends, or, for a refresh behind rows that failed, that the rows
+/// stand ([`UiEvent::CatalogRefreshFailed`]).
 fn telling(
     provider: ProviderId,
     events: Sender<UiEvent>,
+    held: CatalogState,
+    clock: LoadClock,
 ) -> impl FnOnce(
     CatalogState,
-    Option<crate::provider::model::CatalogRetry>,
+    Option<CatalogRetry>,
     Instant,
 ) -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>>
        + Send
        + 'static {
-    move |catalog, retry, attempted| {
+    move |catalog, retry, answered| {
         Box::pin(async move {
-            let event = catalog_event_of(provider, &catalog, retry, Some(attempted));
+            let answer = (catalog, retry);
+            // When it began does not change what is told.
+            let applied = Applied::of(&held, clock, &answer, answered, answered);
+            let event = if applied.refresh_failed(&answer) {
+                UiEvent::CatalogRefreshFailed {
+                    provider,
+                    retry: applied.refresh_retry,
+                    retry_at: applied.clock.not_before.unwrap_or(answered),
+                }
+            } else {
+                catalog_event_of(
+                    provider,
+                    &applied.catalog,
+                    applied.failure_retry,
+                    applied.clock.not_before,
+                )
+            };
             bridge::send_terminal(&events, event).await;
         })
     }
 }
 
-/// `/model`'s menu or column asking for the catalog while nothing holds the
-/// runtime ([`TurnControl::Catalog`]): a read that failed is read again --
-/// the `retry /model.` the menu said, as upstream's `ensureModelCache` starts
-/// a load again after a failure, **but not within a second of the start of
-/// the one that failed** (`beginLoad`, `vercel-labs/fx@c1db9191
-/// src/core/app/model_cache_runtime.zig:441-442`; `RETRY_FLOOR`) -- and one
-/// that has not started starts, both in the background and told when they
-/// land ([`begin_catalog_read`]); a read already on its way is left to tell
-/// its own answer; and a catalog the runtime holds -- or knows there is none
-/// of, or a failure inside its floor -- is told now, for a UI that asked
-/// without it.
-async fn ask_catalog(state: &mut Runtime, events: &Sender<UiEvent>) {
-    // A read that has answered and told is taken first, so the floor is
-    // decided against its failure rather than waited out behind it.
-    if state.selector.has_answered() {
-        state.selector.settle_load().await;
+/// One of upstream's model-cache triggers while nothing holds the runtime
+/// ([`TurnControl::Catalog`]): a read the trigger is due for starts in the
+/// background and tells its answer when it lands
+/// ([`ModelSelector::begin_load_on`]) -- the menu opening, a prompt or the
+/// column's frame, as upstream's `revalidateModelCache` and
+/// `startModelCacheWarmup` start one (`src/main.zig:2007-2041@481104fd`,
+/// `beginLoad`, `model_cache_runtime.zig:570-648`); a read already on its
+/// way is left to tell its own answer; and when the band waits on an answer
+/// and none is due -- a failure inside its backoff, rows read less than five
+/// seconds ago, no catalog at all -- the catalog is told as it is held.
+async fn ask_catalog(state: &mut Runtime, events: &Sender<UiEvent>, ask: bridge::CatalogAsk) {
+    // A read that has answered and told is taken first, so the next is
+    // decided against its answer rather than waited out behind it.
+    state.selector.take_answered();
+    let now = Instant::now();
+    if state.selector.would_load(ask.trigger, now) {
+        let told = telling(
+            state.config.provider,
+            events.clone(),
+            state.selector.catalog().clone(),
+            state.selector.clock(),
+        );
+        state.selector.begin_load_on(ask.trigger, now, told);
     }
-    state.selector.retry_after_failure_at(Instant::now());
-    begin_catalog_read(state, events);
-    if state.selector.is_loading() {
+    if state.selector.is_loading() || !ask.awaited {
         return;
     }
     bridge::send_terminal(events, state.catalog_event()).await;
@@ -4164,24 +4202,21 @@ async fn ask_catalog(state: &mut Runtime, events: &Sender<UiEvent>) {
 /// ([`super::approval::ControlChannel::lend_catalog`]).
 ///
 /// fx's interface starts a catalog load on a thread of its own whatever its
-/// worker is doing (`ensureModelCache` from `openModelBrowseCatalog`,
-/// `vercel-labs/fx@c1db9191 src/core/app/app_input_runtime.zig:2346-2349`;
-/// `startWarmup`, `src/core/app/model_cache_runtime.zig:321-349`), and the
-/// open menu is refreshed when it lands (`pollLoadTransition`, `:549-557`).
-/// Here the work holds the selector, so the read goes through what was taken
-/// of the selector before the work began ([`CatalogReader`]), on a thread of
-/// its own; its answer is told the moment it lands, and handed to the
-/// selector once the work is over ([`Self::finish`]).
+/// worker is doing (`startWarmup`, `src/core/app/model_cache_runtime.zig:
+/// 519-551@481104fd`), and the open menu is refreshed when it lands
+/// (`pollLoadTransition`, `:745-760`). Here the work holds the selector, so
+/// the read goes through what was taken of the selector before the work
+/// began ([`CatalogReader`]), on a thread of its own, decided against what
+/// the selector held then and every answer since ([`Seen`]); its answer is
+/// told the moment it lands, and handed to the selector once the work is
+/// over ([`Self::finish`]).
 enum CatalogAsks {
-    /// The read starts at once, beside the work.
+    /// Reads start at once, beside the work.
     Reading {
-        /// What the selector held when the work began.
-        held: Box<HeldCatalog>,
-        reader: CatalogReader,
         provider: ProviderId,
+        reader: CatalogReader,
         events: Sender<UiEvent>,
-        /// The read this work started, when it has started one.
-        started: Mutex<Option<StartedLoad>>,
+        seen: Mutex<Seen>,
     },
     /// The read waits for the work: a provider switch, whose catalog is not
     /// the one in hand, or a load the work is making itself
@@ -4189,53 +4224,79 @@ enum CatalogAsks {
     AfterWork,
 }
 
-/// What a selector held when work that may be asked for its catalog began.
-enum HeldCatalog {
-    /// A read of its own on the way, which tells its answer itself -- and is
-    /// decided by once it has ([`LoadView`]).
-    Reading(LoadView),
-    /// An answer, told again as it stands: rows, or that there is no catalog.
-    Answer(Box<UiEvent>),
-    /// A read that failed, begun at `attempted`: told again inside its floor,
-    /// read again after it.
-    Failed {
-        answer: Box<UiEvent>,
-        attempted: Option<Instant>,
-    },
-    /// Never read.
-    Nothing,
+/// What a work that may be asked for the catalog has seen of it: what the
+/// selector held when the work began, with the answer of every read since
+/// folded in as the selector will take them ([`Applied`]), and the reads the
+/// work started, oldest first.
+struct Seen {
+    /// The selector's own read, on its way when the work began, until its
+    /// answer is folded in.
+    own: Option<LoadView>,
+    catalog: CatalogState,
+    failure_retry: Option<CatalogRetry>,
+    refresh_retry: Option<CatalogRetry>,
+    clock: LoadClock,
+    started: Vec<StartedLoad>,
+    /// How many of [`Self::started`] are folded in.
+    folded: usize,
+}
+
+impl Seen {
+    /// Folds in every read that has answered, in the order they began;
+    /// whether one is still on its way.
+    fn on_its_way(&mut self) -> bool {
+        if let Some(view) = self.own.take() {
+            if !self.fold(&view) {
+                self.own = Some(view);
+                return true;
+            }
+        }
+        while let Some(view) = self.started.get(self.folded).map(StartedLoad::view) {
+            if !self.fold(&view) {
+                return true;
+            }
+            self.folded += 1;
+        }
+        false
+    }
+
+    /// `view`'s answer folded in, if it has one.
+    fn fold(&mut self, view: &LoadView) -> bool {
+        let (Some(answer), Some(answered)) = (view.answered(), view.answered_at()) else {
+            return false;
+        };
+        let applied = Applied::of(&self.catalog, self.clock, answer, view.began(), answered);
+        self.catalog = applied.catalog;
+        self.failure_retry = applied.failure_retry;
+        self.refresh_retry = applied.refresh_retry;
+        self.clock = applied.clock;
+        true
+    }
 }
 
 impl CatalogAsks {
     /// For work that holds `state`: reads start at once.
     fn reading(state: &Runtime, events: &Sender<UiEvent>) -> Self {
-        let held = if let Some(view) = state.selector.load_view() {
-            HeldCatalog::Reading(view)
-        } else {
-            match state.selector.catalog() {
-                CatalogState::Loaded(_) | CatalogState::Unavailable => {
-                    HeldCatalog::Answer(Box::new(state.catalog_event()))
-                }
-                CatalogState::Failed(_) => HeldCatalog::Failed {
-                    answer: Box::new(state.catalog_event()),
-                    attempted: state.selector.last_attempt(),
-                },
-                CatalogState::NotLoaded => HeldCatalog::Nothing,
-            }
-        };
         Self::Reading {
-            held: Box::new(held),
-            reader: state.selector.reader(),
             provider: state.config.provider,
+            reader: state.selector.reader(),
             events: events.clone(),
-            started: Mutex::new(None),
+            seen: Mutex::new(Seen {
+                own: state.selector.load_view(),
+                catalog: state.selector.catalog().clone(),
+                failure_retry: state.selector.failure_retry(),
+                refresh_retry: state.selector.refresh_retry(),
+                clock: state.selector.clock(),
+                started: Vec::new(),
+                folded: 0,
+            }),
         }
     }
 
     /// One request, read by the work's own race: what it says to tell now is
     /// told beside the work.
-    fn ask(&self, control: &ControlChannel) {
-        let Some(answer) = self.asked(control) else {
+    fn ask(&self, control: &ControlChannel, ask: bridge::CatalogAsk) {
+        let Some(answer) = self.asked(control, ask) else {
             return;
         };
         if let Self::Reading { events, .. } = self {
@@ -4246,115 +4307,128 @@ impl CatalogAsks {
         }
     }
 
-    /// One request, as upstream's `beginLoad` decides one (`:405-458`): the
-    /// newest read in sight -- this work's, else the selector's own -- still
-    /// on its way is not started twice; one that failed inside its floor is
-    /// told again as it failed, and after it read again; anything else
-    /// answered is told again. With no read in sight, what the selector held
-    /// decides the same way. What to tell now, when it is not the read's own
-    /// telling.
-    ///
-    /// The band asks again only after a failure's floor
-    /// (`super::shell::Shell`'s `open_models_with`), so the floor here is the
-    /// same rule held where the read is started, not a second one.
-    fn asked(&self, control: &ControlChannel) -> Option<UiEvent> {
-        self.asked_at(control, Instant::now())
+    /// One request, as upstream's `beginLoad` decides one
+    /// (`model_cache_runtime.zig:609-625@481104fd`), against what this work
+    /// has seen ([`Seen`]): nothing is started beside a read on its way,
+    /// which tells its own answer; a read the trigger is due for starts; and
+    /// with none due, the catalog as it stands is what to tell now, when the
+    /// band waits on an answer.
+    fn asked(&self, control: &ControlChannel, ask: bridge::CatalogAsk) -> Option<UiEvent> {
+        self.asked_at(control, ask, Instant::now())
     }
 
     /// [`Self::asked`], at `now`.
-    fn asked_at(&self, control: &ControlChannel, now: Instant) -> Option<UiEvent> {
+    fn asked_at(
+        &self,
+        control: &ControlChannel,
+        ask: bridge::CatalogAsk,
+        now: Instant,
+    ) -> Option<UiEvent> {
         let Self::Reading {
-            held,
-            reader,
             provider,
+            reader,
             events,
-            started,
+            seen,
         } = self
         else {
-            control.defer_catalog();
+            control.defer_catalog(ask);
             return None;
         };
-        let mut started = started.lock().unwrap_or_else(PoisonError::into_inner);
-        let newest = match (started.as_ref(), held.as_ref()) {
-            (Some(load), _) => Some(load.view()),
-            (None, HeldCatalog::Reading(view)) => Some(view.clone()),
-            (None, _) => None,
-        };
-        let failed_at = match &newest {
-            Some(view) => match view.answered() {
-                None => return None,
-                Some((CatalogState::Failed(_), _)) => Some(view.began()),
-                Some((catalog, retry)) => {
-                    return Some(catalog_event_of(
-                        *provider,
-                        catalog,
-                        *retry,
-                        Some(view.began()),
-                    ))
-                }
-            },
-            None => match held.as_ref() {
-                HeldCatalog::Answer(answer) => return Some((**answer).clone()),
-                HeldCatalog::Failed { attempted, .. } => *attempted,
-                HeldCatalog::Nothing | HeldCatalog::Reading(_) => None,
-            },
-        };
-        if let Some(attempted) = failed_at {
-            if !may_read_again(attempted, now) {
-                return Some(match (&newest, held.as_ref()) {
-                    (Some(view), _) => {
-                        let (catalog, retry) = view.answered()?;
-                        catalog_event_of(*provider, catalog, *retry, Some(attempted))
-                    }
-                    (None, HeldCatalog::Failed { answer, .. }) => (**answer).clone(),
-                    (None, _) => return None,
-                });
+        let mut seen = seen.lock().unwrap_or_else(PoisonError::into_inner);
+        if seen.on_its_way() {
+            return None;
+        }
+        let due = Held::of(&seen.catalog, seen.refresh_retry)
+            .is_some_and(|held| seen.clock.due(held, ask.trigger, now));
+        if due {
+            let told = telling(*provider, events.clone(), seen.catalog.clone(), seen.clock);
+            if let Some(load) = reader.begin(told) {
+                seen.started.push(load);
+                return None;
             }
         }
-        *started = reader.begin(telling(*provider, events.clone()));
-        None
+        ask.awaited.then(|| {
+            catalog_event_of(
+                *provider,
+                &seen.catalog,
+                seen.failure_retry,
+                seen.clock.not_before,
+            )
+        })
     }
 
-    /// Hands a read this work started to `selector`, now that the work has
-    /// let it go ([`ModelSelector::adopt_load`]).
+    /// Hands the reads this work started to `selector`, now that the work has
+    /// let it go ([`ModelSelector::adopt_loads`]).
     fn finish(&self, selector: &mut ModelSelector) {
-        if let Self::Reading { started, .. } = self {
-            let load = started
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .take();
-            if let Some(load) = load {
-                selector.adopt_load(load);
-            }
+        if let Self::Reading { seen, .. } = self {
+            let started =
+                std::mem::take(&mut seen.lock().unwrap_or_else(PoisonError::into_inner).started);
+            selector.adopt_loads(started);
         }
     }
 }
 
 impl super::approval::CatalogAsker for CatalogAsks {
-    fn ask_catalog(&self, control: &ControlChannel) -> Option<UiEvent> {
-        self.asked(control)
+    fn ask_catalog(&self, control: &ControlChannel, ask: bridge::CatalogAsk) -> Option<UiEvent> {
+        self.asked(control, ask)
     }
 }
 
-/// Waits for the catalog the session began reading at launch
-/// ([`ModelSelector::begin_load`]) when the turn cannot be sized without it,
-/// as upstream's turn does: when what it knows of the model without a
-/// catalog gives no window, it resolves the model's capabilities before it
-/// plans the request's size, and that waits for a load still on its way
-/// (`requiresResolvedRequestCapabilities`, `orchestrator.zig:5383-5395`,
-/// `:5551-5586`; `resolveForRequest`, `model_cache_runtime.zig:614-669`).
-/// A load that has failed, or none at all, is not waited for: the turn goes
-/// with what it knows. Raced against the turn's own cancellation, as
-/// upstream's wait is.
+/// Whether the turn's request is planned from the catalog's answer, as far as
+/// the runtime can tell before the prompt's own images are looked at: a model
+/// whose window nothing else gives, a level, Fast or Ultra
+/// (`requiresResolvedRequestCapabilities`, `src/core/agent/runtime/
+/// orchestrator.zig:5658-5670@481104fd`, over the capabilities a failed
+/// catalog leaves -- `capabilitiesForModel` knows no levels and no Fast).
+fn request_needs_catalog(state: &Runtime) -> bool {
+    state.context_window().is_none()
+        || !state.settings.effort.is_default()
+        || state.settings.fast
+        || state.settings.ultrafast
+}
+
+/// Waits, two seconds at most, for the retry behind a failed catalog that is
+/// on its way -- the one a submitted prompt starts ([`ask_catalog`]) -- so a
+/// retry that lands quickly gives the turn its rows and a slow one never
+/// holds it (`resolveForRequest`, `model_cache_runtime.zig:843-866@481104fd`,
+/// `failed_catalog_retry_wait_ms`, `:45-47`; 65846154). Raced against the
+/// turn's own cancellation, as upstream's wait is (`:857-865`). Nothing to
+/// wait for, nothing waited: a first load is [`await_catalog_for_window`]'s,
+/// and a catalog that failed with no retry on its way is gone without.
+async fn await_failed_catalog_retry(state: &mut Runtime, turn: &TurnCancel) {
+    if !state.selector.retrying() {
+        return;
+    }
+    tokio::select! {
+        biased;
+        () = turn.token.cancelled() => {}
+        _ = tokio::time::timeout(FAILED_CATALOG_RETRY_WAIT, state.selector.settle_load()) => {}
+    }
+}
+
+/// Waits for the catalog the turn's request is planned from, as upstream's
+/// turn does: when what it knows of the model without a catalog gives no
+/// window, it resolves the model's capabilities before it plans the request's
+/// size, and that waits for a load still on its way
+/// (`requiresResolvedRequestCapabilities`, `orchestrator.zig:5658-5670
+/// @481104fd`, from `:5885`; `resolveForRequest`,
+/// `model_cache_runtime.zig:817-883`) -- and, for that reason or a level or a
+/// speed, for the retry behind a failed catalog, two seconds at most
+/// ([`await_failed_catalog_retry`]). A load that has failed with no retry on
+/// its way, or none at all, is not waited for: the turn goes with what it
+/// knows. Raced against the turn's own cancellation, as upstream's wait is.
 ///
 /// The other reasons upstream waits -- an effort, Fast or Ultra, an image
 /// -- read the catalog where they are decided ([`one_turn`],
-/// [`image_refusal`]), which waits for the same load.
+/// [`image_refusal`]), which waits for the same first load.
 async fn await_catalog_for_window(
     state: &mut Runtime,
     events: &Sender<UiEvent>,
     turn: &TurnCancel,
 ) {
+    if request_needs_catalog(state) {
+        await_failed_catalog_retry(state, turn).await;
+    }
     if state.context_window().is_some() || !state.selector.is_loading() {
         return;
     }
@@ -5230,8 +5304,8 @@ async fn apply_deferred(
                 }
                 // Asked while a provider switch ran: asked now, of the
                 // selector the switch left.
-                Deferred::Catalog => {
-                    ask_catalog(state, events).await;
+                Deferred::Catalog(ask) => {
+                    ask_catalog(state, events, ask).await;
                     continue;
                 }
                 Deferred::Model(change) => change,
@@ -5561,10 +5635,10 @@ async fn raced_against_control<F: Future>(
                 Some(TurnControl::Rename { title, announced }) => {
                     control.defer_rename(title, matches!(ended, Ended::Reset(_)), announced);
                 }
-                // `/model`'s menu asking for the catalog while this work
-                // holds the runtime: the read starts now, beside it, as
+                // One of the model cache's triggers while this work holds the
+                // runtime: a read that is due starts now, beside it, as
                 // upstream's does on a thread of its own ([`CatalogAsks`]).
-                Some(TurnControl::Catalog) => asks.ask(control),
+                Some(TurnControl::Catalog(ask)) => asks.ask(control, ask),
                 // An answer to a question that is no longer being asked: the
                 // prompter takes its own answer off this channel while it is
                 // parked (`super::approval`), so anything reaching here is a
@@ -5685,7 +5759,7 @@ impl ToolImageGate<'_> {
                         self.provider,
                         selector.catalog(),
                         selector.failure_retry(),
-                        selector.last_attempt(),
+                        selector.retry_at(),
                     );
                     let _ = bridge::send_ui(&self.events, &self.token, event).await;
                 }
@@ -5841,6 +5915,26 @@ async fn one_turn(
     if let Err(message) = state.ready(&turn.mirror) {
         return Some(message);
     }
+    let carries_images = !images.is_empty()
+        || state.conversation.as_ref().is_some_and(|conversation| {
+            conversation
+                .recorder
+                .state()
+                .turns
+                .iter()
+                .any(|turn| !turn.images.is_empty())
+        });
+    // **The catalog the request is planned from, before anything reads it**:
+    // a first load the window waits for, and the retry behind a failed
+    // catalog, two seconds at most, when the window, a level, a speed or an
+    // image wants it (`requiresResolvedRequestCapabilities`,
+    // `orchestrator.zig:5658-5670@481104fd`, then `resolveForRequest`,
+    // `model_cache_runtime.zig:843-866`) -- once, ahead of the effort's and
+    // the images' own reads below, which then find it settled.
+    if carries_images && !request_needs_catalog(state) {
+        await_failed_catalog_retry(state, turn).await;
+    }
+    await_catalog_for_window(state, events, turn).await;
     // **The effort, before anything is sent.** Whether this model takes it is
     // the catalog's answer, so a session in a level with no catalog read yet --
     // a launch whose profile carries one -- reads it now: once, raced against
@@ -5862,15 +5956,6 @@ async fn one_turn(
     // carries one goes inline only to a model the catalog tags `vision` and
     // `file-input`; any other is refused here, with upstream's words, and no
     // request leaves (`visionPolicy`, `orchestrator.zig:5971-5986`, `:7147-7158`).
-    let carries_images = !images.is_empty()
-        || state.conversation.as_ref().is_some_and(|conversation| {
-            conversation
-                .recorder
-                .state()
-                .turns
-                .iter()
-                .any(|turn| !turn.images.is_empty())
-        });
     if carries_images {
         if let Some(refusal) = image_refusal(state, events, turn).await {
             return Some(refusal);
@@ -5888,7 +5973,6 @@ async fn one_turn(
             .tools
             .scope(),
     );
-    await_catalog_for_window(state, events, turn).await;
     // The skills this workspace has now -- one added in another window is in
     // this prompt's catalog -- and the ones the prompt or its `$` tokens name,
     // loaded whole for this turn (`crate::skills`). The catalog's budget is
@@ -10447,8 +10531,9 @@ mod tests {
         let (events, mut received) = mpsc::channel(bridge::UI_EVENTS);
         on_a_runtime(state.load_catalog());
         assert!(matches!(state.selector.catalog(), CatalogState::Failed(_)));
-        // Past the second a failure is held for (`RETRY_FLOOR`).
-        state.selector.backdate_attempt_for_test();
+        // Past the five seconds a first failure is held for
+        // (`crate::provider::model::failure_backoff`).
+        state.selector.backdate_for_test(Duration::from_secs(6));
         let (control_tx, control_rx) = mpsc::unbounded_channel();
         let control = ControlChannel::new(control_rx);
         let asks = Arc::new(CatalogAsks::reading(&state, &events));
@@ -10459,7 +10544,7 @@ mod tests {
             };
             let watch = async {
                 control_tx
-                    .send(TurnControl::Catalog)
+                    .send(TurnControl::Catalog(bridge::CatalogAsk::MENU))
                     .expect("the work listens");
                 let told = tokio::time::timeout(TEST_DRAIN, received.recv())
                     .await
@@ -10484,12 +10569,13 @@ mod tests {
                 entries: vec![published("anthropic/claude-opus-5")],
             }
         );
-        // The selector takes it once the work lets go, and the UI is not told
-        // it a second time.
+        // The selector takes it once the work lets go -- a retry behind the
+        // failure, which reads as the failure until it is taken -- and the UI
+        // is not told it a second time.
         asks.finish(&mut state.selector);
         assert!(state.selector.is_loading());
-        let fresh = on_a_runtime(state.load_catalog());
-        assert!(!fresh, "a read that told the UI itself was told again");
+        assert!(matches!(state.selector.catalog(), CatalogState::Failed(_)));
+        on_a_runtime(state.selector.settle_load());
         assert!(state.selector.entry("anthropic/claude-opus-5").is_some());
         assert!(received.try_recv().is_err());
     }
@@ -10538,7 +10624,7 @@ mod tests {
                             answers: vec!["Thorough".to_string()],
                         });
                         control_tx
-                            .send(TurnControl::Catalog)
+                            .send(TurnControl::Catalog(bridge::CatalogAsk::MENU))
                             .expect("the work listens");
                     }
                     Ok(UiEvent::Approval(asked)) => {
@@ -10548,7 +10634,7 @@ mod tests {
                             feedback: None,
                         });
                         control_tx
-                            .send(TurnControl::Catalog)
+                            .send(TurnControl::Catalog(bridge::CatalogAsk::MENU))
                             .expect("the work listens");
                     }
                     Ok(event) => {
@@ -10669,14 +10755,14 @@ mod tests {
     }
 
     #[test]
-    fn the_sessions_own_read_failing_mid_work_is_read_again_once_its_second_is_up() {
+    fn the_sessions_own_read_failing_mid_work_is_read_again_once_its_backoff_is_up() {
         // The read at launch is still on its way when a turn begins, and fails
         // while the turn runs. Upstream's `/model` then decides by the cache's
-        // state, whoever started the load: inside a second of its start the
+        // state, whoever started the load: inside the failure's backoff the
         // menu opens over the failure, and after it a load starts again
-        // (`beginLoad`, `model_cache_runtime.zig:441-447`). Round 4 left this
-        // ask unanswered -- the work held "a read of its own on the way" --
-        // and the menu said `Loading models…` until the turn was over.
+        // (`beginLoad`, `model_cache_runtime.zig:609-625@481104fd`). Round 4
+        // left this ask unanswered -- the work held "a read of its own on the
+        // way" -- and the menu said `Loading models…` until the turn was over.
         let (_home, _workspace, mut state) = recording();
         let reads = Arc::new(AtomicUsize::new(0));
         state
@@ -10688,7 +10774,7 @@ mod tests {
         begin_catalog_read(&mut state, &events);
         let asks = Arc::new(CatalogAsks::reading(&state, &events));
         let failed = told_within_a_minute(&mut received).expect("the launch read told");
-        let UiEvent::CatalogUnread { attempted, .. } = failed else {
+        let UiEvent::CatalogUnread { retry_at, .. } = failed else {
             panic!("{failed:?}");
         };
         // The read tells before it records what it told: waited for, so the
@@ -10700,27 +10786,35 @@ mod tests {
         assert!(state.selector.has_answered(), "the launch read never ended");
         let (_control_tx, control_rx) = mpsc::unbounded_channel();
         let control = ControlChannel::new(control_rx);
-        // Inside its second: told again as it failed, and nothing read.
-        assert_eq!(asks.asked_at(&control, attempted), Some(failed.clone()));
-        assert_eq!(reads.load(Ordering::SeqCst), 1);
-        // After it: read again, and the band told that read's answer.
+        // Inside its backoff: told again as it failed, and nothing read.
+        let inside = retry_at - Duration::from_millis(1);
         assert_eq!(
-            asks.asked_at(&control, attempted + crate::provider::model::RETRY_FLOOR),
+            asks.asked_at(&control, bridge::CatalogAsk::MENU, inside),
+            Some(failed.clone())
+        );
+        assert_eq!(reads.load(Ordering::SeqCst), 1);
+        // After it: read again, and the band told that read's answer -- the
+        // second failure in a row, held ten seconds.
+        assert_eq!(
+            asks.asked_at(&control, bridge::CatalogAsk::MENU, retry_at),
             None
         );
         let again = told_within_a_minute(&mut received).expect("the second read told");
         let UiEvent::CatalogUnread {
-            attempted: second, ..
+            retry_at: second, ..
         } = again
         else {
             panic!("{again:?}");
         };
-        assert!(second > attempted, "the first read's failure told again");
+        assert!(
+            second >= retry_at + Duration::from_secs(5),
+            "the second failure was not held twice as long"
+        );
         assert_eq!(reads.load(Ordering::SeqCst), 2);
         // The selector takes the newer read, not the one it had.
         asks.finish(&mut state.selector);
         on_a_runtime(state.selector.settle_load());
-        assert_eq!(state.selector.last_attempt(), Some(second));
+        assert_eq!(state.selector.retry_at(), Some(second));
     }
 
     #[test]
@@ -10729,10 +10823,12 @@ mod tests {
         // request is put aside and answered once the switch is over.
         let (_control_tx, control_rx) = mpsc::unbounded_channel();
         let control = ControlChannel::new(control_rx);
-        CatalogAsks::AfterWork.ask(&control);
+        CatalogAsks::AfterWork.ask(&control, bridge::CatalogAsk::MENU);
         assert!(matches!(
             control.take_deferred().as_slice(),
-            [crate::tui::approval::Deferred::Catalog]
+            [crate::tui::approval::Deferred::Catalog(
+                bridge::CatalogAsk::MENU
+            )]
         ));
     }
 
@@ -13039,7 +13135,7 @@ mod tests {
         let asked = |state: &mut Runtime| {
             let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
             on_a_runtime(async {
-                ask_catalog(state, &events_tx).await;
+                ask_catalog(state, &events_tx, bridge::CatalogAsk::MENU).await;
                 // A read it started tells its answer itself; taken here, so
                 // the case reads what it told.
                 state.selector.settle_load().await;
@@ -13078,15 +13174,15 @@ mod tests {
         };
         assert_eq!(*told, provider);
         assert_eq!(reads.load(Ordering::SeqCst), 1);
-        // Asked again inside the second after that read began: told as it
-        // stands -- the same attempt -- and nothing read (`beginLoad`,
-        // `model_cache_runtime.zig:441-442`).
+        // Asked again inside the failure's backoff: told as it stands -- the
+        // same hold -- and nothing read (`beginLoad`,
+        // `model_cache_runtime.zig:617`, `:621@481104fd`).
         assert_eq!(asked(&mut state), first);
-        assert_eq!(reads.load(Ordering::SeqCst), 1, "read inside the floor");
-        // After it, read again: the `retry /model.` the menu said.
-        state.selector.backdate_attempt_for_test();
+        assert_eq!(reads.load(Ordering::SeqCst), 1, "read inside the backoff");
+        // Past it, read again: the retry `xfx retries automatically.` says.
+        state.selector.backdate_for_test(Duration::from_secs(6));
         let again = asked(&mut state);
-        assert_eq!(reads.load(Ordering::SeqCst), 2, "not read after the floor");
+        assert_eq!(reads.load(Ordering::SeqCst), 2, "not read past the backoff");
         assert!(
             matches!(&again[..], [UiEvent::CatalogUnread { .. }]) && again != first,
             "{again:?}"
@@ -15965,8 +16061,11 @@ mod tests {
 
     /// `ask` read between turns ([`ask_catalog`]).
     async fn ask_with(state: &mut Runtime, events: &Sender<UiEvent>, ask: Ask) {
-        let _ = ask;
-        ask_catalog(state, events).await;
+        let ask = match ask {
+            Ask::Revalidate => bridge::CatalogAsk::REVALIDATE,
+            Ask::Prompt => bridge::CatalogAsk::ACTIVITY,
+        };
+        ask_catalog(state, events, ask).await;
     }
 
     /// Every clock the selector's next read is decided by, moved back `by`.
@@ -15977,8 +16076,8 @@ mod tests {
     /// The retry a submitted prompt starts behind a failed catalog whose
     /// backoff is over, in the background, as the band's ask starts it.
     fn retry_behind_failure(state: &mut Runtime, events: &Sender<UiEvent>) {
-        state.selector.retry_after_failure();
-        begin_catalog_read(state, events);
+        on_a_runtime(ask_catalog(state, events, bridge::CatalogAsk::ACTIVITY));
+        assert!(state.selector.retrying(), "no retry started");
     }
 
     /// Everything the band has been told so far.
