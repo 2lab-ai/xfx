@@ -6045,8 +6045,18 @@ async fn one_turn(
     // a launch whose profile carries one -- reads it now: once, raced against
     // the turn's own cancellation so a Ctrl-C does not wait out a slow
     // Gateway, and told to the UI, whose footer and columns read the same rows.
-    // A session in the default asks for nothing and costs no socket.
-    if !state.settings.effort.is_default() || state.settings.fast || state.settings.ultrafast {
+    // A session in the default asks for nothing and costs no socket. **So
+    // does a prompt with images**, whose route the catalog decides: upstream
+    // resolves it at the turn's start whatever the window, and that waits for
+    // a first load still on its way (`.loading`, `model_cache_runtime.zig:
+    // 855-866@481104fd`, from `orchestrator.zig:5885-5886`) -- here, rather
+    // than at the image route's read below, which then finds it settled, so
+    // a stop in it is the turn's end that keeps the prompt and its images.
+    if !images.is_empty()
+        || !state.settings.effort.is_default()
+        || state.settings.fast
+        || state.settings.ultrafast
+    {
         let fresh = tokio::select! {
             biased;
             () = turn.token.cancelled() => false,
