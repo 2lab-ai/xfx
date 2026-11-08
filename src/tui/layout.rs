@@ -366,6 +366,21 @@ pub(crate) fn input_row_limit(rows: u16) -> u16 {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_preview_takes_rows_from_the_band_s_top_and_leaves_a_document_row() {
+        let band = solve(40, 120, 1).expect("a band");
+        let previewed = band.previewed(3).expect("room for three rows");
+        assert_eq!(previewed.band_top(), band.band_top() - 3);
+        assert_eq!(previewed.content_bottom, band.content_bottom - 3);
+        assert_eq!(previewed.band_rows(), band.band_rows() + 3);
+        // In place of any it had, not on top of it.
+        assert_eq!(previewed.previewed(1), band.previewed(1));
+        assert_eq!(previewed.previewed(0), Some(band));
+        // Never the screen's last document row.
+        assert_eq!(band.previewed(band.content_bottom), None);
+        assert!(band.previewed(band.content_bottom - 1).is_some());
+    }
     use super::*;
 
     #[test]

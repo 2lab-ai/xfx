@@ -9047,6 +9047,65 @@ mod tests {
     }
 
     #[test]
+    fn a_resize_before_the_preview_lands_writes_the_card_whole() {
+        // The preview's rows were cut for the screen that is gone: the frame
+        // a resize owes writes the card with no preview in front of it.
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the first frame");
+        shell.route_bytes(b"\x1b[200~WIDE-ONE\nWIDE-TWO\nWIDE-THREE\x1b[201~");
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the frame that shows the draft");
+        shell.route_bytes(b"\r");
+        assert!(
+            shell.previewing(),
+            "no preview, so this case proves nothing"
+        );
+        shell.resize(40, 100);
+        assert!(
+            !shell.previewing(),
+            "the preview outlived the screen it was cut for"
+        );
+        out.written.clear();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the frame the resize owes");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        for word in ["WIDE-ONE", "WIDE-TWO", "WIDE-THREE"] {
+            assert!(
+                written.contains(&format!(
+                    "\u{1b}[38;5;255m\u{2503}\u{1b}[0m \u{1b}[1m{word}\u{1b}[0m"
+                )),
+                "the card's {word} was not written: {written:?}"
+            );
+        }
+    }
+
+    #[test]
     fn an_exit_before_the_preview_lands_still_writes_the_card() {
         // The band clears from its top on the way out, and that is the
         // preview's first row: a session that leaves in the tick its Enter

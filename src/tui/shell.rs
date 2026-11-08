@@ -13487,12 +13487,11 @@ impl Shell {
     /// Only a card that starts on the row under a blank one the document has
     /// already been given, with nothing of the document still owed: that is
     /// the row upstream's preview is measured from, and anything else -- a
-    /// line still open, a fork's line that a card opens a blank row under
-    /// ([`Self::raw_gap`]) -- is written at once.
+    /// line that does not end blank, a fork's line that a card opens a blank
+    /// row under ([`Self::raw_gap`]) -- is written at once.
     fn preview_room(&self) -> Option<usize> {
         if self.transcript.owes()
             || self.departing.is_some()
-            || self.transcript.open_line()
             || !self.transcript.ends_blank()
             || self.raw_gap
             || self.group.drawn()
@@ -17068,10 +17067,25 @@ mod tests {
             assert_eq!(shell.preview_room(), Some(room), "{what}");
         }
         // And none for a card that does not start under a blank row the
-        // document already has: a line still open, or anything still owed.
-        let mut shell = shell(40, 120);
-        shell.write_transcript_as("an open line", Role::Plain);
-        assert_eq!(shell.preview_room(), None, "an open line, still owed");
+        // document already has: anything still owed, a line that does not end
+        // blank, a fork's line a card opens a blank row under.
+        let mut open = shell(40, 120);
+        open.write_transcript_as("an open line", Role::Plain);
+        assert_eq!(open.preview_room(), None, "an open line, still owed");
+        while open
+            .transcript
+            .emit_front(PALETTE, |_| Landed::<std::convert::Infallible>::All)
+            .is_some()
+        {}
+        assert!(!open.transcript.owes(), "the line was not written");
+        assert_eq!(
+            open.preview_room(),
+            None,
+            "a line that does not end blank, written"
+        );
+        let mut forked = shell(40, 120);
+        forked.raw_gap = true;
+        assert_eq!(forked.preview_room(), None, "under a fork's line");
     }
 
     /// `/mcp`'s menu over a real runtime: a scratch home and workspace, the
