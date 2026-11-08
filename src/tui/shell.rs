@@ -45759,9 +45759,8 @@ mod tests {
     /// `made_inert` as a live turn's are: a pattern of words, a long token, a
     /// control, a scalar a terminal draws wider and a CJK run, too long for
     /// its heading to fit; a command's `cwd` and its output; a read's note of
-    /// three lines, one of them empty; and `late`'s, when it has joined
-    /// ([`a_join`]).
-    fn a_turn_with_arguments(shell: &mut Fixture, late: bool) {
+    /// three lines, one of them empty. `late` joins it in [`a_join`].
+    fn a_turn_with_arguments(shell: &mut Fixture) {
         let argument = |name: &str, value: &str| full_transcript::Argument {
             name: name.into(),
             value: value.into(),
@@ -45830,9 +45829,6 @@ mod tests {
             )]),
         );
         shell.apply(tool_result("r", "read_file", true, "").made_inert());
-        if late {
-            a_join(shell);
-        }
     }
 
     const ARGROW_PATTERN: &str = "src/**/alpha beta gamma delta epsilon \u{261d} \u{9b} \
@@ -45842,12 +45838,90 @@ mod tests {
 
     /// What Ctrl-O shows of [`a_turn_with_arguments`] laid out from nothing
     /// at `cols` in `palette`, opened after the events: its screen's record
-    /// rows, and the whole record through the same caches.
-    fn fresh_arguments(cols: u16, palette: Palette, late: bool) -> (Vec<String>, Vec<String>) {
+    /// rows, and the whole record through the same caches. `traced` are the
+    /// sentences the live session's `/trace`s were answered with, said here
+    /// at the same place in the record -- after the turn's calls, before
+    /// `late` joins -- without a `/trace` of this session's own, so nothing
+    /// of it is laid out before the screen is.
+    fn fresh_arguments(
+        cols: u16,
+        palette: Palette,
+        traced: &[String],
+        late: bool,
+    ) -> (Vec<String>, Vec<String>) {
         let mut fresh = shell_with(40, cols, palette, false);
-        a_turn_with_arguments(&mut fresh, late);
+        a_turn_with_arguments(&mut fresh);
+        for sentence in traced {
+            fresh.announce(notice::Notice::neutral("", sentence.clone()));
+        }
+        if late {
+            a_join(&mut fresh);
+        }
         fresh.route_bytes(b"\x0f");
         shown_and_whole(&fresh)
+    }
+
+    /// `/trace` typed, its report written to `dir` through a fake clipboard,
+    /// and the shell left to settle until the record holds what it was
+    /// answered with: that sentence (on macOS the report is copied,
+    /// elsewhere saved and named), and the report.
+    ///
+    /// `/trace` lays the record out at its own width, `TRACE_COLS`, through
+    /// the same argument caches the screen uses (`FullTranscript::traced`).
+    fn a_trace(
+        shell: &mut Fixture,
+        tool: &crate::clipboard::fake::FakeTool,
+        dir: &std::path::Path,
+    ) -> (String, String) {
+        // One word of the sentence, which a row break never splits: on Linux
+        // the sentence names the report's path and may wrap.
+        const SAID: &str = "redact";
+        // How many times the record says it. Laid out at the screen's width
+        // only while Ctrl-O is open, as every frame of it lays the record out
+        // anyway; with it closed the inline document is read instead, so
+        // nothing of the record is laid out before the report is.
+        let open = shell.full.is_open();
+        let said = |shell: &mut Fixture| {
+            if open {
+                shell
+                    .full
+                    .all_rows(shell.geometry.cols, shell.palette)
+                    .iter()
+                    .filter(|row| colourless(row).contains(SAID))
+                    .count()
+            } else {
+                shell
+                    .document()
+                    .iter()
+                    .filter(|row| row.contains(SAID))
+                    .count()
+            }
+        };
+        let before = if open { said(shell) } else { 0 };
+        if !open {
+            let _ = shell.document();
+        }
+        shell.traces = Traces::new(tool.clipboard(), dir.to_path_buf());
+        shell.route_bytes(b"/trace\r");
+        let deadline = Instant::now() + START_PATIENCE;
+        loop {
+            shell.settle_band(Instant::now());
+            if said(shell) > before {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "/trace never said how it went in {START_PATIENCE:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let (path, report) = the_report(dir);
+        let done = if cfg!(target_os = "macos") {
+            crate::trace::Disposition::Copied(path)
+        } else {
+            crate::trace::Disposition::Saved(path)
+        };
+        (done.sentence(), report)
     }
 
     /// The record rows of the screen the shell shows now (the footer under
@@ -45877,10 +45951,43 @@ mod tests {
         // rows and the whole record -- with Ctrl-O still open: the screen's
         // own caches against a session that has none yet.
         let mut live = shell(40, 120);
-        a_turn_with_arguments(&mut live, false);
+        a_turn_with_arguments(&mut live);
+
+        // `/trace` before Ctrl-O was ever opened (train 6's review: opus
+        // SHOULD 3). The report lays every argument out at its own 200
+        // columns, through the argument's cache, which keeps those rows: the
+        // pattern's 130-cell token, which 120 columns break, is whole on its
+        // argument row there. Ctrl-O, opened after, lays the argument out
+        // again at 120 from its own text, and never paints the report's.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let dirs: Vec<tempfile::TempDir> = (0..3)
+            .map(|_| tempfile::tempdir().expect("a report directory"))
+            .collect();
+        let mut traced = Vec::new();
+        let (sentence, report) = a_trace(&mut live, &tool, dirs[0].path());
+        let token = "x".repeat(130);
+        assert!(
+            report
+                .lines()
+                .any(|line| line.trim_start().starts_with("\u{2502}  ") && line.contains(&token)),
+            "the argument row at the report's width: {report}"
+        );
+        traced.push(sentence);
         live.route_bytes(b"\x0f");
         let opened = shown_and_whole(&live);
-        assert_eq!(opened, fresh_arguments(120, PALETTE, false), "opened");
+        assert!(
+            opened
+                .1
+                .iter()
+                .all(|row| super::super::wrap::width(row) <= 120),
+            "{:#?}",
+            opened.1
+        );
+        assert_eq!(
+            opened,
+            fresh_arguments(120, PALETTE, &traced, false),
+            "opened after /trace"
+        );
         let whole: Vec<String> = opened.1.iter().map(|row| colourless(row)).collect();
         for row in [
             "\u{2502}  cwd: sub dir \\u{2e3a} \u{65e5}\u{672c}",
@@ -45900,11 +46007,57 @@ mod tests {
             "the pattern, named and spelled: {whole:#?}"
         );
 
-        // A call joins the open group.
+        // `/trace` while it is open: the screen goes on painting the 120
+        // columns' rows its entries were laid out with, and a theme switch
+        // lays them out again at 120, from the argument's own text.
+        let (sentence, _) = a_trace(&mut live, &tool, dirs[1].path());
+        traced.push(sentence);
+        let after_trace = shown_and_whole(&live);
+        assert!(
+            after_trace
+                .1
+                .iter()
+                .all(|row| super::super::wrap::width(row) <= 120),
+            "{:#?}",
+            after_trace.1
+        );
+        assert_eq!(
+            after_trace,
+            fresh_arguments(120, PALETTE, &traced, false),
+            "traced"
+        );
+        let after_trace_raw = shown_and_whole_raw(&live);
+        live.route_bytes(WENT_LIGHT);
+        assert_eq!(
+            shown_and_whole(&live),
+            fresh_arguments(120, LIGHT, &traced, false),
+            "light, after /trace"
+        );
+        live.route_bytes(WENT_DARK);
+        assert_eq!(
+            shown_and_whole_raw(&live),
+            after_trace_raw,
+            "dark again after /trace, byte for byte"
+        );
+
+        // `/trace` again, then a call joins the open group: the join lays
+        // every member out again at 120 from its own text, not the report's
+        // 200 columns.
+        let (sentence, _) = a_trace(&mut live, &tool, dirs[2].path());
+        traced.push(sentence);
+        assert_eq!(
+            shown_and_whole(&live),
+            fresh_arguments(120, PALETTE, &traced, false),
+            "traced again"
+        );
         a_join(&mut live);
         let joined = shown_and_whole(&live);
         let joined_raw = shown_and_whole_raw(&live);
-        assert_eq!(joined, fresh_arguments(120, PALETTE, true), "joined");
+        assert_eq!(
+            joined,
+            fresh_arguments(120, PALETTE, &traced, true),
+            "joined"
+        );
         assert!(
             joined
                 .1
@@ -45918,7 +46071,7 @@ mod tests {
         live.route_bytes(WENT_LIGHT);
         let light = shown_and_whole(&live);
         assert_ne!(light, joined, "the palette is in the rows");
-        assert_eq!(light, fresh_arguments(120, LIGHT, true), "light");
+        assert_eq!(light, fresh_arguments(120, LIGHT, &traced, true), "light");
         live.route_bytes(WENT_DARK);
         assert_eq!(
             shown_and_whole_raw(&live),
@@ -45929,7 +46082,11 @@ mod tests {
         // Narrower while it is open, compared at once; and back.
         let _ = live.resize(40, 40);
         let narrow = shown_and_whole(&live);
-        assert_eq!(narrow, fresh_arguments(40, PALETTE, true), "narrow");
+        assert_eq!(
+            narrow,
+            fresh_arguments(40, PALETTE, &traced, true),
+            "narrow"
+        );
         assert!(
             narrow
                 .1
@@ -45968,7 +46125,11 @@ mod tests {
             .made_inert(),
         );
         let replaced = shown_and_whole(&live);
-        assert_eq!(replaced, fresh_arguments_replaced(other), "replaced");
+        assert_eq!(
+            replaced,
+            fresh_arguments_replaced(other, &traced),
+            "replaced"
+        );
         // The heading is the call's start, and says what it said; the
         // argument row is the new pattern's.
         let rows: Vec<String> = replaced.1.iter().map(|row| colourless(row)).collect();
@@ -46008,12 +46169,16 @@ mod tests {
         );
     }
 
-    /// [`fresh_arguments`] at 120 columns in the dark, `late` joined, with the
-    /// glob's arguments given twice, the second time `pattern` -- in the
-    /// order the live session had them: after `late`.
-    fn fresh_arguments_replaced(pattern: &str) -> (Vec<String>, Vec<String>) {
+    /// [`fresh_arguments`] at 120 columns in the dark, `traced` said, `late`
+    /// joined, with the glob's arguments given twice, the second time
+    /// `pattern` -- in the order the live session had them: after `late`.
+    fn fresh_arguments_replaced(pattern: &str, traced: &[String]) -> (Vec<String>, Vec<String>) {
         let mut fresh = shell_with(40, 120, PALETTE, false);
-        a_turn_with_arguments(&mut fresh, true);
+        a_turn_with_arguments(&mut fresh);
+        for sentence in traced {
+            fresh.announce(notice::Notice::neutral("", sentence.clone()));
+        }
+        a_join(&mut fresh);
         fresh.apply(
             UiEvent::ToolDetail {
                 call_id: "g".into(),
