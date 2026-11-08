@@ -1,0 +1,12 @@
+read 2026-11-08T18:45Z
+
+$ gh api repos/2lab-ai/xfx/branches/main --jq "{protected, protection}"
+{"protected":false,"protection":{"enabled":false,"required_status_checks":{"checks":[],"contexts":[],"enforcement_level":"off"}}}
+
+$ gh api repos/2lab-ai/xfx/branches/main/protection
+{"message":"Not Found","documentation_url":"https://docs.github.com/rest/branches/branch-protection#get-branch-protection","status":"404"}gh: Not Found (HTTP 404)
+
+$ gh api repos/2lab-ai/xfx/rulesets
+[]
+$ gh api repos/2lab-ai/xfx/rules/branches/main
+[]

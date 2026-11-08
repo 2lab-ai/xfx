@@ -1,0 +1,5 @@
+ 36 crates  first 13:38:55  last 13:40:22  | cargo clippy --locked --all-targets -- -D warnings
+121 crates  first 13:42:03  last 13:43:04  | cargo test --locked --all-targets
+  3 crates  first 13:51:04  last 13:54:12  | cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+  2 crates  first 14:21:16  last 14:21:21  | cargo build --locked --release
+137 crates  first 14:24:06  last 14:26:35  | cargo build --locked --release --features fault-injection --target-dir target/faulty
