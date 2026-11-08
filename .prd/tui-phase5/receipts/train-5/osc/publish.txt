@@ -1,0 +1,61 @@
+default fx   p5-lifecycle-osc-ask-40x120             2 of  2 wires
+default fx   p5-lifecycle-osc-autocompactfail-40x120  2 of  2 wires
+default fx   p5-lifecycle-osc-compact-40x120         3 of  3 wires
+default fx   p5-lifecycle-osc-compactfail-40x120     2 of  2 wires
+default fx   p5-lifecycle-osc-hostile-40x120         3 of  3 wires
+default fx   p5-lifecycle-osc-hup-40x120             2 of  2 wires
+default fx   p5-lifecycle-osc-interrupt-40x120       3 of  3 wires
+default fx   p5-lifecycle-osc-interruptnext-40x120   5 of  5 wires
+default fx   p5-lifecycle-osc-picker-40x120          4 of  4 wires
+default fx   p5-lifecycle-osc-retry-40x120           1 of  1 wires
+default fx   p5-lifecycle-osc-states-40x120         10 of 10 wires
+default fx   p5-lifecycle-osc-suspend-40x120         4 of  4 wires
+default fx   p5-lifecycle-osc-term-40x120            2 of  2 wires
+default xfx  p5-lifecycle-osc-ask-40x120             2 of  2 wires banner d6a10ee
+default xfx  p5-lifecycle-osc-autocompactfail-40x120  2 of  2 wires banner d6a10ee
+default xfx  p5-lifecycle-osc-compact-40x120         3 of  3 wires banner d6a10ee
+default xfx  p5-lifecycle-osc-compactfail-40x120     2 of  2 wires banner d6a10ee
+default xfx  p5-lifecycle-osc-hostile-40x120         3 of  3 wires banner d6a10ee
+default xfx  p5-lifecycle-osc-hup-40x120             2 of  2 wires banner d6a10ee
+default xfx  p5-lifecycle-osc-interrupt-40x120       3 of  3 wires banner d6a10ee
+default xfx  p5-lifecycle-osc-interruptnext-40x120   5 of  5 wires banner d6a10ee
+default xfx  p5-lifecycle-osc-picker-40x120          4 of  4 wires banner d6a10ee
+default xfx  p5-lifecycle-osc-retry-40x120           1 of  1 wires banner d6a10ee
+default xfx  p5-lifecycle-osc-states-40x120         10 of 10 wires banner d6a10ee
+default xfx  p5-lifecycle-osc-suspend-40x120         4 of  4 wires banner d6a10ee
+default xfx  p5-lifecycle-osc-term-40x120            2 of  2 wires banner d6a10ee
+tc      fx   p5-lifecycle-osc-ask-tc-40x120          2 of  2 wires
+tc      fx   p5-lifecycle-osc-autocompactfail-tc-40x120  2 of  2 wires
+tc      fx   p5-lifecycle-osc-compact-tc-40x120      3 of  3 wires
+tc      fx   p5-lifecycle-osc-compactfail-tc-40x120  2 of  2 wires
+tc      fx   p5-lifecycle-osc-hostile-tc-40x120      3 of  3 wires
+tc      fx   p5-lifecycle-osc-hup-tc-40x120          2 of  2 wires
+tc      fx   p5-lifecycle-osc-interrupt-tc-40x120    3 of  3 wires
+tc      fx   p5-lifecycle-osc-interruptnext-tc-40x120  5 of  5 wires
+tc      fx   p5-lifecycle-osc-picker-tc-40x120       4 of  4 wires
+tc      fx   p5-lifecycle-osc-retry-tc-40x120        1 of  1 wires
+tc      fx   p5-lifecycle-osc-states-tc-40x120      10 of 10 wires
+tc      fx   p5-lifecycle-osc-suspend-tc-40x120      4 of  4 wires
+tc      fx   p5-lifecycle-osc-term-tc-40x120         2 of  2 wires
+tc      xfx  p5-lifecycle-osc-ask-tc-40x120          2 of  2 wires banner d6a10ee
+tc      xfx  p5-lifecycle-osc-autocompactfail-tc-40x120  2 of  2 wires banner d6a10ee
+tc      xfx  p5-lifecycle-osc-compact-tc-40x120      3 of  3 wires banner d6a10ee
+tc      xfx  p5-lifecycle-osc-compactfail-tc-40x120  2 of  2 wires banner d6a10ee
+tc      xfx  p5-lifecycle-osc-hostile-tc-40x120      3 of  3 wires banner d6a10ee
+tc      xfx  p5-lifecycle-osc-hup-tc-40x120          2 of  2 wires banner d6a10ee
+tc      xfx  p5-lifecycle-osc-interrupt-tc-40x120    3 of  3 wires banner d6a10ee
+tc      xfx  p5-lifecycle-osc-interruptnext-tc-40x120  5 of  5 wires banner d6a10ee
+tc      xfx  p5-lifecycle-osc-picker-tc-40x120       4 of  4 wires banner d6a10ee
+tc      xfx  p5-lifecycle-osc-retry-tc-40x120        1 of  1 wires banner d6a10ee
+tc      xfx  p5-lifecycle-osc-states-tc-40x120      10 of 10 wires banner d6a10ee
+tc      xfx  p5-lifecycle-osc-suspend-tc-40x120      4 of  4 wires banner d6a10ee
+tc      xfx  p5-lifecycle-osc-term-tc-40x120         2 of  2 wires banner d6a10ee
+not copied (a local path in it): mcp/fx/p5-lifecycle-osc-mcp-40x120/fx-p5-lifecycle-osc-mcp-40x120-m02-show.wire
+not copied (a local path in it): mcp/fx/p5-lifecycle-osc-mcp-40x120/fx-p5-lifecycle-osc-mcp-40x120-m03-turn.wire
+not copied (a local path in it): mcp/fx/p5-lifecycle-osc-mcp-40x120/fx-p5-lifecycle-osc-mcp-40x120-m04-exit.wire
+mcp     fx   p5-lifecycle-osc-mcp-40x120             2 of  5 wires
+not copied (a local path in it): mcp/xfx/p5-lifecycle-osc-mcp-40x120/xfx-p5-lifecycle-osc-mcp-40x120-m02-show.wire
+not copied (a local path in it): mcp/xfx/p5-lifecycle-osc-mcp-40x120/xfx-p5-lifecycle-osc-mcp-40x120-m03-turn.wire
+not copied (a local path in it): mcp/xfx/p5-lifecycle-osc-mcp-40x120/xfx-p5-lifecycle-osc-mcp-40x120-m04-exit.wire
+mcp     xfx  p5-lifecycle-osc-mcp-40x120             2 of  5 wires banner d6a10ee
+published 176 wires, 6 not copied

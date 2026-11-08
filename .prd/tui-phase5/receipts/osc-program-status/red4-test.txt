@@ -1,0 +1,15 @@
+# L-U1+U2d's RED: the three tests this round adds and the one it changes (the automatic
+# compaction's error at its settle), on afe7bda4's code (round 3's head), cargo test --locked
+# --lib -- <the four>; 3 fail, and the stop's guard passes.
+test tui::shell::tests::an_automatic_compaction_that_fails_inside_a_turn_is_that_turns_error ... FAILED
+test tui::event_loop::tests::a_title_its_tick_asked_for_over_one_still_owed_follows_the_report ... FAILED
+test tui::event_loop::tests::a_working_a_keystroke_caused_follows_the_frame_that_shows_the_keystroke ... FAILED
+test tui::event_loop::tests::a_stop_a_keystroke_asked_for_is_reported_ahead_of_the_frame_that_shows_it ... ok
+thread 'tui::shell::tests::an_automatic_compaction_that_fails_inside_a_turn_is_that_turns_error' panicked at src/tui/shell.rs:44731:9:
+assertion `left == right` failed: the failure that ended the turn was not its result
+  left: None
+thread 'tui::event_loop::tests::a_title_its_tick_asked_for_over_one_still_owed_follows_the_report' panicked at src/tui/event_loop.rs:13123:17:
+the report did not go out on its own: ["\u{1b}]2;second\u{7}\u{1b}]7501;state=working:app=xfx\u{1b}\\\u{1b}[?2026h\u{1b}[?25l\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h"]
+thread 'tui::event_loop::tests::a_working_a_keystroke_caused_follows_the_frame_that_shows_the_keystroke' panicked at src/tui/event_loop.rs:13031:9:
+the keystroke's working went ahead of the frame that shows it: [[27, 93, 55, 53, 48, 49, 59, 115, 116, 97, 116, 101, 61, 119, 111, 114, 107, 105, 110, 103, 58, 97, 112, 112, 61, 120, 102, 120, 27, 92], [27, 91, 63, 50, 48, 50, 54, 104, 27, 
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 4286 filtered out; finished in 0.02s

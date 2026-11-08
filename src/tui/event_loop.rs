@@ -235,6 +235,7 @@ fn session(
     events: &mut Receiver<UiEvent>,
     failures: &mut FrameFailures,
 ) -> io::Result<ExitCode> {
+    launch_title(shell, band);
     // The probe's leftovers are the session's first bytes, and they go into the
     // same decoder every later read does -- `Shell::route_read` is that
     // decoder's only door -- so a sequence the user typed across the report's
@@ -315,6 +316,28 @@ fn session(
             return Ok(shell.exit_code());
         }
     }
+}
+
+/// Hands the band the window title the session starts with, before the
+/// session's first tick.
+///
+/// Upstream's bootstrap writes that title before its loop ever runs
+/// (`syncTerminalTitle`, `src/main.zig:728@481104fd`, and again for a fresh
+/// session, `app_bootstrap_runtime.zig:701`), so its launch is `OSC 2`, then
+/// the first tick's `idle`, then the first `?2026h` (`osc/w00-start`). Given
+/// to the band here, the title is one the band already owes when that tick
+/// begins, and the tick's report follows it ([`commit_tick`]); the band is
+/// still the title's only writer, and it writes it with its first frame.
+///
+/// And takes the launch's report with it, before [`session`] routes the keys
+/// typed ahead of the session ([`Shell::hold_launch_status`]): upstream's
+/// first pass reports before it handles a key, so its launch is `idle`
+/// whatever was typed while it started.
+fn launch_title(shell: &mut Shell, band: &mut Band) {
+    if let Some(title) = shell.take_title() {
+        band.set_title(title);
+    }
+    shell.hold_launch_status();
 }
 
 /// Takes what the runtime has produced, in order, and shows it.
@@ -701,6 +724,16 @@ fn collect_facts(
 fn adopt_resume(shell: &mut Shell, band: &mut Band, plane_restored: bool) {
     if plane_restored {
         band.plane_given_back();
+        // The stop handler wrote the abnormal restore, and with it the clear
+        // of the terminal's program status record
+        // (`super::term::ABNORMAL_RESTORE`): the next report is written
+        // whatever it says, and a result the user already saw comes back as
+        // idle (`program_status.zig:98-104`). **Only then**, as upstream
+        // invalidates only around its own suspend (`main.zig:1050-1055@481104fd`):
+        // a bare `kill -CONT`, or an uncatchable `SIGSTOP` and its `CONT`,
+        // cleared nothing, and the record still says what it said. Owed to
+        // this tick's frame, and written after it ([`commit_tick`]).
+        shell.owe_program_status_resume();
     }
     // Through the shell's own door rather than by asking for the reason
     // directly: a resume is not only a frame the band owes, it is the moment
@@ -808,7 +841,23 @@ fn commit_frame(
     out: &mut impl Sink,
     failures: &mut FrameFailures,
     now: Instant,
+    reconciled: Reconciled,
+) -> io::Result<()> {
+    commit_frame_led(shell, band, out, failures, now, reconciled, &mut None)
+}
+
+/// [`commit_frame`], with a program status report to ride the lead of the
+/// primary plane's update after the title the band owes ([`commit_tick`]).
+/// Taken out of `lead` by the update that carries it ([`commit_primary`]);
+/// left there by a tick that wrote no such update.
+fn commit_frame_led(
+    shell: &mut Shell,
+    band: &mut Band,
+    out: &mut impl Sink,
+    failures: &mut FrameFailures,
+    now: Instant,
     _reconciled: Reconciled,
+    lead: &mut Option<super::program_status::Report>,
 ) -> io::Result<()> {
     // The window title the session wants now, handed to the band before any
     // frame below is built: the band writes it with whichever frame comes
@@ -958,7 +1007,7 @@ fn commit_frame(
             // The same two functions the ordinary tick below calls, not a
             // painter of this branch's own: a second one would be the copy that
             // forgot the invalidate, or the cursor, or the budget.
-            if !commit_primary(shell, band, out, failures, now)? {
+            if !commit_primary(shell, band, out, failures, now, lead)? {
                 // The write was refused and counted, or the rows landed and
                 // the band did not. The plane stays where it is either way:
                 // the next tick offers what is still owed, in order, and what
@@ -1001,11 +1050,11 @@ fn commit_frame(
     // A refused carry is owed again -- nothing is recorded until it lands
     // (`Band::carry_document`) -- and it counts against the same budget every
     // other refused write does.
-    commit_primary(shell, band, out, failures, now)?;
+    commit_primary(shell, band, out, failures, now, lead)?;
     Ok(())
 }
 
-/// [`commit_frame`], with what the terminal took added to `/stats`'s
+/// [`commit_tick`], with what the terminal took added to `/stats`'s
 /// `ansi_bytes` (`super::shell::Metrics`).
 ///
 /// The session's one way to commit, so every byte the loop writes while the
@@ -1027,10 +1076,160 @@ fn commit_counted(
     // ([`Shell::settle_column`]); a tick that owes no frame asks nothing.
     shell.settle_column(now);
     let mut counted = Counted::new(out);
-    let committed = commit_frame(shell, band, &mut counted, failures, now, reconciled)
-        .and_then(|()| commit_bells(shell, &mut counted, failures, now));
+    let committed = commit_tick(shell, band, &mut counted, failures, now, reconciled);
     shell.metrics.ansi_bytes += counted.delivered();
     committed
+}
+
+/// One tick's writes: the program status report ([`super::program_status`]),
+/// the frame ([`commit_frame`]) and the bells ([`commit_bells`]).
+///
+/// **The report goes out between frames, where upstream's does**:
+///
+/// * **Ahead of the tick's frame**, on its own. Upstream's loop collects facts
+///   first -- the worker tick that reports the status as it drains the
+///   worker's events (`loopCollectFacts`, `src/main.zig:2983@481104fd`) -- and
+///   commits the frame afterwards (`src/ui/event_loop.zig:80`, `:116-117`), so
+///   a report lands between two frames, "like the notification bell"
+///   (`writeProgramStatus`, `transcript/runtime.zig:10416-10429`). A title the
+///   tick's own events asked for is the frame's, behind the report, as
+///   upstream's turn sets its title after it reported `done`
+///   (`osc/w02-done`).
+/// * **After a title the band already owed when the tick began** -- the
+///   launch's ([`launch_title`]), or one an earlier frame did not land -- and
+///   that the tick's own events did not replace. Upstream writes a title the
+///   moment it is set, so that one is on its wire before this tick's report:
+///   the report rides the frame's lead, after the title and ahead of its
+///   `?2026h` ([`commit_primary`]), so the band stays the title's only writer.
+///   A title the tick's events asked for over it is the frame's, behind the
+///   report, as above. The other plane and a screen no band fits on are no
+///   frame to ride: there the report goes out on its own **ahead** of the
+///   frame, as on any tick. Only a tick that held it for the lead and then
+///   built no update at all writes it on its own after the frame.
+/// * **After the frame a keystroke asked for**, when this session's own
+///   input moved the status to work or to a question
+///   ([`Shell::take_status_moved_by_input`]): upstream handles the keys after
+///   it reports, so what they did is on that pass's frame and reported by the
+///   next (`osc/w02-done`: the prompt's `Thinking`, then `working`). A stop
+///   is not one, and a prompt the runtime has not started -- typed or not, a
+///   prompt typed after a stop included -- is reported on the tick whose
+///   frame first shows its `Thinking`, after that frame
+///   ([`Shell::take_status_moved_by_input`] says why). The launch's report
+///   is taken before the keys typed ahead of the session are read
+///   ([`launch_title`]), so the first tick writes it, as above, whatever
+///   those keys did.
+/// * **After the frame of a resume.** Upstream repaints inside
+///   `suspendToJobControl` and invalidates its reporter on the way out
+///   (`defer`, `main.zig:1050-1055`), so the record the stop's restore
+///   cleared is written by the tick after the repaint (`osc/s02-resumed`).
+///   Here the invalidation the stop owes ([`Shell::owe_program_status_resume`])
+///   is taken on the tick that paints the resume, and that tick writes no
+///   report ahead of its frame: the report it owes, whatever it says by then,
+///   follows the frame.
+///
+/// And on **every** tick, whatever the frame does: a report carries no
+/// coordinates, so it means the same on the borrowed plane and on a screen
+/// no band fits on -- two of the states a session waits on the user in.
+fn commit_tick(
+    shell: &mut Shell,
+    band: &mut Band,
+    out: &mut impl Sink,
+    failures: &mut FrameFailures,
+    now: Instant,
+    reconciled: Reconciled,
+) -> io::Result<()> {
+    let resumed = shell.take_program_status_resume();
+    let keyed = shell.take_status_moved_by_input();
+    let after_frame = resumed || keyed == super::shell::Keyed::AfterFrame;
+    let held = !resumed && keyed == super::shell::Keyed::NotYet;
+    // The launch's report is the first tick's whatever the keys typed ahead
+    // of the session did ([`launch_title`]), and ahead of its frame.
+    let launch = shell.owes_launch_status();
+    let mut lead = None;
+    if launch || (!after_frame && !held) {
+        if let Some(report) = take_checked_status(shell, failures, now)? {
+            let rides = band.title_owed().is_some()
+                && !shell.owes_title()
+                && !band.on_alternate()
+                && shell.screen_owner() == super::shell::ScreenOwner::Primary
+                && !shell.blind();
+            if rides {
+                lead = Some(report);
+            } else {
+                write_program_status(&report, out, failures, now)?;
+            }
+        }
+    }
+    commit_frame_led(shell, band, out, failures, now, reconciled, &mut lead)?;
+    if let Some(report) = lead {
+        write_program_status(&report, out, failures, now)?;
+    }
+    if after_frame {
+        if let Some(report) = take_checked_status(shell, failures, now)? {
+            write_program_status(&report, out, failures, now)?;
+        }
+    }
+    commit_bells(shell, out, failures, now)
+}
+
+/// The report the session owes now, if it owes one, through the output check
+/// like every other vector ([`check_program_status`]).
+///
+/// One the check refuses is **dropped** here, and one the terminal does not
+/// take is dropped by its writer, as upstream's is: the reporter recorded it
+/// as written before the write was tried (`program_status.zig:124-127@481104fd`)
+/// and upstream only traces the failure (`transcript/runtime.zig:10422-10428`),
+/// so the next report is the next change. A refusal still counts against the
+/// frame budget.
+fn take_checked_status(
+    shell: &mut Shell,
+    failures: &mut FrameFailures,
+    now: Instant,
+) -> io::Result<Option<super::program_status::Report>> {
+    let Some(report) = shell.take_program_status() else {
+        return Ok(None);
+    };
+    if let Err(refused) = check_program_status(&report) {
+        return match disposed(Emit::rejected(refused), failures, now) {
+            Some(fatal) => Err(fatal),
+            None => Ok(None),
+        };
+    }
+    Ok(Some(report))
+}
+
+/// A report on its own, between two frames. One the terminal did not take is
+/// dropped ([`take_checked_status`]): a refusal counts against the frame
+/// budget and a torn one ends the session, as every coordinate-free vector's
+/// does; a landed one mends nothing, because a report is no proof the screen
+/// is taking frames.
+fn write_program_status(
+    report: &super::program_status::Report,
+    out: &mut impl Sink,
+    failures: &mut FrameFailures,
+    now: Instant,
+) -> io::Result<()> {
+    if let Err(emit) = out.emit(report.bytes.as_bytes()) {
+        if let Some(fatal) = disposed(emit, failures, now) {
+            return Err(fatal);
+        }
+    }
+    Ok(())
+}
+
+/// What a report says it does: tell the terminal this, and nothing else -- no
+/// cell, no caret, no mode. Seeded as the bells are, for their reason.
+fn check_program_status(report: &super::program_status::Report) -> io::Result<()> {
+    let plane = super::check::PlaneKind::Primary;
+    super::check::preflight(
+        &super::check::TerminalModel::seed_modes(1, 1, super::check::ModeSet::fresh(), 0, plane),
+        report.bytes.as_bytes(),
+        &super::check::Declared::new(
+            super::check::Intent::ProgramStatus(report.state),
+            super::check::Footprint::none(plane),
+        ),
+    )?;
+    Ok(())
 }
 
 /// `/sound`'s terminal bells, **after** everything else this tick wrote.
@@ -1437,6 +1636,18 @@ fn owes_document_write(shell: &Shell, band: &Band) -> bool {
 ///   are kept, and the band is a torn band frame, recovered as one always was
 ///   ([`failed_band`]).
 ///
+/// **A program status report can ride the lead**, after the title and ahead
+/// of the opener: `status` is one the tick holds for a title the band already
+/// owed when it began ([`commit_tick`]). It is taken only by an update whose
+/// lead writes that title, and it shares the update's fate, as a write of its
+/// own shares upstream's: dropped when the update is refused, lost or kept
+/// with the title when a tear lands in the lead -- the cleanup vector opens
+/// with `CAN`, which ends a string the tear left open
+/// ([`super::check::RECOVERY_CLEANUP`]) -- and landed when the opener did. A
+/// tick whose update writes no title leaves it for a write of its own. It
+/// moves nothing a tear is measured by: the matrix's points are offsets past
+/// the opener ([`super::fault::mark_update`]).
+///
 /// `Ok(true)` when the document and the band both landed.
 fn commit_primary(
     shell: &mut Shell,
@@ -1444,8 +1655,13 @@ fn commit_primary(
     out: &mut impl Sink,
     failures: &mut FrameFailures,
     now: Instant,
+    status: &mut Option<super::program_status::Report>,
 ) -> io::Result<bool> {
-    if !owes_document_write(shell, band) {
+    // A report rides only a lead that writes a title, so a tick that owes the
+    // document nothing still writes one update when it carries one -- the
+    // band's frame built `opened`, behind the title and the report.
+    let rides = status.is_some() && band.title_owed().is_some();
+    if !owes_document_write(shell, band) && !rides {
         return commit_band(shell, band, out, failures, now);
     }
     let staged = shell.stage_document();
@@ -1480,7 +1696,7 @@ fn commit_primary(
             return Err(fatal);
         }
     };
-    if assembly.0.len() == BEGIN_FRAME.len() {
+    if assembly.0.len() == BEGIN_FRAME.len() && !rides {
         // Nothing that writes: an operation that was a state change, a debt
         // with nothing knowable to pay. Those are settled, and the band goes
         // out as it always does.
@@ -1513,14 +1729,33 @@ fn commit_primary(
         (None, false)
     };
     let framed = matches!(&ready, Some(ready) if ready.built == Built::Frame);
+    if !framed && assembly.0.len() == BEGIN_FRAME.len() {
+        // A report held for a title, on a tick with neither rows nor a band
+        // frame to write: no update at all, and the report goes out on its
+        // own ([`commit_tick`]).
+        shell.settle_document();
+        band.forget_saved();
+        if let Some(ready) = &ready {
+            landed_band(shell, failures, ready);
+        }
+        return Ok(settled);
+    }
     // The window title, when this frame owes one, **ahead of** the update:
     // upstream's title is a write of its own between two frames
     // (`syncTerminalTitleWith`, `app_session_runtime.zig:3608-3629`), and the
     // band built this frame `opened`, so it carries none. Only with the band's
-    // frame, whose landing is what records the title as told.
+    // frame, whose landing is what records the title as told. Then the report
+    // that rides the lead, when the tick holds one for this title.
     let mut vector = Vec::with_capacity(assembly.0.len() + band.frame_bytes().len() + 64);
+    let mut reported = None;
     if framed {
         band.write_title_lead(&mut vector);
+        if rides && !vector.is_empty() {
+            if let Some(report) = status.take() {
+                reported = Some((vector.len(), report.state));
+                vector.extend_from_slice(report.bytes.as_bytes());
+            }
+        }
     }
     let lead = vector.len();
     let opener = lead + BEGIN_FRAME.len();
@@ -1554,6 +1789,7 @@ fn commit_primary(
         super::check::Update {
             lead,
             title: band.title_owed().filter(|_| lead > 0),
+            status: reported,
             opener,
             closer,
             cursor_visible,
@@ -1596,8 +1832,9 @@ fn commit_primary(
                 shell.render.restore(ready.attempt);
             }
             match emit {
-                // The title ahead of the update and the opener, and nothing
-                // after them: no cell moved.
+                // The title ahead of the update -- and the report riding
+                // with it -- and the opener, and nothing after them: no cell
+                // moved.
                 Emit::Partial { delivered, .. } if delivered <= opener => {
                     recover_tear(emit, failures, now, "document update", || {
                         write_cleanup(out)
@@ -13198,6 +13435,911 @@ mod tests {
                 "a painted question took no answer"
             );
         }
+    }
+
+    /// A screen that keeps every vector apart, and refuses a vector that is
+    /// a program status report `refusals` times, taking nothing.
+    #[derive(Default)]
+    struct StatusScreen {
+        refusals: usize,
+        vectors: Vec<Vec<u8>>,
+    }
+
+    const REPORT: &[u8] = b"\x1b]7501;";
+
+    fn holds(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
+    }
+
+    impl StatusScreen {
+        /// The vectors that carry a report.
+        fn reports(&self) -> Vec<String> {
+            self.vectors
+                .iter()
+                .filter(|vector| holds(vector, REPORT))
+                .map(|vector| String::from_utf8(vector.clone()).expect("utf-8"))
+                .collect()
+        }
+    }
+
+    impl Sink for StatusScreen {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            if self.refusals > 0 && bytes.starts_with(REPORT) {
+                self.refusals -= 1;
+                return Err(Emit::ZeroProgress(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "not now",
+                )));
+            }
+            self.vectors.push(bytes.to_vec());
+            Ok(())
+        }
+    }
+
+    const IDLE: &str = "\u{1b}]7501;state=idle:app=xfx\u{1b}\\";
+
+    fn status_tick(shell: &mut Shell, band: &mut Band, out: &mut StatusScreen) {
+        commit_counted(
+            shell,
+            band,
+            out,
+            &mut FrameFailures::default(),
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the tick");
+    }
+
+    #[test]
+    fn a_program_status_goes_out_before_the_frame_on_its_own_and_is_counted() {
+        // Upstream's order: the worker tick reports while it collects facts,
+        // and the frame is committed after it (`src/main.zig:2983`,
+        // `src/ui/event_loop.zig:80`, `:116-117@481104fd`). A tick whose band
+        // owes no title from before it -- this one: nothing handed the band
+        // the launch's title ([`launch_title`]) -- writes its report on its
+        // own, ahead of the frame and its title.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        status_tick(&mut shell, &mut band, &mut out);
+        assert!(
+            out.vectors.len() > 1,
+            "no frame went out, so this proves nothing"
+        );
+        assert_eq!(
+            out.vectors.first().map(Vec::as_slice),
+            Some(IDLE.as_bytes()),
+            "the report was not the tick's first vector, or not alone in it"
+        );
+        assert_eq!(out.reports(), [IDLE], "a report inside a frame, or two");
+        let wrote: usize = out.vectors.iter().map(Vec::len).sum();
+        assert_eq!(
+            shell.metrics.ansi_bytes, wrote as u64,
+            "/stats missed the report"
+        );
+
+        // A tick that changed nothing reports nothing; one whose work did,
+        // reports that, and nothing else in the same vector -- once the
+        // prompt's turn has started ([`a_working_a_keystroke_caused_…`]).
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(out.reports(), [IDLE]);
+        shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.apply(UiEvent::TurnStarted);
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(
+            out.reports(),
+            [IDLE, "\u{1b}]7501;state=working:app=xfx\u{1b}\\"]
+        );
+    }
+
+    /// Where `vector` ends its `OSC 2` lead, when it leads with one.
+    fn after_title(vector: &[u8]) -> Option<usize> {
+        if !vector.starts_with(b"\x1b]2;") {
+            return None;
+        }
+        vector
+            .iter()
+            .position(|&byte| byte == 0x07)
+            .map(|bel| bel + 1)
+    }
+
+    #[test]
+    fn the_launchs_report_follows_the_title_it_starts_with_and_leads_its_first_update() {
+        // Upstream's bootstrap writes the title before its loop runs
+        // (`src/main.zig:728`, `app_bootstrap_runtime.zig:701@481104fd`), so
+        // its launch is `OSC 2`, `idle`, then the first `?2026h`
+        // (`osc/w00-start`). Here the title rides the first frame's lead, and
+        // the report rides it too, after the title and before the update.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        launch_title(&mut shell, &mut band);
+        status_tick(&mut shell, &mut band, &mut out);
+        let carrying: Vec<&Vec<u8>> = out
+            .vectors
+            .iter()
+            .filter(|vector| holds(vector, REPORT))
+            .collect();
+        assert_eq!(carrying.len(), 1, "{:?}", out.vectors);
+        let vector = carrying[0];
+        let title = after_title(vector).unwrap_or_else(|| {
+            panic!(
+                "the report's vector does not lead with the title: {:?}",
+                String::from_utf8_lossy(vector)
+            )
+        });
+        assert_eq!(
+            vector.get(title..title + IDLE.len()),
+            Some(IDLE.as_bytes()),
+            "the report does not follow the title: {:?}",
+            String::from_utf8_lossy(vector)
+        );
+        assert!(
+            vector[title + IDLE.len()..].starts_with(BEGIN_FRAME.as_bytes()),
+            "the update does not follow the report: {:?}",
+            String::from_utf8_lossy(vector)
+        );
+        let wrote: usize = out.vectors.iter().map(Vec::len).sum();
+        assert_eq!(shell.metrics.ansi_bytes, wrote as u64);
+        // And the title and the report are each written once.
+        status_tick(&mut shell, &mut band, &mut out);
+        let titles = out
+            .vectors
+            .iter()
+            .filter(|vector| holds(vector, b"\x1b]2;"))
+            .count();
+        assert_eq!(titles, 1, "{:?}", out.vectors);
+        assert_eq!(
+            out.vectors
+                .iter()
+                .filter(|vector| holds(vector, REPORT))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_title_its_own_tick_asked_for_follows_that_ticks_report() {
+        // At a turn's end upstream reports `done` and then sets the title the
+        // turn gave the session (`osc/w02-done` on both products: the report,
+        // then `OSC 2`, then the frame), so a title decided by the tick's own
+        // events is the frame's and the report goes out ahead of it.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        launch_title(&mut shell, &mut band);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.apply(UiEvent::TurnStarted);
+        status_tick(&mut shell, &mut band, &mut out);
+        let before = out.vectors.len();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        status_tick(&mut shell, &mut band, &mut out);
+        let tick = &out.vectors[before..];
+        let done = "\u{1b}]7501;state=done:app=xfx\u{1b}\\";
+        let report = tick
+            .iter()
+            .position(|vector| vector.as_slice() == done.as_bytes())
+            .unwrap_or_else(|| panic!("no report of its own: {tick:?}"));
+        let titled = tick
+            .iter()
+            .position(|vector| after_title(vector).is_some())
+            .unwrap_or_else(|| panic!("the turn gave the session no title: {tick:?}"));
+        assert!(report < titled, "{tick:?}");
+    }
+
+    #[test]
+    fn a_resumes_report_follows_the_frame_the_resume_repaints() {
+        // Upstream repaints inside `suspendToJobControl` and invalidates the
+        // reporter on the way out of it (`defer`, `main.zig:1050-1055@481104fd`),
+        // so the record the stop cleared is written after the resume's frame
+        // (`osc/s02-resumed`: the frame, then `idle`).
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        launch_title(&mut shell, &mut band);
+        status_tick(&mut shell, &mut band, &mut out);
+        status_tick(&mut shell, &mut band, &mut out);
+        let before = out.vectors.len();
+        adopt_resume(&mut shell, &mut band, true);
+        status_tick(&mut shell, &mut band, &mut out);
+        let tick = &out.vectors[before..];
+        let frame = tick
+            .iter()
+            .position(|vector| holds(vector, BEGIN_FRAME.as_bytes()))
+            .unwrap_or_else(|| panic!("the resume repainted nothing: {tick:?}"));
+        let report = tick
+            .iter()
+            .position(|vector| holds(vector, REPORT))
+            .unwrap_or_else(|| panic!("the cleared record was not written again: {tick:?}"));
+        assert!(
+            frame < report,
+            "the report went ahead of the frame: {tick:?}"
+        );
+        assert_eq!(tick[report], IDLE.as_bytes(), "{tick:?}");
+    }
+
+    const WORKING: &str = "\u{1b}]7501;state=working:app=xfx\u{1b}\\";
+
+    #[test]
+    fn a_working_a_keystroke_caused_follows_the_frame_that_shows_the_keystroke() {
+        // Upstream's loop reports while it collects facts and handles the
+        // keys after (`src/ui/event_loop.zig:78-117@481104fd`), so what a key
+        // does is on the frame that key's turn commits -- the prompt and its
+        // `Thinking` -- and the report of it is the next turn's
+        // (`osc/w02-done`: the `Thinking` frame, then `working`).
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        launch_title(&mut shell, &mut band);
+        status_tick(&mut shell, &mut band, &mut out);
+        status_tick(&mut shell, &mut band, &mut out);
+        let before = out.vectors.len();
+        shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        // The runtime has not started the prompt: no frame shows its
+        // `Thinking` yet, and no report goes.
+        assert!(
+            !out.vectors[before..]
+                .iter()
+                .any(|vector| holds(vector, REPORT)),
+            "a working ahead of any frame that shows the turn: {:?}",
+            &out.vectors[before..]
+        );
+        let started = out.vectors.len();
+        shell.apply(UiEvent::TurnStarted);
+        // The loop settles the band before it commits (`session`).
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        let tick = &out.vectors[started..];
+        let frame = tick
+            .iter()
+            .position(|vector| holds(vector, b"Thinking"))
+            .unwrap_or_else(|| panic!("the started turn painted no Thinking: {tick:?}"));
+        let report = tick
+            .iter()
+            .position(|vector| holds(vector, REPORT))
+            .unwrap_or_else(|| panic!("no working: {tick:?}"));
+        assert!(
+            frame < report,
+            "the keystroke's working went ahead of the frame that shows it: {tick:?}"
+        );
+        assert_eq!(tick[report], WORKING.as_bytes(), "{tick:?}");
+
+        // And when the runtime's word lands in the keystroke's own tick, the
+        // report follows that tick's frame.
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        status_tick(&mut shell, &mut band, &mut out);
+        let before = out.vectors.len();
+        shell.route_bytes(b"again\r");
+        shell.apply(UiEvent::TurnStarted);
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        let tick = &out.vectors[before..];
+        let frame = tick.iter().position(|vector| holds(vector, b"Thinking"));
+        let report = tick
+            .iter()
+            .position(|vector| vector.as_slice() == WORKING.as_bytes());
+        assert!(
+            frame.is_some() && report.is_some() && frame < report,
+            "{tick:?}"
+        );
+    }
+
+    #[test]
+    fn a_stop_a_keystroke_asked_for_is_reported_ahead_of_the_frame_that_shows_it() {
+        // The other half: upstream's stop is on its screen only when the turn
+        // says it has stopped (`osc/i01-after-esc`: `idle`, then the
+        // `Cancelled` line), and xfx writes that line at the keystroke -- so
+        // the stop's `idle` stays ahead of the frame that carries it.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        launch_title(&mut shell, &mut band);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.apply(UiEvent::TurnStarted);
+        status_tick(&mut shell, &mut band, &mut out);
+        let before = out.vectors.len();
+        shell.route_bytes(&[0x03]);
+        status_tick(&mut shell, &mut band, &mut out);
+        let tick = &out.vectors[before..];
+        let report = tick
+            .iter()
+            .position(|vector| vector.as_slice() == IDLE.as_bytes())
+            .unwrap_or_else(|| panic!("the stop reported nothing: {tick:?}"));
+        let cancelled = tick
+            .iter()
+            .position(|vector| holds(vector, "Cancelled".as_bytes()))
+            .unwrap_or_else(|| panic!("the stop wrote no Cancelled line: {tick:?}"));
+        assert!(report < cancelled, "{tick:?}");
+    }
+
+    #[test]
+    fn a_prompt_typed_after_a_stop_is_reported_after_the_frame_that_shows_its_thinking() {
+        // Upstream's stop stays requested until the worker takes the next
+        // item (`takeNextWorkLocked`, `worker_runtime.zig:1512@481104fd`; the
+        // stopped turn's `finishProcessing` leaves it, `:1541-1563`), and
+        // while it is, nothing is busy (`cancellation_stops_turn`,
+        // `app_worker_runtime.zig:785-788`, `:762-765`). A prompt typed under
+        // it is on its keystroke's frame with its activity, which reads no
+        // cancel (`pendingPromptActivityVisible`,
+        // `app_render_runtime.zig:286-290`), and is reported `working` on the
+        // pass the worker takes it: the `Thinking` frame, then `working`, as a
+        // prompt typed at an idle session is. Here the stop keeps the status
+        // settled across the keystroke, so nothing marks the prompt as typed,
+        // and the stopped turn's end turns the waiting prompt into `working`
+        // before any frame shows its `Thinking`.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        launch_title(&mut shell, &mut band);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.apply(UiEvent::TurnStarted);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(&[0x03]);
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(out.reports().last().map(String::as_str), Some(IDLE));
+        // Typed before the stopped turn has said it ended.
+        shell.route_bytes(b"next\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        let before = out.vectors.len();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        assert!(
+            !out.vectors[before..]
+                .iter()
+                .any(|vector| holds(vector, REPORT)),
+            "the waiting prompt's working went ahead of any frame that shows its turn: {:?}",
+            &out.vectors[before..]
+        );
+        let started = out.vectors.len();
+        shell.apply(UiEvent::TurnStarted);
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        let tick = &out.vectors[started..];
+        let frame = tick
+            .iter()
+            .position(|vector| holds(vector, b"Thinking"))
+            .unwrap_or_else(|| panic!("the started turn painted no Thinking: {tick:?}"));
+        let report = tick
+            .iter()
+            .position(|vector| vector.as_slice() == WORKING.as_bytes())
+            .unwrap_or_else(|| panic!("no working: {tick:?}"));
+        assert!(frame < report, "{tick:?}");
+    }
+
+    #[test]
+    fn a_held_prompt_reports_nothing_until_its_turn_starts_and_nothing_if_it_never_does() {
+        // A prompt the runtime has not started -- behind a provider switch, a
+        // `/workspace` or a fork, which are runtime work here -- is upstream's
+        // pending submission: its card is adopted at the keystroke and it is
+        // queued once it may run (`adoptPendingUserPrompt`,
+        // `finalizePendingSubmission`, `main.zig:1234-1266@481104fd`), held
+        // meanwhile while the provider is prepared
+        // (`collectPendingSubmissionFacts`, `input_submit_runtime.zig:310-405`;
+        // `providerPreparationPending`, `app_auth_runtime.zig:1829-1834`), and
+        // until it is queued nothing is busy (`app_worker_runtime.zig:762-765`).
+        // So no report while it is held, `working` after the frame that shows
+        // its turn once it starts, and nothing at all when it is dropped
+        // before that -- a stop, a reset, a session replaced.
+        #[derive(Debug, Clone, Copy)]
+        enum Exit {
+            Start,
+            Stop,
+            Reset,
+            Replace,
+        }
+        for exit in [Exit::Start, Exit::Stop, Exit::Reset, Exit::Replace] {
+            let mut shell = shell();
+            let mut band = Band::new();
+            let mut out = StatusScreen::default();
+            status_tick(&mut shell, &mut band, &mut out);
+            shell.route_bytes(b"go\r");
+            for _ in 0..3 {
+                shell.settle_band(Instant::now());
+                status_tick(&mut shell, &mut band, &mut out);
+            }
+            assert_eq!(
+                out.reports(),
+                [IDLE],
+                "{exit:?}: the held prompt was reported"
+            );
+            let before = out.vectors.len();
+            match exit {
+                Exit::Start => shell.apply(UiEvent::TurnStarted),
+                Exit::Stop => shell.route_bytes(&[0x03]),
+                Exit::Reset => shell.route_bytes(b"/new\r"),
+                Exit::Replace => shell.apply(UiEvent::Resumed(one_saved_turn())),
+            }
+            for _ in 0..2 {
+                shell.settle_band(Instant::now());
+                status_tick(&mut shell, &mut band, &mut out);
+            }
+            let ticks = &out.vectors[before..];
+            match exit {
+                Exit::Start => {
+                    let frame = ticks.iter().position(|vector| holds(vector, b"Thinking"));
+                    let report = ticks
+                        .iter()
+                        .position(|vector| vector.as_slice() == WORKING.as_bytes());
+                    assert!(
+                        frame.is_some() && report.is_some() && frame < report,
+                        "{exit:?}: {ticks:?}"
+                    );
+                    assert_eq!(out.reports(), [IDLE, WORKING], "{exit:?}");
+                }
+                Exit::Stop | Exit::Reset | Exit::Replace => {
+                    assert_eq!(out.reports(), [IDLE], "{exit:?}: {ticks:?}");
+                }
+            }
+            // And the hold is over: nothing of it is left for a later tick.
+            assert_eq!(
+                shell.take_status_moved_by_input(),
+                super::super::shell::Keyed::No,
+                "{exit:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn keys_typed_ahead_of_the_session_are_read_after_its_launch_reports_idle() {
+        // Upstream's bootstrap writes the title before its loop runs, and the
+        // loop's first pass reports before it handles a key
+        // (`src/ui/event_loop.zig:78-117@481104fd`): `idle` first whatever
+        // was typed while the launch probe read the terminal, on the first
+        // frame's lead, and the keys' `working` after the frame that shows
+        // their turn. The probe's leftovers are routed before the first tick
+        // ([`session`]).
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        launch_title(&mut shell, &mut band);
+        shell.route_read(b"typed ahead\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(
+            out.reports().len(),
+            1,
+            "the launch's idle went missing, or more went with it"
+        );
+        let first = out
+            .vectors
+            .iter()
+            .position(|vector| holds(vector, REPORT))
+            .expect("a report");
+        assert_eq!(
+            after_title(&out.vectors[first]).map(|end| &out.vectors[first][end..][..IDLE.len()]),
+            Some(IDLE.as_bytes()),
+            "the launch's idle is not on the first frame's lead: {:?}",
+            out.vectors[first]
+        );
+        let started = out.vectors.len();
+        shell.apply(UiEvent::TurnStarted);
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        let tick = &out.vectors[started..];
+        let frame = tick.iter().position(|vector| holds(vector, b"Thinking"));
+        let report = tick
+            .iter()
+            .position(|vector| vector.as_slice() == WORKING.as_bytes());
+        assert!(
+            frame.is_some() && report.is_some() && frame < report,
+            "{tick:?}"
+        );
+    }
+
+    #[test]
+    fn a_title_its_tick_asked_for_over_one_still_owed_follows_the_report() {
+        // A title an earlier frame did not land is still the band's when a
+        // tick's own events ask for another and a report is owed: upstream
+        // wrote the first when it was set, and writes the report and then the
+        // new one (`osc/w02-done`'s order: the report, `OSC 2`, the frame).
+        struct RefusesOnce {
+            armed: bool,
+            vectors: Vec<Vec<u8>>,
+        }
+        impl Sink for RefusesOnce {
+            fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+                if self.armed && bytes.starts_with(b"\x1b]2;first") {
+                    self.armed = false;
+                    return Err(Emit::ZeroProgress(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "not now",
+                    )));
+                }
+                self.vectors.push(bytes.to_vec());
+                Ok(())
+            }
+        }
+        let tick = |shell: &mut Shell, band: &mut Band, out: &mut RefusesOnce| {
+            commit_counted(
+                shell,
+                band,
+                out,
+                &mut FrameFailures::default(),
+                Instant::now(),
+                Reconciled,
+            )
+            .expect("the tick");
+        };
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = RefusesOnce {
+            armed: true,
+            vectors: Vec::new(),
+        };
+        launch_title(&mut shell, &mut band);
+        tick(&mut shell, &mut band, &mut out);
+        shell.apply(UiEvent::SessionTitled("first".into()));
+        tick(&mut shell, &mut band, &mut out);
+        assert!(!out.armed, "no frame carried the first title");
+        assert_eq!(
+            band.title_owed(),
+            Some("first"),
+            "the refused title is not owed"
+        );
+        let before = out.vectors.len();
+        shell.apply(UiEvent::SessionTitled("second".into()));
+        shell.apply(UiEvent::TurnStarted);
+        tick(&mut shell, &mut band, &mut out);
+        let tick = &out.vectors[before..];
+        let report = tick
+            .iter()
+            .position(|vector| vector.as_slice() == WORKING.as_bytes())
+            .unwrap_or_else(|| {
+                panic!(
+                    "the report did not go out on its own: {:?}",
+                    tick.iter()
+                        .map(|v| String::from_utf8_lossy(v))
+                        .collect::<Vec<_>>()
+                )
+            });
+        let titled = tick
+            .iter()
+            .position(|vector| vector.starts_with(b"\x1b]2;second"))
+            .unwrap_or_else(|| panic!("no frame led with the new title: {tick:?}"));
+        assert!(report < titled, "{tick:?}");
+    }
+
+    #[test]
+    fn a_refused_program_status_is_dropped_as_upstreams_is() {
+        // Upstream records a report as written before it tries the write
+        // (`program_status.zig:124-127@481104fd`) and only traces a failed
+        // one (`transcript/runtime.zig:10422-10428`): the report is gone, and
+        // the next one written is the next change.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen {
+            refusals: 1,
+            ..StatusScreen::default()
+        };
+        status_tick(&mut shell, &mut band, &mut out);
+        assert!(out.reports().is_empty(), "the refused report landed");
+        status_tick(&mut shell, &mut band, &mut out);
+        assert!(
+            out.reports().is_empty(),
+            "the refused report was offered again: {:?}",
+            out.reports()
+        );
+        shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.apply(UiEvent::TurnStarted);
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(
+            out.reports(),
+            ["\u{1b}]7501;state=working:app=xfx\u{1b}\\"],
+            "the next change was not written"
+        );
+    }
+
+    #[test]
+    fn a_resume_writes_the_record_its_stop_cleared_again() {
+        // The stop handler's restore carries the clear, so after a continue
+        // the record is gone and an unchanged status is still owed
+        // (`main.zig:1050-1055@481104fd`).
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        status_tick(&mut shell, &mut band, &mut out);
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(out.reports(), [IDLE]);
+        adopt_resume(&mut shell, &mut band, true);
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(
+            out.reports(),
+            [IDLE, IDLE],
+            "the cleared record was not written again"
+        );
+    }
+
+    #[test]
+    fn a_continue_no_handler_answered_leaves_the_record_as_it_was() {
+        // A bare `kill -CONT`, or an uncatchable `SIGSTOP` and its `CONT`,
+        // ran no handler and cleared nothing: the record still says the last
+        // result, and no report is written -- upstream invalidates only
+        // around its own suspend (`main.zig:1050-1055@481104fd`).
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        status_tick(&mut shell, &mut band, &mut out);
+        let done = "\u{1b}]7501;state=done:app=xfx\u{1b}\\";
+        assert_eq!(out.reports().last().map(String::as_str), Some(done));
+        let before = out.reports().len();
+        adopt_resume(&mut shell, &mut band, false);
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(
+            out.reports().len(),
+            before,
+            "a continue nothing cleared rewrote the record: {:?}",
+            out.reports()
+        );
+        // And one the handler answered turns the seen result back into idle.
+        adopt_resume(&mut shell, &mut band, true);
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(out.reports().last().map(String::as_str), Some(IDLE));
+    }
+
+    #[test]
+    fn every_report_the_encoder_makes_of_hostile_text_passes_the_output_check() {
+        // The encoder (`program_status`) and the check's own parser
+        // (`check::program_status_command`) agree: a report built from text
+        // carrying controls, bidi marks, zero-width marks, invalid-looking
+        // runs or a length past the bound is admitted as written -- so no
+        // hostile label or question is a report the loop drops -- and is the
+        // state it was declared as.
+        use super::super::program_status::{Activity, Blocked, Reporter};
+        let cases = [
+            "  Run\n\ttests?\x1b]2;owned\x07 \u{9b} now ok  ",
+            "rm -rf / \u{202e}gnp.exe\u{202c}",
+            "\u{2066}isolated\u{2069} \u{200f}rtl\u{200e}",
+            "a\x1b[2J\x1b]52;c;aGVsbG8=\x07b",
+            "c\u{7f}d\u{85}e\u{9b}1m\u{9d}f",
+            "zero\u{200b}width\u{feff}",
+            "",
+            " \n\t ",
+        ];
+        let long_bidi = "\u{202e}x".repeat(300);
+        let long_wide = "é".repeat(200);
+        let mut reporter = Reporter::default();
+        for (n, text) in cases
+            .iter()
+            .copied()
+            .chain([long_bidi.as_str(), long_wide.as_str()])
+            .enumerate()
+        {
+            for kind in [Blocked::Permission, Blocked::Question] {
+                // A working report between, so each blocked one is new.
+                let _ = reporter.update(Activity::Working);
+                let report = reporter
+                    .update(Activity::Blocked {
+                        kind,
+                        message: text,
+                    })
+                    .expect("a report");
+                check_program_status(&report)
+                    .unwrap_or_else(|err| panic!("case {n} {kind:?} {text:?}: {err}"));
+            }
+        }
+        for activity in [Activity::Working, Activity::Settled] {
+            let mut reporter = Reporter::default();
+            if let Some(report) = reporter.update(activity) {
+                check_program_status(&report).expect("a plain report");
+            }
+        }
+    }
+
+    /// What a terminal's parser makes of `bytes`, as far as strings go: the
+    /// `OSC` strings it ended, in order, and whether it is back in its ground
+    /// state at the end.
+    ///
+    /// The string half of the VT500-series parser (Paul Williams' state
+    /// machine, `vt100.net/emu/dec_ansi_parser`): `ESC` from any state ends a
+    /// string and begins an escape, `CAN` and `SUB` abort a sequence
+    /// outright, and `BEL` ends an `OSC` as xterm's does. A model, not a
+    /// terminal -- it is what "the restore ends the string" claims, and no
+    /// more.
+    fn strings_ended(bytes: &[u8]) -> (Vec<Vec<u8>>, bool) {
+        #[derive(PartialEq)]
+        enum Parser {
+            Ground,
+            Escape,
+            Csi,
+            Osc,
+        }
+        let mut state = Parser::Ground;
+        let mut string = Vec::new();
+        let mut ended = Vec::new();
+        for &byte in bytes {
+            if byte == 0x18 || byte == 0x1a {
+                string.clear();
+                state = Parser::Ground;
+                continue;
+            }
+            state = match state {
+                Parser::Ground if byte == 0x1b => Parser::Escape,
+                Parser::Ground => Parser::Ground,
+                Parser::Escape => match byte {
+                    b']' => {
+                        string.clear();
+                        Parser::Osc
+                    }
+                    b'[' => Parser::Csi,
+                    0x1b => Parser::Escape,
+                    _ => Parser::Ground,
+                },
+                Parser::Csi if byte == 0x1b => Parser::Escape,
+                Parser::Csi if (0x40..=0x7e).contains(&byte) => Parser::Ground,
+                Parser::Csi => Parser::Csi,
+                Parser::Osc if byte == 0x1b => {
+                    ended.push(std::mem::take(&mut string));
+                    Parser::Escape
+                }
+                Parser::Osc if byte == 0x07 => {
+                    ended.push(std::mem::take(&mut string));
+                    Parser::Ground
+                }
+                Parser::Osc => {
+                    string.push(byte);
+                    Parser::Osc
+                }
+            };
+        }
+        (ended, state == Parser::Ground)
+    }
+
+    /// A screen that takes part of the first vector carrying a report -- up
+    /// to a few bytes into the report -- and everything else whole, keeping
+    /// what it was handed.
+    struct TearsReports {
+        armed: bool,
+        wire: Vec<u8>,
+    }
+
+    impl Sink for TearsReports {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            if self.armed {
+                if let Some(at) = bytes
+                    .windows(REPORT.len())
+                    .position(|window| window == REPORT)
+                {
+                    self.armed = false;
+                    let delivered = at + REPORT.len() + 3;
+                    self.wire.extend_from_slice(&bytes[..delivered]);
+                    return Err(Emit::Partial {
+                        delivered,
+                        cause: io::Error::new(io::ErrorKind::WriteZero, "torn"),
+                    });
+                }
+            }
+            self.wire.extend_from_slice(bytes);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_report_the_terminal_took_part_of_ends_the_session_and_the_restore_ends_the_string() {
+        // A report written on its own and torn leaves the terminal inside a
+        // string sequence. It ends the session, as every torn coordinate-free
+        // vector does (the `docs/parity.md` torn-write table), and the
+        // restore that follows opens with `ESC`: replayed through a parser,
+        // what the terminal took and then each restore end the torn string
+        // before any of the restore is read as its argument, the restore's
+        // own clear is a whole string of its own, and the parser ends in its
+        // ground state.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = TearsReports {
+            armed: true,
+            wire: Vec::new(),
+        };
+        let torn = commit_counted(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut FrameFailures::default(),
+            Instant::now(),
+            Reconciled,
+        );
+        assert!(torn.is_err(), "a torn report did not end the session");
+        assert!(out.wire.starts_with(REPORT), "{:?}", out.wire);
+        for restore in [
+            super::super::term::RESTORE,
+            super::super::term::RESTORE_TMUX,
+            super::super::term::ABNORMAL_RESTORE,
+            super::super::term::ABNORMAL_RESTORE_TMUX,
+        ] {
+            let mut replayed = out.wire.clone();
+            replayed.extend_from_slice(restore.as_bytes());
+            let (ended, ground) = strings_ended(&replayed);
+            assert!(ground, "{restore:?} left the parser inside a sequence");
+            let clear = &super::super::program_status::CLEAR.as_bytes()
+                [2..super::super::program_status::CLEAR.len() - 2];
+            assert_eq!(
+                ended
+                    .iter()
+                    .filter(|string| string.as_slice() == clear)
+                    .count(),
+                1,
+                "{restore:?}: the clear did not arrive as a string of its own: {ended:?}"
+            );
+            assert!(
+                ended
+                    .iter()
+                    .all(|string| !string.contains(&0x1b) && !holds(string, b"[?")),
+                "{restore:?}: a string took the restore's bytes as its argument: {ended:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_report_torn_in_the_lead_of_an_update_is_ended_by_the_cleanup_and_dropped() {
+        // A report riding the launch update's lead ([`commit_primary`]) and
+        // torn there is a tear ahead of the opener: no cell moved, so it is a
+        // recovered tear and not the session's end, and the cleanup vector
+        // opens with `CAN`, which aborts the string the terminal was left
+        // in. The report is gone, as upstream's failed write is.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = TearsReports {
+            armed: true,
+            wire: Vec::new(),
+        };
+        launch_title(&mut shell, &mut band);
+        commit_counted(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut FrameFailures::default(),
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("a tear in the lead is recovered");
+        assert!(
+            out.wire.starts_with(b"\x1b]2;"),
+            "the report did not ride the title's lead: {:?}",
+            String::from_utf8_lossy(&out.wire)
+        );
+        assert!(
+            holds(&out.wire, super::super::check::RECOVERY_CLEANUP.as_bytes()),
+            "no cleanup followed the tear: {:?}",
+            String::from_utf8_lossy(&out.wire)
+        );
+        let (ended, ground) = strings_ended(&out.wire);
+        assert!(ground, "the cleanup left the parser inside a sequence");
+        assert!(
+            ended
+                .iter()
+                .all(|string| !string.starts_with(b"7501;") && !string.contains(&0x18)),
+            "the torn report reached the terminal as a string: {ended:?}"
+        );
+        // Dropped: the next tick writes no report of the same state.
+        let before = out.wire.len();
+        commit_counted(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut FrameFailures::default(),
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the next tick");
+        assert!(
+            !holds(&out.wire[before..], REPORT),
+            "the torn report was offered again"
+        );
     }
 
     // -- a tool group's row drawn again through the diff's bracket ----------

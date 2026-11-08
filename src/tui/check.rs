@@ -654,6 +654,9 @@ pub(crate) struct TerminalModel {
     /// presented, where upstream shows it after (`terminal_diff.zig:643-644`).
     shown_in_update: bool,
     shown_title: Option<String>,
+    /// `OSC 2`s this vector wrote, whatever they said: a title written again
+    /// with the same text leaves [`Self::shown_title`] as it was.
+    titles: u16,
     /// `CSI 22 ; 2 t` pushes and `CSI 23 ; 2 t` pops.
     title_stack: u8,
     modes: ModeSet,
@@ -664,6 +667,11 @@ pub(crate) struct TerminalModel {
     /// rings nothing. A bell moves no cell and no caret, so without a count of
     /// its own it would be the one byte a frame could carry unnoticed.
     bells: u16,
+    /// The `OSC 7501` records this vector wrote, in order, as
+    /// [`program_status_command`] read them. Like a bell, a report moves no
+    /// cell and no caret, so without a record of its own it would be the one
+    /// sequence a frame could carry unnoticed.
+    statuses: Vec<StatusRecord>,
     /// What the last SGR left switched on, and therefore what the next cell is
     /// painted in.
     pen: Color,
@@ -749,11 +757,13 @@ impl TerminalModel {
             sync_resets: 0,
             shown_in_update: false,
             shown_title: None,
+            titles: 0,
             title_stack,
             modes,
             scrollback_erased: false,
             queries: Vec::new(),
             bells: 0,
+            statuses: Vec::new(),
             pen: Color::Default,
             link: None,
             effects: Vec::new(),
@@ -1044,10 +1054,17 @@ pub(crate) enum Intent<'a> {
         title_stack: u8,
         plane: PlaneKind,
         cursor_visible: Option<bool>,
+        /// Whether the vector clears the terminal's program status records
+        /// (`OSC 7501 ; state=clear`, [`super::program_status::CLEAR`]): every
+        /// restore does, and the mode set does not.
+        clears_status: bool,
     },
     /// The launch queries, **in order**: the fence only works if the terminal
     /// parses them in the order they were written.
     Queries(&'a [QueryId]),
+    /// One program status report ([`super::program_status`]), saying this
+    /// and nothing else: no cell, no caret, no mode.
+    ProgramStatus(super::program_status::State),
     /// `/sound`'s terminal bells, exactly this many and nothing else: no cell,
     /// no caret, no mode -- the byte a multiplexer marks a pane for, and the
     /// one every other intent declares none of.
@@ -1362,7 +1379,9 @@ pub(crate) fn preflight(
 ///
 /// Offsets into that vector, from the composer that built it: the window
 /// title, when the update carries one, is `bytes[..lead]`, ahead of the update
-/// as upstream writes it; the opener is `bytes[lead..opener]`, the parts are
+/// as upstream writes it -- or `bytes[..at]` when a program status report
+/// rides the lead after it, as `status` says, and the report is
+/// `bytes[at..lead]`; the opener is `bytes[lead..opener]`, the parts are
 /// `bytes[opener..closer]`, the closer is `bytes[closer..]`. They are claims
 /// about the vector, and [`preflight_update`] decodes each slice to hold the
 /// vector to them.
@@ -1372,6 +1391,11 @@ pub(crate) struct Update<'a> {
     /// The title the lead leaves the window with -- the title it writes, or
     /// the one the window had when there is no lead.
     pub(crate) title: Option<&'a str>,
+    /// Where the report that rides the lead begins, and what it says: one
+    /// report, after the title and nothing else (`super::event_loop`'s
+    /// `commit_tick`, for upstream's launch: `OSC 2`, then `idle`, then the
+    /// first `?2026h`).
+    pub(crate) status: Option<(usize, super::program_status::State)>,
     pub(crate) opener: usize,
     pub(crate) closer: usize,
     /// Whether the update ends with the caret shown: a band frame's caret, or
@@ -1402,7 +1426,12 @@ pub(crate) fn preflight_update(
     bytes: &[u8],
     update: Update<'_>,
 ) -> Result<(), Reject> {
-    if update.lead > update.opener || update.opener > update.closer || update.closer > bytes.len() {
+    let title_end = update.status.map_or(update.lead, |(at, _)| at);
+    if title_end > update.lead
+        || update.lead > update.opener
+        || update.opener > update.closer
+        || update.closer > bytes.len()
+    {
         return Err(Reject::new("an update whose parts are out of order", 0));
     }
     let mut model = seed.clone();
@@ -1413,15 +1442,43 @@ pub(crate) fn preflight_update(
     // The lead: a title and nothing else, outside the update -- no cell, no
     // caret, no cursor, no mode -- as upstream's title is a write between two
     // frames (`syncTerminalTitleWith`, `app_session_runtime.zig:3608-3629`).
+    // Then, when one rides it, exactly the one report declared, and nothing
+    // else either.
     let caret = model.caret;
     let cursor = model.cursor_visible;
-    apply(&mut model, &bytes[..update.lead], None)?;
+    apply(&mut model, &bytes[..title_end], None)?;
+    if let Some((_, state)) = update.status {
+        // After the title, and only after one: upstream's report follows a
+        // title that was already on its wire.
+        if title_end == 0 || model.shown_title.as_deref() != update.title {
+            return Err(Reject::new(
+                "a program status ahead of its title",
+                title_end,
+            ));
+        }
+        if !model.statuses.is_empty() {
+            return Err(Reject::new(
+                "an update led by something other than its title",
+                title_end,
+            ));
+        }
+        let titles = model.titles;
+        apply(&mut model, &bytes[title_end..update.lead], None)?;
+        if model.statuses != [StatusRecord::Reported(state)] || model.titles != titles {
+            return Err(Reject::new(
+                "a lead whose report is not the one declared",
+                update.lead,
+            ));
+        }
+        model.statuses.clear();
+    }
     if !model.effects.is_empty()
         || model.sync_sets != 0
         || model.sync_resets != 0
         || model.caret != caret
         || model.cursor_visible != cursor
         || model.bells != 0
+        || !model.statuses.is_empty()
         || !model.queries.is_empty()
     {
         return Err(Reject::new(
@@ -1625,6 +1682,7 @@ struct Metadata {
     queries: Vec<QueryId>,
     saved_cursor: Option<(u16, u16)>,
     bells: u16,
+    statuses: Vec<StatusRecord>,
 }
 
 impl Metadata {
@@ -1640,6 +1698,7 @@ impl Metadata {
             queries: model.queries.clone(),
             saved_cursor: model.saved_cursor,
             bells: model.bells,
+            statuses: model.statuses.clone(),
         }
     }
 
@@ -1680,6 +1739,13 @@ impl Metadata {
                 "a number of bells the vector did not declare"
             });
         }
+        if self.statuses != other.statuses {
+            return Some(if other.statuses.is_empty() {
+                "a program status this vector did not declare"
+            } else {
+                "a program status that is not the one declared"
+            });
+        }
         None
     }
 }
@@ -1704,6 +1770,7 @@ fn expected_metadata(seed: &TerminalModel, declared: &Declared<'_>) -> Metadata 
         queries: Vec::new(),
         saved_cursor,
         bells: 0,
+        statuses: Vec::new(),
     };
     match &declared.intent {
         Intent::Primary {
@@ -1729,10 +1796,16 @@ fn expected_metadata(seed: &TerminalModel, declared: &Declared<'_>) -> Metadata 
             title_stack,
             plane,
             cursor_visible,
+            clears_status,
         } => Metadata {
             plane: *plane,
             modes: *modes,
             title_stack: *title_stack,
+            statuses: if *clears_status {
+                vec![StatusRecord::Cleared]
+            } else {
+                Vec::new()
+            },
             // A pop hands the window title back to the terminal's own user, so
             // a declaration that pops is a declaration that the title this
             // session set is gone. Local to this vector: no claim is made about
@@ -1752,6 +1825,10 @@ fn expected_metadata(seed: &TerminalModel, declared: &Declared<'_>) -> Metadata 
         Intent::Cleanup { cursor_visible, .. } => unchanged(Some(*cursor_visible)),
         Intent::Bell { rings } => Metadata {
             bells: *rings,
+            ..unchanged(None)
+        },
+        Intent::ProgramStatus(state) => Metadata {
+            statuses: vec![StatusRecord::Reported(*state)],
             ..unchanged(None)
         },
     }
@@ -1801,7 +1878,10 @@ fn check_cells(
             expect_blank(model.screen_ref(), 1, at)?;
             expect_caret(model, (1, 1), at)
         }
-        Intent::Modes { .. } | Intent::Queries(_) | Intent::Bell { .. } => {
+        Intent::Modes { .. }
+        | Intent::Queries(_)
+        | Intent::Bell { .. }
+        | Intent::ProgramStatus(_) => {
             if !model.effects.is_empty() {
                 return Err(Reject::new(
                     "a vector that moved a cell it did not declare",
@@ -2652,7 +2732,8 @@ fn private_mode(
     Ok(())
 }
 
-/// `OSC 2`, the background query and an `OSC 8` hyperlink, and nothing else.
+/// `OSC 2`, the background query, an `OSC 8` hyperlink and an `OSC 7501`
+/// program status, and nothing else.
 fn operating_system_command(
     model: &mut TerminalModel,
     bytes: &[u8],
@@ -2687,6 +2768,7 @@ fn operating_system_command(
             return Err(Reject::new("a title carrying a control character", at));
         }
         model.shown_title = Some(title.to_string());
+        model.titles = model.titles.saturating_add(1);
     } else if body == "11;?" {
         if terminator != 2 {
             return Err(Reject::new(
@@ -2695,6 +2777,14 @@ fn operating_system_command(
             ));
         }
         model.queries.push(QueryId::Background);
+    } else if let Some(report) = body.strip_prefix("7501;") {
+        if terminator != 2 {
+            return Err(Reject::new(
+                "a program status this crate does not spell that way",
+                at,
+            ));
+        }
+        model.statuses.push(program_status_command(report, at)?);
     } else if let Some(link) = body.strip_prefix("8;") {
         // Upstream's spelling only (`engine.zig:3262-3272`): the `BEL` form
         // is the recovery cleanup's, which has an entry point of its own and
@@ -2710,6 +2800,138 @@ fn operating_system_command(
         return Err(Reject::new("a string sequence outside the alphabet", at));
     }
     Ok(end + terminator - at)
+}
+
+/// What one `OSC 7501` on the wire did to the terminal's program status
+/// records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StatusRecord {
+    /// `state=clear`: every record gone.
+    Cleared,
+    /// A report, saying this.
+    Reported(super::program_status::State),
+}
+
+/// The record an `OSC 7501` on the wire writes, from the body after its
+/// `7501;`.
+///
+/// **A parser of its own**, for [`wire_link`]'s reason: the reporter's
+/// encoder is what is being checked, and asking it to read its own output
+/// back would agree with whatever it wrote. So the shapes are restated here
+/// from upstream's (`program_status.zig:18-28`, `:143-162`), and only the
+/// bound is shared:
+///
+/// * `state=clear`, alone;
+/// * `state=idle|working|done|error:app=xfx`;
+/// * `state=blocked:kind=permission|question:app=xfx`, optionally followed by
+///   `:msg=` and standard base64 with its padding, in its one canonical
+///   spelling (the bits padding leaves over are zero) -- no longer than
+///   [`super::program_status::MAX_ENCODED_MESSAGE`] characters, decoding to at
+///   most [`super::program_status::MAX_MESSAGE_BYTES`] bytes of UTF-8 with no
+///   control character in it.
+///
+/// The message is the one place foreign text reaches this sequence, and the
+/// rule is the security claim the reporter makes: whatever a label or a
+/// question held, what the terminal is handed is the base64 alphabet, and
+/// what it decodes to is one line it can show.
+fn program_status_command(body: &str, at: usize) -> Result<StatusRecord, Reject> {
+    use super::program_status::State;
+    let refused = |rule: &'static str| Reject::new(rule, at);
+    let Some(rest) = body.strip_prefix("state=") else {
+        return Err(refused("a program status with no state"));
+    };
+    if rest == "clear" {
+        return Ok(StatusRecord::Cleared);
+    }
+    let (state, rest) = [
+        ("idle", State::Idle),
+        ("working", State::Working),
+        ("done", State::Done),
+        ("error", State::Error),
+        ("blocked:kind=permission", State::Permission),
+        ("blocked:kind=question", State::Question),
+    ]
+    .into_iter()
+    .find_map(|(word, state)| {
+        rest.strip_prefix(word)
+            .and_then(|rest| rest.strip_prefix(":app="))
+            .and_then(|rest| rest.strip_prefix(super::program_status::APP))
+            .map(|rest| (state, rest))
+    })
+    .ok_or_else(|| refused("a program status this crate does not write"))?;
+    if rest.is_empty() {
+        return Ok(StatusRecord::Reported(state));
+    }
+    let Some(encoded) = rest.strip_prefix(":msg=") else {
+        return Err(refused("a program status this crate does not write"));
+    };
+    if !matches!(state, State::Permission | State::Question) {
+        return Err(refused("a message on a program status that carries none"));
+    }
+    if encoded.is_empty() || encoded.len() > super::program_status::MAX_ENCODED_MESSAGE {
+        return Err(refused("a program status message outside its bound"));
+    }
+    let message = wire_base64(encoded)
+        .ok_or_else(|| refused("a program status message that is not base64"))?;
+    if message.len() > super::program_status::MAX_MESSAGE_BYTES {
+        return Err(refused("a program status message outside its bound"));
+    }
+    let message = String::from_utf8(message)
+        .map_err(|_| refused("a program status message that is not text"))?;
+    if message.chars().any(char::is_control) {
+        return Err(refused(
+            "a program status message carrying a control character",
+        ));
+    }
+    Ok(StatusRecord::Reported(state))
+}
+
+/// Standard base64 with its padding (RFC 4648 §4), strictly: whole quads, the
+/// alphabet and nothing else, `=` only at the end and at most two of it, and
+/// the bits the padding leaves over zero (§3.5's canonical encoding: `YQ==`
+/// and never `YR==`). `None` for anything else.
+fn wire_base64(encoded: &str) -> Option<Vec<u8>> {
+    let bytes = encoded.as_bytes();
+    if !bytes.len().is_multiple_of(4) {
+        return None;
+    }
+    let pad = bytes.iter().rev().take_while(|byte| **byte == b'=').count();
+    if pad > 2 {
+        return None;
+    }
+    let value = |byte: u8| -> Option<u32> {
+        Some(match byte {
+            b'A'..=b'Z' => u32::from(byte - b'A'),
+            b'a'..=b'z' => u32::from(byte - b'a') + 26,
+            b'0'..=b'9' => u32::from(byte - b'0') + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        })
+    };
+    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
+    let body = bytes.len() - pad;
+    for (n, chunk) in bytes.chunks(4).enumerate() {
+        let mut quad = 0u32;
+        for (k, byte) in chunk.iter().enumerate() {
+            let digit = if n * 4 + k >= body { 0 } else { value(*byte)? };
+            quad = (quad << 6) | digit;
+        }
+        let last = n * 4 + 4 > body;
+        // What the padding leaves over: the low 4 bits of a quad that carries
+        // one byte, the low 2 of one that carries two.
+        let leftover = match (last, pad) {
+            (true, 2) => quad & 0xffff,
+            (true, 1) => quad & 0xff,
+            _ => 0,
+        };
+        if leftover != 0 {
+            return None;
+        }
+        let three = [(quad >> 16) as u8, (quad >> 8) as u8, quad as u8];
+        out.extend_from_slice(&three[..if last { 3 - pad } else { 3 }]);
+    }
+    Some(out)
 }
 
 /// The link an `OSC 8` on the wire leaves open -- `None` for a close -- from
@@ -3041,6 +3263,7 @@ mod tests {
             Update {
                 lead: 0,
                 title: None,
+                status: None,
                 opener,
                 closer: closer_at,
                 cursor_visible: closer.contains("?25h"),
@@ -3113,6 +3336,84 @@ mod tests {
     }
 
     #[test]
+    fn a_lead_admits_one_declared_report_after_its_title_and_nothing_else() {
+        // Upstream's launch: `OSC 2`, then `idle`, then the first `?2026h`
+        // (`osc/w00-start`) -- the report `super::event_loop::commit_tick`
+        // puts in the lead after a title the band already owed.
+        use super::super::program_status::State;
+        const TITLE: &str = "\u{1b}]2;a title\u{7}";
+        const IDLE: &str = "\u{1b}]7501;state=idle:app=xfx\u{1b}\\";
+        let riding = |lead: &str, at: usize, state: State| {
+            let (bytes, mut shape) = led(lead, Some("a title"));
+            shape.status = Some((at, state));
+            (bytes, shape)
+        };
+        let (bytes, shape) = riding(&format!("{TITLE}{IDLE}"), TITLE.len(), State::Idle);
+        preflight_update(&update_seed(), &bytes, shape).expect("the title, then its report");
+        for (lead, at, state, shape_name) in [
+            (
+                format!("{IDLE}{TITLE}"),
+                IDLE.len(),
+                State::Idle,
+                "a program status ahead of its title",
+            ),
+            (
+                IDLE.to_string(),
+                0,
+                State::Idle,
+                "a program status ahead of its title",
+            ),
+            (
+                format!("{TITLE}{IDLE}"),
+                TITLE.len(),
+                State::Working,
+                "a lead whose report is not the one declared",
+            ),
+            (
+                format!("{TITLE}{IDLE}{IDLE}"),
+                TITLE.len(),
+                State::Idle,
+                "a lead whose report is not the one declared",
+            ),
+            (
+                format!("{TITLE}{IDLE}\u{1b}]2;another\u{7}"),
+                TITLE.len(),
+                State::Idle,
+                "a lead whose report is not the one declared",
+            ),
+            (
+                format!("{TITLE}{IDLE}{TITLE}"),
+                TITLE.len(),
+                State::Idle,
+                "a lead whose report is not the one declared",
+            ),
+            (
+                format!("{TITLE}{IDLE}\u{1b}[?25h"),
+                TITLE.len(),
+                State::Idle,
+                "an update led by something other than its title",
+            ),
+            (
+                format!("{TITLE}\u{1b}]7501;state=clear\u{1b}\\"),
+                TITLE.len(),
+                State::Idle,
+                "a lead whose report is not the one declared",
+            ),
+        ] {
+            let (bytes, shape) = riding(&lead, at, state);
+            let reject = preflight_update(&update_seed(), &bytes, shape).expect_err(shape_name);
+            assert_eq!(reject.shape(), shape_name, "{lead:?}");
+        }
+        // And a report nobody declared is still a lead that is not a title.
+        let (bytes, shape) = led(&format!("{TITLE}{IDLE}"), Some("a title"));
+        let reject = preflight_update(&update_seed(), &bytes, shape).expect_err("undeclared");
+        assert_eq!(
+            reject.shape(),
+            "an update led by something other than its title"
+        );
+    }
+
+    #[test]
     fn an_update_that_does_not_bracket_all_of_its_parts_is_refused() {
         let shown = "\u{1b}[?2026l\u{1b}[?25h";
         for (document, band, closer, shape) in [
@@ -3176,6 +3477,7 @@ mod tests {
             Update {
                 lead: 0,
                 title: None,
+                status: None,
                 opener,
                 closer,
                 cursor_visible: true,
@@ -3703,6 +4005,7 @@ mod tests {
                     title_stack: 1,
                     plane: PlaneKind::Primary,
                     cursor_visible: None,
+                    clears_status: false,
                 },
                 Footprint::none(PlaneKind::Primary),
             ),
@@ -3750,6 +4053,7 @@ mod tests {
                     title_stack: 0,
                     plane: PlaneKind::Primary,
                     cursor_visible: Some(true),
+                    clears_status: false,
                 },
                 Footprint::none(PlaneKind::Primary),
             ),
@@ -3766,6 +4070,7 @@ mod tests {
                     title_stack: 0,
                     plane: PlaneKind::Primary,
                     cursor_visible: Some(true),
+                    clears_status: false,
                 },
                 Footprint::none(PlaneKind::Primary),
             ),
@@ -3979,6 +4284,7 @@ mod tests {
             let shape = Update {
                 lead: 0,
                 title: None,
+                status: None,
                 opener,
                 closer,
                 cursor_visible: true,
@@ -4607,6 +4913,209 @@ mod tests {
         let mut model = seed.clone();
         apply(&mut model, b"\x1b]2;a title\x07", None).expect("a title");
         assert_eq!(model.bells, 0, "a title's terminator was counted as a bell");
+    }
+
+    #[test]
+    fn a_program_status_is_in_the_alphabet_only_where_it_is_declared() {
+        use super::super::program_status::State;
+        let seed = TerminalModel::seed_modes(1, 1, ModeSet::fresh(), 0, PlaneKind::Primary);
+        let status = |state| {
+            Declared::new(
+                Intent::ProgramStatus(state),
+                Footprint::none(PlaneKind::Primary),
+            )
+        };
+        preflight(
+            &seed,
+            b"\x1b]7501;state=idle:app=xfx\x1b\\",
+            &status(State::Idle),
+        )
+        .expect("the declared report");
+        preflight(
+            &seed,
+            b"\x1b]7501;state=blocked:kind=question:app=xfx:msg=V2hpY2ggYnJhbmNoPw==\x1b\\",
+            &status(State::Question),
+        )
+        .expect("a question, its text encoded");
+        assert_eq!(
+            preflight(
+                &seed,
+                b"\x1b]7501;state=done:app=xfx\x1b\\",
+                &status(State::Error)
+            )
+            .expect_err("a report saying something else")
+            .shape(),
+            "a program status that is not the one declared"
+        );
+        // Nowhere else: a bell, a query and a frame's lead declare none.
+        let bell = Declared::new(
+            Intent::Bell { rings: 1 },
+            Footprint::none(PlaneKind::Primary),
+        );
+        assert_eq!(
+            preflight(&seed, b"\x07\x1b]7501;state=working:app=xfx\x1b\\", &bell)
+                .expect_err("a bell carrying a report")
+                .shape(),
+            "a program status this vector did not declare"
+        );
+    }
+
+    #[test]
+    fn a_program_status_reaches_the_terminal_only_in_the_shapes_this_crate_writes() {
+        // The wire's own rules, restated here rather than asked of the
+        // encoder: the `ST` terminator, the state alphabet, `app=xfx`, and a
+        // message that is base64 decoding to one line of text. Each of these
+        // is a way foreign text could reach the terminal as itself, or a
+        // record this crate never writes.
+        use super::super::program_status::State;
+        let seed = TerminalModel::seed_modes(1, 1, ModeSet::fresh(), 0, PlaneKind::Primary);
+        let permission = Declared::new(
+            Intent::ProgramStatus(State::Permission),
+            Footprint::none(PlaneKind::Primary),
+        );
+        for (bytes, shape) in [
+            (
+                &b"\x1b]7501;state=blocked:kind=permission:app=xfx\x07"[..],
+                "a program status this crate does not spell that way",
+            ),
+            (
+                b"\x1b]7501;state=blocked:kind=permission:app=fx\x1b\\",
+                "a program status this crate does not write",
+            ),
+            (
+                b"\x1b]7501;state=blocked:kind=other:app=xfx\x1b\\",
+                "a program status this crate does not write",
+            ),
+            (b"\x1b]7501;app=xfx\x1b\\", "a program status with no state"),
+            // The raw text, where its encoding should be.
+            (
+                b"\x1b]7501;state=blocked:kind=permission:app=xfx:msg=rm -rf\x1b\\",
+                "a program status message that is not base64",
+            ),
+            (
+                b"\x1b]7501;state=blocked:kind=permission:app=xfx:msg=YQ\x1b\\",
+                "a program status message that is not base64",
+            ),
+            (
+                b"\x1b]7501;state=blocked:kind=permission:app=xfx:msg=Y===\x1b\\",
+                "a program status message that is not base64",
+            ),
+            (
+                b"\x1b]7501;state=blocked:kind=permission:app=xfx:msg=\x1b\\",
+                "a program status message outside its bound",
+            ),
+            // `a<ESC>b`, encoded: base64, and a control once decoded.
+            (
+                b"\x1b]7501;state=blocked:kind=permission:app=xfx:msg=YRti\x1b\\",
+                "a program status message carrying a control character",
+            ),
+            // U+202E alone is not a control; U+009B is.
+            (
+                b"\x1b]7501;state=blocked:kind=permission:app=xfx:msg=wps=\x1b\\",
+                "a program status message carrying a control character",
+            ),
+            // Non-canonical: the bits `YR==` leaves over are not zero, and it
+            // would decode to the same `a` as `YQ==`.
+            (
+                b"\x1b]7501;state=blocked:kind=permission:app=xfx:msg=YR==\x1b\\",
+                "a program status message that is not base64",
+            ),
+            (
+                b"\x1b]7501;state=blocked:kind=permission:app=xfx:msg=YWJ=\x1b\\",
+                "a program status message that is not base64",
+            ),
+            (
+                b"\x1b]7501;state=blocked:kind=permission:app=xfx:msg=/w==\x1b\\",
+                "a program status message that is not text",
+            ),
+        ] {
+            assert_eq!(
+                preflight(&seed, bytes, &permission)
+                    .expect_err("a shape this crate does not write")
+                    .shape(),
+                shape,
+                "{:?}",
+                String::from_utf8_lossy(bytes)
+            );
+        }
+        let idle = Declared::new(
+            Intent::ProgramStatus(State::Idle),
+            Footprint::none(PlaneKind::Primary),
+        );
+        assert_eq!(
+            preflight(&seed, b"\x1b]7501;state=idle:app=xfx:msg=YQ==\x1b\\", &idle)
+                .expect_err("a message where none is carried")
+                .shape(),
+            "a message on a program status that carries none"
+        );
+        let long = format!(
+            "\x1b]7501;state=blocked:kind=permission:app=xfx:msg={}\x1b\\",
+            "QUFB".repeat(87)
+        );
+        assert_eq!(
+            preflight(&seed, long.as_bytes(), &permission)
+                .expect_err("past the bound")
+                .shape(),
+            "a program status message outside its bound"
+        );
+        // Inside the encoded bound and past the decoded one: 344 characters
+        // are 258 bytes, and the message is at most 256.
+        let decoded_long = format!(
+            "\x1b]7501;state=blocked:kind=permission:app=xfx:msg={}\x1b\\",
+            "QUFB".repeat(86)
+        );
+        assert_eq!(
+            preflight(&seed, decoded_long.as_bytes(), &permission)
+                .expect_err("past the decoded bound")
+                .shape(),
+            "a program status message outside its bound"
+        );
+        // And a message at the bound, the longest the encoder writes, is
+        // admitted.
+        let largest = format!(
+            "\x1b]7501;state=blocked:kind=permission:app=xfx:msg={}\x1b\\",
+            crate::image::base64(&[b'a'; 256])
+        );
+        preflight(&seed, largest.as_bytes(), &permission).expect("256 bytes, its bound");
+        // A bidi override is text: kept, inside the encoding.
+        preflight(
+            &seed,
+            b"\x1b]7501;state=blocked:kind=permission:app=xfx:msg=4oCuZXZpbA==\x1b\\",
+            &permission,
+        )
+        .expect("U+202E then `evil`, encoded");
+    }
+
+    #[test]
+    fn a_restore_that_lost_its_program_status_clear_is_refused() {
+        let model =
+            TerminalModel::seed_modes(1, 1, ModeSet::announced(false), 1, PlaneKind::Primary);
+        let declared = Declared::new(
+            Intent::Modes {
+                modes: ModeSet::restored(false),
+                title_stack: 0,
+                plane: PlaneKind::Primary,
+                cursor_visible: Some(true),
+                clears_status: true,
+            },
+            Footprint::none(PlaneKind::Primary),
+        );
+        preflight(
+            &model,
+            b"\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b]7501;state=clear\x1b\\\x1b[?2031l\x1b[?7h\x1b[?25h",
+            &declared,
+        )
+        .expect("the restore");
+        assert_eq!(
+            preflight(
+                &model,
+                b"\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h",
+                &declared,
+            )
+            .expect_err("a restore with no clear")
+            .shape(),
+            "a program status that is not the one declared"
+        );
     }
 
     #[test]

@@ -288,6 +288,14 @@ fn the_shell_streams_an_answer_to_a_unicode_prompt_through_the_ordinary_turn_pat
 
     assert_eq!(session.quit().code(), Some(0));
     assert_eq!(sandbox.session_ids().len(), 1, "the turn was recorded once");
+    // The line shell tells the terminal nothing about what it is doing:
+    // upstream's program status reports (`OSC 7501`) come from its
+    // interactive shell alone, and this one ran a whole turn without one.
+    let text = session.settled_text();
+    assert!(
+        !text.contains("\u{1b}]7501;"),
+        "the line shell wrote a program status: {text:?}"
+    );
 }
 
 #[test]

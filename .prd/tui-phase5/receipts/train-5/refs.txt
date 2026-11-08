@@ -1,0 +1,138 @@
+# head 7d91f833; sides: main 884497c0, FLAKE-COPYEND 0b432f9a, L-U1+U2 e636db48
+docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:802]
+    main* = row | FLAKE-COPYEND* = row | L-U1+U2* = row
+docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:196]
+    main* = row | FLAKE-COPYEND* = row | L-U1+U2* = row
+docs/parity.md:96	[scripts/fxcap/parity-ledger.toml:307]
+    main* = row | FLAKE-COPYEND* = row | L-U1+U2* = row
+docs/parity.md:99	[scripts/fxcap/parity-ledger.toml:432]
+    main* = row | FLAKE-COPYEND* = row | L-U1+U2* = row
+docs/parity.md:107	[scripts/fxcap/parity-ledger.toml:123]
+    main* = row | FLAKE-COPYEND* = row | L-U1+U2* = row
+docs/parity.md:109	[scripts/fxcap/parity-ledger.toml:827]
+    main* = row | FLAKE-COPYEND* = row | L-U1+U2* = row
+docs/parity.md:113	[scripts/fxcap/parity-ledger.toml:349]
+    main* = row | FLAKE-COPYEND* = row | L-U1+U2* = row
+docs/parity.md:115	[scripts/fxcap/parity-ledger.toml:70, scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:236, scripts/fxcap/parity-ledger.toml:267, scripts/fxcap/parity-ledger.toml:280, scripts/fxcap/parity-ledger.toml:294, scripts/fxcap/parity-ledger.toml:321, scripts/fxcap/parity-ledger.toml:335, scripts/fxcap/parity-ledger.toml:418]
+    main* = row | FLAKE-COPYEND* = row | L-U1+U2* = row
+docs/parity.md:118	[scripts/fxcap/parity-ledger.toml:61]
+    main* = row | FLAKE-COPYEND* = row | L-U1+U2* = row
+docs/parity.md:120	[scripts/fxcap/parity-ledger.toml:182, scripts/fxcap/parity-ledger.toml:335]
+    main* = row | FLAKE-COPYEND* = row | L-U1+U2* = row
+docs/parity.md:158	[scripts/fxcap/parity-ledger.toml:518, scripts/fxcap/parity-ledger.toml:529]
+    main* = row | FLAKE-COPYEND* = row | L-U1+U2* = row
+docs/parity.md:160	[scripts/fxcap/parity-ledger.toml:713]
+    main* = row | FLAKE-COPYEND* = row | L-U1+U2* = row
+docs/parity.md:172	[scripts/fxcap/parity-ledger.toml:791]
+    main* = row | FLAKE-COPYEND* = row | L-U1+U2* = row
+docs/parity.md:177	[scripts/fxcap/parity-ledger.toml:687]
+    main* = row | FLAKE-COPYEND* = row | L-U1+U2* = row
+docs/parity.md:210	[scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:321]
+    main* = row | FLAKE-COPYEND* = row | L-U1+U2* = row
+docs/parity.md:216	[scripts/fxcap/parity-ledger.toml:659]
+    main* = row | FLAKE-COPYEND* = row | L-U1+U2* = row
+docs/parity.md:237	[scripts/fxcap/parity-ledger.toml:450]
+    main* = row | FLAKE-COPYEND* = row | L-U1+U2* = row
+docs/parity.md:238	[scripts/fxcap/parity-ledger.toml:139, scripts/fxcap/parity-ledger.toml:363, scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:387, scripts/fxcap/parity-ledger.toml:391, scripts/fxcap/parity-ledger.toml:405, scripts/fxcap/parity-ledger.toml:463, scripts/fxcap/parity-ledger.toml:725]
+    main* = row | FLAKE-COPYEND* = row | L-U1+U2* = row
+docs/parity.md:241	[scripts/fxcap/parity-ledger.toml:250]
+    main* -> 243 MOVED | FLAKE-COPYEND* changed MOVED | L-U1+U2* = row
+scripts/check-xfx-identity.sh:5	[docs/parity.md:241]
+    main = | FLAKE-COPYEND = | L-U1+U2* =
+scripts/fxcap/capture.sh:291-293	[scripts/fxcap/parity-ledger.toml:85]
+    main* = | FLAKE-COPYEND -> 321-323 | L-U1+U2 -> 321-323
+scripts/fxcap/capture.sh:462	[scripts/fxcap/parity-ledger.toml:78]
+    main* = | FLAKE-COPYEND -> 499 | L-U1+U2 -> 499
+scripts/fxcap/capture.sh:878	[scripts/fxcap/parity-ledger.toml:147]
+    main* = | FLAKE-COPYEND -> 973 | L-U1+U2 -> 973
+scripts/fxcap/cells.py:12-14	[scripts/fxcap/parity-ledger.toml:53]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/agent/machine.rs:78-85	[docs/parity.md:237]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/config/schema.rs:545-550	[docs/parity.md:93]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/gateway/mod.rs:59	[scripts/fxcap/parity-ledger.toml:608, docs/parity.md:237]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/gateway/mod.rs:994-995	[docs/parity.md:237]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/image.rs:101	[scripts/fxcap/parity-ledger.toml:687]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/markdown/theme.rs:49	[scripts/fxcap/parity-ledger.toml:250]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/markdown/theme.rs:69	[scripts/fxcap/parity-ledger.toml:250]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/mcp/transport.rs:1318-1320	[docs/parity.md:221]
+    main* = | FLAKE-COPYEND changed | L-U1+U2 changed
+src/permission/authority.rs:38-41	[scripts/fxcap/parity-ledger.toml:780]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/permission/authority.rs:737	[scripts/fxcap/parity-ledger.toml:450]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/permission/authority.rs:1145-1149	[scripts/fxcap/parity-ledger.toml:780]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/permission/slash.rs:466	[scripts/fxcap/parity-ledger.toml:711]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/provider/mod.rs:116	[scripts/fxcap/parity-ledger.toml:699]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/proxy/server.rs:1583-1613	[docs/parity.md:114]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/session/store.rs:74	[docs/parity.md:48]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/session/store.rs:1000	[scripts/fxcap/parity-ledger.toml:617]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/sound.rs:37	[scripts/fxcap/parity-ledger.toml:825]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/tools/mcp.rs:422-428	[scripts/fxcap/parity-ledger.toml:956, docs/parity.md:176]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/tools/mutate.rs:437-442	[scripts/fxcap/parity-ledger.toml:527, docs/parity.md:158]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/tools/question.rs:57-73	[docs/parity.md:242]
+    main = | FLAKE-COPYEND = | L-U1+U2* =
+src/tools/read.rs:1162	[scripts/fxcap/parity-ledger.toml:527, docs/parity.md:158]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/tools/spec.rs:214	[scripts/fxcap/parity-ledger.toml:782]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/tui/approval_view.rs:106	[scripts/fxcap/parity-ledger.toml:837]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/tui/approval_view.rs:685	[scripts/fxcap/parity-ledger.toml:711, scripts/fxcap/parity-ledger.toml:734, scripts/fxcap/parity-ledger.toml:746, scripts/fxcap/parity-ledger.toml:757, scripts/fxcap/parity-ledger.toml:768, scripts/fxcap/parity-ledger.toml:813]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/tui/approval_view.rs:971-976	[scripts/fxcap/parity-ledger.toml:463]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/tui/drawn_wider.rs:50-67	[scripts/fxcap/parity-ledger.toml:495]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/tui/full_transcript.rs:492	[scripts/fxcap/parity-ledger.toml:363]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/tui/layout.rs:91	[scripts/fxcap/parity-ledger.toml:860, scripts/fxcap/parity-ledger.toml:873]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/tui/mcp_menu.rs:1500	[scripts/fxcap/parity-ledger.toml:432]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/tui/mod.rs:127-133	[scripts/fxcap/parity-ledger.toml:965]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/tui/retry.rs:369-381	[docs/parity.md:237]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/tui/settings.rs:361	[scripts/fxcap/parity-ledger.toml:825]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/tui/shell.rs:184	[scripts/fxcap/parity-ledger.toml:44, scripts/fxcap/parity-ledger.toml:45]
+    main* -> 185 MOVED | FLAKE-COPYEND* -> 185 MOVED | L-U1+U2* =
+src/tui/shell.rs:1583	[scripts/fxcap/parity-ledger.toml:849]
+    main* -> 1644 MOVED | FLAKE-COPYEND* -> 1644 MOVED | L-U1+U2* =
+src/tui/shell.rs:12272	[scripts/fxcap/parity-ledger.toml:507]
+    main* -> 12600 MOVED | FLAKE-COPYEND -> 12597 | L-U1+U2 -> 12269
+src/tui/shell.rs:37424	[scripts/fxcap/parity-ledger.toml:723, scripts/fxcap/parity-ledger.toml:734, scripts/fxcap/parity-ledger.toml:746, scripts/fxcap/parity-ledger.toml:757, scripts/fxcap/parity-ledger.toml:813]
+    main* -> 37758 MOVED | FLAKE-COPYEND -> 37724 | L-U1+U2 changed
+src/tui/toolgroup.rs:710	[scripts/fxcap/parity-ledger.toml:539]
+    main* = | FLAKE-COPYEND -> 709 | L-U1+U2 -> 709
+src/tui/toolgroup.rs:749	[scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:768]
+    main* = | FLAKE-COPYEND -> 748 | L-U1+U2 -> 748
+src/tui/toolgroup.rs:797	[scripts/fxcap/parity-ledger.toml:391]
+    main* = | FLAKE-COPYEND -> 796 | L-U1+U2 -> 796
+src/tui/toolgroup.rs:911	[scripts/fxcap/parity-ledger.toml:405]
+    main* = | FLAKE-COPYEND -> 910 | L-U1+U2 -> 910
+src/tui/usage_menu.rs:790	[scripts/fxcap/parity-ledger.toml:349]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+src/tui/wrap.rs:622	[scripts/fxcap/parity-ledger.toml:477]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+tests/e2e/file-tool-paths.test.ts:1170-1179	[docs/parity.md:218]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+tests/tla/session_manager/system-design.md:1536-1560	[docs/parity.md:92]
+    main* = | FLAKE-COPYEND* = | L-U1+U2* =
+# 68 references; 8 (side, reference) pairs MOVED; * = the side's own text cites it

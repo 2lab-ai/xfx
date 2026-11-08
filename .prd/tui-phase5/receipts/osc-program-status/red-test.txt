@@ -1,0 +1,13 @@
+test an_ask_on_a_terminal_reports_no_program_status ... ok
+test zero_is_the_line_shell ... ok
+test the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out ... FAILED
+test a_normal_exit_gives_the_terminal_back_byte_for_byte ... FAILED
+test sigtstp_really_stops_the_process_with_the_terminal_given_back ... FAILED
+test sigterm_restores_the_line_discipline_and_dies_by_the_signal ... FAILED
+test sighup_restores_the_line_discipline_and_dies_by_the_signal ... FAILED
+thread 'the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out' (279321050) panicked at tests/tui.rs:820:39:
+thread 'a_normal_exit_gives_the_terminal_back_byte_for_byte' (279321045) panicked at tests/tui.rs:741:5:
+thread 'sigtstp_really_stops_the_process_with_the_terminal_given_back' (279321049) panicked at tests/support/pty.rs:367:13:
+thread 'sigterm_restores_the_line_discipline_and_dies_by_the_signal' (279321048) panicked at tests/support/pty.rs:367:13:
+thread 'sighup_restores_the_line_discipline_and_dies_by_the_signal' (279321047) panicked at tests/support/pty.rs:367:13:
+test result: FAILED. 2 passed; 5 failed; 0 ignored; 0 measured; 170 filtered out; finished in 25.49s

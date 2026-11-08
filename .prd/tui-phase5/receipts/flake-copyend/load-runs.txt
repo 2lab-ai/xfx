@@ -1,0 +1,86 @@
+# runs.sh <lib test binary> <test> <n>: the test alone, --test-threads 1, one run after another; the binary built at e51685d6 (the base) unless a section says head (042908ae).
+## base, no added load
+run 1 pass load=11.39
+run 2 pass load=10.95
+run 3 pass load=10.48
+run 4 pass load=9.88
+run 5 pass load=9.49
+total: 5 passed, 0 failed of 5
+## base, taskpolicy -b, 54 busy loops, machine load ~100 with other work (stopped after 3 runs)
+run 1 FAIL load=103.86: thread 'tui::copy::tests::an_ending_session_lets_a_copy_that_answers_land' panicked at src/tui/copy.rs:201:13: 
+run 2 FAIL load=98.98: thread 'tui::copy::tests::an_ending_session_lets_a_copy_that_answers_land' panicked at src/tui/copy.rs:201:13: 
+run 3 FAIL load=99.09: thread 'tui::copy::tests::an_ending_session_lets_a_copy_that_answers_land' panicked at src/tui/copy.rs:248:9: assertion `left == right` failed   left: Some([97, 32, 102, 105, 114, 115, 116, 32, 114, 101, 112, 108, 121]) 
+## base, taskpolicy -b alone, ambient load 64-80
+run 1 pass load=79.50
+run 2 pass load=74.49
+run 3 pass load=74.49
+run 4 pass load=68.77
+run 5 pass load=68.77
+run 6 pass load=68.77
+run 7 pass load=64.30
+run 8 pass load=64.30
+run 9 pass load=64.30
+run 10 pass load=64.30
+total: 10 passed, 0 failed of 10
+## base, taskpolicy -b, 18 busy loops
+run 1 pass load=53.34
+run 2 pass load=53.34
+run 3 pass load=53.34
+run 4 pass load=53.34
+run 5 pass load=52.27
+run 6 pass load=52.27
+run 7 pass load=52.27
+run 8 pass load=51.37
+run 9 pass load=51.37
+run 10 pass load=51.37
+total: 10 passed, 0 failed of 10
+## base, taskpolicy -b, 36 busy loops
+run 1 pass load=50.88
+run 2 pass load=50.88
+run 3 pass load=50.88
+run 4 pass load=51.45
+run 5 pass load=51.45
+run 6 pass load=51.45
+run 7 pass load=51.45
+run 8 pass load=52.06
+run 9 pass load=52.06
+run 10 pass load=52.06
+total: 10 passed, 0 failed of 10
+## base, no taskpolicy, 54 busy loops, 20 runs
+run 1 pass load=22.12
+run 2 pass load=22.12
+run 3 pass load=22.12
+run 4 pass load=22.12
+run 5 pass load=22.12
+run 6 pass load=29.88
+run 7 pass load=29.88
+run 8 pass load=29.88
+run 9 pass load=29.88
+run 10 pass load=29.88
+run 11 pass load=35.33
+run 12 pass load=35.33
+run 13 pass load=35.33
+run 14 pass load=35.33
+run 15 pass load=35.33
+run 16 pass load=35.33
+run 17 pass load=40.99
+run 18 pass load=40.99
+run 19 pass load=40.99
+run 20 pass load=40.99
+total: 20 passed, 0 failed of 20
+## base, the copy tests' neighbours (clipboard::, tui::copy::, tui::trace::) in one process, 54 busy loops
+run 1 pass load=78.14 (test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 4225 filtered out; other failures: 0)
+run 2 pass load=79.01 (test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 4225 filtered out; other failures: 0)
+run 3 pass load=85.08 (test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 4225 filtered out; other failures: 0)
+run 4 pass load=86.35 (test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 4225 filtered out; other failures: 0)
+run 5 pass load=89.29 (test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 4225 filtered out; other failures: 0)
+run 6 pass load=92.55 (test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 4225 filtered out; other failures: 0)
+run 7 pass load=95.13 (test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 4225 filtered out; other failures: 0)
+run 8 pass load=96.72 (test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 4225 filtered out; other failures: 0)
+run 9 pass load=98.19 (test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 4225 filtered out; other failures: 0)
+run 10 pass load=98.57 (test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 4225 filtered out; other failures: 0)
+total: watched test 10 passed, 0 failed of 10; other tests failed 0 times
+## base, the whole lib suite, 36 busy loops (stopped after 3 runs; 'missing' = the runner's grep, every run was 4252 passed 0 failed)
+run 1 missing load=54.73 (test result: ok. 4252 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; other failures: 0)
+run 2 missing load=63.83 (test result: ok. 4252 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; other failures: 0)
+run 3 missing load=66.26 (test result: ok. 4252 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; other failures: 0)

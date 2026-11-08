@@ -1,0 +1,34 @@
+# Outside L-U1+U2, for a backlog unit: a stopped turn's failure line leaks when its place comes back before its end is read.
+# A scratch test, not committed, inserted into src/tui/shell.rs's tests ahead of
+# what_a_cancelled_turn_was_still_saying_never_reaches_the_screen, on a --no-local clone of 75f70b03:
+
+    #[test]
+    fn backlog_a_stopped_turn_whose_place_comes_back_before_its_end_is_read() {
+        // The runtime sends TurnEnded (worker.rs:3835) before it gives the
+        // place back (:3524); the band's settle can run between the two.
+        let mut shell = running("stream please");
+        shell.apply(UiEvent::Delta("a whole line\n".to_string()));
+        shell.flush_paced();
+        shell.route_bytes(&[0x03]);
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("xfx: the turn was cancelled".to_string()),
+        });
+        let after = shell.released();
+        let text = after.join("\n");
+        assert!(!text.contains("system"), "the cancel was reported as a failure: {after:?}");
+    }
+
+# cargo test --locked --lib -- backlog_a_stopped_turn (the clone at 75f70b03):
+running 1 test
+tui::shell::tests::backlog_a_stopped_turn_whose_place_comes_back_before_its_end_is_read --- FAILED
+failures:
+---- tui::shell::tests::backlog_a_stopped_turn_whose_place_comes_back_before_its_end_is_read stdout ----
+thread 'tui::shell::tests::backlog_a_stopped_turn_whose_place_comes_back_before_its_end_is_read' (299471019) panicked at src/tui/shell.rs:22833:9:
+the cancel was reported as a failure: ["  a whole line", "", "■ Cancelled · What can xfx do differently?", "", "✗ system: the turn was cancelled", ""]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+failures:
+    tui::shell::tests::backlog_a_stopped_turn_whose_place_comes_back_before_its_end_is_read
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4362 filtered out; finished in 0.01s
+error: test failed, to rerun pass `--lib`

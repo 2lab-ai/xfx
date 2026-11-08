@@ -1,0 +1,2085 @@
+pairs: reference 1692, train 300, shared 300; only the reference: 1392
+    alias bare
+    alias end
+    alias help-query-alias
+    alias help-query-command
+    alias help-query-name
+    alias help-tab-extensions
+    alias name
+    alias name-command
+    alias popup-al
+    alias popup-al-down
+    alias popup-alias
+    allowlist add-cmd
+    allowlist bare
+    allowlist bogus
+    allowlist local-reset
+    allowlist remove-cmd
+    allowlist user-add-url
+    allowlist view
+    allowlist view-effective
+    allowlist view-local
+    allowlist view-user
+    allowlist-remember listed
+    allowlist-remember refusals
+    allowlist-remember remember-confirmed
+    allowlist-remember remember-esc
+    allowlist-remember remember-prompt
+    allowlist-remember revoke-done
+    allowlist-remember revoke-prompt
+    allowlist-turn added
+    allowlist-turn listed
+    allowlist-turn ran
+    allowlist2 adds
+    allowlist2 after-reset
+    allowlist2 final
+    allowlist2 view-local
+    allowlist3 after
+    approvals after-cc-cmd-ask
+    approvals after-esc
+    approvals after-esc.full
+    approvals cmd2-ask
+    approvals edit-amend-typed
+    approvals edit-ask
+    approvals edit-down1
+    approvals edit-down3-wrap
+    approvals edit-tab-amend
+    approvals write-ask
+    approvals-amend-limit asked
+    approvals-amend-limit end
+    approvals-amend-limit refused
+    approvals-amend-limit refused-after-edit
+    approvals-amend-limit refused-again
+    approvals-big end
+    approvals-big write-big
+    approvals-big write-big-walked
+    card-wrap cards
+    card-wrap cards.full
+    cmd-wrap after
+    cmd-wrap after.full
+    cmd-wrap cmd-a
+    cmd-wrap cmd-b
+    compact after
+    compact answered
+    compact busy
+    compact busy-2.0s
+    compact compacting-0.4s
+    compact compacting-1.9s
+    compact empty-0.3s
+    compact empty-2.3s
+    compact resumed
+    compact third-answered
+    compact-cancel cancelled
+    compact-cancel cancelled-2.8s
+    compact-cancel compacting
+    compact-cancel dismissed
+    compact-cancel esc1
+    compact-cancel next-turn
+    compact-fail failed
+    compact-fail failed-3.5s
+    compact-fail next-turn
+    compact-inturn answered
+    compact-inturn compacting
+    compact-overflow answered
+    compact-text compacted
+    compact-text next-turn
+    compact-toolarge refused
+    composer-keys alt-bs
+    composer-keys cp-effort
+    composer-keys cp-effort-esc
+    composer-keys cp-esc
+    composer-keys cp-open
+    composer-keys help
+    composer-keys help-pgdn
+    composer-keys help-pgup
+    composer-keys super-a
+    composer-keys super-c
+    composer-keys super-x
+    composer-wrap badge-111
+    composer-wrap badge-71
+    composer-wrap block-111
+    composer-wrap block-71
+    composer-wrap boundary
+    composer-wrap full-118
+    composer-wrap full-78
+    composer-wrap long-word
+    composer-wrap tabs
+    composer-wrap up-wide
+    composer-wrap words
+    credits-404 after
+    credits-404 arg
+    credits-404 balance
+    credits-busy after
+    credits-busy during
+    credits-empty after
+    credits-ok after
+    credits-ok balance
+    credits-ok typed
+    credits-partial after
+    fast-astra fast-after-uf
+    fast-astra model-change-clears
+    fast-astra start
+    fast-astra uf-on
+    fast-astra uf-status
+    fast-opus fast-off
+    fast-opus fast-on
+    fast-opus start
+    fast-opus uf-on-unsup
+    fast-override fast-off
+    fast-override fast-on
+    fast-override start
+    fast-unavailable start
+    fast-unavailable turn
+    fast-unconfirmed turn
+    fast-unsup fast
+    fast-unsup fast-on-arg
+    fast-unsup fast-typed
+    fast-unsup uf-bare
+    fast-unsup uf-forms
+    fast-unsup uf-space
+    fast-unsup uf-typed
+    filepicker at
+    filepicker at-claim
+    filepicker at-dir
+    filepicker at-dir-cj
+    filepicker at-dir-down
+    filepicker at-enter
+    filepicker at-esc
+    filepicker at-sch
+    filepicker at-tab
+    filepicker submitted
+    filepicker-keys alt-b
+    filepicker-keys alt-d
+    filepicker-keys alt-f
+    filepicker-keys at-ck
+    filepicker-keys at-pgdn
+    filepicker-keys pgdn
+    filepicker-keys pgup
+    filepicker-narrow at-alpha
+    filepicker-narrow at-alpha-down
+    filepicker-narrow at-deep
+    h1-guards end
+    h1-guards mid
+    h1-mcphttp hanging
+    h1-mcphttp ready
+    h1-mcphttp-fail failed
+    h1-mcphttp-fail ready
+    h1-mcphttp-fail rpcerror
+    h1-mcphttp-methodnotfound ready
+    h1-models2 after
+    h1-models2 before
+    h1-refuse back
+    h1-refuse refused
+    h1-refuse-pause after-pause
+    h1-refuse-pause end
+    h1-refuse-pause paused
+    h1-refuse-pause refused
+    h1-rehomefile start
+    h1-rehomefile status
+    h1-reset after
+    h1-resize large
+    h1-resize small
+    h1-resize start
+    h1-signal continued
+    h1-signal ctrlz
+    h1-signal ctrlz-continued
+    h1-signal start
+    h1-signal stopped
+    h1-signal terminated
+    h1-signal typed
+    h1-signal-hup hup
+    h1-signal-hup start
+    h1-usage fetching
+    h1-usage month
+    h1-usage refused
+    h1-usage today
+    h1-usage unknown
+    h1-usage-codex codex
+    h1-usage-grok grok
+    help all-down-wrap
+    help all-up-wrap
+    help btab3-product
+    help ctrl-c
+    help ctrl-u
+    help enter-args
+    help enter-exact
+    help enter-row
+    help esc-after-ctrlc
+    help esc-clears-query
+    help open
+    help query-none
+    help query-ses
+    help query-session
+    help query-version
+    help tab-account
+    help tab-general
+    help tab-session
+    help typed-exact
+    image again
+    image attached
+    image bare
+    image cu
+    image directory
+    image end.full
+    image images-after-cu
+    image images-cleared
+    image images-empty
+    image images-listed
+    image missing
+    image resumed
+    image resumed-sent
+    image sent
+    image toolarge
+    image two-attached
+    image unsupported
+    image-inline pasted
+    image-inline pasted-missing
+    image-inline pasted-sent
+    image-inline typed
+    image-inline typed-sent
+    image-nonnative attached
+    image-nonnative end.full
+    image-nonnative sent
+    image-readfile read
+    image-readfile wide
+    image-undo deleted
+    image-undo pasted
+    image-undo undone
+    image-undo yank-undone
+    image-undo yanked
+    image-unknown attached
+    image-unknown end.full
+    image-unknown sent
+    image-withheld attached
+    image-withheld sent
+    interrupt cc-0.3
+    interrupt cc-1.5
+    interrupt cc-3.5
+    interrupt end.full
+    interrupt esc1
+    interrupt esc2
+    interrupt esc2-later
+    interrupt idle-cc
+    interrupt idle-cc-expired
+    interrupt mid
+    interrupt mid2
+    interrupt next
+    interrupt-cmd cmd-cc
+    interrupt-cmd cmd-cc-2
+    interrupt-cmd cmd-done
+    interrupt-cmd cmd-running
+    interrupt-cmd end.full
+    interrupt-help help-cc
+    interrupt-help help-cc-expired
+    interrupt-help help-open
+    interrupt-next-cmd next
+    interrupt-next-question next
+    interrupt-question end.full
+    interrupt-question q
+    interrupt-question q-cc
+    interrupt-recovered rec-0.5
+    interrupt-recovered rec-1.4
+    interrupt-recovered rec-1.8
+    interrupt-recovered rec-2.4
+    interrupt-recovered rec-3.2
+    interrupt-recovered rec-done
+    interrupt-recovered slow-1.8
+    interrupt-recovered slow-2.8
+    interrupt-recovered slow-done
+    interrupt-recovery full
+    interrupt-steer end.full
+    interrupt-steer steer-done
+    interrupt-steer steer-stream
+    interrupt-steer steer-stream-done
+    interrupt-steer steer-tool
+    interrupt-steer-retract steer-again
+    interrupt-steer-retract steer-done
+    interrupt-steer-retract steer-up
+    interrupt-steer-retract steer-wait
+    interrupt2 cd-streaming
+    interrupt2 draft
+    interrupt2 draft-cc
+    interrupt2 draft-cc2
+    interrupt2 end.full
+    interrupt2 esc1
+    interrupt2 esc2
+    interrupt2 esc2-later
+    interrupt2 mid
+    links-image attached
+    links-image resumed
+    links-image sent
+    model btab
+    model down1
+    model down5
+    model enter
+    model esc
+    model open
+    model query
+    model query-grok
+    model tab1
+    model tab2
+    model typed
+    model up-wrap
+    model-anchor alt-enter
+    model-anchor typed
+    model-busy after
+    model-busy during
+    model-busy-known after
+    model-busy-known during
+    model-column effort-down
+    model-column esc
+    model-column filter-gpt
+    model-column gpt-enter
+    model-column left
+    model-column menu-enter
+    model-column menu-enter-left
+    model-column space
+    model-column-idle col-down
+    model-column-idle col-idle
+    model-column-idle col-typed
+    model-effort commit
+    model-effort explicit-bad
+    model-effort explicit-ok
+    model-effort glm-down
+    model-effort glm-enter
+    model-effort trap
+    model-effort turn
+    model-empty esc
+    model-empty open
+    model-floor after-floor
+    model-floor inside-floor
+    model-floor start
+    model-router exact
+    model-router opus
+    model-router unknown
+    model-router usage
+    model-speed commit
+    model-speed effort
+    model-speed explicit-bad
+    model-speed explicit-ok
+    model-speed fast-on
+    model-speed speed-down
+    model-speed speed-left
+    model-speed speed-open
+    model-speed speed-space
+    model-speed speed-tab
+    model-speed turn-fast
+    model-speed turn-ultra
+    notice-midstream end
+    notice-midstream end.full
+    notice-midstream nosuch
+    notice-midstream version
+    notice-wire end
+    notice-wire end.full
+    notice-wire version
+    notice-wrap unknown
+    notices nosuch
+    notices version
+    notices version-now
+    notices version-trailing-space
+    p5-call-row-long end
+    p5-call-row-safe end
+    p5-call-row-safe full
+    p5-cli-ledger-update-help h00-update-help.full
+    p5-cli-ledger-update-help h01-upgrade-help.full
+    p5-cli-ledger-update-help h02-help-update.full
+    p5-effort-fork-effort-backtab backtab
+    p5-effort-fork-effort-backtab backtab-esc
+    p5-effort-fork-effort-column col-down
+    p5-effort-fork-effort-column col-enter
+    p5-effort-fork-effort-column col-esc
+    p5-effort-fork-effort-column col-fill
+    p5-effort-fork-effort-column col-nomatch
+    p5-effort-fork-effort-column col-space
+    p5-effort-fork-effort-column col-tab
+    p5-effort-fork-effort-column esc-enter
+    p5-effort-fork-effort-column launch
+    p5-effort-fork-effort-column level-default
+    p5-effort-fork-effort-column level-prefix
+    p5-effort-fork-effort-column level-upper
+    p5-effort-fork-effort-column space-first
+    p5-effort-fork-effort-column tab-current
+    p5-effort-fork-effort-column typed-down
+    p5-effort-fork-effort-column typed-enter
+    p5-effort-fork-effort-column typed-space
+    p5-effort-fork-effort-ctrlc ctrlc
+    p5-effort-fork-effort-ctrlc ctrlc-later
+    p5-effort-fork-effort-down early
+    p5-effort-fork-effort-down later
+    p5-effort-fork-effort-loading early
+    p5-effort-fork-effort-loading later
+    p5-effort-fork-effort-menu after-turn
+    p5-effort-fork-effort-menu launch
+    p5-effort-fork-effort-menu level-bogus
+    p5-effort-fork-effort-menu level-default
+    p5-effort-fork-effort-menu level-high
+    p5-effort-fork-effort-menu level-low
+    p5-effort-fork-effort-menu level-malformed
+    p5-effort-fork-effort-menu level-max
+    p5-effort-fork-effort-menu menu
+    p5-effort-fork-effort-menu menu-down
+    p5-effort-fork-effort-menu menu-edit
+    p5-effort-fork-effort-menu menu-enter
+    p5-effort-fork-effort-menu menu-esc
+    p5-effort-fork-effort-menu menu-wrap
+    p5-effort-fork-effort-menu midturn
+    p5-effort-fork-effort-menu midturn-done
+    p5-effort-fork-effort-menu slash-ef
+    p5-effort-fork-effort-menu slash-eff
+    p5-effort-fork-effort-nolevels bare
+    p5-effort-fork-effort-nolevels col-enter
+    p5-effort-fork-effort-nolevels col-space
+    p5-effort-fork-effort-nolevels col-tab
+    p5-effort-fork-effort-nolevels level
+    p5-effort-fork-effort-short menu
+    p5-effort-fork-effort-short menu-down5
+    p5-effort-fork-effort-short menu-down6
+    p5-effort-fork-fork-continue continued
+    p5-effort-fork-fork-continue forked
+    p5-effort-fork-fork-edge at-launch
+    p5-effort-fork-fork-edge edit-closes
+    p5-effort-fork-fork-edge fork-of-empty
+    p5-effort-fork-fork-edge forked-first
+    p5-effort-fork-fork-edge forked-first.full
+    p5-effort-fork-fork-edge menu
+    p5-effort-fork-fork-edge midturn
+    p5-effort-fork-fork-edge quit
+    p5-effort-fork-fork-edge resume
+    p5-effort-fork-fork-edge status-empty
+    p5-effort-fork-fork-edge with-arg
+    p5-effort-fork-fork-empty forked
+    p5-effort-fork-fork-empty menu-one
+    p5-effort-fork-fork-empty resume
+    p5-effort-fork-fork-empty resume-all
+    p5-effort-fork-oldread-src doctor.full
+    p5-effort-fork-oldread-src picker-enter-fork
+    p5-effort-fork-oldread-src resume-source
+    p5-effort-fork-oldread-v1 launch
+    p5-effort-fork-oldread-v1 picker
+    p5-effort-fork-oldread-v1 picker-all
+    p5-effort-fork-oldread-v1 resume-id
+    p5-effort-fork-oldread-v2 continued
+    p5-effort-fork-oldread-v2 launch
+    p5-effort-fork-oldread-v2 picker
+    p5-effort-fork-oldread-v2 picker-all
+    p5-effort-fork-oldread-v2 quit
+    p5-effort-fork-oldread-v2 resume-id
+    p5-effort-fork-oldread-v2 resume-id.full
+    p5-effort-fork-slash-rank e
+    p5-effort-fork-slash-rank et
+    p5-effort-fork-slash-rank ex
+    p5-effort-fork-slash-rank se
+    p5-inline-code-retint dark
+    p5-inline-code-retint dark-again
+    p5-inline-code-retint light
+    p5-inline-code-retint-light dark
+    p5-inline-code-retint-light light
+    p5-inline-code-retint-light light-again
+    p5-inline-code-retint-light-tc dark
+    p5-inline-code-retint-light-tc light
+    p5-inline-code-retint-light-tc light-again
+    p5-inline-code-retint-tc dark
+    p5-inline-code-retint-tc dark-again
+    p5-inline-code-retint-tc light
+    p5-inline-code-table dark
+    p5-inline-code-table dark-again
+    p5-inline-code-table light
+    p5-inline-code-table-light dark
+    p5-inline-code-table-light light
+    p5-inline-code-table-light light-again
+    p5-inline-code-table-light-tc dark
+    p5-inline-code-table-light-tc light
+    p5-inline-code-table-light-tc light-again
+    p5-inline-code-table-tc dark
+    p5-inline-code-table-tc dark-again
+    p5-inline-code-table-tc light
+    p5-input-approval after
+    p5-input-approval cmd-ask
+    p5-input-approval edit-ask
+    p5-input-at at-src
+    p5-input-at at-src-enter
+    p5-input-at at-src-tab
+    p5-input-at at-st
+    p5-input-at at-st-down12
+    p5-input-at at-st-up6
+    p5-input-at at-stat
+    p5-input-at-dir dir-enter
+    p5-input-at-dir dir-query
+    p5-input-ctrlbs alt-bs
+    p5-input-ctrlbs kitty-cbs
+    p5-input-ctrlbs mok-cbs
+    p5-input-ctrlbs tmux-cbs
+    p5-input-mcp closed
+    p5-input-mcp mcp-list
+    p5-input-mcp mcp-server
+    p5-input-mcp reject-ask
+    p5-input-mcp reject-esc
+    p5-input-mcp reject-no
+    p5-input-mcp reject-yes
+    p5-input-mcp remove-ask
+    p5-input-mcp remove-enter-no
+    p5-input-model inline-gpt6
+    p5-input-model model
+    p5-input-model q-anthropic-opus
+    p5-input-model q-cs45
+    p5-input-model q-grok-fast
+    p5-input-model q-sonnet45
+    p5-input-model q-zai-glm
+    p5-input-paste paste-enter
+    p5-input-paste paste-enter.full
+    p5-input-question q2-cancelled
+    p5-input-question q2-down
+    p5-input-question q2-panel
+    p5-input-question q6
+    p5-input-question q6-after
+    p5-input-question q6-after.full
+    p5-input-smoke start
+    p5-lifecycle-compactfail f01-failed
+    p5-lifecycle-compactok c00-noop
+    p5-lifecycle-compactok c02-compacting
+    p5-lifecycle-compactok c03-compacted
+    p5-lifecycle-login l00-picker
+    p5-lifecycle-login l01-down
+    p5-lifecycle-login l02-down2
+    p5-lifecycle-login l03-down3
+    p5-lifecycle-login l04-first-enter
+    p5-lifecycle-login l05-esc
+    p5-lifecycle-login2 m00-vercel-methods
+    p5-lifecycle-login2 m01-vercel-oauth-1s
+    p5-lifecycle-login2 m02-vercel-oauth-5s
+    p5-lifecycle-login2 m03-esc
+    p5-lifecycle-login2 m04-codex-methods
+    p5-lifecycle-login2 m05-codex-signin
+    p5-lifecycle-login2 m06-grok-methods
+    p5-lifecycle-login2 m07-grok-signin
+    p5-lifecycle-login2 m08-esc
+    p5-lifecycle-osc s00-start
+    p5-lifecycle-osc s01-working
+    p5-lifecycle-osc s02-done
+    p5-lifecycle-osc s04-error
+    p5-lifecycle-osc s05-permission
+    p5-lifecycle-osc s06-after-permission
+    p5-lifecycle-osc s07-question
+    p5-lifecycle-osc s08-after-question
+    p5-lifecycle-osc s09-exit
+    p5-lifecycle-relhome h00-launch
+    p5-lifecycle-relhome h01-sessions.full
+    p5-lifecycle-relhome-image again
+    p5-lifecycle-relhome-image sent
+    p5-lifecycle-relhome-made h00-launch
+    p5-lifecycle-relhome-made h01-turn
+    p5-lifecycle-relhome-made h02-sessions.full
+    p5-lifecycle-relhome-resume r00-resume.full
+    p5-lifecycle-relhome-unsaved u00-launch
+    p5-lifecycle-relhome-unsaved u01-turn
+    p5-lifecycle-relhome-unsaved u02-status
+    p5-lifecycle-relhome-unsaved u03-resume
+    p5-lifecycle-relhome-unsaved u04-fork
+    p5-lifecycle-relhome-unsaved u05-rename
+    p5-lifecycle-relhome-unsaved u06-new
+    p5-lifecycle-relhome-unsaved u07-turn
+    p5-lifecycle-relhome-unsaved u08-quit.full
+    p5-lifecycle-retry r00-0.6s
+    p5-lifecycle-retry r01-2.1s
+    p5-lifecycle-retry r02-4.6s
+    p5-lifecycle-retry r03-8.6s
+    p5-lifecycle-retry r04-after-esc
+    p5-lifecycle-retry r04a-esc-armed
+    p5-lifecycle-retry r05-after-esc-4.5s
+    p5-lifecycle-retryok k00-0.5s
+    p5-lifecycle-retryok k01-1.5s
+    p5-lifecycle-retryok k02-4.5s
+    p5-lifecycle-suspend z01-after-ctrlz
+    p5-lifecycle-suspend z02-next-turn
+    p5-lifecycle-update u00-update
+    p5-lifecycle-update u01-update-dev
+    p5-lifecycle-update u02-upgrade-json
+    p5-lifecycle-update u03-help.full
+    p5-lifecycle-v1bad b00-picker-all
+    p5-lifecycle-v1bad b01-picked
+    p5-lifecycle-v1bad b02-launch-refused.full
+    p5-lifecycle-v1resume v00-picker
+    p5-lifecycle-v1resume v00b-picker-all
+    p5-lifecycle-v1resume v01-resumed
+    p5-lifecycle-v1resume v01-resumed.full
+    p5-lifecycle-v1resume v02-continued
+    p5-mcp-config added.full
+    p5-mcp-config list
+    p5-mcp-config removed.full
+    p5-mcp-config-ignored end.full
+    p5-mcp-config-ignored list
+    p5-mcp-config-ignored menu
+    p5-mcp-config-ignored startup
+    p5-mcp-config-vars end.full
+    p5-mcp-config-vars list
+    p5-mcp-config-vars menu
+    p5-mcp-config-vars startup
+    p5-mcp-direct end.full
+    p5-mcp-direct turn
+    p5-mcp-dismiss after-prompt
+    p5-mcp-dismiss settled
+    p5-mcp-empty add-bare
+    p5-mcp-empty add-help
+    p5-mcp-empty approve-bare
+    p5-mcp-empty auth-nope
+    p5-mcp-empty bogus
+    p5-mcp-empty complete
+    p5-mcp-empty end.full
+    p5-mcp-empty help
+    p5-mcp-empty list
+    p5-mcp-empty list-connect
+    p5-mcp-empty login-nope
+    p5-mcp-empty logout-nope
+    p5-mcp-empty menu
+    p5-mcp-empty menu-down
+    p5-mcp-empty menu-esc
+    p5-mcp-empty menu-right
+    p5-mcp-empty path
+    p5-mcp-empty prompt-bare
+    p5-mcp-empty reject-nope
+    p5-mcp-empty reload
+    p5-mcp-empty remove-nope
+    p5-mcp-empty resource-nope
+    p5-mcp-empty show-nope
+    p5-mcp-empty trust-bare
+    p5-mcp-errdata turn
+    p5-mcp-fail end.full
+    p5-mcp-fail list
+    p5-mcp-fail server-1
+    p5-mcp-fail server-2
+    p5-mcp-fail show-bad
+    p5-mcp-fail startup
+    p5-mcp-failed after-prompt
+    p5-mcp-failed failed
+    p5-mcp-failed retrying
+    p5-mcp-failed still-retrying
+    p5-mcp-known turn
+    p5-mcp-live cancel
+    p5-mcp-live end
+    p5-mcp-live failed
+    p5-mcp-live full
+    p5-mcp-live live
+    p5-mcp-live turn
+    p5-mcp-menu-new approve-confirm
+    p5-mcp-menu-new approve-esc
+    p5-mcp-menu-new approved
+    p5-mcp-menu-new back-list
+    p5-mcp-menu-new closed
+    p5-mcp-menu-new closed-status
+    p5-mcp-menu-new ctrl-c
+    p5-mcp-menu-new end.full
+    p5-mcp-menu-new left-back
+    p5-mcp-menu-new list
+    p5-mcp-menu-new list-after-approve
+    p5-mcp-menu-new list-filter
+    p5-mcp-menu-new list-proj
+    p5-mcp-menu-new list-rejected
+    p5-mcp-menu-new list-remote
+    p5-mcp-menu-new list-unfilter
+    p5-mcp-menu-new reject-inplace
+    p5-mcp-menu-new reject-inplace-ready
+    p5-mcp-menu-new reject-typed-x
+    p5-mcp-menu-new rejected
+    p5-mcp-menu-new remove-cancel
+    p5-mcp-menu-new remove-inplace
+    p5-mcp-menu-new remove-no
+    p5-mcp-menu-new removed-list
+    p5-mcp-menu-new reopened
+    p5-mcp-menu-new server-fixture
+    p5-mcp-menu-new server-fixture-nomatch
+    p5-mcp-menu-new server-fixture-tool
+    p5-mcp-menu-new server-proj
+    p5-mcp-menu-new server-proj-ready
+    p5-mcp-menu-new server-proj-reject
+    p5-mcp-menu-new server-remote
+    p5-mcp-menu-new startup
+    p5-mcp-menu-new startup-settled
+    p5-mcp-menu-old closed
+    p5-mcp-menu-old d-key
+    p5-mcp-menu-old details-1
+    p5-mcp-menu-old details-2
+    p5-mcp-menu-old details-3
+    p5-mcp-menu-old dismissed
+    p5-mcp-menu-old end.full
+    p5-mcp-menu-old info
+    p5-mcp-menu-old list
+    p5-mcp-menu-old list-down
+    p5-mcp-menu-old prompts
+    p5-mcp-menu-old resources
+    p5-mcp-menu-old servers
+    p5-mcp-menu-old startup
+    p5-mcp-menu-old tools
+    p5-mcp-menu-old x-key
+    p5-mcp-notes end.full
+    p5-mcp-notes list
+    p5-mcp-notes menu
+    p5-mcp-notes startup
+    p5-mcp-rpcerror failed
+    p5-mcp-turn end.full
+    p5-mcp-turn ready
+    p5-mcp-turn turn
+    p5-mcp-unavailable turn
+    p5-mcp-verbs add-badname
+    p5-mcp-verbs add-new-http
+    p5-mcp-verbs add-new-syntax
+    p5-mcp-verbs add-old-http
+    p5-mcp-verbs add-old-syntax
+    p5-mcp-verbs approve
+    p5-mcp-verbs auth-remote
+    p5-mcp-verbs complete-args
+    p5-mcp-verbs complete-show
+    p5-mcp-verbs end.full
+    p5-mcp-verbs list
+    p5-mcp-verbs list-after
+    p5-mcp-verbs login-remote
+    p5-mcp-verbs login-stdio
+    p5-mcp-verbs logout-remote
+    p5-mcp-verbs prompt-list
+    p5-mcp-verbs reject
+    p5-mcp-verbs remove-three
+    p5-mcp-verbs remove-two
+    p5-mcp-verbs remove-web
+    p5-mcp-verbs remove-web2
+    p5-mcp-verbs resource-list
+    p5-mcp-verbs show-bare
+    p5-mcp-verbs show-fixture
+    p5-mcp-verbs show-proj
+    p5-mcp-verbs show-remote
+    p5-mcp-verbs startup
+    p5-mcp-verbs trust-approve
+    p5-mcp-wire-new turn
+    p5-mcp-wire-old turn
+    p5-panels-badsettings launch
+    p5-panels-badsettings open
+    p5-panels-help esc
+    p5-panels-help open
+    p5-panels-help query-alias
+    p5-panels-help query-cost
+    p5-panels-help query-status
+    p5-panels-help tab-account
+    p5-panels-help tab-agents
+    p5-panels-help tab-appearance
+    p5-panels-help tab-extensions
+    p5-panels-help tab-general
+    p5-panels-help tab-media
+    p5-panels-help tab-model
+    p5-panels-help tab-product
+    p5-panels-help tab-security
+    p5-panels-help tab-session
+    p5-panels-help tab-workspace
+    p5-panels-help tab-wrap
+    p5-panels-keys after-ctrl-c-esc
+    p5-panels-keys approval-arrives
+    p5-panels-keys approval-esc
+    p5-panels-keys btab
+    p5-panels-keys ctrl-c
+    p5-panels-keys end
+    p5-panels-keys open-before-approval
+    p5-panels-keys paste
+    p5-panels-keys perm-btab
+    p5-panels-keys tab-pgdn
+    p5-panels-noauth launch
+    p5-panels-noauth open
+    p5-panels-permissions after-grant
+    p5-panels-permissions after-revoke
+    p5-panels-permissions approval
+    p5-panels-permissions ask
+    p5-panels-permissions auto
+    p5-panels-permissions bare
+    p5-panels-permissions bare-after
+    p5-panels-permissions bogus
+    p5-panels-permissions down1
+    p5-panels-permissions esc
+    p5-panels-permissions full
+    p5-panels-permissions grants
+    p5-panels-permissions remember-done
+    p5-panels-permissions remember-prompt
+    p5-panels-permissions reset
+    p5-panels-permissions revoke-done
+    p5-panels-permissions revoke-prompt
+    p5-panels-permissions rules
+    p5-panels-permissions saved
+    p5-panels-permissions status-grants
+    p5-panels-permissions-saved after-grant
+    p5-panels-permissions-saved after-revoke
+    p5-panels-permissions-saved approval
+    p5-panels-permissions-saved remember-done
+    p5-panels-permissions-saved remember-prompt
+    p5-panels-permissions-saved revoke-prompt
+    p5-panels-permissions-saved saved
+    p5-panels-permissions-saved saved-esc
+    p5-panels-slash alias-run
+    p5-panels-slash cost-run
+    p5-panels-slash down12
+    p5-panels-slash down18
+    p5-panels-slash down24
+    p5-panels-slash down30
+    p5-panels-slash down36
+    p5-panels-slash down38
+    p5-panels-slash down6
+    p5-panels-slash filter-al
+    p5-panels-slash filter-co
+    p5-panels-slash filter-e
+    p5-panels-slash filter-f
+    p5-panels-slash filter-st
+    p5-panels-slash slash
+    p5-panels-status after-turn
+    p5-panels-status closed-final
+    p5-panels-status down
+    p5-panels-status enter-closed
+    p5-panels-status esc-closed
+    p5-panels-status open
+    p5-panels-status open-after-midturn
+    p5-panels-status open-midturn
+    p5-panels-status status-now
+    p5-panels-status turn
+    p5-panels-status typed
+    p5-panels-status-badsettings closed
+    p5-panels-status-badsettings launch
+    p5-panels-status-badsettings open
+    p5-panels-status-first after-first
+    p5-panels-status-first closed
+    p5-panels-status-first open-first
+    p5-panels-status-short ctrl-k
+    p5-panels-status-short down-end
+    p5-panels-status-short down1
+    p5-panels-status-short esc
+    p5-panels-status-short open
+    p5-panels-status-short up1
+    p5-permissions-early after-revoke
+    p5-permissions-early denied
+    p5-permissions-early held
+    p5-permissions-early new-forgets
+    p5-permissions-early remember-allow
+    p5-permissions-early remember-deny
+    p5-permissions-early remembered
+    p5-permissions-early revoke-again
+    p5-permissions-early revoke-prompt
+    p5-permissions-early revoked
+    p5-permissions-early saved
+    p5-permissions-early-probe-ask-after after-call
+    p5-session-early-prefs answered
+    p5-session-early-prefs chosen
+    p5-session-early-prefs continued
+    p5-session-early-prefs launch
+    p5-session-early-prefs resumed
+    p5-toolgroup-live dark
+    p5-toolgroup-live light
+    p5-toolgroup-live running-dark
+    p5-toolgroup-live running-light
+    p5-toolgroup-live-tc dark
+    p5-toolgroup-live-tc light
+    p5-toolgroup-live-tc running-dark
+    p5-toolgroup-live-tc running-light
+    p5-toolgroup-retint dark
+    p5-toolgroup-retint dark-again
+    p5-toolgroup-retint light
+    p5-toolgroup-retint-light dark
+    p5-toolgroup-retint-light light
+    p5-toolgroup-retint-light light-again
+    p5-toolgroup-retint-light-tc dark
+    p5-toolgroup-retint-light-tc light
+    p5-toolgroup-retint-light-tc light-again
+    p5-toolgroup-retint-tc dark
+    p5-toolgroup-retint-tc dark-again
+    p5-toolgroup-retint-tc light
+    p5-toolstop-retint dark
+    p5-toolstop-retint dark-again
+    p5-toolstop-retint light
+    p5-toolstop-retint-light dark
+    p5-toolstop-retint-light light
+    p5-toolstop-retint-light light-again
+    p5-toolstop-retint-light-tc dark
+    p5-toolstop-retint-light-tc light
+    p5-toolstop-retint-light-tc light-again
+    p5-toolstop-retint-tc dark
+    p5-toolstop-retint-tc dark-again
+    p5-toolstop-retint-tc light
+    p5-transcript-cancel cmd-esc
+    p5-transcript-cancel cmd-running
+    p5-transcript-cancel end.full
+    p5-transcript-cancel esc
+    p5-transcript-cancel full
+    p5-transcript-cancel mid
+    p5-transcript-cancel next
+    p5-transcript-diffask applied
+    p5-transcript-diffask ask
+    p5-transcript-diffask closed
+    p5-transcript-diffask full
+    p5-transcript-diffbad closed
+    p5-transcript-diffbad edited
+    p5-transcript-diffbad full
+    p5-transcript-diffctl closed
+    p5-transcript-diffctl edited
+    p5-transcript-diffctl edited.full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd closed
+    p5-transcript-diffodd edited
+    p5-transcript-diffodd full
+    p5-transcript-diffwide closed
+    p5-transcript-diffwide edited
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 closed
+    p5-transcript-diffwide2 edited
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap closed
+    p5-transcript-diffwrap edited
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 closed
+    p5-transcript-diffwrap2 edited
+    p5-transcript-diffwrap2 full
+    p5-transcript-md answered
+    p5-transcript-md answered.full
+    p5-transcript-md closed
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light answered
+    p5-transcript-md-light answered.full
+    p5-transcript-md-light closed
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-submit filled
+    p5-transcript-submit second
+    p5-transcript-submit submit-0.15
+    p5-transcript-submit tall
+    p5-transcript-submit tall.full
+    p5-transcript-tallfirst tall
+    p5-transcript-tallfirst tall.full
+    p5-transcript-tools end
+    p5-transcript-tools end.full
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tools running
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    p5-usage-budget back
+    p5-usage-budget closed
+    p5-usage-budget detail
+    p5-usage-budget detail-down
+    p5-usage-budget detail-tab
+    p5-usage-budget down
+    p5-usage-budget left-7d
+    p5-usage-budget open
+    p5-usage-budget r
+    p5-usage-budget r-updating
+    p5-usage-budget right-month
+    p5-usage-budget tab-7d
+    p5-usage-budget tab-today
+    p5-usage-budget updating
+    p5-usage-cached back
+    p5-usage-cached btab-today
+    p5-usage-cached cj
+    p5-usage-cached ck
+    p5-usage-cached closed
+    p5-usage-cached detail
+    p5-usage-cached detail-down
+    p5-usage-cached detail-tab
+    p5-usage-cached down
+    p5-usage-cached left-7d
+    p5-usage-cached open
+    p5-usage-cached r
+    p5-usage-cached r-401
+    p5-usage-cached r-429
+    p5-usage-cached r-500
+    p5-usage-cached r-bad
+    p5-usage-cached r-updating
+    p5-usage-cached right-month
+    p5-usage-cached tab-7d
+    p5-usage-cached tab-today
+    p5-usage-cached updating
+    p5-usage-codex open
+    p5-usage-codex r
+    p5-usage-codex start
+    p5-usage-codex tab
+    p5-usage-many bottom
+    p5-usage-many closed
+    p5-usage-many last
+    p5-usage-many open
+    p5-usage-many top
+    p5-usage-nokey closed
+    p5-usage-nokey open
+    p5-usage-nokey r
+    p5-usage-nokey start
+    p5-usage-noledger resumed
+    p5-usage-noledger turns
+    p5-usage-noledger usage
+    p5-usage-noledger usage-resumed
+    p5-usage-oidc closed
+    p5-usage-oidc open
+    p5-usage-oidc r
+    p5-usage-turns arg
+    p5-usage-turns btab
+    p5-usage-turns cost
+    p5-usage-turns cost-typed
+    p5-usage-turns credits
+    p5-usage-turns down
+    p5-usage-turns enter
+    p5-usage-turns esc
+    p5-usage-turns fetching
+    p5-usage-turns launch
+    p5-usage-turns left
+    p5-usage-turns open
+    p5-usage-turns r
+    p5-usage-turns r-7d
+    p5-usage-turns r-today
+    p5-usage-turns right
+    p5-usage-turns stats
+    p5-usage-turns tab
+    p5-usage-turns turns
+    p5-usage-turns typed
+    paste-block-undo deleted
+    paste-block-undo killed
+    paste-block-undo pasted
+    paste-block-undo pasted-again
+    paste-block-undo undone
+    paste-block-undo undone-again
+    paste-block-undo yank-undone
+    paste-block-undo yanked
+    paste-card end.full
+    paste-card large
+    paste-card large-composer
+    paste-card multi
+    paste-card multi-composer
+    paste-card resumed
+    paste-card small
+    paste-suffix paste-enter
+    paste-suffix paste-enter.full
+    permissions ask
+    permissions auto
+    permissions bare
+    permissions bare-after
+    permissions bogus
+    permissions down1
+    permissions esc
+    permissions full
+    permissions reset
+    permissions-btab bare
+    permissions-btab btab-ask
+    permissions-btab btab-auto
+    permissions-btab btab-full
+    permissions-btab btab-full-again
+    permissions-btab btab-full-later
+    permissions-btab start
+    permissions-midturn after-refusal
+    permissions-midturn first-done
+    permissions-midturn second-asks
+    permissions-midturn switched
+    popup-full after
+    popup-full closed
+    popup-full full
+    popup-full popup
+    prose-wrap answered
+    prose-wrap answered.full
+    provider arg-filter
+    provider arg-nomatch
+    provider arg-nomatch-enter
+    provider arg-tab
+    provider busy
+    provider busy-after
+    provider commit
+    provider down1
+    provider down2-wrap
+    provider esc
+    provider open
+    provider setup-open
+    provider setup-space
+    provider setup-typed
+    provider typed
+    provider-carry open
+    provider-carry quit
+    provider-carry resumed
+    provider-carry start
+    provider-carry switched
+    provider-carry turn1
+    provider-carry turn2
+    provider-carry turn3
+    provider-carry-back open
+    provider-carry-back start
+    provider-carry-back switched
+    provider-carry-back turn1
+    provider-carry-back turn2
+    provider-carry-back turn3
+    provider-resume resumed
+    provider-resume start
+    provider-resume switched
+    provider-resume turn1
+    provider-resume turn2
+    provider-resume turn3
+    provider-resume-missing refused
+    provider-resume-missing resumed
+    provider-resume-missing turn2
+    provider-switch again
+    provider-switch commit
+    provider-switch open
+    question answered
+    question answered.full
+    question q1
+    question q1-back
+    question q1-down
+    question q1-down3
+    question q1-down4
+    question q1-tab
+    question q2
+    question-field answered
+    question-field edited
+    question-field end.full
+    question-field open
+    question-field pasted
+    question-field q
+    question-field q2
+    question-field q2-cc
+    question-field shift-down
+    question-field shift-up
+    question-other answered
+    question-other end.full
+    question-other q
+    question-other q-other
+    question-other q-typed
+    question-other q2
+    question-other q2-esc
+    quit answered
+    quit exit-arg
+    quit quit
+    quit quit-arg
+    quit-pristine quit
+    rename-midturn after
+    rename-midturn during
+    rename-midturn relaunched
+    resume-empty empty
+    resume-empty empty-enter
+    resume-empty empty-query
+    resume-empty while-streaming
+    rules-hidden first
+    rules-hidden second
+    rules-hidden-all first
+    rules-read always
+    rules-read ask
+    rules-read ask2
+    rules-read granted
+    rules-read listed
+    rules-read no
+    rules-read once
+    search-roots live
+    search-roots live-ctrl-o
+    settings bare
+    settings bogus
+    settings down1
+    settings down4
+    settings esc
+    settings ss-query
+    settings typed
+    settings-cats off
+    settings-cats on
+    settings-cats popup-off
+    settings-cats popup-on
+    settings-collapse after-esc
+    settings-collapse cmd-ask
+    settings-collapse collapse-on
+    settings-collapse group
+    settings-collapse group2
+    settings-collapse later
+    settings-collapse running
+    settings-collapse stopped
+    settings-collapse-open after-esc
+    settings-collapse-open collapse-on
+    settings-collapse-open running
+    settings-effort bare
+    settings-effort left
+    settings-effort marked
+    settings-effort no-levels
+    settings-effort no-levels-right
+    settings-effort right1
+    settings-effort right2
+    settings-effort right3
+    settings-history marked
+    settings-history off
+    settings-history on
+    settings-history relaunch
+    settings-history relaunch-up1
+    settings-history relaunch-up2
+    settings-history relaunch-up3
+    settings-history relaunch-up4
+    settings-history up-after-secret
+    settings-model enter
+    settings-model esc
+    settings-model marked
+    settings-model-list enter
+    settings-model-list list
+    settings-model-list list-down
+    settings-model-list tab
+    settings-model-list used
+    settings-perm ask
+    settings-perm esc
+    settings-perm full
+    settings-perm marked
+    settings-scrollback off
+    settings-scrollback row
+    settings-scrollback row-off
+    settings-scrollback toggle
+    settings-scrollback usage
+    settings-speed fast-marked
+    settings-speed fast-off
+    settings-speed fast-on
+    settings-speed ultra-right
+    settings2 down-sound
+    settings2 enter
+    settings2 esc
+    settings2 filter-none
+    settings2 filter-sou
+    settings2 right-context
+    settings2 sound-right
+    settings2 tab1
+    settings2 tab2
+    settings2 tab3
+    settings2 tab4
+    settings2 tab5
+    skills add-local
+    skills bogus
+    skills create
+    skills create-bad
+    skills dollar
+    skills dollar-dem
+    skills dollar-enter
+    skills end.full
+    skills list
+    skills menu
+    skills menu-down
+    skills menu-esc
+    skills path
+    skills remove-made
+    skills remove-workspace
+    skills sent
+    skills show-demo
+    skills show-nope
+    skills-ghost dollar-esc
+    skills-ghost dollar-esc-m
+    skills-ghost dollar-ghost
+    skills-ghost dollar-ghost-de
+    skills-ghost dollar-ghost-rel
+    skills-ghost dollar-menu
+    skills-ghost dollar-right
+    skills-ghost dollar-tab
+    skills-ghost slash-enter
+    skills-ghost slash-esc
+    skills-ghost slash-esc-l
+    skills-ghost slash-ghost
+    skills-ghost slash-ghost-mo
+    skills-ghost slash-right
+    skills-ghost slash-tab
+    skills-paste paste
+    skills-paste paste-enter
+    skills-paste paste-nomatch
+    skills-slash rel-enter
+    skills-slash slash-all
+    skills-slash slash-all-up
+    skills-slash slash-de
+    skills-slash slash-dem
+    skills-slash slash-dem-tab
+    skills-slash slash-re
+    skills-slash slash-rel
+    slash down3
+    slash down7
+    slash esc
+    slash filter-re
+    slash help
+    slash help-down
+    slash help-esc
+    slash help-typed
+    slash slash
+    slash-filter filter-ex
+    slash-filter filter-mo
+    slash-filter filter-q
+    slash-filter tab-ex
+    slash-filter tab-vers
+    slash-filter tab-vers-esc
+    sound answered
+    sound ask
+    sound bare
+    sound bare2
+    sound bogus
+    sound max
+    sound off
+    sound off2
+    sound on
+    sound turn-off
+    sound turn-off2
+    sound turn-on
+    sound-default toggled
+    startup startup
+    status-version-stats stats
+    status-version-stats stats-after-turn
+    status-version-stats stats-extra
+    status-version-stats status
+    status-version-stats status-after-turn
+    status-version-stats status-now
+    status-version-stats turn
+    status-version-stats version
+    statusline bare
+    statusline bogus
+    statusline context
+    statusline down1
+    statusline enter
+    statusline esc
+    statusline session
+    statusline workspace
+    statusline-turn after-turn
+    statusline-turn all-on
+    statusline-turn launch
+    stream-wire end
+    stream-wire end.full
+    streaming end
+    streaming mid
+    titles answered
+    titles launch
+    titles resume
+    titles-off answered
+    titles-off resume
+    titles-settings bare
+    titles-settings filtered
+    titles-settings off
+    titles-settings on
+    toolgroup again-ask
+    toolgroup again-stopped
+    toolgroup cmd-ask
+    toolgroup cmd-running
+    toolgroup edit-ask
+    toolgroup end
+    toolgroup end.full
+    toolgroup exit-ask
+    toolgroup long-ask
+    toolgroup long-later
+    toolgroup long-running
+    toolgroup long-stopped
+    toolgroup write-ask
+    toolgroup-noop ask
+    toolgroup-noop end
+    toolgroup-wire end
+    toolgroup-wire end.full
+    torn-exit exit
+    undo before-undo
+    undo undo1
+    undo undo2
+    undo undo3
+    undo-empty bare
+    undo-empty extra
+    undo-resume resumed-undo
+    usage-billed d30
+    usage-billed d30-down
+    usage-billed d30-down-expand
+    usage-billed d30-expand
+    usage-billed session
+    usage-billed session-r
+    usage-billed turns
+    usage-billed wrap-30
+    usage-deferred d30
+    usage-deferred pending
+    usage-deferred settled
+    usage-deferred settled-r
+    workspace add
+    workspace add-row-enter
+    workspace bare
+    workspace clear-done
+    workspace clear-prefill
+    workspace clear-row
+    workspace dir-enter
+    workspace list
+    workspace picker-down1
+    workspace picker-one
+    workspace refusals
+    workspace-index at-all
+    workspace-index at-plan
+reference: 300 pairs, pass 166; approved-divergence 2, approved-divergence-cascade 1, identical 13, normalized-identical 153, unresolved-defect 131
+train: 300 pairs, pass 166; approved-divergence 2, approved-divergence-cascade 1, identical 13, normalized-identical 153, unresolved-defect 131
+model-parked menu-loading: 0 differing rows left, 1 new
+    NEW:  fx '~ Thinking (<s>)' / xfx '~ Generating (<s>) (↑4 ↓3)'
+model-reask menu-failed: 0 differing rows left, 1 new
+    NEW:  fx 'Could not reach AI Gateway; xfx retries automatically.' / xfx 'Could not reach AI Gateway; retry /model.'
+p5-effort-fork-fork status: 2 differing rows left, 2 new
+    left: fx '  Turns             2' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             2' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-input-model-fail fail-open: 0 differing rows left, 1 new
+    NEW:  fx 'Could not reach AI Gateway; xfx retries automatically.' / xfx 'Could not reach AI Gateway; retry /model.'
+p5-panels-sweep-a feedback: 8 differing rows left, 13 new
+    left: fx '' / xfx '┃'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '* session: renamed to "My title"'
+    left: fx '* session: renamed to "My title"' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '┃ /shell reload'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    left: fx 'auto · model-a' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '┃' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* clipboard: No assistant reply to copy.' / xfx '* undo: Nothing to undo.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx '* images: no pending images' / xfx '✗ images: image file not found'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '* clipboard: No assistant reply to copy.'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '* undo: Nothing to undo.' / xfx '* images: no pending images'
+    NEW:  fx '* version: <build>' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx 'auto · model-a' / xfx '┃'
+    NEW:  fx '┃' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+    NEW:  fx '✗ images: image file not found' / xfx '* fast: This model does not come with a fast mode.'
+p5-panels-sweep-a login: 18 differing rows left, 10 new
+    left: fx '         grok' / xfx ''
+    left: fx '         vercel · current' / xfx ''
+    left: fx '* Opened https://xfx.sh/feedback.' / xfx ''
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx 'auto · model-a'
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '┃'
+    left: fx '* auth: No xfx login session found.' / xfx ''
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '* session: renamed to "My title"'
+    left: fx '* images: no pending images' / xfx '┃ /shell reload'
+    left: fx '* session: renamed to "My title"' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '* ultrafast: requested: off'
+    left: fx '* ultrafast: requested: off' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* undo: Nothing to undo.' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '┃ /login' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '✗ images: image file not found' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '         grok' / xfx 'auto · model-a'
+    NEW:  fx '         vercel · current' / xfx '┃'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '┃ /login' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a login-closed: 17 differing rows left, 10 new
+    left: fx '* Opened https://xfx.sh/feedback.' / xfx ''
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx 'auto · model-a'
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '┃'
+    left: fx '* auth: No xfx login session found.' / xfx ''
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '* session: renamed to "My title"'
+    left: fx '* images: no pending images' / xfx '┃ /shell reload'
+    left: fx '* session: renamed to "My title"' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '* ultrafast: requested: off'
+    left: fx '* ultrafast: requested: off' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* undo: Nothing to undo.' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '✗ images: image file not found' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '' / xfx 'auto · model-a'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx 'auto · model-a' / xfx '┃'
+    NEW:  fx '┃' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a logout: 7 differing rows left, 12 new
+    left: fx '' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '* session: renamed to "My title"'
+    left: fx '* session: renamed to "My title"' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '┃ /shell reload'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    left: fx '┃' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* clipboard: No assistant reply to copy.' / xfx '* undo: Nothing to undo.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx '* images: no pending images' / xfx '✗ images: image file not found'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '* clipboard: No assistant reply to copy.'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '* undo: Nothing to undo.' / xfx '* images: no pending images'
+    NEW:  fx '* version: <build>' / xfx '682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '┃' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+    NEW:  fx '✗ images: image file not found' / xfx '* fast: This model does not come with a fast mode.'
+p5-panels-sweep-a provider: 18 differing rows left, 12 new
+    left: fx '            codex' / xfx 'auto · model-a'
+    left: fx '            grok' / xfx ''
+    left: fx '            vercel · current' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '* Opened https://xfx.sh/feedback.' / xfx '            gateway · current'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '┃ /provider'
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* auth: No xfx login session found.' / xfx ''
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* ultrafast: requested: off'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* images: no pending images' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* session: renamed to "My title"' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* ultrafast: requested: off' / xfx '* session: renamed to "My title"'
+    left: fx '* undo: Nothing to undo.' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '┃ /provider' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '✗ images: image file not found' / xfx '┃ /shell reload'
+    NEW:  fx '' / xfx 'auto · model-a'
+    NEW:  fx '            codex' / xfx '──────────────────────────────────────────────────────────────────────'
+    NEW:  fx '            grok' / xfx '            gateway · current'
+    NEW:  fx '            vercel · current' / xfx '┃ /provider'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '┃ /provider' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a provider-closed: 16 differing rows left, 10 new
+    left: fx '* Opened https://xfx.sh/feedback.' / xfx 'auto · model-a'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '┃'
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* auth: No xfx login session found.' / xfx ''
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* ultrafast: requested: off'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* images: no pending images' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* session: renamed to "My title"' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* ultrafast: requested: off' / xfx '* session: renamed to "My title"'
+    left: fx '* undo: Nothing to undo.' / xfx '✗ credits: HTTP 404: not found'
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '✗ images: image file not found' / xfx '┃ /shell reload'
+    NEW:  fx '' / xfx 'auto · model-a'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx 'auto · model-a' / xfx '┃'
+    NEW:  fx '┃' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a resume: 17 differing rows left, 7 new
+    left: fx '' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '↑↓ navigate     tab scope     enter resume     esc close'
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '  No sessions found.'
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* images: no pending images' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* session: renamed to "My title"' / xfx 'Sessions 0  [Current workspace]  All workspaces'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '┃'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '* ultrafast: requested: off' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* undo: Nothing to undo.' / xfx '┃ /shell reload'
+    left: fx '* version: <build>' / xfx '* ultrafast: requested: off'
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '✗ images: image file not found' / xfx '* session: renamed to "My title"'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a resume-closed: 16 differing rows left, 7 new
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx ''
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx ''
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* images: no pending images' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* session: renamed to "My title"' / xfx 'auto · model-a'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '┃'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '* ultrafast: requested: off' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* undo: Nothing to undo.' / xfx '┃ /shell reload'
+    left: fx '* version: <build>' / xfx '* ultrafast: requested: off'
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '✗ images: image file not found' / xfx '* session: renamed to "My title"'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a settings: 28 differing rows left, 8 new
+    left: fx '' / xfx '  Fast mode                off'
+    left: fx '' / xfx '  Model                    fake/model-a'
+    left: fx '' / xfx '  Permission mode          ask  auto  full access'
+    left: fx '' / xfx '  Prompt history           off  on'
+    left: fx '' / xfx '  Session titles           off  on'
+    left: fx '' / xfx '  Slash menu categories    off  on'
+    left: fx '' / xfx '  Sound level              off  on'
+    left: fx '' / xfx '  Startup scrollback       off  on'
+    left: fx '' / xfx '  Status line session      off  on'
+    left: fx '' / xfx '  Ultra mode               off'
+    left: fx '' / xfx '↑↓ navigate     tab category     ←→ change     esc close'
+    left: fx '' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '  Status line workspace    off  on'
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '  Status line context      off  on'
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* images: no pending images' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* session: renamed to "My title"' / xfx 'Settings 14  [All]  Interface  Agent  Notifications  Advanced'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '┃'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '* ultrafast: requested: off' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* undo: Nothing to undo.' / xfx '┃ /shell reload'
+    left: fx '* version: <build>' / xfx '* ultrafast: requested: off'
+    left: fx 'auto · model-a' / xfx '  Reasoning effort         default'
+    left: fx '┃' / xfx '  Collapse tool calls      off  on'
+    left: fx '✗ credits: HTTP 404: not found' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '✗ images: image file not found' / xfx '* session: renamed to "My title"'
+    NEW:  fx '  Sound level              off  on  max' / xfx '  Sound level              off  on'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a settings-closed: 16 differing rows left, 7 new
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx ''
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx ''
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* images: no pending images' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* session: renamed to "My title"' / xfx 'auto · model-a'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '┃'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '* ultrafast: requested: off' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* undo: Nothing to undo.' / xfx '┃ /shell reload'
+    left: fx '* version: <build>' / xfx '* ultrafast: requested: off'
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '✗ images: image file not found' / xfx '* session: renamed to "My title"'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a shell: 1 differing rows left, 1 new
+    left: fx '┃' / xfx 'Provider unavailable · HTTP 500: unexpected request · retrying request'
+    NEW:  fx '┃' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+p5-panels-sweep-a statusline: 20 differing rows left, 7 new
+    left: fx '' / xfx '  Context      off  on'
+    left: fx '' / xfx '  Workspace    off  on'
+    left: fx '' / xfx 'Status line'
+    left: fx '' / xfx '↑↓ navigate     ←→ change     esc close'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '  Session      off  on'
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* images: no pending images' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* session: renamed to "My title"' / xfx ''
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '* ultrafast: requested: off' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* undo: Nothing to undo.' / xfx '┃ /shell reload'
+    left: fx '* version: <build>' / xfx '* ultrafast: requested: off'
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '✗ images: image file not found' / xfx '* session: renamed to "My title"'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a statusline-closed: 16 differing rows left, 7 new
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx ''
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx ''
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* images: no pending images' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* session: renamed to "My title"' / xfx 'auto · model-a'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '┃'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '* ultrafast: requested: off' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* undo: Nothing to undo.' / xfx '┃ /shell reload'
+    left: fx '* version: <build>' / xfx '* ultrafast: requested: off'
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '✗ images: image file not found' / xfx '* session: renamed to "My title"'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a trace: 1 differing rows left, 0 new
+    left: fx '<banner>' / xfx '* version: <build>'
+p5-panels-sweep-a workspace: 19 differing rows left, 7 new
+    left: fx '' / xfx '  Primary                   <local-path>'
+    left: fx '' / xfx 'Workspace'
+    left: fx '' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx '❯ Add directory…             Grant access to another directory'
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx '  Additional directories    0 / 16'
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* images: no pending images' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* session: renamed to "My title"' / xfx ''
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '* ultrafast: requested: off' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* undo: Nothing to undo.' / xfx '┃ /shell reload'
+    left: fx '* version: <build>' / xfx '* ultrafast: requested: off'
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx '↑↓ navigate     enter use     esc close'
+    left: fx '✗ credits: HTTP 404: not found' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '✗ images: image file not found' / xfx '* session: renamed to "My title"'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-a workspace-closed: 16 differing rows left, 7 new
+    left: fx '* Trace copied to clipboard. Review and redact it before sharing.' / xfx ''
+    left: fx '* aliases: Aliases are not yet configurable.' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '* allowlist: effective persistent allow rules: (none)' / xfx ''
+    left: fx '* clipboard: No assistant reply to copy.' / xfx '* aliases: Aliases are not yet configurable.'
+    left: fx '* fast: This model does not come with a fast mode.' / xfx '* allowlist: effective persistent allow rules: (none)'
+    left: fx '* images: no pending images' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    left: fx '* session: renamed to "My title"' / xfx 'auto · model-a'
+    left: fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '┃'
+    left: fx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '✗ credits: HTTP 404: not found'
+    left: fx '* ultrafast: requested: off' / xfx '* Trace copied to clipboard. Review and redact it before sharing.'
+    left: fx '* undo: Nothing to undo.' / xfx '┃ /shell reload'
+    left: fx '* version: <build>' / xfx '* ultrafast: requested: off'
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+    left: fx '✗ credits: HTTP 404: not found' / xfx '✗ command: Unknown command. Try /help.'
+    left: fx '✗ images: image file not found' / xfx '* session: renamed to "My title"'
+    NEW:  fx '* Opened https://xfx.sh/feedback.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* aliases: Aliases are not yet configurable.' / xfx '┃ /shell reload'
+    NEW:  fx '* auth: No xfx login session found.' / xfx '✗ command: Unknown command. Try /help.'
+    NEW:  fx '* fast: This model does not come with a fast mode.' / xfx '* ultrafast: requested: off'
+    NEW:  fx 'ads your shell startup files. Remembered command approvals were reset.' / xfx '✗ system: the Gateway returned HTTP 500: unexpected request'
+    NEW:  fx '* ultrafast: requested: off' / xfx '✗ credits: HTTP 404: not found'
+    NEW:  fx '✗ credits: HTTP 404: not found' / xfx '* aliases: Aliases are not yet configurable.'
+p5-panels-sweep-b after-compact: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '268, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b compact: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '268, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b rename: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '268, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b resume: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '268, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b stats: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '268, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b trace: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '268, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b undo: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '268, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-toolgroup-ctrlo-tc dark: 6 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓80)' / xfx '  <wall> (↑4 ↓80)'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run the command' / xfx '┃ run the command'
+    left: fx '└ Ran echo "hi" 42 | grep hi # note' / xfx '└ Ran echo "hi" 42 | grep hi # note'
+    left: fx '● 1 tool call · 1 command' / xfx '● 1 tool call · 1 command'
+p5-toolgroup-ctrlo-tc dark-again: 6 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓80)' / xfx '  <wall> (↑4 ↓80)'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run the command' / xfx '┃ run the command'
+    left: fx '└ Ran echo "hi" 42 | grep hi # note' / xfx '└ Ran echo "hi" 42 | grep hi # note'
+    left: fx '● 1 tool call · 1 command' / xfx '● 1 tool call · 1 command'
+p5-toolgroup-ctrlo-tc full-dark: 4 differing rows left, 0 new
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+    left: fx '* session: provider: gateway · model: fake/model-a · effort: auto' / xfx '* session: provider: gateway · model: fake/model-a · effort: auto'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close' / xfx '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close'
+p5-toolgroup-ctrlo-tc full-dark-again: 4 differing rows left, 0 new
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+    left: fx '* session: provider: gateway · model: fake/model-a · effort: auto' / xfx '* session: provider: gateway · model: fake/model-a · effort: auto'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close' / xfx '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close'
+p5-toolgroup-ctrlo-tc full-light: 4 differing rows left, 0 new
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+    left: fx '* session: provider: gateway · model: fake/model-a · effort: auto' / xfx '* session: provider: gateway · model: fake/model-a · effort: auto'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close' / xfx '┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close'
+p5-toolgroup-ctrlo-tc light: 6 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓80)' / xfx '  <wall> (↑4 ↓80)'
+    left: fx 'full access · model-a' / xfx 'full access · model-a'
+    left: fx '┃' / xfx '┃'
+    left: fx '┃ run the command' / xfx '┃ run the command'
+    left: fx '└ Ran echo "hi" 42 | grep hi # note' / xfx '└ Ran echo "hi" 42 | grep hi # note'
+    left: fx '● 1 tool call · 1 command' / xfx '● 1 tool call · 1 command'
+read-failures live-ctrl-o-up1: 4 differing rows left, 4 new
+    left: fx 'ob_files to inspect directory contents, then choose a regular file."}}' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+    left: fx '│  ls":{"field":"path","path":"<local-path>","error":"NotRegularF' / xfx ''
+    left: fx 'name":"read_file","message":"read_file requires a regular file","detai' / xfx 'ob_files to inspect directory contents, then choose a regular file."}}'
+    left: fx '├ Failed src' / xfx '│  ls":{"field":"path","path":"<local-path>","error":"NotRegularF'
+    NEW:  fx '│  ls":{"field":"path","path":"<local-path>","error":"NotRegula' / xfx ''
+    NEW:  fx 'ob_files to inspect directory contents, then choose a regular file."}}' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Tool'
+    NEW:  fx 'name":"read_file","message":"read_file requires a regular file","detai' / xfx 'ob_files to inspect directory contents, then choose a regular file."}}'
+    NEW:  fx '├ Failed src' / xfx '│  ls":{"field":"path","path":"<local-path>","error":"NotRegula'
+verdicts moved: 6
+    model-parked menu-loading: normalized-identical -> unresolved-defect
+    model-reask menu-failed: normalized-identical -> unresolved-defect
+    p5-input-model-fail fail-open: normalized-identical -> unresolved-defect
+    p5-toolgroup-ctrlo-tc dark: unresolved-defect -> normalized-identical
+    p5-toolgroup-ctrlo-tc dark-again: unresolved-defect -> normalized-identical
+    p5-toolgroup-ctrlo-tc light: unresolved-defect -> normalized-identical
+fx screens not the same in the two sweeps: 105
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    image-composer lookalike
+    image-composer lookalike-sent
+    image-composer oversized
+    image-composer recalled
+    image-composer recalled-sent
+    image-composer recovered
+    image-composer yanked
+    image-composer yanked-sent
+    image-paste ctrl-v
+    image-paste end.full
+    image-paste images
+    image-paste paste
+    image-paste sent
+    links full
+    model-parked menu-loading
+    model-parked question-landed
+    model-parked question-up
+    model-reask menu-failed
+    model-reask turn-running
+    p5-effort-fork-fork continued
+    p5-effort-fork-fork forked
+    p5-effort-fork-fork forked.full
+    p5-effort-fork-fork quit
+    p5-effort-fork-fork resume
+    p5-effort-fork-fork status
+    p5-input-model-fail fail-open
+    p5-panels-sweep-a compact-empty
+    p5-panels-sweep-a login
+    p5-panels-sweep-a login-closed
+    p5-panels-sweep-a provider
+    p5-panels-sweep-a provider-closed
+    p5-panels-sweep-a quit
+    p5-panels-sweep-a resume
+    p5-panels-sweep-a resume-closed
+    p5-panels-sweep-a settings
+    p5-panels-sweep-a settings-closed
+    p5-panels-sweep-a statusline
+    p5-panels-sweep-a statusline-closed
+    p5-panels-sweep-a trace
+    p5-panels-sweep-a workspace
+    p5-panels-sweep-a workspace-closed
+    p5-panels-sweep-b quit
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    rename quit
+    rename relaunched
+    resume quit
+    resume-launch quit
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    timeout live-ctrl-o
+    trace copy-fail
+xfx screens not the same in the two sweeps: 119
+    fulltranscript cmd-ask
+    fulltranscript cmd-ask-ctrl-o
+    fulltranscript edit-ask
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    image-composer lookalike
+    image-composer lookalike-sent
+    image-composer oversized
+    image-composer recalled
+    image-composer recalled-sent
+    image-composer recovered
+    image-composer yanked
+    image-composer yanked-sent
+    image-paste ctrl-v
+    image-paste end.full
+    image-paste images
+    image-paste paste
+    image-paste sent
+    links full
+    model-parked menu-loading
+    model-reask menu-failed
+    model-reask reask-midturn
+    p5-effort-fork-fork continued
+    p5-effort-fork-fork forked
+    p5-effort-fork-fork forked.full
+    p5-effort-fork-fork quit
+    p5-effort-fork-fork resume
+    p5-effort-fork-fork status
+    p5-input-model-fail fail-open
+    p5-panels-sweep-a compact-empty
+    p5-panels-sweep-a feedback
+    p5-panels-sweep-a logout
+    p5-panels-sweep-a quit
+    p5-panels-sweep-a shell
+    p5-panels-sweep-a trace
+    p5-panels-sweep-a workspace
+    p5-panels-sweep-b after-compact
+    p5-panels-sweep-b compact
+    p5-panels-sweep-b quit
+    p5-panels-sweep-b rename
+    p5-panels-sweep-b resume
+    p5-panels-sweep-b stats
+    p5-panels-sweep-b trace
+    p5-panels-sweep-b undo
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc dark
+    p5-toolgroup-ctrlo-tc dark-again
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-toolgroup-ctrlo-tc light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    rename quit
+    reset clear.full
+    reset new.full
+    reset reset.full
+    reset turn3.full
+    reset-wire clear.full
+    resume quit
+    resume-launch quit
+    resume-tools cmd-ask
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools edit-ask
+    resume-tools exit-ask
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    resume-tools write-ask
+    rules-read-auto grep-amend
+    rules-read-auto grep-ask
+    rules-read-auto read-ask
+    timeout live-ctrl-o
+    trace copy-fail
+passed on the reference, not on the train: 3
+    model-parked menu-loading
+    model-reask menu-failed
+    p5-input-model-fail fail-open; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 27

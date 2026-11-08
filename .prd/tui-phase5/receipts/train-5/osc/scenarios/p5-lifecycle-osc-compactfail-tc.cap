@@ -1,0 +1,22 @@
+# Train 5: p5-lifecycle-osc-compactfail in a session that claims truecolor (COLORTERM=truecolor, as the
+# `-tc` twins on main): the frames osc.py reads, every grey as each product spells it
+# under truecolor. Captured from a scratch copy of the scenario directory
+# (FXCAP_SCENARIOS); not a scenario of the repository. The rest is the twin's:
+# Phase 5 L-U1: a /compact whose notes request is refused twice -- the
+# result is error.
+env COLORTERM=truecolor
+gateway p5-lifecycle-compactfail-turns.json
+work compact-ws
+xfx: env XFX_SOUND=off
+wait 4
+type first question
+key Enter
+wait 3
+type second question
+key Enter
+wait 2.5
+wire f00-answered
+type /compact
+key Enter
+wait 3
+wire f01-failed

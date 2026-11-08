@@ -7,6 +7,12 @@
 //! which keeps what it was fed, or reads it and exits 1 once [`FakeClipboard::fail`]
 //! has been called.
 //!
+//! A case that needs a copy still running when the session ends calls
+//! [`FakeClipboard::hold_copies_on`]: from then on the copy tool takes what it
+//! is fed and then holds until it is killed, writing a heartbeat ([`BEAT`])
+//! into the given terminal while it is alive -- the same stream the binary
+//! writes to, so a case reads off the terminal what came while it lived.
+//!
 //! `/trace` copies a **file** on macOS, through `osascript`, and the directory
 //! has one of those too: it keeps the path it was given as its last argument
 //! ([`FakeClipboard::copied_file`]), or exits 1 once [`FakeClipboard::fail`]
@@ -15,8 +21,12 @@
 //! in the suite runner's temporary directory.
 
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+
+/// What a holding copy tool writes into its terminal, one `write(2)` each,
+/// about every 10 ms while it is alive ([`FakeClipboard::hold_copies_on`]).
+pub const BEAT: &str = "<<BEAT>>";
 
 pub struct FakeClipboard {
     dir: tempfile::TempDir,
@@ -27,8 +37,19 @@ impl FakeClipboard {
         let dir = tempfile::tempdir().expect("a directory for the fake clipboard");
         let script = concat!(
             "#!/bin/sh\n",
-            "if [ -f \"${0%/*}/fail\" ]; then cat >/dev/null; exit 1; fi\n",
-            "cat > \"${0%/*}/copied\"\n",
+            "d=${0%/*}\n",
+            "if [ -f \"$d/fail\" ]; then cat >/dev/null; exit 1; fi\n",
+            // Holding: the input taken, the pid told, then a heartbeat until
+            // the tool is killed -- or until its directory goes, so a tool a
+            // failed case leaves behind ends by itself.
+            "if [ -f \"$d/hold\" ]; then\n",
+            "  cat > \"$d/copied\"\n",
+            "  t=$(cat \"$d/hold\")\n",
+            "  echo $$ > \"$d/held\"\n",
+            "  while [ -d \"$d\" ]; do printf '<<BEAT>>' > \"$t\"; sleep 0.01; done\n",
+            "  exit 1\n",
+            "fi\n",
+            "cat > \"$d/copied\"\n",
         );
         for tool in ["pbcopy", "xclip"] {
             let path = dir.path().join(tool);
@@ -102,6 +123,22 @@ impl FakeClipboard {
     /// The process id of the last file copy that hung, once it has started.
     pub fn hung(&self) -> Option<i32> {
         std::fs::read_to_string(self.path("hung"))
+            .ok()
+            .and_then(|pid| pid.trim().parse().ok())
+    }
+
+    /// Makes every copy from now on take its input and then hold until it is
+    /// killed or this fake is dropped, writing [`BEAT`] into `tty` (a pty's
+    /// slave, which the binary's own output goes to) while it is alive. Its
+    /// process id is [`Self::holding`] once it holds.
+    pub fn hold_copies_on(&self, tty: &Path) {
+        std::fs::write(self.path("hold"), tty.as_os_str().as_encoded_bytes())
+            .expect("arm the hold");
+    }
+
+    /// The process id of the copy tool that holds, once it does.
+    pub fn holding(&self) -> Option<i32> {
+        std::fs::read_to_string(self.path("held"))
             .ok()
             .and_then(|pid| pid.trim().parse().ok())
     }

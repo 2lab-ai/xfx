@@ -1,0 +1,15 @@
+# The test counts the README cites, per commit. Commands as run (from the train's worktree):
+#   tests:   git grep -c '#\[test\]' <commit> -- src tests | awk -F: '{s+=$NF} END {print s}'
+#   harness: git show <commit>:scripts/fxcap/test_sweep.py | grep -cE '^    def test_'   (and test_capture.py)
+# commit | what | #[test] in src+tests | def test_ in test_sweep.py | in test_capture.py
+e6cde019 | base | 5140 | 50 | 42
+884497c0 | main | 5193 | 66 | 59
+0b432f9a | FLAKE-COPYEND | 5144 | 50 | 42
+e636db48 | L-U1+U2 | 5183 | 50 | 42
+2fefa1fb | merge-1 | 5197 | 66 | 59
+7d91f833 | merge-2 | 5240 | 66 | 59
+81a71203 | re-points | 5240 | 66 | 59
+150334d9 | join-test | 5241 | 66 | 59
+d6a10eeb | receipt-1 | 5241 | 66 | 59
+ffd53286 | r2-join-test | 5241 | 66 | 59
+f788dc54 | r2-receipt-1 | 5241 | 66 | 59

@@ -1,0 +1,8 @@
+# RED, the end that panics: the case at 026a979a (end with no guard), run alone
+test tui::copy::tests::an_end_whose_look_at_the_grace_panics_still_stops_and_joins_every_copy ... FAILED
+panicked at src/tui/copy.rs:335:26:
+a look at the grace that fails
+panicked at src/tui/copy.rs:338:9:
+a panic in the end left the tool running (pid 67066)
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4262 filtered out; finished in 0.89s
+# after the run: 0 fake tools still running

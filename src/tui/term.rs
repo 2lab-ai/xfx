@@ -83,23 +83,75 @@ pub(crate) const MODE_SET_TMUX: &str = "\x1b[>4;2m\x1b[?2004h\x1b[?7l\x1b[?2031h
 /// off. First rather than merely present: whatever is written ahead of it in
 /// an open update waits for it. The restore check seeds an open update
 /// ([`check_restore`]), so a restore without the close is refused.
+///
+/// **And all four include the clear of the terminal's program status
+/// records** ([`super::program_status::CLEAR`]) right after `?2004l`, where
+/// upstream's four do (`app_lifecycle.zig:43-48@481104fd`), so a session that
+/// has ended -- or stopped -- leaves no `working` or `done` behind it on a
+/// terminal that took the restore. A restore the descriptor takes only part
+/// of can lose it, as it can lose the rest of the restore. Spelled out inside
+/// each literal rather than concatenated, because the abnormal two are what a
+/// signal handler writes in one `write(2)` and have to be `'static` bytes; a
+/// test holds each to the constant. The restore check requires it
+/// ([`check_restore`]'s `clears_status`).
 pub(crate) const RESTORE: &str =
-    "\x1b[?2026l\x1b]2;\x07\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
+    "\x1b[?2026l\x1b]2;\x07\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b]7501;state=clear\x1b\\\x1b[?2031l\x1b[?7h\x1b[?25h";
 
 /// The same for tmux, which was never given the push to pop.
 pub(crate) const RESTORE_TMUX: &str =
-    "\x1b[?2026l\x1b]2;\x07\x1b[23;2t\x1b[>4;0m\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
+    "\x1b[?2026l\x1b]2;\x07\x1b[23;2t\x1b[>4;0m\x1b[?2004l\x1b]7501;state=clear\x1b\\\x1b[?2031l\x1b[?7h\x1b[?25h";
 
 /// The restore sequence for an exit that is *not* the planned one, which leads
 /// with `1049l` defensively: a crash may have happened while a surface xfx does
 /// not own was on screen (`app_lifecycle.zig:36-38`). Behind `?2026l`, in
 /// upstream's order (`app_lifecycle.zig:41`, pinned by `:2280-2282`).
 pub(crate) const ABNORMAL_RESTORE: &str =
-    "\x1b[?2026l\x1b[?1049l\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
+    "\x1b[?2026l\x1b[?1049l\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b]7501;state=clear\x1b\\\x1b[?2031l\x1b[?7h\x1b[?25h";
 
 /// The abnormal restore for tmux.
 pub(crate) const ABNORMAL_RESTORE_TMUX: &str =
-    "\x1b[?2026l\x1b[?1049l\x1b[23;2t\x1b[>4;0m\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
+    "\x1b[?2026l\x1b[?1049l\x1b[23;2t\x1b[>4;0m\x1b[?2004l\x1b]7501;state=clear\x1b\\\x1b[?2031l\x1b[?7h\x1b[?25h";
+
+// **The build refuses a restore that lost its clear**, or moved it from behind
+// `?2004l`: the four literals above cannot be concatenated from
+// [`super::program_status::CLEAR`] -- the handlers need `'static` bytes -- so
+// this is what ties each of them to it, before a test is ever run.
+const _: () = {
+    let clear = super::program_status::CLEAR.as_bytes();
+    assert!(follows(RESTORE.as_bytes(), b"\x1b[?2004l", clear));
+    assert!(follows(RESTORE_TMUX.as_bytes(), b"\x1b[?2004l", clear));
+    assert!(follows(ABNORMAL_RESTORE.as_bytes(), b"\x1b[?2004l", clear));
+    assert!(follows(
+        ABNORMAL_RESTORE_TMUX.as_bytes(),
+        b"\x1b[?2004l",
+        clear
+    ));
+};
+
+/// Whether `haystack` holds `first` immediately followed by `second`.
+const fn follows(haystack: &[u8], first: &[u8], second: &[u8]) -> bool {
+    let wanted = first.len() + second.len();
+    let mut at = 0;
+    while at + wanted <= haystack.len() {
+        let mut k = 0;
+        while k < wanted {
+            let byte = if k < first.len() {
+                first[k]
+            } else {
+                second[k - first.len()]
+            };
+            if haystack[at + k] != byte {
+                break;
+            }
+            k += 1;
+        }
+        if k == wanted {
+            return true;
+        }
+        at += 1;
+    }
+    false
+}
 
 /// The dimensions a terminal that will not answer is treated as having.
 const DEFAULT_ROWS: u16 = 24;
@@ -450,6 +502,10 @@ fn check_restore(
                 title_stack: 0,
                 plane: super::check::PlaneKind::Primary,
                 cursor_visible: Some(true),
+                // Every restore includes the clear of the program status
+                // records, and one that lost it leaves the terminal saying
+                // `working` for a session that has gone.
+                clears_status: true,
             },
             // The `1049l` in front of the restore is the one transition this
             // segment may make, and only while the band is still on the
@@ -789,23 +845,51 @@ mod tests {
         assert_eq!(
             RESTORE,
             "\u{1b}[?2026l\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\
-             \u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h"
+             \u{1b}]7501;state=clear\u{1b}\\\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h"
         );
         assert_eq!(
             RESTORE_TMUX,
-            "\u{1b}[?2026l\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?2031l\
-             \u{1b}[?7h\u{1b}[?25h"
+            "\u{1b}[?2026l\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\
+             \u{1b}]7501;state=clear\u{1b}\\\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h"
         );
         assert_eq!(
             ABNORMAL_RESTORE,
             "\u{1b}[?2026l\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\
-             \u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h"
+             \u{1b}]7501;state=clear\u{1b}\\\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h"
         );
         assert_eq!(
             ABNORMAL_RESTORE_TMUX,
-            "\u{1b}[?2026l\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?2031l\
-             \u{1b}[?7h\u{1b}[?25h"
+            "\u{1b}[?2026l\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\
+             \u{1b}]7501;state=clear\u{1b}\\\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h"
         );
+    }
+
+    #[test]
+    fn every_restore_clears_the_program_status_right_after_bracketed_paste() {
+        // Upstream's own test, for all four (`app_lifecycle.zig:2337-2346`
+        // at `481104fd`), and the place it puts the clear: after `?2004l`
+        // (`:43`, `:46`). Once, in each: a second clear is a second write of
+        // the same record, and none leaves the last report standing.
+        let clear = super::super::program_status::CLEAR;
+        for restore in [
+            RESTORE,
+            RESTORE_TMUX,
+            ABNORMAL_RESTORE,
+            ABNORMAL_RESTORE_TMUX,
+        ] {
+            assert_eq!(restore.matches(clear).count(), 1, "{restore:?}");
+            assert!(
+                restore.contains(&format!("\u{1b}[?2004l{clear}")),
+                "{restore:?}"
+            );
+        }
+        // And what a handler writes is one of these literals, not a copy made
+        // at the moment: `restore_pair` hands `write(2)` the `&'static str`
+        // `abnormal_restore` returns -- a type no allocation can produce -- so
+        // the clear costs a handler no allocation and no lock.
+        let handed: fn(bool) -> &'static str = abnormal_restore;
+        assert_eq!(handed(false), ABNORMAL_RESTORE);
+        assert_eq!(handed(true), ABNORMAL_RESTORE_TMUX);
     }
 
     /// `DECSET`/`DECRST 2031`, spelled here rather than imported for the reason

@@ -201,7 +201,15 @@ band that came back.
   character in one of `http`, `https`, `file`, `mailto`, and a close that
   carries nothing). A link is remembered per cell in `links`, and one left open
   across a linefeed, a `CUP`, an erase, a plane change or the end of a
-  synchronized update is a finding, as each is a refusal there. **Every other
+  synchronized update is a finding, as each is a refusal there. And `OSC 7501`
+  (the program status, `ST`-terminated, by `check.rs`'s
+  `program_status_command`: `state=clear` alone, or one of the state words --
+  `idle`, `working`, `done`, `error`, `blocked:kind=permission`,
+  `blocked:kind=question` -- then `:app=xfx`, and on a blocked state only an
+  optional `:msg=` of canonical standard base64, at most 344 characters,
+  decoding to at most 256 bytes of UTF-8 with no control character). Each is
+  kept in `statuses`; one written inside an open synchronized update is a
+  finding, since `check.rs` refuses a frame that carries one. **Every other
   `OSC` is a finding**, `OSC 52` first among them -- a band that started writing
   the user's clipboard would otherwise be an escape sequence nobody looked at
 * `XTWINOPS` `CSI 22 ; 2 t` / `CSI 23 ; 2 t`, the title stack xfx pushes at
@@ -252,7 +260,23 @@ KNOWN_MODES = {"?2026", "?25", "?7", "?2004", "?1049", "?2031"}
 # (`src/tui/theme.rs:67`, `ST`), and a hyperlink (`src/tui/hyperlink.rs`,
 # `ST`). `OSC 52` is deliberately **not** here -- a build that started writing
 # the clipboard must fail this run rather than be shrugged at.
-KNOWN_OSC = {"2": b"\x07", "11": b"\x1b\\", "8": b"\x1b\\"}
+KNOWN_OSC = {"2": b"\x07", "11": b"\x1b\\", "8": b"\x1b\\", "7501": b"\x1b\\"}
+
+# The program status (`src/tui/program_status.rs`, `check.rs`'s
+# `program_status_command`), restated rather than imported: the state words,
+# the name the record is kept under, and the message's two bounds.
+STATUS_STATES = (
+    "idle",
+    "working",
+    "done",
+    "error",
+    "blocked:kind=permission",
+    "blocked:kind=question",
+)
+STATUS_APP = "xfx"
+STATUS_MAX_ENCODED = 344
+STATUS_MAX_MESSAGE = 256
+BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
 # What a hyperlink may carry (`check.rs`'s `wire_link`, `hyperlink.rs`'s
 # `MAX_URI_BYTES` and `MAX_ID_BYTES`), restated rather than imported.
@@ -287,6 +311,36 @@ SCROLLBACK_ROWS = 2000
 # come from -- two flags of them are one flag.
 ZWJ = "\u200d"
 REGIONAL = range(0x1F1E6, 0x1F200)
+
+
+def decoded_base64(encoded):
+    """Standard base64 with its padding, canonical only, or `None`.
+
+    Restated from `check.rs`'s `wire_base64`: whole quads of the alphabet,
+    `=` only at the end and at most two of it, and the bits the padding leaves
+    over zero (`YQ==`, never `YR==`).
+    """
+    if len(encoded) % 4:
+        return None
+    pad = len(encoded) - len(encoded.rstrip("="))
+    if pad > 2:
+        return None
+    body = encoded[: len(encoded) - pad]
+    if any(c not in BASE64_ALPHABET for c in body):
+        return None
+    out = bytearray()
+    for start in range(0, len(encoded), 4):
+        quad = 0
+        for c in encoded[start : start + 4]:
+            quad = (quad << 6) | (0 if c == "=" else BASE64_ALPHABET.index(c))
+        last = start + 4 == len(encoded)
+        if last and pad == 2 and quad & 0xFFFF:
+            return None
+        if last and pad == 1 and quad & 0xFF:
+            return None
+        three = bytes(((quad >> 16) & 0xFF, (quad >> 8) & 0xFF, quad & 0xFF))
+        out += three[: 3 - pad] if last else three
+    return bytes(out)
 
 
 def cell_width(character):
@@ -417,6 +471,10 @@ class Grid:
         # been asked for. Remembered rather than drawn: a title changes no cell,
         # and a scenario that wants to assert one needs somewhere to read it.
         self.title = None
+        # Every `OSC 7501` program status the stream wrote, as its body after
+        # `7501;`, in order. A report moves no cell, so it is kept here for
+        # the scenarios that assert on one.
+        self.statuses = []
 
     # -- feeding ----------------------------------------------------------
 
@@ -646,8 +704,57 @@ class Grid:
         elif number == "11":
             if argument != "?":
                 self.unknown.append(match.group(0))
+        elif number == "7501":
+            self._program_status(argument, match)
         else:
             self._hyperlink(argument, match)
+
+    def _program_status(self, argument, match):
+        """`OSC 7501`, by `check.rs`'s `program_status_command`.
+
+        Kept in `statuses` as its body after `7501;` when it is one of the
+        shapes the product writes; anything else, and one written inside an
+        open update, is a finding.
+        """
+        if self.synchronized:
+            self.unknown.append(b"a program status inside an update: " + match.group(0))
+            return
+        if not argument.startswith("state="):
+            self.unknown.append(match.group(0))
+            return
+        rest = argument[len("state=") :]
+        if rest == "clear":
+            self.statuses.append(argument)
+            return
+        for word in STATUS_STATES:
+            lead = word + ":app=" + STATUS_APP
+            if rest == lead or rest.startswith(lead + ":msg="):
+                break
+        else:
+            self.unknown.append(match.group(0))
+            return
+        tail = rest[len(lead) :]
+        if tail:
+            encoded = tail[len(":msg=") :]
+            message = decoded_base64(encoded)
+            if (
+                not word.startswith("blocked:")
+                or not encoded
+                or len(encoded) > STATUS_MAX_ENCODED
+                or message is None
+                or len(message) > STATUS_MAX_MESSAGE
+            ):
+                self.unknown.append(match.group(0))
+                return
+            try:
+                text = message.decode("utf-8")
+            except UnicodeDecodeError:
+                self.unknown.append(match.group(0))
+                return
+            if any(unicodedata.category(c) == "Cc" for c in text):
+                self.unknown.append(match.group(0))
+                return
+        self.statuses.append(argument)
 
     def _hyperlink(self, argument, match):
         """`OSC 8`, by `check.rs`'s `wire_link`: a close, or an inert target."""
@@ -1002,8 +1109,9 @@ to everything:
   unsupported SGR parameter are the two the band could plausibly grow by
   accident, so they are the two asserted on -- and beside them every refusal of
   `src/tui/check.rs` the emulator restates: a hyperlink that is not inert or is
-  left open, a title or a query spelled with the other terminator, a caret
-  placed off the screen, a cluster clipped at the last column.
+  left open, a program status in any shape the product does not write or
+  inside an update, a title or a query spelled with the other terminator, a
+  caret placed off the screen, a cluster clipped at the last column.
 * **The subset xfx really emits is still accepted.** A contract that rejects
   the product is a broken harness rather than a caught defect, so every shape
   `src/tui/term.rs`, `src/tui/theme.rs`, `src/tui/frame.rs` and
@@ -1165,6 +1273,62 @@ def a_hyperlink_that_is_not_inert_or_is_left_open_is_a_finding():
         ("open across a plane change", "\x1b]8;;https://a\x1b\\x\x1b[?1049h" + close),
     ):
         require(fed(sequence).unknown, "%s passed the oracle unremarked: %r" % (what, sequence))
+
+
+def the_program_status_the_product_writes_is_accepted_and_kept():
+    """Every shape `src/tui/program_status.rs` writes, and the restores' clear."""
+    reports = (
+        "state=idle:app=xfx",
+        "state=working:app=xfx",
+        "state=done:app=xfx",
+        "state=error:app=xfx",
+        "state=blocked:kind=permission:app=xfx",
+        "state=blocked:kind=permission:app=xfx:msg=c2hlbGwucnVuIGdpdCBwdXNo",
+        "state=blocked:kind=question:app=xfx:msg=V2hpY2ggYnJhbmNoPw==",
+        # U+202E then `evil`: a bidi mark is text, kept inside the encoding.
+        "state=blocked:kind=permission:app=xfx:msg=4oCuZXZpbA==",
+        # 256 bytes, the message's bound.
+        "state=blocked:kind=question:app=xfx:msg=" + "YWFh" * 85 + "YQ==",
+        "state=clear",
+    )
+    grid = fed("".join("\x1b]7501;%s\x1b\\" % report for report in reports) + "x")
+    require(not grid.unknown, "the product's own program status was rejected: %r" % (grid.unknown,))
+    require(grid.statuses == list(reports), "the reports were not kept in order: %r" % (grid.statuses,))
+    require(grid.cells[0][0] == "x", "a program status moved the caret")
+
+
+def a_program_status_in_any_other_shape_is_a_finding():
+    """`check.rs`'s `program_status_command`, each of its refusals."""
+    for what, sequence in (
+        ("a BEL terminator", "\x1b]7501;state=idle:app=xfx\x07"),
+        ("another program's name", "\x1b]7501;state=idle:app=fx\x1b\\"),
+        ("no name", "\x1b]7501;state=idle\x1b\\"),
+        ("a state nobody writes", "\x1b]7501;state=busy:app=xfx\x1b\\"),
+        ("a kind nobody writes", "\x1b]7501;state=blocked:kind=other:app=xfx\x1b\\"),
+        ("no state", "\x1b]7501;app=xfx\x1b\\"),
+        ("a clear with more after it", "\x1b]7501;state=clear:app=xfx\x1b\\"),
+        ("a message where none is carried", "\x1b]7501;state=idle:app=xfx:msg=YQ==\x1b\\"),
+        ("a raw message", "\x1b]7501;state=blocked:kind=permission:app=xfx:msg=rm -rf\x1b\\"),
+        ("an empty message", "\x1b]7501;state=blocked:kind=permission:app=xfx:msg=\x1b\\"),
+        ("a partial quad", "\x1b]7501;state=blocked:kind=permission:app=xfx:msg=YQ\x1b\\"),
+        ("non-canonical padding", "\x1b]7501;state=blocked:kind=permission:app=xfx:msg=YR==\x1b\\"),
+        ("a decoded ESC", "\x1b]7501;state=blocked:kind=permission:app=xfx:msg=YRti\x1b\\"),
+        ("a decoded C1", "\x1b]7501;state=blocked:kind=permission:app=xfx:msg=wps=\x1b\\"),
+        ("a decoded non-UTF-8 byte", "\x1b]7501;state=blocked:kind=permission:app=xfx:msg=/w==\x1b\\"),
+        (
+            "past 256 decoded bytes",
+            "\x1b]7501;state=blocked:kind=permission:app=xfx:msg=%s\x1b\\" % ("QUFB" * 86),
+        ),
+        (
+            "past 344 characters",
+            "\x1b]7501;state=blocked:kind=permission:app=xfx:msg=%s\x1b\\" % ("QUFB" * 87),
+        ),
+        ("inside an update", "\x1b[?2026h\x1b]7501;state=idle:app=xfx\x1b\\x\x1b[?2026l"),
+        ("an unterminated report", "\x1b]7501;state=idle:app=xfx"),
+    ):
+        grid = fed(sequence)
+        require(grid.unknown, "%s passed the oracle unremarked: %r" % (what, sequence))
+        require(not grid.statuses, "%s was kept as a report: %r" % (what, grid.statuses))
 
 
 def an_update_is_open_between_its_brackets_and_only_there():
@@ -1502,6 +1666,8 @@ TESTS = (
     an_osc_in_the_other_terminator_or_with_another_body_is_a_finding,
     a_hyperlink_the_product_writes_is_accepted_and_covers_its_cells,
     a_hyperlink_that_is_not_inert_or_is_left_open_is_a_finding,
+    the_program_status_the_product_writes_is_accepted_and_kept,
+    a_program_status_in_any_other_shape_is_a_finding,
     an_update_is_open_between_its_brackets_and_only_there,
     a_bell_moves_nothing_and_is_counted,
     a_caret_placed_off_the_screen_or_half_addressed_is_a_finding,
@@ -2428,7 +2594,7 @@ FRAME_CLOSE = "\x1b[?2026l"
 FRAME_END = FRAME_CLOSE + "\x1b[?25h"
 
 # The whole interactive mode sequence and the two restores, in order
-# (`src/tui/term.rs:56-90`). Spelled out rather than imported: a harness that
+# (`src/tui/term.rs:56-101`). Spelled out rather than imported: a harness that
 # read the constant it is checking would pass for whatever the module declared.
 # The title push (`22;2t`) is the last thing in the mode set and its pop
 # (`23;2t`) leads every restore's own modes -- the only last/first pair here.
@@ -2447,7 +2613,7 @@ FRAME_END = FRAME_CLOSE + "\x1b[?25h"
 # bytes longer than the terminal had taken.
 #
 # **And every restore opens with `?2026l`**, synchronized output off, ahead of
-# all of that (T8 round 2, `40e5ffcd`; `src/tui/term.rs:74-98`; fx's both
+# all of that (T8 round 2, `40e5ffcd`; `src/tui/term.rs:74-109`; fx's both
 # restores, `app_lifecycle.zig:41,44`): a session can end with an update open
 # -- a torn frame, a signal between a frame's two ends -- and a terminal handed
 # back holding one would keep every later byte, the user's shell included,
@@ -2455,7 +2621,13 @@ FRAME_END = FRAME_CLOSE + "\x1b[?25h"
 # frame put on the wire ends where it starts.
 MODE_SET = "\x1b[>4;2m\x1b[>1u\x1b[?2004h\x1b[?7l\x1b[?2031h\x1b[22;2t"
 CLEAR_TITLE = "\x1b]2;\x07"
-RESTORE_MODES = "\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h"
+# **And every restore includes the program status clear right after `?2004l`**
+# (`OSC 7501 ; state=clear`, `src/tui/term.rs`; fx v0.0.16's four restores,
+# `app_lifecycle.zig:43-48@481104fd`).
+PROGRAM_STATUS_CLEAR = "\x1b]7501;state=clear\x1b\\"
+RESTORE_MODES = (
+    "\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l" + PROGRAM_STATUS_CLEAR + "\x1b[?2031l\x1b[?7h\x1b[?25h"
+)
 RESTORE = FRAME_CLOSE + CLEAR_TITLE + RESTORE_MODES
 ABNORMAL_RESTORE = FRAME_CLOSE + "\x1b[?1049l" + RESTORE_MODES
 
@@ -3417,8 +3589,37 @@ class Trial:
             if state.is_raw():
                 return state
             if time.time() > deadline:
-                raise Failure("the session never took the terminal back; it is still %r" % state)
+                raise Failure(self._never_raw(state))
             time.sleep(pty.IDLE_POLL)
+
+    def _never_raw(self, state):
+        """What a session that never re-entered raw mode was doing, kept.
+
+        Diagnostics, not a verdict: the child's process state (still stopped,
+        or running on a cooked terminal), how many bytes it had written that
+        nobody had read -- this wait does not drain the master, so a child
+        parked in a write would show here -- and the last bytes the terminal
+        was handed, all in `never-raw.txt` beside the trial's other evidence.
+        """
+        seen = len(self.session.captured)
+        while self.session.pump(0):
+            pass
+        unread = len(self.session.captured) - seen
+        try:
+            child = self.session.state()
+        except OSError as failure:
+            child = ("unknown", str(failure))
+        tail = bytes(self.session.captured[-400:])
+        path = os.path.join(self.dir, "never-raw.txt")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("termios: %r\n" % (state,))
+            handle.write("child: %r\n" % (child,))
+            handle.write("unread on the master when the wait gave up: %d byte(s)\n" % unread)
+            handle.write("last bytes on the wire: %r\n" % (tail,))
+        return (
+            "the session never took the terminal back; it is still %r; the child is %r; "
+            "%d byte(s) were waiting unread on the master (%s)" % (state, child, unread, path)
+        )
 
     # -- evidence ---------------------------------------------------------
 
@@ -4538,7 +4739,10 @@ def first_frame(captured):
 
 
 # The window title a write leads with: `OSC 2`, its text, `BEL`.
-TITLE_LEAD = re.compile(rb"\x1b\]2;[^\x07\x1b]*\x07\Z")
+# The title, and the launch's program status report when it rides the lead
+# after it (`event_loop.rs`'s `commit_tick`: fx's launch is `OSC 2`, then
+# `idle`, then the first `?2026h`).
+TITLE_LEAD = re.compile(rb"\x1b\]2;[^\x07\x1b]*\x07(?:\x1b\]7501;[\x20-\x7e]*\x1b\\)?\Z")
 
 
 def write_start(captured, begins):
@@ -4550,7 +4754,8 @@ def write_start(captured, begins):
     title"). So what a terminal that tore that write had taken -- the count the
     session reports -- starts at the title, not at the frame. Read off the wire
     rather than assumed: the bytes right before the frame are exactly one title
-    and nothing else, or there is no lead to count.
+    -- and the launch's program status report, which rides the lead after it
+    -- and nothing else, or there is no lead to count.
     """
     lead = TITLE_LEAD.search(captured[:begins])
     return None if lead is None else lead.start()
@@ -9895,10 +10100,42 @@ def wire_ends_on_a_frame(trial):
     `/sound`'s turn-end bell is written once the frame that ends the turn has
     been (`src/tui/check.rs`'s `Intent::Bell` -- no cell, no caret), so a wire
     that ends on a frame and then a `BEL` is a screen the session settled on.
-    Anything else after the close is still an append and still waited out.
+    **Nor is a whole program status report** (`OSC 7501`, `src/tui/check.rs`'s
+    `Intent::ProgramStatus` -- no cell, no caret): a report a keystroke caused
+    is written after the frame that shows the keystroke, as upstream's next
+    pass writes it (`event_loop.rs`'s `commit_tick`), and the session may
+    settle there. Anything else after the close is still an append and still
+    waited out.
+
+    **A report is not proof that nothing follows it**, though: the session can
+    write a report after one tick's frame and the next tick's frame a few
+    milliseconds later. So a wire that ends on a frame only once a trailing
+    report is set aside must also be quiet -- one more read that brings no byte
+    in `REPORT_QUIET` -- before the screen counts as settled; bytes that did
+    arrive are read and the wait goes on.
     """
-    captured = bytes(trial.session.captured).rstrip(b"\x07")
-    return captured.endswith(FRAME_END_BYTES) or captured.endswith(FRAME_CLOSE_BYTES)
+    captured = bytes(trial.session.captured)
+    reported = False
+    while True:
+        unrung = captured.rstrip(b"\x07")
+        trimmed = TRAILING_REPORT.sub(b"", unrung)
+        if trimmed == captured:
+            break
+        reported = reported or trimmed != unrung
+        captured = trimmed
+    framed = captured.endswith(FRAME_END_BYTES) or captured.endswith(FRAME_CLOSE_BYTES)
+    if framed and reported and trial.session.pump(REPORT_QUIET):
+        return False
+    return framed
+
+
+# A whole `OSC 7501` report at the very end of the wire.
+TRAILING_REPORT = re.compile(rb"\x1b\]7501;[\x20-\x7e]*\x1b\\\Z")
+
+# How long a wire that ends on a report has to stay still before the frame in
+# front of the report counts as the screen the session settled on: six of the
+# event loop's 8 ms ticks (`event_loop::TICK`).
+REPORT_QUIET = 0.05
 
 
 def cells_wide(text):

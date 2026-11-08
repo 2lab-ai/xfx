@@ -1,0 +1,22 @@
+## head
+head	p5-panels-sweep-a	fx	until shown 'No context to compact.': after 0.01 s, 26.21 s since launch
+head	p5-panels-sweep-a	xfx	until shown 'No context to compact.': after 0.07 s, 26.43 s since launch
+head	p5-transcript-records	fx	until shown 'Full access': after 0.01 s, 0.03 s since launch
+head	p5-transcript-records	fx	until gone 'Full access': after 0.02 s, 4.07 s since launch
+head	p5-transcript-records	xfx	until shown 'Full access': after 0.07 s, 0.09 s since launch
+head	p5-transcript-records	xfx	until gone 'Full access': after 0.01 s, 4.11 s since launch
+head	p5-transcript-resize	fx	until shown 'Full access': after 0.01 s, 0.03 s since launch
+head	p5-transcript-resize	fx	until gone 'Full access': after 0.01 s, 4.06 s since launch
+head	p5-transcript-resize	xfx	until shown 'Full access': after 0.01 s, 0.03 s since launch
+head	p5-transcript-resize	xfx	until gone 'Full access': after 0.02 s, 4.08 s since launch
+## main
+main	p5-panels-sweep-a	fx	until shown 'No context to compact.': after 0.01 s, 26.22 s since launch
+main	p5-panels-sweep-a	xfx	until shown 'No context to compact.': after 0.07 s, 26.27 s since launch
+main	p5-transcript-records	fx	until shown 'Full access': after 0.01 s, 0.03 s since launch
+main	p5-transcript-records	fx	until gone 'Full access': after 0.01 s, 4.06 s since launch
+main	p5-transcript-records	xfx	until shown 'Full access': after 0.07 s, 0.09 s since launch
+main	p5-transcript-records	xfx	until gone 'Full access': after 0.01 s, 4.12 s since launch
+main	p5-transcript-resize	fx	until shown 'Full access': after 0.01 s, 0.04 s since launch
+main	p5-transcript-resize	fx	until gone 'Full access': after 0.01 s, 4.07 s since launch
+main	p5-transcript-resize	xfx	until shown 'Full access': after 0.01 s, 0.04 s since launch
+main	p5-transcript-resize	xfx	until gone 'Full access': after 0.02 s, 4.08 s since launch

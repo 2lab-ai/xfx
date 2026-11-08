@@ -340,6 +340,11 @@ impl Panel {
     }
 
     /// Whether an amendment has the keys.
+    /// The request this question is about.
+    pub(crate) fn request(&self) -> &ApprovalRequest {
+        &self.request
+    }
+
     pub(crate) fn drafting(&self) -> bool {
         self.drafts.editing()
     }

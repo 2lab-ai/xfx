@@ -1,0 +1,59 @@
+[
+ {
+  "holdAt": 1,
+  "chunks": [
+   "ANSWER-ONE."
+  ]
+ },
+ {
+  "chunks": [
+   "ANSWER-TWO."
+  ]
+ },
+ {
+  "status": 400,
+  "body": "{\"error\":{\"message\":\"Synthetic bad request\"}}"
+ },
+ {
+  "tool": {
+   "name": "shell",
+   "input": {
+    "request": {
+     "action": "run",
+     "command": "echo hi > out.txt",
+     "yield_time_ms": 30000
+    }
+   }
+  }
+ },
+ {
+  "chunks": [
+   "ANSWER-SHELL."
+  ]
+ },
+ {
+  "tool": {
+   "name": "ask_user_question",
+   "input": {
+    "questions": [
+     {
+      "question": "Which branch?",
+      "options": [
+       {
+        "label": "main"
+       },
+       {
+        "label": "dev"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "chunks": [
+   "ANSWER-QUESTION."
+  ]
+ }
+]

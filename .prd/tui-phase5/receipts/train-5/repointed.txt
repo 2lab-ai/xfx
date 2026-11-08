@@ -1,0 +1,30 @@
+parity-ledger.toml inline-code divergence (source), the `colored and hyperlinked TTY output` row
+  docs/parity.md:241 (884497c0) -> :243
+  SAME (1 lines): '| colored and hyperlinked TTY output | ui | partial | Colour and OSC 8 hyperlinks inside t'
+parity-ledger.toml banner normalization (why, source)
+  src/tui/shell.rs:184 (884497c0) -> :185
+  SAME (5 lines): '"{}x\\u{1d487}x{}{} {label} \\u{b7} Run /help for commands{}",'
+parity-ledger.toml :849 (xfx)
+  src/tui/shell.rs:1583 (884497c0) -> :1644
+  SAME (5 lines): '"ansi_bytes={}, redraws={}, debounced_resizes={}, footer_updates=0, stream_chunks=0",'
+submit-multi-card-whole (why; `send`)
+  src/tui/shell.rs:12272 (884497c0) -> :12600
+  SAME (5 lines): 'fn send(&mut self, prompt: String, text: &str) -> bool {'
+session-record, transcript-page-offset, toolgroup-ctrlo-record-short, safe-page-edge, full-transcript-shift (xfx)
+  src/tui/shell.rs:37424 (884497c0) -> :37758
+  SAME (5 lines): '"  tools: {} advertised ({},",'
+capfile.py TIMERS, `warning_shown`
+  src/tui/shell.rs:13705-13730 (884497c0) -> :14033-14058
+  SAME (30 lines): "fn warning_shown(&self) -> Option<&'static str> {"
+capfile.py TIMERS, the full transcript
+  src/tui/shell.rs:13723-13725 (884497c0) -> :14051-14053
+  SAME (7 lines): 'if self.owner != ScreenOwner::Primary {'
+smoke-tui.sh, the mode set and the restores in order
+  src/tui/term.rs:56-90 (884497c0) -> :56-101
+  first line and two either side SAME: 'pub(crate) const MODE_SET: &str = "\\x1b[>4;2m\\x1b[>1u\\x1b[?2004h\\x1b[?'
+  last line and the one above it SAME (the clear aside): '/// The same for tmux, which was never given the p' / 'pub(crate) const RESTORE_TMUX: &str ='
+smoke-tui.sh, every restore opens with ?2026l
+  src/tui/term.rs:74-98 (884497c0) -> :74-109
+  first line and two either side SAME: '/// **All four open with `?2026l`**, synchronized output off. A frame '
+  last line and the one above it SAME (the clear aside): 'pub(crate) const ABNORMAL_RESTORE: &str =' / '"\\x1b[?2026l\\x1b[?1049l\\x1b[23;2t\\x1b[>4;0m\\x1b[<u\\x1b[?2004'
+9 of 9 the same code

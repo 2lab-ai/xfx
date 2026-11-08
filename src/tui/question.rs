@@ -457,6 +457,13 @@ impl QuestionPanel {
     }
 
     /// Which batch this panel is answering.
+    /// The question being shown, as the model wrote it: untrusted text.
+    pub(crate) fn question(&self) -> &str {
+        self.entries
+            .get(self.current)
+            .map_or("", |entry| entry.question.as_str())
+    }
+
     pub(crate) fn id(&self) -> QuestionId {
         self.id
     }

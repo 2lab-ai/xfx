@@ -1,0 +1,243 @@
+# Round 2, final: gates.sh at bf9e14ad (code at 7318963f: round 2's join test ffd53286 and its comment-only follow-up; the receipt to its second part), one step after another, the whole script and then the touched tests' three runs inside one hold of the machine's suite lock (job R3), TMPDIR a short scratch directory. Tree clean at the start and the end.
+# Step 16 failed one case, the same harness case as round 1's gate (test_capture.py:394, LAUNCH-SETTLE's item 6). After the hold: test-capture.sh whole, under the lock (job C3), and the case alone five times; then the case alone on main's clone (884497c0) and on the head, five times each, alternating, under the lock (job P). Each follows the steps below.
+# head bf9e14ad; tree clean: yes
+01 fmt                                exit 0     2s  load 6.61
+02 clippy                             exit 0     9s  load 6.61
+03 clippy-fault                       exit 0    11s  load 6.52
+04 test                               exit 0   185s  load 7.00
+05 test-fault                         exit 0   180s  load 11.87
+06 check-xfx-identity                 exit 0     1s  load 6.71
+07 check-no-stubs                     exit 0     8s  load 6.71
+08 check-no-secrets                   exit 0    26s  load 6.80
+09 check-preview-contract             exit 0     2s  load 6.34
+10 check-tui-preflight-cost           exit 0    83s  load 6.15
+11 check-usage-clock                  exit 0     0s  load 14.17
+12 test-check-no-secrets              exit 0    87s  load 14.17
+13 test-gate-env                      exit 0    83s  load 7.74
+14 test-preview-contract              exit 0    54s  load 5.96
+15 fxcap-test-sweep                   exit 0    57s  load 8.82
+16 fxcap-test-capture                 exit 1   517s  load 7.06
+17 build-release                      exit 0    13s  load 7.52
+18 build-faulty                       exit 0    19s  load 7.52
+19 smoke                              exit 0     6s  load 9.92
+20 smoke-tui                          exit 0    67s  load 9.52
+# 20 steps, 1 failed; tree clean after: yes
+
+===== 01-fmt (last lines; test suites: every 'test result' line and every failure)
+
+===== 02-clippy (last lines; test suites: every 'test result' line and every failure)
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.73s
+===== 03-clippy-fault (last lines; test suites: every 'test result' line and every failure)
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.74s
+===== 04-test (last lines; test suites: every 'test result' line and every failure)
+test result: ok. 4412 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 54.21s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.56s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.87s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.76s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.16s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.05s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.39s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.90s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.68s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+test result: ok. 179 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.31s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+===== 05-test-fault (last lines; test suites: every 'test result' line and every failure)
+test result: ok. 4435 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 48.52s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.35s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.38s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.72s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.18s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.02s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.72s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.94s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.71s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+test result: ok. 193 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.69s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+===== 06-check-xfx-identity (last lines; test suites: every 'test result' line and every failure)
+check-xfx-identity: ok (13498 tracked file(s) scanned)
+===== 07-check-no-stubs (last lines; test suites: every 'test result' line and every failure)
+check-no-stubs: ok
+===== 08-check-no-secrets (last lines; test suites: every 'test result' line and every failure)
+check-no-secrets: ok (13498 tracked file(s) scanned)
+===== 09-check-preview-contract (last lines; test suites: every 'test result' line and every failure)
+check-preview-contract: ok (.github/workflows/preview.yml)
+===== 10-check-tui-preflight-cost (last lines; test suites: every 'test result' line and every failure)
+preflight 200x300 full: 61292 bytes in 1.02525ms mean, 924.292µs min, 973.792µs median, 1.28975ms max (budget 32 ms)
+preflight 200x300 scroll: 9 bytes in 479.039µs mean, 475µs min, 478.167µs median, 485.417µs max (budget 32 ms)
+preflight 200x300 update: 85420 bytes in 695.47µs mean, 635.459µs min, 651.375µs median, 863.541µs max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 336.288µs mean, 325.209µs min, 332.375µs median, 354.375µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 1.222972ms mean, 1.20425ms min, 1.225167ms median, 1.25575ms max (budget 32 ms)
+check-tui-preflight-cost: ok
+===== 11-check-usage-clock (last lines; test suites: every 'test result' line and every failure)
+check-usage-clock: debug: honoured (debug assertions)
+check-usage-clock: release: ignored (release)
+check-usage-clock: release, fault injection: ignored (release)
+check-usage-clock: ok
+===== 12-test-check-no-secrets (last lines; test suites: every 'test result' line and every failure)
+test-check-no-secrets: ok grep-127           exit 1
+test-check-no-secrets: ok every-file         exit 1
+test-check-no-secrets: ok every-file-set     3472 of 3472 keys, each once
+test-check-no-secrets: ok nothing-tracked    exit 1
+test-check-no-secrets: ok only-a-symlink     exit 1
+test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
+===== 13-test-gate-env (last lines; test suites: every 'test result' line and every failure)
+test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code
+test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command
+test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break
+test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
+test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
+test-gate-env: ok (5 cases)
+===== 14-test-preview-contract (last lines; test suites: every 'test result' line and every failure)
+test-preview-contract: caught other-workflow-whole-context report.yml: job report reads a secret
+test-preview-contract: caught secrets-inherit              call.yml: job call passes secrets
+test-preview-contract: caught epoch-absent                 there is no .github/preview-epoch
+test-preview-contract: caught epoch-two-lines              .github/preview-epoch is "phase4\nphase5\n"
+test-preview-contract: caught epoch-crlf                   .github/preview-epoch is "phase4\r\n"
+test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+===== 15-fxcap-test-sweep (last lines; test suites: every 'test result' line and every failure)
+OK
+..........................
+----------------------------------------------------------------------
+Ran 26 tests in 51.205s
+
+OK
+===== 16-fxcap-test-capture (last lines; test suites: every 'test result' line and every failure)
+FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run (__main__.Verbs.test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run)
+AssertionError: 'executable /bin/cat' not found in 'no pid runs <tmpdir>/fxcapt.j52slgw5/wrapper: pane 98832, pid 98832, executable /bin/sh\n'
+
+----------------------------------------------------------------------
+Ran 59 tests in 516.975s
+
+FAILED (failures=1)
+===== 17-build-release (last lines; test suites: every 'test result' line and every failure)
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `release` profile [optimized] target(s) in 13.25s
+===== 18-build-faulty (last lines; test suites: every 'test result' line and every failure)
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `release` profile [optimized] target(s) in 18.76s
+===== 19-smoke (last lines; test suites: every 'test result' line and every failure)
+
+6. what was sent, and what was written down
+  ok    every request carried exactly the provided credential, and nothing else leaked (scanned 52 file(s), 11 request(s))
+
+47 check(s), 0 failure(s)
+evidence: <scratch>/gates3/smoke/smoke
+===== 20-smoke-tui (last lines; test suites: every 'test result' line and every failure)
+  26-layout-stabilization               ok
+  26b-composer-yield-to-panel           ok
+  27-live-theme-retint                  ok
+
+smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+evidence: <scratch>/gates3/smoke/smoke-tui
+===== touched tests, run 1 of 3 (every test that uses the fake clipboard, and the join test)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 15.06s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 172 filtered out; finished in 18.11s
+===== touched, fault-injection's one, run 1 of 3
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 192 filtered out; finished in 20.61s
+===== touched tests, run 2 of 3
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 19.37s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 172 filtered out; finished in 13.41s
+===== touched, fault-injection's one, run 2 of 3
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 192 filtered out; finished in 20.73s
+===== touched tests, run 3 of 3
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 15.71s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 172 filtered out; finished in 11.87s
+===== touched, fault-injection's one, run 3 of 3
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 192 filtered out; finished in 22.04s
+===== rerun after the hold: test-capture.sh, whole, under the suite lock (job C3)
+...........................................................
+----------------------------------------------------------------------
+Ran 59 tests in 499.508s
+
+OK
+===== rerun: the case alone, 1 of 5
+FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run (__main__.Verbs.test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run)
+AssertionError: 'executable /bin/cat' not found in 'no pid runs <tmpdir>/fxcapt.2vlcwx2o/wrapper: pane 78656, pid 78656, executable /bin/sh\n'
+
+----------------------------------------------------------------------
+Ran 1 test in 13.858s
+
+FAILED (failures=1)
+===== rerun: the case alone, 2 of 5
+FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run (__main__.Verbs.test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run)
+AssertionError: 'executable /bin/cat' not found in 'no pid runs <tmpdir>/fxcapt.8w3b3ooh/wrapper: pane 83897, pid 83897, executable /bin/sh\n'
+
+----------------------------------------------------------------------
+Ran 1 test in 13.684s
+
+FAILED (failures=1)
+===== rerun: the case alone, 3 of 5
+FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run (__main__.Verbs.test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run)
+AssertionError: 'executable /bin/cat' not found in 'no pid runs <tmpdir>/fxcapt.45wdg135/wrapper: pane 89140, pid 89140, executable /bin/sh\n'
+
+----------------------------------------------------------------------
+Ran 1 test in 13.736s
+
+FAILED (failures=1)
+===== rerun: the case alone, 4 of 5
+FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run (__main__.Verbs.test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run)
+AssertionError: 'executable /bin/cat' not found in 'no pid runs <tmpdir>/fxcapt.uhw6aur7/wrapper: pane 92110, pid 92110, executable /bin/sh\n'
+
+----------------------------------------------------------------------
+Ran 1 test in 14.264s
+
+FAILED (failures=1)
+===== rerun: the case alone, 5 of 5
+FAIL: test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run (__main__.Verbs.test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run)
+AssertionError: 'executable /bin/cat' not found in 'no pid runs <tmpdir>/fxcapt.28q1_1za/wrapper: pane 98096, pid 98096, executable /bin/sh\n'
+
+----------------------------------------------------------------------
+Ran 1 test in 13.356s
+
+FAILED (failures=1)
+
+===== job R3, as it printed
+# jobR3 start 2026-11-08T03:36:45Z load { 6.61 8.64 12.05 }
+gates exit=1
+touched run 1 exit=0 9 passed, 0 failed load { 7.48 7.15 8.36 }
+touched fault run 1 exit=0 1 passed, 0 failed
+touched run 2 exit=0 9 passed, 0 failed load { 10.49 7.97 8.58 }
+touched fault run 2 exit=0 1 passed, 0 failed
+touched run 3 exit=0 9 passed, 0 failed load { 6.61 7.33 8.31 }
+touched fault run 3 exit=0 1 passed, 0 failed
+# jobR3 end 2026-11-08T04:02:54Z load { 5.54 7.03 8.18 }
+jobR3 exit=0
+
+===== job C3, as it printed
+# jobC3 start 2026-11-08T04:03:07Z head bf9e14ad load { 5.60 6.98 8.14 }
+test-capture.sh exit=0
+Ran 59 tests in 499.508s
+
+OK
+alone 1 exit=1 FAILED (failures=1) load { 6.54 6.27 7.12 }
+alone 2 exit=1 FAILED (failures=1) load { 6.08 6.17 7.07 }
+alone 3 exit=1 FAILED (failures=1) load { 5.68 6.09 7.03 }
+alone 4 exit=1 FAILED (failures=1) load { 5.09 5.94 6.96 }
+alone 5 exit=1 FAILED (failures=1) load { 5.57 6.00 6.97 }
+# jobC3 end 2026-11-08T04:12:36Z
+jobC3 exit=0
+
+===== job P, as it printed: the case alone on main's clone (884497c0) and on the head, alternating, under the suite lock (the binary is the harness's stub; each line: exit, the suite's verdict, the executable capture.sh's refusal named)
+# jobP start 2026-11-08T04:24:13Z load { 6.40 6.29 6.73 }
+main 1 exit=1 FAILED (failures=1) executable /bin/sh
+head 1 exit=0 OK 
+main 2 exit=1 FAILED (failures=1) executable /bin/sh
+head 2 exit=1 FAILED (failures=1) executable /bin/sh
+main 3 exit=0 OK 
+head 3 exit=1 FAILED (failures=1) executable /bin/sh
+main 4 exit=1 FAILED (failures=1) executable /bin/sh
+head 4 exit=1 FAILED (failures=1) executable /bin/sh
+main 5 exit=1 FAILED (failures=1) executable /bin/sh
+head 5 exit=1 FAILED (failures=1) executable /bin/sh
+# jobP end 2026-11-08T04:26:51Z load { 4.91 6.15 6.63 }
+jobP exit=0

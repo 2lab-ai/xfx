@@ -1,0 +1,25 @@
+# harness.py's slow_start_lands: another thread holds the process's start lock 1.5 s from just before the copy; 10 runs each, alone.
+## base (e51685d6), the old body
+run 1 FAIL load=4.23: thread 'tui::copy::tests::slow_start_lands' panicked at src/tui/copy.rs:319:9: assertion `left == right` failed   left: Some([97, 32, 102, 105, 114, 115, 116, 32, 114, 101, 112, 108, 121]) 
+run 2 FAIL load=4.21: thread 'tui::copy::tests::slow_start_lands' panicked at src/tui/copy.rs:319:9: assertion `left == right` failed   left: Some([97, 32, 102, 105, 114, 115, 116, 32, 114, 101, 112, 108, 121]) 
+run 3 FAIL load=4.21: thread 'tui::copy::tests::slow_start_lands' panicked at src/tui/copy.rs:319:9: assertion `left == right` failed   left: Some([97, 32, 102, 105, 114, 115, 116, 32, 114, 101, 112, 108, 121]) 
+run 4 FAIL load=4.20: thread 'tui::copy::tests::slow_start_lands' panicked at src/tui/copy.rs:319:9: assertion `left == right` failed   left: Some([97, 32, 102, 105, 114, 115, 116, 32, 114, 101, 112, 108, 121]) 
+run 5 FAIL load=3.94: thread 'tui::copy::tests::slow_start_lands' panicked at src/tui/copy.rs:319:9: assertion `left == right` failed   left: Some([97, 32, 102, 105, 114, 115, 116, 32, 114, 101, 112, 108, 121]) 
+run 6 FAIL load=3.56: thread 'tui::copy::tests::slow_start_lands' panicked at src/tui/copy.rs:319:9: assertion `left == right` failed   left: Some([97, 32, 102, 105, 114, 115, 116, 32, 114, 101, 112, 108, 121]) 
+run 7 FAIL load=3.56: thread 'tui::copy::tests::slow_start_lands' panicked at src/tui/copy.rs:319:9: assertion `left == right` failed   left: Some([97, 32, 102, 105, 114, 115, 116, 32, 114, 101, 112, 108, 121]) 
+run 8 FAIL load=3.52: thread 'tui::copy::tests::slow_start_lands' panicked at src/tui/copy.rs:319:9: assertion `left == right` failed   left: Some([97, 32, 102, 105, 114, 115, 116, 32, 114, 101, 112, 108, 121]) 
+run 9 FAIL load=3.63: thread 'tui::copy::tests::slow_start_lands' panicked at src/tui/copy.rs:319:9: assertion `left == right` failed   left: Some([97, 32, 102, 105, 114, 115, 116, 32, 114, 101, 112, 108, 121]) 
+run 10 FAIL load=3.63: thread 'tui::copy::tests::slow_start_lands' panicked at src/tui/copy.rs:319:9: assertion `left == right` failed   left: Some([97, 32, 102, 105, 114, 115, 116, 32, 114, 101, 112, 108, 121]) 
+total: 0 passed, 10 failed of 10
+## head (042908ae), the new body
+run 1 pass load=3.42
+run 2 pass load=3.42
+run 3 pass load=3.23
+run 4 pass load=3.37
+run 5 pass load=3.37
+run 6 pass load=3.37
+run 7 pass load=3.50
+run 8 pass load=3.50
+run 9 pass load=3.50
+run 10 pass load=3.38
+total: 10 passed, 0 failed of 10
