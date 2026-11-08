@@ -6045,13 +6045,18 @@ async fn one_turn(
     // a launch whose profile carries one -- reads it now: once, raced against
     // the turn's own cancellation so a Ctrl-C does not wait out a slow
     // Gateway, and told to the UI, whose footer and columns read the same rows.
-    // A session in the default asks for nothing and costs no socket. **So
-    // does a prompt with images**, whose route the catalog decides: upstream
-    // resolves it at the turn's start whatever the window, and that waits for
-    // a first load still on its way (`.loading`, `model_cache_runtime.zig:
-    // 855-866@481104fd`, from `orchestrator.zig:5885-5886`) -- here, rather
-    // than at the image route's read below, which then finds it settled, so
-    // a stop in it is the turn's end that keeps the prompt and its images.
+    // A session in the default, with no image in the prompt, asks for nothing
+    // and costs no socket. **A prompt with images reads the catalog here, at
+    // the turn's start, on every provider**: upstream's rule asks for the
+    // images whatever the provider (`requiresResolvedRequestCapabilities`,
+    // `orchestrator.zig:5665@481104fd`, from `:5885-5886`), and its resolve
+    // waits for a first load still on its way (`.loading`,
+    // `model_cache_runtime.zig:855-866`), so a stop in it is the turn's end
+    // that keeps the prompt and its images. On the Gateway this is the image
+    // route's own read ([`image_refusal`]) moved earlier; on llmux, whose
+    // daemon decides the route, that route reads nothing. Either way a
+    // catalog already settled answers without a request
+    // ([`crate::provider::model::ModelSelector::ensure_catalog`]).
     if !images.is_empty()
         || !state.settings.effort.is_default()
         || state.settings.fast
@@ -6192,16 +6197,22 @@ async fn one_turn(
     // Once each for the conversation ([`Conversation::unsaid`]): the history
     // is rebuilt for every turn, and so are these.
     for notice in conversation.unsaid(replay.notices) {
-        // Best effort by construction: a notice about the history is worth
-        // less than the turn it precedes, and the only ways this fails are a
-        // turn that was cancelled before it began and a UI that is gone --
-        // both of which the turn below reports for itself.
         // A warning under `session`: the turn goes ahead, without what the
         // history could not carry. The store's sentence is the line shell's
         // too, so its `xfx: ` comes off here where the glyph says it.
-        let notice =
-            super::notice::Notice::warning("session", super::notice::unattributed(&notice));
-        let _ = bridge::send_ui(events, &turn.token, UiEvent::Notice(notice)).await;
+        let shown = super::notice::Notice::warning("session", super::notice::unattributed(&notice));
+        // **Said once it reaches the UI**, which paints every notice it is
+        // handed, a stopped turn's too. The send fails only for a turn
+        // cancelled before it began -- a stop in its catalog wait, which sends
+        // nothing -- and for a UI that is gone; the turn below reports both
+        // for itself. A notice refused here is still unsaid, and the next
+        // turn, which sends the history it is about, says it.
+        if bridge::send_ui(events, &turn.token, UiEvent::Notice(shown))
+            .await
+            .is_ok()
+        {
+            conversation.said(notice);
+        }
     }
 
     let request = TurnRequest {
