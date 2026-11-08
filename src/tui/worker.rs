@@ -16349,6 +16349,38 @@ mod tests {
     }
 
     #[test]
+    fn a_read_asked_for_mid_work_that_finds_no_runtime_is_told_at_once_and_once() {
+        // Upstream completes a fetch it could not start at once (`.runtime`,
+        // `model_cache_runtime.zig:537-546@481104fd`), whatever its worker is
+        // doing, and the open menu reads it on its next poll
+        // (`pollLoadTransition`, `:745-760`) -- not once the turn is over.
+        let (_home, _workspace, mut state) = recording();
+        state.selector.set_fetcher_for_test(Box::new(NoRuntime));
+        let (events, mut received) = mpsc::channel(bridge::UI_EVENTS);
+        let asks = Arc::new(CatalogAsks::reading(&state, &events));
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let answer = asks.asked_at(&control, bridge::CatalogAsk::MENU, Instant::now());
+        let now: Vec<UiEvent> = answer.into_iter().chain(told(&mut received)).collect();
+        assert!(
+            matches!(
+                now.as_slice(),
+                [UiEvent::CatalogUnread {
+                    retry: Some(CatalogRetry::Runtime),
+                    ..
+                }]
+            ),
+            "the menu was not told the read's failure while the work ran: {now:?}"
+        );
+        // Told once: the selector, taking the read once the work is over,
+        // tells nothing more.
+        asks.finish(&mut state.selector);
+        on_a_runtime(state.selector.settle_load());
+        assert_eq!(told(&mut received), Vec::new(), "told twice");
+        assert_eq!(state.selector.failure_retry(), Some(CatalogRetry::Runtime));
+    }
+
+    #[test]
     fn a_turn_waits_two_seconds_at_most_for_the_retry_behind_a_failed_catalog() {
         // `resolveForRequest` (`model_cache_runtime.zig:843-866@481104fd`;
         // `failed_catalog_retry_wait_ms`, `:45-47`; 65846154): "A request
