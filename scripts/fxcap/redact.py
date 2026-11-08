@@ -6,7 +6,8 @@ CI log may be public).
 (`<out>`, `<repo>`, `<fx-bin>`, `<xfx-bin>`, `<tmp>`), then any absolute
 path left under a local root (`/Users`, `/private`, `/var`, `/tmp`,
 `/Volumes`, `/home`, ...) -- the home directory and a capture's scratch HOME
-among them -- to `<local-path>`. `check` refuses a text in which a local root, the home
+among them -- to `<local-path>`, except one that continues a placeholder
+capture.sh writes (`<scratch>/home/.fx`, a run's HOME). `check` refuses a text in which a local root, the home
 directory or the checkout's retired product name still appears anywhere, so
 a path the rewrite missed stops the write instead of reaching the file.
 """
@@ -15,8 +16,13 @@ import os
 import re
 
 LOCAL_ROOTS = ("Users", "private", "var", "tmp", "Volumes", "home", "opt", "nix", "mnt", "root", "run", "srv")
-GENERIC = re.compile(r"/(?:%s)/[^\s'\"`)\]>|,;]*" % "|".join(LOCAL_ROOTS))
-LEFTOVER = re.compile(r"/(?:Users|private|var/folders|tmp|Volumes|home)/")
+# A path that continues one of capture.sh's placeholders -- `<scratch>/home/`
+# is a run's HOME, `<work>/home/` a directory in its workspace -- names this
+# machine nowhere, and is left as it is. Only those placeholders: a bare `>`
+# (a redirect, `>/Users/...`) is no placeholder.
+AFTER_PLACEHOLDER = "".join("(?<!<%s>)" % p for p in ("work", "scratch", "tmp", "home", "scenarios", "bun"))
+GENERIC = re.compile(AFTER_PLACEHOLDER + r"/(?:%s)/[^\s'\"`)\]>|,;]*" % "|".join(LOCAL_ROOTS))
+LEFTOVER = re.compile(AFTER_PLACEHOLDER + r"/(?:Users|private|var/folders|tmp|Volumes|home)/")
 
 
 def _retired():

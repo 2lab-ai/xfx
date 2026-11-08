@@ -481,6 +481,13 @@ class Redaction(unittest.TestCase):
         self.assertIn("<out>/runs/x", got)
         self.assertEqual(got.count("<local-path>"), 5, got)
 
+    def test_a_path_under_a_capture_placeholder_is_left_and_a_redirect_is_not(self):
+        # capture.sh writes a run's HOME as `<scratch>/home`: a summary row
+        # that names it keeps it whole. A `>` that is no placeholder is not
+        # one: `>/home/bob/x` is still a local path.
+        text = "mcp <scratch>/home/.fx/mcp.json; ws <work>/home/a; log >" + "/ho" + "me/bob/x"
+        self.assertEqual(self.red.public(text), "mcp <scratch>/home/.fx/mcp.json; ws <work>/home/a; log ><local-path>")
+
     def test_screen_text_that_is_no_local_path_is_left(self):
         text = "  /help   show available slash commands   ~/.xfx/mcp.json"
         self.assertEqual(self.red.public(text), text)

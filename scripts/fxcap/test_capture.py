@@ -384,8 +384,13 @@ class RunRoots(unittest.TestCase):
         self.assertIn("edge=<scratch>/workx", a)
         # A coloured path, right after its SGR sequence's `m`; the link's
         # target, in the .ansi; the title; the wire; the body.
-        self.assertIn("m<work>\x1b[39m", r.file("a", ".ansi"))
-        self.assertIn("\x1b]8;;file://<work>/shot.png", r.file("a", ".ansi"))
+        ansi = r.file("a", ".ansi")
+        self.assertIn("m<work>\x1b[39m", ansi)
+        # tmux's `capture-pane -e` writes the link where it keeps hyperlinks
+        # (3.7b here); where it writes none, no file of the run holds a root
+        # all the same (above), and the wire holds the link (below).
+        if "\x1b]8;;" in ansi:
+            self.assertIn("\x1b]8;;file://<work>/shot.png", ansi)
         self.assertEqual(r.file("t", ".title").strip(), "at <work>")
         wire = r.file("w", ".wire")
         self.assertIn("cwd=<work>", wire)
