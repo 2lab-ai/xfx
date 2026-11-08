@@ -157,5 +157,36 @@ sides.
 
 ## Gate (`gates.sh` → `gates.txt`, logs not kept)
 
-See `gates.txt`. Every CI step and sweep.yml's two test scripts ran one at a
-time in the worktree, inside one suite-lock slot.
+Every CI step and sweep.yml's two test scripts ran one at a time in the
+worktree at `063058fb`, a clean tree before and after, inside one
+suite-lock slot. Step 00 is `false` and reads rc=1, which checks the runner.
+A first run at `d9d47f0a` was stopped and not counted: `gates.sh` had not
+made its scratch `TMPDIR`, so every `tempfile` test failed on a missing
+directory. `063058fb` makes it.
+
+| step | rc | s |
+|---|---|---|
+| fmt | 0 | 2 |
+| clippy | 0 | 7 |
+| clippy, fault-injection | 0 | 6 |
+| cargo test --all-targets (5447 passed, 0 failed) | 0 | 109 |
+| cargo test --features fault-injection --test tui (195) | 0 | 23 |
+| cargo test --lib --features fault-injection (4554) | 0 | 51 |
+| check-no-stubs | 0 | 8 |
+| check-no-secrets | 0 | 34 |
+| test-check-no-secrets | 0 | 67 |
+| test-gate-env | 0 | 166 |
+| check-xfx-identity | 0 | 1 |
+| check-preview-contract | 0 | 2 |
+| test-preview-contract | 0 | 52 |
+| check-tui-preflight-cost | 0 | 83 |
+| check-usage-clock | 0 | 1 |
+| fxcap test-sweep | 0 | 14 |
+| fxcap test-capture | 0 | 288 |
+| build --release | 0 | 14 |
+| build --release, fault-injection | 0 | 31 |
+| smoke | 0 | 2 |
+| smoke-tui (37 scenarios + the oracle, 1168 checks, 0 failures) | 0 | 68 |
+
+The receipt was scanned for local paths with `LC_ALL=C grep -rla` (binary
+captures included), and the scan found nothing.
