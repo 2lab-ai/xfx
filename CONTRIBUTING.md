@@ -42,12 +42,15 @@ receipt or a script written on your machine names your home and your scratch
 directory. `scripts/fxcap/capture.sh` writes a run's own roots as placeholders
 (`<work>`, `<scratch>`, `<tmp>`, `<home>`); write them so too in a README, and
 derive a path a script needs from `$TMPDIR` or `$HOME` when it runs.
-`scripts/check-no-local-paths.sh` refuses a home directory (`/Users/<name>/`,
-`/home/<name>/`), a harness scratch root (`/tmp/claude-<digits>`, with or
+`scripts/check-no-local-paths.sh` refuses a home directory (`/Users/<name>`,
+`/home/<name>`), a harness scratch root (`/tmp/claude-<digits>`, with or
 without `/private`) and macOS's per-user temporary folder anywhere in a tracked
-file. A test fixture that must hold such a path says so with `local-path-ok`
-on that line itself, and only that line is excused. A home that is nobody's,
-a test's `/home/u/`, is on the check's own list of placeholders.
+file. A test fixture that must hold such a path ends that line with a
+`local-path-ok` comment (`# local-path-ok: why`), and only that line is
+excused; in a capture (`.txt`, `.ansi`, `.json`, a request body, ...) no mark
+counts. A home that is nobody's, a test's `/home/u`, is on the check's own
+list of placeholders. The check finds paths by their shape and is not every
+path of a machine: a Windows path, `~user` or a percent-encoded one passes it.
 
 ## The gate
 

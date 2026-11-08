@@ -1,23 +1,35 @@
-# Capture files under each sweep's runs/ (the sweep's own capture.log and status.json
-# left out) that hold a machine root: the harness TMPDIR the sweep ran under, the
-# user's home, or the shape of a harness scratch root or macOS temporary root.
+# Capture files under each sweep's runs/ holding any part of a run's paths (runs_scan.py:
+# a whole root, a shape, or a fragment a broken root leaves), the sweep's own capture.log
+# and status.json left out. SCAN_TMP is the TMPDIR every sweep ran under.
 == before (ccced1f5's harness)
-ansi      290 files,  152 hold a machine root
-body       53 files,   21 hold a machine root
-clipfile    4 files,    0 hold a machine root
-files      12 files,    0 hold a machine root
-log        20 files,    0 hold a machine root
-md          6 files,    0 hold a machine root
-txt       292 files,   78 hold a machine root
-all       677 files,  251 hold a machine root
-== after (43024057's harness)
-ansi      290 files,    0 hold a machine root
-body       53 files,    0 hold a machine root
-clipfile    4 files,    0 hold a machine root
-files      12 files,    0 hold a machine root
-log        20 files,    0 hold a machine root
-md          6 files,    0 hold a machine root
-txt       292 files,    0 hold a machine root
-all       677 files,    0 hold a machine root
-after: capture files holding a placeholder (<work>, <scratch>, <tmp>, <home>, <scenarios>): 273
-after: each run's roots line (lengths masked here): roots: <work>=N <scratch>=N <scenarios>=N <bun>=N <tmp>=N <home>=N bytes
+kind     files  root shape fragment   any
+ansi       290   152   152      152   152
+body        53    21    21       21    21
+clipfile     4     0     0        0     0
+files       12     0     0        0     0
+log         20     0     0        0     0
+md           6     0     0        0     0
+txt        292    78    78       78    78
+all        677   251   251      251   251
+== after (round 1, 43024057's harness)
+kind     files  root shape fragment   any
+ansi       290     0     0       15    15
+body        53     0     0        0     0
+clipfile     4     0     0        0     0
+files       12     0     0        0     0
+log         20     0     0        0     0
+md           6     0     0        0     0
+txt        292     0     0       14    14
+all        677     0     0       29    29
+== after2 (round 2, 6cb5c4e7's harness)
+kind     files  root shape fragment   any
+ansi       290     0     0        0     0
+body        53     0     0        0     0
+clipfile     4     0     0        0     0
+files       12     0     0        0     0
+log         20     0     0        0     0
+md           6     0     0        0     0
+txt        292     0     0        0     0
+all        677     0     0        0     0
+after2: capture files holding a placeholder: 273
+after2: each run's roots line (lengths masked here): roots: <work>=N <scratch>=N <scenarios>=N <bun>=N <tmp>=N <home>=N bytes
