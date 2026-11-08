@@ -24,7 +24,7 @@ moved re-pointed (`8ac4195b`, 5 of 5 the same code). At the head Ctrl-O's
 join, theme switch and resize take **33-34, 31-33 and 55-59 ms** for a call
 with 4 Mi U+009B arguments and **3.3-3.5, 2.6-2.7 and 23-25 ms** for 2 Mi
 U+261D [measured], under the 0.1 s bar, where the train before it took
-648-911 ms and 311-366 ms [measured]. That closes gpt6's render-cost MUST and
+648-912 ms and 311-366 ms [measured]. That closes gpt6's render-cost MUST and
 opus's SHOULD 2 on train 6.
 
 **At a glance** (rounds 1 and 2: the first four units).
@@ -223,8 +223,14 @@ appended at the end of `mod tests` (one hunk), 56 unchanged lines between
 the nearest two (`overlap.txt`) [measured]. ARGROW-CACHE changes
 `src/tui/full_transcript.rs` (+553/-76), `full_transcript/tool_status.rs`
 (+82/-4), `prose.rs` (+194/-37), `wrap.rs` (+278/-2) and `shell.rs` (+440,
-tests) [measured], and neither `docs/parity.md` nor the ledger; the train's side changed neither since `9681e9d8` either. The merged
-tree builds (`cargo check --locked --all-targets`) [measured].
+tests), and neither `docs/parity.md` nor the ledger; the train's side
+changed neither since `9681e9d8` either [measured: `merge5-sides.txt`, the
+`git diff` commands and their output, committed in round 4]. The merged
+tree builds: a `cargo check --locked --all-targets` right after the merge
+exited 0 but its log was not kept, so the evidence is `merge5-checks.txt`
+lines 4-5 -- `cargo clippy --locked --all-targets` without and with
+`fault-injection`, exit 0, at `8ac4195b` (the merge plus its re-points,
+which change comment and ledger lines only) [measured].
 
 ### Merge 3's conflict: `docs/parity.md`
 
@@ -697,8 +703,14 @@ three-digit ones.)
 - **Against `main`** [derived]: below it on every step in both cases -- c1
   join 18-19×, theme 18-19×, resize 10-11×, open 8×; U+261D join 33-35×,
   theme 44×, resize 4.7-5.0×, open 4.3-4.4×. Peak c1 415 MiB against 455
-  (1.10× smaller); U+261D 138 against 84 (1.64× larger: the named argument's
-  kept rows, CTRLO-WIDER's 8-byte form, held once a width).
+  (1.10× smaller); U+261D 138 against 84 (1.64× larger) [derived]. Its cause
+  is not isolated here [추론]: T-U4 alone, with no named form, peaks at 139
+  on the same case (`probe/probe-merge5.txt` lines 15 and 25), about the
+  head's 138 (lines 17 and 27), so the named form is not shown to be it; and
+  ARGROW-CACHE's receipt attributes its peak to T-U4's heading rows and
+  group block ("The c1 peak ... is mostly what this unit did not change"),
+  which this probe does not separate. The residual is routed to queue unit
+  GRID-ROW-COST (T-U4's heading-row memory), not to CTRLO-WIDER.
 - **What is left** (ARGROW-CACHE's receipt, its "The numbers"): c1's 31-34
   ms join and theme switch is T-U4's group block, built again for the
   group's revision and the palette, not an argument row. The arguments'
@@ -869,6 +881,12 @@ at the start; at the end only this directory's `selection.txt` and
 | `scripts/smoke.sh target/release/xfx <dir>` | 47 checks, 0 failures |
 | `scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <dir>` | 37 scenarios and the oracle, **1168 checks**, 0 failures |
 
+**The full gate at round 3's head `1755e9be` was the dispatcher's run**
+(not this train's; recorded from the dispatcher's message, round 4): 20 of
+20 steps, `cargo test` 5366 passed and 0 failed, with fault injection 5403
+and 0, `test-capture` ok, smoke-tui 1168 checks and 0 failures, the tree
+unchanged. The commits after `1755e9be` change only this directory.
+
 **At the final code** (`head-tests.txt`): both `cargo test` steps again at
 `4bd99902` (`392ca22a`'s code: one test's cases changed since the gate),
 one hold of the lock, load 4.8 -- **5357 passed** and **5394 passed**, 0
@@ -1028,7 +1046,8 @@ looks for and not its own text -- and the account's name: **0 hits**
 - Round 3 (merge 5): `merge5-jobs.sh` (the probe on five builds and the
   head's checks, one hold), `probe/probe-merge5.txt`, `merge5-checks.txt`;
   `refs-merge5.txt`, `refs-all-merge5.txt`, `refs-short-merge5.txt`,
-  `repointed-merge5.py`, `repointed-merge5.txt`.
+  `repointed-merge5.py`, `repointed-merge5.txt`; `merge5-sides.txt` (round
+  4: merge 5's sides' `git diff` output).
 - `rowmerge.py`: how merges 2 and 3 resolved `docs/parity.md`'s two rows,
   word by word against the base.
 - `overlap.py`, `overlap.txt`: every file both sides of a merge changed, and
