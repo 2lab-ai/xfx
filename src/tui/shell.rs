@@ -14253,7 +14253,15 @@ impl CommandHandlers for Shell {
         if self.compacting() {
             return;
         }
-        if self.work.status().history_turns == 0 {
+        // A reset the runtime has not yet said is done (its fence,
+        // [`Self::draining`]) leaves the board on the conversation it drops.
+        // Upstream's `/new` is done at once when nothing runs, so the
+        // conversation is empty (`applyIdleLiveSessionTransition`,
+        // `src/core/app/app_session_runtime.zig:1788-1816@481104fd`); while
+        // work runs, it waits for that work, and the busy check below answers
+        // (`decideLiveSessionTransition`, `:1532-1554`).
+        let resetting = self.draining.is_some();
+        if self.work.status().history_turns == 0 || (resetting && self.work.outstanding() == 0) {
             self.compaction = Some(Compaction::refused(compaction::Feedback::NoOp, now));
             return;
         }
@@ -14261,7 +14269,8 @@ impl CommandHandlers for Shell {
         // `queuedPromptCount` (`input_submit_runtime.zig:148-153`). Other work
         // -- a catalog read, a listing -- is not a conversation a compaction
         // would cut into, and it queues behind that as it would behind a turn.
-        if self.activity.working() || self.waiting_prompts().next().is_some() {
+        // A reset waiting on work is upstream's processing worker.
+        if self.activity.working() || self.waiting_prompts().next().is_some() || resetting {
             self.compaction = Some(Compaction::refused(compaction::Feedback::Busy, now));
             return;
         }
