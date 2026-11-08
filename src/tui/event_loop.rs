@@ -6057,7 +6057,7 @@ mod tests {
         };
         tick(&mut shell, &mut band, &mut out, &mut failures, now);
         shell.route_bytes(b"go\r");
-        shell.apply(UiEvent::TurnStarted.made_inert());
+        shell.start_turn();
         tick(&mut shell, &mut band, &mut out, &mut failures, now);
         let marks = "\u{301}".repeat(64 * 1024);
         for k in 0..2 {
