@@ -16566,6 +16566,155 @@ mod tests {
         );
     }
 
+    /// The gate a turn's requests go through when they carry tool images,
+    /// `images_first` saying whether the turn's first request carried the
+    /// prompt's or the history's images -- the image route asked for once
+    /// already.
+    fn tool_image_gate<'a>(
+        inner: &'a dyn crate::gateway::Provider,
+        selector: &'a mut ModelSelector,
+        events: Sender<UiEvent>,
+        token: tokio_util::sync::CancellationToken,
+        images_first: bool,
+    ) -> ToolImageGate<'a> {
+        let _ = images_first;
+        ToolImageGate {
+            inner,
+            provider: ProviderId::Gateway,
+            selector: std::cell::RefCell::new(Some(selector)),
+            events,
+            token,
+        }
+    }
+
+    /// A runtime whose catalog failed and whose retry -- the one a submitted
+    /// prompt starts -- is on its way, answering a row for the model in force
+    /// that reads images once `gate` opens.
+    fn retrying_behind_failure_for_images(
+        gate: tokio::sync::oneshot::Receiver<()>,
+    ) -> (
+        tempfile::TempDir,
+        tempfile::TempDir,
+        Runtime,
+        Sender<UiEvent>,
+    ) {
+        let (home, workspace, mut state) = recording();
+        let mut seeing = published(state.selector.model());
+        seeing.facts.image_input = true;
+        state
+            .selector
+            .set_fetcher_for_test(Box::new(FailsThenGated {
+                entries: vec![seeing],
+                asked: AtomicUsize::new(0),
+                gate: Mutex::new(Some(gate)),
+            }));
+        let (events, _received) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(state.load_catalog());
+        assert!(matches!(state.selector.catalog(), CatalogState::Failed(_)));
+        backdate_catalog(&mut state, Duration::from_secs(6));
+        retry_behind_failure(&mut state, &events);
+        (home, workspace, state, events)
+    }
+
+    #[test]
+    fn a_request_carrying_tool_images_waits_for_the_retry_behind_a_failed_catalog() {
+        // The image route asks for capabilities when a request carries images
+        // and the turn's snapshot does not know whether the model reads them
+        // (`onRequest`, `src/core/images/image_route.zig:180-184@481104fd`;
+        // `.resolve_capabilities`, `orchestrator.zig:7506-7509`), and that
+        // resolution waits a moment for a failed catalog's retry
+        // (`resolveForRequest`, `model_cache_runtime.zig:843-866`). One that
+        // lands inside it gives the request its answer: the model reads
+        // images, and is sent them.
+        let (open, gate) = tokio::sync::oneshot::channel::<()>();
+        let (_home, _workspace, mut state, events) = retrying_behind_failure_for_images(gate);
+        let inner = ScriptedProvider::new(Vec::new());
+        let token = tokio_util::sync::CancellationToken::new();
+        let opener = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            let _ = open.send(());
+        });
+        let gate = tool_image_gate(&inner, &mut state.selector, events, token, false);
+        let note = on_a_runtime(gate.refusal());
+        opener.join().expect("the opener");
+        assert_eq!(note, None, "the request did not wait for the retry");
+    }
+
+    #[test]
+    fn the_image_route_waits_two_seconds_at_most_and_once_a_turn() {
+        // "the core asks for capabilities at most once per turn, and its
+        // reply never asks again" (`orchestrator.zig:7502-7503@481104fd`,
+        // `ImageRoute.tla` ResolveOncePerTurn; `image_route.zig:180-184`),
+        // and a slow retry never holds a request past
+        // `failed_catalog_retry_wait_ms` (`model_cache_runtime.zig:45-47`).
+        let (_open, gate) = tokio::sync::oneshot::channel::<()>();
+        let (_home, _workspace, mut state, events) = retrying_behind_failure_for_images(gate);
+        let inner = ScriptedProvider::new(Vec::new());
+        let token = tokio_util::sync::CancellationToken::new();
+        let gate = tool_image_gate(
+            &inner,
+            &mut state.selector,
+            events.clone(),
+            token.clone(),
+            false,
+        );
+        let started = Instant::now();
+        let first = on_a_runtime(async {
+            tokio::time::timeout(Duration::from_secs(8), gate.refusal()).await
+        });
+        let took = started.elapsed();
+        assert_eq!(first, Ok(Some(crate::image::TOOL_IMAGES_UNKNOWN)));
+        assert!(
+            took >= Duration::from_millis(1_900),
+            "the request did not wait for the retry: {took:?}"
+        );
+        assert!(took < Duration::from_secs(4), "{took:?}");
+        // The turn's next request carrying them asks nothing more.
+        let started = Instant::now();
+        assert_eq!(
+            on_a_runtime(gate.refusal()),
+            Some(crate::image::TOOL_IMAGES_UNKNOWN)
+        );
+        assert!(started.elapsed() < Duration::from_secs(1), "waited twice");
+        drop(gate);
+        // Nor does a turn whose first request carried the prompt's images:
+        // the route asked then.
+        let gate = tool_image_gate(&inner, &mut state.selector, events, token, true);
+        let started = Instant::now();
+        assert_eq!(
+            on_a_runtime(gate.refusal()),
+            Some(crate::image::TOOL_IMAGES_UNKNOWN)
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "waited after the prompt's images"
+        );
+    }
+
+    #[test]
+    fn a_prompts_images_wait_for_the_retry_behind_a_failed_catalog() {
+        // The turn's first request carries the prompt's images, and the
+        // image route resolves then when the snapshot does not know the
+        // model (`image_route.zig:180-184@481104fd`), waiting for the retry
+        // a moment (`resolveForRequest`, `model_cache_runtime.zig:843-866`):
+        // a retry that lands gives the prompt's images a model that reads
+        // them, rather than `capability unknown`.
+        let (open, gate) = tokio::sync::oneshot::channel::<()>();
+        let (_home, _workspace, mut state, events) = retrying_behind_failure_for_images(gate);
+        let cancel = Cancellation::new(CancelToken::new());
+        let turn = cancel.turn();
+        let opener = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            let _ = open.send(());
+        });
+        let refusal = on_a_runtime(image_refusal(&mut state, &events, &turn));
+        opener.join().expect("the opener");
+        assert_eq!(
+            refusal, None,
+            "the prompt's images did not wait for the retry"
+        );
+    }
+
     #[test]
     fn a_turn_waits_two_seconds_at_most_for_the_retry_behind_a_failed_catalog() {
         // `resolveForRequest` (`model_cache_runtime.zig:843-866@481104fd`;
