@@ -2420,27 +2420,66 @@ mod tests {
         );
     }
 
+    /// Where each of `raw`'s grapheme clusters ends once spelled: the places
+    /// a cut of the spelled argument may fall without cutting one in two.
+    fn cluster_ends(raw: &str) -> Vec<usize> {
+        use unicode_segmentation::UnicodeSegmentation;
+        let presentation = read::GLOB_FILES.presentation();
+        let mut at = 0;
+        let mut ends = vec![0];
+        for cluster in raw.graphemes(true) {
+            at += spelled(cluster, presentation).len();
+            ends.push(at);
+        }
+        ends
+    }
+
+    /// The transcript's row `row` and the row the whole argument makes, as a
+    /// screen `cols` wide shows each (`super::super::transcript`'s
+    /// `ellipsized`, which is how the transcript writes a block's rows).
+    fn shown_at(row: &str, whole: &str, cols: u16) -> (String, String) {
+        (
+            super::super::transcript::ellipsized(row, cols),
+            super::super::transcript::ellipsized(whole, cols),
+        )
+    }
+
+    /// The widths a screen is tested at: the scenarios', a wide one, and the
+    /// widest whose cut `wrap::width`, saturating at `u16::MAX`, still sees.
+    const WIDTHS: [u16; 4] = [40, 120, 1000, u16::MAX - 1];
+
     #[test]
-    fn the_transcripts_row_keeps_what_any_screen_can_show_and_ctrl_o_the_whole() {
-        // T-U4 round 2: a read's, a list's or a pattern's argument is the
-        // model's at any length on fx's Ctrl-O (`formatExpandedChild`, never
-        // clipped) -- up to the stream's 8 MiB here, four times that spelled --
-        // and every redraw of the open group drew it whole in both modes:
-        // 0.46 s a redraw for 8 MiB of `a`, 1.8 s for 4 Mi U+009B, 1.25 GiB
-        // at the peak (receipts/cancel-marker/round2). The transcript's own
-        // row shows at most a screen's width, so it keeps no more than the
-        // widest screen shows, and Ctrl-O's heading keeps it all.
+    fn the_transcripts_row_shows_at_every_width_what_the_whole_row_does_and_ctrl_o_the_whole() {
+        // T-U4 rounds 2 and 3: a read's, a list's or a pattern's argument is
+        // the model's at any length on fx's Ctrl-O (`formatExpandedChild`,
+        // never clipped) -- up to the stream's 8 MiB here, four times that
+        // spelled -- and every redraw of the open group drew it whole in both
+        // modes (0.46 s a redraw for 8 MiB of `a`, receipts/cancel-marker/
+        // round2). The transcript's own row shows at most a screen's width,
+        // so it keeps what the widest screen shows and Ctrl-O's heading keeps
+        // it all -- and at every width a screen shows exactly what it shows
+        // of the whole row, with no cut inside one of the argument's
+        // clusters, however many bytes one holds.
         let wide = usize::from(u16::MAX) + 1;
+        let family = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}\u{200d}\u{1f466}";
+        let heavy = format!("e{}", "\u{301}".repeat(5000));
         let cases = [
             // Past any screen's width.
-            ("a".repeat(3 * wide), None),
-            // Spelled four times as wide as it came.
-            ("\u{9b}".repeat(wide), None),
-            // A cluster that paints one cell, past any screen's bytes, and
-            // what follows it: the row ends `...` where it was cut.
-            (format!("a{}tail", "\u{301}".repeat(wide * 3)), Some("tail")),
+            "a".repeat(3 * wide),
+            // Spelled eight times as wide as it came.
+            "\u{9b}".repeat(wide),
+            // One cluster of 196 609 code points that paints one cell, and
+            // what follows it: on every screen.
+            format!("a{}tail", "\u{301}".repeat(3 * wide)),
+            // A run of ZWJ families, each one cluster: its joiners are
+            // spelled, so each is 32 cells on the row.
+            family.repeat(wide / 16),
+            // A heavy cluster in the last column the row keeps, and one just
+            // past it.
+            format!("{}{heavy}bcd", "a".repeat(wide - 1)),
+            format!("{}{heavy}bcd", "a".repeat(wide)),
         ];
-        for (pattern, beyond) in cases {
+        for pattern in cases {
             let spelled_whole = spelled(&pattern, read::GLOB_FILES.presentation());
             let mut group = ToolGroup::default();
             group.start(
@@ -2449,40 +2488,102 @@ mod tests {
             );
             let rows = group.rows(DARK);
             let whole = format!("{TEXT}\u{2514} Matching {spelled_whole}{RESET}");
-            assert!(
-                rows[1].len() <= 4 * wide + 64,
-                "the transcript's row keeps {} bytes",
-                rows[1].len()
-            );
-            if beyond.is_none() {
-                // Spelled, these are ASCII: a character a cell.
-                let kept = strip(&rows[1]).chars().count();
-                assert!(kept <= wide + 32, "the transcript's row keeps {kept} cells");
+            for cols in WIDTHS {
+                let (row, all) = shown_at(&rows[1], &whole, cols);
+                assert!(
+                    row == all,
+                    "{cols} columns: {} bytes, {} whole",
+                    row.len(),
+                    all.len()
+                );
             }
+            // What it keeps is the argument up to the end of one of its
+            // clusters, and no further than the widest screen shows.
+            let kept = strip(&rows[1]);
+            let kept = kept.strip_prefix("\u{2514} Matching ").expect("the row");
+            let (kept, cut) = match kept.strip_suffix("...") {
+                Some(kept) if kept.len() < spelled_whole.len() => (kept, true),
+                _ => (kept, false),
+            };
+            assert!(spelled_whole.starts_with(kept));
+            assert!(
+                cluster_ends(&pattern).contains(&kept.len()),
+                "cut at byte {} of {}, inside a cluster",
+                kept.len(),
+                spelled_whole.len()
+            );
+            let cells = |text: &str| -> usize {
+                super::super::wrap::painting(text)
+                    .map(|painted| usize::from(super::super::wrap::cluster_width(painted.cluster)))
+                    .sum()
+            };
+            assert!(
+                cells(kept) <= wide,
+                "the transcript's row keeps {} cells",
+                cells(kept)
+            );
+            // Cut only when the whole is wider than that.
+            assert_eq!(cut, cells(&spelled_whole) > wide);
             // Ctrl-O's heading is the whole argument.
             let heading = strip(&group.expanded(DARK)[1]);
             assert!(heading == format!("\u{2514} Matching {spelled_whole}"));
-            // What a screen of any width shows of the transcript's row is
-            // what it showed of the whole one -- unless a cut fell inside it.
-            // (At `u16::MAX` columns `wrap::width`, saturated, calls either
-            // row narrow enough, and the painter's own clip cuts both alike.)
-            for cols in [40, 120, 1000, u16::MAX - 1] {
-                let cut = super::super::transcript::ellipsized(&rows[1], cols);
-                let all = super::super::transcript::ellipsized(&whole, cols);
-                match beyond {
-                    None => assert!(cut == all, "{cols} columns"),
-                    Some(tail) => {
-                        assert!(!strip(&cut).contains(tail));
-                        assert!(strip(&all).contains(tail) || cols < 1000);
-                    }
+        }
+    }
+
+    #[test]
+    fn the_transcripts_row_cuts_a_spelled_argument_between_its_spellings() {
+        // T-U4 round 3: the channel spells a call's argument as it crosses
+        // (`super::super::bridge`'s `spelled_shown`), so the row is given
+        // `\u{009b}` and `\x01` as text. Wherever the row's bound falls, it
+        // falls between two of them, never inside one -- whatever runs
+        // before them.
+        let wide = usize::from(u16::MAX) + 1;
+        let whole_spellings = |mut text: &str| {
+            while !text.is_empty() {
+                match ["\\u{009b}", "\\x01"]
+                    .iter()
+                    .find(|token| text.starts_with(**token))
+                {
+                    Some(token) => text = &text[token.len()..],
+                    None => return false,
                 }
             }
-            if beyond.is_some() {
-                assert!(
-                    strip(&rows[1]).ends_with("..."),
-                    "{:?}",
-                    &rows[1][rows[1].len() - 20..]
-                );
+            true
+        };
+        for lead in ["", "a", "ab", "abc", "abcd", "abcde", "abcdef", "abcdefg"] {
+            let pattern = format!("{lead}{}", "\u{9b}\u{1}".repeat(wide / 6));
+            let event = super::super::bridge::UiEvent::ToolStart {
+                call_id: "1".into(),
+                tool: "glob_files".into(),
+                shown: shown(&read::GLOB_FILES, json!({"pattern": pattern})),
+            }
+            .made_inert();
+            let super::super::bridge::UiEvent::ToolStart {
+                shown: spelled_shown,
+                ..
+            } = event
+            else {
+                panic!("a start");
+            };
+            let spelled_whole = spelled_shown.target.clone().expect("a pattern");
+            let mut group = ToolGroup::default();
+            group.start("1".into(), spelled_shown);
+            let rows = group.rows(DARK);
+            let kept = strip(&rows[1]);
+            let kept = kept
+                .strip_prefix("\u{2514} Matching ")
+                .and_then(|kept| kept.strip_suffix("..."))
+                .expect("cut");
+            let tokens = kept.strip_prefix(lead).expect("the lead");
+            assert!(
+                whole_spellings(tokens),
+                "{lead:?}: cut inside a spelling, ...{:?}",
+                &tokens[tokens.len() - 12..]
+            );
+            let whole = format!("{TEXT}\u{2514} Matching {spelled_whole}{RESET}");
+            for cols in WIDTHS {
+                let (row, all) = shown_at(&rows[1], &whole, cols);
+                assert!(row == all, "{lead:?}, {cols} columns");
             }
         }
     }

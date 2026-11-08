@@ -1,0 +1,14 @@
+# RED for T-U4 round 3, at the RED commit (the tests and the test-only counters on 0978e02c's code):
+# cargo test --locked --lib -- tui::toolgroup::tests::the_transcripts_row tui::full_transcript::tests::ctrl_o_builds
+test tui::full_transcript::tests::ctrl_o_builds_a_groups_block_once_and_lays_each_heading_out_once_for_what_it_shows ... FAILED
+test tui::toolgroup::tests::the_transcripts_row_cuts_a_spelled_argument_between_its_spellings ... FAILED
+test tui::toolgroup::tests::the_transcripts_row_shows_at_every_width_what_the_whole_row_does_and_ctrl_o_the_whole ... FAILED
+thread 'tui::full_transcript::tests::ctrl_o_builds_a_groups_block_once_and_lays_each_heading_out_once_for_what_it_shows' panicked at src/tui/full_transcript.rs:5876:9:
+assertion `left == right` failed: the first layout
+  left: (6, 6)
+ right: (1, 6)
+thread 'tui::toolgroup::tests::the_transcripts_row_cuts_a_spelled_argument_between_its_spellings' panicked at src/tui/toolgroup.rs:2578:13:
+"": cut inside a spelling, ..."09b}\\x01\\u{0"
+thread 'tui::toolgroup::tests::the_transcripts_row_shows_at_every_width_what_the_whole_row_does_and_ctrl_o_the_whole' panicked at src/tui/toolgroup.rs:2493:17:
+40 columns: 262172 bytes, 393249 whole
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 4378 filtered out; finished in 1.32s

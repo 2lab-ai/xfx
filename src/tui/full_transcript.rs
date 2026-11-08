@@ -1137,6 +1137,10 @@ pub(crate) struct FullTranscript {
     pending: HashMap<String, Pending>,
     revision: u64,
     view: Option<View>,
+    /// How many times a tool group's expanded block was built, and a call's
+    /// heading laid out: what a layout of the record costs, for the tests.
+    #[cfg(test)]
+    built: Cell<(usize, usize)>,
 }
 
 /// The screen, while it is up.
@@ -1251,6 +1255,8 @@ impl FullTranscript {
             pending: HashMap::new(),
             revision: 0,
             view: None,
+            #[cfg(test)]
+            built: Cell::default(),
         }
     }
 
@@ -1896,6 +1902,8 @@ impl FullTranscript {
             group.cancel_running();
         }
         let block = group.expanded(palette);
+        #[cfg(test)]
+        self.built.set((self.built.get().0 + 1, self.built.get().1));
         let mut rows = Vec::new();
         // Each row wrapped under its rail rather than cut at the edge
         // (`materializeExpandedOverride`, `tool_group_projection.zig:
@@ -1918,6 +1926,8 @@ impl FullTranscript {
         // Measured as the screen measures it (`tool_status`'s measure).
         let heading_fits = wrap::width(&heading) <= cols;
         rows.extend(tool_status::expanded_rows(&heading, cols));
+        #[cfg(test)]
+        self.built.set((self.built.get().0, self.built.get().1 + 1));
         if call.change.is_none() {
             for argument in &call.arguments {
                 let shown_already = argument.text
@@ -5841,5 +5851,41 @@ mod tests {
             "{rows:#?}"
         );
         assert!(rows.contains(&"\u{2502}  cwd: .".to_string()), "{rows:#?}");
+    }
+
+    #[test]
+    fn ctrl_o_builds_a_groups_block_once_and_lays_each_heading_out_once_for_what_it_shows() {
+        // T-U4 round 3: each member's entry rebuilt the whole group and its
+        // block -- every member's whole argument spelled again -- to use one
+        // row of it, and laid its own heading out again on every change to
+        // the group. The block is the group's, built once for its revision
+        // and palette; a heading is laid out again only when its text or the
+        // width changes.
+        const LIGHT: Palette = Palette { mode: Mode::Light };
+        let mut record = record();
+        record.tool_started(
+            "big",
+            &read::GLOB_FILES.shown(&json!({ "pattern": "x".repeat(4000) })),
+        );
+        for index in 0..5 {
+            let id = format!("r{index}");
+            record.tool_started(&id, &read("a.txt"));
+            record.tool_finished(&id, true, "", Outcome::Finished, None);
+        }
+        let _ = record.measure(120, DARK);
+        assert_eq!(record.built.get(), (1, 6), "the first layout");
+        let _ = record.measure(120, DARK);
+        assert_eq!(record.built.get(), (1, 6), "laid out already");
+        // A call joins: the block again, and two headings -- the new call's,
+        // and the one that was last, whose connector it changed.
+        record.tool_started("late", &read("b.txt"));
+        let _ = record.measure(120, DARK);
+        assert_eq!(record.built.get(), (2, 8), "after a call joined");
+        // The other theme: every heading's colours.
+        let _ = record.measure(120, LIGHT);
+        assert_eq!(record.built.get(), (3, 15), "after a theme switch");
+        // Narrower: every heading again, the block as it was.
+        let _ = record.measure(100, LIGHT);
+        assert_eq!(record.built.get(), (3, 22), "after a resize");
     }
 }
