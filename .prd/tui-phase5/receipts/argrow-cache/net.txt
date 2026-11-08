@@ -1,0 +1,6 @@
+# logger pid 71389, 127.0.0.1:<ephemeral>; HTTPS_PROXY, https_proxy, HTTP_PROXY, http_proxy at it; NO_PROXY, no_proxy, ALL_PROXY, all_proxy unset
+## new: `cargo test --locked --lib --no-fail-fast -- --exact tui::full_transcript::tests::ctrl_o_wraps_a_calls_arguments_once_for_a_width_and_not_again_for_a_join_or_a_theme tui::shell::tests::ctrl_o_with_arguments_through_its_caches_is_the_session_laid_out_from_nothing_after_every_event tui::full_transcript::tests::rows_kept_unpainted_are_the_rows_railed_painted_at_once tui::wrap::tests::painting_reads_the_clusters_graphemes_reads tui::wrap::tests::a_printable_ascii_character_is_one_cell tui::wrap::tests::a_run_stepped_over_is_the_clusters_graphemes_reads_there tui::prose::tests::stepping_over_what_the_wrap_only_counts_changes_no_row tui::prose::tests::a_wrap_of_megabytes_of_one_token_steps_a_row_at_a_time tui::full_transcript::tool_status::tests::counting_a_run_at_once_changes_no_break` exit 0, 30 s
+   test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 4447 filtered out; finished in 22.95s
+   connections logged during it: 0
+# logger 71389 ended (-15)
+driver exit 0

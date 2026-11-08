@@ -2,7 +2,6 @@
 
     python3 -I summarize.py probe.txt > probe-summary.txt
 """
-"""Summarize the probe's PROBE3 lines: per (detail, key, case, clone), r1 / r2."""
 import re, sys, collections
 rows = collections.defaultdict(list)
 order = []
