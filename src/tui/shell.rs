@@ -1061,6 +1061,18 @@ pub(crate) struct Shell {
     /// `cancelled_turn_id`, `worker_runtime.zig:923-937@481104fd`); here the
     /// count the stop was sent with says it.
     cancel_through: Option<usize>,
+    /// A stop this session sent has not yet been overtaken: the runtime has
+    /// started no later turn, and still holds a place. Upstream's keystroke
+    /// returns while its worker's cancel is requested
+    /// (`if (app.worker.isCancelRequested()) return;`,
+    /// `input_interrupt_runtime.zig:94@481104fd`) -- a request the keystroke
+    /// sets (`requestInteractiveCancel`, `worker_runtime.zig:753-773`) and the
+    /// worker's next take clears (`:1512`) -- so a second Ctrl-C writes no
+    /// second line and stops nothing more ([`Self::cancel_turn`]). Only the
+    /// Ctrl-C and Escape-pair stop is held by it: a manual compaction is
+    /// stopped ahead of the check (`:77-90`), and an approval's or a
+    /// question's Escape is a stop of its own (`cancelApprovalTurn`).
+    stop_requested: bool,
     /// The cancel in effect includes the user's stop of a turn
     /// ([`Self::cancel_turn_with`]), so -- unless a compaction ended the turn
     /// ([`Self::compaction_ended_turn`]) -- the turn's end says what the
@@ -2472,6 +2484,7 @@ impl Shell {
             launch_status: None,
             cancel_owed: None,
             cancel_through: None,
+            stop_requested: false,
             stop_reads_end: false,
             compaction_ended_turn: false,
             retry: None,
@@ -3772,6 +3785,8 @@ impl Shell {
         self.abandoned.clear();
         self.raw_gap = false;
         self.prompts.clear();
+        // The runtime took the work this answers, after any stop.
+        self.stop_requested = false;
         // A landed fork's prompt held under a search is the replaced
         // conversation's draft: a resume (the session picker is a search) or
         // a later fork must not hand it to this one. A fork landing now
@@ -4201,6 +4216,7 @@ impl Shell {
                 } else {
                     self.cancelling = false;
                     self.stop_reads_end = false;
+                    self.stop_requested = false;
                 }
                 self.compaction_ended_turn = false;
                 self.cancel_owed = None;
@@ -10208,6 +10224,11 @@ impl Shell {
         // cancel waits for that end; the two cases above have no turn in
         // hand. A turn an automatic compaction failed is one of them, and its
         // end takes [`Self::compaction_failed`] too.
+        // Nor, then, is a stop still requested: nothing is left it could be
+        // about ([`Self::stop_requested`]).
+        if self.work.outstanding() == 0 {
+            self.stop_requested = false;
+        }
         if self.cancelling && self.work.outstanding() == 0 && self.tally.started.is_none() {
             self.cancelling = false;
             self.stop_reads_end = false;
@@ -11341,6 +11362,7 @@ impl Shell {
         let through = self.work.accepted();
         self.work.control(TurnControl::Cancel { through });
         self.cancel_through = Some(through);
+        self.stop_requested = true;
         let automatic = self.compaction.as_ref().is_some_and(Compaction::automatic);
         if let Some(compaction) = self.compaction.as_mut() {
             compaction.stopping();
@@ -12443,7 +12465,22 @@ impl Shell {
     /// (`fx-interrupt-40x120-cmd-cc`: no activity row under the line), and the
     /// one line upstream writes for a cancelled turn takes the place of the
     /// rest ([`Self::write_cancelled`]).
+    ///
+    /// **Not while a stop is still requested** ([`Self::stop_requested`]):
+    /// upstream's keystroke returns there, so a second Ctrl-C after the
+    /// first, or one after an automatic compaction's stop, writes no second
+    /// `■ Cancelled` line and sends no second stop -- which would drop the
+    /// prompts typed since the first (`input_interrupt_runtime.zig:94@481104fd`).
+    /// A manual compaction is stopped ahead of that check, as upstream's is
+    /// (`:77-90`).
     fn cancel_turn(&mut self) {
+        let manual = self
+            .compaction
+            .as_ref()
+            .is_some_and(|compaction| compaction.active() && !compaction.automatic());
+        if self.stop_requested && !manual {
+            return;
+        }
         self.cancel_turn_with(false);
     }
 
@@ -12493,6 +12530,7 @@ impl Shell {
         // Every prompt still waiting is the stop's now: the runtime drops it,
         // or stops its turn if it took it first ([`Self::cancel_through`]).
         self.cancel_through = Some(through);
+        self.stop_requested = true;
         // The turn this stops ends with no bell: the user is here, and
         // upstream's turn-end cue is silent for an interrupted turn.
         self.sound.interrupted();
@@ -15009,6 +15047,7 @@ impl Shell {
         self.stop_reads_end = false;
         self.compaction_ended_turn = false;
         self.cancel_owed = None;
+        self.stop_requested = false;
         // So is a failed automatic compaction's turn: its result was reported
         // when the compaction settled, and the end that would have taken this
         // is drained. Kept, it would read the next conversation's first prompt
@@ -23723,6 +23762,11 @@ mod tests {
 
         shell.route_bytes(b"second\r");
         let _second = shell.picks_up();
+        // The second turn says it started, and that is the turn the press
+        // stops: until then the first stop is still the one requested, and
+        // a press is answered by nothing, as upstream's is
+        // (`input_interrupt_runtime.zig:91-94@481104fd`).
+        shell.apply(UiEvent::TurnStarted { submission: 2 });
         shell.route_bytes(&[0x03]);
 
         assert!(
