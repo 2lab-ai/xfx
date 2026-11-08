@@ -11,7 +11,12 @@ key Enter
 wait 2
 snap list
 key Enter
-wait 3
+# Its screen asks for its tools, which a failing server answers at its
+# next try: 1 s backoff doubling (src/mcp/runtime.rs:90), a try near 15 s,
+# where this Enter lands. Opened just after that try, the screen says
+# `Loading tools…` until the one near 31 s; so `server-1` waits for the
+# answer, not for 3 s (LAUNCH-SETTLE).
+until shown Its tools couldn't load
 snap server-1
 key Escape
 wait 0.5

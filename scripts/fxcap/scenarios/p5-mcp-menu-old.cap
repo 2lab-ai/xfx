@@ -65,7 +65,10 @@ snap d-key
 key Escape
 wait 0.5
 key Escape
-wait 0.5
+# The Escape that closes the menu arms `esc again to clear` for xfx's
+# 500 ms (src/tui/gesture.rs CLEAR_WINDOW): `closed` is snapped while it
+# is up, by the screen, not at 0.5 s, on its edge (LAUNCH-SETTLE).
+until shown esc again to clear
 snap closed
 snapfull end
 home end
