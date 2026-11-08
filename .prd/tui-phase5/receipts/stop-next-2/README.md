@@ -98,8 +98,8 @@ while the first is a pending submission is submitted, where fx leaves it in the 
 with its fix (Decisions).
 
 ## GREEN
-- The seven tests above pass at `cc231700`, where the full suite passed (5366 passed, 0 failed, one run in a
-  suite-lock slot), and in the gate at the receipt commit (below).
+- The seven tests above and the three guards below pass in the gate at the receipt commit (`gates.txt`, `04-test`:
+  each is listed `ok` in its log).
 - **Existing tests changed:** `a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report` (comment only:
   the band no longer writes one title a tick); `a_completed_turns_text_unread_at_the_stop_leaves_the_cancelled_line_above_its_summary`
   (comment only, naming item 8's test). No assertion of an existing test changed (`git diff -U0 d2459a37..2a6e8fa7
@@ -173,7 +173,29 @@ both. `retryok`'s `k01-1.5s`, which moved in STOP-NEXT's sweeps with fx's own ca
 both sides here (the loads: 3.9-4.0 and 2.9-6.4, 1-minute averages). No pair drops on xfx's side.
 
 ## Gates (`gates.sh`, `gates.txt`)
-Run at the receipt commit, in one suite-lock slot; the table is written with `gates.txt`, in the commit after.
+Every CI step and `sweep.yml`'s two test scripts, one at a time, in one suite-lock slot (12:32:58Z to 12:46:59Z), at
+`adc2d248`: the commit that adds this receipt, so the secrets, identity and stub checks read it tracked. The tree had
+0 tracked changes before and after. Step 00 is `false` and reads `rc=1`, so each step's `rc` is its own.
+
+| gate | result |
+|---|---|
+| `cargo fmt --check`; `clippy --all-targets -D warnings`, without and with `fault-injection` | ok; no output, 0 warnings, 0 warnings |
+| `cargo test --locked --all-targets --no-fail-fast` | 5366 passed, 0 failed, 7 ignored (14 binaries) |
+| `cargo test --features fault-injection --test tui`; `--lib` | 193 passed; 4475 passed, 0 failed, 7 ignored |
+| `check-no-stubs`, `check-no-secrets`, `check-xfx-identity`, `check-preview-contract`, `check-tui-preflight-cost`, `check-usage-clock` | ok (14087 tracked files) |
+| `test-check-no-secrets`, `test-gate-env`, `test-preview-contract` | ok (13 cases; 5 cases; 24 mutants caught) |
+| fxcap `test-sweep`; `test-capture` | 66 + 26 tests OK; 59 tests OK |
+| release and faulty release builds | ok |
+| `smoke.sh` (release); `smoke-tui.sh` (release, `--faulty`) | 47 checks, 0 failures; 37 scenarios + the oracle, 1168 checks, 0 failures |
+| osc wires, `stopnext` x3, wire mutants | 47 pairs, 0 failing on base and head; 0 failing on each of six runs; 10 of 10 mutants fail (above) |
+| code mutants; the unmutated clone | 18 of 18 killed; 2801 and 2802 of 2801 and 2802 passed (above) |
+| sweep, base vs head | 69 pairs each; 0 changed (above) |
+
+**Which build each part read.** The captures, the sweep and the first mutant run were taken before the gate, from
+`7d5e3d4b` (its debug build, sha256 `1d663f2f…`; the mutants on a clone at it). `2a6e8fa7` adds tests only -- outside
+the test modules `src` is the same at `7d5e3d4b` and `2a6e8fa7` (the line budget's +192 / -41 is the same for both
+heads) -- and the mutant rerun was on a clone at `2a6e8fa7`. The gate's `cargo test` rebuilt the debug binary at
+`adc2d248` afterwards, and nothing was captured from it.
 
 ## The refs (`refs.py`, `refs-before.txt`, `refs-after.txt`)
 STOP-NEXT's `refs.py`, with the base `d2459a37` as the frame. **Before `7d5e3d4b`** (`refs-before.txt`, the code at
