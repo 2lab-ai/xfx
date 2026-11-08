@@ -46058,6 +46058,117 @@ mod tests {
     }
 
     #[test]
+    fn the_turn_a_stop_took_from_the_runtime_rings_no_bell() {
+        // The stop is the covered turn's too: its end is the user's, and
+        // upstream's turn-end cue is silent for an interrupted turn. The
+        // keystroke's silence is taken by the turn before it, which ended
+        // first.
+        let mut shell = stopped_after_the_runtime_took_the_next_prompt();
+        shell.sound = Sound::new(crate::config::Notifications::both(true), None);
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.settle_band(Instant::now() + Duration::from_secs(5));
+        let _ = shell.take_bells();
+        shell.apply(UiEvent::TurnStarted { submission: 2 });
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+        });
+        shell.work.give_back();
+        shell.settle_band(Instant::now() + Duration::from_secs(10));
+        assert_eq!(shell.take_bells(), 0, "the stopped turn rang");
+    }
+
+    #[test]
+    fn a_start_past_a_prompt_the_stop_dropped_is_its_own_prompts_turn() {
+        // The runtime dropped the waiting prompt on reading the stop and
+        // started the one typed after it: the start's number is past the
+        // dropped one's, which the runtime takes in order, so the dropped
+        // entry goes and the turn is the new prompt's -- no card of the
+        // dropped prompt, and nothing left waiting once it ends.
+        let mut shell = running("first");
+        shell.route_bytes(b"second\r");
+        shell.route_bytes(&[0x03]);
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { through: 2 })
+        ));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+        });
+        shell.work.give_back();
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        let _ = shell.released();
+        shell.route_bytes(b"third\r");
+        let _ = status_of(&mut shell);
+        shell.apply(UiEvent::TurnStarted { submission: 3 });
+        shell.apply(UiEvent::Delta("an answer\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        let ended = status_of(&mut shell);
+        let written = shell.released();
+        assert_eq!(
+            (
+                ended.as_deref(),
+                written.iter().any(|row| row.contains("second")),
+            ),
+            (Some("done"), false),
+            "the report once the turn ended, the dropped prompt's card: {written:#?}"
+        );
+    }
+
+    #[test]
+    fn a_prompt_behind_a_stopped_automatic_compaction_is_no_work() {
+        // A compaction's stop quotes the count as a turn's does
+        // (`stop_compaction`), and what was waiting behind it is the stop's:
+        // the runtime drops it, and nothing is reported as work for it.
+        let mut shell = running("first");
+        shell.route_bytes(b"second\r");
+        shell.apply(UiEvent::Compaction(compaction::Update::Began {
+            automatic: true,
+        }));
+        let mut wire = vec![status_of(&mut shell)];
+        shell.route_bytes(&[0x03]);
+        wire.push(status_of(&mut shell));
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Cancelled,
+        )));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        assert!(
+            !wire[1..].contains(&Some("working".to_string())),
+            "work reported for the dropped prompt: {wire:?}"
+        );
+    }
+
+    #[test]
+    fn a_stop_whose_work_has_all_ended_holds_no_later_press() {
+        // Once nothing is in hand, nothing is left a stop could be about: a
+        // press after it is answered as in a session that was never stopped
+        // -- here a prompt typed after the stop's turn ended and gave its
+        // place back, pressed before its start is read.
+        let now = Instant::now();
+        let mut shell = running("first");
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        let _ = shell.controlled();
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+        });
+        shell.work.give_back();
+        shell.settle_band(now);
+        shell.route_bytes(b"second\r");
+        shell.consume(vec![Input::Action(Action::Cancel)], now + EXIT_WINDOW);
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { through: 2 }),
+            "the press was held by a stop whose work had ended"
+        );
+    }
+
+    #[test]
     fn a_prompt_sent_while_the_last_answer_is_still_paced_out_is_reported_on_its_keystroke() {
         // Upstream does not hold a prompt as a pending submission while its
         // pacer still holds text (`installPendingSubmission`,
