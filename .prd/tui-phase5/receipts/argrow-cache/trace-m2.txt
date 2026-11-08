@@ -1,0 +1,6 @@
+# mutant M2 (mutants.py: an argument's rows kept across a resize, `if wrapped.cols == cols {` -> `if true {`) on a git clone --no-local at 7c9f2221, against the equality test with its /trace steps; bounded at 600 s; the clone restored after
+test tui::shell::tests::ctrl_o_with_arguments_through_its_caches_is_the_session_laid_out_from_nothing_after_every_event ... FAILED
+thread 'tui::shell::tests::ctrl_o_with_arguments_through_its_caches_is_the_session_laid_out_from_nothing_after_every_event' (344379742) panicked at src/tui/shell.rs:45978:9:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4455 filtered out; finished in 0.16s
+exit 101
+clone clean after: 0 changes

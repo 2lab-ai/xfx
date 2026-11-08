@@ -8,7 +8,7 @@ tags: [xfx, phase5, fx-0.0.16, ctrl-o, render-cost]
 
 Branch `fix/p5-argrow-cache`, from train 6's head `train/p5-1108c` @
 `9681e9d8` (T-U4 and CTRLO-WIDER together). The code is `1a9652cc`'s. After it
-come only tests (`0c9e1dc9`, `06b4fc4b`, `5e794435`), a comment (`a015ada4`)
+come only tests (`0c9e1dc9`, `06b4fc4b`, `5e794435`, `7c9f2221`), a comment (`a015ada4`)
 and this folder.
 
 | step | ran at |
@@ -18,9 +18,13 @@ and this folder.
 | the gate | `255d3cac` |
 | the sweep's head binary | `06b4fc4b` |
 
-`5e794435` makes the shell test's round trips compare raw bytes. It ran
-after the gate with fmt, clippy both ways and the 106 tests it touches
-(`after-gate.txt`).
+Two test-only commits came after the gate, each with fmt, clippy both ways
+and the tests it touches:
+
+- `5e794435` makes the shell test's round trips compare raw bytes
+  (`after-gate.txt`);
+- `7c9f2221` adds three `/trace`s to that test (`after-trace.txt`, and
+  mutant M2 against it in `trace-m2.txt`).
 The branch merges with the train's later head `99eb8a13` without a conflict
 (`git merge-tree --write-tree 99eb8a13 fix/p5-argrow-cache`: exit 0).
 
@@ -42,7 +46,9 @@ moves.
 | `06b4fc4b` | test: every one-byte cluster is counted as the general path counts it (mutant W2) |
 | `255d3cac` | receipt: mutants |
 | `5e794435` | test: the shell test's round trips compared raw |
-| `ce5ad894`, then this README's commit | receipt files |
+| `ce5ad894`, `30999263` | receipt files |
+| `7c9f2221` | test: `/trace` before and while Ctrl-O is open (opus SHOULD 3) |
+| then | receipt: the review's fixes (this README, `gate-tests.txt`, `after-trace.txt`, `trace-m2.txt`) |
 
 ## The problem (train 6, join check 2)
 
@@ -121,20 +127,60 @@ and tests). The layout path is
 then `Railed::row` → `prose::literal_piece`, `clip`. It calls no spelling or
 naming function.
 
-**Memory, and its bound.** Per argument shown, the cache holds one width's
-rows: 24 bytes a row (`RailRow`), 16 a tab, and no painted row. A painted row
-lives only in the frame it is copied into, at most the viewport. The text is
-held once (`CallArgument::line`), as the base held it. Rows at width W number
-at most cells / (W - 3) plus lines. For the stream's bound (an argument of an
-8 MiB completion, spelled at most 4 bytes for each raw byte: 32 MiB, the c1
-case) that is about 287 000 rows, 6.6 MiB, at 120 columns, and about 2 M rows,
-45 MiB, at the narrowest screen (`layout::MIN_COLS`, 20).
+**Memory, and its bound.** Each figure is marked [measured] (a file here
+shows it) or [derived] (worked out from the code named).
 
-While a resize is laid out, two widths' rows are held: the entry's last
-layout keeps the old ones until `laid_out` replaces it. `/trace` lays out
-through the same caches at its own width (`traced`), as T-U4's heading does.
-That replaces an argument's one width, and the next Ctrl-O paint wraps it
-again: one pass, not a wrong row (the key is the width).
+- **Per row** [derived]: a shown argument's cache holds its rows at one width
+  as 24 bytes a row (`RailRow`) and 16 a tab (an argument has none: the
+  channel makes each tab four spaces, `full_transcript.rs:432`, `:465`), and
+  no painted row. A painted row lives only in the frame it is copied into, at
+  most the viewport. The text is held once (`CallArgument::line`), as the
+  base held it.
+- **Rows, whatever the text or the width** [derived]: every row of a line but
+  its last holds at least one byte of it. The wrap ends a row only after a
+  unit on it (`prose.rs` `wrap_to` at `:434`, `:448`, `:478`, `:574`), and a
+  blank line is one row. So an argument's rows number at most its bytes plus
+  its lines. A run of characters of no width counts too: the literal wrap
+  rows it every 256 bytes (`prose.rs:428-439`), which cells / (W - 3), the
+  formula this paragraph gave first, does not count.
+- **The worst case per byte of the stream** [derived]: an argument of line
+  feeds only. The channel keeps each line feed (`detail_spelled`,
+  `full_transcript.rs:497-500`), JSON writes one in 2 bytes, and each is a
+  blank row. So an argument of the stream's bound, an 8 MiB completion, is
+  about 4 Mi rows: 96 MiB a held width, at any width. The base kept one
+  painted `String` a row, at least 40 bytes (a 24-byte header and the rail,
+  the colours and the gutter): at least 160 MiB for the same argument, and
+  twice that while it laid an entry out again over its old layout.
+- **The c1 shape** [derived]: 32 MiB spelled, about 287 000 rows, 6.6 MiB, at
+  120 columns; about 2 M rows, 45 MiB, at the narrowest screen
+  (`layout::MIN_COLS`, 20).
+- **Two widths at most** [derived], each a while. While a resize is laid
+  out, the entry's last layout keeps the old width's rows until `laid_out`
+  replaces it. After a `/trace` (below), the report's width's rows stay until
+  the entry is laid out again.
+- **The session** [derived]: there is one such cache per argument the
+  session has shown on Ctrl-O or in a `/trace`, so nothing caps the session's
+  total. It grows with the arguments the session holds, as their text does.
+  The bounds above are per argument.
+
+**`/trace`.** It lays the record out at `TRACE_COLS` (200, `shell.rs:323`,
+called at `:13828`) through `traced` → `content` → `tool_rows` →
+`argument_rows` (`full_transcript.rs:2129`, `:2252`), as T-U4's heading does.
+
+- That replaces each shown argument's cached rows with the report's width's.
+  The entry's last layout (`Entry::drawn`) keeps the screen's, and
+  `laid_out` reuses it while its key holds (`:2012-2015`). So two widths are
+  held per shown argument until that entry is laid out again (a join, a
+  theme switch, a resize), which wraps the argument once at the screen's
+  width: one pass, never a wrong row.
+- So the count test's "0 wraps for a theme switch" holds only when no
+  `/trace` came between.
+- `/trace` now keeps argument rows even when Ctrl-O was never opened, where
+  the base built them and dropped them.
+- Pinned by the equality test's three `/trace`s (`7c9f2221`, below). With the
+  width out of the argument cache's key (mutant M2), that test fails at the
+  first paint after a `/trace` taken before Ctrl-O was opened: the report's
+  200-column rows on the screen (`trace-m2.txt`).
 
 The c1 peak (415 MiB, below) is mostly what this unit did not change: T-U4's
 heading rows (`Call::heading`, about 284 000 `String`s at 120 columns), its
@@ -147,15 +193,20 @@ group block, and the two 32 MiB texts (the call's `shown` and its argument).
   fails with `after a call joined` / `left: 13` / `right: 7`. Every member's
   arguments were wrapped again for one call's join.
 - **GREEN from `a1ff89e7`:** 6 wraps; none again; 1 for a join (the new
-  call's); 0 for a theme switch and 0 back; 7 for a resize and 7 back; 1 for
-  a call's new arguments. Every layout equals the record laid out from
-  nothing. In the gate (`gates.txt`).
+  call's); 0 for a theme switch and 0 back (with no `/trace` between: see
+  "`/trace`" above); 7 for a resize and 7 back; 1 for a call's new arguments.
+  Every layout equals the record laid out from nothing. In the gate
+  (`gates.txt`).
 
 ## Equality, after every event
 
 `ctrl_o_with_arguments_through_its_caches_is_the_session_laid_out_from_nothing_after_every_event`
 (`src/tui/shell.rs`, at `11d6d64a`; from `5e794435` its round trips compare
-raw bytes, times included). It passed on the base too: it is the
+raw bytes, times included; from `7c9f2221` it takes three real `/trace`s,
+each through a fake clipboard into a report directory of its own). Each
+fresh session is given the live session's `/trace` sentences at the same
+place in the record and takes no `/trace` of its own, so nothing of it is
+laid out before its screen. It passed on the base too: it is the
 guard the cache must keep. A turn's calls carry arguments that Ctrl-O lays
 out on rows of their own:
 
@@ -173,8 +224,11 @@ call's.
 
 The events:
 
-- open;
-- a call joining the open group;
+- `/trace` before Ctrl-O was ever opened, then open. The report's argument
+  row holds the pattern's 130-cell token whole, so it was wrapped at 200
+  columns; the screen's rows are all 120 cells at most;
+- `/trace` while it is open, then a theme report and back;
+- `/trace` again while it is open, then a call joining the open group;
 - a theme report while open, and back (byte for byte);
 - a resize to 40 columns, compared before anything else, and back to 120
   (byte for byte);
@@ -200,6 +254,9 @@ unit:
   every opening, 1 to 34 columns);
 - `a_wrap_of_megabytes_of_one_token_steps_a_row_at_a_time`;
 - `counting_a_run_at_once_changes_no_break`.
+
+The segmenter's own grapheme-break test corpus (gpt6's review, nice-to-have
+2) is not run here. It is queue unit GRAPHEME-CORPUS's.
 
 ## The numbers
 
@@ -263,7 +320,7 @@ equals its key latency to within 5 µs; the other columns are the first run's.
   296-303.
 - **The channel's crossing** (`detail_ms`: the arguments' spelling and
   naming, once a call, in `made_inert`) is unchanged: 72-75 ms c1 and
-  37-38 ms U+261D, the train's. It is CTRLO-WIDER's naming pass, run once
+  36.6-38.1 ms U+261D, the train's. It is CTRLO-WIDER's naming pass, run once
   where the probe calls it. Live, it runs on the sending side of the channel
   (`bridge::send_ui`).
 
@@ -364,17 +421,27 @@ step, one after another, in one hold of the suite lock, at `255d3cac`, the
 tree clean before and after. **20 steps, 0 failed:**
 
 - fmt, and clippy both ways;
-- `cargo test` (lib 4449 passed, tui 181, every suite 0 failed) and with
-  fault injection;
+- `cargo test`: lib 4449 passed and 7 ignored, tui 181, every suite 0
+  failed; with fault injection lib 4472 and tui 195, every suite 0 failed
+  (`gate-tests.txt`, each suite's result line from the gate's logs). 4449 and
+  7 make the 4456 tests `net.txt` and `after-gate.txt` filter from; `red.txt`
+  totals 4449 at `11d6d64a`, before the tests `1a9652cc`, `0c9e1dc9` and
+  `06b4fc4b` added;
 - `check-xfx-identity`, `check-no-stubs`, `check-no-secrets`,
   `check-preview-contract`, `check-tui-preflight-cost`, `check-usage-clock`;
 - `test-check-no-secrets`, `test-gate-env`, `test-preview-contract`;
 - fxcap `test-sweep` and `test-capture`;
 - both release builds, smoke and smoke-tui.
 
-After it, `5e794435` (test only): fmt, clippy both ways, and the 106 tests of
-`tui::shell::tests::ctrl_o` and `tui::full_transcript`, all ok
-(`after-gate.txt`).
+After it, two commits, both test only:
+
+- `5e794435`: fmt, clippy both ways, and the 106 tests of
+  `tui::shell::tests::ctrl_o` and `tui::full_transcript`, all ok
+  (`after-gate.txt`).
+- `7c9f2221` (the `/trace` steps): fmt, clippy both ways, and the 111 tests of
+  `tui::shell::tests::ctrl_o`, `tui::shell::tests::trace` and
+  `tui::full_transcript`, plain and with fault injection, all ok
+  (`after-trace.txt`).
 
 ## Network
 
@@ -415,5 +482,7 @@ above. No file, credential, child process or network path is touched.
   `families.txt`, `redacted.py`: the sweep (every sweep file through
   `redacted.py`).
 - `probe-a1ff89e7.txt`: the cache alone, by hand.
-- `gates.sh`, `gates.txt`: the gate; `after-gate.txt`: the checks after it.
+- `gates.sh`, `gates.txt`, `gate-tests.txt`: the gate; `after-gate.txt`,
+  `after-trace.txt`: the checks after it; `trace-m2.txt`: mutant M2 against
+  the `/trace` steps.
 - `net.py`, `net.txt`: the network check.
