@@ -15057,7 +15057,6 @@ impl Shell {
     /// Asked for once per change rather than per frame, so a frame that changes
     /// nothing about the title allocates nothing for it.
     pub(crate) fn take_title(&mut self) -> Option<String> {
-        self.title_leads = false;
         if !std::mem::take(&mut self.title_owed) {
             return None;
         }
@@ -15088,7 +15087,7 @@ impl Shell {
     /// not one: upstream sets it after it reported `done` (`osc/w02-done`),
     /// and it stays the frame's, behind the report.
     pub(crate) fn take_leading_title(&mut self) -> Option<String> {
-        if !self.title_leads {
+        if !std::mem::take(&mut self.title_leads) {
             return None;
         }
         self.take_title()
