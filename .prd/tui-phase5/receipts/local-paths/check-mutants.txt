@@ -1,0 +1,10 @@
+no placeholder list      exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+no mark                  exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+no start anchor          exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+no SGR start             exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+no GIT_* drop            exit 1  failed: env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+no binary probe          exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+no index-bit refusal     exit 1  failed: skip-worktree
+no missing-file refusal  exit 1  failed: deleted
+no root shape            exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+unmutated                exit 0  test-check-no-local-paths: ok (10 cases)

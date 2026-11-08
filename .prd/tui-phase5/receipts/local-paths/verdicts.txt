@@ -1,0 +1,6 @@
+pairs: before 145, after 145; same verdict 145, changed 0
+before: {'normalized-identical': 102, 'identical': 4, 'unresolved-defect': 27, 'approved-divergence-cascade': 12}
+after:  {'normalized-identical': 102, 'identical': 4, 'unresolved-defect': 27, 'approved-divergence-cascade': 12}
+
+before: pass = 106 / 145 = 73.1%; unresolved 27, failed 0, timeout 0
+after:  pass = 106 / 145 = 73.1%; unresolved 27, failed 0, timeout 0

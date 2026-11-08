@@ -1,0 +1,24 @@
+# scripts/fxcap/test_capture.py at 7abc5139 (RunRoots and the placeholder test), run
+# against an older capture.sh from a throwaway clone; failure lines only, the
+# machine's roots written <tmp> and <home> here.
+
+== against ccced1f5's capture.sh (the base): RED
+FAIL: test_both_sides_are_written_alike_and_keep_their_widths (__main__.RunRoots.test_both_sides_are_written_alike_and_keep_their_widths)
+AssertionError: b'<tmp>/lp/fxcapt.tugco0nb/scenarios' unexpectedly found in b'cwd=<tmp>/lp/fxcapt.tugco0nb/fxcap.p
+FAIL: test_every_file_a_run_writes_names_its_roots_by_placeholder (__main__.RunRoots.test_every_file_a_run_writes_names_its_roots_by_placeholder)
+AssertionError: b'<home>' unexpectedly found in b'\r\nThe default interactive shell is now zsh.\r\nTo update your account to use zsh, please
+FAIL: test_every_place_a_placeholder_is_written (__main__.Placeholders.test_every_place_a_placeholder_is_written)
+AssertionError: 'env:<scenarios>/x:<bun>' not found in 'The default interactive shell is now zsh.To update your account to use zsh, please run `chsh -
+Ran 3 tests in 19.411s
+FAILED (failures=3)
+
+== against afbb866d's capture.sh (a root after an SGR sequence's m not found): RED
+FAIL: test_every_file_a_run_writes_names_its_roots_by_placeholder (__main__.RunRoots.test_every_file_a_run_writes_names_its_roots_by_placeholder)
+AssertionError: b'<tmp>/lp/fxcapt.m9wg0p_q/fxcap.RdVsiF' unexpectedly found in b'\r\nThe default interactive shell is now zsh.\r\nTo
+Ran 1 test in 2.712s
+FAILED (failures=1)
+
+== at c4925698 and after: RunRoots + Placeholders, three runs in a row
+run 1: Ran 4 tests in 15.719s OK 
+run 2: Ran 4 tests in 15.908s OK 
+run 3: Ran 4 tests in 18.283s OK 

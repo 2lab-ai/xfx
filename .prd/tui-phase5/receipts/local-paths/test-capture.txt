@@ -1,0 +1,7 @@
+# scripts/fxcap/test-capture.sh under the suite lock, each from a throwaway clone
+== ccced1f5 (before)
+Ran 76 tests in 315.995s
+OK
+== 43024057 (after)
+Ran 78 tests in 296.073s
+OK
