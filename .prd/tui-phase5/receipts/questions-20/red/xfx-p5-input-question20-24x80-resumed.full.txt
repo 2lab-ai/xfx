@@ -1,0 +1,24 @@
+* session resumed: ask twenty
+
+┃ ask twenty
+
+  Twenty done.
+
+  0s (↑3 ↓80)
+
+┃ 12121212121212121212/quit
+
+✗ system: failed
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+

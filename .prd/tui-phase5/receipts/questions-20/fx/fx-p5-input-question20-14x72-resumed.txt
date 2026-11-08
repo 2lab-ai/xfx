@@ -1,0 +1,14 @@
+  18) Pick 18?
+      Change 18
+  19) Pick 19?
+      Keep 19
+  20) Pick 20?
+      Change 20
+
+  Twenty done.
+
+  5s (↑3 ↓80)
+
+┃
+
+auto · model-a

@@ -1,0 +1,356 @@
+# RED: fx v0.0.16 (fx/) against xfx at the base 712dd8d1 (red/), cells.py, row 1 left out
+SAME p5-input-question-40x120-q2-cancelled.ansi
+SAME p5-input-question-40x120-q2-down.ansi
+SAME p5-input-question-40x120-q2-panel.ansi
+DIFF p5-input-question-40x120-q6-after.ansi: row 9: fx [(0, '▪', (('fg', 252),)), (1, ' ', ()), (2, 'C', ()), (3, 'a', ())]
+    row 9: fx [(0, '▪', (('fg', 252),)), (1, ' ', ()), (2, 'C', ()), (3, 'a', ())]
+    row 9: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'S', ()), (3, 'i', ())]
+    row 11: fx [(0, '┃', (('fg', 255),))]
+    row 11: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+    row 13: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 13: xfx [(0, '┃', (('fg', 255),))]
+DIFF p5-input-question-40x120-q6-after.full.ansi: row 9: fx [(0, '▪', (('fg', 252),)), (1, ' ', ()), (2, 'C', ()), (3, 'a', ())]
+    row 9: fx [(0, '▪', (('fg', 252),)), (1, ' ', ()), (2, 'C', ()), (3, 'a', ())]
+    row 9: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'S', ()), (3, 'i', ())]
+    row 11: fx [(0, '┃', (('fg', 255),))]
+    row 11: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+    row 13: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 13: xfx [(0, '┃', (('fg', 255),))]
+DIFF p5-input-question-40x120-q6.ansi: row 9: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 9: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 9: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'S', ()), (3, 'i', ())]
+    row 10: fx [(0, ' ', ()), (1, ' ', ()), (2, 'Q', (('bold', True),)), (3, '1', (('bold', True),))]
+    row 10: xfx []
+    row 11: fx []
+    row 11: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-14x72-q20-answered.ansi: row 2: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 2: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 2: xfx []
+    row 3: fx [(0, ' ', ()), (1, ' ', ()), (2, '1', ()), (3, '9', ())]
+    row 3: xfx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'a', (('bold', True),)), (3, 's', (('bold', True),))]
+    row 4: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 4: xfx []
+DIFF p5-input-question20-14x72-q20-answered.full.ansi: row 5: fx [(2, '1', ()), (3, ')', ()), (4, ' ', ()), (5, 'P', ())]
+    row 5: fx [(2, '1', ()), (3, ')', ()), (4, ' ', ()), (5, 'P', ())]
+    row 5: xfx [(2, 'T', ()), (3, 'w', ()), (4, 'e', ()), (5, 'n', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 6: xfx []
+    row 7: fx [(2, '2', ()), (3, ')', ()), (4, ' ', ()), (5, 'P', ())]
+    row 7: xfx [(2, '0', (('fg', 245),)), (3, 's', (('fg', 245),)), (4, ' ', ()), (5, '(', (('fg', 245),))]
+DIFF p5-input-question20-14x72-q20-back9.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-14x72-q20-first.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-14x72-q20-left.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-14x72-q20-panel.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-14x72-q20-tab10.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-14x72-q20-tab20.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-14x72-q20-wrap.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-14x72-resumed.ansi: row 2: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 2: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 2: xfx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'a', (('bold', True),)), (3, 's', (('bold', True),))]
+    row 3: fx [(0, ' ', ()), (1, ' ', ()), (2, '1', ()), (3, '9', ())]
+    row 3: xfx []
+    row 4: fx [(2, ' ', ()), (3, ' ', ()), (4, ' ', ()), (5, ' ', ())]
+    row 4: xfx [(2, 'T', ()), (3, 'w', ()), (4, 'e', ()), (5, 'n', ())]
+DIFF p5-input-question20-14x72-resumed.full.ansi: row 3: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'a', (('bold', True),)), (3, 's', (('bold', True),))]
+    row 3: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'a', (('bold', True),)), (3, 's', (('bold', True),))]
+    row 3: xfx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 'e', (('fg', 250),))]
+    row 5: fx [(0, ' ', ()), (1, ' ', ()), (2, '1', ()), (3, ')', ())]
+    row 5: xfx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'a', (('bold', True),)), (3, 's', (('bold', True),))]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 6: xfx []
+DIFF p5-input-question20-24x80-q20-answered.ansi: row 2: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 2: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 2: xfx []
+    row 3: fx [(0, ' ', ()), (1, ' ', ()), (2, '1', ()), (3, '4', ())]
+    row 3: xfx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'a', (('bold', True),)), (3, 's', (('bold', True),))]
+    row 4: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 4: xfx []
+DIFF p5-input-question20-24x80-q20-answered.full.ansi: row 5: fx [(2, '1', ()), (3, ')', ()), (4, ' ', ()), (5, 'P', ())]
+    row 5: fx [(2, '1', ()), (3, ')', ()), (4, ' ', ()), (5, 'P', ())]
+    row 5: xfx [(2, 'T', ()), (3, 'w', ()), (4, 'e', ()), (5, 'n', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 6: xfx []
+    row 7: fx [(2, '2', ()), (3, ')', ()), (4, ' ', ()), (5, 'P', ())]
+    row 7: xfx [(2, '0', (('fg', 245),)), (3, 's', (('fg', 245),)), (4, ' ', ()), (5, '(', (('fg', 245),))]
+DIFF p5-input-question20-24x80-q20-back9.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-24x80-q20-first.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-24x80-q20-left.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-24x80-q20-panel.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-24x80-q20-tab10.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-24x80-q20-tab20.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-24x80-q20-wrap.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-24x80-resumed.ansi: row 2: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 2: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 2: xfx []
+    row 3: fx [(0, ' ', ()), (1, ' ', ()), (2, '1', ()), (3, '4', ())]
+    row 3: xfx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'a', (('bold', True),)), (3, 's', (('bold', True),))]
+    row 4: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 4: xfx []
+DIFF p5-input-question20-24x80-resumed.full.ansi: row 5: fx [(2, '1', ()), (3, ')', ()), (4, ' ', ()), (5, 'P', ())]
+    row 5: fx [(2, '1', ()), (3, ')', ()), (4, ' ', ()), (5, 'P', ())]
+    row 5: xfx [(2, 'T', ()), (3, 'w', ()), (4, 'e', ()), (5, 'n', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 6: xfx []
+    row 7: fx [(2, '2', ()), (3, ')', ()), (4, ' ', ()), (5, 'P', ())]
+    row 7: xfx [(2, '0', (('fg', 245),)), (3, 's', (('fg', 245),)), (4, ' ', ()), (5, '(', (('fg', 245),))]
+DIFF p5-input-question20-40x120-q20-answered.ansi: row 2: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 2: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 2: xfx []
+    row 3: fx [(0, ' ', ()), (1, ' ', ()), (2, '6', ()), (3, ')', ())]
+    row 3: xfx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'a', (('bold', True),)), (3, 's', (('bold', True),))]
+    row 4: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 4: xfx []
+DIFF p5-input-question20-40x120-q20-answered.full.ansi: row 5: fx [(2, '1', ()), (3, ')', ()), (4, ' ', ()), (5, 'P', ())]
+    row 5: fx [(2, '1', ()), (3, ')', ()), (4, ' ', ()), (5, 'P', ())]
+    row 5: xfx [(2, 'T', ()), (3, 'w', ()), (4, 'e', ()), (5, 'n', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 6: xfx []
+    row 7: fx [(2, '2', ()), (3, ')', ()), (4, ' ', ()), (5, 'P', ())]
+    row 7: xfx [(2, '0', (('fg', 245),)), (3, 's', (('fg', 245),)), (4, ' ', ()), (5, '(', (('fg', 245),))]
+DIFF p5-input-question20-40x120-q20-back9.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-40x120-q20-first.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-40x120-q20-left.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-40x120-q20-panel.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-40x120-q20-tab10.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-40x120-q20-tab20.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-40x120-q20-wrap.ansi: row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'T', ()), (3, 'w', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, 'P', (('bold', True),)), (3, 'i', (('bold', True),))]
+    row 6: xfx []
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+DIFF p5-input-question20-40x120-resumed.ansi: row 2: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 2: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 2: xfx []
+    row 3: fx [(0, ' ', ()), (1, ' ', ()), (2, '6', ()), (3, ')', ())]
+    row 3: xfx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'a', (('bold', True),)), (3, 's', (('bold', True),))]
+    row 4: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 4: xfx []
+DIFF p5-input-question20-40x120-resumed.full.ansi: row 5: fx [(2, '1', ()), (3, ')', ()), (4, ' ', ()), (5, 'P', ())]
+    row 5: fx [(2, '1', ()), (3, ')', ()), (4, ' ', ()), (5, 'P', ())]
+    row 5: xfx [(2, 'T', ()), (3, 'w', ()), (4, 'e', ()), (5, 'n', ())]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 6: xfx []
+    row 7: fx [(2, '2', ()), (3, ')', ()), (4, ' ', ()), (5, 'P', ())]
+    row 7: xfx [(2, '0', (('fg', 245),)), (3, 's', (('fg', 245),)), (4, ' ', ()), (5, '(', (('fg', 245),))]
+SAME p5-input-question21-40x120-q0.ansi
+SAME p5-input-question21-40x120-q0.full.ansi
+SAME p5-input-question21-40x120-q21.ansi
+
+# the wire, fx v0.0.16 (fx/)
+fx-p5-input-question-40x120-bodies/002-completion.json: description 'Ask the user 1-20 multiple-choice questions '... minItems 1 maxItems 20
+fx-p5-input-question-40x120-bodies/003-completion.json: description 'Ask the user 1-20 multiple-choice questions '... minItems 1 maxItems 20
+fx-p5-input-question-40x120-bodies/003-completion.json:   result call_2_0 error-text 'aborted by user'
+fx-p5-input-question20-40x120-bodies/002-completion.json: description 'Ask the user 1-20 multiple-choice questions '... minItems 1 maxItems 20
+fx-p5-input-question20-40x120-bodies/003-completion.json: description 'Ask the user 1-20 multiple-choice questions '... minItems 1 maxItems 20
+fx-p5-input-question20-40x120-bodies/003-completion.json:   result call_2_0 text '[{"question":"Pick 1?","answer":"Keep 1"},{"question":"Pick 2?","answer":"Change 2"},{"que... (863 bytes)'
+fx-p5-input-question21-40x120-bodies/002-completion.json: description 'Ask the user 1-20 multiple-choice questions '... minItems 1 maxItems 20
+fx-p5-input-question21-40x120-bodies/003-completion.json: description 'Ask the user 1-20 multiple-choice questions '... minItems 1 maxItems 20
+fx-p5-input-question21-40x120-bodies/003-completion.json:   result call_2_0 text '(ask_user_question: provide 1 to 20 questions)'
+fx-p5-input-question21-40x120-bodies/004-completion.json: description 'Ask the user 1-20 multiple-choice questions '... minItems 1 maxItems 20
+fx-p5-input-question21-40x120-bodies/004-completion.json:   result call_2_0 text '(ask_user_question: provide 1 to 20 questions)'
+fx-p5-input-question21-40x120-bodies/005-completion.json: description 'Ask the user 1-20 multiple-choice questions '... minItems 1 maxItems 20
+fx-p5-input-question21-40x120-bodies/005-completion.json:   result call_2_0 text '(ask_user_question: provide 1 to 20 questions)'
+fx-p5-input-question21-40x120-bodies/005-completion.json:   result call_4_0 text '(ask_user_question: provide 1 to 20 questions)'
+
+# the wire, xfx at the base (red/)
+xfx-p5-input-question-40x120-bodies/002-completion.json: description 'Ask the user 1 to 4 multiple-choice question'... minItems 1 maxItems 4
+xfx-p5-input-question-40x120-bodies/003-completion.json: description 'Ask the user 1 to 4 multiple-choice question'... minItems 1 maxItems 4
+xfx-p5-input-question-40x120-bodies/003-completion.json:   result call_2_0 error-text 'aborted by user'
+xfx-p5-input-question-40x120-bodies/004-completion.json: description 'Ask the user 1 to 4 multiple-choice question'... minItems 1 maxItems 4
+xfx-p5-input-question-40x120-bodies/004-completion.json:   result call_2_0 error-text 'aborted by user'
+xfx-p5-input-question-40x120-bodies/004-completion.json:   result call_3_0 error-text '(ask_user_question: provide 1 to 4 questions)'
+xfx-p5-input-question20-40x120-bodies/002-completion.json: description 'Ask the user 1 to 4 multiple-choice question'... minItems 1 maxItems 4
+xfx-p5-input-question20-40x120-bodies/003-completion.json: description 'Ask the user 1 to 4 multiple-choice question'... minItems 1 maxItems 4
+xfx-p5-input-question20-40x120-bodies/003-completion.json:   result call_2_0 error-text '(ask_user_question: provide 1 to 4 questions)'
+xfx-p5-input-question20-40x120-bodies/004-completion.json: description 'Ask the user 1 to 4 multiple-choice question'... minItems 1 maxItems 4
+xfx-p5-input-question20-40x120-bodies/004-completion.json:   result call_2_0 error-text '(ask_user_question: provide 1 to 4 questions)'
+xfx-p5-input-question20-40x120-bodies/005-completion.json: description 'Ask the user 1 to 4 multiple-choice question'... minItems 1 maxItems 4
+xfx-p5-input-question20-40x120-bodies/005-completion.json:   result call_2_0 error-text '(ask_user_question: provide 1 to 4 questions)'
+xfx-p5-input-question20-40x120-bodies/006-completion.json: description 'Ask the user 1 to 4 multiple-choice question'... minItems 1 maxItems 4
+xfx-p5-input-question20-40x120-bodies/006-completion.json:   result call_2_0 error-text '(ask_user_question: provide 1 to 4 questions)'
+xfx-p5-input-question21-40x120-bodies/002-completion.json: description 'Ask the user 1 to 4 multiple-choice question'... minItems 1 maxItems 4
+xfx-p5-input-question21-40x120-bodies/003-completion.json: description 'Ask the user 1 to 4 multiple-choice question'... minItems 1 maxItems 4
+xfx-p5-input-question21-40x120-bodies/003-completion.json:   result call_2_0 error-text '(ask_user_question: provide 1 to 4 questions)'
+xfx-p5-input-question21-40x120-bodies/004-completion.json: description 'Ask the user 1 to 4 multiple-choice question'... minItems 1 maxItems 4
+xfx-p5-input-question21-40x120-bodies/004-completion.json:   result call_2_0 error-text '(ask_user_question: provide 1 to 4 questions)'
+xfx-p5-input-question21-40x120-bodies/005-completion.json: description 'Ask the user 1 to 4 multiple-choice question'... minItems 1 maxItems 4
+xfx-p5-input-question21-40x120-bodies/005-completion.json:   result call_2_0 error-text '(ask_user_question: provide 1 to 4 questions)'
+xfx-p5-input-question21-40x120-bodies/005-completion.json:   result call_4_0 error-text '(ask_user_question: provide 1 to 4 questions)'
+
+# the tests at the base's code (src/ as at 712dd8d1, this commit's tests)
+$ cargo test --locked --lib tools::question
+test tools::question::tests::the_question_tool_mints_no_authority_and_every_kind_is_named ... ok
+test tools::question::tests::the_encoder_is_idempotent_and_borrows_when_nothing_changes ... ok
+test tools::question::tests::the_encoder_is_upstreams_lossless_one ... ok
+test tools::question::tests::the_cap_is_upstreams_twenty_in_the_description_the_schema_and_the_refusal ... FAILED
+test tools::question::tests::the_worst_case_result_fits_the_shipped_output_limit ... FAILED
+test tools::question::tests::the_closed_schema_is_enforced_here_because_only_this_side_can_enforce_it ... ok
+test tools::question::tests::overlong_text_is_refused_rather_than_truncated ... ok
+test tools::question::tests::parsing_refuses_out_of_bounds_batches_with_the_upstream_bodies ... FAILED
+test tools::question::tests::answers_encode_in_question_order_with_json_escaping ... ok
+test tools::question::tests::a_non_string_description_is_discarded_rather_than_refused ... ok
+test tools::question::tests::without_a_requester_the_tool_says_so_before_it_parses ... ok
+test tools::question::tests::a_full_batch_of_six_options_each_is_asked_once_and_one_more_question_is_refused_unasked ... FAILED
+test tools::question::tests::answers_reach_the_model_as_ordered_question_answer_json ... ok
+test tools::question::tests::an_interrupted_batch_is_aborted_and_never_the_cancel_sentinel ... ok
+test tools::question::tests::the_requester_survives_a_context_clone_and_the_with_permissions_builder ... ok
+test tools::question::tests::a_cancelled_batch_is_the_cancel_sentinel_and_not_a_refusal ... ok
+test tools::question::tests::an_answer_from_the_requester_is_encoded_and_bounded_before_it_leaves ... ok
+test tools::question::tests::the_schema_is_validated_execute_side_because_the_decoder_is_total ... FAILED
+test tools::question::tests::a_requester_that_returns_the_wrong_answer_count_is_refused_through_the_registry ... ok
+test tools::question::tests::a_result_the_callers_limit_cannot_carry_is_refused_before_the_registry_clips_it ... ok
+test tools::question::tests::the_requester_is_handed_the_encoded_entries_it_will_display ... ok
+test tools::question::tests::a_line_break_in_a_freeform_answer_reaches_the_model_as_one ... ok
+test tools::question::tests::the_result_exactly_at_the_output_limit_succeeds_and_one_byte_short_of_it_fails ... ok
+thread 'tools::question::tests::the_cap_is_upstreams_twenty_in_the_description_the_schema_and_the_refusal' panicked at src/tools/question.rs:734:9:
+  left: 4
+ right: 20
+thread 'tools::question::tests::the_worst_case_result_fits_the_shipped_output_limit' panicked at src/tools/question.rs:845:9:
+  left: 36977
+ right: 184881
+thread 'tools::question::tests::parsing_refuses_out_of_bounds_batches_with_the_upstream_bodies' panicked at src/tools/question.rs:652:13:
+  left: "(ask_user_question: provide 1 to 4 questions)"
+ right: "(ask_user_question: provide 1 to 20 questions)"
+thread 'tools::question::tests::a_full_batch_of_six_options_each_is_asked_once_and_one_more_question_is_refused_unasked' panicked at src/tools/question.rs:803:13:
+  left: 4
+ right: 20
+thread 'tools::question::tests::the_schema_is_validated_execute_side_because_the_decoder_is_total' panicked at src/tools/question.rs:884:13:
+  left: "(ask_user_question: provide 1 to 4 questions)"
+ right: "(ask_user_question: provide 1 to 20 questions)"
+test result: FAILED. 18 passed; 5 failed; 0 ignored; 0 measured; 4515 filtered out; finished in 0.01s
+$ cargo test --locked --test tool_loop the_advertisement_carries
+test the_advertisement_carries_one_closed_schema_per_tool_in_registry_order ... FAILED
+thread 'the_advertisement_carries_one_closed_schema_per_tool_in_registry_order' panicked at tests/tool_loop.rs:322:5:
+  left: Number(4)
+ right: Number(20)
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 108 filtered out; finished in 0.01s
+$ cargo test --locked --test tui -- twenty_questions_are_one_panel six_questions_open_the_panel
+test twenty_questions_are_one_panel_and_their_answers_reach_the_next_request_in_order ... FAILED
+test six_questions_open_the_panel_and_twenty_one_or_none_are_refused_in_upstreams_words ... FAILED
+thread 'twenty_questions_are_one_panel_and_their_answers_reach_the_next_request_in_order' panicked at tests/support/pty.rs:367:13:
+timed out waiting for ["Pick 1?", "Question 1 of 20"] on the screen, [] off it; terminal so far:
+thread 'six_questions_open_the_panel_and_twenty_one_or_none_are_refused_in_upstreams_words' panicked at tests/support/pty.rs:367:13:
+timed out waiting for ["Pick 1?", "Question 1 of 6"] on the screen, [] off it; terminal so far:
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 181 filtered out; finished in 20.82s

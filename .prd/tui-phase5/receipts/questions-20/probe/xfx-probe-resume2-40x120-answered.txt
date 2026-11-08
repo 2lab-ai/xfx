@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-712dd8d [debug] · Run /help for commands
+
+┃ ask two
+
+  1) Pick 1?
+     Keep 1
+  2) Pick 2?
+     Change 2
+
+  Twenty done.
+
+  3s (↑2 ↓80)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
