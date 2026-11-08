@@ -1187,4 +1187,54 @@ mod tests {
         assert_eq!(ModelAction::of(Action::ControlJ), Some(ModelAction::Down));
         assert_eq!(ModelAction::of(Action::InsertNewline), None);
     }
+
+    #[test]
+    fn a_revalidated_catalog_keeps_the_tab_and_the_marked_model() {
+        // `hydrateMenuSnapshot` (`model_cache_runtime.zig:1121-1146@481104fd`):
+        // "A revalidated catalog replaces rows under an open menu; keep the
+        // provider tab and the selected model so the cursor does not jump" --
+        // and a selection or tab the new rows lack falls back to the same
+        // position in All. fx's own case, row for row (`:1599-1633`).
+        let ids =
+            |ids: &[&str]| -> Vec<CatalogEntry> { ids.iter().map(|id| llmux(id, None)).collect() };
+        let mut menu = ModelMenu::ready(&ids(&["openai/a", "openai/b", "anthropic/c"]), None, "");
+        // All, Anthropic, OpenAI: two steps on is OpenAI; one down, `openai/b`.
+        assert!(menu.cycle(true));
+        assert!(menu.cycle(true));
+        assert!(menu.step(true, 20));
+        assert_eq!(menu.selected(), Some("openai/b"));
+
+        menu.loaded(
+            &ids(&[
+                "xai/new",
+                "openai/new",
+                "openai/a",
+                "openai/b",
+                "anthropic/c",
+            ]),
+            None,
+        );
+        assert_eq!(menu.selected(), Some("openai/b"), "the mark jumped");
+        assert_eq!(
+            menu.inline(),
+            Inline::Listed {
+                ids: vec!["openai/new", "openai/a", "openai/b"],
+                selected: 2,
+                window_start: 1,
+            },
+            "the tab, or the window under the mark, moved"
+        );
+
+        // Gone from the rows, and its tab with it: All, at the same place.
+        menu.loaded(&ids(&["xai/new", "anthropic/c"]), None);
+        assert_eq!(menu.selected(), Some("anthropic/c"));
+        assert_eq!(
+            menu.inline(),
+            Inline::Listed {
+                ids: vec!["xai/new", "anthropic/c"],
+                selected: 1,
+                window_start: 0,
+            }
+        );
+    }
 }

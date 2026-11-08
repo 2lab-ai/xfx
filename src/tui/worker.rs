@@ -15951,4 +15951,238 @@ mod tests {
         state.opened = None;
         assert_eq!(state.resumable(), None);
     }
+
+    // --- MODELS-REASK: what asks the catalog again, and what a turn waits for
+
+    /// What the band asked with (`super::bridge::TurnControl::Catalog`): the
+    /// menu opening over rows it lists meanwhile, or a submitted prompt --
+    /// neither waiting on the answer.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Ask {
+        Revalidate,
+        Prompt,
+    }
+
+    /// `ask` read between turns ([`ask_catalog`]).
+    async fn ask_with(state: &mut Runtime, events: &Sender<UiEvent>, ask: Ask) {
+        let _ = ask;
+        ask_catalog(state, events).await;
+    }
+
+    /// Every clock the selector's next read is decided by, moved back `by`.
+    fn backdate_catalog(state: &mut Runtime, by: Duration) {
+        state.selector.backdate_for_test(by);
+    }
+
+    /// The retry a submitted prompt starts behind a failed catalog whose
+    /// backoff is over, in the background, as the band's ask starts it.
+    fn retry_behind_failure(state: &mut Runtime, events: &Sender<UiEvent>) {
+        state.selector.retry_after_failure();
+        begin_catalog_read(state, events);
+    }
+
+    /// Everything the band has been told so far.
+    fn told(received: &mut Receiver<UiEvent>) -> Vec<UiEvent> {
+        let mut told = Vec::new();
+        while let Ok(event) = received.try_recv() {
+            told.push(event);
+        }
+        told
+    }
+
+    /// A catalog that answers `answers` in turn -- a 503 once they run out --
+    /// counting how often it was asked.
+    struct InTurn {
+        answers: Mutex<std::collections::VecDeque<Vec<CatalogEntry>>>,
+        asked: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::provider::model::ModelCatalog for InTurn {
+        async fn fetch(&self) -> Result<Vec<CatalogEntry>, crate::provider::model::CatalogError> {
+            self.asked.fetch_add(1, Ordering::SeqCst);
+            let next = self.answers.lock().expect("answers").pop_front();
+            match next {
+                Some(entries) => Ok(entries),
+                None => Unreachable.fetch().await,
+            }
+        }
+    }
+
+    /// A catalog whose first read fails at once and whose second answers
+    /// `entries` once `gate` opens.
+    struct FailsThenGated {
+        entries: Vec<CatalogEntry>,
+        asked: AtomicUsize,
+        gate: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::provider::model::ModelCatalog for FailsThenGated {
+        async fn fetch(&self) -> Result<Vec<CatalogEntry>, crate::provider::model::CatalogError> {
+            if self.asked.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Unreachable.fetch().await;
+            }
+            let gate = self.gate.lock().expect("gate").take();
+            if let Some(gate) = gate {
+                let _ = gate.await;
+            }
+            Ok(self.entries.clone())
+        }
+    }
+
+    #[test]
+    fn a_prompt_inside_a_failed_catalogs_backoff_reads_nothing_and_one_after_it_reads_again() {
+        // `noteModelCatalogActivity` (`src/main.zig:1225-1232@481104fd`, from
+        // `enqueuePromptWithSkillBindings`, `:1201`): a submitted prompt asks
+        // the model cache, which reads a failed catalog again only once the
+        // failure's backoff is over (`beginLoad`,
+        // `model_cache_runtime.zig:617`, `:621-622`) -- five seconds after
+        // the first, where c1db9191 held it one.
+        let (_home, _workspace, mut state) = recording();
+        let asked = Arc::new(AtomicUsize::new(0));
+        state
+            .selector
+            .set_fetcher_for_test(Box::new(CountedUnreachable {
+                asked: Arc::clone(&asked),
+            }));
+        let (events, mut received) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(state.load_catalog());
+        assert_eq!(asked.load(Ordering::SeqCst), 1);
+        // Two seconds on: past c1db9191's second, inside the five.
+        backdate_catalog(&mut state, Duration::from_secs(2));
+        on_a_runtime(ask_with(&mut state, &events, Ask::Prompt));
+        on_a_runtime(state.selector.settle_load());
+        assert_eq!(
+            asked.load(Ordering::SeqCst),
+            1,
+            "a prompt inside the backoff read the catalog"
+        );
+        assert_eq!(
+            told(&mut received),
+            Vec::new(),
+            "the band was told something"
+        );
+        // Past the five: the next prompt reads it, behind the failure, and the
+        // band is told how that read ended.
+        backdate_catalog(&mut state, Duration::from_secs(6));
+        on_a_runtime(ask_with(&mut state, &events, Ask::Prompt));
+        on_a_runtime(state.selector.settle_load());
+        assert_eq!(asked.load(Ordering::SeqCst), 2);
+        assert!(
+            matches!(
+                told(&mut received).as_slice(),
+                [UiEvent::CatalogUnread { .. }]
+            ),
+            "the read's failure was not told"
+        );
+    }
+
+    #[test]
+    fn the_menu_over_a_held_catalog_reads_it_again_five_seconds_on_and_tells_the_new_rows() {
+        // `revalidateModelCache` from `openModelMenu`
+        // (`app_input_runtime.zig:1897-1902@481104fd`, `src/main.zig:2011-2015`;
+        // `beginLoad`'s `picker_due`, `model_cache_runtime.zig:614`): the
+        // h1-models2 receipt's second `/model`, where fx read the catalog
+        // again and listed the model released meanwhile and xfx did not
+        // (train 4, `fxcap-h1/README.md:84`).
+        let (_home, _workspace, mut state) = recording();
+        let asked = Arc::new(AtomicUsize::new(0));
+        state.selector.set_fetcher_for_test(Box::new(InTurn {
+            answers: Mutex::new(
+                vec![
+                    vec![published("anthropic/claude-opus-5")],
+                    vec![
+                        published("anthropic/claude-opus-5"),
+                        published("openai/gpt-6-astra"),
+                    ],
+                ]
+                .into(),
+            ),
+            asked: Arc::clone(&asked),
+        }));
+        let (events, mut received) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(state.load_catalog());
+        // Inside the five seconds: nothing read.
+        on_a_runtime(ask_with(&mut state, &events, Ask::Revalidate));
+        on_a_runtime(state.selector.settle_load());
+        assert_eq!(asked.load(Ordering::SeqCst), 1);
+        // Past them: read again, and the band told the rows it now holds.
+        backdate_catalog(&mut state, Duration::from_secs(6));
+        on_a_runtime(ask_with(&mut state, &events, Ask::Revalidate));
+        on_a_runtime(state.selector.settle_load());
+        assert_eq!(
+            asked.load(Ordering::SeqCst),
+            2,
+            "the menu did not read a held catalog again"
+        );
+        let last = told(&mut received)
+            .into_iter()
+            .rev()
+            .find(|event| matches!(event, UiEvent::CatalogLoaded { .. }));
+        assert!(
+            matches!(&last, Some(UiEvent::CatalogLoaded { entries, .. }) if entries.len() == 2),
+            "the band was not told the new rows: {last:?}"
+        );
+        assert!(state.selector.entry("openai/gpt-6-astra").is_some());
+    }
+
+    #[test]
+    fn a_turn_waits_two_seconds_at_most_for_the_retry_behind_a_failed_catalog() {
+        // `resolveForRequest` (`model_cache_runtime.zig:843-866@481104fd`;
+        // `failed_catalog_retry_wait_ms`, `:45-47`; 65846154): "A request
+        // waits a moment for a failed catalog's retry, such as the one a
+        // submitted prompt starts, so a retry that lands quickly gives this
+        // request its limits. A slow retry never holds it." Here the turn
+        // cannot be sized without the catalog (`zai/glm-5.2` has no window
+        // upstream knows), as its `requiresResolvedRequestCapabilities` says.
+        let (_home, _workspace, mut state) = recording();
+        let (open, gate) = tokio::sync::oneshot::channel::<()>();
+        state
+            .selector
+            .set_fetcher_for_test(Box::new(FailsThenGated {
+                entries: vec![published("zai/glm-5.2")],
+                asked: AtomicUsize::new(0),
+                gate: Mutex::new(Some(gate)),
+            }));
+        let (events, _received) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(state.load_catalog());
+        assert!(matches!(state.selector.catalog(), CatalogState::Failed(_)));
+        assert_eq!(state.context_window(), None);
+        backdate_catalog(&mut state, Duration::from_secs(6));
+        retry_behind_failure(&mut state, &events);
+        let cancel = Cancellation::new(CancelToken::new());
+        let turn = cancel.turn();
+        // A retry that does not land: waited for two seconds, and no longer.
+        let started = Instant::now();
+        let waited = on_a_runtime(async {
+            tokio::time::timeout(
+                Duration::from_secs(8),
+                await_catalog_for_window(&mut state, &events, &turn),
+            )
+            .await
+        });
+        let took = started.elapsed();
+        assert!(
+            waited.is_ok(),
+            "the turn waited out a retry that never landed"
+        );
+        assert!(
+            took >= Duration::from_millis(1_900),
+            "the turn did not wait for the retry: {took:?}"
+        );
+        assert!(took < Duration::from_secs(4), "{took:?}");
+        // One that lands inside them is waited for, and its rows are the
+        // turn's.
+        open.send(()).expect("the retry waits");
+        let waited = on_a_runtime(async {
+            tokio::time::timeout(
+                Duration::from_secs(8),
+                await_catalog_for_window(&mut state, &events, &turn),
+            )
+            .await
+        });
+        assert!(waited.is_ok());
+        assert!(state.selector.entry("zai/glm-5.2").is_some());
+    }
 }

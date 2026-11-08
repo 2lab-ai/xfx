@@ -1826,6 +1826,18 @@ impl ModelSelector {
             .and_then(|attempted| attempted.checked_sub(RETRY_FLOOR * 2));
     }
 
+    /// Moves every clock the selector's next read is decided by back `by`:
+    /// when the last read began, and when the hold a failure put on the next
+    /// one ends. For MODELS-REASK's tests, which ask what upstream's model
+    /// cache would do seconds or minutes after a read without waiting for
+    /// them.
+    #[cfg(test)]
+    pub(crate) fn backdate_for_test(&mut self, by: Duration) {
+        self.last_attempt = self
+            .last_attempt
+            .and_then(|attempted| attempted.checked_sub(by));
+    }
+
     /// A catalog this selector *asks* -- one a test wrote -- in place of the
     /// provider's, with nothing loaded yet. For the worker's tests of what a
     /// load that fails or succeeds is told to the UI as; `#[cfg(test)]` like
@@ -3087,5 +3099,272 @@ mod tests {
             .expect("a configuration")
             .credential
             .expect("a credential")
+    }
+
+    // --- MODELS-REASK: when upstream's model cache reads the catalog again --
+    //
+    // fx v0.0.16's `beginLoad` (`src/core/app/model_cache_runtime.zig:570-648
+    // @481104fd`) and the backoff a failure puts on it (`:40-54`, `:936-965`).
+    // The cases ask through the seams just below, so they read the same before
+    // and after the selector is told what asked.
+
+    /// What asked for the read: a submitted prompt, a frame of the inline
+    /// column, the launch (`LoadTrigger.activity`) -- or the menu opening
+    /// (`.picker_open`), `model_cache_runtime.zig:27-35@481104fd`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Asked {
+        Activity,
+        PickerOpen,
+    }
+
+    /// Whether a read would start, were `asked` to ask at `now`.
+    fn would_read(selector: &ModelSelector, asked: Asked, now: Instant) -> bool {
+        let _ = asked;
+        match selector.catalog() {
+            CatalogState::NotLoaded => !selector.is_loading(),
+            CatalogState::Failed(_) => selector
+                .last_attempt()
+                .is_none_or(|began| may_read_again(began, now)),
+            CatalogState::Loaded(_) | CatalogState::Unavailable => false,
+        }
+    }
+
+    /// Starts the read `asked` asks for at `now`, on the selector's own
+    /// background load; whether one started.
+    fn start_read(selector: &mut ModelSelector, asked: Asked, now: Instant) -> bool {
+        let _ = asked;
+        let _ = selector.retry_after_failure_at(now);
+        selector.begin_load(|_, _, _| async {});
+        selector.is_loading()
+    }
+
+    /// What the menu says in its note's place after a refresh that failed
+    /// under rows the selector kept, if anything.
+    fn refresh_sentence(selector: &ModelSelector) -> Option<&'static str> {
+        let _ = selector;
+        None
+    }
+
+    /// Waits for the selector's background read and takes its answer.
+    fn settle(selector: &mut ModelSelector) {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a runtime")
+            .block_on(selector.settle_load());
+    }
+
+    /// One answer of a [`Script`]: given at once, or once its gate opens.
+    type Scripted = (
+        Option<tokio::sync::oneshot::Receiver<()>>,
+        Result<Vec<CatalogEntry>, ()>,
+    );
+
+    /// A catalog that gives its answers in turn -- a 503 once they run out --
+    /// counting how often it was asked.
+    struct Script {
+        answers: std::sync::Mutex<std::collections::VecDeque<Scripted>>,
+        asked: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl ModelCatalog for Script {
+        async fn fetch(&self) -> Result<Vec<CatalogEntry>, CatalogError> {
+            self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let next = self.answers.lock().expect("answers").pop_front();
+            let (gate, answer) = next.unwrap_or((None, Err(())));
+            if let Some(gate) = gate {
+                let _ = gate.await;
+            }
+            answer.map_err(|()| CatalogError::Gateway {
+                detail: "HTTP 503".to_string(),
+                retry: Some(CatalogRetry::Unreachable),
+            })
+        }
+    }
+
+    /// A Gateway selector over a [`Script`] of `answers`, and the count of
+    /// reads it served.
+    fn scripted(
+        answers: Vec<Scripted>,
+    ) -> (
+        ModelSelector,
+        std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    ) {
+        let asked = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Gateway, "m", SettingSource::UserGlobal);
+        selector.set_fetcher_for_test(Box::new(Script {
+            answers: std::sync::Mutex::new(answers.into()),
+            asked: std::sync::Arc::clone(&asked),
+        }));
+        (selector, asked)
+    }
+
+    fn rows(ids: &[&str]) -> Scripted {
+        (None, Ok(ids.iter().map(|id| entry(id, &[])).collect()))
+    }
+
+    fn reads(asked: &std::sync::atomic::AtomicUsize) -> usize {
+        asked.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    #[test]
+    fn a_failure_holds_every_read_off_for_upstreams_backoff_which_doubles_to_five_minutes() {
+        // `failureBackoffMs` (`model_cache_runtime.zig:40-54@481104fd`): after
+        // the n-th failure in a row no read starts for 5 s x 2^(n-1), five
+        // minutes at most, whatever asks (`backoff_over`, `:617`, `:621`),
+        // counted from when the failure arrived (`completeFetch`, `:948-951`).
+        // fx's own schedule (`:1531-1535`): 5 s, 10 s, ... 160 s at the sixth,
+        // the cap from the seventh on.
+        let (mut selector, asked) = scripted(Vec::new());
+        let mut now = Instant::now();
+        for (n, hold) in [5u64, 10, 20, 40, 80, 160, 300, 300]
+            .into_iter()
+            .enumerate()
+        {
+            assert!(
+                start_read(&mut selector, Asked::PickerOpen, now),
+                "read {} did not start",
+                n + 1
+            );
+            settle(&mut selector);
+            let failed = Instant::now();
+            assert_eq!(reads(&asked), n + 1);
+            assert!(matches!(selector.catalog(), CatalogState::Failed(_)));
+            for by in [Asked::Activity, Asked::PickerOpen] {
+                assert!(
+                    !would_read(&selector, by, failed + Duration::from_secs(hold - 1)),
+                    "failure {} let {by:?} read {} s on",
+                    n + 1,
+                    hold - 1
+                );
+            }
+            now = failed + Duration::from_secs(hold);
+            assert!(
+                would_read(&selector, Asked::Activity, now),
+                "failure {} held {hold} s and more",
+                n + 1
+            );
+        }
+    }
+
+    #[test]
+    fn a_held_catalog_is_read_again_by_the_menu_five_seconds_on_and_by_activity_five_minutes_on() {
+        // `beginLoad` over a ready catalog (`model_cache_runtime.zig:612-614`,
+        // `:623@481104fd`): the picker opening reads it again once the last
+        // read began five seconds ago (`picker_revalidate_floor_ms`,
+        // `:37-38`), anything else once it is the Gateway's refresh interval
+        // old (`builtins/gateway.zig:2348`, five minutes); fx's test
+        // `:1467-1488`. Counted from the read's start (`:636`).
+        let (mut selector, asked) = scripted(vec![rows(&["m-1"]), rows(&["m-1", "m-2"])]);
+        assert!(start_read(&mut selector, Asked::Activity, Instant::now()));
+        settle(&mut selector);
+        let began = selector.last_attempt().expect("the read began");
+        let at = |ms: u64| began + Duration::from_millis(ms);
+        assert!(!would_read(&selector, Asked::PickerOpen, at(4_999)));
+        assert!(would_read(&selector, Asked::PickerOpen, at(5_000)));
+        assert!(!would_read(&selector, Asked::Activity, at(5_000)));
+        assert!(!would_read(&selector, Asked::Activity, at(299_999)));
+        assert!(would_read(&selector, Asked::Activity, at(300_000)));
+        // The menu's read: behind the rows, which stand until it answers.
+        assert!(start_read(&mut selector, Asked::PickerOpen, at(5_000)));
+        assert!(
+            matches!(selector.catalog(), CatalogState::Loaded(held) if held.len() == 1),
+            "the rows went while the read was on its way"
+        );
+        settle(&mut selector);
+        assert_eq!(reads(&asked), 2);
+        assert!(matches!(selector.catalog(), CatalogState::Loaded(held) if held.len() == 2));
+    }
+
+    #[test]
+    fn a_refresh_that_fails_keeps_the_rows_says_so_and_is_tried_again_after_its_backoff() {
+        // `applyFetchLocked` (`model_cache_runtime.zig:969-975@481104fd`): a
+        // failed fetch over a catalog with rows keeps it; the menu says the
+        // failure where its note goes (`loadedCatalogStatusText`,
+        // `model_menu_presentation.zig:403-404`); and a retryable one is due
+        // again whatever asks, once its backoff ends (`retry_due`,
+        // `model_cache_runtime.zig:615-617`, `:623`). fx's test `:1445-1465`.
+        let (mut selector, asked) = scripted(vec![rows(&["m-1"])]);
+        assert!(start_read(&mut selector, Asked::Activity, Instant::now()));
+        settle(&mut selector);
+        let began = selector.last_attempt().expect("the read began");
+        assert!(start_read(
+            &mut selector,
+            Asked::PickerOpen,
+            began + Duration::from_secs(5)
+        ));
+        settle(&mut selector);
+        let failed = Instant::now();
+        assert_eq!(reads(&asked), 2);
+        assert!(
+            matches!(selector.catalog(), CatalogState::Loaded(held) if held.len() == 1),
+            "a refresh that failed threw the rows away: {:?}",
+            selector.catalog()
+        );
+        assert_eq!(selector.failure_retry(), None);
+        assert_eq!(
+            refresh_sentence(&selector),
+            Some("Could not reach AI Gateway; xfx retries automatically.")
+        );
+        assert!(!would_read(
+            &selector,
+            Asked::Activity,
+            failed + Duration::from_secs(4)
+        ));
+        assert!(would_read(
+            &selector,
+            Asked::Activity,
+            failed + Duration::from_secs(5)
+        ));
+    }
+
+    #[test]
+    fn a_retry_reads_behind_the_failure_it_retries() {
+        // "Only the first load for an access shows as `.loading`; a
+        // revalidation or retry leaves the state readers see alone"
+        // (`model_cache_runtime.zig:485-486`, `:633-634@481104fd`): while the
+        // retry is on its way the catalog is still the failure, and its
+        // answer replaces it (fx's test `:1490-1528`).
+        let (open, gate) = tokio::sync::oneshot::channel();
+        let (mut selector, asked) = scripted(vec![
+            (None, Err(())),
+            (Some(gate), Ok(vec![entry("m-1", &[])])),
+        ]);
+        assert!(start_read(&mut selector, Asked::Activity, Instant::now()));
+        settle(&mut selector);
+        let failed = Instant::now();
+        assert!(start_read(
+            &mut selector,
+            Asked::Activity,
+            failed + Duration::from_secs(5)
+        ));
+        assert!(
+            matches!(selector.catalog(), CatalogState::Failed(_)),
+            "the retry hid the failure: {:?}",
+            selector.catalog()
+        );
+        assert_eq!(selector.failure_retry(), Some(CatalogRetry::Unreachable));
+        open.send(()).expect("the retry waits");
+        settle(&mut selector);
+        assert_eq!(reads(&asked), 2);
+        assert!(matches!(selector.catalog(), CatalogState::Loaded(held) if held.len() == 1));
+        assert_eq!(selector.failure_retry(), None);
+    }
+
+    #[test]
+    fn the_retryable_failure_sentences_say_xfx_retries_automatically() {
+        // `retryableFailureText` (`model_menu_presentation.zig:435-443
+        // @481104fd`), `retry /model.` until 14a12fea; fx's own name read as
+        // xfx's, as the parity ledger's `product-name` rule reads it.
+        assert_eq!(
+            CatalogRetry::Unreachable.text(),
+            "Could not reach AI Gateway; xfx retries automatically."
+        );
+        assert_eq!(
+            CatalogRetry::RateLimited.text(),
+            "AI Gateway rate limited model discovery; xfx retries automatically."
+        );
     }
 }
