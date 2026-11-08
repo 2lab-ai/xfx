@@ -4682,7 +4682,7 @@ impl Shell {
                     }
                     (None, Some(summary)) => {
                         self.mark(Mark::Summary(summary));
-                        self.title_session();
+                        let _ = self.title_session();
                     }
                     (None, None) => {
                         self.mark(Mark::EndOfLine);
@@ -4695,10 +4695,14 @@ impl Shell {
                         // failed titles nothing ([`Self::title_session`]).
                         // Ahead of the tick's report, as upstream's is on
                         // the pass before the next prompt's `working`
-                        // ([`Self::take_leading_title`]).
-                        if quiet && ran && !noted {
-                            self.title_session();
-                            self.title_leads = self.title_owed;
+                        // ([`Self::take_leading_title`]) -- the title this
+                        // end gave and no other: a session with one already
+                        // takes none from it (`ensureCachedSessionTitle`,
+                        // `app_session_runtime.zig:2997-3010@481104fd`), and
+                        // a title another event of the drain asked for is
+                        // the tick's own, which follows the report.
+                        if quiet && ran && !noted && self.title_session() {
+                            self.title_leads = true;
                         }
                     }
                 }
@@ -15261,15 +15265,18 @@ impl Shell {
     /// Upstream derives it when the first turn's history is committed and
     /// freezes it there (`ensureCachedSessionTitle`), and a stopped turn is
     /// committed too (`.interrupted`); a turn that failed is not one this
-    /// surface can say was recorded, so it titles nothing.
-    fn title_session(&mut self) {
+    /// surface can say was recorded, so it titles nothing. Whether it gave
+    /// the session its title.
+    fn title_session(&mut self) -> bool {
         if self.session_title.is_some() {
-            return;
+            return false;
         }
-        if let Some(title) = self.turn_title.take() {
-            self.session_title = Some(title);
-            self.retitle();
-        }
+        let Some(title) = self.turn_title.take() else {
+            return false;
+        };
+        self.session_title = Some(title);
+        self.retitle();
+        true
     }
 
     /// Forgets the session's title, for a conversation that is being dropped.
