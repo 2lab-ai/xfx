@@ -112,6 +112,10 @@ pub enum CatalogRetry {
     RateLimited,
     /// Nothing answered, or the Gateway answered 500, 502, 503 or 504.
     Unreachable,
+    /// The read could not start: no thread, or no runtime on it, could be had
+    /// for it (upstream's `.runtime`, retryable, for a fetch thread that could
+    /// not be spawned, `model_cache_runtime.zig:537-546@481104fd`).
+    Runtime,
 }
 
 impl CatalogRetry {
@@ -128,6 +132,7 @@ impl CatalogRetry {
                 "AI Gateway rate limited model discovery; xfx retries automatically."
             }
             Self::Unreachable => "Could not reach AI Gateway; xfx retries automatically.",
+            Self::Runtime => "Could not refresh model catalog; xfx retries automatically.",
         }
     }
 
@@ -1472,6 +1477,16 @@ impl LoadView {
 /// asking again could change a failure ([`ModelSelector::failure_retry`]).
 pub(crate) type Loaded = (CatalogState, Option<CatalogRetry>);
 
+/// [`Loaded`] for a read that could not start, for want of a thread or of a
+/// runtime on one: a failure asking again could change
+/// ([`CatalogRetry::Runtime`]).
+fn unstartable(err: &std::io::Error) -> Loaded {
+    (
+        CatalogState::Failed(format!("could not start the catalog read: {err}")),
+        Some(CatalogRetry::Runtime),
+    )
+}
+
 /// [`Loaded`] for one attempt's answer.
 fn loaded(answer: Result<Vec<CatalogEntry>, CatalogError>) -> Loaded {
     match answer {
@@ -1533,12 +1548,7 @@ impl PendingLoad {
                 {
                     Ok(runtime) => runtime,
                     Err(err) => {
-                        let _ = outcome.set((
-                            loaded(Err(CatalogError::Unavailable {
-                                detail: format!("could not start the catalog read: {err}"),
-                            })),
-                            Instant::now(),
-                        ));
+                        let _ = outcome.set((unstartable(&err), Instant::now()));
                         let _ = finished.send(());
                         return;
                     }
@@ -1577,9 +1587,7 @@ impl PendingLoad {
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .take()
                     .map(|(_, told, finished)| {
-                        let failure = loaded(Err(CatalogError::Unavailable {
-                            detail: format!("could not start the catalog read: {err}"),
-                        }));
+                        let failure = unstartable(&err);
                         let telling = told(failure.0.clone(), failure.1, began);
                         let _ = view.outcome.set((failure, began));
                         let _ = finished.send(());
@@ -3684,6 +3692,22 @@ mod tests {
         assert_eq!(
             CatalogRetry::RateLimited.text(),
             "AI Gateway rate limited model discovery; xfx retries automatically."
+        );
+    }
+
+    #[test]
+    fn a_read_that_could_not_start_says_upstreams_third_sentence() {
+        // `retryableFailureText`'s `else` (`model_menu_presentation.zig:441
+        // @481104fd`), for upstream's `.runtime` failure: a fetch thread it
+        // could not spawn, which it marks retryable
+        // (`model_cache_runtime.zig:537-546`).
+        assert_eq!(
+            CatalogRetry::Runtime.text(),
+            "Could not refresh model catalog; xfx retries automatically."
+        );
+        assert_eq!(
+            unstartable(&std::io::Error::other("no thread")).1,
+            Some(CatalogRetry::Runtime)
         );
     }
 }
