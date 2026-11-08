@@ -1,0 +1,11 @@
+# RED for T-U4-F, at the RED commit (the tests on 5a7bb465's code):
+# cargo test --locked --lib -- tui::toolgroup::tests::the_transcripts_row_cuts tui::toolgroup::tests::a_unit_ends_before
+test tui::toolgroup::tests::a_unit_ends_before_a_spelling_whatever_joins_its_backslash ... FAILED
+test tui::toolgroup::tests::the_transcripts_row_cuts_a_spelled_argument_between_its_spellings ... FAILED
+thread 'tui::toolgroup::tests::a_unit_ends_before_a_spelling_whatever_joins_its_backslash' panicked at src/tui/toolgroup.rs:2730:17:
+assertion `left == right` failed: U+0600 took the spelling's `\` into its unit
+  left: 3
+ right: 2
+thread 'tui::toolgroup::tests::the_transcripts_row_cuts_a_spelled_argument_between_its_spellings' panicked at src/tui/toolgroup.rs:2656:13:
+"ab" "\u{600}\u{1}": cut inside a spelling, ..."1\u{600}\\x01\u{600}\\x0"
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4385 filtered out; finished in 4.73s
