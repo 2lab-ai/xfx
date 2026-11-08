@@ -810,7 +810,8 @@ the command matches what it looks for and not its own text: **0 hits**
   `until-waits.txt`: every `until` line of the swept scenarios that have one.
 - `gates.sh`, `gates.txt`: round 1's gate as it ran, and the test-capture
   reruns after it; `gates-r2.txt`: round 2's final gate and the touched tests' runs;
-  `gates-r2a.txt`: round 2's first run, at `f788dc54`; `gates_txt.py`: how `gates.txt` was assembled; `gates-final.txt`:
+  `gates-r2a.txt`: round 2's first run, at `f788dc54`; `gates_txt.py`: how `gates.txt` was assembled; `gates-final-r2.txt`: the
+  file checks with round 2's receipt in its final form; `gates-final.txt`:
   the file checks with the receipt in its final form.
 - `selection.txt`: the sweep's `--only` globs, each with why.
 - `sweep-head.md`, `sweep-main.md`: the two scoreboards (`main`'s rescored
