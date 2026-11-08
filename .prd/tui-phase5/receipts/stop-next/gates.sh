@@ -6,7 +6,7 @@
 set -u
 W="$1"; L="$2"
 cd "$W" || exit 2
-export TMPDIR=/private/tmp/claude-501/stopnext
+export TMPDIR="${TMPDIR:?set TMPDIR to a scratch directory}/stopnext"
 unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
 mkdir -p "$L"
 step() {
