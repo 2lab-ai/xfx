@@ -37,10 +37,14 @@ by `capture.sh` before and after every run, `FX_AUTO_UPGRADE=0`.
   its observer delayed 3 s across the shutdown (the control); round 1's
   sampled test, delayed the same way, let two of them through. It passes
   on each unit alone.
-- Gate (round 2) at (the next commit), one suite-lock hold: in the next commit. A first
-  round 2 run at `f788dc54`, before a comment-only change to the join test
-  (`7318963f`), was the same: 20 of 20 steps, 5327 and 5364, `test-capture`
-  59 OK, the touched tests 3 of 3 green.
+- Gate (round 2) at `bf9e14ad`, one suite-lock hold: 20 steps, 19 passed
+  (`cargo test` 5327, with fault injection 5364; smoke-tui 1168 checks);
+  `test-capture.sh` failed the same LAUNCH-SETTLE case as round 1 (59 OK
+  whole on the rerun; alone it fails 4 of 5 on `main` and 4 of 5 on the
+  head); the touched tests 3 of 3 green. A first round 2 run at
+  `f788dc54`, before a comment-only change to the join test (`7318963f`),
+  passed all 20 steps (5327, 5364, `test-capture` 59 OK) and the touched
+  tests 3 of 3.
 - Gate (round 1) at `d6a10eeb`, all under one suite-lock hold: 20 steps, 19 passed
   (`cargo test` 5327, with fault injection 5364, each +48 on `main`'s;
   smoke-tui 1168 checks). `test-capture.sh` failed one case, a wall-clock race in the
@@ -429,16 +433,18 @@ What each check proves, and what it can miss:
 
 | check | proves | can miss / can falsely fail |
 |---|---|---|
-| nothing after the tool's last heartbeat but the restore's clear: no frame opener, no report | everything xfx writes after the copy's end comes after it. Every heartbeat is written by the tool before it dies; xfx writes nothing of the end until `Stop::settle` has reaped it; the pty keeps writes in the order they were made. So a frame or a report written after the copy's end, however soon or late, is after every heartbeat | misses nothing written after the reap. A frame written during the grace, while the tool still beats, is followed by heartbeats and not caught here. Needs a heartbeat after the last frame, which the 1 s grace gives: a tool starved of the CPU for the whole grace would fail the case, not pass it |
+| nothing after the tool's last heartbeat but the restore's clear: no frame opener, no report | everything xfx writes after the copy's end comes after it. Every heartbeat is written by the tool before it dies; the copy's end returns only after `Stop::settle` has killed and reaped it; the pty keeps writes in the order they were made. So a frame or a report written after the copy's end, however soon or late, is after every heartbeat | misses nothing written after the reap. A frame written during the grace, while the tool still beats, is followed by heartbeats and not caught here. Needs a heartbeat after the last frame, which the 1 s grace gives: a tool starved of the CPU for the whole grace would fail the case, not pass it |
 | no heartbeat after the restore began | the tool was dead before the restore was written | a restore written before the copy's end is caught only if the tool beats between the two. A misordered restore would come with the grace between it and the kill (1 s, about a hundred heartbeats); one written within the last heartbeat before the kill would not be caught |
 | one restore; nothing after it but its own clear (no frame, no report) | the restore is last | -- |
 | the tool alive at Ctrl-D, dead after the exit | the copy was running when the session ended (the tool never ends by itself) and the session ended it | -- |
 
 Every wait in it is a bound (`WAIT`) on something that never comes -- the
 session's start, the turn's end, the tool's start, the exit; no order is
-read from a clock. The deterministic part is
-the first row; the second is a sample, at the tool's heartbeat rate, of an
-interval the code makes a second long. That is what the test proves.
+read from a clock. The first row is deterministic for anything written
+after the copy's end; the second is a sample, at the tool's heartbeat rate,
+of an interval the code makes a second long (a restore ahead of the end has
+the grace after it). That is what the test proves, and the test's comment
+says the same.
 
 **Does it discriminate, and does it depend on its observer?**
 `join_mutants.py` (round 2), on a `git clone --no-local` of the train at
@@ -483,21 +489,44 @@ driver (`join_mutants_r1.py`) are kept as they ran.
 
 ### Round 2 (`gates-r2.txt`, `join-tests-r2.txt`; first run `gates-r2a.txt`, `join-tests-r2a.txt`)
 
-`gates.sh` at (the next commit), the whole script inside one hold of the suite lock,
+`gates.sh` at `bf9e14ad` (code at `7318963f`), the whole script inside one hold of the suite lock,
 and in the same hold every test that uses the fake clipboard -- the join
 test, the two `/copy` cases, the four `/trace` cases, the `/compact` case
 with no credential, the slash-command walk (`tests/tui.rs`,
 `tests/interactive.rs`), and fault injection's killed-report case -- three
-times. 
+times. Tree clean at the start and the end; the commits after `bf9e14ad`
+change only this directory (`git diff bf9e14ad <head> -- src tests scripts
+docs Cargo.toml Cargo.lock build.rs` is empty).
 
 | gate | result |
 |---|---|
-| (the next commit) | |
+| `cargo fmt --check`; `cargo clippy` without and with `fault-injection` | ok; ok; ok |
+| `cargo test --locked --no-fail-fast` | **5327 passed**, 0 failed, 7 ignored (15 binaries) |
+| `cargo test --locked --features fault-injection --no-fail-fast` | **5364 passed**, 0 failed, 7 ignored |
+| every `scripts/check-*.sh` (6) and `scripts/test-*.sh` (3) | ok (13498 tracked files) |
+| `scripts/fxcap/test-sweep.sh` | 66 + 26 OK |
+| `scripts/fxcap/test-capture.sh` | **59 run, 1 failed**: `Verbs.test_a_pid_whose_executable_is_not_the_binary_is_refused_and_the_guards_still_run` (`test_capture.py:394`), the case round 1's gate failed; under the lock right after, whole: **59 OK** |
+| both release builds; `smoke.sh`; `smoke-tui.sh` | ok; 47 checks, 0 failures; 37 scenarios and the oracle, 1168 checks, 0 failures |
+| the touched tests, three times | 9 passed, 0 failed, and fault injection's 1 passed, each run |
+
+**The one failure** is the harness's own case that round 1's gate failed
+(above, Round 1): a fresh wrapper script whose body is `exec /bin/cat`,
+`wait 1`, then a signal, and at 1 s the pid still runs `/bin/sh`. It drives
+a stub binary -- no xfx, no fx -- and no train commit touches the harness
+(`git diff 884497c0 <head> -- scripts/fxcap/test_capture.py
+scripts/fxcap/capture.sh scripts/fxcap/test-capture.sh` is empty). It is
+**LAUNCH-SETTLE's item 6**, in flight. After the hold: `test-capture.sh`
+whole under the lock, 59 OK (499 s); the case alone, five times, **failed
+five of five** the same way (the pid at `/bin/sh`). So it was then run alone
+on `main`'s own clone (`884497c0`) and on the head, five times each,
+alternating, under the lock (`gates-r2.txt`, job P): **`main` failed 4 of 5,
+the head 4 of 5**, each failure naming `/bin/sh`. The case fails as often on
+`main` as on the train; it is the harness's race, not this train's.
 
 The first round 2 run, at `f788dc54` (`gates-r2a.txt`, `join-tests-r2a.txt`),
-was the same in every row: 20 of 20, 5327 and 5364, `test-capture` 59 OK,
-smoke-tui 1168, the touched tests 3 of 3 (load 79.8 at its start, other
-workers' jobs, and 5 from step 16). Between it and (the next commit) the only change
+passed all 20 steps: the same counts (5327, 5364, smoke-tui 1168), and
+`test-capture` 59 OK there, the race not hit; the touched tests 3 of 3
+(load 79.8 at its start, other workers' jobs, and 5 from step 16). Between it and `bf9e14ad` the only change
 outside this directory is `7318963f`, the join test's comment (`git diff
 ffd53286 7318963f -- src tests` changes comment lines only).
 
