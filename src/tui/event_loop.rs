@@ -4471,6 +4471,7 @@ mod tests {
         let mut band = Band::new();
         shell.save_speeds_by_hand();
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: crate::provider::ProviderId::Gateway,
             entries: vec![crate::provider::model::CatalogEntry {
                 // The model a session over an empty profile is in.
@@ -7411,8 +7412,9 @@ mod tests {
     fn the_model_columns_frame_asks_for_a_failed_catalog_again_and_an_idle_tick_does_not() {
         // The column's own redraw is what asks again, as upstream's render
         // path is (`footerContext` -> `ensureModelCache`,
-        // `app_render_runtime.zig:561-563`): through the counted commit every
-        // frame goes out by, and only on a tick that owes one.
+        // `app_render_runtime.zig:559-568@481104fd`): through the counted
+        // commit every frame goes out by, and only on a tick that owes one --
+        // here past the failure's hold.
         let mut shell = shell_of(40, 120);
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
@@ -7420,8 +7422,8 @@ mod tests {
         shell.apply(UiEvent::CatalogUnread {
             provider: crate::provider::ProviderId::Gateway,
             retry: Some(crate::provider::model::CatalogRetry::Unreachable),
-            attempted: Instant::now()
-                .checked_sub(crate::provider::model::RETRY_FLOOR * 2)
+            retry_at: Instant::now()
+                .checked_sub(std::time::Duration::from_secs(2))
                 .expect("a clock older than two seconds"),
         });
         shell.route_bytes(b"/model ");
@@ -7429,7 +7431,9 @@ mod tests {
         counted_tick(&mut shell, &mut band, &mut out, &mut failures).expect("the tick");
         assert_eq!(
             shell._control.try_recv().ok(),
-            Some(crate::tui::bridge::TurnControl::Catalog)
+            Some(crate::tui::bridge::TurnControl::Catalog(
+                crate::tui::bridge::CatalogAsk::ACTIVITY
+            ))
         );
         // The tick after it owes nothing, paints nothing and asks nothing.
         counted_tick(&mut shell, &mut band, &mut out, &mut failures).expect("the tick");

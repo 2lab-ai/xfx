@@ -80,7 +80,9 @@ use super::approval::{self, Panel};
 use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface};
 use super::approval_screen::ApprovalScreen;
 use super::blocks;
-use super::bridge::{ModelAnswer, ModelChange, SpeedChange, TurnControl, TurnWork, UiEvent};
+use super::bridge::{
+    CatalogAsk, ModelAnswer, ModelChange, SpeedChange, TurnControl, TurnWork, UiEvent,
+};
 use super::clipboard_image::ClipboardReads;
 use super::compaction::{self, Compaction};
 use super::copy::Copies;
@@ -139,7 +141,7 @@ use crate::markdown::{self, MarkdownProcessor};
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
 use crate::provider::effort::{intrinsic_fast, Effort, Speed, TurnSettings};
 use crate::provider::model::model_id_problem;
-use crate::provider::model::{may_read_again, resolve_in_order, CatalogEntry, CatalogRetry};
+use crate::provider::model::{resolve_in_order, CatalogEntry, CatalogRetry};
 use crate::provider::ProviderId;
 use crate::session::store::title_of;
 use crate::tools::{LineChanges, Outcome as CallOutcome, Shown};
@@ -846,6 +848,25 @@ pub(crate) struct Shell {
     /// this side can say at once; a catalog nobody has read cannot be
     /// resolved here at all.
     catalog_known: CatalogKnown,
+    /// When activity -- a submitted prompt, a frame of the inline column --
+    /// is next owed a read of the rows the band holds, by the runtime's
+    /// clock: five minutes after the read that brought them began, or, once
+    /// a refresh behind them failed, when the hold it put on the next read
+    /// ends -- and, for one asking again could not change, not before the
+    /// rows are five minutes old (`beginLoad`'s `expired` and `retry_due`,
+    /// `model_cache_runtime.zig:609-623@481104fd`; [`UiEvent::CatalogLoaded`]'s
+    /// and [`UiEvent::CatalogRefreshFailed`]'s `due`). `None` beside any other
+    /// [`CatalogKnown`].
+    catalog_due: Option<Instant>,
+    /// A refresh behind the rows the band holds failed in a way asking again
+    /// could change: `/model`'s menu says so in its note's place
+    /// (`loadedCatalogStatusText`, `model_menu_presentation.zig:403-404
+    /// @481104fd`).
+    catalog_note: Option<CatalogRetry>,
+    /// Activity has asked the runtime since the catalog's last answer: it is
+    /// not asked again for the same one by every frame
+    /// ([`Self::note_catalog_activity`]).
+    catalog_nudged: bool,
     /// The session's reasoning effort and its two speed switches, as the band
     /// shows and announces them.
     ///
@@ -2233,9 +2254,10 @@ enum CatalogKnown {
     /// The runtime's answer is [`Shell::catalog`].
     Loaded,
     /// The runtime could not read it, whether asking again could help, and
-    /// when the read that failed began: a `/model` within a second of that
-    /// opens the menu over the failure and asks nothing
-    /// (`crate::provider::model::RETRY_FLOOR`).
+    /// when the hold the failure put on the next read ends: a `/model` before
+    /// then opens the menu over the failure and asks nothing, as upstream's
+    /// model cache starts no load inside a failure's backoff
+    /// (`crate::provider::model::failure_backoff`).
     Unread(Option<CatalogRetry>, Instant),
 }
 
@@ -2366,6 +2388,9 @@ impl Shell {
             provider: config.provider,
             catalog: Vec::new(),
             catalog_known: CatalogKnown::Unasked,
+            catalog_due: None,
+            catalog_note: None,
+            catalog_nudged: false,
             settings: TurnSettings {
                 effort: config.effort.clone(),
                 fast: config.fast_mode,
@@ -3752,6 +3777,7 @@ impl Shell {
             self.missing_credential = missing_credential;
             self.catalog.clear();
             self.catalog_known = CatalogKnown::Unasked;
+            self.forget_catalog_clock();
             self.column.reset();
             self.held_speed.clear();
             self.usage_sign_in_changed();
@@ -4276,6 +4302,7 @@ impl Shell {
                 // against, and the meter waits for it.
                 self.catalog.clear();
                 self.catalog_known = CatalogKnown::Unasked;
+                self.forget_catalog_clock();
                 self.column.reset();
                 // The speed switches went off with the model the switch
                 // replaced, on the runtime too (`super::worker`'s `adopt`), and
@@ -4362,14 +4389,21 @@ impl Shell {
             // The catalog's rows, for `/model`'s menu and column if either is
             // waiting for them, for resolving a typed query on this side, and
             // for the context meter's denominator either way.
-            UiEvent::CatalogLoaded { provider, entries } => {
+            UiEvent::CatalogLoaded {
+                provider,
+                entries,
+                due,
+            } => {
                 self.catalog = entries;
                 self.catalog_known = CatalogKnown::Loaded;
                 self.provider = provider;
+                // Fresh rows: activity owes them a read when the runtime's
+                // clock says -- the refresh interval after the read that
+                // brought them began -- and no refresh of them has failed.
+                self.forget_catalog_clock();
+                self.catalog_due = Some(due);
                 self.settle_speed();
-                let note = (provider == ProviderId::Gateway)
-                    .then_some(self.gateway_note)
-                    .flatten();
+                let note = self.menu_note();
                 if let Some(menu) = self.model_menu.as_mut() {
                     menu.loaded(&self.catalog, note);
                     self.render.request(Reason::Modal);
@@ -4384,12 +4418,14 @@ impl Shell {
                 self.render.request(Reason::Footer);
             }
             // Nothing to list, and the menu and the column say so -- the menu
-            // in upstream's `retry /model.` words when asking again could
-            // help, which the next `/model` then does.
+            // in upstream's `xfx retries automatically.` words when asking
+            // again could help, which the model cache's next trigger past
+            // `retry_at` then does.
             UiEvent::CatalogUnread {
-                retry, attempted, ..
+                retry, retry_at, ..
             } => {
-                self.catalog_known = CatalogKnown::Unread(retry, attempted);
+                self.catalog_known = CatalogKnown::Unread(retry, retry_at);
+                self.forget_catalog_clock();
                 // No row says the model offers a mode, as upstream's generic
                 // capabilities say none (`capabilitiesForModel`).
                 self.settle_speed();
@@ -4400,6 +4436,41 @@ impl Shell {
                 }
                 self.render.request(Reason::Modal);
                 self.render.request(Reason::Footer);
+            }
+            // A refresh behind the rows the band holds failed: the rows stand
+            // (`applyFetchLocked`, `model_cache_runtime.zig:969-975@481104fd`),
+            // the menu says the failure in its note's place when asking again
+            // could help (`loadedCatalogStatusText`,
+            // `model_menu_presentation.zig:403-404`), and activity is owed
+            // the next read once its hold ends -- or, for one asking again
+            // could not change, once the rows are the refresh interval old.
+            UiEvent::CatalogRefreshFailed {
+                provider,
+                retry,
+                due,
+            } => {
+                if provider != self.provider {
+                    return;
+                }
+                // An answer, whatever the band holds: activity may ask again
+                // once the runtime's clock says the next read is due
+                // ([`Self::note_catalog_activity`]). A band that holds no
+                // rows to keep asks then, and is told what the runtime holds.
+                self.catalog_nudged = false;
+                if let CatalogKnown::Unread(failed, _) = self.catalog_known {
+                    self.catalog_known = CatalogKnown::Unread(failed, due);
+                }
+                if self.catalog_known != CatalogKnown::Loaded {
+                    return;
+                }
+                self.catalog_note = retry;
+                self.catalog_due = Some(due);
+                let note = self.menu_note();
+                if let Some(menu) = self.model_menu.as_mut() {
+                    menu.set_note(note);
+                    self.refit();
+                    self.render.request(Reason::Modal);
+                }
             }
             // The numerator, and only the numerator: see [`Self::context_used`]
             // for why the output half is deliberately left out of it.
@@ -12633,6 +12704,15 @@ impl Shell {
         // draft goes.
         let sent = self.editor.entities().expand(text);
         let (card, runs) = self.editor.entities().card(text);
+        // **A submitted prompt is activity**, a steer too: the model cache
+        // reads a stale or failed catalog again in the background, as the
+        // prompt is enqueued (`noteModelCatalogActivity`, from
+        // `enqueuePromptWithSkillBindings`, `src/main.zig:1193-1201`,
+        // `:1225-1232@481104fd`) -- asked ahead of the work, on the channel
+        // the runtime reads first, so the retry is on its way before the turn
+        // asks for the catalog's limits (`resolveForRequest`'s wait,
+        // `super::worker`'s `await_failed_catalog_retry`).
+        let _ = self.note_catalog_activity(Instant::now());
         // **Into the turn that is running**, as upstream's steer
         // (`admitInteractivePrompt`, `worker_runtime.zig:1080-1104`): the turn
         // takes it at its next boundary -- at once over an answer, after a
@@ -14093,9 +14173,12 @@ impl Shell {
     /// the catalog ([`TurnControl::Catalog`]) -- a control message, so the
     /// read starts at once beside whatever the runtime is doing, as upstream's
     /// starts on a thread of its own; the one network call a bare `/model`
-    /// makes, and never one this thread waits on. A load that failed is asked
-    /// again: that is the `retry /model.` the menu said. The rows arrive as
-    /// [`UiEvent::CatalogLoaded`], and the open menu takes them.
+    /// makes, and never one this thread waits on. Rows in hand are listed at
+    /// once and read again behind them, five seconds after the last read
+    /// began; a load that failed is read again once its backoff is over --
+    /// the retry `xfx retries automatically.` says ([`Self::open_models_with`]).
+    /// The rows arrive as [`UiEvent::CatalogLoaded`], and the open menu takes
+    /// them.
     ///
     /// **With one word, it asks for that model** ([`Self::request_model`]):
     /// upstream's router form. Two or three words are the explicit form,
@@ -14205,43 +14288,63 @@ impl Shell {
     }
 
     /// The same, searching for `query` rather than for the draft.
+    ///
+    /// Upstream's `openModelMenu`: the model cache is asked first -- the
+    /// picker's trigger -- and the menu opens on what it holds then
+    /// (`revalidateModelCache`, then `openMenu`, `app_input_runtime.zig:
+    /// 1897-1902@481104fd`; `refreshMenuLocked`, `model_cache_runtime.zig:
+    /// 1039-1054`).
     fn open_models_with(&mut self, query: &str) {
         // The completion menu shares the slot, and the menu is what the user
         // asked for.
         self.picker = None;
         self.file_picker = None;
         self.effort_menu = None;
-        let note = (self.provider == ProviderId::Gateway)
-            .then_some(self.gateway_note)
-            .flatten();
         let menu = match self.catalog_known {
-            CatalogKnown::Loaded => ModelMenu::ready(&self.catalog, note, query),
+            // The rows in hand, listed at once; the runtime is asked to read
+            // them again, which it does five seconds after the last read
+            // began (`picker_revalidate_floor_ms`, `:37-38`) -- behind them,
+            // the open menu taking the new rows, its tab and mark kept, when
+            // they land ([`UiEvent::CatalogLoaded`], `pollLoadTransition`,
+            // `:745-760`).
+            CatalogKnown::Loaded => {
+                self.work
+                    .control(TurnControl::Catalog(CatalogAsk::REVALIDATE));
+                ModelMenu::ready(&self.catalog, self.menu_note(), query)
+            }
             // A load is on its way already: the menu waits for it rather than
             // asking twice.
             CatalogKnown::Asked => ModelMenu::loading(query),
-            // Failed, and within a second of the start of the read that did:
+            // Failed, and inside the hold the failure put on the next read:
             // upstream's cache starts no load then, and the menu opens over
-            // the failure it holds -- `Could not reach AI Gateway; retry
-            // /model.` at once, and nothing asked (`beginLoad`,
-            // `model_cache_runtime.zig:441-442`; `openMenu` ->
-            // `refreshMenuLocked`, `:529-539`, `:792-806`).
-            CatalogKnown::Unread(retry, attempted)
-                if !may_read_again(attempted, Instant::now()) =>
-            {
+            // the failure it holds -- `Could not reach AI Gateway; xfx retries
+            // automatically.` at once, and nothing asked (`beginLoad`,
+            // `:617`, `:621`; `refreshMenuLocked`, `:1046-1050`).
+            CatalogKnown::Unread(retry, retry_at) if Instant::now() < retry_at => {
                 let mut menu = ModelMenu::loading(query);
                 menu.failed(retry);
                 menu
             }
-            // Never asked, or failed longer ago than that -- in which case this
-            // is the retry upstream's sentence asks for. Asked as a control
-            // message, so the read starts at once, a turn running or not, as
-            // upstream's `ensureModelCache` starts one on a thread of its own
-            // (`openModelBrowseCatalog`, `app_input_runtime.zig:2346-2349`); the
-            // menu is refreshed when the answer lands ([`UiEvent::CatalogLoaded`],
-            // `pollLoadTransition`, `model_cache_runtime.zig:549-557`).
-            CatalogKnown::Unasked | CatalogKnown::Unread(..) => {
-                self.work.control(TurnControl::Catalog);
+            // Never answered: the first load, which every reader waits on
+            // (`.loading`, `model_cache_runtime.zig:633-634`). Asked as a
+            // control message, so the read starts at once, a turn running or
+            // not, as upstream's starts one on a thread of its own
+            // (`startWarmup`, `:519-551`).
+            CatalogKnown::Unasked => {
+                self.work.control(TurnControl::Catalog(CatalogAsk::MENU));
                 self.catalog_known = CatalogKnown::Asked;
+                ModelMenu::loading(query)
+            }
+            // Failed and past its hold: the cache reads it again behind the
+            // failure, and the menu says `Loading models…` while it does
+            // (`fetch_in_flight`, `:1049`) -- but the catalog is still the
+            // failure for every other reader (`:485-486`): the column says
+            // `unable to load models` (`isModelCacheLoading`, `src/main.zig:
+            // 2047-2050`), so the band's state stays [`CatalogKnown::Unread`]
+            // until the answer lands.
+            CatalogKnown::Unread(..) => {
+                self.work.control(TurnControl::Catalog(CatalogAsk::MENU));
+                self.catalog_nudged = true;
                 ModelMenu::loading(query)
             }
         };
@@ -14251,33 +14354,88 @@ impl Shell {
         self.render.request(Reason::Modal);
     }
 
+    /// What `/model`'s menu says in its note's place under the rows: a
+    /// refresh that failed in a way asking again could change
+    /// ([`Self::catalog_note`]), else where a Gateway catalog came from
+    /// ([`Self::gateway_note`]) -- upstream's `loadedCatalogStatusText`
+    /// (`model_menu_presentation.zig:403-433@481104fd`), whose first answer
+    /// is the failure's sentence.
+    fn menu_note(&self) -> Option<&'static str> {
+        if let Some(retry) = self.catalog_note {
+            return Some(retry.text());
+        }
+        (self.provider == ProviderId::Gateway)
+            .then_some(self.gateway_note)
+            .flatten()
+    }
+
+    /// What the band knows of when the runtime next reads the catalog, let
+    /// go: a new answer, or a provider whose catalog is not this one.
+    fn forget_catalog_clock(&mut self) {
+        self.catalog_due = None;
+        self.catalog_note = None;
+        self.catalog_nudged = false;
+    }
+
+    /// Activity -- a submitted prompt, a frame of the inline column -- asks
+    /// the runtime for the catalog when the model cache would read it then
+    /// (`LoadTrigger.activity`, `model_cache_runtime.zig:27-31@481104fd`;
+    /// `beginLoad`, `:612-623`): a failure whose hold has ended, rows that
+    /// are the refresh interval old, or rows whose refresh failed and whose
+    /// hold has ended. Once per answer: the runtime decides by its own clock,
+    /// and its answer, whatever it is, lets the band ask again. Nothing waits
+    /// on it: the band goes on saying what it says until the answer lands.
+    /// Whether it asked.
+    fn note_catalog_activity(&mut self, now: Instant) -> bool {
+        if self.catalog_nudged {
+            return false;
+        }
+        let due = match self.catalog_known {
+            CatalogKnown::Unread(_, retry_at) => now >= retry_at,
+            CatalogKnown::Loaded => self.catalog_due.is_some_and(|due| now >= due),
+            // Asked, or the launch's read still on its way: one is coming.
+            CatalogKnown::Unasked | CatalogKnown::Asked => false,
+        };
+        if !due {
+            return false;
+        }
+        self.work
+            .control(TurnControl::Catalog(CatalogAsk::ACTIVITY));
+        self.catalog_nudged = true;
+        true
+    }
+
     /// Asks the runtime for the catalog on the inline column's behalf, when
     /// nothing has yet: a control message, as [`Self::open_models`]'s is, so
     /// the column says `loading models...` only until the read lands, a turn
     /// running or not. A catalog that could not be read is not asked again
     /// from an edit: the column says `unable to load models`, and the frame
-    /// that paints it asks again once the read that failed is a second old
+    /// that paints it asks again once the failure's hold has ended
     /// ([`Self::settle_column`]).
     fn want_catalog(&mut self) {
         if self.catalog_known != CatalogKnown::Unasked {
             return;
         }
-        self.work.control(TurnControl::Catalog);
+        self.work.control(TurnControl::Catalog(CatalogAsk::AWAITED));
         self.catalog_known = CatalogKnown::Asked;
     }
 
-    /// The inline column's own redraw asking for the catalog again after a
-    /// read that failed, as upstream's does: every frame that draws the column
-    /// on its models stage lists them through `modelPickerCompletions` ->
-    /// `modelCompletions` -> `ensureModelCache` (`app_render_runtime.zig:561-563`,
-    /// in `footerContext`; `input_completion_runtime.zig:1029-1030`;
-    /// `main.zig:2370-2373`), which starts a load again once the one that
-    /// failed began a second ago (`beginLoad`, `model_cache_runtime.zig:441-442`),
-    /// and the same frame says `loading models...` (`isModelCacheLoading`,
-    /// `app_render_runtime.zig:745-746`). So here: called as a frame is about
-    /// to be committed (`super::event_loop`'s `commit_counted`), and acting
-    /// only when one is owed -- the column in the band's slot, on its models
-    /// stage, over a failure past its floor ([`may_read_again`]).
+    /// The inline column's own redraw asking for the catalog again, as
+    /// upstream's does: every frame that draws the column on its models stage
+    /// lists them through `modelPickerCompletions` -> `modelCompletions` ->
+    /// `ensureModelCache` (`app_render_runtime.zig:559-568@481104fd`, in
+    /// `footerContext`; `input_completion_runtime.zig:1108-1109`;
+    /// `src/main.zig:2043-2045`, `:2167-2169`) -- activity, which reads a
+    /// failure again once its backoff is over (`beginLoad`,
+    /// `model_cache_runtime.zig:617`, `:621-622`), and rows once they are the
+    /// refresh interval old or a refresh of them failed. Either way the
+    /// column goes on saying what it said until the answer lands -- `unable
+    /// to load models` over a failure, whose retry leaves the cache's state
+    /// `.failed` (`isModelCacheLoading`, `app_render_runtime.zig:752`), or the
+    /// rows. So here: called as a frame is about to be committed
+    /// (`super::event_loop`'s `commit_counted`), and acting only when one is
+    /// owed -- the column in the band's slot, on its models stage, over a
+    /// catalog a read is due for ([`Self::note_catalog_activity`]).
     ///
     /// **No clock of its own.** What paints the column paints it again: an
     /// edit, the catalog's answer, a resize, and while a turn or a compaction
@@ -14290,8 +14448,8 @@ impl Shell {
     /// a band that waited for the row to change would ask up to half a second
     /// late. With none of those an idle tick owes no frame, paints nothing and
     /// asks nothing, here and upstream (`flushRequestedFrame` begins no
-    /// attempt without a request, `app_render_runtime.zig:928-929`): the
-    /// column says `unable to load models` until the next keystroke.
+    /// attempt without a request): the column says `unable to load models`
+    /// until the next keystroke.
     pub(crate) fn settle_column(&mut self, now: Instant) {
         let ticked = std::mem::take(&mut self.animation_turned);
         if !(self.render.owed() || ticked) || !matches!(self.slot(), Some(Slot::Column)) {
@@ -14303,16 +14461,12 @@ impl Shell {
         if query.stage != model_column::Stage::Model {
             return;
         }
-        let CatalogKnown::Unread(_, attempted) = self.catalog_known else {
-            return;
-        };
-        if !may_read_again(attempted, now) {
-            return;
-        }
-        self.work.control(TurnControl::Catalog);
-        self.catalog_known = CatalogKnown::Asked;
-        // The column says `loading models...` now, in this frame.
-        self.render.request(Reason::Modal);
+        // Behind a failure the column goes on saying `unable to load models`
+        // while the read is on its way, as upstream's does: a retry leaves
+        // the cache's state `.failed` (`model_cache_runtime.zig:633-634`),
+        // and its column reads that state (`app_render_runtime.zig:752-753`,
+        // `picker_presentation.zig:914-921`).
+        let _ = self.note_catalog_activity(now);
     }
 
     /// Asks for `query`, typed after `/model`, with the router form's meaning
@@ -14904,6 +15058,7 @@ impl Shell {
             | UiEvent::EffortApplied { .. }
             | UiEvent::CatalogLoaded { .. }
             | UiEvent::CatalogUnread { .. }
+            | UiEvent::CatalogRefreshFailed { .. }
             | UiEvent::Fatal(_) => false,
         }
     }
@@ -15698,6 +15853,7 @@ mod tests {
     use super::super::bridge;
     use super::super::paste::MAX_PASTE_BYTES;
     use super::*;
+    use crate::provider::model::REFRESH_INTERVAL;
 
     use std::collections::BTreeMap;
     use std::sync::atomic::Ordering;
@@ -15881,6 +16037,18 @@ mod tests {
         /// anything.
         fn controlled(&mut self) -> Option<TurnControl> {
             self.control.try_recv().ok()
+        }
+
+        /// The same, past the asks a menu opening over rows makes to read
+        /// them again behind them ([`CatalogAsk::REVALIDATE`]), which change
+        /// nothing the case is about.
+        fn controlled_past_reask(&mut self) -> Option<TurnControl> {
+            loop {
+                match self.controlled() {
+                    Some(TurnControl::Catalog(CatalogAsk::REVALIDATE)) => {}
+                    other => return other,
+                }
+            }
         }
 
         /// The row the caret is on, on whichever plane the session is composing
@@ -16112,17 +16280,18 @@ mod tests {
         mode: super::super::theme::Mode::Dark,
     };
 
-    /// When a read that failed began, long enough ago that a `/model` asks
-    /// again ([`crate::provider::model::RETRY_FLOOR`]).
+    /// When the hold a failed read put on the next one ended: long enough
+    /// ago that a `/model` asks again
+    /// ([`crate::provider::model::failure_backoff`]).
     fn failed_long_ago() -> Instant {
         Instant::now()
-            .checked_sub(crate::provider::model::RETRY_FLOOR * 2)
+            .checked_sub(std::time::Duration::from_secs(2))
             .expect("a clock older than two seconds")
     }
 
-    /// When a read that failed began, inside the floor however long the test
-    /// thread is held up between the failure and the `/model`: later than
-    /// now, which the floor counts as no time at all.
+    /// When the hold a failed read put on the next one ends: still to come
+    /// however long the test thread is held up between the failure and the
+    /// `/model`.
     fn failed_just_now() -> Instant {
         Instant::now() + std::time::Duration::from_secs(3600)
     }
@@ -23648,8 +23817,12 @@ mod tests {
                     document.is_empty(),
                     "/fast answered before its row: {document:?}"
                 );
-                assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+                assert_eq!(
+                    shell.controlled(),
+                    Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+                );
                 shell.apply(UiEvent::CatalogLoaded {
+                    due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
                     provider: ProviderId::Gateway,
                     entries: Vec::new(),
                 });
@@ -27064,6 +27237,7 @@ mod tests {
         let forged = "evil\n* provider: Switched to llmux with fable.";
         let mut shell = self::shell(24, 120);
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![CatalogEntry {
                 id: forged.to_string(),
@@ -29172,6 +29346,7 @@ mod tests {
     fn harness_shell() -> Fixture {
         let mut shell = shell(40, 120);
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -29202,6 +29377,7 @@ mod tests {
     fn speed_shell() -> Fixture {
         let mut shell = shell(40, 120);
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: speed_rows(),
         });
@@ -29211,7 +29387,7 @@ mod tests {
 
     /// The next model change the shell put on the control channel.
     fn change(shell: &mut Fixture) -> ModelChange {
-        match shell.controlled() {
+        match shell.controlled_past_reask() {
             Some(TurnControl::Model(change)) => change,
             other => panic!("expected a model change, got {other:?}"),
         }
@@ -29231,7 +29407,10 @@ mod tests {
         // one piece of *work* in this, because it opens a socket.
         let mut shell = shell(24, 80);
         shell.route_bytes(b"/model second-model\r");
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
         assert_eq!(
             change(&mut shell),
             ModelChange {
@@ -29297,7 +29476,10 @@ mod tests {
         // network call a bare `/model` makes**.
         let mut fresh = self::shell(24, 80);
         fresh.shell.use_model("");
-        assert_eq!(fresh.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            fresh.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::MENU))
+        );
     }
 
     #[test]
@@ -29472,6 +29654,7 @@ mod tests {
         // announceable too.
         let mut empty = self::shell(24, 80);
         empty.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: Vec::new(),
         });
@@ -29696,6 +29879,7 @@ mod tests {
     fn the_menu_lists_the_rows_in_hand_and_walks_them_with_upstreams_keys() {
         let mut shell = shell(40, 120);
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![
                 entry("one", Some(400_000), &[]),
@@ -29802,7 +29986,10 @@ mod tests {
     fn a_catalog_that_arrives_or_fails_is_what_the_open_menu_shows() {
         let mut shell = shell(40, 120);
         shell.route_bytes(b"/model\r");
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::MENU))
+        );
         // Enter on a menu still loading has nothing to use, and is spent.
         shell.route_bytes(b"\r");
         assert!(shell.sent.try_recv().is_err());
@@ -29811,7 +29998,7 @@ mod tests {
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: None,
-            attempted: failed_long_ago(),
+            retry_at: failed_long_ago(),
         });
         let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
         assert_eq!(rows, ["Models 0  [All]", "", "Unable to load models."]);
@@ -29819,6 +30006,7 @@ mod tests {
         // A catalog that arrives fills it, the note under it -- the fixture's
         // environment has no key, so there is none to name.
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -29827,6 +30015,7 @@ mod tests {
 
         // An empty one says so.
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: Vec::new(),
         });
@@ -29852,16 +30041,26 @@ mod tests {
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
-            attempted: failed_long_ago(),
+            retry_at: failed_long_ago(),
         });
         let _started = turn_running(&mut shell, b"ask something\r");
+        // The prompt was activity past the failure's hold: it asked, without
+        // waiting on the answer (`noteModelCatalogActivity`).
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::ACTIVITY))
+        );
         shell.route_bytes(b"/model\r");
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::MENU))
+        );
         assert_eq!(shell.work.queued(), 0, "the ask waits behind the turn");
         let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
         assert_eq!(rows[2], "Loading models…", "{rows:?}");
         // The turn still running, the answer lands.
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -29878,6 +30077,7 @@ mod tests {
         gateway.route_bytes(b"/model\r");
         let _ = gateway.controlled();
         gateway.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -29895,6 +30095,7 @@ mod tests {
         // A llmux catalog has no note.
         llmux.shell.gateway_note = Some("Note: Gateway catalog is authenticated with an API key");
         llmux.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![entry("one", None, &[])],
         });
@@ -30007,14 +30208,17 @@ mod tests {
     fn the_column_asks_for_the_catalog_once_and_says_where_it_is() {
         let mut shell = shell(40, 120);
         shell.route_bytes(b"/model ");
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
         assert_eq!(column(&shell)[0], "         loading models...");
         shell.route_bytes(b"x");
         assert!(shell.sent.try_recv().is_err(), "asked twice");
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
-            attempted: failed_long_ago(),
+            retry_at: failed_long_ago(),
         });
         assert_eq!(column(&shell)[0], "         unable to load models");
         // An edit does not ask again; the frame that draws the column does,
@@ -30025,28 +30229,29 @@ mod tests {
     }
 
     #[test]
-    fn the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_a_second_has_passed(
-    ) {
+    fn the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_its_hold_is_over()
+    {
         // Upstream's column lists its models through `ensureModelCache` in
         // every frame that draws it (`footerContext`,
-        // `app_render_runtime.zig:561-563`), which loads again a second after
-        // the failed load began (`beginLoad`, `model_cache_runtime.zig:441-442`)
-        // and says `loading models...` in that same frame (`:745-746`); a tick
-        // that owes no frame draws nothing and asks nothing (`:928-929`).
+        // `app_render_runtime.zig:559-568@481104fd`), which loads again once
+        // the failure's backoff is over (`beginLoad`,
+        // `model_cache_runtime.zig:617`, `:621`) behind the failure, which the
+        // column goes on saying (`:633-634`, `app_render_runtime.zig:752-753`);
+        // a tick that owes no frame draws nothing and asks nothing.
         let mut shell = shell(40, 120);
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
-            attempted: failed_just_now(),
+            retry_at: failed_just_now(),
         });
         shell.route_bytes(b"/model ");
         assert_eq!(column(&shell)[0], "         unable to load models");
-        // A frame inside the second: asks nothing.
+        // A frame inside the hold: asks nothing.
         assert!(shell.render.owed());
         shell.settle_column(Instant::now());
-        assert!(shell.controlled().is_none(), "asked inside the floor");
+        assert!(shell.controlled().is_none(), "asked inside the hold");
         let _ = shell.render.begin();
-        // Past the second, an idle tick -- no frame owed -- asks nothing:
+        // Past the hold, an idle tick -- no frame owed -- asks nothing:
         // there is no clock of the column's own.
         shell.shell.catalog_known =
             CatalogKnown::Unread(Some(CatalogRetry::Unreachable), failed_long_ago());
@@ -30055,20 +30260,22 @@ mod tests {
         assert!(shell.controlled().is_none(), "an idle tick asked");
         // The activity row's tick turning over while a turn works -- a frame
         // upstream draws every 50 ms, though no row of this band changed and
-        // none is owed -- asks, once, and asks for the frame that says so.
+        // none is owed -- asks, once; and the column goes on saying the
+        // failure while the read is on its way.
         shell.shell.animation_turned = true;
         assert!(!shell.render.owed());
         shell.settle_column(Instant::now());
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
-        assert!(
-            shell.render.owed(),
-            "the frame that says so was not asked for"
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::ACTIVITY))
         );
-        assert_eq!(column(&shell)[0], "         loading models...");
+        assert_eq!(column(&shell)[0], "         unable to load models");
+        shell.shell.animation_turned = true;
         shell.settle_column(Instant::now());
         assert!(shell.controlled().is_none(), "asked twice for one read");
         // The read lands, and the column lists it.
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -30081,7 +30288,7 @@ mod tests {
         asked.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
-            attempted: failed_long_ago(),
+            retry_at: failed_long_ago(),
         });
         asked.apply(UiEvent::Question(a_batch()));
         assert!(asked.render.owed());
@@ -30109,7 +30316,10 @@ mod tests {
         // The runtime gives the turn's place back as it ends it.
         shell.work.finished_one();
         shell.apply(UiEvent::TurnEnded { failure: None });
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
     }
 
     #[test]
@@ -30578,6 +30788,7 @@ mod tests {
         // write took.
         let mut shell = running("say something");
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: speed_rows(),
         });
@@ -30701,11 +30912,15 @@ mod tests {
         shell.route_bytes(b"/fast\r");
         shell.route_bytes(b"/fast\r");
         assert!(shell.document().is_empty(), "said before the row was read");
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
         let mut row = harness_rows().remove(3);
         row.id = model;
         row.facts.fast = true;
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![row],
         });
@@ -30726,12 +30941,15 @@ mod tests {
         other.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Llmux,
             retry: None,
-            attempted: failed_long_ago(),
+            retry_at: failed_long_ago(),
         });
         assert!(other.document().is_empty(), "{:?}", other.document());
         // The held command's ask for the old provider's catalog, and no
         // speed change.
-        assert_eq!(other.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            other.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
         assert!(other.controlled().is_none());
     }
 
@@ -30855,6 +31073,11 @@ mod tests {
         // `fx-model2-40x120-menu-enter`: `beginExactModelSelection`.
         let mut shell = harness_shell();
         shell.route_bytes(b"/model\r");
+        // The menu over rows asks for them again behind them.
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::REVALIDATE))
+        );
         shell.route_bytes(b"\x1b[B\r");
         assert!(shell.model_menu.is_none());
         assert_eq!(shell.editor.text(), "/model anthropic/claude-opus-5 ");
@@ -30890,7 +31113,10 @@ mod tests {
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         assert_eq!(shell.editor.text(), "half a thought");
-        assert!(shell.controlled().is_none(), "a model was applied");
+        assert!(
+            shell.controlled_past_reask().is_none(),
+            "a model was applied"
+        );
 
         // A level chosen: the change is made, and the draft comes back.
         let mut shell = harness_shell();
@@ -30913,7 +31139,7 @@ mod tests {
             assert_eq!(shell.editor.text(), "half a thought", "{key:#04x}");
             assert!(shell.model_menu.is_none(), "{key:#04x}");
             assert!(
-                shell.controlled().is_none(),
+                shell.controlled_past_reask().is_none(),
                 "{key:#04x} reached the runtime"
             );
             assert!(!shell.leaving(), "{key:#04x} ended the session");
@@ -30922,44 +31148,47 @@ mod tests {
 
     #[test]
     fn a_failed_catalog_says_upstreams_retry_sentence_and_the_next_model_asks_again() {
-        // `retryableFailureText` (`model_menu_presentation.zig:435-443`), and
-        // `retry /model.` made true.
+        // `retryableFailureText` (`model_menu_presentation.zig:435-443
+        // @481104fd`), and the next `/model` past the failure's backoff
+        // reading it again.
         let mut shell = shell(40, 120);
         shell.route_bytes(b"/model\r");
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::MENU))
+        );
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
-            attempted: failed_long_ago(),
+            retry_at: failed_long_ago(),
         });
         assert_eq!(
             visible_text(&menu(&shell)[2]),
-            "Could not reach AI Gateway; retry /model."
+            "Could not reach AI Gateway; xfx retries automatically."
         );
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         shell.route_bytes(b"/model\r");
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Catalog),
+            Some(TurnControl::Catalog(CatalogAsk::MENU)),
             "the retry was not asked for"
         );
     }
 
     #[test]
-    fn a_model_inside_the_second_after_a_failed_read_began_opens_over_the_failure_and_asks_nothing()
-    {
-        // `fx-model-floor-*`: upstream's cache starts no load within a second
-        // of the start of the one that failed, and `/model` then opens the
-        // menu over the failure it holds -- the retryable sentence at once,
-        // never `Loading models…`, and nothing asked (`beginLoad`,
-        // `model_cache_runtime.zig:441-442`; `openMenu` -> `refreshMenuLocked`,
-        // `:529-539`, `:792-806`).
+    fn a_model_inside_a_failures_hold_opens_over_the_failure_and_asks_nothing() {
+        // `fx-model-floor-*`: upstream's cache starts no load inside a
+        // failure's backoff, and `/model` then opens the menu over the
+        // failure it holds -- the retryable sentence at once, never `Loading
+        // models…`, and nothing asked (`beginLoad`,
+        // `model_cache_runtime.zig:617`, `:621@481104fd`; `openMenu` ->
+        // `refreshMenuLocked`, `:725-735`, `:1046-1050`).
         let mut shell = shell(40, 120);
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
-            attempted: failed_just_now(),
+            retry_at: failed_just_now(),
         });
         shell.route_bytes(b"/model\r");
         let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
@@ -30968,21 +31197,24 @@ mod tests {
             [
                 "Models 0  [All]",
                 "",
-                "Could not reach AI Gateway; retry /model."
+                "Could not reach AI Gateway; xfx retries automatically."
             ]
         );
         assert!(
             shell.controlled().is_none(),
-            "asked inside the second the failure holds"
+            "asked inside the hold the failure put on the next read"
         );
         // And the band still knows the failure for what it is: the next
-        // `/model` after the second asks.
+        // `/model` after the hold asks.
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         shell.shell.catalog_known =
             CatalogKnown::Unread(Some(CatalogRetry::Unreachable), failed_long_ago());
         shell.route_bytes(b"/model\r");
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::MENU))
+        );
         let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
         assert_eq!(rows[2], "Loading models…", "{rows:?}");
     }
@@ -30998,7 +31230,10 @@ mod tests {
         let mut shell = shell(40, 120);
         let _started = turn_running(&mut shell, b"first\r");
         shell.route_bytes(b"/model ");
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
         assert_eq!(
             shell.work.queued(),
             0,
@@ -31014,6 +31249,7 @@ mod tests {
         shell.route_bytes(b"\x15/model ");
         assert!(shell.controlled().is_none(), "asked a second time");
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -32866,7 +33102,10 @@ mod tests {
                 .is_some(),
             "the completed /model opened no column"
         );
-        assert_eq!(with_argument.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            with_argument.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
 
         // A command that takes no argument is completed exactly, and the word
         // is still a slash word, so upstream's menu follows it: one command,
@@ -33864,7 +34103,10 @@ mod tests {
             assert_eq!(shell.editor.text(), held, "{way_out} lost the draft");
             assert_eq!(shell.editor.caret(), caret, "{way_out} moved the caret");
             assert_eq!(shell.editor.entities().len(), 1, "{way_out} lost the block");
-            assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Catalog(CatalogAsk::MENU))
+            );
             assert!(
                 shell.sent.try_recv().is_err() && shell.controlled().is_none(),
                 "{way_out} sent something besides the catalog request"
@@ -35060,6 +35302,7 @@ mod tests {
         shell.shell.model = "old".to_string();
         shell.shell.session_title = Some("the first prompt".to_string());
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![entry("old", Some(100_000), &[])],
         });
@@ -35092,6 +35335,7 @@ mod tests {
             Some("the first prompt")
         );
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(1_000_000), &[])],
         });
@@ -35121,6 +35365,7 @@ mod tests {
         // -- and the document gets nothing.
         let mut shell = shell(24, 80);
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![
                 entry("fable", Some(1_000_000), &["low", "high"]),
@@ -35165,6 +35410,7 @@ mod tests {
 
         // A denominator with no numerator is not a meter.
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(200_000), &[])],
         });
@@ -35209,6 +35455,7 @@ mod tests {
         shell.shell.statusline.context = true;
         shell.shell.model = "fable".to_string();
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(100_000), &[])],
         });
@@ -35228,6 +35475,7 @@ mod tests {
         let mut shell = shell(24, 80);
         shell.shell.model = "fable".to_string();
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(100_000), &[])],
         });
@@ -35243,6 +35491,7 @@ mod tests {
         // alias, because the model in force is whatever the profile spelled.
         let mut shell = shell(24, 80);
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![
                 entry("small", Some(8_000), &[]),
@@ -35281,6 +35530,7 @@ mod tests {
         shell.shell.statusline.context = true;
         shell.shell.model = "fable".to_string();
         shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(200_000), &[])],
         });
@@ -40440,7 +40690,10 @@ mod tests {
         assert_eq!(profile_at(root.path()), "", "opening it wrote the profile");
         // The one thing it asks the runtime for is the catalog its effort and
         // speed rows read.
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
         assert!(
             shell.sent.try_recv().is_err(),
             "/settings asked the runtime for more than the catalog"
@@ -40492,7 +40745,10 @@ mod tests {
         let mut shell = with_settings(root.path());
         // The menu's own ask, for its effort and speed rows; nothing typed
         // into the search asks for another.
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
         shell.route_bytes(b"@src");
         assert!(
             shell.file_picker.is_none(),
@@ -40705,6 +40961,7 @@ mod tests {
     fn effort_shell(root: &std::path::Path) -> Fixture {
         let mut shell = shell_at_home(root, 40, 120);
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -40971,7 +41228,7 @@ mod tests {
         loading.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: None,
-            attempted: Instant::now(),
+            retry_at: Instant::now(),
         });
         let _ = loading.document();
         loading.route_bytes(b"/effort\r");
@@ -41060,6 +41317,7 @@ mod tests {
         shell.route_bytes(b"/effort\r");
         // A catalog read landing is not one.
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41172,6 +41430,7 @@ mod tests {
         let mut shell = shell_at_home(root.path(), 40, 120);
         let forged = "odd\u{1b}]0;x\u{7}\nmodel";
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: vec![CatalogEntry {
                 id: forged.to_string(),
@@ -41383,6 +41642,7 @@ mod tests {
         assert!(matches!(shell.slot(), Some(Slot::Column)));
         // A catalog read landing is not a change of model.
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41425,6 +41685,7 @@ mod tests {
         });
         assert!(!matches!(shell.slot(), Some(Slot::Column)));
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Llmux,
             entries: harness_rows(),
         });
@@ -41441,6 +41702,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = shell_at_home(root.path(), 40, 120);
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41649,7 +41911,10 @@ mod tests {
         assert!(shell.settings_menu.is_some(), "the settings menu closed");
         assert!(shell.model_menu.is_some(), "no list under the row");
         assert_eq!(shell.editor.text(), "model used", "the search was taken");
-        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+        );
         assert!(shell.document().is_empty());
         // Waiting for the catalog: one dim line, four columns in.
         assert_eq!(
@@ -41668,6 +41933,7 @@ mod tests {
             )
         );
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41733,6 +41999,7 @@ mod tests {
         // Right opens it too; Tab closes it with the tab change.
         let mut right = with_settings(root.path());
         right.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41759,6 +42026,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41777,6 +42045,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41801,6 +42070,7 @@ mod tests {
         // nothing listed is nothing to use.
         let mut none = with_settings(root.path());
         none.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41818,7 +42088,8 @@ mod tests {
         none.route_bytes(LEFT);
         assert!(none.model_menu.is_some());
         // The menu's own ask for the catalog, and no change.
-        assert!(std::iter::from_fn(|| none.controlled()).all(|asked| asked == TurnControl::Catalog));
+        assert!(std::iter::from_fn(|| none.controlled())
+            .all(|asked| matches!(asked, TurnControl::Catalog(_))));
     }
 
     #[test]
@@ -46217,5 +46488,336 @@ mod tests {
         );
         fresh.route_bytes(b"\x0f");
         shown_and_whole(&fresh)
+    }
+
+    // -----------------------------------------------------------------------
+    // MODELS-REASK: when the band asks the runtime for the catalog again
+    // -----------------------------------------------------------------------
+
+    /// The runtime could not read the catalog, the read that failed having
+    /// failed at `failed` -- the first failure in a row.
+    fn unread_at(retry: Option<CatalogRetry>, failed: Instant) -> UiEvent {
+        UiEvent::CatalogUnread {
+            provider: ProviderId::Gateway,
+            retry,
+            retry_at: failed + crate::provider::model::failure_backoff(1),
+        }
+    }
+
+    /// A read of the catalog behind the rows the band holds failed just now:
+    /// the first failure in a row.
+    fn refresh_failed(retry: Option<CatalogRetry>) -> UiEvent {
+        UiEvent::CatalogRefreshFailed {
+            provider: ProviderId::Gateway,
+            retry,
+            due: Instant::now() + crate::provider::model::failure_backoff(1),
+        }
+    }
+
+    /// The harness's rows, read by a read begun at `began`: activity owes them
+    /// the next read once they are the refresh interval old, counted from
+    /// then (`beginLoad`'s `expired`, `model_cache_runtime.zig:609-611
+    /// @481104fd`).
+    fn loaded_from(began: Instant) -> UiEvent {
+        UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+            due: began + REFRESH_INTERVAL,
+        }
+    }
+
+    /// A refresh behind the rows the band holds failed, the runtime's clock
+    /// owing activity the next read at `due`.
+    fn refresh_failed_due(retry: Option<CatalogRetry>, due: Instant) -> UiEvent {
+        UiEvent::CatalogRefreshFailed {
+            provider: ProviderId::Gateway,
+            retry,
+            due,
+        }
+    }
+
+    /// Every catalog ask the shell has sent so far, as what asked -- `menu`
+    /// or `activity` -- and whether the band waits on its answer.
+    fn catalog_asks(shell: &mut Fixture) -> Vec<(&'static str, bool)> {
+        let mut asks = Vec::new();
+        while let Some(message) = shell.controlled() {
+            if let TurnControl::Catalog(ask) = message {
+                let trigger = match ask.trigger {
+                    crate::provider::model::LoadTrigger::PickerOpen => "menu",
+                    crate::provider::model::LoadTrigger::Activity => "activity",
+                };
+                asks.push((trigger, ask.awaited));
+            }
+        }
+        asks
+    }
+
+    #[test]
+    fn the_menu_over_a_held_catalog_lists_its_rows_and_asks_the_runtime_to_read_it_again() {
+        // `openModelMenu` revalidates whatever the cache holds and opens the
+        // menu on it at once (`app_input_runtime.zig:1897-1902@481104fd`;
+        // `refreshMenuLocked`, `model_cache_runtime.zig:1051`): the rows in
+        // hand are listed, and the runtime is asked without the band waiting
+        // on it -- the five seconds are the runtime's to count
+        // (`picker_revalidate_floor_ms`, `:37-38`).
+        let mut shell = harness_shell();
+        shell.route_bytes(b"/model\r");
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert!(rows[0].starts_with("Models 4 "), "{rows:?}");
+        assert!(
+            rows.iter().any(|row| row.contains("openai/gpt-6-astra")),
+            "{rows:?}"
+        );
+        assert_eq!(
+            catalog_asks(&mut shell),
+            [("menu", false)],
+            "the menu did not ask for the catalog again"
+        );
+    }
+
+    #[test]
+    fn a_model_inside_a_failures_backoff_opens_on_the_failure_says_xfx_retries_and_asks_nothing() {
+        // `beginLoad` starts no load inside a failure's backoff, five seconds
+        // after the first (`model_cache_runtime.zig:40-54`, `:617`,
+        // `:621@481104fd`), and `openMenu` then shows the failure it holds
+        // (`refreshMenuLocked`, `:1046-1050`) in `retryableFailureText`'s
+        // words (`model_menu_presentation.zig:439-441`): the train-5 receipt's
+        // `model-reask/menu-failed` and `p5-input-model-fail/fail-open`, where
+        // fx said `Could not reach AI Gateway; fx retries automatically.`.
+        let two_seconds_ago = Instant::now()
+            .checked_sub(Duration::from_secs(2))
+            .expect("a clock older than two seconds");
+        let mut shell = shell(40, 120);
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), two_seconds_ago));
+        shell.route_bytes(b"/model\r");
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(
+            rows,
+            [
+                "Models 0  [All]",
+                "",
+                "Could not reach AI Gateway; xfx retries automatically."
+            ]
+        );
+        assert_eq!(
+            catalog_asks(&mut shell),
+            [],
+            "asked inside the failure's backoff"
+        );
+        // Past it, the menu reads again: `Loading models…` while it does
+        // (`:1049`), the band waiting on the answer.
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        let ten_seconds_ago = Instant::now()
+            .checked_sub(Duration::from_secs(10))
+            .expect("a clock older than ten seconds");
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), ten_seconds_ago));
+        shell.route_bytes(b"/model\r");
+        assert_eq!(catalog_asks(&mut shell), [("menu", true)]);
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(rows[2], "Loading models…", "{rows:?}");
+    }
+
+    #[test]
+    fn a_refresh_that_failed_keeps_the_rows_and_says_xfx_retries_automatically_in_the_notes_place()
+    {
+        // `applyFetchLocked` keeps a ready catalog over a failed fetch
+        // (`model_cache_runtime.zig:969-975@481104fd`), and the menu says the
+        // failure on its status row, the note's (`loadedCatalogStatusText`,
+        // `model_menu_presentation.zig:403-404`, laid out at `:80-81`; fx's
+        // test `model_cache_runtime.zig:1445-1465`).
+        let mut shell = harness_shell();
+        shell.route_bytes(b"/model\r");
+        let _ = catalog_asks(&mut shell);
+        shell.apply(refresh_failed(Some(CatalogRetry::Unreachable)));
+        let rows: Vec<String> = menu(&shell)
+            .iter()
+            .map(|row| visible_text(row).trim_end().to_string())
+            .collect();
+        assert!(rows[0].starts_with("Models 4 "), "{rows:?}");
+        for id in [
+            "openai/gpt-6-astra",
+            "anthropic/claude-opus-5",
+            "fake/model-a",
+            "xai/grok-4.7",
+        ] {
+            assert!(
+                rows.iter().any(|row| row.contains(id)),
+                "{id} went: {rows:?}"
+            );
+        }
+        assert_eq!(
+            rows.last().map(String::as_str),
+            Some("Could not reach AI Gateway; xfx retries automatically."),
+            "{rows:?}"
+        );
+    }
+
+    #[test]
+    fn a_prompt_past_a_failed_catalogs_backoff_asks_for_it_and_one_inside_asks_nothing() {
+        // `noteModelCatalogActivity` (`src/main.zig:1201`, `:1225-1232
+        // @481104fd`): a submitted prompt is activity, which reads a failed
+        // catalog again once its backoff is over (`beginLoad`,
+        // `model_cache_runtime.zig:617`, `:621-622`) -- the band asks the
+        // runtime, without waiting on the answer, as the prompt is submitted.
+        let ten_seconds_ago = Instant::now()
+            .checked_sub(Duration::from_secs(10))
+            .expect("a clock older than ten seconds");
+        let mut shell = shell(40, 120);
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), ten_seconds_ago));
+        shell.route_bytes(b"hello\r");
+        assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
+        assert_eq!(
+            catalog_asks(&mut shell),
+            [("activity", false)],
+            "the prompt did not ask"
+        );
+        // Inside it: nothing.
+        let mut shell = self::shell(40, 120);
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), Instant::now()));
+        shell.route_bytes(b"hello\r");
+        assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
+        assert_eq!(catalog_asks(&mut shell), [], "asked inside the backoff");
+    }
+
+    #[test]
+    fn a_read_that_found_no_runtime_ends_the_menus_wait_and_activity_asks_again_past_its_hold() {
+        // The band's half of a read that could not start (the runtime's half:
+        // `a_read_that_finds_no_runtime_tells_the_band_its_failure_and_is_read_again_past_its_backoff`):
+        // the menu reading again behind a failure (`fetch_in_flight`,
+        // `model_cache_runtime.zig:1046-1050@481104fd`) is answered with
+        // upstream's `.runtime` failure (`:537-546`), says its sentence
+        // (`model_menu_presentation.zig:441`), and activity asks again once
+        // that failure's hold is over.
+        let ten_seconds_ago = Instant::now()
+            .checked_sub(Duration::from_secs(10))
+            .expect("a clock older than ten seconds");
+        let mut shell = shell(40, 120);
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), ten_seconds_ago));
+        shell.route_bytes(b"/model\r");
+        assert_eq!(catalog_asks(&mut shell), [("menu", true)]);
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(rows[2], "Loading models…", "{rows:?}");
+        shell.apply(unread_at(Some(CatalogRetry::Runtime), Instant::now()));
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(
+            rows[2], "Could not refresh model catalog; xfx retries automatically.",
+            "{rows:?}"
+        );
+        assert!(
+            !shell.shell.note_catalog_activity(Instant::now()),
+            "asked inside the new failure's hold"
+        );
+        assert!(
+            shell
+                .shell
+                .note_catalog_activity(Instant::now() + Duration::from_secs(6)),
+            "activity did not ask again past the hold"
+        );
+        assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
+    }
+
+    #[test]
+    fn every_answer_lets_activity_ask_again_a_refresh_failure_over_a_failed_band_too() {
+        // "Once per answer: ... its answer, whatever it is, lets the band ask
+        // again" (`Self::note_catalog_activity`): activity asked, and the
+        // runtime answered that a refresh behind rows failed -- rows this
+        // band does not hold. The band asks again when the runtime's clock
+        // says the next read is due (the answer's `retry_at`), not never.
+        let ten_seconds_ago = Instant::now()
+            .checked_sub(Duration::from_secs(10))
+            .expect("a clock older than ten seconds");
+        let mut shell = shell(40, 120);
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), ten_seconds_ago));
+        assert!(shell.shell.note_catalog_activity(Instant::now()));
+        assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
+        shell.apply(refresh_failed(Some(CatalogRetry::Unreachable)));
+        assert!(
+            !shell.shell.note_catalog_activity(Instant::now()),
+            "asked inside the hold the answer put on the next read"
+        );
+        assert!(
+            shell
+                .shell
+                .note_catalog_activity(Instant::now() + Duration::from_secs(6)),
+            "the answer left activity unable to ask again"
+        );
+        assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
+    }
+
+    #[test]
+    fn rows_a_slow_read_brought_are_read_again_five_minutes_after_it_began() {
+        // `beginLoad` counts the five minutes from when the last read began
+        // (`last_attempt_ms`, set as it starts, `model_cache_runtime.zig:636`;
+        // `expired`, `:609-611@481104fd`), so rows a slow read brought are
+        // due that much sooner after they land: a prompt at the read's start
+        // plus five minutes asks, however long the read took.
+        let began = Instant::now()
+            .checked_sub(REFRESH_INTERVAL + Duration::from_secs(1))
+            .expect("a clock older than five minutes");
+        let mut shell = shell(40, 120);
+        shell.apply(loaded_from(began));
+        shell.route_bytes(b"hello\r");
+        assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
+        assert_eq!(
+            catalog_asks(&mut shell),
+            [("activity", false)],
+            "the prompt did not ask for rows five minutes past their read's start"
+        );
+        // Rows whose read began just now are not.
+        let mut shell = self::shell(40, 120);
+        shell.apply(loaded_from(Instant::now()));
+        shell.route_bytes(b"hello\r");
+        assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
+        assert_eq!(catalog_asks(&mut shell), [], "asked for fresh rows");
+    }
+
+    #[test]
+    fn a_refresh_that_failed_for_good_is_read_again_when_the_runtimes_clock_says() {
+        // A refresh failure asking again cannot change leaves the rows to the
+        // refresh interval (`beginLoad`: `retry_due` false, `expired` from the
+        // failed read's start, the backoff over, `model_cache_runtime.zig:
+        // 609-623@481104fd`): the band asks when the runtime says, not five
+        // minutes after hearing it.
+        let mut shell = harness_shell();
+        let due = Instant::now() + Duration::from_secs(120);
+        shell.apply(refresh_failed_due(None, due));
+        assert!(!shell
+            .shell
+            .note_catalog_activity(due - Duration::from_millis(1)));
+        assert!(
+            shell.shell.note_catalog_activity(due),
+            "activity did not ask when the runtime's clock said"
+        );
+        assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
+    }
+
+    #[test]
+    fn the_columns_frames_wait_out_a_failed_catalogs_backoff() {
+        // The column's frames ask the model cache
+        // (`app_render_runtime.zig:564@481104fd` -> `modelPickerCompletions`
+        // -> `modelCompletions` -> `ensureModelCache`, `src/main.zig:2043-2045`,
+        // `:2167-2169`), which reads a failed catalog again only past its
+        // backoff -- not a second after the read that failed began, as
+        // c1db9191's did.
+        let two_seconds_ago = Instant::now()
+            .checked_sub(Duration::from_secs(2))
+            .expect("a clock older than two seconds");
+        let mut shell = shell(40, 120);
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), two_seconds_ago));
+        shell.route_bytes(b"/model ");
+        assert_eq!(column(&shell)[0], "         unable to load models");
+        assert!(shell.render.owed());
+        shell.settle_column(Instant::now());
+        assert_eq!(catalog_asks(&mut shell), [], "asked inside the backoff");
+        assert_eq!(column(&shell)[0], "         unable to load models");
+        // Past it, the frame asks -- and the column goes on saying the
+        // failure while the read is on its way: upstream's retry leaves the
+        // cache `.failed` (`model_cache_runtime.zig:633-634`), which its
+        // column reads (`app_render_runtime.zig:752-753`).
+        shell.shell.animation_turned = true;
+        shell.settle_column(Instant::now() + Duration::from_secs(4));
+        assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
+        assert_eq!(column(&shell)[0], "         unable to load models");
     }
 }

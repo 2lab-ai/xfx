@@ -1,0 +1,19 @@
+# the three modelsdown scenarios, run by run: each side's catalog asks (ms after the fake gateway started: the answer), and each pair's verdict ('start' left out). base = sweep of 690aa505; head-17ae48e = the sweep of the first fix commit (the same rule); head = the sweep of the code head 0a14906f; rerun1..5 = the code head again, the three or model-reask alone, under the suite lock
+base           model-reask         down<6000ms | fx 3849:503, 11947:200       | xfx 3907:503, 6434:200       | menu-failed FAIL, reask-midturn pass, turn-running pass
+base           model-column-idle   down<9000ms | fx 4352:503, 10356:200       | xfx 3636:503, 9659:200       | col-down pass, col-idle pass, col-typed pass
+base           model-column-reask  down<9000ms | fx 4425:503, 9967:200        | xfx 3804:503, 9365:200       | col-back pass, col-down pass
+head-17ae48e   model-reask         down<6000ms | fx 4741:503, 12982:200       | xfx 5252:503, 13437:200      | menu-failed pass, reask-midturn pass, turn-running pass
+head-17ae48e   model-column-idle   down<9000ms | fx 2989:503, 9012:200        | xfx 781:503, 6805:503        | col-down FAIL, col-idle FAIL, col-typed FAIL
+head-17ae48e   model-column-reask  down<9000ms | fx 930:503, 6478:503         | xfx 2465:503, 8020:503       | col-back pass, col-down pass
+head           model-reask         down<6000ms | fx 8874:200, 17003:200       | xfx 3306:503, 11396:200      | menu-failed FAIL, reask-midturn pass, turn-running pass
+head           model-column-idle   down<9000ms | fx 6707:503, 12726:200       | xfx 13591:200                | col-down pass, col-idle pass, col-typed pass
+head           model-column-reask  down<9000ms | fx 7223:503, 12766:200       | xfx 2954:503, 8502:503       | col-back FAIL, col-down FAIL
+rerun1         model-reask         down<6000ms | fx 4639:503, 12794:200       | xfx 7039:200, 15194:200      | menu-failed FAIL, reask-midturn pass, turn-running pass
+rerun1         model-column-idle   down<9000ms | fx 3061:503, 9079:200        | xfx 1181:503, 7168:503       | col-down FAIL, col-idle FAIL, col-typed FAIL
+rerun1         model-column-reask  down<9000ms | fx 1884:503, 7430:503        | xfx 5722:503, 11321:200      | col-back FAIL, col-down FAIL
+rerun2         model-reask         down<6000ms | fx 3828:503, 11939:200       | xfx 7276:200, 15375:200      | menu-failed FAIL, reask-midturn pass, turn-running pass
+rerun2         model-column-idle   down<9000ms | fx 13308:200                 | xfx 12150:200                | col-down pass, col-idle pass, col-typed pass
+rerun2         model-column-reask  down<9000ms | fx 8479:503, 14012:200       | xfx 6619:503, 12132:200      | col-back pass, col-down pass
+rerun3         model-reask         down<6000ms | fx 3840:503, 11948:200       | xfx 12435:200, 20518:200     | menu-failed FAIL, reask-midturn pass, turn-running pass
+rerun4         model-reask         down<6000ms | fx 7847:200, 15996:200       | xfx 3778:503, 11907:200      | menu-failed FAIL, reask-midturn pass, turn-running pass
+rerun5         model-reask         down<6000ms | fx 2361:503, 10475:200       | xfx 4360:503, 12462:200      | menu-failed pass, reask-midturn pass, turn-running pass

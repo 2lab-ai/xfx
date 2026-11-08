@@ -1,0 +1,7 @@
+[fakegw] listening 64951
+[fakegw] GET /coding-agent/v1/models bearer=yes at=4626ms
+[fakegw] GET /coding-agent/v1/models -> 503 (down) at=4626ms
+[fakegw] request GET /coding-agent/v1/models at=4625ms -> 503 at=4626ms headers=authorization
+[fakegw] GET /coding-agent/v1/models bearer=yes at=11038ms
+[fakegw] GET /coding-agent/v1/models -> 503 (down) at=11040ms
+[fakegw] request GET /coding-agent/v1/models at=11038ms -> 503 at=11045ms headers=authorization

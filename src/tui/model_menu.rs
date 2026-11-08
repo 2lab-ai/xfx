@@ -341,13 +341,44 @@ impl ModelMenu {
         menu
     }
 
-    /// The runtime's rows arrived: the menu lists them, from the top, on `All`.
+    /// The runtime's rows arrived. Over a menu still waiting for its first,
+    /// it lists them from the top, on `All`; over rows it already listed --
+    /// a catalog read again while the menu is up -- it keeps the tab and the
+    /// marked model, as upstream's does (`hydrateMenuSnapshot`,
+    /// `model_cache_runtime.zig:1121-1146@481104fd`): "keep the provider tab
+    /// and the selected model so the cursor does not jump". A tab the new
+    /// rows do not show is `All`; a model they do not list leaves the mark at
+    /// the same place, or the last row; and the window moves with the mark,
+    /// so its row stays where it was on the screen.
     pub(crate) fn loaded(&mut self, entries: &[CatalogEntry], note: Option<&'static str>) {
+        let was_ready = self.load == Load::Ready;
+        let marked = self.selected().map(str::to_string);
+        let (selected, window_start) = (self.selected, self.window_start);
         self.load = Load::Ready;
         self.items = entries.iter().map(Item::of).collect();
         self.note = note;
-        self.tab = Vendor::All;
-        self.reset();
+        if !was_ready {
+            self.tab = Vendor::All;
+            self.reset();
+            return;
+        }
+        if !self.tabs().contains(&self.tab) {
+            self.tab = Vendor::All;
+        }
+        let items = self.items();
+        let at = marked
+            .and_then(|id| items.iter().position(|item| item.id == id))
+            .unwrap_or_else(|| selected.min(items.len().saturating_sub(1)));
+        self.selected = at;
+        self.window_start = (window_start + at).saturating_sub(selected);
+    }
+
+    /// What the menu says in its note's place under its rows: where the
+    /// catalog came from, or that a refresh behind them failed
+    /// (`loadedCatalogStatusText`, `model_menu_presentation.zig:403-433
+    /// @481104fd`).
+    pub(crate) fn set_note(&mut self, note: Option<&'static str>) {
+        self.note = note;
     }
 
     /// The runtime could not read the catalog; `retry` is upstream's category
@@ -603,9 +634,9 @@ impl ModelMenu {
     }
 
     /// What the menu says in place of its rows (`composeStateRow`, `:394-401`):
-    /// for a failure asking again could change, upstream's `retry /model.`
-    /// sentence instead of `Unable to load models.` (`retryableFailureText`,
-    /// `:435-443`).
+    /// for a failure asking again could change, upstream's `xfx retries
+    /// automatically.` sentence instead of `Unable to load models.`
+    /// (`retryableFailureText`, `:435-443@481104fd`).
     fn state_text(&self) -> &'static str {
         match self.load {
             Load::Loading => "Loading models\u{2026}",
@@ -1038,21 +1069,22 @@ mod tests {
             shown(&failed, 120, 40),
             ["Models 0  [All]", "", "Unable to load models."]
         );
-        // A failure the next `/model` may not repeat says so, in upstream's
-        // words (`retryableFailureText`).
+        // A failure asking again may not repeat says so, in upstream's
+        // words (`retryableFailureText`, `model_menu_presentation.zig:435-443
+        // @481104fd`).
         failed.failed(Some(CatalogRetry::Unreachable));
         assert_eq!(
             shown(&failed, 120, 40),
             [
                 "Models 0  [All]",
                 "",
-                "Could not reach AI Gateway; retry /model."
+                "Could not reach AI Gateway; xfx retries automatically."
             ]
         );
         failed.failed(Some(CatalogRetry::RateLimited));
         assert_eq!(
             shown(&failed, 120, 40)[2],
-            "AI Gateway rate limited model discovery; retry /model."
+            "AI Gateway rate limited model discovery; xfx retries automatically."
         );
         let empty = ModelMenu::ready(&[], Some(NOTE), "");
         assert_eq!(
@@ -1186,5 +1218,55 @@ mod tests {
         assert_eq!(ModelAction::of(Action::ControlK), Some(ModelAction::Up));
         assert_eq!(ModelAction::of(Action::ControlJ), Some(ModelAction::Down));
         assert_eq!(ModelAction::of(Action::InsertNewline), None);
+    }
+
+    #[test]
+    fn a_revalidated_catalog_keeps_the_tab_and_the_marked_model() {
+        // `hydrateMenuSnapshot` (`model_cache_runtime.zig:1121-1146@481104fd`):
+        // "A revalidated catalog replaces rows under an open menu; keep the
+        // provider tab and the selected model so the cursor does not jump" --
+        // and a selection or tab the new rows lack falls back to the same
+        // position in All. fx's own case, row for row (`:1599-1633`).
+        let ids =
+            |ids: &[&str]| -> Vec<CatalogEntry> { ids.iter().map(|id| llmux(id, None)).collect() };
+        let mut menu = ModelMenu::ready(&ids(&["openai/a", "openai/b", "anthropic/c"]), None, "");
+        // All, Anthropic, OpenAI: two steps on is OpenAI; one down, `openai/b`.
+        assert!(menu.cycle(true));
+        assert!(menu.cycle(true));
+        assert!(menu.step(true, 20));
+        assert_eq!(menu.selected(), Some("openai/b"));
+
+        menu.loaded(
+            &ids(&[
+                "xai/new",
+                "openai/new",
+                "openai/a",
+                "openai/b",
+                "anthropic/c",
+            ]),
+            None,
+        );
+        assert_eq!(menu.selected(), Some("openai/b"), "the mark jumped");
+        assert_eq!(
+            menu.inline(),
+            Inline::Listed {
+                ids: vec!["openai/new", "openai/a", "openai/b"],
+                selected: 2,
+                window_start: 1,
+            },
+            "the tab, or the window under the mark, moved"
+        );
+
+        // Gone from the rows, and its tab with it: All, at the same place.
+        menu.loaded(&ids(&["xai/new", "anthropic/c"]), None);
+        assert_eq!(menu.selected(), Some("anthropic/c"));
+        assert_eq!(
+            menu.inline(),
+            Inline::Listed {
+                ids: vec!["xai/new", "anthropic/c"],
+                selected: 1,
+                window_start: 0,
+            }
+        );
     }
 }

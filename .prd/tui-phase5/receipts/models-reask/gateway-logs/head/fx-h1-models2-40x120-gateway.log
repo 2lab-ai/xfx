@@ -1,0 +1,6 @@
+[fakegw] listening 64488
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] request GET /coding-agent/v1/models at=1810ms -> 200 at=1812ms headers=authorization
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] GET /coding-agent/v1/models -> second catalog
+[fakegw] request GET /coding-agent/v1/models at=13870ms -> 200 at=13871ms headers=authorization

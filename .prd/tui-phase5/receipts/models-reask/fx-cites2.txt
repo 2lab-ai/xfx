@@ -1,0 +1,249 @@
+# MODELS-REASK round 2: every fx line this round relies on, read with `git show 481104fd:<path>` (never the working tree), as path:line@481104fd
+
+## src/ui/footer/model_menu_presentation.zig:403-443@481104fd
+src/ui/footer/model_menu_presentation.zig:403: fn loadedCatalogStatusText(state: model_cache_runtime.ModelMenuCatalogState) ?[]const u8 {
+src/ui/footer/model_menu_presentation.zig:404:     if (retryableFailureText(state.failure)) |text| return text;
+src/ui/footer/model_menu_presentation.zig:405:     if (state.from_profile_settings) return "Models from profile settings; explicit model IDs do not require catalog discovery.";
+src/ui/footer/model_menu_presentation.zig:406:     if (state.private_models_hidden) {
+src/ui/footer/model_menu_presentation.zig:407:         const reason = state.public_only_reason orelse return "Using the public model catalog.";
+src/ui/footer/model_menu_presentation.zig:408:         return switch (reason) {
+src/ui/footer/model_menu_presentation.zig:409:             .no_credential => "Using the public model catalog; sign in or use an API key for team-private models.",
+src/ui/footer/model_menu_presentation.zig:410:             .fx_login_team_required => "Choose a Vercel team to load its private models.",
+src/ui/footer/model_menu_presentation.zig:411:             .fx_login_refresh_required => "Vercel sign-in must refresh before team-private models can load.",
+src/ui/footer/model_menu_presentation.zig:412:             .credential_refresh_required => "The selected sign-in must refresh before authenticated models can load.",
+src/ui/footer/model_menu_presentation.zig:413:             .credential_refresh_failed => "Vercel sign-in refresh failed; using the public model catalog.",
+src/ui/footer/model_menu_presentation.zig:414:             .authenticated_credential_rejected => "Your Gateway credential was rejected; using the public model catalog.",
+src/ui/footer/model_menu_presentation.zig:415:             .chatgpt_subscription => "Codex models require an authenticated Codex catalog.",
+src/ui/footer/model_menu_presentation.zig:416:             .grok_subscription => "Grok models require an authenticated Grok catalog.",
+src/ui/footer/model_menu_presentation.zig:417:         };
+src/ui/footer/model_menu_presentation.zig:418:     }
+src/ui/footer/model_menu_presentation.zig:419:     if (state.access_level == .authenticated) {
+src/ui/footer/model_menu_presentation.zig:420:         const source = state.source orelse return "Using an authenticated AI Gateway catalog.";
+src/ui/footer/model_menu_presentation.zig:421:         return switch (source) {
+src/ui/footer/model_menu_presentation.zig:422:             .fx_login => "Gateway catalog: authenticated with fx login.",
+src/ui/footer/model_menu_presentation.zig:423:             .ai_gateway_api_key => "Note: Gateway catalog is authenticated with an API key",
+src/ui/footer/model_menu_presentation.zig:424:             .vercel_oidc_token => "Gateway catalog: authenticated with the Vercel session.",
+src/ui/footer/model_menu_presentation.zig:425:             .stored_key => "Gateway catalog: authenticated with the stored API key.",
+src/ui/footer/model_menu_presentation.zig:426:             .chatgpt_subscription => "Codex catalog: authenticated with a subscription.",
+src/ui/footer/model_menu_presentation.zig:427:             .grok_subscription => "Grok catalog: authenticated with a subscription.",
+src/ui/footer/model_menu_presentation.zig:428:             .host_managed => "Provider catalog: authentication is managed by the host.",
+src/ui/footer/model_menu_presentation.zig:429:             .configured => "Provider catalog: models from profile settings.",
+src/ui/footer/model_menu_presentation.zig:430:         };
+src/ui/footer/model_menu_presentation.zig:431:     }
+src/ui/footer/model_menu_presentation.zig:432:     return null;
+src/ui/footer/model_menu_presentation.zig:433: }
+src/ui/footer/model_menu_presentation.zig:434: 
+src/ui/footer/model_menu_presentation.zig:435: fn retryableFailureText(failure: ?model_cache_runtime.ModelMenuCatalogState.Failure) ?[]const u8 {
+src/ui/footer/model_menu_presentation.zig:436:     const value = failure orelse return null;
+src/ui/footer/model_menu_presentation.zig:437:     if (!value.retryable) return null;
+src/ui/footer/model_menu_presentation.zig:438:     return switch (value.category) {
+src/ui/footer/model_menu_presentation.zig:439:         .rate_limited => "AI Gateway rate limited model discovery; fx retries automatically.",
+src/ui/footer/model_menu_presentation.zig:440:         .transport, .gateway_unavailable => "Could not reach AI Gateway; fx retries automatically.",
+src/ui/footer/model_menu_presentation.zig:441:         else => "Could not refresh model catalog; fx retries automatically.",
+src/ui/footer/model_menu_presentation.zig:442:     };
+src/ui/footer/model_menu_presentation.zig:443: }
+
+## src/core/app/model_cache_runtime.zig:604-641@481104fd
+src/core/app/model_cache_runtime.zig:604:         }
+src/core/app/model_cache_runtime.zig:605:         self.mutex.unlock(io_mod.getIo());
+src/core/app/model_cache_runtime.zig:606:         if (reused_public_catalog) return false;
+src/core/app/model_cache_runtime.zig:607:         if (access_changed) self.reset();
+src/core/app/model_cache_runtime.zig:608: 
+src/core/app/model_cache_runtime.zig:609:         const now = model_catalog.clockMs();
+src/core/app/model_cache_runtime.zig:610:         self.mutex.lockUncancelable(io_mod.getIo());
+src/core/app/model_cache_runtime.zig:611:         // A clock that moved backwards makes every elapsed check due.
+src/core/app/model_cache_runtime.zig:612:         const elapsed = if (now < self.last_attempt_ms) std.math.maxInt(i64) else now - self.last_attempt_ms;
+src/core/app/model_cache_runtime.zig:613:         const expired = if (refresh_interval_ms) |interval| elapsed >= interval else false;
+src/core/app/model_cache_runtime.zig:614:         const picker_due = trigger == .picker_open and elapsed >= picker_revalidate_floor_ms;
+src/core/app/model_cache_runtime.zig:615:         // A retained catalog whose refresh failed retries once its backoff ends.
+src/core/app/model_cache_runtime.zig:616:         const retry_due = if (self.outcome.last_failure) |failed| failed.failure.retryable else false;
+src/core/app/model_cache_runtime.zig:617:         const backoff_over = now < self.last_attempt_ms or now >= self.retry_not_before_ms;
+src/core/app/model_cache_runtime.zig:618:         // A staged revalidation is newer than anything a fetch would start now.
+src/core/app/model_cache_runtime.zig:619:         // A fetch that finished after the join above still holds its thread;
+src/core/app/model_cache_runtime.zig:620:         // the next trigger joins it before starting another.
+src/core/app/model_cache_runtime.zig:621:         const should_load = !self.fetch_in_flight and self.staged == null and self.thread == null and backoff_over and switch (self.state) {
+src/core/app/model_cache_runtime.zig:622:             .idle, .failed => true,
+src/core/app/model_cache_runtime.zig:623:             .ready => expired or picker_due or retry_due,
+src/core/app/model_cache_runtime.zig:624:             .loading => false,
+src/core/app/model_cache_runtime.zig:625:         };
+src/core/app/model_cache_runtime.zig:626:         if (!should_load) {
+src/core/app/model_cache_runtime.zig:627:             self.mutex.unlock(io_mod.getIo());
+src/core/app/model_cache_runtime.zig:628:             return false;
+src/core/app/model_cache_runtime.zig:629:         }
+src/core/app/model_cache_runtime.zig:630:         // A first load blocks request resolution, and a failed catalog's retry
+src/core/app/model_cache_runtime.zig:631:         // holds it for at most `failed_catalog_retry_wait_ms`. A revalidation
+src/core/app/model_cache_runtime.zig:632:         // runs behind the state readers already see.
+src/core/app/model_cache_runtime.zig:633:         const first_load = self.state == .idle;
+src/core/app/model_cache_runtime.zig:634:         if (first_load) self.state = .loading;
+src/core/app/model_cache_runtime.zig:635:         self.fetch_in_flight = true;
+src/core/app/model_cache_runtime.zig:636:         self.last_attempt_ms = now;
+src/core/app/model_cache_runtime.zig:637:         self.requested_access = requested_access;
+src/core/app/model_cache_runtime.zig:638:         const failure_streak = self.failure_streak;
+src/core/app/model_cache_runtime.zig:639:         self.mutex.unlock(io_mod.getIo());
+src/core/app/model_cache_runtime.zig:640:         self.cancel_requested.store(false, .seq_cst);
+src/core/app/model_cache_runtime.zig:641:         debug_trace.logf("catalog", "model catalog load begin trigger={s} first_load={s} expired={s} failure_streak={d}", .{
+
+## src/core/app/model_cache_runtime.zig:1061-1088@481104fd
+src/core/app/model_cache_runtime.zig:1061: fn modelMenuCatalogState(outcome: CatalogOutcome, from_profile_settings: bool) ModelMenuCatalogState {
+src/core/app/model_cache_runtime.zig:1062:     const access = if (outcome.last_failure) |failed|
+src/core/app/model_cache_runtime.zig:1063:         if (outcome.loaded == null or failed.anonymous_fallback_used)
+src/core/app/model_cache_runtime.zig:1064:             failed.access
+src/core/app/model_cache_runtime.zig:1065:         else
+src/core/app/model_cache_runtime.zig:1066:             outcome.loaded.?.access
+src/core/app/model_cache_runtime.zig:1067:     else if (outcome.loaded) |loaded|
+src/core/app/model_cache_runtime.zig:1068:         loaded.access
+src/core/app/model_cache_runtime.zig:1069:     else
+src/core/app/model_cache_runtime.zig:1070:         return .{};
+src/core/app/model_cache_runtime.zig:1071:     const failure = if (outcome.last_failure) |failed|
+src/core/app/model_cache_runtime.zig:1072:         failed.failure
+src/core/app/model_cache_runtime.zig:1073:     else if (outcome.loaded) |loaded|
+src/core/app/model_cache_runtime.zig:1074:         loaded.fallback_failure
+src/core/app/model_cache_runtime.zig:1075:     else
+src/core/app/model_cache_runtime.zig:1076:         null;
+src/core/app/model_cache_runtime.zig:1077:     return .{
+src/core/app/model_cache_runtime.zig:1078:         .access_level = access.level,
+src/core/app/model_cache_runtime.zig:1079:         .source = access.source,
+src/core/app/model_cache_runtime.zig:1080:         .public_only_reason = access.public_only_reason,
+src/core/app/model_cache_runtime.zig:1081:         .private_models_hidden = access.private_models_may_be_hidden,
+src/core/app/model_cache_runtime.zig:1082:         .from_profile_settings = from_profile_settings,
+src/core/app/model_cache_runtime.zig:1083:         .failure = if (failure) |failed| .{
+src/core/app/model_cache_runtime.zig:1084:             .category = failed.category,
+src/core/app/model_cache_runtime.zig:1085:             .retryable = failed.retryable,
+src/core/app/model_cache_runtime.zig:1086:         } else null,
+src/core/app/model_cache_runtime.zig:1087:     };
+src/core/app/model_cache_runtime.zig:1088: }
+
+## src/core/app/model_cache_runtime.zig:537-546@481104fd
+src/core/app/model_cache_runtime.zig:537:         const thread = std.Thread.spawn(.{}, preloadThreadMain, .{ self, provider, owned_access }) catch {
+src/core/app/model_cache_runtime.zig:538:             var failed_access = owned_access;
+src/core/app/model_cache_runtime.zig:539:             const failure = model_catalog.FailedOutcome{
+src/core/app/model_cache_runtime.zig:540:                 .access = .init(failed_access.access),
+src/core/app/model_cache_runtime.zig:541:                 .anonymous_fallback_used = false,
+src/core/app/model_cache_runtime.zig:542:                 .failure = .{ .category = .runtime, .retryable = true },
+src/core/app/model_cache_runtime.zig:543:             };
+src/core/app/model_cache_runtime.zig:544:             failed_access.deinit(self.alloc);
+src/core/app/model_cache_runtime.zig:545:             self.completeFetch(.{ .failed = failure });
+src/core/app/model_cache_runtime.zig:546:             return;
+
+## src/core/agent/runtime/orchestrator.zig:5880-5896@481104fd
+src/core/agent/runtime/orchestrator.zig:5880:     debug_trace.eventf("agent", "prompt_start", finish_trace.ctx, "prompt_bytes={d} model={s}", .{ job.prompt.len, job.model });
+src/core/agent/runtime/orchestrator.zig:5881: 
+src/core/agent/runtime/orchestrator.zig:5882:     const vision_fallback_available = config.provider_capabilities.vision_fallback and
+src/core/agent/runtime/orchestrator.zig:5883:         deps.tool_registry.lookup("vision") != null;
+src/core/agent/runtime/orchestrator.zig:5884:     var request_capabilities = deps.available_model_capabilities(deps.ctx, job.model);
+src/core/agent/runtime/orchestrator.zig:5885:     if (config.ultrafast_mode or requiresResolvedRequestCapabilities(
+src/core/agent/runtime/orchestrator.zig:5886:         job.images.len > 0 or job.authorized_image_catalog.len > 0,
+src/core/agent/runtime/orchestrator.zig:5887:         vision_fallback_available,
+src/core/agent/runtime/orchestrator.zig:5888:         config.effort,
+src/core/agent/runtime/orchestrator.zig:5889:         config.fast_mode,
+src/core/agent/runtime/orchestrator.zig:5890:         request_capabilities,
+src/core/agent/runtime/orchestrator.zig:5891:     )) {
+src/core/agent/runtime/orchestrator.zig:5892:         resolve_capabilities: while (true) {
+src/core/agent/runtime/orchestrator.zig:5893:             request_capabilities = deps.resolve_model_capabilities(deps.ctx, arena, job.model) catch |err| {
+src/core/agent/runtime/orchestrator.zig:5894:                 if (err != error.Cancelled) return err;
+src/core/agent/runtime/orchestrator.zig:5895:                 if (try append_immediate_steering_after_cancel(
+src/core/agent/runtime/orchestrator.zig:5896:                     deps,
+
+## src/core/agent/runtime/orchestrator.zig:6999-7002@481104fd
+src/core/agent/runtime/orchestrator.zig:6999:     var request_capabilities = initial_request_capabilities;
+src/core/agent/runtime/orchestrator.zig:7000:     // The image route core's turn state. This loop is its shell: it runs each
+src/core/agent/runtime/orchestrator.zig:7001:     // effect `image_route.step` returns and feeds the result back.
+src/core/agent/runtime/orchestrator.zig:7002:     var image_route_state = image_route.step(.{}, .{ .turn_started = request_capabilities.image_input_support }).state;
+
+## src/core/agent/runtime/orchestrator.zig:7484-7509@481104fd
+src/core/agent/runtime/orchestrator.zig:7484:             // snapshot: the core asks for capabilities first when it must,
+src/core/agent/runtime/orchestrator.zig:7485:             // and every route, mode, and tool image choice below follows the
+src/core/agent/runtime/orchestrator.zig:7486:             // decision it returns (`tests/tla/image_route/spec/ImageRoute.tla`
+src/core/agent/runtime/orchestrator.zig:7487:             // OneSnapshot).
+src/core/agent/runtime/orchestrator.zig:7488:             const user_images = requestUserImages(recovery_source_messages, current_user_message_index);
+src/core/agent/runtime/orchestrator.zig:7489:             var image_event: image_route.Event = .{ .request_ready = .{
+src/core/agent/runtime/orchestrator.zig:7490:                 .user_images = job.images.len > 0 or user_images.this_turn,
+src/core/agent/runtime/orchestrator.zig:7491:                 .earlier_images = user_images.earlier,
+src/core/agent/runtime/orchestrator.zig:7492:                 .pending_images = pending_image_ids.len > 0,
+src/core/agent/runtime/orchestrator.zig:7493:                 .tool_images = requestHasToolImages(recovery_source_messages),
+src/core/agent/runtime/orchestrator.zig:7494:                 .fallback = config.provider_capabilities.vision_fallback and deps.tool_registry.lookup("vision") != null,
+src/core/agent/runtime/orchestrator.zig:7495:                 .catalog_down = if (deps.model_catalog_unavailable) |unavailable| unavailable(deps.ctx) else false,
+src/core/agent/runtime/orchestrator.zig:7496:             } };
+src/core/agent/runtime/orchestrator.zig:7497:             var image_decision: ?image_route.Decision = null;
+src/core/agent/runtime/orchestrator.zig:7498:             var image_failure: ?image_route.FailReason = null;
+src/core/agent/runtime/orchestrator.zig:7499:             var notify_catalog_down = false;
+src/core/agent/runtime/orchestrator.zig:7500:             // Ends: the core asks for capabilities at most once per turn, and
+src/core/agent/runtime/orchestrator.zig:7501:             // its reply never asks again (ImageRoute.tla ResolveOncePerTurn).
+src/core/agent/runtime/orchestrator.zig:7502:             while (true) {
+src/core/agent/runtime/orchestrator.zig:7503:                 const image_out = image_route.step(image_route_state, image_event);
+src/core/agent/runtime/orchestrator.zig:7504:                 image_route_state = image_out.state;
+src/core/agent/runtime/orchestrator.zig:7505:                 var reply: ?image_route.Event = null;
+src/core/agent/runtime/orchestrator.zig:7506:                 for (image_out.effects()) |effect| switch (effect) {
+src/core/agent/runtime/orchestrator.zig:7507:                     .resolve_capabilities => {
+src/core/agent/runtime/orchestrator.zig:7508:                         request_capabilities = try deps.resolve_model_capabilities(deps.ctx, overlay_arena, gateway_model);
+src/core/agent/runtime/orchestrator.zig:7509:                         reply = .{ .capabilities_resolved = request_capabilities.image_input_support };
+
+## src/core/images/image_route.zig:112-121@481104fd
+src/core/images/image_route.zig:112: pub const State = struct {
+src/core/images/image_route.zig:113:     /// The turn's one capability snapshot. Every decision reads it.
+src/core/images/image_route.zig:114:     support: Support = .unknown,
+src/core/images/image_route.zig:115:     /// This turn already asked for capabilities.
+src/core/images/image_route.zig:116:     resolved: bool = false,
+src/core/images/image_route.zig:117:     /// This turn already told the user the catalog is down.
+src/core/images/image_route.zig:118:     notified: bool = false,
+src/core/images/image_route.zig:119:     /// The request waiting for the capability reply.
+src/core/images/image_route.zig:120:     pending: ?Request = null,
+src/core/images/image_route.zig:121: };
+
+## src/core/images/image_route.zig:164-184@481104fd
+src/core/images/image_route.zig:164: pub fn step(state: State, event: Event) Output {
+src/core/images/image_route.zig:165:     return switch (event) {
+src/core/images/image_route.zig:166:         .turn_started => |support| .{ .state = .{ .support = support } },
+src/core/images/image_route.zig:167:         .request_ready => |request| onRequest(state, request),
+src/core/images/image_route.zig:168:         .capabilities_resolved => |support| onResolved(state, support),
+src/core/images/image_route.zig:169:     };
+src/core/images/image_route.zig:170: }
+src/core/images/image_route.zig:171: 
+src/core/images/image_route.zig:172: fn onRequest(state: State, request: Request) Output {
+src/core/images/image_route.zig:173:     if (state.pending != null) {
+src/core/images/image_route.zig:174:         // Delivered while a reply is owed: the reply answers the newest
+src/core/images/image_route.zig:175:         // request, and nothing runs twice.
+src/core/images/image_route.zig:176:         var next = state;
+src/core/images/image_route.zig:177:         next.pending = request;
+src/core/images/image_route.zig:178:         return .{ .state = next };
+src/core/images/image_route.zig:179:     }
+src/core/images/image_route.zig:180:     if (state.support == .unknown and !state.resolved and hasImages(request)) {
+src/core/images/image_route.zig:181:         var next = state;
+src/core/images/image_route.zig:182:         next.resolved = true;
+src/core/images/image_route.zig:183:         next.pending = request;
+src/core/images/image_route.zig:184:         return withEffects(next, &.{.resolve_capabilities});
+
+## src/core/images/image_route.zig:212-214@481104fd
+src/core/images/image_route.zig:212: fn hasImages(request: Request) bool {
+src/core/images/image_route.zig:213:     return request.user_images or request.earlier_images or request.tool_images;
+src/core/images/image_route.zig:214: }
+
+## src/builtins/gateway.zig:2510-2519@481104fd
+src/builtins/gateway.zig:2510: fn catalogRequestFailure(err: anyerror) model_catalog.Failure {
+src/builtins/gateway.zig:2511:     if (err == error.OutOfMemory) return .{ .category = .resource_exhausted };
+src/builtins/gateway.zig:2512:     if (err == error.Cancelled) return .{ .category = .cancellation };
+src/builtins/gateway.zig:2513:     if (isInvalidGatewayResponse(err)) return .{ .category = .malformed_response };
+src/builtins/gateway.zig:2514:     return .{
+src/builtins/gateway.zig:2515:         .category = .transport,
+src/builtins/gateway.zig:2516:         // A request that hit the fetch deadline is worth retrying.
+src/builtins/gateway.zig:2517:         .retryable = err == error.Timeout or gateway_client.isRetryableGatewayError(err),
+src/builtins/gateway.zig:2518:     };
+src/builtins/gateway.zig:2519: }
+
+## src/builtins/gateway.zig:2545-2547@481104fd
+src/builtins/gateway.zig:2545:     const timed_out = catalogRequestFailure(error.Timeout);
+src/builtins/gateway.zig:2546:     try std.testing.expectEqual(model_catalog.FailureCategory.transport, timed_out.category);
+src/builtins/gateway.zig:2547:     try std.testing.expect(timed_out.retryable);
+
+## src/core/gateway/model_catalog.zig:26-36@481104fd
+src/core/gateway/model_catalog.zig:26: pub const FailureCategory = enum {
+src/core/gateway/model_catalog.zig:27:     authentication,
+src/core/gateway/model_catalog.zig:28:     rate_limited,
+src/core/gateway/model_catalog.zig:29:     gateway_unavailable,
+src/core/gateway/model_catalog.zig:30:     cancellation,
+src/core/gateway/model_catalog.zig:31:     transport,
+src/core/gateway/model_catalog.zig:32:     malformed_response,
+src/core/gateway/model_catalog.zig:33:     http_status,
+src/core/gateway/model_catalog.zig:34:     resource_exhausted,
+src/core/gateway/model_catalog.zig:35:     runtime,
+src/core/gateway/model_catalog.zig:36: };
