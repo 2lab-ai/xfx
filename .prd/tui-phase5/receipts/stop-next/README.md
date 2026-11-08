@@ -232,7 +232,26 @@ each summary. 69 pairs on each side, none on one side only, 0 failed and 0 timed
 - No pair drops on xfx's side. `sweep.txt` holds both pairs' summaries, the reruns, the snaps side by side and the
   pair-by-pair verdicts.
 ## Gates (`gates.sh`, `gates.txt`)
-The gate runs on the commit that adds this receipt, with the receipt tracked; its results follow in the next commit.
+Every CI step and `sweep.yml`'s two test scripts, one at a time, in one suite-lock slot (10:54:29Z to 11:11:29Z), at
+`c8666457`: the commit that adds this receipt, so the secrets, identity and stub checks read it tracked. The tree had
+0 tracked changes before and after. Step 00 is `false` and reads `rc=1`, so each step's `rc` is its own.
+
+| gate | result |
+|---|---|
+| `cargo fmt --check`; `clippy --all-targets -D warnings`, without and with `fault-injection` | ok; no output, 0 warnings, 0 warnings |
+| `cargo test --locked --all-targets --no-fail-fast` | 5357 passed, 0 failed, 7 ignored (14 binaries) |
+| `cargo test --features fault-injection --test tui`; `--lib` | 193 passed; 4466 passed, 0 failed, 7 ignored |
+| `check-no-stubs`, `check-no-secrets`, `check-xfx-identity`, `check-preview-contract`, `check-tui-preflight-cost`, `check-usage-clock` | ok (13939 tracked files) |
+| `test-check-no-secrets`, `test-gate-env`, `test-preview-contract` | ok (13 cases; 5 cases; 24 mutants caught) |
+| fxcap `test-sweep`; `test-capture` | 66 + 26 tests OK; 59 tests OK |
+| release and faulty release builds | ok |
+| `smoke.sh` (release); `smoke-tui.sh` (release, `--faulty`) | 47 checks, 0 failures; 37 scenarios + the oracle, 1168 checks, 0 failures |
+| osc wires, `stopnext` x3, wire mutants | 47 pairs, 0 failing at the head; 0 failing on each run; 10 of 10 mutants fail (above) |
+| code mutants; the unmutated clone | 26 of 26 killed; 2789 and 2793 of 2789 and 2793 passed (above) |
+| sweeps, base vs head | 69 pairs each, twice; one changed in each, fx's capture (above) |
+
+The captures, the sweeps and the first mutant run were taken before the gate, from `9712d8b8`'s builds; the gate's
+`cargo test` rebuilt the debug binary at `c8666457` afterwards, and nothing was captured from it.
 
 ## The refs (`refs.py`, `refs-before.txt`)
 STOP-LATE-EVENT's `refs.py`, with the base as the one frame: every xfx `file:line` ref in the documents and the code,
