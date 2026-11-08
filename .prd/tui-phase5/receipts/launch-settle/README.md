@@ -25,7 +25,8 @@ sightings of registry #19 (timing flakes in the xfx tests and harness).
 | `50b4d605` | round 2 RED: `until gone` held to `absent`'s rule; `nodraw` refused in a scenario |
 | `f525e50c` | round 2 fixes: the two new scenarios, three ledger causes, the rule, the refusal |
 | `53a0fc11` | the `c-deleted` cause names fx's hint row too |
-| this one | the round-2 receipt |
+| `f644afd7` | the round-2 receipt |
+| this one | `final-checks-r2.txt`, run at `f644afd7` |
 
 Round 2 answers the two reviews of `a0f7edef` (section "Round 2" below).
 
@@ -415,8 +416,9 @@ quick checks were run again: `final-checks.txt`.
 **Round 2.** The dispatcher gates the new head. Under the lock, at
 `f525e50c`, `test-capture.sh` ran three times: 67 OK each, 309 s, 315 s and
 304 s, at load 71 to 81 (`round2.txt`). `53a0fc11` changes one ledger line.
-At it and at the receipt head, `test-sweep.sh` and the quick checks were run
-again (`final-checks-r2.txt`).
+At the round-2 receipt commit `f644afd7`, `test-sweep.sh` (test_sweep 69 OK,
+test_ci_sweep 26 OK) and the quick checks were run again
+(`final-checks-r2.txt`).
 
 ## Round 2
 
