@@ -13,12 +13,21 @@ tags: [xfx, tui, phase5, fx-0.0.16, transcript, submit]
 - **Decision.** The ledger cause `submit-multi-card-whole` waited on the
   user. The dispatcher decided it on 2026-11-08: copy fx. It is reversible
   and the user can veto it in the batch review.
-- **Base** `58c92ba2` (main). **Commits:** `ee0e526d` RED, `02b6dc81` the
-  change, `70b10aa4` its tests, then this receipt's commit.
-- **Build.** Every `xfx/` capture is from a binary built at `70b10aa4`. Row 1
-  of each `.full` snap says `v0.1.0-70b10aa`. Every `red/` capture is from a
-  binary built at `58c92ba2` (`v0.1.0-58c92ba`). `fx/` is fx v0.0.16, sha256
-  `8e6cda2e…`, run with `FX_AUTO_UPGRADE=0`.
+- **Base** `58c92ba2` (main). **Commits:**
+  - `ee0e526d` RED;
+  - `02b6dc81` the change;
+  - `70b10aa4` its tests;
+  - `93c11c9f` docs, the ledger, the receipt;
+  - `4139bd68` two older shell tests updated for the preview's frame (the
+    gate's step 04 found them);
+  - `e4c678eb` mutants round 1: a redundant slice deleted, two guards given
+    tests;
+  - then this receipt's own commits (no source).
+- **Build.** Every `xfx/` capture is from a binary built at `e4c678eb`, the
+  last commit that touches source. Row 1 of each `.full` snap says
+  `v0.1.0-e4c678e`. Every `red/` capture is from a binary built at
+  `58c92ba2` (`v0.1.0-58c92ba`). `fx/` is fx v0.0.16, sha256 `8e6cda2e…`,
+  run with `FX_AUTO_UPGRADE=0`.
 
 ## What fx does (`fx-src.txt`, `fx-trace.txt`)
 
@@ -98,14 +107,16 @@ one-row composer:
 ## The claims (`check.py`)
 
 `python3 -I -B check.py <repo> . <side> [red]` reads `fx/`, `red/` (the
-base's build) and `xfx/` (`70b10aa4`'s). `frames.py` replays the screens.
+base's build) and `xfx/` (`e4c678eb`'s). `frames.py` replays the screens.
 
 - **frame1 / frame2.** The screen after the first and the second frame
   after Enter, fx's against xfx's, cell by cell. Three kinds of row are set
   aside and printed: a banner, the activity row (T7: fx writes `• Thinking`
   with the prompt, xfx once the turn starts), and a turn's wall clock.
-- **card.** The head's second frame leaves the screen the base's first frame
-  left.
+- **card.** The frame that writes the card leaves the screen the base's first
+  frame left.
+- **later.** The frame after that one leaves the screen the base's second
+  frame left; whether its bytes are the base's is printed.
 - **snaps.** Every snap, `.full` included, is the same on the head and the
   base.
 - **whole.** The 60 card rows are in the `.full` history once each, in
@@ -117,29 +128,67 @@ Results:
   taller than its room. The two pairs that need no preview pass.
   `red-test.txt` is the unit test's failure on the base: frame 1 held
   `PREVIEW-LINE-1`.
-- **GREEN** (`green.txt`, the head against the base): every claim holds.
+- **GREEN** (`green.txt`, the head against fx and against the base): all
+  69 claims hold. In every pair the frame after the card's is the base's
+  frame after its card, byte for byte (`its bytes: the base's`, 9 of 9). The
+  card's own frame differs from the base's in its bytes: it writes over the
+  rows the band gave back instead of scrolling them in (5 bytes more for the
+  three-line card). The screen it leaves is the same.
 
 ## Mutants (`mutants.py`, `mutants.txt`)
 
-16 one-line mutants ran on a `git clone --no-local` throwaway, never on the
-worktree, with a 600 s limit each. They ran against the unit's five tests:
-the RED, the exit, the resize, the room formula and `Geometry::previewed`.
+Round 2, at `e4c678eb`: all 17 one-line mutants are killed. Each ran on a
+`git clone --no-local` throwaway, never on the worktree, with a 600 s limit.
+They ran against the unit's six tests: the RED, the exit, the resize, the
+hold, the room formula and `Geometry::previewed`.
+
+Round 1, at `70b10aa4`, left three mutants alive, and `e4c678eb` answers
+each one:
+
+- the band's slice of the preview to its newest rows was redundant, so it
+  is deleted, and the mutant moves to `preview_card`'s choice;
+- the hold (`owes_document`, `emit_document_front`) was never reached by a
+  frame under test, so a direct test was added;
+- the owed-rows guard was shadowed by `ends_blank`, so a case was added that
+  exercises it alone.
 
 ## Sweep (`sweep-*.md`)
 
-`p5-transcript-*` and `p5-submit-preview-*` were swept against fx v0.0.16 on
-the base build and on the head build: SWEEP.
+`p5-transcript-*` and `p5-submit-preview-*` (28 scenarios, 126 snap pairs)
+were swept against fx v0.0.16. One sweep used the base build, one the head
+build (`e4c678eb`, sha256 `6e313514…`). The comparison is
+`sweep-compare.txt` (`cmp_sweeps.py`).
+
+- Both sweeps pass 70 of 126; none failed, none timed out.
+- 125 pairs have the same verdict on both builds, and none dropped.
+- One pair moved inside the pass class: `p5-submit-preview-full/image-held`,
+  identical to normalized-identical. The cause is the activity row's pulse
+  glyph (`•` against a blank), which the ledger normalizes. The head's first
+  sweep had the same pair identical, and `five-held` moved the other way.
+- The 53 unresolved pairs are the same on both builds, under the causes they
+  had before (`sweep-base.md`, `sweep-head.md`).
+- The frames this unit changes are not snaps: no sweep pair holds the frame
+  after Enter. `check.py` holds those claims: frame1, frame2, card and
+  later.
 
 ## Gates (`gates.txt`)
 
-GATES.
+`gates.sh` runs every step of `ci.yml` and the sweep's two test scripts,
+one at a time, in one suite-lock slot: fmt, both clippy runs, the full
+`cargo test`, both fault-injection runs, every `check-*`/`test-*` script,
+the release build, `smoke.sh`, the faulty build and `smoke-tui.sh`. It runs
+on the commit that adds this README. `gates.txt` (the next commit) holds
+each step's exit status and time. Step 00 is `false` and must read `rc=1`.
 
 ## Ledger, docs, references
 
 - `scripts/fxcap/parity-ledger.toml`: the `[[cause]]`
   `submit-multi-card-whole` is deleted, and so is the note that pointed to
   it. Nothing of it remains: fx's frame 1 is copied, and the activity row
-  under it was never this cause's (T7 sets it aside).
+  under it was never this cause's (T7 sets it aside). The cause named the
+  snap `frame1` of `p5-transcript-submit-multi`, which no sweep takes. Its
+  rows are `check.py`'s `p5-transcript-submit-multi submit frame1`. That
+  claim fails on the base (17 rows, `red.txt`) and holds on the head.
 - `docs/parity.md`, the full-screen TUI row: the card in the frame that
   clears the composer, the preview, and the cases written at once.
 - `repoint.py`, `repoint.txt`: 17 `src/tui/*.rs:N` references this unit's
