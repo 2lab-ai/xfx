@@ -392,9 +392,10 @@ The receipt pointer names this folder.
 - **Where the keys go under Ctrl-O** (found in round 2, owner none yet).
   fx's list takes no key while the full transcript is up, and neither does
   xfx's now; the base's took them.
-  - The keys the transcript leaves unbound go somewhere else in fx: a scratch
-    capture (not committed) showed fx's C-j under Ctrl-O land in the composer
-    as a new line, which closes the list.
+  - The keys the transcript leaves unbound go somewhere else in fx. Its C-j
+    under Ctrl-O lands in the composer as a new line, which closes the list
+    (`ctrlo-probe/`: fx, base and head `cj-back` captures, and the
+    scenario's lines; the scenario itself is not committed).
   - xfx spends them.
   - This is the full transcript's key routing (`filePickerEligible` false,
     so the composer gets the key; `input_completion_runtime.zig:775-786`,
