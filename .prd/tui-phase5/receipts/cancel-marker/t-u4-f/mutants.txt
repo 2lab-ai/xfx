@@ -1,0 +1,13 @@
+# T-U4-F's mutants (t-u4-f/mutants.py) on a git clone --no-local of bc0b5b90. The first two from the first run;
+# that run had no timeout, and its third was killed by hand after 1 h 27 min and recorded SURVIVED with 0 failed
+# (void). The third run again alone with the runner's 600 s timeout (process group killed on expiry).
+KILLED a cluster keeps the spelling it took in (5a7bb465's rule) (src/tui/toolgroup.rs): 2 failed
+    tui::toolgroup::tests::a_unit_ends_before_a_spelling_whatever_joins_its_backslash
+    tui::toolgroup::tests::the_transcripts_row_cuts_a_spelled_argument_between_its_spellings
+    test result: FAILED. 2730 passed; 2 failed; 5 ignored; 0 measured; 1650 filtered out; finished in 18.39s
+KILLED a cluster ends before any `\` it took in, spelling or not (src/tui/toolgroup.rs): 2 failed
+    tui::toolgroup::tests::a_unit_ends_before_a_spelling_whatever_joins_its_backslash
+    tui::toolgroup::tests::a_unit_of_the_row_is_a_cluster_or_a_spelling_with_what_joins_its_last_character
+    test result: FAILED. 2730 passed; 2 failed; 5 ignored; 0 measured; 1650 filtered out; finished in 17.16s
+KILLED (hang) a cluster ends before its second character, whatever it is (src/tui/toolgroup.rs): the tests ran past 600 s and were killed
+clone after: clean

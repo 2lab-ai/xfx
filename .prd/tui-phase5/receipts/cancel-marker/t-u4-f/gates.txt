@@ -1,0 +1,21 @@
+# T-U4-F's gate steps, one at a time under the suite lock, in the worktree at the fix's head, TMPDIR=<tmp>/tf: cargo fmt and
+# clippy, cargo test twice (default, fault injection), the toolgroup and bridge tests, and the file checks. Each step: its exit
+# code and wall time, then the lines that report a count (cargo test: the sum of every binary's `test result:` line).
+head bc0b5b9018adb345780ac6fa749666164269e8f6 (refactor(tui): unit_at looks at a cluster's every `\` (T-U4-); tree clean of code: 0 changed paths outside the receipt
+=== cargo fmt --check -- exit 0 (2 s)
+=== cargo clippy --locked --all-targets -- -D warnings -- exit 0 (9 s)
+=== cargo test --locked --no-fail-fast -- exit 0 (210 s)
+    total: 15 test binaries: 5292 passed, 0 failed, 7 ignored
+=== cargo test --locked --features fault-injection --no-fail-fast -- exit 0 (207 s)
+    total: 15 test binaries: 5329 passed, 0 failed, 7 ignored
+=== cargo test --locked --lib -- tui::toolgroup tui::bridge -- exit 0 (12 s)
+    total: 1 test binaries: 82 passed, 0 failed, 0 ignored
+=== scripts/check-xfx-identity.sh -- exit 0 (0 s)
+    check-xfx-identity: ok (13213 tracked file(s) scanned)
+=== scripts/check-no-stubs.sh -- exit 0 (23 s)
+    check-no-stubs: ok
+=== scripts/check-no-secrets.sh -- exit 0 (44 s)
+    check-no-secrets: ok (13213 tracked file(s) scanned)
+=== ledger loads with its source refs (scripts/fxcap/ledger.py) -- exit 0 (0 s)
+    check-ledger: ok
+=== done 2026-11-08 17:31
