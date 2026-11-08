@@ -1812,8 +1812,8 @@ impl FullTranscript {
             // runs on to the next row, as upstream's row walker lets it. In
             // the palette now in force: upstream rewrites a question's
             // resolution and a cancelled turn's line through its token table
-            // on a theme switch (`retintEntriesForTheme`, `store.zig:3722-3760`,
-            // `themeOwnsRawEntry` `:3802-3812`@481104fd), as a report recolours
+            // on a theme switch (`retintEntriesForTheme`, `store.zig:3722-3777`,
+            // `themeOwnsRawEntry` `:3802-3814`@481104fd), as a report recolours
             // the document's rows (`super::transcript`'s `recoloured`).
             Body::Block(rows, drawn_in) => (
                 None,
