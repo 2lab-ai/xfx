@@ -33,10 +33,17 @@ by `capture.sh` before and after every run, `FX_AUTO_UPGRADE=0`.
   session's end -- the copy given up after the last frame and before the
   restore. Round 2 (`ffd53286`, after both resolution reviews) rebuilt it
   on `/copy` (no deadline, both platforms), judged on the whole terminal
-  stream after the exit. 6 of 6 mutants killed, and 6 of 6 again with
-  its observer delayed 3 s across the shutdown (the control); round 1's
-  sampled test, delayed the same way, let two of them through. It passes
-  on each unit alone.
+  stream after the exit. Round 3 (`86313236`, after gpt6's MUST) lets
+  through, after the tool's last heartbeat, only the reports the restore
+  itself carries. 7 of 7 mutants killed (J7, an extra status clear, is
+  round 3's), and 7 of 7 again with its observer delayed 3 s across the
+  shutdown (the control); round 1's sampled test, delayed the same way, let
+  two of them through, and round 2's test let J7 through. It passes on
+  each unit alone.
+- Round 3's runs at `86313236`, one suite-lock hold: `cargo test --test tui`
+  179 passed, 0 failed; the touched tests 3 of 3 (9 passed, and fault
+  injection's 1, each run); the mutants in both modes as above. The full
+  gate at the head is the dispatcher's.
 - Gate (round 2) at `bf9e14ad`, one suite-lock hold: 20 steps, 19 passed
   (`cargo test` 5327, with fault injection 5364; smoke-tui 1168 checks);
   `test-capture.sh` failed the same LAUNCH-SETTLE case as round 1 (59 OK
@@ -83,7 +90,9 @@ After the merges, in order:
 | `d6a10eeb` | this receipt, first part (round 1's gate ran here) |
 | `140344ab`, `01daedb4` | this receipt, the rest (round 1) |
 | `ffd53286` | round 2: the join test rebuilt on `/copy`, judged after the exit; the fake clipboard's hold mode (below) |
-| the next | round 2's receipt: the join section, the LAUNCH-SETTLE owner, the redaction, round 2's gate |
+| `f788dc54`, `bf9e14ad`, `10f1a9b4`, `03f18b77` | round 2's receipt: the join section, the LAUNCH-SETTLE owner, the redaction, round 2's gates (`7318963f` between them: the test's comment only) |
+| `87139f11`, `86313236` | round 3: after the last heartbeat, only the reports the restore itself carries (below) |
+| the next | round 3's receipt |
 
 `git show --remerge-diff` of each merge is `remerge-1.txt` and
 `remerge-2.txt`. Merge 1's has an empty body: git's own result, unchanged.
@@ -374,7 +383,7 @@ binary's frames use is the same under `COLORTERM=truecolor` as without it,
 in every scenario. So no frame `osc.py` or L-U1+U2's tests read depends on a
 `38;2` grey: there is none to depend on, at either depth.
 
-### 4. The copy errand x the OSC report at a session's end (r2: `ffd53286`, `join-mutants.txt`)
+### 4. The copy errand x the OSC report at a session's end (r2 `ffd53286`, r3 `86313236`; `join-mutants.txt`)
 
 Where each of the three comes, in the code at the head:
 
@@ -433,38 +442,59 @@ What each check proves, and what it can miss:
 
 | check | proves | can miss / can falsely fail |
 |---|---|---|
-| nothing after the tool's last heartbeat but the restore's clear: no frame opener, no report | everything xfx writes after the copy's end comes after it. Every heartbeat is written by the tool before it dies; the copy's end returns only after `Stop::settle` has killed and reaped it; the pty keeps writes in the order they were made. So a frame or a report written after the copy's end, however soon or late, is after every heartbeat | misses nothing written after the reap. A frame written during the grace, while the tool still beats, is followed by heartbeats and not caught here. Needs a heartbeat after the last frame, which the 1 s grace gives: a tool starved of the CPU for the whole grace would fail the case, not pass it |
-| no heartbeat after the restore began | the tool was dead before the restore was written | a restore written before the copy's end is caught only if the tool beats between the two. A misordered restore would come with the grace between it and the kill (1 s, about a hundred heartbeats); one written within the last heartbeat before the kill would not be caught |
+| after the tool's last heartbeat, no frame opener and **no report but the ones the restore carries, at their places in it** -- its clear, the only one (round 3) | everything xfx writes after the copy's end comes after it. Every heartbeat is written by the tool before it dies; the copy's end returns only after `Stop::settle` has killed and reaped it; the pty keeps writes in the order they were made. So a frame or a report written after the copy's end, however soon or late, is after every heartbeat. xfx writes the status clear nowhere but inside the four restore literals (`term.rs:97-113`): outside test code, `state=clear` appears only there and in `program_status::CLEAR` (`program_status.rs:36`), which no code writes -- `term.rs:119-129`'s compile-time check only reads it. So a second clear is as wrong as any other report | misses nothing written after the reap. A frame written during the grace, while the tool still beats, is followed by heartbeats and not caught here. **A scheduling-dependent oracle in one direction:** it needs a heartbeat after the last frame, which the 1 s grace gives; a tool starved of the CPU for the whole grace would fail the case falsely. Starvation cannot make it pass falsely |
+| no heartbeat after the restore began | the tool wrote nothing after the restore began. That is what it observes; it does **not** prove the tool was dead by then -- a live tool that did not beat between the restore and its kill shows the same | a restore written before the copy's end is caught only if the tool beats between the two: a sample at the heartbeat's rate. A restore written ahead of the end has the grace (1 s, about a hundred heartbeats) after it before the kill; one written within the last heartbeat before the kill would not be caught |
 | one restore; nothing after it but its own clear (no frame, no report) | the restore is last | -- |
 | the tool alive at Ctrl-D, dead after the exit | the copy was running when the session ended (the tool never ends by itself) and the session ended it | -- |
 
 Every wait in it is a bound (`WAIT`) on something that never comes -- the
 session's start, the turn's end, the tool's start, the exit; no order is
 read from a clock. The first row is deterministic for anything written
-after the copy's end; the second is a sample, at the tool's heartbeat rate,
-of an interval the code makes a second long (a restore ahead of the end has
-the grace after it). That is what the test proves, and the test's comment
-says the same.
+after the copy's end (and, by scheduling, can only fail falsely, never pass
+falsely); the second is a sample, at the tool's heartbeat rate, of an
+interval the code makes a second long (a restore ahead of the end has the
+grace after it). That is what the test proves, and the test's comment says
+the same. The test checks in the order: the restore count, no heartbeat
+after the restore, nothing after the restore, then the heartbeat row -- so
+each failing mutant names the check that holds it.
+
+**Round 3** (gpt6's MUST on round 2): round 2's first row let every status
+clear after the last heartbeat through, provided it came before the restore
+-- an extra clear written after the copy's end passed every assertion,
+against this receipt's "nothing but the restore's clear" (shown: round 2's
+test passes with J7 in, `join-mutants.txt`, last rows). xfx writes no
+such clear today (the clear is only in the restore literals, above), so the
+check was tightened rather than the claim narrowed: the reports after the
+last heartbeat must be exactly the reports the restore itself carries, at
+their places in it -- its clear on this tree. Mutant J7 (an extra clear
+right after the copy's end) is the case. A first form (`87139f11`) required
+the restore's clear by name; its run (`join-mutants-r3-first.txt`) killed
+every mutant in both modes, but the test's text failed on FLAKE-COPYEND
+alone, whose restore carries no clear (L-U1+U2 put it there), at "the
+restore carries the clear". `86313236` compares with what the restore
+actually writes instead, which is the same check on the train.
 
 **Does it discriminate, and does it depend on its observer?**
-`join_mutants.py` (round 2), on a `git clone --no-local` of the train at
-`ffd53286`, under one suite-lock hold (`join-mutants.txt`; the line each
-failing run said names the check that caught it):
+`join_mutants.py` (rounds 2 and 3), on a `git clone --no-local` of the
+train at `86313236`, under one suite-lock hold (`join-mutants.txt`; the line
+each failing run said names the check that caught it):
 
-| mutant | where | caught by | observer delayed 3 s across the shutdown (the control) |
+| mutant, planted on the train | normal | observer delayed 3 s | caught by (`said`) |
 |---|---|---|---|
-| J1: a second restore written before the shell drops | `tui/mod.rs`, `hold`'s return | the restore count | KILLED, the same check |
-| J2: the end leaves its copies running (`Errands`' drop detaches the threads) | `tui/copy.rs` `Drop` | "the copy's tool outlived the session" | KILLED, the same |
-| J3: a report written after the restore | `tui/mod.rs`, after `term::shutdown` | nothing after the last heartbeat (the restore itself is after it) | KILLED, the same |
-| J4: a frame written right after the copy's end, before the restore -- no delay, flushed | `tui/copy.rs` `Drop`, after `end` | nothing after the last heartbeat | KILLED, the same |
-| J5: a report written right after the copy's end, before the restore | the same place | nothing after the last heartbeat | KILLED, the same |
-| J6: the one restore moved ahead of the copy's end (written in `hold`, none after) | `tui/mod.rs`, two places | "the copy's tool was alive after the restore began" | KILLED, the same |
+| J1 a second restore in `hold`, before `Ok(Exit ...)` (`src/tui/mod.rs`): a restore ahead of the copy's end | KILLED | KILLED | the restore count (`left == right`) |
+| J2 `Errands`' drop detaches its copies (`drop(take)` for `end`, `src/tui/copy.rs`) | KILLED | KILLED | the tool after the exit ("the copy's tool outlived the session") |
+| J3 an `idle` report right after `term::shutdown` (`mod.rs`) | KILLED | KILLED | nothing after the restore ("a frame or a report after the restore") |
+| J4 a frame (`?2026h` `?2026l`, flushed) right after the copy's end, no sleep (`copy.rs`) | KILLED | KILLED | the heartbeat row ("after the copy's tool last beat, a frame or a report that is not the restore's own") |
+| J5 an `idle` report right after the copy's end | KILLED | KILLED | the heartbeat row: in the normal run, reports at 1572, 1599, 1665, the restore's at 1665 |
+| **J7** (round 3) an extra status **clear** right after the copy's end | KILLED | KILLED | the heartbeat row: in both runs, reports at 1486, 1506, 1565, the restore's at 1565 |
+| J6 the one restore moved into `hold`, ahead of the copy's end, none after it | KILLED | KILLED | no heartbeat after the restore ("the copy's tool wrote after the restore began") |
 
-**6 of 6 killed, and 6 of 6 again with the observer delayed**: the control
-(gpt6's) inserts `std::thread::sleep(3 s)` right after the test's Ctrl-D,
-so the session has exited before the test reads anything again; the
-unchanged test passes with it, and every mutant is still caught. Round 2's
-test has no looks to skip.
+The unchanged test passes in both modes. **7 of 7 killed, and 7 of 7 again
+with the observer delayed** 3 s after Ctrl-D, each by the same check in
+both modes: round 2's test has no looks to skip, so delaying its observer
+changes nothing it reads. J5 and J7 show two planted reports, not one: the
+planted line runs in each `Errands` the shell drops, `/copy`'s
+(`copy.rs:134`) and `/trace`'s (`trace.rs:112`).
 
 **The contrast** (the same file): round 1's sampled test at `150334d9`,
 with the same 3 s delay after its Ctrl-D, passes unchanged -- and **lets
@@ -486,6 +516,28 @@ Round 1's runs (`join-mutants-r1.txt`, `join-mutants-r1-first.txt`) and
 driver (`join_mutants_r1.py`) are kept as they ran.
 
 ## Gates
+
+### Round 3 (`r3-runs.txt`; the dispatcher gates the head)
+
+Round 3 changed the join test only (`87139f11`, `86313236`) and this
+receipt. Under one suite-lock hold at `86313236` (job R5, `r3-runs.txt`):
+
+| run | result |
+|---|---|
+| `cargo test --locked --test tui --no-fail-fast` | **179 passed**, 0 failed, 0 ignored (the join test among them) |
+| the touched tests (the fake clipboard's users and the join test, `tests/tui.rs`, `tests/interactive.rs`; fault injection's killed-report case), three times | 9 passed, 0 failed, and fault injection's 1 passed, each run |
+| `join_mutants.py`, both modes, each unit alone, round 1's contrast | 14 killed (J1-J7, twice), 5 passed (unchanged twice, each unit alone, round 1's unchanged), 2 survived (round 1's contrast, as intended), 0 other (`join-mutants.txt`) |
+
+The tree's only uncommitted files during the hold were this directory's.
+Then, in a second hold, the same clone: **round 2's test** (its text at
+`7318963f`; outside `tests/tui.rs` the code is the train's) passes unchanged
+and **lets J7 through (SURVIVED)** -- the hole gpt6 named, shown
+(`join-mutants.txt`, last rows).
+The file checks (`cargo fmt --check`, `check-xfx-identity.sh`,
+`check-no-stubs.sh`, `check-no-secrets.sh`) ran under the lock once this
+receipt was committed in its final form: `gates-final-r3.txt`, the only file
+added after it. The redaction grep over this directory was rerun with round
+3's files in it: **0 hits** (`redaction-grep.txt`).
 
 ### Round 2 (`gates-r2.txt`, `join-tests-r2.txt`; first run `gates-r2a.txt`, `join-tests-r2a.txt`)
 
@@ -798,9 +850,13 @@ the command matches what it looks for and not its own text: **0 hits**
   and `xfx/` wires); `default.txt`, `tc.txt`, `mcp.txt`, `recorded-fx.txt`
   (osc.py's runs), `greys.txt`, `publish.txt` (what was published and the
   six wires that were not).
-- `join_mutants.py`, `join-mutants.txt`: round 2's join test against five
-  mutants, the same with its observer delayed across the shutdown (the
+- `join_mutants.py`, `join-mutants.txt`: round 3's join test against seven
+  mutants (J1-J7), the same with its observer delayed across the shutdown (the
   control), on each unit alone, and round 1's test delayed the same way;
+  then, in a second hold, round 2's test against J7 (`--round-2-against-j7`);
+  `join-mutants-r3-first.txt`: round 3's first run, at `87139f11`;
+  `join-mutants-r2.txt`, `join-mutants-r2-first.txt`: round 2's two runs
+  (J1-J6; the first without J6);
   `join_mutants_r1.py`, `join-mutants-r1.txt`, `join-mutants-r1-first.txt`:
   round 1's driver and its two runs (the first with J4 unflushed).
 - `join-tests.txt`: the join test's lines in round 1's gate's cargo test
@@ -808,6 +864,9 @@ the command matches what it looks for and not its own text: **0 hits**
   tests' three runs; `join-tests-r2a.txt`, the same for round 2's first run;
   `test-counts.txt`: the test counts per commit, with their commands;
   `until-waits.txt`: every `until` line of the swept scenarios that have one.
+- `r3-runs.txt`: round 3's runs at `86313236` (cargo test for the tui
+  binary, the touched tests three times, the mutants); `gates-final-r3.txt`:
+  the file checks with round 3's receipt in its final form.
 - `gates.sh`, `gates.txt`: round 1's gate as it ran, and the test-capture
   reruns after it; `gates-r2.txt`: round 2's final gate and the touched tests' runs;
   `gates-r2a.txt`: round 2's first run, at `f788dc54`; `gates_txt.py`: how `gates.txt` was assembled; `gates-final-r2.txt`: the
@@ -828,4 +887,5 @@ the command matches what it looks for and not its own text: **0 hits**
   capture logs.
 - `redacted.py`: every sweep-derived file here went through
   `scripts/fxcap/redact.py`'s `Redactor.write`; `redaction-grep.txt`: the
-  round 2 grep over this directory, its command and its count.
+  grep over this directory (round 2's, rerun with round 3's receipt), its
+  command and its count.

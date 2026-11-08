@@ -1,0 +1,41 @@
+# Round 3's first run, at 87139f11 (the test then required the restore's clear by name). Every mutant was killed in both modes; the test's text added to FLAKE-COPYEND alone failed at "the restore carries the clear", since that restore carries none -- the cause of 86313236, which compares with the reports the restore actually carries. Kept for that.
+# jobR4 start 2026-11-08T04:55:01Z load { 13.70 8.45 7.26 }
+# head 87139f11; tree clean: no
+cargo test --test tui exit=0 179 passed, 0 failed, 0 ignored load { 14.84 9.07 7.51 }
+touched run 1 exit=0 9 passed, 0 failed load { 16.61 9.54 7.68 }
+touched fault run 1 exit=0 1 passed, 0 failed
+touched run 2 exit=0 9 passed, 0 failed load { 18.82 10.24 7.96 }
+touched fault run 2 exit=0 1 passed, 0 failed
+touched run 3 exit=0 9 passed, 0 failed load { 19.72 10.57 8.08 }
+touched fault run 3 exit=0 1 passed, 0 failed
+# mutants start 2026-11-08T04:55:47Z
+mutants exit=0 killed 14 survived 2 passed 4 other 1
+# jobR4 end 2026-11-08T05:00:06Z load { 5.06 8.27 7.86 }
+jobR4 exit=0
+
+# the test at the train head 87139f11
+unchanged: PASSED (exit 0, 8 s: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 178 filtered out; finished in 3.56s)
+J1 the restore written before the shell drops (before the copy's end): KILLED (exit 101, 6 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 2.57s | said: assertion `left == right` failed: "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t\u{1b}]11;?\u{1b}\\\u{1b}[?996n\u{1b}[6n\u{1b}]2;xfx v0.1.0 | workspace\u{7}\u{1b}]7501;state=i)
+J2 a session's end leaves its copies running (the errands' drop detaches them): KILLED (exit 101, 6 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 1.67s | said: the copy's tool outlived the session)
+J3 a program status report after the restore: KILLED (exit 101, 7 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 2.61s | said: a frame or a report after the restore: "\u{1b}[?2026l\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}]7501;state=clear\u{1b}\\\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h\u{1b}[9;1H\u{1b}[J\u{)
+J4 a frame written right after the copy's end, before the restore (no delay): KILLED (exit 101, 7 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 3.19s | said: after the copy's tool last beat, something but the restore's own clear (reports at [1651], the restore's clear at 1651): "\u{1b}[?2026h\u{1b}[?2026l\u{1b}[?2026h\u{1b}[?2026l\u{1b}[?2026l\u{1b}]2;\u{7)
+J5 a program status report written right after the copy's end, before the restore: KILLED (exit 101, 7 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 3.69s | said: after the copy's tool last beat, something but the restore's own clear (reports at [1548, 1575, 1641], the restore's clear at 1641): "\u{1b}]7501;state=idle:app=xfx\u{1b}\\\u{1b}]7501;state=idle:app=x)
+J7 an extra program status clear written right after the copy's end, before the restore: KILLED (exit 101, 6 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 2.92s | said: after the copy's tool last beat, something but the restore's own clear (reports at [1429, 1449, 1508], the restore's clear at 1508): "\u{1b}]7501;state=clear\u{1b}\\\u{1b}]7501;state=clear\u{1b}\\\u{1)
+J6 the one restore moved ahead of the copy's end (written in hold, none after it): KILLED (exit 101, 6 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 2.91s | said: the copy's tool wrote after the restore began: "\u{1b}[?2026l\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}]7501;state=clear\u{1b}\\\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h\u{1b}[9;1H\u{)
+# the control: the same, the observer delayed across the shutdown
+unchanged [observer delayed 3 s after Ctrl-D]: PASSED (exit 0, 8 s: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 178 filtered out; finished in 4.64s)
+J1 the restore written before the shell drops (before the copy's end) [observer delayed 3 s after Ctrl-D]: KILLED (exit 101, 9 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 5.05s | said: assertion `left == right` failed: "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t\u{1b}]11;?\u{1b}\\\u{1b}[?996n\u{1b}[6n\u{1b}]2;xfx v0.1.0 | workspace\u{7}\u{1b}]7501;state=i)
+J2 a session's end leaves its copies running (the errands' drop detaches them) [observer delayed 3 s after Ctrl-D]: KILLED (exit 101, 9 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 4.92s | said: the copy's tool outlived the session)
+J3 a program status report after the restore [observer delayed 3 s after Ctrl-D]: KILLED (exit 101, 9 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 4.70s | said: a frame or a report after the restore: "\u{1b}[?2026l\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}]7501;state=clear\u{1b}\\\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h\u{1b}[9;1H\u{1b}[J\u{)
+J4 a frame written right after the copy's end, before the restore (no delay) [observer delayed 3 s after Ctrl-D]: KILLED (exit 101, 8 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 5.02s | said: after the copy's tool last beat, something but the restore's own clear (reports at [1635], the restore's clear at 1635): "\u{1b}[?2026h\u{1b}[?2026l\u{1b}[?2026h\u{1b}[?2026l\u{1b}[?2026l\u{1b}]2;\u{7)
+J5 a program status report written right after the copy's end, before the restore [observer delayed 3 s after Ctrl-D]: KILLED (exit 101, 8 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 4.64s | said: after the copy's tool last beat, something but the restore's own clear (reports at [1564, 1591, 1657], the restore's clear at 1657): "\u{1b}]7501;state=idle:app=xfx\u{1b}\\\u{1b}]7501;state=idle:app=x)
+J7 an extra program status clear written right after the copy's end, before the restore [observer delayed 3 s after Ctrl-D]: KILLED (exit 101, 15 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 10.36s | said: after the copy's tool last beat, something but the restore's own clear (reports at [1556, 1576, 1635], the restore's clear at 1635): "\u{1b}]7501;state=clear\u{1b}\\\u{1b}]7501;state=clear\u{1b}\\\u{1)
+J6 the one restore moved ahead of the copy's end (written in hold, none after it) [observer delayed 3 s after Ctrl-D]: KILLED (exit 101, 20 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 13.46s | said: the copy's tool wrote after the restore began: "\u{1b}[?2026l\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}]7501;state=clear\u{1b}\\\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h\u{1b}[9;1H\u{)
+# the test's text and the train's fake clipboard added to L-U1+U2 alone e636db48
+L-U1+U2 alone: PASSED (exit 0, 41 s: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 178 filtered out; finished in 20.55s)
+# the test's text and the train's fake clipboard added to FLAKE-COPYEND alone 0b432f9a
+FLAKE-COPYEND alone: FAILED (exit 101, 34 s: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 176 filtered out; finished in 15.05s | said: the restore carries the clear)
+# contrast: round 1's sampled test at 150334d9, its observer delayed 3 s after Ctrl-D
+round 1's test, unchanged, delayed: PASSED (exit 0, 22 s: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 178 filtered out; finished in 7.76s)
+round 1's test, delayed, against J1 the restore written before the shell drops (before the copy's end): SURVIVED (exit 0, 9 s: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 178 filtered out; finished in 4.93s)
+round 1's test, delayed, against round 1's J4 a frame half a second after the copy's end: SURVIVED (exit 0, 11 s: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 178 filtered out; finished in 4.87s)

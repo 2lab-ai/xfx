@@ -1,7 +1,8 @@
-"""The copy-errand x program-status join test (train 5 r2: `/copy`, judged on
+"""The copy-errand x program-status join test (train 5 r2 and r3: `/copy`, judged on
 the whole terminal stream after the session's exit), against mutants, with
 its observer delayed across the shutdown, and on each unit alone; and, for
-contrast, round 1's sampled test with its observer delayed the same way.
+contrast, round 1's sampled test with its observer delayed the same way
+(and, with `--round-2-against-j7 <clone> <r2-head>`, round 2's test against J7).
 
 usage: python3 -I -B join_mutants.py <clone> <train-head> <r1-head> <l-u1u2> <flake-copyend> > join-mutants.txt
 
@@ -24,7 +25,10 @@ target directory, each run with its own TMPDIR (<clone>/.t). Rows:
 - for contrast, round 1's test at <r1-head> (`/trace`, looks taken while the
   session runs), with the same 3 s delay after its Ctrl-D, against round 1's
   J1 and J4: a sampled test whose observer is delayed has nothing to sample,
-  and SURVIVED there is the blind spot the reviews named.
+  and SURVIVED there is the blind spot the reviews named;
+- for contrast, with `--round-2-against-j7`, round 2's test at <r2-head>
+  (its first row let any status clear through) unchanged and against J7:
+  SURVIVED there is the hole round 3 closed.
 
 Each run is `cargo test --locked --test tui <name> -- --exact`. A copy tool
 a mutant leaves behind (J2) ends itself when the case's directory goes; the
@@ -65,6 +69,10 @@ MUTANTS = [
      GRACE_LINE, after_end("\\x1b[?2026h\\x1b[?2026l")),
     ("J5 a program status report written right after the copy's end, before the restore", COPY,
      GRACE_LINE, after_end("\\x1b]7501;state=idle:app=xfx\\x1b\\\\")),
+    # Round 3 (gpt6): a status clear is a report like any other unless it is
+    # the restore's own; round 2's check let any clear through.
+    ("J7 an extra program status clear written right after the copy's end, before the restore", COPY,
+     GRACE_LINE, after_end("\\x1b]7501;state=clear\\x1b\\\\")),
     # J1 writes a second restore, which the restore count catches first; J6
     # moves the one restore ahead of the copy's end instead, so only the
     # no-heartbeat-after-the-restore check stands between it and a pass.
@@ -184,5 +192,21 @@ def main(clone, head, r1, lu, flake):
     git(clone, "checkout", "--", ".")
 
 
+def round_2_against_j7(clone, r2):
+    """Round 3's contrast: round 2's test (its text at `r2`, the code the
+    train's) against J7, which its first row let through."""
+    j7 = next(m for m in MUTANTS if m[0].startswith("J7 "))
+    print("# contrast: round 2's test at %s against J7" % r2[:8], flush=True)
+    git(clone, "checkout", "-q", "--detach", r2)
+    git(clone, "checkout", "--", ".")
+    run(clone, "round 2's test, unchanged", "pass")
+    if edit(clone, j7[1], j7[2], j7[3], j7[0]):
+        run(clone, "round 2's test against " + j7[0], "fail")
+    git(clone, "checkout", "--", ".")
+
+
 if __name__ == "__main__":
-    main(*sys.argv[1:6])
+    if sys.argv[1] == "--round-2-against-j7":
+        round_2_against_j7(*sys.argv[2:4])
+    else:
+        main(*sys.argv[1:6])

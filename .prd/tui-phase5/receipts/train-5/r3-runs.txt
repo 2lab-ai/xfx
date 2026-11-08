@@ -1,0 +1,63 @@
+# Round 3's runs under one suite-lock hold at 86313236 (job R5): cargo test for the tui binary; every test that uses the fake clipboard, and the join test, three times (with fault injection's one); then join_mutants.py (join-mutants.txt). The tree's only uncommitted files were this directory's.
+# jobR5 start 2026-11-08T05:08:03Z load { 5.37 6.65 7.47 }
+# head 86313236; tree clean: no
+cargo test --test tui exit=0 179 passed, 0 failed, 0 ignored load { 7.05 6.98 7.56 }
+touched run 1 exit=0 9 passed, 0 failed load { 7.27 7.02 7.56 }
+touched fault run 1 exit=0 1 passed, 0 failed
+touched run 2 exit=0 9 passed, 0 failed load { 7.51 7.12 7.58 }
+touched fault run 2 exit=0 1 passed, 0 failed
+touched run 3 exit=0 9 passed, 0 failed load { 6.93 7.01 7.53 }
+touched fault run 3 exit=0 1 passed, 0 failed
+# mutants start 2026-11-08T05:09:40Z
+mutants exit=0 killed 14 survived 2 passed 5 other 0
+# jobR5 end 2026-11-08T05:16:25Z load { 8.15 8.28 7.92 }
+jobR5 exit=0
+
+===== touched run 1
+test slash_trace_writes_a_private_report_about_this_shells_conversation ... ok
+test slash_copy_puts_the_last_answer_on_the_clipboard_as_the_model_wrote_it ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 13.11s
+test slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text ... ok
+test trace_records_a_failed_compaction_and_the_one_after_it ... ok
+test compact_with_no_credential_is_not_started_and_asks_nobody ... ok
+test every_slash_command_is_answered_by_the_session_rather_than_by_the_model ... ok
+test slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it ... ok
+test a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ... ok
+test a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 172 filtered out; finished in 3.47s
+test faults::a_session_killed_between_a_reports_write_and_its_publication_leaves_no_report ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 192 filtered out; finished in 7.43s
+
+===== touched run 2
+test faults::a_session_killed_between_a_reports_write_and_its_publication_leaves_no_report ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 192 filtered out; finished in 2.07s
+test slash_trace_writes_a_private_report_about_this_shells_conversation ... ok
+test slash_copy_puts_the_last_answer_on_the_clipboard_as_the_model_wrote_it ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 2.44s
+test slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text ... ok
+test compact_with_no_credential_is_not_started_and_asks_nobody ... ok
+test slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it ... ok
+test trace_records_a_failed_compaction_and_the_one_after_it ... ok
+test every_slash_command_is_answered_by_the_session_rather_than_by_the_model ... ok
+test a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ... ok
+test a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 172 filtered out; finished in 2.49s
+
+===== touched run 3
+test slash_trace_writes_a_private_report_about_this_shells_conversation ... ok
+test slash_copy_puts_the_last_answer_on_the_clipboard_as_the_model_wrote_it ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 6.78s
+test compact_with_no_credential_is_not_started_and_asks_nobody ... ok
+test every_slash_command_is_answered_by_the_session_rather_than_by_the_model ... ok
+test a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ... ok
+test slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text ... ok
+test trace_records_a_failed_compaction_and_the_one_after_it ... ok
+test slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it ... ok
+test a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 172 filtered out; finished in 10.08s
+test faults::a_session_killed_between_a_reports_write_and_its_publication_leaves_no_report ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 192 filtered out; finished in 3.17s
+
+===== cargo test --locked --test tui --no-fail-fast: every 'test result' line and the join test's
+test a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore ... ok
+test result: ok. 179 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.93s
