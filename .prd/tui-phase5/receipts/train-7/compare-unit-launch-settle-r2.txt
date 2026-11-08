@@ -1,0 +1,24 @@
+pairs: reference 29, train 476, shared 29; only the reference: 0
+reference: 29 pairs, pass 23; normalized-identical 23, unresolved-defect 6
+train: 29 pairs, pass 24; normalized-identical 24, unresolved-defect 5
+h1-models2 after: 7 differing rows left, 0 new
+    left: fx '' / xfx 'Note: Gateway catalog is authenticated with an API key'
+    left: fx '  fake/model-a' / xfx ''
+    left: fx '  fake/model-released-later' / xfx '  fake/model-a'
+    left: fx 'Models 2  [All]' / xfx 'Models 1  [All]'
+    left: fx 'Note: Gateway catalog is authenticated with an API key' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '↑↓ navigate     tab provider     enter use     esc close' / xfx ''
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx '↑↓ navigate     tab provider     enter use     esc close'
+verdicts moved: 1
+    h1-models2 after: unresolved-defect -> normalized-identical
+fx screens not the same in the two sweeps: 3
+    p5-mcp-fail server-2
+    p5-mcp-menu-old details-2
+    p5-mcp-menu-old details-3
+xfx screens not the same in the two sweeps: 4
+    h1-models2 after
+    p5-mcp-fail server-2
+    p5-mcp-menu-old details-2
+    p5-mcp-menu-old details-3
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 0

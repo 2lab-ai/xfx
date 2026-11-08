@@ -1,0 +1,47 @@
+pairs: reference 69, train 476, shared 69; only the reference: 0
+reference: 69 pairs, pass 28; approved-divergence-cascade 1, normalized-identical 28, unresolved-defect 40
+train: 69 pairs, pass 28; approved-divergence-cascade 1, normalized-identical 28, unresolved-defect 40
+p5-lifecycle-relhome-unsaved u02-status: 2 differing rows left, 2 new
+    left: fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+verdicts moved: 0
+fx screens not the same in the two sweeps: 17
+    p5-lifecycle-login2 m04-codex-methods
+    p5-lifecycle-login2 m05-codex-signin
+    p5-lifecycle-login2 m06-grok-methods
+    p5-lifecycle-login2 m07-grok-signin
+    p5-lifecycle-osc s09-exit
+    p5-lifecycle-relhome h01-sessions.full
+    p5-lifecycle-relhome-image again
+    p5-lifecycle-relhome-image sent
+    p5-lifecycle-relhome-made h02-sessions.full
+    p5-lifecycle-relhome-resume r00-resume.full
+    p5-lifecycle-relhome-unsaved u02-status
+    p5-lifecycle-relhome-unsaved u08-quit.full
+    p5-lifecycle-update u00-update
+    p5-lifecycle-update u01-update-dev
+    p5-lifecycle-update u02-upgrade-json
+    p5-lifecycle-update u03-help.full
+    p5-lifecycle-v1bad b02-launch-refused.full
+xfx screens not the same in the two sweeps: 17
+    p5-lifecycle-relhome h01-sessions.full
+    p5-lifecycle-relhome-image again
+    p5-lifecycle-relhome-image sent
+    p5-lifecycle-relhome-made h02-sessions.full
+    p5-lifecycle-relhome-resume r00-resume.full
+    p5-lifecycle-relhome-unsaved u02-status
+    p5-lifecycle-relhome-unsaved u08-quit.full
+    p5-lifecycle-retryok k01-1.5s
+    p5-lifecycle-retryok k02-4.5s
+    p5-lifecycle-update u00-update
+    p5-lifecycle-update u01-update-dev
+    p5-lifecycle-update u02-upgrade-json
+    p5-lifecycle-update u03-help.full
+    p5-lifecycle-v1bad b02-launch-refused.full
+    p5-lifecycle-v1resume v01-resumed
+    p5-lifecycle-v1resume v01-resumed.full
+    p5-lifecycle-v1resume v02-continued
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 1

@@ -1,0 +1,7 @@
+snaps whose screen differs only in clock-like or run-local text: 0; otherwise: 7
+  of them, snaps where fx's screen moved at the same rows as xfx's: 3 snaps
+    p5-mcp-fail server-2: rows [6]
+    p5-mcp-menu-old details-2: rows [6]
+    p5-mcp-menu-old details-3: rows [6]
+  snaps where xfx's screen moved alone or at other rows than fx's: 1
+    xfx h1-models2 after rows [5, 7, 8, 9, 10, 11]: [('Models 1  [All]', 'Models 2  [All]'), ('  fake/model-a', '  fake/model-released-later')]

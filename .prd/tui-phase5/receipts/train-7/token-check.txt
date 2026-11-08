@@ -101,18 +101,18 @@ merge 46078553: ours 1661d59d, theirs 66854557, base 690aa505 -- OK
   ledger cause ctrl-o-drawn-wider-raw: deleted by ours, kept so
   ledger cause esc-clear-armed-through-an-edit: added by ours, kept so
   ledger cause esc-clear-hint-over-empty-composer: added by ours, kept so
-  ledger cause full-transcript-shift: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause full-transcript-shift: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
   ledger cause mcp-tools-at-a-reconnect: added by ours, kept so
   ledger cause question-cap-four: added by ours, kept so
   ledger cause resize-document-repaint: added by ours, kept so
   ledger cause retry-budget-lifecycle: added by ours, kept so
   ledger cause ri-run-pairing: added by ours, kept so
-  ledger cause safe-page-edge: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
-  ledger cause session-record: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause safe-page-edge: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause session-record: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
   ledger cause stats-bytes: changed by theirs, kept so
   ledger cause submit-multi-card-whole: changed by theirs, kept so
-  ledger cause toolgroup-ctrlo-record-short: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
-  ledger cause transcript-page-offset: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause toolgroup-ctrlo-record-short: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause transcript-page-offset: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
   ledger divergence answer-drawn-wider-named: added by ours, kept so
   ledger divergence answer-label-and-modifier-named: added by ours, kept so
   ledger divergence call-row-arabic-letter-mark: changed by ours, kept so
@@ -138,7 +138,7 @@ merge 54e3196b: ours 46078553, theirs f8d625c3, base 690aa505 -- OK
   ledger cause activity-tokens-before-request: added by ours, kept so
   ledger cause amendment-card-after-stop: added by ours, kept so
   ledger cause answer-modifier-sequence-wider: added by ours, kept so
-  ledger cause call-row-page-edge: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause call-row-page-edge: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
   ledger cause cancel-page-edge: added by ours, kept so
   ledger cause cancelled-marker: deleted by ours (theirs changed only its path:line numbers), kept so
   ledger cause catalog-window: changed by ours, kept so
@@ -146,23 +146,23 @@ merge 54e3196b: ours 46078553, theirs f8d625c3, base 690aa505 -- OK
   ledger cause ctrl-o-drawn-wider-raw: deleted by ours, kept so
   ledger cause esc-clear-armed-through-an-edit: added by ours, kept so
   ledger cause esc-clear-hint-over-empty-composer: added by ours, kept so
-  ledger cause full-transcript-shift: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause full-transcript-shift: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
   ledger cause mcp-tools-at-a-reconnect: added by ours, kept so
   ledger cause question-cap-four: added by ours, kept so
   ledger cause resize-document-repaint: added by ours, kept so
   ledger cause retry-budget-lifecycle: added by ours, kept so
   ledger cause ri-run-pairing: added by ours, kept so
-  ledger cause safe-page-edge: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
-  ledger cause session-record: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
-  ledger cause stats-bytes: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
-  ledger cause submit-multi-card-whole: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
-  ledger cause toolgroup-ctrlo-record-short: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
-  ledger cause transcript-page-offset: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause safe-page-edge: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause session-record: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause stats-bytes: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause submit-multi-card-whole: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause toolgroup-ctrlo-record-short: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause transcript-page-offset: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
   ledger divergence answer-drawn-wider-named: added by ours, kept so
   ledger divergence answer-label-and-modifier-named: added by ours, kept so
-  ledger divergence call-row-arabic-letter-mark: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger divergence call-row-arabic-letter-mark: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
   ledger divergence call-row-raw-argument: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
-  ledger divergence call-row-source-cut: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger divergence call-row-source-cut: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
   ledger divergence ctrl-o-command-marks: changed by ours, kept so
   ledger divergence ctrl-o-drawn-wider-named: added by ours, kept so
   ledger divergence filler-modifier-count: changed by ours, kept so

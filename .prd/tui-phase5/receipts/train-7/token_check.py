@@ -348,8 +348,13 @@ def check_ledger(base, ours, theirs, merged, out):
             want, why = None, "ours (theirs changed only its path:line numbers)"
         elif et is None and eb is not None and masked(eo) == masked(eb):
             want, why = None, "theirs (ours changed only its path:line numbers)"
+        elif em is not None and masked(eo) == masked(et) == masked(em):
+            out.append(f"  ledger {key[0]} {key[1]}: both sides changed its path:line numbers alone; "
+                       f"kept, the numbers re-pointed (resolve_refs.py, repointed.py)")
+            continue
         elif em is not None and masked(et) == masked(eb) and masked(em) == masked(eo):
-            # Train 7: theirs changed only its numbers; ours' entry, its
+            # Train 7 (after the both-numbers rule): theirs changed only its
+            # numbers, ours more; ours' entry, its
             # numbers re-pointed.
             out.append(f"  ledger {key[0]} {key[1]}: changed by ours, its path:line numbers alone by theirs; "
                        f"ours' entry, the numbers re-pointed (repointed.py)")
@@ -357,10 +362,6 @@ def check_ledger(base, ours, theirs, merged, out):
         elif em is not None and masked(eo) == masked(eb) and masked(em) == masked(et):
             out.append(f"  ledger {key[0]} {key[1]}: changed by theirs, its path:line numbers alone by ours; "
                        f"theirs' entry, the numbers re-pointed (repointed.py)")
-            continue
-        elif em is not None and masked(eo) == masked(et) == masked(em):
-            out.append(f"  ledger {key[0]} {key[1]}: both sides changed its path:line numbers alone; "
-                       f"kept, the numbers re-pointed (resolve_refs.py, repointed.py)")
             continue
         else:
             out.append(f"  LEDGER {key}: both sides changed it differently -- read by hand")

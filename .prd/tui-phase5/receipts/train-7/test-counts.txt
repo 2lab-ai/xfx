@@ -1,0 +1,16 @@
+# lines holding #[test] under src and tests (git grep -c '#\[test\]'), and '    def test_' under scripts/fxcap, per commit
+7589ec42 docs(receipt): P5 train 4 -- review fixes: the until waits rust  5193  fxcap 151
+5a7bb465 receipt(cancel-marker): round 3 -- the row's cut, Ctrl-O's rust  5205  fxcap 151
+690aa505 Merge pull request #81 from 2lab-ai/train/p5-1108b         rust  5241  fxcap 151
+fdc5ac0b docs(receipt): P5 train 6 round 4 -- the file checks with  rust  5280  fxcap 153
+2f1c80e7 docs(receipt): LAUNCH-SETTLE-F -- the file checks and test rust  5193  fxcap 163
+a8c7a87d docs(tui): inline's cut can fall inside a cluster before a rust  5206  fxcap 151
+66854557 docs(receipt): models-reask round 2 -- the reviews' fixes, rust  5272  fxcap 151
+f8d625c3 docs(prd): STOP-NEXT-2 round 2's gate                      rust  5286  fxcap 151
+04ef61b0 Merge LAUNCH-SETTLE-F fix/p5-launch-settle-f @ 2f1c80e7 in rust  5280  fxcap 165
+1661d59d Merge T-U4-F fix/p5-t-u4-f @ a8c7a87d into train/p5-1108d  rust  5281  fxcap 165
+46078553 Merge MODELS-REASK feat/p5-models-reask @ 66854557 into tr rust  5312  fxcap 165
+54e3196b Merge STOP-NEXT-2 feat/p5-stop-next-2 @ f8d625c3 into trai rust  5357  fxcap 165
+06189ce8 fix(tui): train 7 -- T-U4's cancelled marker in the text S rust  5357  fxcap 165
+85b13f84 test(tui): train 7 joins -- MODELS-REASK's catalog asks an rust  5360  fxcap 165
+c468f5e1 docs(fxcap): train 7 -- the path:line references the merge rust  5360  fxcap 165
