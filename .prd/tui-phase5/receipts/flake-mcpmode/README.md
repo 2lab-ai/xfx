@@ -142,6 +142,14 @@ counts and every run's summary line are in the `.counts` files.
 | `after.counts` | `986b2812` (fix) | none added | 20/20 each | 20/20 | 20/20 each |
 | `after-load.counts` | `986b2812` (fix) | one `yes > /dev/null` per core, 18 (`load.sh`); load average 34-54 | 20/20 each | 20/20 | 20/20 each |
 
+The second pass's four tests (the descriptor test, the link test,
+`test_clock`, `test_rehomefile`), 20 runs each way under the lock:
+`before-red2.counts` on `760d7f85`, the descriptor and link tests 0/20 and
+the other two 20/20; `after2.counts` on `29fb72d8`, all four 20/20. The
+27-test loops above ran on `986b2812`; what `29fb72d8` changes after it is
+`reseed`, `rehomefile`, `clock` and the two tests, all in the second-pass
+loop, and the gate's full `test-capture.sh` (63 tests) ran on it.
+
 The flaked test on base code under the machine's own load is in
 `natural-base-repro.txt`: an earlier loop of the RED commit's first form
 (same base harness, the RED Verbs test still on fixed waits) failed it once
@@ -167,7 +175,15 @@ the empty file, which they do.
 
 ## Gate
 
-GATE
+Every CI step, at `7266e29d` (the code of `29fb72d8` plus receipt text),
+the heavy ones under the suite lock (`gate.sh`; `gate.txt` has each step's
+exit status and count): fmt, clippy and clippy with fault injection, `cargo
+test` (5327 passed, 0 failed, 7 ignored) and with fault injection (5364
+passed, 0 failed, 7 ignored), all six `scripts/check-*.sh` and three
+`scripts/test-*.sh`, `fxcap/test-sweep.sh` (66 + 26), `fxcap/test-capture.sh`
+(63), the release and fault-injection builds, `smoke.sh` (47 checks) and
+`smoke-tui.sh` (37 scenarios, 1168 checks): all exit 0. The plain `cargo
+test` step's 2200 s is mostly the wait for a lock slot.
 
 ## Files
 
@@ -181,4 +197,5 @@ GATE
   xfx.
 - `loop.sh`, `load.sh`, `*.counts` -- the loops and their pass counts.
 - `mutants.py`, `mutants.txt` -- the half-reverts.
-- `gate.txt` -- the CI steps.
+- `before-red2.counts`, `after2.counts` -- the second pass's loops.
+- `gate.sh`, `gate.txt` -- the CI steps.
