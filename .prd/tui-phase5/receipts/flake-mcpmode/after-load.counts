@@ -1,4 +1,5 @@
-# after under load: the fix 986b2812, 20 runs under the suite lock with one 'yes > /dev/null' per core (18, load.sh); load average 34-54 during the loop
+# after under load: the fix 986b2812, 20 runs under the suite lock (one slot) with one 'yes > /dev/null' per core (18, load.sh); load average 34-54.
+# Spinners 2026-11-08T15:06:49Z-15:25:43Z, loop 15:07:07Z-15:22:16Z; other workers' suites held the other two lock slots (GRID-ROW-COST's sweep from 15:11:51Z, train 7's gate).
 test_a_fake_key_and_team_reach_no_line_of_the_log_and_no_body               passed 20/20
 test_a_file_a_verb_changes_mid_run_is_replaced_whole                        passed 20/20
 test_a_held_request_reads_past_a_mode_file_caught_empty                     passed 20/20

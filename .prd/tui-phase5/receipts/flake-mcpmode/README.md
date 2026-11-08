@@ -77,7 +77,7 @@ base; "now" is the fix.
 | usage clock | `clock` verb `capture.sh:951`: `printf >` in place; the launch write `:664` precedes the binary | the binary: fx `readClockFile` (`src/core/app/usage_host.zig:205-219@481104fd`) and xfx `pinned` (`src/usage/clock.rs:95-114`) -- an unparsable read is the system clock | rewritten in place while the binary may ask the time | renamed into place by `put_in_home` (now `:438-451`, `:976`), owner-only; the readers are product code mirroring fx and stay as they are |
 | the binary's settings, `reseed` | `reseed` verb `capture.sh:911-914`: `>` in place, then `chmod 600` | the binary, when it reads its settings | documented for "between an exit and a `relaunch`", but nothing holds a scenario to that; its one use (`p5-session-early-prefs.cap:29`) follows a `/quit` by 2 s | `put_in_home` (now `:932-937`), 0600 |
 | a HOME file, `rehomefile` | `rehomefile` verb `capture.sh:916-923`: `>` in place ("an existing file is written in place", its doc), then `chmod 600` | the running binary: "a settings file made malformed after launch" | rewritten in place under a running binary; and a HOME path that was a link was written through, to wherever it pointed (`confinement-red.txt`) | `put_in_home` (now `:938-946`), 0600; a link or a directory there is refused, exit 2 |
-| `put_in_home`'s refusal | -- | -- | -- | `mv` onto a link to a directory would move the file into that directory, so the helper refuses a link or a directory outright |
+| `put_in_home`'s refusal | -- | -- | -- | `mv` onto a link to a directory would move the file into that directory, so the helper refuses a link or a directory outright. It checks the leaf only: a `rehomefile .fx/settings.json` whose `~/.fx` is itself a link to a directory outside still lands there, as it did on base (`mkdir -p` and `>` follow it too); scenarios are the repo's own, and an intermediate link is left to the seeding confinement checks, not widened here |
 | clipboard image | `clipimage` verb `capture.sh:984`: `cp` onto the old file (in place); `off` = `rm` (`:983`) | fake osascript `capture.sh:686-689`: `[ -f ]`, then `cat > out` | an in-place copy could be read half written; an `off` between `-f` and `cat` left an empty image file | temp + `mv` (now `:1009`); the shim `cp`s (now `:689`), which writes nothing if the image is gone (driven end to end: `image-paste.txt`) |
 | `clipboard-fail` | `clipfail` `: >` / `rm` (`:1011-1012`) | shims' `[ -f ]` | a flag: create and unlink are atomic | unchanged |
 | `binpid` | `jobctl.pl:41` (`open '>'`, print) | `binary_pid`, `capture.sh:401-430` | the reader asks 20 times and takes a pid only if its parent is the pane and its executable the binary | unchanged |
@@ -140,15 +140,34 @@ counts and every run's summary line are in the `.counts` files.
 |---|---|---|---|---|---|
 | `before-red.counts` | `fd8ddfd1` (RED) | none added | 0/20 each | 20/20 | 20/20 each |
 | `after.counts` | `986b2812` (fix) | none added | 20/20 each | 20/20 | 20/20 each |
-| `after-load.counts` | `986b2812` (fix) | one `yes > /dev/null` per core, 18 (`load.sh`); load average 34-54 | 20/20 each | 20/20 | 20/20 each |
+| `after-load.counts` | `986b2812` (fix) | one `yes > /dev/null` per core, 18 (`load.sh`); load average 34-54; two other suites running (below) | 20/20 each | 20/20 | 20/20 each |
 
 The second pass's four tests (the descriptor test, the link test,
 `test_clock`, `test_rehomefile`), 20 runs each way under the lock:
 `before-red2.counts` on `760d7f85`, the descriptor and link tests 0/20 and
-the other two 20/20; `after2.counts` on `29fb72d8`, all four 20/20. The
+the other two 20/20; `after2.counts` on `29fb72d8`, all four 20/20; and
+`after2-load.counts`, the same on `29fb72d8` under the spinners, all four
+20/20. The
 27-test loops above ran on `986b2812`; what `29fb72d8` changes after it is
 `reseed`, `rehomefile`, `clock` and the two tests, all in the second-pass
 loop, and the gate's full `test-capture.sh` (63 tests) ran on it.
+
+**The loaded runs overlapped other workers' suites.** Each loaded loop
+held one lock slot, but the spinners loaded every core, so the two suites in
+the other two slots ran under that load too, and the loaded counts were
+taken while they ran (machine load ~29-54):
+- `after-load.counts`: spinners 2026-11-08 15:06:49Z-15:25:43Z, the loop
+  15:07:07Z-15:22:16Z; the other slots held GRID-ROW-COST's sweep (from
+  15:11:51Z) and train 7's gate. The spinners ran on 3.5 min past the loop,
+  while a base-only loop waited for a slot and never started.
+- `after2-load.counts`: spinners 16:34:49Z-16:42:16Z, the loop
+  16:35:32Z-16:42:16Z; the other slots held GRID-ROW-COST's gate and train
+  7's head sweep.
+
+`load.sh` is what ran. A run that loads every core must hold every slot
+instead -- the lock nested once per slot (`suite-lock.sh suite-lock.sh
+suite-lock.sh <cmd>` with the default three) -- and stop its spinners in
+that command's own EXIT trap.
 
 The flaked test on base code under the machine's own load is in
 `natural-base-repro.txt`: an earlier loop of the RED commit's first form
@@ -197,5 +216,6 @@ test` step's 2200 s is mostly the wait for a lock slot.
   xfx.
 - `loop.sh`, `load.sh`, `*.counts` -- the loops and their pass counts.
 - `mutants.py`, `mutants.txt` -- the half-reverts.
-- `before-red2.counts`, `after2.counts` -- the second pass's loops.
+- `before-red2.counts`, `after2.counts`, `after2-load.counts` -- the second
+  pass's loops.
 - `gate.sh`, `gate.txt` -- the CI steps.
