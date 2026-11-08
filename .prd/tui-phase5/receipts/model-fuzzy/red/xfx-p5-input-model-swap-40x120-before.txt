@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-ccced1f [debug] · Run /help for commands
+
+┃ gpt5
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Models 1  [All]  Anthropic  OpenAI  Others
+
+  acme/gpt5-lite
+
+Note: Gateway catalog is authenticated with an API key
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab provider     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

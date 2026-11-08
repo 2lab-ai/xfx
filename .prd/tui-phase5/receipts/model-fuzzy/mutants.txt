@@ -1,0 +1,88 @@
+# MODEL-FUZZY mutants: mutants.py on a git clone --no-local of the branch at 8c6da0fc, GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE unset,
+# its own CARGO_TARGET_DIR, under suite-lock.sh; each run 'timeout 900 cargo test --locked --lib -- tui::model_menu tui::model_column tui::model_search'.
+# The clone was reset (git checkout -- .) before each mutant and after the last.
+## control: the unit as committed
+verdict: SURVIVED (exit 0, 37 s)
+  test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 4513 filtered out; finished in 0.01s
+## tier-order: no ranking (catalog order)
+verdict: KILLED (exit 101, 10 s)
+  failed: tui::model_column::tests::tab_writes_the_marked_row_into_the_composer
+  failed: tui::model_column::tests::tab_puts_the_mark_on_the_first_row_the_written_line_lists
+  failed: tui::model_column::tests::the_column_lists_its_models_ranked_as_fxs_completions_are
+  failed: tui::model_menu::tests::better_matches_list_first_and_the_mark_keeps_its_model_through_a_revalidation
+  failed: tui::model_search::tests::better_ranks_list_first_and_a_rank_keeps_the_order_given
+  test result: FAILED. 42 passed; 5 failed; 0 ignored; 0 measured; 4513 filtered out; finished in 0.01s
+## tier-order: words above substring
+verdict: KILLED (exit 101, 10 s)
+  failed: tui::model_column::tests::tab_puts_the_mark_on_the_first_row_the_written_line_lists
+  failed: tui::model_column::tests::enter_and_the_arrows_take_the_ranked_rows
+  failed: tui::model_column::tests::the_column_lists_its_models_ranked_as_fxs_completions_are
+  failed: tui::model_search::tests::better_ranks_list_first_and_a_rank_keeps_the_order_given
+  failed: tui::model_menu::tests::better_matches_list_first_and_the_mark_keeps_its_model_through_a_revalidation
+  test result: FAILED. 42 passed; 5 failed; 0 ignored; 0 measured; 4513 filtered out; finished in 0.01s
+## word-start: any letter starts a word
+verdict: KILLED (exit 101, 10 s)
+  failed: tui::model_search::tests::better_ranks_list_first_and_a_rank_keeps_the_order_given
+  failed: tui::model_search::tests::a_word_starts_after_punctuation_and_at_a_letter_digit_turn_only
+  failed: tui::model_column::tests::the_column_lists_its_models_ranked_as_fxs_completions_are
+  failed: tui::model_menu::tests::the_search_finds_what_fxs_own_table_finds
+  failed: tui::model_search::tests::queries_match_the_full_id_verbatim_by_words_and_fuzzily
+  test result: FAILED. 42 passed; 5 failed; 0 ignored; 0 measured; 4513 filtered out; finished in 0.01s
+## word-start: a case change starts a word
+verdict: KILLED (exit 101, 8 s)
+  failed: tui::model_menu::tests::the_search_finds_what_fxs_own_table_finds
+  failed: tui::model_search::tests::a_word_starts_after_punctuation_and_at_a_letter_digit_turn_only
+  test result: FAILED. 45 passed; 2 failed; 0 ignored; 0 measured; 4513 filtered out; finished in 0.01s
+## word-start: no letter/digit turn
+verdict: KILLED (exit 101, 7 s)
+  failed: tui::model_search::tests::queries_match_the_full_id_verbatim_by_words_and_fuzzily
+  failed: tui::model_menu::tests::the_search_finds_what_fxs_own_table_finds
+  test result: FAILED. 45 passed; 2 failed; 0 ignored; 0 measured; 4513 filtered out; finished in 0.01s
+## all-words: a word that matches nothing is passed over
+verdict: KILLED (exit 101, 6 s)
+  failed: tui::model_search::tests::better_ranks_list_first_and_a_rank_keeps_the_order_given
+  failed: tui::model_column::tests::the_column_lists_its_models_ranked_as_fxs_completions_are
+  failed: tui::model_search::tests::queries_match_the_full_id_verbatim_by_words_and_fuzzily
+  failed: tui::model_menu::tests::the_search_reads_the_whole_id_and_nothing_else_a_row_carries
+  failed: tui::model_menu::tests::the_search_finds_what_fxs_own_table_finds
+  test result: FAILED. 42 passed; 5 failed; 0 ignored; 0 measured; 4513 filtered out; finished in 0.01s
+## id-only: the model part after the slash only
+verdict: KILLED (exit 101, 6 s)
+  failed: tui::model_column::tests::the_column_lists_its_models_ranked_as_fxs_completions_are
+  failed: tui::model_column::tests::enter_and_the_arrows_take_the_ranked_rows
+  failed: tui::model_column::tests::typing_filters_the_models_by_id_ignoring_case
+  failed: tui::model_column::tests::left_steps_back_to_the_model_with_the_mark_on_it
+  failed: tui::model_column::tests::tab_puts_the_mark_on_the_first_row_the_written_line_lists
+  failed: tui::model_menu::tests::the_search_finds_what_fxs_own_table_finds
+  failed: tui::model_menu::tests::the_search_reads_the_whole_id_and_nothing_else_a_row_carries
+  failed: tui::model_search::tests::the_worst_word_decides_and_a_word_of_punctuation_only_is_passed_over
+  failed: tui::model_search::tests::a_word_starts_after_punctuation_and_at_a_letter_digit_turn_only
+  failed: tui::model_search::tests::queries_match_the_full_id_verbatim_by_words_and_fuzzily
+  failed: tui::model_menu::tests::a_search_that_finds_nothing_says_so_above_the_note
+  test result: FAILED. 36 passed; 11 failed; 0 ignored; 0 measured; 4513 filtered out; finished in 0.01s
+## id-only: the column also searches names and aliases
+verdict: KILLED (exit 101, 10 s)
+  failed: tui::model_column::tests::the_column_lists_its_models_ranked_as_fxs_completions_are
+  test result: FAILED. 46 passed; 1 failed; 0 ignored; 0 measured; 4513 filtered out; finished in 0.01s
+## id-only: the menu also searches the vendor apart (expected EQUIVALENT)
+verdict: SURVIVED (exit 0, 10 s)
+  test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 4513 filtered out; finished in 0.01s
+## query: the blanks round it are kept
+verdict: KILLED (exit 101, 10 s)
+  failed: tui::model_menu::tests::the_search_finds_what_fxs_own_table_finds
+  failed: tui::model_search::tests::better_ranks_list_first_and_a_rank_keeps_the_order_given
+  failed: tui::model_search::tests::queries_match_the_full_id_verbatim_by_words_and_fuzzily
+  test result: FAILED. 44 passed; 3 failed; 0 ignored; 0 measured; 4513 filtered out; finished in 0.01s
+## column: the cap before the ranks
+verdict: KILLED (exit 101, 10 s)
+  failed: tui::model_column::tests::the_column_lists_its_models_ranked_as_fxs_completions_are
+  test result: FAILED. 46 passed; 1 failed; 0 ignored; 0 measured; 4513 filtered out; finished in 0.01s
+## column: Tab keeps the mark where it was
+verdict: KILLED (exit 101, 10 s)
+  failed: tui::model_column::tests::tab_puts_the_mark_on_the_first_row_the_written_line_lists
+  test result: FAILED. 46 passed; 1 failed; 0 ignored; 0 measured; 4513 filtered out; finished in 0.01s
+## menu: the mark looked up in catalog order on a revalidation
+verdict: KILLED (exit 101, 7 s)
+  failed: tui::model_menu::tests::a_revalidated_catalog_keeps_the_tab_and_the_marked_model
+  failed: tui::model_menu::tests::better_matches_list_first_and_the_mark_keeps_its_model_through_a_revalidation
+  test result: FAILED. 45 passed; 2 failed; 0 ignored; 0 measured; 4513 filtered out; finished in 0.01s

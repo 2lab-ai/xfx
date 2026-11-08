@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-fc8ec00 [debug] · Run /help for commands
+
+* Switched to openai/gpt-5 (effort: default, speed: normal)
+
+* model picker: saved to user settings (scope=user); fresh sessions here use higher-precedence model=process_override
+
+┃ /model anthropicopus
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+         anthropic/claude-opus-4.8
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+auto · gpt-5
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

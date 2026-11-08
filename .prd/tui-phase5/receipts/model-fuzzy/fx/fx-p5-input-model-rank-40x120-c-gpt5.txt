@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* Switched to openai/gpt-5 (effort: default, speed: normal)
+
+* model picker: saved to user settings (scope=user); fresh sessions here use higher-precedence model=process_override
+
+┃ /model gpt5
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+         acme/gpt5-lite
+         openai/gpt-5
+         openai/gpt-4.5-preview
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+auto · gpt-5
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,31 @@
+# MODEL-FUZZY sweep, base against head: compare.py over the two sweeps' pairs.json (raw, this machine's only).
+# Both: scripts/fxcap/sweep.sh --fx <fx v0.0.16> --pin-sha 8e6cda2e… --jobs 2 --only '*model*' --only '*effort*' --only 'settings-model*', under suite-lock.sh,
+# the same scenarios/ (this branch's), xfx = ccced1f5's binary (base) and fc8ec00e's (head).
+# The three 'rows changed' pairs differ only in the sweep's own temp directory name, written on the Workspace/doctor rows (fxsw.<random>), the same on fx and xfx within a sweep.
+pairs: 233  base pass 174/233  head pass 204/233
+base verdicts: {'normalized-identical': 173, 'unresolved-defect': 57, 'identical': 1, 'approved-divergence-cascade': 2}
+head verdicts: {'normalized-identical': 203, 'unresolved-defect': 27, 'identical': 1, 'approved-divergence-cascade': 2}
+
+moved to identical/normalized (30):
+  model-anchor: alt-enter
+  p5-input-model: inline-gpt6, q-anthropic-opus, q-cs45, q-grok-fast, q-sonnet45, q-zai-glm
+  p5-input-model-rank: c-anthropic-opus, c-cs45, c-cs45-enter, c-gpt5, c-gpt5-down, c-gpt5-lite, c-gpt5-tab, c-mi, c-paste-anthropic-opus, c-paste-gpt-5, q-anth-slash, q-dsc, q-gpt-5-words, q-gpt5, q-gpt5-all, q-gpt5-down, q-gpt5-enter, q-gpt5-openai, q-omi, q-sonet
+  p5-input-model-swap: after, before, enter
+
+dropped from identical/normalized (0):
+
+still unresolved on both, rows changed (3):
+  p5-effort-fork-fork status: approved-divergence-cascade -> approved-divergence-cascade
+  p5-effort-fork-fork-edge status-empty: approved-divergence-cascade -> approved-divergence-cascade
+  p5-effort-fork-oldread-src doctor.full: unresolved-defect -> unresolved-defect
+
+unresolved on both, the same rows (26):
+  model: typed
+  model-parked: menu-loading
+  p5-effort-fork-oldread-src: picker-enter-fork, resume-source
+  p5-effort-fork-oldread-v1: picker-all, resume-id
+  p5-effort-fork-oldread-v2: continued, picker-all, quit, resume-id, resume-id.full
+  p5-effort-fork-slash-rank: e
+  settings-effort: bare, left, marked, no-levels, no-levels-right, right1, right2, right3
+  settings-model: enter, marked
+  settings-model-list: enter, list, list-down, used
