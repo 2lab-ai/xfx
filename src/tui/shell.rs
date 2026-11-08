@@ -1054,6 +1054,14 @@ pub(crate) struct Shell {
     /// and so are the cancelled work starting late rather than a new turn
     /// ([`UiEvent::TurnStarted`]).
     cancel_covers: usize,
+    /// The cancel in effect is the user's stop of a turn ([`Self::cancel_turn_with`]),
+    /// not a compaction's ending or its stop, so the turn's end says what the
+    /// turn came to: its stop ([`bridge::TURN_CANCELLED`]), a failure after
+    /// it, or a finish the runtime had already reached when the stop came
+    /// ([`UiEvent::TurnEnded`]). Upstream's stop does not rewrite a turn
+    /// that finished first: the second finish is ignored
+    /// (`finalization.zig:126-136@481104fd`).
+    stop_reads_end: bool,
     /// What the activity row says about the turn's recovery, while it says
     /// anything ([`super::retry::Row`]).
     ///
@@ -2416,6 +2424,7 @@ impl Shell {
             launch_status: None,
             cancel_owed: None,
             cancel_covers: 0,
+            stop_reads_end: false,
             retry: None,
             compaction: None,
             activity: Activity::new(),
@@ -4103,6 +4112,7 @@ impl Shell {
                     self.cancel_covers -= 1;
                 } else {
                     self.cancelling = false;
+                    self.stop_reads_end = false;
                     self.cancel_owed = None;
                 }
                 if !self.cancelling {
@@ -4447,8 +4457,28 @@ impl Shell {
                 // A turn an automatic compaction failed had its result noted
                 // when the compaction settled ([`Self::compaction_failed`]).
                 let noted = std::mem::take(&mut self.compaction_failed);
-                let outcome = (self.tally.started.is_some() && !noted).then(|| {
-                    if self.cancelling {
+                // **What a stop leaves unsaid is the stop's own end.** A
+                // compaction's ending or its stop says nothing more at the
+                // turn's end (the row has said it). The user's stop of a turn
+                // has written its line at the keystroke, and the end that is
+                // the stop -- [`bridge::TURN_CANCELLED`] -- adds nothing; but
+                // the end is the runtime's word for what the turn came to,
+                // and upstream does not rewrite it. A turn that finished
+                // before the stop reached it stays finished -- the second
+                // finish is ignored (`finalization.zig:126-136@481104fd`), its
+                // summary is written (`finishPromptPresentation`,
+                // `app_callbacks.zig:276-283`) and it is `done` -- and a
+                // failure after the stop is still reported, `request failed`
+                // under `system` and `error` (`interruption.zig:208-223`,
+                // `app_process_runtime.zig:157-169`; a cancelled drain admits
+                // it, `app_worker_runtime.zig:386`).
+                let stopped = self.cancelling;
+                let reads_end = std::mem::take(&mut self.stop_reads_end) && stopped;
+                let quiet = stopped
+                    && (!reads_end || failure.as_deref() == Some(super::bridge::TURN_CANCELLED));
+                let ran = self.tally.started.is_some();
+                let outcome = (ran && !noted).then(|| {
+                    if quiet {
                         program_status::Outcome::Interrupted
                     } else if failure.is_some() {
                         program_status::Outcome::Failed
@@ -4503,9 +4533,11 @@ impl Shell {
                 // at the keystroke: no summary under an answer that was cut
                 // off, and no `✗ system:` for a failure the user asked for --
                 // upstream writes the one `■ Cancelled` line and nothing after
-                // it (`fx-interrupt-40x120-cc-1.5`).
+                // it (`fx-interrupt-40x120-cc-1.5`). Unless the end says the
+                // turn came to something else (above).
                 self.cancel_covers = 0;
-                let (failure, summary) = if std::mem::take(&mut self.cancelling) {
+                self.cancelling = false;
+                let (failure, summary) = if quiet {
                     (None, None)
                 } else {
                     (failure, summary)
@@ -4520,7 +4552,19 @@ impl Shell {
                         self.mark(Mark::Summary(summary));
                         self.title_session();
                     }
-                    (None, None) => self.mark(Mark::EndOfLine),
+                    (None, None) => {
+                        self.mark(Mark::EndOfLine);
+                        // A stopped turn is still a turn of the session's
+                        // history -- upstream commits it `.interrupted`
+                        // (`interruption.zig:197-221@481104fd`) and titles the
+                        // session from it, as `p5-lifecycle-osc-stopnext`'s
+                        // `]2;first question` after the stopped turn shows.
+                        // Not one a compaction failed (`noted`): a turn that
+                        // failed titles nothing ([`Self::title_session`]).
+                        if quiet && ran && !noted {
+                            self.title_session();
+                        }
+                    }
                 }
                 // Whichever way it went, the prompt this turn carried is no
                 // longer the one a later conclusion is about.
@@ -10034,6 +10078,7 @@ impl Shell {
         // end takes [`Self::compaction_failed`] too.
         if self.cancelling && self.work.outstanding() == 0 && self.tally.started.is_none() {
             self.cancelling = false;
+            self.stop_reads_end = false;
             self.cancel_owed = None;
             self.cancel_covers = 0;
         }
@@ -11129,6 +11174,7 @@ impl Shell {
                     // conclusion adds nothing (`compactionErrorHandled`,
                     // `app_process_runtime.zig:10-17`, `:55-56`).
                     self.cancelling = true;
+                    self.stop_reads_end = false;
                     // And unless the user stopped it, the turn failed, and that
                     // is its result now ([`Self::compaction_failed`]).
                     if feedback != compaction::Feedback::Cancelled && self.tally.started.is_some() {
@@ -11161,6 +11207,7 @@ impl Shell {
             // manual compaction ends no turn, so it owes the next one nothing.
             self.sound.interrupted();
             self.cancelling = true;
+            self.stop_reads_end = false;
             self.retry = None;
         }
         if waiting {
@@ -12306,6 +12353,7 @@ impl Shell {
         // upstream's turn-end cue is silent for an interrupted turn.
         self.sound.interrupted();
         self.cancelling = true;
+        self.stop_reads_end = true;
         self.abandon_answer();
         self.retry = None;
         if waiting {
@@ -14793,6 +14841,7 @@ impl Shell {
         // A cancel this session was waiting to hear the end of belongs to the
         // conversation being dropped, and so does its line.
         self.cancelling = false;
+        self.stop_reads_end = false;
         self.cancel_owed = None;
         self.cancel_covers = 0;
         // So is a failed automatic compaction's turn: its result was reported
@@ -14982,11 +15031,12 @@ impl Shell {
     }
 
     /// Gives the session its title, from the prompt of the turn that just
-    /// finished, when it has none yet.
+    /// ended -- finished, or stopped -- when it has none yet.
     ///
     /// Upstream derives it when the first turn's history is committed and
-    /// freezes it there (`ensureCachedSessionTitle`); a turn that failed is
-    /// not one this surface can say was recorded, so it titles nothing.
+    /// freezes it there (`ensureCachedSessionTitle`), and a stopped turn is
+    /// committed too (`.interrupted`); a turn that failed is not one this
+    /// surface can say was recorded, so it titles nothing.
     fn title_session(&mut self) {
         if self.session_title.is_some() {
             return;
@@ -45056,7 +45106,7 @@ mod tests {
         shell.route_bytes(&[0x03]);
         assert_eq!(status_of(&mut shell).as_deref(), Some("idle"));
         shell.apply(UiEvent::TurnEnded {
-            failure: Some("cancelled".into()),
+            failure: Some(super::super::bridge::TURN_CANCELLED.into()),
         });
         shell.work.give_back();
         assert_eq!(status_of(&mut shell), None, "the stop was reported twice");
@@ -45085,7 +45135,7 @@ mod tests {
         assert_eq!(status_of(&mut winding).as_deref(), Some("idle"));
         winding.apply(tool_result("c1", "read_file", false, "aborted by user"));
         winding.apply(UiEvent::TurnEnded {
-            failure: Some("cancelled".into()),
+            failure: Some(super::super::bridge::TURN_CANCELLED.into()),
         });
         winding.work.give_back();
         assert_eq!(status_of(&mut winding), None);

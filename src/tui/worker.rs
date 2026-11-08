@@ -6088,14 +6088,48 @@ async fn one_turn(
     // because the log of it could not be written -- the same order
     // `interactive::one_turn` reports in. A turn that failed reports its own
     // failure first: that is the one that says why there is no answer.
-    match outcome {
-        Ok(_) => conversation
+    end_of_turn(
+        &outcome,
+        compaction_ended.get(),
+        conversation
             .recorder
             .failure()
             .map(|problem| format!("xfx: {problem}")),
+    )
+}
+
+/// What a turn's end says it came to ([`UiEvent::TurnEnded`]'s `failure`),
+/// from the machine's outcome, how the turn's last compaction settled, and
+/// what the log could not take.
+///
+/// **A stop's own end is one word**, [`bridge::TURN_CANCELLED`], whichever
+/// layer read the cancellation first -- the machine, or the event sink whose
+/// send the turn's token refused -- so the band can tell it from a real
+/// failure. A stopped turn whose interrupted record the log would not take
+/// ends in that failure instead: upstream finishes it `.interrupted` and
+/// still returns the propagation error (`interruption.zig:208-223@481104fd`),
+/// which is `request failed` under `system` (`app_process_runtime.zig:157-169`).
+fn end_of_turn<T>(
+    outcome: &Result<T, crate::agent::TurnError>,
+    compaction: Option<Feedback>,
+    log_failure: Option<String>,
+) -> Option<String> {
+    // Only an ending ends the turn: a compaction that found nothing to do, or
+    // found another running, lets it go on to its own end (the same three as
+    // `super::shell`'s `compaction_update`).
+    let compaction_ended =
+        compaction.is_some_and(|feedback| !matches!(feedback, Feedback::NoOp | Feedback::Busy));
+    match outcome {
+        Ok(_) => log_failure,
         // A compaction ended it: the row says why, and there is nothing more
         // for its conclusion to say (`compactionErrorHandled`).
-        Err(_) if compaction_ended.get().is_some() => None,
+        Err(_) if compaction_ended => None,
+        Err(crate::agent::TurnError::Cancelled) => {
+            Some(log_failure.unwrap_or_else(|| bridge::TURN_CANCELLED.to_string()))
+        }
+        Err(crate::agent::TurnError::Sink(err)) if err.kind() == io::ErrorKind::Interrupted => {
+            Some(log_failure.unwrap_or_else(|| bridge::TURN_CANCELLED.to_string()))
+        }
         Err(err) => Some(err.to_string()),
     }
 }
@@ -6765,6 +6799,108 @@ mod tests {
             Ok(TurnWork::Submit("queued after".into())),
             "the interrupt spent its allowance on a prompt it was not about"
         );
+    }
+
+    #[test]
+    fn a_turns_end_says_a_stop_in_one_word_and_anything_else_in_its_own() {
+        // The band answers a stop at the keystroke and suppresses only the
+        // stop's own end (`super::super::shell`'s `TurnEnded`), so that end is
+        // one word whichever layer read the cancellation: the machine, or a
+        // sink whose send the turn's token refused. A log that would not take
+        // the stopped turn is a failure all the same, as upstream returns the
+        // propagation error after the interrupted finish
+        // (`interruption.zig:208-223@481104fd`).
+        use crate::agent::TurnError;
+        let refused = || {
+            TurnError::Sink(io::Error::new(
+                io::ErrorKind::Interrupted,
+                bridge::TURN_CANCELLED,
+            ))
+        };
+        let log = || Some("xfx: the log is full".to_string());
+        let stop = || Some(bridge::TURN_CANCELLED.to_string());
+        let failed = TurnError::StepLimit { limit: 3 }.to_string();
+        type Case = (
+            &'static str,
+            Result<(), TurnError>,
+            Option<Feedback>,
+            Option<String>,
+            Option<String>,
+        );
+        let cases: Vec<Case> = vec![
+            ("finished", Ok(()), None, None, None),
+            ("finished, the log failed", Ok(()), None, log(), log()),
+            ("stopped", Err(TurnError::Cancelled), None, None, stop()),
+            ("stopped at a send", Err(refused()), None, None, stop()),
+            (
+                "stopped, the log failed",
+                Err(TurnError::Cancelled),
+                None,
+                log(),
+                log(),
+            ),
+            (
+                "stopped at a send, the log failed",
+                Err(refused()),
+                None,
+                log(),
+                log(),
+            ),
+            (
+                "a compaction's stop ended it",
+                Err(TurnError::Cancelled),
+                Some(Feedback::Cancelled),
+                log(),
+                None,
+            ),
+            (
+                "a compaction's failure ended it",
+                Err(TurnError::CompactionEnded {
+                    reason: "ModelFailed",
+                }),
+                Some(Feedback::Failed),
+                None,
+                None,
+            ),
+            (
+                "stopped after a compaction that compacted nothing",
+                Err(TurnError::Cancelled),
+                Some(Feedback::NoOp),
+                None,
+                stop(),
+            ),
+            (
+                "stopped after a compaction that found another running",
+                Err(TurnError::Cancelled),
+                Some(Feedback::Busy),
+                None,
+                stop(),
+            ),
+            (
+                "failed",
+                Err(TurnError::StepLimit { limit: 3 }),
+                None,
+                None,
+                Some(failed),
+            ),
+            (
+                "the terminal went",
+                Err(TurnError::Sink(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "gone",
+                ))),
+                None,
+                None,
+                Some("cannot write turn output: gone".into()),
+            ),
+        ];
+        for (case, outcome, compaction, log_failure, said) in cases {
+            assert_eq!(
+                super::end_of_turn(&outcome, compaction, log_failure),
+                said,
+                "{case}"
+            );
+        }
     }
 
     #[test]

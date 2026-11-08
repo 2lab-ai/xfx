@@ -102,6 +102,14 @@ pub(crate) const DELTA_SLICE: usize = 64 * 1024;
 /// the turn rather than buffering an answer no one is reading.
 pub(crate) const UI_EVENTS: usize = 256;
 
+/// What a turn the user stopped ends with when the stop is all that ended it
+/// ([`UiEvent::TurnEnded`]): the runtime's one word for it, whichever layer
+/// read the cancellation first, so the band can tell the stop's own end --
+/// which it has already answered at the keystroke -- from a real failure
+/// that came after the stop, which upstream still reports
+/// (`interruption.zig:208-223`, `app_process_runtime.zig:157-169@481104fd`).
+pub(crate) const TURN_CANCELLED: &str = "the turn was cancelled";
+
 /// Something the runtime did that the UI has to show.
 ///
 /// Every `String` in here is text the UI will eventually place on a row, and
@@ -317,7 +325,9 @@ pub(crate) enum UiEvent {
     /// (`crate::output::EventSink::recovered`): the row says so for a moment
     /// ([`super::retry::Row::Recovered`]).
     Recovered { attempt: u32 },
-    /// The turn is over, whichever way it went. **Terminal.**
+    /// The turn is over, whichever way it went. **Terminal.** `failure` is
+    /// `None` for a turn that finished, [`TURN_CANCELLED`] for one a stop
+    /// ended, and what went wrong otherwise.
     TurnEnded { failure: Option<String> },
     /// The conversation has been dropped: a [`TurnControl::Reset`] was acted
     /// on, and the next prompt opens a new session.
@@ -1653,10 +1663,9 @@ impl UiEventSink {
             // kind is what a reader will be shown. An interrupted turn was
             // stopped on purpose; a broken pipe is a session that ended under
             // it.
-            Err(Stopped::Cancelled) => Err(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "the turn was cancelled",
-            )),
+            Err(Stopped::Cancelled) => {
+                Err(io::Error::new(io::ErrorKind::Interrupted, TURN_CANCELLED))
+            }
             Err(Stopped::UiGone) => Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
                 "the terminal session is gone",
