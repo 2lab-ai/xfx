@@ -4086,12 +4086,6 @@ impl Shell {
         self.transcript.emit_front(self.palette, emit)
     }
 
-    /// Shows what the runtime just did.
-    ///
-    /// Exhaustive on purpose: a [`UiEvent`] added later has to be given a home
-    /// here rather than falling into a wildcard that drops it -- and a dropped
-    /// event is a tool that ran invisibly or a turn that ended without saying
-    /// so.
     /// What the runtime says when it starts the oldest prompt still
     /// waiting -- one no stop covered ([`Self::waiting_prompts`]) -- which is the turn
     /// its loop takes next: for a case about what follows a start rather than
@@ -4114,6 +4108,12 @@ impl Shell {
         self.apply(started);
     }
 
+    /// Shows what the runtime just did.
+    ///
+    /// Exhaustive on purpose: a [`UiEvent`] added later has to be given a home
+    /// here rather than falling into a wildcard that drops it -- and a dropped
+    /// event is a tool that ran invisibly or a turn that ended without saying
+    /// so.
     pub(crate) fn apply(&mut self, event: UiEvent) {
         // What an `/effort ` column is showing the levels of, read only while
         // the composer is such a line: every other event costs a prefix check.
