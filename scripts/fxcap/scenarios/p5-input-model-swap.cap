@@ -1,0 +1,37 @@
+# U8 (MODEL-FUZZY, I13): the open menu keeps the marked model by its id when a
+# revalidated catalog lands under a ranked search (modelMenuDisplayIndex and
+# hydrateMenuSnapshot, src/core/app/model_cache_runtime.zig:318-338,1121-1146
+# @481104fd; fx's own case, :2086-2123). Every catalog read answers 4 s after
+# it is asked. The launch's read is waited for (`first`); the second `/model`,
+# past the 5 s revalidation floor, lists the first catalog at once and asks
+# again, and `gpt5` and Down mark openai/gpt-5, second of three (`before`).
+# The second catalog adds acme/gpt5-pro, which has `gpt5` as typed and so
+# ranks first: the mark stays on openai/gpt-5, now third (`after`), and Enter
+# uses it (`enter`). Both binaries show acme/gpt5-pro once it lands, so the
+# `until` waits on that and not on a count.
+fx: env FX_AUTO_UPGRADE=0
+models p5-input-model-rank.json
+modelsdelay 4000
+wait 2
+type /model
+key Enter
+until shown Models 7  [All]
+wait 0.5
+snap first
+key Escape
+wait 6
+models2 p5-input-model-rank2.json
+type /model
+key Enter
+wait 0.5
+type gpt5
+key Down
+wait 1
+snap before
+until shown acme/gpt5-pro
+wait 0.5
+snap after
+key Enter
+wait 1.5
+snap enter
+gwlog

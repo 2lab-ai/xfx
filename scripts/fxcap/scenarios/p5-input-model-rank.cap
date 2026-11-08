@@ -1,0 +1,130 @@
+# U8 (MODEL-FUZZY, I13): fx v0.0.16's model search, rule by rule, on a catalog
+# made for it (p5-input-model-rank.json; f9ddaff8, matchModelQuery and the
+# three ranks, src/core/app/model_cache_runtime.zig:340-447@481104fd).
+# The menu lists it gpt-5, opus-4.8, gpt4omni, gpt5-lite, gpt-4.5-preview,
+# sonnet-4.5, DeepSeekCoder (picker order, `model`).
+# - q-gpt5: the three ranks -- gpt5-lite has `gpt5` as typed, gpt-5 has it once
+#   the dash is dropped, gpt-4.5-preview has its letters in order from a word
+#   start -- each ahead of the next, whatever the catalog order.
+# - q-gpt-5-words: every word found once punctuation is dropped, so all three
+#   rank the same and keep the catalog's order.
+# - q-omi / q-mi: a word starts where letters turn into digits (`gpt4omni`:
+#   gpt, 4, omni), so `omi` finds it and `mi` does not; q-dsc / q-sc: a case
+#   change is not a word start (`DeepSeekCoder` is one word).
+# - q-sonnet-opus: every word must match. q-punct (`. /`): words with no
+#   letter or digit are dropped, and a query of only those finds nothing
+#   unless an id holds it as typed. q-anth-slash: a lone `/` word is dropped.
+# - q-padded / q-blank: the blanks round the query are not part of it, and a
+#   blank query lists everything.
+# - q-gpt5-openai / -all / -down / -enter: the tabs filter the ranked list, and
+#   Enter takes the marked row of the ranked list.
+# - c-*: the `/model <query>` column ranks the same way and Enter takes its
+#   first row (modelCompletions, :897-913). A space typed there is not
+#   inserted unless it follows a model's exact id (advanceModelPickerOnSpace,
+#   input_completion_runtime.zig:1210-1219), so `anthropic opus` typed reads
+#   `anthropicopus` (fuzzy); the c-paste-* snaps paste the line, spaces kept.
+fx: env FX_AUTO_UPGRADE=0
+models p5-input-model-rank.json
+wait 4
+type /model
+key Enter
+wait 2
+snap model
+type gpt5
+wait 0.8
+snap q-gpt5
+key C-u
+type gpt 5
+wait 0.8
+snap q-gpt-5-words
+key C-u
+type omi
+wait 0.8
+snap q-omi
+key C-u
+type mi
+wait 0.8
+snap q-mi
+key C-u
+type dsc
+wait 0.8
+snap q-dsc
+key C-u
+type sc
+wait 0.8
+snap q-sc
+key C-u
+type sonnet opus
+wait 0.8
+snap q-sonnet-opus
+key C-u
+type . /
+wait 0.8
+snap q-punct
+key C-u
+type anthropic / sonnet
+wait 0.8
+snap q-anth-slash
+key C-u
+type   Claude-Sonnet
+key Space Space
+wait 0.8
+snap q-padded
+key C-u
+key Space Space Space
+wait 0.8
+snap q-blank
+key C-u
+type anthropic sonet
+wait 0.8
+snap q-sonet
+key C-u
+type gpt5
+key Tab Tab
+wait 0.8
+snap q-gpt5-openai
+key BTab BTab
+wait 0.8
+snap q-gpt5-all
+key Down
+wait 0.8
+snap q-gpt5-down
+key Enter
+wait 1.5
+snap q-gpt5-enter
+type /model gpt5
+wait 1
+snap c-gpt5
+key Down
+wait 0.6
+snap c-gpt5-down
+key Tab
+wait 0.8
+snap c-gpt5-tab
+key C-u
+type /model anthropic opus
+wait 0.8
+snap c-anthropic-opus
+key C-u
+type /model gpt5 lite
+wait 0.8
+snap c-gpt5-lite
+key C-u
+type /model mi
+wait 0.8
+snap c-mi
+key C-u
+paste /model gpt 5
+wait 0.8
+snap c-paste-gpt-5
+key C-u
+paste /model anthropic opus
+wait 0.8
+snap c-paste-anthropic-opus
+key C-u
+type /model cs45
+wait 0.8
+snap c-cs45
+key Enter
+wait 1.5
+snap c-cs45-enter

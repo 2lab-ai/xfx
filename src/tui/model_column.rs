@@ -1776,4 +1776,92 @@ mod tests {
             "          no matching effort"
         );
     }
+
+    /// fx's completions case's catalog (`:2129-2134@481104fd`), and the model
+    /// `cs45` is for.
+    fn ranked() -> Vec<CatalogEntry> {
+        [
+            "openai/gpt-4.5-preview",
+            "openai/gpt-5",
+            "anthropic/claude-opus-4.8",
+            "acme/gpt5-lite",
+            "anthropic/claude-sonnet-4.5",
+        ]
+        .iter()
+        .map(|id| entry(id, &[]))
+        .collect()
+    }
+
+    fn typed(query: &str) -> Query<'_> {
+        Query {
+            stage: Stage::Model,
+            command: Command::Model,
+            query,
+            token_start: PREFIX.len(),
+        }
+    }
+
+    #[test]
+    fn the_column_lists_its_models_ranked_as_fxs_completions_are() {
+        // `model completions rank fuzzy matches below verbatim ones`
+        // (`src/core/app/model_cache_runtime.zig:2125-2156@481104fd`).
+        let rows = ranked();
+        let known = Known::Rows(&rows);
+        let ids = |query: &str| {
+            Column::models(query, known)
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            ids("gpt5"),
+            ["acme/gpt5-lite", "openai/gpt-5", "openai/gpt-4.5-preview"]
+        );
+        assert_eq!(ids("anthropic opus"), ["anthropic/claude-opus-4.8"]);
+        assert_eq!(ids("cs45"), ["anthropic/claude-sonnet-4.5"]);
+        assert_eq!(ids("").len(), 5);
+        assert_eq!(ids("")[0], "openai/gpt-4.5-preview");
+        // An exact id is a substring match, and a fuzzy one can rank under it
+        // (`p5-input-model-rank` `c-gpt5-tab`).
+        assert_eq!(
+            ids("openai/gpt-5"),
+            ["openai/gpt-5", "openai/gpt-4.5-preview"]
+        );
+
+        // fx fills its 32 places rank by rank (`modelCompletions`, `:897-913`),
+        // so the cap keeps the best matches, not the first in the catalog.
+        let mut many: Vec<CatalogEntry> = (0..MOST_MODELS)
+            .map(|n| entry(&format!("acme/gpt-4.5-r{n}"), &[]))
+            .collect();
+        many.push(entry("acme/gpt5-last", &[]));
+        let listed = Column::models("gpt5", Known::Rows(&many));
+        assert_eq!(listed.len(), MOST_MODELS);
+        assert_eq!(listed[0].id, "acme/gpt5-last");
+        assert_eq!(listed[MOST_MODELS - 1].id, "acme/gpt-4.5-r30");
+    }
+
+    #[test]
+    fn enter_and_the_arrows_take_the_ranked_rows() {
+        let rows = ranked();
+        let known = Known::Rows(&rows);
+        let chosen = |column: &Column, query: &str| {
+            column
+                .chosen_model(&typed(query), known)
+                .map(|entry| entry.id.clone())
+        };
+        // `/model cs45` and Enter: the first row the column lists.
+        let mut column = Column::default();
+        assert_eq!(
+            chosen(&column, "cs45").as_deref(),
+            Some("anthropic/claude-sonnet-4.5")
+        );
+        // Down from acme/gpt5-lite is openai/gpt-5, the second rank's.
+        assert!(column.step(&typed("gpt5"), known, true));
+        assert_eq!(chosen(&column, "gpt5").as_deref(), Some("openai/gpt-5"));
+        // The id spelled out is still the one Enter takes.
+        assert_eq!(
+            Column::exact_model("OPENAI/gpt-5", known).map(|entry| entry.id.as_str()),
+            Some("openai/gpt-5")
+        );
+    }
 }

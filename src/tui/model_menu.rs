@@ -1269,4 +1269,128 @@ mod tests {
             }
         );
     }
+
+    /// The ids the menu lists, in its order.
+    fn listed(menu: &ModelMenu) -> Vec<String> {
+        match menu.inline() {
+            Inline::Listed { ids, .. } => ids.iter().map(|id| id.to_string()).collect(),
+            other => panic!("not listed: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_search_finds_what_fxs_own_table_finds() {
+        // fx's table (`model queries match the full id verbatim, by words, and
+        // fuzzily`, `src/core/app/model_cache_runtime.zig:2060-2084@481104fd`),
+        // each case as the menu shows it: listed for a substring, a words or a
+        // fuzzy match, not for none. Which of the three it is shows in the
+        // order ([`better_matches_list_first_and_the_mark_keeps_its_model_through_a_revalidation`]).
+        const ID: &str = "anthropic/claude-sonnet-4.5";
+        let lists = |id: &str, query: &str| {
+            ModelMenu::ready(&[llmux(id, None)], None, query).selected() == Some(id)
+        };
+        for query in [
+            // substring
+            "",
+            " \t",
+            " Claude-Sonnet ",
+            "ANTHROPIC/claude",
+            // words
+            "claude sonnet 4.5",
+            "anthropic sonnet",
+            "Sonnet45",
+            "sonnet 4-5",
+            "anthropic / sonnet",
+            // fuzzy
+            "cs45",
+            "anthropic sonet",
+        ] {
+            assert!(lists(ID, query), "{query:?} finds {ID}");
+        }
+        assert!(
+            lists("acme/gpt4omni", "omi"),
+            "a word starts at a digit-letter turn"
+        );
+        for query in ["opus", "sonnet opus", "nthrpc", "- /"] {
+            assert!(!lists(ID, query), "{query:?} finds nothing");
+        }
+        assert!(!lists("acme/gpt4omni", "mi"));
+        assert!(!lists("", "a"));
+        // Not fx's table; the same rule (`isIdWordStart`, `:438-447`): a case
+        // change is not a word start (`p5-input-model-rank` `q-dsc`, `q-sc`).
+        assert!(lists("acme/DeepSeekCoder", "dsc"));
+        assert!(!lists("acme/DeepSeekCoder", "sc"));
+    }
+
+    #[test]
+    fn better_matches_list_first_and_the_mark_keeps_its_model_through_a_revalidation() {
+        // fx's own case, row for row (`model menu ranks fuzzy matches below
+        // verbatim ones and keeps the selection`, `:2086-2123@481104fd`).
+        let ids =
+            |ids: &[&str]| -> Vec<CatalogEntry> { ids.iter().map(|id| llmux(id, None)).collect() };
+        let entries = [
+            "openai/gpt-4.5-preview",
+            "openai/gpt-5",
+            "anthropic/claude-opus-4.8",
+            "acme/gpt5-lite",
+        ];
+        let mut menu = ModelMenu::ready(&ids(&entries), None, "gpt5");
+        assert_eq!(
+            listed(&menu),
+            ["acme/gpt5-lite", "openai/gpt-5", "openai/gpt-4.5-preview"]
+        );
+        // All, Anthropic, OpenAI, Others: two on is OpenAI.
+        assert!(menu.cycle(true));
+        assert!(menu.cycle(true));
+        assert_eq!(listed(&menu), ["openai/gpt-5", "openai/gpt-4.5-preview"]);
+        assert!(menu.cycle(false));
+        assert!(menu.cycle(false));
+
+        assert!(menu.step(true, 3));
+        assert_eq!(menu.selected(), Some("openai/gpt-5"));
+
+        // "A revalidated catalog that adds a better match keeps the cursor on
+        // the same model even though its row moves down."
+        let mut revalidated = vec!["acme/gpt5-pro"];
+        revalidated.extend(entries);
+        menu.loaded(&ids(&revalidated), None);
+        assert_eq!(menu.selected(), Some("openai/gpt-5"));
+        assert_eq!(
+            menu.inline(),
+            Inline::Listed {
+                ids: vec![
+                    "acme/gpt5-pro",
+                    "acme/gpt5-lite",
+                    "openai/gpt-5",
+                    "openai/gpt-4.5-preview",
+                ],
+                selected: 2,
+                window_start: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn the_search_reads_the_whole_id_and_nothing_else_a_row_carries() {
+        // `matchModelQuery(item.id, query)` (`:340-347,371-374@481104fd`): the
+        // full `provider/model` id, so one query can name both -- and not the
+        // vendor apart (f9ddaff8 dropped that), a name, an alias or an owner.
+        let mut glm = llmux("zai/glm-5", None);
+        glm.name = Some("Zhipu GLM".to_string());
+        glm.aliases = vec!["zhipu".to_string()];
+        glm.facts.owned_by = Some("zhipu-ai".to_string());
+        let rows = [llmux("anthropic/claude-opus-5", None), glm];
+        let first = |query: &str| {
+            ModelMenu::ready(&rows, None, query)
+                .selected()
+                .map(str::to_string)
+        };
+        assert_eq!(
+            first("anthropic opus").as_deref(),
+            Some("anthropic/claude-opus-5")
+        );
+        assert_eq!(first("z.ai glm").as_deref(), Some("zai/glm-5"));
+        assert_eq!(first("zhipu"), None);
+        assert_eq!(first("Zhipu GLM"), None);
+    }
 }
