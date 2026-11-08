@@ -16088,6 +16088,53 @@ mod tests {
     }
 
     #[test]
+    fn a_key_spent_mid_resize_asks_for_the_frame_that_shows_the_list_again() {
+        // fx asks for a frame after every key the list takes, whether it
+        // moved anything or not: the arrows and page keys
+        // (`app_input_runtime.zig:310-330`, `:1013-1020@481104fd`), Tab on a
+        // file query (`:1317-1321`), and Enter the list answers (`:1405-1410`).
+        // So a key spent while a resize is pending, on a resize that comes
+        // back the same size (which asks for no frame of its own), still gets
+        // the frame that shows the list and trusts it again.
+        let mut list = AtList::open(40, 120);
+        for key in [DOWN, b"\t".as_slice(), b"\r".as_slice()] {
+            list.shell.render.mark_resize(Instant::now());
+            list.shell.route_bytes(key);
+            assert!(list.shell.render.force_resize());
+            adopt_resize(&mut list.shell, &mut list.band, || (40, 120));
+            list.tick();
+            let marked = at_rows(&list.shell)
+                .iter()
+                .position(|(_, bar)| *bar)
+                .expect("a bar");
+            assert_eq!(
+                list.keys(DOWN),
+                at_window(1, 10, marked + 2),
+                "after {key:?} spent mid-resize, the Down was spent too"
+            );
+        }
+    }
+
+    #[test]
+    fn a_resume_spends_the_at_lists_keys_until_its_frame_lands() {
+        // A job-control resume resets fx's terminal (`requestTerminalReset`,
+        // `app_lifecycle.zig:1200-1211@481104fd`, which sets
+        // `terminal_reset_pending`, `transcript/runtime.zig:7167`), and fx
+        // distrusts the list while that is pending
+        // (`input_completion_runtime.zig:805-806`).
+        let mut list = AtList::open(40, 120);
+        adopt_resume(&mut list.shell, &mut list.band, false);
+        list.shell.route_bytes(DOWN);
+        list.tick();
+        assert_eq!(
+            at_rows(&list.shell),
+            at_window(1, 10, 1),
+            "a Down moved the bar after a resume"
+        );
+        assert_eq!(list.keys(DOWN), at_window(1, 10, 2));
+    }
+
+    #[test]
     fn under_the_full_transcript_the_at_list_takes_no_key() {
         // fx's list is not eligible while the full transcript is up
         // (`filePickerEligible`, `input_completion_runtime.zig:783`, `:798-799

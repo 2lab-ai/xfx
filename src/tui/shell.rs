@@ -34702,6 +34702,34 @@ mod tests {
     }
 
     #[test]
+    fn enter_under_the_full_transcript_goes_on_to_the_composer() {
+        // fx's list does not own the surface while the full transcript is up,
+        // so its Enter handler answers nothing and Enter submits the line
+        // (`submitFilePickerOnEnter`, `input_completion_runtime.zig:1034-1037
+        // @481104fd`; `filePickerOwnsSurface`, `:1054-1056`): fx's captures
+        // show `@zzzz-none` and `@f-` both sent (receipt `ctrlo-probe/`).
+        for (draft, rows) in [("review @definitely-not-present", false), ("@gui", true)] {
+            let (_workspace, mut shell) = in_ws2(40, 120);
+            shell.route_bytes(draft.as_bytes());
+            listed(&mut shell);
+            assert_eq!(
+                shell
+                    .file_picker
+                    .as_ref()
+                    .is_some_and(|files| files.marked().is_some()),
+                rows
+            );
+            shell.route_bytes(b"\x0f");
+            assert!(shell.full.is_open(), "Ctrl-O did not open the transcript");
+            shell.route_bytes(b"\r");
+            match shell.sent.try_recv() {
+                Ok(TurnWork::Submit(prompt)) => assert_eq!(prompt, draft),
+                other => panic!("{draft}: Enter under Ctrl-O sent {other:?}"),
+            }
+        }
+    }
+
+    #[test]
     fn a_frame_that_gave_the_list_no_rows_leaves_the_rows_its_arrows_scroll() {
         // fx sets the painted rows only from a frame whose footer gave the
         // file picker rows of its own (`picker_rows > 0`,

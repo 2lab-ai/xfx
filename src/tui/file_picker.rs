@@ -1504,6 +1504,26 @@ mod tests {
     }
 
     #[test]
+    fn a_refresh_that_empties_the_list_keeps_the_window() {
+        // fx starts the window over only through a lost selection, which it
+        // records only when the new rows are not empty (`view`,
+        // `file_completion_state.zig:258-260`; `acknowledge`, `:291-293
+        // @481104fd`): rows that went away and came back for the same query
+        // keep the stored start, and the next Down scrolls from it.
+        let mut list = thirty();
+        for _ in 0..12 {
+            list.step(1, 10);
+        }
+        assert!(list.settle(Lookup::Rows(Vec::new())));
+        assert_eq!(list.window_start, 3);
+        let back: Vec<Found> = (0..30).map(|n| file(&format!("./{n:02}.txt"))).collect();
+        assert!(list.settle(Lookup::Rows(back)));
+        assert_eq!(mark_and_window(&list), (0, 3));
+        list.step(1, 10);
+        assert_eq!(mark_and_window(&list), (1, 1));
+    }
+
+    #[test]
     fn a_refresh_leaves_the_window_where_the_last_move_left_it() {
         // `acknowledge` writes back the window the frame was given
         // (`file_completion_state.zig:293`): rows that land while the user is
