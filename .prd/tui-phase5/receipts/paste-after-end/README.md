@@ -270,8 +270,14 @@ for. **13 of 13 killed.**
 **Sweep** (`sweep-head-r2.md`, `sweep-compare-r2.txt`): the same 41
 scenarios on `fd67ed2d`'s build, against round 1's base sweep (the same base
 build, sha256 `cbfa3ee8…`, the same ledger, sha256 `530ac71a…`, the same
-scenario files): **base 189 / 253, head 200 / 253, drops 0**, and no pair
-differs from round 1's head sweep in class, cause or uncaused count.
+scenario files): **base 189 / 253, head 200 / 253, drops 0**. Against round 1's
+head sweep, four pairs changed class, all four still passing:
+`p5-transcript-submit/{filled,second}` and
+`p5-transcript-submit-multi/{filled,second}` went identical ->
+normalized-identical (`sweep-compare-r2.txt:26-29`; `sweep-head.md:15`
+identical=10 against `sweep-head-r2.md:15` identical=6). They are not paste
+rows, and the pass count is 200 in both. (Corrected by the dispatcher after
+opus's round-2 confirm; this sentence first read "no pair differs".)
 
 **Gate** (`gates-r3.txt`): every CI step of `ci.yml`, in order, at
 **`fd67ed2d`**, under the suite lock: fmt, both clippies, `cargo test
