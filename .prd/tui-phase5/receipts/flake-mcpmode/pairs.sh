@@ -11,7 +11,7 @@ repo=$1 names=$2 root=$3 jobs=$4
 PIN=8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
 only=()
 while IFS= read -r n; do only+=(--only "$n"); done < "$names"
-export TMPDIR=/private/tmp/claude-501/flake-mcpmode/sw
+export TMPDIR="${TMPDIR:?set TMPDIR to a scratch directory}/flake-mcpmode-sw"
 mkdir -p "$TMPDIR"
 for side in base head; do
   case $side in
@@ -20,7 +20,7 @@ for side in base head; do
   esac
   rm -rf "$root/$side"
   echo "$side start $(date -u +%FT%TZ)"
-  ( cd "$repo" && FXCAP_SWEEP_CAPTURE=$cap /private/tmp/claude-501/bin/suite-lock.sh \
+  ( cd "$repo" && FXCAP_SWEEP_CAPTURE=$cap "${SUITE_LOCK:?set SUITE_LOCK to the suite-lock script}" \
       python3 -I scripts/fxcap/sweep.py --fx "$FX_BIN" --pin-sha "$PIN" --xfx "$XFX_BIN" --jobs "$jobs" \
       --tmp "$TMPDIR" "${only[@]}" --out "$root/$side" ) > "$root/$side.log" 2>&1
   echo "$side rc=$? end $(date -u +%FT%TZ)"
