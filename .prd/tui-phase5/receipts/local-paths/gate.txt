@@ -1,0 +1,27 @@
+head 6b507197f3193f78e4d18f986dbf47f1edaddc1a
+0        1s  fmt
+0       18s  clippy
+0       16s  clippy-fi
+0      121s  test
+0      140s  test-fi
+0        9s  check-no-stubs
+0       37s  check-no-secrets
+0        2s  check-no-local-paths
+0        3s  test-check-no-local-paths
+0      194s  test-gate-env
+0        1s  check-xfx-identity
+0        3s  check-preview-contract
+0      114s  test-preview-contract
+0      129s  check-tui-preflight-cost
+0        2s  check-usage-clock
+0       18s  build-release
+0        3s  smoke
+0       39s  build-faulty
+0       72s  smoke-tui
+0       30s  test-sweep
+steps 20, failed 0; tree clean
+
+# test totals: test 5459 passed, 0 failed; test-fi 5497 passed, 0 failed
+# check-no-local-paths: ok (15559 tracked file(s) scanned; 7 marked fixture line(s), 66 placeholder line(s))
+# test-check-no-local-paths: ok (10 cases)
+# test-gate-env: ok ci-script-tests-per-os test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths on macOS and Linux rows
