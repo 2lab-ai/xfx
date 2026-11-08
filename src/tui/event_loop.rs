@@ -14063,6 +14063,150 @@ mod tests {
         );
     }
 
+    const DONE: &str = "\u{1b}]7501;state=done:app=xfx\u{1b}\\";
+
+    #[test]
+    fn a_turn_that_finished_before_a_stop_that_dropped_the_prompt_behind_it_is_done() {
+        // The schedule above. The stop covers the prompt -- it was submitted
+        // before the keystroke -- so the prompt is off the band at the
+        // keystroke and no work from then on, whether the runtime drops it
+        // or stops its turn. What is left is the first turn's end: it
+        // finished before the stop reached it, and upstream's drain presents
+        // it as it finished (`batchSegmentIsInterrupted`,
+        // `app_worker_runtime.zig:301-325@481104fd`): `done`
+        // (`program_status.zig:62-64`). (Upstream's stop drops no queued
+        // prompt -- `requestInteractiveCancel`, `worker_runtime.zig:753-773`
+        // -- so its prompt would run next; xfx's stop drops its queue by its
+        // own design.)
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"first\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.start_turn();
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"second\r");
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.handle.give_back();
+        shell.route_bytes(&[0x03]);
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.handle.give_back();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        for _ in 0..3 {
+            shell.settle_band(Instant::now());
+            status_tick(&mut shell, &mut band, &mut out);
+        }
+        assert_eq!(
+            out.reports(),
+            [IDLE, WORKING, IDLE, DONE].map(str::to_string),
+            "the reports"
+        );
+    }
+
+    #[test]
+    fn a_prompt_typed_in_the_stops_read_shows_nothing_of_itself_until_its_turn_starts() {
+        // `p5-lifecycle-osc-stopnext`: Ctrl-C and a prompt in one read, with
+        // the stopped turn still in hand. Upstream queues such a prompt at
+        // once (`installPendingSubmission` cannot hold it while a turn
+        // streams, `input_submit_runtime.zig:1135-1149@481104fd`, so
+        // `enqueuePromptForSubmit` queues it, `:1103-1121`); its band lists
+        // only steering prompts (`snapshotSteeringPresentation`,
+        // `worker_runtime.zig:1749-1792`), and the card is the `begin_prompt`
+        // its worker pushes when it takes the prompt
+        // (`takeNextPromptLocked`, `:1484-1505`). So the `Cancelled` frame
+        // has nothing of the prompt -- fx v0.0.16's three runs:
+        // `▪ Cancelled · …` and nothing else (`stop-late-event/
+        // osc-stopnext.txt`) -- and the prompt's card comes with its turn,
+        // after its `working`.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        launch_title(&mut shell, &mut band);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"first question\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.start_turn();
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        let before = out.vectors.len();
+        shell.route_bytes(b"\x03second question\r");
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        let stop = out.vectors[before..].concat();
+        let started = out.vectors.len();
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+        });
+        shell.apply(UiEvent::TurnStarted { submission: 2 });
+        for _ in 0..2 {
+            shell.settle_band(Instant::now());
+            status_tick(&mut shell, &mut band, &mut out);
+        }
+        let turn = out.vectors[started..].concat();
+        let working = find(&turn, WORKING.as_bytes());
+        let card = find(&turn, b"second question");
+        assert_eq!(
+            (
+                holds(&stop, b"Cancelled"),
+                holds(&stop, b"second question"),
+                working.is_some() && card.is_some() && working < card,
+            ),
+            (true, false, true),
+            "the stop's frame: a Cancelled line, the prompt; its turn: working ahead of \
+             its card. The stop: {:?}; the turn: {:?}",
+            String::from_utf8_lossy(&stop),
+            String::from_utf8_lossy(&turn)
+        );
+    }
+
+    #[test]
+    fn a_title_another_event_owed_in_a_stopped_turns_tick_follows_its_report() {
+        // A stopped turn's end leads the tick's report with the title it gave
+        // the session (`a_stopped_turns_title_goes_out_ahead_of_the_next_prompts_working`).
+        // Only that title: a session that has one already takes none from the
+        // stopped turn (`ensureCachedSessionTitle`,
+        // `app_session_runtime.zig:2997-3010@481104fd`), and a title another
+        // event of the same drain asked for -- a model naming the session,
+        // read just before the stopped turn's end -- is the tick's own, which
+        // follows its report.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        launch_title(&mut shell, &mut band);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.start_turn();
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(&[0x03]);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"after\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        let before = out.vectors.len();
+        shell.apply(UiEvent::SessionTitled("Named".into()));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+        });
+        shell.start_turn();
+        for _ in 0..2 {
+            shell.settle_band(Instant::now());
+            status_tick(&mut shell, &mut band, &mut out);
+        }
+        let wire = out.vectors[before..].concat();
+        let title = find(&wire, b"\x1b]2;Named\x07");
+        let working = find(&wire, WORKING.as_bytes());
+        assert!(
+            title.is_some() && working.is_some() && working < title,
+            "the model's title is not behind the tick's working: {:?}",
+            String::from_utf8_lossy(&wire)
+        );
+    }
+
     #[test]
     fn a_held_prompt_reports_nothing_until_its_turn_starts_and_nothing_if_it_never_does() {
         // A prompt the runtime has not started -- behind a provider switch, a

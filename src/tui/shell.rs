@@ -45671,6 +45671,187 @@ mod tests {
         assert!(cancelled < summary, "{after:?}");
     }
 
+    // -----------------------------------------------------------------------
+    // STOP-NEXT: which turn a start belongs to
+    // -----------------------------------------------------------------------
+
+    /// The first turn finished, the runtime gave its place back and took the
+    /// prompt queued behind it, and the user stops before this side has read
+    /// any of it: the stop quotes both submissions, so it is the second
+    /// turn's.
+    fn stopped_after_the_runtime_took_the_next_prompt() -> Fixture {
+        let mut shell = running("first");
+        shell.route_bytes(b"second\r");
+        shell.work.give_back();
+        assert!(
+            matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "second"),
+            "the prompt was not queued"
+        );
+        shell.route_bytes(&[0x03]);
+        assert!(
+            matches!(shell.controlled(), Some(TurnControl::Cancel { through: 2 })),
+            "the stop did not quote both submissions"
+        );
+        shell
+    }
+
+    #[test]
+    fn a_stop_pressed_after_the_runtime_took_the_next_prompt_is_that_turns() {
+        // STOP-NEXT's next-break (`stop-late-event/next-break.txt`). Upstream's
+        // worker took the second prompt -- pushing its `begin_prompt` and
+        // clearing the stop (`takeNextPromptLocked`,
+        // `worker_runtime.zig:1484-1512@481104fd`) -- so the stop requested
+        // after it is that turn's (`takeEventBatch`'s `cancelled_turn_id`,
+        // `:923-937`). The drain presents the first turn's segment whole,
+        // its own finish `.completed` (`batchSegmentIsInterrupted`,
+        // `app_worker_runtime.zig:301-325`): its summary and `done`. The second
+        // turn's segment is an interrupted one: its prompt's card, its finish
+        // and its history are admitted and its answer is dropped
+        // (`cancelledEventAdmission`, `:339-389`), and its end is
+        // `.interrupted`: `idle`. One `Cancelled` line, the keystroke's; no
+        // `✗ system:`.
+        let mut shell = stopped_after_the_runtime_took_the_next_prompt();
+        let mut wire = vec![Some("working".to_string()), status_of(&mut shell)];
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        shell.apply(UiEvent::TurnStarted { submission: 2 });
+        shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+        });
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        wire.push(status_of(&mut shell));
+        let written = shell.released();
+        let text = written.join("\n");
+        let card = written.iter().position(|row| row.contains("second"));
+        let summary = written.iter().position(|row| row.starts_with("  0s"));
+        assert_eq!(
+            (
+                wire,
+                text.contains("MARKER-SECOND"),
+                text.contains("system"),
+                text.matches("\u{25a0} Cancelled").count(),
+                summary.is_some() && card.is_some() && summary < card,
+            ),
+            (
+                vec![
+                    Some("working".to_string()),
+                    Some("idle".to_string()),
+                    Some("done".to_string()),
+                    Some("idle".to_string()),
+                ],
+                false,
+                false,
+                1,
+                true,
+            ),
+            "the reports, the stopped turn's answer, a `system` line, the `Cancelled` lines, \
+             the first turn's summary above the second's card: {written:#?}"
+        );
+    }
+
+    #[test]
+    fn a_covered_start_read_after_a_settle_cleared_the_stop_is_still_the_stops() {
+        // The same schedule, but the runtime has also run the second turn to
+        // its end -- stopped, or finished before the stop reached it -- and
+        // given every place back before this side reads either: a settle
+        // between the first turn's end and the second's start finds nothing
+        // in hand and takes the stop back (`settle_band`). The start's number
+        // still says the stop covered it, and its end says what it came to,
+        // as upstream's interrupted segment does
+        // (`app_worker_runtime.zig:301-325@481104fd`): the stop's own end is
+        // quiet, a finish is a summary.
+        let mut got = Vec::new();
+        for (end, summaries) in [(Some(super::super::bridge::TURN_CANCELLED), 1), (None, 2)] {
+            let mut shell = stopped_after_the_runtime_took_the_next_prompt();
+            shell.apply(UiEvent::TurnEnded { failure: None });
+            shell.work.give_back();
+            shell.settle_band(Instant::now());
+            shell.apply(UiEvent::TurnStarted { submission: 2 });
+            shell.apply(UiEvent::TurnEnded {
+                failure: end.map(str::to_string),
+            });
+            shell.settle_band(Instant::now());
+            let written = shell.released();
+            let text = written.join("\n");
+            got.push((
+                end.is_some(),
+                text.contains("system"),
+                shell.activity.working(),
+                written.iter().filter(|row| row.starts_with("  0s")).count() == summaries,
+            ));
+        }
+        assert_eq!(
+            got,
+            [(true, false, false, true), (false, false, false, true)],
+            "each end: a `system` line, the activity row, the summaries"
+        );
+    }
+
+    #[test]
+    fn a_second_stop_while_the_first_is_requested_does_nothing() {
+        // Upstream's keystroke returns once its worker's cancel is requested
+        // (`if (app.worker.isCancelRequested()) return;`,
+        // `input_interrupt_runtime.zig:94@481104fd`), and the request stands
+        // until the worker takes the next item (`worker_runtime.zig:1512`):
+        // a second Ctrl-C after the first, with the stopped turn's end still
+        // unread, writes no second line and stops nothing more -- the prompt
+        // typed between the two still runs. After an automatic compaction's
+        // stop the same; after its failure the cancel was never requested, so
+        // the Ctrl-C is a stop of its own, with its line.
+        let now = Instant::now();
+        let mut shell = running("first");
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { through: 1 })
+        ));
+        shell.route_bytes(b"second\r");
+        shell.consume(vec![Input::Action(Action::Cancel)], now + EXIT_WINDOW);
+        let again = shell.controlled();
+        let written = shell.released().join("\n");
+        let mut got = vec![(
+            "a second stop",
+            written.matches("\u{25a0} Cancelled").count(),
+            again.is_some(),
+            shell.prompts.len(),
+        )];
+        for (feedback, label) in [
+            (compaction::Feedback::Cancelled, "after a compaction's stop"),
+            (compaction::Feedback::Failed, "after a compaction's failure"),
+        ] {
+            let mut shell = running("first");
+            shell.apply(UiEvent::Compaction(compaction::Update::Began {
+                automatic: true,
+            }));
+            if feedback == compaction::Feedback::Cancelled {
+                shell.consume(vec![Input::Action(Action::Cancel)], now);
+                let _ = shell.controlled();
+            }
+            shell.apply(UiEvent::Compaction(compaction::Update::Settled(feedback)));
+            shell.consume(vec![Input::Action(Action::Cancel)], now + EXIT_WINDOW);
+            let again = shell.controlled();
+            let written = shell.released().join("\n");
+            got.push((
+                label,
+                written.matches("\u{25a0} Cancelled").count(),
+                again.is_some(),
+                0,
+            ));
+        }
+        assert_eq!(
+            got,
+            [
+                ("a second stop", 1, false, 1),
+                ("after a compaction's stop", 0, false, 0),
+                ("after a compaction's failure", 1, true, 0),
+            ],
+            "each: the `Cancelled` lines, a stop sent again, the prompts still waiting"
+        );
+    }
+
     #[test]
     fn a_prompt_sent_while_the_last_answer_is_still_paced_out_is_reported_on_its_keystroke() {
         // Upstream does not hold a prompt as a pending submission while its
