@@ -6593,4 +6593,97 @@ mod tests {
         assert!(!plain(&changed).contains(&"\u{2502}  note: n1".to_string()));
         assert_eq!(record.arguments_wrapped.get(), 22, "after r1's changed");
     }
+
+    /// `railed` as 9681e9d8 wrote it -- `literal_drawn`'s loop then included --
+    /// before its rows were kept unpainted ([`Railed`]).
+    fn railed_as_it_was(text: &str, gutter: &str, cols: u16, palette: Palette) -> Vec<String> {
+        let rail = 1 + wrap::width(gutter);
+        let width = cols.saturating_sub(rail).max(1);
+        let dim = palette.dim();
+        let reset = palette.reset();
+        let mut rows = Vec::new();
+        for line in text.split('\n') {
+            let line = line.trim_end_matches('\r');
+            if line.is_empty() {
+                rows.push(clip(&format!("\u{2502}{dim}{gutter}{reset}"), cols).to_string());
+                continue;
+            }
+            let (laid, tabs) = super::super::prose::literal_layout(line, width, rail);
+            let mut next = 0usize;
+            for row in laid {
+                let wrap::Row { start, end, .. } = row;
+                let mut piece = String::with_capacity(end - start);
+                let mut written = start;
+                while let Some(&(at, cells)) = tabs.get(next) {
+                    if at >= end {
+                        break;
+                    }
+                    next += 1;
+                    if at < start {
+                        continue;
+                    }
+                    piece.push_str(&line[written..at]);
+                    piece.extend(std::iter::repeat_n(' ', cells));
+                    written = at + 1;
+                }
+                piece.push_str(&line[written..end]);
+                let piece = piece.trim_end_matches([' ', '\n']);
+                let piece = clip(piece, width);
+                rows.push(format!("\u{2502}{dim}{gutter}{piece}{reset}"));
+            }
+        }
+        rows
+    }
+
+    #[test]
+    fn rows_kept_unpainted_are_the_rows_railed_painted_at_once() {
+        // ARGROW-CACHE: an argument's rows are wrapped once and painted when
+        // shown, a row at a time; a command's are wrapped and painted at
+        // once. Both are what `railed` wrote before, at every width from one
+        // column -- a line with nothing on it, cut to a screen narrower than
+        // its rail and gutter, included.
+        const LIGHT: Palette = Palette { mode: Mode::Light };
+        let mut rng = wrap::corpus::Rng(0x5851_f42d_4c95_7f2d);
+        for round in 0..600 {
+            let runs = 1 + rng.below(20);
+            let mut text = rng.text(runs);
+            if round % 5 == 0 {
+                text = format!("note: \n\n{text}\n");
+            }
+            let gutter = if round % 2 == 0 { "  " } else { " " };
+            for cols in [1u16, 2, 3, 4, 7, 20, 41, 120] {
+                for palette in [DARK, LIGHT] {
+                    let was = railed_as_it_was(&text, gutter, cols, palette);
+                    assert_eq!(
+                        railed(&text, gutter, cols, palette),
+                        was,
+                        "{text:?} at {cols}"
+                    );
+                    let kept = Railed::new(Rc::from(text.as_str()), text.len(), gutter, cols);
+                    // Between rows of the entry's own and a heading's, as an
+                    // entry holds them.
+                    let mut rows = Rows::default();
+                    rows.push("header".into());
+                    rows.run(Run::Shared(Rc::new(vec!["h1".into(), "h2".into()])));
+                    rows.run(Run::Railed(Rc::new(kept), palette));
+                    rows.push("after".into());
+                    let mut whole: Vec<String> = ["header", "h1", "h2"].map(String::from).to_vec();
+                    whole.extend(was.iter().cloned());
+                    whole.push("after".into());
+                    assert_eq!(rows.len(), whole.len());
+                    assert_eq!(rows.to_vec(), whole, "{text:?} at {cols}, kept");
+                    // And any window of it.
+                    let from = rng.below(whole.len() + 1);
+                    let to = from + rng.below(whole.len() + 1 - from);
+                    let mut window = Vec::new();
+                    rows.copy(from, to, &mut window);
+                    assert_eq!(
+                        window,
+                        whole[from..to],
+                        "{text:?} at {cols}, rows {from}..{to}"
+                    );
+                }
+            }
+        }
+    }
 }
