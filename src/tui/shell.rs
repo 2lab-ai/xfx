@@ -9174,17 +9174,66 @@ impl Shell {
         self.stop_reads_end && !self.compaction_ended_turn
     }
 
-    /// A drain of the runtime's events is over (`super::event_loop`'s
-    /// `take_ui_events`). One that emptied the channel is upstream's batch:
-    /// answer text it read under a stop with no end of its turn behind it was
-    /// read while the stopped turn still ran, and upstream drops such a
-    /// batch's text (`cancelledEventAdmission`,
-    /// `app_worker_runtime.zig:339-389@481104fd`). One its bound cut short is
-    /// not: what is still on the channel is the same batch.
-    pub(crate) fn ui_events_taken(&mut self, emptied: bool) {
-        if emptied {
+    /// Takes the runtime's events through `drain` (`super::event_loop`'s
+    /// `take_ui_events`), which says whether it emptied the channel, and
+    /// settles what only a drain's end can.
+    ///
+    /// One that emptied the channel is upstream's batch: answer text it read
+    /// under a stop with no end of its turn behind it was read while the
+    /// stopped turn still ran, and upstream drops such a batch's text
+    /// (`cancelledEventAdmission`, `app_worker_runtime.zig:339-389@481104fd`).
+    /// One its bound cut short is not: what is still on the channel is the
+    /// same batch.
+    ///
+    /// **And one that began with nothing in hand has read every word of the
+    /// work that is over.** The runtime sends a piece of work's last event
+    /// before it gives that work's place back (`super::worker`'s `turn_loop`),
+    /// so the count is read here, before the drain: none in hand then means
+    /// every ending the runtime will send for what it held is already on the
+    /// channel, and a drain that emptied it has read them. Read after the
+    /// drain, or at the tick's settle, it says nothing of the sort -- the
+    /// place can be given back while the drain runs, with the ending behind
+    /// it.
+    pub(crate) fn take_ui_events(&mut self, drain: impl FnOnce(&mut Self) -> bool) {
+        let idle = self.work.outstanding() == 0;
+        if drain(self) {
             self.release_late(false);
+            if idle {
+                self.settle_unstarted_compaction();
+            }
         }
+    }
+
+    /// A compaction the user stopped before the runtime took it off the
+    /// queue never began, so the runtime never says how it ended: the stop
+    /// drops it and sends nothing (`super::worker`'s `Queue::abandon`). It is
+    /// over, cancelled -- once a drain has read every ending the runtime did
+    /// send ([`Self::take_ui_events`]), so one still stopping then is one of
+    /// these. Upstream's worker settles the queued compaction it drops itself
+    /// (`cancelContextCompaction`,
+    /// `src/core/agent/worker_runtime.zig:1002-1021@481104fd`), and a settle
+    /// reaches only an operation that is still running (`State.settle`,
+    /// `src/core/output/compaction_activity.zig:118-120@481104fd`), so nothing
+    /// said after the next line brings the sentence back (`dismiss`,
+    /// `:129-137`). Told any earlier, this was a guess the runtime's own ending
+    /// could follow: after the line that took the sentence away, it put the
+    /// sentence back, or settled the `/compact` typed next.
+    fn settle_unstarted_compaction(&mut self) {
+        let Some(compaction) = self
+            .compaction
+            .as_mut()
+            .filter(|compaction| compaction.stopped())
+        else {
+            return;
+        };
+        compaction.settle(compaction::Feedback::Cancelled, Instant::now());
+        if !compaction.automatic() {
+            self.program_status
+                .compaction(program_status::of_compaction(
+                    compaction::Feedback::Cancelled,
+                ));
+        }
+        self.render.request(Reason::Footer);
     }
 
     /// A tool row's mark, in its place in the turn: behind what
@@ -10469,25 +10518,9 @@ impl Shell {
             self.compaction_ended_turn = false;
             self.cancel_owed = None;
         }
-        // The same for a compaction the user stopped before the runtime took it
-        // off the queue: it never began, so it never says how it ended. Once
-        // nothing is in hand it is over, cancelled -- and an ending the runtime
-        // did send, a moment late, still replaces this one
-        // ([`Self::compaction_update`]).
-        if self.work.outstanding() == 0 {
-            if let Some(compaction) = self.compaction.as_mut() {
-                if compaction.stopped() {
-                    compaction.settle(compaction::Feedback::Cancelled, now);
-                    if !compaction.automatic() {
-                        self.program_status
-                            .compaction(program_status::of_compaction(
-                                compaction::Feedback::Cancelled,
-                            ));
-                    }
-                    self.render.request(Reason::Footer);
-                }
-            }
-        }
+        // A compaction the user stopped is not over here, even with nothing in
+        // hand: its ending can still be on the channel
+        // ([`Self::settle_unstarted_compaction`]).
         let armed = self.gestures.escape_armed(now);
         if armed != self.escape_armed {
             self.escape_armed = armed;
@@ -11538,9 +11571,8 @@ impl Shell {
                 let automatic = self.compaction.as_ref().is_some_and(Compaction::automatic);
                 // A manual one's result, once: upstream notes each operation's
                 // terminal phase a single time (`noteCompaction`,
-                // `program_status.zig:80-96`), and one this session already
-                // settled -- stopped before the runtime took it -- has had its
-                // say. An automatic one belongs to its turn's outcome.
+                // `program_status.zig:80-96`), and one already settled has had
+                // its say. An automatic one belongs to its turn's outcome.
                 let running = self.compaction.as_ref().is_none_or(Compaction::active);
                 if !automatic && running {
                     self.program_status
@@ -43304,7 +43336,8 @@ mod tests {
     #[test]
     fn a_compaction_stopped_before_the_runtime_took_it_ends_cancelled() {
         // Dropped from the queue by the cancel, it never says how it ended:
-        // once nothing is in hand, it is over.
+        // it is over once a drain that began with nothing in hand has emptied
+        // the channel -- the loop's next drain ([`Shell::take_ui_events`]).
         let mut shell = with_a_turn();
         shell.route_bytes(b"/compact\r");
         shell.route_bytes(&[0x03]);
@@ -43312,6 +43345,51 @@ mod tests {
         shell.work.give_back();
         assert_eq!(
             compaction_row(&mut shell, Instant::now()).as_deref(),
+            Some("\u{2022} Stopping compaction (0s)"),
+            "a tick's settle is not a drain"
+        );
+        shell.take_ui_events(|_| true);
+        assert_eq!(
+            compaction_row(&mut shell, Instant::now()).as_deref(),
+            Some("Compaction cancelled. Try /compact again when ready.")
+        );
+    }
+
+    #[test]
+    fn a_stopped_compaction_is_over_only_after_a_drain_that_began_with_nothing_in_hand_emptied() {
+        // The runtime sends a compaction's ending before it gives the place
+        // back (`turn_loop`), so only the count read before a drain says that
+        // an ending, if one was sent, was on the channel the drain emptied.
+        let mut shell = with_a_turn();
+        shell.route_bytes(b"/compact\r");
+        let _ = shell.picks_up();
+        shell.route_bytes(&[0x03]);
+        let now = Instant::now();
+        let stopping = Some("\u{2022} Stopping compaction (0s)");
+        // The place given back while a drain reads: the ending can be behind
+        // what the drain emptied.
+        shell.take_ui_events(|shell| {
+            shell.work.give_back();
+            true
+        });
+        assert_eq!(
+            compaction_row(&mut shell, now).as_deref(),
+            stopping,
+            "given back during the drain"
+        );
+        // Nothing in hand as it began, and cut short by its bound: the ending
+        // can be behind what it read.
+        shell.take_ui_events(|_| false);
+        assert_eq!(
+            compaction_row(&mut shell, now).as_deref(),
+            stopping,
+            "a drain cut short"
+        );
+        // Nothing in hand as it began, and the channel emptied: no ending is
+        // coming.
+        shell.take_ui_events(|_| true);
+        assert_eq!(
+            compaction_row(&mut shell, now).as_deref(),
             Some("Compaction cancelled. Try /compact again when ready.")
         );
     }
