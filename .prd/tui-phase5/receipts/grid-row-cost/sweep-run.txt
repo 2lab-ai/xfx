@@ -1,0 +1,19 @@
+# base: build in sw-base at fdc5ac0b, exit 0; xfx sha256 f00b2fec2b56f22b710f33fe64e471b86dee8d82f2b20077e14964b285e967d3
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 36.82
+# base: sweep exit 0, 1414 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 2.78
+[149/151] fx p5-ctrlo-wider-ri: ran (3s)
+[150/151] xfx p5-ctrlo-wider-ri: ran (4s)
+[151/151] fx (inventory): ran (30s)
+pass = 228 / 340 = 67.1%; unresolved 98, failed 0, timeout 0
+wrote <out>/scoreboard.md
+base exit 0
+# head: build in sw-head at 50a099b2, exit 0; xfx sha256 6598ec4a08ce27bcd8a7f37d8e91333898ef3e0acb875561515cd22488c522c9
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 4.29
+# head: sweep exit 0, 1410 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 37.33
+[149/151] xfx p5-ctrlo-wider-inline: ran (4s)
+[150/151] xfx p5-ctrlo-wider-ri: ran (4s)
+[151/151] fx (inventory): ran (32s)
+pass = 228 / 340 = 67.1%; unresolved 98, failed 0, timeout 0
+wrote <out>/scoreboard.md
+head exit 0
+wrapper exit 0

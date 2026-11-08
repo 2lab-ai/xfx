@@ -1,0 +1,63 @@
+# PR #82's CI run 42485857189, job gate (x86_64-apple-darwin) (53m06s): its step timings (gh run view --json jobs)
+# and the lines of its log for the step "The output check still fits inside a frame's budget"
+# (scripts/check-tui-preflight-cost.sh). The log's timestamps are where the script printed; it captures cargo's
+# output whole and prints the measurement lines after each cargo test returns, so a build and its two tests are
+# one interval: default features 14:03:42.60 -> 14:13:48.74 (10 m 06 s), fault injection 14:13:48.76 -> 14:21:13.06
+# (7 m 24 s). The two tests' own figures are the lines below (each preflight under 10 ms).
+
+2026-11-08T13:37:44Z  2026-11-08T13:37:47Z  Set up job
+2026-11-08T13:37:47Z  2026-11-08T13:38:03Z  Check out the exact commit
+2026-11-08T13:38:03Z  2026-11-08T13:38:04Z  Confirm the checkout is the commit under test
+2026-11-08T13:38:04Z  2026-11-08T13:38:39Z  Install the pinned toolchain
+2026-11-08T13:38:39Z  2026-11-08T13:38:39Z  Confirm the runner really is this target
+2026-11-08T13:38:39Z  2026-11-08T13:38:47Z  Formatting
+2026-11-08T13:38:47Z  2026-11-08T13:42:01Z  Lints
+2026-11-08T13:42:01Z  2026-11-08T13:51:03Z  Tests
+2026-11-08T13:51:03Z  2026-11-08T14:00:14Z  Tests, with the fault injector
+2026-11-08T14:00:14Z  2026-11-08T14:00:55Z  No stubs, and the parity ledger reconciles
+2026-11-08T14:00:55Z  2026-11-08T14:03:32Z  No credentials in tracked files
+2026-11-08T14:03:32Z  2026-11-08T14:03:32Z  No gate takes its options, repository or config from the environment
+2026-11-08T14:03:32Z  2026-11-08T14:03:36Z  One product name in tracked files
+2026-11-08T14:03:36Z  2026-11-08T14:03:42Z  The preview publication contract holds
+2026-11-08T14:03:42Z  2026-11-08T14:03:42Z  The preview contract catches every mutant it exists for
+2026-11-08T14:03:42Z  2026-11-08T14:21:13Z  The output check still fits inside a frame's budget
+2026-11-08T14:21:13Z  2026-11-08T14:21:15Z  A release build ignores the pinned usage clock
+2026-11-08T14:21:15Z  2026-11-08T14:24:02Z  Release build
+2026-11-08T14:24:02Z  2026-11-08T14:24:05Z  Smoke the release binary
+2026-11-08T14:24:05Z  2026-11-08T14:24:05Z  Keep the smoke evidence of a failed run
+2026-11-08T14:24:05Z  2026-11-08T14:29:08Z  Build the binary the restoration matrix drives
+2026-11-08T14:29:08Z  2026-11-08T14:30:42Z  Smoke the TUI on a real terminal
+2026-11-08T14:30:42Z  2026-11-08T14:30:42Z  Keep the TUI evidence of a failed run
+2026-11-08T14:30:42Z  2026-11-08T14:30:45Z  Post Check out the exact commit
+2026-11-08T14:30:45Z  2026-11-08T14:30:46Z  Complete job
+
+2026-11-08T14:03:42.5439200Z ##[group]Run ./scripts/check-tui-preflight-cost.sh
+2026-11-08T14:03:42.5440570Z ^[[36;1m./scripts/check-tui-preflight-cost.sh^[[0m
+2026-11-08T14:03:42.6049400Z check-tui-preflight-cost: measuring (default features)
+2026-11-08T14:13:48.7425460Z preflight 24x80 unchanged: 0 bytes in 152.644µs mean, 134.896µs min, 139.877µs median, 383.052µs max (budget 8 ms)
+2026-11-08T14:13:48.7429740Z preflight 24x80 sparse: 26 bytes in 148.642µs mean, 108.27µs min, 147.705µs median, 206.558µs max (budget 8 ms)
+2026-11-08T14:13:48.7432970Z preflight 24x80 full: 2055 bytes in 310.475µs mean, 297.841µs min, 307.157µs median, 355.173µs max (budget 8 ms)
+2026-11-08T14:13:48.7436620Z preflight 24x80 scroll: 8 bytes in 137.417µs mean, 134.813µs min, 135.781µs median, 152.84µs max (budget 8 ms)
+2026-11-08T14:13:48.7439220Z preflight 24x80 update: 2815 bytes in 184.442µs mean, 173.777µs min, 181.405µs median, 219.084µs max (budget 8 ms)
+2026-11-08T14:13:48.7441700Z preflight 200x300 unchanged: 0 bytes in 4.931495ms mean, 4.151092ms min, 4.862553ms median, 6.746892ms max (budget 32 ms)
+2026-11-08T14:13:48.7444290Z preflight 200x300 sparse: 27 bytes in 4.382503ms mean, 3.725082ms min, 4.563561ms median, 5.117119ms max (budget 32 ms)
+2026-11-08T14:13:48.7446850Z preflight 200x300 full: 61292 bytes in 8.70731ms mean, 7.283182ms min, 8.663936ms median, 9.678086ms max (budget 32 ms)
+2026-11-08T14:13:48.7449370Z preflight 200x300 scroll: 9 bytes in 4.093889ms mean, 3.48379ms min, 4.047576ms median, 4.739761ms max (budget 32 ms)
+2026-11-08T14:13:48.7452220Z preflight 200x300 update: 85420 bytes in 5.728005ms mean, 4.749058ms min, 5.999022ms median, 6.531598ms max (budget 32 ms)
+2026-11-08T14:13:48.7454970Z replay 24x80 1000 rows: 26000 bytes in 1.556171ms mean, 1.368686ms min, 1.50558ms median, 2.048812ms max (budget 8 ms)
+2026-11-08T14:13:48.7458150Z replay 200x300 1000 rows: 28000 bytes in 5.604771ms mean, 4.618489ms min, 5.449292ms median, 6.896665ms max (budget 32 ms)
+2026-11-08T14:13:48.7600940Z check-tui-preflight-cost: measuring (fault injection)
+2026-11-08T14:21:13.0630090Z preflight 24x80 unchanged: 0 bytes in 148.312µs mean, 138.732µs min, 139.797µs median, 296.325µs max (budget 8 ms)
+2026-11-08T14:21:13.0635520Z preflight 24x80 sparse: 26 bytes in 132.254µs mean, 108.439µs min, 135.886µs median, 153.872µs max (budget 8 ms)
+2026-11-08T14:21:13.0650370Z preflight 24x80 full: 2055 bytes in 281.729µs mean, 229.896µs min, 287.602µs median, 320.464µs max (budget 8 ms)
+2026-11-08T14:21:13.0668360Z preflight 24x80 scroll: 8 bytes in 134.07µs mean, 106.678µs min, 139.027µs median, 158.23µs max (budget 8 ms)
+2026-11-08T14:21:13.1068960Z preflight 24x80 update: 2815 bytes in 145.27µs mean, 115.978µs min, 143.266µs median, 178.188µs max (budget 8 ms)
+2026-11-08T14:21:13.1074710Z preflight 200x300 unchanged: 0 bytes in 4.708369ms mean, 4.098035ms min, 4.566954ms median, 6.754234ms max (budget 32 ms)
+2026-11-08T14:21:13.1078400Z preflight 200x300 sparse: 27 bytes in 4.969519ms mean, 4.548512ms min, 5.046254ms median, 5.32864ms max (budget 32 ms)
+2026-11-08T14:21:13.1082580Z preflight 200x300 full: 61292 bytes in 9.652624ms mean, 8.287479ms min, 9.928892ms median, 10.651892ms max (budget 32 ms)
+2026-11-08T14:21:13.1092260Z preflight 200x300 scroll: 9 bytes in 5.291766ms mean, 5.027629ms min, 5.159732ms median, 6.640214ms max (budget 32 ms)
+2026-11-08T14:21:13.1102220Z preflight 200x300 update: 85420 bytes in 10.065185ms mean, 5.1976ms min, 7.333806ms median, 25.253451ms max (budget 32 ms)
+2026-11-08T14:21:13.1106640Z replay 24x80 1000 rows: 26000 bytes in 2.335797ms mean, 2.151589ms min, 2.332694ms median, 2.536253ms max (budget 8 ms)
+2026-11-08T14:21:13.1111970Z replay 200x300 1000 rows: 28000 bytes in 7.466323ms mean, 6.980768ms min, 7.50787ms median, 8.046844ms max (budget 32 ms)
+2026-11-08T14:21:13.1153620Z check-tui-preflight-cost: ok
+2026-11-08T14:21:13.3616100Z ##[group]Run ./scripts/check-usage-clock.sh
