@@ -15985,6 +15985,32 @@ mod tests {
     }
 
     #[test]
+    fn the_rows_painted_are_kept_from_one_at_word_to_the_next_and_only_the_lists_frames_set_them() {
+        // fx keeps the painted rows in the picker's state for the session
+        // (`visible_rows`, `file_completion_state.zig:106-108`; only `deinit`
+        // resets it) and sets them only from a frame that showed the file
+        // picker (`picker_kind == .file`, `app_render_runtime.zig:1854-1857`).
+        // So after the list's ten rows, a slash menu's frame, and an `@` word
+        // typed again with twelve Downs in the same read, before any frame:
+        // the twelve scroll ten rows, and the window is on 4-13.
+        let mut list = AtList::open(40, 120);
+        list.keys(b"\x15");
+        assert!(
+            at_rows(&list.shell).is_empty(),
+            "C-u did not close the list"
+        );
+        list.keys(b"/");
+        assert!(list.shell.geometry.panel > 0, "no slash menu");
+        assert_ne!(
+            list.shell.geometry.panel, 10,
+            "a slash menu as tall as the list proves nothing"
+        );
+        let mut typed = b"\x15@f-".to_vec();
+        typed.extend(DOWN.repeat(12));
+        assert_eq!(list.keys(&typed), at_window(4, 13, 13));
+    }
+
+    #[test]
     fn the_frame_that_gives_the_plane_back_is_one_the_at_lists_arrows_scroll() {
         // Ctrl-O over the `@` list, a resize while the transcript is up, and
         // Ctrl-O again: the frame that gives the plane back paints the band,
