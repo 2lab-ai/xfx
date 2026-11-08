@@ -683,6 +683,15 @@ class Server:
     def lines(self):
         return slurp(self.log_path)
 
+    def wait_for(self, text, timeout=10):
+        """Until a line holding `text` is in the log: a request is logged
+        when it is answered, which load can put off."""
+        end = time.time() + timeout
+        while text not in self.lines():
+            if time.time() > end:
+                raise AssertionError("no %r in %d s: %s" % (text, timeout, self.lines()))
+            time.sleep(0.05)
+
     def ask(self, method, path, body=None, headers=None, timeout=5):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=timeout)
         try:
@@ -784,7 +793,7 @@ class FakeGateway(unittest.TestCase):
         self.assertTrue(self.quiet(s), "held: nothing after the second event")
         self.assertNotIn(b'"delta":"cc"', got)
         self.assertIn("hold 1 after 2 event(s)", g.lines())
-        write(release, "release\n")
+        swap(release, "release\n")
         rest = self.read_until(s, b"[DONE]")
         self.assertIn(b'"delta":"cc"', rest)
         self.assertIn(b'"type":"finish"', rest)
@@ -794,7 +803,7 @@ class FakeGateway(unittest.TestCase):
         self.read_until(s, b'"delta":"next"')
         self.assertTrue(self.quiet(s), "held: nothing after the first event")
         self.assertIn("hold 2 after 1 event(s)", g.lines())
-        write(release, "release\n", "a")
+        swap(release, slurp(release) + "release\n")
         self.assertIn(b'"delta":"last"', self.read_until(s, b"[DONE]"))
         self.assertIn("release 2", g.lines())
 
@@ -920,7 +929,7 @@ class FakeGateway(unittest.TestCase):
         for path in ("/coding-agent/v1/models", "/coding-agent/v1/credits", "/v1/generation?id=g", "/codex/models", "/unknown?k=v"):
             g.ask("GET", path, headers=sent)
         # A bare status is that status and no rows, on the report too.
-        write(usage, json.dumps({"/v1/report": {"status": 429, "delayMs": 100}}))
+        swap(usage, json.dumps({"/v1/report": {"status": 429, "delayMs": 100}}))
         status, _, body = g.ask("GET", today, headers=sent)
         self.assertEqual((status, body), (429, b"fake status 429"))
         status, _, _ = g.ask("POST", "/v4/ai/language-model", body=json.dumps({"prompt": []}), headers=dict(sent, **{"content-type": "application/json"}))
@@ -993,9 +1002,9 @@ class McpHttp(unittest.TestCase):
         s = self.server("hang")
         with self.assertRaises(socket.timeout):
             s.ask("POST", "/mcp", body='{"jsonrpc":"2.0","id":1,"method":"ping"}', timeout=0.8)
-        write(self.mode, "ready\n")
+        swap(self.mode, "ready\n")
         self.assertEqual(self.rpc(s, "ping", 2)[2], {"jsonrpc": "2.0", "id": 2, "result": {}})
-        time.sleep(0.2)
+        s.wait_for("rpc=ping id=1 ")
         self.assertRegex(s.lines(), r"rpc=ping id=1 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200")
 
     def test_a_held_request_reads_past_a_mode_file_caught_empty(self):
@@ -1011,17 +1020,14 @@ class McpHttp(unittest.TestCase):
         open(self.mode, "w").close()
         time.sleep(0.4)
         swap(self.mode, "ready\n")
-        end = time.time() + 10
-        while "rpc=ping id=1 " not in s.lines():
-            self.assertLess(time.time(), end, s.lines())
-            time.sleep(0.05)
+        s.wait_for("rpc=ping id=1 ")
         self.assertRegex(s.lines(), r"rpc=ping id=1 session=no version=- mcp-method=- mcp-name=- mode=ready -> 200")
         self.assertNotIn("unknown(", s.lines())
 
     def test_fail_and_rpcerror(self):
         s = self.server("fail")
         self.assertEqual(s.ask("POST", "/mcp", body='{"jsonrpc":"2.0","id":1,"method":"initialize"}')[0::2], (500, b"fixture failing"))
-        write(self.mode, "rpcerror\n")
+        swap(self.mode, "rpcerror\n")
         self.assertEqual(self.rpc(s, "initialize", 2)[2]["error"], {"code": -32603, "message": "fixture refuses"})
         self.assertEqual(self.rpc(s, "notifications/initialized")[0], 202)
 
@@ -1064,7 +1070,7 @@ class McpHttp(unittest.TestCase):
         self.assertIsInstance(body["result"], str)
         self.assertIn("\x1b]0;", body["result"])
         self.assertEqual(self.rpc(s, "initialize", 2, {"protocolVersion": "2025-11-25"})[2]["result"]["protocolVersion"], "2025-11-25")
-        write(self.mode, "hostile\n")
+        swap(self.mode, "hostile\n")
         result = self.rpc(s, "server/discover", 3)[2]["result"]
         self.assertEqual(result["resultType"], "complete")
         self.assertNotIn("2026-07-28", [v for v in result["supportedVersions"]])
@@ -1074,7 +1080,7 @@ class McpHttp(unittest.TestCase):
 
     def test_the_sse_modes_answer_discover_on_an_event_stream(self):
         def events(mode):
-            write(self.mode, mode + "\n")
+            swap(self.mode, mode + "\n")
             msg = {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}}
             c = http.client.HTTPConnection("127.0.0.1", s.port, timeout=5)
             try:
@@ -1099,7 +1105,7 @@ class McpHttp(unittest.TestCase):
         # Anything but discover is the mode's plain server, and a mode that is
         # no SSE mode answers discover as before.
         self.assertEqual(self.rpc(s, "initialize", 2, {"protocolVersion": "2025-11-25"})[2]["result"]["protocolVersion"], "2025-11-25")
-        write(self.mode, "ready\n")
+        swap(self.mode, "ready\n")
         self.assertEqual(self.rpc(s, "server/discover", 3)[0::2], (404, None))
 
 

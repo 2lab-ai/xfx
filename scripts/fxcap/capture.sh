@@ -686,7 +686,7 @@ case \$2 in
     if [ "\$1" = "-e" ] && [ -f "$run/clipimage" ]; then
       out=\${2#*POSIX file \\"}
       out=\${out%%\\"*}
-      cat "$run/clipimage" > "\$out"
+      cp "$run/clipimage" "\$out" 2>/dev/null
     fi
     exit 0
     ;;
@@ -769,7 +769,11 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
           sleep 0.05
         done
         grep -m1 "^\[fakegw\] hold $holds after " "$run/gateway.log" ;;
-      release) echo release >> "$run/gw-release" ;;
+      # Every file a verb changes while something reads it is renamed into
+      # place, never rewritten: a reader finds it old or new, whole
+      # (FLAKE-MCPMODE, registry #19; test_capture.py
+      # test_a_file_a_verb_changes_mid_run_is_replaced_whole).
+      release) { cat "$run/gw-release" 2>/dev/null || true; echo release; } > "$run/gw-release.tmp"; mv -f "$run/gw-release.tmp" "$run/gw-release" ;;
       until)
         local cond=${rest%% *} text=${rest#* } screen on seen='' looks=0 began=$SECONDS
         : > "$run/until"
@@ -948,7 +952,9 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         esac
         echo "signal SIG$sig -> pid $pid: ${state}$dead"
         ;;
-      clock) (umask 077 && printf '%s\n' "$rest" > "$run/home/.fxcap-usage-clock") ;;
+      # Renamed into place, owner-only: the binary reads its clock whenever
+      # it asks the time, and a file caught empty is the system clock to it.
+      clock) (umask 077 && printf '%s\n' "$rest" > "$run/clock.tmp") && mv -f "$run/clock.tmp" "$run/home/.fxcap-usage-clock" ;;
       usage)
         # Renamed into place, so fakegw never reads a file half written.
         case $rest in
@@ -981,7 +987,7 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
       clipimage)
         case $rest in
           off) rm -f "$run/clipimage" ;;
-          *) cp "$scenarios/$rest" "$run/clipimage" ;;
+          *) cp "$scenarios/$rest" "$run/clipimage.tmp"; mv -f "$run/clipimage.tmp" "$run/clipimage" ;;
         esac
         ;;
       clipfile)
