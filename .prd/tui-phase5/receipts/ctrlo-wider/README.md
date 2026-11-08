@@ -394,7 +394,39 @@ code) and on `9730ac86`'s code, scored with the ledger at `aab52c47`. Pass:
 - `h1-resize` `small` and `large`, and `inline-fam` `resized`: unresolved,
   the cause `resize-document-repaint` (RESIZE-REPAINT) on all three.
 
-**Gates** (`gates-f.txt`): below, the commit after this one.
+**Gates** (`gates-f.txt`) at `b69d8023`, the tree clean, CI's steps one
+at a time, the two full suites and smoke-tui under `suite-lock.sh`: every
+one exits 0.
+
+| gate | exit | s |
+|---|---|---|
+| fmt | 0 | 2 |
+| clippy | 0 | 27 |
+| clippy-fault | 0 | 20 |
+| test | 0 | 210 |
+| test-fault | 0 | 204 |
+| identity | 0 | 1 |
+| no-stubs | 0 | 13 |
+| no-secrets | 0 | 28 |
+| preview-contract | 0 | 7 |
+| preflight-cost | 0 | 136 |
+| usage-clock | 0 | 5 |
+| test-no-secrets | 0 | 116 |
+| test-gate-env | 0 | 110 |
+| test-preview-contract | 0 | 56 |
+| test-sweep | 0 | 31 |
+| test-capture | 0 | 428 |
+| release | 0 | 19 |
+| faulty | 0 | 53 |
+| smoke | 0 | 10 |
+| smoke-tui | 0 | 76 |
+
+`cargo test`: 15 binaries, 5,291 passed, 0 failed, 7 ignored; with
+`fault-injection`, 5,328 passed, 0 failed, 7 ignored (two more than at
+`ad2a4d1d`: the label test and the pty test). `smoke.sh`: 47 checks, 0
+failures. `smoke-tui.sh`: 37 scenarios and the oracle, 1,127 checks, 0
+failures. `test-capture.sh`: 59 tests, OK. `test-sweep.sh` passes, so
+`capfile.races` finds no snap racing a timer in the repo's scenarios.
 
 ## fx's count, read at the pin
 
