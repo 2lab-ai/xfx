@@ -227,7 +227,7 @@ the suite lock.
 
 Every CI step, in a `--no-local` clone at `ee0959a7` (the last commit that
 touches code or tests), the whole run in one hold of the suite lock, with
-`TMPDIR=/private/tmp/claude-501/at-height`. **20 steps, 0 failed**, the tree
+`TMPDIR=<scratch>/at-height`. **20 steps, 0 failed**, the tree
 clean before and after:
 - fmt, clippy, and clippy with fault injection;
 - `cargo test`: 5457 passed, 0 failed. With fault injection: 5494 passed,

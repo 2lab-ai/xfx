@@ -1,4 +1,4 @@
-# suite-lock.sh gates.sh <clone at ee0959a7> <logs> <smoke> -- in a --no-local clone, TMPDIR=/private/tmp/claude-501/at-height
+# suite-lock.sh gates.sh <clone at ee0959a7> <logs> <smoke> -- in a --no-local clone, TMPDIR=<scratch>/at-height
 # head ee0959a7; tree clean: yes
 01 fmt                                exit 0     1s  load 5.08
 02 clippy                             exit 0    34s  load 4.99
