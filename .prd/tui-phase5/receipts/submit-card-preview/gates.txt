@@ -30,3 +30,8 @@ exit 0
 04 test: 5451 passed, 0 failed, 7 ignored
 06 test-fault-lib: 4558 passed, 0 failed, 7 ignored
 05 test-fault-tui: 195 passed, 0 failed, 0 ignored
+
+# on f01edee2 (docs-only commits after be6fd7f9), outside the lock
+check-no-secrets rc=0 41s
+check-no-stubs rc=0 9s
+check-xfx-identity rc=0 1s
