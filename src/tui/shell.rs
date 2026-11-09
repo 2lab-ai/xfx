@@ -35650,6 +35650,61 @@ mod tests {
     }
 
     #[test]
+    fn a_walk_a_change_of_roots_stopped_counts_as_whole_once_it_is_over() {
+        // Round 10 (opus r9 MUST): fx does not stop a running walk on a change
+        // of scope -- `refreshOwnedRoots` only queues the new roots behind it
+        // (`file_index.zig:488-497`, `:511-524@481104fd`) -- so that walk runs
+        // on and is adopted when whole (`joinThreadIfDone`, `:425`), and the
+        // index is `.ready` from then on. xfx stops it, and in xfx's model the
+        // stopped walk is over at the next poll: from then on it counts as
+        // whole. So: A's walk held, B installed, a poll (B's walk running),
+        // then the session's first `@`: it refreshes, queued behind B's walk.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_a, _path, first) = extra_with_plan(&shell);
+        let (_b, _path, other) = extra_with_plan(&shell);
+        let walks = shell.files_for_test().walks_for_test();
+        adopt(&mut shell, first);
+        let _a_walk = super::super::file_index::tests::driven(shell.files_for_test());
+        adopt(&mut shell, other);
+        shell.settle_band(Instant::now());
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 2);
+        let b_walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.route_bytes(b"@plan");
+        b_walk
+            .send(super::super::file_index::Published::Ready)
+            .expect("the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 3,
+            "the first episode skipped its refresh after the stopped walk was over"
+        );
+    }
+
+    #[test]
+    fn a_first_at_before_the_poll_that_ends_a_stopped_walk_coalesces() {
+        // The same, with the `@` before the poll: in fx the stopped walk is
+        // still loading, so the first episode skips; in xfx a refresh then is
+        // queued anyway, beside the change's own. Either way, two walks.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_a, _path, first) = extra_with_plan(&shell);
+        let (_b, _path, other) = extra_with_plan(&shell);
+        let walks = shell.files_for_test().walks_for_test();
+        adopt(&mut shell, first);
+        let _a_walk = super::super::file_index::tests::driven(shell.files_for_test());
+        adopt(&mut shell, other);
+        shell.route_bytes(b"@plan");
+        shell.settle_band(Instant::now());
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 2);
+        let b_walk = super::super::file_index::tests::driven(shell.files_for_test());
+        b_walk
+            .send(super::super::file_index::Published::Ready)
+            .expect("the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 2);
+    }
+
+    #[test]
     fn an_equal_access_changes_nothing_even_where_its_directory_is_gone() {
         // Round 8 (opus r7 note): fx does nothing when `eql` holds
         // (`install`, `app_workspace_runtime.zig:134-141@481104fd`). xfx's
