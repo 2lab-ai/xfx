@@ -516,10 +516,12 @@ class RootsRewrite(unittest.TestCase):
         got = roots.rewrite(b"x /tmp/a b/notes\n", rules)[0]
         self.assertEqual(got, b"x " + P("tmp", spaced).encode() + b"/notes\n")
         self.assertEqual(roots.survivors(got, rules, None), [])
-        # Two runs, broken at either one: the view drops that run whole and
-        # keeps the other, so each run is read present and absent.
+        # Two runs, broken at either one or at both (over three rows): the
+        # view drops each run a row's edge fell beside, whole, and keeps the
+        # rest, so each run is read present and absent.
         rules = roots.rules_for([("/tmp/a b c", "tmp")])
-        for data in (b"x /tmp/a \nb c/notes\n", b"x /tmp/a b \nc/notes\n", b"x /tmp/a  \n  \xe2\x94\x82 b c\n"):
+        for data in (b"x /tmp/a \nb c/notes\n", b"x /tmp/a b \nc/notes\n", b"x /tmp/a  \n  \xe2\x94\x82 b c\n",
+                     b"x /tmp/a \nb \nc/notes\n"):
             with self.subTest(data=data):
                 self.assertEqual(roots.survivors(roots.rewrite(data, rules)[0], rules, None), ["tmp"])
         got = roots.rewrite(b"x /tmp/a b c\n", rules)[0]
