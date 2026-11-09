@@ -96,6 +96,10 @@ mod build_meta;
 #[cfg(test)]
 mod test_net;
 
+/// What a unit test has in place of the process environment.
+#[cfg(test)]
+mod test_env;
+
 #[cfg(test)]
 mod tests {
     use super::*;
