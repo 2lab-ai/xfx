@@ -8,7 +8,9 @@ a file in this folder.
 |---|---|
 | `7d6b552a` | the harness (`fakegw.ts`, `capture.sh`), its tests, the eight scenarios, the ledger -- the code head; the GREEN sweeps' xfx binary was built here (banner `v0.1.0-7d6b552`, `green/run-*-scoreboard.md`) |
 | `80cdb3dc` | this receipt, but for the gate's files -- the gate's head |
-| the next commit | `gates.txt`, `gate-counts.txt`, `gate_counts.sh`, the stop-in-catalog-wait line of `states.py`, this README's last edits |
+| `20c7fbd9` | `gates.txt`, `gate-counts.txt`, `gate_counts.sh`, the stop-in-catalog-wait line of `states.py`, this README's edits -- round 1's head |
+| `476829ad` | round 2: the column scenarios release the catalog after `until shown unable to load models`; `model-column-reask` `col-held`; `model-parked`'s comment -- round 2's code head (§ Round 2) |
+| the next commit | round 2's receipt |
 
 ## The gap
 
@@ -21,8 +23,13 @@ a file in this folder.
   sees the first frame: `probe.patch`, `probe-up.cap`): in 6 of 6 runs, 3 a
   binary, the launch's catalog read came **45 to 131 ms before the first
   frame**, while the first frame itself came 1.5 to 11.9 s after the gateway
-  started (one xfx took 8.80 s to draw). So a scenario line is a fixed
-  distance from the launch read; a gateway millisecond is not.
+  started (one xfx took 8.80 s to draw). So the launch read came before the
+  first frame in 6 of 6 runs, within 45 to 131 ms of it, while its distance
+  from the gateway's start ran over seconds. A scenario line counts from the
+  first frame; the change removes the outage's dependence on how long the
+  gateway was up before the launch. It does not make scheduling fixed: under
+  load a line can still run late, which the scenarios below allow for where
+  it matters (`until shown`, the holds' margins).
 - **RED, the old forms on the base** (`sweeps.sh` x5 under the suite lock,
   `red/`; binary banner `v0.1.0-3be49c1`):
   - `red-verdicts.txt`: **3 of 25 pairs flipped** in 5 sweeps --
@@ -65,8 +72,8 @@ a file in this folder.
 
 | scenario | what its snaps show (GREEN) | form | RED flips | GREEN flips; asks, both binaries, every run |
 |---|---|---|---|---|
-| `model-column-idle` | `col-down` the column over the failure; `col-idle`, 11 s on and past the column read's 10 s hold, still the failure (idle: no frame asks); `col-typed` a keystroke's frame reads the rows | `modelsup` after `col-down`; `wait 6` -> `wait 11`; `until shown gpt-6-astra` for `col-typed` | 0 (failure never on screen) | 0; 503 503 200 |
-| `model-column-reask` | `col-down` the failure while a turn streams; `col-back` the rows, read by the animated column's first frame past the hold | `modelsup` after `col-down`; `until shown gpt-6-astra` for `col-back` | 0 (failure never on screen) | 0; 503 503 200 |
+| `model-column-idle` | `col-down` the column over the failure; `col-idle`, 11 s on and past the column read's 10 s hold, still the failure (idle: no frame asks); `col-typed` a keystroke's frame reads the rows | `modelsup` after `col-down` (round 2: after `until shown unable to load models`); `wait 6` -> `wait 11`; `until shown gpt-6-astra` for `col-typed` | 0 (failure never on screen) | 0; 503 503 200 (round 2: the same, 5 of 5) |
+| `model-column-reask` | `col-down` the failure while a turn streams; round 2's `col-held`, 3 s after the release and inside the column read's 10 s hold, still the failure; `col-back` the rows, read by the animated column's first frame past the hold | `modelsup` after `col-down` (round 2: after `until shown unable to load models`); `until shown gpt-6-astra` for `col-back` | 0 (failure never on screen) | 0; 503 503 200 (round 2: the same, 5 of 5) |
 | `model-reask` | `menu-failed` the sentence (inside the launch's 5 s hold: no read); `reask-midturn` the second `/model` reads the rows mid-turn | `modelsup` before the prompt; `until shown gpt-6-astra` for `reask-midturn` | 1 (`menu-failed`) | 0; 503 200 |
 | `model-parked` | the prompt past the hold starts the read (answered 8 s later); `menu-loading` inside the turn's 2 s wait for it | `modelsup` at 6.5 s, before the prompt | 1 (`menu-loading`) | 0; 503 200 |
 | `p5-input-model-fail` | `fail-open` the sentence; `after-outage` the rows | `modelsup` after `fail-open`; `until shown gpt-6-astra` for `after-outage` | 1 (`fail-open`) | 0; no gateway log kept |
@@ -91,6 +98,45 @@ keystroke after it reads the rows; at 6 s it fell inside the hold, where
 neither binary may ask and `col-typed` could only show the failure. `model-column-hold`
 already used a scenario line (`models2`); its comment no longer calls
 `modelsdown` a gateway-clock outage.
+
+## Round 2 (`476829ad`; reviews of `20c7fbd9`, opus SHOULD 1-4 and gpt6's line)
+
+- **Three lines that were false, fixed.** `model-parked.cap`'s comment named
+  `/model` as the read after the launch's; it is the prompt's, 6.6 s after
+  the launch read (`green-asks.txt`: fx in run 1 asked at 7604 ms and
+  14228 ms), and `/model` opens over that read. `gate_counts.sh` said it
+  dropped each test binary's build path and did not for `tests/*.rs`; its
+  sed now does (`gate-counts.txt`, regenerated from the same step logs). And
+  § The gap said a line is a fixed distance from the launch read, which the
+  probe does not show; it now says what the probe shows.
+- **The release waits for the column on the screen.** In both column
+  scenarios `modelsup` now follows `until shown unable to load models`, as
+  `model-column-hold.cap:22` does, not only a wait after the column opens.
+  The screen says the column is up over the failure; it cannot say the
+  column's own read has gone, because the column says the same sentence
+  while that read is on its way (`model-column-hold.cap`'s comment). That the
+  read went before the release is the gateway logs': the column's ask
+  answered 503 in every run (`green-r2-verdicts.txt`, the ask columns).
+- **What the `until shown` conversions dropped, and what keeps it.** A fixed
+  wait before a recovery snap also bounded how soon the rows came; `until
+  shown <row>` waits up to 30 s, so a binary whose recovery comes late now
+  passes `col-typed`, `col-back`, `reask-midturn` and `after-outage` where a
+  fixed wait would have caught it. Two snaps keep a bound where it is the
+  point: `model-column-idle` `col-idle` (idle past the 10 s hold: nothing
+  reads) and, new, `model-column-reask` `col-held` (3 s after the release,
+  inside the hold, while the turn's frames animate: nothing reads before the
+  hold ends). The gateway logs record the rest, though no pair checks it: in
+  `model-column-reask` the rows' read is the third ask, 10.0 to 10.1 s after
+  the column's, on both binaries in every run (`green-r2-asks.txt`) -- the
+  first frame past the 10 s hold.
+- **The two scenarios, 5 sweeps more** (`green-r2/`, binary banner
+  `v0.1.0-476829a`): 7 pairs, **0 flips**,
+  all normalized-identical in 5 of 5 (`green-r2-verdicts.txt`); every
+  failure snap, `col-held` included, shows the failure and every recovery
+  snap the rows, on both binaries (`green-r2-states.txt`). Then, at
+  `476829ad` under one hold of the suite lock (`r2-harness.sh`,
+  `r2-harness-tests.txt`): `test-capture.sh` 81 tests OK, `test-sweep.sh`
+  70 and 27 OK.
 
 ## The ledger
 
@@ -141,4 +187,6 @@ same command over the base and the head), `verdicts.py` (`*-verdicts.txt`),
 `states.py` (`*-states.txt`), `asklines.py` (`*-asks.txt`, every catalog line
 the gateways logged), `red/` and `green/` (each sweep's scoreboard and the
 lock's start and end times with the load; GREEN run 1's captures,
-`green/run-1/`; RED's flipped pairs, `red/flips/`), `probe-*` (above).
+`green/run-1/`; RED's flipped pairs, `red/flips/`), `probe-*` (above);
+round 2's `green-r2*` (the same scripts over its two scenarios) and
+`r2-harness*`.

@@ -18,13 +18,16 @@ import sys
 label, root = sys.argv[1], sys.argv[2]
 SNAPS = [
     ("model-column-idle", "col-down"), ("model-column-idle", "col-idle"), ("model-column-idle", "col-typed"),
-    ("model-column-reask", "col-down"), ("model-column-reask", "col-back"),
+    ("model-column-reask", "col-down"), ("model-column-reask", "col-held"), ("model-column-reask", "col-back"),
     ("model-reask", "menu-failed"), ("model-reask", "reask-midturn"),
     ("p5-input-model-fail", "fail-open"), ("p5-input-model-fail", "after-outage"),
 ]
 runs = sorted((p for p in glob.glob(os.path.join(root, "run-*")) if os.path.isdir(p)), key=lambda p: int(p.rsplit("run-", 1)[1]))
 print("# %s: per snap, what it shows in run 1..%d, fx then xfx (FAIL the failure's sentence, ROWS the catalog's rows)" % (label, len(runs)))
 for scen, snap in SNAPS:
+    # A scenario the set did not sweep, or a snap it does not take there.
+    if not glob.glob(os.path.join(root, "run-*", "runs", scen, "*", "*-%s.txt" % snap)):
+        continue
     cells = []
     for run in runs:
         pair = []
@@ -40,6 +43,8 @@ for scen, snap in SNAPS:
         cells.append("/".join(pair))
     print("%-20s %-14s %s" % (scen, snap, " ".join(cells)))
 
+if not glob.glob(os.path.join(root, "run-*", "runs", "p5-stop-in-catalog-wait")):
+    sys.exit(0)
 print("# p5-stop-in-catalog-wait, from the gateway logs, run 1..%d, fx then xfx: launch read's answer / later reads (asked:answered) / completions" % len(runs))
 cells = []
 for run in runs:

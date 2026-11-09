@@ -1,0 +1,14 @@
+# green-r2: 5 sweeps; per pair the verdict in run 1..5 (ID identical, NI normalized-identical, UD unresolved-defect[its causes; ? = a row no cause covers])
+model-column-idle            col-down         NI NI NI NI NI  pass 5/5
+model-column-idle            col-idle         NI NI NI NI NI  pass 5/5
+model-column-idle            col-typed        NI NI NI NI NI  pass 5/5
+model-column-reask           col-back         NI NI NI NI NI  pass 5/5
+model-column-reask           col-down         NI NI NI NI NI  pass 5/5
+model-column-reask           col-held         NI NI NI NI NI  pass 5/5
+model-column-reask           start            NI NI NI NI NI  pass 5/5
+# pairs 7, flipping 0
+# catalog asks per run, from each capture's gateway log, in order answered (5 = 503 down, 2 = 200; . = asked, not answered when the log was copied)
+model-column-idle            fx   552 552 552 552 552
+model-column-idle            xfx  552 552 552 552 552
+model-column-reask           fx   552 552 552 552 552
+model-column-reask           xfx  552 552 552 552 552

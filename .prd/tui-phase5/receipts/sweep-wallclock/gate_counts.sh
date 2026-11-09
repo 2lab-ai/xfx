@@ -2,7 +2,8 @@
 # The gate's test counts from its step logs (gates.txt keeps one line per
 # step): every 'Ran N tests' and its verdict line of the two fxcap steps, and
 # each test binary's 'test result' line of the two cargo test steps, the
-# binary named by its source (the target path after it dropped).
+# binary named by its source (the build's path after it, `(target/...)`,
+# dropped).
 # usage: gate_counts.sh <log-dir>
 set -u
 logs=$1
@@ -13,5 +14,5 @@ for f in "$logs"/*-fxcap-test-sweep.log "$logs"/*-fxcap-test-capture.log; do
 done
 for f in "$logs"/*-test.log "$logs"/*-test-fault.log; do
   echo "## $(basename "$f" .log)"
-  grep -E '^ +Running |^test result:' "$f" | sed -E 's/^( +Running [^ ]+ [^ ]+) \(.*\)$/\1/'
+  grep -E '^ +Running |^test result:' "$f" | sed -E 's/^( +Running [^(]*[^( ]) \(target\/.*\)$/\1/'
 done
