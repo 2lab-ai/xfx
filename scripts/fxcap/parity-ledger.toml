@@ -655,6 +655,7 @@ kind = "unit"
 owner = "QUESTION-RESUME-CTRLO a resumed ask's saved detail in Ctrl-O (docs/parity.md:162), not yet a branch"
 scenarios = ["p5-question-resume-ctrlo"]
 snaps = ["resumed-ctrlo"]
+rows = ["1-40"]
 fx_row = '^│  (?:questions: |\[\{"question"|1","description"|\(ask_user_question: )|^  X+ UTC · Tool$|^$'
 xfx_row = '^$'
 why = "fx v0.0.16 hands each replayed `ask_user_question` call its saved detail (`attachHistoricalToolDetail`, `app_session_runtime.zig:4337`, `:4607@481104fd`), so its Ctrl-O shows the call's arguments and its result under the batch's resolutions (`│  questions: [...]`, `│  [{\"question\":...}]`) and under `● Asked`, which it heads `<ts> UTC · Tool`. xfx's replay writes both rows as blocks that carry no call (QUESTION-RESUME, .prd/tui-phase5/receipts/question-resume/), so its Ctrl-O shows the resolution and `● Asked` alone, and the rows after them stand higher. The rows themselves, on the screen and in Ctrl-O, match; the inline `resumed` pairs are identical."
