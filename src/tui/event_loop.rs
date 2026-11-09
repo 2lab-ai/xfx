@@ -9488,7 +9488,12 @@ mod tests {
                 {
                     continue;
                 }
-                let typed = before.ends_with([':', '<', '&']) || before.ends_with("struct");
+                // A borrow is a type behind a `:`, a `<` or an `->`, and a
+                // value anywhere else (`f(&Reconciled)`).
+                let behind = before.strip_suffix('&').map_or(before, str::trim_end);
+                let typed = behind.ends_with([':', '<'])
+                    || behind.ends_with("->")
+                    || (before == behind && before.ends_with("struct"));
                 if !typed {
                     made.push((n + 1, line.trim().to_string()));
                 }
@@ -10321,6 +10326,44 @@ mod tests {
                 "the exit left without the card's {word}: {written:?}"
             );
         }
+    }
+
+    #[test]
+    fn an_exit_before_the_band_painted_paints_nothing_for_what_the_document_owes() {
+        // A session that leaves before its first frame owes its welcome, and
+        // the exit must not paint a band it never drew to write it
+        // (`a_keystroke_that_arrives_with_the_answer_is_deferred_rather_than_
+        // swallowed`, `tests/tui.rs`): the exit writes what the document owes
+        // only once a band has painted.
+        let mut shell = shell_of(40, 120);
+        shell.with_document_rows(2);
+        shell.route_bytes(b"\x1b[200~UNPAINTED-ONE\nUNPAINTED-TWO\x1b[201~\r");
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        assert!(
+            shell.owes_document() && band.painted_top().is_none(),
+            "nothing owed, or a band painted, so this case proves nothing"
+        );
+        let asked = std::cell::Cell::new(0usize);
+        let broken = shut_down(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            true,
+            Shutdown {
+                reconcile: |_, _| Ok(Reconciled),
+                drain: |_taken| {},
+                size: sized((40, 120), &asked),
+            },
+        );
+        assert!(broken.is_none(), "the screen refused: {broken:?}");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(
+            !written.contains("\u{1b}[?2026h") && !written.contains("UNPAINTED"),
+            "an exit before the band painted wrote a frame: {written:?}"
+        );
     }
 
     #[test]
