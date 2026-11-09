@@ -14857,8 +14857,13 @@ fn a_paste_with_enter_behind_its_marker_on_page_ten_of_twenty_is_kept_and_answer
     // Train 9, join check 5 (PASTE-AFTER-END x QUESTIONS-20). A batch of
     // twenty questions (QUESTIONS-20's cap: `question_batch(20)`), Tab nine
     // times to page 10, its freeform slot opened (`3`, after the two choices)
-    // and `keep` typed; then one write, so one delivery: a paste of `new`
-    // with an Enter behind its end marker. fx v0.0.16 keeps the paste in the
+    // and `keep` typed; then a paste of `new` with an Enter behind its end
+    // marker, in one `type_bytes` -- meant as one delivery. The helper does not
+    // fix that boundary: it writes the master until every byte is taken
+    // (`tests/support/pty.rs`), and these 16 bytes go in one write in
+    // practice. If they arrived as two deliveries the Enter would be the
+    // user's and answer question 10, and the screen checks below fail rather
+    // than pass. fx v0.0.16 keeps the paste in the
     // field and drops what followed the marker (`paste_framing.zig:102-107
     // @481104fd`; the question's freeform owner, `app_input_runtime.zig:
     // 9718-9740`), then warns (`input_paste_runtime.zig:190-196`): the field
@@ -14887,6 +14892,7 @@ fn a_paste_with_enter_behind_its_marker_on_page_ten_of_twenty_is_kept_and_answer
     session.type_bytes(b"3");
     session.type_bytes(b"keep");
     on_screen(&session, (40, 120), &["3) keep"], &[]);
+    // One write of the master; one delivery as the app reads it (above).
     session.type_bytes(b"\x1b[200~new\x1b[201~\r");
     on_screen(
         &session,
