@@ -35359,6 +35359,12 @@ mod tests {
         );
         drop(walk);
         assert_eq!(listed_paths(&shell), ["src/deep/sched.rs"]);
+        // The stopped walk is over once a poll has run: the next episode's
+        // refresh starts at once, not behind it.
+        let walks = shell.files_for_test().walks_for_test();
+        shell.clear_composer();
+        shell.route_bytes(b"@sch");
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 1);
     }
 
     #[test]
@@ -35472,6 +35478,28 @@ mod tests {
                 .map(|found| found.path.as_str()),
             Some("src"),
             "the bar did not go back to row 0"
+        );
+    }
+
+    #[test]
+    fn a_workspace_change_drops_a_listing_in_flight() {
+        // fx's `invalidateScope` stops the folder listing in flight
+        // (`requestStop`, `app_workspace_runtime.zig:70-72@481104fd`), so its
+        // late answer is never taken and the folder is read again.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, _path, access) = extra_with_plan(&shell);
+        let late = super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
+        shell.route_bytes(b"\x1b[200~@src/\x1b[201~");
+        adopt(&mut shell, access);
+        let _ = late.send(Ok(vec![(
+            "late.txt".to_string(),
+            super::super::file_index::Kind::File,
+        )]));
+        listed(&mut shell);
+        assert_eq!(
+            listed_paths(&shell),
+            ["src", "src/deep", "src/lib.rs", "src/main.rs"],
+            "the listing from before the change was taken"
         );
     }
 
