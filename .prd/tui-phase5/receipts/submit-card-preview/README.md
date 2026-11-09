@@ -34,10 +34,17 @@ tags: [xfx, tui, phase5, fx-0.0.16, transcript, submit]
   - round 4: `a2b59b17` (the exit's wide rule pinned), `bd8f5d12` (its
     docs), `74da5413` (the shrink test, the second `ESC`), `d3414f05` (the
     token scan): tests and comments only;
-  - the rest are this receipt's own commits (no source).
+  - round 5: `4295a574` (test (d)'s presenter sentinel and the two
+    `#[cfg(test)]` accessors), `ab4d41b0` (the token scan's `let` and
+    closure shapes, test (b)'s owed check), `f6e577e8` (references),
+    `3b4d673a` (a doc comment back over `with_document_rows`), `27980666`
+    (the scan's signature, `holds` of an empty text): tests, comments and
+    `#[cfg(test)]` fns only;
+  - every other commit is this receipt's own, and touches nothing in `src/`.
 - **Build.** Every `xfx/` capture is from a binary built at `3d09af8f`, the
-  last commit that changes xfx's code outside its tests (round 4 changed
-  only tests and comments there, `round4/outside-tests.txt`). Row 1 of each
+  last commit that changes xfx's code outside its tests (rounds 4 and 5
+  changed only tests, comments and `#[cfg(test)]` fns there,
+  `round4/outside-tests.txt`, `round5/outside-tests.txt`). Row 1 of each
   `.full` snap says `v0.1.0-3d09af8`. Every `red/` capture is from a binary built at
   `58c92ba2` (`v0.1.0-58c92ba`). `fx/` is fx v0.0.16, sha256 `8e6cda2e…`,
   run with `FX_AUTO_UPGRADE=0`.
@@ -169,8 +176,9 @@ Results:
     fx's, not just the activity row (`round3/race.txt`).
   - Six more captures of it from the same build had the activity row in
     that frame, as did two instrumented runs of that commit (round 3's
-    probe and `round4/preview-room-log.txt`): one lost in seven captures,
-    and both instrumented runs won. The receipt holds the next capture.
+    probe, which has no file in this receipt [unbacked], and
+    `round4/preview-room-log.txt`, whose line 2 records its win): one lost
+    in seven captures, and both instrumented runs won. The receipt holds the next capture.
   - The ledger's cause `preview-frame-before-the-turn-start` names the
     owner, SUBMIT-PREVIEW-EDGES.
 - **The frames after the card's.** In every pair the frame after the card's
@@ -592,6 +600,14 @@ Every claim below rests on a file in `round5/` or on a test named in it.
 - **No behaviour change** (`round5/outside-tests.txt`). Since `3d09af8f`,
   the only code outside the tests is two `#[cfg(test)]` fns, compiled into
   no binary. So the captures and sweeps still stand for the head.
+- **After both engines approved** (comments, tests and this receipt only):
+  - `3b4d673a` puts `with_document_rows`' doc comment back over it.
+  - `27980666` makes the scan's signature end at its line's first `{`; the
+    old rule misses a one-line `fn`'s body (`round5/signature-red.txt`).
+    It also makes `holds("")` "not held" instead of a panic
+    (`round5/holds-red.txt`).
+  - The commit list above now names every commit that touches `src/`.
+  - Round 3's instrumented probe is tagged as having no file here.
 
 ## Local paths in the captures
 
