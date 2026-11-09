@@ -365,13 +365,13 @@ exit status, seconds and step of each; `gate.sh` is the script). Round 1's
 gate was at `6b507197`, round 2's at `7d855291`, round 3's at `00b8ed9e`,
 round 4's at `730692c8` (the code of `cd9e446d`), round 5's at `026a7c58` (the
 code of `4abe4feb`), round 6's at `3ed4a8c4` (the code of `89a3fef1`), round
-7's at `5743e3c7` (the code of `1d707ba4`): 20 steps, 0 failed, the tree
-clean, each.
+7's at `5743e3c7` (the code of `1d707ba4`), round 8's at `bfdb2703` (the code
+of `0ab7b6dd`): 20 steps, 0 failed, the tree clean, each.
 
 **Every commit, scanned** (`commits.sh`, `commits.txt`): each commit of the
 branch checked out in a throwaway clone and scanned by its own check and by
 the head's, as a push publishes it, with the lines the head's check names
-beyond what the base held (by file and shape), through `5743e3c7`. Round 7's
+beyond what the base held (by file and shape), through `bfdb2703`. Round 7's
 check, widened, refuses 341 lines on the base and finds the base's own two
 README fragments in every commit up to `1a7cb6a1` (0 beyond the base's;
 `1d707ba4` rewrites them). From `6cb5c4e7` on, every commit passes its own
@@ -385,9 +385,9 @@ it, rounds 1 and 2 had not yet scrubbed all of the base's own paths: 339 to
 `56e51cb0` -- a test comment in `scripts/fxcap/test_sweep.py` naming a
 fixture's redirect into `bob`'s home, which round 1's check, with no `>` as a
 path's start, passed; `506febef` (round 2's MUST 3) refuses it, and the
-comment was reworded there. No revision from the base to `5743e3c7` holds
-the user's name or home path (59 revisions, by `git grep`), and no commit
-message does (58), the end of `commits.txt`. The
+comment was reworded there. No revision from the base to `bfdb2703` holds
+the user's name or home path (65 revisions, by `git grep`), and no commit
+message does (64): names-scan.sh, the end of `commits.txt`. The
 capture harness's suite is the sweep workflow's, not the gate job's:
 `test-capture.txt`.
 

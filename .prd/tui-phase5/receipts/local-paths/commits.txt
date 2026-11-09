@@ -1,4 +1,4 @@
-# commits.sh <clone> ccced1f5 5743e3c7: every commit, its own check and 5743e3c7's, on its own tree in a throwaway clone
+# commits.sh <clone> ccced1f5 bfdb2703: every commit, its own check and bfdb2703's, on its own tree in a throwaway clone
 commit    its own check                                      the head's check
 ccced1f5  (the base)                                         exit 1, refused, 341 line(s) named
 5121c01e  (none)                                             exit 1, refused, 341 line(s) named, 0 beyond the base's
@@ -59,7 +59,13 @@ e0b0e697  exit 1, refused, 2 line(s) named                   exit 1, refused, 4 
 797ebfa0  exit 0, ok, 15585 files, 8 marked, 79 placeholder  exit 0, ok, 15585 files, 8 marked, 79 placeholder
 2e90c292  exit 1, refused, 1 line(s) named                   exit 1, refused, 1 line(s) named, 1 beyond the base's
 5743e3c7  exit 0, ok, 15586 files, 8 marked, 80 placeholder  exit 0, ok, 15586 files, 8 marked, 80 placeholder
+98af91ed  exit 0, ok, 15586 files, 8 marked, 80 placeholder  exit 0, ok, 15586 files, 8 marked, 80 placeholder
+3e51e899  exit 0, ok, 15586 files, 8 marked, 80 placeholder  exit 0, ok, 15586 files, 8 marked, 80 placeholder
+5a7f95bc  exit 0, ok, 15586 files, 8 marked, 80 placeholder  exit 0, ok, 15586 files, 8 marked, 80 placeholder
+0ab7b6dd  exit 0, ok, 15587 files, 8 marked, 80 placeholder  exit 0, ok, 15587 files, 8 marked, 80 placeholder
+a2d5a921  exit 0, ok, 15593 files, 8 marked, 80 placeholder  exit 0, ok, 15593 files, 8 marked, 80 placeholder
+bfdb2703  exit 0, ok, 15593 files, 8 marked, 80 placeholder  exit 0, ok, 15593 files, 8 marked, 80 placeholder
 
-# The user name (case-insensitive) and the home path, built at run time, by git grep -l at
-# ccced1f5 and every commit after it to 5743e3c7: revisions 59, holding either 0; and in the
-# 58 commit messages, 0.
+# names-scan.sh <repo> ccced1f5 bfdb2703:
+revisions 65 (ccced1f5 to bfdb2703), holding the user's name or home path: 0
+commit messages 64, holding either: 0
