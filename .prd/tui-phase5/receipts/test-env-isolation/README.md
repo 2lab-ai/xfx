@@ -15,6 +15,9 @@ Every claim below cites a file in this folder. Line numbers are at the base
 - **Fix:** `e54b8f45`, with `e1a127a4` (a child's names read from `env` and
   not through a shell) and `8db95597` (a doc comment in the test-only
   `src/test_env.rs`). The receipt commit follows them.
+- **Round 2** (`945fc373` RED, `b61cc541` fix): the reviews' eight items.
+  Its own receipt is [`round2/README.md`](round2/README.md); where it
+  changes a claim below, the claim says so.
 
 **Why:** a CATALOG-REFRESH case built its runtime with `Runtime::new`, whose
 environment is `Environment::from_process()`; a reload then read the real
@@ -79,8 +82,8 @@ counted from `discovery-guard.txt` and `discovery-round2.txt`.
   `git ls-files` (`file_index.rs:403`) and every other child a case starts
   saw the real `HOME`, `XDG_CONFIG_HOME` and `GIT_CONFIG_*`.
 
-**Read, and not in scope (each kept, listed by the scan, with its reason in
-`src/test_env/tests.rs`'s `LISTED`):** `PATH` (finding programs), `TMPDIR`,
+**Read, and not in scope (each kept with its reason; since round 2 an
+`env:` allow bound by `src/test_env/tests.rs`'s `EXCEPTIONS`):** `PATH` (finding programs), `TMPDIR`,
 `TEMP`, `TMP` (where `/trace` and a cidfile go), `TMUX`, `COLORFGBG`,
 `COLORTERM`, `TERM_PROGRAM` (the terminal's own), the fault-injection points,
 and the roles re-run test binaries are started with. None names the person,
@@ -123,10 +126,13 @@ from only `PATH` and `TMPDIR` (`test_env::isolate_child`). Nothing of the real
 process reaches the case or its child either way, and a child that needed
 what it was not given fails on its own.
 
-**What keeps it closed:** `every_other_read_of_the_environment_in_src_is_listed`
-scans `src` for `env::var(`, `var_os(`, `vars(`, `vars_os(`, `home_dir(` and
-`getenv(` at a path-segment start; a read outside `process_env!` must be on
-its list with a reason, or the case fails.
+**What keeps it closed:** round 1's text scan
+(`every_other_read_of_the_environment_in_src_is_listed`) matched six
+spellings and bound a file to a count, so an imported `var`, an aliased
+`std::env` or a swapped variable got past it (`round2/red-items-1-5.txt`).
+Round 2 replaced it with clippy's `disallowed-methods` on the resolved call
+and a check that binds each exception to its variables (round2/README.md,
+item 1).
 
 **Production builds are unchanged** (`release-compare.txt`): base and head
 (`e1a127a4`; `8db95597` touches only a `#[cfg(test)]` module's comment)
@@ -175,8 +181,13 @@ Children that do not start xfx, each safe as it stands
   `interactive.rs` and `tui.rs`: a non-interactive `sh -c` reads no startup
   file; `cp`, `ps`, `kill`, `mkfifo`; the fake `osascript` in
   `fake_clipboard.rs`, a script in a temp directory.
-- No integration test calls a reader in its own process: the only `std::env`
-  reads in `tests/` are `PATH` and cargo's `CARGO_PKG_NAME`.
+- No integration test calls a reader in its own process. The `std::env`
+  reads in `tests/` are `PATH` and `TMPDIR` -- in `support/sandbox.rs`'s
+  `clear_env` (round 1's helper) and in `cli.rs`, which does not include
+  `support` -- and cargo's `CARGO_PKG_NAME` in `permissions.rs`. Round 2
+  routes every other `PATH` read there (`fake_clipboard.rs`, `tool_loop.rs`,
+  `permissions.rs`) through `support::sandbox::path()`, and holds each read
+  to its variables (round2/README.md, item 1).
 
 ## 4. RED, then GREEN
 
@@ -224,11 +235,12 @@ passed, 0 failed, 7 ignored; with `fault-injection`: 5594 passed, 0 failed,
 - Its fixture guard `the_shared_fixtures_runtime_reads_only_its_own_home`
   (`worker.rs` ~10080) and its edit of `recording()` to `with_environment`
   sit where this unit replaced `recording()`'s `Runtime::new` with
-  `a_runtime` -- a textual conflict on one line, with the same meaning. The
-  refusal makes the guard's second half redundant (a fixture that took the
-  process's variables now panics where it is built); its first half, that
-  the fixture's home is the case's own, `a_runtime` holds by construction.
-  Both pass together; the train decides whether to keep it.
+  `a_runtime` -- a textual conflict on one line, with the same meaning.
+  **Keep the guard** (round 2, item 8): this unit stops a fixture reading
+  the *process*, but nothing here rejects a shared fixture that is *given*
+  fake variables, and the guard's second half -- the fixture's environment
+  holds no variable at all -- does. Its first half, that the fixture's home
+  is the case's own, `a_runtime` holds by construction. Both pass together.
 
 ## Size
 
@@ -240,6 +252,8 @@ blocks; what a release build compiles is 12 call sites that became
 comparison above is the proof that it compiles to the same code.
 
 ## Open
+
+Both items below are closed in round 2 (round2/README.md, items 3 and 2).
 
 - **A launched worker's fake process narrows to `Environment`'s keys.** In a
   case that launches the worker inside a `FakeProcess`, `carried` gives the

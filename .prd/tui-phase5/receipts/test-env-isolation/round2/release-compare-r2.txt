@@ -1,0 +1,60 @@
+# Release builds, round 2: each in the throwaway clone with XFX_BUILD_REVISION=000000000000 cargo build --release --locked, compared by release-compare.py.
+# Order built: base@22:24 (round 1), head2=b61cc541, head3=d00bf398, plainarms=d00bf398 with process_env!'s build arms as round 1's, base-again=32afd307, matcharms=d00bf398 with f4846c59's lib.rs.
+
+## 1. the same source, hours apart: base@22:24 vs base-again (32afd307 both)
+size base 11668096 head 11668096
+section table identical (name, address, size, offset): False
+differing bytes 6470042
+  5896527 __TEXT,__text
+  417548 __TEXT,__gcc_except_tab
+  82341 code signature (page hashes)
+-> a release build here is not reproducible across hours; it is back to back (sections 3-4). Only back-to-back pairs are compared below.
+
+## 2. base-again vs d00bf398 (build arms as { let value = std::env::var(..); value })
+size base 11668096 head 11668096
+section table identical (name, address, size, offset): True
+differing bytes 28533
+  24988 __TEXT,__text
+   3124 code signature (page hashes)
+    165 __DATA_CONST,__const
+    126 __TEXT,__gcc_except_tab
+     54 __TEXT,__unwind_info
+     42 __TEXT,__eh_frame
+     19 elsewhere
+     15 header LC_UUID
+
+## 3. base-again vs d00bf398 with round 1's build arms (no allow)
+size base 11668096 head 11668096
+section table identical (name, address, size, offset): True
+differing bytes 559
+    382 code signature (page hashes)
+    161 __DATA_CONST,__const
+     16 header LC_UUID
+__DATA_CONST,__const: panic Locations whose line moved (file, +lines): count
+  src/gateway/mod.rs +4: 17
+  src/interactive.rs +4: 7
+  src/mcp/runtime.rs +6: 11
+  src/mcp/transport.rs +3: 33
+  src/tui/shell.rs +6: 25
+  src/tui/term.rs +4: 1
+  src/tui/worker.rs +27: 2
+  src/tui/worker.rs +33: 58
+__DATA_CONST,__const bytes not explained as a moved line: 0
+
+## 4. base-again vs d00bf398 with f4846c59's build arms (the allow on a match arm)
+size base 11668096 head 11668096
+section table identical (name, address, size, offset): True
+differing bytes 559
+    382 code signature (page hashes)
+    161 __DATA_CONST,__const
+     16 header LC_UUID
+__DATA_CONST,__const: panic Locations whose line moved (file, +lines): count
+  src/gateway/mod.rs +4: 17
+  src/interactive.rs +4: 7
+  src/mcp/runtime.rs +6: 11
+  src/mcp/transport.rs +3: 33
+  src/tui/shell.rs +6: 25
+  src/tui/term.rs +4: 1
+  src/tui/worker.rs +27: 2
+  src/tui/worker.rs +33: 58
+__DATA_CONST,__const bytes not explained as a moved line: 0
