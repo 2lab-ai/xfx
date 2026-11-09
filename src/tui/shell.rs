@@ -34694,6 +34694,27 @@ mod tests {
     }
 
     #[test]
+    fn only_a_folder_listing_holds_the_frame_not_the_index() {
+        // fx holds the frame for a directory request only (`!state.indexed
+        // and state.directory_request != null`, `input_completion_runtime.zig:
+        // 828@481104fd`): a word searched in the index while the index is
+        // still being built shows `indexing files...` at once.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let _walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.route_bytes(b"@sch");
+        assert_eq!(
+            shell.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Loading)
+        );
+        let now = Instant::now();
+        assert!(
+            !shell.hold_frame_for_file_listing(now),
+            "the index's loading held the frame"
+        );
+        assert!(!shell.file_listing_hold_pending(now));
+    }
+
+    #[test]
     fn after_a_slow_folder_the_frame_goes_at_once_until_a_fast_one() {
         // fx's `FileListingWait` in the loop (`picker_state.zig:99-139`,
         // `input_completion_runtime.zig:817-844@481104fd`; 6aa678d9): a
