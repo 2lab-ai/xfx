@@ -1,0 +1,9 @@
+# The refusal-height test's oracle: the test alone (4ebd9004's text, its four helpers with it, 122 lines),
+# inserted into a throwaway git clone --no-local at f9328d4e (round 5's code), GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE unset,
+# under the suite lock, then:
+#   cargo test --locked --lib -- a_refused_grant_on_a_short_review_plane_still_says_why_where_round_5_did
+oracle clone: f9328d4e
+inserted 122 lines
+oracle exit=0
+test tui::shell::tests::a_refused_grant_on_a_short_review_plane_still_says_why_where_round_5_did ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4577 filtered out; finished in 0.10s

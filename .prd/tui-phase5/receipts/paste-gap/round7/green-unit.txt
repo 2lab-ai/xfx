@@ -1,0 +1,28 @@
+# Round 7's tests, round 6's plane tests, the plane's status tests and the readiness refusal tests,
+# from the gate's 'test' log at 2b2f2bac:
+#   grep -E '^test tui::(shell|approval_screen)::tests::(a_refused_grant|fx_s_warning|the_plane_s_sentence_goes|no_cut_of|fx_s_amendment|a_status_given_up|any_other_status|a_status_line|a_flapping_hold|a_hold_that_flaps|the_quarantine_s_sentence|every_quarantine_sentence|the_quarantine_sentences_render|an_affirmative|a_screen_that_cannot_disclose|refusing_is_always)' test.log | sort
+test tui::approval_screen::tests::a_status_given_up_whole_is_on_the_screen_whole_or_not_at_all_at_every_height ... ok
+test tui::approval_screen::tests::a_status_line_is_painted_on_this_plane_because_the_document_is_behind_it ... ok
+test tui::approval_screen::tests::a_status_line_never_costs_the_question_its_answers ... ok
+test tui::approval_screen::tests::any_other_status_is_given_up_from_its_last_row_so_its_first_clause_stays ... ok
+test tui::approval_screen::tests::fx_s_amendment_limit_is_cut_only_where_parity_names_it ... ok
+test tui::approval_screen::tests::no_cut_of_xfx_s_refusals_shows_an_instruction_without_its_condition ... ok
+test tui::shell::tests::a_flapping_hold_never_leaves_the_plane_naming_the_other_one ... ok
+test tui::shell::tests::a_hold_that_flaps_is_said_at_most_once_a_second_and_its_last_state_is_said ... ok
+test tui::shell::tests::a_refused_grant_on_a_short_review_plane_still_says_why_where_round_5_did ... ok
+test tui::shell::tests::a_screen_that_cannot_disclose_the_request_says_so_and_still_refuses ... ok
+test tui::shell::tests::an_affirmative_before_the_frame_is_refused_and_not_replayed ... ok
+test tui::shell::tests::an_affirmative_on_the_review_plane_waits_for_that_planes_own_frame ... ok
+test tui::shell::tests::every_quarantine_sentence_is_whole_on_the_review_plane_at_the_narrowest_screen ... ok
+test tui::shell::tests::fx_s_warning_and_the_quarantine_s_sentences_are_whole_or_absent_on_a_short_plane ... ok
+test tui::shell::tests::fx_s_warning_is_whole_on_the_review_plane_at_every_width_down_to_the_narrowest ... ok
+test tui::shell::tests::fx_s_warning_on_the_plane_outlives_every_change_of_hold_and_the_quarantine ... ok
+test tui::shell::tests::refusing_is_always_possible_before_any_frame_lands ... ok
+test tui::shell::tests::the_plane_s_sentence_goes_in_a_turn_whose_burst_ended_with_neither_check ... ok
+test tui::shell::tests::the_plane_s_sentence_goes_when_a_breaking_byte_ends_the_open_sequence ... ok
+test tui::shell::tests::the_plane_s_sentence_goes_when_a_paste_begins_in_a_turn_that_ends_at_the_read_cap ... ok
+test tui::shell::tests::the_plane_s_sentence_goes_when_a_whole_paste_replaces_the_quarantine ... ok
+test tui::shell::tests::the_plane_s_sentence_goes_when_the_dropped_paste_s_end_marker_arrives ... ok
+test tui::shell::tests::the_plane_s_sentence_goes_when_the_quiet_ends_the_quarantine ... ok
+test tui::shell::tests::the_quarantine_s_sentence_leaves_the_review_plane_when_the_quarantine_ends ... ok
+test tui::shell::tests::the_quarantine_sentences_render_whole_at_120_80_and_20_columns ... ok
