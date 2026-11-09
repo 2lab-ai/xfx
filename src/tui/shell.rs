@@ -34771,8 +34771,11 @@ mod tests {
         // (`directory_completion_job.zig:140-151@481104fd`), and the lookup
         // runs again once the list is eligible. So with Ctrl-O opened over
         // `@src/`'s listing and closed with the query as it was, only a fresh
-        // listing's rows are taken: a late answer to the first is not.
+        // listing's rows are taken: a late answer to the first is not. The
+        // index's walk is held by the case, so nothing but that lookup can
+        // list the folder again.
         let (_workspace, mut shell) = in_ws2(40, 120);
+        let _walk = super::super::file_index::tests::driven(shell.files_for_test());
         let first = super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
         shell.route_bytes(b"@src/");
         let now = Instant::now();
@@ -34793,7 +34796,8 @@ mod tests {
             "late.txt".to_string(),
             super::super::file_index::Kind::File,
         )]));
-        let deadline = Instant::now() + START_PATIENCE;
+        // A listing of a three-entry folder, on a thread of its own.
+        let deadline = Instant::now() + Duration::from_secs(10);
         while shell
             .file_picker
             .as_ref()
