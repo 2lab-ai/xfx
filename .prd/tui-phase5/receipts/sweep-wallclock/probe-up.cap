@@ -1,0 +1,5 @@
+models models.json
+modelsdown 600000
+wait 3
+snap a
+gwlog

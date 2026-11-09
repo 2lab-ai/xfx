@@ -1,0 +1,40 @@
+# green: 5 sweeps; per pair the verdict in run 1..5 (ID identical, NI normalized-identical, UD unresolved-defect[its causes; ? = a row no cause covers])
+model-column-idle            col-down         NI NI NI NI NI  pass 5/5
+model-column-idle            col-idle         NI NI NI NI NI  pass 5/5
+model-column-idle            col-typed        NI NI NI NI NI  pass 5/5
+model-column-reask           col-back         NI NI NI NI NI  pass 5/5
+model-column-reask           col-down         NI NI NI NI NI  pass 5/5
+model-column-reask           start            NI NI NI NI NI  pass 5/5
+model-floor                  after-floor      NI NI NI NI NI  pass 5/5
+model-floor                  inside-floor     NI NI NI NI NI  pass 5/5
+model-floor                  start            NI NI NI NI NI  pass 5/5
+model-parked                 answered         NI NI NI NI NI  pass 5/5
+model-parked                 menu-loading     UD[activity-tokens-before-request] UD[activity-tokens-before-request] UD[activity-tokens-before-request] UD[activity-tokens-before-request] UD[activity-tokens-before-request]  pass 0/5
+model-parked                 question-landed  NI NI NI NI NI  pass 5/5
+model-parked                 question-up      NI NI NI NI NI  pass 5/5
+model-parked                 start            NI NI NI NI NI  pass 5/5
+model-reask                  menu-failed      NI NI NI NI NI  pass 5/5
+model-reask                  reask-midturn    NI NI NI NI NI  pass 5/5
+model-reask                  start            NI NI NI NI NI  pass 5/5
+model-reask                  turn-running     NI NI NI NI NI  pass 5/5
+p5-effort-fork-effort-down   early            NI NI NI NI NI  pass 5/5
+p5-effort-fork-effort-down   later            NI NI NI NI NI  pass 5/5
+p5-input-model-fail          after-outage     NI NI NI NI NI  pass 5/5
+p5-input-model-fail          fail-open        NI NI NI NI NI  pass 5/5
+p5-stop-in-catalog-wait      before           NI NI NI NI NI  pass 5/5
+p5-stop-in-catalog-wait      settled          NI NI NI NI NI  pass 5/5
+p5-stop-in-catalog-wait      stopped          NI NI NI NI NI  pass 5/5
+# pairs 25, flipping 0
+# catalog asks per run, from each capture's gateway log, in order answered (5 = 503 down, 2 = 200; . = asked, not answered when the log was copied)
+model-column-idle            fx   552 552 552 552 552
+model-column-idle            xfx  552 552 552 552 552
+model-column-reask           fx   552 552 552 552 552
+model-column-reask           xfx  552 552 552 552 552
+model-floor                  fx   55 55 55 55 55
+model-floor                  xfx  55 55 55 55 55
+model-parked                 fx   52 52 52 52 52
+model-parked                 xfx  52 52 52 52 52
+model-reask                  fx   52 52 52 52 52
+model-reask                  xfx  52 52 52 52 52
+p5-stop-in-catalog-wait      fx   5. 5. 5. 5. 5.
+p5-stop-in-catalog-wait      xfx  5. 5. 5. 5. 5.

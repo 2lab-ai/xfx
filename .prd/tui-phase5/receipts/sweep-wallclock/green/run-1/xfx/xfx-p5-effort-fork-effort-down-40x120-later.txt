@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-7d6b552 [debug] · Run /help for commands
+
+* effort: openai/gpt-6-astra has no levels to choose from
+
+* effort: openai/gpt-6-astra has no levels to choose from
+
+┃
+
+auto · gpt-6-astra
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

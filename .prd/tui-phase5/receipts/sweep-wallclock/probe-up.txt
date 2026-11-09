@@ -1,0 +1,7 @@
+# the launch's catalog read against the first frame: a scratch copy of capture.sh (probe.patch) asks the fake gateway for /probe-up right after its launch wait sees the first frame; both lines carry the gateway's own clock (ms since it started)
+run 1 fx: up: a first frame after 0.03 s (1 looks); launch read asked at 8324 ms, first frame seen at 8369 ms: the read 45 ms before
+run 1 xfx: up: a first frame after 8.80 s (122 looks); launch read asked at 11818 ms, first frame seen at 11918 ms: the read 100 ms before
+run 2 fx: up: a first frame after 0.09 s (2 looks); launch read asked at 6387 ms, first frame seen at 6476 ms: the read 89 ms before
+run 2 xfx: up: a first frame after 0.17 s (3 looks); launch read asked at 5726 ms, first frame seen at 5801 ms: the read 75 ms before
+run 3 fx: up: a first frame after 0.03 s (1 looks); launch read asked at 4135 ms, first frame seen at 4201 ms: the read 66 ms before
+run 3 xfx: up: a first frame after 0.09 s (2 looks); launch read asked at 1402 ms, first frame seen at 1533 ms: the read 131 ms before
