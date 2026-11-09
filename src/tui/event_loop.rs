@@ -10328,6 +10328,309 @@ mod tests {
         }
     }
 
+    /// Asserts that each of `words` is on exactly one row of the terminal,
+    /// history and screen together, and that those rows are in `words`'
+    /// order.
+    fn each_once_in_order(terminal: &Terminal, words: &[&str], what: &str) {
+        let rows = terminal.everything();
+        let mut at = Vec::new();
+        for word in words {
+            let found: Vec<usize> = rows
+                .iter()
+                .enumerate()
+                .filter(|(_, row)| row.contains(word))
+                .map(|(n, _)| n)
+                .collect();
+            assert_eq!(
+                found.len(),
+                1,
+                "{what}: {word} on {} rows: {rows:#?}",
+                found.len()
+            );
+            at.push(found[0]);
+        }
+        assert!(
+            at.windows(2).all(|pair| pair[0] < pair[1]),
+            "{what}: {words:?} out of order at rows {at:?}: {rows:#?}"
+        );
+    }
+
+    /// The exit whose drain carried nothing ([`shut_down`]), each byte read
+    /// by `terminal`.
+    fn exit_nothing_drained(
+        shell: &mut Fixture,
+        band: &mut Band,
+        failures: &mut FrameFailures,
+        out: &mut impl Sink,
+        size: (u16, u16),
+    ) {
+        let asked = std::cell::Cell::new(0usize);
+        let broken = shut_down(
+            shell,
+            band,
+            out,
+            failures,
+            true,
+            Shutdown {
+                reconcile: |_, _| Ok(Reconciled),
+                drain: |_taken| {},
+                size: sized(size, &asked),
+            },
+        );
+        assert!(broken.is_none(), "the screen refused: {broken:?}");
+    }
+
+    #[test]
+    fn an_exit_writes_answer_rows_a_refused_frame_left_owed() {
+        // Not a card: the answer's last rows, owed by a frame the terminal
+        // refused, with nothing paced and no preview. The exit's own frame
+        // writes them, once and in order -- as it writes the pacer's tail, and
+        // for the same reason: no later frame will.
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = Scripted {
+            script: Vec::new(),
+            update: 0,
+            torn: false,
+            written: Vec::new(),
+            took: Vec::new(),
+        };
+        let mut terminal = Terminal::new(40, 120);
+        commit_counted(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the first frame");
+        shell.apply(UiEvent::Delta(
+            "OWED-ANSWER-ONE\nOWED-ANSWER-TWO\nOWED-ANSWER-THREE\n".to_string(),
+        ));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        out.script = vec![Step::Refuse];
+        out.update = 0;
+        out.took.clear();
+        commit_counted(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the refused frame");
+        assert!(
+            out.took == [0]
+                && shell.owes_document()
+                && shell.paced_backlog() == 0
+                && !shell.previewing(),
+            "not a refused frame leaving only the document owed, so this case proves nothing: \
+             {:?}",
+            out.took
+        );
+        exit_nothing_drained(&mut shell, &mut band, &mut failures, &mut out, (40, 120));
+        terminal.catch_up(&out.written);
+        each_once_in_order(
+            &terminal,
+            &["OWED-ANSWER-ONE", "OWED-ANSWER-TWO", "OWED-ANSWER-THREE"],
+            "an exit after a refused frame",
+        );
+    }
+
+    #[test]
+    fn an_exit_with_a_winch_outstanding_writes_the_card_it_was_holding() {
+        // A card held behind its preview, and a winch no tick has answered:
+        // the exit answers the winch first (`resolve_resize_on_exit`), and the
+        // resize drops the preview (`Shell::resize`), so nothing previews the
+        // card any more. It is still owed, and the exit's frame writes it
+        // once, at the new screen's coordinates. A rule that wrote only a card
+        // still previewed would lose it here.
+        let words: Vec<String> = ["WINCH-ONE", "WINCH-TWO", "WINCH-THREE"]
+            .map(String::from)
+            .to_vec();
+        let (mut shell, mut band, mut failures, mut out, _terminal) = full_with_draft(&words);
+        shell.route_bytes(b"\r");
+        assert!(
+            shell.previewing(),
+            "no card held, so this case proves nothing"
+        );
+        shell.render.mark_resize(Instant::now());
+        let at = out.written.len();
+        exit_nothing_drained(&mut shell, &mut band, &mut failures, &mut out, (30, 120));
+        // Read off the exit's own bytes, in the card's own style: the screen
+        // the exit leaves still holds the draft the composer drew behind the
+        // same rail, whatever the exit wrote.
+        let written = String::from_utf8_lossy(&out.written[at..]).into_owned();
+        let mut from = 0;
+        for word in &words {
+            let row = format!("\u{1b}[38;5;255m\u{2503}\u{1b}[0m \u{1b}[1m{word}\u{1b}[0m");
+            assert_eq!(
+                written.matches(&row).count(),
+                1,
+                "the exit did not write the card's {word} once: {written:?}"
+            );
+            from += written[from..]
+                .find(&row)
+                .unwrap_or_else(|| panic!("the card's {word} out of order: {written:?}"))
+                + row.len();
+        }
+    }
+
+    #[test]
+    fn an_exit_from_the_other_plane_writes_what_the_document_owed_behind_it() {
+        // Rows that arrived while Ctrl-O held the other plane are owed: no
+        // document row can be written there. The exit gives the plane back
+        // and then writes them, once and in order, on the screen the user's
+        // shell is on.
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let mut terminal = Terminal::new(40, 120);
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        shell.route_bytes(b"\x0f");
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        assert!(
+            band.on_alternate(),
+            "Ctrl-O did not take the plane, so this case proves nothing"
+        );
+        shell.apply(UiEvent::Delta("BEHIND-ONE\nBEHIND-TWO\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        assert!(
+            band.on_alternate() && shell.owes_document(),
+            "nothing owed behind the other plane, so this case proves nothing"
+        );
+        exit_nothing_drained(&mut shell, &mut band, &mut failures, &mut out, (40, 120));
+        terminal.catch_up(&out.written);
+        each_once_in_order(
+            &terminal,
+            &["BEHIND-ONE", "BEHIND-TWO"],
+            "an exit from Ctrl-O",
+        );
+    }
+
+    #[test]
+    fn an_exit_writes_nothing_a_stop_or_a_reset_threw_away() {
+        // What the exit writes is what the document owes, and nothing a stop
+        // or a reset threw away is in it: the pacer's text and the line the
+        // presenter held (`abandon_answer`, `reset_session`), and text that
+        // arrives after a stop, which waits in `late` and is not the
+        // document's.
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let mut terminal = Terminal::new(40, 120);
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        // A prompt in hand, so Ctrl-C stops a turn (`Shell::interrupt`).
+        shell.route_bytes(b"STOP-PROMPT\r");
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        shell.start_turn();
+        shell.apply(UiEvent::Delta("KEPT-ROW\n".to_string()));
+        shell.flush_paced();
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        shell.apply(UiEvent::Delta(
+            "PACED-THROWN-AWAY\nUNFINISHED-THROWN".to_string(),
+        ));
+        assert!(
+            shell.paced_backlog() > 0,
+            "nothing paced, so this case proves nothing"
+        );
+        shell.route_bytes(b"\x03");
+        shell.apply(UiEvent::Delta("LATE-THROWN".to_string()));
+        exit_nothing_drained(&mut shell, &mut band, &mut failures, &mut out, (40, 120));
+        terminal.catch_up(&out.written);
+        each_once_in_order(
+            &terminal,
+            &["KEPT-ROW", "Cancelled"],
+            "an exit after a stop",
+        );
+        let rows = terminal.everything();
+        for thrown in ["PACED-THROWN-AWAY", "UNFINISHED-THROWN", "LATE-THROWN"] {
+            assert!(
+                !rows.iter().any(|row| row.contains(thrown)),
+                "an exit after a stop wrote {thrown}: {rows:#?}"
+            );
+        }
+
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let mut terminal = Terminal::new(40, 120);
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        shell.route_bytes(b"RESET-PROMPT\r");
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        shell.start_turn();
+        shell.apply(UiEvent::Delta("RESET-THROWN-AWAY".to_string()));
+        assert!(
+            shell.paced_backlog() > 0,
+            "nothing paced, so this case proves nothing"
+        );
+        shell.route_bytes(b"/clear\r");
+        exit_nothing_drained(&mut shell, &mut band, &mut failures, &mut out, (40, 120));
+        terminal.catch_up(&out.written);
+        let rows = terminal.everything();
+        assert!(
+            !rows.iter().any(|row| row.contains("RESET-THROWN-AWAY")),
+            "an exit after a reset wrote what the reset threw away: {rows:#?}"
+        );
+    }
+
     #[test]
     fn an_exit_before_the_band_painted_paints_nothing_for_what_the_document_owes() {
         // A session that leaves before its first frame owes its welcome, and
