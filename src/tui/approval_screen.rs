@@ -202,7 +202,7 @@ impl ApprovalScreen {
     }
 
     /// Takes the status line down if it is one of `sentences`, and says
-    /// whether it did: a sentence about a state that has ended
+    /// whether it did: a sentence about a state that is no longer so
     /// (`super::shell::Shell`'s paste quarantine). Any other status stays --
     /// a refusal, or fx's own warning about input after a paste, is about
     /// something that happened, and is as true now as when it was said.

@@ -146,7 +146,8 @@
 //! a repeat has named a hold, a change in what holds it is said too, even
 //! with nothing dropped; at a check that finds nothing and at a turn's read
 //! cap alike ([`Decoder::still`]). On the review plane the sentence is the
-//! status row, which the shell takes down when the quarantine ends. Nothing
+//! status row, which the shell takes down at the end of the turn once it no
+//! longer names what holds the quarantine ([`Decoder::named_hold`]). Nothing
 //! is ever decoded on a timer (`docs/parity.md`, the `full-screen TUI` row).
 //!
 //! **A paste is still a paste.** The one sequence the quarantine reads is a
