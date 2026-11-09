@@ -38990,6 +38990,199 @@ mod tests {
         }
     }
 
+    /// The fewest rows the review plane needs for `request` at `cols` with no
+    /// status: its chrome, every row but the review's and the blanks. A
+    /// screen shorter than that gives up the hint row first, so it is the
+    /// least height at which the hint is on the plane -- read by the words
+    /// every tier of it keeps (`super::super::approval_view`'s hints).
+    fn plane_chrome_rows(request: ApprovalRequest, cols: u16) -> u16 {
+        let screen = super::super::approval_screen::ApprovalScreen::new(request);
+        (super::super::layout::MIN_ROWS..200)
+            .find(|&rows| {
+                screen
+                    .composition(cols, rows)
+                    .rows
+                    .iter()
+                    .any(|row| row.contains("enter confirm"))
+            })
+            .expect("a height with the whole chrome")
+    }
+
+    /// The plane's status rows for `text` at `cols`, before a short screen
+    /// gives any up: wrapped inside its two-column indent.
+    fn plane_status_rows(text: &str, cols: u16) -> Vec<String> {
+        super::super::approval_view::safe_rows(text, cols.saturating_sub(2).max(1))
+    }
+
+    /// How many of `rows`, from the first, are on `painted` at the plane's
+    /// indent -- and that none after them is.
+    fn status_rows_shown(rows: &[String], painted: &[String], at: &str) -> usize {
+        let on = |row: &String| {
+            painted
+                .iter()
+                .any(|line| line.trim_end() == format!("  {row}").trim_end())
+        };
+        let shown = rows.iter().take_while(|row| on(row)).count();
+        assert!(
+            !rows[shown..].iter().any(on),
+            "{at}: a status row after one given up is on the plane: {painted:?}"
+        );
+        shown
+    }
+
+    /// The narrowest screen the review plane can grant `request` on: the
+    /// least width at which its choices, scope and subject are whole.
+    fn plane_grants_from(request: ApprovalRequest) -> u16 {
+        let screen = super::super::approval_screen::ApprovalScreen::new(request);
+        (super::super::layout::MIN_COLS..=200)
+            .find(|&cols| {
+                let disclosure = screen.composition(cols, 200).disclosure;
+                disclosure.controls_whole && disclosure.scope_whole && disclosure.subject_whole
+            })
+            .expect("a width the plane can grant at")
+    }
+
+    #[test]
+    fn a_refused_grant_on_a_short_review_plane_still_says_why_where_round_5_did() {
+        // gpt6 on PASTE-GAP round 6 (MUST): round 6 gave every status up whole
+        // when the screen was too short for all of its rows, so from one row
+        // above the plane's chrome to three, a `1` the gate refused did
+        // nothing anyone could see -- where round 5 showed the refusal's first
+        // rows. A refusal is cut from its last row, as round 5 cut it: at
+        // every height from the chrome (B) to four rows above it, nothing is
+        // granted, every choice is on the plane, and at least the rows round
+        // 5 showed are -- its status had two, given up from the last after
+        // the blank above them.
+        //
+        // At 20 and 30 columns the plane can grant no review (its choices are
+        // whole from `plane_grants_from` on, 63 columns today), so a `1` there
+        // is refused as a question this screen can never show whole, before
+        // its frame and after it. A question the screen cannot grant *yet* is
+        // refused from that width on, so it is pressed there and at 80.
+        let request = asked_about_a_large_change();
+        let grants = plane_grants_from(request.clone());
+        assert!(grants > 30, "the plane grants at {grants} columns");
+        let mut cases = Vec::new();
+        for cols in [super::super::layout::MIN_COLS, 30] {
+            cases.push(("before its frame", cols, false, APPROVAL_NOT_DISCLOSED));
+            cases.push(("after its frame", cols, true, APPROVAL_NOT_DISCLOSED));
+        }
+        for cols in [grants, 80] {
+            cases.push(("before its frame", cols, false, APPROVAL_NOT_READY));
+        }
+        let mut short = Vec::new();
+        for (case, cols, painted, notice) in cases {
+            let chrome = plane_chrome_rows(request.clone(), cols);
+            let rows = plane_status_rows(notice, cols);
+            for height in chrome..=chrome + 4 {
+                let at = format!("{case}, {cols}x{height} (B = {chrome})");
+                let mut shell = shell(height, cols);
+                shell.apply(UiEvent::Approval(question(request.clone())));
+                assert_eq!(shell.screen_owner(), ScreenOwner::Alternate, "{at}");
+                if painted {
+                    delivered(&mut shell);
+                }
+                let _ = shell.document();
+                shell.decide(Input::Text('1'), Instant::now());
+                assert_eq!(shell.controlled(), None, "{at}: granted");
+                let painted = uncoloured_rows(&shell.screen_rows());
+                for choice in ["1  Apply", "2  Apply", "3  Don't"] {
+                    assert!(
+                        painted.iter().any(|row| row.contains(choice)),
+                        "{at}: {choice:?} is off the plane: {painted:?}"
+                    );
+                }
+                let round_5 = usize::from(height - chrome)
+                    .saturating_sub(1)
+                    .min(2)
+                    .min(rows.len());
+                let shown = status_rows_shown(&rows, &painted, &at);
+                if shown < round_5 {
+                    short.push(format!(
+                        "{at}: {shown} of the refusal's rows, round 5 showed {round_5}"
+                    ));
+                }
+                assert!(shell.document().is_empty(), "{at}: said behind the plane");
+            }
+        }
+        assert_eq!(
+            short,
+            Vec::<String>::new(),
+            "a refusal said less than round 5 said"
+        );
+    }
+
+    #[test]
+    fn fx_s_warning_and_the_quarantine_s_sentences_are_whole_or_absent_on_a_short_plane() {
+        // The other half of the same rule: a cut of these says something else
+        // -- "Input that arrived right after the", "Keys ignored until" -- so
+        // at every height from the chrome to four rows above it, at 20
+        // columns, each is on the plane whole or not at all.
+        let cols = super::super::layout::MIN_COLS;
+        let chrome = plane_chrome_rows(asked_about_a_large_change(), cols);
+        for (opening, last, sentence) in [
+            (&b"\x1b[200~new\x1b[201~y"[..], None, PASTE_SUFFIX),
+            (b"\x1b[200~new\x1b[201~", Some(&b"y"[..]), PASTE_STILL),
+            (
+                b"\x1b[200~new\x1b[201~\x1b[200~two ",
+                Some(b"y"),
+                PASTE_UNTIL_END,
+            ),
+            (b"\x1b[200~new\x1b[201~", Some(b"\x1b["), PASTE_UNTIL_KEY),
+        ] {
+            let rows = plane_status_rows(sentence, cols);
+            let mut seen = false;
+            for height in chrome..=chrome + 4 {
+                let at = format!("{sentence:?}, {cols}x{height} (B = {chrome})");
+                let mut shell = shell(height, cols);
+                let started = turn_running(&mut shell, b"rewrite the notes\r");
+                shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+                shell.settle_band(started);
+                let _ = shell.document();
+                assert_eq!(shell.screen_owner(), ScreenOwner::Alternate, "{at}");
+                delivered(&mut shell);
+                let now = Instant::now();
+                match last {
+                    None => {
+                        shell.route_read(opening);
+                        shell.end_delivery_at(now);
+                        shell.settle_input(now);
+                    }
+                    Some(last) => {
+                        let due = streamed_to_the_repeat(&mut shell, now, opening, last);
+                        shell.settle_input(due);
+                    }
+                }
+                let painted = uncoloured_rows(&shell.screen_rows());
+                let shown = status_rows_shown(&rows, &painted, &at);
+                assert!(
+                    shown == 0 || shown == rows.len(),
+                    "{at}: {shown} of {} rows: {painted:?}",
+                    rows.len()
+                );
+                seen |= shown > 0;
+            }
+            assert!(seen, "{sentence:?} was never on the plane");
+        }
+    }
+
+    #[test]
+    fn the_plane_s_sentence_goes_in_a_turn_whose_burst_ended_with_neither_check() {
+        // opus on PASTE-GAP round 6 (SHOULD 2): a burst can end with neither
+        // a check that found nothing nor the read cap -- an interrupted wait,
+        // or a read that would block (`super::super::event_loop`'s `burst`)
+        // -- and the turn goes on to `settle_input` and its frame. A byte that
+        // breaks the open sequence is read in such a burst.
+        let tick = super::super::event_loop::TICK;
+        let (mut shell, at) =
+            said_on_the_plane(b"\x1b[200~new\x1b[201~", b"\x1b[", PASTE_UNTIL_KEY);
+        let at = at + tick;
+        shell.route_read(b"x");
+        shell.settle_input(at);
+        assert!(shell.decoder.quarantined(), "the quarantine ended");
+        says_no_hold_after(&mut shell, "an interrupted burst");
+    }
+
     #[test]
     fn an_oversized_paste_with_input_behind_it_on_the_review_plane_ends_on_the_warning() {
         // fx writes two notices here, the limit's and then the warning

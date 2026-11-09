@@ -1011,6 +1011,97 @@ mod tests {
         }
     }
 
+    /// Every cut of `status` this plane can paint, at every width a session
+    /// has up to 80 columns, that shows an instruction without its condition:
+    /// `pairs` names, for each instruction, the words that must be on the
+    /// screen with it.
+    fn instructions_cut_from_their_conditions(status: &str, pairs: &[(&str, &str)]) -> Vec<String> {
+        let mut cut = Vec::new();
+        for cols in super::super::layout::MIN_COLS..=80 {
+            let rows: Vec<String> = safe_rows(status, cols - 2)
+                .into_iter()
+                .take(STATUS_ROWS)
+                .collect();
+            // A short screen gives the status's rows up from the last, so it
+            // shows each count of them from one up.
+            for count in 1..=rows.len() {
+                let shown = rows[..count].join(" ");
+                for (instruction, condition) in pairs {
+                    if shown.contains(instruction) && !shown.contains(condition) {
+                        cut.push(format!("{cols} columns, {count} rows: {shown:?}"));
+                    }
+                }
+            }
+        }
+        cut
+    }
+
+    #[test]
+    fn no_cut_of_xfx_s_refusals_shows_an_instruction_without_its_condition() {
+        // opus on PASTE-GAP round 6 (SHOULD 1): the third status row cut the
+        // readiness refusal at 20 to 26 columns to "... press it", the key
+        // without "once you can read it" -- the press this gate must not
+        // train. Each refusal the plane may cut (`super::shell`'s paste
+        // sentences are given up whole instead), cut to every row count at
+        // every width, shows no instruction without its condition. The parts
+        // that must never show alone, per refusal:
+        // - "press it" (again), without "once you can read it";
+        // - "press 3" and "ctrl+c", without "to refuse" -- what they do.
+        // Both are counted before either is asserted, so one cannot hide the
+        // other.
+        use super::super::shell::{APPROVAL_NOT_DISCLOSED, APPROVAL_NOT_READY};
+        let cut = [
+            instructions_cut_from_their_conditions(
+                APPROVAL_NOT_READY,
+                &[("press it", "once you can read it")],
+            ),
+            instructions_cut_from_their_conditions(
+                APPROVAL_NOT_DISCLOSED,
+                &[("press 3", "to refuse"), ("ctrl+c", "to refuse")],
+            ),
+        ];
+        assert_eq!(
+            cut,
+            [Vec::<String>::new(), Vec::new()],
+            "{APPROVAL_NOT_READY:?}, then {APPROVAL_NOT_DISCLOSED:?}"
+        );
+    }
+
+    #[test]
+    fn fx_s_amendment_limit_is_cut_only_where_parity_names_it() {
+        // The amendment's limit is fx's sentence (`input_limit_feedback.zig:40
+        // @481104fd`), so its words stay. A cut of it can read as the whole
+        // refusal -- "... and was not" -- and these are every such cut, the
+        // ones `docs/parity.md` names.
+        use super::super::approval_amendment::INPUT_LIMIT;
+        assert_eq!(
+            instructions_cut_from_their_conditions(INPUT_LIMIT, &[("was not", "applied")]),
+            FX_LIMIT_CUTS,
+        );
+    }
+
+    /// The cuts of fx's amendment-limit sentence that end on "was not"
+    /// ([`fx_s_amendment_limit_is_cut_only_where_parity_names_it`]): on a
+    /// screen short enough to leave it one row at 47 to 55 columns, or two at
+    /// 25 to 28, and at 20 columns, where it is wider than its three rows. The
+    /// draft it refused is on the screen beside it, unchanged.
+    const FX_LIMIT_CUTS: [&str; 14] = [
+        r#"20 columns, 3 rows: "That edit exceeds the input limit and was not""#,
+        r#"25 columns, 2 rows: "That edit exceeds the input limit and was not""#,
+        r#"26 columns, 2 rows: "That edit exceeds the input limit and was not""#,
+        r#"27 columns, 2 rows: "That edit exceeds the input limit and was not""#,
+        r#"28 columns, 2 rows: "That edit exceeds the input limit and was not""#,
+        r#"47 columns, 1 rows: "That edit exceeds the input limit and was not""#,
+        r#"48 columns, 1 rows: "That edit exceeds the input limit and was not""#,
+        r#"49 columns, 1 rows: "That edit exceeds the input limit and was not""#,
+        r#"50 columns, 1 rows: "That edit exceeds the input limit and was not""#,
+        r#"51 columns, 1 rows: "That edit exceeds the input limit and was not""#,
+        r#"52 columns, 1 rows: "That edit exceeds the input limit and was not""#,
+        r#"53 columns, 1 rows: "That edit exceeds the input limit and was not""#,
+        r#"54 columns, 1 rows: "That edit exceeds the input limit and was not""#,
+        r#"55 columns, 1 rows: "That edit exceeds the input limit and was not""#,
+    ];
+
     #[test]
     fn a_change_scrolled_out_of_the_viewport_is_no_longer_visible() {
         // The half of the clause `super::approval_readiness::Readiness`'s `seen`
