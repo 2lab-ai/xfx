@@ -1,0 +1,77 @@
+# RED at 74960592 (b4cc300f + the seven cases), TMPDIR=<tmp> (a short scratch dir).
+# cargo test --locked --lib -- <the seven cases>, run alone under bounded.py (900 s, own process group).
+
+running 7 tests
+test tui::shell::tests::a_change_that_moves_no_root_says_files_unavailable_until_its_walk_is_whole ... FAILED
+test tui::shell::tests::a_change_of_roots_under_an_open_indexed_list_says_files_unavailable_until_its_walk_is_whole ... FAILED
+test tui::shell::tests::escape_in_the_interim_closes_the_list_and_keeps_the_word ... FAILED
+test tui::shell::tests::tab_in_the_interim_retries_and_still_says_files_unavailable ... FAILED
+test tui::shell::tests::the_first_at_after_the_old_roots_walk_was_adopted_refreshes ... FAILED
+test tui::shell::tests::the_first_at_while_the_old_roots_walk_runs_skips_its_refresh ... FAILED
+test tui::shell::tests::the_first_at_after_the_old_roots_walk_failed_skips_its_refresh ... FAILED
+
+failures:
+
+---- tui::shell::tests::a_change_that_moves_no_root_says_files_unavailable_until_its_walk_is_whole stdout ----
+
+thread 'tui::shell::tests::a_change_that_moves_no_root_says_files_unavailable_until_its_walk_is_whole' (436973834) panicked at src/tui/shell.rs:35845:9:
+assertion `left == right` failed: not fx's interim until the same roots' walk was whole
+  left: ("  \u{1b}[48;5;239m\u{1b}[38;5;255mCargo.toml\u{1b}[0m", "  \u{1b}[48;5;239m\u{1b}[38;5;255mCargo.toml\u{1b}[0m", ["Cargo.toml", "README.md"])
+ right: ("  \u{1b}[38;5;245mFiles unavailable. tab to retry; esc to dismiss.\u{1b}[0m", "  \u{1b}[38;5;245mFiles unavailable. tab to retry; esc to dismiss.\u{1b}[0m", ["Cargo.toml", "README.md"])
+
+---- tui::shell::tests::a_change_of_roots_under_an_open_indexed_list_says_files_unavailable_until_its_walk_is_whole stdout ----
+
+thread 'tui::shell::tests::a_change_of_roots_under_an_open_indexed_list_says_files_unavailable_until_its_walk_is_whole' (436973833) panicked at src/tui/shell.rs:35792:9:
+assertion `left == right` failed: not fx's interim until the new scope's walk was whole
+  left: ("  \u{1b}[38;5;245mindexing files...\u{1b}[0m", "  \u{1b}[48;5;239m\u{1b}[38;5;255m<tmp>/.tmpNvvWEn/\u{1b}[1mplan\u{1b}[0m\u{1b}[48;5;239m\u{1b}[38;5;255m.md\u{1b}[0m", ["<tmp>/.tmpNvvWEn/plan.md"])
+ right: ("  \u{1b}[38;5;245mFiles unavailable. tab to retry; esc to dismiss.\u{1b}[0m", "  \u{1b}[38;5;245mFiles unavailable. tab to retry; esc to dismiss.\u{1b}[0m", ["<tmp>/.tmpNvvWEn/plan.md"])
+
+---- tui::shell::tests::escape_in_the_interim_closes_the_list_and_keeps_the_word stdout ----
+
+thread 'tui::shell::tests::escape_in_the_interim_closes_the_list_and_keeps_the_word' (436973835) panicked at src/tui/shell.rs:36003:9:
+assertion `left == right` failed
+  left: "  \u{1b}[38;5;245mindexing files...\u{1b}[0m"
+ right: "  \u{1b}[38;5;245mFiles unavailable. tab to retry; esc to dismiss.\u{1b}[0m"
+
+---- tui::shell::tests::tab_in_the_interim_retries_and_still_says_files_unavailable stdout ----
+
+thread 'tui::shell::tests::tab_in_the_interim_retries_and_still_says_files_unavailable' (436973836) panicked at src/tui/shell.rs:35961:9:
+assertion `left == right` failed: Tab in the interim did not queue its refresh behind B
+  left: ("  \u{1b}[38;5;245mindexing files...\u{1b}[0m", 3)
+ right: ("  \u{1b}[38;5;245mFiles unavailable. tab to retry; esc to dismiss.\u{1b}[0m", 3)
+
+---- tui::shell::tests::the_first_at_after_the_old_roots_walk_was_adopted_refreshes stdout ----
+
+thread 'tui::shell::tests::the_first_at_after_the_old_roots_walk_was_adopted_refreshes' (436973838) panicked at src/tui/shell.rs:35913:9:
+assertion `left == right` failed
+  left: ("  \u{1b}[38;5;245mindexing files...\u{1b}[0m", 3)
+ right: ("  \u{1b}[38;5;245mFiles unavailable. tab to retry; esc to dismiss.\u{1b}[0m", 3)
+
+---- tui::shell::tests::the_first_at_while_the_old_roots_walk_runs_skips_its_refresh stdout ----
+
+thread 'tui::shell::tests::the_first_at_while_the_old_roots_walk_runs_skips_its_refresh' (436973839) panicked at src/tui/shell.rs:35901:9:
+assertion `left == right` failed
+  left: ("  \u{1b}[38;5;245mindexing files...\u{1b}[0m", 3)
+ right: ("  \u{1b}[38;5;245mFiles unavailable. tab to retry; esc to dismiss.\u{1b}[0m", 2)
+
+---- tui::shell::tests::the_first_at_after_the_old_roots_walk_failed_skips_its_refresh stdout ----
+
+thread 'tui::shell::tests::the_first_at_after_the_old_roots_walk_failed_skips_its_refresh' (436973837) panicked at src/tui/shell.rs:35925:9:
+assertion `left == right` failed
+  left: ("  \u{1b}[38;5;245mindexing files...\u{1b}[0m", 3)
+ right: ("  \u{1b}[38;5;245mindexing files...\u{1b}[0m", 2)
+
+
+failures:
+    tui::shell::tests::a_change_of_roots_under_an_open_indexed_list_says_files_unavailable_until_its_walk_is_whole
+    tui::shell::tests::a_change_that_moves_no_root_says_files_unavailable_until_its_walk_is_whole
+    tui::shell::tests::escape_in_the_interim_closes_the_list_and_keeps_the_word
+    tui::shell::tests::tab_in_the_interim_retries_and_still_says_files_unavailable
+    tui::shell::tests::the_first_at_after_the_old_roots_walk_failed_skips_its_refresh
+    tui::shell::tests::the_first_at_after_the_old_roots_walk_was_adopted_refreshes
+    tui::shell::tests::the_first_at_while_the_old_roots_walk_runs_skips_its_refresh
+
+test result: FAILED. 0 passed; 7 failed; 0 ignored; 0 measured; 4610 filtered out; finished in 0.27s
+
+error: test failed, to rerun pass `--lib`
+# exit: 101
