@@ -509,8 +509,13 @@ where
     // at all. Phase 1 never repaints a document row, so this is the last moment
     // those bytes can reach the terminal.
     // And a card the band is still previewing: the exit's own frame writes it
-    // (`Shell::flush_paced`), as nothing else would.
-    if painting && broken.is_none() && (shell.paced_backlog() > 0 || shell.previewing()) {
+    // (`Shell::flush_paced`), as nothing else would. And, once a band has
+    // painted, whatever the document still owes -- a card whose frame was
+    // refused in the tick that showed its preview, nothing previewing it any
+    // more -- for the same reason. (A session that leaves before its band
+    // painted owes its welcome and must paint nothing.)
+    let owed = band.painted_top().is_some() && shell.owes_document();
+    if painting && broken.is_none() && (shell.paced_backlog() > 0 || shell.previewing() || owed) {
         match reconcile(shell, band) {
             Ok(token) => {
                 if let Err(err) = flushed(shell, band, out, failures, Instant::now(), token) {
