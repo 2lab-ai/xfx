@@ -2888,8 +2888,8 @@ impl Runtime {
         // switch's model the one the file now says rather than the one the
         // session was in.
         // Its catalog is read in the background as soon as the loop is idle
-        // again ([`turn_loop`]).
-        self.selector = ModelSelector::new(&self.config);
+        // again ([`turn_loop`]), timed on the same clock as the last one's.
+        self.selector.renew(&self.config);
         self.provider = None;
         let provider = self.config.provider.label().to_string();
         let model = self.model().to_string();

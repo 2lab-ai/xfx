@@ -2097,7 +2097,7 @@ async fn apply_setup(
     match RuntimeConfig::load_with(env, &config.workspace_root) {
         Ok(reloaded) => {
             *config = reloaded;
-            *selector = ModelSelector::new(config);
+            selector.renew(config);
             *bundle = None;
             let model = selector.model().to_string();
             if let Some(conversation) = conversation.as_mut() {

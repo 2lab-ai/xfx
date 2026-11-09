@@ -1908,13 +1908,21 @@ impl ModelSelector {
     /// provider is built anew instead ([`Self::new`]).
     pub fn follow_model(&mut self, config: &RuntimeConfig) {
         if config.provider != self.provider {
-            let time = self.time.clone();
-            *self = Self::new(config);
-            self.time = time;
+            self.renew(config);
             return;
         }
         self.model = config.model.clone();
         self.source = config.sources.model;
+    }
+
+    /// A selector for `config` built anew ([`Self::new`]) in place of this
+    /// one -- a provider switch, a profile read again -- its reads timed on
+    /// the clock this one's were, so the catalog's age goes on being counted
+    /// on the clock that counts sleep, and a clock a test gave it survives.
+    pub fn renew(&mut self, config: &RuntimeConfig) {
+        let time = self.time.clone();
+        *self = Self::new(config);
+        self.time = time;
     }
 
     /// The provider whose catalog this selector browses.
