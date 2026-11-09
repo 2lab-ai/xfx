@@ -35058,7 +35058,7 @@ mod tests {
     /// while `content_bottom` is more than 4
     /// (`input_presentation.zig:252-255@481104fd`), and `content_bottom` is the
     /// screen less fx's four footer rows (`footer_rows = 4`,
-    /// `main.zig:173@481104fd`; `layoutFromSize`, `terminal.zig:47-58@481104fd`):
+    /// `main.zig:173@481104fd`; `layoutFromSize`, `terminal.zig:47-59@481104fd`):
     /// 37 / 2 + 1. A content area of `rows - 3` made it 20
     /// (`fx-p5-input-row-limit-41x120-*`).
     const FX_PAGE_AT_41: usize = 19;

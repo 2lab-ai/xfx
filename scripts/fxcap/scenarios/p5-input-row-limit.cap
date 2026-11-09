@@ -5,7 +5,7 @@
 # (cappedInputRows, :257-267). At an odd height `rows - 3` gives one more
 # than `rows - 4`: at 41 rows fx's page and cap are 19 rows. PgDn in the @
 # list (thirty names, AT-HEIGHT's workspace), the /help catalog and the
-# slash menu; then a 25-line draft, its cap, and PgUp in it.
+# slash menu; then a 25-line draft, its cap, and PgUp in it, with the caret.
 fx: env FX_AUTO_UPGRADE=0
 work p5-input-at-height-ws
 wait 4
@@ -86,9 +86,12 @@ key C-j
 type line-25
 wait 1
 snap grown
+cursor grown
 key PPage
 wait 0.6
 snap grown-pgup
+cursor grown-pgup
 key PPage
 wait 0.6
 snap grown-pgup2
+cursor grown-pgup2
