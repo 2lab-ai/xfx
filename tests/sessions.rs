@@ -34,8 +34,9 @@ use xfx::output::SessionDetailSnapshot;
 use xfx::provider::Wire;
 use xfx::session::store::DurableState;
 use xfx::session::{
-    Clock, ListFilter, ListScope, NewSession, RecordedToolCall, Selector, SessionError,
-    SessionEvent, SessionId, SessionStore, TurnConclusion, TurnStep, EVENTS_FILE, MANIFEST_FILE,
+    Clock, ListFilter, ListScope, NewSession, RecordedImage, RecordedToolCall, Selector,
+    SessionError, SessionEvent, SessionId, SessionStore, TurnConclusion, TurnStep, EVENTS_FILE,
+    MANIFEST_FILE,
 };
 use xfx::workspace::{AccessScope, ProjectContext};
 
@@ -1912,13 +1913,17 @@ fn ask_resume_keeps_the_sessions_model_over_the_profiles_and_under_the_processs(
 fn ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one() {
     // The log is file input. A model xfx would not have written
     // (`model_id_problem`) is not sent, as the TUI's resume does not restore
-    // one (`Resumption::selection`): the launch's model goes instead. And
-    // nothing the log names reaches the terminal with its escapes. Red before:
-    // the log's model was the one asked for, and a notice quoting the wire a
-    // step's reasoning was recorded on carried its escapes to stderr; that
-    // notice is gone since HISTORY-NOTICES-COPY-FX.
+    // one (`Resumption::selection`): the launch's model goes instead. And the
+    // history notice `ask` prints -- here an image a tool returned whose saved
+    // copy is gone, which quotes the tool's name as the log gives it -- reaches
+    // stderr through `safe_one_line` (`src/app.rs`): every control character a
+    // space, nothing raw. Red before: the log's model was the one asked for,
+    // and the notice carried its escapes to stderr. The reasoning a step
+    // sealed on the hostile wire is left out without a word, as fx leaves it
+    // (`projectProviderReplay`, `types.zig:1668-1682@481104fd`).
     const HOSTILE_MODEL: &str = "m\u{1b}]0;pwned\u{7}x";
     const HOSTILE_WIRE: &str = "w\u{1b}[2Jire\u{9b}31m";
+    const HOSTILE_TOOL: &str = "read\u{1b}[2Jfile\u{9b}31m\u{7}";
     let sandbox = Sandbox::new();
     let store = SessionStore::open(&sandbox.profile_dir()).expect("open the store");
     let mut session = store
@@ -1938,17 +1943,50 @@ fn ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one() {
             text: "first question".to_string(),
         },
         SessionEvent::AssistantMessage {
-            text: "first answer".to_string(),
-            tool_calls: Vec::new(),
+            text: String::new(),
+            tool_calls: vec![RecordedToolCall {
+                id: "call-1".to_string(),
+                name: HOSTILE_TOOL.to_string(),
+                input: json!({"path": "shot.png"}),
+            }],
             raw_content: vec![json!({"type": "thinking", "thinking": "t", "signature": "s"})],
             responses_state: Vec::new(),
             wire: Some(Wire::parse(HOSTILE_WIRE)),
             model: None,
         },
+        SessionEvent::ToolResult {
+            call_id: "call-1".to_string(),
+            tool: HOSTILE_TOOL.to_string(),
+            ok: true,
+            output: "an image".to_string(),
+            ending: None,
+            lines: None,
+            change: None,
+        },
+        // Recorded, and never saved beside the log: the resume reads it back
+        // and finds its copy missing.
+        SessionEvent::ToolImagesAttached {
+            call_id: "call-1".to_string(),
+            images: vec![RecordedImage {
+                id: 1,
+                path: "shot.png".to_string(),
+                media_type: "image/png".to_string(),
+                sha256: "0".repeat(64),
+                bytes: 73,
+            }],
+        },
+        SessionEvent::AssistantMessage {
+            text: "first answer".to_string(),
+            tool_calls: Vec::new(),
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+            model: None,
+        },
         SessionEvent::TurnConcluded {
             outcome: TurnConclusion::Final {
                 finish_reason: "stop".to_string(),
-                steps: 1,
+                steps: 2,
             },
         },
     ] {
@@ -1968,9 +2006,15 @@ fn ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one() {
     let model = asked.header("ai-language-model-id").expect("a model");
     assert!(!model.chars().any(char::is_control), "{model:?}");
     assert_ne!(model, HOSTILE_MODEL);
-    // The reasoning the hostile wire sealed is left out of the request without
-    // a word, as fx's `projectProviderReplay` leaves it
-    // (`types.zig:1668-1682@481104fd`).
+    // The notice, made one inert line: the tool's escapes are spaces.
+    let notice = "xfx: an image `read [2Jfile 31m ` returned could not be read back (its saved \
+                  copy is missing), so it was not sent again";
+    assert_eq!(
+        run.stderr.lines().filter(|line| *line == notice).count(),
+        1,
+        "the notice is not on stderr as one inert line: {:?}",
+        run.stderr
+    );
     assert!(
         !run.stderr.contains("recorded reasoning"),
         "a notice fx does not have was printed: {:?}",

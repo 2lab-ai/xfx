@@ -22982,8 +22982,8 @@ mod tests {
         // clear) and a resume's or a fork's replay -- come with the runtime
         // dropping the conversation that recorded it, ledger and all
         // (`worker::tests::the_history_notice_ledger_goes_with_its_conversation`).
-        const CARRY: &str =
-            "image #1 of this session could not be read back (missing), so it was not sent again";
+        const CARRY: &str = "image #1 of this session could not be read back (its saved copy is \
+                             missing), so it was not sent again";
         let said = |rows: &[String]| {
             rows.iter()
                 .filter(|row| row.contains("not sent again"))
