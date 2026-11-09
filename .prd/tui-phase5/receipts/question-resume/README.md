@@ -21,7 +21,14 @@ snaps. The base is `origin/main` at `32afd307`.
 | `1f4b3d03` | round 1's receipt |
 | `300b98fc` | round 2 RED: the object-only rejects (`[["Q","A"]]` and its mixes) at the decoder, the hydration and the shell; the `read, read, ask` and `ask, read` tests; `red-tests-r2.txt` |
 | `63e8bbeb` | **the code head**, round 2: `decode_answers` read by hand (objects only, the twenty-first refused unread, any repeated key refused); the parity row's Escape, sentinel and questioner sentences; the failed-call mapping said in the row and the hydration |
-| the commits after it | this file, `xfx/`, `green.txt`, `mutants.*`, `sweep-*`, `gate*.txt`: receipt files only (`git diff 63e8bbeb HEAD -- src tests` is empty) |
+| `56994078` | round 2's receipt |
+| `37cdd637` | round 3 RED: a twenty-first element must be refused unread (fails: `Eof` where `Data` is wanted); the two looser documents pinned (pass); `red-tests-r3.txt` |
+| round 3's fix | the rejecting seed; the looseness said in `decode_answers`'s doc, the parity row and here; `docs/parity.md`'s full-screen TUI row's Escape sentence; the row's sentinel paths and `:15601-15605`; `input_question_runtime.zig:59-81` in `fx-src.txt`; `mutants.*` |
+
+`git diff 63e8bbeb HEAD -- src` is `src/tools/question.rs` alone: the
+decode of a document past twenty elements, comments and tests. No capture
+holds such a document, so `xfx/`, `green.txt` and the sweep stand at
+`63e8bbeb`; the gate runs on the round-3 head (the dispatcher's).
 
 The captures in `xfx/` come from the binary built at `63e8bbeb` (row 1:
 `x𝒇x v0.1.0-63e8bbe [debug]`, sha256 `8b3ce14f0854…`); round 1's, from
@@ -128,13 +135,26 @@ XFX_BIN=<xfx>       TMPDIR=<short dir>  scripts/fxcap/capture.sh xfx <scenario> 
 - `tools::question::decode_answers` is `decodeJson`, read by hand (round 2;
   round 1's derived struct also took serde's positional form, so
   `[["Q","A"]]` was an answer):
-  - the array's visitor reads element by element and refuses the
-    twenty-first before reading it into anything, and refuses an empty one
-    (`MIN_QUESTIONS`, `MAX_QUESTIONS`, the tool's own constants);
+  - the array's visitor reads element by element and refuses a twenty-first
+    at its first byte, its value unread (round 3: a seed that never calls the
+    deserializer, `TwentyFirst`; round 2's `IgnoredAny` scanned it), and
+    refuses an empty one (`MIN_QUESTIONS`, `MAX_QUESTIONS`, the tool's own
+    constants);
   - each element is read as an object only (`deserialize_map`): an array, a
     string or a number in its place is refused (`question_answer.zig:63`);
-  - `question` and `answer` must be strings; any key given twice is
-    refused, read or not; other keys are skipped with `IgnoredAny`;
+  - `question` and `answer` must be strings; a key given twice in the
+    answer's own object is refused, read or not, as fx's `std.json` refuses
+    it (`duplicate_field_behavior = .@"error"`, `std/json/static.zig:20-26`,
+    `dynamic.zig:149-156`); other keys are skipped with `IgnoredAny`;
+  - **looser than fx in one place**: a skipped value is not checked, where
+    fx's parse refuses a key given twice in any object and an unpaired
+    surrogate in any string (the same lines; `Scanner.zig:25-32`). These are
+    Zig 0.16.0's std lines; the pin builds with 0.17.0
+    (`build.zig.zon:28@481104fd`), whose std is taken to be the same. So
+    `[{"question":"Q","answer":"A","x":{"k":1,"k":2}}]` and the same with
+    `"x":"\ud800"` are answered batches here and null in fx. Only a
+    hand-forged log holds them, and the rows are drawn inert;
+    `a_skipped_value_is_not_checked_as_upstreams_parse_checks_it` pins both;
   - anything after the array, and invalid JSON, are refused. Nothing goes
     through `serde_json::Value`, whose parse stops at a depth of 128.
 - `tui::hydration` takes an `ask_user_question` result by its own tool name,
@@ -194,8 +214,12 @@ A saved session is file input. Each bound fx has is kept, and each has a test:
   checked on encode at `:621`). A longer, hand-written line is read whole by
   the session reader, as any event is. The decode is linear in a text the
   reader already holds, as fx's is. It refuses a count past 20 at the
-  twenty-first element, before reading it; fx parses the whole array first
-  (`question_answer.zig:47-59`).
+  twenty-first element's first byte, without reading its value; fx parses the
+  whole array first (`question_answer.zig:47-59`).
+  `the_twenty_first_element_is_refused_at_its_first_byte_unread` feeds a
+  malformed, an unclosed 100 000-deep, an 8 MiB and a non-JSON twenty-first
+  and gets the count's error each time (`Category::Data`, `invalid length
+  21`), where scanning gives a parse error (`red-tests-r3.txt`).
 
 ## GREEN (`green.txt`)
 

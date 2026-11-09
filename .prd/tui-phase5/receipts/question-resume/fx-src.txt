@@ -639,3 +639,66 @@
     66	    }
     67	
     68	    return answers;
+
+== src/core/app/input_question_runtime.zig:59-81@481104fd (cancelQuestionPrompt: Escape and Ctrl-C stop the turn)
+    59	        pub fn cancelQuestionPrompt(app: *App) !void {
+    60	            const route_recovery = isRouteRecoveryPrompt(app);
+    61	            const mcp_elicitation = isMcpElicitationPrompt(app);
+    62	            interrupt.traceInterruptRequested(app, "input_question");
+    63	            if (!route_recovery) {
+    64	                if (comptime @hasDecl(@TypeOf(app.worker), "requestInteractiveCancel")) {
+    65	                    app.worker.requestInteractiveCancel();
+    66	                } else {
+    67	                    app.worker.requestCancel();
+    68	                }
+    69	            }
+    70	            app.pacer.clear(app.alloc);
+    71	            if (!route_recovery and !mcp_elicitation) try finalizeQuestionTranscript(app, true);
+    72	            try app.worker.submitQuestionBatchAnswer(std.heap.c_allocator, null);
+    73	            app.question_prompt.discard(app.alloc, "cancelled");
+    74	            app.input_runtime.input_limit_rejection = input_limit_rejection.clear();
+    75	            const gesture_transition = gesture_state.disarmEscapeClear(
+    76	                app.input_runtime.gestures,
+    77	            );
+    78	            app.input_runtime.gestures = gesture_transition.next;
+    79	            app.stopStream();
+    80	            app.shell.render_requests.request(.modal);
+    81	        }
+
+# Zig 0.16.0's standard library (its release tree, lib/std/json/), which fx's std.json calls are; the pin requires Zig 0.17.0:
+
+== build.zig.zon:28@481104fd
+    28	    .minimum_zig_version = "0.17.0",
+
+== std/json/static.zig:20-26 (Zig 0.16.0)
+    20	    /// Behaviour when a duplicate field is encountered.
+    21	    /// The default is to return `error.DuplicateField`.
+    22	    duplicate_field_behavior: enum {
+    23	        use_first,
+    24	        @"error",
+    25	        use_last,
+    26	    } = .@"error",
+
+== std/json/dynamic.zig:148-159 (Zig 0.16.0)
+   148	                const gop = try object.getOrPut(allocator, key);
+   149	                if (gop.found_existing) {
+   150	                    switch (options.duplicate_field_behavior) {
+   151	                        .use_first => {},
+   152	                        .@"error" => return error.DuplicateField,
+   153	                        .use_last => {
+   154	                            gop.value_ptr.* = value;
+   155	                        },
+   156	                    }
+   157	                } else {
+   158	                    gop.value_ptr.* = value;
+   159	                }
+
+== std/json/Scanner.zig:25-32 (Zig 0.16.0)
+    25	//! * RFC 8259 doesn't explicitly disallow unpaired surrogate halves in \u escape sequences,
+    26	//!   but vaguely implies that \u escapes are for encoding Unicode "characters" (i.e. Unicode scalar values?),
+    27	//!   which would mean that unpaired surrogate halves are forbidden.
+    28	//!   By contrast ECMA-404 (a competing(/compatible?) JSON standard, which JavaScript's JSON.parse() conforms to)
+    29	//!   explicitly allows unpaired surrogate halves.
+    30	//!   This implementation forbids unpaired surrogate halves in \u sequences.
+    31	//!   If a high surrogate half appears in a \u sequence,
+    32	//!   then a low surrogate half must immediately follow in \u notation.

@@ -347,19 +347,31 @@ pub struct SavedAnswer {
 /// (a sentinel, a refusal), JSON with more after it, an array of none or of
 /// more than twenty, an element that is not an object (`:63`), a field missing
 /// or not a string -- upstream's own rejects (`question_answer.zig:101-111`,
-/// `:113-141`). Any key given twice is refused as well, `question`, `answer`
-/// or one nobody reads: upstream's `std.json` default
-/// (`duplicate_field_behavior`) is taken to refuse it, unread at the pin, and
-/// refusing it is the reading that is never looser than upstream's.
+/// `:113-141`). A key given twice in an answer's own object is refused too,
+/// `question`, `answer` or one nobody reads, as upstream's `std.json` refuses
+/// it (`duplicate_field_behavior` defaults to `.@"error"`,
+/// `std/json/static.zig:20-26`, applied in `dynamic.zig:149-156`).
+///
+/// **Looser than upstream in one place**: a key nobody reads is skipped
+/// ([`serde::de::IgnoredAny`]) without upstream's two checks inside it.
+/// Upstream's parse refuses a key given twice in *any* object at any depth,
+/// and an unpaired surrogate in *any* string (`Scanner.zig:25-32`), so
+/// `[{"question":"Q","answer":"A","x":{"k":1,"k":2}}]` and the same with
+/// `"x":"\ud800"` are null there and answered batches here. Those lines are
+/// Zig 0.16.0's std; the pin builds with 0.17.0 (`build.zig.zon:28@481104fd`),
+/// whose std is taken to be the same. Only a hand-forged log holds such a
+/// document, and its rows are drawn inert; matching upstream would mean a
+/// skipper of xfx's own.
 ///
 /// Read by hand rather than derived: a derived struct also takes serde's
 /// positional form, so `[["Q","A"]]` would be an answer. The array is read
-/// element by element and refused at the twenty-first, before it is built;
-/// each element is read as an object only ([`Element`]). Neither goes through
-/// `serde_json::Value`, whose parse stops at a depth of 128: a key nobody
-/// reads is skipped ([`serde::de::IgnoredAny`]) at any depth, as upstream's
-/// heap-grown parse keeps it. Nothing here is made safe for a terminal: the
-/// rows that show it are (`crate::tui::question`'s `resolution_rows`).
+/// element by element and a twenty-first is refused at its first byte, its
+/// value unread ([`TwentyFirst`]); each element is read as an object only
+/// ([`Element`]). Neither goes through `serde_json::Value`, whose parse stops
+/// at a depth of 128: a key nobody reads is skipped at any depth, as
+/// upstream's heap-grown parse keeps it. Nothing here is made safe for a
+/// terminal: the rows that show it are (`crate::tui::question`'s
+/// `resolution_rows`).
 pub fn decode_answers(output: &str) -> Option<Vec<SavedAnswer>> {
     serde_json::from_str::<Batch>(output)
         .ok()
@@ -391,10 +403,11 @@ impl<'de> serde::de::Visitor<'de> for BatchVisitor {
         let mut answers = Vec::new();
         loop {
             if answers.len() == MAX_QUESTIONS {
-                // The twenty-first is refused before it is read into
-                // anything: only whether there is one is asked.
-                return match seq.next_element::<serde::de::IgnoredAny>()? {
-                    Some(_) => Err(serde::de::Error::invalid_length(MAX_QUESTIONS + 1, &self)),
+                // Only whether there is a twenty-first is asked: the seed
+                // refuses it without reading a byte of its value
+                // ([`TwentyFirst`]), so the parse stops at its first byte.
+                return match seq.next_element_seed(TwentyFirst)? {
+                    Some(()) => Err(serde::de::Error::invalid_length(MAX_QUESTIONS + 1, &self)),
                     None => Ok(Batch(answers)),
                 };
             }
@@ -406,6 +419,21 @@ impl<'de> serde::de::Visitor<'de> for BatchVisitor {
                 None => return Ok(Batch(answers)),
             }
         }
+    }
+}
+
+/// What the array's visitor reads a twenty-first element with: a refusal
+/// that never calls the deserializer, so the element's value is not read.
+struct TwentyFirst;
+
+impl<'de> serde::de::DeserializeSeed<'de> for TwentyFirst {
+    type Value = ();
+
+    fn deserialize<D: serde::Deserializer<'de>>(self, _: D) -> Result<(), D::Error> {
+        Err(serde::de::Error::invalid_length(
+            MAX_QUESTIONS + 1,
+            &"an array of at most twenty answered questions",
+        ))
     }
 }
 
@@ -431,9 +459,10 @@ impl<'de> serde::de::Visitor<'de> for ElementVisitor {
     // `visit_map` alone: an array, a string or a number is the visitor's
     // default refusal (`invalid type`), never a positional answer.
     //
-    // Any key given twice is refused, the two read and every other alike:
-    // upstream's object is one map, which its parse refuses to fill twice
-    // under the default `duplicate_field_behavior`.
+    // Any key of this object given twice is refused, the two read and every
+    // other alike, as upstream's parse refuses it (`duplicate_field_behavior
+    // = .@"error"`, `std/json/dynamic.zig:149-156`, Zig 0.16.0). A skipped
+    // value's own keys are not checked ([`decode_answers`]).
     fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Element, A::Error> {
         let (mut question, mut answer) = (None, None);
         let mut others = std::collections::HashSet::new();
