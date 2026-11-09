@@ -83,7 +83,7 @@ a tracked file.
 `--check` rewrites nothing and only refuses.
 """
 
-import bisect
+import itertools
 import os
 import re
 import sys
@@ -101,8 +101,10 @@ CONTROL = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\
 # Ends a row: a newline, a carriage return, or a CSI that moves the cursor.
 CURSOR_MOVE = re.compile(rb"\x1b\[[0-?]*[HfABCDEGd]\Z")
 GUTTER_BYTES = (b" ", b"\t")
-# Any gutter character, inside a root: a space, a tab, U+2500-U+259F.
-GUTTER_CHAR = re.compile(rb"[ \t]|\xe2(?:[\x94\x95][\x80-\xbf]|\x96[\x80-\x9f])")
+# A run of gutter characters inside a root: spaces, tabs, U+2500-U+259F.
+GUTTER_RUN = re.compile(rb"(?:[ \t]|\xe2(?:[\x94\x95][\x80-\xbf]|\x96[\x80-\x9f]))+")
+# The most runs of them a root may hold: each is read present and absent.
+MAX_GUTTER_RUNS = 6
 # Every placeholder, and every literal that reads like one, with the `!`s an
 # escape gave it.
 _NAMES_RE = "|".join(NAMES)
@@ -167,6 +169,8 @@ def rules_for(roots):
         for form, is_real in forms:
             if form == "/":
                 continue
+            if len(GUTTER_RUN.findall(os.fsencode(form))) > MAX_GUTTER_RUNS:
+                raise Refused("a root with more than %d runs of spaces, tabs or box-drawing characters" % MAX_GUTTER_RUNS)
             for b in spellings(form):
                 if b not in seen:
                     seen.add(b)
@@ -354,10 +358,22 @@ def rewrite(data, rules):
     return bytes(out), counts
 
 
-def _held(view, starts, a, b):
-    """Whether the view holds data[a:b] whole, in one of its runs."""
-    i = bisect.bisect_right(starts, a) - 1
-    return i >= 0 and view.runs[i][2] >= b
+def _broken_at_gutters(needle):
+    """The root as the view reads it where a row's edge fell beside one or
+    more of its gutter runs: the view drops each such run whole (a row's
+    trailing gutter and the next row's leading one), so every reading with
+    one or more runs taken out."""
+    runs = [m.span() for m in GUTTER_RUN.finditer(needle)]
+    out = []
+    for keep in itertools.product((True, False), repeat=len(runs)):
+        if all(keep):
+            continue
+        variant, pos = bytearray(), 0
+        for (a, b), kept in zip(runs, keep):
+            variant += needle[pos:a] + (needle[a:b] if kept else b"")
+            pos = b
+        out.append(bytes(variant + needle[pos:]))
+    return out
 
 
 def survivors(data, rules, suffix):
@@ -365,33 +381,31 @@ def survivors(data, rules, suffix):
 
     - a root where it ends whole in the visible text, by the rewrite's own
       rule;
-    - a root whose bytes, ending whole there, the view does not hold whole in
-      one of its runs: some of them in a control sequence (an OSC payload, or
-      a head an escape's own bytes took) or in a gutter the view dropped at a
-      row's edge (a root that ends in a space, a tab or a box-drawing
-      character, at a row's end);
-    - a root with a gutter character inside it, read in the visible text
-      with its gutter characters taken out: where a row's end fell beside
-      one, the view joined the two rows without it (`/tmp/a b` broken after
-      its space reads `/tmp/ab`);
+    - a root whose bytes, ending whole there, run into a control sequence's
+      (an OSC payload; a head an escape's own bytes took);
+    - a root with gutter characters in it (a space, a tab, U+2500-U+259F),
+      read once more with any of its runs of them taken out: where a row's
+      edge fell beside a run, the view dropped it whole (`/tmp/a b` broken
+      after its space reads `/tmp/ab`; a root ending in a space, at a row's
+      end, reads without it). The rewrite never finds such a root, so it is
+      refused; a sibling that reads like one (`/tmp/ab`) is refused too;
     - or the run directory's own name, anywhere.
 
-    A root's bytes the view holds whole in a run are the view's to judge: it
-    reads through a colour change after them to the next visible character,
-    so a sibling a picker bolded mid-name is no survivor, and a row's end or
-    a cursor move ends them. A root whose head an escape took is refused
-    even where the reader sees a sibling (`ESC <HOME> ESC[1m 2/notes`): the
-    view lost the head, and nothing it holds tells the two apart."""
+    A root's bytes in the visible text are the view's to judge: it reads
+    through a colour change after them to the next visible character, so a
+    sibling a picker bolded mid-name is no survivor, and a row's end or a
+    cursor move ends them. A root whose head an escape took is refused even
+    where the reader sees a sibling (`ESC <HOME> ESC[1m 2/notes`): the view
+    lost the head, and nothing it holds tells the two apart."""
     view = View(data)
-    starts = [start for _, start, _ in view.runs]
     found = []
     for needle, name, real in rules:
-        dropped = any(
-            not _held(view, starts, m.start(), m.end())
+        in_control = any(
+            any(m.start() < end and start < m.end() for start, end in view.controls)
             for m in re.finditer(re.escape(needle) + rb"(?![" + EDGE + rb"])", data)
         )
-        bare = GUTTER_CHAR.sub(b"", needle)
-        if dropped or _find(view, needle, []) or (bare != needle and _find(view, bare, [])):
+        broken = any(_find(view, v, []) for v in _broken_at_gutters(needle))
+        if in_control or broken or _find(view, needle, []):
             found.append(name + (":real" if real else ""))
     if suffix and (suffix.encode() in data or suffix.encode() in view.text):
         found.append("the run directory's name")
@@ -428,7 +442,11 @@ def main(argv):
             break
         else:
             sys.exit(__doc__)
-    rules = rules_for(roots)
+    try:
+        rules = rules_for(roots)
+    except Refused as e:
+        print("LOCAL-PATH GUARD: %s" % e, file=sys.stderr)
+        return 3
     bad = 0
     for path in files_under(files):
         if os.path.islink(path) or not os.path.isfile(path):

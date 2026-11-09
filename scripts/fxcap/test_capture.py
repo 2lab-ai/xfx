@@ -516,6 +516,25 @@ class RootsRewrite(unittest.TestCase):
         got = roots.rewrite(b"x /tmp/a b/notes\n", rules)[0]
         self.assertEqual(got, b"x " + P("tmp", spaced).encode() + b"/notes\n")
         self.assertEqual(roots.survivors(got, rules, None), [])
+        # Two runs, broken at either one: the view drops that run whole and
+        # keeps the other, so each run is read present and absent.
+        rules = roots.rules_for([("/tmp/a b c", "tmp")])
+        for data in (b"x /tmp/a \nb c/notes\n", b"x /tmp/a b \nc/notes\n", b"x /tmp/a  \n  \xe2\x94\x82 b c\n"):
+            with self.subTest(data=data):
+                self.assertEqual(roots.survivors(roots.rewrite(data, rules)[0], rules, None), ["tmp"])
+        got = roots.rewrite(b"x /tmp/a b c\n", rules)[0]
+        self.assertEqual(roots.survivors(got, rules, None), [])
+        # A root with more runs than that refuses its run's every file.
+        many = "/tmp/" + " x" * (roots.MAX_GUTTER_RUNS + 1)
+        with self.assertRaises(roots.Refused):
+            roots.rules_for([(many, "tmp")])
+        d = scratch()
+        path = os.path.join(d, "f.txt")
+        write(path, "nothing\n")
+        r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "roots.py"), "--root", many, "tmp", "--", path],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIn("LOCAL-PATH GUARD", r.stderr)
 
     def test_a_root_whose_head_an_escape_took_is_refused_beside_a_styled_sibling(self):
         # Conservative, on purpose: `ESC / h` takes the root's head, and a
