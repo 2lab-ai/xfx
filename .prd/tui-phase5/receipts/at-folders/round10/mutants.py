@@ -80,6 +80,8 @@ FP = "src/tui/file_picker.rs"
 
 MUTANTS = [
     # item 1: a walk a change of roots stopped counts as whole once the poll ends it
+    # round 7's superseded-never-cleared, whose anchor this round's comment moved, re-texted
+    ("superseded-never-cleared", FI, "            self.superseded = false;\n            if self.pending_refresh {", "            if self.pending_refresh {"),
     ("stopped-walk-not-whole", FI, "            if self.superseded {\n                self.ever_whole = true;\n            }\n", ""),
 ]
 
