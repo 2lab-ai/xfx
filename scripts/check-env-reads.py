@@ -52,10 +52,12 @@ ENV_READERS = {
 }
 
 # Every variable an `env_exception!` may name, and why it may: none names the
-# person's home, profile or configuration, an xfx setting, a proxy or a
-# credential. A list of what is allowed, not of what is not: a name nobody
-# thought to forbid -- a token another tool reads -- is refused until someone
-# adds it here with its reason.
+# person's profile or configuration, an xfx setting, a proxy or a credential,
+# and `HOME` is here only for the copy that confirms its own is the empty one
+# made for it (EXCEPTIONS holds that read to tests/support/isolated.rs). A
+# list of what is allowed, not of what is not: a name nobody thought to
+# forbid -- a token another tool reads -- is refused until someone adds it
+# here with its reason.
 ALLOWED_NAMES = {
     "PATH": "where programs are",
     "TMPDIR": "where temporary files go",
@@ -462,7 +464,8 @@ FIXTURES = {
         "pub fn f() -> bool {\n    " + ALLOW + '\n    let started = std::process::Command::new("true").status();\n    started.is_ok()\n}',
         ["std::process::Command::status outside"],
     ),
-    "unlisted_name": ('pub fn f() -> bool { env_fixtures::env_exception!(var_os("HOME")).is_some() }', ["not an allowed name"]),
+    "unlisted_name": ('pub fn f() -> bool { env_fixtures::env_exception!(var_os("GIT_CONFIG_GLOBAL")).is_some() }', ["not an allowed name"]),
+    "home_outside_the_copy": ('pub fn f() -> bool { env_fixtures::env_exception!(var_os("HOME")).is_some() }', ["an unlisted env_exception! of ['HOME']"]),
     "unlisted_invocation": ('pub fn f() -> bool { env_fixtures::env_exception!(var_os("TMPDIR")).is_some() }', ["an unlisted env_exception!"]),
     "raw_string_name": ('pub fn f() -> bool { env_fixtures::env_exception!(var_os(r"PATH")).is_some() }', ["not the literal form"]),
     "a_constant_into_the_macro": (
