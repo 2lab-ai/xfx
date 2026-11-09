@@ -47,46 +47,49 @@
 /// its list.
 #[cfg(not(test))]
 macro_rules! process_env {
-    ($who:literal, var($name:expr)) => {{
-        #[allow(
-            clippy::disallowed_methods,
-            reason = "env: process_env! -- a build reads the process"
-        )]
-        let value = ::std::env::var($name);
-        value
-    }};
-    ($who:literal, var_os($name:expr)) => {{
-        #[allow(
-            clippy::disallowed_methods,
-            reason = "env: process_env! -- a build reads the process"
-        )]
-        let value = ::std::env::var_os($name);
-        value
-    }};
-    ($who:literal, child_var($name:expr)) => {{
-        #[allow(
-            clippy::disallowed_methods,
-            reason = "env: process_env! -- a build reads the process"
-        )]
-        let value = ::std::env::var($name);
-        value
-    }};
-    ($who:literal, child_var_os($name:expr)) => {{
-        #[allow(
-            clippy::disallowed_methods,
-            reason = "env: process_env! -- a build reads the process"
-        )]
-        let value = ::std::env::var_os($name);
-        value
-    }};
-    ($who:literal, lookup) => {
-        |name: &str| {
+    ($who:literal, var($name:expr)) => {
+        match () {
             #[allow(
                 clippy::disallowed_methods,
                 reason = "env: process_env! -- a build reads the process"
             )]
-            let value = ::std::env::var(name).ok();
-            value
+            () => ::std::env::var($name),
+        }
+    };
+    ($who:literal, var_os($name:expr)) => {
+        match () {
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "env: process_env! -- a build reads the process"
+            )]
+            () => ::std::env::var_os($name),
+        }
+    };
+    ($who:literal, child_var($name:expr)) => {
+        match () {
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "env: process_env! -- a build reads the process"
+            )]
+            () => ::std::env::var($name),
+        }
+    };
+    ($who:literal, child_var_os($name:expr)) => {
+        match () {
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "env: process_env! -- a build reads the process"
+            )]
+            () => ::std::env::var_os($name),
+        }
+    };
+    ($who:literal, lookup) => {
+        |name: &str| match () {
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "env: process_env! -- a build reads the process"
+            )]
+            () => ::std::env::var(name).ok(),
         }
     };
 }
