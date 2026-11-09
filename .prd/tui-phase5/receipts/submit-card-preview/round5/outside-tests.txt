@@ -1,0 +1,13 @@
+# git diff 3d09af8f..ab4d41b0 -- src, the lines outside each file's tests module: 29 comment or blank, 11 code: two #[cfg(test)] fns and their attributes (MarkdownProcessor::holds, Shell::presenter_holds), compiled into no binary
+# files: src/markdown/processor.rs, src/tui/event_loop.rs, src/tui/shell.rs
++ src/markdown/processor.rs:209 #[cfg(test)]
++ src/markdown/processor.rs:210 [cfg(test)] pub(crate) fn holds(&self, text: &str) -> bool {
++ src/markdown/processor.rs:211 [cfg(test)] let text = text.as_bytes();
++ src/markdown/processor.rs:212 [cfg(test)] [&self.line_buf, &self.pending_top_level_line]
++ src/markdown/processor.rs:213 [cfg(test)] .iter()
++ src/markdown/processor.rs:214 [cfg(test)] .any(|held| held.windows(text.len()).any(|window| window == text))
++ src/markdown/processor.rs:215 [cfg(test)] }
++ src/tui/shell.rs:16009 [cfg(test)] #[cfg(test)]
++ src/tui/shell.rs:16010 [cfg(test)] pub(crate) fn presenter_holds(&self, text: &str) -> bool {
++ src/tui/shell.rs:16011 [cfg(test)] self.markdown.holds(text)
++ src/tui/shell.rs:16012 [cfg(test)] }

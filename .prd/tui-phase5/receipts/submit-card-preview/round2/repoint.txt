@@ -1,0 +1,17 @@
+# python3 -I -B repoint.py <repo> e4c678eb d82556e5   (the check; --write ran once, before it: the references round 2's source moved)
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:13565 at e4c678eb is :13614 at d82556e5  'let event = full_transcript::shown_event(event);'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:38799 at e4c678eb is :38994 at d82556e5  'String::new(),'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:38799 at e4c678eb is :38994 at d82556e5  'String::new(),'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:38799 at e4c678eb is :38994 at d82556e5  'String::new(),'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:38799 at e4c678eb is :38994 at d82556e5  'String::new(),'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:38799 at e4c678eb is :38994 at d82556e5  'String::new(),'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:10263 at e4c678eb is :10303 at d82556e5  '/// would have had written on its own.'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:10263 at e4c678eb is :10303 at d82556e5  '/// would have had written on its own.'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:38799 at e4c678eb is :38994 at d82556e5  'String::new(),'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:1769 at e4c678eb is :1779 at d82556e5  '"ansi_bytes={}, redraws={}, debounced_resizes={}, footer_upd'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:16474 at e4c678eb is :16533 at d82556e5  'pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Res'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:4399 at e4c678eb is :4439 at d82556e5  '};'
+same     scripts/fxcap/capfile.py: src/tui/shell.rs:14745-14770 at e4c678eb is :14794-14819 at d82556e5  "fn warning_shown(&self) -> Option<&'static str> {"
+same     tests/tui.rs: src/tui/shell.rs:2723 at e4c678eb is :2735 at d82556e5  '// kept for the case to answer ([`super::credits_ask::Asks::'
+same     tests/tui.rs: src/tui/shell.rs:2028 at e4c678eb is :2038 at d82556e5  '.collect()'
+15 references moved, 0 whose cited text changed

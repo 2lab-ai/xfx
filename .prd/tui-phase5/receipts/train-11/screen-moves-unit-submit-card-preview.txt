@@ -1,0 +1,4 @@
+snaps whose screen differs only in clock-like or run-local text: 109; otherwise: 1
+  of them, snaps where fx's screen moved at the same rows as xfx's: 0 snaps
+  snaps where xfx's screen moved alone or at other rows than fx's: 1
+    xfx p5-transcript-diffask ask rows [24]: [('ume-id 1794187651044-5d2e024414a1e9cb` of this saved session', 'ume-id 1794236934712-1efa9ed3dec4fbfe` of this saved session')]

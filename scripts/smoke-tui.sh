@@ -2565,6 +2565,18 @@ WAIT = 20.0
 
 # How long a poll sleeps when the master has nothing yet.
 IDLE_POLL = 0.002
+# How long `send` lets the terminal stay quiet, before the write that follows
+# one that ended a bracketed paste. xfx drops input that follows a paste,
+# whoever typed it, until the input has been quiet for about 50 ms plus a turn
+# of its loop plus that turn's work, counted from when it reads the paste's
+# last byte and started again by every byte it drops (`Decoder::PASTE_QUIET`,
+# src/tui/input.rs). Fast input there is lost by design, and said. These
+# trials model paced input: the next key comes after this pause, taken whole
+# at the next write, after whatever the trial waited to see. About four times
+# the window; tests/support/pty.rs' `PASTE_PAUSE` is the same rule, and
+# `paste_quiet_stays_within_what_was_measured` assumes the same 250 ms --
+# nothing checks that the three agree.
+PASTE_PAUSE = 0.25
 
 # The bytes that mean the TUI has taken the terminal (`?2004h`, the last of the
 # interactive mode set). Response-only: nothing this harness types contains it,
@@ -3024,6 +3036,14 @@ class Session:
     def send(self, data):
         if isinstance(data, str):
             data = data.encode("utf-8")
+        # The write after one that ended a paste waits PASTE_PAUSE first,
+        # pumping so the child's output still has somewhere to go.
+        if getattr(self, "_pasted", False):
+            self._pasted = False
+            resume = time.time() + PASTE_PAUSE
+            while time.time() < resume:
+                self.pump(IDLE_POLL)
+        ended_paste = b"\x1b[201~" in data
         while data:
             try:
                 written = os.write(self.terminal.master, data)
@@ -3037,6 +3057,7 @@ class Session:
                     continue
                 raise
             data = data[written:]
+        self._pasted = ended_paste
 
     def wait_until(self, what, ready, timeout=WAIT):
         deadline = time.time() + timeout
@@ -11188,8 +11209,8 @@ def scenario_26(run):
     # the *line* the caret sits on -- one of the paste's three, delimited by
     # the real newlines it carried -- not the whole draft, so it would leave
     # the first two rows standing. The paste that grew this draft went in
-    # through one `editor.insert()` call (`shell.rs:2607`), which is one
-    # history entry, so `C-_` (`Action::Undo`, `input.rs:708`) reverses the
+    # through one `editor.insert()` call (`shell.rs:2705`), which is one
+    # history entry, so `C-_` (`Action::Undo`, `input.rs:1063`) reverses the
     # whole paste in the one step a shrink is supposed to be -- and is what a
     # person who pasted the wrong thing would actually reach for.
     trial.send(b"\x1f")  # C-_: undo the paste as the one edit it was

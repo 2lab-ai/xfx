@@ -1,0 +1,53 @@
+src/tui/event_loop.rs `fn session(`: the same on every side that holds it
+    main e19c58ff637e | submit-card-preview e19c58ff637e | catalog-refresh e19c58ff637e | paste-gap e19c58ff637e | head e19c58ff637e
+src/tui/event_loop.rs `fn collect_facts(`: the same on every side that holds it
+    main e013024936ad | submit-card-preview e013024936ad | catalog-refresh e013024936ad | paste-gap e013024936ad | head e013024936ad
+src/tui/event_loop.rs `fn read_burst(`: changed by no unit (main's is newer than an older base's); the head's is main, paste-gap's
+    main 9328423f5c2a | submit-card-preview 13a84667d190 | catalog-refresh 13a84667d190 | paste-gap 9328423f5c2a | head 9328423f5c2a
+src/tui/event_loop.rs `fn burst(`: changed by paste-gap; the head's is paste-gap's
+    main e2b352621df2 | submit-card-preview - | catalog-refresh - | paste-gap 1d9943610a7f | head 1d9943610a7f
+src/tui/shell.rs `pub(crate) fn route_read(`: the same on every side that holds it
+    main 426865d9c528 | submit-card-preview 426865d9c528 | catalog-refresh 426865d9c528 | paste-gap 426865d9c528 | head 426865d9c528
+src/tui/shell.rs `pub(crate) fn end_delivery_at(`: the same on every side that holds it
+    main - | submit-card-preview - | catalog-refresh - | paste-gap 9fb9fec771e5 | head 9fb9fec771e5
+src/tui/shell.rs `pub(crate) fn still_at(`: the same on every side that holds it
+    main - | submit-card-preview - | catalog-refresh - | paste-gap f4e7898de448 | head f4e7898de448
+src/tui/shell.rs `fn said_ignored(`: the same on every side that holds it
+    main - | submit-card-preview - | catalog-refresh - | paste-gap bac47b238bc5 | head bac47b238bc5
+src/tui/shell.rs `pub(crate) fn settle_input(`: changed by paste-gap; the head's is paste-gap's
+    main 9318f0da4a80 | submit-card-preview 9318f0da4a80 | catalog-refresh 9318f0da4a80 | paste-gap 63f945488828 | head 63f945488828
+src/tui/shell.rs `fn plane_names_the_hold(`: the same on every side that holds it
+    main - | submit-card-preview - | catalog-refresh - | paste-gap b08c31e852f2 | head b08c31e852f2
+src/tui/event_loop.rs `fn take_ui_events(`: the same on every side that holds it
+    main 820c55d5efcd | submit-card-preview 820c55d5efcd | catalog-refresh 820c55d5efcd | paste-gap 820c55d5efcd | head 820c55d5efcd
+src/tui/event_loop.rs `fn drain_ui_events(`: the same on every side that holds it
+    main 8b209276e449 | submit-card-preview 8b209276e449 | catalog-refresh 8b209276e449 | paste-gap 8b209276e449 | head 8b209276e449
+src/tui/shell.rs `pub(crate) fn apply(`: the same on every side that holds it
+    main 3f9d7ee7207b | submit-card-preview 3f9d7ee7207b | catalog-refresh 3f9d7ee7207b | paste-gap 3f9d7ee7207b | head 3f9d7ee7207b
+src/tui/shell.rs `fn consume(`: the same on every side that holds it
+    main deb594f88e38 | submit-card-preview deb594f88e38 | catalog-refresh deb594f88e38 | paste-gap deb594f88e38 | head deb594f88e38
+src/tui/shell.rs `pub(crate) fn settle_band(`: changed by no unit (main's is newer than an older base's); the head's is main's (the same once reference numbers are masked: the re-point commit's)
+    main a144aa74e68c | submit-card-preview 54fbfb87b93b | catalog-refresh 54fbfb87b93b | paste-gap 54fbfb87b93b | head 3a8cf8335de3
+src/tui/event_loop.rs `fn commit_counted(`: changed by catalog-refresh; the head's is catalog-refresh's
+    main d80169d0091c | submit-card-preview d80169d0091c | catalog-refresh 5edcc4507bcb | paste-gap d80169d0091c | head 5edcc4507bcb
+src/tui/event_loop.rs `fn commit_tick(`: changed by submit-card-preview; the head's is submit-card-preview's
+    main 1d65d74baea4 | submit-card-preview 9d03a2d8e077 | catalog-refresh 1d65d74baea4 | paste-gap 1d65d74baea4 | head 9d03a2d8e077
+src/tui/event_loop.rs `fn commit_frame(`: changed by submit-card-preview; the head's is submit-card-preview's
+    main 478bc5fd7a8a | submit-card-preview fc280a917369 | catalog-refresh 478bc5fd7a8a | paste-gap 478bc5fd7a8a | head fc280a917369
+src/tui/shell.rs `pub(crate) fn settle_column(`: changed by catalog-refresh; the head's is catalog-refresh's
+    main 83738a8602d6 | submit-card-preview 83738a8602d6 | catalog-refresh a0b91092508e | paste-gap 83738a8602d6 | head a0b91092508e
+src/tui/shell.rs `pub(crate) fn catalog_now(`: the same on every side that holds it
+    main - | submit-card-preview - | catalog-refresh f0ce44646947 | paste-gap - | head f0ce44646947
+src/tui/shell.rs `fn note_catalog_activity(`: changed by catalog-refresh; the head's is catalog-refresh's
+    main ff081eb9242b | submit-card-preview ff081eb9242b | catalog-refresh 5557beb6d3f5 | paste-gap ff081eb9242b | head 5557beb6d3f5
+src/tui/shell.rs `fn want_catalog(`: changed by catalog-refresh; the head's is catalog-refresh's
+    main cb7cfb697ed3 | submit-card-preview cb7cfb697ed3 | catalog-refresh d5802fb31bce | paste-gap cb7cfb697ed3 | head d5802fb31bce
+src/tui/shell.rs `fn send(&mut self`: changed by submit-card-preview, catalog-refresh; the head's is NO SIDE's
+    main 3a054b74f915 | submit-card-preview 316047223996 | catalog-refresh b56bdc102169 | paste-gap 3a054b74f915 | head bd2a516efbb9
+src/tui/shell.rs `fn submit(&mut self)`: changed by no unit (main's is newer than an older base's); the head's is main's
+    main 9505a91cac6e | submit-card-preview f9fba2dabd68 | catalog-refresh f9fba2dabd68 | paste-gap f9fba2dabd68 | head 9505a91cac6e
+src/tui/shell.rs `pub(crate) fn band_landed(`: the same on every side that holds it
+    main - | submit-card-preview f6d555c4ba32 | catalog-refresh - | paste-gap - | head f6d555c4ba32
+src/tui/shell.rs `pub(crate) fn preview_landed(`: the same on every side that holds it
+    main - | submit-card-preview a4bc7eb2c55b | catalog-refresh - | paste-gap - | head a4bc7eb2c55b
+# 26 functions; 14 the same on every side that holds them

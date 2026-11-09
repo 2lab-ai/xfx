@@ -1,0 +1,25 @@
+# cargo test --locked --lib -- inside_the_quarantine split_across_the_quiet begun_in_the_quarantine begun_inside_the_quarantine said_again_once_a_second
+# on fdad4996's source with round 2's six RED tests (the RED commit's tree)
+test tui::input::tests::a_second_paste_inside_the_quarantine_is_a_paste_across_a_gap_in_its_middle ... FAILED
+test tui::input::tests::a_start_marker_split_across_the_quiet_holds_the_quarantine ... FAILED
+test tui::input::tests::an_unterminated_paste_begun_inside_the_quarantine_never_becomes_keys ... FAILED
+test tui::input::tests::a_start_marker_inside_a_paste_begun_in_the_quarantine_is_its_content ... FAILED
+test tui::shell::tests::input_that_keeps_arriving_inside_the_quarantine_is_said_again_once_a_second ... FAILED
+test tui::shell::tests::a_second_paste_inside_the_quarantine_with_a_gap_in_its_middle_is_kept_and_sends_nothing ... FAILED
+thread 'tui::input::tests::a_second_paste_inside_the_quarantine_is_a_paste_across_a_gap_in_its_middle' (378605015) panicked at src/tui/input.rs:3177:9:
+the rest of the second paste was keys: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119), Action(PasteEnd), Text('c'), Action(Submit), Text('d'), Action(PasteEnd)]
+thread 'tui::input::tests::a_start_marker_split_across_the_quiet_holds_the_quarantine' (378605017) panicked at src/tui/input.rs:3230:9:
+the split start marker let keys through: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119), Action(PasteEnd), Text('0'), Text('~'), Text('a'), Text('b'), Action(Submit), Action(PasteEnd)]
+---- tui::input::tests::an_unterminated_paste_begun_inside_the_quarantine_never_becomes_keys stdout ----
+thread 'tui::input::tests::an_unterminated_paste_begun_inside_the_quarantine_never_becomes_keys' (378605018) panicked at src/tui/input.rs:3207:9:
+the input after a quiet was keys: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119), Action(PasteEnd), Text('x'), Action(Submit)]
+thread 'tui::input::tests::a_start_marker_inside_a_paste_begun_in_the_quarantine_is_its_content' (378605016) panicked at src/tui/input.rs:3259:9:
+  left: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119), Action(PasteEnd), Action(PasteEnd)]
+ right: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119), Action(PasteEnd), Action(PasteStart), PasteByte(97), PasteByte(27), PasteByte(91), PasteByte(50), PasteByte(48), PasteByte(48), PasteByte(126), PasteByte(98), Action(PasteEnd)]
+thread 'tui::shell::tests::input_that_keeps_arriving_inside_the_quarantine_is_said_again_once_a_second' (378605020) panicked at src/tui/shell.rs:18961:9:
+  left: ["! input: Input that arrived right after the paste was ignored.", ""]
+ right: ["! input: Input that arrived right after the paste was ignored.", "", "! input: Input after the paste is still being ignored until it stops for a moment.", ""]
+thread 'tui::shell::tests::a_second_paste_inside_the_quarantine_with_a_gap_in_its_middle_is_kept_and_sends_nothing' (378605019) panicked at src/tui/shell.rs:18922:9:
+the rest of the second paste sent a prompt
+    tui::input::tests::an_unterminated_paste_begun_inside_the_quarantine_never_becomes_keys
+test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 4549 filtered out; finished in 0.02s

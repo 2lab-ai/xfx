@@ -1,0 +1,12 @@
+both: `fn loop_tick(` in src/tui/event_loop.rs: main 0, merge-1 1, submit-card-preview 1, catalog-refresh 0, paste-gap 0, head 1
+both: `fn card_once(` in src/tui/event_loop.rs: main 0, merge-1 1, submit-card-preview 1, catalog-refresh 0, paste-gap 0, head 1
+both: `struct Terminal {` in src/tui/event_loop.rs: main 0, merge-1 1, submit-card-preview 1, catalog-refresh 0, paste-gap 0, head 1
+both: `pub(crate) fn previewing(` in src/tui/shell.rs: main 0, merge-1 1, submit-card-preview 1, catalog-refresh 0, paste-gap 0, head 1
+join_test_paste.rs: `struct Readable {` in src/tui/event_loop.rs: main 1, merge-1 1, submit-card-preview 0, catalog-refresh 0, paste-gap 1, head 1
+join_test_paste.rs: `pub(crate) const PASTE_QUIET` in src/tui/input.rs: main 0, merge-1 0, submit-card-preview 0, catalog-refresh 0, paste-gap 1, head 1
+join_test_paste.rs: `pub(crate) fn end_delivery_at(` in src/tui/shell.rs: main 0, merge-1 0, submit-card-preview 0, catalog-refresh 0, paste-gap 1, head 1
+join_test_paste.rs: `pub(crate) fn settle_input(` in src/tui/shell.rs: main 1, merge-1 1, submit-card-preview 1, catalog-refresh 1, paste-gap 1, head 1
+join_test_catalog.rs: `fn full_with_draft(` in src/tui/event_loop.rs: main 0, merge-1 1, submit-card-preview 1, catalog-refresh 0, paste-gap 0, head 1
+join_test_catalog.rs: `fn catalog_due(` in src/tui/event_loop.rs: main 0, merge-1 0, submit-card-preview 0, catalog-refresh 1, paste-gap 0, head 1
+join_test_catalog.rs: `fn catalog_due_ago(` in src/tui/event_loop.rs: main 0, merge-1 0, submit-card-preview 0, catalog-refresh 1, paste-gap 0, head 1
+join_test_catalog.rs: `pub(crate) struct CatalogDue` in src/provider/catalog_clock.rs: main no file, merge-1 no file, submit-card-preview no file, catalog-refresh 1, paste-gap no file, head 1

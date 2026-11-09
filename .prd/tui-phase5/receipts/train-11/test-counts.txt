@@ -1,0 +1,10 @@
+# lines holding #[test] under src and tests (git grep -c '#\[test\]'), and '    def test_' under scripts/fxcap, per commit
+32afd307 Merge pull request #88 from 2lab-ai/train/p5-1109c           rust  5452  fxcap 176
+58c92ba2 Merge pull request #84 from 2lab-ai/train/p5-1108d           rust  5360  fxcap 165
+0c203cd3 docs(receipt): SUBMIT-CARD-PREVIEW round 5 -- the commit lis rust  5388  fxcap 165
+e705a5dc docs(catalog-bounds): round 2 review wording -- source after rust  5383  fxcap 176
+3ffbe0c7 docs(catalog-refresh): the column test's comment cites its t rust  5403  fxcap 176
+a832f4d7 docs(receipt): PASTE-AFTER-END -- the round-2 sweep sentence rust  5364  fxcap 165
+5cc2e42c docs(receipt): PASTE-GAP round 8 -- the plane's grant width  rust  5419  fxcap 165
+d2ed0274 Merge PASTE-GAP (fix/p5-paste-gap @ 5cc2e42c) into train 11  rust  5555  fxcap 176
+820a8f15 test(tui): P5 train 11 -- join check 1's test sends an Enter rust  5557  fxcap 176

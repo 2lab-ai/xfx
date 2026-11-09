@@ -1,0 +1,140 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ fill the screen
+
+  Filler line 01 of the first answer.
+
+  Filler line 02 of the first answer.
+
+  Filler line 03 of the first answer.
+
+  Filler line 04 of the first answer.
+
+  Filler line 05 of the first answer.
+
+  Filler line 06 of the first answer.
+
+  Filler line 07 of the first answer.
+
+  Filler line 08 of the first answer.
+
+  Filler line 09 of the first answer.
+
+  Filler line 10 of the first answer.
+
+  Filler line 11 of the first answer.
+
+  Filler line 12 of the first answer.
+
+  Filler line 13 of the first answer.
+
+  Filler line 14 of the first answer.
+
+  Filler line 15 of the first answer.
+
+  Filler line 16 of the first answer.
+
+  Filler line 17 of the first answer.
+
+  Filler line 18 of the first answer.
+
+  Filler line 19 of the first answer.
+
+  Filler line 20 of the first answer.
+
+  Filler line 21 of the first answer.
+
+  Filler line 22 of the first answer.
+
+  Filler line 23 of the first answer.
+
+  Filler line 24 of the first answer.
+
+  Filler line 25 of the first answer.
+
+  Filler line 26 of the first answer.
+
+  Filler line 27 of the first answer.
+
+  Filler line 28 of the first answer.
+
+  Filler line 29 of the first answer.
+
+  Filler line 30 of the first answer.
+
+  0s (↑4 ↓40)
+
+┃ second prompt
+
+  Second answer.
+
+  1s (↑4 ↓40)
+
+┃ TALL_PROMPT_HEAD
+┃ tall prompt body 01
+┃ tall prompt body 02
+┃ tall prompt body 03
+┃ tall prompt body 04
+┃ tall prompt body 05
+┃ tall prompt body 06
+┃ tall prompt body 07
+┃ tall prompt body 08
+┃ tall prompt body 09
+┃ tall prompt body 10
+┃ tall prompt body 11
+┃ tall prompt body 12
+┃ tall prompt body 13
+┃ tall prompt body 14
+┃ tall prompt body 15
+┃ tall prompt body 16
+┃ tall prompt body 17
+┃ tall prompt body 18
+┃ tall prompt body 19
+┃ tall prompt body 20
+┃ tall prompt body 21
+┃ tall prompt body 22
+┃ tall prompt body 23
+┃ tall prompt body 24
+┃ tall prompt body 25
+┃ tall prompt body 26
+┃ tall prompt body 27
+┃ tall prompt body 28
+┃ tall prompt body 29
+┃ tall prompt body 30
+┃ tall prompt body 31
+┃ tall prompt body 32
+┃ tall prompt body 33
+┃ tall prompt body 34
+┃ tall prompt body 35
+┃ tall prompt body 36
+┃ tall prompt body 37
+┃ tall prompt body 38
+┃ tall prompt body 39
+┃ tall prompt body 40
+┃ tall prompt body 41
+┃ tall prompt body 42
+┃ tall prompt body 43
+┃ tall prompt body 44
+┃ tall prompt body 45
+┃ tall prompt body 46
+┃ tall prompt body 47
+┃ tall prompt body 48
+┃ tall prompt body 49
+┃ tall prompt body 50
+┃ tall prompt body 51
+┃ tall prompt body 52
+┃ tall prompt body 53
+┃ tall prompt body 54
+┃ tall prompt body 55
+┃ tall prompt body 56
+┃ tall prompt body 57
+┃ tall prompt body 58
+┃ TALL_PROMPT_TAIL
+
+  Tall prompt answer.
+
+  0s (↑298 ↓40)
+
+┃
+
+auto · model-a

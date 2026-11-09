@@ -31,8 +31,12 @@
 //!   The invariant is the **compiler's** to keep, not a comment's:
 //!   [`collect_facts`] is the only thing that makes a [`Reconciled`], reading
 //!   and painting are the only things that take one, and each takes it by
-//!   value. Deleting either reconcile does not produce a subtle repaint on a
-//!   cooked terminal; it fails the build.
+//!   value (a tick's frames borrow the one their tick took,
+//!   [`commit_frame_led`]). Deleting either reconcile does not produce a
+//!   subtle repaint on a cooked terminal; it fails the build. That nothing
+//!   else in this module makes one, the compiler cannot see -- a unit struct
+//!   is a value wherever it is in scope -- so a test does
+//!   (`only_collect_facts_makes_a_reconciled`).
 //! * **Read in a bounded burst.** At most [`READ_BURSTS`] reads of
 //!   [`BURST_BYTES`], so a terminal delivering input faster than the band can
 //!   be painted cannot starve the paint. Standard input is a *blocking*
@@ -501,10 +505,22 @@ where
         }
     });
 
-    // And what the pacer still holds, for the exit whose drain carried nothing
-    // at all. Phase 1 never repaints a document row, so this is the last moment
-    // those bytes can reach the terminal.
-    if painting && broken.is_none() && shell.paced_backlog() > 0 {
+    // The exit's own frame, for the exit whose drain carried nothing at all.
+    // Phase 1 never repaints a document row, so this is the last moment any of
+    // it can reach the terminal. It writes what the pacer still holds, a card
+    // the band is still previewing (`Shell::flush_paced`), and -- once a band
+    // of this screen is on it -- whatever the document still owes: rows a
+    // refused frame left, rows owed while the other plane was up, a card whose
+    // preview the exit's own resize dropped (`resolve_resize_on_exit`). Nothing
+    // a stop or a reset threw away is owed (`Shell::abandon_answer`,
+    // `reset_session`), and text after a stop waits in `Shell::late`, not in
+    // the document. `painted_top` is `None` before the first band lands, and
+    // after a handoff or a wipe lands until the next band does
+    // (`Band::hand_off`, `Band::wipe`): a session that leaves then has no band
+    // of this screen to clear from, owes what is not under one -- its welcome,
+    // the next document -- and paints nothing.
+    let owed = band.painted_top().is_some() && shell.owes_document();
+    if painting && broken.is_none() && (shell.paced_backlog() > 0 || shell.previewing() || owed) {
         match reconcile(shell, band) {
             Ok(token) => {
                 if let Err(err) = flushed(shell, band, out, failures, Instant::now(), token) {
@@ -625,8 +641,28 @@ fn read_burst(
 /// That is a boundary a terminal draws, not one a clipboard does: a terminal
 /// that writes one paste with a moment between two of its writes -- a paste
 /// longer than the pty's input queue arrives as the terminal refills it --
-/// ends the delivery at that moment, and what follows is read as keys, in fx
-/// v0.0.16 as here (`docs/parity.md`'s `full-screen TUI` row).
+/// ends the delivery at that moment, and fx v0.0.16 reads what follows as
+/// keys. Here it is still the paste's, until a check finds nothing a quiet
+/// period after the last one did: every turn's check says so, an idle one's
+/// too, and only the decoder reads the time between them
+/// ([`super::input::Decoder::PASTE_QUIET`], `docs/parity.md`'s `full-screen
+/// TUI` row).
+///
+/// **What keeps it from holding the input forever.** Only input itself: every
+/// byte dropped starts the quiet again, so the quarantine ends about
+/// `PASTE_QUIET` plus a turn after the input stops, and a stream that never
+/// stops is said once a second while it lasts (`PASTE_REPEAT`), never decoded
+/// on a timer -- at a check that finds nothing and at the read cap alike
+/// ([`Shell::still_at`]), so a stream that never pauses is said too. Two things
+/// the decoder waits on besides: a marker read past its first byte, until the
+/// sequence is finished or broken (a lone ESC is dropped by the quiet, as the
+/// Escape key it was); and a second paste -- begun inside
+/// the quarantine, where it is a paste, or behind the first one's end marker,
+/// where it is dropped -- which ends at its own end marker: one a terminal
+/// writes after every paste, and the one that closes whatever a clipboard
+/// opened. Without it the stream is malformed and the input stays a paste's,
+/// as an unterminated paste's does in fx (`paste_framing.zig:502-511
+/// @481104fd`) and at the base. An outside signal ends the session either way.
 ///
 /// `ready` and `read` are the terminal's ([`read_burst`]); a case passes its
 /// own, so where a delivery ends is tested without a terminal's timing.
@@ -649,8 +685,11 @@ fn burst(
             Err(err) => return Err(err),
         }
         // Still readable after the last read this turn may take: the paint is
-        // owed, and the delivery goes on into the next turn.
+        // owed, and the delivery goes on into the next turn. What a paste's
+        // quarantine owes is said here too, since no check of this turn has
+        // found nothing -- said, and nothing settled or ended.
         if reads == READ_BURSTS {
+            shell.still_at(Instant::now());
             return Ok(());
         }
         match read(&mut *buffer) {
@@ -889,20 +928,22 @@ fn commit_frame(
     now: Instant,
     reconciled: Reconciled,
 ) -> io::Result<()> {
-    commit_frame_led(shell, band, out, failures, now, reconciled, &mut None)
+    commit_frame_led(shell, band, out, failures, now, &reconciled, &mut None)
 }
 
 /// [`commit_frame`], with a program status report to ride the lead of the
 /// primary plane's update after the title the band owes ([`commit_tick`]).
 /// Taken out of `lead` by the update that carries it ([`commit_primary`]);
-/// left there by a tick that wrote no such update.
+/// left there by a tick that wrote no such update. It borrows the token its
+/// caller took: [`commit_tick`]'s two frames, the preview's and its card's,
+/// are written against one reconcile, with no wait between them.
 fn commit_frame_led(
     shell: &mut Shell,
     band: &mut Band,
     out: &mut impl Sink,
     failures: &mut FrameFailures,
     now: Instant,
-    _reconciled: Reconciled,
+    _reconciled: &Reconciled,
     lead: &mut Option<super::program_status::Report>,
 ) -> io::Result<()> {
     // The window title the session wants now, handed to the band before any
@@ -1027,6 +1068,13 @@ fn commit_frame_led(
     // them. So the rows are paid, and then the band frame they moved.
     let taking_the_plane =
         !band.on_alternate() && shell.screen_owner() == super::shell::ScreenOwner::Alternate;
+    // A card held behind a preview its frame has not shown is owed too: it
+    // is paid whole before the plane changes hands, as it was before there
+    // was a preview, rather than left under the question
+    // (`Shell::give_up_preview`).
+    if taking_the_plane && shell.previewing() {
+        shell.give_up_preview();
+    }
     if band.on_alternate() || taking_the_plane {
         // Not on a screen no band fits on: there, `blind` says the row numbers
         // are claims about a screen that may not exist, and an append is a
@@ -1120,7 +1168,9 @@ fn commit_counted(
     // The frame about to be painted is the `/model` column's redraw, which
     // asks for a catalog that failed again, as upstream's render path does
     // ([`Shell::settle_column`]); a tick that owes no frame asks nothing.
-    shell.settle_column(now);
+    // On the catalog's clock, which counts sleep, not the frame's.
+    let catalog_now = shell.catalog_now();
+    shell.settle_column(catalog_now);
     let mut counted = Counted::new(out);
     let committed = commit_tick(shell, band, &mut counted, failures, now, reconciled);
     shell.metrics.ansi_bytes += counted.delivered();
@@ -1216,7 +1266,16 @@ fn commit_tick(
             }
         }
     }
-    commit_frame_led(shell, band, out, failures, now, reconciled, &mut lead)?;
+    commit_frame_led(shell, band, out, failures, now, &reconciled, &mut lead)?;
+    // The card a preview's frame just showed, in the frame after it and in
+    // this tick, as fx builds its card's frame once its preview's frame has
+    // committed (`Shell::take_preview_shown`). Nothing is read and no resize
+    // is taken between the two: the loop reads and takes a resize only in
+    // `collect_facts` and `read_burst`, ahead of this commit (`run`). The
+    // facts this tick reconciled are the ones the card is written against.
+    if shell.take_preview_shown() {
+        commit_frame_led(shell, band, out, failures, now, &reconciled, &mut None)?;
+    }
     if let Some(report) = lead {
         write_program_status(&report, out, failures, now)?;
     }
@@ -1547,6 +1606,10 @@ fn landed_band(shell: &mut Shell, failures: &mut FrameFailures, ready: &BandAtte
     });
     // And the `@` list's arrows scroll the rows this frame showed it in.
     shell.file_picker_landed();
+    // The screen the next preview is measured against, and a submitted
+    // card's preview that has been on it for its frame: the card is the next
+    // frame's to write (`Shell::band_landed`).
+    shell.band_landed();
     // `/stats`'s `redraws`: a whole repaint that **landed**. A damaged attempt
     // that was refused is restored and counted by the tick that finally lands
     // it, so a screen that refused three times is still one repaint.
@@ -2514,6 +2577,23 @@ impl FrameFailures {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// When the runtime would say the catalog is next owed a read: `after`
+    /// from now on the catalog's clock.
+    fn catalog_due(after: Duration) -> crate::provider::catalog_clock::CatalogDue {
+        let clock = crate::provider::catalog_clock::CatalogClock::system();
+        crate::provider::catalog_clock::CatalogDue::at(clock.now() + after)
+    }
+
+    /// The same, `ago` before now.
+    fn catalog_due_ago(ago: Duration) -> crate::provider::catalog_clock::CatalogDue {
+        let clock = crate::provider::catalog_clock::CatalogClock::system();
+        let at = clock
+            .now()
+            .checked_sub(ago)
+            .expect("a clock older than that");
+        crate::provider::catalog_clock::CatalogDue::at(at)
+    }
 
     use super::super::deliver::{emit_counted, RawWrite};
 
@@ -4543,7 +4623,7 @@ mod tests {
         let mut band = Band::new();
         shell.save_speeds_by_hand();
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: catalog_due(crate::provider::model::REFRESH_INTERVAL),
             provider: crate::provider::ProviderId::Gateway,
             entries: vec![crate::provider::model::CatalogEntry {
                 // The model a session over an empty profile is in.
@@ -7667,9 +7747,7 @@ mod tests {
         shell.apply(UiEvent::CatalogUnread {
             provider: crate::provider::ProviderId::Gateway,
             retry: Some(crate::provider::model::CatalogRetry::Unreachable),
-            retry_at: Instant::now()
-                .checked_sub(std::time::Duration::from_secs(2))
-                .expect("a clock older than two seconds"),
+            retry_at: catalog_due_ago(std::time::Duration::from_secs(2)),
         });
         shell.route_bytes(b"/model ");
         assert!(shell._control.try_recv().is_err(), "the edit asked");
@@ -7683,6 +7761,46 @@ mod tests {
         // The tick after it owes nothing, paints nothing and asks nothing.
         counted_tick(&mut shell, &mut band, &mut out, &mut failures).expect("the tick");
         assert!(shell._control.try_recv().is_err(), "an idle tick asked");
+    }
+
+    #[test]
+    fn the_model_columns_frame_reads_the_catalogs_clock() {
+        // The frame's ask is decided on the catalog's clock, the one that
+        // counts sleep (`commit_counted` -> `Shell::settle_column`): a
+        // failure just now holds the next read off for its backoff, and a
+        // sleep past it ends the hold.
+        let machine = crate::provider::catalog_clock::FakeMachine::new();
+        let clock = machine.clock();
+        let mut shell = shell_of(40, 120);
+        shell.set_catalog_clock_for_test(clock.clone());
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let failed = clock.now();
+        shell.apply(UiEvent::CatalogUnread {
+            provider: crate::provider::ProviderId::Gateway,
+            retry: Some(crate::provider::model::CatalogRetry::Unreachable),
+            retry_at: crate::provider::catalog_clock::CatalogDue {
+                since: Some(failed),
+                at: failed + crate::provider::model::failure_backoff(1),
+            },
+        });
+        shell.route_bytes(b"/model ");
+        counted_tick(&mut shell, &mut band, &mut out, &mut failures).expect("the tick");
+        assert!(
+            shell._control.try_recv().is_err(),
+            "the frame asked inside the failure's hold"
+        );
+        machine.sleep(Duration::from_secs(6));
+        shell.route_bytes(b"a");
+        counted_tick(&mut shell, &mut band, &mut out, &mut failures).expect("the tick");
+        assert_eq!(
+            shell._control.try_recv().ok(),
+            Some(crate::tui::bridge::TurnControl::Catalog(
+                crate::tui::bridge::CatalogAsk::ACTIVITY
+            )),
+            "the frame did not ask past a hold that ended asleep"
+        );
     }
 
     #[test]
@@ -9171,6 +9289,1893 @@ mod tests {
         assert!(
             !written.contains("say hello"),
             "the carry repainted a document row, which this phase never does: {written:?}"
+        );
+    }
+
+    #[test]
+    fn a_prompt_taller_than_the_room_under_the_document_shows_its_newest_rows_for_one_frame() {
+        // fx v0.0.16's pending card (70611a91): the frame that clears the
+        // composer paints only the newest rows of the card that fit between
+        // the document's last row and the fixed content bottom, `rows - 4`,
+        // and at least one (`buildPendingCardProjection`,
+        // `src/core/app/app_render_runtime.zig:220-277@481104fd`); the frame
+        // after that one commits writes the whole card
+        // (`noteCommittedFrame` -> `adoptPendingSubmission`,
+        // `src/core/app/input_submit_runtime.zig:289-307`, `:572-584`). On a
+        // full 40-row screen a three-line draft leaves the document's last
+        // row at 35, room for one row; a five-line one leaves it at 33, room
+        // for three (`fx-p5-submit-preview-full-40x120-five`, frame 1).
+        for (lines, shown) in [(3usize, 1usize), (5, 3)] {
+            let mut shell = shell_of(40, 120);
+            let mut band = Band::new();
+            let mut failures = FrameFailures::default();
+            let mut out = screen();
+            let now = Instant::now();
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                now,
+                Reconciled,
+            )
+            .expect("the first frame");
+            let words: Vec<String> = (1..=lines).map(|n| format!("PREVIEW-LINE-{n}")).collect();
+            shell.route_bytes(format!("\x1b[200~{}\x1b[201~", words.join("\n")).as_bytes());
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                now,
+                Reconciled,
+            )
+            .expect("the frame that shows the draft");
+
+            out.written.clear();
+            shell.route_bytes(b"\r");
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                now,
+                Reconciled,
+            )
+            .expect("the frame that clears the composer");
+            let first = String::from_utf8_lossy(&out.written).into_owned();
+            for (index, word) in words.iter().enumerate() {
+                assert_eq!(
+                    first.contains(word.as_str()),
+                    index >= lines - shown,
+                    "{lines} lines, the frame that clears the composer, {word}: {first:?}"
+                );
+            }
+
+            out.written.clear();
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                now,
+                Reconciled,
+            )
+            .expect("the frame after it");
+            let second = String::from_utf8_lossy(&out.written).into_owned();
+            for word in &words {
+                assert!(
+                    second.contains(&format!(
+                        "\u{1b}[38;5;255m\u{2503}\u{1b}[0m \u{1b}[1m{word}\u{1b}[0m"
+                    )),
+                    "{lines} lines, the frame after it did not write the card's {word}: {second:?}"
+                );
+            }
+        }
+    }
+
+    /// A terminal with a history, for what a preview leaves behind: the
+    /// rows on the screen, the rows scrolled off its top, and the alternate
+    /// buffer `?1049` saves the screen behind.
+    ///
+    /// A resize is tmux's, the terminal every capture of this crate runs in,
+    /// as measured (`.prd/tui-phase5/receipts/submit-card-preview/round2/
+    /// tmux-resize-probe.txt`): a shorter screen drops the rows under the
+    /// cursor first, then moves rows off the top into the history; a taller
+    /// one brings rows back from the history to the top; a narrower one cuts
+    /// rows, and none of xfx's rows is a wrapped one for it to reflow. (The
+    /// probe measured a shorter screen and a taller one, not a narrower one:
+    /// cutting is this model's choice, and every row it cuts is short.)
+    ///
+    /// Bytes are parsed as one stream across reads, as a terminal's parser
+    /// does: a character or an escape sequence a torn write left unfinished
+    /// waits for the next bytes, which finish it or -- an `ESC` where a
+    /// sequence's next byte should be -- abort it ([`Self::catch_up`]).
+    struct Terminal {
+        rows: usize,
+        cols: usize,
+        lines: Vec<Vec<char>>,
+        history: Vec<String>,
+        row: usize,
+        col: usize,
+        saved: Option<(Vec<Vec<char>>, usize, usize)>,
+        fed: usize,
+        /// Read but not yet parsed: the start of a character or of an escape
+        /// sequence whose end has not been written.
+        pending: Vec<u8>,
+    }
+
+    impl Terminal {
+        fn new(rows: u16, cols: u16) -> Self {
+            Self {
+                rows: usize::from(rows),
+                cols: usize::from(cols),
+                lines: vec![Vec::new(); usize::from(rows)],
+                history: Vec::new(),
+                row: 0,
+                col: 0,
+                saved: None,
+                fed: 0,
+                pending: Vec::new(),
+            }
+        }
+
+        /// Everything `written` holds past what this terminal has read, after
+        /// what it read before and has not parsed yet. A character torn
+        /// before its last byte waits; one the next bytes do not finish is
+        /// a replacement character, as a terminal shows it.
+        fn catch_up(&mut self, written: &[u8]) {
+            self.pending.extend_from_slice(&written[self.fed..]);
+            self.fed = written.len();
+            let whole = self.pending.len() - unfinished_character(&self.pending);
+            let text = String::from_utf8_lossy(&self.pending[..whole]).into_owned();
+            let parsed = self.feed(&text);
+            // What `feed` left is an unfinished sequence at the text's end:
+            // the bytes it came from, character for character, unless one
+            // of them was not UTF-8.
+            assert!(
+                !text[parsed..].contains('\u{fffd}'),
+                "an unfinished sequence holds a byte that is not UTF-8: {:?}",
+                &text[parsed..]
+            );
+            let left = text.len() - parsed;
+            self.pending.drain(..whole - left);
+        }
+
+        /// Parses `text`, and returns how many of its bytes: all of them, or
+        /// those before an escape sequence that has not ended yet.
+        fn feed(&mut self, text: &str) -> usize {
+            let chars: Vec<(usize, char)> = text.char_indices().collect();
+            let mut at = 0;
+            while at < chars.len() {
+                let c = chars[at].1;
+                at += 1;
+                match c {
+                    '\u{1b}' => match self.escape(&chars, at) {
+                        Some(next) => at = next,
+                        None => return chars[at - 1].0,
+                    },
+                    '\n' => self.linefeed(),
+                    '\r' => self.col = 0,
+                    '\u{8}' => self.col = self.col.saturating_sub(1),
+                    c if c.is_control() => {}
+                    c => self.put(c),
+                }
+            }
+            text.len()
+        }
+
+        /// The sequence an `ESC` at `at - 1` opens: where parsing goes on,
+        /// or `None` when the text ends before the sequence does. A CSI's
+        /// parameters and intermediates run to its final byte; anything else
+        /// where one should be -- the next update's `ESC` -- aborts it, and
+        /// parsing goes on at that byte. An OSC runs to its BEL or ST, and an
+        /// `ESC` that is not the ST's aborts it the same way.
+        fn escape(&mut self, chars: &[(usize, char)], at: usize) -> Option<usize> {
+            match chars.get(at).map(|&(_, c)| c) {
+                Some('[') => {
+                    let mut end = at + 1;
+                    while end < chars.len() && ('\u{20}'..='\u{3f}').contains(&chars[end].1) {
+                        end += 1;
+                    }
+                    let last = chars.get(end)?.1;
+                    if !('\u{40}'..='\u{7e}').contains(&last) {
+                        return Some(end);
+                    }
+                    let params: String = chars[at + 1..end].iter().map(|&(_, c)| c).collect();
+                    self.csi(&params, last);
+                    Some(end + 1)
+                }
+                Some(']') => {
+                    let mut end = at + 1;
+                    loop {
+                        match chars.get(end)?.1 {
+                            '\u{7}' => return Some(end + 1),
+                            '\u{1b}' => {
+                                return match chars.get(end + 1)?.1 {
+                                    '\\' => Some(end + 2),
+                                    _ => Some(end),
+                                };
+                            }
+                            _ => end += 1,
+                        }
+                    }
+                }
+                // A second `ESC` aborts the first, and the escape starts again
+                // there: the next update's, after a tear one byte past an `ESC`.
+                Some('\u{1b}') => Some(at),
+                Some(_) => Some(at + 1),
+                None => None,
+            }
+        }
+
+        fn csi(&mut self, params: &str, last: char) {
+            let numbers: Vec<usize> = params
+                .trim_start_matches(['?', '>', '<', '='])
+                .split(';')
+                .map(|n| n.parse().unwrap_or(0))
+                .collect();
+            let first = numbers.first().copied().unwrap_or(0);
+            match last {
+                'H' | 'f' => {
+                    self.row = first.max(1).min(self.rows) - 1;
+                    self.col = numbers.get(1).copied().unwrap_or(1).max(1).min(self.cols) - 1;
+                }
+                'G' => self.col = first.max(1).min(self.cols) - 1,
+                'C' => self.col = (self.col + first.max(1)).min(self.cols - 1),
+                'K' => {
+                    let line = &mut self.lines[self.row];
+                    if first == 2 {
+                        line.clear();
+                    } else {
+                        line.truncate(self.col);
+                    }
+                }
+                'J' => {
+                    if first == 2 || first == 3 {
+                        self.lines.iter_mut().for_each(Vec::clear);
+                    } else {
+                        self.lines[self.row].truncate(self.col);
+                        self.lines[self.row + 1..].iter_mut().for_each(Vec::clear);
+                    }
+                }
+                'X' => {
+                    for offset in 0..first.max(1) {
+                        if let Some(cell) = self.lines[self.row].get_mut(self.col + offset) {
+                            *cell = ' ';
+                        }
+                    }
+                }
+                'h' if params == "?1049" => {
+                    let screen = std::mem::replace(&mut self.lines, vec![Vec::new(); self.rows]);
+                    self.saved = Some((screen, self.row, self.col));
+                }
+                'l' if params == "?1049" => {
+                    if let Some((screen, row, col)) = self.saved.take() {
+                        self.lines = screen;
+                        self.row = row;
+                        self.col = col;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        fn put(&mut self, c: char) {
+            let line = &mut self.lines[self.row];
+            while line.len() < self.col {
+                line.push(' ');
+            }
+            if self.col < line.len() {
+                line[self.col] = c;
+            } else {
+                line.push(c);
+            }
+            if self.col + 1 < self.cols {
+                self.col += 1;
+            }
+        }
+
+        fn linefeed(&mut self) {
+            if self.row + 1 < self.rows {
+                self.row += 1;
+                return;
+            }
+            let top = self.lines.remove(0);
+            if self.saved.is_none() {
+                self.history.push(top.into_iter().collect());
+            }
+            self.lines.push(Vec::new());
+        }
+
+        fn resize(&mut self, rows: u16, cols: u16) {
+            let (rows, cols) = (usize::from(rows), usize::from(cols));
+            if rows < self.rows {
+                let mut cut = self.rows - rows;
+                let below = (self.rows - 1 - self.row).min(cut);
+                self.lines.truncate(self.rows - below);
+                cut -= below;
+                for line in self.lines.drain(..cut) {
+                    self.history.push(line.into_iter().collect());
+                }
+                self.row -= cut;
+            } else {
+                for _ in 0..(rows - self.rows) {
+                    match self.history.pop() {
+                        Some(line) => {
+                            self.lines.insert(0, line.chars().collect());
+                            self.row += 1;
+                        }
+                        None => self.lines.push(Vec::new()),
+                    }
+                }
+            }
+            for line in &mut self.lines {
+                line.truncate(cols);
+            }
+            self.rows = rows;
+            self.cols = cols;
+            self.col = self.col.min(cols - 1);
+        }
+
+        /// The history and then the screen, each row as its text.
+        fn everything(&self) -> Vec<String> {
+            let mut rows = self.history.clone();
+            rows.extend(
+                self.lines
+                    .iter()
+                    .map(|line| line.iter().collect::<String>()),
+            );
+            rows.iter().map(|row| row.trim_end().to_string()).collect()
+        }
+    }
+
+    #[test]
+    fn the_test_terminal_parses_one_stream_across_reads() {
+        // A character and a CSI torn across two reads are read whole; a CSI
+        // the next update's `ESC` cuts short is aborted, and that update is
+        // read from its `ESC`; so is a lone `ESC` the next one follows.
+        let mut terminal = Terminal::new(4, 20);
+        let mut written = "\u{2503} A\u{1b}[2".as_bytes().to_vec();
+        written.truncate(1);
+        terminal.catch_up(&written);
+        written = "\u{2503} A\u{1b}[2".as_bytes().to_vec();
+        terminal.catch_up(&written);
+        written.extend_from_slice(b";1HB\x1b[3");
+        terminal.catch_up(&written);
+        written.extend_from_slice(b"\x1b[3;1HC");
+        terminal.catch_up(&written);
+        // And a tear one byte past an `ESC`: the next update's `ESC` starts
+        // the escape again rather than ending it.
+        written.extend_from_slice(b"\x1b");
+        terminal.catch_up(&written);
+        written.extend_from_slice(b"\x1b[4;1HD");
+        terminal.catch_up(&written);
+        assert_eq!(
+            terminal.everything(),
+            ["\u{2503} A", "B", "C", "D"],
+            "the reads were not parsed as one stream"
+        );
+        assert!(terminal.pending.is_empty(), "bytes left unparsed");
+    }
+
+    /// How many bytes at the end of `bytes` start a UTF-8 character they do
+    /// not finish.
+    fn unfinished_character(bytes: &[u8]) -> usize {
+        for back in 1..=bytes.len().min(3) {
+            let byte = bytes[bytes.len() - back];
+            if byte & 0xc0 == 0x80 {
+                continue;
+            }
+            let length = match byte {
+                0xf0.. => 4,
+                0xe0.. => 3,
+                0xc0.. => 2,
+                _ => 1,
+            };
+            return if length > back { back } else { 0 };
+        }
+        0
+    }
+
+    /// Asserts that `words` stand once each, in order, on rows of their own
+    /// behind the card's rail, in the history and on the screen together,
+    /// and on no other row.
+    fn card_once(terminal: &Terminal, words: &[String], what: &str) {
+        card_at_most_once(terminal, words, 0, what);
+    }
+
+    /// [`card_once`], with up to `lost` of the card's last rows gone: the rows
+    /// a resize's band repaint covers when tmux keeps its cursor's row as the
+    /// screen's last ([`Terminal::resize`]). Any document's last rows go the
+    /// same way under that resize, with no preview anywhere -- a one-row card
+    /// under a filled screen loses its row -- and that is the band's resize,
+    /// not the preview's.
+    fn card_at_most_once(terminal: &Terminal, words: &[String], lost: usize, what: &str) {
+        let rows = terminal.everything();
+        let carrying: Vec<(usize, &String)> = rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| words.iter().any(|word| row.contains(word.as_str())))
+            .collect();
+        let expected: Vec<String> = words
+            .iter()
+            .map(|word| format!("\u{2503} {word}"))
+            .collect();
+        let found: Vec<String> = carrying.iter().map(|(_, row)| (*row).clone()).collect();
+        assert!(
+            found.len() + lost >= expected.len()
+                && found.len() <= expected.len()
+                && found[..] == expected[..found.len()],
+            "{what}: the card's rows, history and screen (up to {lost} of its last lost): {rows:#?}"
+        );
+        let first = carrying[0].0;
+        assert!(
+            carrying
+                .iter()
+                .enumerate()
+                .all(|(n, (at, _))| *at == first + n),
+            "{what}: the card's rows are not one after another: {rows:#?}"
+        );
+    }
+
+    /// A 40x120 session whose screen a turn's answer has filled, the frame
+    /// that shows it landed, and `lines` pasted into the composer and shown.
+    fn full_with_draft(lines: &[String]) -> (Fixture, Band, FrameFailures, FlakyScreen, Terminal) {
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let mut terminal = Terminal::new(40, 120);
+        let now = Instant::now();
+        shell.apply(UiEvent::Delta("FILLER\n\n".repeat(30)));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        for _ in 0..2 {
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                now,
+                Reconciled,
+            )
+            .expect("a frame of the answer");
+        }
+        shell.route_bytes(format!("\x1b[200~{}\x1b[201~", lines.join("\n")).as_bytes());
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the frame that shows the draft");
+        terminal.catch_up(&out.written);
+        (shell, band, failures, out, terminal)
+    }
+
+    /// Frames until one writes nothing, each read by `terminal`.
+    fn settle(
+        shell: &mut Fixture,
+        band: &mut Band,
+        failures: &mut FrameFailures,
+        out: &mut FlakyScreen,
+        terminal: &mut Terminal,
+    ) {
+        for _ in 0..6 {
+            let before = out.written.len();
+            commit_frame(shell, band, out, failures, Instant::now(), Reconciled).expect("a frame");
+            terminal.catch_up(&out.written);
+            if out.written.len() == before {
+                return;
+            }
+        }
+    }
+
+    /// Every `Reconciled` in `code` that is a value rather than a type, with
+    /// its line ([`only_collect_facts_makes_a_reconciled`]). A type is behind
+    /// a `<`, an `->`, a `&` that is itself a type's, or a `:` -- the last
+    /// only in a fn's signature, a struct's definition, a `let` or a
+    /// closure's parameters: anywhere else `name: Reconciled` is a struct
+    /// literal's field, a value.
+    fn reconciled_made(code: &str) -> Vec<(usize, String)> {
+        let word = |c: char| c.is_alphanumeric() || c == '_';
+        let mut made = Vec::new();
+        let (mut signature, mut definition) = (false, None::<usize>);
+        for (n, line) in code.lines().enumerate() {
+            let line = line.split("//").next().unwrap_or("");
+            let indent = line.len() - line.trim_start().len();
+            let trimmed = line.trim();
+            if trimmed.contains("fn ") {
+                signature = true;
+            }
+            if definition.is_none()
+                && trimmed.ends_with('{')
+                && trimmed
+                    .split_whitespace()
+                    .take_while(|token| *token != "{")
+                    .any(|token| token == "struct")
+            {
+                definition = Some(indent);
+            }
+            let mut from = 0;
+            while let Some(at) = line[from..].find("Reconciled").map(|at| at + from) {
+                from = at + "Reconciled".len();
+                let before = line[..at].trim_end();
+                if (before.ends_with(word) && !before.ends_with("struct"))
+                    || line[from..].starts_with(word)
+                {
+                    continue;
+                }
+                // A borrow is a type behind a `:`, a `<` or an `->`, and a
+                // value anywhere else (`f(&Reconciled)`).
+                let behind = before.strip_suffix('&').map_or(before, str::trim_end);
+                // A `let`'s annotation is before its `=`; a closure's
+                // parameters are between its first two bars.
+                // A signature ends at its line's first `{`: past it is the
+                // body, even on the line that opened it.
+                let in_signature = signature && line.find('{').is_none_or(|open| at < open);
+                let declared = in_signature
+                    || definition.is_some()
+                    || (trimmed.starts_with("let ") && !line[..at].contains('='))
+                    || line[..at].matches('|').count() % 2 == 1;
+                let typed = (behind.ends_with(':') && declared)
+                    || behind.ends_with('<')
+                    || behind.ends_with("->")
+                    || (before == behind && before.ends_with("struct"));
+                if !typed {
+                    made.push((n + 1, trimmed.to_string()));
+                }
+            }
+            if signature && (trimmed.contains('{') || trimmed.ends_with(';')) {
+                signature = false;
+            }
+            if definition.is_some_and(|at| at == indent && trimmed == "}") {
+                definition = None;
+            }
+        }
+        made
+    }
+
+    #[test]
+    fn only_collect_facts_makes_a_reconciled() {
+        // The token's promise ([`Reconciled`]) holds only while nothing but
+        // `collect_facts` makes one, and inside this module the compiler
+        // cannot say so: a unit struct is a value anywhere it is in scope.
+        // So this test does. Every `Reconciled` in the code ahead of these
+        // tests is a type -- a parameter's, a return's, a borrow's, the
+        // struct's own -- except `collect_facts`' one `Ok(Reconciled)`.
+        let source = include_str!("event_loop.rs");
+        let code = &source[..source.find("\nmod tests {").expect("the tests module")];
+        let made = reconciled_made(code);
+        assert!(
+            made.len() == 1 && made[0].1 == "Ok(Reconciled)",
+            "a Reconciled made outside collect_facts: {made:#?}"
+        );
+        // And the scan itself, on each shape: the types are not counted, and
+        // every value is, a struct literal's field and a borrow among them.
+        let shapes = "fn f(\n    token: Reconciled,\n    other: &Reconciled,\n) -> io::Result<Reconciled> {\n\
+                      struct Holder {\n    token: Reconciled,\n}\n\
+                      let kept: Reconciled = make();\n\
+                      let each = |token: Reconciled| token;\n\
+                      Holder {\n    token: Reconciled,\n};\n\
+                      commit(&Reconciled);\n\
+                      Ok(Reconciled)\n\
+                      let held = Holder { token: Reconciled };\n\
+                      let made = items.map(|_| Holder { token: Reconciled });\n\
+                      fn make() -> Holder { Holder { token: Reconciled } }\n";
+        let lines: Vec<usize> = reconciled_made(shapes).iter().map(|(n, _)| *n).collect();
+        // Lines 11 (the literal's field), 13 (the borrow), 14 (`Ok`), and 15
+        // and 16 (a literal's field after a `let`'s `=` and in a closure's
+        // body), and 17 (a literal's field in a one-line fn's body).
+        assert_eq!(
+            lines,
+            [11, 13, 14, 15, 16, 17],
+            "the scan's shapes: {:#?}",
+            reconciled_made(shapes)
+        );
+    }
+
+    #[test]
+    fn a_painted_preview_leaves_the_card_once_across_a_resize_before_the_card() {
+        // The preview's frame has landed -- its row is on the screen -- and
+        // the screen changes size before the frame that writes the card:
+        // shorter, and narrower. The card is on the terminal once, every row
+        // in order, and nothing of the preview is left beside it, in the
+        // history or on the screen.
+        //
+        // These frames are `commit_frame`'s, one each, never the session's
+        // tick, which writes the card's frame right after the preview's
+        // ([`commit_tick`]): this is the window a write that fails leaves
+        // open, for a one-row preview the band's repaint covers. A tall one
+        // is `a_failed_write_and_a_shrink_before_the_retry_leave_only_what_
+        // the_shrink_took`.
+        for (rows, cols, what) in [(24, 120, "shorter"), (40, 100, "narrower")] {
+            let words: Vec<String> = ["RESIZE-ONE", "RESIZE-TWO", "RESIZE-THREE"]
+                .map(String::from)
+                .to_vec();
+            let (mut shell, mut band, mut failures, mut out, mut terminal) =
+                full_with_draft(&words);
+            shell.route_bytes(b"\r");
+            assert!(
+                shell.previewing(),
+                "{what}: no preview, so this case proves nothing"
+            );
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                Instant::now(),
+                Reconciled,
+            )
+            .expect("the preview's frame");
+            terminal.catch_up(&out.written);
+            assert!(
+                terminal
+                    .everything()
+                    .iter()
+                    .any(|row| row == "\u{2503} RESIZE-THREE")
+                    && !terminal
+                        .everything()
+                        .iter()
+                        .any(|row| row.contains("RESIZE-ONE")),
+                "{what}: the preview is not what the screen shows: {:#?}",
+                terminal.everything()
+            );
+            terminal.resize(rows, cols);
+            adopt_resize(&mut shell, &mut band, || (rows, cols));
+            settle(
+                &mut shell,
+                &mut band,
+                &mut failures,
+                &mut out,
+                &mut terminal,
+            );
+            card_once(&terminal, &words, what);
+        }
+    }
+
+    /// One tick's commit, as the session's loop makes it ([`commit_counted`]),
+    /// each byte read by `terminal`.
+    fn loop_tick(
+        shell: &mut Fixture,
+        band: &mut Band,
+        failures: &mut FrameFailures,
+        out: &mut FlakyScreen,
+        terminal: &mut Terminal,
+    ) {
+        commit_counted(shell, band, out, failures, Instant::now(), Reconciled).expect("a tick");
+        terminal.catch_up(&out.written);
+    }
+
+    #[test]
+    fn the_tick_that_shows_a_preview_writes_the_card_in_the_next_frame() {
+        // fx adopts the card once its preview's frame has committed, and its
+        // next frame writes it (`noteCommittedFrame`,
+        // `src/core/app/input_submit_runtime.zig:289-307@481104fd`). xfx
+        // writes both in one tick, with no read and no resize between them:
+        // the preview's frame and then the card's -- two updates, the
+        // preview the first.
+        let words: Vec<String> = ["TICK-ONE", "TICK-TWO", "TICK-THREE"]
+            .map(String::from)
+            .to_vec();
+        let (mut shell, mut band, mut failures, mut out, mut terminal) = full_with_draft(&words);
+        out.written.clear();
+        terminal.fed = 0;
+        shell.route_bytes(b"\r");
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        let updates: Vec<&str> = written.split("\u{1b}[?2026h").skip(1).collect();
+        assert!(updates.len() >= 2, "the tick wrote one update: {written:?}");
+        assert!(
+            updates[0].contains("TICK-THREE") && !updates[0].contains("TICK-ONE"),
+            "the tick's first update is not the preview: {:?}",
+            updates[0]
+        );
+        assert!(
+            updates[1..]
+                .iter()
+                .any(|update| update.contains("TICK-ONE")),
+            "the tick did not write the card after its preview: {written:?}"
+        );
+        assert!(
+            !shell.owes_document(),
+            "the card is still owed after the tick"
+        );
+    }
+
+    #[test]
+    fn a_tall_preview_leaves_the_card_once_across_a_resize_after_its_tick() {
+        // A first prompt of 60 lines under two rows of document: the
+        // preview is 32 rows, most of the screen. The screen shrinks after
+        // the tick that showed it: what the terminal moves into its history
+        // and what the card's frame writes leave the card there once, in
+        // order, and no row of the preview beside it.
+        for (rows, cols) in [(24, 120), (30, 120), (40, 100)] {
+            let words: Vec<String> = (1..=60)
+                .map(|n| format!("TALL-PREVIEW-ROW-{n:02}"))
+                .collect();
+            let mut shell = shell_of(40, 120);
+            shell.with_document_rows(2);
+            let mut band = Band::new();
+            let mut failures = FrameFailures::default();
+            let mut out = screen();
+            let mut terminal = Terminal::new(40, 120);
+            loop_tick(
+                &mut shell,
+                &mut band,
+                &mut failures,
+                &mut out,
+                &mut terminal,
+            );
+            shell.route_bytes(format!("\x1b[200~{}\x1b[201~", words.join("\n")).as_bytes());
+            loop_tick(
+                &mut shell,
+                &mut band,
+                &mut failures,
+                &mut out,
+                &mut terminal,
+            );
+            shell.route_bytes(b"\r");
+            assert!(
+                shell.previewing(),
+                "{rows}x{cols}: no preview, so this case proves nothing"
+            );
+            loop_tick(
+                &mut shell,
+                &mut band,
+                &mut failures,
+                &mut out,
+                &mut terminal,
+            );
+            terminal.resize(rows, cols);
+            adopt_resize(&mut shell, &mut band, || (rows, cols));
+            for _ in 0..4 {
+                loop_tick(
+                    &mut shell,
+                    &mut band,
+                    &mut failures,
+                    &mut out,
+                    &mut terminal,
+                );
+            }
+            // A shorter screen: the band repaint after the resize covers the
+            // card's last row, as it covers any document's.
+            let lost = usize::from(rows < 40);
+            card_at_most_once(&terminal, &words, lost, &format!("{rows}x{cols}"));
+        }
+    }
+
+    /// What one write of a scripted terminal does.
+    #[derive(Clone, Copy)]
+    enum Step {
+        Take,
+        Refuse,
+        /// Takes this many bytes, then fails: the update lands torn.
+        Tear(usize),
+        /// Takes half the update, then fails.
+        Half,
+    }
+
+    /// A terminal that does what `script` says to its writes, one update
+    /// after another, and takes everything once the script is spent.
+    struct Scripted {
+        script: Vec<Step>,
+        update: usize,
+        torn: bool,
+        written: Vec<u8>,
+        /// What each write took, the script's steps and the writes after.
+        took: Vec<usize>,
+    }
+
+    impl RawWrite for Scripted {
+        fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if std::mem::take(&mut self.torn) {
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "torn"));
+            }
+            let step = self.script.get(self.update).copied().unwrap_or(Step::Take);
+            self.update += 1;
+            match step {
+                Step::Take => {
+                    self.written.extend_from_slice(bytes);
+                    self.took.push(bytes.len());
+                    Ok(bytes.len())
+                }
+                Step::Refuse => {
+                    self.took.push(0);
+                    Err(io::Error::new(io::ErrorKind::BrokenPipe, "not now"))
+                }
+                Step::Tear(_) | Step::Half => {
+                    let taken = match step {
+                        Step::Tear(taken) => taken,
+                        _ => bytes.len() / 2,
+                    };
+                    let taken = taken.min(bytes.len().saturating_sub(1)).max(1);
+                    self.written.extend_from_slice(&bytes[..taken]);
+                    self.took.push(taken);
+                    self.torn = true;
+                    Ok(taken)
+                }
+            }
+        }
+    }
+
+    impl Sink for Scripted {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            emit_counted(self, bytes)
+        }
+    }
+
+    #[test]
+    fn a_refused_or_torn_write_at_the_preview_or_the_card_still_leaves_the_card_once() {
+        // The tick's two updates -- the preview's frame and the card's -- each
+        // refused or torn: whatever the terminal took, the ticks after it put
+        // the card there once, in order, with nothing of the preview beside
+        // it. (With no resize between: that is
+        // `a_failed_write_and_a_shrink_before_the_retry_leave_only_what_the_
+        // shrink_took`.)
+        for (script, what) in [
+            (vec![Step::Refuse], "the preview's frame refused"),
+            (vec![Step::Take, Step::Refuse], "the card's frame refused"),
+            (
+                vec![Step::Take, Step::Tear(4)],
+                "the card's frame torn before its rows",
+            ),
+            (
+                vec![Step::Take, Step::Half],
+                "the card's frame torn in its rows",
+            ),
+            (vec![Step::Tear(40)], "the preview's frame torn"),
+        ] {
+            let words: Vec<String> = ["RETRY-ONE", "RETRY-TWO", "RETRY-THREE"]
+                .map(String::from)
+                .to_vec();
+            let (mut shell, mut band, mut failures, out, mut terminal) = full_with_draft(&words);
+            let mut out = Scripted {
+                script,
+                update: 0,
+                torn: false,
+                written: out.written,
+                took: Vec::new(),
+            };
+            shell.route_bytes(b"\r");
+            assert!(
+                shell.previewing(),
+                "{what}: no preview, so this case proves nothing"
+            );
+            let steps = out.script.clone();
+            let (sent, shown) = (out.written.len(), terminal.everything());
+            let mut ended = false;
+            for tick in 0..4 {
+                let committed = commit_counted(
+                    &mut shell,
+                    &mut band,
+                    &mut out,
+                    &mut failures,
+                    Instant::now(),
+                    Reconciled,
+                );
+                terminal.catch_up(&out.written);
+                if tick > 0 {
+                    assert!(committed.is_ok(), "{what}: tick {tick}: {committed:?}");
+                    continue;
+                }
+                // A document update torn inside its rows ends the session,
+                // as any does (`commit_primary`;
+                // `an_update_torn_inside_its_rows_ends_the_session_and_closes_
+                // the_update`): no tick comes after it to write the card.
+                if matches!(steps[..], [Step::Take, Step::Half]) {
+                    assert!(committed.is_err(), "{what}: the session went on");
+                    ended = true;
+                    break;
+                }
+                assert!(committed.is_ok(), "{what}: the tick: {committed:?}");
+                // Which write each step met, from what the first tick left.
+                // (The composer draws the draft behind the same rail as the
+                // card, so the screen before the tick shows all three rows.)
+                let screen = terminal.everything();
+                let shows =
+                    |word: &str| screen.iter().any(|row| *row == format!("\u{2503} {word}"));
+                let up = shows("RETRY-THREE") && !shows("RETRY-ONE");
+                match steps[..] {
+                    [Step::Refuse] => assert!(
+                        out.took == [0] && out.written.len() == sent && screen == shown,
+                        "{what}: the terminal took something of the preview ({:?}): {screen:#?}",
+                        out.took
+                    ),
+                    [Step::Take, Step::Refuse] => assert!(
+                        out.took.len() == 2 && out.took[0] > 0 && out.took[1] == 0 && up,
+                        "{what}: not the preview's frame taken and the card's refused, its \
+                         preview up ({:?}): {screen:#?}",
+                        out.took
+                    ),
+                    // Nothing of the update but its opener: it is closed and
+                    // offered again whole by the next tick, its preview up
+                    // until then.
+                    [Step::Take, Step::Tear(taken)] => assert!(
+                        out.took.len() >= 2 && out.took[0] > 0 && out.took[1] == taken && up,
+                        "{what}: not the preview's frame taken and the card's torn, its preview \
+                         up ({:?}): {screen:#?}",
+                        out.took
+                    ),
+                    // The tick's recovery repaints the torn frame
+                    // (`failed_band`), and that is all: the card waits for the
+                    // next tick, its preview up until then.
+                    [Step::Tear(taken)] => assert!(
+                        out.took.first() == Some(&taken) && up,
+                        "{what}: not the preview's frame torn and its preview up after the \
+                         tick's recovery ({:?}): {screen:#?}",
+                        out.took
+                    ),
+                    _ => unreachable!("{what}: a script this test does not read"),
+                }
+            }
+            if ended {
+                continue;
+            }
+            card_once(&terminal, &words, what);
+            assert!(
+                !shell.previewing() && !shell.owes_document(),
+                "{what}: the card is still owed"
+            );
+        }
+    }
+
+    #[test]
+    fn a_failed_write_and_a_shrink_before_the_retry_leave_only_what_the_shrink_took() {
+        // The window the tick's card frame cannot close: the preview's rows
+        // are on the screen and the card is not, because the card's frame
+        // was refused or torn, or the preview's own frame was torn, and the
+        // screen shrinks before the retry. tmux moves rows off the top into
+        // its history before xfx can know ([`Terminal::resize`]). fx has the
+        // same window, between its preview's frame and its card's
+        // (`noteCommittedFrame`, `src/core/app/input_submit_runtime.zig:
+        // 289-307@481104fd`): what its terminal took is not its to take back.
+        //
+        // What is true: the retry writes the card once, whole and in order,
+        // and the only other rows of it on the terminal are the shrink's:
+        // those it moved into the history, and those of the preview it kept
+        // on the screen above the band xfx paints after it. None is a row xfx
+        // wrote after the shrink.
+        //
+        // (A card's frame torn inside its rows ends the session, as any
+        // document update torn there does, so no retry comes after it for a
+        // shrink to come before: `a_refused_or_torn_write_at_the_preview_or_
+        // the_card_still_leaves_the_card_once`.)
+        for (script, what) in [
+            (vec![Step::Take, Step::Refuse], "the card's frame refused"),
+            (
+                vec![Step::Take, Step::Tear(4)],
+                "the card's frame torn before its rows",
+            ),
+            (vec![Step::Half], "the preview's frame torn"),
+        ] {
+            let words: Vec<String> = (1..=60).map(|n| format!("TALL-RETRY-ROW-{n:02}")).collect();
+            let expected: Vec<String> = words
+                .iter()
+                .map(|word| format!("\u{2503} {word}"))
+                .collect();
+            let carries = |row: &String| words.iter().any(|word| row.contains(word.as_str()));
+            let mut shell = shell_of(40, 120);
+            shell.with_document_rows(2);
+            let mut band = Band::new();
+            let mut failures = FrameFailures::default();
+            let mut out = Scripted {
+                script: Vec::new(),
+                update: 0,
+                torn: false,
+                written: Vec::new(),
+                took: Vec::new(),
+            };
+            let mut terminal = Terminal::new(40, 120);
+            let mut tick = |shell: &mut Fixture, band: &mut Band, out: &mut Scripted| {
+                commit_counted(shell, band, out, &mut failures, Instant::now(), Reconciled)
+                    .expect("a tick, its failed write recovered");
+                terminal.catch_up(&out.written);
+            };
+            tick(&mut shell, &mut band, &mut out);
+            shell.route_bytes(format!("\x1b[200~{}\x1b[201~", words.join("\n")).as_bytes());
+            tick(&mut shell, &mut band, &mut out);
+            out.script = script;
+            out.update = 0;
+            out.took.clear();
+            shell.route_bytes(b"\r");
+            assert!(
+                shell.previewing(),
+                "{what}: no preview, so this case proves nothing"
+            );
+            tick(&mut shell, &mut band, &mut out);
+            drop(tick);
+            // Which write each step met, from what the tick left: in every
+            // case the preview's newest row is up and the card's first row is
+            // nowhere -- the window this test is about.
+            let screen = terminal.everything();
+            let up = screen
+                .iter()
+                .any(|row| *row == expected[expected.len() - 1])
+                && !screen.iter().any(|row| *row == expected[0]);
+            match out.script[..] {
+                [Step::Take, Step::Refuse] => assert!(
+                    out.took.len() == 2 && out.took[0] > 0 && out.took[1] == 0 && up,
+                    "{what}: not the preview's frame taken and the card's refused, the \
+                     preview up ({:?}): {screen:#?}",
+                    out.took
+                ),
+                [Step::Take, Step::Tear(taken)] => assert!(
+                    out.took.len() > 2 && out.took[0] > 0 && out.took[1] == taken && up,
+                    "{what}: not the preview's frame taken and the card's torn before its \
+                     rows, closed, the preview up ({:?}): {screen:#?}",
+                    out.took
+                ),
+                // The recovery repaints the torn preview, and lands no band.
+                [Step::Half] => assert!(
+                    out.took.len() > 1 && out.took[0] > 0 && up,
+                    "{what}: not the preview's frame torn and repainted, the preview up \
+                     ({:?}): {screen:#?}",
+                    out.took
+                ),
+                _ => unreachable!("{what}: a script this test does not read"),
+            }
+            let before = terminal.history.len();
+            terminal.resize(24, 120);
+            let took: Vec<String> = terminal.history[before..]
+                .iter()
+                .map(|row| row.trim_end().to_string())
+                .filter(|row| carries(row))
+                .collect();
+            let kept: Vec<String> = terminal.everything()[terminal.history.len()..]
+                .iter()
+                .filter(|row| carries(row))
+                .cloned()
+                .collect();
+            adopt_resize(&mut shell, &mut band, || (24, 120));
+            let shrunk = out.written.len();
+            for _ in 0..4 {
+                commit_counted(
+                    &mut shell,
+                    &mut band,
+                    &mut out,
+                    &mut failures,
+                    Instant::now(),
+                    Reconciled,
+                )
+                .expect("a tick after the shrink");
+                terminal.catch_up(&out.written);
+            }
+            let rows = terminal.everything();
+            let start = rows
+                .iter()
+                .rposition(|row| *row == expected[0])
+                .unwrap_or_else(|| panic!("{what}: no card: {rows:#?}"));
+            let found = rows[start..]
+                .iter()
+                .zip(&expected)
+                .take_while(|(row, expected)| row == expected)
+                .count();
+            // Written whole: every row of the card, in the card's own style,
+            // once and in order in what xfx wrote after the shrink -- the
+            // card's frame. (The tall preview's own frame paints its rows
+            // behind the same rail, as band rows.)
+            let written = String::from_utf8_lossy(&out.written[shrunk..]).into_owned();
+            let mut from = 0;
+            for word in &words {
+                let row = format!("\u{1b}[38;5;255m\u{2503}\u{1b}[0m \u{1b}[1m{word}\u{1b}[0m");
+                assert_eq!(
+                    written.matches(&row).count(),
+                    1,
+                    "{what}: the card's {word} not written once"
+                );
+                from += written[from..]
+                    .find(&row)
+                    .unwrap_or_else(|| panic!("{what}: the card's {word} written out of order"))
+                    + row.len();
+            }
+            // Still visible whole, a separate claim: every row of it on the
+            // terminal from its first. The card's frame comes after the
+            // shrink, so no repaint for the shorter screen covers its last
+            // row (that is a row written before a shrink, the tall test's).
+            assert_eq!(
+                found,
+                expected.len(),
+                "{what}: the card on the terminal from its first row: {rows:#?}"
+            );
+            assert!(
+                !rows[start + found..].iter().any(carries),
+                "{what}: rows of the card after it: {rows:#?}"
+            );
+            let besides: Vec<String> = rows[..start]
+                .iter()
+                .filter(|row| carries(row))
+                .cloned()
+                .collect();
+            // The shrink's own rows first, in the order it took them; then
+            // the preview's rows it kept on the screen above the band xfx
+            // paints after it, which to xfx are the document's (a resize
+            // leaves the document's rows unknown, `Shell::resize`) and go up
+            // with it as the card is written. The band paints over the rest
+            // of what it kept. No other row: none that xfx wrote after the
+            // shrink.
+            assert!(
+                besides.len() >= took.len()
+                    && besides[..took.len()] == took[..]
+                    && kept.starts_with(&besides[took.len()..]),
+                "{what}: rows of the card besides it {besides:#?}, against those the shrink \
+                 took {took:#?} and kept {kept:#?}"
+            );
+            // And how many, for this screen and this card: 10 rows into the
+            // history, and 2 of the preview's kept above the band.
+            assert_eq!(
+                (took.len(), besides.len() - took.len()),
+                (10, 2),
+                "{what}: the rows the shrink took, and those it kept above the band"
+            );
+        }
+    }
+
+    #[test]
+    fn ctrl_o_read_with_the_enter_takes_the_plane_after_the_card() {
+        // Ctrl-O read with the Enter that previews the card: the full
+        // transcript takes the other plane before any frame shows the
+        // preview, so the barrier pays the card whole first, and the screen
+        // Ctrl-O gives back holds it once.
+        let words: Vec<String> = ["CTRLO-ONE", "CTRLO-TWO", "CTRLO-THREE"]
+            .map(String::from)
+            .to_vec();
+        let (mut shell, mut band, mut failures, mut out, mut terminal) = full_with_draft(&words);
+        shell.route_bytes(b"\r\x0f");
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        assert!(
+            band.on_alternate(),
+            "Ctrl-O did not take the plane, so this case proves nothing"
+        );
+        shell.route_bytes(b"\x0f");
+        for _ in 0..3 {
+            loop_tick(
+                &mut shell,
+                &mut band,
+                &mut failures,
+                &mut out,
+                &mut terminal,
+            );
+        }
+        assert!(!band.on_alternate(), "Ctrl-O did not give the plane back");
+        card_once(&terminal, &words, "Ctrl-O with the Enter");
+    }
+
+    #[test]
+    fn an_answer_that_starts_with_the_preview_follows_the_card() {
+        // The turn starts and its first words arrive in the tick that shows
+        // the preview: the card is written, whole and once, and the answer
+        // under it.
+        let words: Vec<String> = ["STREAM-ONE", "STREAM-TWO", "STREAM-THREE"]
+            .map(String::from)
+            .to_vec();
+        let (mut shell, mut band, mut failures, mut out, mut terminal) = full_with_draft(&words);
+        shell.route_bytes(b"\r");
+        shell.start_turn();
+        shell.apply(UiEvent::Delta("STREAM-ANSWER first words.\n".to_string()));
+        shell.settle_band(Instant::now() + Duration::from_secs(5));
+        assert!(
+            shell.previewing(),
+            "no preview, so this case proves nothing"
+        );
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        assert!(!shell.previewing(), "the tick did not write the card");
+        // The rest of the answer, as a pacer that has caught up writes it,
+        // and the turn's end.
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        for _ in 0..3 {
+            loop_tick(
+                &mut shell,
+                &mut band,
+                &mut failures,
+                &mut out,
+                &mut terminal,
+            );
+        }
+        card_once(&terminal, &words, "an answer with the preview");
+        let rows = terminal.everything();
+        let card = rows
+            .iter()
+            .position(|row| row.contains("STREAM-THREE"))
+            .expect("the card");
+        let answer = rows
+            .iter()
+            .position(|row| row.contains("STREAM-ANSWER"))
+            .unwrap_or_else(|| panic!("the answer was never written: {rows:#?}"));
+        assert!(card < answer, "the answer is above the card: {rows:#?}");
+    }
+
+    #[test]
+    fn a_draft_and_its_enter_in_one_read_measure_the_room_the_last_frame_left() {
+        // fx measures the preview from the last committed frame's flow
+        // endpoint (`buildPendingCardProjection`'s `presentation_shell
+        // .cursor_row`, committed at `runtime.zig:9929-9932@481104fd`). Five
+        // lines typed and their Enter in one read: no frame showed the
+        // five-row composer, so the room is the one the one-row composer's
+        // frame left -- one row on a full screen, not three
+        // (`fx-p5-submit-preview-oneread-40x120-oneread`, the frame that
+        // clears the composer).
+        let (mut shell, mut band, mut failures, mut out, _terminal) = full_with_draft(&[]);
+        out.written.clear();
+        shell.route_bytes(b"ONEREAD-ONE\nONEREAD-TWO\nONEREAD-THREE\nONEREAD-FOUR\nONEREAD-FIVE\r");
+        assert!(
+            shell.previewing(),
+            "no preview, so this case proves nothing"
+        );
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame that clears the composer");
+        let first = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(first.contains("ONEREAD-FIVE"), "no preview row: {first:?}");
+        for word in [
+            "ONEREAD-ONE",
+            "ONEREAD-TWO",
+            "ONEREAD-THREE",
+            "ONEREAD-FOUR",
+        ] {
+            assert!(
+                !first.contains(word),
+                "the preview was measured from a composer no frame showed: {word}: {first:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_question_that_takes_the_plane_before_the_preview_lands_gets_the_card_first() {
+        // The barrier ahead of `1049h` pays what the primary plane owes
+        // (`commit_frame`): a card held behind a preview its frame never
+        // showed is owed too. Written whole before the plane changes hands,
+        // as it was before there was a preview -- not left under the
+        // question until it is answered.
+        let words: Vec<String> = ["PLANE-ONE", "PLANE-TWO", "PLANE-THREE"]
+            .map(String::from)
+            .to_vec();
+        let (mut shell, mut band, mut failures, mut out, _terminal) = full_with_draft(&words);
+        shell.route_bytes(b"\r");
+        assert!(
+            shell.previewing(),
+            "no preview, so this case proves nothing"
+        );
+        shell.apply(a_change_too_big_for_the_band());
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Alternate,
+            "the question did not take the plane, so this case proves nothing"
+        );
+        out.written.clear();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame that takes the plane");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        let taken = written
+            .find("\u{1b}[?1049h")
+            .unwrap_or_else(|| panic!("the plane was not taken: {written:?}"));
+        for word in &words {
+            let at = written.find(&format!("\u{2503}\u{1b}[0m \u{1b}[1m{word}\u{1b}[0m"));
+            assert!(
+                at.is_some_and(|at| at < taken),
+                "the card's {word} was not written before the plane changed hands: {written:?}"
+            );
+        }
+        assert!(
+            !shell.previewing(),
+            "the preview outlived the plane's change"
+        );
+    }
+
+    #[test]
+    fn a_card_is_held_from_the_document_while_its_preview_is_up() {
+        // Whatever path asks: a frame whose band carries the document up
+        // stages the document whatever `owes_document` says (`commit_primary`,
+        // `owes_document_write`), and the card must not be written under its
+        // own preview there either. Under the runtime that is every frame
+        // that clears the composer: the turn's row arrives with the Enter and
+        // the band grows past the rows the composer gave back
+        // (`p5-submit-preview-*`, two carried rows in frame 1).
+        let mut shell = shell_of(40, 120);
+        shell.route_bytes(b"\x1b[200~HELD-ONE\nHELD-TWO\nHELD-THREE\x1b[201~");
+        // The frame that shows the draft has landed.
+        shell.band_landed();
+        shell.route_bytes(b"\r");
+        shell.start_turn();
+        assert!(
+            shell.previewing(),
+            "no preview, so this case proves nothing"
+        );
+        assert!(!shell.owes_document(), "the document owes a held card");
+        let mut offered = false;
+        let emitted = shell.emit_document_front(|_append| {
+            offered = true;
+            Landed::<std::convert::Infallible>::All
+        });
+        assert!(
+            emitted.is_none() && !offered,
+            "the card was offered to the terminal under its own preview"
+        );
+        shell.preview_landed();
+        assert!(
+            shell.owes_document(),
+            "the card is not owed once the preview has gone"
+        );
+    }
+
+    #[test]
+    fn a_resize_before_the_preview_lands_writes_the_card_whole() {
+        // The preview's rows were cut for the screen that is gone: the frame
+        // a resize owes writes the card with no preview in front of it.
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the first frame");
+        shell.route_bytes(b"\x1b[200~WIDE-ONE\nWIDE-TWO\nWIDE-THREE\x1b[201~");
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the frame that shows the draft");
+        shell.route_bytes(b"\r");
+        assert!(
+            shell.previewing(),
+            "no preview, so this case proves nothing"
+        );
+        shell.resize(40, 100);
+        assert!(
+            !shell.previewing(),
+            "the preview outlived the screen it was cut for"
+        );
+        out.written.clear();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the frame the resize owes");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        for word in ["WIDE-ONE", "WIDE-TWO", "WIDE-THREE"] {
+            assert!(
+                written.contains(&format!(
+                    "\u{1b}[38;5;255m\u{2503}\u{1b}[0m \u{1b}[1m{word}\u{1b}[0m"
+                )),
+                "the card's {word} was not written: {written:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_exit_before_the_preview_lands_still_writes_the_card() {
+        // The band clears from its top on the way out, and that is the
+        // preview's first row: a session that leaves in the tick its Enter
+        // was read in -- the preview's frame never written -- would leave the
+        // terminal with no card at all, so the exit's own frame writes it.
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the first frame");
+        shell.route_bytes(b"\x1b[200~EXIT-ONE\nEXIT-TWO\nEXIT-THREE\x1b[201~");
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the frame that shows the draft");
+        shell.route_bytes(b"\r");
+        assert!(
+            shell.previewing(),
+            "a three-line card on a full screen was not previewed, so this case proves nothing"
+        );
+
+        out.written.clear();
+        let asked = std::cell::Cell::new(0usize);
+        let broken = shut_down(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            true,
+            Shutdown {
+                reconcile: |_, _| Ok(Reconciled),
+                drain: |_taken| {},
+                size: sized((40, 120), &asked),
+            },
+        );
+        assert!(broken.is_none(), "the screen refused: {broken:?}");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        for word in ["EXIT-ONE", "EXIT-TWO", "EXIT-THREE"] {
+            assert!(
+                written.contains(&format!(
+                    "\u{1b}[38;5;255m\u{2503}\u{1b}[0m \u{1b}[1m{word}\u{1b}[0m"
+                )),
+                "the exit left without the card's {word}: {written:?}"
+            );
+        }
+    }
+
+    /// Asserts that each of `words` is on exactly one row of the terminal,
+    /// history and screen together, and that those rows are in `words`'
+    /// order.
+    fn each_once_in_order(terminal: &Terminal, words: &[&str], what: &str) {
+        let rows = terminal.everything();
+        let mut at = Vec::new();
+        for word in words {
+            let found: Vec<usize> = rows
+                .iter()
+                .enumerate()
+                .filter(|(_, row)| row.contains(word))
+                .map(|(n, _)| n)
+                .collect();
+            assert_eq!(
+                found.len(),
+                1,
+                "{what}: {word} on {} rows: {rows:#?}",
+                found.len()
+            );
+            at.push(found[0]);
+        }
+        assert!(
+            at.windows(2).all(|pair| pair[0] < pair[1]),
+            "{what}: {words:?} out of order at rows {at:?}: {rows:#?}"
+        );
+    }
+
+    /// The exit whose drain carried nothing ([`shut_down`]), each byte read
+    /// by `terminal`.
+    fn exit_nothing_drained(
+        shell: &mut Fixture,
+        band: &mut Band,
+        failures: &mut FrameFailures,
+        out: &mut impl Sink,
+        size: (u16, u16),
+    ) {
+        let asked = std::cell::Cell::new(0usize);
+        let broken = shut_down(
+            shell,
+            band,
+            out,
+            failures,
+            true,
+            Shutdown {
+                reconcile: |_, _| Ok(Reconciled),
+                drain: |_taken| {},
+                size: sized(size, &asked),
+            },
+        );
+        assert!(broken.is_none(), "the screen refused: {broken:?}");
+    }
+
+    #[test]
+    fn an_exit_writes_answer_rows_a_refused_frame_left_owed() {
+        // Not a card: the answer's last rows, owed by a frame the terminal
+        // refused, with nothing paced and no preview. The exit's own frame
+        // writes them, once and in order -- as it writes the pacer's tail, and
+        // for the same reason: no later frame will.
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = Scripted {
+            script: Vec::new(),
+            update: 0,
+            torn: false,
+            written: Vec::new(),
+            took: Vec::new(),
+        };
+        let mut terminal = Terminal::new(40, 120);
+        commit_counted(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the first frame");
+        shell.apply(UiEvent::Delta(
+            "OWED-ANSWER-ONE\nOWED-ANSWER-TWO\nOWED-ANSWER-THREE\n".to_string(),
+        ));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        out.script = vec![Step::Refuse];
+        out.update = 0;
+        out.took.clear();
+        commit_counted(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the refused frame");
+        assert!(
+            out.took == [0]
+                && shell.owes_document()
+                && shell.paced_backlog() == 0
+                && !shell.previewing(),
+            "not a refused frame leaving only the document owed, so this case proves nothing: \
+             {:?}",
+            out.took
+        );
+        exit_nothing_drained(&mut shell, &mut band, &mut failures, &mut out, (40, 120));
+        terminal.catch_up(&out.written);
+        each_once_in_order(
+            &terminal,
+            &["OWED-ANSWER-ONE", "OWED-ANSWER-TWO", "OWED-ANSWER-THREE"],
+            "an exit after a refused frame",
+        );
+    }
+
+    #[test]
+    fn an_exit_with_a_winch_outstanding_writes_the_card_it_was_holding() {
+        // A card held behind its preview, and a winch no tick has answered:
+        // the exit answers the winch first (`resolve_resize_on_exit`), and the
+        // resize drops the preview (`Shell::resize`), so nothing previews the
+        // card any more. It is still owed, and the exit's frame writes it
+        // once, at the new screen's coordinates. A rule that wrote only a card
+        // still previewed would lose it here.
+        let words: Vec<String> = ["WINCH-ONE", "WINCH-TWO", "WINCH-THREE"]
+            .map(String::from)
+            .to_vec();
+        let (mut shell, mut band, mut failures, mut out, _terminal) = full_with_draft(&words);
+        shell.route_bytes(b"\r");
+        assert!(
+            shell.previewing(),
+            "no card held, so this case proves nothing"
+        );
+        shell.render.mark_resize(Instant::now());
+        let at = out.written.len();
+        exit_nothing_drained(&mut shell, &mut band, &mut failures, &mut out, (30, 120));
+        // Read off the exit's own bytes, in the card's own style: the screen
+        // the exit leaves still holds the draft the composer drew behind the
+        // same rail, whatever the exit wrote.
+        let written = String::from_utf8_lossy(&out.written[at..]).into_owned();
+        let mut from = 0;
+        for word in &words {
+            let row = format!("\u{1b}[38;5;255m\u{2503}\u{1b}[0m \u{1b}[1m{word}\u{1b}[0m");
+            assert_eq!(
+                written.matches(&row).count(),
+                1,
+                "the exit did not write the card's {word} once: {written:?}"
+            );
+            from += written[from..]
+                .find(&row)
+                .unwrap_or_else(|| panic!("the card's {word} out of order: {written:?}"))
+                + row.len();
+        }
+        assert!(!shell.owes_document(), "the exit left the card owed");
+    }
+
+    #[test]
+    fn an_exit_from_the_other_plane_writes_what_the_document_owed_behind_it() {
+        // Rows that arrived while Ctrl-O held the other plane are owed: no
+        // document row can be written there. The exit gives the plane back
+        // and then writes them, once and in order, on the screen the user's
+        // shell is on.
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let mut terminal = Terminal::new(40, 120);
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        shell.route_bytes(b"\x0f");
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        assert!(
+            band.on_alternate(),
+            "Ctrl-O did not take the plane, so this case proves nothing"
+        );
+        shell.apply(UiEvent::Delta("BEHIND-ONE\nBEHIND-TWO\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        assert!(
+            band.on_alternate() && shell.owes_document(),
+            "nothing owed behind the other plane, so this case proves nothing"
+        );
+        exit_nothing_drained(&mut shell, &mut band, &mut failures, &mut out, (40, 120));
+        terminal.catch_up(&out.written);
+        each_once_in_order(
+            &terminal,
+            &["BEHIND-ONE", "BEHIND-TWO"],
+            "an exit from Ctrl-O",
+        );
+    }
+
+    #[test]
+    fn an_exit_writes_nothing_a_stop_or_a_reset_threw_away() {
+        // What the exit writes is what the document owes, and nothing a stop
+        // or a reset threw away is in it. Three sentinels, each where the
+        // stop finds it: the line the presenter holds unfinished, the text
+        // the pacer has not released (`abandon_answer`: `markdown.reset`,
+        // `pacer.forget`), and text that arrives after the stop, which waits
+        // in `late` and is not the document's. Then the pacer's text at a
+        // reset (`reset_session`).
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let mut terminal = Terminal::new(40, 120);
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        // A prompt in hand, so Ctrl-C stops a turn (`Shell::interrupt`).
+        shell.route_bytes(b"STOP-PROMPT\r");
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        shell.start_turn();
+        shell.apply(UiEvent::Delta("KEPT-ROW\n".to_string()));
+        shell.flush_paced();
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        // The presenter's sentinel: an unfinished line, released by the
+        // pacer's clock (`Shell::pace`), which the presenter holds until it
+        // sees the line's end -- written by the exit's `close_answer`, were
+        // the stop not to throw it away.
+        shell.apply(UiEvent::Delta("PRESENTER-HELD".to_string()));
+        // The pacer's first tick reads the clock; the second spends it.
+        let now = Instant::now();
+        shell.settle_band(now);
+        shell.settle_band(now + Duration::from_secs(10));
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        assert!(
+            shell.paced_backlog() == 0
+                && shell.presenter_holds("PRESENTER-HELD")
+                && !terminal
+                    .everything()
+                    .iter()
+                    .any(|row| row.contains("PRESENTER-HELD")),
+            "the unfinished line is not the presenter's, held and unwritten, so this case \
+             proves nothing"
+        );
+        // The pacer's sentinel: text the clock has not released.
+        shell.apply(UiEvent::Delta("PACER-THROWN\n".to_string()));
+        assert!(
+            shell.paced_backlog() > 0 && !shell.presenter_holds("PACER-THROWN"),
+            "the pacer's text is not still paced, so this case proves nothing"
+        );
+        shell.route_bytes(b"\x03");
+        // The late sentinel: text that arrives after the stop.
+        shell.apply(UiEvent::Delta("LATE-THROWN".to_string()));
+        exit_nothing_drained(&mut shell, &mut band, &mut failures, &mut out, (40, 120));
+        terminal.catch_up(&out.written);
+        each_once_in_order(
+            &terminal,
+            &["KEPT-ROW", "Cancelled"],
+            "an exit after a stop",
+        );
+        let rows = terminal.everything();
+        for thrown in ["PRESENTER-HELD", "PACER-THROWN", "LATE-THROWN"] {
+            assert!(
+                !rows.iter().any(|row| row.contains(thrown)),
+                "an exit after a stop wrote {thrown}: {rows:#?}"
+            );
+        }
+
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let mut terminal = Terminal::new(40, 120);
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        shell.route_bytes(b"RESET-PROMPT\r");
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        shell.start_turn();
+        shell.apply(UiEvent::Delta("RESET-THROWN-AWAY".to_string()));
+        assert!(
+            shell.paced_backlog() > 0,
+            "nothing paced, so this case proves nothing"
+        );
+        shell.route_bytes(b"/clear\r");
+        exit_nothing_drained(&mut shell, &mut band, &mut failures, &mut out, (40, 120));
+        terminal.catch_up(&out.written);
+        let rows = terminal.everything();
+        assert!(
+            !rows.iter().any(|row| row.contains("RESET-THROWN-AWAY")),
+            "an exit after a reset wrote what the reset threw away: {rows:#?}"
+        );
+    }
+
+    #[test]
+    fn an_exit_before_the_band_painted_paints_nothing_for_what_the_document_owes() {
+        // A session that leaves before its first frame owes its welcome, and
+        // the exit must not paint a band it never drew to write it
+        // (`a_keystroke_that_arrives_with_the_answer_is_deferred_rather_than_
+        // swallowed`, `tests/tui.rs`): the exit writes what the document owes
+        // only once a band has painted.
+        let mut shell = shell_of(40, 120);
+        shell.with_document_rows(2);
+        shell.route_bytes(b"\x1b[200~UNPAINTED-ONE\nUNPAINTED-TWO\x1b[201~\r");
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        assert!(
+            shell.owes_document() && band.painted_top().is_none(),
+            "nothing owed, or a band painted, so this case proves nothing"
+        );
+        let asked = std::cell::Cell::new(0usize);
+        let broken = shut_down(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            true,
+            Shutdown {
+                reconcile: |_, _| Ok(Reconciled),
+                drain: |_taken| {},
+                size: sized((40, 120), &asked),
+            },
+        );
+        assert!(broken.is_none(), "the screen refused: {broken:?}");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(
+            !written.contains("\u{1b}[?2026h") && !written.contains("UNPAINTED"),
+            "an exit before the band painted wrote a frame: {written:?}"
+        );
+    }
+
+    #[test]
+    fn an_exit_after_the_cards_frame_was_refused_still_writes_the_card() {
+        // The card's frame refused in the tick that showed its preview: the
+        // card is owed, and nothing previews it any more. A session that
+        // leaves before another tick, its drain carrying nothing, writes it
+        // in the exit's own frame, as it writes a card still previewed.
+        let words: Vec<String> = ["EXITR-ONE", "EXITR-TWO", "EXITR-THREE"]
+            .map(String::from)
+            .to_vec();
+        let (mut shell, mut band, mut failures, out, mut terminal) = full_with_draft(&words);
+        let mut out = Scripted {
+            script: vec![Step::Take, Step::Refuse],
+            update: 0,
+            torn: false,
+            written: out.written,
+            took: Vec::new(),
+        };
+        shell.route_bytes(b"\r");
+        commit_counted(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the tick, its card's frame refused");
+        assert!(
+            out.took.len() == 2 && out.took[1] == 0 && !shell.previewing() && shell.owes_document(),
+            "the card's frame was not what was refused, so this case proves nothing: {:?}",
+            out.took
+        );
+        let asked = std::cell::Cell::new(0usize);
+        let broken = shut_down(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            true,
+            Shutdown {
+                reconcile: |_, _| Ok(Reconciled),
+                drain: |_taken| {},
+                size: sized((40, 120), &asked),
+            },
+        );
+        assert!(broken.is_none(), "the screen refused: {broken:?}");
+        terminal.catch_up(&out.written);
+        card_once(
+            &terminal,
+            &words,
+            "an exit after the card's frame was refused",
         );
     }
 
@@ -12825,7 +14830,7 @@ mod tests {
             "the draft's caret (row {caret_row}) overlaps the document (band starts at row {})",
             rig.geometry.band_top()
         );
-        // Two `\n` (`InsertNewline`, `shell.rs:2716`) over three lines: this
+        // Two `\n` (`InsertNewline`, `shell.rs:2817`) over three lines: this
         // is really a *multirow* draft and not just a wide one-row composer.
         assert_eq!(
             rig.geometry.input_rows(),
@@ -12926,7 +14931,7 @@ mod tests {
     // (`transcript.rs:505-531` adopts only on `Landed::All`). So an append the
     // terminal refused must leave the retained row reading exactly what the
     // last accepted vector put there -- and the frame that would have followed
-    // it must not run at all (`event_loop.rs:1005-1008`). Nothing here caches a
+    // it must not run at all (`event_loop.rs:1046-1049`). Nothing here caches a
     // source anywhere: the freshness is read off the screen the accepted bytes
     // make.
     //
@@ -15893,9 +17898,10 @@ mod tests {
                 shell.apply(UiEvent::CatalogUnread {
                     provider: crate::provider::ProviderId::Gateway,
                     retry: Some(crate::provider::model::CatalogRetry::Unreachable),
-                    retry_at: Instant::now()
-                        .checked_sub(Duration::from_secs(60))
-                        .expect("a clock older than a minute"),
+                    // A hold that ends as it is told: due on any boot clock,
+                    // where a minute back is not on a machine booted less
+                    // than a minute ago.
+                    retry_at: catalog_due(Duration::ZERO),
                 });
                 launch_title(&mut shell, &mut band);
                 status_tick(&mut shell, &mut band, &mut out);
@@ -15937,7 +17943,7 @@ mod tests {
                             provider: crate::provider::ProviderId::Gateway,
                             entries: vec![row.clone()],
                             // Activity is owed the next read at once.
-                            due: Instant::now(),
+                            due: catalog_due(Duration::ZERO),
                         })
                         .expect("room");
                 }
@@ -16310,7 +18316,8 @@ mod tests {
             "{said:?}"
         );
 
-        // An Enter in a delivery of its own sends the draft.
+        // An Enter of its own, once the input has been quiet, sends the draft.
+        shell.end_delivery_at(Instant::now() + super::super::input::Decoder::PASTE_QUIET);
         shell.route_read(b"\r");
         shell.end_delivery();
         assert!(
@@ -16962,5 +18969,517 @@ mod tests {
             list.shell._work.try_recv().is_err(),
             "the Enter on a marked row sent the line"
         );
+    }
+
+    #[test]
+    fn a_readiness_gap_inside_one_paste_does_not_turn_the_rest_of_it_into_keys() {
+        // One paste, written by its terminal in two goes, and a turn's check
+        // that finds the queue empty between them: two turns of the loop, the
+        // first drained by its own end marker, the second carrying what the
+        // clipboard held after it. fx settles at the first turn's empty check
+        // and reads the second as keys (`event_loop.zig:94-119@481104fd`).
+        let mut shell = shell();
+        shell.route_read(b"prior");
+        shell.end_delivery();
+        let first = Readable {
+            bytes: b"\x1b[200~new\x1b[201~".to_vec(),
+            at: std::cell::Cell::new(0),
+        };
+        first.turn(&mut shell);
+        assert_eq!(composer(&shell), format!("{COMPOSER_MARKER} priornew"));
+
+        let rest = Readable {
+            bytes: b"x\r".to_vec(),
+            at: std::cell::Cell::new(0),
+        };
+        rest.turn(&mut shell);
+        assert!(
+            shell._work.try_recv().is_err(),
+            "the Enter after the gap submitted the draft"
+        );
+        assert_eq!(
+            composer(&shell),
+            format!("{COMPOSER_MARKER} priornew"),
+            "the bytes after the gap were typed"
+        );
+        // Said once, as the same bytes in one delivery are.
+        let said = shell
+            .take_pending()
+            .into_iter()
+            .flat_map(|append| append.rows)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            said.iter()
+                .filter(|row| row.contains("Input that arrived right after the paste was ignored."))
+                .count(),
+            1,
+            "{said:?}"
+        );
+
+        // An idle turn finds nothing, and so does one a quiet period later:
+        // the quarantine is over, and an Enter is a key again.
+        let idle = Readable {
+            bytes: Vec::new(),
+            at: std::cell::Cell::new(0),
+        };
+        idle.turn(&mut shell);
+        assert!(shell._work.try_recv().is_err());
+        shell.end_delivery_at(Instant::now() + super::super::input::Decoder::PASTE_QUIET);
+        let enter = Readable {
+            bytes: b"\r".to_vec(),
+            at: std::cell::Cell::new(0),
+        };
+        enter.turn(&mut shell);
+        assert!(
+            matches!(
+                shell._work.try_recv(),
+                Ok(crate::tui::bridge::TurnWork::Submit(prompt)) if prompt == "priornew"
+            ),
+            "an Enter after the quiet did not send the draft"
+        );
+    }
+
+    /// What a scripted turn's checks answer, in order.
+    type Checks = Vec<io::Result<bool>>;
+    /// What a scripted turn's reads return, in order.
+    type Reads = Vec<rustix::io::Result<Vec<u8>>>;
+
+    /// One turn of [`burst`] over scripted answers: `ready` answers from
+    /// `checks` in order (then `Ok(false)`), `read` from `reads`.
+    fn scripted(shell: &mut Shell, checks: Checks, reads: Reads) -> io::Result<()> {
+        let mut checks = checks.into_iter();
+        let mut reads = reads.into_iter();
+        let mut buffer = [0u8; BURST_BYTES];
+        burst(
+            shell,
+            &mut buffer,
+            || checks.next().unwrap_or(Ok(false)),
+            |buffer| {
+                let bytes = reads.next().expect("a read nobody scripted")?;
+                buffer[..bytes.len()].copy_from_slice(&bytes);
+                Ok(bytes.len())
+            },
+        )
+    }
+
+    #[test]
+    fn a_turn_cut_short_by_a_signal_or_a_read_that_would_wait_settles_nothing() {
+        // `burst`'s other arms (`event_loop.zig:94-119@481104fd` has the same
+        // three): a readiness check interrupted by a signal, and a read that
+        // was interrupted or would have waited, end the turn **without**
+        // ending the delivery -- the next turn's check does that -- so a paste
+        // whose end marker arrived before them has not settled, and an Enter
+        // behind its marker in the next turn is still behind it.
+        let cut_short: [(Checks, Reads); 3] = [
+            (
+                vec![Ok(true), Err(io::ErrorKind::Interrupted.into())],
+                vec![Ok(b"\x1b[200~new\x1b[201~".to_vec())],
+            ),
+            (
+                vec![Ok(true), Ok(true)],
+                vec![
+                    Ok(b"\x1b[200~new\x1b[201~".to_vec()),
+                    Err(rustix::io::Errno::INTR),
+                ],
+            ),
+            (
+                vec![Ok(true), Ok(true)],
+                vec![
+                    Ok(b"\x1b[200~new\x1b[201~".to_vec()),
+                    Err(rustix::io::Errno::WOULDBLOCK),
+                ],
+            ),
+        ];
+        for (case, (checks, reads)) in cut_short.into_iter().enumerate() {
+            let mut shell = shell();
+            shell.route_read(b"prior");
+            shell.end_delivery();
+            scripted(&mut shell, checks, reads).expect("the turn is not an error");
+            assert_eq!(
+                composer(&shell),
+                format!("{COMPOSER_MARKER} prior"),
+                "case {case}: the cut-short turn settled the paste"
+            );
+            assert!(!shell.leaving(), "case {case}: the session was left");
+            scripted(&mut shell, vec![Ok(true)], vec![Ok(b"\r".to_vec())]).expect("a turn");
+            assert_eq!(composer(&shell), format!("{COMPOSER_MARKER} priornew"));
+            assert!(
+                shell._work.try_recv().is_err(),
+                "case {case}: the Enter behind the marker submitted the draft"
+            );
+        }
+    }
+
+    #[test]
+    fn a_read_of_nothing_leaves_the_session_and_settles_nothing() {
+        // `Ok(0)` is no writer left on the terminal: the session is over
+        // (`event_loop.zig:95-99@481104fd`), and the delivery is not ended on
+        // the way out -- nothing will be read again.
+        let mut shell = shell();
+        shell.route_read(b"prior");
+        shell.end_delivery();
+        scripted(
+            &mut shell,
+            vec![Ok(true), Ok(true)],
+            vec![Ok(b"\x1b[200~new\x1b[201~".to_vec()), Ok(Vec::new())],
+        )
+        .expect("the turn is not an error");
+        assert!(shell.leaving(), "the end of input did not end the session");
+        assert_eq!(
+            composer(&shell),
+            format!("{COMPOSER_MARKER} prior"),
+            "the end of input settled the paste"
+        );
+    }
+
+    #[test]
+    fn a_stream_that_fills_every_read_after_a_paste_is_still_said_at_the_read_cap() {
+        // opus on PASTE-GAP round 2: what the quarantine drops is said at a
+        // check that finds nothing, and a turn that reaches its 32-read cap
+        // with input still waiting makes none -- so a stream after a paste that
+        // never let a check find nothing was dropped with nothing said. The
+        // cap says what is owed, and settles and ends nothing.
+        let mut shell = shell();
+        shell.route_read(b"prior");
+        shell.end_delivery();
+        let paste = Readable {
+            bytes: b"\x1b[200~new\x1b[201~".to_vec(),
+            at: std::cell::Cell::new(0),
+        };
+        paste.turn(&mut shell);
+        assert_eq!(composer(&shell), format!("{COMPOSER_MARKER} priornew"));
+        let _ = shell.take_pending();
+        let stream = Readable {
+            bytes: vec![b'y'; READ_BURSTS * BURST_BYTES + 1],
+            at: std::cell::Cell::new(0),
+        };
+        assert_eq!(stream.turn(&mut shell), READ_BURSTS * BURST_BYTES);
+        let said = shell
+            .take_pending()
+            .into_iter()
+            .flat_map(|append| append.rows)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            said.contains("Input that arrived right after the paste was ignored."),
+            "the cap said nothing: {said:?}"
+        );
+        assert_eq!(composer(&shell), format!("{COMPOSER_MARKER} priornew"));
+        assert!(shell._work.try_recv().is_err(), "a turn was started");
+    }
+
+    // -----------------------------------------------------------------------
+    // P5 train 11's join checks
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_tall_paste_with_enters_behind_its_marker_and_in_its_quarantine_previews_once_after_it() {
+        // P5 train 11, join check 1 (SUBMIT-CARD-PREVIEW x PASTE-GAP): what
+        // one Enter does. Covered apart before: PASTE-GAP's
+        // `a_readiness_gap_inside_one_paste_does_not_turn_the_rest_of_it_into_keys`
+        // and PASTE-AFTER-END's carry-over test send nothing for an Enter
+        // behind a paste's end marker or inside the quarantine after it (the
+        // composer and the work channel, no frame); SUBMIT-CARD-PREVIEW's
+        // `the_tick_that_shows_a_preview_writes_the_card_in_the_next_frame`
+        // previews a pasted draft whose Enter is typed apart (`route_bytes`:
+        // a whole delivery and its quiet). Neither sends a paste taller than
+        // the room through the loop's reads (`burst`). Here, on a full screen:
+        // a twelve-line paste and an Enter behind its marker in one delivery
+        // (PASTE-AFTER-END's rule), then an Enter in the next turn, after the
+        // readiness check that settled the paste and before the input has
+        // been quiet (PASTE-GAP's quarantine): nothing sent, no preview, fx's
+        // warning written. Once the input has been quiet, an Enter of its own
+        // sends the draft once, and the tick after it writes one preview --
+        // the newest rows only -- then the card, once, in order.
+        let words: Vec<String> = (1..=12).map(|n| format!("GAP-ROW-{n:02}")).collect();
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let mut terminal = Terminal::new(40, 120);
+        shell.apply(UiEvent::Delta("FILLER\n\n".repeat(30)));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        for _ in 0..2 {
+            loop_tick(
+                &mut shell,
+                &mut band,
+                &mut failures,
+                &mut out,
+                &mut terminal,
+            );
+        }
+
+        let delivery = Readable {
+            bytes: format!("\x1b[200~{}\x1b[201~\r", words.join("\n")).into_bytes(),
+            at: std::cell::Cell::new(0),
+        };
+        delivery.turn(&mut shell);
+        shell.settle_input(Instant::now());
+        shell.settle_band(Instant::now());
+        assert!(
+            !shell.previewing(),
+            "the Enter behind the marker started a preview"
+        );
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        assert!(
+            shell._work.try_recv().is_err(),
+            "the Enter behind the marker sent the draft"
+        );
+        assert!(
+            !shell.previewing(),
+            "the tick after the quarantined Enter is a preview's"
+        );
+        assert!(
+            terminal
+                .everything()
+                .iter()
+                .any(|row| row.contains("Input that arrived right after the paste was ignored.")),
+            "the warning was not written: {:#?}",
+            terminal.everything()
+        );
+
+        // The next turn, behind the check that settled the paste: an Enter
+        // inside the quarantine is dropped, not typed.
+        let quarantined = Readable {
+            bytes: b"\r".to_vec(),
+            at: std::cell::Cell::new(0),
+        };
+        quarantined.turn(&mut shell);
+        shell.settle_input(Instant::now());
+        shell.settle_band(Instant::now());
+        assert!(
+            !shell.previewing(),
+            "the Enter inside the quarantine started a preview"
+        );
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        assert!(
+            shell._work.try_recv().is_err(),
+            "the Enter inside the quarantine sent the draft"
+        );
+
+        // The input goes quiet: an idle turn's check, and one a quiet period
+        // later, end the quarantine; an Enter of its own is a key again.
+        let idle = Readable {
+            bytes: Vec::new(),
+            at: std::cell::Cell::new(0),
+        };
+        idle.turn(&mut shell);
+        shell.end_delivery_at(Instant::now() + super::super::input::Decoder::PASTE_QUIET);
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        assert!(shell._work.try_recv().is_err(), "the quiet sent the draft");
+        out.written.clear();
+        terminal.fed = 0;
+        let enter = Readable {
+            bytes: b"\r".to_vec(),
+            at: std::cell::Cell::new(0),
+        };
+        enter.turn(&mut shell);
+        shell.settle_input(Instant::now());
+        shell.settle_band(Instant::now());
+        assert!(
+            shell.previewing(),
+            "the Enter of its own started no preview"
+        );
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        assert!(
+            matches!(
+                shell._work.try_recv(),
+                Ok(crate::tui::bridge::TurnWork::Submit(prompt)) if prompt == words.join("\n")
+            ),
+            "the Enter of its own did not send the pasted draft"
+        );
+        assert!(shell._work.try_recv().is_err(), "the draft was sent twice");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        let updates: Vec<&str> = written.split("\u{1b}[?2026h").skip(1).collect();
+        let preview =
+            |update: &str| update.contains("GAP-ROW-12") && !update.contains("GAP-ROW-01");
+        assert!(
+            updates.len() >= 2 && preview(updates[0]),
+            "the tick's first update is not the preview: {written:?}"
+        );
+        assert_eq!(
+            updates.iter().filter(|update| preview(update)).count(),
+            1,
+            "not exactly one preview: {written:?}"
+        );
+        card_once(&terminal, &words, "the pasted card");
+        assert!(
+            !shell.owes_document(),
+            "the card is still owed after the tick"
+        );
+        let before = out.written.len();
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        assert!(
+            !String::from_utf8_lossy(&out.written[before..]).contains("GAP-ROW-"),
+            "the next tick wrote the card's rows again"
+        );
+    }
+
+    /// What `shell` has asked the runtime for the catalog since the last
+    /// call, in order.
+    fn catalog_asks_sent(shell: &mut Fixture) -> Vec<crate::tui::bridge::CatalogAsk> {
+        let mut asks = Vec::new();
+        while let Ok(message) = shell._control.try_recv() {
+            if let crate::tui::bridge::TurnControl::Catalog(ask) = message {
+                asks.push(ask);
+            }
+        }
+        asks
+    }
+
+    #[test]
+    fn a_submit_that_previews_asks_a_due_catalog_once_and_writes_the_bytes_it_writes_without_one() {
+        // P5 train 11, join check 2 (SUBMIT-CARD-PREVIEW x CATALOG-REFRESH).
+        // A submitted prompt is catalog activity (`Shell::send` ->
+        // `note_catalog_activity`, on the catalog's clock), and the same
+        // Enter starts the preview, whose frame and the card's the tick after
+        // it writes (`commit_counted`, whose `settle_column` asks only for an
+        // open `/model` column). Covered apart before: the ask by
+        // `a_prompt_past_a_failed_catalogs_backoff_asks_for_it_and_one_inside_asks_nothing`
+        // (`shell.rs`, a one-line prompt and no frame), the preview by
+        // `the_tick_that_shows_a_preview_writes_the_card_in_the_next_frame`
+        // (no catalog told). Here one Enter does both: a catalog past its
+        // failure's hold is asked once, by the Enter, and by nothing the
+        // preview's tick or the next one does; inside the hold, or with no
+        // catalog told, nothing is asked; and the bytes the tick writes --
+        // the preview's update, then the card's -- are the same in all three,
+        // the first being SUBMIT-CARD-PREVIEW's own case.
+        let words: Vec<String> = ["CATALOG-ONE", "CATALOG-TWO", "CATALOG-THREE"]
+            .map(String::from)
+            .to_vec();
+        let failed = |retry_at| UiEvent::CatalogUnread {
+            provider: crate::provider::ProviderId::Gateway,
+            retry: Some(crate::provider::model::CatalogRetry::Unreachable),
+            retry_at,
+        };
+        let cases = [
+            ("no catalog told", None, 0),
+            (
+                "inside the failure's hold",
+                Some(failed(catalog_due(Duration::from_secs(60)))),
+                0,
+            ),
+            (
+                // A hold that ends as it is told: due on any boot clock.
+                "past the failure's hold",
+                Some(failed(catalog_due(Duration::ZERO))),
+                1,
+            ),
+        ];
+        let mut ticks = Vec::new();
+        for (what, told, owed) in cases {
+            let (mut shell, mut band, mut failures, mut out, mut terminal) =
+                full_with_draft(&words);
+            if let Some(event) = told {
+                shell.apply(event);
+            }
+            loop_tick(
+                &mut shell,
+                &mut band,
+                &mut failures,
+                &mut out,
+                &mut terminal,
+            );
+            assert_eq!(
+                catalog_asks_sent(&mut shell),
+                [],
+                "{what}: asked before the Enter"
+            );
+            out.written.clear();
+            terminal.fed = 0;
+            shell.route_bytes(b"\r");
+            assert!(
+                shell.previewing(),
+                "{what}: no preview, so this case proves nothing"
+            );
+            assert_eq!(
+                catalog_asks_sent(&mut shell),
+                vec![crate::tui::bridge::CatalogAsk::ACTIVITY; owed],
+                "{what}: the Enter's asks"
+            );
+            loop_tick(
+                &mut shell,
+                &mut band,
+                &mut failures,
+                &mut out,
+                &mut terminal,
+            );
+            let written = out.written.clone();
+            assert_eq!(
+                catalog_asks_sent(&mut shell),
+                [],
+                "{what}: the preview's tick asked"
+            );
+            loop_tick(
+                &mut shell,
+                &mut band,
+                &mut failures,
+                &mut out,
+                &mut terminal,
+            );
+            assert_eq!(
+                catalog_asks_sent(&mut shell),
+                [],
+                "{what}: the tick after the card's asked"
+            );
+            card_once(&terminal, &words, what);
+            assert!(
+                matches!(
+                    shell._work.try_recv(),
+                    Ok(crate::tui::bridge::TurnWork::Submit(prompt)) if prompt == words.join("\n")
+                ),
+                "{what}: the draft was not sent"
+            );
+            ticks.push((what, written));
+        }
+        let unit = String::from_utf8_lossy(&ticks[0].1).into_owned();
+        let updates: Vec<&str> = unit.split("\u{1b}[?2026h").skip(1).collect();
+        assert!(
+            updates.len() >= 2
+                && updates[0].contains("CATALOG-THREE")
+                && !updates[0].contains("CATALOG-ONE")
+                && updates[1..]
+                    .iter()
+                    .any(|update| update.contains("CATALOG-ONE")),
+            "the unit's own case is not a preview, then the card: {unit:?}"
+        );
+        for (what, written) in &ticks[1..] {
+            assert!(
+                *written == ticks[0].1,
+                "{what}: the tick wrote other bytes than with no catalog told: {:?}",
+                String::from_utf8_lossy(written)
+            );
+        }
     }
 }

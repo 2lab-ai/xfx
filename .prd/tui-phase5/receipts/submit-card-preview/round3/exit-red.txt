@@ -1,0 +1,7 @@
+# cargo test --locked --lib -- event_loop::tests::an_exit_after_the_cards_frame   (at the RED commit, before the exit writes a card still owed)
+test tui::event_loop::tests::an_exit_after_the_cards_frame_was_refused_still_writes_the_card ... FAILED
+thread 'tui::event_loop::tests::an_exit_after_the_cards_frame_was_refused_still_writes_the_card' (370636062) panicked at src/tui/event_loop.rs:9392:9:
+an exit after the card's frame was refused: the card's rows, history and screen (up to 0 of its last lost): [
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4557 filtered out; finished in 0.01s
+# the rows of the card on the terminal after the exit (history and screen):
+    "┃ EXITR-THREE",

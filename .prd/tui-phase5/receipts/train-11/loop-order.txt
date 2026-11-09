@@ -1,0 +1,73 @@
+== 820a8f15
+1. session's loop: collect_facts (:278) -> read_burst (:279) -> settle_input (:286) -> take_ui_events (:289) -> settle_band (:295) -> collect_facts (:300) -> commit_counted (:301)
+2. the decoder's calls, by function: route_read: feed; end_delivery_at: end_delivery; still_at: still; plane_names_the_hold: named_hold; settle_input: flush
+3. their callers outside tests (11):
+     src/tui/event_loop.rs:249 session -> route_read
+     src/tui/event_loop.rs:286 session -> settle_input
+     src/tui/event_loop.rs:679 burst -> end_delivery
+     src/tui/event_loop.rs:692 burst -> still_at
+     src/tui/event_loop.rs:702 burst -> route_read
+     src/tui/shell.rs:10657 end_delivery -> end_delivery_at
+     src/tui/shell.rs:10662 end_delivery_at -> end_delivery
+     src/tui/shell.rs:10726 route_bytes [cfg(test)] -> route_read
+     src/tui/shell.rs:10728 route_bytes [cfg(test)] -> end_delivery_at
+     src/tui/shell.rs:10729 route_bytes [cfg(test)] -> end_delivery_at
+     src/tui/shell.rs:10751 settle_input -> plane_names_the_hold
+4. frames built outside tests in event_loop.rs (7): 301 session -> commit_counted; 475 shut_down -> paint_alternate; 526 shut_down -> flushed; 557 drained -> flushed; 585 flushed -> commit_frame; 1113 commit_frame_led -> paint_alternate; 1175 commit_counted -> commit_tick
+5. the catalog's clock and column outside tests (2): src/tui/event_loop.rs:1172 commit_counted; src/tui/event_loop.rs:1173 commit_counted
+== 32afd307
+1. session's loop: collect_facts (:274) -> read_burst (:275) -> settle_input (:282) -> take_ui_events (:285) -> settle_band (:291) -> collect_facts (:296) -> commit_counted (:297)
+2. the decoder's calls, by function: route_read: feed; end_delivery: end_delivery; settle_input: flush
+3. their callers outside tests (7):
+     src/tui/event_loop.rs:245 session -> route_read
+     src/tui/event_loop.rs:282 session -> settle_input
+     src/tui/event_loop.rs:643 burst -> end_delivery
+     src/tui/event_loop.rs:663 burst -> route_read
+     src/tui/shell.rs:10451 end_delivery -> end_delivery
+     src/tui/shell.rs:10468 route_bytes [cfg(test)] -> route_read
+     src/tui/shell.rs:10469 route_bytes [cfg(test)] -> end_delivery
+4. frames built outside tests in event_loop.rs (7): 297 session -> commit_counted; 471 shut_down -> paint_alternate; 510 shut_down -> flushed; 541 drained -> flushed; 569 flushed -> commit_frame; 1065 commit_frame_led -> paint_alternate; 1125 commit_counted -> commit_tick
+5. the catalog's clock and column outside tests (1): src/tui/event_loop.rs:1123 commit_counted
+== 0c203cd3
+1. session's loop: collect_facts (:278) -> read_burst (:279) -> settle_input (:286) -> take_ui_events (:289) -> settle_band (:295) -> collect_facts (:300) -> commit_counted (:301)
+2. the decoder's calls, by function: route_read: feed; end_delivery: end_delivery; settle_input: flush
+3. their callers outside tests (7):
+     src/tui/event_loop.rs:249 session -> route_read
+     src/tui/event_loop.rs:286 session -> settle_input
+     src/tui/event_loop.rs:631 read_burst -> end_delivery
+     src/tui/event_loop.rs:651 read_burst -> route_read
+     src/tui/shell.rs:10486 end_delivery -> end_delivery
+     src/tui/shell.rs:10499 route_bytes [cfg(test)] -> route_read
+     src/tui/shell.rs:10500 route_bytes [cfg(test)] -> end_delivery
+4. frames built outside tests in event_loop.rs (7): 301 session -> commit_counted; 475 shut_down -> paint_alternate; 526 shut_down -> flushed; 557 drained -> flushed; 585 flushed -> commit_frame; 1057 commit_frame_led -> paint_alternate; 1117 commit_counted -> commit_tick
+5. the catalog's clock and column outside tests (1): src/tui/event_loop.rs:1115 commit_counted
+== 3ffbe0c7
+1. session's loop: collect_facts (:274) -> read_burst (:275) -> settle_input (:282) -> take_ui_events (:285) -> settle_band (:291) -> collect_facts (:296) -> commit_counted (:297)
+2. the decoder's calls, by function: route_read: feed; end_delivery: end_delivery; settle_input: flush
+3. their callers outside tests (7):
+     src/tui/event_loop.rs:245 session -> route_read
+     src/tui/event_loop.rs:282 session -> settle_input
+     src/tui/event_loop.rs:615 read_burst -> end_delivery
+     src/tui/event_loop.rs:635 read_burst -> route_read
+     src/tui/shell.rs:10390 end_delivery -> end_delivery
+     src/tui/shell.rs:10403 route_bytes [cfg(test)] -> route_read
+     src/tui/shell.rs:10404 route_bytes [cfg(test)] -> end_delivery
+4. frames built outside tests in event_loop.rs (7): 297 session -> commit_counted; 471 shut_down -> paint_alternate; 510 shut_down -> flushed; 541 drained -> flushed; 569 flushed -> commit_frame; 1032 commit_frame_led -> paint_alternate; 1094 commit_counted -> commit_tick
+5. the catalog's clock and column outside tests (2): src/tui/event_loop.rs:1091 commit_counted; src/tui/event_loop.rs:1092 commit_counted
+== 5cc2e42c
+1. session's loop: collect_facts (:274) -> read_burst (:275) -> settle_input (:282) -> take_ui_events (:285) -> settle_band (:291) -> collect_facts (:296) -> commit_counted (:297)
+2. the decoder's calls, by function: route_read: feed; end_delivery_at: end_delivery; still_at: still; plane_names_the_hold: named_hold; settle_input: flush
+3. their callers outside tests (11):
+     src/tui/event_loop.rs:245 session -> route_read
+     src/tui/event_loop.rs:282 session -> settle_input
+     src/tui/event_loop.rs:663 burst -> end_delivery
+     src/tui/event_loop.rs:676 burst -> still_at
+     src/tui/event_loop.rs:686 burst -> route_read
+     src/tui/shell.rs:10430 end_delivery -> end_delivery_at
+     src/tui/shell.rs:10435 end_delivery_at -> end_delivery
+     src/tui/shell.rs:10499 route_bytes [cfg(test)] -> route_read
+     src/tui/shell.rs:10501 route_bytes [cfg(test)] -> end_delivery_at
+     src/tui/shell.rs:10502 route_bytes [cfg(test)] -> end_delivery_at
+     src/tui/shell.rs:10524 settle_input -> plane_names_the_hold
+4. frames built outside tests in event_loop.rs (7): 297 session -> commit_counted; 471 shut_down -> paint_alternate; 510 shut_down -> flushed; 541 drained -> flushed; 569 flushed -> commit_frame; 1083 commit_frame_led -> paint_alternate; 1143 commit_counted -> commit_tick
+5. the catalog's clock and column outside tests (1): src/tui/event_loop.rs:1141 commit_counted

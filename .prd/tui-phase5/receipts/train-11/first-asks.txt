@@ -1,0 +1,18 @@
+# model-column-idle: 8 runs; gaps between a binary's first and second ask: 6078-6137 ms (11 gaps), median 6102 ms; threshold 9000 - 6102 = 2898 ms
+head-sweep: fx first 2119 ms (before), xfx first 4027 ms (past); predicted fail, verdict unresolved-defect; rows (a 200 logged): fx False, xfx True
+main-sweep: fx first 1244 ms (before), xfx first 908 ms (before); predicted pass, verdict normalized-identical; rows (a 200 logged): fx False, xfx False
+head-rerun-1: fx first 15677 ms (past), xfx first 12741 ms (past); predicted pass, verdict normalized-identical; rows (a 200 logged): fx True, xfx True
+head-rerun-2: fx first 3922 ms (past), xfx first 5115 ms (past); predicted pass, verdict normalized-identical; rows (a 200 logged): fx True, xfx True
+head-rerun-3: fx first 5744 ms (past), xfx first 1106 ms (before); predicted fail, verdict unresolved-defect; rows (a 200 logged): fx True, xfx False
+main-rerun-1: fx first 15345 ms (past), xfx first 13690 ms (past); predicted pass, verdict normalized-identical; rows (a 200 logged): fx True, xfx True
+main-rerun-2: fx first 4032 ms (past), xfx first 2999 ms (past); predicted pass, verdict normalized-identical; rows (a 200 logged): fx True, xfx True
+main-rerun-3: fx first 7777 ms (past), xfx first 15845 ms (past); predicted pass, verdict normalized-identical; rows (a 200 logged): fx True, xfx True
+# the rule: 8 of 8 verdicts; each binary's rows: 16 of 16
+# first asks, model-column-idle, xfx in the main runs (4): [908, 2999, 13690, 15845]; median 8.34 s
+# first asks, model-column-idle, xfx in the head runs (4): [1106, 4027, 5115, 12741]; median 4.57 s
+# first asks, model-column-idle, fx in the main runs (4): [1244, 4032, 7777, 15345]; median 5.90 s
+# first asks, model-column-idle, fx in the head runs (4): [2119, 3922, 5744, 15677]; median 4.83 s
+# first asks, both scenarios, xfx in the main runs (8): [908, 1460, 2999, 4230, 7793, 11966, 13690, 15845]; median 6.01 s
+# first asks, both scenarios, xfx in the head runs (8): [1106, 1399, 4027, 5115, 5825, 7255, 12741, 15328]; median 5.47 s
+# first asks, both scenarios, fx in the main runs (8): [1244, 1987, 2093, 4032, 5449, 7777, 15345, 15468]; median 4.74 s
+# first asks, both scenarios, fx in the head runs (8): [1217, 2119, 3269, 3922, 5744, 11636, 15677, 17146]; median 4.83 s

@@ -112,17 +112,81 @@
 //! `super::event_loop::BURST_BYTES`, and across the 32-read cap of one turn --
 //! which is upstream's delivery epoch: it settles a paste only once a
 //! readiness check finds the input drained (`event_loop.zig:94-119
-//! @481104fd`). A person cannot press a key inside that window; a clipboard
-//! that carries `ESC [ 201 ~` followed by a newline can, and without this rule
-//! the newline would submit the composer as if typed.
+//! @481104fd`). Every byte behind the marker in that window is taken for the
+//! clipboard's, **whatever its origin** -- readiness cannot tell a byte a
+//! person typed from one the terminal is still writing -- because a clipboard
+//! that carries `ESC [ 201 ~` followed by a newline would otherwise submit the
+//! composer as if the newline were typed.
 //!
-//! **The window is the terminal's, not the clipboard's.** A terminal that
-//! writes one paste with a moment between two of its writes -- a paste longer
-//! than the pty's input queue arrives as the terminal refills it -- ends the
-//! delivery at that moment, and the bytes after it are read as keys. That is
-//! fx v0.0.16's boundary too, and it was xfx's before this unit. A
-//! terminal that strips an end marker out of pasted text closes the gap where
-//! it opens (`docs/parity.md`, the `full-screen TUI` row).
+//! # And stays quarantined until the input is quiet
+//!
+//! **Past fx, for security.** A delivery is the terminal's, not the
+//! clipboard's: a paste longer than the pty's input queue (1 022 bytes on
+//! macOS) arrives as the terminal refills it, so a check can find the queue
+//! empty between two of its writes, and fx settles there and reads the rest
+//! of the clipboard as keys -- the PASTE-GAP receipt measured the paste's own
+//! newline submitting it, through tmux in every run from 4 KiB up. So once
+//! a paste is settled, every byte that follows it is still counted and nothing
+//! else ([`Decoder::end_delivery`]'s quarantine) **until the input has been
+//! quiet for [`Decoder::PASTE_QUIET`]**: two checks that found nothing, that
+//! far apart, with nothing read between them. That is a fact about the queue
+//! rather than the clock -- a loop that stalls between two reads of a paste
+//! still reads it as one -- and a terminal that pauses that long inside one
+//! paste ends the quarantine there, as fx's delivery ends at any pause.
+//!
+//! **What it costs.** The window is about `PASTE_QUIET` plus a turn of the loop
+//! (`super::event_loop::TICK`) plus that turn's own work, counted from when
+//! xfx reads the paste's last byte, and **every byte dropped in it starts it
+//! again**. Input inside it is dropped whoever typed it, fast legitimate input
+//! included, and the paste's warning says so; input that keeps arriving is
+//! said again once a second ([`Decoder::PASTE_REPEAT`]) in xfx's own words,
+//! which say what holds it ([`Hold`]): the input until it stops, or, while a
+//! paste behind the end marker is open or a marker is read past its first
+//! byte, that open paste or sequence -- its cause, and no release point. Once
+//! a repeat has named a hold, a change in what holds it is said too, even
+//! with nothing dropped; at a check that finds nothing and at a turn's read
+//! cap alike ([`Decoder::still`]). On the review plane the sentence is the
+//! status row, which the shell takes down at the end of the turn once it no
+//! longer names what holds the quarantine ([`Decoder::named_hold`]). Nothing
+//! is ever decoded on a timer (`docs/parity.md`, the `full-screen TUI` row).
+//!
+//! **A paste is still a paste.** The one sequence the quarantine reads is a
+//! paste's start marker, matched exactly (`ESC [ 200 ~`): it begins a paste
+//! there, as fx and the base decode that marker after any gap, so a second
+//! paste made soon after the first is kept and its newlines are content. Its
+//! bytes are a paste's -- inside it only the end marker is read, so another
+//! start marker is content, not a frame within a frame -- and its end marker
+//! settles it and starts a quarantine of its own. A paste with no end marker
+//! holds the input as content until one comes, as an unterminated paste does
+//! in fx (`paste_framing.zig:502-511@481104fd`) and at the base: a terminal
+//! writes one after every paste, and that closes whatever a clipboard opened.
+//!
+//! **Behind an end marker the markers are followed too.** There, in the
+//! delivery that carried the marker, a second paste's start marker is counted
+//! like every byte -- fx's rule, below -- and the paste it begins is dropped,
+//! as fx drops it; but it is dropped **to its own end marker**, past the
+//! settle and through the quarantine, and no quiet ends the quarantine while
+//! it is open, so a gap inside the second paste does not make its rest keys
+//! (fx reads that rest as keys). Nor does any quiet end it while a marker is
+//! read past its first byte, or the rest of the marker would be typed and the
+//! paste after it read as keys: `ESC [` and the bytes after it hold it until
+//! the sequence is finished or broken, however many bytes that takes -- a
+//! byte that continues it (`2` after `ESC [`) keeps it held -- and the byte
+//! that breaks it is dropped with it. A lone ESC is not held so: once the
+//! input has been quiet it was the Escape key, as the stage machine resolves
+//! one after [`Decoder::ESC_TIMEOUT`], and it is dropped and the quiet ends
+//! the quarantine -- so pressing Escape, and only Escape, in the window does
+//! not keep the input held.
+//!
+//! **What that gives up**, named: a queue-empty gap of `PASTE_QUIET` right
+//! after an ESC ends the quarantine, and what the terminal writes after the
+//! gap is keys. If the gap falls inside the terminal's own end marker, its
+//! tail `[201~` is typed, and its `2` answers **Always** at an approval with
+//! no draft open; a second paste's start marker split there is read as keys,
+//! its newline a Submit
+//! (`what_option_a_gives_up_a_lone_escape_then_a_gap_then_a_marker_s_tail_is_keys`).
+//! It is the same class as the residual above -- a terminal pausing for
+//! `PASTE_QUIET` inside one paste -- and a clipboard cannot make the gap.
 //!
 //! So the marker does not end the paste by itself. Once it has matched, every
 //! further byte is counted and **nothing else is done with it** -- not decoded,
@@ -134,7 +198,7 @@
 //! 102-107,159-165@481104fd`). What it says about those bytes, and to which
 //! surface, is the caller's (`input_paste_runtime.zig:168-198`). A marker
 //! split across two reads is not input behind the marker -- it is the marker
-//! -- and a key in a later delivery is a key.
+//! -- and a key once the quarantine is over is a key.
 //!
 //! fx c1db919 refused the whole paste instead (`Settlement.reject`); v0.0.16
 //! keeps it (9e0eab41), and so does this.
@@ -355,6 +419,11 @@ const MOST_STRING_BYTES: usize = 4096;
 /// The end of a bracketed paste, matched byte by byte.
 const PASTE_END: &[u8] = b"\x1b[201~";
 
+/// The start of one, matched byte by byte where the stage machine is not
+/// running: inside a paste's quarantine ([`Decoder::PASTE_QUIET`]). The same
+/// exact spelling [`csi`] admits.
+const PASTE_START: &[u8] = b"\x1b[200~";
+
 /// A multi-byte UTF-8 scalar, partly assembled.
 #[derive(Debug, Clone, Copy)]
 struct Partial {
@@ -403,6 +472,55 @@ pub(crate) enum Delivery {
     /// (`Settlement.finish{dropped_suffix_bytes}`, `paste_framing.zig:58-68,
     /// 159-165@481104fd`).
     Pasted { dropped: usize },
+    /// No paste ended in it, but `dropped` bytes have arrived inside a settled
+    /// paste's quarantine ([`Decoder::PASTE_QUIET`]) since it last said so,
+    /// and none of them was read as anything.
+    ///
+    /// `again` is `None` the first time, which is the paste's own warning,
+    /// owed once and only if [`Delivery::Pasted`] said nothing. It is the
+    /// [`Hold`] when it is said again [`Decoder::PASTE_REPEAT`] or more after
+    /// the last time, which xfx says in its own words, the hold's: because
+    /// input kept arriving, or -- with `dropped` 0 -- because what holds the
+    /// quarantine has changed since a repeat named it, by bytes held as a
+    /// marker and not yet counted.
+    Ignored { dropped: usize, again: Option<Hold> },
+}
+
+/// What is keeping a paste's quarantine on, when its warning is said again:
+/// what it waits for. The sentence said for it names that, and only the
+/// quiet's says what will end it -- the other two name what is still open and
+/// no release point (`super::shell`'s `PASTE_UNTIL_END`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Hold {
+    /// The quiet: it ends once the input has stopped for
+    /// [`Decoder::PASTE_QUIET`].
+    Quiet,
+    /// A paste begun behind the end marker is being dropped: a pause does
+    /// nothing until that paste's own end marker arrives, and then the quiet
+    /// holds the quarantine as before.
+    Paste,
+    /// A marker is read past its first byte: a pause does nothing until the
+    /// sequence is finished or broken, by however many bytes that takes -- a
+    /// byte that continues it (`2` after `ESC [`) keeps it held.
+    Marker,
+}
+
+/// The input after a settled paste, until it has gone quiet
+/// ([`Decoder::PASTE_QUIET`]).
+#[derive(Debug, Clone, Copy)]
+struct Quarantine {
+    /// Bytes counted since it last said so.
+    unsaid: usize,
+    /// When the paste's warning, or the last repeat of it, was owed.
+    said_at: Option<Instant>,
+    /// What the last repeat said holds the quarantine, if one has been said:
+    /// a change in that, by held bytes alone, is owed too
+    /// ([`Decoder::owed_warning`]). `None` after the first warning, which says
+    /// what happened and promises nothing.
+    said_hold: Option<Hold>,
+    /// The readiness check that found nothing with no byte read since it, if
+    /// there has been one: where the quiet began.
+    quiet_since: Option<Instant>,
 }
 
 /// The byte-at-a-time terminal input decoder.
@@ -424,6 +542,23 @@ pub(crate) struct Decoder {
     /// (`end_candidate`'s `unsafe_suffix_bytes`, `paste_framing.zig:102-107
     /// @481104fd`).
     behind: Option<usize>,
+    /// What follows a paste once it is settled, until the input has been quiet
+    /// for [`Self::PASTE_QUIET`]: a byte is counted here and nothing else is
+    /// done with it, as behind the marker.
+    quarantine: Option<Quarantine>,
+    /// Bytes a quarantine dropped and had not said yet when it ended -- a
+    /// paste's start marker ended it, or the quiet did with a lone Escape held
+    /// -- said at the next check ([`Self::end_delivery`], [`Self::still`]), so
+    /// the end of a quarantine does not take its first warning with it.
+    owed: usize,
+    /// Behind an end marker and in the quarantine after it, where every byte
+    /// is dropped, the paste markers are still followed ([`Self::follow`]):
+    /// whether a paste's start marker has been seen there and its own end
+    /// marker not yet -- a paste being dropped, which no quiet can end --
+    /// and how many bytes of the marker looked for have matched. Inside such a
+    /// paste only its end marker is looked for, as [`Self::pasted`] looks.
+    dropping_paste: bool,
+    following: usize,
 }
 
 // Task 9's editor is the first caller of these.
@@ -436,6 +571,27 @@ impl Decoder {
     /// rather than waiting for one.
     pub(crate) const ESC_TIMEOUT: Duration = Duration::from_millis(50);
 
+    /// How long the input must have been quiet after a paste before a byte is
+    /// a key again: a divergence from fx, for security (the module's
+    /// "quarantined" section).
+    ///
+    /// [`Self::ESC_TIMEOUT`]'s bound: long enough for the rest of what a
+    /// terminal is writing to arrive through a multiplexer -- the longest
+    /// refill gap of a pty's queue PASTE-GAP measured was 3.7 ms, up to a load
+    /// average of 20 on 18 cores (its `gap-probe.txt`), and this is more than
+    /// four times that -- and short enough that the test harnesses' paced
+    /// input (250 ms after a paste) clears it four times over. Both bounds are
+    /// pinned (`paste_quiet_stays_within_what_was_measured`). Input a person
+    /// types inside it is dropped and said; that is the trade, not a claim
+    /// that nobody types that fast.
+    pub(crate) const PASTE_QUIET: Duration = Duration::from_millis(50);
+
+    /// How long input that keeps arriving inside a quarantine goes unsaid
+    /// before it is said again: once a second, so a stream the user cannot see
+    /// the end of is on the screen while it lasts, and a megabyte of it is a
+    /// row or two rather than a row a turn.
+    pub(crate) const PASTE_REPEAT: Duration = Duration::from_secs(1);
+
     pub(crate) fn new() -> Self {
         Self {
             stage: Stage::Ground,
@@ -443,6 +599,10 @@ impl Decoder {
             pasting: false,
             matched: 0,
             behind: None,
+            quarantine: None,
+            owed: 0,
+            dropping_paste: false,
+            following: 0,
         }
     }
 
@@ -452,31 +612,200 @@ impl Decoder {
         self.pasting || self.behind.is_some()
     }
 
-    /// The delivery the bytes fed so far arrived in is over: the terminal had
-    /// nothing more to read. Settles a paste whose end marker arrived in it
-    /// (`settleDeliveryEpoch`, `paste_framing.zig:159-165@481104fd`).
+    /// Whether a settled paste's quarantine still owns the input
+    /// ([`Self::PASTE_QUIET`]).
+    pub(crate) fn quarantined(&self) -> bool {
+        self.quarantine.is_some()
+    }
+
+    /// What holds the quarantine on now ([`Hold`]). A lone ESC held as a
+    /// marker's first byte is not a hold of its own: the quiet drops it
+    /// ([`Self::end_delivery`]).
+    fn hold(&self) -> Hold {
+        if self.dropping_paste {
+            Hold::Paste
+        } else if self.following > 1 {
+            Hold::Marker
+        } else {
+            Hold::Quiet
+        }
+    }
+
+    /// What the last repeat in this quarantine said holds it, while that is
+    /// still what holds it: the one sentence about the quarantine that is true
+    /// now (`super::shell::Shell::settle_input`). `None` with no quarantine,
+    /// before a repeat has been said in this one -- a new quarantine starts
+    /// with nothing said, whatever was said in the one before it -- and once
+    /// what holds it has changed since.
+    pub(crate) fn named_hold(&self) -> Option<Hold> {
+        let said = self.quarantine.as_ref()?.said_hold?;
+        (said == self.hold()).then_some(said)
+    }
+
+    /// What the quarantine owes the user at `now`, without settling, ending or
+    /// starting anything: for a turn that stops at its read cap with input
+    /// still waiting (`super::event_loop`'s `burst`), which makes no check that
+    /// finds nothing -- so a stream that never pauses is still said. The
+    /// quiet is not touched: input is arriving.
+    pub(crate) fn still(&mut self, now: Instant) -> Delivery {
+        let owed = std::mem::take(&mut self.owed);
+        if owed > 0 {
+            return Delivery::Ignored {
+                dropped: owed,
+                again: None,
+            };
+        }
+        self.owed_warning(now)
+    }
+
+    /// The warning the quarantine owes at `now`, if any: the first, or a
+    /// repeat [`Self::PASTE_REPEAT`] after the last, in the words of what
+    /// holds it then. A repeat is owed for dropped input, and also when what
+    /// holds the quarantine has changed since the last repeat said otherwise
+    /// -- bytes held as a marker are not counted until it breaks, so `ESC [`
+    /// alone after the quiet's sentence ("until input stops") changes the hold
+    /// with nothing dropped, and the sentence on the screen would be false.
+    fn owed_warning(&mut self, now: Instant) -> Delivery {
+        let hold = self.hold();
+        let Some(quarantine) = self.quarantine.as_mut() else {
+            return Delivery::Quiet;
+        };
+        let changed = quarantine.said_hold.is_some_and(|said| said != hold);
+        if quarantine.unsaid == 0 && !changed {
+            return Delivery::Quiet;
+        }
+        let again = match quarantine.said_at {
+            None => None,
+            Some(at) if now.saturating_duration_since(at) >= Self::PASTE_REPEAT => Some(hold),
+            Some(_) => return Delivery::Quiet,
+        };
+        quarantine.said_at = Some(now);
+        quarantine.said_hold = again;
+        Delivery::Ignored {
+            dropped: std::mem::take(&mut quarantine.unsaid),
+            again,
+        }
+    }
+
+    /// The delivery the bytes fed so far arrived in is over: a readiness
+    /// check, at `now`, found nothing more to read. Settles a paste whose end
+    /// marker arrived in it (`settleDeliveryEpoch`,
+    /// `paste_framing.zig:159-165@481104fd`), and starts its quarantine.
     ///
     /// Only the caller knows when that is -- the loop's readiness check
     /// (`super::event_loop`'s `burst`) -- and it is said once per drained
     /// burst, not once per read: a paste larger than one read is one delivery,
-    /// and so is its end marker and an Enter one read behind it.
-    pub(crate) fn end_delivery(&mut self) -> Delivery {
-        match self.behind.take() {
-            None => Delivery::Quiet,
-            Some(dropped) => Delivery::Pasted { dropped },
+    /// and so is its end marker and an Enter one read behind it. It is said on
+    /// every turn that finds nothing, an idle one too, and that is what ends a
+    /// quarantine: two such checks [`Self::PASTE_QUIET`] apart with no byte
+    /// fed between them mean the queue was empty all that while, however long
+    /// the loop took between them -- and nothing half read: no paste being
+    /// dropped to its end marker, no marker read past its first byte
+    /// ([`Self::follow`]). A lone ESC held as a marker's first byte is dropped
+    /// by the quiet, as the Escape key it was.
+    pub(crate) fn end_delivery(&mut self, now: Instant) -> Delivery {
+        // What a quarantine dropped before a paste's start marker ended it,
+        // said here with the paste that followed or on its own.
+        let owed = std::mem::take(&mut self.owed);
+        if let Some(behind) = self.behind.take() {
+            let dropped = behind.saturating_add(owed);
+            self.quarantine = Some(Quarantine {
+                unsaid: 0,
+                said_at: (dropped > 0).then_some(now),
+                said_hold: None,
+                quiet_since: Some(now),
+            });
+            return Delivery::Pasted { dropped };
         }
+        if owed > 0 {
+            return Delivery::Ignored {
+                dropped: owed,
+                again: None,
+            };
+        }
+        // Nothing half read: no paste being dropped, and no marker read past
+        // its first byte. A lone ESC held as one is the Escape key once the
+        // input has been quiet, as the stage machine resolves a lone ESC after
+        // `ESC_TIMEOUT`: dropped, so the quiet can end the quarantine.
+        let whole = !self.dropping_paste && self.following <= 1;
+        let Some(quarantine) = self.quarantine.as_mut() else {
+            return Delivery::Quiet;
+        };
+        match quarantine.quiet_since {
+            Some(since) if whole && now.saturating_duration_since(since) >= Self::PASTE_QUIET => {
+                if self.following == 1 {
+                    self.following = 0;
+                    // The Escape is dropped input. If nothing has been said
+                    // in this quarantine, it is owed at the next check, as the
+                    // first warning is: the quarantine it was in is over.
+                    if quarantine.said_at.is_none() {
+                        self.owed = quarantine.unsaid.saturating_add(1);
+                    }
+                }
+                self.quarantine = None;
+                return Delivery::Quiet;
+            }
+            Some(_) => {}
+            // Something was read since the last check that found nothing:
+            // this one is where the quiet begins.
+            None => quarantine.quiet_since = Some(now),
+        }
+        self.owed_warning(now)
     }
 
     /// Feeds one byte, in arrival order, appending whatever it completed.
     pub(crate) fn feed(&mut self, byte: u8, now: Instant, out: &mut Vec<Input>) {
         // Behind a paste's end marker, in the delivery that carried it: the
         // byte is counted, and that is all. Not decoded, so not a key -- an
-        // Enter here is taken for the clipboard's, not the user's -- and not a marker
-        // either: a second end marker or a new paste's start is input behind
-        // this one's like any other (`paste_framing.zig:102-107,527-546`,
-        // `app_input_runtime.zig:9399-9418@481104fd`).
+        // Enter here is the clipboard's, whoever pressed it -- and not a
+        // marker either: a second end marker or a new paste's start is input
+        // behind this one's like any other (`paste_framing.zig:102-107,
+        // 527-546`, `app_input_runtime.zig:9399-9418@481104fd`).
         if let Some(behind) = self.behind.as_mut() {
             *behind = behind.saturating_add(1);
+            // Counted, and followed: a second paste begun here is being
+            // dropped until its own end marker, whenever that comes.
+            self.follow(byte);
+            return;
+        }
+        // And after the paste is settled, until the input has gone quiet: the
+        // same, and the byte means the quiet has not begun -- except a paste's
+        // start marker, which begins a paste.
+        if self.quarantine.is_some() {
+            let held = self.following;
+            let dropping = self.dropping_paste;
+            let began = self.follow(byte);
+            let Some(quarantine) = self.quarantine.as_mut() else {
+                return;
+            };
+            quarantine.quiet_since = None;
+            if dropping {
+                // A paste being dropped: all of it is dropped input.
+                quarantine.unsaid = quarantine.unsaid.saturating_add(1);
+                return;
+            }
+            if began {
+                // A paste's start marker: a paste begins, as the stage
+                // machine begins one ([`Self::in_csi`]). What the quarantine
+                // dropped and has not said yet is owed. The stage is `Ground`
+                // here, as it is wherever a paste is settled.
+                if quarantine.said_at.is_none() {
+                    self.owed = quarantine.unsaid;
+                }
+                self.quarantine = None;
+                self.dropping_paste = false;
+                self.pasting = true;
+                self.matched = 0;
+                out.push(Input::Action(Action::PasteStart));
+                return;
+            }
+            // Bytes that may be a start marker are held, as `pasted` holds an
+            // end marker's; once it breaks they were input, and are dropped
+            // with this byte -- unless this byte begins a marker of its own.
+            if self.following != held + 1 {
+                let dropped = held + 1 - self.following;
+                quarantine.unsaid = quarantine.unsaid.saturating_add(dropped);
+            }
             return;
         }
         // First, and before any stage is consulted: inside a paste there is
@@ -522,6 +851,32 @@ impl Decoder {
                 out.push(Input::Action(Action::Escape));
             }
         }
+    }
+
+    /// Follows the paste markers through a byte that is dropped: behind an
+    /// end marker, or in the quarantine after it. Outside a paste the marker
+    /// looked for is a start marker, and inside one only its end marker, the
+    /// grammar [`Self::pasted`] reads; so a start marker inside a paste is
+    /// content rather than a frame within a frame, and the end marker a
+    /// terminal writes after every paste closes whatever a clipboard opened.
+    /// True when `byte` completed a start marker.
+    fn follow(&mut self, byte: u8) -> bool {
+        let marker = if self.dropping_paste {
+            PASTE_END
+        } else {
+            PASTE_START
+        };
+        if byte != marker[self.following] {
+            self.following = usize::from(byte == marker[0]);
+            return false;
+        }
+        self.following += 1;
+        if self.following < marker.len() {
+            return false;
+        }
+        self.following = 0;
+        self.dropping_paste = !self.dropping_paste;
+        self.dropping_paste
     }
 
     /// One byte between the paste markers.
@@ -1417,11 +1772,23 @@ mod tests {
     /// `end_delivery`): a paste that ended in it is its [`Action::PasteEnd`],
     /// whatever followed its marker.
     fn deliver(decoder: &mut Decoder, out: &mut Vec<Input>) -> Delivery {
-        let delivery = decoder.end_delivery();
+        deliver_at(decoder, out, Instant::now())
+    }
+
+    /// [`deliver`], with the check that found nothing made at `now`.
+    fn deliver_at(decoder: &mut Decoder, out: &mut Vec<Input>, now: Instant) -> Delivery {
+        let delivery = decoder.end_delivery(now);
         if let Delivery::Pasted { .. } = delivery {
             out.push(Input::Action(Action::PasteEnd));
         }
         delivery
+    }
+
+    /// The terminal then stays quiet for [`Decoder::PASTE_QUIET`], as it does
+    /// before a person's next key: a check that long after the last one ends
+    /// any quarantine.
+    fn quiet(decoder: &mut Decoder, out: &mut Vec<Input>) -> Delivery {
+        deliver_at(decoder, out, Instant::now() + Decoder::PASTE_QUIET)
     }
 
     /// What `csi` decodes a sequence to, for the cases that are an action.
@@ -2704,6 +3071,9 @@ mod tests {
         // happen: uniform noise is almost all `Ignore` and would exercise
         // nothing.
         const ALPHABET: &[u8] = b"\x1b[O~;0123456789ABCDHFmx \x03\x04\x0d\x7f\xed\x80\xc2\x85";
+        // Across every seed: input that arrived inside a settled paste's
+        // quarantine, which any one seed may happen to miss.
+        let mut quarantines = 0usize;
         for seed in 1..=64u64 {
             let mut noise = Noise(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1);
             let mut decoder = Decoder::new();
@@ -2711,6 +3081,10 @@ mod tests {
             let mut out = Vec::new();
             let mut fed = 0usize;
             let mut behind = 0usize;
+            let mut quarantined = 0usize;
+            // The time of each check that found nothing, which is all a
+            // quarantine reads.
+            let mut clock = start;
             for step in 0..512 {
                 let roll = noise.next();
                 let bytes: &[u8] = match roll % 16 {
@@ -2748,8 +3122,17 @@ mod tests {
                 // nothing behind it; a chunk later, one with input behind it.
                 // The `PasteEnd` either owes is paid for by the marker.
                 if (roll >> 6).is_multiple_of(2) {
-                    if let Delivery::Pasted { dropped: 1.. } = deliver(&mut decoder, &mut out) {
-                        behind += 1;
+                    match deliver_at(&mut decoder, &mut out, clock) {
+                        Delivery::Pasted { dropped: 1.. } => behind += 1,
+                        Delivery::Ignored { .. } => quarantined += 1,
+                        _ => {}
+                    }
+                    // And, half of those times, the input then stays quiet
+                    // long enough to end a paste's quarantine. The warning a
+                    // quarantine owes is no event, so it cannot break the bound.
+                    if (roll >> 9).is_multiple_of(2) {
+                        clock += Decoder::PASTE_QUIET;
+                        deliver_at(&mut decoder, &mut out, clock);
                     }
                     assert!(
                         out.len() <= fed,
@@ -2776,6 +3159,7 @@ mod tests {
             let closed = counted(&|event| *event == Input::Action(Action::PasteEnd));
             let ignored = counted(&|event| *event == Input::Action(Action::Ignore));
             let typed = counted(&|event| matches!(event, Input::Text(_)));
+            quarantines += quarantined;
             assert!(
                 pasted >= 100
                     && opened >= 5
@@ -2785,9 +3169,13 @@ mod tests {
                     && typed >= 30,
                 "seed {seed} exercised too little to mean anything: {pasted} pasted \
                  bytes, {opened} opened, {closed} closed, {behind} with input behind, {ignored} \
-                 ignored, {typed} typed"
+                 ignored, {typed} typed, {quarantined} quarantines that dropped input"
             );
         }
+        assert!(
+            quarantines >= 16,
+            "the noise reached a settled paste's quarantine {quarantines} times"
+        );
     }
 
     #[test]
@@ -2879,6 +3267,650 @@ mod tests {
     }
 
     #[test]
+    fn a_quarantine_ends_only_after_two_empty_checks_a_quiet_period_apart() {
+        // Quiet is a fact about the queue, not the clock: two checks that found
+        // nothing, [`Decoder::PASTE_QUIET`] apart, with no byte fed between
+        // them. A byte between them starts the quiet again, and so does a loop
+        // that stalled -- a long time between two checks with a read between
+        // them is not quiet.
+        let quiet = Decoder::PASTE_QUIET;
+        let ms = Duration::from_millis(1);
+        let mut decoder = Decoder::new();
+        let t0 = Instant::now();
+        let mut out = Vec::new();
+        for byte in b"\x1b[200~new\x1b[201~" {
+            decoder.feed(*byte, t0, &mut out);
+        }
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0),
+            Delivery::Pasted { dropped: 0 }
+        );
+        assert!(decoder.quarantined(), "a settled paste is not quarantined");
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0 + quiet - ms),
+            Delivery::Quiet
+        );
+        assert!(decoder.quarantined(), "the quiet ended before its time");
+
+        // A byte inside it is counted, and owed once at the next check.
+        decoder.feed(b'x', t0 + quiet - ms, &mut out);
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0 + quiet + ms),
+            Delivery::Ignored {
+                dropped: 1,
+                again: None
+            }
+        );
+        // That check is where the quiet begins again, so one at the old
+        // deadline does not end it.
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0 + quiet * 2),
+            Delivery::Quiet
+        );
+        assert!(decoder.quarantined(), "a byte did not restart the quiet");
+
+        // A stall: ten seconds between two checks with a byte between them.
+        // The byte is said again, more than `PASTE_REPEAT` after the warning.
+        decoder.feed(b'y', t0 + quiet * 2, &mut out);
+        let stalled = t0 + Duration::from_secs(10);
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, stalled),
+            Delivery::Ignored {
+                dropped: 1,
+                again: Some(Hold::Quiet)
+            }
+        );
+        assert!(
+            decoder.quarantined(),
+            "a stalled loop's check counted as quiet"
+        );
+
+        // And then the quiet: the quarantine is over, and a key is a key.
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, stalled + quiet),
+            Delivery::Quiet
+        );
+        assert!(
+            !decoder.quarantined(),
+            "the quiet did not end the quarantine"
+        );
+        assert_eq!(out, kept_new(), "a quarantined byte was read");
+        out.clear();
+        decoder.feed(b'\r', stalled + quiet, &mut out);
+        assert_eq!(out, vec![Input::Action(Action::Submit)]);
+    }
+
+    #[test]
+    fn a_paste_s_warning_is_owed_once_whether_its_input_came_before_the_gap_or_after() {
+        // Input behind the marker in its own delivery is the paste's warning
+        // (`Pasted { dropped }`), and the quarantine's after it owes nothing
+        // more; a paste whose delivery had nothing behind it owes it at the
+        // first check after its quarantine took a byte, and only then.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        for byte in b"\x1b[200~new\x1b[201~\r" {
+            decoder.feed(*byte, t0, &mut out);
+        }
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0),
+            Delivery::Pasted { dropped: 1 }
+        );
+        decoder.feed(b'\r', t0, &mut out);
+        assert_eq!(deliver_at(&mut decoder, &mut out, t0 + ms), Delivery::Quiet);
+        assert_eq!(out, kept_new());
+
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        for byte in b"\x1b[200~new\x1b[201~" {
+            decoder.feed(*byte, t0, &mut out);
+        }
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0),
+            Delivery::Pasted { dropped: 0 }
+        );
+        assert_eq!(deliver_at(&mut decoder, &mut out, t0 + ms), Delivery::Quiet);
+        for byte in b"ab" {
+            decoder.feed(*byte, t0 + ms, &mut out);
+        }
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0 + ms * 2),
+            Delivery::Ignored {
+                dropped: 2,
+                again: None
+            }
+        );
+        decoder.feed(b'c', t0 + ms * 2, &mut out);
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0 + ms * 3),
+            Delivery::Quiet,
+            "the warning was owed twice"
+        );
+        assert_eq!(out, kept_new());
+    }
+
+    /// Feeds `bytes`, in order, at `at`.
+    fn fed(decoder: &mut Decoder, bytes: &[u8], at: Instant, out: &mut Vec<Input>) {
+        for byte in bytes {
+            decoder.feed(*byte, at, out);
+        }
+    }
+
+    /// The first paste of every quarantine case: `new`, settled at `t0` with
+    /// nothing behind it, and its quarantine begun.
+    fn settled_new(t0: Instant) -> (Decoder, Vec<Input>) {
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        fed(&mut decoder, b"\x1b[200~new\x1b[201~", t0, &mut out);
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0),
+            Delivery::Pasted { dropped: 0 }
+        );
+        (decoder, out)
+    }
+
+    /// `kept_new`, then `rest`.
+    fn kept_new_then(rest: &[Input]) -> Vec<Input> {
+        let mut kept = kept_new();
+        kept.extend_from_slice(rest);
+        kept
+    }
+
+    /// `PasteByte` for each of `bytes`.
+    fn paste_bytes(bytes: &[u8]) -> Vec<Input> {
+        bytes.iter().map(|byte| Input::PasteByte(*byte)).collect()
+    }
+
+    /// Whether any of `out` is a key: a character, an action other than a
+    /// paste's frame, or anything that is not a paste's content.
+    fn any_key(out: &[Input]) -> bool {
+        out.iter().any(|event| {
+            !matches!(
+                event,
+                Input::PasteByte(_) | Input::Action(Action::PasteStart | Action::PasteEnd)
+            )
+        })
+    }
+
+    #[test]
+    fn a_second_paste_inside_the_quarantine_is_a_paste_across_a_gap_in_its_middle() {
+        // opus on PASTE-GAP round 1: a second paste whose start marker lands
+        // inside the first one's quarantine had that marker dropped with
+        // everything else, so a gap of `PASTE_QUIET` inside the second paste
+        // ended the quarantine and the rest of it reached the decoder
+        // unframed, its newlines submitting. A start marker there is what fx
+        // and the base decode it as after any gap: a paste begins, its bytes
+        // are content, and only its own end marker ends it.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let quiet = Decoder::PASTE_QUIET;
+        let (mut decoder, mut out) = settled_new(t0);
+        fed(&mut decoder, b"\x1b[200~ab", t0 + ms, &mut out);
+        for at in [t0 + ms * 2, t0 + ms * 2 + quiet, t0 + ms * 2 + quiet * 2] {
+            deliver_at(&mut decoder, &mut out, at);
+        }
+        fed(&mut decoder, b"c\rd\x1b[201~", t0 + quiet * 3, &mut out);
+        deliver_at(&mut decoder, &mut out, t0 + quiet * 3 + ms);
+        assert!(
+            !any_key(&out),
+            "the rest of the second paste was keys: {out:?}"
+        );
+        let mut second = vec![Input::Action(Action::PasteStart)];
+        second.extend(paste_bytes(b"abc\rd"));
+        second.push(Input::Action(Action::PasteEnd));
+        assert_eq!(out, kept_new_then(&second));
+    }
+
+    #[test]
+    fn an_unterminated_paste_begun_inside_the_quarantine_never_becomes_keys() {
+        // A start marker with no end marker after it, however long the input
+        // is quiet: every byte is its content, as an unterminated paste's is in
+        // fx (`paste_framing.zig:502-511@481104fd`) and at the base, never a
+        // key.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let (mut decoder, mut out) = settled_new(t0);
+        fed(&mut decoder, b"\x1b[200~ab", t0 + ms, &mut out);
+        for at in [
+            t0 + ms * 2,
+            t0 + ms * 2 + Decoder::PASTE_QUIET,
+            t0 + Duration::from_secs(1),
+            t0 + Duration::from_secs(10),
+        ] {
+            deliver_at(&mut decoder, &mut out, at);
+        }
+        fed(&mut decoder, b"x\r", t0 + Duration::from_secs(10), &mut out);
+        deliver_at(&mut decoder, &mut out, t0 + Duration::from_secs(11));
+        assert!(!any_key(&out), "the input after a quiet was keys: {out:?}");
+        let mut open = vec![Input::Action(Action::PasteStart)];
+        open.extend(paste_bytes(b"abx\r"));
+        assert_eq!(out, kept_new_then(&open));
+        assert!(decoder.pasting(), "the unterminated paste was closed");
+    }
+
+    #[test]
+    fn a_start_marker_split_across_the_quiet_holds_the_quarantine() {
+        // `ESC [ 2 0` inside the quarantine, then a quiet of `PASTE_QUIET` or
+        // more, then `0 ~` and a paste's content: the quarantine must not end
+        // with a marker read past its first byte, or `0` and `~` would be
+        // typed and the content after them read as keys.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let quiet = Decoder::PASTE_QUIET;
+        let (mut decoder, mut out) = settled_new(t0);
+        fed(&mut decoder, b"\x1b[20", t0 + ms, &mut out);
+        for at in [t0 + ms * 2, t0 + ms * 2 + quiet, t0 + ms * 2 + quiet * 3] {
+            deliver_at(&mut decoder, &mut out, at);
+        }
+        fed(&mut decoder, b"0~ab\r\x1b[201~", t0 + quiet * 4, &mut out);
+        deliver_at(&mut decoder, &mut out, t0 + quiet * 4 + ms);
+        assert!(
+            !any_key(&out),
+            "the split start marker let keys through: {out:?}"
+        );
+        let mut second = vec![Input::Action(Action::PasteStart)];
+        second.extend(paste_bytes(b"ab\r"));
+        second.push(Input::Action(Action::PasteEnd));
+        assert_eq!(out, kept_new_then(&second));
+    }
+
+    #[test]
+    fn a_start_marker_inside_a_paste_begun_in_the_quarantine_is_its_content() {
+        // Inside a paste only its end marker is read (`pasted`), so a second
+        // start marker there is content, not a frame within a frame: the
+        // terminal's own end marker closes whatever a clipboard opened, and
+        // nothing a clipboard holds can leave a frame open behind it.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let quiet = Decoder::PASTE_QUIET;
+        let (mut decoder, mut out) = settled_new(t0);
+        fed(&mut decoder, b"\x1b[200~a\x1b[200~b", t0 + ms, &mut out);
+        for at in [t0 + ms * 2, t0 + ms * 2 + quiet, t0 + ms * 2 + quiet * 2] {
+            deliver_at(&mut decoder, &mut out, at);
+        }
+        fed(&mut decoder, b"\x1b[201~", t0 + quiet * 3, &mut out);
+        deliver_at(&mut decoder, &mut out, t0 + quiet * 3 + ms);
+        let mut second = vec![Input::Action(Action::PasteStart)];
+        second.extend(paste_bytes(b"a\x1b[200~b"));
+        second.push(Input::Action(Action::PasteEnd));
+        assert_eq!(out, kept_new_then(&second));
+        assert!(!decoder.pasting(), "the end marker did not close the paste");
+    }
+
+    #[test]
+    fn a_second_paste_begun_behind_the_first_s_end_marker_stays_dropped_across_a_gap() {
+        // The same hole one step earlier: a second paste whose start marker
+        // arrives in the delivery that ended the first is counted there, fx's
+        // rule (`paste_framing.zig:102-107,527-546@481104fd`), and so it was
+        // never followed -- a gap of `PASTE_QUIET` in its middle ended the
+        // quarantine and the rest of it was read as keys. Its frame is
+        // followed through the count: the second paste is dropped, as fx drops
+        // it, to its own end marker, and only then can the input go quiet.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let quiet = Decoder::PASTE_QUIET;
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        fed(
+            &mut decoder,
+            b"\x1b[200~new\x1b[201~\x1b[200~ab",
+            t0,
+            &mut out,
+        );
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0),
+            Delivery::Pasted { dropped: 8 }
+        );
+        for at in [t0 + quiet, t0 + quiet * 2, t0 + quiet * 3] {
+            deliver_at(&mut decoder, &mut out, at);
+        }
+        assert!(decoder.quarantined(), "the quiet ended a paste still open");
+        fed(&mut decoder, b"c\rd\x1b[201~", t0 + quiet * 4, &mut out);
+        deliver_at(&mut decoder, &mut out, t0 + quiet * 4 + ms);
+        deliver_at(&mut decoder, &mut out, t0 + quiet * 5 + ms);
+        assert!(!decoder.quarantined(), "the quiet after it did not end it");
+        assert_eq!(out, kept_new(), "the second paste was read");
+        fed(&mut decoder, b"\r", t0 + quiet * 6, &mut out);
+        assert_eq!(out, kept_new_then(&[Input::Action(Action::Submit)]));
+    }
+
+    #[test]
+    fn a_start_marker_inside_a_paste_being_dropped_is_its_content_and_one_end_closes_it() {
+        // A clipboard holding `x ESC[201~ y ESC[200~ a ESC[200~ b`, wrapped by
+        // its terminal: two start markers behind the first end marker and one
+        // end marker, the terminal's. Inside the paste being dropped only its
+        // end marker is looked for, so the second start marker is content and
+        // that one end marker closes it; a frame within a frame would leave
+        // one open, and the input held, on clipboard content alone.
+        let t0 = Instant::now();
+        let quiet = Decoder::PASTE_QUIET;
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        fed(
+            &mut decoder,
+            b"\x1b[200~new\x1b[201~y\x1b[200~a\x1b[200~b\x1b[201~",
+            t0,
+            &mut out,
+        );
+        deliver_at(&mut decoder, &mut out, t0);
+        deliver_at(&mut decoder, &mut out, t0 + quiet);
+        assert!(!decoder.quarantined(), "the input was held by content");
+        fed(&mut decoder, b"\r", t0 + quiet * 2, &mut out);
+        assert_eq!(out, kept_new_then(&[Input::Action(Action::Submit)]));
+    }
+
+    #[test]
+    fn an_unterminated_paste_begun_behind_the_first_s_end_marker_never_becomes_keys() {
+        let t0 = Instant::now();
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        fed(
+            &mut decoder,
+            b"\x1b[200~new\x1b[201~\x1b[200~ab",
+            t0,
+            &mut out,
+        );
+        deliver_at(&mut decoder, &mut out, t0);
+        for at in [
+            t0 + Decoder::PASTE_QUIET,
+            t0 + Duration::from_secs(1),
+            t0 + Duration::from_secs(10),
+        ] {
+            deliver_at(&mut decoder, &mut out, at);
+        }
+        fed(&mut decoder, b"x\r", t0 + Duration::from_secs(10), &mut out);
+        deliver_at(&mut decoder, &mut out, t0 + Duration::from_secs(11));
+        assert_eq!(out, kept_new(), "the input after a quiet was keys");
+        assert!(decoder.quarantined(), "an open paste's quarantine ended");
+    }
+
+    #[test]
+    fn a_start_marker_split_across_the_settle_is_followed_into_the_quarantine() {
+        // `ESC [ 2 0` behind the end marker, the delivery's end, a quiet, then
+        // `0 ~`: the marker is whole in the quarantine, where it begins a
+        // paste, and nothing of it or after it is typed.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let quiet = Decoder::PASTE_QUIET;
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        fed(&mut decoder, b"\x1b[200~new\x1b[201~\x1b[20", t0, &mut out);
+        deliver_at(&mut decoder, &mut out, t0);
+        for at in [t0 + quiet, t0 + quiet * 3] {
+            deliver_at(&mut decoder, &mut out, at);
+        }
+        fed(&mut decoder, b"0~ab\r\x1b[201~", t0 + quiet * 4, &mut out);
+        deliver_at(&mut decoder, &mut out, t0 + quiet * 4 + ms);
+        assert!(!any_key(&out), "the split marker let keys through: {out:?}");
+        let mut second = vec![Input::Action(Action::PasteStart)];
+        second.extend(paste_bytes(b"ab\r"));
+        second.push(Input::Action(Action::PasteEnd));
+        assert_eq!(out, kept_new_then(&second));
+    }
+
+    #[test]
+    fn input_dropped_before_a_paste_begun_in_the_quarantine_is_still_said() {
+        // A key and a second paste's start marker with no check between them:
+        // the quarantine the marker ends has dropped the key and not said so
+        // yet, and that is owed at the next check -- on its own while the
+        // second paste is open, or with it when it ends in the same delivery.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let (mut decoder, mut out) = settled_new(t0);
+        fed(&mut decoder, b"x\x1b[200~ab", t0 + ms, &mut out);
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0 + ms * 2),
+            Delivery::Ignored {
+                dropped: 1,
+                again: None
+            }
+        );
+        fed(&mut decoder, b"\x1b[201~", t0 + ms * 3, &mut out);
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0 + ms * 4),
+            Delivery::Pasted { dropped: 0 }
+        );
+
+        let (mut decoder, mut out) = settled_new(t0);
+        fed(&mut decoder, b"x\x1b[200~ab\x1b[201~", t0 + ms, &mut out);
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0 + ms * 2),
+            Delivery::Pasted { dropped: 1 }
+        );
+        assert!(!any_key(&out), "{out:?}");
+    }
+
+    #[test]
+    fn a_lone_escape_in_the_quarantine_is_dropped_once_the_input_is_quiet() {
+        // opus on PASTE-GAP round 2: a lone ESC is the first byte of a start
+        // marker, so it was held as one, and only a byte after it let the
+        // quarantine end -- an Escape pressed in the window held the input
+        // through any pause. Once the input has been quiet for `PASTE_QUIET`
+        // it was the Escape key, as the stage machine resolves a lone ESC
+        // after `ESC_TIMEOUT`: dropped, and the quiet ends the quarantine.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let (mut decoder, mut out) = settled_new(t0);
+        decoder.feed(0x1b, t0 + ms, &mut out);
+        deliver_at(&mut decoder, &mut out, t0 + ms * 2);
+        deliver_at(&mut decoder, &mut out, t0 + ms * 2 + Decoder::PASTE_QUIET);
+        assert!(!decoder.quarantined(), "a held Escape outlasted the quiet");
+        // The Escape was dropped input, and this quarantine had said nothing:
+        // it is said at the next check.
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0 + ms * 3 + Decoder::PASTE_QUIET),
+            Delivery::Ignored {
+                dropped: 1,
+                again: None
+            }
+        );
+        fed(
+            &mut decoder,
+            b"\r",
+            t0 + ms * 3 + Decoder::PASTE_QUIET,
+            &mut out,
+        );
+        assert_eq!(out, kept_new_then(&[Input::Action(Action::Submit)]));
+    }
+
+    #[test]
+    fn a_byte_that_continues_a_held_marker_keeps_it_held_through_a_pause() {
+        // gpt6 on PASTE-GAP round 3: `2` after `ESC [` is another prefix of a
+        // start marker, not the byte that settles it. `ESC [ 2`, then a quiet
+        // of `PASTE_QUIET` and far more: nothing is released. A byte that
+        // breaks the sequence, then a pause: released, and none of it a key.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let quiet = Decoder::PASTE_QUIET;
+        let (mut decoder, mut out) = settled_new(t0);
+        fed(&mut decoder, b"\x1b[2", t0 + ms, &mut out);
+        for at in [
+            t0 + ms * 2,
+            t0 + ms * 2 + quiet,
+            t0 + Duration::from_secs(10),
+        ] {
+            deliver_at(&mut decoder, &mut out, at);
+        }
+        assert!(decoder.quarantined(), "a pause released a continued marker");
+        let broke = t0 + Duration::from_secs(10) + ms;
+        fed(&mut decoder, b"x", broke, &mut out);
+        deliver_at(&mut decoder, &mut out, broke);
+        deliver_at(&mut decoder, &mut out, broke + quiet);
+        assert!(
+            !decoder.quarantined(),
+            "breaking it and a pause did not end it"
+        );
+        assert_eq!(out, kept_new(), "a byte of the sequence was a key");
+    }
+
+    #[test]
+    fn what_option_a_gives_up_a_lone_escape_then_a_gap_then_a_marker_s_tail_is_keys() {
+        // The position PASTE-GAP round 3's lone-Escape release gave up, made
+        // executable (gpt6 SHOULD 1, opus SHOULD 2 on round 3). A queue-empty
+        // gap of `PASTE_QUIET` right after an ESC ends the quarantine, and the
+        // ESC is dropped as the Escape key; so what the terminal writes after
+        // that gap is decoded as keys. The tail of its own end marker,
+        // `[201~`, is five characters -- its `2` answers **Always** at an
+        // approval with no draft open (`super::super::approval`'s digits) --
+        // and the tail of a second paste's start marker split there is keys
+        // too, its newline a Submit. The same class as the 50 ms residual (a
+        // terminal pausing inside one paste); a clipboard cannot make the gap.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let quiet = Decoder::PASTE_QUIET;
+        let text = |c: char| Input::Text(c);
+        for (tail, keys) in [
+            (
+                &b"[201~"[..],
+                vec![text('['), text('2'), text('0'), text('1'), text('~')],
+            ),
+            (
+                &b"[200~ab\r"[..],
+                vec![
+                    text('['),
+                    text('2'),
+                    text('0'),
+                    text('0'),
+                    text('~'),
+                    text('a'),
+                    text('b'),
+                    Input::Action(Action::Submit),
+                ],
+            ),
+        ] {
+            let (mut decoder, mut out) = settled_new(t0);
+            decoder.feed(0x1b, t0 + ms, &mut out);
+            deliver_at(&mut decoder, &mut out, t0 + ms * 2);
+            deliver_at(&mut decoder, &mut out, t0 + ms * 2 + quiet);
+            assert!(!decoder.quarantined(), "the quiet did not end it");
+            fed(&mut decoder, tail, t0 + ms * 3 + quiet, &mut out);
+            assert_eq!(out, kept_new_then(&keys), "{tail:?}");
+        }
+    }
+
+    #[test]
+    fn still_says_what_the_quarantine_owes_and_settles_and_ends_nothing() {
+        // The read cap's call (`super::super::event_loop`'s `burst`): the first
+        // warning, then a repeat `PASTE_REPEAT` after it in the words of the
+        // hold, and nothing ended however long it has been -- input is
+        // arriving. Before a paste has settled there is nothing to say: the
+        // paste and its warning land together at the check that settles it.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        fed(&mut decoder, b"\x1b[200~new\x1b[201~y", t0, &mut out);
+        assert_eq!(decoder.still(t0 + ms), Delivery::Quiet);
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0 + ms),
+            Delivery::Pasted { dropped: 1 }
+        );
+
+        let (mut decoder, mut out) = settled_new(t0);
+        fed(&mut decoder, b"y", t0 + ms, &mut out);
+        assert_eq!(
+            decoder.still(t0 + ms * 2),
+            Delivery::Ignored {
+                dropped: 1,
+                again: None
+            }
+        );
+        fed(&mut decoder, b"y", t0 + ms * 3, &mut out);
+        assert_eq!(decoder.still(t0 + ms * 3), Delivery::Quiet);
+        let later = t0 + ms * 2 + Decoder::PASTE_REPEAT;
+        fed(&mut decoder, b"\x1b[", later, &mut out);
+        assert_eq!(
+            decoder.still(later),
+            Delivery::Ignored {
+                dropped: 1,
+                again: Some(Hold::Marker)
+            }
+        );
+        assert_eq!(
+            decoder.still(later + Duration::from_secs(10)),
+            Delivery::Quiet
+        );
+        assert!(decoder.quarantined(), "the read cap ended the quarantine");
+        assert_eq!(out, kept_new());
+    }
+
+    #[test]
+    fn escape_pressed_and_pressed_again_in_the_quarantine_still_lets_the_quiet_end_it() {
+        // Each Escape breaks the one held before it and is held in its place,
+        // so pressing nothing but Escape never left the marker unread. A tick
+        // apart for 200 ms, then nothing: the quiet ends the quarantine, and
+        // none of them was a key.
+        let tick = super::super::event_loop::TICK;
+        let t0 = Instant::now();
+        let (mut decoder, mut out) = settled_new(t0);
+        let mut at = t0;
+        while at < t0 + Duration::from_millis(200) {
+            at += tick;
+            decoder.feed(0x1b, at, &mut out);
+            deliver_at(&mut decoder, &mut out, at);
+        }
+        deliver_at(&mut decoder, &mut out, at + tick);
+        deliver_at(&mut decoder, &mut out, at + tick + Decoder::PASTE_QUIET);
+        assert!(!decoder.quarantined(), "Escape alone held the input");
+        assert_eq!(out, kept_new(), "an Escape inside the quarantine was a key");
+        // And a half-read start marker still holds it through the same pause.
+        let (mut decoder, mut out) = settled_new(t0);
+        fed(&mut decoder, b"\x1b[", t0 + tick, &mut out);
+        deliver_at(&mut decoder, &mut out, t0 + tick * 2);
+        deliver_at(&mut decoder, &mut out, t0 + tick * 2 + Decoder::PASTE_QUIET);
+        assert!(
+            decoder.quarantined(),
+            "a half-read marker let the pause end it"
+        );
+    }
+
+    #[test]
+    fn a_quarantine_ends_at_the_first_empty_check_at_or_past_the_quiet() {
+        // An idle loop checks every `TICK`, so a quiet quarantine is checked
+        // several times before `PASTE_QUIET` has passed. None of those checks
+        // restarts the quiet: the first one at or past it ends the quarantine.
+        let tick = super::super::event_loop::TICK;
+        let t0 = Instant::now();
+        let (mut decoder, mut out) = settled_new(t0);
+        let mut at = t0;
+        let mut before = 0;
+        while at + tick < t0 + Decoder::PASTE_QUIET {
+            at += tick;
+            assert_eq!(deliver_at(&mut decoder, &mut out, at), Delivery::Quiet);
+            assert!(decoder.quarantined(), "ended {:?} in", at - t0);
+            before += 1;
+        }
+        assert!(before >= 2, "only {before} checks before the deadline");
+        at += tick;
+        assert!(at - t0 >= Decoder::PASTE_QUIET);
+        assert_eq!(deliver_at(&mut decoder, &mut out, at), Delivery::Quiet);
+        assert!(
+            !decoder.quarantined(),
+            "the checks before the deadline restarted the quiet"
+        );
+    }
+
+    #[test]
+    fn paste_quiet_stays_within_what_was_measured() {
+        // Below: the longest refill gap of a pty's queue PASTE-GAP measured,
+        // 3.716 ms (`.prd/tui-phase5/receipts/paste-gap/gap-probe.txt`), four
+        // times over, so a slower machine's refill is still inside one paste.
+        assert!(Decoder::PASTE_QUIET >= Duration::from_micros(3716) * 4);
+        // Above: the window -- the quiet and a turn of the loop -- four times
+        // over inside the 250 ms the test harnesses wait after a paste before
+        // they type again, so paced input in a test is never dropped on a
+        // loaded machine. **This 250 is not tied to theirs**: `PASTE_PAUSE` in
+        // `tests/support/pty.rs` and in `scripts/smoke-tui.sh` are spelled out
+        // separately, neither is visible here, and nothing checks that the
+        // three agree -- a change to one is a change to all three by hand.
+        let window = Decoder::PASTE_QUIET + super::super::event_loop::TICK;
+        assert!(window * 4 <= Duration::from_millis(250));
+        // And a repeat of the warning is rarer than a quarantine.
+        assert!(Decoder::PASTE_REPEAT > Decoder::PASTE_QUIET);
+    }
+
+    #[test]
     fn an_escape_sequence_behind_the_end_marker_is_counted_and_never_decoded() {
         // Not an arrow key, not a second marker, not a new paste: every byte
         // behind the end marker is the same thing (`paste_framing.zig:102-107,
@@ -2905,8 +3937,11 @@ mod tests {
             }
         );
 
-        // And the machine is at ground again once the delivery is over: the
-        // same arrow, in a delivery of its own, is the arrow.
+        // And the machine is at ground again once the paste's quarantine is
+        // over. `ESC [` is also how a paste's start marker begins, so it holds
+        // the quarantine (round 2): no quiet ends it while a marker is half
+        // read. The next byte breaks it, and is dropped with it; once the
+        // input has been quiet after that, the same arrow is the arrow.
         let mut decoder = Decoder::new();
         let now = Instant::now();
         let mut out = Vec::new();
@@ -2922,6 +3957,17 @@ mod tests {
             kept_new(),
             "the half sequence behind the marker was read"
         );
+        assert_eq!(quiet(&mut decoder, &mut out), Delivery::Quiet);
+        assert!(
+            decoder.quarantined(),
+            "a half-read marker let the quiet end it"
+        );
+        decoder.feed(b'x', now, &mut out);
+        let then = Instant::now() + Decoder::PASTE_QUIET;
+        deliver_at(&mut decoder, &mut out, then);
+        deliver_at(&mut decoder, &mut out, then + Decoder::PASTE_QUIET);
+        assert!(!decoder.quarantined(), "the quiet after the broken marker");
+        assert_eq!(out, kept_new(), "the byte that broke the marker was read");
         out.clear();
         for byte in b"\x1b[A" {
             decoder.feed(*byte, now, &mut out);
@@ -2955,11 +4001,39 @@ mod tests {
     }
 
     #[test]
+    fn a_readiness_gap_behind_an_end_marker_does_not_make_what_follows_keys() {
+        // A paste longer than the pty's input queue reaches the decoder as the
+        // terminal refills it, so a readiness check can find the queue empty
+        // between two of its writes (the PASTE-GAP receipt: 1 022 bytes on
+        // macOS, and a paste of 4 KiB through tmux had its CR read as a key in
+        // every run). fx settles the paste at that gap and reads the rest as
+        // keys (`event_loop.zig:94-119@481104fd`). Whatever arrives before the
+        // input has gone quiet is the clipboard's too: not a character, not an
+        // Enter, not an arrow.
+        let mut decoder = Decoder::new();
+        let now = Instant::now();
+        let mut out = Vec::new();
+        for byte in b"\x1b[200~new\x1b[201~" {
+            decoder.feed(*byte, now, &mut out);
+        }
+        assert_eq!(
+            deliver(&mut decoder, &mut out),
+            Delivery::Pasted { dropped: 0 },
+            "the paste is settled where fx settles it"
+        );
+        for byte in b"x\r\x1b[A" {
+            decoder.feed(*byte, now, &mut out);
+        }
+        deliver(&mut decoder, &mut out);
+        assert_eq!(out, kept_new(), "the bytes after the gap were read as keys");
+    }
+
+    #[test]
     fn an_end_marker_split_across_two_deliveries_is_the_marker_and_the_next_key_a_key() {
         // A marker that lands across two reads -- or two deliveries -- is not
         // input behind the marker: it *is* the marker. The paste stays open
         // over the first delivery's end and stands at the second's, and an
-        // Enter in a delivery after that is the user's own key
+        // Enter once the input has been quiet after that is the user's own key
         // (`paste_framing.zig:161-162,299-312@481104fd`, its test `:502-511`).
         let mut decoder = Decoder::new();
         let now = Instant::now();
@@ -2978,6 +4052,7 @@ mod tests {
         );
         assert_eq!(out, kept_new(), "the split marker was taken as content");
 
+        quiet(&mut decoder, &mut out);
         out.clear();
         decoder.feed(b'\r', now, &mut out);
         assert_eq!(deliver(&mut decoder, &mut out), Delivery::Quiet);

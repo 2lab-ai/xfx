@@ -1,0 +1,17 @@
+# MUST 1 RED: cargo test --locked --lib -- took_the_room_of_does_not_come_back, on e4c678eb's source plus these two tests
+running 2 tests
+test tui::shell::tests::a_preview_the_slash_menu_took_the_room_of_does_not_come_back ... FAILED
+test tui::shell::tests::a_preview_a_steer_took_the_room_of_does_not_come_back ... FAILED
+failures:
+---- tui::shell::tests::a_preview_the_slash_menu_took_the_room_of_does_not_come_back stdout ----
+thread 'tui::shell::tests::a_preview_the_slash_menu_took_the_room_of_does_not_come_back' (361688921) panicked at src/tui/shell.rs:17084:9:
+the preview came back when the menu closed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+---- tui::shell::tests::a_preview_a_steer_took_the_room_of_does_not_come_back stdout ----
+thread 'tui::shell::tests::a_preview_a_steer_took_the_room_of_does_not_come_back' (361688920) panicked at src/tui/shell.rs:17130:9:
+the preview came back when the steer was taken
+failures:
+    tui::shell::tests::a_preview_a_steer_took_the_room_of_does_not_come_back
+    tui::shell::tests::a_preview_the_slash_menu_took_the_room_of_does_not_come_back
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4542 filtered out; finished in 0.06s
+error: test failed, to rerun pass `--lib`

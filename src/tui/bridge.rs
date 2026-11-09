@@ -284,15 +284,16 @@ pub(crate) enum UiEvent {
     /// opens a socket, and the UI thread must never be the thread that waits.
     ///
     /// `due` is when activity -- a submitted prompt, a frame of the inline
-    /// column -- next owes these rows a read by the runtime's clock: the
-    /// refresh interval after the read that brought them **began**, as
-    /// upstream's `beginLoad` counts it (`expired`,
-    /// `model_cache_runtime.zig:609-611@481104fd`;
-    /// `crate::provider::model::LoadClock::activity_due`).
+    /// column -- next owes these rows a read by the runtime's clock, the
+    /// catalog's, which counts sleep: the refresh interval after the read
+    /// that brought them **began**, as upstream's `beginLoad` counts it
+    /// (`expired`, `model_cache_runtime.zig:609-611@481104fd`;
+    /// `crate::provider::model::LoadClock::activity_due`), or any reading
+    /// earlier than that start.
     CatalogLoaded {
         provider: crate::provider::ProviderId,
         entries: Vec<crate::provider::model::CatalogEntry>,
-        due: std::time::Instant,
+        due: crate::provider::catalog_clock::CatalogDue,
     },
     /// The provider's catalog could not be read.
     ///
@@ -302,13 +303,13 @@ pub(crate) enum UiEvent {
     /// (`crate::provider::model::CatalogRetry`). The selector remembers the
     /// failure, so a `/model <id>` still applies the id as typed, and the
     /// model cache's next trigger reads it again -- the menu opening, a
-    /// prompt, the column's frame -- once `retry_at` has come: the end of the
-    /// hold the failure put on the next read, as upstream's backoff holds it
-    /// (`crate::provider::model::failure_backoff`).
+    /// prompt, the column's frame, a resume or a fork -- once `retry_at` has
+    /// come: the end of the hold the failure put on the next read, as
+    /// upstream's backoff holds it (`crate::provider::model::failure_backoff`).
     CatalogUnread {
         provider: crate::provider::ProviderId,
         retry: Option<crate::provider::model::CatalogRetry>,
-        retry_at: std::time::Instant,
+        retry_at: crate::provider::catalog_clock::CatalogDue,
     },
     /// A read of the provider's catalog **behind the rows the band holds**
     /// failed, and the rows stand (`applyFetchLocked`,
@@ -318,12 +319,13 @@ pub(crate) enum UiEvent {
     /// and activity reads again at `due`, by the runtime's clock: once the
     /// failure's hold is over -- and, for a failure asking again could not
     /// change, once the rows are the refresh interval old, counted from the
-    /// failed read's start (`beginLoad`, `model_cache_runtime.zig:609-623`;
-    /// `crate::provider::model::LoadClock::activity_due`).
+    /// failed read's start -- or at once at a reading earlier than that start
+    /// (`beginLoad`, `model_cache_runtime.zig:609-623`;
+    /// `crate::provider::model::LoadClock::activity_due`, `CatalogDue`).
     CatalogRefreshFailed {
         provider: crate::provider::ProviderId,
         retry: Option<crate::provider::model::CatalogRetry>,
-        due: std::time::Instant,
+        due: crate::provider::catalog_clock::CatalogDue,
     },
     /// What a **completed** turn's answering request read: the context
     /// meter's numerator.
@@ -1021,12 +1023,14 @@ fn spelled_shown(shown: Shown) -> Shown {
 }
 
 /// What asked the runtime for the catalog ([`TurnControl::Catalog`]): which
-/// of upstream's triggers, and whether the band waits on the answer -- it says
-/// `Loading models…` or `loading models...` until one comes -- or lists what
-/// it holds meanwhile.
+/// of upstream's triggers, if any, and whether the band waits on the answer --
+/// it says `Loading models…` or `loading models...` until one comes -- or lists
+/// what it holds meanwhile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CatalogAsk {
-    pub(crate) trigger: crate::provider::model::LoadTrigger,
+    /// `None`: none of upstream's triggers, so no refresh and no retry starts
+    /// for it -- only the first load nothing has made ([`Self::TOLD`]).
+    pub(crate) trigger: Option<crate::provider::model::LoadTrigger>,
     /// The band waits on an answer: one is told even when no read starts.
     pub(crate) awaited: bool,
 }
@@ -1035,24 +1039,42 @@ impl CatalogAsk {
     /// `/model`'s menu opening over nothing it can list, waiting on the
     /// answer.
     pub(crate) const MENU: Self = Self {
-        trigger: crate::provider::model::LoadTrigger::PickerOpen,
+        trigger: Some(crate::provider::model::LoadTrigger::PickerOpen),
         awaited: true,
     };
     /// `/model`'s menu opening over the rows it lists meanwhile.
     pub(crate) const REVALIDATE: Self = Self {
-        trigger: crate::provider::model::LoadTrigger::PickerOpen,
+        trigger: Some(crate::provider::model::LoadTrigger::PickerOpen),
         awaited: false,
     };
-    /// A submitted prompt, or a frame of the column over rows it lists.
+    /// A submitted prompt or steer, a frame of the column over rows it
+    /// lists, a resume or a fork: upstream's activity
+    /// (`noteModelCatalogActivity`, `src/main.zig:1201`, `:1255`;
+    /// `modelCompletions` -> `ensureModelCache`, `:2167-2169`;
+    /// `startResumedSessionWarmup`, `app_session_runtime.zig:2065`, `:2123
+    /// @481104fd`).
     pub(crate) const ACTIVITY: Self = Self {
-        trigger: crate::provider::model::LoadTrigger::Activity,
+        trigger: Some(crate::provider::model::LoadTrigger::Activity),
         awaited: false,
     };
-    /// A frame of the inline column -- or `/settings`' rows, or `/fast`,
-    /// which read the rows too -- over nothing it can list, waiting on the
+    /// A frame of the inline column over nothing it can list, waiting on the
     /// answer.
     pub(crate) const AWAITED: Self = Self {
-        trigger: crate::provider::model::LoadTrigger::Activity,
+        trigger: Some(crate::provider::model::LoadTrigger::Activity),
+        awaited: true,
+    };
+    /// `/settings`' rows, `/fast` or `/ultrafast` over nothing they can
+    /// decide by, waiting on the answer and **starting no refresh and no
+    /// retry**: upstream's read the capabilities its cache holds and load
+    /// nothing (`settingsCatalogSnapshot` -> `resolvedModelCapabilities`,
+    /// `app_commands.zig:3230-3246`, `src/main.zig:2060-2066@481104fd`;
+    /// `handleFast`'s `resolveForApp`, `session_commands.zig:827`). The
+    /// answer they wait for is the first load the runtime owes at launch and
+    /// on a provider switch, as upstream's warmup is -- which this ask may
+    /// start itself, over a selector nothing has read yet
+    /// (`super::worker`'s `trigger_over`).
+    pub(crate) const TOLD: Self = Self {
+        trigger: None,
         awaited: true,
     };
 }
@@ -1176,10 +1198,14 @@ pub(crate) enum TurnControl {
     /// drops and one typed after it is the session the reset starts.
     Rename { title: String, announced: bool },
     /// One of upstream's model-cache triggers ([`CatalogAsk`]): `/model`'s
-    /// menu opening, a submitted prompt, or a frame of the inline column. The
-    /// runtime reads the configured provider's catalog when that trigger is
-    /// due -- a first load, a failure past its backoff, rows the menu last
-    /// read five seconds ago or that are five minutes old
+    /// menu opening, a submitted prompt, a frame of the inline column, or a
+    /// resume or a fork -- or an ask with none, `/settings`' and the speed
+    /// commands' ([`CatalogAsk::TOLD`]), which starts only the first load
+    /// nothing has made. The runtime reads the configured provider's catalog
+    /// when that trigger is due -- a first load, a failure past its backoff,
+    /// rows the menu last read five seconds ago or that are five minutes old,
+    /// rows whose refresh failed in a way asking again could change, past its
+    /// hold, and any of them at a reading earlier than the last read's start
     /// (`crate::provider::model::LoadTrigger`) -- and tells the answer the
     /// moment it arrives ([`UiEvent::CatalogLoaded`],
     /// [`UiEvent::CatalogUnread`], [`UiEvent::CatalogRefreshFailed`]);
@@ -2789,7 +2815,10 @@ mod tests {
         // policy is applied at the channel rather than at the painter, so a
         // later reader of this event inherits it.
         let event = UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: crate::provider::catalog_clock::CatalogDue::at(
+                crate::provider::catalog_clock::CatalogClock::system().now()
+                    + crate::provider::model::REFRESH_INTERVAL,
+            ),
             provider: crate::provider::ProviderId::Llmux,
             entries: vec![hostile_entry()],
         }
@@ -3003,7 +3032,10 @@ mod tests {
         assert!(!UiEvent::Usage { input: Some(1) }.is_terminal());
         assert!(!UiEvent::Output(crate::agent::tokens::Progress::Settled(2)).is_terminal());
         assert!(!UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: crate::provider::catalog_clock::CatalogDue::at(
+                crate::provider::catalog_clock::CatalogClock::system().now()
+                    + crate::provider::model::REFRESH_INTERVAL,
+            ),
             provider: crate::provider::ProviderId::Gateway,
             entries: Vec::new()
         }
@@ -3011,13 +3043,17 @@ mod tests {
         assert!(!UiEvent::CatalogUnread {
             provider: crate::provider::ProviderId::Gateway,
             retry: None,
-            retry_at: std::time::Instant::now(),
+            retry_at: crate::provider::catalog_clock::CatalogDue::at(
+                crate::provider::catalog_clock::CatalogClock::system().now(),
+            ),
         }
         .is_terminal());
         assert!(!UiEvent::CatalogRefreshFailed {
             provider: crate::provider::ProviderId::Gateway,
             retry: None,
-            due: std::time::Instant::now(),
+            due: crate::provider::catalog_clock::CatalogDue::at(
+                crate::provider::catalog_clock::CatalogClock::system().now(),
+            ),
         }
         .is_terminal());
         assert!(!UiEvent::ProviderSelected {

@@ -1,0 +1,19 @@
+# cargo test --locked --lib -- readiness_gap a_choice_after_a_readiness_gap
+# on a832f4d7's source with the four RED tests (the RED commit's tree)
+test tui::input::tests::a_readiness_gap_behind_an_end_marker_does_not_make_what_follows_keys ... FAILED
+test tui::shell::tests::a_readiness_gap_behind_a_paste_s_end_marker_does_not_make_the_rest_a_prompt ... FAILED
+test tui::event_loop::tests::a_readiness_gap_inside_one_paste_does_not_turn_the_rest_of_it_into_keys ... FAILED
+test tui::shell::tests::a_choice_after_a_readiness_gap_behind_a_paste_answers_nothing ... FAILED
+thread 'tui::input::tests::a_readiness_gap_behind_an_end_marker_does_not_make_what_follows_keys' (369809484) panicked at src/tui/input.rs:2982:9:
+assertion `left == right` failed: the bytes after the gap were read as keys
+  left: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119), Action(PasteEnd), Text('x'), Action(Submit), Action(Up)]
+ right: [Action(PasteStart), PasteByte(110), PasteByte(101), PasteByte(119), Action(PasteEnd)]
+thread 'tui::shell::tests::a_readiness_gap_behind_a_paste_s_end_marker_does_not_make_the_rest_a_prompt' (369809486) panicked at src/tui/shell.rs:18863:9:
+the newline after the gap sent a prompt
+thread 'tui::event_loop::tests::a_readiness_gap_inside_one_paste_does_not_turn_the_rest_of_it_into_keys' (369809483) panicked at src/tui/event_loop.rs:16015:9:
+the Enter after the gap submitted the draft
+thread 'tui::shell::tests::a_choice_after_a_readiness_gap_behind_a_paste_answers_nothing' (369809485) panicked at src/tui/shell.rs:37938:9:
+assertion `left == right` failed: the keys after the gap answered the question
+  left: Some(Answer { id: ApprovalId(1), answer: Once, feedback: None })
+ right: None
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 4539 filtered out; finished in 0.00s

@@ -1,0 +1,26 @@
+# The narrowest width the review plane can grant a file review at, per kind: a temporary test (below),
+# added to src/tui/approval_screen.rs's tests at ca0d97c8, run once, and removed (git checkout of the file):
+#   cargo test --locked --lib -- zz_probe_grant_width --nocapture
+# Each request is the screen tests' asked_about() over 80 lines replaced; the Write one has tool
+# "write_file". "grant" = choices, scope and subject whole at 200 rows (approval_readiness Intent::capture).
+#
+# The test:
+#     let edit = asked_about(&before, &after);
+#     let mut write = asked_about(&before, &after);
+#     write.tool = "write_file";
+#     write.always_scope = "allow every future write_file to `notes.txt` for the rest of this session".to_string();
+#     for (name, request) in [("edit_file", edit), ("write_file", write)] {
+#         let screen = ApprovalScreen::new(request);
+#         let grants = (20u16..=200).find(|&cols| {
+#             let d = screen.composition(cols, 200).disclosure;
+#             d.controls_whole && d.scope_whole && d.subject_whole
+#         });
+#         let label = super::super::approval_view::label(screen.kind, 1);
+#         eprintln!("PROBE {name}: Kind::{:?}; choice 2 = {label:?} ({} cells) + {} prefix cells; first width the plane can grant at: {grants:?}",
+#             screen.kind, super::super::wrap::width(label), choice_prefix_cells(screen.kind));
+#     }
+#
+# Its output:
+PROBE edit_file: Kind::Edit; choice 2 = "Apply + allow future edits to this file for this session" (56 cells) + 7 prefix cells; first width the plane can grant at: Some(63)
+PROBE write_file: Kind::Write; choice 2 = "Apply + allow future writes to this file for this session" (57 cells) + 7 prefix cells; first width the plane can grant at: Some(64)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4592 filtered out; finished in 0.26s

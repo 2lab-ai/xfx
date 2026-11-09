@@ -46,11 +46,48 @@ use super::theme::Palette;
 /// Bounded, because it is the one block on this screen that is **not** the
 /// question: a notice allowed to grow would push the change out of the viewport
 /// in order to explain why the change could not be approved.
-const STATUS_ROWS: usize = 2;
+///
+/// Three, because fx's own warning about input after a paste
+/// (`super::shell`'s `PASTE_SUFFIX`, whose words are fx's) takes three rows
+/// from 29 columns down to the narrowest screen a session has, and two cut it
+/// to "Input that arrived right after the" -- which does not say the input was
+/// ignored.
+///
+/// **Who uses the third row:** that warning from 20 to 29 columns, fx's
+/// amendment limit from 20 to 28, and the readiness refusals --
+/// `APPROVAL_NOT_READY` from 20 to 39 and `APPROVAL_NOT_DISCLOSED` from 20 to
+/// 68. Wider than three rows, and so cut to them: the limit at 20,
+/// `APPROVAL_NOT_READY` at 20 to 27, `APPROVAL_NOT_DISCLOSED` at 20 to 46.
+/// The quarantine's three sentences never use the third row.
+///
+/// **What it costs:** no answer, ever. A status is the first thing given up on
+/// a short screen, after the blanks (`Part`). It does cost the review: on a
+/// screen with room for the third row, the review's viewport is one row
+/// shorter while such a status is up.
+const STATUS_ROWS: usize = 3;
+
+/// What the status line says, and how a screen too short for all of it gives
+/// it up.
+struct Status {
+    text: String,
+    /// Given up whole rather than from its last row: a sentence whose cut says
+    /// something else ([`ApprovalScreen::set_whole_status`]).
+    whole: bool,
+}
 
 /// The screen height at which the chrome spends its blank rows
 /// (`approval_screen.zig:25`, `file_screen_spaced_controls_min_rows`).
 const SPACED_AT: u16 = 15;
+
+/// The rows `status` takes on the status line at `cols`, before a short screen
+/// gives any up: wrapped to the row inside its two-column indent, and no more
+/// than [`STATUS_ROWS`] of them.
+pub(crate) fn status_rows(status: &str, cols: u16) -> Vec<String> {
+    safe_rows(status, cols.saturating_sub(2).max(1))
+        .into_iter()
+        .take(STATUS_ROWS)
+        .collect()
+}
 
 /// What one row of the chrome is, in the order the screen gives them up when
 /// it is too short for all of them: the first is dropped first.
@@ -101,7 +138,7 @@ pub(crate) struct ApprovalScreen {
     /// nobody can see. Part of the composition rather than a write of its own,
     /// so that a screen carrying a notice is a *different* screen, which is
     /// exactly what a readiness receipt should be about.
-    status: Option<String>,
+    status: Option<Status>,
     /// The two amendments this question may carry.
     ///
     /// **Both surfaces get drafts**, from the same module and with the same
@@ -190,8 +227,43 @@ impl ApprovalScreen {
     /// The alternate half of `super::shell::Shell::say`: while this screen is up
     /// it owns every row the user can see, so a refusal has to be painted here
     /// or it is not painted at all.
+    ///
+    /// A screen too short for all of its rows gives them up from the last, as
+    /// it gives up every other part, so a refusal keeps its first clause -- the
+    /// one that says which refusal it is -- for as long as there is room for
+    /// it.
     pub(crate) fn set_status(&mut self, status: String) {
-        self.status = Some(status);
+        self.status = Some(Status {
+            text: status,
+            whole: false,
+        });
+    }
+
+    /// [`Self::set_status`], for a sentence a screen too short for all of it
+    /// gives up whole: one whose cut says something else -- fx's warning about
+    /// input after a paste cut to "Input that arrived right after the", or
+    /// "Keys ignored until" (`super::shell::Shell`'s paste sentences).
+    pub(crate) fn set_whole_status(&mut self, status: String) {
+        self.status = Some(Status {
+            text: status,
+            whole: true,
+        });
+    }
+
+    /// Takes the status line down if it is one of `sentences`, and says
+    /// whether it did: a sentence about a state that is no longer so
+    /// (`super::shell::Shell`'s paste quarantine). Any other status stays --
+    /// a refusal, or fx's own warning about input after a paste, is about
+    /// something that happened, and is as true now as when it was said.
+    pub(crate) fn clear_status_if(&mut self, sentences: &[&str]) -> bool {
+        let ended = self
+            .status
+            .as_ref()
+            .is_some_and(|status| sentences.contains(&status.text.as_str()));
+        if ended {
+            self.status = None;
+        }
+        ended
     }
 
     /// What one keystroke does. Routed through the same function the band's
@@ -320,11 +392,9 @@ impl ApprovalScreen {
         parts.extend(scope.into_iter().map(|row| (Part::Scope, row)));
         if let Some(status) = self.status.as_ref() {
             parts.push((Part::Status, blank()));
-            let budget = cols.saturating_sub(2).max(1);
             parts.extend(
-                safe_rows(status, budget)
+                status_rows(&status.text, cols)
                     .into_iter()
-                    .take(STATUS_ROWS)
                     .map(|row| (Part::Status, clip(&format!("  {row}"), cols).to_string())),
             );
         }
@@ -349,11 +419,20 @@ impl ApprovalScreen {
 
         // Too tall: give rows up, the least needed first and the last of each
         // kind first -- a draft's last row before its first, the third choice
-        // before the first.
+        // before the first, a refusal's last row before its first, so the
+        // clause that says which refusal it is goes last. Except a status
+        // given up whole ([`Self::set_whole_status`]): its first rows alone
+        // would be a cut sentence that says something else, so it goes in one
+        // step, the blank above it with it.
+        let whole = self.status.as_ref().is_some_and(|status| status.whole);
         while parts.len() > height {
             let Some(lowest) = parts.iter().map(|(part, _)| *part).min() else {
                 break;
             };
+            if lowest == Part::Status && whole {
+                parts.retain(|(part, _)| *part != Part::Status);
+                continue;
+            }
             let Some(at) = parts.iter().rposition(|(part, _)| *part == lowest) else {
                 break;
             };
@@ -943,6 +1022,161 @@ mod tests {
             );
         }
     }
+
+    /// How many of `status`'s rows, from its first, `rows` paints at the
+    /// status line's indent -- and that none after them is.
+    fn status_shown(status: &str, cols: u16, rows: &[String]) -> (usize, usize) {
+        let wanted: Vec<String> = status_rows(status, cols)
+            .into_iter()
+            .map(|row| format!("  {row}"))
+            .collect();
+        let shown = wanted.iter().take_while(|row| rows.contains(row)).count();
+        assert!(
+            !wanted[shown..].iter().any(|row| rows.contains(row)),
+            "a row of {status:?} after one given up: {rows:?}"
+        );
+        (shown, wanted.len())
+    }
+
+    #[test]
+    fn a_status_given_up_whole_is_on_the_screen_whole_or_not_at_all_at_every_height() {
+        // opus on PASTE-GAP round 5 (SHOULD 3): a screen too short for the
+        // whole status gave up its rows from the last, so at one height the
+        // plane painted a sentence's first row alone -- and a cut of these
+        // says something else. Given up whole: at every height, all of its
+        // rows or none.
+        let cols = super::super::layout::MIN_COLS;
+        for status in [
+            "Keys ignored until input stops.",
+            "Input that arrived right after the paste was ignored.",
+        ] {
+            let mut screen = screen();
+            screen.set_whole_status(status.to_string());
+            let mut seen = false;
+            for height in super::super::layout::MIN_ROWS..=40 {
+                let composed = screen.composition(cols, height);
+                let (shown, wanted) = status_shown(status, cols, &composed.rows);
+                assert!(
+                    shown == 0 || shown == wanted,
+                    "{height} rows show {shown} of {status:?}'s {wanted}: {:?}",
+                    composed.rows
+                );
+                seen |= shown > 0;
+            }
+            assert!(seen, "{status:?} was never on the screen");
+        }
+    }
+
+    #[test]
+    fn any_other_status_is_given_up_from_its_last_row_so_its_first_clause_stays() {
+        // gpt6 on PASTE-GAP round 6 (MUST): round 6 gave every status up
+        // whole, so at the heights where only its first rows fitted, the
+        // readiness refusal was not shown at all -- and its first clause, which
+        // says which refusal it is, is what has to reach the user. Every
+        // other status is given up from its last row, as round 5 gave it up:
+        // at each height there is room for its blank and some of its rows,
+        // those are its first ones, and every answer is still on the screen.
+        let cols = super::super::layout::MIN_COLS;
+        let status = super::super::shell::APPROVAL_NOT_READY;
+        let mut screen = screen();
+        screen.set_status(status.to_string());
+        let mut cut = false;
+        for height in super::super::layout::MIN_ROWS..=40 {
+            let composed = screen.composition(cols, height);
+            let (shown, wanted) = status_shown(status, cols, &composed.rows);
+            assert!(all_three(&composed.rows), "{height}: {:?}", composed.rows);
+            cut |= shown > 0 && shown < wanted;
+        }
+        assert!(cut, "{status:?} was never cut from its last row");
+    }
+
+    /// Every cut of `status` this plane can paint, at every width a session
+    /// has up to 80 columns, that shows an instruction without its condition:
+    /// `pairs` names, for each instruction, the words that must be on the
+    /// screen with it.
+    fn instructions_cut_from_their_conditions(status: &str, pairs: &[(&str, &str)]) -> Vec<String> {
+        let mut cut = Vec::new();
+        for cols in super::super::layout::MIN_COLS..=80 {
+            let rows = status_rows(status, cols);
+            // A short screen gives the status's rows up from the last, so it
+            // shows each count of them from one up.
+            for count in 1..=rows.len() {
+                let shown = rows[..count].join(" ");
+                for (instruction, condition) in pairs {
+                    if shown.contains(instruction) && !shown.contains(condition) {
+                        cut.push(format!("{cols} columns, {count} rows: {shown:?}"));
+                    }
+                }
+            }
+        }
+        cut
+    }
+
+    #[test]
+    fn no_cut_of_xfx_s_refusals_shows_an_instruction_without_its_condition() {
+        // opus on PASTE-GAP round 6 (SHOULD 1): the third status row cut the
+        // readiness refusal at 20 to 26 columns to "... press it", the key
+        // without "once you can read it" -- the press this gate must not
+        // train. Each refusal the plane may cut (`super::shell`'s paste
+        // sentences are given up whole instead), cut to every row count at
+        // every width, shows no instruction without its condition. The parts
+        // that must never show alone, per refusal:
+        // - "press it" (again), without "once you can read it";
+        // - "press 3" and "ctrl+c", without "to refuse" -- what they do.
+        // Both are counted before either is asserted, so one cannot hide the
+        // other.
+        use super::super::shell::{APPROVAL_NOT_DISCLOSED, APPROVAL_NOT_READY};
+        let cut = [
+            instructions_cut_from_their_conditions(
+                APPROVAL_NOT_READY,
+                &[("press it", "once you can read it")],
+            ),
+            instructions_cut_from_their_conditions(
+                APPROVAL_NOT_DISCLOSED,
+                &[("press 3", "to refuse"), ("ctrl+c", "to refuse")],
+            ),
+        ];
+        assert_eq!(
+            cut,
+            [Vec::<String>::new(), Vec::new()],
+            "{APPROVAL_NOT_READY:?}, then {APPROVAL_NOT_DISCLOSED:?}"
+        );
+    }
+
+    #[test]
+    fn fx_s_amendment_limit_is_cut_only_where_parity_names_it() {
+        // The amendment's limit is fx's sentence (`input_limit_feedback.zig:40
+        // @481104fd`), so its words stay. A cut of it can read as the whole
+        // refusal -- "... and was not" -- and these are every such cut, the
+        // ones `docs/parity.md` names.
+        use super::super::approval_amendment::INPUT_LIMIT;
+        assert_eq!(
+            instructions_cut_from_their_conditions(INPUT_LIMIT, &[("was not", "applied")]),
+            FX_LIMIT_CUTS,
+        );
+    }
+
+    /// The cuts of fx's amendment-limit sentence that end on "was not"
+    /// ([`fx_s_amendment_limit_is_cut_only_where_parity_names_it`]): on a
+    /// screen short enough to leave it one row at 47 to 55 columns, or two at
+    /// 25 to 28, and at 20 columns, where it is wider than its three rows. The
+    /// draft it refused is on the screen beside it, unchanged.
+    const FX_LIMIT_CUTS: [&str; 14] = [
+        r#"20 columns, 3 rows: "That edit exceeds the input limit and was not""#,
+        r#"25 columns, 2 rows: "That edit exceeds the input limit and was not""#,
+        r#"26 columns, 2 rows: "That edit exceeds the input limit and was not""#,
+        r#"27 columns, 2 rows: "That edit exceeds the input limit and was not""#,
+        r#"28 columns, 2 rows: "That edit exceeds the input limit and was not""#,
+        r#"47 columns, 1 rows: "That edit exceeds the input limit and was not""#,
+        r#"48 columns, 1 rows: "That edit exceeds the input limit and was not""#,
+        r#"49 columns, 1 rows: "That edit exceeds the input limit and was not""#,
+        r#"50 columns, 1 rows: "That edit exceeds the input limit and was not""#,
+        r#"51 columns, 1 rows: "That edit exceeds the input limit and was not""#,
+        r#"52 columns, 1 rows: "That edit exceeds the input limit and was not""#,
+        r#"53 columns, 1 rows: "That edit exceeds the input limit and was not""#,
+        r#"54 columns, 1 rows: "That edit exceeds the input limit and was not""#,
+        r#"55 columns, 1 rows: "That edit exceeds the input limit and was not""#,
+    ];
 
     #[test]
     fn a_change_scrolled_out_of_the_viewport_is_no_longer_visible() {

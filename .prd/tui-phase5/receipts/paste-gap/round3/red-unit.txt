@@ -1,0 +1,20 @@
+# cargo test --locked --lib -- dropped_paste_is_open marker_is_half_read lone_escape_in_the_quarantine escape_pressed_and_pressed_again fills_every_read_after_a_paste
+# on e059456b's source with round 3's five RED tests (the RED commit's tree)
+test tui::input::tests::a_lone_escape_in_the_quarantine_is_dropped_once_the_input_is_quiet ... FAILED
+test tui::input::tests::escape_pressed_and_pressed_again_in_the_quarantine_still_lets_the_quiet_end_it ... FAILED
+test tui::shell::tests::the_repeat_while_a_marker_is_half_read_says_it_waits_for_one_more_key ... FAILED
+test tui::shell::tests::the_repeat_while_a_dropped_paste_is_open_says_it_waits_for_the_paste_s_end ... FAILED
+test tui::event_loop::tests::a_stream_that_fills_every_read_after_a_paste_is_still_said_at_the_read_cap ... FAILED
+thread 'tui::input::tests::a_lone_escape_in_the_quarantine_is_dropped_once_the_input_is_quiet' (385113153) panicked at src/tui/input.rs:3577:9:
+a held Escape outlasted the quiet
+thread 'tui::input::tests::escape_pressed_and_pressed_again_in_the_quarantine_still_lets_the_quiet_end_it' (385113154) panicked at src/tui/input.rs:3604:9:
+Escape alone held the input
+thread 'tui::shell::tests::the_repeat_while_a_marker_is_half_read_says_it_waits_for_one_more_key' (385113156) panicked at src/tui/shell.rs:19119:9:
+  left: ["! input: Input that arrived right after the paste was ignored.", "", "! input: Input is still being ignored until it stops for a moment.", "", "! input: Input is still being ignored until it stops for a moment.", ""]
+ right: ["! input: Input that arrived right after the paste was ignored.", "", "! input: Input is still being ignored until one more key and a moment's pause.", "", "! input: Input is still being ignored until it stops for a moment.", ""]
+thread 'tui::shell::tests::the_repeat_while_a_dropped_paste_is_open_says_it_waits_for_the_paste_s_end' (385113155) panicked at src/tui/shell.rs:19073:9:
+  left: ["! input: Input that arrived right after the paste was ignored.", "", "! input: Input is still being ignored until it stops for a moment.", "", "! input: Input is still being ignored until it stops for a moment.", "", "! input: Input is still being ignored until it stops for a moment.", ""]
+ right: ["! input: Input that arrived right after the paste was ignored.", "", "! input: Input is still being ignored until the paste's end arrives.", "", "! input: Input is still being ignored until the paste's end arrives.", ""]
+thread 'tui::event_loop::tests::a_stream_that_fills_every_read_after_a_paste_is_still_said_at_the_read_cap' (385113152) panicked at src/tui/event_loop.rs:16200:9:
+the cap said nothing: ""
+test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 4563 filtered out; finished in 0.00s

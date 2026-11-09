@@ -1,0 +1,16 @@
+# the exit's owed frame narrowed to the card (a flag set when a preview's frame lands, cleared when a document update lands; the edits are mutants.py's 'the exit: owed narrowed to the card'), against the round-4 exit tests: cargo test --locked --lib -- event_loop::tests::an_exit_
+test result: FAILED. 10 passed; 4 failed; 0 ignored; 0 measured; 4549 filtered out; finished in 0.02s
+test tui::event_loop::tests::an_exit_after_the_cards_frame_was_refused_still_writes_the_card ... ok
+test tui::event_loop::tests::an_exit_before_the_band_painted_paints_nothing_for_what_the_document_owes ... ok
+test tui::event_loop::tests::an_exit_before_the_preview_lands_still_writes_the_card ... ok
+test tui::event_loop::tests::an_exit_from_the_other_plane_writes_what_the_document_owed_behind_it ... FAILED
+test tui::event_loop::tests::an_exit_onto_a_screen_no_band_fits_on_writes_nothing_at_all ... ok
+test tui::event_loop::tests::an_exit_onto_a_screen_that_has_already_refused_paints_nothing_more ... ok
+test tui::event_loop::tests::an_exit_that_never_took_the_other_plane_writes_no_leave_at_all ... ok
+test tui::event_loop::tests::an_exit_whose_drain_carried_an_event_writes_that_and_the_stream_with_it ... ok
+test tui::event_loop::tests::an_exit_whose_drain_carried_nothing_still_writes_what_the_pacer_held ... ok
+test tui::event_loop::tests::an_exit_with_a_winch_outstanding_writes_the_card_it_was_holding ... FAILED
+test tui::event_loop::tests::an_exit_with_a_winch_still_pending_measures_once_and_writes_the_tail ... ok
+test tui::event_loop::tests::an_exit_with_no_winch_pending_measures_nothing ... ok
+test tui::event_loop::tests::an_exit_writes_answer_rows_a_refused_frame_left_owed ... FAILED
+test tui::event_loop::tests::an_exit_writes_nothing_a_stop_or_a_reset_threw_away ... FAILED

@@ -1,0 +1,34 @@
+# jobs.sh named at 2026-11-09T14:37:23Z, load 19.91
+# named-clone at 820a8f15
+lib: exit 0
+    test tui::shell::tests::a_readiness_gap_behind_a_paste_s_end_marker_does_not_make_the_rest_a_prompt ... ok
+    test tui::shell::tests::a_prompt_past_a_failed_catalogs_backoff_asks_for_it_and_one_inside_asks_nothing ... ok
+    test tui::event_loop::tests::a_delivery_past_the_32nd_read_goes_on_into_the_next_turn_unsettled ... ok
+    test tui::event_loop::tests::a_readiness_gap_inside_one_paste_does_not_turn_the_rest_of_it_into_keys ... ok
+    test tui::shell::tests::a_reading_earlier_than_the_last_reads_start_owes_the_catalog_a_read ... ok
+    test tui::event_loop::tests::a_stream_that_fills_every_read_after_a_paste_is_still_said_at_the_read_cap ... ok
+    test tui::shell::tests::rows_and_a_failure_read_before_the_machine_slept_are_due_on_waking ... ok
+    test tui::event_loop::tests::a_turn_cut_short_by_a_signal_or_a_read_that_would_wait_settles_nothing ... ok
+    test tui::shell::tests::the_plane_s_sentence_goes_in_a_turn_whose_burst_ended_with_neither_check ... ok
+    test tui::shell::tests::the_plane_s_sentence_goes_when_a_paste_begins_in_a_turn_that_ends_at_the_read_cap ... ok
+    test tui::event_loop::tests::a_draft_and_its_enter_in_one_read_measure_the_room_the_last_frame_left ... ok
+    test tui::event_loop::tests::the_model_columns_frame_reads_the_catalogs_clock ... ok
+    test tui::event_loop::tests::the_tick_that_shows_a_preview_writes_the_card_in_the_next_frame ... ok
+    test tui::shell::tests::a_catalog_read_that_fails_too_large_or_stalled_then_loads_ranks_in_three_tiers_and_keeps_its_mark_by_id ... ok
+    test tui::event_loop::tests::a_tall_paste_with_enters_behind_its_marker_and_in_its_quarantine_previews_once_after_it ... ok
+    test tui::worker::tests::the_shared_fixtures_runtime_reads_only_its_own_home ... ok
+    test tui::shell::tests::the_quarantine_s_sentence_leaves_the_review_plane_when_the_quarantine_ends ... ok
+    test tui::worker::tests::the_catalog_is_read_by_a_first_load_the_menu_and_activity_only_and_never_while_idle ... ok
+    test tui::event_loop::tests::a_submit_that_previews_asks_a_due_catalog_once_and_writes_the_bytes_it_writes_without_one ... ok
+    test tui::event_loop::tests::a_tall_preview_leaves_the_card_once_across_a_resize_after_its_tick ... ok
+    test tui::worker::tests::a_switch_drops_the_old_providers_rows_read_and_backoff_and_keeps_the_clock ... ok
+    test tui::worker::tests::a_told_ask_put_aside_behind_a_switch_starts_the_first_load_once_and_never_a_refresh ... ok
+    test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 4705 filtered out; finished in 0.17s
+tui: exit 0
+    test a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing ... ok
+    test an_enter_one_read_behind_a_paste_s_end_marker_is_behind_it_too ... ok
+    test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... ok
+    test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... ok
+    test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 184 filtered out; finished in 6.45s
+# jobs.sh named done at 2026-11-09T14:38:52Z
+named exit 0

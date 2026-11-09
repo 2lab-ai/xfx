@@ -1,0 +1,59 @@
+# Phase 5 SUBMIT-CARD-PREVIEW (fx v0.0.16's 70611a91): the frame that clears
+# the composer on a full screen, for a prompt taller than one row. fx paints
+# only the newest rows of the card that fit between the flow endpoint and the
+# fixed content bottom (rows - 4), at least one, and writes the whole card in
+# the frame after the preview's frame commits. The terminal bytes are kept on
+# both sides of each Enter (`wire`), each turn held at its first chunk
+# (`holdAt` 1, `held`/`release`) so both binaries are given the same events.
+# Three prompts on the screen p5-transcript-submit fills: five pasted lines
+# (a five-row composer, so three rows of room), an image badge and two lines,
+# and a pasted block of 60 lines (collapsed in the composer, past 1000
+# characters).
+models models-image.json
+gateway p5-submit-preview-turns.json
+work image-ws
+fx: env FX_AUTO_UPGRADE=0
+wait 4
+type fill the screen
+wait 1
+key Enter
+wait 8
+snap filled
+paste five line one\nfive line two\nfive line three\nfive line four\nfive line five
+wait 0.5
+wire five-before
+key Enter
+held
+wait 1
+snap five-held
+release
+wait 3
+snap five
+wire five-after
+type /image shot.png
+key Enter
+wait 1.5
+paste image line one\nimage line two
+wait 0.5
+wire image-before
+key Enter
+held
+wait 1
+snap image-held
+release
+wait 3
+snap image
+wire image-after
+paste TALL_PROMPT_HEAD\ntall prompt body 01\ntall prompt body 02\ntall prompt body 03\ntall prompt body 04\ntall prompt body 05\ntall prompt body 06\ntall prompt body 07\ntall prompt body 08\ntall prompt body 09\ntall prompt body 10\ntall prompt body 11\ntall prompt body 12\ntall prompt body 13\ntall prompt body 14\ntall prompt body 15\ntall prompt body 16\ntall prompt body 17\ntall prompt body 18\ntall prompt body 19\ntall prompt body 20\ntall prompt body 21\ntall prompt body 22\ntall prompt body 23\ntall prompt body 24\ntall prompt body 25\ntall prompt body 26\ntall prompt body 27\ntall prompt body 28\ntall prompt body 29\ntall prompt body 30\ntall prompt body 31\ntall prompt body 32\ntall prompt body 33\ntall prompt body 34\ntall prompt body 35\ntall prompt body 36\ntall prompt body 37\ntall prompt body 38\ntall prompt body 39\ntall prompt body 40\ntall prompt body 41\ntall prompt body 42\ntall prompt body 43\ntall prompt body 44\ntall prompt body 45\ntall prompt body 46\ntall prompt body 47\ntall prompt body 48\ntall prompt body 49\ntall prompt body 50\ntall prompt body 51\ntall prompt body 52\ntall prompt body 53\ntall prompt body 54\ntall prompt body 55\ntall prompt body 56\ntall prompt body 57\ntall prompt body 58\nTALL_PROMPT_TAIL
+wait 1
+wire block-before
+key Enter
+held
+wait 1
+snap block-held
+release
+wait 4
+snap block
+snapfull block
+wire block-after
+gwlog

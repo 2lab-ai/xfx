@@ -1,0 +1,65 @@
+docs/superpowers/plans/2026-08-24-provider-frame.md cites tests/tool_loop.rs:1266 for a fake-provider `Completion { .. }` literal (the plan of 2026-08-24)
+  at the head: ...gateway.rs:987,1297,1320,1345` take `Wire::VercelGateway`; `tests/tool_loop.rs:1266,1280` and `tests/permissions.rs:2524...
+  main tests/tool_loop.rs:1266: tree.write("a.txt", "needle\n");
+scripts/fxcap/parity-ledger.toml cites each card through `queue_card`, :1747 for `queue_card` (on main at :1840, at the head at :1929; main's text says :1658)
+  at the head: ...der the open group (`trailer_rows`, src/tui/shell.rs:10480, each card through `queue_card`, :1747, which ends it on a bl...
+  main src/tui/shell.rs:1658: /// lands and never given back, so no two images in one process answer to
+src/tui/event_loop.rs cites event_loop.rs:1046-1049 for the frame after a refused append not run (main's `:1005-1008`, re-pointed by line; train 8's stale.txt)
+  at the head: ...14934:    // it must not run at all (`event_loop.rs:1046-1049`). Nothing here caches a...
+  main src/tui/event_loop.rs:1005: // **Except what the primary plane already owed, which is paid before the
+  main src/tui/event_loop.rs:1006: // plane changes hands.** One tick takes a *batch* of events
+  main src/tui/event_loop.rs:1007: // ([`take_ui_events`]) and composes one frame afterwards, so the row a tool
+  main src/tui/event_loop.rs:1008: // call put in the document and the question that follows it are both
+src/tui/event_loop.rs cites frame.rs:1615-1628 for the escape `place()` writes once per document row (train 8's stale.txt)
+  at the head: ...14051:    /// escape `place()` (`frame.rs:1615-1628`) writes once per document row,...
+  main src/tui/frame.rs:1615: };
+  main src/tui/frame.rs:1616: if shown > 0 {
+  main src/tui/frame.rs:1617: for line in first.saturating_sub(vacated)..first {
+  main src/tui/frame.rs:1618: cup(&mut self.buffer, line, 1);
+  main src/tui/frame.rs:1619: self.buffer.extend_from_slice(ERASE_LINE.as_bytes());
+  main src/tui/frame.rs:1620: self.target.erase_row(line);
+  main src/tui/frame.rs:1621: }
+  main src/tui/frame.rs:1622: }
+  main src/tui/frame.rs:1623: for _ in 0..scroll - fresh {
+  main src/tui/frame.rs:1624: scroll_one(&mut self.buffer, geometry);
+  main src/tui/frame.rs:1625: self.target.scroll_up(1);
+  main src/tui/frame.rs:1626: }
+  main src/tui/frame.rs:1627: // A settled row is reused -- neither emitted nor re-placed onto
+  main src/tui/frame.rs:1628: // `target` -- only when every fact this frame carries about the
+4 references, each naming other code on main, or rewritten under before this train
+# fn queue_card: main shell.rs:[1840], head shell.rs:[1929]
+
+# Round 2: the re-pointed references whose text on main already named other code
+tests/tui.rs:9331 cites src/tui/shell.rs for `Shell::blind`
+  main src/tui/shell.rs:2713: // kept for the case to answer ([`super::credits_ask::Asks::by_hand`]).
+  head src/tui/shell.rs:2814: // kept for the case to answer ([`super::credits_ask::Asks::by_hand`]).
+  `pub(crate) fn blind(`: main src/tui/shell.rs:[16377], head src/tui/shell.rs:[16804]
+tests/tui.rs:9371 cites src/tui/shell.rs for where `Reason::ExternalDamage` is raised
+  main src/tui/shell.rs:2024: .collect()
+  head src/tui/shell.rs:2113: .collect()
+  `self.render.request(Reason::ExternalDamage)`: main src/tui/shell.rs:[11818], head src/tui/shell.rs:[12089]
+scripts/smoke-tui.sh:11212 cites src/tui/shell.rs for the paste's `editor.insert()` call
+  main src/tui/shell.rs:2607: pending_cut: None,
+  head src/tui/shell.rs:2705: pending_cut: None,
+  `self.editor.insert(`: main src/tui/shell.rs:[5739, 7415, 8669, 8796, 11150, 12190], head src/tui/shell.rs:[5939, 7615, 8869, 8996, 11421, 12461]
+scripts/smoke-tui.sh:11213 cites src/tui/input.rs for `C-_` decoded as `Action::Undo`
+  main src/tui/input.rs:708: /// that were read. **Nothing of the body is ever emitted**, which is the
+  head src/tui/input.rs:1063: /// that were read. **Nothing of the body is ever emitted**, which is the
+  `0x1f => Action::Undo`: main src/tui/input.rs:[901], head src/tui/input.rs:[1256]
+src/tui/event_loop.rs:14833 cites src/tui/shell.rs for the `InsertNewline` arm
+  main src/tui/shell.rs:2716: #[cfg(test)]
+  head src/tui/shell.rs:2817: #[cfg(test)]
+  `Action::InsertNewline | Action::ControlJ =>`: main src/tui/shell.rs:[12447], head src/tui/shell.rs:[12727]
+src/tui/shell.rs:10805 cites src/tui/worker.rs for `turn_loop`'s `fetch_sub` (after `worker.rs:3922`)
+  main src/tui/worker.rs:3530: };
+  head src/tui/worker.rs:3535: };
+  `queue.outstanding.fetch_sub(`: main src/tui/worker.rs:[3556], head src/tui/worker.rs:[3561]
+src/tui/shell.rs:23737 cites src/tui/shell.rs for the existing too-small assertions
+  main src/tui/shell.rs:5870: true
+  head src/tui/shell.rs:6070: true
+  (names test assertions; not located here)
+src/tui/shell.rs:23738 cites src/tui/shell.rs for the existing too-small assertions
+  main src/tui/shell.rs:6058: let mut repaint = false;
+  head src/tui/shell.rs:6258: let mut repaint = false;
+  (names test assertions; not located here)
+8 re-pointed references, each naming other code on main and at the head

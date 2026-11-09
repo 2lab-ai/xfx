@@ -1,0 +1,13 @@
+== screen-moves-main.txt: 53 listed lines
+  45  a saved session's id (resume ids, /status's Session row)
+  4  the catalog's wall-clock outage: model-column-idle, model-parked, model-reask (reruns.txt)
+  4  the build id on /status
+== screen-moves-unit-submit-card-preview.txt: 1 listed lines
+  1  a saved session's id (resume ids, /status's Session row)
+== screen-moves-unit-catalog-refresh.txt: 10 listed lines
+  7  on main, not on the unit's base: AT-HEIGHT's @ list, MODEL-FUZZY's ranks, QUESTIONS-20's pages
+  3  the catalog's wall-clock outage: model-column-idle, model-parked, model-reask (reruns.txt)
+== screen-moves-unit-paste-gap.txt: 57 listed lines
+  37  a saved session's id (resume ids, /status's Session row)
+  16  on main, not on the unit's base: AT-HEIGHT's @ list, MODEL-FUZZY's ranks, QUESTIONS-20's pages
+  4  the build id on /status

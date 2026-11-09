@@ -1,0 +1,16 @@
+snaps whose screen differs only in clock-like or run-local text: 5; otherwise: 16
+  of them, snaps where fx's screen moved at the same rows as xfx's: 3 snaps
+    model-column-reask col-back: rows [9, 10, 11, 12]
+    model-column-reask col-down: rows [9, 10, 11, 12]
+    model-parked menu-loading: rows [5, 9, 11, 12, 13, 14]
+  snaps where xfx's screen moved alone or at other rows than fx's: 10
+    xfx model-anchor alt-enter rows [6]: [('  no matching models', '  xai/grok-4.7')]
+    xfx model-column-idle col-down rows [5, 6, 7, 8]: [('         unable to load models', '         openai/gpt-6-astra'), ('', '         anthropic/claude-opus-5')]
+    xfx model-column-idle col-idle rows [5, 6, 7, 8]: [('         unable to load models', '         openai/gpt-6-astra'), ('', '         anthropic/claude-opus-5')]
+    xfx model-column-idle col-typed rows [5, 6, 7, 8]: [('         unable to load models', '         openai/gpt-6-astra'), ('', '         anthropic/claude-opus-5')]
+    xfx p5-input-model inline-gpt6 rows [5]: [('         no matching models', '         openai/gpt-6-astra')]
+    xfx p5-input-model q-anthropic-opus rows [5, 7]: [('Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others', 'Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others'), ('No models found.', '  anthropic/claude-opus-5      1M context · 64K output')]
+    xfx p5-input-model q-cs45 rows [5, 7]: [('Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others', 'Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others'), ('No models found.', 'nthropic/claude-sonnet-4.5  200K context · 64K output · Fast')]
+    xfx p5-input-model q-grok-fast rows [5, 7, 8, 9, 10, 11]: [('Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others', 'Models 2  [All]  Anthropic  OpenAI  xAI  Z.AI  Others'), ('No models found.', '  xai/grok-5-fast              1M context · Fast')]
+    xfx p5-input-model q-sonnet45 rows [5, 7]: [('Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others', 'Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others'), ('No models found.', 'nthropic/claude-sonnet-4.5  200K context · 64K output · Fast')]
+    xfx p5-input-model q-zai-glm rows [5, 7]: [('Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others', 'Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others'), ('No models found.', '  zai/glm-5                    200K context')]

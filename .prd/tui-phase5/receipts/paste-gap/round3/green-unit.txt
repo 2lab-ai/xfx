@@ -1,0 +1,12 @@
+# cargo test --locked --lib -- dropped_paste_is_open marker_is_half_read lone_escape_in_the_quarantine escape_pressed_and_pressed_again fills_every_read_after_a_paste still_says_what_the_quarantine_owes split_across_the_quiet said_again_once_a_second paste_quiet_stays_within
+# at 8b4766f9 (round 3's code head)
+test tui::input::tests::paste_quiet_stays_within_what_was_measured ... ok
+test tui::input::tests::escape_pressed_and_pressed_again_in_the_quarantine_still_lets_the_quiet_end_it ... ok
+test tui::input::tests::still_says_what_the_quarantine_owes_and_settles_and_ends_nothing ... ok
+test tui::input::tests::a_lone_escape_in_the_quarantine_is_dropped_once_the_input_is_quiet ... ok
+test tui::input::tests::a_start_marker_split_across_the_quiet_holds_the_quarantine ... ok
+test tui::shell::tests::input_that_keeps_arriving_inside_the_quarantine_is_said_again_once_a_second ... ok
+test tui::shell::tests::the_repeat_while_a_dropped_paste_is_open_says_it_waits_for_the_paste_s_end ... ok
+test tui::shell::tests::the_repeat_while_a_marker_is_half_read_says_it_waits_for_one_more_key ... ok
+test tui::event_loop::tests::a_stream_that_fills_every_read_after_a_paste_is_still_said_at_the_read_cap ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 4560 filtered out; finished in 0.01s

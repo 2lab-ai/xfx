@@ -1,0 +1,13 @@
+# cargo test --locked --test tui -- a_mebibyte_of_hostile_clipboard, three runs, at 8b4766f9
+## run 1, load averages: { 18.15 27.46 25.14 }
+test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... ok
+test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 182 filtered out; finished in 6.08s
+## run 2, load averages: { 16.62 26.67 24.90 }
+test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... ok
+test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 182 filtered out; finished in 5.91s
+## run 3, load averages: { 17.77 26.74 24.93 }
+test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... ok
+test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 182 filtered out; finished in 10.21s

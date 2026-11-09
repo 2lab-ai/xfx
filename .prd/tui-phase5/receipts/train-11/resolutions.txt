@@ -1,0 +1,49 @@
+# Each merge's conflicted and both-changed files, checked from both ends against its first parent (ours), second (theirs) and merge base.
+## merge 1, 4a0b900b (SUBMIT-CARD-PREVIEW): docs/parity.md's full-screen TUI row
+docs/parity.md '| full-screen TUI |': base 78957, ours 79783, theirs 83279, merged 84105 chars; ours -> merged is theirs' edits: True; theirs -> merged is ours' edits: True (67 and 23 edits)
+# exit 0
+## merge 1: the code files both sides changed (event_loop.rs and shell.rs held one conflict each)
+src/tui/event_loop.rs: ours -> merged is theirs' hunks: True (9 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (13 hunks, 0 slid by blank lines)
+src/tui/shell.rs: ours -> merged is theirs' hunks: True (21 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (87 hunks, 0 slid by blank lines)
+src/tui/transcript.rs: ours -> merged is theirs' hunks: True (1 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (9 hunks, 0 slid by blank lines)
+# exit 0
+## merge 1: the ledger, capfile.py and tests/tui.rs with every reference number masked (their numbers-only blocks kept ours')
+scripts/fxcap/parity-ledger.toml: ours -> merged is theirs' hunks: True (5 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (27 hunks, 0 slid by blank lines)
+scripts/fxcap/capfile.py: ours -> merged is theirs' hunks: True (0 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (1 hunks, 0 slid by blank lines)
+tests/tui.rs: ours -> merged is theirs' hunks: True (0 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (12 hunks, 0 slid by blank lines)
+# exit 0
+## merge 2, 0040fa59 (CATALOG-REFRESH): docs/parity.md's /model row
+docs/parity.md '| `/model` |': base 21885, ours 25120, theirs 23950, merged 27185 chars; ours -> merged is theirs' edits: True; theirs -> merged is ours' edits: True (12 and 46 edits)
+# exit 0
+## merge 2: the code files both sides changed, at the merge commit (shell.rs and worker.rs hold the semantic fixes: False expected)
+src/interactive.rs: ours -> merged is theirs' hunks: True (1 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (7 hunks, 0 slid by blank lines)
+src/tui/bridge.rs: ours -> merged is theirs' hunks: True (19 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (1 hunks, 0 slid by blank lines)
+src/tui/event_loop.rs: ours -> merged is theirs' hunks: True (7 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (32 hunks, 0 slid by blank lines)
+src/tui/shell.rs: ours -> merged is theirs' hunks: False (108 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: False (107 hunks, 0 slid by blank lines)
+src/tui/worker.rs: ours -> merged is theirs' hunks: False (45 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: False (67 hunks, 0 slid by blank lines)
+# exit 1
+## merge 2: shell.rs and worker.rs with the four semantic fixes taken out (semantic.py --reverse, in a clone)
+src/tui/shell.rs: 1 replaced: 'due: CatalogDue::at(catalog_now() + REFRESH_INTERVAL),'
+src/tui/shell.rs: 1 replaced: 'retry,'
+src/tui/worker.rs: 1 replaced: 'outstanding: &outstanding,'
+src/tui/worker.rs: 1 replaced: 'outstanding: &outstanding,'
+# exit 0
+ 2 files changed, 2 insertions(+), 10 deletions(-)
+src/tui/shell.rs: ours -> merged is theirs' hunks: True (106 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (107 hunks, 0 slid by blank lines)
+src/tui/worker.rs: ours -> merged is theirs' hunks: True (45 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: False (65 hunks, 0 slid by blank lines)
+# exit 1 (worker.rs's False from theirs' end expected: git diff groups ours' appended tests differently, regroup.py below)
+src/tui/worker.rs: unmatched hunks: 2 of 4a0b900b's against the base, 2 of the merge's against 3ffbe0c7; the same base lines removed: True (1); 4a0b900b's lines 18165-19093 and the merge's 18756-19684 the same, line for line: True (929 lines; the spans 928 and 929)
+# exit 0
+## merge 3, d2ed0274 (PASTE-GAP): docs/parity.md's full-screen TUI row
+docs/parity.md '| full-screen TUI |': base 79783, ours 84105, theirs 88065, merged 92387 chars; ours -> merged is theirs' edits: True; theirs -> merged is ours' edits: True (23 and 65 edits)
+# exit 0
+## merge 3: the files both sides changed (event_loop.rs held the conflict)
+scripts/smoke-tui.sh: ours -> merged is theirs' hunks: True (3 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (1 hunks, 0 slid by blank lines)
+src/tui/event_loop.rs: ours -> merged is theirs' hunks: True (5 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (40 hunks, 1 slid by blank lines)
+src/tui/shell.rs: ours -> merged is theirs' hunks: True (22 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (170 hunks, 0 slid by blank lines)
+tests/tui.rs: ours -> merged is theirs' hunks: True (2 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (4 hunks, 0 slid by blank lines)
+# exit 0
+## every resolution redone by this folder's scripts in a clone (reproduce.sh)
+4a0b900b (0c203cd3): resolve exit 0; against the merge commit's tree: no difference
+0040fa59 (3ffbe0c7): resolve exit 0; against the merge commit's tree: no difference
+d2ed0274 (5cc2e42c): resolve exit 0; against the merge commit's tree: no difference

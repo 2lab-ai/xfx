@@ -1,0 +1,29 @@
+# Every CI step of .github/workflows/ci.yml, in its order, in the worktree, under the machine's suite
+# lock (one slot for the whole run), TMPDIR=<scratch>/paste-gap/gate-tmp. 'test' is
+# 'cargo test --locked --all-targets --no-fail-fast'; 'fi-test-all' is
+# 'cargo test --locked --features fault-injection --no-fail-fast'.
+head d0789285
+fmt exit=0 1s
+clippy exit=0 12s
+test exit=0 147s
+fi-clippy exit=0 9s
+fi-test-all exit=0 139s
+no-stubs exit=0 6s
+no-secrets exit=0 44s
+gate-env exit=0 218s
+identity exit=0 1s
+preview-contract exit=0 3s
+preview-mutants exit=0 46s
+preflight-cost exit=0 93s
+usage-clock exit=0 2s
+release-build exit=0 24s
+smoke exit=0 5s
+faulty-build exit=0 37s
+smoke-tui exit=0 80s
+-- test
+  binaries: 14, passed 5498, failed 0, ignored 7
+-- fi-test-all
+  binaries: 15, passed 5536, failed 0, ignored 7
+  smoke-tui: 
+  smoke-tui: smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures
+  smoke-tui: evidence: <scratch>/paste-gap/gate-tmp/xfx-smoke-tui

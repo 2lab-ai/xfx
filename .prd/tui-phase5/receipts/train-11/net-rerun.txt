@@ -1,0 +1,9 @@
+# logger pid 96649, 127.0.0.1:<ephemeral>; the four proxy variables at it, the four others unset
+a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number run 1: exit 0, ok; load 15.0; connections logged: 0
+a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number run 2: exit 0, ok; load 12.6; connections logged: 0
+a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number run 3: exit 0, ok; load 11.1; connections logged: 0
+a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one run 1: exit 0, ok; load 10.2; connections logged: 0
+a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one run 2: exit 0, ok; load 10.7; connections logged: 0
+a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one run 3: exit 0, ok; load 8.4; connections logged: 0
+# logger 96649 ended (-15)
+exit 0

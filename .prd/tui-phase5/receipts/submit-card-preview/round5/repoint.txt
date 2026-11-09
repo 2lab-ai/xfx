@@ -1,0 +1,9 @@
+# python3 -I -B repoint.py <repo> 3d09af8f f6e577e8   (the check, on the commit that holds the re-pointed numbers; --write ran once before it)
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:39067 at 3d09af8f is :39074 at f6e577e8  'String::new(),'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:39067 at 3d09af8f is :39074 at f6e577e8  'String::new(),'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:39067 at 3d09af8f is :39074 at f6e577e8  'String::new(),'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:39067 at 3d09af8f is :39074 at f6e577e8  'String::new(),'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:39067 at 3d09af8f is :39074 at f6e577e8  'String::new(),'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:39067 at 3d09af8f is :39074 at f6e577e8  'String::new(),'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:16550 at 3d09af8f is :16557 at f6e577e8  'pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Res'
+7 references moved, 0 whose cited text changed

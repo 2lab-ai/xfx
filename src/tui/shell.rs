@@ -75,6 +75,8 @@ use std::collections::VecDeque;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
+use crate::provider::catalog_clock::{CatalogClock, CatalogDue, CatalogTime};
+
 use super::activity::{Activity, Work, PHASES};
 use super::approval::{self, Panel};
 use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface};
@@ -489,8 +491,18 @@ const PANEL_TOO_SMALL: &str =
 /// up, so the alternative to a sentence is a key that appears to do nothing --
 /// and a user whose `1` does nothing presses it again, harder, which is the one
 /// input pattern this gate must not train.
+///
+/// **Condition first.** On the review plane this is the status line, which a
+/// narrow screen cuts to its rows and a short one gives up from its last row
+/// (`super::approval_screen::ApprovalScreen::set_status`), so any first rows of
+/// it may be all that shows. The condition comes before the key, so no cut
+/// says "press it" without "once you can read it"
+/// (`no_cut_of_xfx_s_refusals_shows_an_instruction_without_its_condition`).
+/// Where the plane has no row for it at all -- a screen with less than two
+/// rows above the plane's chrome -- the key does nothing visible: the room is
+/// the question's first.
 pub(crate) const APPROVAL_NOT_READY: &str =
-    "the question is not on the screen yet - press it again once you can read it";
+    "the question is not on the screen yet; once you can read it, press it again";
 
 /// What they are told when this screen can never show the whole request, so no
 /// frame on it will ever grant.
@@ -498,10 +510,12 @@ pub(crate) const APPROVAL_NOT_READY: &str =
 /// A different sentence from [`APPROVAL_NOT_READY`] because it asks for a
 /// different action: waiting fixes the first and only a bigger window fixes the
 /// second. It names the two keys that still work, because a question that cannot
-/// be granted must still be refusable.
+/// be granted must still be refusable -- and what they do before them, as
+/// [`APPROVAL_NOT_READY`] puts its condition first, so a cut of it never shows
+/// "press 3" without "to refuse it".
 pub(crate) const APPROVAL_NOT_DISCLOSED: &str =
     "this screen cannot show the whole request, so it cannot be approved here; \
-     make the window larger, or press 3 or ctrl+c to refuse";
+     make the window larger, or, to refuse it, press 3 or ctrl+c";
 
 /// What the user is told when the screen cannot hold a question the **model**
 /// asked ([`super::question`]).
@@ -545,6 +559,53 @@ const INPUT_LIMIT: &str = "That edit exceeds the local prompt safety limit and w
 /// the composer, an amendment, a question's answer, or a question that was
 /// taking no text at all ([`Shell::ignored_behind_paste`]).
 const PASTE_SUFFIX: &str = "Input that arrived right after the paste was ignored.";
+
+/// What input that keeps arriving inside a paste's quarantine says, once a
+/// second while it lasts ([`super::input::Decoder::PASTE_REPEAT`]), the same
+/// way and on the same plane as [`PASTE_SUFFIX`]. xfx's own words, and how to
+/// get out: fx has no quarantine, so it has nothing to say here.
+///
+/// **Two rows of the narrowest screen, whole.** A session exists down to
+/// `super::layout::MIN_COLS` = 20 columns, two of them the review plane's
+/// indent: each of the three sentences wraps into two rows of at most 18
+/// columns there, inside the plane's status rows (`super::approval_screen`'s
+/// `STATUS_ROWS`, three, which [`PASTE_SUFFIX`] needs from 29 columns down),
+/// and each of them and [`PASTE_SUFFIX`] is given up whole by a screen too
+/// short for all of its rows ([`Shell::said_after_paste`]) -- so a cut
+/// sentence, which says something else, appears at no width and no height
+/// (`every_quarantine_sentence_is_whole_on_the_review_plane_at_the_narrowest_screen`,
+/// `fx_s_warning_and_the_quarantine_s_sentences_are_whole_or_absent_on_a_short_plane`).
+/// They are short for that, and each is true in every state that says it.
+const PASTE_STILL: &str = "Keys ignored until input stops.";
+
+/// [`PASTE_STILL`] while a paste begun behind the first one's end marker is
+/// being dropped ([`super::input::Hold::Paste`]). It names the cause -- that
+/// paste is still open -- and no release point: its end marker alone ends
+/// nothing (the quiet holds the quarantine next, and [`PASTE_STILL`] is said
+/// then), so "until the paste ends" would be false.
+const PASTE_UNTIL_END: &str = "Paste still open; keys are ignored.";
+
+/// And while a marker is read past its first byte
+/// ([`super::input::Hold::Marker`]): the cause again -- an escape sequence is
+/// still open, however many keys continue it -- and no release point.
+const PASTE_UNTIL_KEY: &str = "Key sequence open; keys are ignored.";
+
+/// The three sentences about a quarantine that is still on: taken down from
+/// the review plane once the one shown no longer names what holds it
+/// ([`Shell::plane_names_the_hold`]).
+const QUARANTINE_SENTENCES: [&str; 3] = [PASTE_STILL, PASTE_UNTIL_END, PASTE_UNTIL_KEY];
+
+/// The sentence for what holds a quarantine on: one fact, for what is said
+/// ([`Shell::said_ignored`]) and for what the plane may go on showing
+/// ([`Shell::plane_names_the_hold`]).
+fn quarantine_sentence(hold: super::input::Hold) -> &'static str {
+    use super::input::Hold;
+    match hold {
+        Hold::Quiet => PASTE_STILL,
+        Hold::Paste => PASTE_UNTIL_END,
+        Hold::Marker => PASTE_UNTIL_KEY,
+    }
+}
 
 /// The hint row's refusal for a paste this session has no number left for.
 ///
@@ -848,16 +909,21 @@ pub(crate) struct Shell {
     /// this side can say at once; a catalog nobody has read cannot be
     /// resolved here at all.
     catalog_known: CatalogKnown,
-    /// When activity -- a submitted prompt, a frame of the inline column --
-    /// is next owed a read of the rows the band holds, by the runtime's
-    /// clock: five minutes after the read that brought them began, or, once
-    /// a refresh behind them failed, when the hold it put on the next read
-    /// ends -- and, for one asking again could not change, not before the
-    /// rows are five minutes old (`beginLoad`'s `expired` and `retry_due`,
-    /// `model_cache_runtime.zig:609-623@481104fd`; [`UiEvent::CatalogLoaded`]'s
-    /// and [`UiEvent::CatalogRefreshFailed`]'s `due`). `None` beside any other
-    /// [`CatalogKnown`].
-    catalog_due: Option<Instant>,
+    /// When activity -- a submitted prompt, a frame of the inline column, a
+    /// resume or a fork -- is next owed a read of the rows the band holds, by
+    /// the runtime's clock: five minutes after the read that brought them
+    /// began, or, once a refresh behind them failed, when the hold it put on
+    /// the next read ends -- and, for one asking again could not change, not
+    /// before the rows are five minutes old (`beginLoad`'s `expired` and
+    /// `retry_due`, `model_cache_runtime.zig:609-623@481104fd`;
+    /// [`UiEvent::CatalogLoaded`]'s
+    /// and [`UiEvent::CatalogRefreshFailed`]'s `due`); at once for a reading
+    /// earlier than the last read's start ([`CatalogDue`]). `None` beside any
+    /// other [`CatalogKnown`].
+    catalog_due: Option<CatalogDue>,
+    /// What the band reads those times against: the runtime's clock, the
+    /// catalog's, which counts sleep ([`CatalogClock`]).
+    catalog_clock: CatalogClock,
     /// A refresh behind the rows the band holds failed in a way asking again
     /// could change: `/model`'s menu says so in its note's place
     /// (`loadedCatalogStatusText`, `model_menu_presentation.zig:403-404
@@ -1330,6 +1396,29 @@ pub(crate) struct Shell {
     /// this says so ([`Shell::write_card`]); the composer under it does not
     /// (`fx-p5-effort-fork-fork-empty-…-forked`, `-fork-continue-…-continued`).
     raw_gap: bool,
+    /// The newest rows of a card submitted taller than the room the document
+    /// has left, shown at the band's top ([`Geometry::previewed`]) for the one
+    /// frame before the card itself is written: upstream paints the pending
+    /// card's tail into the frame that clears the composer and writes the card
+    /// once that frame has committed (`buildPendingCardProjection`,
+    /// `src/core/app/app_render_runtime.zig:220-277@481104fd`;
+    /// `noteCommittedFrame`, `src/core/app/input_submit_runtime.zig:289-307`).
+    /// While the band shows them the document is held -- the card is queued
+    /// and nothing of it is written -- until that frame has landed
+    /// ([`Self::preview_landed`]). Rows of the band, never of the document: a
+    /// carry or a resize between the two frames moves no preview row into
+    /// the terminal's scrollback.
+    preview: Option<Vec<String>>,
+    /// A preview's frame has landed and the card behind it is owed: the
+    /// tick writes the card's frame next, before it reads anything or takes
+    /// a resize ([`Self::take_preview_shown`]).
+    preview_shown: bool,
+    /// The content bottom of the band the last landed frame painted: the
+    /// screen upstream's preview is measured against, its last committed
+    /// frame's (`presentation_shell.cursor_row`, committed at
+    /// `src/ui/transcript/runtime.zig:9929-9932@481104fd`) -- not a composer
+    /// no frame has shown yet ([`Self::preview_room`]).
+    landed_bottom: Option<u16>,
     /// `/effort`'s menu, while it is up ([`super::effort_menu`]).
     ///
     /// The slot's occupant upstream ranks after `/model`'s menu
@@ -2305,6 +2394,12 @@ fn index_roots(primary: &std::path::Path, access: &WorkspaceAccess) -> Vec<std::
 const BOLD: &str = "\u{1b}[1m";
 const RESET: &str = "\u{1b}[0m";
 
+/// Upstream's fixed footer: the rows its layout's content bottom is measured
+/// above, whatever the band holds (`footer_rows`, `src/main.zig:173@481104fd`;
+/// `layoutFromSize`, `src/ui/terminal/terminal.zig:47-59`), and so the bottom
+/// a submitted card's preview is cut at ([`Shell::preview_room`]).
+const UPSTREAM_FOOTER_ROWS: u16 = 4;
+
 /// What the band's elastic slot is holding.
 ///
 /// What opened a saved session the screen replays ([`Shell::hydrate_as`]):
@@ -2391,8 +2486,10 @@ enum CatalogKnown {
     /// when the hold the failure put on the next read ends: a `/model` before
     /// then opens the menu over the failure and asks nothing, as upstream's
     /// model cache starts no load inside a failure's backoff
-    /// (`crate::provider::model::failure_backoff`).
-    Unread(Option<CatalogRetry>, Instant),
+    /// (`crate::provider::model::failure_backoff`). That holds for readings
+    /// not earlier than the failed read's start; an earlier reading is due at
+    /// once, whatever held the read back ([`CatalogDue`]).
+    Unread(Option<CatalogRetry>, CatalogDue),
 }
 
 /// The catalog as `/model`'s column is drawn from it.
@@ -2523,6 +2620,7 @@ impl Shell {
             catalog: Vec::new(),
             catalog_known: CatalogKnown::Unasked,
             catalog_due: None,
+            catalog_clock: CatalogClock::system(),
             catalog_note: None,
             catalog_nudged: false,
             settings: TurnSettings {
@@ -2615,6 +2713,9 @@ impl Shell {
             fork_prompt: None,
             fork_prompt_held: None,
             raw_gap: false,
+            preview: None,
+            preview_shown: false,
+            landed_bottom: None,
             effort_menu: None,
             gateway_note: crate::provider::model::gateway_catalog_note(config.credential.as_ref()),
             statusline: config.statusline,
@@ -2730,6 +2831,18 @@ impl Shell {
     /// by one.
     pub(crate) fn band_rows(&self) -> Vec<String> {
         let mut rows = Vec::with_capacity(usize::from(self.geometry.band_rows()));
+        // A submitted card's newest rows and the blank row under them, while
+        // the band has them ([`Self::preview`]): the geometry gives the band
+        // every one of them or none (`placed`), and a row it gave that the
+        // preview no longer has is written blank.
+        rows.extend(
+            self.preview
+                .iter()
+                .flatten()
+                .cloned()
+                .chain(std::iter::repeat(String::new()))
+                .take(usize::from(self.geometry.preview)),
+        );
         // The blank row above a panel that has taken the composer's, under a
         // document that does not end on one ([`layout::Geometry::gapped`]):
         // the band's own, so it is written blank rather than left with
@@ -3971,6 +4084,18 @@ impl Shell {
         if replay.model_replaced {
             self.announce(notice::Notice::warning("model", MODEL_NOT_RESTORED));
         }
+        // **A resume or a fork is activity**, as upstream's is
+        // (`startResumedSessionWarmup` -> `startModelCacheWarmup`,
+        // `app_session_runtime.zig:2048-2050`, from `:2065` and `:2123
+        // @481104fd`): rows the refresh interval old, rows whose refresh
+        // failed in a way asking again could change, and a failure -- each
+        // past any hold a failure put on the next read, and any of them at
+        // once at a reading earlier than the last read's start, by the
+        // runtime's rule ([`CatalogDue`]) -- are read again. Nothing at
+        // launch, nor onto another provider:
+        // the band holds no answer then, and the runtime's own read is on its
+        // way ([`Self::note_catalog_activity`]).
+        let _ = self.note_catalog_activity(self.catalog_clock.now());
         self.render.request(Reason::Footer);
     }
 
@@ -4140,7 +4265,75 @@ impl Shell {
     /// holding is deliberately **not** counted -- it is not a row yet, and it
     /// waits for its own release whichever plane the session is on.
     pub(crate) fn owes_document(&self) -> bool {
-        self.departing.as_ref().is_some_and(Transcript::owes) || self.transcript.owes()
+        !self.previewing()
+            && (self.departing.as_ref().is_some_and(Transcript::owes) || self.transcript.owes())
+    }
+
+    /// Whether the band is showing a submitted card's newest rows, so the
+    /// document -- the card first -- waits for the frame that shows them
+    /// ([`Self::preview`]).
+    pub(crate) fn previewing(&self) -> bool {
+        self.geometry.preview > 0
+    }
+
+    /// A band frame landed. One that showed a card's preview was the frame
+    /// that clears the composer, so the preview goes, the band gives its rows
+    /// back, and the card the document was holding is written by the next
+    /// frame, as upstream's is once its preview's frame commits
+    /// (`noteCommittedFrame` -> `adoptPendingSubmission` ->
+    /// `adoptPendingUserPrompt`, `src/core/app/input_submit_runtime.zig:
+    /// 289-307`, `:572-584`, `src/main.zig:1234-1243@481104fd`).
+    /// A band frame landed: its content bottom is the screen the next
+    /// preview is measured against, and a preview it showed has had its
+    /// frame ([`Self::preview_landed`]).
+    pub(crate) fn band_landed(&mut self) {
+        self.landed_bottom = Some(self.geometry.content_bottom);
+        self.preview_landed();
+    }
+
+    pub(crate) fn preview_landed(&mut self) {
+        if self.previewing() {
+            self.drop_preview();
+            self.preview_shown = true;
+        }
+    }
+
+    /// Whether a preview's frame landed since the last ask, so the card owes
+    /// its frame now, in the same tick (`super::event_loop`'s `commit_tick`):
+    /// upstream adopts the card once its preview's frame has committed and
+    /// writes it in its next frame (`noteCommittedFrame`,
+    /// `src/core/app/input_submit_runtime.zig:289-307@481104fd`). Between the
+    /// tick's two frames nothing is read and no resize is taken.
+    ///
+    /// What that cannot close is a write that fails: the card's frame refused
+    /// or torn before its rows, or the preview's frame torn (its recovery
+    /// repaints the preview and lands no band, `failed_band`). The preview is
+    /// up and the card unwritten until the next tick, and a screen that
+    /// shrinks first moves rows of the preview into the terminal's history,
+    /// or keeps them above the band, where they are the document's to xfx
+    /// after a resize (`a_failed_write_and_a_shrink_before_the_retry_leave_
+    /// only_what_the_shrink_took`). The terminal does that before xfx can
+    /// know. Upstream's preview and card are two writes as well, and leave
+    /// the same window.
+    pub(crate) fn take_preview_shown(&mut self) -> bool {
+        std::mem::take(&mut self.preview_shown)
+    }
+
+    /// The preview given up before its frame showed it: a question takes
+    /// the plane, and the card the document was holding is owed before the
+    /// plane changes hands, written whole as it was before there was a
+    /// preview (`super::event_loop`'s `commit_frame`).
+    pub(crate) fn give_up_preview(&mut self) {
+        self.drop_preview();
+    }
+
+    /// The preview taken away and the band solved without it: the document
+    /// is no longer held.
+    fn drop_preview(&mut self) {
+        if self.preview.take().is_some() || self.previewing() {
+            self.refit();
+            self.render.request(Reason::Transcript);
+        }
     }
 
     /// Offers the oldest thing the document is owed to the terminal, measured
@@ -4161,6 +4354,11 @@ impl Shell {
         &mut self,
         emit: impl FnOnce(&Append) -> Landed<E>,
     ) -> Option<Result<(), E>> {
+        // Nothing while the band shows a submitted card's preview: the card is
+        // written by the frame after the one that shows it ([`Self::preview`]).
+        if self.previewing() {
+            return None;
+        }
         // A handed-off document's last rows first ([`Self::departing`]); once
         // they have landed the handoff is measured against them, and nothing
         // of the new document is offered before the handoff has run.
@@ -4661,7 +4859,9 @@ impl Shell {
             // could help (`loadedCatalogStatusText`,
             // `model_menu_presentation.zig:403-404`), and activity is owed
             // the next read once its hold ends -- or, for one asking again
-            // could not change, once the rows are the refresh interval old.
+            // could not change, once the rows are the refresh interval old as
+            // well -- and at once at a reading earlier than the failed read's
+            // start (the event's `due`, a [`CatalogDue`]).
             UiEvent::CatalogRefreshFailed {
                 provider,
                 retry,
@@ -7467,7 +7667,7 @@ impl Shell {
                 .active(self.editor.text(), &self.model)
                 .is_some_and(|query| !query.effort_command())
         {
-            self.want_catalog();
+            self.want_catalog(CatalogAsk::AWAITED);
         }
     }
 
@@ -9978,6 +10178,9 @@ impl Shell {
     /// taken, and once more after the drain, for the session that had nothing
     /// left to drain and a queue to empty anyway.
     pub(crate) fn flush_paced(&mut self) {
+        // A card the band is previewing is written now too: the exit clears
+        // the band from its top, and that is the preview's first row.
+        self.drop_preview();
         self.finish_saves();
         let before = self.pacer.pending();
         if let Some(chunk) = self.pacer.drain() {
@@ -10437,7 +10640,7 @@ impl Shell {
     }
 
     /// The terminal has nothing more to read: the delivery the reads since the
-    /// last one were part of is over (`settleTerminalPasteDeliveryEpoch`,
+    /// last one were part of is over (`settleTerminalPasteDeliveryEpochWithLimits`,
     /// `app_input_runtime.zig:790-813@481104fd`).
     ///
     /// Said by the loop's readiness check and nowhere else
@@ -10446,9 +10649,17 @@ impl Shell {
     /// [`Action::PasteEnd`], whatever followed its marker; if something did,
     /// that is said after the paste is settled ([`Self::ignored_behind_paste`]),
     /// as fx finishes the paste first and warns second
-    /// (`input_paste_runtime.zig:189-196@481104fd`).
+    /// (`input_paste_runtime.zig:189-196@481104fd`). What arrives after that,
+    /// before the input has gone quiet, is the paste's too
+    /// ([`super::input::Decoder::PASTE_QUIET`]), and said the same way if the
+    /// paste's delivery said nothing.
     pub(crate) fn end_delivery(&mut self) {
-        match self.decoder.end_delivery() {
+        self.end_delivery_at(Instant::now());
+    }
+
+    /// [`Self::end_delivery`], for a check that found nothing at `now`.
+    pub(crate) fn end_delivery_at(&mut self, now: Instant) {
+        match self.decoder.end_delivery(now) {
             Delivery::Quiet => {}
             Delivery::Pasted { dropped } => {
                 self.consume(vec![Input::Action(Action::PasteEnd)], Instant::now());
@@ -10456,17 +10667,66 @@ impl Shell {
                     self.ignored_behind_paste();
                 }
             }
+            Delivery::Ignored { again, .. } => self.said_ignored(again),
+        }
+    }
+
+    /// The turn reached its read cap with input still waiting: what a
+    /// quarantine owes the user is said, and nothing is settled or ended
+    /// ([`super::input::Decoder::still`]).
+    pub(crate) fn still_at(&mut self, now: Instant) {
+        if let Delivery::Ignored { again, .. } = self.decoder.still(now) {
+            self.said_ignored(again);
+        }
+    }
+
+    /// Input a quarantine dropped: fx's warning the first time, and after
+    /// that the sentence for what is holding the quarantine on.
+    fn said_ignored(&mut self, again: Option<super::input::Hold>) {
+        match again {
+            None => self.ignored_behind_paste(),
+            Some(hold) => self.said_after_paste(quarantine_sentence(hold)),
+        }
+    }
+
+    /// The review plane's sentence about the quarantine, kept a view of now:
+    /// taken down once it no longer names what holds the quarantine -- the
+    /// hold has changed, the quarantine has ended, or a new one has begun
+    /// with nothing said in it ([`super::input::Decoder::named_hold`]).
+    ///
+    /// Nothing new is said in its place. The notices are rate-limited
+    /// ([`super::input::Decoder::PASTE_REPEAT`]) and the next one due names
+    /// the hold of its own moment; the plane's line is not a notice, so it does
+    /// not wait for one. fx's own warning, and any other status, are about
+    /// what happened and stay; so do the document's rows, a record of what was
+    /// said when.
+    fn plane_names_the_hold(&mut self) {
+        let named = self.decoder.named_hold().map(quarantine_sentence);
+        let Some(screen) = self.alternate.as_mut() else {
+            return;
+        };
+        let stale: Vec<&str> = QUARANTINE_SENTENCES
+            .into_iter()
+            .filter(|sentence| Some(*sentence) != named)
+            .collect();
+        if screen.clear_status_if(&stale) {
+            self.render.request(Reason::Modal);
         }
     }
 
     /// `bytes` as one whole delivery: [`Self::route_read`], then
-    /// [`Self::end_delivery`] -- the shape every keystroke a test types has,
-    /// and the shape the loop gives one write that fits in one read. A case
-    /// about a delivery made of several reads calls the two itself.
+    /// [`Self::end_delivery`], and then quiet for as long as a paste's
+    /// quarantine lasts -- the shape every keystroke a test types has, because
+    /// these cases model paced input (fast input after a paste is dropped by
+    /// design, and its own cases say so), and the shape the loop gives one
+    /// write that fits in one read. A case about a delivery made of several
+    /// reads, or about input soon after a paste, calls them itself.
     #[cfg(test)]
     pub(crate) fn route_bytes(&mut self, bytes: &[u8]) {
         self.route_read(bytes);
-        self.end_delivery();
+        let now = Instant::now();
+        self.end_delivery_at(now);
+        self.end_delivery_at(now + super::input::Decoder::PASTE_QUIET);
     }
 
     /// Resolves what only the passage of time resolves: a bare `ESC` that has
@@ -10474,10 +10734,21 @@ impl Shell {
     ///
     /// Called once a turn, which is what makes [`super::input::Decoder`]'s
     /// timeout mean 50 ms rather than "until the next keystroke".
+    ///
+    /// **And the end of every turn's input**, so the one point at which the
+    /// review plane's sentence about a paste's quarantine is made true again
+    /// ([`Self::plane_names_the_hold`]). The loop calls this after the burst
+    /// whichever way the burst ended -- a check that found nothing, the read
+    /// cap, an interrupted wait or read -- and before the turn's frame
+    /// (`super::event_loop`'s turn), and every call this shell makes to the
+    /// decoder is in [`Self::route_read`], [`Self::end_delivery_at`],
+    /// [`Self::still_at`] or here: so no frame is built from a plane whose
+    /// line names a hold that has gone.
     pub(crate) fn settle_input(&mut self, now: Instant) {
         let mut events = Vec::new();
         self.decoder.flush(now, &mut events);
         self.consume(events, now);
+        self.plane_names_the_hold();
     }
 
     /// Resolves what the band says about state nothing typed here changed: the
@@ -10530,8 +10801,8 @@ impl Shell {
         //
         // **A turn that started is not over until its end is read.** The
         // runtime gives a place back after it has sent the work's terminal
-        // event (`TurnEnded`, `worker.rs:3917`, then `turn_loop`'s
-        // `fetch_sub`, `:3530`), so this can run between the two with a
+        // event (`TurnEnded`, `worker.rs:3922`, then `turn_loop`'s
+        // `fetch_sub`, `:3535`), so this can run between the two with a
         // started turn's end still in the channel -- and a stopped turn's end
         // says `the turn was cancelled`. A cancel taken here would leave that
         // end to read as the turn's failure: an `error` report after the
@@ -12228,9 +12499,18 @@ impl Shell {
     /// ([`Self::notice_at_the_question`]), and there it is the last word when
     /// the paste's own refusal was said first, the order fx writes them in.
     fn ignored_behind_paste(&mut self) {
+        self.said_after_paste(PASTE_SUFFIX);
+    }
+
+    /// `text` under `input`, as [`Self::ignored_behind_paste`] says its own.
+    ///
+    /// On the review plane it is given up whole when the screen is too short
+    /// for all of it ([`super::approval_screen::ApprovalScreen::set_whole_status`]):
+    /// each of these, cut, says something else.
+    fn said_after_paste(&mut self, text: &'static str) {
         match self.alternate.as_mut() {
-            Some(screen) => screen.set_status(PASTE_SUFFIX.to_string()),
-            None => self.announce(notice::Notice::warning("input", PASTE_SUFFIX)),
+            Some(screen) => screen.set_whole_status(text.to_string()),
+            None => self.announce(notice::Notice::warning("input", text)),
         }
         // The surface the paste was for is the one to repaint
         // (`input_paste_runtime.zig:254-257`, `:282`, `:306`, `:330`).
@@ -13228,7 +13508,7 @@ impl Shell {
         // the runtime reads first, so the retry is on its way before the turn
         // asks for the catalog's limits (`resolveForRequest`'s wait,
         // `super::worker`'s `await_failed_catalog_retry`).
-        let _ = self.note_catalog_activity(Instant::now());
+        let _ = self.note_catalog_activity(self.catalog_clock.now());
         // **Into the turn that is running**, as upstream's steer
         // (`admitInteractivePrompt`, `worker_runtime.zig:1080-1104`): the turn
         // takes it at its next boundary -- at once over an answer, after a
@@ -13329,6 +13609,13 @@ impl Shell {
                     self.render.request(Reason::Footer);
                 }
                 if let Some((card, links, runs)) = echoed {
+                    // Measured against the band the last landed frame
+                    // painted, which the draft's going does not change; none
+                    // has landed since a resize, and there is no preview
+                    // ([`Self::preview_room`]).
+                    if let Some(room) = self.preview_room() {
+                        self.preview_card(&card, &links, &runs, room);
+                    }
                     self.echo(&card, links, runs);
                 }
                 self.gestures.submitted();
@@ -13441,23 +13728,16 @@ impl Shell {
         self.mark(Mark::Card(text.to_string(), links, skills));
     }
 
-    /// The card [`Mark::Card`] asks for.
-    fn write_card(&mut self, text: &str, links: &BadgeLinks, skills: &SkillRuns) {
-        self.finish_document_line();
-        if std::mem::take(&mut self.raw_gap) && !self.transcript.ends_blank() {
-            self.end_transcript_line();
-        }
-        if self.transcript.queue_gutter(Gutter::Rail) {
-            self.owed();
-        }
+    /// What a card's rail is in front of: each line of `text` in bold, its
+    /// badges linked and its skill tokens in the card's accent.
+    fn card_body(&self, text: &str, links: &BadgeLinks, skills: &SkillRuns) -> String {
         // Bold opened on every line rather than once around the text: a hard
         // break ends a row's attributes here, as upstream's card re-applies
         // its style per row (`user_message_card.zig:365,374`). A skill run is
         // handed to the line it is on, measured from that line's start.
         let accent = self.palette.notice_label();
         let mut at = 0usize;
-        let card = text
-            .split('\n')
+        text.split('\n')
             .map(|line| {
                 let runs: Vec<std::ops::Range<usize>> = skills
                     .iter()
@@ -13471,7 +13751,95 @@ impl Shell {
                 )
             })
             .collect::<Vec<_>>()
-            .join("\n");
+            .join("\n")
+    }
+
+    /// How many of a card's newest rows upstream's frame that clears the
+    /// composer would show, measured before the composer is cleared: `None`
+    /// when this card is written at once.
+    ///
+    /// Upstream's pending card is the newest rows that fit between the flow
+    /// endpoint and its fixed content bottom, `rows - 4`, and at least one
+    /// (`buildPendingCardProjection`, `src/core/app/app_render_runtime.zig:
+    /// 250-264@481104fd`, `footer_rows`, `src/main.zig:173`) -- here, below
+    /// the document's last row, the blank one a card starts under. Its frame
+    /// keeps the endpoint's row and the blank row under it on the screen
+    /// (`transcriptAreaBeforePendingTail`, `:2230-2238`), and the blank row
+    /// over the activity row under it (`PendingCardPaintContext.init`,
+    /// `:174-192`): with the band of a turn that has started, the rows above
+    /// the content bottom that leaves, less those three. (The frame trace's
+    /// `pending_prompt_tail start=3 paint_rows=32 layout_rows=36` for a
+    /// 60-line first prompt; `.prd/tui-phase5/receipts/submit-card-preview/`.)
+    ///
+    /// Only a card that starts on the row under a blank one the document has
+    /// already been given, with nothing of the document still owed: that is
+    /// the row upstream's preview is measured from, and anything else -- a
+    /// line that does not end blank, a fork's line that a card opens a blank
+    /// row under ([`Self::raw_gap`]) -- is written at once. And only once a
+    /// band frame of this screen's size has landed ([`Self::landed_bottom`]):
+    /// upstream measures from its last committed frame, which after a resize
+    /// is one of the old size.
+    fn preview_room(&self) -> Option<usize> {
+        // A handoff's departing document is nothing more to ask about: while
+        // it is owed, the welcome the new document starts with is owed too
+        // (`reset`, [`Self::welcome`]), and that is `owes`.
+        if self.transcript.owes()
+            || !self.transcript.ends_blank()
+            || self.raw_gap
+            || self.group.drawn()
+        {
+            return None;
+        }
+        // No band frame of this size has landed since the screen changed
+        // size (`landed_bottom` is cleared there): nothing to measure from.
+        let landed = self.landed_bottom?;
+        let (rows, cols) = (self.geometry.rows, self.geometry.cols);
+        let document = u16::try_from(self.document_rows)
+            .unwrap_or(u16::MAX)
+            .min(landed);
+        let tail = rows
+            .saturating_sub(UPSTREAM_FOOTER_ROWS)
+            .saturating_sub(document)
+            .max(1);
+        let running = layout::solve_with(rows, cols, 1, true)?.content_bottom;
+        Some(usize::from(tail.min(running.saturating_sub(3))))
+    }
+
+    /// Shows the newest `room` rows of a card about to be written at the
+    /// band's top until the frame that shows them has landed, when the card
+    /// has more rows than that ([`Self::preview`]).
+    fn preview_card(&mut self, text: &str, links: &BadgeLinks, skills: &SkillRuns, room: usize) {
+        let body = self.card_body(text, links, skills);
+        let mut rows =
+            super::transcript::pushed_rows(&body, self.geometry.cols, Gutter::Rail, self.palette);
+        if room == 0 || rows.len() <= room {
+            return;
+        }
+        let shown = rows.split_off(rows.len() - room);
+        self.preview = Some(shown);
+        self.refit();
+    }
+
+    /// A preview the band was solved without is gone for good: the card is
+    /// not held behind it, so the next frame writes the card whole, and a
+    /// band that has the room again later must not show the tail of a card
+    /// already written, nor hold the document behind it ([`Self::preview`]).
+    fn unplaced_preview_gone(&mut self, geometry: &Geometry) {
+        if geometry.preview == 0 {
+            self.preview = None;
+        }
+    }
+
+    /// The card [`Mark::Card`] asks for.
+    fn write_card(&mut self, text: &str, links: &BadgeLinks, skills: &SkillRuns) {
+        self.finish_document_line();
+        if std::mem::take(&mut self.raw_gap) && !self.transcript.ends_blank() {
+            self.end_transcript_line();
+        }
+        if self.transcript.queue_gutter(Gutter::Rail) {
+            self.owed();
+        }
+        let card = self.card_body(text, links, skills);
         self.write_transcript_as(&card, Role::Plain);
         self.end_transcript_line();
         if self.transcript.queue_gutter(Gutter::None) {
@@ -14390,10 +14758,12 @@ impl CommandHandlers for Shell {
         // The effort and speed rows are the catalog's answer for the model in
         // force, which upstream's menu reads from a cache filled at launch
         // (`settingsCatalogSnapshot`'s `resolvedModelCapabilities`,
-        // `app_commands.zig:4031-4047`). This side reads the catalog when it
-        // is wanted, so the menu wants it: the rows show their choices once it
+        // `app_commands.zig:3230-3246@481104fd`). This side reads the catalog
+        // when it is wanted, so the menu waits for it -- asking for no refresh
+        // and no retry, as upstream's starts none; only the first load nothing
+        // has made ([`CatalogAsk::TOLD`]): the rows show their choices once it
         // lands ([`UiEvent::CatalogLoaded`] re-solves the band).
-        self.want_catalog();
+        self.want_catalog(CatalogAsk::TOLD);
         // [`Self::run_command`] re-solved the band before routing here, for a
         // band with no menu in it.
         self.refit();
@@ -14744,7 +15114,10 @@ impl Shell {
     /// makes, and never one this thread waits on. Rows in hand are listed at
     /// once and read again behind them, five seconds after the last read
     /// began; a load that failed is read again once its backoff is over --
-    /// the retry `xfx retries automatically.` says ([`Self::open_models_with`]).
+    /// the retry `xfx retries automatically.` says
+    /// ([`Self::open_models_with`]); rows whose refresh failed, not before its
+    /// hold ends; and any of them at once at a reading earlier than the last
+    /// read's start ([`CatalogDue`]).
     /// The rows arrive as [`UiEvent::CatalogLoaded`], and the open menu takes
     /// them.
     ///
@@ -14883,12 +15256,14 @@ impl Shell {
             // A load is on its way already: the menu waits for it rather than
             // asking twice.
             CatalogKnown::Asked => ModelMenu::loading(query),
-            // Failed, and inside the hold the failure put on the next read:
+            // Failed, and inside the hold the failure put on the next read
+            // (not due by the runtime's rule, so a reading not earlier than
+            // the failed read's start; [`CatalogDue::is_due`]):
             // upstream's cache starts no load then, and the menu opens over
             // the failure it holds -- `Could not reach AI Gateway; xfx retries
             // automatically.` at once, and nothing asked (`beginLoad`,
             // `:617`, `:621`; `refreshMenuLocked`, `:1046-1050`).
-            CatalogKnown::Unread(retry, retry_at) if Instant::now() < retry_at => {
+            CatalogKnown::Unread(retry, retry_at) if !retry_at.is_due(self.catalog_clock.now()) => {
                 let mut menu = ModelMenu::loading(query);
                 menu.failed(retry);
                 menu
@@ -14903,7 +15278,8 @@ impl Shell {
                 self.catalog_known = CatalogKnown::Asked;
                 ModelMenu::loading(query)
             }
-            // Failed and past its hold: the cache reads it again behind the
+            // Failed and due again -- past its hold, or at a reading earlier
+            // than the failed read's start: the cache reads it again behind the
             // failure, and the menu says `Loading models…` while it does
             // (`fetch_in_flight`, `:1049`) -- but the catalog is still the
             // failure for every other reader (`:485-486`): the column says
@@ -14937,6 +15313,18 @@ impl Shell {
             .flatten()
     }
 
+    /// A reading of the clock the catalog's times are told on.
+    pub(crate) fn catalog_now(&self) -> CatalogTime {
+        self.catalog_clock.now()
+    }
+
+    /// Its catalog's times read on `clock` -- a machine a test sleeps --
+    /// from now on.
+    #[cfg(test)]
+    pub(crate) fn set_catalog_clock_for_test(&mut self, clock: CatalogClock) {
+        self.catalog_clock = clock;
+    }
+
     /// What the band knows of when the runtime next reads the catalog, let
     /// go: a new answer, or a provider whose catalog is not this one.
     fn forget_catalog_clock(&mut self) {
@@ -14945,22 +15333,27 @@ impl Shell {
         self.catalog_nudged = false;
     }
 
-    /// Activity -- a submitted prompt, a frame of the inline column -- asks
-    /// the runtime for the catalog when the model cache would read it then
+    /// Activity -- a submitted prompt, a frame of the inline column, a resume
+    /// or a fork -- asks the runtime for the catalog when the model cache
+    /// would read it then
     /// (`LoadTrigger.activity`, `model_cache_runtime.zig:27-31@481104fd`;
     /// `beginLoad`, `:612-623`): a failure whose hold has ended, rows that
     /// are the refresh interval old, or rows whose refresh failed and whose
-    /// hold has ended. Once per answer: the runtime decides by its own clock,
-    /// and its answer, whatever it is, lets the band ask again. Nothing waits
-    /// on it: the band goes on saying what it says until the answer lands.
+    /// hold has ended -- and any of them at a reading earlier than the last
+    /// read's start ([`CatalogDue`]). Once per answer: the runtime decides by
+    /// its own clock, and its answer, whatever it is, lets the band ask
+    /// again. Nothing waits on it: the band goes on saying what it says until
+    /// the answer lands.
     /// Whether it asked.
-    fn note_catalog_activity(&mut self, now: Instant) -> bool {
+    fn note_catalog_activity(&mut self, now: CatalogTime) -> bool {
         if self.catalog_nudged {
             return false;
         }
+        // By the runtime's own rule ([`CatalogDue::is_due`]): a reading
+        // earlier than the last read's start is due too.
         let due = match self.catalog_known {
-            CatalogKnown::Unread(_, retry_at) => now >= retry_at,
-            CatalogKnown::Loaded => self.catalog_due.is_some_and(|due| now >= due),
+            CatalogKnown::Unread(_, retry_at) => retry_at.is_due(now),
+            CatalogKnown::Loaded => self.catalog_due.is_some_and(|due| due.is_due(now)),
             // Asked, or the launch's read still on its way: one is coming.
             CatalogKnown::Unasked | CatalogKnown::Asked => false,
         };
@@ -14973,18 +15366,21 @@ impl Shell {
         true
     }
 
-    /// Asks the runtime for the catalog on the inline column's behalf, when
-    /// nothing has yet: a control message, as [`Self::open_models`]'s is, so
-    /// the column says `loading models...` only until the read lands, a turn
-    /// running or not. A catalog that could not be read is not asked again
-    /// from an edit: the column says `unable to load models`, and the frame
-    /// that paints it asks again once the failure's hold has ended
-    /// ([`Self::settle_column`]).
-    fn want_catalog(&mut self) {
+    /// Asks the runtime for the catalog with `ask` when nothing has yet: on
+    /// the inline column's behalf ([`CatalogAsk::AWAITED`]), or for
+    /// `/settings` and the speed commands, which wait for the answer starting
+    /// no refresh and no retry -- only the first load nothing has made
+    /// ([`CatalogAsk::TOLD`]). A control message, as
+    /// [`Self::open_models`]'s is, so the column says `loading models...`
+    /// only until the read lands, a turn running or not. A catalog that could
+    /// not be read is not asked again from an edit: the column says `unable
+    /// to load models`, and the frame that paints it asks again once the
+    /// failure's hold has ended ([`Self::settle_column`]).
+    fn want_catalog(&mut self, ask: CatalogAsk) {
         if self.catalog_known != CatalogKnown::Unasked {
             return;
         }
-        self.work.control(TurnControl::Catalog(CatalogAsk::AWAITED));
+        self.work.control(TurnControl::Catalog(ask));
         self.catalog_known = CatalogKnown::Asked;
     }
 
@@ -14996,7 +15392,10 @@ impl Shell {
     /// `src/main.zig:2043-2045`, `:2167-2169`) -- activity, which reads a
     /// failure again once its backoff is over (`beginLoad`,
     /// `model_cache_runtime.zig:617`, `:621-622`), and rows once they are the
-    /// refresh interval old or a refresh of them failed. Either way the
+    /// refresh interval old or a refresh of them failed in a way asking again
+    /// could change -- not before a failure's hold ends either way -- and any
+    /// of them at once at a reading earlier than the last read's start
+    /// ([`CatalogDue`]). Either way the
     /// column goes on saying what it said until the answer lands -- `unable
     /// to load models` over a failure, whose retry leaves the cache's state
     /// `.failed` (`isModelCacheLoading`, `app_render_runtime.zig:752`), or the
@@ -15018,7 +15417,7 @@ impl Shell {
     /// asks nothing, here and upstream (`flushRequestedFrame` begins no
     /// attempt without a request): the column says `unable to load models`
     /// until the next keystroke.
-    pub(crate) fn settle_column(&mut self, now: Instant) {
+    pub(crate) fn settle_column(&mut self, now: CatalogTime) {
         let ticked = std::mem::take(&mut self.animation_turned);
         if !(self.render.owed() || ticked) || !matches!(self.slot(), Some(Slot::Column)) {
             return;
@@ -15150,7 +15549,7 @@ impl Shell {
         );
         if !self.held_speed.is_empty() || (needs_row && unknown) {
             self.held_speed.push(command);
-            self.want_catalog();
+            self.want_catalog(CatalogAsk::TOLD);
             return;
         }
         self.decide_speed(command);
@@ -15878,12 +16277,28 @@ impl Shell {
         self
     }
 
+    /// Whether the markdown presenter holds `text` in the line it has not
+    /// seen the end of, which [`Self::close_answer`] would write.
+    #[cfg(test)]
+    pub(crate) fn presenter_holds(&self, text: &str) -> bool {
+        self.markdown.holds(text)
+    }
+
+    /// The document reaching `rows` rows down the screen, as if that many had
+    /// landed, and the band floated under them.
+    #[cfg(test)]
+    pub(crate) fn with_document_rows(&mut self, rows: u32) {
+        self.document_rows = rows;
+        self.refloat();
+    }
+
     /// The band, moved to sit under the document as it now stands -- and
     /// given or relieved of the blank row above a panel that has taken the
     /// composer's, by how the document now ends ([`Self::placed`]): rows that
     /// landed under a panel are the document's new tail.
     fn refloat(&mut self) {
         let geometry = self.placed(self.geometry);
+        self.unplaced_preview_gone(&geometry);
         if geometry != self.geometry {
             self.geometry = geometry;
             self.render.request(Reason::Resize);
@@ -15899,6 +16314,17 @@ impl Shell {
     /// every block written after the document asks it ([`Transcript::ends_blank`]):
     /// the rows a frame is about to land are the tail the band sits under.
     fn placed(&self, geometry: Geometry) -> Geometry {
+        // A submitted card's preview at the band's top, when the screen has
+        // the rows for it and a document row besides; none otherwise, and the
+        // card is written at once ([`Self::preview`]).
+        let preview = self
+            .preview
+            .as_ref()
+            .and_then(|rows| u16::try_from(rows.len() + 1).ok());
+        let geometry = preview
+            .and_then(|rows| geometry.previewed(rows))
+            .or_else(|| geometry.previewed(0))
+            .unwrap_or(geometry);
         geometry
             .gapped(self.transcript.ends_blank())
             .floated(self.document_rows)
@@ -16110,6 +16536,7 @@ impl Shell {
         let Some(geometry) = self.fit(rows, cols) else {
             return;
         };
+        self.unplaced_preview_gone(&geometry);
         if geometry == self.geometry {
             return;
         }
@@ -16421,6 +16848,11 @@ impl Shell {
         // not on it yet (`resizeLifecyclePending`, `terminal_dimensions_invalid`,
         // `input_completion_runtime.zig:803-806@481104fd`).
         self.file_picker_unseen();
+        // No frame has landed on this screen yet.
+        self.landed_bottom = None;
+        // A card's preview was cut for the screen that is gone; the card is
+        // written whole by the frame this owes ([`Self::preview`]).
+        self.preview = None;
         // And a handoff still owed -- deferred behind a question or a screen
         // no band fits on -- was measured against the rows the terminal has
         // just reflowed.
@@ -16938,17 +17370,29 @@ mod tests {
     /// When the hold a failed read put on the next one ended: long enough
     /// ago that a `/model` asks again
     /// ([`crate::provider::model::failure_backoff`]).
-    fn failed_long_ago() -> Instant {
-        Instant::now()
-            .checked_sub(std::time::Duration::from_secs(2))
-            .expect("a clock older than two seconds")
+    fn failed_long_ago() -> CatalogDue {
+        CatalogDue::at(
+            catalog_now()
+                .checked_sub(std::time::Duration::from_secs(2))
+                .expect("a clock older than two seconds"),
+        )
     }
 
     /// When the hold a failed read put on the next one ends: still to come
     /// however long the test thread is held up between the failure and the
     /// `/model`.
-    fn failed_just_now() -> Instant {
-        Instant::now() + std::time::Duration::from_secs(3600)
+    fn failed_just_now() -> CatalogDue {
+        let now = catalog_now();
+        CatalogDue {
+            since: Some(now),
+            at: now + std::time::Duration::from_secs(3600),
+        }
+    }
+
+    /// A reading of the catalog's clock: the one a shell reads its catalog's
+    /// times against unless a test gives it another.
+    fn catalog_now() -> CatalogTime {
+        CatalogClock::system().now()
     }
 
     fn shell(rows: u16, cols: u16) -> Fixture {
@@ -16984,6 +17428,251 @@ mod tests {
             "a fresh session did not ask for its first frame, so the band \
              would appear only once something else changed"
         );
+    }
+
+    /// Writes everything the document owes, as a frame that lands would.
+    fn land_document(shell: &mut Fixture) {
+        while shell
+            .emit_document_front(|_| Landed::<std::convert::Infallible>::All)
+            .is_some()
+        {}
+    }
+
+    /// A 60-line paste, every line naming itself.
+    fn stale_paste() -> String {
+        let tall: Vec<String> = (1..=60)
+            .map(|n| format!("STALE-PREVIEW-ROW-{n:02}"))
+            .collect();
+        format!("\x1b[200~{}\x1b[201~", tall.join("\n"))
+    }
+
+    #[test]
+    fn no_preview_under_an_open_tool_group_after_a_reset_or_on_a_screen_with_no_room() {
+        // Three more ways a card is written whole at once: a tool group still
+        // open above it, a reset whose old document and new welcome are still
+        // owed, and a screen whose running band leaves no row for a preview
+        // (8 rows: a content bottom of 3, less the three the room keeps).
+        // (Each after a landed band, so the guard is what answers.)
+        let mut grouped = shell(40, 120);
+        grouped.band_landed();
+        grouped.apply(tool_start(
+            "call-1",
+            "read_file",
+            serde_json::json!({"path": "a.txt"}),
+        ));
+        grouped.apply(tool_result("call-1", "read_file", true, ""));
+        land_document(&mut grouped);
+        assert!(
+            grouped.group.drawn(),
+            "no open group, so this case proves nothing"
+        );
+        assert!(
+            !grouped.transcript.owes() && grouped.transcript.ends_blank() && !grouped.raw_gap,
+            "another guard answers first, so this case proves nothing"
+        );
+        assert_eq!(grouped.preview_room(), None, "under an open tool group");
+
+        let mut reset = shell(40, 120);
+        reset.band_landed();
+        reset.route_bytes(b"/clear\r");
+        assert_eq!(reset.preview_room(), None, "after a reset still owed");
+
+        let mut short = shell(8, 80);
+        short.band_landed();
+        assert_eq!(short.preview_room(), Some(0), "an 8-row screen's room");
+        short.route_bytes(b"\x1b[200~SHORT-ONE\nSHORT-TWO\nSHORT-THREE\x1b[201~");
+        land_document(&mut short);
+        short.route_bytes(b"\r");
+        assert!(
+            !short.previewing(),
+            "a preview with no room on an 8-row screen"
+        );
+    }
+
+    #[test]
+    fn the_presenter_holds_no_empty_text() {
+        // The test-only question has an answer for every text, the empty one
+        // included: nothing to look for is nothing held, rather than a panic
+        // on a window of no bytes.
+        let shell = shell(24, 80);
+        assert!(!shell.presenter_holds(""), "an empty text was held");
+    }
+
+    #[test]
+    fn a_card_sent_after_a_resize_before_a_frame_lands_is_written_whole() {
+        // fx measures its preview from its last committed frame
+        // (`presentation_shell.cursor_row`, committed at
+        // `src/ui/transcript/runtime.zig:9929-9932@481104fd`), and after a
+        // resize that is a frame of the old size. xfx has no frame of the new
+        // size to measure from until one lands, so it previews nothing: the
+        // card is written whole.
+        let paste = stale_paste();
+        let mut resized = shell(40, 120);
+        resized.document_rows = 2;
+        resized.band_landed();
+        resized.resize(30, 120);
+        resized.route_bytes(paste.as_bytes());
+        resized.route_bytes(b"\r");
+        assert!(
+            !resized.previewing(),
+            "a preview measured against a band no frame of this size painted"
+        );
+        assert!(resized.owes_document(), "the card is not owed whole");
+        // And once a frame of the new size has landed, the next card is
+        // previewed again.
+        land_document(&mut resized);
+        resized.band_landed();
+        resized.route_bytes(paste.as_bytes());
+        resized.route_bytes(b"\r");
+        assert!(
+            resized.previewing(),
+            "no preview after a frame of the new size landed"
+        );
+    }
+
+    #[test]
+    fn a_preview_the_slash_menu_took_the_room_of_does_not_come_back() {
+        // A preview the band lost the room for before its frame was the
+        // frame that clears the composer: the card is written whole that
+        // frame, and nothing of the preview may come back when the room does
+        // -- not its rows in the band, and not the hold on the document. Here
+        // the slash menu takes the room, opened by a key read with the Enter.
+        let paste = stale_paste();
+        let mut plain = shell(40, 120);
+        plain.document_rows = 2;
+        plain.band_landed();
+        plain.route_bytes(paste.as_bytes());
+        plain.route_bytes(b"\r");
+        assert!(
+            plain.previewing(),
+            "no preview without the menu, so this case proves nothing"
+        );
+        let mut menu = shell(40, 120);
+        menu.document_rows = 2;
+        menu.band_landed();
+        menu.route_bytes(paste.as_bytes());
+        menu.route_bytes(b"\r/");
+        assert!(
+            !menu.previewing(),
+            "the slash menu left the preview its rows"
+        );
+        land_document(&mut menu);
+        menu.preview_landed();
+        menu.route_bytes(b"\x7f");
+        assert!(
+            !menu.previewing(),
+            "the preview came back when the menu closed"
+        );
+        assert!(
+            !menu
+                .band_rows()
+                .iter()
+                .any(|row| row.contains("STALE-PREVIEW-ROW")),
+            "the band shows a card already written: {:#?}",
+            menu.band_rows()
+        );
+    }
+
+    #[test]
+    fn a_preview_a_steer_took_the_room_of_does_not_come_back() {
+        // The same, with a steer's banner taking the room under a turn that
+        // started.
+        let paste = stale_paste();
+        let mut steered = shell(40, 120);
+        steered.document_rows = 2;
+        steered.band_landed();
+        steered.route_bytes(paste.as_bytes());
+        steered.route_bytes(b"\r");
+        assert!(
+            steered.previewing(),
+            "no preview, so this case proves nothing"
+        );
+        let _taken = steered.picks_up();
+        steered.start_turn();
+        steered.settle_band(Instant::now());
+        let steering = steered.work.steering();
+        steering.open();
+        steered.route_bytes(b"a steer\r");
+        steered.settle_band(Instant::now());
+        assert!(
+            !steered.previewing(),
+            "the steer's banner left the preview its rows"
+        );
+        land_document(&mut steered);
+        steered.preview_landed();
+        let taken = steering.take();
+        assert!(!taken.is_empty(), "the steer never reached the turn");
+        steered.apply(UiEvent::Steered {
+            ids: taken.iter().map(|steer| steer.id).collect(),
+        });
+        steered.settle_band(Instant::now());
+        assert!(
+            !steered.previewing(),
+            "the preview came back when the steer was taken"
+        );
+        assert!(
+            !steered
+                .band_rows()
+                .iter()
+                .any(|row| row.contains("STALE-PREVIEW-ROW")),
+            "the band shows a card already written: {:#?}",
+            steered.band_rows()
+        );
+    }
+
+    #[test]
+    fn a_cards_preview_is_upstreams_tail_cut_to_the_frame_that_clears_the_composer() {
+        // fx v0.0.16's numbers on a 40-row screen, each read off a capture's
+        // frame after Enter or its frame trace
+        // (`.prd/tui-phase5/receipts/submit-card-preview/`): the rows below
+        // the document's last row and above `rows - 4`, at least one, and no
+        // more than the running band's content bottom less three.
+        for (composer, document, room, what) in [
+            (3, u32::MAX, 1, "three lines on a full screen"),
+            (5, u32::MAX, 3, "five lines on a full screen"),
+            (2, u32::MAX, 1, "an image and two lines on a full screen"),
+            (1, u32::MAX, 1, "a pasted block on a full screen"),
+            (1, 2, 32, "a pasted block under the welcome alone"),
+            (1, 4, 32, "a pasted block under the welcome and a notice"),
+            (1, 10, 26, "a pasted block under a short first turn"),
+        ] {
+            let mut shell = shell(40, 120);
+            shell.geometry = crate::tui::layout::solve(40, 120, composer).expect("a band");
+            shell.document_rows = document;
+            shell.band_landed();
+            assert_eq!(shell.preview_room(), Some(room), "{what}");
+        }
+        // And none for a card that does not start under a blank row the
+        // document already has: anything still owed, a line that does not end
+        // blank, a fork's line a card opens a blank row under.
+        // (Each after a landed band, so the guard is what answers.)
+        let mut owed = shell(40, 120);
+        owed.band_landed();
+        owed.end_transcript_line();
+        assert!(
+            owed.transcript.owes() && owed.transcript.ends_blank(),
+            "a blank row still owed is what this case is about"
+        );
+        assert_eq!(owed.preview_room(), None, "a blank row still owed");
+        let mut open = shell(40, 120);
+        open.band_landed();
+        open.write_transcript_as("an open line", Role::Plain);
+        assert_eq!(open.preview_room(), None, "an open line, still owed");
+        while open
+            .transcript
+            .emit_front(PALETTE, |_| Landed::<std::convert::Infallible>::All)
+            .is_some()
+        {}
+        assert!(!open.transcript.owes(), "the line was not written");
+        assert_eq!(
+            open.preview_room(),
+            None,
+            "a line that does not end blank, written"
+        );
+        let mut forked = shell(40, 120);
+        forked.band_landed();
+        forked.raw_gap = true;
+        assert_eq!(forked.preview_room(), None, "under a fork's line");
     }
 
     /// `/mcp`'s menu over a real runtime: a scratch home and workspace, the
@@ -18939,12 +19628,14 @@ mod tests {
             "the second read's Enter sent"
         );
         assert_eq!(shell.document(), said(ignored_behind_the_paste()));
+        shell.end_delivery_at(Instant::now() + super::super::input::Decoder::PASTE_QUIET);
 
-        // The same bytes in two deliveries are a paste and then a key, and
-        // nothing is said about them.
+        // The same bytes in two deliveries with the input quiet between them
+        // are a paste and then a key, and nothing is said about them.
         shell.route_read(b"\x1b[200~new\x1b[201~");
         shell.end_delivery();
         assert_eq!(shell.editor.text(), "priornewnew", "a paste that stands");
+        shell.end_delivery_at(Instant::now() + super::super::input::Decoder::PASTE_QUIET);
         shell.route_read(b"\r");
         shell.end_delivery();
         assert!(
@@ -18955,6 +19646,352 @@ mod tests {
             .document()
             .iter()
             .all(|row| !row.contains("right after the paste")));
+    }
+
+    #[test]
+    fn a_readiness_gap_behind_a_paste_s_end_marker_does_not_make_the_rest_a_prompt() {
+        // The PASTE-GAP receipt's threat: a clipboard holding `ESC[201~`, a
+        // slash command and a newline, on a terminal that does not strip the
+        // marker, written in two goes with a check that found nothing between
+        // them -- an ordinary refill of a pty's 1 022-byte queue. fx settles
+        // the paste at the gap (`event_loop.zig:94-119@481104fd`) and reads
+        // the rest as keys, so the newline submits. Here the rest is the
+        // clipboard's: counted, never typed, and said.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery();
+        assert_eq!(shell.editor.text(), "priornew", "fx's settle point moved");
+        shell.route_read(b"/version\r");
+        shell.end_delivery();
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the newline after the gap sent a prompt"
+        );
+        assert_eq!(
+            shell.editor.text(),
+            "priornew",
+            "the bytes after the gap were typed"
+        );
+        assert_eq!(shell.document(), said(ignored_behind_the_paste()));
+    }
+
+    /// xfx's own sentence for input that keeps arriving inside a paste's
+    /// quarantine after the warning has been said, spelled out here rather
+    /// than read from the code under test. fx has none: it has no quarantine.
+    fn still_ignored_after_the_paste() -> notice::Notice {
+        notice::Notice::warning("input", "Keys ignored until input stops.")
+    }
+
+    #[test]
+    fn a_second_paste_inside_the_quarantine_with_a_gap_in_its_middle_is_kept_and_sends_nothing() {
+        // opus on PASTE-GAP round 1: a second paste whose start marker lands
+        // within `PASTE_QUIET` of the first paste had the marker dropped, so a
+        // gap of that much inside the second paste ended the quarantine and
+        // the rest of the paste was read as keys: its newline sent the
+        // composer, and `/version` with it. The second paste is a paste.
+        let quiet = super::super::input::Decoder::PASTE_QUIET;
+        let ms = Duration::from_millis(1);
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(t0);
+        shell.route_read(b"\x1b[200~two ");
+        for at in [t0 + ms, t0 + ms + quiet, t0 + ms + quiet * 2] {
+            shell.end_delivery_at(at);
+        }
+        shell.route_read(b"lines\r/version\r\x1b[201~");
+        shell.end_delivery_at(t0 + quiet * 3);
+        shell.end_delivery_at(t0 + quiet * 4);
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the rest of the second paste sent a prompt"
+        );
+        assert_eq!(
+            shell.editor.text(),
+            "priornewtwo lines\n/version\n",
+            "the second paste was not kept as a paste"
+        );
+        assert_eq!(shell.document(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_second_paste_begun_behind_the_first_s_end_marker_sends_nothing_across_a_gap() {
+        // Its start marker in the delivery that ended the first paste, where
+        // fx counts it (`paste_framing.zig:102-107@481104fd`): the second
+        // paste is dropped to its own end marker, a gap in its middle
+        // included, and nothing of it is typed or sent.
+        let quiet = super::super::input::Decoder::PASTE_QUIET;
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~\x1b[200~two ");
+        for at in [t0, t0 + quiet, t0 + quiet * 2] {
+            shell.end_delivery_at(at);
+        }
+        shell.route_read(b"lines\r/version\r\x1b[201~");
+        shell.end_delivery_at(t0 + quiet * 3);
+        shell.end_delivery_at(t0 + quiet * 4);
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the rest of the second paste sent a prompt"
+        );
+        assert_eq!(
+            shell.editor.text(),
+            "priornew",
+            "the second paste was typed"
+        );
+        assert_eq!(shell.document(), said(ignored_behind_the_paste()));
+    }
+
+    #[test]
+    fn input_that_keeps_arriving_inside_the_quarantine_is_said_again_once_a_second() {
+        // gpt6 on PASTE-GAP round 1: the warning was said once, so a stream
+        // that kept the quarantine on went on being dropped with nothing on
+        // the screen to say so. Each second that more of it arrives, xfx says
+        // it again, and how to get out of it: stop the input. Nothing is
+        // decoded on a timer -- the quarantine ends only when the input stops.
+        let tick = super::super::event_loop::TICK;
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(t0);
+        // A byte a turn for 1.2 s: the first warning at the first turn, the
+        // second sentence a second after it, and no third.
+        let mut at = t0;
+        for _ in 0..150 {
+            at += tick;
+            shell.route_read(b"y");
+            shell.end_delivery_at(at);
+        }
+        // Then the input stops: no more is said, and a key is a key again.
+        shell.end_delivery_at(at + tick);
+        shell.end_delivery_at(at + tick + super::super::input::Decoder::PASTE_QUIET);
+        let mut both = said(ignored_behind_the_paste());
+        both.extend(said(still_ignored_after_the_paste()));
+        assert_eq!(shell.document(), both);
+        assert_eq!(shell.editor.text(), "priornew", "a dropped byte was typed");
+        shell.route_bytes(b"z");
+        assert_eq!(
+            shell.editor.text(),
+            "priornewz",
+            "the quarantine did not end"
+        );
+    }
+
+    /// xfx's sentence for input still being dropped while a paste begun behind
+    /// the first one's end marker is open: its cause, and no release point.
+    /// Spelled out, as [`still_ignored_after_the_paste`] is.
+    fn still_ignored_while_a_paste_is_open() -> notice::Notice {
+        notice::Notice::warning("input", "Paste still open; keys are ignored.")
+    }
+
+    /// And while a marker is read past its first byte: the open sequence, true
+    /// however many keys continue it.
+    fn still_ignored_while_a_sequence_is_open() -> notice::Notice {
+        notice::Notice::warning("input", "Key sequence open; keys are ignored.")
+    }
+
+    #[test]
+    fn the_repeat_while_a_dropped_paste_is_open_says_the_paste_is_open() {
+        // Both engines on PASTE-GAP round 2: with a paste begun behind the
+        // first one's end marker still open, stopping the input releases
+        // nothing -- the paste's own end marker does -- so "until it stops for
+        // a moment" would be false. The repeat says what does end it, and
+        // stopping changes nothing.
+        let tick = super::super::event_loop::TICK;
+        let mut shell = shell(24, 160);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~\x1b[200~two ");
+        shell.end_delivery_at(t0);
+        let mut at = t0;
+        for _ in 0..150 {
+            at += tick;
+            shell.route_read(b"y");
+            shell.end_delivery_at(at);
+        }
+        for later in [1, 5, 10] {
+            shell.end_delivery_at(at + Duration::from_secs(later));
+        }
+        assert!(
+            shell.decoder.quarantined(),
+            "stopping released the open paste"
+        );
+        shell.route_read(b"z\r");
+        shell.end_delivery_at(at + Duration::from_secs(11));
+        assert_eq!(
+            shell.editor.text(),
+            "priornew",
+            "a byte inside it was typed"
+        );
+        assert!(shell.sent.try_recv().is_err(), "a byte inside it was sent");
+        // The warning at the settle; the repeat a second into the stream; the
+        // stream's last fifth of a second, said at the first check a second
+        // after that, once it had stopped; and the key typed after the pause,
+        // which was dropped too. Every one in the words of the open paste.
+        let mut said_so = said(ignored_behind_the_paste());
+        for _ in 0..3 {
+            said_so.extend(said(still_ignored_while_a_paste_is_open()));
+        }
+        assert_eq!(shell.document(), said_so);
+    }
+
+    #[test]
+    fn the_repeat_while_a_marker_is_half_read_says_the_sequence_is_open() {
+        // A marker half read holds the quarantine through any pause (`ESC [`
+        // is how a paste's start begins), so the repeat said in that state
+        // says what must come first: the sequence finished or broken. Once a
+        // byte has broken it, the next repeat is the pause's sentence again.
+        let tick = super::super::event_loop::TICK;
+        let mut shell = shell(24, 160);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(t0);
+        let first = t0 + tick;
+        let mut at = t0;
+        loop {
+            at += tick;
+            let repeat_due =
+                at.saturating_duration_since(first) >= super::super::input::Decoder::PASTE_REPEAT;
+            shell.route_read(if repeat_due { b"\x1b[" } else { b"y" });
+            shell.end_delivery_at(at);
+            if repeat_due {
+                break;
+            }
+        }
+        for later in [1, 5] {
+            shell.end_delivery_at(at + Duration::from_secs(later));
+        }
+        assert!(
+            shell.decoder.quarantined(),
+            "a pause released a half-read marker"
+        );
+        shell.route_read(b"x");
+        let broke = at + Duration::from_secs(6);
+        shell.end_delivery_at(broke);
+        shell.end_delivery_at(broke + super::super::input::Decoder::PASTE_QUIET);
+        assert!(
+            !shell.decoder.quarantined(),
+            "the pause after the broken marker"
+        );
+        let mut said_so = said(ignored_behind_the_paste());
+        said_so.extend(said(still_ignored_while_a_sequence_is_open()));
+        said_so.extend(said(still_ignored_after_the_paste()));
+        assert_eq!(shell.document(), said_so);
+        assert_eq!(shell.editor.text(), "priornew");
+    }
+
+    #[test]
+    fn a_key_that_continues_a_held_marker_keeps_the_marker_sentence_true() {
+        // gpt6 on PASTE-GAP round 3: from a held `ESC [`, a `2` is another
+        // prefix of a start marker, so the pause still releases nothing -- a
+        // sentence promising that one more key would do was false. The repeat
+        // said while `ESC [` is held stays true when `2` and `0` follow and
+        // the input stops: nothing is released, nothing more is said, and the
+        // key that breaks the sequence and a pause end it.
+        let tick = super::super::event_loop::TICK;
+        let quiet = super::super::input::Decoder::PASTE_QUIET;
+        let mut shell = shell(24, 160);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(t0);
+        let first = t0 + tick;
+        let mut at = t0;
+        loop {
+            at += tick;
+            let repeat_due =
+                at.saturating_duration_since(first) >= super::super::input::Decoder::PASTE_REPEAT;
+            shell.route_read(if repeat_due { b"\x1b[" } else { b"y" });
+            shell.end_delivery_at(at);
+            if repeat_due {
+                break;
+            }
+        }
+        shell.route_read(b"2");
+        shell.end_delivery_at(at + tick);
+        shell.route_read(b"0");
+        shell.end_delivery_at(at + tick * 2);
+        for later in [1, 5, 10] {
+            shell.end_delivery_at(at + Duration::from_secs(later));
+        }
+        assert!(
+            shell.decoder.quarantined(),
+            "a pause released a continued marker"
+        );
+        let mut said_so = said(ignored_behind_the_paste());
+        said_so.extend(said(still_ignored_while_a_sequence_is_open()));
+        assert_eq!(
+            shell.document(),
+            said_so,
+            "the sentence changed or repeated"
+        );
+        shell.route_read(b"x");
+        let broke = at + Duration::from_secs(11);
+        shell.end_delivery_at(broke);
+        shell.end_delivery_at(broke + quiet);
+        assert!(
+            !shell.decoder.quarantined(),
+            "breaking it and a pause did not end it"
+        );
+        assert_eq!(shell.editor.text(), "priornew");
+    }
+
+    #[test]
+    fn a_hold_changed_by_held_bytes_alone_is_said_once_in_its_own_words() {
+        // opus on PASTE-GAP round 3: after a repeat saying "until it stops
+        // for a moment", an `ESC [` alone and then nothing holds the
+        // quarantine through any pause -- and its two bytes are held, not
+        // counted, so nothing more was said and the sentence on the screen
+        // was false. The new hold is said `PASTE_REPEAT` after the last
+        // sentence, once, however long the input then stays still.
+        let tick = super::super::event_loop::TICK;
+        let repeat = super::super::input::Decoder::PASTE_REPEAT;
+        let mut shell = shell(24, 160);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(t0);
+        // A stream until the quiet's repeat has been said.
+        let first = t0 + tick;
+        let mut at = t0;
+        loop {
+            at += tick;
+            shell.route_read(b"y");
+            shell.end_delivery_at(at);
+            if at.saturating_duration_since(first) >= repeat {
+                break;
+            }
+        }
+        let repeated = at;
+        // Then `ESC [`, and nothing after it.
+        shell.route_read(b"\x1b[");
+        shell.end_delivery_at(repeated + tick);
+        let mut check = repeated + tick;
+        while check < repeated + Duration::from_secs(10) {
+            check += tick * 25;
+            shell.end_delivery_at(check);
+        }
+        assert!(
+            shell.decoder.quarantined(),
+            "a pause released a held marker"
+        );
+        let mut said_so = said(ignored_behind_the_paste());
+        said_so.extend(said(still_ignored_after_the_paste()));
+        said_so.extend(said(still_ignored_while_a_sequence_is_open()));
+        assert_eq!(shell.document(), said_so);
     }
 
     #[test]
@@ -19011,6 +20048,8 @@ mod tests {
             "the composer was given the block rather than a summary of it"
         );
 
+        // The frame that shows the summary has landed.
+        shell.band_landed();
         shell.route_bytes(&[0x0d]);
         assert_eq!(
             shell.picks_up(),
@@ -19027,6 +20066,21 @@ mod tests {
             );
         }
         rows.push(String::new());
+        // On a full screen the frame that clears the composer shows only the
+        // card's newest row at the band's top, as upstream's does, and the
+        // card is written once that frame has landed ([`Shell::preview`]).
+        assert!(shell.previewing(), "a 24-row card was written at once");
+        assert!(
+            shell.band_rows()[0]
+                .ends_with(&format!("{RAIL}{RESET} {BOLD}{}{RESET}", "z".repeat(42))),
+            "the preview is not the card's last row: {:?}",
+            shell.band_rows()[0]
+        );
+        assert!(
+            shell.document().is_empty(),
+            "the card was written under its preview"
+        );
+        shell.preview_landed();
         assert_eq!(
             shell.document(),
             rows,
@@ -20300,7 +21354,19 @@ mod tests {
             3,
             "the kill took a whole draft"
         );
+        // The frame that shows the three-line draft has landed.
+        shell.band_landed();
         shell.route_bytes(&[0x0d]);
+        // The frame that clears the composer shows the three-line card's
+        // newest row and the blank row under it at the band's top, as
+        // upstream's does on a full screen ([`Shell::preview`]); the band
+        // gives them back once that frame has landed.
+        assert_eq!(
+            shell.band_rows().len(),
+            5,
+            "the preview, its blank row, composer, rule, hint"
+        );
+        shell.preview_landed();
         assert_eq!(shell.band_rows().len(), 3, "composer, rule, hint");
         assert_eq!(
             (shell.geometry.input_first, shell.geometry.content_bottom),
@@ -21179,7 +22245,7 @@ mod tests {
         let notice = unwrapped(&uncoloured_rows(&shell.screen_rows()));
         // The **leading clause**, not the whole sentence: the status line is
         // bounded to `STATUS_ROWS` on purpose, and thirty cells is narrow
-        // enough that two rows do not hold all of it. A notice allowed to grow
+        // enough that three rows do not hold all of it. A notice allowed to grow
         // to fit would be a notice pushing an answer off the screen to explain
         // why the answer could not be taken. What has to reach the user is
         // which of the two refusals this is, and that is its first clause.
@@ -22668,8 +23734,8 @@ mod tests {
             Ok(TurnControl::QuestionCancelled { .. })
         ));
         // `released`, not `document`: the notice is behind the pacer, which is
-        // how the existing too-small assertions read it (`shell.rs:5870`,
-        // `:6058`). Concatenated rather than compared row by row, because a
+        // how the existing too-small assertions read it (`shell.rs:6070`,
+        // `:6258`). Concatenated rather than compared row by row, because a
         // twenty-column screen is exactly the one that wraps this sentence --
         // and what the case is about is that the refusal was said, not where the
         // wrap fell.
@@ -24619,17 +25685,19 @@ mod tests {
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/fast" {
                 // Decided against the model's catalog row, which this fixture
-                // has not read: asked for, and answered when it arrives.
+                // has not read: waited for -- with no trigger of its own --
+                // and answered
+                // when it arrives.
                 assert!(
                     document.is_empty(),
                     "/fast answered before its row: {document:?}"
                 );
                 assert_eq!(
                     shell.controlled(),
-                    Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+                    Some(TurnControl::Catalog(CatalogAsk::TOLD))
                 );
                 shell.apply(UiEvent::CatalogLoaded {
-                    due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+                    due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
                     provider: ProviderId::Gateway,
                     entries: Vec::new(),
                 });
@@ -28044,7 +29112,7 @@ mod tests {
         let forged = "evil\n* provider: Switched to llmux with fable.";
         let mut shell = self::shell(24, 120);
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: vec![CatalogEntry {
                 id: forged.to_string(),
@@ -30153,7 +31221,7 @@ mod tests {
     fn harness_shell() -> Fixture {
         let mut shell = shell(40, 120);
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -30184,7 +31252,7 @@ mod tests {
     fn speed_shell() -> Fixture {
         let mut shell = shell(40, 120);
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: speed_rows(),
         });
@@ -30461,7 +31529,7 @@ mod tests {
         // announceable too.
         let mut empty = self::shell(24, 80);
         empty.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: Vec::new(),
         });
@@ -30686,7 +31754,7 @@ mod tests {
     fn the_menu_lists_the_rows_in_hand_and_walks_them_with_upstreams_keys() {
         let mut shell = shell(40, 120);
         shell.shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: vec![
                 entry("one", Some(400_000), &[]),
@@ -30813,7 +31881,7 @@ mod tests {
         // A catalog that arrives fills it, the note under it -- the fixture's
         // environment has no key, so there is none to name.
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -30822,7 +31890,7 @@ mod tests {
 
         // An empty one says so.
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: Vec::new(),
         });
@@ -30867,7 +31935,7 @@ mod tests {
         assert_eq!(rows[2], "Loading models…", "{rows:?}");
         // The turn still running, the answer lands.
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -30884,7 +31952,7 @@ mod tests {
         gateway.route_bytes(b"/model\r");
         let _ = gateway.controlled();
         gateway.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -30902,7 +31970,7 @@ mod tests {
         // A llmux catalog has no note.
         llmux.shell.gateway_note = Some("Note: Gateway catalog is authenticated with an API key");
         llmux.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: vec![entry("one", None, &[])],
         });
@@ -31029,8 +32097,8 @@ mod tests {
         });
         assert_eq!(column(&shell)[0], "         unable to load models");
         // An edit does not ask again; the frame that draws the column does,
-        // once the failed read is a second old
-        // (`the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_a_second_has_passed`).
+        // once the failure's hold is over
+        // (`the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_its_hold_is_over`).
         shell.route_bytes(b"y");
         assert!(shell.sent.try_recv().is_err(), "the edit retried");
     }
@@ -31055,7 +32123,7 @@ mod tests {
         assert_eq!(column(&shell)[0], "         unable to load models");
         // A frame inside the hold: asks nothing.
         assert!(shell.render.owed());
-        shell.settle_column(Instant::now());
+        shell.settle_column(catalog_now());
         assert!(shell.controlled().is_none(), "asked inside the hold");
         let _ = shell.render.begin();
         // Past the hold, an idle tick -- no frame owed -- asks nothing:
@@ -31063,7 +32131,7 @@ mod tests {
         shell.shell.catalog_known =
             CatalogKnown::Unread(Some(CatalogRetry::Unreachable), failed_long_ago());
         assert!(!shell.render.owed());
-        shell.settle_column(Instant::now());
+        shell.settle_column(catalog_now());
         assert!(shell.controlled().is_none(), "an idle tick asked");
         // The activity row's tick turning over while a turn works -- a frame
         // upstream draws every 50 ms, though no row of this band changed and
@@ -31071,18 +32139,18 @@ mod tests {
         // failure while the read is on its way.
         shell.shell.animation_turned = true;
         assert!(!shell.render.owed());
-        shell.settle_column(Instant::now());
+        shell.settle_column(catalog_now());
         assert_eq!(
             shell.controlled(),
             Some(TurnControl::Catalog(CatalogAsk::ACTIVITY))
         );
         assert_eq!(column(&shell)[0], "         unable to load models");
         shell.shell.animation_turned = true;
-        shell.settle_column(Instant::now());
+        shell.settle_column(catalog_now());
         assert!(shell.controlled().is_none(), "asked twice for one read");
         // The read lands, and the column lists it.
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -31099,7 +32167,7 @@ mod tests {
         });
         asked.apply(UiEvent::Question(a_batch()));
         assert!(asked.render.owed());
-        asked.settle_column(Instant::now());
+        asked.settle_column(catalog_now());
         assert!(
             asked.controlled().is_none(),
             "a column under a question asked"
@@ -31595,7 +32663,7 @@ mod tests {
         // write took.
         let mut shell = running("say something");
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: speed_rows(),
         });
@@ -31721,13 +32789,13 @@ mod tests {
         assert!(shell.document().is_empty(), "said before the row was read");
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+            Some(TurnControl::Catalog(CatalogAsk::TOLD))
         );
         let mut row = harness_rows().remove(3);
         row.id = model;
         row.facts.fast = true;
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: vec![row],
         });
@@ -31755,7 +32823,7 @@ mod tests {
         // speed change.
         assert_eq!(
             other.controlled(),
-            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+            Some(TurnControl::Catalog(CatalogAsk::TOLD))
         );
         assert!(other.controlled().is_none());
     }
@@ -31991,7 +33059,8 @@ mod tests {
     #[test]
     fn a_model_inside_a_failures_hold_opens_over_the_failure_and_asks_nothing() {
         // `fx-model-floor-*`: upstream's cache starts no load inside a
-        // failure's backoff, and `/model` then opens the menu over the
+        // failure's backoff (for a reading not earlier than the failed
+        // read's start), and `/model` then opens the menu over the
         // failure it holds -- the retryable sentence at once, never `Loading
         // models…`, and nothing asked (`beginLoad`,
         // `model_cache_runtime.zig:617`, `:621@481104fd`; `openMenu` ->
@@ -32061,7 +33130,7 @@ mod tests {
         shell.route_bytes(b"\x15/model ");
         assert!(shell.controlled().is_none(), "asked a second time");
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -36292,7 +37361,7 @@ mod tests {
         shell.shell.model = "old".to_string();
         shell.shell.session_title = Some("the first prompt".to_string());
         shell.shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: vec![entry("old", Some(100_000), &[])],
         });
@@ -36325,7 +37394,7 @@ mod tests {
             Some("the first prompt")
         );
         shell.shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(1_000_000), &[])],
         });
@@ -36355,7 +37424,7 @@ mod tests {
         // -- and the document gets nothing.
         let mut shell = shell(24, 80);
         shell.shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: vec![
                 entry("fable", Some(1_000_000), &["low", "high"]),
@@ -36400,7 +37469,7 @@ mod tests {
 
         // A denominator with no numerator is not a meter.
         shell.shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(200_000), &[])],
         });
@@ -36445,7 +37514,7 @@ mod tests {
         shell.shell.statusline.context = true;
         shell.shell.model = "fable".to_string();
         shell.shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(100_000), &[])],
         });
@@ -36465,7 +37534,7 @@ mod tests {
         let mut shell = shell(24, 80);
         shell.shell.model = "fable".to_string();
         shell.shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(100_000), &[])],
         });
@@ -36481,7 +37550,7 @@ mod tests {
         // alias, because the model in force is whatever the profile spelled.
         let mut shell = shell(24, 80);
         shell.shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: vec![
                 entry("small", Some(8_000), &[]),
@@ -36520,7 +37589,7 @@ mod tests {
         shell.shell.statusline.context = true;
         shell.shell.model = "fable".to_string();
         shell.shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(200_000), &[])],
         });
@@ -38303,6 +39372,94 @@ mod tests {
     }
 
     #[test]
+    fn a_choice_after_a_readiness_gap_behind_a_paste_answers_nothing() {
+        // The keys that act with no Enter are the reason the gap is closed for
+        // every key rather than for the newline alone: at an approval a `1`
+        // marks a choice. After a check that found nothing between the end
+        // marker and the rest of the clipboard, fx reads the `1` and the Enter
+        // as keys (`event_loop.zig:94-119@481104fd`) and the question is
+        // answered.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_read(b"\x1b[200~\x1b[201~");
+        shell.end_delivery();
+        shell.route_read(b"1\r");
+        shell.end_delivery();
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the keys after the gap answered the question"
+        );
+        assert!(shell.panel.is_some(), "the question went away");
+        assert_eq!(shell.document(), said(ignored_behind_the_paste()));
+    }
+
+    #[test]
+    fn a_question_that_opens_between_a_paste_s_bytes_and_its_end_answers_nothing() {
+        // opus r1 on PASTE-AFTER-END: a delivery can span two turns of the
+        // loop (the 32-read cap, a signal), and the runtime's events are taken
+        // between turns, so a question can open after the composer took a
+        // paste's bytes and before the delivery that carried its end marker is
+        // over. The `PasteEnd` then reaches the question, which takes no text
+        // with no draft open: the Enter behind the marker answers nothing, the
+        // panel stays, and the warning is said.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.route_read(b"\x1b[200~new\x1b[201~\r");
+        shell.apply(UiEvent::Approval(question(asked())));
+        shell.settle_band(started);
+        let _ = shell.document();
+        delivered(&mut shell);
+        shell.end_delivery();
+        assert_eq!(shell.controlled(), None, "the paste answered the question");
+        assert!(shell.panel.is_some(), "the question went away");
+        assert_eq!(shell.document(), said(ignored_behind_the_paste()));
+        assert_eq!(
+            shell.editor.text(),
+            "",
+            "the paste landed in the composer behind the panel"
+        );
+        // And the question still takes its own keys once the input is quiet.
+        shell.end_delivery_at(Instant::now() + super::super::input::Decoder::PASTE_QUIET);
+        shell.route_bytes(b"1");
+        assert!(
+            matches!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    answer: ApprovalAnswer::Once,
+                    ..
+                })
+            ),
+            "the question did not take a key of its own"
+        );
+    }
+
+    #[test]
+    fn a_question_cannot_close_between_a_paste_s_bytes_and_its_end() {
+        // The other way round has no path: a question closes only on its own
+        // keys ([`Shell::decide`]'s answer, [`Shell::answer`]'s), and nothing
+        // between a paste's start and the end of the delivery that ends it is a
+        // key. Not even the turn's end, taken between two turns of the loop,
+        // takes it down -- so the draft that took the paste's start is the one
+        // its `PasteEnd` reaches.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tkeep");
+        shell.route_read(b"\x1b[200~new\x1b[201~\r");
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.settle_band(Instant::now());
+        shell.end_delivery();
+        assert!(shell.panel.is_some(), "the question closed mid-delivery");
+        assert!(
+            band(&shell).contains("keepnew"),
+            "the paste did not reach the draft that took its start: {:?}",
+            band(&shell)
+        );
+        assert_eq!(shell.controlled(), None, "the Enter behind it answered");
+        assert_eq!(shell.editor.text(), "", "the paste reached the composer");
+    }
+
+    #[test]
     fn an_oversized_paste_at_a_draft_with_input_behind_it_says_the_limit_then_the_ignored_input() {
         // fx v0.0.16 finishes the paste before it warns
         // (`input_paste_runtime.zig:189-196@481104fd`), and an overflowed
@@ -38364,6 +39521,682 @@ mod tests {
             "the Enter behind the marker answered"
         );
         assert!(shell.document().is_empty(), "said behind the plane");
+    }
+
+    /// A question on the review plane, at `cols`, with a turn running: the
+    /// surface every quarantine sentence below is said on.
+    fn on_the_plane(cols: u16) -> Fixture {
+        let mut shell = shell(40, cols);
+        let started = turn_running(&mut shell, b"rewrite the notes\r");
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        let _ = shell.document();
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Alternate,
+            "{cols} columns"
+        );
+        // Painted, so a key may answer it.
+        delivered(&mut shell);
+        shell
+    }
+
+    /// From `t0`: `opening` read and settled, then a byte a turn until the
+    /// repeat is due, and `last` in the turn it falls due in. Returns that
+    /// turn's time.
+    fn streamed_to_the_repeat(
+        shell: &mut Fixture,
+        t0: Instant,
+        opening: &[u8],
+        last: &[u8],
+    ) -> Instant {
+        let tick = super::super::event_loop::TICK;
+        shell.route_read(opening);
+        shell.end_delivery_at(t0);
+        let first = t0 + tick;
+        let mut at = t0;
+        loop {
+            at += tick;
+            let due =
+                at.saturating_duration_since(first) >= super::super::input::Decoder::PASTE_REPEAT;
+            shell.route_read(if due { last } else { b"y" });
+            shell.end_delivery_at(at);
+            if due {
+                return at;
+            }
+        }
+    }
+
+    #[test]
+    fn every_quarantine_sentence_is_whole_on_the_review_plane_at_the_narrowest_screen() {
+        // opus on PASTE-GAP round 4: the plane gave its status two rows
+        // (`super::approval_screen`'s `STATUS_ROWS`), so a sentence wider than
+        // two rows of the narrowest screen a session has (`MIN_COLS`) was cut
+        // -- and a cut sentence says something else. Each of the three, said
+        // in its own state, is whole there.
+        let cols = super::super::layout::MIN_COLS;
+        for (opening, last, sentence) in [
+            (&b"\x1b[200~new\x1b[201~"[..], &b"y"[..], PASTE_STILL),
+            (b"\x1b[200~new\x1b[201~\x1b[200~two ", b"y", PASTE_UNTIL_END),
+            (b"\x1b[200~new\x1b[201~", b"\x1b[", PASTE_UNTIL_KEY),
+        ] {
+            let mut shell = on_the_plane(cols);
+            streamed_to_the_repeat(&mut shell, Instant::now(), opening, last);
+            let painted = unwrapped(&shell.screen_rows());
+            assert!(
+                painted.contains(sentence),
+                "{sentence:?} is not whole at {cols} columns: {painted:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_quarantine_s_sentence_leaves_the_review_plane_when_the_quarantine_ends() {
+        // opus on PASTE-GAP round 4: the plane's status row is set and never
+        // taken down, so once the quarantine ended "keys ignored" stayed up for
+        // the rest of the question while keys worked again. Each of the three
+        // sentences is on the plane while its quarantine holds, and gone once
+        // it ends: by the quiet, and -- for the open paste and the open
+        // sequence -- by the byte that closes or breaks it and then the quiet.
+        let tick = super::super::event_loop::TICK;
+        let quiet = super::super::input::Decoder::PASTE_QUIET;
+        for (opening, last, closing, sentence) in [
+            (
+                &b"\x1b[200~new\x1b[201~"[..],
+                &b"y"[..],
+                &b""[..],
+                PASTE_STILL,
+            ),
+            (
+                b"\x1b[200~new\x1b[201~\x1b[200~two ",
+                b"y",
+                b"\x1b[201~",
+                PASTE_UNTIL_END,
+            ),
+            (b"\x1b[200~new\x1b[201~", b"\x1b[", b"x", PASTE_UNTIL_KEY),
+        ] {
+            let mut shell = on_the_plane(100);
+            let at = streamed_to_the_repeat(&mut shell, Instant::now(), opening, last);
+            let painted = unwrapped(&shell.screen_rows());
+            assert!(painted.contains(sentence), "not said: {painted:?}");
+            let mut at = at + tick;
+            if !closing.is_empty() {
+                shell.route_read(closing);
+                shell.end_delivery_at(at);
+                at += tick;
+            }
+            shell.end_delivery_at(at);
+            shell.end_delivery_at(at + quiet);
+            // And the turn ends as the loop ends one: the plane is painted
+            // after `settle_input` (`super::super::event_loop`'s turn).
+            shell.settle_input(at + quiet);
+            assert!(
+                !shell.decoder.quarantined(),
+                "{sentence:?}: still quarantined"
+            );
+            let painted = unwrapped(&shell.screen_rows());
+            for gone in [PASTE_STILL, PASTE_UNTIL_END, PASTE_UNTIL_KEY] {
+                assert!(
+                    !painted.contains(gone),
+                    "{gone:?} outlived the quarantine: {painted:?}"
+                );
+            }
+            // And a key is a key again: the question answers it.
+            shell.route_bytes(b"1");
+            assert!(
+                shell.controlled().is_some(),
+                "{sentence:?}: the key did nothing"
+            );
+        }
+    }
+
+    /// The three states, each with the sentence it says: what is read first,
+    /// and the byte read in the turn the repeat falls due in.
+    fn the_three_holds() -> [(&'static [u8], &'static [u8], &'static str); 3] {
+        [
+            (b"\x1b[200~new\x1b[201~", b"y", PASTE_STILL),
+            (b"\x1b[200~new\x1b[201~\x1b[200~two ", b"y", PASTE_UNTIL_END),
+            (b"\x1b[200~new\x1b[201~", b"\x1b[", PASTE_UNTIL_KEY),
+        ]
+    }
+
+    #[test]
+    fn the_quarantine_sentences_render_whole_at_120_80_and_20_columns() {
+        // gpt6 and opus on PASTE-GAP round 4: the sentence tests had moved to
+        // a 160-column screen, so nothing pinned how they render at ordinary
+        // widths. In the document: one row at 120 and at 80 -- the topic and
+        // the sentence -- and at 20 a row per piece, the first carrying the
+        // topic, the rest under a hanging indent, none wider than the screen,
+        // and every word there in order. On the review plane: the sentence
+        // whole on its status rows at all three.
+        for cols in [120u16, 80, 20] {
+            for (opening, last, sentence) in the_three_holds() {
+                let mut shell = shell(40, cols);
+                let _ = shell.document();
+                streamed_to_the_repeat(&mut shell, Instant::now(), opening, last);
+                let rows = shell.document();
+                let notice = format!("! input: {sentence}");
+                let at = rows
+                    .iter()
+                    .position(|row| {
+                        row.starts_with("! input: ") && notice.starts_with(row.as_str())
+                    })
+                    .unwrap_or_else(|| panic!("{cols}: {sentence:?} not in {rows:?}"));
+                let mut taken = vec![rows[at].clone()];
+                taken.extend(
+                    rows[at + 1..]
+                        .iter()
+                        .take_while(|row| row.starts_with("  "))
+                        .cloned(),
+                );
+                if cols >= 80 {
+                    assert_eq!(taken, std::slice::from_ref(&notice), "{cols} columns");
+                } else {
+                    assert!(taken.len() > 1, "{cols}: {taken:?}");
+                }
+                assert!(
+                    taken
+                        .iter()
+                        .all(|row| row.chars().count() <= usize::from(cols)),
+                    "{cols}: a row wider than the screen: {taken:?}"
+                );
+                assert_eq!(unwrapped(&taken), notice, "{cols} columns");
+
+                let mut plane = on_the_plane(cols);
+                streamed_to_the_repeat(&mut plane, Instant::now(), opening, last);
+                let painted = unwrapped(&plane.screen_rows());
+                assert!(painted.contains(sentence), "{cols}: {painted:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_hold_that_flaps_is_said_at_most_once_a_second_and_its_last_state_is_said() {
+        // gpt6 on PASTE-GAP round 4: `ESC [`, a byte that breaks it, `ESC [`,
+        // ... -- the hold alternating every turn between the open sequence
+        // and the quiet -- for several `PASTE_REPEAT`s. A sentence is said at
+        // most once a `PASTE_REPEAT`, however the hold flaps; and when it stops
+        // on `ESC [` with nothing after it, what holds it then is the last
+        // thing said.
+        //
+        // gpt6 on round 5: every notice of every turn is counted -- not the
+        // first one a turn's rows hold -- fx's first warning is told apart
+        // from xfx's repeats, and every interval is checked, the one from
+        // fx's warning to the first repeat included.
+        let tick = super::super::event_loop::TICK;
+        let repeat = super::super::input::Decoder::PASTE_REPEAT;
+        let mut shell = shell(24, 160);
+        let _ = shell.document();
+        let t0 = Instant::now();
+        let mut notices: Vec<(Instant, String)> = Vec::new();
+        let mut take = |shell: &mut Fixture, at: Instant| {
+            let said: Vec<String> = shell
+                .document()
+                .into_iter()
+                .filter(|row| row.starts_with("! input: "))
+                .collect();
+            assert!(said.len() <= 1, "one turn said {said:?}");
+            notices.extend(said.into_iter().map(|row| (at, row)));
+        };
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(t0);
+        take(&mut shell, t0);
+        let mut at = t0;
+        for step in 0..450 {
+            at += tick;
+            shell.route_read(if step % 2 == 0 { b"\x1b[" } else { b"x" });
+            shell.end_delivery_at(at);
+            take(&mut shell, at);
+        }
+        // It stops on an open sequence.
+        at += tick;
+        shell.route_read(b"\x1b[");
+        shell.end_delivery_at(at);
+        take(&mut shell, at);
+        let mut check = at;
+        while check < at + Duration::from_secs(3) {
+            check += tick * 25;
+            shell.end_delivery_at(check);
+            take(&mut shell, check);
+        }
+        assert!(
+            notices.len() >= 4,
+            "too few said to mean anything: {notices:?}"
+        );
+        let warning = format!("! input: {PASTE_SUFFIX}");
+        assert_eq!(notices[0].1, warning, "fx's warning is said first");
+        for (_, row) in &notices[1..] {
+            assert!(
+                QUARANTINE_SENTENCES
+                    .iter()
+                    .any(|sentence| *row == format!("! input: {sentence}")),
+                "a repeat that is not one of xfx's sentences: {row:?}"
+            );
+        }
+        for pair in notices.windows(2) {
+            assert!(
+                pair[1].0.saturating_duration_since(pair[0].0) >= repeat,
+                "{:?} then {:?}, {:?} apart",
+                pair[0].1,
+                pair[1].1,
+                pair[1].0.saturating_duration_since(pair[0].0)
+            );
+        }
+        assert!(shell.decoder.quarantined(), "an open sequence was released");
+        assert_eq!(
+            notices.last().map(|(_, row)| row.as_str()),
+            Some(format!("! input: {PASTE_UNTIL_KEY}").as_str())
+        );
+    }
+
+    /// The review plane with `sentence` on it: `opening` read, then a byte a
+    /// turn until the repeat is due and `last` in that turn
+    /// ([`streamed_to_the_repeat`]), and the turn ended as the loop ends one
+    /// (`super::super::event_loop`'s turn: the burst, then
+    /// [`Shell::settle_input`], then the frame). What that turn owed is
+    /// taken -- its document rows and its frame -- and its time returned.
+    fn said_on_the_plane(opening: &[u8], last: &[u8], sentence: &str) -> (Fixture, Instant) {
+        let mut shell = on_the_plane(100);
+        let at = streamed_to_the_repeat(&mut shell, Instant::now(), opening, last);
+        shell.settle_input(at);
+        let painted = unwrapped(&shell.screen_rows());
+        assert!(painted.contains(sentence), "not said: {painted:?}");
+        let _ = shell.document();
+        let _ = shell.render.begin();
+        (shell, at)
+    }
+
+    /// After `transition`'s turn: the plane was repainted, and it says no
+    /// sentence about the quarantine any more -- and nothing new either,
+    /// there or in the document.
+    fn says_no_hold_after(shell: &mut Fixture, transition: &str) {
+        let repainted = shell.render.begin().is_some();
+        let painted = unwrapped(&shell.screen_rows());
+        for stale in QUARANTINE_SENTENCES {
+            assert!(
+                !painted.contains(stale),
+                "{transition}: {stale:?} is still on the plane: {painted:?}"
+            );
+        }
+        assert!(
+            !painted.contains(PASTE_SUFFIX),
+            "{transition}: a new notice: {painted:?}"
+        );
+        assert!(
+            shell.document().is_empty(),
+            "{transition}: said in the document"
+        );
+        assert!(repainted, "{transition}: the plane was not repainted");
+    }
+
+    #[test]
+    fn the_plane_s_sentence_goes_when_a_breaking_byte_ends_the_open_sequence() {
+        // gpt6 on PASTE-GAP round 5: "Key sequence open" said, then `x`
+        // breaks the sequence inside `PASTE_REPEAT`. The quarantine goes on,
+        // held by the quiet now, and the notice is not due -- but the plane's
+        // line is a view of now, not a notice, so it does not wait for one.
+        let tick = super::super::event_loop::TICK;
+        let (mut shell, at) =
+            said_on_the_plane(b"\x1b[200~new\x1b[201~", b"\x1b[", PASTE_UNTIL_KEY);
+        let at = at + tick;
+        shell.route_read(b"x");
+        shell.end_delivery_at(at);
+        shell.settle_input(at);
+        assert!(shell.decoder.quarantined(), "the quarantine ended");
+        says_no_hold_after(&mut shell, "Marker -> Quiet");
+    }
+
+    #[test]
+    fn the_plane_s_sentence_goes_when_the_dropped_paste_s_end_marker_arrives() {
+        // gpt6 on PASTE-GAP round 5: "Paste still open" said, then that
+        // paste's end marker inside `PASTE_REPEAT`. The quiet holds the
+        // quarantine now, and the paste is not open.
+        let tick = super::super::event_loop::TICK;
+        let (mut shell, at) =
+            said_on_the_plane(b"\x1b[200~new\x1b[201~\x1b[200~two ", b"y", PASTE_UNTIL_END);
+        let at = at + tick;
+        shell.route_read(b"\x1b[201~");
+        shell.end_delivery_at(at);
+        shell.settle_input(at);
+        assert!(shell.decoder.quarantined(), "the quarantine ended");
+        says_no_hold_after(&mut shell, "Paste -> Quiet");
+    }
+
+    #[test]
+    fn the_plane_s_sentence_goes_when_a_whole_paste_replaces_the_quarantine() {
+        // opus on PASTE-GAP round 5 (SHOULD 1), and gpt6's MUST 2: a paste
+        // begun inside the quarantine ends it, and when that paste settles in
+        // the same delivery with nothing behind it, the quarantine after it
+        // is a new one -- held by the quiet, as the old one was, and with
+        // nothing said in it. "Keys ignored until input stops." was said in
+        // the old one, about input the user's paste is not.
+        let tick = super::super::event_loop::TICK;
+        let (mut shell, at) = said_on_the_plane(b"\x1b[200~new\x1b[201~", b"y", PASTE_STILL);
+        let at = at + tick;
+        shell.route_read(b"\x1b[200~x\x1b[201~");
+        shell.end_delivery_at(at);
+        shell.settle_input(at);
+        assert!(
+            shell.decoder.quarantined(),
+            "the paste settled with no quarantine after it"
+        );
+        says_no_hold_after(&mut shell, "a whole paste");
+    }
+
+    #[test]
+    fn the_plane_s_sentence_goes_when_a_paste_begins_in_a_turn_that_ends_at_the_read_cap() {
+        // gpt6 on PASTE-GAP round 5 (MUST 2): a paste begun inside the
+        // quarantine and longer than a turn's reads. The turn ends at its
+        // read cap (`super::super::event_loop`'s `burst`, `still_at`), with no
+        // check that finds nothing -- and the quarantine is over.
+        let tick = super::super::event_loop::TICK;
+        let (mut shell, at) = said_on_the_plane(b"\x1b[200~new\x1b[201~", b"y", PASTE_STILL);
+        let at = at + tick;
+        shell.route_read(b"\x1b[200~a paste longer than the turn's reads");
+        shell.still_at(at);
+        shell.settle_input(at);
+        assert!(
+            shell.decoder.pasting() && !shell.decoder.quarantined(),
+            "not a paste begun"
+        );
+        says_no_hold_after(&mut shell, "the read cap");
+    }
+
+    #[test]
+    fn the_plane_s_sentence_goes_when_the_quiet_ends_the_quarantine() {
+        // Round 5's case, through the turn's end.
+        let tick = super::super::event_loop::TICK;
+        let quiet = super::super::input::Decoder::PASTE_QUIET;
+        let (mut shell, at) = said_on_the_plane(b"\x1b[200~new\x1b[201~", b"y", PASTE_STILL);
+        let at = at + tick;
+        shell.end_delivery_at(at);
+        shell.end_delivery_at(at + quiet);
+        shell.settle_input(at + quiet);
+        assert!(!shell.decoder.quarantined(), "still quarantined");
+        says_no_hold_after(&mut shell, "the quiet");
+    }
+
+    #[test]
+    fn fx_s_warning_on_the_plane_outlives_every_change_of_hold_and_the_quarantine() {
+        // fx's own warning is about what happened, so it is as true after the
+        // quarantine as during it: through an open sequence, the byte that
+        // breaks it, and the quiet, it stays.
+        let tick = super::super::event_loop::TICK;
+        let quiet = super::super::input::Decoder::PASTE_QUIET;
+        let mut shell = on_the_plane(100);
+        let mut at = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~y");
+        shell.end_delivery_at(at);
+        shell.settle_input(at);
+        for (bytes, state) in [
+            (&b"\x1b["[..], "an open sequence"),
+            (b"x", "the byte that breaks it"),
+            (b"", "the quiet"),
+        ] {
+            at += tick;
+            shell.route_read(bytes);
+            shell.end_delivery_at(at);
+            if bytes.is_empty() {
+                shell.end_delivery_at(at + quiet);
+            }
+            shell.settle_input(at);
+            let painted = unwrapped(&shell.screen_rows());
+            assert!(
+                painted.contains(PASTE_SUFFIX),
+                "{state}: fx's warning was taken down: {painted:?}"
+            );
+        }
+        assert!(!shell.decoder.quarantined(), "still quarantined");
+    }
+
+    #[test]
+    fn a_flapping_hold_never_leaves_the_plane_naming_the_other_one() {
+        // gpt6 on PASTE-GAP round 5: `ESC [`, `x`, `ESC [`, ... -- the hold
+        // flipping every turn for several `PASTE_REPEAT`s, on the plane. At
+        // the end of every turn the plane names what holds the quarantine
+        // then, or nothing; and it does name each, so this is not a plane
+        // that says nothing at all.
+        let tick = super::super::event_loop::TICK;
+        let mut shell = on_the_plane(100);
+        let mut at = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(at);
+        shell.settle_input(at);
+        let mut named = [false; 2];
+        for step in 0..450 {
+            at += tick;
+            let open = step % 2 == 0;
+            shell.route_read(if open { b"\x1b[" } else { b"x" });
+            shell.end_delivery_at(at);
+            shell.settle_input(at);
+            let (now, other) = if open {
+                (PASTE_UNTIL_KEY, PASTE_STILL)
+            } else {
+                (PASTE_STILL, PASTE_UNTIL_KEY)
+            };
+            let painted = unwrapped(&shell.screen_rows());
+            assert!(
+                !painted.contains(other) && !painted.contains(PASTE_UNTIL_END),
+                "step {step}: held by {now:?}, the plane says {painted:?}"
+            );
+            named[usize::from(open)] |= painted.contains(now);
+        }
+        assert_eq!(named, [true, true], "a sentence was never said");
+    }
+
+    #[test]
+    fn fx_s_warning_is_whole_on_the_review_plane_at_every_width_down_to_the_narrowest() {
+        // opus on PASTE-GAP round 5 (SHOULD 4): fx's own sentence takes three
+        // rows of the plane's status from 29 columns down to `MIN_COLS`, and
+        // the plane gave its status two, so the user read "Input that arrived
+        // right after the" -- which does not say the input was ignored. fx's
+        // words are not changed; the plane's status has the room for them.
+        for cols in super::super::layout::MIN_COLS..=40 {
+            let mut shell = on_the_plane(cols);
+            shell.route_bytes(b"\x1b[200~new\x1b[201~\r");
+            let painted = unwrapped(&shell.screen_rows());
+            assert!(
+                painted.contains(PASTE_SUFFIX),
+                "{cols} columns: {painted:?}"
+            );
+        }
+    }
+
+    /// The fewest rows the review plane needs for `request` at `cols` with no
+    /// status: its chrome, every row but the review's and the blanks. A
+    /// screen shorter than that gives up the hint row first, so it is the
+    /// least height at which the hint is on the plane -- read by the words
+    /// every tier of it keeps (`super::super::approval_view`'s hints).
+    fn plane_chrome_rows(request: ApprovalRequest, cols: u16) -> u16 {
+        let screen = super::super::approval_screen::ApprovalScreen::new(request);
+        (super::super::layout::MIN_ROWS..200)
+            .find(|&rows| {
+                screen
+                    .composition(cols, rows)
+                    .rows
+                    .iter()
+                    .any(|row| row.contains("enter confirm"))
+            })
+            .expect("a height with the whole chrome")
+    }
+
+    /// The plane's status rows for `text` at `cols`, before a short screen
+    /// gives any up (`super::super::approval_screen::status_rows`).
+    fn plane_status_rows(text: &str, cols: u16) -> Vec<String> {
+        super::super::approval_screen::status_rows(text, cols)
+    }
+
+    /// How many of `rows`, from the first, are on `painted` at the plane's
+    /// indent -- and that none after them is.
+    fn status_rows_shown(rows: &[String], painted: &[String], at: &str) -> usize {
+        let on = |row: &String| {
+            painted
+                .iter()
+                .any(|line| line.trim_end() == format!("  {row}").trim_end())
+        };
+        let shown = rows.iter().take_while(|row| on(row)).count();
+        assert!(
+            !rows[shown..].iter().any(on),
+            "{at}: a status row after one given up is on the plane: {painted:?}"
+        );
+        shown
+    }
+
+    /// The narrowest screen the review plane can grant `request` on: the
+    /// least width at which its choices, scope and subject are whole.
+    fn plane_grants_from(request: ApprovalRequest) -> u16 {
+        let screen = super::super::approval_screen::ApprovalScreen::new(request);
+        (super::super::layout::MIN_COLS..=200)
+            .find(|&cols| {
+                let disclosure = screen.composition(cols, 200).disclosure;
+                disclosure.controls_whole && disclosure.scope_whole && disclosure.subject_whole
+            })
+            .expect("a width the plane can grant at")
+    }
+
+    #[test]
+    fn a_refused_grant_on_a_short_review_plane_still_says_why_where_round_5_did() {
+        // gpt6 on PASTE-GAP round 6 (MUST): round 6 gave every status up whole
+        // when the screen was too short for all of its rows, so from one row
+        // above the plane's chrome to three, a `1` the gate refused did
+        // nothing anyone could see -- where round 5 showed the refusal's first
+        // rows. A refusal is cut from its last row, as round 5 cut it: at
+        // every height from the chrome (B) to four rows above it, nothing is
+        // granted, every choice is on the plane, and at least the rows round
+        // 5 showed are -- its status had two, given up from the last after
+        // the blank above them.
+        //
+        // At 20 and 30 columns the plane can grant no review (its choices are
+        // whole from `plane_grants_from` on, 63 columns today), so a `1` there
+        // is refused as a question this screen can never show whole, before
+        // its frame and after it. A question the screen cannot grant *yet* is
+        // refused from that width on, so it is pressed there and at 80.
+        let request = asked_about_a_large_change();
+        let grants = plane_grants_from(request.clone());
+        assert!(grants > 30, "the plane grants at {grants} columns");
+        let mut cases = Vec::new();
+        for cols in [super::super::layout::MIN_COLS, 30] {
+            cases.push(("before its frame", cols, false, APPROVAL_NOT_DISCLOSED));
+            cases.push(("after its frame", cols, true, APPROVAL_NOT_DISCLOSED));
+        }
+        for cols in [grants, 80] {
+            cases.push(("before its frame", cols, false, APPROVAL_NOT_READY));
+        }
+        let mut short = Vec::new();
+        for (case, cols, painted, notice) in cases {
+            let chrome = plane_chrome_rows(request.clone(), cols);
+            let rows = plane_status_rows(notice, cols);
+            for height in chrome..=chrome + 4 {
+                let at = format!("{case}, {cols}x{height} (B = {chrome})");
+                let mut shell = shell(height, cols);
+                shell.apply(UiEvent::Approval(question(request.clone())));
+                assert_eq!(shell.screen_owner(), ScreenOwner::Alternate, "{at}");
+                if painted {
+                    delivered(&mut shell);
+                }
+                let _ = shell.document();
+                shell.decide(Input::Text('1'), Instant::now());
+                assert_eq!(shell.controlled(), None, "{at}: granted");
+                let painted = uncoloured_rows(&shell.screen_rows());
+                for choice in ["1  Apply", "2  Apply", "3  Don't"] {
+                    assert!(
+                        painted.iter().any(|row| row.contains(choice)),
+                        "{at}: {choice:?} is off the plane: {painted:?}"
+                    );
+                }
+                let round_5 = usize::from(height - chrome)
+                    .saturating_sub(1)
+                    .min(2)
+                    .min(rows.len());
+                let shown = status_rows_shown(&rows, &painted, &at);
+                if shown < round_5 {
+                    short.push(format!(
+                        "{at}: {shown} of the refusal's rows, round 5 showed {round_5}"
+                    ));
+                }
+                assert!(shell.document().is_empty(), "{at}: said behind the plane");
+            }
+        }
+        assert_eq!(
+            short,
+            Vec::<String>::new(),
+            "a refusal said less than round 5 said"
+        );
+    }
+
+    #[test]
+    fn fx_s_warning_and_the_quarantine_s_sentences_are_whole_or_absent_on_a_short_plane() {
+        // The other half of the same rule: a cut of these says something else
+        // -- "Input that arrived right after the", "Keys ignored until" -- so
+        // at every height from the chrome to four rows above it, at 20 and 30
+        // columns, each is on the plane whole or not at all.
+        for cols in [super::super::layout::MIN_COLS, 30] {
+            let chrome = plane_chrome_rows(asked_about_a_large_change(), cols);
+            for (opening, last, sentence) in [
+                (&b"\x1b[200~new\x1b[201~y"[..], None, PASTE_SUFFIX),
+                (b"\x1b[200~new\x1b[201~", Some(&b"y"[..]), PASTE_STILL),
+                (
+                    b"\x1b[200~new\x1b[201~\x1b[200~two ",
+                    Some(b"y"),
+                    PASTE_UNTIL_END,
+                ),
+                (b"\x1b[200~new\x1b[201~", Some(b"\x1b["), PASTE_UNTIL_KEY),
+            ] {
+                let rows = plane_status_rows(sentence, cols);
+                let mut seen = false;
+                for height in chrome..=chrome + 4 {
+                    let at = format!("{sentence:?}, {cols}x{height} (B = {chrome})");
+                    let mut shell = shell(height, cols);
+                    let started = turn_running(&mut shell, b"rewrite the notes\r");
+                    shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+                    shell.settle_band(started);
+                    let _ = shell.document();
+                    assert_eq!(shell.screen_owner(), ScreenOwner::Alternate, "{at}");
+                    delivered(&mut shell);
+                    let now = Instant::now();
+                    match last {
+                        None => {
+                            shell.route_read(opening);
+                            shell.end_delivery_at(now);
+                            shell.settle_input(now);
+                        }
+                        Some(last) => {
+                            let due = streamed_to_the_repeat(&mut shell, now, opening, last);
+                            shell.settle_input(due);
+                        }
+                    }
+                    let painted = uncoloured_rows(&shell.screen_rows());
+                    let shown = status_rows_shown(&rows, &painted, &at);
+                    assert!(
+                        shown == 0 || shown == rows.len(),
+                        "{at}: {shown} of {} rows: {painted:?}",
+                        rows.len()
+                    );
+                    seen |= shown > 0;
+                }
+                assert!(
+                    seen,
+                    "{sentence:?} was never on the plane at {cols} columns"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_plane_s_sentence_goes_in_a_turn_whose_burst_ended_with_neither_check() {
+        // opus on PASTE-GAP round 6 (SHOULD 2): a burst can end with neither
+        // a check that found nothing nor the read cap -- an interrupted wait,
+        // or a read that would block (`super::super::event_loop`'s `burst`)
+        // -- and the turn goes on to `settle_input` and its frame. A byte that
+        // breaks the open sequence is read in such a burst.
+        let tick = super::super::event_loop::TICK;
+        let (mut shell, at) =
+            said_on_the_plane(b"\x1b[200~new\x1b[201~", b"\x1b[", PASTE_UNTIL_KEY);
+        let at = at + tick;
+        shell.route_read(b"x");
+        shell.settle_input(at);
+        assert!(shell.decoder.quarantined(), "the quarantine ended");
+        says_no_hold_after(&mut shell, "an interrupted burst");
     }
 
     #[test]
@@ -41727,7 +43560,7 @@ mod tests {
         // speed rows read.
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+            Some(TurnControl::Catalog(CatalogAsk::TOLD))
         );
         assert!(
             shell.sent.try_recv().is_err(),
@@ -41782,7 +43615,7 @@ mod tests {
         // into the search asks for another.
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+            Some(TurnControl::Catalog(CatalogAsk::TOLD))
         );
         shell.route_bytes(b"@src");
         assert!(
@@ -41996,7 +43829,7 @@ mod tests {
     fn effort_shell(root: &std::path::Path) -> Fixture {
         let mut shell = shell_at_home(root, 40, 120);
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -42263,7 +44096,7 @@ mod tests {
         loading.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: None,
-            retry_at: Instant::now(),
+            retry_at: CatalogDue::at(catalog_now()),
         });
         let _ = loading.document();
         loading.route_bytes(b"/effort\r");
@@ -42352,7 +44185,7 @@ mod tests {
         shell.route_bytes(b"/effort\r");
         // A catalog read landing is not one.
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -42465,7 +44298,7 @@ mod tests {
         let mut shell = shell_at_home(root.path(), 40, 120);
         let forged = "odd\u{1b}]0;x\u{7}\nmodel";
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: vec![CatalogEntry {
                 id: forged.to_string(),
@@ -42677,7 +44510,7 @@ mod tests {
         assert!(matches!(shell.slot(), Some(Slot::Column)));
         // A catalog read landing is not a change of model.
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -42720,7 +44553,7 @@ mod tests {
         });
         assert!(!matches!(shell.slot(), Some(Slot::Column)));
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: harness_rows(),
         });
@@ -42737,7 +44570,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = shell_at_home(root.path(), 40, 120);
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -42948,7 +44781,7 @@ mod tests {
         assert_eq!(shell.editor.text(), "model used", "the search was taken");
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+            Some(TurnControl::Catalog(CatalogAsk::TOLD))
         );
         assert!(shell.document().is_empty());
         // Waiting for the catalog: one dim line, four columns in.
@@ -42968,7 +44801,7 @@ mod tests {
             )
         );
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -43034,7 +44867,7 @@ mod tests {
         // Right opens it too; Tab closes it with the tab change.
         let mut right = with_settings(root.path());
         right.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -43061,7 +44894,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -43080,7 +44913,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -43105,7 +44938,7 @@ mod tests {
         // nothing listed is nothing to use.
         let mut none = with_settings(root.path());
         none.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -48816,11 +50649,14 @@ mod tests {
 
     /// The runtime could not read the catalog, the read that failed having
     /// failed at `failed` -- the first failure in a row.
-    fn unread_at(retry: Option<CatalogRetry>, failed: Instant) -> UiEvent {
+    fn unread_at(retry: Option<CatalogRetry>, failed: CatalogTime) -> UiEvent {
         UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry,
-            retry_at: failed + crate::provider::model::failure_backoff(1),
+            retry_at: CatalogDue {
+                since: Some(failed),
+                at: failed + crate::provider::model::failure_backoff(1),
+            },
         }
     }
 
@@ -48830,7 +50666,13 @@ mod tests {
         UiEvent::CatalogRefreshFailed {
             provider: ProviderId::Gateway,
             retry,
-            due: Instant::now() + crate::provider::model::failure_backoff(1),
+            due: {
+                let now = catalog_now();
+                CatalogDue {
+                    since: Some(now),
+                    at: now + crate::provider::model::failure_backoff(1),
+                }
+            },
         }
     }
 
@@ -48838,33 +50680,38 @@ mod tests {
     /// the next read once they are the refresh interval old, counted from
     /// then (`beginLoad`'s `expired`, `model_cache_runtime.zig:609-611
     /// @481104fd`).
-    fn loaded_from(began: Instant) -> UiEvent {
+    fn loaded_from(began: CatalogTime) -> UiEvent {
         UiEvent::CatalogLoaded {
             provider: ProviderId::Gateway,
             entries: harness_rows(),
-            due: began + REFRESH_INTERVAL,
+            due: CatalogDue {
+                since: Some(began),
+                at: began + REFRESH_INTERVAL,
+            },
         }
     }
 
     /// A refresh behind the rows the band holds failed, the runtime's clock
     /// owing activity the next read at `due`.
-    fn refresh_failed_due(retry: Option<CatalogRetry>, due: Instant) -> UiEvent {
+    fn refresh_failed_due(retry: Option<CatalogRetry>, due: CatalogTime) -> UiEvent {
         UiEvent::CatalogRefreshFailed {
             provider: ProviderId::Gateway,
             retry,
-            due,
+            due: CatalogDue::at(due),
         }
     }
 
-    /// Every catalog ask the shell has sent so far, as what asked -- `menu`
-    /// or `activity` -- and whether the band waits on its answer.
+    /// Every catalog ask the shell has sent so far, as what asked -- `menu`,
+    /// `activity`, or `told` for none -- and whether the band waits on its
+    /// answer.
     fn catalog_asks(shell: &mut Fixture) -> Vec<(&'static str, bool)> {
         let mut asks = Vec::new();
         while let Some(message) = shell.controlled() {
             if let TurnControl::Catalog(ask) = message {
                 let trigger = match ask.trigger {
-                    crate::provider::model::LoadTrigger::PickerOpen => "menu",
-                    crate::provider::model::LoadTrigger::Activity => "activity",
+                    Some(crate::provider::model::LoadTrigger::PickerOpen) => "menu",
+                    Some(crate::provider::model::LoadTrigger::Activity) => "activity",
+                    None => "told",
                 };
                 asks.push((trigger, ask.awaited));
             }
@@ -48898,13 +50745,14 @@ mod tests {
     #[test]
     fn a_model_inside_a_failures_backoff_opens_on_the_failure_says_xfx_retries_and_asks_nothing() {
         // `beginLoad` starts no load inside a failure's backoff, five seconds
-        // after the first (`model_cache_runtime.zig:40-54`, `:617`,
+        // after the first, for a reading not earlier than the failed read's
+        // start (`model_cache_runtime.zig:40-54`, `:617`,
         // `:621@481104fd`), and `openMenu` then shows the failure it holds
         // (`refreshMenuLocked`, `:1046-1050`) in `retryableFailureText`'s
         // words (`model_menu_presentation.zig:439-441`): the train-5 receipt's
         // `model-reask/menu-failed` and `p5-input-model-fail/fail-open`, where
         // fx said `Could not reach AI Gateway; fx retries automatically.`.
-        let two_seconds_ago = Instant::now()
+        let two_seconds_ago = catalog_now()
             .checked_sub(Duration::from_secs(2))
             .expect("a clock older than two seconds");
         let mut shell = shell(40, 120);
@@ -48928,7 +50776,7 @@ mod tests {
         // (`:1049`), the band waiting on the answer.
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
-        let ten_seconds_ago = Instant::now()
+        let ten_seconds_ago = catalog_now()
             .checked_sub(Duration::from_secs(10))
             .expect("a clock older than ten seconds");
         shell.apply(unread_at(Some(CatalogRetry::Unreachable), ten_seconds_ago));
@@ -48980,7 +50828,7 @@ mod tests {
         // catalog again once its backoff is over (`beginLoad`,
         // `model_cache_runtime.zig:617`, `:621-622`) -- the band asks the
         // runtime, without waiting on the answer, as the prompt is submitted.
-        let ten_seconds_ago = Instant::now()
+        let ten_seconds_ago = catalog_now()
             .checked_sub(Duration::from_secs(10))
             .expect("a clock older than ten seconds");
         let mut shell = shell(40, 120);
@@ -48994,7 +50842,7 @@ mod tests {
         );
         // Inside it: nothing.
         let mut shell = self::shell(40, 120);
-        shell.apply(unread_at(Some(CatalogRetry::Unreachable), Instant::now()));
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), catalog_now()));
         shell.route_bytes(b"hello\r");
         assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
         assert_eq!(catalog_asks(&mut shell), [], "asked inside the backoff");
@@ -49009,7 +50857,7 @@ mod tests {
         // upstream's `.runtime` failure (`:537-546`), says its sentence
         // (`model_menu_presentation.zig:441`), and activity asks again once
         // that failure's hold is over.
-        let ten_seconds_ago = Instant::now()
+        let ten_seconds_ago = catalog_now()
             .checked_sub(Duration::from_secs(10))
             .expect("a clock older than ten seconds");
         let mut shell = shell(40, 120);
@@ -49018,20 +50866,20 @@ mod tests {
         assert_eq!(catalog_asks(&mut shell), [("menu", true)]);
         let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
         assert_eq!(rows[2], "Loading models…", "{rows:?}");
-        shell.apply(unread_at(Some(CatalogRetry::Runtime), Instant::now()));
+        shell.apply(unread_at(Some(CatalogRetry::Runtime), catalog_now()));
         let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
         assert_eq!(
             rows[2], "Could not refresh model catalog; xfx retries automatically.",
             "{rows:?}"
         );
         assert!(
-            !shell.shell.note_catalog_activity(Instant::now()),
+            !shell.shell.note_catalog_activity(catalog_now()),
             "asked inside the new failure's hold"
         );
         assert!(
             shell
                 .shell
-                .note_catalog_activity(Instant::now() + Duration::from_secs(6)),
+                .note_catalog_activity(catalog_now() + Duration::from_secs(6)),
             "activity did not ask again past the hold"
         );
         assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
@@ -49044,22 +50892,22 @@ mod tests {
         // runtime answered that a refresh behind rows failed -- rows this
         // band does not hold. The band asks again when the runtime's clock
         // says the next read is due (the answer's `retry_at`), not never.
-        let ten_seconds_ago = Instant::now()
+        let ten_seconds_ago = catalog_now()
             .checked_sub(Duration::from_secs(10))
             .expect("a clock older than ten seconds");
         let mut shell = shell(40, 120);
         shell.apply(unread_at(Some(CatalogRetry::Unreachable), ten_seconds_ago));
-        assert!(shell.shell.note_catalog_activity(Instant::now()));
+        assert!(shell.shell.note_catalog_activity(catalog_now()));
         assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
         shell.apply(refresh_failed(Some(CatalogRetry::Unreachable)));
         assert!(
-            !shell.shell.note_catalog_activity(Instant::now()),
+            !shell.shell.note_catalog_activity(catalog_now()),
             "asked inside the hold the answer put on the next read"
         );
         assert!(
             shell
                 .shell
-                .note_catalog_activity(Instant::now() + Duration::from_secs(6)),
+                .note_catalog_activity(catalog_now() + Duration::from_secs(6)),
             "the answer left activity unable to ask again"
         );
         assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
@@ -49071,11 +50919,18 @@ mod tests {
         // (`last_attempt_ms`, set as it starts, `model_cache_runtime.zig:636`;
         // `expired`, `:609-611@481104fd`), so rows a slow read brought are
         // due that much sooner after they land: a prompt at the read's start
-        // plus five minutes asks, however long the read took.
-        let began = Instant::now()
+        // plus five minutes asks, however long the read took. On a fake
+        // machine's catalog clock: a reading five minutes back is one the
+        // system clock of a machine booted less than five minutes ago does
+        // not have (PR #89's arm64 runner).
+        let machine = crate::provider::catalog_clock::FakeMachine::new();
+        let clock = machine.clock();
+        let began = clock
+            .now()
             .checked_sub(REFRESH_INTERVAL + Duration::from_secs(1))
-            .expect("a clock older than five minutes");
+            .expect("the fake machine has been up an hour");
         let mut shell = shell(40, 120);
+        shell.shell.catalog_clock = clock.clone();
         shell.apply(loaded_from(began));
         shell.route_bytes(b"hello\r");
         assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
@@ -49086,7 +50941,8 @@ mod tests {
         );
         // Rows whose read began just now are not.
         let mut shell = self::shell(40, 120);
-        shell.apply(loaded_from(Instant::now()));
+        shell.shell.catalog_clock = clock.clone();
+        shell.apply(loaded_from(clock.now()));
         shell.route_bytes(b"hello\r");
         assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
         assert_eq!(catalog_asks(&mut shell), [], "asked for fresh rows");
@@ -49100,7 +50956,7 @@ mod tests {
         // 609-623@481104fd`): the band asks when the runtime says, not five
         // minutes after hearing it.
         let mut shell = harness_shell();
-        let due = Instant::now() + Duration::from_secs(120);
+        let due = catalog_now() + Duration::from_secs(120);
         shell.apply(refresh_failed_due(None, due));
         assert!(!shell
             .shell
@@ -49118,9 +50974,10 @@ mod tests {
         // (`app_render_runtime.zig:564@481104fd` -> `modelPickerCompletions`
         // -> `modelCompletions` -> `ensureModelCache`, `src/main.zig:2043-2045`,
         // `:2167-2169`), which reads a failed catalog again only past its
-        // backoff -- not a second after the read that failed began, as
+        // backoff, for readings not earlier than the failed read's start --
+        // not a second after the read that failed began, as
         // c1db9191's did.
-        let two_seconds_ago = Instant::now()
+        let two_seconds_ago = catalog_now()
             .checked_sub(Duration::from_secs(2))
             .expect("a clock older than two seconds");
         let mut shell = shell(40, 120);
@@ -49128,7 +50985,7 @@ mod tests {
         shell.route_bytes(b"/model ");
         assert_eq!(column(&shell)[0], "         unable to load models");
         assert!(shell.render.owed());
-        shell.settle_column(Instant::now());
+        shell.settle_column(catalog_now());
         assert_eq!(catalog_asks(&mut shell), [], "asked inside the backoff");
         assert_eq!(column(&shell)[0], "         unable to load models");
         // Past it, the frame asks -- and the column goes on saying the
@@ -49136,9 +50993,184 @@ mod tests {
         // cache `.failed` (`model_cache_runtime.zig:633-634`), which its
         // column reads (`app_render_runtime.zig:752-753`).
         shell.shell.animation_turned = true;
-        shell.settle_column(Instant::now() + Duration::from_secs(4));
+        shell.settle_column(catalog_now() + Duration::from_secs(4));
         assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
         assert_eq!(column(&shell)[0], "         unable to load models");
+    }
+
+    // -----------------------------------------------------------------------
+    // CATALOG-REFRESH: which asks read the catalog, and the clock they count
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_resume_or_a_fork_is_activity_for_the_catalog() {
+        // fx starts the model cache's activity trigger as a session is resumed
+        // from the picker or forked (`startResumedSessionWarmup` ->
+        // `startModelCacheWarmup` -> `loadModelCatalog(.activity)`,
+        // `app_session_runtime.zig:2048-2050`, `:2065`, `:2123`;
+        // `src/main.zig:2007-2008@481104fd`): rows five minutes past their
+        // read's start are read again, fresh ones are not, and a band with no
+        // answer yet -- the launch's own read on its way -- asks nothing.
+        // On a fake machine's catalog clock, whose readings go back five
+        // minutes on any host.
+        let machine = crate::provider::catalog_clock::FakeMachine::new();
+        let clock = machine.clock();
+        let stale = clock
+            .now()
+            .checked_sub(REFRESH_INTERVAL + Duration::from_secs(1))
+            .expect("the fake machine has been up an hour");
+        let resumed = || UiEvent::Resumed(replay(Some("first question alpha"), Vec::new()));
+        let forked = || UiEvent::Forked {
+            replay: replay(Some("first prompt alpha (fork)"), Vec::new()),
+            source: "1793751392050-7d3ce346fd20313d".to_string(),
+        };
+        for (what, reopened) in [("a resume", resumed()), ("a fork", forked())] {
+            let mut shell = shell(24, 240);
+            shell.shell.catalog_clock = clock.clone();
+            shell.apply(loaded_from(stale));
+            shell.apply(reopened);
+            assert_eq!(
+                catalog_asks(&mut shell),
+                [("activity", false)],
+                "{what} over rows five minutes old asked nothing"
+            );
+        }
+        for (what, reopened) in [("a resume", resumed()), ("a fork", forked())] {
+            let mut shell = shell(24, 240);
+            shell.shell.catalog_clock = clock.clone();
+            shell.apply(loaded_from(clock.now()));
+            shell.apply(reopened);
+            assert_eq!(catalog_asks(&mut shell), [], "{what} asked for fresh rows");
+        }
+        let mut shell = shell(24, 240);
+        shell.shell.catalog_clock = clock.clone();
+        shell.apply(resumed());
+        assert_eq!(catalog_asks(&mut shell), [], "asked before any answer");
+    }
+
+    #[test]
+    fn settings_and_the_speed_commands_wait_for_the_catalog_and_never_ask_for_a_refresh() {
+        // fx's `/settings`, `/fast` and `/ultrafast` read the capabilities its
+        // model cache holds and start no load (`settingsCatalogSnapshot` ->
+        // `resolvedModelCapabilities`, `app_commands.zig:3230-3246`;
+        // `handleFast`'s `resolveForApp`, `session_commands.zig:827`;
+        // `model_capabilities.zig:133-141`; `src/main.zig:2060-2066@481104fd`).
+        // Here they wait for the runtime's answer when the band has none --
+        // the launch's read, or a provider switch's, is on its way -- with no
+        // trigger: no refresh and no retry, only the first load nothing has
+        // made (the runtime's half, `super::worker`'s `trigger_over`). On a
+        // fake machine's catalog clock, whose readings go back five minutes
+        // on any host.
+        let machine = crate::provider::catalog_clock::FakeMachine::new();
+        let clock = machine.clock();
+        let stale = clock
+            .now()
+            .checked_sub(REFRESH_INTERVAL + Duration::from_secs(1))
+            .expect("the fake machine has been up an hour");
+        let failed = clock
+            .now()
+            .checked_sub(Duration::from_secs(60))
+            .expect("the fake machine has been up an hour");
+        for command in [&b"/settings\r"[..], b"/fast\r", b"/ultrafast on\r"] {
+            let typed = String::from_utf8_lossy(command).trim_end().to_string();
+            // No answer yet: waited for, with nothing read for it.
+            let mut shell = shell(40, 120);
+            shell.shell.catalog_clock = clock.clone();
+            shell.route_bytes(command);
+            assert_eq!(
+                catalog_asks(&mut shell),
+                [("told", true)],
+                "{typed} over no answer"
+            );
+            // Rows five minutes old, and a failure past its hold: read by
+            // fx's activity, but neither of these is activity.
+            for held in [
+                loaded_from(stale),
+                unread_at(Some(CatalogRetry::Unreachable), failed),
+            ] {
+                let mut shell = self::shell(40, 120);
+                shell.shell.catalog_clock = clock.clone();
+                shell.apply(held);
+                shell.route_bytes(command);
+                assert_eq!(catalog_asks(&mut shell), [], "{typed} asked for a read");
+            }
+        }
+    }
+
+    #[test]
+    fn rows_and_a_failure_read_before_the_machine_slept_are_due_on_waking() {
+        // The band reads the runtime's times on the catalog's clock, which
+        // counts sleep as fx's does (`clockMs`, `std.Io.Clock.boot`,
+        // `src/core/gateway/model_catalog.zig:72-79@481104fd`): rows read a
+        // minute before the night are asked for by the first prompt after
+        // it, and a failure's hold that ended in the night lets `/model` read
+        // again (`refreshMenuLocked`, `model_cache_runtime.zig:1046-1050`).
+        let machine = crate::provider::catalog_clock::FakeMachine::new();
+        let clock = machine.clock();
+        for (slept, asks) in [(Duration::ZERO, 0), (Duration::from_secs(8 * 3_600), 1)] {
+            let mut shell = shell(40, 120);
+            shell.shell.catalog_clock = clock.clone();
+            shell.apply(loaded_from(clock.now()));
+            machine.run(Duration::from_secs(60));
+            machine.sleep(slept);
+            shell.route_bytes(b"hello\r");
+            assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
+            assert_eq!(
+                catalog_asks(&mut shell).len(),
+                asks,
+                "{slept:?} asleep: the prompt's asks"
+            );
+        }
+        // Awake, inside the failure's hold, the menu opens over it and asks
+        // nothing -- by the catalog's clock, not the machine's own
+        // (`open_models_with`).
+        let mut shell = shell(40, 120);
+        shell.shell.catalog_clock = clock.clone();
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), clock.now()));
+        shell.route_bytes(b"/model\r");
+        assert_eq!(
+            catalog_asks(&mut shell),
+            [],
+            "the menu asked inside the failure's hold"
+        );
+        let mut shell = self::shell(40, 120);
+        shell.shell.catalog_clock = clock.clone();
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), clock.now()));
+        machine.sleep(Duration::from_secs(6));
+        shell.route_bytes(b"/model\r");
+        assert_eq!(
+            catalog_asks(&mut shell),
+            [("menu", true)],
+            "the menu held a failure whose hold ended asleep"
+        );
+    }
+
+    #[test]
+    fn a_reading_earlier_than_the_last_reads_start_owes_the_catalog_a_read() {
+        // fx: "callers treat a reading earlier than a stored one as due"
+        // (`clockMs`, `src/core/gateway/model_catalog.zig:72-75@481104fd`;
+        // `beginLoad`'s `elapsed` and `backoff_over`,
+        // `model_cache_runtime.zig:610-618`): rows whose read began after
+        // the reading, and a failure inside its hold, are both due then.
+        let began = catalog_now();
+        let earlier = began
+            .checked_sub(Duration::from_secs(1))
+            .expect("a clock older than a second");
+        let mut shell = shell(40, 120);
+        shell.apply(loaded_from(began));
+        assert!(!shell.shell.note_catalog_activity(began));
+        assert!(
+            shell.shell.note_catalog_activity(earlier),
+            "a reading before the rows' read began was not due"
+        );
+        assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
+        let mut shell = self::shell(40, 120);
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), began));
+        assert!(!shell.shell.note_catalog_activity(began));
+        assert!(
+            shell.shell.note_catalog_activity(earlier),
+            "a reading before the failed read was inside its hold"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -49307,7 +51339,7 @@ mod tests {
         let mut second = vec!["acme/gpt5-pro"];
         second.extend(first);
         let loaded = |entries: Vec<CatalogEntry>| UiEvent::CatalogLoaded {
-            due: Instant::now() + REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries,
         };
@@ -49363,7 +51395,13 @@ mod tests {
             shell.apply(UiEvent::CatalogRefreshFailed {
                 provider: ProviderId::Gateway,
                 retry,
-                due: Instant::now() + crate::provider::model::failure_backoff(1),
+                due: {
+                    let now = catalog_now();
+                    CatalogDue {
+                        since: Some(now),
+                        at: now + crate::provider::model::failure_backoff(1),
+                    }
+                },
             });
             assert_eq!(
                 listed(&shell),

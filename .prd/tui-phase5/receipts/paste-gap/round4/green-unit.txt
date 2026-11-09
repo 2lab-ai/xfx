@@ -1,0 +1,13 @@
+# cargo test --locked --lib -- dropped_paste_is_open marker_is_half_read continues_a_held_marker changed_by_held_bytes what_option_a_gives_up lone_escape_in_the_quarantine split_across_the_quiet still_says_what_the_quarantine_owes fills_every_read_after_a_paste
+# at 0cc8084e (round 4's code head)
+test tui::input::tests::still_says_what_the_quarantine_owes_and_settles_and_ends_nothing ... ok
+test tui::input::tests::a_byte_that_continues_a_held_marker_keeps_it_held_through_a_pause ... ok
+test tui::input::tests::a_lone_escape_in_the_quarantine_is_dropped_once_the_input_is_quiet ... ok
+test tui::input::tests::what_option_a_gives_up_a_lone_escape_then_a_gap_then_a_marker_s_tail_is_keys ... ok
+test tui::input::tests::a_start_marker_split_across_the_quiet_holds_the_quarantine ... ok
+test tui::shell::tests::the_repeat_while_a_marker_is_half_read_says_a_pause_waits_for_the_sequence ... ok
+test tui::shell::tests::a_hold_changed_by_held_bytes_alone_is_said_once_in_its_own_words ... ok
+test tui::shell::tests::a_key_that_continues_a_held_marker_keeps_the_marker_sentence_true ... ok
+test tui::shell::tests::the_repeat_while_a_dropped_paste_is_open_says_it_waits_for_the_paste_s_end ... ok
+test tui::event_loop::tests::a_stream_that_fills_every_read_after_a_paste_is_still_said_at_the_read_cap ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 4563 filtered out; finished in 0.01s

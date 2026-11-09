@@ -1,0 +1,23 @@
+# Why no sweep in round 7. What it changes that a cell could show:
+#  (a) how the review plane gives up a status on a short screen;
+#  (b) the words of the two readiness refusals, on the plane and in the document;
+#  (c) nothing else: fx's amendment-limit sentence keeps its words and its path.
+# Over PASTE-GAP round 1's head sweep (ea2b8a60, ../sweep-head.md), the same 41 input scenarios, in <scratch>/sweep-head/runs:
+#   ls */xfx/*.txt | wc -l
+xfx captures: 254
+# (a) a status row on the plane, at its two-column indent (round 6's pattern):
+#   grep -h -E '^  (Input that arrived|That edit exceeds|this screen cannot show|the question is not on the screen|Keys ignored|Paste still open|Key sequence open)' */xfx/*.txt | wc -l
+plane status rows: 0
+# (b) either refusal anywhere on a capture, by the head both keep:
+#   grep -l -E 'not on the screen yet|cannot show the whole request' */xfx/*.txt | wc -l
+captures with a readiness refusal: 0
+# (c) fx's limit sentence: in the document only, unchanged:
+#   grep -h 'exceeds the input limit' */xfx/*.txt | sort | uniq -c
+   9 ✗ input: That edit exceeds the input limit and was not applied.
+# The patterns can match. Captures keep the two-column indent, and rows of the shape a 120-column
+# capture would hold match: a quarantine sentence and a refusal at the indent for (a), a refusal in the
+# document for (b).
+indented rows: 20; (a) samples matched: 2 of 2; (b) sample matched: 1 of 1
+# The scenario files since a832f4d7:
+#   git diff a832f4d7..2b2f2bac -- scripts/fxcap/ | wc -l
+diff lines: 0

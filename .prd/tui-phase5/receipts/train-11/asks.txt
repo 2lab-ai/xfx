@@ -1,0 +1,19 @@
+# asks.py: each binary's catalog asks and answers (ms after the fake Gateway started) and the pair's verdict, for every run of the two wall-clock scenarios: the head's and main's sweeps and the three reruns of each (reruns.sh)
+## model-column-idle col-down (modelsdown 9000; col-idle and col-typed take the same verdict in every run)
+head-sweep: model-column-idle col-down unresolved-defect; fx asked at 2119 ms, 8254 ms; answered ; xfx asked at 4027 ms, 10129 ms; answered 200 at 10129 ms
+main-sweep: model-column-idle col-down normalized-identical; fx asked at 1244 ms, 7348 ms; answered ; xfx asked at 908 ms, 7045 ms; answered 
+head-rerun-1: model-column-idle col-down normalized-identical; fx asked at 15677 ms; answered 200 at 15677 ms; xfx asked at 12741 ms; answered 200 at 12741 ms
+head-rerun-2: model-column-idle col-down normalized-identical; fx asked at 3922 ms, 10013 ms; answered 200 at 10013 ms; xfx asked at 5115 ms, 11214 ms; answered 200 at 11214 ms
+head-rerun-3: model-column-idle col-down unresolved-defect; fx asked at 5744 ms, 11845 ms; answered 200 at 11845 ms; xfx asked at 1106 ms, 7184 ms; answered 
+main-rerun-1: model-column-idle col-down normalized-identical; fx asked at 15345 ms; answered 200 at 15345 ms; xfx asked at 13690 ms; answered 200 at 13690 ms
+main-rerun-2: model-column-idle col-down normalized-identical; fx asked at 4032 ms, 10137 ms; answered 200 at 10137 ms; xfx asked at 2999 ms, 9113 ms; answered 200 at 9113 ms
+main-rerun-3: model-column-idle col-down normalized-identical; fx asked at 7777 ms, 13876 ms; answered 200 at 13879 ms; xfx asked at 15845 ms; answered 200 at 15845 ms
+## model-parked menu-loading (modelsdown 6000)
+head-sweep: model-parked menu-loading normalized-identical; fx asked at 17146 ms; answered 200 at 25147 ms; xfx asked at 15328 ms; answered 200 at 23329 ms
+main-sweep: model-parked menu-loading unresolved-defect; fx asked at 5449 ms, 12075 ms; answered 200 at 20078 ms; xfx asked at 7793 ms; answered 200 at 15794 ms
+head-rerun-1: model-parked menu-loading unresolved-defect; fx asked at 11636 ms; answered 200 at 19637 ms; xfx asked at 5825 ms, 12413 ms; answered 200 at 20414 ms
+head-rerun-2: model-parked menu-loading unresolved-defect; fx asked at 3269 ms, 9878 ms; answered 200 at 17878 ms; xfx asked at 7255 ms; answered 200 at 15256 ms
+head-rerun-3: model-parked menu-loading unresolved-defect; fx asked at 1217 ms, 7832 ms; answered 200 at 15834 ms; xfx asked at 1399 ms, 8015 ms; answered 200 at 16020 ms
+main-rerun-1: model-parked menu-loading unresolved-defect; fx asked at 2093 ms, 8731 ms; answered 200 at 16733 ms; xfx asked at 4230 ms, 10935 ms; answered 200 at 18938 ms
+main-rerun-2: model-parked menu-loading normalized-identical; fx asked at 15468 ms; answered 200 at 23469 ms; xfx asked at 11966 ms; answered 200 at 19966 ms
+main-rerun-3: model-parked menu-loading unresolved-defect; fx asked at 1987 ms, 8596 ms; answered 200 at 16597 ms; xfx asked at 1460 ms, 8049 ms; answered 200 at 16051 ms

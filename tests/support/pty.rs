@@ -33,6 +33,26 @@ pub const WAIT: Duration = Duration::from_secs(20);
 /// How long the harness sleeps when a non-blocking descriptor has nothing yet.
 pub const IDLE_POLL: Duration = Duration::from_millis(2);
 
+/// How long [`Session::type_bytes`] lets the terminal stay quiet after a write
+/// that ended a bracketed paste, before it types anything more.
+///
+/// The TUI drops input that follows a paste, whoever typed it, until the input
+/// has been quiet for about 50 ms plus a turn of its loop (8 ms) plus that
+/// turn's work, counted from when it reads the paste's last byte and started
+/// again by every byte it drops (`PASTE_QUIET` and `TICK` in `src/tui/`, not
+/// visible from here, so spelled out). Fast input there is lost by design, and
+/// said. **These harnesses model paced input**: a test's next key comes after
+/// this pause, as a person's does once they have seen the paste land. The
+/// whole pause is taken at the next write -- after whatever the test waited to
+/// see -- rather than counted from the paste's own write, which a debug build
+/// on a loaded machine can spend most of reading and settling the paste. About
+/// four times the window. `paste_quiet_stays_within_what_was_measured` in
+/// `src/tui/input.rs` assumes this 250 ms, spelled out there, and nothing
+/// checks that the two (and `scripts/smoke-tui.sh`'s) agree: change all three
+/// together. A test about input *inside* the window uses
+/// [`Session::write_raw`], which takes no pause.
+pub const PASTE_PAUSE: Duration = Duration::from_millis(250);
+
 /// How many times a pty allocation is attempted before the harness gives up.
 ///
 /// Allocating a pty is not purely a function of this process: `/dev/ptmx` is a
@@ -210,6 +230,8 @@ pub struct Session {
     pub reading: Arc<AtomicBool>,
     pub reader: Option<JoinHandle<()>>,
     pub exited: Option<ExitStatus>,
+    /// Whether the last write ended a bracketed paste ([`PASTE_PAUSE`]).
+    pasted: AtomicBool,
 }
 
 impl Session {
@@ -300,6 +322,7 @@ impl Session {
             reading,
             reader: Some(reader),
             exited: None,
+            pasted: AtomicBool::new(false),
         }
     }
 
@@ -314,8 +337,27 @@ impl Session {
     ///
     /// Written in a loop because the master is non-blocking: a full input queue
     /// is a `WouldBlock`, not a failure, and the reader on the other side is a
-    /// real process that will get to it.
+    /// real process that will get to it. The write after one that ended a
+    /// bracketed paste waits [`PASTE_PAUSE`] first, as a person's next key
+    /// would; what one write carries behind an end marker is still written
+    /// with it.
     pub fn type_bytes(&self, bytes: &[u8]) {
+        if self.pasted.swap(false, Ordering::SeqCst) {
+            thread::sleep(PASTE_PAUSE);
+        }
+        self.write_raw(bytes);
+        if bytes.windows(6).any(|window| window == b"\x1b[201~") {
+            self.pasted.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// Writes `bytes` on the terminal **unpaced**: no [`PASTE_PAUSE`] before
+    /// it, whatever was written last, and none armed after it, whatever it
+    /// carries -- a terminal writing a paste as fast as the reader takes it,
+    /// for a test about what the TUI does with input inside a paste's
+    /// quarantine. Bounded as `type_bytes` is: [`WAIT`] for the terminal to
+    /// take each part of it.
+    pub fn write_raw(&self, bytes: &[u8]) {
         let deadline = Instant::now() + WAIT;
         let mut rest = bytes;
         while !rest.is_empty() {

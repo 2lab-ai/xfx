@@ -1,0 +1,26 @@
+# head bcc278d0, the RED commit: the new test, run before the fix
+   Compiling xfx v0.1.0 (<work>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.77s
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+
+running 1 test
+test tui::worker::tests::the_selector_a_provider_switch_builds_keeps_the_catalogs_clock ... FAILED
+
+failures:
+
+---- tui::worker::tests::the_selector_a_provider_switch_builds_keeps_the_catalogs_clock stdout ----
+
+thread 'tui::worker::tests::the_selector_a_provider_switch_builds_keeps_the_catalogs_clock' (392537757) panicked at src/tui/worker.rs:16699:9:
+assertion `left == right` failed: the switch's selector reads another clock
+  left: CatalogTime(923554.366891291s)
+ right: CatalogTime(3600s)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::worker::tests::the_selector_a_provider_switch_builds_keeps_the_catalogs_clock
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4572 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `--lib`
+exit 101

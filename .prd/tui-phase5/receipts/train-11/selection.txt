@@ -1,0 +1,100 @@
+# Train 11's sweep selection (selection.py 32afd307 <head>); 378 scenarios at the head.
+# the submit scenarios (the brief's)
+p5-submit-preview-*
+*submit*
+# the model and catalog scenarios (the brief's)
+model*
+p5-input-model*
+p5-catalog-*
+# the approval and paste scenarios (the brief's)
+approvals*
+paste*
+p5-input-paste*
+# SUBMIT-CARD-PREVIEW's own sweep's (the brief's)
+p5-transcript-*
+# CATALOG-REFRESH's own sweep's (the brief's)
+h1-models*
+settings-model*
+# PASTE-GAP's own sweep's (the brief's)
+approvals-amend-limit
+approvals-big
+approvals
+card-wrap
+compact-toolarge
+composer-wrap
+image-composer
+image-inline
+image-undo
+model-effort
+model-router
+model-speed
+p5-effort-fork-effort-column
+p5-effort-fork-effort-menu
+p5-effort-fork-effort-nolevels
+p5-effort-fork-fork-edge
+p5-input-approval
+p5-input-at-dir
+p5-input-at
+p5-input-ctrlbs
+p5-input-mcp
+p5-input-model-fail
+p5-input-model
+p5-input-paste-amend
+p5-input-paste-behind
+p5-input-paste-field
+p5-input-paste
+p5-input-question
+p5-input-smoke
+p5-panels-keys
+p5-session-early-prefs
+p5-transcript-submit-multi
+p5-transcript-submit
+p5-transcript-tallfirst
+paste-block-undo
+paste-card
+paste-suffix
+question-field
+question-other
+question
+skills-paste
+# the scenarios of the 18 ledger entries the train changed
+#   cause activity-row-gap (changed): interrupt2
+interrupt2
+#   cause activity-tokens-before-request (changed): model-parked
+model-parked
+#   cause allowlist-band (changed): allowlist2
+allowlist2
+#   cause amendment-card-after-stop (changed): approvals
+#   cause at-resize-band-at-the-bottom (changed): p5-input-at-resize
+p5-input-at-resize
+#   cause cancel-page-edge (changed): p5-transcript-cancel
+p5-transcript-cancel
+#   cause full-transcript-shift (changed): fulltranscript*, links, read-failures, resume-tools, timeout
+fulltranscript*
+links
+read-failures
+resume-tools
+timeout
+#   cause preview-frame-before-the-turn-start (added): p5-transcript-submit-multi
+#   cause provider-label (changed): *
+#   cause resize-document-repaint (changed): p5-ctrlo-wider-inline-fam, h1-resize
+p5-ctrlo-wider-inline-fam
+h1-resize
+#   cause safe-page-edge (changed): p5-transcript-safe, p5-transcript-safetab
+p5-transcript-safe
+p5-transcript-safetab
+#   cause session-record (changed): *
+#   cause stats-bytes (changed): *
+#   cause submit-multi-card-whole (deleted): p5-transcript-submit-multi
+#   cause toolgroup-ctrlo-record-short (changed): p5-toolgroup-ctrlo, p5-toolgroup-ctrlo-tc
+p5-toolgroup-ctrlo
+p5-toolgroup-ctrlo-tc
+#   cause transcript-page-offset (changed): p5-transcript-anchor, p5-transcript-anchormid, p5-transcript-resize, p5-transcript-records, p5-transcript-question
+p5-transcript-anchor
+p5-transcript-anchormid
+p5-transcript-resize
+p5-transcript-records
+p5-transcript-question
+#   divergence answer-drawn-wider-named (changed): p5-ctrlo-wider-inline-fam
+#   normalization banner (changed): -
+# 101 scenarios (101 .cap files; a scenario with one per side counts once)

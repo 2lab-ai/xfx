@@ -1,0 +1,30 @@
+┃ tall prompt body 38
+┃ tall prompt body 39
+┃ tall prompt body 40
+┃ tall prompt body 41
+┃ tall prompt body 42
+┃ tall prompt body 43
+┃ tall prompt body 44
+┃ tall prompt body 45
+┃ tall prompt body 46
+┃ tall prompt body 47
+┃ tall prompt body 48
+┃ tall prompt body 49
+┃ tall prompt body 50
+┃ tall prompt body 51
+┃ tall prompt body 52
+┃ tall prompt body 53
+┃ tall prompt body 54
+┃ tall prompt body 55
+┃ tall prompt body 56
+┃ tall prompt body 57
+┃ tall prompt body 58
+┃ TALL_PROMPT_TAIL
+
+  Block answer.
+
+  1s (↑298 ↓40)
+
+┃
+
+auto · model-a

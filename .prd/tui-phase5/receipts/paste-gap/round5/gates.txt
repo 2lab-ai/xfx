@@ -1,0 +1,55 @@
+# Every CI step of .github/workflows/ci.yml, in its order, in the worktree, under the machine's suite
+# lock (one slot for the whole run), TMPDIR=<scratch>/paste-gap/gate-tmp. 'test' is
+# 'cargo test --locked --all-targets --no-fail-fast'; 'fi-test-all' is
+# 'cargo test --locked --features fault-injection --no-fail-fast'.
+head 6cb46583
+fmt exit=0 2s
+clippy exit=0 6s
+test exit=0 146s
+fi-clippy exit=0 8s
+fi-test-all exit=0 180s
+no-stubs exit=0 20s
+no-secrets exit=0 79s
+gate-env exit=0 447s
+identity exit=0 2s
+preview-contract exit=0 8s
+preview-mutants exit=0 103s
+preflight-cost exit=0 137s
+usage-clock exit=0 154s
+release-build exit=0 20s
+smoke exit=0 2s
+faulty-build exit=0 22s
+smoke-tui exit=0 70s
+-- test
+  binaries: 14, passed 5489, failed 0, ignored 7
+-- fi-test-all
+  binaries: 15, passed 5527, failed 0, ignored 7
+  smoke-tui: 
+  smoke-tui: smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures
+  smoke-tui: evidence: <scratch>/paste-gap/gate-tmp/xfx-smoke-tui
+
+## round 5's tests, the review-plane cases and the unit's pty paste cases in the 'test' log
+  test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... ok
+  test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... ok
+  test a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing ... ok
+  test an_enter_one_read_behind_a_paste_s_end_marker_is_behind_it_too ... ok
+  test session::prompt_history::tests::an_append_past_a_mebibyte_compacts_the_file ... ok
+  test tui::input::tests::a_byte_that_continues_a_held_marker_keeps_it_held_through_a_pause ... ok
+  test tui::shell::tests::a_draft_on_the_review_plane_says_its_refusal_on_the_plane_the_user_can_see ... ok
+  test tui::shell::tests::a_hold_changed_by_held_bytes_alone_is_said_once_in_its_own_words ... ok
+  test tui::shell::tests::a_hold_that_flaps_is_said_at_most_once_a_second_and_its_last_state_is_said ... ok
+  test tui::shell::tests::a_key_that_continues_a_held_marker_keeps_the_marker_sentence_true ... ok
+  test tui::shell::tests::a_paste_with_input_behind_it_on_the_review_plane_is_kept_and_said_on_the_plane ... ok
+  test tui::shell::tests::an_affirmative_on_the_review_plane_waits_for_that_planes_own_frame ... ok
+  test tui::shell::tests::an_approval_on_the_review_plane_takes_the_keys_and_the_band_keeps_the_panel_for_its_return ... ok
+  test tui::shell::tests::an_oversized_paste_with_input_behind_it_on_the_review_plane_ends_on_the_warning ... ok
+  test tui::shell::tests::every_quarantine_sentence_is_whole_on_the_review_plane_at_the_narrowest_screen ... ok
+  test tui::shell::tests::the_arrows_leave_a_draft_on_the_review_plane_even_though_c_p_scrolls_it ... ok
+  test tui::shell::tests::the_quarantine_s_sentence_leaves_the_review_plane_when_the_quarantine_ends ... ok
+  test tui::shell::tests::the_quarantine_sentences_render_whole_at_120_80_and_20_columns ... ok
+  test tui::shell::tests::the_repeat_while_a_dropped_paste_is_open_says_the_paste_is_open ... ok
+  test tui::shell::tests::the_repeat_while_a_marker_is_half_read_says_the_sequence_is_open ... ok
+
+## smoke-tui's paste scenarios
+    7-multiline-and-paste-framing         ok
+    21-paste-entities                     ok

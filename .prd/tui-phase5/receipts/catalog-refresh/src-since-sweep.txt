@@ -1,0 +1,7 @@
+# src outside tests, 3d96f590 (the swept binary) -> bb67a055: python3 -I size.py 3d96f590 HEAD
+src/config.rs: every line +7 -0; code +4 -0
+src/provider/model.rs: every line +28 -10; code +3 -1
+src/tui/bridge.rs: every line +14 -9; code +0 -0
+src/tui/shell.rs: every line +44 -22; code +0 -0
+src/tui/worker.rs: every line +8 -6; code +0 -0
+total outside tests: every line +101 -47; code +7 -1

@@ -1636,6 +1636,22 @@ fn freeze(
     Some(after)
 }
 
+/// The rows one push of plain `text` under `gutter` writes on a screen `cols`
+/// wide, each line's in turn, as [`Transcript::emit_front`] writes them: what
+/// the band shows of a card before the card is written
+/// (`super::shell::Shell`'s `preview`), the same bytes on the same rows.
+pub(crate) fn pushed_rows(text: &str, cols: u16, gutter: Gutter, palette: Palette) -> Vec<String> {
+    let mut gutter = gutter;
+    let mut rows = Vec::new();
+    for line in normalize(text).split('\n') {
+        let mut roles = Roles::default();
+        roles.extend(line.len(), Role::Plain);
+        rows.append(&mut texts(line, &roles, cols, gutter, palette));
+        gutter = gutter.continued();
+    }
+    rows
+}
+
 /// `text`, wrapped, as the strings an append writes -- each row painted in the
 /// roles its own bytes carry.
 ///

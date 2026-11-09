@@ -1,0 +1,23 @@
+# jobs.sh mutants at 2026-11-09T14:40:31Z, load 18.65
+# mutants-clone at 820a8f15
+# 820a8f15 test(tui): P5 train 11 -- join check 1's test sends an Enter inside the; limit 900 s a cargo run
+unchanged: exit 0; join-paste ok; join-catalog ok; pae-unit ok; gap-unit ok; scp-unit ok; cr-unit ok
+P1 the bytes behind a paste's end marker are decoded (PASTE-AFTER-END's): KILLED; join-paste FAILED; join-catalog ok; pae-unit FAILED; gap-unit ok; scp-unit ok; cr-unit ok
+    join-paste said: the warning was not written: [ / "", / "",
+    pae-unit said: assertion `left == right` failed: the delivery was settled at the 32nd read / left: "┃↑xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" / right: "┃ prior"
+P2 no quarantine after a settled paste (PASTE-GAP's): KILLED; join-paste FAILED; join-catalog ok; pae-unit ok; gap-unit FAILED; scp-unit ok; cr-unit ok
+    join-paste said: the Enter inside the quarantine started a preview
+    gap-unit said: the Enter after the gap submitted the draft / note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+S1 no preview: the card whole at once (SUBMIT-CARD-PREVIEW's): KILLED; join-paste FAILED; join-catalog FAILED; pae-unit ok; gap-unit ok; scp-unit FAILED; cr-unit ok
+    join-paste said: the Enter of its own started no preview / ---- tui::event_loop::tests::the_tick_that_shows_a_preview_writes_the_card_in_the_next_frame stdout ----
+    join-catalog said: no catalog told: no preview, so this case proves nothing / note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    scp-unit said: the tick wrote one update: "\u{1b}[?2026h\u{1b}[?25l\u{1b}[36;1H\u{1b}[K\u{1b}[37;1H\u{1b}[K\u{1b}[40;1H\n\u{1b}[37;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[1mTICK-ONE\u{1b}[0m\u{1b}[K\u{1b}[40;1H\n\u{1b}[37;1H\u{1b}[38;5;255
+C1 a submitted prompt is no catalog activity (CATALOG-REFRESH's send): KILLED; join-paste ok; join-catalog FAILED; pae-unit ok; gap-unit ok; scp-unit ok; cr-unit FAILED
+    join-catalog said: assertion `left == right` failed: past the failure's hold: the Enter's asks / left: [] / right: [CatalogAsk { trigger: Some(Activity), awaited: false }]
+    cr-unit said: assertion `left == right` failed: the prompt did not ask / left: [] / right: [("activity", false)]
+C2 a failure's hold holds nothing (CATALOG-REFRESH's note_catalog_activity): KILLED; join-paste ok; join-catalog FAILED; pae-unit ok; gap-unit ok; scp-unit ok; cr-unit FAILED
+    join-catalog said: assertion `left == right` failed: inside the failure's hold: the Enter's asks / left: [CatalogAsk { trigger: Some(Activity), awaited: false }] / right: []
+    cr-unit said: assertion `left == right` failed: asked inside the backoff / left: [("activity", false)] / right: []
+# 5 of 5 killed; clone clean after: True
+# jobs.sh mutants done at 2026-11-09T14:42:46Z
+mutants exit 0

@@ -1,0 +1,3 @@
+clone at f9328d4e; per test run timeout 900 s
+ 8. SURVIVED (1 tests passed) -- item 2 in round 5's code: the first repeat half a repeat after fx's warning
+ 9. SURVIVED (1 tests passed) -- item 2 in round 5's code: fx's warning said again behind a repeat, in the same turn
