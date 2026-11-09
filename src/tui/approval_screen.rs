@@ -194,6 +194,22 @@ impl ApprovalScreen {
         self.status = Some(status);
     }
 
+    /// Takes the status line down if it is one of `sentences`, and says
+    /// whether it did: a sentence about a state that has ended
+    /// (`super::shell::Shell`'s paste quarantine). Any other status stays --
+    /// a refusal, or fx's own warning about input after a paste, is about
+    /// something that happened, and is as true now as when it was said.
+    pub(crate) fn clear_status_if(&mut self, sentences: &[&str]) -> bool {
+        let ended = self
+            .status
+            .as_deref()
+            .is_some_and(|status| sentences.contains(&status));
+        if ended {
+            self.status = None;
+        }
+        ended
+    }
+
     /// What one keystroke does. Routed through the same function the band's
     /// panel answers with (`super::approval::answered`), so "which key means
     /// which answer" is one fact on both surfaces rather than two that can

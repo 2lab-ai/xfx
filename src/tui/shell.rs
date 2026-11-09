@@ -572,6 +572,10 @@ const PASTE_UNTIL_END: &str = "Paste still open; keys are ignored.";
 /// still open, however many keys continue it -- and no release point.
 const PASTE_UNTIL_KEY: &str = "Key sequence open; keys are ignored.";
 
+/// The three sentences about a quarantine that is still on: taken down from
+/// the review plane when it ends ([`Shell::end_delivery_at`]).
+const QUARANTINE_SENTENCES: [&str; 3] = [PASTE_STILL, PASTE_UNTIL_END, PASTE_UNTIL_KEY];
+
 /// The hint row's refusal for a paste this session has no number left for.
 ///
 /// Its own sentence rather than [`INPUT_LIMIT`]'s, because the two are
@@ -10408,6 +10412,18 @@ impl Shell {
                 }
             }
             Delivery::Ignored { again, .. } => self.said_ignored(again),
+        }
+        // A sentence about the quarantine is about now, so once it has ended --
+        // by the quiet, or by a paste begun inside it -- the review plane's
+        // status row stops saying it. The document's rows are a record of
+        // what was said when, and stay; so does fx's own warning on the plane,
+        // which is about what happened.
+        if !self.decoder.quarantined() {
+            if let Some(screen) = self.alternate.as_mut() {
+                if screen.clear_status_if(&QUARANTINE_SENTENCES) {
+                    self.render.request(Reason::Modal);
+                }
+            }
         }
     }
 
@@ -38471,6 +38487,8 @@ mod tests {
             ScreenOwner::Alternate,
             "{cols} columns"
         );
+        // Painted, so a key may answer it.
+        delivered(&mut shell);
         shell
     }
 
