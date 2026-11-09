@@ -9590,10 +9590,10 @@ fn a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_be
     // signed `thinking` blocks. Upstream sends a message's replay state only
     // to the provider that produced it and the rest of the message as it is
     // (`projectProviderReplay`, `types.zig:1668-1682@481104fd`, called by
-    // every encoder -- `builtins/gateway.zig:178`): here the Gateway gets the
-    // call and the answer, and no thinking. Upstream drops it without a word
-    // (a debug trace, `gateway.zig:180`), and so does xfx: no turn after the
-    // switch says anything about it.
+    // every encoder -- `builtins/gateway.zig:178@481104fd`): here the Gateway
+    // gets the call and the answer, and no thinking. Upstream drops it without
+    // a word (a debug trace, `gateway.zig:180@481104fd`), and so does xfx: no
+    // turn after the switch says anything about it.
     let daemon = support::fake_llmux::FakeLlmux::start(vec![
         support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_thinking_then_tool(
             "SECRET-THOUGHT",

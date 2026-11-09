@@ -1923,7 +1923,9 @@ fn ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one() {
     // (`projectProviderReplay`, `types.zig:1668-1682@481104fd`).
     const HOSTILE_MODEL: &str = "m\u{1b}]0;pwned\u{7}x";
     const HOSTILE_WIRE: &str = "w\u{1b}[2Jire\u{9b}31m";
-    const HOSTILE_TOOL: &str = "read\u{1b}[2Jfile\u{9b}31m\u{7}";
+    // A line break, a carriage return and DEL too: without `safe_one_line`
+    // the notice would end early and a forged `xfx: ` line would follow it.
+    const HOSTILE_TOOL: &str = "read\u{1b}[2Jfile\u{9b}31m\u{7}\nxfx: forged\r\u{7f}line";
     let sandbox = Sandbox::new();
     let store = SessionStore::open(&sandbox.profile_dir()).expect("open the store");
     let mut session = store
@@ -2006,13 +2008,22 @@ fn ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one() {
     let model = asked.header("ai-language-model-id").expect("a model");
     assert!(!model.chars().any(char::is_control), "{model:?}");
     assert_ne!(model, HOSTILE_MODEL);
-    // The notice, made one inert line: the tool's escapes are spaces.
-    let notice = "xfx: an image `read [2Jfile 31m ` returned could not be read back (its saved \
-                  copy is missing), so it was not sent again";
+    // The notice, made one inert line: the tool's escapes, its line break,
+    // its carriage return and its DEL are spaces, and no line of stderr
+    // begins with the forged words.
+    let notice = "xfx: an image `read [2Jfile 31m  xfx: forged  line` returned could not be read \
+                  back (its saved copy is missing), so it was not sent again";
     assert_eq!(
         run.stderr.lines().filter(|line| *line == notice).count(),
         1,
         "the notice is not on stderr as one inert line: {:?}",
+        run.stderr
+    );
+    assert!(
+        !run.stderr
+            .lines()
+            .any(|line| line.starts_with("xfx: forged")),
+        "the tool's name forged a line: {:?}",
         run.stderr
     );
     assert!(

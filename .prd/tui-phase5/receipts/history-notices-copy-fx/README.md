@@ -36,12 +36,12 @@ deleted at the store is gone from all three.
 
 | # | store.rs | condition | text | fx at the pin (`fx-src.txt`) | decision |
 |---|---|---|---|---|---|
-| N1 | `:900-904` | a prompt image whose saved copy failed its checks on resume (`Snapshot::Unusable`) | `image #N of this session could not be read back (<reason>), so it was not sent again` | not silent: the session is unreadable (H2) or the request fails (H3) | **kept, open** |
-| N2 | `:905-909` | a prompt image never read, or of a type xfx cannot name | `image #N of this session was not read back, so it was not sent again` | as N1 | **kept, open** |
+| N1 | `:900-904` | a prompt image whose saved copy failed its checks on resume (`Snapshot::Unusable`) | `image #N of this session could not be read back (<reason>), so it was not sent again` | not silent: the session is unreadable (H2) or the request fails (H3) | **kept, queued (IMAGE-LOSS-COPY-FX)** |
+| N2 | `:905-909` | a prompt image never read, or of a type xfx cannot name | `image #N of this session was not read back, so it was not sent again` | as N1 | **kept, queued (IMAGE-LOSS-COPY-FX)** |
 | N3 | `:993-997` | a step's sealed reasoning, same wire, another model (`sealed_by` set and `on_wire` not empty) | `this session recorded reasoning from <model> and is continuing with <model>, so that reasoning was not carried over` | silent (H1) | **deleted** |
 | N4 | `:998-1004` | a step's sealed reasoning on another wire (or with no model on record) | `this session recorded reasoning on the <wire> wire and is continuing on <wire>, so that reasoning was not carried over` (ledger cause `P1-carry-notice`) | silent (H1) | **deleted** |
-| N5 | `:1033-1036` | an image a tool returned whose saved copy failed its checks | ``an image `<tool>` returned could not be read back (<reason>), so it was not sent again`` | told to the model, not the screen (H4) | **kept, open** |
-| N6 | `:1037-1040` | an image a tool returned, never read | ``an image `<tool>` returned was not read back, so it was not sent again`` | as N5 | **kept, open** |
+| N5 | `:1033-1036` | an image a tool returned whose saved copy failed its checks | ``an image `<tool>` returned could not be read back (<reason>), so it was not sent again`` | told to the model, not the screen (H4) | **kept, queued (IMAGE-LOSS-COPY-FX)** |
+| N6 | `:1037-1040` | an image a tool returned, never read | ``an image `<tool>` returned was not read back, so it was not sent again`` | as N5 | **kept, queued (IMAGE-LOSS-COPY-FX)** |
 
 **fx's `[context]` lines are no counterpart of any of them.** The once-a-session line claimed past
 both stop checks (`orchestrator.zig:5950`) is the skill catalog's; the mid-turn lines a tool run
@@ -57,7 +57,8 @@ silent either. A prompt image's blob that is gone or misnamed makes the session 
 image it cannot load is told to the model, `[Stored tool image unavailable: <error>]`, in front of
 the result (`execution_memory.zig:1013-1018`). xfx goes on without the copy and says so. Deleting
 its line would leave xfx quieter than fx about a copy the session lost: a data-loss warning, not a
-UI choice. It is the open question below, recorded on the `/image` row of `docs/parity.md`.
+UI choice. It is decided below, queued as IMAGE-LOSS-COPY-FX, and recorded on the `/image` row of
+`docs/parity.md`.
 
 **Why N3 and N4 go.** fx's `projectProviderReplay` drops the state from the request and says
 nothing; the Gateway's encoder writes a debug trace (H1). Nothing is lost: xfx's log keeps the
