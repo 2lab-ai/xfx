@@ -1,0 +1,76 @@
+model-column-idle: 14 files, 0 holding a path of this machine
+model-column-reask: 22 files, 0 holding a path of this machine
+model-reask: 22 files, 0 holding a path of this machine
+model-parked: 28 files, 0 holding a path of this machine
+p5-input-model-fail: 8 files, 0 holding a path of this machine
+p5-stop-in-catalog-wait: 18 files, 0 holding a path of this machine
+model-floor: 14 files, 0 holding a path of this machine
+p5-effort-fork-effort-down: 8 files, 0 holding a path of this machine
+p5-input-row-limit: 42 files, 0 holding a path of this machine
+p5-input-row-limit-menus: 16 files, 0 holding a path of this machine
+p5-input-row-limit-short: 20 files, 0 holding a path of this machine
+# every other scenario (369): 9344 files, 62 holding one
+    p5-mcp-fail/fx/fx-p5-mcp-fail-40x120-server-2.ansi: the brief's pattern, the account's name
+    p5-mcp-fail/fx/fx-p5-mcp-fail-40x120-server-2.txt: the brief's pattern, the account's name
+    p5-mcp-fail/xfx/xfx-p5-mcp-fail-40x120-server-2.ansi: the brief's pattern, the account's name
+    p5-mcp-fail/xfx/xfx-p5-mcp-fail-40x120-server-2.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-server-proj-ready.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-approved.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-server-proj.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-server-fixture-tool.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-server-fixture.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-server-proj-ready.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-approve-esc.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-reject-typed-x.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-server-fixture-nomatch.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-reject-inplace-ready.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-server-proj-reject.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-rejected.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-reject-inplace.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-server-proj.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-server-fixture-nomatch.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-rejected.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-server-fixture.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-server-proj-reject.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-reject-typed-x.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-approve-esc.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-server-fixture-tool.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-reject-inplace-ready.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-reject-inplace.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/fx/fx-p5-mcp-menu-new-40x120-approved.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-approved.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-approve-esc.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-server-proj-reject.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-server-proj-ready.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-reject-typed-x.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-server-fixture-tool.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-server-fixture-tool.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-reject-inplace.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-server-fixture-nomatch.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-server-proj.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-server-fixture-nomatch.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-reject-typed-x.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-reject-inplace-ready.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-server-fixture.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-approved.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-approve-confirm.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-rejected.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-approve-confirm.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-server-proj.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-rejected.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-approve-esc.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-server-proj-reject.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-server-proj-ready.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-reject-inplace-ready.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-server-fixture.txt: the brief's pattern, the account's name
+    p5-mcp-menu-new/xfx/xfx-p5-mcp-menu-new-40x120-reject-inplace.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-old/fx/fx-p5-mcp-menu-old-40x120-details-3.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-old/fx/fx-p5-mcp-menu-old-40x120-details-2.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-old/fx/fx-p5-mcp-menu-old-40x120-details-2.txt: the brief's pattern, the account's name
+    p5-mcp-menu-old/fx/fx-p5-mcp-menu-old-40x120-details-3.txt: the brief's pattern, the account's name
+    p5-mcp-menu-old/xfx/xfx-p5-mcp-menu-old-40x120-details-3.ansi: the brief's pattern, the account's name
+    p5-mcp-menu-old/xfx/xfx-p5-mcp-menu-old-40x120-details-3.txt: the brief's pattern, the account's name
+    p5-mcp-menu-old/xfx/xfx-p5-mcp-menu-old-40x120-details-2.txt: the brief's pattern, the account's name
+    p5-mcp-menu-old/xfx/xfx-p5-mcp-menu-old-40x120-details-2.ansi: the brief's pattern, the account's name
+# all 380 scenarios: 9556 files capture.sh wrote, 62 holding a path of this machine
+# the driver's own files (capture.log, status.json), apart: 1520, 760 holding one

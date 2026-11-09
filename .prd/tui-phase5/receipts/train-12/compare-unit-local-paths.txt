@@ -1,0 +1,6 @@
+pairs: unit 145, head 1872, shared 145; the unit's not in the head's sweep: 0
+unit: pass 106 / 145; approved-divergence-cascade 12, identical 4, normalized-identical 102, unresolved-defect 27
+head: pass 108 / 145; approved-divergence-cascade 12, identical 4, normalized-identical 104, unresolved-defect 25
+moved: workspace-index at-all: unresolved-defect -> normalized-identical
+moved: workspace-index at-plan: unresolved-defect -> normalized-identical
+passed on the unit, not on the head: 0

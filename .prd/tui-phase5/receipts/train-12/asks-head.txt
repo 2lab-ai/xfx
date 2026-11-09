@@ -1,0 +1,30 @@
+# the eight catalog scenarios' asks in the head's sweep (asks.py), then SWEEP-WALLCLOCK-F's own ask lines (its green-verdicts.txt, 5 runs)
+model-column-idle            fx   552
+model-column-idle            xfx  552
+model-column-reask           fx   552
+model-column-reask           xfx  552
+model-reask                  fx   52
+model-reask                  xfx  52
+model-parked                 fx   52
+model-parked                 xfx  52
+p5-input-model-fail          fx   no gateway log kept
+p5-input-model-fail          xfx  no gateway log kept
+p5-stop-in-catalog-wait      fx   5.
+p5-stop-in-catalog-wait      xfx  5.
+model-floor                  fx   55
+model-floor                  xfx  55
+p5-effort-fork-effort-down   fx   no gateway log kept
+p5-effort-fork-effort-down   xfx  no gateway log kept
+# catalog asks per run, from each capture's gateway log, in order answered (5 = 503 down, 2 = 200; . = asked, not answered when the log was copied)
+model-column-idle            fx   552 552 552 552 552
+model-column-idle            xfx  552 552 552 552 552
+model-column-reask           fx   552 552 552 552 552
+model-column-reask           xfx  552 552 552 552 552
+model-floor                  fx   55 55 55 55 55
+model-floor                  xfx  55 55 55 55 55
+model-parked                 fx   52 52 52 52 52
+model-parked                 xfx  52 52 52 52 52
+model-reask                  fx   52 52 52 52 52
+model-reask                  xfx  52 52 52 52 52
+p5-stop-in-catalog-wait      fx   5. 5. 5. 5. 5.
+p5-stop-in-catalog-wait      xfx  5. 5. 5. 5. 5.

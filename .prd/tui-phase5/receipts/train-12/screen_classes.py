@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train 11 (train 10's screen_classes.py, its classes this train's): the listed lines of a screen-moves file (a snap whose screen moved beyond
+"""Train 12 (trains 10's and 11's screen_classes.py, its classes this train's): the listed lines of a screen-moves file (a snap whose screen moved beyond
 clock-like or run-local text, on xfx alone or at other rows than fx's), each
 put in a class by its text, the classes counted, every line of "other" shown.
 
@@ -10,16 +10,16 @@ import re
 import sys
 
 CLASSES = [
-    ("a saved session's id (resume ids, /status's Session row)", ("ume-id", "--resume", "Session  ")),
-    ("the build id on /status", ("Build             debug",)),
-    ("the catalog's wall-clock outage: model-column-idle, model-parked, model-reask (reruns.txt)",
-     ("model-column-idle", "model-parked", "model-reask")),
-    ("SUBMIT-CARD-PREVIEW: the card's preview (p5-submit-preview-*, p5-transcript-submit*)",
-     ("p5-submit-preview", "p5-transcript-submit")),
-    ("PASTE-GAP: the quarantine's sentences and the plane's rows (paste*, p5-input-paste*, approvals*, p5-input-approval)",
-     ("paste", "p5-input-approval")),
-    ("on main, not on the unit's base: AT-HEIGHT's @ list, MODEL-FUZZY's ranks, QUESTIONS-20's pages",
-     ("p5-input-at", "p5-input-model", "model-anchor", "p5-input-question q6", "workspace-index", "filepicker")),
+    ("a saved session's id (resume ids, /status's Session row)", ("ume-id", "--resume", "Session  ", "· not saved yet", "` of this saved session")),
+    ("LOCAL-PATHS: a path of the run written as its placeholder on the head (main's `<local-path>` row, the head's `<scratch___>` / `<work___>` / `<tmp___>` fill)",
+     ("<local-path>", "<scratch", "<work", "<tmp", "<home", "______")),
+    ("the build id: /status's Build row, and the banner where a `.full` snap keeps it below row 1", ("Build             debug", "v0.1.0-df46777 [debug]")),
+    ("a turn's retry, caught at a fixed moment (`Recovered answer.` or `recovered · attempt 3`; p5-lifecycle-retryok rerun in reruns.txt)", ("recovered · attempt", "RECOVERED-ANSWER", "Recovered answer")),
+    ("an MCP server's connection state, caught at a fixed moment (`retrying` or `connecting`; p5-mcp-menu-new rerun in reruns.txt)", ("retrying                profile", "connecting              profile")),
+    ("xfx's /stats row: `ansi_bytes`, the bytes its frames wrote (4367 on main, 4391 at the head; the pairs' verdicts unmoved)", ("debounced_resizes=0, footer_updates=0",)),
+    ("SWEEP-WALLCLOCK-F: the eight catalog scenarios, the outage now ended at a scenario line",
+     ("model-column-idle", "model-column-reask", "model-reask", "model-parked", "p5-input-model-fail",
+      "p5-stop-in-catalog-wait", "model-floor", "p5-effort-fork-effort-down")),
 ]
 for path in sys.argv[1:]:
     lines = [l.strip() for l in open(path, encoding="utf-8") if re.match(r"^    (fx|xfx) ", l)]

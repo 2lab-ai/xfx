@@ -1,0 +1,8 @@
+== screen-moves-main.txt: 193 listed lines
+  121  a saved session's id (resume ids, /status's Session row)
+  55  LOCAL-PATHS: a path of the run written as its placeholder on the head (main's `<local-path>` row, the head's `<scratch___>` / `<work___>` / `<tmp___>` fill)
+  7  xfx's /stats row: `ansi_bytes`, the bytes its frames wrote (4367 on main, 4391 at the head; the pairs' verdicts unmoved)
+  6  the build id: /status's Build row, and the banner where a `.full` snap keeps it below row 1
+  2  a turn's retry, caught at a fixed moment (`Recovered answer.` or `recovered · attempt 3`; p5-lifecycle-retryok rerun in reruns.txt)
+  1  SWEEP-WALLCLOCK-F: the eight catalog scenarios, the outage now ended at a scenario line
+  1  an MCP server's connection state, caught at a fixed moment (`retrying` or `connecting`; p5-mcp-menu-new rerun in reruns.txt)

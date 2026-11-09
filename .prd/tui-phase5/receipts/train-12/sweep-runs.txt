@@ -1,0 +1,61 @@
+# Train 12's sweeps, as sweep.sh printed them; then each sweep's run.json, the banners (banners.py) and main's rescore (sweep.sh --rescore on a copy, with the head's ledger).
+
+## main
+# main: build in mn at df46777e, exit 0; xfx sha256 1b9c2cabbfcbfd5438cebfcc61fe85be7a107e3e8498d3a7abc8e50356625ee0
+# size 40x120; selection: every scenario
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 40.98
+# main: sweep exit 0, 8187 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 13.91
+[753/755] fx p5-esc-clear: ran (7s)
+[754/755] xfx p5-esc-clear: ran (8s)
+[755/755] fx (inventory): ran (34s)
+pass = 1297 / 1854 = 70.0%; unresolved 503, failed 2, timeout 0
+wrote <out>/scoreboard.md
+# suite-lock.sh exit 0
+run.json: started 2026-11-10T05:43:43+09:00; wall 136m16s; start_load 39.78; peak_load 74.76; jobs 2; size 40x120; xfx_sha256 1b9c2cabbfcbfd5438cebfcc61fe85be7a107e3e8498d3a7abc8e50356625ee0; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head df46777ea10a0dcfc309319c02a05abc5617af6a
+
+## head
+# head: build in hd at 03fb5436, exit 0; xfx sha256 7e3a8677ad74664d176dcfee7cf4ca2ec68109e8e01097fc095ec94a3a664556
+# size 40x120; selection: every scenario
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 45.66
+# head: sweep exit 0, 8598 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 23.41
+[759/761] fx p5-esc-clear: ran (9s)
+[760/761] xfx p5-esc-clear: ran (11s)
+[761/761] fx (inventory): ran (39s)
+pass = 1310 / 1872 = 70.0%; unresolved 508, failed 2, timeout 0
+wrote <out>/scoreboard.md
+# suite-lock.sh exit 0
+run.json: started 2026-11-10T06:03:33+09:00; wall 143m12s; start_load 45.66; peak_load 60.99; jobs 2; size 40x120; xfx_sha256 7e3a8677ad74664d176dcfee7cf4ca2ec68109e8e01097fc095ec94a3a664556; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head 03fb5436209daa8d144992d140a3928b1dd46713
+
+## irl41
+# irl41: build in ir at 03fb5436, exit 0; xfx sha256 008e0534670e12b891cb2be0b498d46357037861f91ff53e4f3654a23bf315ef
+# size 41x120; selection: irl41-selection.txt
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 11.65
+# irl41: sweep exit 0, 328 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 29.96
+[35/37] xfx filepicker-narrow: ran (8s)
+[36/37] xfx p5-ctrlo-wider-inline-fam: ran (8s)
+[37/37] fx (inventory): ran (33s)
+pass = 67 / 120 = 55.8%; unresolved 40, failed 0, timeout 0
+wrote <out>/scoreboard.md
+# suite-lock.sh exit 0
+run.json: started 2026-11-10T07:11:20+09:00; wall 5m28s; start_load 11.65; peak_load 30.41; jobs 2; size 41x120; xfx_sha256 008e0534670e12b891cb2be0b498d46357037861f91ff53e4f3654a23bf315ef; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head 03fb5436209daa8d144992d140a3928b1dd46713
+
+## irl8
+# irl8: build in ir at 03fb5436, exit 0; xfx sha256 008e0534670e12b891cb2be0b498d46357037861f91ff53e4f3654a23bf315ef
+# size 8x120; selection: irl8-selection.txt
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 29.96
+# irl8: sweep exit 2, 34 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 29.80
+[1/3] fx p5-input-row-limit-short: ran (10s)
+[2/3] xfx p5-input-row-limit-short: ran (14s)
+[3/3] fx (inventory): ran (34s)
+sweep: a help snap shows no menu
+# suite-lock.sh exit 2
+run.json: started 2026-11-10T07:16:49+09:00; wall 0m34s; start_load 29.96; peak_load 30.78; jobs 2; size 8x120; xfx_sha256 008e0534670e12b891cb2be0b498d46357037861f91ff53e4f3654a23bf315ef; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head 03fb5436209daa8d144992d140a3928b1dd46713
+
+## banners
+head: 1619 xfx snaps show the banner; 1619 name v0.1.0-03fb543; others none
+main: 1601 xfx snaps show the banner; 1601 name v0.1.0-df46777; others none
+irl41: 114 xfx snaps show the banner; 114 name v0.1.0-03fb543; others none
+irl8: 4 xfx snaps show the banner; 4 name v0.1.0-03fb543; others none
+
+## main's sweep rescored with the head's ledger
+ref-main: before pass = 1297 / 1854; after pass = 1297 / 1854; ledger f995faeb (the head's f995faeb); run at df46777e

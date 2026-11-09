@@ -1,0 +1,4 @@
+# capture_scan.py over main's sweep (no rewrite there): its summary lines only
+# every other scenario (377): 9474 files, 950 holding one
+# all 377 scenarios: 9474 files capture.sh wrote, 950 holding a path of this machine
+# the driver's own files (capture.log, status.json), apart: 1508, 754 holding one

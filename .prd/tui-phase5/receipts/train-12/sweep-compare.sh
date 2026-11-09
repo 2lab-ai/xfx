@@ -3,7 +3,8 @@
 # sweeps' files here, through redacted.py -- each sweep's scoreboard (main's
 # rescored with the head's ledger first, `sweep.sh --rescore` on a copy);
 # main's against the head pair by pair (compare.py) with the screens that
-# moved (screen_moves.py); each unit's own sweep, as its receipt commits it,
+# moved (screen_moves.py), in classes (screen_classes.py), and the pairs that
+# gained a differing row (gained_rows.py); each unit's own sweep, as its receipt commits it,
 # against the head's (unit_compare.py: SWEEP-WALLCLOCK-F's five GREEN runs and
 # round 2's five, LOCAL-PATHS's verdicts.tsv after round 7,
 # INPUT-ROW-LIMIT's 41x120 scoreboard against this train's 41x120 sweep;
@@ -22,6 +23,8 @@ rd "$here/sweep-main.md" < "$T/ref-main/scoreboard.md"
 $P/compare.py "$T/ref-main" "$T/sw-head" | rd "$here/compare-main.txt"
 echo "compare-main: exit ${PIPESTATUS[0]}"
 $P/screen_moves.py "$T/ref-main" "$T/sw-head" | rd "$here/screen-moves-main.txt"
+$P/screen_classes.py "$here/screen-moves-main.txt" | rd "$here/screen-classes.txt"
+$P/gained_rows.py "$T/ref-main" "$T/sw-head" | rd "$here/gained-rows.txt"
 $P/unit_compare.py "$repo" "$T/sw-head" runs "4bc9ab13:$SW/green-verdicts.txt" "4bc9ab13:$SW/green-r2-verdicts.txt" | rd "$here/compare-unit-sweep-wallclock.txt"
 echo "compare-unit-sweep-wallclock: exit ${PIPESTATUS[0]}"
 $P/unit_compare.py "$repo" "$T/sw-head" tsv 5609108f:.prd/tui-phase5/receipts/local-paths/verdicts.tsv after | rd "$here/compare-unit-local-paths.txt"
@@ -30,6 +33,11 @@ $P/unit_compare.py "$repo" "$T/sw-irl41" board 3d3d56c8:.prd/tui-phase5/receipts
 echo "compare-unit-input-row-limit: exit ${PIPESTATUS[0]}"
 { echo "## 41x120 (pairs_of.py over the sweep's pairs.json)"; $P/pairs_of.py "$T/sw-irl41" p5-input-row-limit
   echo "## 8x120 (short8.py: the sweep stopped on its inventory, so cells.py over its two captures)"; $P/short8.py "$T/sw-irl8"; } | rd "$here/irl-pairs.txt"
-$P/capture_scan.py "$T/sw-head" "${SHORT_TMP:?the sweeps' short scratch directory}/sw-head" model-column-idle model-column-reask model-reask model-parked \
+{ echo "# the eight catalog scenarios' asks in the head's sweep (asks.py), then SWEEP-WALLCLOCK-F's own ask lines (its green-verdicts.txt, 5 runs)"
+  $P/asks.py "$T/sw-head" model-column-idle model-column-reask model-reask model-parked p5-input-model-fail p5-stop-in-catalog-wait model-floor p5-effort-fork-effort-down
+  git -C "$repo" show "4bc9ab13:$SW/green-verdicts.txt" | sed -n '/^# catalog asks/,$p'; } | rd "$here/asks-head.txt"
+$P/capture_scan.py "$T/sw-head" "${SHORT_TMP:?the short scratch directory of the sweeps}/sw-head" model-column-idle model-column-reask model-reask model-parked \
   p5-input-model-fail p5-stop-in-catalog-wait model-floor p5-effort-fork-effort-down p5-input-row-limit p5-input-row-limit-menus p5-input-row-limit-short | rd "$here/capture-scan.txt"
 echo "capture-scan: exit ${PIPESTATUS[0]}"
+{ echo "# capture_scan.py over main's sweep (no rewrite there): its summary lines only"
+  $P/capture_scan.py "$T/sw-main" "$SHORT_TMP/sw-main" | grep '^#'; } | rd "$here/capture-scan-main.txt"

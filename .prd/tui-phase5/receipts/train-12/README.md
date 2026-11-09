@@ -187,7 +187,26 @@ and its refusals in `test_each_verbs_arguments` -- **3 of 3 ok**; LOCAL-PATHS's
 The first is the meeting itself: its run goes through LOCAL-PATHS's
 `publish` and end-of-run `--check`, and the release still ends the outage.
 
-JC1SWEEP
+**The eight scenarios at the head** (the head's sweep, `sweep-head.md`;
+`compare-unit-sweep-wallclock.txt` against the unit's five GREEN sweeps and
+round 2's five, as its receipt commits them): **25 of 26 pairs pass, as on
+the unit's** -- every one the same verdict, `model-parked` `menu-loading`
+unresolved under `activity-tokens-before-request` on both, as the unit
+registered it; the 26th pair, `model-column-reask` `col-held`, is round 2's.
+Their catalog asks, from the gateway logs the rewrite published
+(`asks-head.txt`): on both binaries, `552` in both column scenarios, `52` in
+`model-reask` and `model-parked`, `55` in `model-floor`, `5.` in
+`p5-stop-in-catalog-wait` -- each the same as in all five of the unit's
+GREEN runs (the file's second half). So the release still ends the outage
+at the scenario line, under the rewrite.
+
+**Nothing the channel writes leaves a path** (`capture_scan.py`,
+`capture-scan.txt`, every file capture.sh wrote in the head's sweep): the
+eight scenarios' files, 134 of them, **0** holding the brief's shapes, the
+sweep's TMPDIR, a run directory's name or the account's name; the three
+`p5-input-row-limit*` too (78 files, 0). The release file itself is never in
+the out directory. Over all 380 scenarios, 62 files hold one, **all in three
+MCP scenarios** (below, "Found on the way"): not this channel's.
 
 ### 2. LOCAL-PATHS x GATE-ENV-MAINTLOCK-F: test-gate-env.sh
 
@@ -326,20 +345,21 @@ time, never written; no hit printed but its kind and file):
   `/` (the model paths the check's tests pass on purpose).
 - **Scratch-root shapes (12 matches)**, every one of this machine's uid or
   the macOS per-user temp root:
-  - **10 at the head, each on a line marked `local-path-ok`**: the check's
-    own header naming the shapes it refuses (`/var/folder[s]/`, twice each in
-    `43024057` and `506febef`), the redactor's inputs in `test_sweep.py`
-    (`43024057`), a fixture root never read in `test_capture.py`
-    (`56e51cb0`), and upstream's bytes in the skill-catalog fixture
-    (`41023d5f`, `src/skills/catalog.rs`; LOCAL-PATHS's README section 3).
+  - **10 on lines marked `local-path-ok`, 8 of them at the head**: the
+    check's own header naming the shapes it refuses (`/var/folder[s]/`,
+    twice in `43024057` and twice again where `506febef` rewrote those
+    lines), the redactor's inputs in `test_sweep.py` (`43024057`, 4), a
+    fixture root never read in `test_capture.py` (`56e51cb0`), and
+    upstream's bytes in the skill-catalog fixture (`41023d5f`,
+    `src/skills/catalog.rs`; LOCAL-PATHS's README section 3).
   - **2 on unmarked lines, both gone by the unit's tip**: `c6e12e82`'s
     `roots-mutants.txt` header (the TMPDIR of a mutant run -- the brief's
     named one) and `2e90c292`'s README quoting a plant with its uid (fixed in
     `5743e3c7`, LOCAL-PATHS's section 11). The repo keeps both commits; they
     publish this machine's harness root and uid, no name.
 - **The range** (`git diff df46777e..HEAD`'s added lines): 21 lines, the
-  brief's count -- all LOCAL-PATHS's, 21 placeholder matches and 8
-  scratch-root shapes, each of the 8 on a `local-path-ok` line. This train's
+  brief's count -- all LOCAL-PATHS's: 21 placeholder matches and 8
+  scratch-root shapes, the 8 above, each on a `local-path-ok` line. This train's
   own commits add 0 (`final-scan.txt` part 1: every merge's combined diff,
   the re-point and every receipt commit 0); merge 3 read as everything it
   brings holds LOCAL-PATHS's 21.
@@ -382,7 +402,89 @@ with fault injection 5691 against 5681, the same +10. The harness's
 SWEEP-WALLCLOCK-F's 2, LOCAL-PATHS's 26) and `test-sweep.sh` 72 (70 and
 LOCAL-PATHS's 2).
 
-SWEEPS
+## Sweeps
+
+**Builds** (debug, as trains 4 to 11), each in its own `git clone --no-local`,
+each swept with its own tree's harness, scenarios and ledger (`sweep.sh`,
+train 11's with **every scenario** and a size). fx: the v0.0.16 binary,
+sha256 `8e6cda2e...` before and after each sweep, `FX_AUTO_UPGRADE=0`;
+40x120, `--jobs 2`; each sweep inside one hold of the suite lock
+(`sweep-runs.txt`). Main's sweep was rescored with the head's ledger
+(`sweep.sh --rescore` on a copy): no verdict moved, 1297 before and after.
+Every xfx snap that shows the banner shows the build swept: `v0.1.0-03fb543`
+on all 1619 of the head's, `v0.1.0-df46777` on all 1601 of main's
+(`sweep-runs.txt`).
+
+| sweep | scenarios | pairs | pass | failed | timeout |
+|---|---|---|---|---|---|
+| head `03fb5436` (`sweep-head.md`) | 380 | 1872 | **1310** (70.0%) | 2 | 0 |
+| main `df46777e` (`sweep-main.md`, rescored) | 377 | 1854 | 1297 (70.0%) | 2 | 0 |
+| head at 41x120, INPUT-ROW-LIMIT's 18 (`sweep-irl41.md`) | 18 | 120 | 67 | 0 | 0 |
+
+The head's three scenarios more are INPUT-ROW-LIMIT's; its 18 pairs more are
+those three's 17 and SWEEP-WALLCLOCK-F's `model-column-reask` `col-held` --
+12 pass, and the 6 unresolved are `help`, `help-pgdn`, `slash`,
+`slash-pgdn` and the short ones' `slash`, `slash-pgdn`, as on the unit's own
+sweep (join check 4). The 2 failed pairs on both are `p5-panels-badsettings`:
+fx ends before its first frame on both (below).
+
+### Against main (`compare-main.txt`, `screen-moves-main.txt`, `screen-classes.txt`, `gained-rows.txt`)
+
+**1854 shared pairs: 1297 -> 1298; 1 down, 2 up** [measured], and six moves
+between identical and normalized-identical, both passing
+(`p5-submit-preview-full` x4 and `settings-collapse-open` `after-esc` to
+identical, `p5-transcript-submit` x2 to normalized-identical):
+
+MOVERS
+
+**The screens** (`screen-classes.txt`, over `screen_moves.py`'s 193 listed
+snaps whose screen moved beyond clock-like or run-local text): 121 a saved
+session's id, 55 **LOCAL-PATHS's placeholder** where main's row held a path
+of the run, 7 xfx's `/stats` row (`ansi_bytes` 4367 on main, 4391 at the
+head, in `p5-panels-sweep-b`; *(cause not measured)*, the pairs' verdicts
+unmoved), 6 the build id, 2 a turn's retry at a fixed moment, 1
+SWEEP-WALLCLOCK-F's `model-column-idle` `col-typed` (the rows, after the
+release), 1 the MCP state above. **Rows gained** (`gained-rows.txt`): 78
+pairs, 77 unresolved or approved on both sides; 57 hold a placeholder where
+main's row held a path, 21 run-local text (ports, clocks, a retry's moment,
+the `/stats` bytes) -- and `list-remote`, above.
+
+### `model-column-idle`: did SWEEP-WALLCLOCK-F end `catalog-window`? **Yes** (`reruns.txt`)
+
+Train 11's three `col-*` pairs dropped on `catalog-window`: the outage was
+the first 9000 ms of the gateway's life, and a pair's verdict followed from
+when each binary first asked. **At the head the outcome no longer depends on
+that, and the screens are the ones the scenario is written for**
+[measured]:
+
+| run | `col-down`, `col-idle`, `col-typed` | what each binary shows (`rerun_verdicts.py`) | catalog asks, fx / xfx |
+|---|---|---|---|
+| head sweep | NI, NI, NI | failure, failure, rows -- both | 552 / 552 |
+| head reruns 1-3 | NI, NI, NI in each | failure, failure, rows -- both, 3 of 3 | 552 / 552, 3 of 3 |
+| main sweep | NI, NI, NI | **failure in all three** -- both | 55 / 55 |
+| main reruns 1-3 | NI, NI, NI in each | **rows in all three** -- both, 3 of 3 | 2 / 2, 3 of 3 |
+
+On main the pairs pass only because both binaries' first asks fell on the
+same side of the window: in its sweep both asks inside it (503, 503: the
+keystroke's frame still the failure, where the scenario means the rows), in
+the three reruns both past it (one ask, answered 200: the outage never
+seen). At the
+head every run asks three times, 503, 503, 200, on both binaries, and shows
+the failure until the `modelsup` line and the rows after: 4 of 4 runs. The
+ledger's `catalog-window` is retired (SWEEP-WALLCLOCK-F's README, "The
+ledger"); nothing at the head needed it.
+
+### Against each unit's own sweep (`compare-unit-*.txt`)
+
+| unit (its sweep, as its receipt commits it) | shared | pass, unit -> head | moved |
+|---|---|---|---|
+| GATE-ENV-MAINTLOCK-F | -- | -- | no sweep (no UI change) |
+| SWEEP-WALLCLOCK-F (`green-verdicts.txt`, `green-r2-verdicts.txt`: five runs each) | 26 pairs | 25 -> 25 | **0 up, 0 down** |
+| LOCAL-PATHS (`verdicts.tsv`, round 7's column) | 145 pairs | 106 -> 108 | **2 up, 0 down**: `workspace-index` `at-all` and `at-plan` (the run's random name, above) |
+| INPUT-ROW-LIMIT (`sweep-41x120-head.md`, at 41x120) | 18 scenarios, 120 pairs | 67 -> 67 | **0**: every scenario the same count (join check 4) |
+
+**So no pair that passes on main's sweep or on any unit's own fails at the
+head, but `p5-mcp-menu-new` `list-remote`** -- MCPLINE
 
 ## Found on the way, not changed here
 
@@ -400,6 +502,30 @@ SWEEPS
 - **Train 11's token_control.py stops on a merge where no docs/parity.md row
   changed on a side** (a `KeyError`); its train 12 form plants on every row
   both sides changed and says so for a merge with none.
+- **Three MCP scenarios' captures keep a fragment of the scenario
+  directory** (`capture-scan.txt`: 62 files of the head's sweep, every one in
+  `p5-mcp-menu-new` (24 fx, 26 xfx), `p5-mcp-menu-old` (4 and 4) and
+  `p5-mcp-fail` (2 and 2)). Their `/mcp` menu's `runs` row prints the stdio
+  server's argument, `@SCENARIOS@/p5-mcp-stdio.ts` filled with the scenario
+  directory; under this train's clones that directory is 141 bytes, so both
+  binaries cut the row with `…` at the same column, and `roots.py`, which
+  writes a root it finds whole, leaves the cut one. It holds no run name, so
+  it is not refused either. This is LOCAL-PATHS's stated limit (its README
+  section 1: "a fragment of a root above it ... holds no run name, and in a
+  tracked file the check's shapes are what refuse it"), met by a long
+  checkout path, not by this train's merge: the pairs read the same on both
+  sides, and a capture holding such a fragment cannot be committed past
+  `check-no-local-paths.sh`. Main's sweep, with no rewrite, has them in 950
+  of its 9474 capture files (`capture-scan-main.txt`); the head's in 62 of
+  9556.
+- **`p5-panels-badsettings` fails on both sweeps**: fx ends before its first
+  frame (`up: the pane is gone after 0.02 s ... no keep held the pane`),
+  exit 1, at main and at the head alike; its two pairs read `failed` on both
+  (RERUN_BADSETTINGS). Not this train's change; named for its owner.
+- **A sweep at 8 rows cannot finish**: sweep.py reads fx's surface inventory
+  from `/help`, which an 8-row screen does not show (`sweep: a help snap
+  shows no menu`, exit 2, after both captures were taken). INPUT-ROW-LIMIT's
+  8-row pairs are read by `short8.py` instead (join check 4).
 
 ## Redaction
 
