@@ -35284,6 +35284,277 @@ mod tests {
         assert_eq!(shell.geometry.input_rows(), 1, "the composer grew");
     }
 
+    // --- PAGE-KEYS-SETTINGS-COLUMN: the three lists fx pages that xfx did not --
+
+    /// fx's page on a 24-row screen, written out: `inputRowLimit(24 - 4)` is
+    /// `20 / 2 + 1` (`input_presentation.zig:252-255@481104fd`). Under it a
+    /// page lands inside `/settings`' fourteen settings and inside a thirty-row
+    /// list (`fx-p5-page-keys-*-24x120-*`).
+    const FX_PAGE_AT_24: usize = 11;
+
+    /// Where fx leaves a mark at `from` of `count` rows after a move of
+    /// `delta`, written out from its lists' own moves rather than read from
+    /// xfx's: past the last row it is the first, before the first it is the
+    /// last, however far past (`advanceSelectionWithin`,
+    /// `list_window.zig:45-53@481104fd`; `Menu.move`,
+    /// `settings_catalog.zig:229-233`; `moveVisibleItems`,
+    /// `model_cache_runtime.zig:233-237`). Not taken round: 22 of 14 rows is
+    /// the first, not the ninth.
+    fn fx_moved(from: usize, count: usize, delta: i64) -> usize {
+        let next = i64::try_from(from).expect("an index") + delta;
+        let count_signed = i64::try_from(count).expect("a count");
+        if next < 0 {
+            count - 1
+        } else if next >= count_signed {
+            0
+        } else {
+            usize::try_from(next).expect("an index")
+        }
+    }
+
+    /// The rows a list's mark walks under Down, from where it is until it is
+    /// back there -- the list in order when it starts on its first row.
+    fn walked<T: PartialEq + Clone + std::fmt::Debug>(
+        shell: &mut Fixture,
+        marked: &impl Fn(&Fixture) -> T,
+    ) -> Vec<T> {
+        let start = marked(shell);
+        let mut order = vec![start.clone()];
+        for _ in 0..64 {
+            shell.route_bytes(b"\x1b[B");
+            let now = marked(shell);
+            if now == start {
+                return order;
+            }
+            order.push(now);
+        }
+        panic!("Down never came back to {start:?}: {order:?}");
+    }
+
+    /// From `order[start]`, three PgDn and two PgUp, each landing where fx's
+    /// would -- at least one of them past each end -- and then `C-j` and
+    /// `C-k`, a row each; none of them an edit of the draft. `order` is the
+    /// list top to bottom.
+    fn pages_as_fx_does<T: PartialEq + Clone + std::fmt::Debug>(
+        shell: &mut Fixture,
+        order: &[T],
+        start: usize,
+        marked: &impl Fn(&Fixture) -> T,
+    ) {
+        assert_eq!(shell.geometry.rows, 24, "the cases here are at 24 rows");
+        assert_eq!(
+            usize::from(crate::tui::layout::input_row_limit(24)),
+            FX_PAGE_AT_24
+        );
+        assert_eq!(marked(shell), order[start], "not on row {start}");
+        let draft = shell.editor.text().to_string();
+        let page = i64::try_from(FX_PAGE_AT_24).expect("a page");
+        let count = order.len();
+        let mut at = start;
+        let (mut past_end, mut past_start) = (false, false);
+        for (key, name, delta) in [
+            (&b"\x1b[6~"[..], "PgDn", page),
+            (b"\x1b[6~", "PgDn", page),
+            (b"\x1b[6~", "PgDn", page),
+            (b"\x1b[5~", "PgUp", -page),
+            (b"\x1b[5~", "PgUp", -page),
+            (&[0x0a], "C-j", 1),
+            (&[0x0b], "C-k", -1),
+        ] {
+            let signed = i64::try_from(at).expect("an index") + delta;
+            past_end |= signed >= i64::try_from(count).expect("a count");
+            past_start |= signed < 0;
+            let from = order[at].clone();
+            at = fx_moved(at, count, delta);
+            shell.route_bytes(key);
+            assert_eq!(
+                marked(shell),
+                order[at],
+                "{name} from {from:?} of {count} rows (page {FX_PAGE_AT_24})"
+            );
+            assert_eq!(shell.editor.text(), draft, "{name} edited the draft");
+        }
+        assert!(past_end && past_start, "no move ran past both ends");
+    }
+
+    /// The marked row of the band's list, colours off and trimmed: the one
+    /// row drawn in the bold hint grey.
+    fn marked_row(shell: &Fixture) -> Option<String> {
+        menu(shell)
+            .iter()
+            .find(|row| row.contains(PALETTE.subtitle()))
+            .map(|row| visible_text(row).trim().to_string())
+    }
+
+    #[test]
+    fn at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end() {
+        // `routeSettingsMenuMove` (`input_completion_runtime.zig:431-463
+        // @481104fd`) under `routeComposerVertical`'s page (`:222-233`), and
+        // `C-j`/`C-k` (`routePickerControlByte`, `app_input_runtime.zig:
+        // 1093-1108`): fourteen settings, so PgDn lands on the twelfth and
+        // the next runs past the end to the first (`fx-p5-page-keys-settings-
+        // 24x120-menu-pgdn`, `-pgdn2`, `-pgup`, `-pgup2`, `-cj`, `-ck`).
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 24, 120);
+        shell.route_bytes(b"/settings\r");
+        let marked = |shell: &Fixture| {
+            shell
+                .settings_menu
+                .as_ref()
+                .and_then(|menu| menu.selected(&shell.settings_snapshot()))
+        };
+        let order = walked(&mut shell, &marked);
+        assert_eq!(order.len(), 14, "{order:?}");
+        assert_eq!(order[0], Some(Setting::Statusline(StatusLineItem::Context)));
+        assert_eq!(order[11], Some(Setting::SoundLevel));
+        assert_eq!(order[13], Some(Setting::PromptHistory));
+        pages_as_fx_does(&mut shell, &order, 0, &marked);
+        // Nothing listed: `Menu.move` answers `false` (`settings_catalog.zig:
+        // 227`), so `C-j` goes on to the composer, a newline in the search,
+        // with the menu still up (`activeCatalogMenuOwnsByte`,
+        // `app_input_runtime.zig:1609-1610`).
+        shell.route_bytes(b"zzz");
+        assert_eq!(marked(&shell), None, "the search found a setting");
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(shell.editor.text(), "zzz\n");
+        assert!(shell.settings_menu.is_some(), "C-j closed the menu");
+    }
+
+    #[test]
+    fn at_24_rows_a_page_of_the_settings_model_list_is_11_models() {
+        // With the Model row's list open the moves are its
+        // (`moveVisibleItems`, `input_completion_runtime.zig:440-455
+        // @481104fd`; `fx-p5-page-keys-settings-24x120-list-*`).
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 24, 120);
+        shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            provider: ProviderId::Gateway,
+            entries: (1..=30)
+                .map(|n| entry(&format!("m{n:02}"), Some(400_000), &[]))
+                .collect(),
+        });
+        let _ = shell.document();
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 5);
+        shell.route_bytes(RIGHT);
+        assert!(shell.model_menu.is_some(), "Right opened no list");
+        // The marked model, and whether it is drawn: the window it scrolls
+        // is the rows the list has under the Model row
+        // (`visibleModelItemsForBudget`, `settings_menu_presentation.zig:
+        // 52-71@481104fd`), not `/model`'s menu's.
+        let marked = |shell: &Fixture| {
+            let id = shell
+                .model_menu
+                .as_ref()
+                .and_then(ModelMenu::selected)
+                .map(str::to_string);
+            let drawn = id.as_ref().is_some_and(|id| {
+                let bright = format!("{}{id}{}", PALETTE.subtitle(), PALETTE.reset());
+                menu(shell).iter().any(|row| row.contains(&bright))
+            });
+            (id, drawn)
+        };
+        let order = walked(&mut shell, &marked);
+        assert_eq!(order.len(), 30, "{order:?}");
+        assert_eq!(order[0], (Some("vendor/m01".to_string()), true));
+        assert!(order.iter().all(|(_, drawn)| *drawn), "{order:?}");
+        pages_as_fx_does(&mut shell, &order, 0, &marked);
+        assert!(
+            shell.settings_menu.is_some(),
+            "a key closed the settings menu"
+        );
+    }
+
+    #[test]
+    fn at_24_rows_a_page_of_the_model_column_is_11_models() {
+        // `navigateModelPicker`'s model stage
+        // (`input_completion_runtime.zig:1072-1075`, `:1098-1106@481104fd`)
+        // under a page or `C-j`/`C-k` (`fx-p5-page-keys-column-24x120-model-*`).
+        let mut shell = shell(24, 120);
+        shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            provider: ProviderId::Gateway,
+            entries: (1..=30)
+                .map(|n| entry(&format!("m{n:02}"), Some(400_000), &[]))
+                .collect(),
+        });
+        let _ = shell.document();
+        shell.route_bytes(b"/model ");
+        let order = walked(&mut shell, &marked_row);
+        assert_eq!(order.len(), 30, "{order:?}");
+        assert_eq!(order[0].as_deref(), Some("vendor/m01"));
+        pages_as_fx_does(&mut shell, &order, 0, &marked_row);
+    }
+
+    #[test]
+    fn at_24_rows_a_page_of_the_effort_and_speed_columns_runs_to_the_far_end() {
+        // The effort and speed stages (`navigateModelPicker`,
+        // `input_completion_runtime.zig:1076-1094@481104fd`) and an `/effort`
+        // line's levels: astra's five levels and its three speeds, fewer than
+        // a page, so every page runs past an end -- PgDn from the first stays
+        // on it and PgUp is the last (`fx-p5-page-keys-column-24x120-effort-*`,
+        // `-speed-*`, `-levels-*`).
+        let mut shell = shell(24, 120);
+        shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            provider: ProviderId::Gateway,
+            entries: speed_rows(),
+        });
+        let _ = shell.document();
+        shell.shell.model = "openai/gpt-6-astra".to_string();
+        for (line, rows) in [
+            ("/model openai/gpt-6-astra ", 5),
+            ("/model openai/gpt-6-astra high ", 3),
+            ("/effort ", 5),
+        ] {
+            shell.clear_composer();
+            shell.route_bytes(line.as_bytes());
+            // Fewer rows than the column's six, so all of them are drawn, top
+            // to bottom; the mark starts where the line or the session puts it.
+            let order: Vec<Option<String>> = column(&shell)
+                .into_iter()
+                .filter(|row| !row.is_empty())
+                .map(|row| Some(row.trim().to_string()))
+                .collect();
+            assert_eq!(order.len(), rows, "{line:?}: {order:?}");
+            assert_eq!(walked(&mut shell, &marked_row).len(), rows, "{line:?}");
+            let start = order
+                .iter()
+                .position(|row| *row == marked_row(&shell))
+                .expect("a marked row");
+            pages_as_fx_does(&mut shell, &order, start, &marked_row);
+        }
+    }
+
+    #[test]
+    fn at_24_rows_a_page_of_the_mcp_arguments_is_11_servers() {
+        // fx's slash list, which `/mcp `'s arguments are (`slashCompletionCount`,
+        // `command_specs.zig:578-585@481104fd`), paged by `picker_delta`
+        // (`input_completion_runtime.zig:255-260`): one row per server under
+        // `/mcp show `, twenty-four of them (`fx-p5-page-keys-mcp-24x120-*`).
+        let servers: Vec<String> = (1..=24)
+            .map(|n| {
+                format!(r#""s{n:02}":{{"type":"http","url":"http://127.0.0.1:9/s{n:02}","enabled":false}}"#)
+            })
+            .collect();
+        let profile = format!(r#"{{"mcpServers":{{{}}}}}"#, servers.join(","));
+        let (mut shell, runtime, _home) = mcp_args_shell_over(&profile, 24);
+        shell.route_bytes(b"/mcp show ");
+        let marked = |shell: &Fixture| {
+            shell
+                .mcp_args
+                .as_ref()
+                .and_then(|args| args.chosen())
+                .map(str::to_string)
+        };
+        let order = walked(&mut shell, &marked);
+        assert_eq!(order.len(), 24, "{order:?}");
+        assert_eq!(order[0].as_deref(), Some("/mcp show s01"));
+        pages_as_fx_does(&mut shell, &order, 0, &marked);
+        runtime.shutdown();
+    }
+
     #[test]
     fn ctrl_p_lends_the_draft_to_the_model_catalog_and_every_way_out_gives_it_back() {
         // `openModelPickerShortcut` and `restoreModelPickerDraft`
@@ -35961,15 +36232,23 @@ mod tests {
     /// A shell over an MCP runtime whose profile has one server it never
     /// connects -- switched off -- so `/mcp `'s completions have a name.
     fn mcp_args_shell() -> (Fixture, Arc<crate::mcp::McpRuntime>, tempfile::TempDir) {
+        mcp_args_shell_over(
+            r#"{"mcpServers":{"remote":{"type":"http","url":"http://127.0.0.1:9/mcp","enabled":false}}}"#,
+            40,
+        )
+    }
+
+    /// [`mcp_args_shell`] over the profile `profile`, on a screen `rows` tall
+    /// and 120 wide.
+    fn mcp_args_shell_over(
+        profile: &str,
+        rows: u16,
+    ) -> (Fixture, Arc<crate::mcp::McpRuntime>, tempfile::TempDir) {
         let home = tempfile::tempdir().expect("a home");
         let workspace = home.path().join("work");
         std::fs::create_dir_all(&workspace).expect("a workspace");
         crate::profile_home::made(&home.path().join(".xfx"));
-        std::fs::write(
-            home.path().join(".xfx").join("mcp.json"),
-            r#"{"mcpServers":{"remote":{"type":"http","url":"http://127.0.0.1:9/mcp","enabled":false}}}"#,
-        )
-        .expect("a profile");
+        std::fs::write(home.path().join(".xfx").join("mcp.json"), profile).expect("a profile");
         let runtime = crate::mcp::McpRuntime::new(crate::mcp::runtime::Paths {
             profile: Some(home.path().join(".xfx").join("mcp.json")),
             settings: Some(home.path().join(".xfx").join("settings.json")),
@@ -35980,7 +36259,7 @@ mod tests {
         let (work, sent, control) = WorkHandle::detached();
         let shell = Shell::new(
             &config(home.path(), &workspace),
-            crate::tui::layout::solve(40, 120, 1).expect("a band"),
+            crate::tui::layout::solve(rows, 120, 1).expect("a band"),
             PALETTE,
             false,
             work.with_mcp(Arc::clone(&runtime)),

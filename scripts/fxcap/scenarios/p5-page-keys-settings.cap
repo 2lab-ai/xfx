@@ -1,0 +1,62 @@
+# PAGE-KEYS-SETTINGS-COLUMN: PgDn and PgUp in /settings' menu and in its
+# Model row's list, at 24 rows, where a page is inputRowLimit(20) = 11
+# (input_completion_runtime.zig:222-233@481104fd). The menu lists 14
+# settings (settings_catalog.zig:261-276) and the list thirty models, so a
+# page lands inside both. A page past either end goes to the other end, not
+# round it (Menu.move, settings_catalog.zig:225-241; moveVisibleItems,
+# model_cache_runtime.zig:229-245): 11 then 0, and from 0 the last. C-j and
+# C-k walk the same lists one row (routePickerControlByte, :1093-1108 of
+# app_input_runtime.zig).
+# fx's harness launches it with FX_SOUND=0; xfx is given the same start.
+fx: env FX_AUTO_UPGRADE=0
+xfx: env XFX_SOUND=off
+models p5-input-row-limit-models.json
+seed p5-effort-fork-seed-astra.json
+nomodel
+wait 3
+xfx: wait 1
+type /settings
+key Enter
+wait 1.2
+snap menu
+key NPage
+wait 0.6
+snap menu-pgdn
+key NPage
+wait 0.6
+snap menu-pgdn2
+key PPage
+wait 0.6
+snap menu-pgup
+key PPage
+wait 0.6
+snap menu-pgup2
+key C-j
+wait 0.5
+snap menu-cj
+key C-k
+wait 0.5
+snap menu-ck
+key Down Down Down
+wait 0.3
+key Right
+wait 1.5
+snap list
+key NPage
+wait 0.6
+snap list-pgdn
+key NPage
+wait 0.6
+snap list-pgdn2
+key NPage
+wait 0.6
+snap list-pgdn3
+key PPage
+wait 0.6
+snap list-pgup
+key C-j
+wait 0.5
+snap list-cj
+key C-k
+wait 0.5
+snap list-ck
