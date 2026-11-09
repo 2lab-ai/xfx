@@ -18,9 +18,10 @@
 #   /Users/<name>          a macOS home directory
 #   /home/<name>           a Linux home directory
 #   /tmp/claude-<digits>   a harness's per-user scratch root, also as
-#                          /private/tmp/claude-<digits> on macOS, and the
-#                          `claude-<digits>/` a row opens with where a
-#                          binary broke such a root after its `tmp/`
+#                          /private/tmp/claude-<digits> on macOS, and a
+#                          `claude-<digits>/` at a row's start or after a
+#                          space or a control sequence, where a binary broke
+#                          such a root after its `tmp/`
 #   /var/folders/          macOS's per-user temporary root, also as  # local-path-ok
 #                          /private/var/folders/                      # local-path-ok
 #
@@ -130,19 +131,24 @@ for entry in "${allowed[@]}"; do
 	allowed_re+="${entry}|"
 done
 allowed_re="${allowed_re%|})${end}"
-# capture.sh's placeholders (scripts/fxcap/roots.py NAMES), as given and
-# resolved: what follows one is inside the run, a run's HOME among it.
-placeholders=()
-for name in work scratch scenarios bun tmp home; do
-	placeholders+=("<$name>" "<$name:real>")
-done
+# capture.sh's placeholders (scripts/fxcap/roots.py PLACEHOLDER: a name, or
+# its letter, filled with `_` to the root's width), as given and resolved:
+# what follows one is inside the run, a run's HOME among it.
+placeholder_home_re="<((work|scratch|scenarios|bun|tmp|home)(:real)?_*|[wscbthWSCBTH]_+)>/(home|Users)"
 marker=local-path-ok
 # The mark, as the comment that ends a line.
 marked_re="(^|[[:space:]])(#|//|--|;|<!--|/[*]).*${marker}(:.*)?([[:space:]]*(-->|[*]/))?[[:space:]]*$"
 
-# Whether a file is a capture, whose text no mark excuses: the kinds
-# scripts/fxcap/capture.sh writes, and a request body.
+# Whether a file is a capture, whose text no mark excuses: by its name, any
+# file scripts/fxcap/capture.sh writes or a directory it fills
+# (`<bin>-<scenario>-<rows>x<cols>-<label>...`, a `/trace` report's `.md`
+# and a request body's directory among them); and by its kind, whatever its
+# name.
+capture_name_re='(^|/)x?fx-[^/]*-[0-9]{1,4}x[0-9]{1,4}-'
 is_capture() {
+	if [[ $1 =~ $capture_name_re ]]; then
+		return 0
+	fi
 	case "$1" in
 	*-bodies/* | *.txt | *.ansi | *.wire | *.json | *.log | *.files | *.clip | *.clipfile | *.title | *.cursor | *.bells | *.sockets | *.port) return 0 ;;
 	esac
@@ -220,19 +226,22 @@ scan_tree() {
 				marked=$((marked + 1))
 				continue
 			fi
-			bare="$text"
-			# (Each pattern in a variable: bash 3.2 reads a `/` inside a quoted
-			# pattern as the expansion's own separator.)
-			for entry in "${placeholders[@]}"; do
-				inside="$entry/home"
-				bare="${bare//"$inside"/}"
-				inside="$entry/Users"
-				bare="${bare//"$inside"/}"
+			# A space after the line: every match below then ends in the
+			# character after it, never at the end of the text, so the first
+			# place its text occurs is the place it matched. (Without it, a
+			# match at the line's end, a bare documented home, was cut at its
+			# first occurrence -- inside an earlier, longer home that starts
+			# with the same letters.)
+			bare="$text "
+			# Each placeholder home, then each documented one where its name
+			# ends (keeping the character after it), one at a time, the
+			# leftmost first. Rebuilt from either side of the match: bash 3.2
+			# keeps the quotes of a quoted replacement, and bash 5.2 reads `&`
+			# in a bare one.
+			while [[ $bare =~ $placeholder_home_re ]]; do
+				found="${BASH_REMATCH[0]}"
+				bare="${bare%%"$found"*}${bare#*"$found"}"
 			done
-			# Each placeholder home where its name ends, keeping the
-			# character after it; one at a time, the leftmost first.
-			# (Rebuilt from either side of the match: bash 3.2 keeps the quotes
-			# of a quoted replacement, and bash 5.2 reads `&` in a bare one.)
 			while [[ $bare =~ $allowed_re ]]; do
 				found="${BASH_REMATCH[0]}" after="${BASH_REMATCH[2]}"
 				bare="${bare%%"$found"*}${after}${bare#*"$found"}"
@@ -286,10 +295,12 @@ folders="${s}private${s}var${s}folders${s}ab${s}T${s}"
 	printf '\033[38;5;245m%sx\033[39m\n' "$linux" # 12: a coloured path, after its SGR sequence's `m`
 	printf 'log >%sx\n' "$linux"             # 13: a redirect is no placeholder
 	printf 'cd %s\n' "${s}Users${s}alice"    # 14: a home with no slash after it
-	printf '<scratch>%shome%su%sx <work:real>%sUsers%scarol%s\n' "$s" "$s" "$s" "$s" "$s" "$s" # 15: inside a run
+	printf '<scratch____>%shome%su%sx <work:real_>%sUsers%scarol%s <h__>%shome%sz\n' "$s" "$s" "$s" "$s" "$s" "$s" "$s" "$s" # 15: inside a run
 	printf '  \033[38;5;250mclaude-501%sfxcap.Ab12Cd%swork\n' "$s" "$s" # 16: a root broken after its tmp/
 	printf 'see %sx %s and more\n' "$mac" "$marker" # 17: a mark that does not end the line
+	printf 'cp x %subuntu%sy; cd %su\n' "${s}home${s}" "$s" "${s}home${s}" # 18: a placeholder home ends the line
 } >"$control/lines.md"
+printf 'trace %sx # %s\n' "$linux" "$marker" >"$control/fx-trace-40x120-report-1.md" # a report: a capture
 printf 'x\000%s\n' "$mac" >"$control/blob.bin"
 mkdir -p "$control/x-bodies"
 printf '%s # %s\n' "$linux" "$marker" >"$control/x-bodies/001.json" # a mark in a capture
@@ -305,6 +316,8 @@ lines.md:13: a Linux home directory
 lines.md:14: a macOS home directory
 lines.md:16: a harness scratch root, broken after its tmp/
 lines.md:17: a macOS home directory
+lines.md:18: a Linux home directory
+fx-trace-40x120-report-1.md:1: a Linux home directory
 lines.md:7: a Linux home directory
 lines.md:9: a Linux home directory
 x-bodies/001.json:1: a Linux home directory"

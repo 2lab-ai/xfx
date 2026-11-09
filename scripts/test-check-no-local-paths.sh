@@ -23,8 +23,9 @@
 #     by an unmarked one: an exception covers its own text, not its neighbour;
 #   - a redirect into a home (`>` is no placeholder), a home with no slash
 #     after it, a harness root broken after its `tmp/`, a mark in a request
-#     body and in a `.txt` (no mark excuses a capture), and a mark that does
-#     not end its line.
+#     body, in a `.txt` and in a `/trace` report's `.md` (a capture by its
+#     name), a mark that does not end its line, and a home whose name starts
+#     with a documented placeholder's on a line that ends in that placeholder.
 # Required to pass: the placeholders captures use, a relative path, the
 # documentation's `<name>` and `<digits>` forms, `$TMPDIR` and `~`, each
 # documented placeholder (bare too), a home inside a run (`<scratch>/home/...`),
@@ -132,6 +133,9 @@ mkdir -p "$t/fx-x-40x120-bodies"
 printf '{"cwd":"%sx"} // local-path-ok\n' "$linux" >"$t/fx-x-40x120-bodies/001-completion.json"
 printf '%sx # local-path-ok\n' "$mac" >"$t/notes.txt"
 printf 'see %sx local-path-ok here\n' "$mac" >"$t/midline.md"
+mkdir -p "$t/w3"
+printf 'Workspace: %swork  # local-path-ok\n' "$linux" >"$t/w3/xfx-trace-40x120-report-1.md"
+printf 'cp x %subuntu%sy; cd %su\n' "${s}home${s}" "$s" "${s}home${s}" >"$t/sentinel.sh"
 track "$t"
 run_check "$t"
 want=(
@@ -156,6 +160,8 @@ want=(
 	"fx-x-40x120-bodies/001-completion.json:1: $linux_shape"
 	"notes.txt:1: $home_shape"
 	"midline.md:1: $home_shape"
+	"w3/xfx-trace-40x120-report-1.md:1: $linux_shape"
+	"sentinel.sh:1: $linux_shape"
 )
 missing=()
 for line in "${want[@]}"; do
@@ -204,8 +210,8 @@ new_tree "$t"
 	printf 'derived: "$TMPDIR/x" "${HOME}/x" ~/x\n'
 	printf 'placeholders: %s.zshrc %sa.png %sproject\n' "${s}home${s}u${s}" "${s}Users${s}me${s}" "${s}home${s}you${s}"
 	printf 'fixture: %sx  # local-path-ok: a redaction input\n' "$folders"
-	printf 'inside a run: <scratch>%shome%su%sx <work:real>%sUsers%scarol%snotes <tmp>%shome%sdave%s `%s` (%s)\n' \
-		"$s" "$s" "$s" "$s" "$s" "$s" "$s" "$s" "$s" "${s}Users${s}me" "${s}home${s}me"
+	printf 'inside a run: <scratch____>%shome%su%sx <work:real__>%sUsers%scarol%snotes <h__>%shome%sdave%s `%s` (%s) cd %s\n' \
+		"$s" "$s" "$s" "$s" "$s" "$s" "$s" "$s" "$s" "${s}Users${s}me" "${s}home${s}me" "${s}home${s}u"
 } >"$t/clean.md"
 track "$t"
 run_check "$t"
