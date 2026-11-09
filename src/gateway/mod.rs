@@ -1032,7 +1032,7 @@ pub(crate) enum CappedRead {
 /// body that grows past it is dropped at the chunk that crosses; one of
 /// exactly `limit` bytes is read, as fx reads one
 /// (`allocRemaining(alloc, .limited(max_bytes))`, `src/gateway/client.zig:
-/// 615-632@481104fd`). A read that fails partway is that failure, never the
+/// 615-635@481104fd`). A read that fails partway is that failure, never the
 /// bytes before it.
 pub(crate) async fn read_capped(
     mut response: reqwest::Response,
@@ -1058,7 +1058,7 @@ pub(crate) async fn read_capped(
 /// is a whole number of them.
 pub(crate) fn larger_than(limit: usize) -> String {
     const MIB: usize = 1024 * 1024;
-    if limit % MIB == 0 {
+    if limit.is_multiple_of(MIB) {
         format!("the answer is larger than {} MiB", limit / MIB)
     } else {
         format!("the answer is larger than {limit} bytes")

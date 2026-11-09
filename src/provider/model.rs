@@ -3555,7 +3555,7 @@ mod tests {
     //
     // `gateway_json_fetch_timeout_ms = 30_000` over the whole request, and
     // `max_gateway_json_bytes = 16 * 1024 * 1024`, past which the read fails
-    // rather than being cut (`src/gateway/client.zig:486-509,597-632
+    // rather than being cut (`src/gateway/client.zig:486-509,597-635
     // @481104fd`); a timeout is a transport failure fx asks again about, a
     // body too large a malformed one it does not (`catalogRequestFailure`,
     // `src/builtins/gateway.zig:2510-2557@481104fd`).
@@ -3761,7 +3761,7 @@ mod tests {
         // them would take it. fx's read fails there (`ReadFailed`, which is
         // not among the failures it asks again about).
         let cut = sized(&format!("{ONE_MODEL}{}", " ".repeat(100)));
-        let cut = cut[..cut.len() - 100].as_bytes().to_vec();
+        let cut = cut.as_bytes()[..cut.len() - 100].to_vec();
         let (origin, server) = slow_exchange(cut, 0, Duration::ZERO);
         let answer = ask_gateway(&origin, GATEWAY_CATALOG_TIMEOUT);
         server.join().expect("the server");
@@ -3814,7 +3814,7 @@ mod tests {
         }
 
         let cut = sized(&format!("{LLMUX}{}", " ".repeat(100)));
-        let cut = cut[..cut.len() - 100].as_bytes().to_vec();
+        let cut = cut.as_bytes()[..cut.len() - 100].to_vec();
         let (origin, server) = slow_exchange(cut, 0, Duration::ZERO);
         let answer = on_a_runtime_of_its_own(fetch_catalog(&format!("{origin}/models")));
         server.join().expect("the server");
