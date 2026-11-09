@@ -5316,10 +5316,14 @@ mod tests {
             r#"{{"mcp":{{"needs":{{"command":"${{{unset}}}"}},"esc\u001b[2J":{{"command":"${{{unset}:-}}"}}}}}}"#
         );
         fs::write(&profile, &text).unwrap();
-        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
-            profile: Some(profile.clone()),
-            settings: Some(home.join("settings.json")),
-            workspace: dir.path().join("work"),
+        // In a process that sets no variable (`crate::test_env`), so the one
+        // named is unset whatever the suite runs in.
+        let runtime = crate::test_env::FakeProcess::new().run(|| {
+            crate::mcp::McpRuntime::new(crate::mcp::Paths {
+                profile: Some(profile.clone()),
+                settings: Some(home.join("settings.json")),
+                workspace: dir.path().join("work"),
+            })
         });
         runtime.start_and_wait(Duration::from_secs(10));
         assert!(runtime.views().is_empty());

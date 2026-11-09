@@ -1466,7 +1466,11 @@ fn minimal_environment() -> Vec<(String, String)> {
         .ok()
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = process_env!(
+        "permission::authority::minimal_environment",
+        child_var("HOME")
+    )
+    .unwrap_or_default();
     // Sorted by name, so the fingerprint does not depend on the order the
     // variables happened to be read in. The three `GIT_TRACE2` variables
     // switch off the trace targets git's global configuration can name,

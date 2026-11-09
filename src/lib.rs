@@ -29,6 +29,60 @@
 //! `vercel-labs/fx@580a0c5da9386317251968c09c1cee69e763487a`; see `UPSTREAM.md`
 //! for the attribution and `docs/parity.md` for what is and is not implemented.
 
+/// A read of the real process environment by `$who`, the function that makes
+/// it: `process_env!("config::Environment::from_process", var(key))`.
+///
+/// In a build, `::std::env::var` or `::std::env::var_os` itself -- and
+/// `lookup`, a closure over `::std::env::var` -- so what a release binary does
+/// is unchanged. In this crate's unit tests, a read that fails closed
+/// ([`test_env`]), never the home, profile, variables or git configuration of
+/// the person running the suite:
+///
+/// - `var`, `var_os` and `lookup` are values xfx itself acts on: the case's
+///   own fake process, or a panic that names `$who`.
+/// - `child_var` and `child_var_os` are values only handed on to a child's
+///   environment: the fake process's, or none (`PATH` and `TMPDIR` excepted).
+///
+/// `test_env`'s scan holds every other read of the environment in `src` to
+/// its list.
+#[cfg(not(test))]
+macro_rules! process_env {
+    ($who:literal, var($name:expr)) => {
+        ::std::env::var($name)
+    };
+    ($who:literal, var_os($name:expr)) => {
+        ::std::env::var_os($name)
+    };
+    ($who:literal, child_var($name:expr)) => {
+        ::std::env::var($name)
+    };
+    ($who:literal, child_var_os($name:expr)) => {
+        ::std::env::var_os($name)
+    };
+    ($who:literal, lookup) => {
+        |name: &str| ::std::env::var(name).ok()
+    };
+}
+
+#[cfg(test)]
+macro_rules! process_env {
+    ($who:literal, var($name:expr)) => {
+        $crate::test_env::var($who, $name)
+    };
+    ($who:literal, var_os($name:expr)) => {
+        $crate::test_env::var_os($who, $name)
+    };
+    ($who:literal, child_var($name:expr)) => {
+        $crate::test_env::child_var($name)
+    };
+    ($who:literal, child_var_os($name:expr)) => {
+        $crate::test_env::child_var_os($name)
+    };
+    ($who:literal, lookup) => {
+        $crate::test_env::lookup($who)
+    };
+}
+
 pub mod agent;
 pub mod app;
 pub mod cli;
@@ -96,7 +150,8 @@ mod build_meta;
 #[cfg(test)]
 mod test_net;
 
-/// What a unit test has in place of the process environment.
+/// What a unit test has in place of the process environment: its own fake
+/// one, or a panic.
 #[cfg(test)]
 mod test_env;
 

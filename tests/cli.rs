@@ -38,15 +38,6 @@ const DEFERRED_COMMAND_NAMES: &[&str] = &[
     "workspace",
 ];
 
-/// Environment variables that must never leak in from the developer's shell.
-const CONTROLLED_VARS: &[&str] = &[
-    "VERCEL_OIDC_TOKEN",
-    "AI_GATEWAY_API_KEY",
-    "XFX_MODEL",
-    "XFX_PERMISSION_MODE",
-    "XFX_MAX_AGENT_STEPS",
-];
-
 struct Sandbox {
     _root: TempDir,
     home: PathBuf,
@@ -74,10 +65,18 @@ impl Sandbox {
     fn command(&self) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(&self.workspace);
-        command.env("HOME", &self.home);
-        for key in CONTROLLED_VARS {
-            command.env_remove(key);
+        // Built from nothing but where programs are and where temporary
+        // files go: no variable of the developer's -- an xfx setting, a
+        // credential, what chooses git's or llmux's configuration -- reaches
+        // the binary (`tests/support/sandbox.rs`'s `clear_env`, which this
+        // suite does not include).
+        command.env_clear();
+        for key in ["PATH", "TMPDIR"] {
+            if let Some(value) = std::env::var_os(key) {
+                command.env(key, value);
+            }
         }
+        command.env("HOME", &self.home);
         command
     }
 

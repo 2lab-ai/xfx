@@ -3467,7 +3467,9 @@ mod tests {
             workspace.path(),
         )
         .expect("a configuration");
-        assert!(catalog_for(&config).is_some(), "a Gateway with a key asks");
+        // At the compiled endpoint: a process that names none (`crate::test_env`).
+        let asked = crate::test_env::FakeProcess::new().run(|| catalog_for(&config).is_some());
+        assert!(asked, "a Gateway with a key asks");
         config.provider_rejected = Some(ProviderRejection {
             key: "provider",
             value: "not-a-provider".to_string(),

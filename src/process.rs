@@ -197,6 +197,10 @@ pub fn pipe() -> io::Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
 /// server) clears everything first.
 pub fn command(program: impl AsRef<OsStr>) -> Command {
     let mut command = Command::new(program);
+    // A unit test's child inherits the case's fake process, never the
+    // developer's environment; a build is unchanged.
+    #[cfg(test)]
+    crate::test_env::isolate_child(&mut command);
     for name in crate::config::CREDENTIAL_VARIABLES {
         command.env_remove(name);
     }
@@ -845,17 +849,29 @@ mod tests {
     /// names one on purpose -- an MCP server's configured `env` -- still can.
     /// Named here as literals, so a wrong shared constant cannot pass by
     /// agreeing with itself.
+    ///
+    /// The process holding them is a fake one (`crate::test_env`): a child
+    /// of a unit test inherits that, as a child of xfx inherits the real one,
+    /// so what this function removes is what keeps them out.
     #[test]
     fn a_child_is_never_handed_xfxs_own_credential_unless_a_caller_names_it() {
-        let removed: Vec<String> = command("/bin/true")
+        let given: Vec<String> = crate::test_env::FakeProcess::new()
+            .var("AI_GATEWAY_API_KEY", "xfx-fake-gateway-key")
+            .var("VERCEL_OIDC_TOKEN", "xfx-fake-oidc-token")
+            .var("XFX_FAKE_INHERITED", "1")
+            .run(|| command("/bin/true"))
             .get_envs()
-            .filter(|(_, value)| value.is_none())
+            .filter(|(_, value)| value.is_some())
             .map(|(name, _)| name.to_string_lossy().into_owned())
             .collect();
+        assert!(
+            given.iter().any(|name| name == "XFX_FAKE_INHERITED"),
+            "the fake process is not what a child inherits: {given:?}"
+        );
         for name in ["AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN"] {
             assert!(
-                removed.iter().any(|removed| removed == name),
-                "{name} is not removed from a child's environment: {removed:?}"
+                !given.iter().any(|given| given == name),
+                "{name} is not removed from a child's environment: {given:?}"
             );
         }
         let mut granted = command("/bin/true");

@@ -64,7 +64,7 @@ pub const TUI_ENV: &str = "XFX_TUI";
 /// ordinary command, unchanged.
 pub fn should_run(cli: &Cli) -> bool {
     matches!(cli.command, Command::Interactive { .. })
-        && std::env::var_os(TUI_ENV).is_none_or(|value| value != "0")
+        && process_env!("tui::should_run", var_os(TUI_ENV)).is_none_or(|value| value != "0")
         && io::stdin().is_terminal()
         && io::stdout().is_terminal()
 }
@@ -396,7 +396,7 @@ fn hold(
     // whether the *question* is asked at all: a user who set `XFX_THEME` has
     // decided, and a decided session must not spend a deadline -- or put a
     // query on a terminal -- to be told something it will ignore.
-    let env_theme = std::env::var(theme::ENV).ok();
+    let env_theme = process_env!("tui::hold", var(theme::ENV)).ok();
     // The same answer twice over, which is why it is read once: a session the
     // user decided for asks the terminal nothing at launch **and** ignores what
     // the terminal volunteers afterwards. The second half travels to the shell

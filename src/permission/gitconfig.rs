@@ -92,7 +92,8 @@ impl GitEnvironment {
             SELECTING_VARIABLES
                 .iter()
                 .filter_map(|name| {
-                    std::env::var_os(name).map(|value| (OsString::from(name), value))
+                    process_env!("permission::GitEnvironment::from_process", var_os(name))
+                        .map(|value| (OsString::from(name), value))
                 })
                 .collect(),
         )

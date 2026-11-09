@@ -564,6 +564,10 @@ where
         }
         previous
     };
+    // In a unit test the thread runs in the case's fake process, as the
+    // thread that starts it does (`crate::test_env`); a build is unchanged.
+    #[cfg(test)]
+    let body = crate::test_env::carried(body);
     let spawned = std::thread::Builder::new()
         .name(name.to_string())
         .spawn(body);
@@ -781,6 +785,33 @@ mod tests {
         }
         let after: Vec<bool> = OWNED.iter().map(|signal| masked(*signal)).collect();
         assert_eq!(after, before);
+    }
+
+    /// A TUI thread a unit test starts reads the case's fake process, as
+    /// the case does (`crate::test_env`): a worker the case launches is held
+    /// to what the case gave it, and refused if it gave nothing.
+    #[test]
+    fn a_thread_started_unsignalled_is_in_the_process_of_the_case_that_started_it() {
+        let model = || {
+            crate::config::Environment::from_process()
+                .var("XFX_MODEL")
+                .map(str::to_string)
+        };
+        let seen = crate::test_env::FakeProcess::new()
+            .var("XFX_MODEL", "xfx-fake-carried")
+            .run(|| spawn_unsignalled("xfx-test", model))
+            .expect("a thread")
+            .join()
+            .expect("joined");
+        assert_eq!(seen.as_deref(), Some("xfx-fake-carried"));
+        let refused = spawn_unsignalled("xfx-test", model)
+            .expect("a thread")
+            .join()
+            .is_err();
+        assert!(
+            refused,
+            "a thread started outside a fake process read the real one"
+        );
     }
 
     /// Why [`crate::process::command`] exists: a child made by a bare

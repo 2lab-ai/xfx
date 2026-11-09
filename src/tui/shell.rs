@@ -2475,10 +2475,12 @@ impl Shell {
             crate::usage::dashboard::wall_clock(),
             Box::new(|job| super::signals::spawn_unsignalled(USAGE_THREAD, job)),
         );
+        // Its clock is the system's: `wall_clock` asks the process whether a
+        // clock file pins it, which a unit test may not (`crate::test_env`).
         #[cfg(test)]
         let usage = crate::usage::dashboard::Dashboard::new(
             None,
-            crate::usage::dashboard::wall_clock(),
+            std::sync::Arc::new(crate::session::event::system_now_ms),
             Box::new(|_| Err(std::io::Error::other("a test shell fetches nothing"))),
         );
         let mut shell = Self {
@@ -41514,7 +41516,10 @@ mod tests {
             workspace.path(),
         )
         .expect("load a configuration");
-        crate::credits::question(&config).expect("a Gateway with a key asks")
+        // At the compiled endpoint: a process that names none (`crate::test_env`).
+        crate::test_env::FakeProcess::new()
+            .run(|| crate::credits::question(&config))
+            .expect("a Gateway with a key asks")
     }
 
     #[test]

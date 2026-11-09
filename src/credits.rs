@@ -572,7 +572,9 @@ mod tests {
             workspace.path(),
         )
         .expect("a configuration");
-        assert!(question(&config).is_ok(), "a Gateway with a key asks");
+        // At the compiled endpoint: a process that names none (`crate::test_env`).
+        let asked = crate::test_env::FakeProcess::new().run(|| question(&config));
+        assert!(asked.is_ok(), "a Gateway with a key asks");
         let rejected = ProviderRejection {
             key: "provider",
             value: "not-a-provider".to_string(),

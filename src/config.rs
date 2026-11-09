@@ -815,11 +815,14 @@ impl Environment {
             ENV_LLMUX_CONFIG,
             ENV_XDG_CONFIG_HOME,
         ] {
-            if let Ok(value) = std::env::var(key) {
+            if let Ok(value) = process_env!("config::Environment::from_process", var(key)) {
                 vars.insert(key.to_string(), value);
             }
         }
-        Self::new(std::env::var_os("HOME").map(PathBuf::from), vars)
+        Self::new(
+            process_env!("config::Environment::from_process", var_os("HOME")).map(PathBuf::from),
+            vars,
+        )
     }
 
     pub fn home(&self) -> Option<&Path> {
@@ -2265,6 +2268,23 @@ fn resolve_credential(env: &Environment) -> Option<Credential> {
         }
     }
     None
+}
+
+/// In a unit test, this environment as the process (`crate::test_env`).
+#[cfg(test)]
+impl Environment {
+    /// A fake process whose home and variables are this environment's: what
+    /// a runtime built from it reads wherever it would read the process.
+    pub(crate) fn fake_process(&self) -> crate::test_env::FakeProcess {
+        let process = self.vars.iter().fold(
+            crate::test_env::FakeProcess::new(),
+            |process, (name, value)| process.var(name, value),
+        );
+        match &self.home {
+            Some(home) => process.home(home),
+            None => process,
+        }
+    }
 }
 
 #[cfg(test)]

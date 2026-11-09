@@ -51,16 +51,6 @@ use xfx::workspace::AccessScope;
 
 use support::fake_gateway::{finish, sse_body, text_delta, tool_call, FakeGateway, Reply};
 
-/// Environment variables that must never leak in from the developer's shell.
-const CONTROLLED_VARS: &[&str] = &[
-    "VERCEL_OIDC_TOKEN",
-    "AI_GATEWAY_API_KEY",
-    "XFX_MODEL",
-    "XFX_PERMISSION_MODE",
-    "XFX_MAX_AGENT_STEPS",
-    "XFX_GATEWAY_URL",
-];
-
 /// A test secret that must never appear on stdout, stderr, or in a subprocess.
 const TEST_KEY: &str = "xfx-test-permission-key-must-not-appear";
 
@@ -4632,10 +4622,8 @@ impl Sandbox {
     fn command(&self, args: &[&str], env: &[(&str, &str)]) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(&self.workspace);
+        support::sandbox::clear_env(&mut command);
         command.env("HOME", &self.home);
-        for key in CONTROLLED_VARS {
-            command.env_remove(key);
-        }
         for (key, value) in env {
             command.env(key, value);
         }

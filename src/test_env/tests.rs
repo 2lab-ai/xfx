@@ -6,10 +6,14 @@
 //! that nothing of the real process arrived. None prints a value: a failure
 //! says which function read, or which name a child was given, and no more.
 
+use std::collections::BTreeSet;
+use std::ffi::OsString;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 
-use crate::permission::{CommandEffect, CommandPlan, DeniedEffect};
+use super::FakeProcess;
+use crate::config::Environment;
+use crate::permission::{CommandEffect, CommandPlan, DeniedEffect, GitEnvironment};
 use crate::tools::ToolLimits;
 use crate::workspace::AccessScope;
 
@@ -106,7 +110,7 @@ fn a_repository(root: &Path) {
             "a",
         ][..],
     ] {
-        let mut command = std::process::Command::new(git());
+        let mut command = crate::process::command(git());
         command
             .args(args)
             .current_dir(root)
@@ -153,23 +157,28 @@ fn a_git_plan_reads_no_git_configuration_under_the_process_home() {
     );
 }
 
-/// A child a unit test starts is given `PATH` and `TMPDIR` of the real
-/// process and nothing else: no `HOME`, no xfx variable, no configuration.
-/// Names only: the child prints its variables' names, never their values.
-#[test]
-fn a_child_inherits_nothing_of_the_process_but_path_and_tmpdir() {
+/// The names of the variables a child of `crate::process::command` starts
+/// with -- names only: the child prints no value.
+fn child_names() -> Vec<String> {
     let mut command = crate::process::command("/bin/sh");
     command
         .args(["-c", "/usr/bin/env | /usr/bin/cut -d= -f1"])
         .stdin(std::process::Stdio::null());
     let output = crate::process::output(&mut command).expect("sh runs");
     assert!(output.status.success());
-    let names: Vec<String> = String::from_utf8_lossy(&output.stdout)
+    String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(str::to_string)
         // `sh` sets these three itself, whatever it inherited.
         .filter(|name| !matches!(name.as_str(), "PWD" | "SHLVL" | "_"))
-        .collect();
+        .collect()
+}
+
+/// A child a unit test starts is given `PATH` and `TMPDIR` of the real
+/// process and nothing else: no `HOME`, no xfx variable, no configuration.
+#[test]
+fn a_child_inherits_nothing_of_the_process_but_path_and_tmpdir() {
+    let names = child_names();
     let inherited = names
         .iter()
         .filter(|name| !matches!(name.as_str(), "PATH" | "TMPDIR"))
@@ -179,5 +188,372 @@ fn a_child_inherits_nothing_of_the_process_but_path_and_tmpdir() {
         0,
         "a child of a unit test inherited {inherited} more variables (HOME among them: {})",
         names.iter().any(|name| name == "HOME")
+    );
+}
+
+// ---------------------------------------------------------------------------
+// the way in: a case's own fake process
+// ---------------------------------------------------------------------------
+
+#[test]
+fn inside_a_fake_process_each_reader_takes_the_fake_and_only_its_own_names() {
+    let home = tempfile::tempdir().expect("a home");
+    FakeProcess::new()
+        .home(home.path())
+        .var("XFX_MODEL", "xfx-fake-model")
+        .var("AI_GATEWAY_API_KEY", "xfx-fake-gateway-key")
+        .var("XFX_GATEWAY_URL", "https://fake.invalid/v1")
+        .var("GIT_CONFIG_GLOBAL", "/dev/null")
+        .var("XFX_FAKE_NOT_READ", "x")
+        .run(|| {
+            let env = Environment::from_process();
+            assert_eq!(env.home(), Some(home.path()));
+            assert_eq!(env.var("XFX_MODEL"), Some("xfx-fake-model"));
+            assert_eq!(env.var("AI_GATEWAY_API_KEY"), Some("xfx-fake-gateway-key"));
+            assert_eq!(env.var("XFX_FAKE_NOT_READ"), None);
+            assert_eq!(
+                crate::gateway::Endpoint::from_process()
+                    .expect("an endpoint")
+                    .url(),
+                "https://fake.invalid/v1"
+            );
+            assert_eq!(
+                GitEnvironment::from_process(),
+                GitEnvironment::default().with("GIT_CONFIG_GLOBAL", "/dev/null")
+            );
+        });
+}
+
+#[test]
+fn a_fake_process_ends_with_its_body_however_the_body_ends() {
+    let model = || {
+        Environment::from_process()
+            .var("XFX_MODEL")
+            .map(str::to_string)
+    };
+    FakeProcess::new().var("XFX_MODEL", "outer").run(|| {
+        FakeProcess::new()
+            .var("XFX_MODEL", "inner")
+            .run(|| assert_eq!(model().as_deref(), Some("inner")));
+        assert_eq!(model().as_deref(), Some("outer"));
+    });
+    assert!(panic_of(|| FakeProcess::new().run(|| panic!("the body"))).is_some());
+    refused("config::Environment::from_process", || {
+        drop(Environment::from_process());
+    });
+}
+
+/// `tui::signals::spawn_unsignalled` hands its body to [`super::carried`]:
+/// the TUI's own threads are in the process of the case that started them.
+#[test]
+fn a_carried_body_runs_in_the_process_of_the_thread_that_made_it() {
+    let carried = FakeProcess::new().var("XFX_MODEL", "carried").run(|| {
+        super::carried(|| {
+            Environment::from_process()
+                .var("XFX_MODEL")
+                .map(str::to_string)
+        })
+    });
+    let seen = std::thread::spawn(carried).join().expect("joined");
+    assert_eq!(seen.as_deref(), Some("carried"));
+    let outside = super::carried(|| panic_of(|| drop(Environment::from_process())));
+    let refusal = std::thread::spawn(outside).join().expect("joined");
+    assert!(
+        refusal.is_some_and(|message| message.contains("config::Environment::from_process")),
+        "a body made outside a fake process read on its thread"
+    );
+}
+
+/// An MCP runtime's lookup is asked on threads of its own: it is the fake
+/// process of the thread that made it, wherever it is asked.
+#[test]
+fn a_lookup_is_the_process_it_was_made_in_on_any_thread() {
+    let lookup = FakeProcess::new()
+        .var("XFX_FAKE", "made")
+        .run(|| super::lookup("test_env::tests::made"));
+    let answer = std::thread::spawn(move || (lookup("XFX_FAKE"), lookup("XFX_FAKE_UNSET")))
+        .join()
+        .expect("joined");
+    assert_eq!(answer, (Some("made".to_string()), None));
+    let outside = super::lookup("test_env::tests::outside");
+    refused("test_env::tests::outside", || drop(outside("XFX_FAKE")));
+}
+
+#[test]
+fn an_mcp_runtime_made_outside_a_fake_process_refuses_its_lookup() {
+    let paths = || crate::mcp::Paths {
+        profile: None,
+        settings: None,
+        workspace: std::path::PathBuf::from("/nonexistent-xfx-test-workspace"),
+    };
+    // Made: nothing is asked yet. Asked: refused.
+    let runtime = crate::mcp::McpRuntime::new(paths());
+    refused("mcp::McpRuntime::new", || {
+        drop(runtime.looked_up("XFX_FAKE"))
+    });
+    let runtime = FakeProcess::new()
+        .var("XFX_FAKE", "fake")
+        .run(|| crate::mcp::McpRuntime::new(paths()));
+    assert_eq!(runtime.looked_up("XFX_FAKE").as_deref(), Some("fake"));
+    let seam = crate::mcp::McpRuntime::with_environment(paths(), &[("XFX_GIVEN", "given")]);
+    assert_eq!(seam.looked_up("XFX_GIVEN").as_deref(), Some("given"));
+    refused("mcp::McpRuntime::with_environment", || {
+        drop(seam.looked_up("XFX_FAKE"));
+    });
+}
+
+#[test]
+fn what_is_only_handed_to_a_child_is_the_fakes_or_nothing() {
+    for name in [
+        "HOME",
+        "XFX_MODEL",
+        "AI_GATEWAY_API_KEY",
+        "XDG_CONFIG_HOME",
+        "USER",
+    ] {
+        assert_eq!(super::child_var_os(name), None, "{name}");
+    }
+    assert!(super::child_var_os("PATH").is_some());
+    FakeProcess::new().home("/fake/home").run(|| {
+        assert_eq!(
+            super::child_var_os("HOME"),
+            Some(OsString::from("/fake/home"))
+        );
+        assert_eq!(
+            super::child_var("USER"),
+            Err(std::env::VarError::NotPresent)
+        );
+        assert!(super::child_var_os("PATH").is_some());
+    });
+}
+
+/// A child inherits the fake process as it would the real one -- less
+/// xfx's own credential, which `crate::process::command` still removes.
+#[test]
+fn a_child_inherits_the_fake_process_less_xfxs_own_credential() {
+    let home = tempfile::tempdir().expect("a home");
+    let names: BTreeSet<String> = FakeProcess::new()
+        .home(home.path())
+        .var("XFX_FAKE_INHERITED", "1")
+        .var("AI_GATEWAY_API_KEY", "xfx-fake-gateway-key")
+        .var("VERCEL_OIDC_TOKEN", "xfx-fake-oidc-token")
+        .run(child_names)
+        .into_iter()
+        .collect();
+    for name in ["HOME", "PATH", "XFX_FAKE_INHERITED"] {
+        assert!(names.contains(name), "{name} was not inherited: {names:?}");
+    }
+    for name in ["AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN"] {
+        assert!(!names.contains(name), "{name} was inherited: {names:?}");
+    }
+}
+
+/// The opt-in reaches git: a hook the fake home's configuration sets turns
+/// the plan into a refusal, and the plan's command runs under that home.
+#[test]
+fn a_git_plan_reads_the_git_configuration_of_the_fake_home() {
+    let root = tempfile::tempdir().expect("a workspace");
+    a_repository(root.path());
+    let home = tempfile::tempdir().expect("a home");
+    std::fs::write(
+        home.path().join(".gitconfig"),
+        "[hook \"fake\"]\n\tcommand = true\n",
+    )
+    .expect("a global configuration");
+    let scope = AccessScope::primary_only(root.path()).expect("a scope");
+    let plan = FakeProcess::new().home(home.path()).run(|| {
+        CommandPlan::prepare("git status", &scope, None, &ToolLimits::default()).expect("a plan")
+    });
+    assert!(matches!(
+        plan.effect(),
+        CommandEffect::Denied(DeniedEffect::ConfiguredHooks)
+    ));
+    assert!(plan
+        .environment()
+        .iter()
+        .any(|(name, value)| name == "HOME" && Path::new(value) == home.path()));
+}
+
+// ---------------------------------------------------------------------------
+// the rest of `src`
+// ---------------------------------------------------------------------------
+
+/// What reads the process environment without `process_env!`, by file, and
+/// why each may. A read added anywhere else -- or one more in a listed file --
+/// fails this case until it goes through `process_env!` or is listed here
+/// with its reason. None of these names the developer's home, profile,
+/// configuration, an xfx setting or a credential.
+const LISTED: &[(&str, usize, &str)] = &[
+    (
+        "src/lib.rs",
+        5,
+        "process_env!'s build arms: std::env itself",
+    ),
+    (
+        "src/test_env.rs",
+        2,
+        "PATH and TMPDIR, the two a child keeps",
+    ),
+    ("src/test_env/tests.rs", 1, "PATH, to find git"),
+    (
+        "src/interactive.rs",
+        1,
+        "TMPDIR: where /trace writes its report",
+    ),
+    (
+        "src/tui/shell.rs",
+        1,
+        "TMPDIR: where /trace writes its report",
+    ),
+    (
+        "src/mcp/docker.rs",
+        1,
+        "TMPDIR, TEMP or TMP: where a cidfile goes",
+    ),
+    ("src/tui/term.rs", 1, "TMUX: whether the terminal is tmux's"),
+    (
+        "src/tui/mod.rs",
+        3,
+        "COLORFGBG, COLORTERM, TERM_PROGRAM: the terminal's own",
+    ),
+    (
+        "src/permission/authority.rs",
+        5,
+        "PATH: one for a command, four in tests",
+    ),
+    (
+        "src/permission/gitconfig.rs",
+        2,
+        "PATH: finding git, once in a test",
+    ),
+    (
+        "src/mcp/transport.rs",
+        3,
+        "PATH and a sentinel runner's role, in tests",
+    ),
+    (
+        "src/tui/fault.rs",
+        1,
+        "the fault-injection point a test names",
+    ),
+    (
+        "src/usage/cache.rs",
+        1,
+        "a fault-injection role a test names",
+    ),
+    ("src/process.rs", 1, "a re-run test binary's role"),
+    ("src/test_net.rs", 1, "a re-run test binary's role"),
+    ("src/tui/signals.rs", 1, "a re-run test binary's role"),
+    (
+        "src/profile_home/tests.rs",
+        1,
+        "a re-run test binary's role",
+    ),
+    (
+        "src/session/store/fork/tests.rs",
+        1,
+        "a re-run test binary's role",
+    ),
+    ("src/local_time/tests.rs", 1, "a re-run test binary's role"),
+    (
+        "src/usage/cache/tests.rs",
+        3,
+        "a re-run test binary's role and arguments",
+    ),
+    (
+        "src/tui/drawn_wider.rs",
+        2,
+        "the drawn-wider harness's own two, in a test",
+    ),
+];
+
+/// The spellings of a read: `std::env`'s functions under any path, and
+/// libc's. Spelled in halves so that this list is not a read itself.
+const READS: [&str; 6] = [
+    concat!("env", "::var("),
+    concat!("env", "::var_os("),
+    concat!("env", "::vars("),
+    concat!("env", "::vars_os("),
+    concat!("env", "::home_dir("),
+    concat!("get", "env("),
+];
+
+/// How many times `line` reads by one of [`READS`]: each spelling where it
+/// starts a path segment -- `test_env::var(`, a function of this module's,
+/// is not `env::var(`.
+fn reads_in(line: &str) -> usize {
+    READS
+        .iter()
+        .map(|read| {
+            line.match_indices(read)
+                .filter(|(at, _)| {
+                    !line[..*at]
+                        .chars()
+                        .next_back()
+                        .is_some_and(|before| before.is_alphanumeric() || before == '_')
+                })
+                .count()
+        })
+        .sum()
+}
+
+/// Every `.rs` file under `dir`, sorted.
+fn sources(dir: &Path, found: &mut Vec<std::path::PathBuf>) {
+    let mut entries: Vec<_> = std::fs::read_dir(dir)
+        .expect("a source directory")
+        .map(|entry| entry.expect("an entry").path())
+        .collect();
+    entries.sort();
+    for path in entries {
+        if path.is_dir() {
+            sources(&path, found);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            found.push(path);
+        }
+    }
+}
+
+#[test]
+fn every_other_read_of_the_environment_in_src_is_listed() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut files = Vec::new();
+    sources(&manifest.join("src"), &mut files);
+    let mut problems = Vec::new();
+    let mut seen = BTreeSet::new();
+    for path in files {
+        let relative = path
+            .strip_prefix(manifest)
+            .expect("under the manifest")
+            .to_string_lossy()
+            .into_owned();
+        let text = std::fs::read_to_string(&path).expect("a source file");
+        let mut hits = Vec::new();
+        for (index, line) in text.lines().enumerate() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            hits.extend(std::iter::repeat_n(index + 1, reads_in(line)));
+        }
+        let listed = LISTED.iter().find(|(file, _, _)| *file == relative);
+        if !hits.is_empty() || listed.is_some() {
+            seen.insert(relative.clone());
+        }
+        let expected = listed.map_or(0, |(_, count, _)| *count);
+        if hits.len() != expected {
+            problems.push(format!(
+                "{relative}: {} reads at lines {hits:?}, {expected} listed",
+                hits.len()
+            ));
+        }
+    }
+    for (file, _, _) in LISTED {
+        if !seen.contains(*file) {
+            problems.push(format!("{file} is listed and has no read"));
+        }
+    }
+    assert!(
+        problems.is_empty(),
+        "a read of the process environment outside process_env!:\n{}",
+        problems.join("\n")
     );
 }

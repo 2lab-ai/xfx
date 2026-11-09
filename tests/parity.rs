@@ -1040,14 +1040,9 @@ fn the_readme_says_plainly_that_what_the_model_reads_is_saved() {
 #[test]
 fn every_doctor_check_the_binary_emits_is_documented() {
     // Run the real binary: the check list is built at runtime from the
-    // configuration, so the only honest inventory is the one it prints.
-    let output = xfx::process::output(
-        Command::new(env!("CARGO_BIN_EXE_xfx"))
-            .args(["doctor", "--json"])
-            .env_remove("VERCEL_OIDC_TOKEN")
-            .env_remove("AI_GATEWAY_API_KEY"),
-    )
-    .expect("spawn xfx doctor");
+    // configuration, so the only honest inventory is the one it prints -- in
+    // an empty profile, never the developer's ([`run_xfx`]).
+    let output = run_xfx(&["doctor", "--json"]);
     let document: Value = serde_json::from_slice(&output.stdout).expect("doctor prints one JSON");
     let ledger = fs::read_to_string(parity_path()).expect("read docs/parity.md");
     let doctor_row = ledger

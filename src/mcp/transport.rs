@@ -369,7 +369,10 @@ impl StdioTransport {
         let mut argv: Vec<String> = Vec::with_capacity(args.len() + 1);
         argv.push(command.to_string());
         argv.extend(args.iter().cloned());
-        let environment = server_environment(|name| std::env::var_os(name), env);
+        let environment = server_environment(
+            |name| process_env!("mcp::transport::StdioTransport::spawn", child_var_os(name)),
+            env,
+        );
         let prepared = super::docker::prepare(&argv, &environment);
         let mut builder = crate::process::command(&prepared.argv[0]);
         builder
@@ -2645,6 +2648,24 @@ mod tests {
         );
     }
 
+    /// The process a sentinel case runs xfx in: the runner's own sentinels,
+    /// as a fake process (`crate::test_env`), since a unit test's xfx reads
+    /// that and never the process it runs in -- the runner's included.
+    #[cfg(unix)]
+    fn sentinel_process(home: &std::path::Path) -> crate::test_env::FakeProcess {
+        crate::test_env::FakeProcess::new()
+            .home(home)
+            .var("LOGNAME", "xfx-sentinel-logname")
+            .var("SHELL", "/bin/sh")
+            .var("TERM", "xfx-sentinel-term")
+            .var("USER", "xfx-sentinel-user")
+            .var("AI_GATEWAY_API_KEY", "xfx-sentinel-gateway-key")
+            .var("VERCEL_OIDC_TOKEN", "xfx-sentinel-oidc-token")
+            .var("GITHUB_TOKEN", "xfx-sentinel-github-token")
+            .var("HTTPS_PROXY", "http://127.0.0.1:9")
+            .var(SENTINEL_RUNNER, "1")
+    }
+
     /// What `/usr/bin/env` wrote to `path`, by name, once it is all there.
     #[cfg(unix)]
     fn printed_environment(path: &std::path::Path) -> std::collections::BTreeMap<String, String> {
@@ -2719,20 +2740,23 @@ mod tests {
         let out = out.to_string_lossy().into_owned();
         // The server's own `env` is a grant: a credential it names on purpose
         // is passed, and a name it shares with xfx's environment is its own.
-        let transport = StdioTransport::spawn(
-            "/bin/sh",
-            &[
-                "-c".into(),
-                r#"/usr/bin/env > "$XFX_TEST_OUT.part" && /bin/mv "$XFX_TEST_OUT.part" "$XFX_TEST_OUT"; exec /bin/cat > /dev/null"#.into(),
-            ],
-            &[
-                ("XFX_TEST_OUT".into(), out.clone()),
-                ("VERCEL_OIDC_TOKEN".into(), "xfx-sentinel-granted".into()),
-                ("TERM".into(), "dumb".into()),
-            ],
-            None,
-        )
-        .expect("spawned");
+        let transport = sentinel_process(dir.path())
+            .run(|| {
+                StdioTransport::spawn(
+                    "/bin/sh",
+                    &[
+                        "-c".into(),
+                        r#"/usr/bin/env > "$XFX_TEST_OUT.part" && /bin/mv "$XFX_TEST_OUT.part" "$XFX_TEST_OUT"; exec /bin/cat > /dev/null"#.into(),
+                    ],
+                    &[
+                        ("XFX_TEST_OUT".into(), out.clone()),
+                        ("VERCEL_OIDC_TOKEN".into(), "xfx-sentinel-granted".into()),
+                        ("TERM".into(), "dumb".into()),
+                    ],
+                    None,
+                )
+            })
+            .expect("spawned");
         let environment = printed_environment(std::path::Path::new(&out));
         transport.close();
         assert_given_only(&environment, &["VERCEL_OIDC_TOKEN"], "the server");
@@ -2776,13 +2800,16 @@ mod tests {
         )
         .expect("a docker");
         std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755)).expect("0755");
-        let transport = StdioTransport::spawn(
-            &docker.to_string_lossy(),
-            &["run".into(), "-i".into(), "xfx-fixture".into()],
-            &[("DOCKER_HOST".into(), "unix:///xfx-sentinel.sock".into())],
-            None,
-        )
-        .expect("spawned");
+        let transport = sentinel_process(dir.path())
+            .run(|| {
+                StdioTransport::spawn(
+                    &docker.to_string_lossy(),
+                    &["run".into(), "-i".into(), "xfx-fixture".into()],
+                    &[("DOCKER_HOST".into(), "unix:///xfx-sentinel.sock".into())],
+                    None,
+                )
+            })
+            .expect("spawned");
         let run = printed_environment(&dir.path().join("run.env"));
         transport.close();
         let rm = printed_environment(&dir.path().join("rm.env"));
