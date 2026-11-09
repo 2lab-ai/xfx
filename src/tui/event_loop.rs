@@ -16185,8 +16185,10 @@ mod tests {
             Reconciled,
         )
         .expect("a turn");
+        // The frame waits; the launch's report does not (round 2: fx holds
+        // only `flushRequestedFrame`).
         assert!(
-            out.written.is_empty(),
+            !holds(&out.written, BEGIN_FRAME.as_bytes()),
             "a frame went out before the folder's rows: {:?}",
             String::from_utf8_lossy(&out.written)
         );
@@ -16214,6 +16216,152 @@ mod tests {
         assert!(painted.contains("tree/leaf.txt"), "{painted:?}");
         assert!(!painted.contains("indexing files"), "{painted:?}");
         assert_eq!(wait_timeout(&fixture.shell, at(2)), TICK);
+    }
+
+    #[test]
+    fn a_listing_still_out_at_8_ms_lets_the_owed_frame_go_and_its_rows_follow() {
+        // gpt6 r1 SHOULD 1: the wait ends at 8 ms whether the rows are in or
+        // not (`withinHold`, `picker_state.zig:135-138@481104fd`), so the
+        // frame owed since the keystroke goes out then, saying `indexing
+        // files...`, and the rows go out with the frame after they land.
+        let mut fixture = shell_of(40, 120);
+        let listing =
+            super::super::file_index::tests::driven_listing(fixture.shell.files_for_test(), "tree");
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        let mut failures = FrameFailures::default();
+        fixture.shell.route_bytes(b"@tree/");
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let mut turn = |shell: &mut Shell, out: &mut StatusScreen, now: Instant| {
+            let before = out.vectors.len();
+            commit_or_hold(shell, &mut band, out, &mut failures, now, Reconciled).expect("a turn");
+            out.vectors[before..].concat()
+        };
+        for ms in [0, 4, 7] {
+            let wrote = turn(&mut fixture.shell, &mut out, at(ms));
+            assert!(
+                !holds(&wrote, BEGIN_FRAME.as_bytes()),
+                "a frame went out at {ms} ms: {:?}",
+                String::from_utf8_lossy(&wrote)
+            );
+        }
+        let expired = turn(&mut fixture.shell, &mut out, at(8));
+        let expired = String::from_utf8_lossy(&expired).into_owned();
+        assert!(
+            expired.contains(BEGIN_FRAME) && expired.contains("indexing files"),
+            "the owed frame did not go out at 8 ms: {expired:?}"
+        );
+        assert!(!expired.contains("tree/leaf.txt"));
+        listing
+            .send(Ok(vec![(
+                "leaf.txt".to_string(),
+                super::super::file_index::Kind::File,
+            )]))
+            .expect("the listing");
+        let rows = turn(&mut fixture.shell, &mut out, at(20));
+        let rows = String::from_utf8_lossy(&rows).into_owned();
+        assert!(
+            rows.contains("tree/leaf.txt"),
+            "the rows did not follow: {rows:?}"
+        );
+    }
+
+    /// What a run of ticks published besides its frames, in order: each
+    /// report, each title (a frame's lead, or on its own) and each bell, and
+    /// `frame` for every vector that carries an update.
+    fn published(vectors: &[Vec<u8>]) -> Vec<String> {
+        let mut out = Vec::new();
+        for vector in vectors {
+            let mut rest = vector.as_slice();
+            if let Some(end) = after_title(rest) {
+                out.push(format!(
+                    "title {}",
+                    String::from_utf8_lossy(&rest[4..end - 1])
+                ));
+                rest = &rest[end..];
+            }
+            if let Some(at) = find(rest, REPORT) {
+                let end = find(&rest[at..], b"\x1b\\").map_or(rest.len(), |end| at + end + 2);
+                out.push(String::from_utf8_lossy(&rest[at..end]).into_owned());
+            }
+            if holds(rest, BEGIN_FRAME.as_bytes()) {
+                out.push("frame".to_string());
+            }
+            if rest.iter().all(|&byte| byte == BEL) && !rest.is_empty() {
+                out.push(format!("bell x{}", rest.len()));
+            }
+        }
+        out
+    }
+
+    /// A turn from its prompt to its end, with a bell, while `@tree/`'s
+    /// listing is out: through the loop's hold when `held`, and through the
+    /// commit no listing holds otherwise. What the window's ticks published.
+    fn a_turn_inside_a_listing(held: bool) -> Vec<String> {
+        let mut fixture = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        let mut failures = FrameFailures::default();
+        launch_title(&mut fixture.shell, &mut band);
+        status_tick(&mut fixture.shell, &mut band, &mut out);
+        fixture.shell.route_bytes(b"go\r");
+        status_tick(&mut fixture.shell, &mut band, &mut out);
+        let _listing =
+            super::super::file_index::tests::driven_listing(fixture.shell.files_for_test(), "tree");
+        fixture.shell.route_bytes(b"@tree/");
+        let t0 = Instant::now();
+        let before = out.vectors.len();
+        let mut tick = |shell: &mut Shell, ms: u64| {
+            let now = t0 + Duration::from_millis(ms);
+            if held {
+                commit_or_hold(shell, &mut band, &mut out, &mut failures, now, Reconciled)
+            } else {
+                commit_counted(shell, &mut band, &mut out, &mut failures, now, Reconciled)
+            }
+            .expect("a tick");
+        };
+        tick(&mut fixture.shell, 0);
+        fixture.shell.start_turn();
+        tick(&mut fixture.shell, 2);
+        fixture.shell.apply(UiEvent::TurnEnded { failure: None });
+        fixture.shell.restore_bells(1);
+        tick(&mut fixture.shell, 4);
+        published(&out.vectors[before..])
+    }
+
+    #[test]
+    fn a_frame_held_for_a_folder_holds_no_report_title_or_bell() {
+        // Round 2 (gpt6 r1 MUST, opus's trace): fx holds `flushRequestedFrame`
+        // only (`main.zig:3007@481104fd`). Its status reports, its title and
+        // its bell are written where they happen, outside any frame
+        // (`writeProgramStatus`, `writeNotificationBell`,
+        // `transcript/runtime.zig:10402-10430`; `syncTerminalTitleWith`,
+        // `app_session_runtime.zig:2965-2987`). So a turn that starts and
+        // ends inside a held window reports `working` and then `done`, and
+        // its title and its bell go out, in the order an unheld run writes
+        // them; only the frames wait.
+        let unheld = a_turn_inside_a_listing(false);
+        let held = a_turn_inside_a_listing(true);
+        let without_frames = |run: &[String]| -> Vec<String> {
+            run.iter().filter(|e| *e != "frame").cloned().collect()
+        };
+        assert!(
+            unheld.iter().any(|e| e.contains("state=working"))
+                && unheld.iter().any(|e| e.contains("state=done"))
+                && unheld.iter().any(|e| e.starts_with("title "))
+                && unheld.iter().any(|e| e.starts_with("bell")),
+            "the unheld run publishes too little to prove anything: {unheld:?}"
+        );
+        assert_eq!(
+            without_frames(&held),
+            without_frames(&unheld),
+            "held {held:?}\nunheld {unheld:?}"
+        );
+        assert!(
+            !held.iter().any(|e| e == "frame"),
+            "a frame went out inside the hold: {held:?}"
+        );
     }
 
     #[test]

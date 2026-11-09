@@ -34694,6 +34694,43 @@ mod tests {
     }
 
     #[test]
+    fn under_the_full_transcript_a_folder_listing_holds_no_frame() {
+        // Round 2 (opus r1 SHOULD 1): fx's hold harvests with
+        // `filePickerEligible` (`input_completion_runtime.zig:821@481104fd`),
+        // which is false while the full transcript is up (`:783`), and an
+        // ineligible harvest clears the directory request
+        // (`directory_completion_job.zig:140-151`). So with Ctrl-O open, a
+        // listing still out holds none of the transcript's frames.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let _listing =
+            super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
+        shell.route_bytes(b"@src/");
+        let now = Instant::now();
+        assert!(
+            shell.hold_frame_for_file_listing(now),
+            "the listing held nothing, so this proves nothing"
+        );
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O opened no transcript");
+        assert_eq!(
+            shell.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Loading),
+            "the listing is not out any more"
+        );
+        assert!(
+            !shell.hold_frame_for_file_listing(now + Duration::from_millis(1)),
+            "the transcript's frame waited for the list's rows"
+        );
+        assert!(!shell.file_listing_hold_pending(now + Duration::from_millis(1)));
+        // And back on the composer's plane, the next folder holds again.
+        shell.route_bytes(&[0x0f]);
+        let _next =
+            super::super::file_index::tests::driven_listing(shell.files_for_test(), "src/deep");
+        shell.route_bytes(b"deep/");
+        assert!(shell.hold_frame_for_file_listing(now + Duration::from_millis(30)));
+    }
+
+    #[test]
     fn only_a_folder_listing_holds_the_frame_not_the_index() {
         // fx holds the frame for a directory request only (`!state.indexed
         // and state.directory_request != null`, `input_completion_runtime.zig:
