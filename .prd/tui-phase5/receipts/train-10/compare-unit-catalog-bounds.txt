@@ -1,0 +1,18 @@
+# the unit's pairs, from its scenarios' snap labels at c9ebc953: 97 (its file counts 97: the same)
+train pairs of those scenarios the unit's sweep did not take: 0
+unit pairs the train's sweep did not take: 0
+# CATALOG-BOUNDS' head sweep (its sweep-compare.txt): 97 pairs (up 4, down 2, fail-both 15, pass both 76); 17 named failing; its 24 scenarios
+# the train's sweep: 97 pairs of those scenarios
+pairs the unit's file names that the train's sweep did not take: 0
+pass, unit -> train: 80 -> 89 over 97 pairs
+passed on the unit, not on the train: 0
+failed on the unit, pass on the train: 9
+    model-anchor alt-enter: normalized-identical
+    model-column-reask col-back: normalized-identical
+    model-column-reask col-down: normalized-identical
+    p5-input-model inline-gpt6: normalized-identical
+    p5-input-model q-anthropic-opus: normalized-identical
+    p5-input-model q-cs45: normalized-identical
+    p5-input-model q-grok-fast: normalized-identical
+    p5-input-model q-sonnet45: normalized-identical
+    p5-input-model q-zai-glm: normalized-identical

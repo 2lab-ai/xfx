@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Train 9: the file checks with the receipt in its final form (train 8's
+# Train 10 (train 9's gates-files.sh, unchanged but for this word): the file checks with the receipt in its final form (train 8's
 # gates-final.txt), in a `git clone --no-local` at <head>: `cargo fmt
 # --check` and the three tracked-file checks, each exit from `$?` right after
 # its command; then the dispatcher's check over `git diff <base>..HEAD`'s

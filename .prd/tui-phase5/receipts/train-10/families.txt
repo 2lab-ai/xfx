@@ -1,0 +1,14 @@
+| family | head | main | unit-model-fuzzy | unit-compact-notice-late | unit-at-height |
+|---|---|---|---|---|---|
+| model and catalog (model*, p5-input-model*, p5-catalog-bounds-*, h1-models*, settings-model*) | 120 / 128 | 77 / 92 | 115 / 123 | - | 11 / 17 |
+| p5-catalog-bounds-* (CATALOG-BOUNDS') | 5 / 5 | - | - | - | - |
+| p5-input-model-rank, -swap (MODEL-FUZZY's) | 31 / 31 | - | 31 / 31 | - | - |
+| *effort* (MODEL-FUZZY's) | 96 / 117 | 96 / 117 | 96 / 117 | - | - |
+| the @ list (p5-input-at*, filepicker*, workspace-index) | 28 / 45 | 8 / 31 | - | - | 27 / 45 |
+| p5-input-at-height, -resize, -gate (AT-HEIGHT's) | 9 / 14 | - | - | - | 9 / 14 |
+| the other p5-input-* (AT-HEIGHT's) | 42 / 53 | 42 / 53 | - | - | 17 / 25 |
+| the compaction scenarios (compact*, *compact*) | 29 / 29 | 29 / 29 | - | 29 / 29 | - |
+| the stop scenarios (*stop*, interrupt*, p5-transcript-cancel) | 73 / 86 | 73 / 86 | - | - | - |
+| the band's (composer*, startup, h1-resize, model-column, settings-scrollback, p5-mcp-*) | 36 / 70 | 36 / 70 | 8 / 8 | - | 36 / 70 |
+| the re-pointed ledger entries' (fulltranscript*, p5-transcript-*, p5-toolgroup-ctrlo*, p5-ctrlo-wider-inline-fam, links, read-failures, resume-tools, timeout, approvals, model-parked) | 52 / 139 | 52 / 139 | 4 / 5 | - | - |
+| every scenario swept | 451 / 640 | 388 / 590 | 204 / 233 | 29 / 29 | 83 / 149 |

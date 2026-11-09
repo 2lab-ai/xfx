@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Train 9: one scenario swept again on a tree's already-built debug binary,
+# Train 10 (train 9's sweep-rerun.sh, unchanged but for this line): one scenario swept again on a tree's already-built debug binary,
 # with that tree's harness, scenarios and ledger, <n> times one after
 # another (train 7's sweep-rerun.sh's use: a pair that moved on fx's side
 # alone, captured again).

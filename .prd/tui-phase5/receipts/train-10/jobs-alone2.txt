@@ -1,0 +1,8 @@
+# jobs.sh alone2 at 2026-11-09T07:34:38Z, load 13.21
+at-height af2b6137, join_test_paste.rs with join_helpers_paste.rs: exit 101, FAILED; thread 'tui::event_loop::tests::a_paste_into_the_at_word_with_an_enter_behind_its_marker_is_kept_trusted_and_sends_nothing' (392463939) panicked at src/tui/even assertion `left == right` failed: the paste was lost, or the Enter behind its marker took the marked row   left: "┃ @f-"  right: "┃ @f-0" 
+named, the two at e28e1b15: exit 0
+    test tui::shell::tests::a_compact_typed_while_a_reset_drains_answers_as_upstreams_would ... ok
+    test tui::shell::tests::a_line_sent_while_a_compaction_stops_takes_the_sentence_only_of_one_that_never_began ... ok
+    test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4622 filtered out; finished in 0.02s
+# alone-clone clean after: yes
+# jobs.sh alone2 done at 2026-11-09T07:36:15Z

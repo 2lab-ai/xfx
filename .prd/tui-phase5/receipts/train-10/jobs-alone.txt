@@ -1,0 +1,10 @@
+# jobs.sh alone at 2026-11-09T06:25:39Z, load 23.81
+# alone-clone at e28e1b15
+catalog-bounds e705a5dc, join_test_catalog.rs: exit 101, FAILED; thread 'tui::shell::tests::a_catalog_read_that_fails_too_large_or_stalled_then_loads_ranks_in_three_tiers_and_keeps_its_mark_by_id' (389223053) panicked at src/ assertion `left == right` failed: past 16 MiB: the rows after the failure, substring then words then fuzzy   left: ["acme/gpt5-lite"]  right: ["acme/gpt5-lite", "openai/gpt-5", "openai/gpt-4.5-preview"] 
+model-fuzzy 8d9ab0a0, join_test_catalog.rs: exit 0, ok;  
+main 6bb9fd90, join_test_worker.rs: exit 101, FAILED; thread 'tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs' (389334097) panicked at src/t assertion `left == right` failed: the two turns' ends; the history notice said per turn; each compaction word, with how many turns had started   left: ([Some("the turn was cancelled"), None], [0, 1], [])  right: ([Some("the turn was cancell
+at-height af2b6137, join_test_paste.rs: exit 101, no verdict; error[E0425]: cannot find function `composer` in this scope 
+at-height af2b6137, join_test_question.rs: exit 0, ok;  
+main 6bb9fd90, join_test_question.rs: exit 101, no verdict; error[E0599]: no method named `chosen` found for reference `&tui::file_picker::FilePicker` in the current scope 
+# alone-clone clean after: yes
+# jobs.sh alone done at 2026-11-09T06:30:15Z

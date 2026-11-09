@@ -6,6 +6,8 @@
 #   alone   -- each join test on the sides it joins, alone: the unit's tip (or
 #              main) with only that test put in (apply_join.py's way), its
 #              verdict and its first failing line;
+#   alone2  -- the paste join test on AT-HEIGHT alone with PASTE-AFTER-END's
+#              two helpers copied in, and two named tests `named` misspelt;
 #   mutants -- join_mutants.py at <head>;
 #   net     -- join check 5: net.py (the lib and tui tests through a loopback
 #              proxy logger) at <head>.
@@ -39,8 +41,8 @@ LIB=(
   tui::worker::tests::a_compaction_dropped_with_no_room_for_its_word_is_told_once_before_the_reset_after_it
   tui::worker::tests::a_compaction_dropped_in_a_turns_race_with_no_room_is_told_after_that_turn_and_before_more_work
   tui::event_loop::tests::a_stopped_compactions_sentence_the_next_line_took_away_stays_away
-  tui::event_loop::tests::a_line_sent_while_a_compaction_stops_takes_the_sentence_only_of_one_that_never_began
-  tui::event_loop::tests::a_compact_typed_while_a_reset_drains_answers_as_upstreams_would
+  tui::shell::tests::a_line_sent_while_a_compaction_stops_takes_the_sentence_only_of_one_that_never_began
+  tui::shell::tests::a_compact_typed_while_a_reset_drains_answers_as_upstreams_would
   # join check 3: AT-HEIGHT's gate, PASTE-AFTER-END's paste, the question's dismissal
   tui::event_loop::tests::a_new_at_words_arrows_wait_for_the_frame_that_shows_its_rows
   tui::event_loop::tests::a_key_spent_mid_resize_asks_for_the_frame_that_shows_the_list_again
@@ -97,6 +99,36 @@ PY
   one at-height af2b6137 join_test_paste.rs src/tui/event_loop.rs tui::event_loop::tests::a_paste_into_the_at_word_with_an_enter_behind_its_marker_is_kept_trusted_and_sends_nothing
   one at-height af2b6137 join_test_question.rs src/tui/shell.rs tui::shell::tests::a_twenty_question_panel_over_an_open_at_list_has_its_tab_arrows_and_enter
   one main 6bb9fd90 join_test_question.rs src/tui/shell.rs tui::shell::tests::a_twenty_question_panel_over_an_open_at_list_has_its_tab_arrows_and_enter
+  echo "# alone-clone clean after: $([ -z "$(git -C "$c" status --porcelain)" ] && echo yes || echo no)"
+  ;;
+alone2)
+  # The paste join test on AT-HEIGHT alone, with the two helpers it names
+  # that PASTE-AFTER-END added (join_helpers_paste.rs, test code); and the two
+  # named tests `named` spelt under the wrong module, at <head>.
+  c="$scratch/alone-clone"
+  [ -d "$c" ] || clone alone-clone "$head"
+  git -C "$c" checkout -q --detach af2b6137 && git -C "$c" clean -qfd
+  cat "$here/join_helpers_paste.rs" "$here/join_test_paste.rs" > "$scratch/alone2-paste.rs"
+  python3 -I -B - "$c" "$scratch/alone2-paste.rs" src/tui/event_loop.rs <<'PY'
+import sys
+clone, test, target = sys.argv[1:4]
+path = f"{clone}/{target}"
+text = open(path, encoding="utf-8").read()
+assert text.endswith("    }\n}\n")
+open(path, "w", encoding="utf-8").write(text[:-2] + open(test, encoding="utf-8").read() + "}\n")
+PY
+  t=tui::event_loop::tests::a_paste_into_the_at_word_with_an_enter_behind_its_marker_is_kept_trusted_and_sends_nothing
+  ( cd "$c" && cargo test --locked --lib --no-fail-fast -- --exact "$t" ) > "$scratch/alone2-at-height.log" 2>&1
+  rc=$?
+  echo "at-height $(git -C "$c" rev-parse --short=8 HEAD), join_test_paste.rs with join_helpers_paste.rs: exit $rc, $(grep -E "^test $t \.\.\. " "$scratch/alone2-at-height.log" | sed 's/.* \.\.\. //'); $(grep -E 'panicked at|^error(\[|:)' "$scratch/alone2-at-height.log" | head -1 | cut -c1-160) $(grep -A3 'panicked at' "$scratch/alone2-at-height.log" | sed -n 2,4p | tr '\n' ' ' | cut -c1-240)"
+  git -C "$c" checkout -q -- . && git -C "$c" clean -qfd
+  git -C "$c" checkout -q --detach "$head"
+  ( cd "$c" && cargo test --locked --lib --no-fail-fast -- --exact \
+      tui::shell::tests::a_line_sent_while_a_compaction_stops_takes_the_sentence_only_of_one_that_never_began \
+      tui::shell::tests::a_compact_typed_while_a_reset_drains_answers_as_upstreams_would ) > "$scratch/alone2-named.log" 2>&1
+  rc=$?
+  echo "named, the two at $(git -C "$c" rev-parse --short=8 HEAD): exit $rc"
+  grep -E '^test |^test result' "$scratch/alone2-named.log" | sed 's/^/    /'
   echo "# alone-clone clean after: $([ -z "$(git -C "$c" status --porcelain)" ] && echo yes || echo no)"
   ;;
 mutants)

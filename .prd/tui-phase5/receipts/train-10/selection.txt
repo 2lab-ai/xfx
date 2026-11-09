@@ -71,4 +71,4 @@ p5-transcript-question
 #   normalization capture-tmpdir (changed): -
 #   normalization run-directory (changed): -
 #   normalization tmux-dead-pane (changed): -
-# 121 scenarios
+# 120 scenarios (121 .cap files; a scenario with one per side counts once)

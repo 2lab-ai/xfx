@@ -1,0 +1,33 @@
+# Train 10's sweeps, as sweep.sh printed them; each inside one hold of the suite lock, FX the v0.0.16 binary, SHORT_TMP a short scratch directory; then each sweep's run.json (start, wall, load), the banners (banners.py) and the rescores of the reference sweeps (sweep.sh --rescore on a copy, with the head's ledger).
+
+## main 6bb9fd90
+# main: build in sw-main-clone at 6bb9fd90, exit 0; xfx sha256 03467c268cf4ad6ce7e9633b8dfe072e5ada7518619844ec6f0099006fbda8e3
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 30.94
+# main: sweep exit 0, 2550 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 37.45
+[221/223] fx p5-ctrlo-wider-inline-fam: ran (14s)
+[222/223] xfx p5-ctrlo-wider-inline-fam: ran (24s)
+[223/223] fx (inventory): ran (46s)
+pass = 388 / 590 = 65.8%; unresolved 192, failed 0, timeout 0
+wrote <out>/scoreboard.md
+
+## head e28e1b15
+# head: build in sw-head-clone at e28e1b15, exit 0; xfx sha256 fc425fa462ce0570c8b03eeea24357f32680f6fb4c31246190b7213c7b772466
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 60.51
+# head: sweep exit 0, 2892 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 9.00
+[239/241] fx p5-ctrlo-wider-inline-fam: ran (15s)
+[240/241] xfx p5-ctrlo-wider-inline-fam: ran (16s)
+[241/241] fx (inventory): ran (34s)
+pass = 451 / 640 = 70.5%; unresolved 179, failed 0, timeout 0
+wrote <out>/scoreboard.md
+
+# main run.json: started 2026-11-09T14:37:23+09:00 wall 42m28s load at start 30.94 peak 41.95 repo_head 6bb9fd90
+# head run.json: started 2026-11-09T15:39:38+09:00 wall 48m10s load at start 60.51 peak 82.12 repo_head e28e1b15
+
+head: 530 xfx snaps show the banner; 530 name v0.1.0-e28e1b1; others none
+main: 480 xfx snaps show the banner; 480 name v0.1.0-6bb9fd9; others none
+
+## rescores with the head's ledger
+main: pass = 388 / 590 = 65.8%; unresolved 192, failed 0, timeout 0
+unit-model-fuzzy: pass = 204 / 233 = 87.6%; unresolved 27, failed 0, timeout 0
+unit-compact-notice-late: pass = 29 / 29 = 100.0%; unresolved 0, failed 0, timeout 0
+unit-at-height: pass = 83 / 149 = 55.7%; unresolved 66, failed 0, timeout 0

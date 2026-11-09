@@ -1,0 +1,9 @@
+# The gate's harness-test counts, every 'Ran N tests' and its verdict line, from the step logs (gates.txt keeps each log's last lines only).
+## 15-fxcap-test-sweep
+Ran 70 tests in 12.906s
+OK
+Ran 27 tests in 21.034s
+OK
+## 16-fxcap-test-capture
+Ran 79 tests in 616.066s
+OK

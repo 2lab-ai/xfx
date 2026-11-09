@@ -1,0 +1,7 @@
+join_test_worker.rs: `enum CatalogWait` in src/tui/worker.rs: main 1, compact-notice-late 0, at-height 0, paste-after-end 0, head 1
+join_test_worker.rs: `fn waiting_in(` in src/tui/worker.rs: main 1, compact-notice-late 0, at-height 0, paste-after-end 0, head 1
+join_test_worker.rs: `fn sealed_on_llmux(` in src/tui/worker.rs: main 1, compact-notice-late 0, at-height 0, paste-after-end 0, head 1
+join_test_worker.rs: `Dropped,` in src/tui/compaction.rs: main 0, compact-notice-late 1, at-height 0, paste-after-end 0, head 1
+join_test_paste.rs: `struct AtList` in src/tui/event_loop.rs: main 0, compact-notice-late 0, at-height 1, paste-after-end 0, head 1
+join_test_paste.rs: `fn composer(shell: &Shell)` in src/tui/event_loop.rs: main 1, compact-notice-late 0, at-height 0, paste-after-end 1, head 1
+join_test_question.rs: `pub(crate) fn chosen(` in src/tui/file_picker.rs: main 0, compact-notice-late 0, at-height 1, paste-after-end 0, head 1

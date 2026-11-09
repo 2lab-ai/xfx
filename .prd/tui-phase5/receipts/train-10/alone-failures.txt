@@ -1,0 +1,45 @@
+# Each join test on a side alone (jobs.sh alone): the failing test's panic and the assertion lines after it, from each run's log.
+## alone-at-height-join_test_paste.rs
+error[E0425]: cannot find function `composer` in this scope
+error[E0425]: cannot find function `composer` in this scope
+error[E0425]: cannot find function `composer` in this scope
+## alone-at-height-join_test_question.rs
+test tui::shell::tests::a_twenty_question_panel_over_an_open_at_list_has_its_tab_arrows_and_enter ... ok
+## alone-catalog-bounds-join_test_catalog.rs
+test tui::shell::tests::a_catalog_read_that_fails_too_large_or_stalled_then_loads_ranks_in_three_tiers_and_keeps_its_mark_by_id ... FAILED
+error: test failed, to rerun pass `--lib`
+error: 1 target failed:
+thread 'tui::shell::tests::a_catalog_read_that_fails_too_large_or_stalled_then_loads_ranks_in_three_tiers_and_keeps_its_mark_by_id' (389223053) panicked at src/tui/shell.rs:48772:13:
+assertion `left == right` failed: past 16 MiB: the rows after the failure, substring then words then fuzzy
+  left: ["acme/gpt5-lite"]
+ right: ["acme/gpt5-lite", "openai/gpt-5", "openai/gpt-4.5-preview"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+## alone-main-join_test_question.rs
+error[E0599]: no method named `chosen` found for reference `&tui::file_picker::FilePicker` in the current scope
+error: could not compile `xfx` (lib test) due to 1 previous error
+## alone-main-join_test_worker.rs
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... FAILED
+error: test failed, to rerun pass `--lib`
+error: 1 target failed:
+thread 'tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs' (389334097) panicked at src/tui/worker.rs:18523:9:
+assertion `left == right` failed: the two turns' ends; the history notice said per turn; each compaction word, with how many turns had started
+  left: ([Some("the turn was cancelled"), None], [0, 1], [])
+ right: ([Some("the turn was cancelled"), None], [0, 1], [(1, "Dropped")])
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+## alone-model-fuzzy-join_test_catalog.rs
+test tui::shell::tests::a_catalog_read_that_fails_too_large_or_stalled_then_loads_ranks_in_three_tiers_and_keeps_its_mark_by_id ... ok
+## alone2-at-height (jobs.sh alone2: join_test_paste.rs with join_helpers_paste.rs on AT-HEIGHT alone)
+test tui::event_loop::tests::a_paste_into_the_at_word_with_an_enter_behind_its_marker_is_kept_trusted_and_sends_nothing ... FAILED
+error: test failed, to rerun pass `--lib`
+error: 1 target failed:
+thread 'tui::event_loop::tests::a_paste_into_the_at_word_with_an_enter_behind_its_marker_is_kept_trusted_and_sends_nothing' (392463939) panicked at src/tui/event_loop.rs:16249:9:
+assertion `left == right` failed: the paste was lost, or the Enter behind its marker took the marked row
+  left: "┃ @f-"
+ right: "┃ @f-0"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+

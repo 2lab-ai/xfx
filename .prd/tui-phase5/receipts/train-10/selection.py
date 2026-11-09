@@ -69,4 +69,9 @@ for table, ident in touched:
             seen.append(g)
             print(g)
 chosen = sorted({n for n in names if any(fnmatch.fnmatch(n, g) for g in seen)})
-print(f"# {len(chosen)} scenarios")
+# A scenario written once per side (`<name>-fx.cap`, `<name>-xfx.cap`) is one
+# scenario to the sweep.
+folded = sorted({n[: -len("-xfx")] if n.endswith("-xfx") and n[: -len("-xfx")] + "-fx" in names
+                 else n[: -len("-fx")] if n.endswith("-fx") and n[: -len("-fx")] + "-xfx" in names
+                 else n for n in chosen})
+print(f"# {len(folded)} scenarios ({len(chosen)} .cap files; a scenario with one per side counts once)")
