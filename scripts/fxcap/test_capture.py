@@ -470,6 +470,44 @@ class RootsRewrite(unittest.TestCase):
         whole = ("%s/notes %s %s/x\n" % (home, tmp, scen)).encode()
         self.assertEqual(sorted(roots.survivors(whole, rules, None)), ["home", "scenarios", "tmp"])
 
+    def test_a_styled_sibling_of_an_outer_root_is_neither_rewritten_nor_refused(self):
+        # A colour change mid-name, right where the root's bytes end (a picker
+        # bolding the letters a query matched): the reader sees `<HOME>2/notes`,
+        # another path. The escape is no end of the root, to either rule.
+        home, tmp, scen = "/ho" + "me/alice", "/tmp/fxt", "/src/scen"
+        rules = roots.rules_for([(home, "home"), (tmp, "tmp"), (scen, "scenarios")])
+        d = scratch()
+        for root, name, rest in ((home, "home", "2/notes"), (tmp, "tmp", "2/x"), (scen, "scenarios", "-old/x")):
+            for style in (b"\x1b[1m", b"\x1b[38;5;245m", b"\x1b(B"):
+                data = b"x " + root.encode() + style + rest.encode() + b"\x1b[0m y\n"
+                with self.subTest(root=name, style=style):
+                    self.assertEqual(roots.rewrite(data, rules)[0], data)
+                    self.assertEqual(roots.survivors(data, rules, None), [])
+                    path = os.path.join(d, "%s.ansi" % name)
+                    with open(path, "wb") as f:
+                        f.write(data)
+                    r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "roots.py"), "--root", root, name,
+                                        "--", path], capture_output=True, text=True)
+                    self.assertEqual(r.returncode, 0, r.stderr)
+                    with open(path, "rb") as f:
+                        self.assertEqual(f.read(), data)
+        # Styled where the root ends whole, it is still the root.
+        data = b"x " + home.encode() + b"\x1b[1m/notes\x1b[0m\n"
+        self.assertEqual(roots.survivors(data, rules, None), ["home"])
+
+    def test_a_root_in_a_control_sequences_bytes_still_refuses(self):
+        # No reader sees an OSC payload, so its bytes are read: an OSC 8
+        # link's target left unwritten refuses the file, a sibling there does not.
+        home = "/ho" + "me/alice"
+        rules = roots.rules_for([(home, "home")])
+        link = b"\x1b]8;;file://%s/shot.png\x1b\\shot\x1b]8;;\x1b\\\n"
+        self.assertEqual(roots.survivors(link % home.encode(), rules, None), ["home"])
+        self.assertEqual(roots.survivors(link % (home + "2").encode(), rules, None), [])
+        self.assertEqual(roots.survivors(roots.rewrite(link % home.encode(), rules)[0], rules, None), [])
+        # A root whose head an escape's own bytes took (`ESC / h` is an nF
+        # escape): a reader sees `ome/alice/x`, the bytes hold the root.
+        self.assertEqual(roots.survivors(b"x \x1b" + home.encode() + b"/x\n", rules, None), ["home"])
+
     def test_what_survives_refuses_the_file(self):
         # A binary that cut the root's head off (an ellipsis), or a head that
         # scrolled off the frame: the run directory's name is still there.
@@ -683,8 +721,8 @@ class RunRoots(unittest.TestCase):
         self.assertTrue(any('{"cwd":"%s"}' % W in slurp(b) for b in bodies), bodies)
         self.assertIn("== ./made.txt\n%s\n" % W, r.file("work-w"))
         self.assertIn(W, r.file("h", ".files"))
-        # The `roots:` line: each root's width on this run, the resolved
-        # form's too where it is another path.
+        # The `roots:` line: each root's length on this run in bytes, the
+        # resolved form's too where it is another path.
         run = x["run"]
         want = "roots: <work>=%d " % (len(run) + 5)
         if x["real"]:
@@ -701,20 +739,20 @@ class RunRoots(unittest.TestCase):
 
     def test_a_tmpdir_with_a_trailing_slash(self):
         # macOS's own TMPDIR ends in `/`. Through a link too, the binary's
-        # HOME normalized (`//` to `/`, as a binary that joins paths prints it)
-        # is the run's root.
+        # HOME as it was given (capture.sh strips the slash before mktemp, so
+        # no `//` widens it) and normalized (`//` to `/`, as a binary that
+        # joins paths prints it) is the run's root, as wide as the run.
         d = scratch()
         os.makedirs(os.path.join(d, "r"))
         os.symlink(os.path.join(d, "r"), os.path.join(d, "l"))
         link = os.path.join(d, "l")
         cap = ("keep\nwait 1\n"
-               "type clear; printf 'norm=%s\\n' \"$(printf %s \"$HOME\" | tr -s /)\"; echo DO\"\"NE\n"
+               "type clear; printf 'raw=%s norm=%s\\n' \"$HOME\" \"$(printf %s \"$HOME\" | tr -s /)\"; echo DO\"\"NE\n"
                "key Enter\nuntil shown DONE\nsnap a\n")
         r, _ = self.capture_at(0, d=link, cap=cap, tmpdir=link + "/")
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         run = self.newest_run(link)
-        self.assertNotIn("//", run)
-        self.assertIn("norm=%s/home" % P("scratch", run), self.rows(r, "a"))
+        self.assertIn("raw={0}/home norm={0}/home".format(P("scratch", run)), self.rows(r, "a"))
         r, d = self.capture_at(9, tmpdir=None)
         r2, _ = self.capture_at(0, d=d, tmpdir=d + "/")
         self.assert_written_by_placeholder(r2, d)

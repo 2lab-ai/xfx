@@ -60,17 +60,20 @@ valid in every text these files are, a JSON string among them. A literal so
 escaped is one column wider.
 
 **Fail closed.** After the rewrite the file is read again. A root, in any of
-its spellings and as given or resolved, still in its bytes or its visible
-text where it ends whole -- by the rewrite's own rule, so a sibling whose
-name extends the HOME's (`<HOME>2/notes`) is no survivor of it -- refuses the
-file; so does the run
-directory's own name (`--suffix`, mktemp's random tail) anywhere at all: it
-names no other path, and a root a binary cut short (`.../fxcap.Ab12Cd/wo...`)
-or whose head scrolled off a frame keeps it. The file is named on standard
-error with what survived, by placeholder, never the path, and the exit
-status is 3. A fragment of a root above the run directory (the harness's
-TMPDIR or HOME) holds no run name; scripts/check-no-local-paths.sh's shapes
-are what refuse such a fragment in a tracked file.
+its spellings and as given or resolved, still in the file refuses it: in its
+visible text where it ends whole, by the rewrite's own rule -- so a sibling
+whose name extends the HOME's (`<HOME>2/notes`, coloured mid-name or not) is
+no survivor of it -- and, by its bytes, where they run into a control
+sequence's: an OSC payload no reader sees (a link's target), or a root
+whose head an escape's own bytes took (`ESC / h` is an nF escape). So does
+the run directory's own name (`--suffix`, mktemp's random tail) anywhere at
+all: it names no other path, and a root a binary cut short
+(`.../fxcap.Ab12Cd/wo...`) or whose head scrolled off a frame keeps it. The
+file is named on standard error with what survived, by placeholder, never
+the path, and the exit status is 3. A fragment of a root above the run
+directory (the harness's TMPDIR or HOME) holds no run name;
+scripts/check-no-local-paths.sh's shapes are what refuse such a fragment in
+a tracked file.
 
 `--check` rewrites nothing and only refuses.
 """
@@ -345,13 +348,18 @@ def rewrite(data, rules):
 
 def survivors(data, rules, suffix):
     """What of the run is still in `data`, by placeholder: a root where it
-    ends whole, in its bytes or in its visible text, by the rewrite's own
-    rule; or the run directory's own name, anywhere."""
+    ends whole in the visible text, by the rewrite's own rule; a root whose
+    bytes, ending whole there, run into a control sequence's; or the run
+    directory's own name, anywhere. (A root's bytes wholly in the visible
+    text are the view's to judge: an escape after them is no end of it.)"""
     view = View(data)
     found = []
     for needle, name, real in rules:
-        whole_bytes = re.search(re.escape(needle) + rb"(?![" + EDGE + rb"])", data)
-        if whole_bytes or _find(view, needle, []):
+        in_control = any(
+            any(m.start() < end and start < m.end() for start, end in view.controls)
+            for m in re.finditer(re.escape(needle) + rb"(?![" + EDGE + rb"])", data)
+        )
+        if in_control or _find(view, needle, []):
             found.append(name + (":real" if real else ""))
     if suffix and (suffix.encode() in data or suffix.encode() in view.text):
         found.append("the run directory's name")
