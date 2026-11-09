@@ -1,0 +1,39 @@
+# Each merge's both-changed files, checked from both ends against its first parent (ours), second (theirs) and merge base.
+## merges 1 (d43c8c92) and 2 (2c640bac): the files both sides changed since their merge base
+d43c8c92: 0 files
+2c640bac: 0 files
+## merge 3, 55d993a7 (LOCAL-PATHS): the code and harness files both sides changed (all merged clean)
+scripts/fxcap/capture.sh: ours -> merged is theirs' hunks: True (25 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (12 hunks, 0 slid by blank lines)
+scripts/fxcap/test_capture.py: ours -> merged is theirs' hunks: True (14 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (5 hunks, 0 slid by blank lines)
+scripts/test-gate-env.sh: ours -> merged is theirs' hunks: True (2 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (7 hunks, 0 slid by blank lines)
+src/tui/approval.rs: ours -> merged is theirs' hunks: True (2 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (1 hunks, 0 slid by blank lines)
+src/tui/shell.rs: ours -> merged is theirs' hunks: True (5 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (226 hunks, 0 slid by blank lines)
+# exit 0
+## merge 3: the ledger with every reference number masked (its three blocks: two LOCAL-PATHS's, one ours' numbers)
+scripts/fxcap/parity-ledger.toml: ours -> merged is theirs' hunks: True (3 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (24 hunks, 0 slid by blank lines)
+# exit 0
+## merge 4, 12b56ab8 (INPUT-ROW-LIMIT): docs/parity.md's three rows in its two blocks
+docs/parity.md '| `/model` |': base 25120, ours 27185, theirs 25120, merged 27185 chars; ours -> merged is theirs' edits: True; theirs -> merged is ours' edits: True (46 and 0 edits)
+# exit 0
+docs/parity.md '| `/effort` |': base 6008, ours 6008, theirs 6179, merged 6179 chars; ours -> merged is theirs' edits: True; theirs -> merged is ours' edits: True (0 and 6 edits)
+# exit 0
+docs/parity.md '| full-screen TUI |': base 79783, ours 92387, theirs 81253, merged 93857 chars; ours -> merged is theirs' edits: True; theirs -> merged is ours' edits: True (88 and 8 edits)
+# exit 0
+## merge 4: the ledger with every reference number masked (six numbers-only blocks, ours')
+scripts/fxcap/parity-ledger.toml: ours -> merged is theirs' hunks: True (0 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (24 hunks, 0 slid by blank lines)
+# exit 0
+## merge 4: the code files both sides changed, at the merge commit (shell.rs holds the semantic fix: False expected)
+src/tui/layout.rs: ours -> merged is theirs' hunks: True (4 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (6 hunks, 0 slid by blank lines)
+src/tui/shell.rs: ours -> merged is theirs' hunks: False (2 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: False (161 hunks, 0 slid by blank lines)
+# exit 1
+## merge 4: shell.rs with the semantic fix taken out (semantic.py --reverse, in a clone)
+src/tui/shell.rs: 1 replaced: 'due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),'
+# exit 0
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+src/tui/shell.rs: ours -> merged is theirs' hunks: True (2 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (160 hunks, 0 slid by blank lines)
+# exit 0
+## every resolution redone by this folder's scripts in a clone (reproduce.sh)
+d43c8c92 (a1cbdcaf): resolve exit 0; against the merge commit's tree: no difference
+2c640bac (4bc9ab13): resolve exit 0; against the merge commit's tree: no difference
+55d993a7 (5609108f): resolve exit 0; against the merge commit's tree: no difference
+12b56ab8 (3d3d56c8): resolve exit 0; against the merge commit's tree: no difference

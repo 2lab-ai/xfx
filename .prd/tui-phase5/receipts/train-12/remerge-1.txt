@@ -1,0 +1,13 @@
+commit d43c8c92041708f1e20704fb439f9c1adc547d11
+Merge: df46777e a1cbdcaf
+
+merge: GATE-ENV-MAINTLOCK-F (fix/p5-gate-env-maintlock @ a1cbdcaf) into train 12
+
+P5 train 12, merge 1 of 4. scripts/test-gate-env.sh's decoy repository no
+longer leaves git's auto-maintenance running after its own commit; a trace
+check proves no maintenance process outlives a case. Base 32afd307. No
+conflict, as forecast. The merge tree passed cargo check (both feature sets),
+cargo fmt --check and clippy (both) before this commit.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+

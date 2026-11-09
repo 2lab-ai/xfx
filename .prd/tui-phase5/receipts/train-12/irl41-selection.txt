@@ -1,0 +1,9 @@
+# INPUT-ROW-LIMIT's own sweep's --only list (its sweep-41x120-head.md), swept at the head at 41x120
+p5-input-row-limit*
+composer*
+filepicker*
+p5-input-at*
+p5-panels-keys
+fulltranscript*
+card-wrap*
+p5-ctrlo-wider-inline-fam

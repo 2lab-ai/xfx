@@ -1,0 +1,60 @@
+# Each merge tree's checks before its commit (check-merge.sh, in the train's worktree with the merge staged; cargo check and clippy need no lock, the common brief's rule), each exit from $? on the line after its command.
+
+## merge 1 (GATE-ENV-MAINTLOCK-F), committed as d43c8c92
+cargo check --locked --all-targets: exit 0, 46 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 45.48s
+cargo check --locked --all-targets --features fault-injection: exit 0, 49 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 49.68s
+cargo fmt --check: exit 0, 4 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 35 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 35.19s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 33 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 32.51s
+# 0 failed
+exit 0
+
+## merge 2 (SWEEP-WALLCLOCK-F), committed as 2c640bac
+cargo check --locked --all-targets: exit 0, 7 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.96s
+cargo check --locked --all-targets --features fault-injection: exit 0, 7 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.17s
+cargo fmt --check: exit 0, 3 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 13 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.75s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 12 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.64s
+# 0 failed
+exit 0
+
+## merge 3 (LOCAL-PATHS, the ledger's three blocks resolved by blocks.py), committed as 55d993a7
+cargo check --locked --all-targets: exit 0, 15 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.81s
+cargo check --locked --all-targets --features fault-injection: exit 0, 9 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.69s
+cargo fmt --check: exit 0, 3 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 16 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.82s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 12 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.48s
+# 0 failed
+exit 0
+
+## merge 4 (INPUT-ROW-LIMIT, the ledger's six blocks by blocks.py and docs/parity.md's two by rowsmerge.py): before the semantic fix
+cargo check --locked --all-targets: exit 101, 7 s; error: could not compile `xfx` (lib test) due to 1 previous error
+cargo check --locked --all-targets --features fault-injection: exit 101, 16 s; error: could not compile `xfx` (lib test) due to 1 previous error
+cargo fmt --check: exit 0, 4 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 101, 14 s; error: could not compile `xfx` (lib test) due to 1 previous error
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 101, 6 s; error: could not compile `xfx` (lib test) due to 1 previous error
+# 4 failed
+exit 4
+
+## merge 4 with semantic.py's fix, committed as 12b56ab8
+cargo check --locked --all-targets: exit 0, 8 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.07s
+cargo check --locked --all-targets --features fault-injection: exit 0, 11 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.71s
+cargo fmt --check: exit 0, 2 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 9 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.25s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 24 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 23.93s
+# 0 failed
+exit 0
+
+## merge 4 before the fix: the error (each of the four failed steps stopped on it; from check-merge.sh's cargo check log)
+error[E0308]: mismatched types
+     --> src/tui/shell.rs:36273:18
+      |
+36273 |             due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+      |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `CatalogDue`, found `Instant`
+
+## merge 4 before the fix: each step's log, its errors
+m4.cargo_check___locked___all_targets.log: 1 error(s), 1 E0308, 1 at src/tui/shell.rs:36273:18
+m4.cargo_check___locked___all_targets___features_fault_injectio.log: 1 error(s), 1 E0308, 1 at src/tui/shell.rs:36273:18
+m4.cargo_clippy___locked___all_targets_______warnings.log: 1 error(s), 1 E0308, 1 at src/tui/shell.rs:36273:18
+m4.cargo_clippy___locked___all_targets___features_fault_injecti.log: 1 error(s), 1 E0308, 1 at src/tui/shell.rs:36273:18
+m4.cargo_fmt___check.log: 0 error(s), 0 E0308, 0 at src/tui/shell.rs:36273:18

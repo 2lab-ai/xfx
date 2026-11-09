@@ -1,0 +1,14 @@
+commit 2c640bac99a8f6dd8cebd8abe265aae9fad700e5
+Merge: d43c8c92 4bc9ab13
+
+merge: SWEEP-WALLCLOCK-F (fix/p5-sweep-wallclock @ 4bc9ab13) into train 12
+
+P5 train 12, merge 2 of 4. The fake gateway's catalog outage ends at a
+scenario line (`modelsup`), not on the gateway's clock; train 11's
+registered nondeterminism `catalog-window` is retired. Base 3be49c15 (an
+ancestor of main). No conflict, as forecast. The merge tree passed cargo
+check (both feature sets), cargo fmt --check and clippy (both) before this
+commit.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+

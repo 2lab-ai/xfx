@@ -1,0 +1,172 @@
+# head 12b56ab8; sides: main df46777e, gate-env-maintlock a1cbdcaf, sweep-wallclock 4bc9ab13, local-paths 5609108f, input-row-limit 3d3d56c8
+docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:918]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:196]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+docs/parity.md:96	[scripts/fxcap/parity-ledger.toml:307]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+docs/parity.md:99	[scripts/fxcap/parity-ledger.toml:432]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+docs/parity.md:107	[scripts/fxcap/parity-ledger.toml:123]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+docs/parity.md:109	[scripts/fxcap/parity-ledger.toml:943]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+docs/parity.md:113	[scripts/fxcap/parity-ledger.toml:349]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+docs/parity.md:115	[scripts/fxcap/parity-ledger.toml:70, scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:236, scripts/fxcap/parity-ledger.toml:267, scripts/fxcap/parity-ledger.toml:280, scripts/fxcap/parity-ledger.toml:294, scripts/fxcap/parity-ledger.toml:321, scripts/fxcap/parity-ledger.toml:335, scripts/fxcap/parity-ledger.toml:418]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+docs/parity.md:118	[scripts/fxcap/parity-ledger.toml:61]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+docs/parity.md:120	[scripts/fxcap/parity-ledger.toml:182, scripts/fxcap/parity-ledger.toml:335]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+docs/parity.md:158	[scripts/fxcap/parity-ledger.toml:563, scripts/fxcap/parity-ledger.toml:574]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+docs/parity.md:160	[scripts/fxcap/parity-ledger.toml:806]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+docs/parity.md:162	[scripts/fxcap/parity-ledger.toml:656]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths = row | input-row-limit* = row
+docs/parity.md:172	[scripts/fxcap/parity-ledger.toml:907]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+docs/parity.md:177	[scripts/fxcap/parity-ledger.toml:770]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+docs/parity.md:210	[scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:321]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+docs/parity.md:216	[scripts/fxcap/parity-ledger.toml:742]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+docs/parity.md:237	[scripts/fxcap/parity-ledger.toml:450, scripts/fxcap/parity-ledger.toml:505, scripts/fxcap/parity-ledger.toml:519, scripts/fxcap/parity-ledger.toml:533]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+docs/parity.md:238	[scripts/fxcap/parity-ledger.toml:139, scripts/fxcap/parity-ledger.toml:363, scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:387, scripts/fxcap/parity-ledger.toml:391, scripts/fxcap/parity-ledger.toml:405, scripts/fxcap/parity-ledger.toml:463, scripts/fxcap/parity-ledger.toml:491, scripts/fxcap/parity-ledger.toml:818]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+docs/parity.md:243	[scripts/fxcap/parity-ledger.toml:250]
+    main* = row | gate-env-maintlock* = row | sweep-wallclock* = row | local-paths* = row | input-row-limit* = row
+scripts/check-xfx-identity.sh:5	[docs/parity.md:241]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+scripts/fxcap/capture.sh:314-316	[scripts/fxcap/parity-ledger.toml:85]
+    main -> 315-317 | gate-env-maintlock -> 315-317 | sweep-wallclock -> 311-313 | local-paths* -> 326-328 MOVED | input-row-limit -> 315-317
+scripts/fxcap/capture.sh:367-373	[scripts/fxcap/parity-ledger.toml:85]
+    main -> 478-484 | gate-env-maintlock -> 478-484 | sweep-wallclock -> 474-480 | local-paths* -> 379-385 MOVED | input-row-limit -> 478-484
+scripts/fxcap/capture.sh:659	[scripts/fxcap/parity-ledger.toml:78]
+    main -> 812 | gate-env-maintlock -> 812 | sweep-wallclock -> 804 | local-paths* -> 671 MOVED | input-row-limit -> 812
+scripts/fxcap/capture.sh:947	[scripts/fxcap/parity-ledger.toml:85]
+    main -> 1108 | gate-env-maintlock -> 1108 | sweep-wallclock changed | local-paths* -> 970 MOVED | input-row-limit -> 1108
+scripts/fxcap/capture.sh:954	[scripts/fxcap/parity-ledger.toml:85]
+    main changed | gate-env-maintlock changed | sweep-wallclock changed | local-paths* -> 977 MOVED | input-row-limit changed
+scripts/fxcap/capture.sh:987	[scripts/fxcap/parity-ledger.toml:147]
+    main* -> 1147 MOVED | gate-env-maintlock* -> 1147 MOVED | sweep-wallclock* -> 1135 MOVED | local-paths -> 1010 | input-row-limit* -> 1147 MOVED
+scripts/fxcap/cells.py:12-14	[scripts/fxcap/parity-ledger.toml:53]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/agent/machine.rs:78-85	[docs/parity.md:237]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/config/schema.rs:545-550	[docs/parity.md:93]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/gateway/mod.rs:59	[scripts/fxcap/parity-ledger.toml:641, scripts/fxcap/parity-ledger.toml:651, docs/parity.md:237]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/gateway/mod.rs:994-995	[docs/parity.md:237]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/image.rs:101	[scripts/fxcap/parity-ledger.toml:770]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/markdown/theme.rs:49	[scripts/fxcap/parity-ledger.toml:250]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/markdown/theme.rs:69	[scripts/fxcap/parity-ledger.toml:250]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/mcp/runtime.rs:90	[scripts/fxcap/parity-ledger.toml:1154]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/mcp/transport.rs:1318-1320	[docs/parity.md:221]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/permission/authority.rs:38-41	[scripts/fxcap/parity-ledger.toml:896]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/permission/authority.rs:737	[scripts/fxcap/parity-ledger.toml:450]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/permission/authority.rs:1145-1149	[scripts/fxcap/parity-ledger.toml:896]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/permission/slash.rs:466	[scripts/fxcap/parity-ledger.toml:804]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/provider/mod.rs:117	[scripts/fxcap/parity-ledger.toml:792]
+    main* = | gate-env-maintlock -> 118 | sweep-wallclock* = | local-paths -> 118 | input-row-limit -> 118
+src/proxy/server.rs:1583-1613	[docs/parity.md:114]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/session/store.rs:74	[docs/parity.md:48]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/session/store.rs:1000	[scripts/fxcap/parity-ledger.toml:700]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/sound.rs:37	[scripts/fxcap/parity-ledger.toml:941]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tools/mcp.rs:422-428	[scripts/fxcap/parity-ledger.toml:1107, docs/parity.md:176]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tools/mutate.rs:437-442	[scripts/fxcap/parity-ledger.toml:572, docs/parity.md:158]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tools/question.rs:60-76	[docs/parity.md:242]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths -> 63-79 | input-row-limit* =
+src/tools/read.rs:1162	[scripts/fxcap/parity-ledger.toml:572, docs/parity.md:158]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tools/spec.rs:214	[scripts/fxcap/parity-ledger.toml:898]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/approval_view.rs:106	[scripts/fxcap/parity-ledger.toml:953]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/approval_view.rs:685	[scripts/fxcap/parity-ledger.toml:804, scripts/fxcap/parity-ledger.toml:827, scripts/fxcap/parity-ledger.toml:839, scripts/fxcap/parity-ledger.toml:850, scripts/fxcap/parity-ledger.toml:861, scripts/fxcap/parity-ledger.toml:884, scripts/fxcap/parity-ledger.toml:929]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/approval_view.rs:971-976	[scripts/fxcap/parity-ledger.toml:463]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/approval_view.rs:1224	[scripts/fxcap/parity-ledger.toml:1011]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/frame.rs:2757	[scripts/fxcap/parity-ledger.toml:533]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/full_transcript.rs:495	[scripts/fxcap/parity-ledger.toml:363]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/full_transcript.rs:3010	[scripts/fxcap/parity-ledger.toml:491, scripts/fxcap/parity-ledger.toml:1011]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/full_transcript.rs:3061	[scripts/fxcap/parity-ledger.toml:505, scripts/fxcap/parity-ledger.toml:519]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/gesture.rs:162-164	[scripts/fxcap/parity-ledger.toml:1141]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/gesture.rs:176-188	[scripts/fxcap/parity-ledger.toml:1129, scripts/fxcap/parity-ledger.toml:1141]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/grid.rs:1088	[scripts/fxcap/parity-ledger.toml:988]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/layout.rs:98	[scripts/fxcap/parity-ledger.toml:976, scripts/fxcap/parity-ledger.toml:1024]
+    main* = | gate-env-maintlock -> 125 | sweep-wallclock* = | local-paths -> 125 | input-row-limit -> 125
+src/tui/mcp_menu.rs:786-791	[scripts/fxcap/parity-ledger.toml:1153]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/mcp_menu.rs:1500	[scripts/fxcap/parity-ledger.toml:432]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/mod.rs:127-133	[scripts/fxcap/parity-ledger.toml:1116]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/retry.rs:369-381	[docs/parity.md:237]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/settings.rs:361	[scripts/fxcap/parity-ledger.toml:941]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/settings.rs:539-551	[docs/parity.md:237]
+    main = | gate-env-maintlock = | sweep-wallclock = | local-paths = | input-row-limit* =
+src/tui/shell.rs:189	[scripts/fxcap/parity-ledger.toml:44, scripts/fxcap/parity-ledger.toml:45]
+    main* = | gate-env-maintlock -> 191 | sweep-wallclock* = | local-paths -> 191 | input-row-limit -> 191
+src/tui/shell.rs:1854	[scripts/fxcap/parity-ledger.toml:965]
+    main* = | gate-env-maintlock -> 1943 | sweep-wallclock* = | local-paths -> 1952 | input-row-limit -> 1943
+src/tui/shell.rs:4541	[scripts/fxcap/parity-ledger.toml:1076]
+    main* = | gate-env-maintlock -> 4739 | sweep-wallclock* = | local-paths -> 4749 | input-row-limit -> 4739
+src/tui/shell.rs:10480	[scripts/fxcap/parity-ledger.toml:873, scripts/fxcap/parity-ledger.toml:875]
+    main* = | gate-env-maintlock -> 10750 | sweep-wallclock* = | local-paths changed | input-row-limit -> 10750
+src/tui/shell.rs:13866	[scripts/fxcap/parity-ledger.toml:505]
+    main* = | gate-env-maintlock -> 14234 | sweep-wallclock* = | local-paths -> 14309 | input-row-limit -> 14234
+src/tui/shell.rs:16840	[scripts/fxcap/parity-ledger.toml:690, scripts/fxcap/parity-ledger.toml:999]
+    main* = | gate-env-maintlock -> 17272 | sweep-wallclock* = | local-paths -> 17368 | input-row-limit -> 17272
+src/tui/shell.rs:40879	[scripts/fxcap/parity-ledger.toml:816, scripts/fxcap/parity-ledger.toml:827, scripts/fxcap/parity-ledger.toml:839, scripts/fxcap/parity-ledger.toml:850, scripts/fxcap/parity-ledger.toml:861, scripts/fxcap/parity-ledger.toml:929]
+    main* -> 41113 MOVED | gate-env-maintlock -> 42946 | sweep-wallclock* -> 41113 MOVED | local-paths -> 43376 | input-row-limit -> 42713
+src/tui/toolgroup.rs:511-513	[scripts/fxcap/parity-ledger.toml:662]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths = | input-row-limit* =
+src/tui/toolgroup.rs:940	[scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:884]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/toolgroup.rs:1017	[scripts/fxcap/parity-ledger.toml:391]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/toolgroup.rs:1131	[scripts/fxcap/parity-ledger.toml:405]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/usage_menu.rs:790	[scripts/fxcap/parity-ledger.toml:349]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/wrap.rs:673-693	[scripts/fxcap/parity-ledger.toml:988]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+src/tui/wrap.rs:726	[scripts/fxcap/parity-ledger.toml:477]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+tests/e2e/file-tool-paths.test.ts:1170-1179	[docs/parity.md:218]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+tests/tla/session_manager/system-design.md:1536-1560	[docs/parity.md:92]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+# 85 references; 11 (side, reference) pairs MOVED; * = the side's own text cites it

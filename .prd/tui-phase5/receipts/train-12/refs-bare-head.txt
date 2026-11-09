@@ -1,0 +1,118 @@
+# head 03fb5436; sides: main df46777e, gate-env-maintlock a1cbdcaf, sweep-wallclock 4bc9ab13, local-paths 5609108f, input-row-limit 3d3d56c8
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:36: :1942-1948 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :2031-2037 | local-paths MOVED -> :2040-2046 | input-row-limit MOVED -> :2031-2037
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:36: :1911 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :2000 | local-paths MOVED -> :2009 | input-row-limit MOVED -> :2000
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :584 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :645 | local-paths MOVED -> :645 | input-row-limit MOVED -> :645
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2170 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :2259 | local-paths MOVED -> :2268 | input-row-limit MOVED -> :2259
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2546 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :2644 | local-paths MOVED -> :2653 | input-row-limit MOVED -> :2644
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2571 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :2669 | local-paths MOVED -> :2678 | input-row-limit MOVED -> :2669
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2130 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :2219 | local-paths MOVED -> :2228 | input-row-limit MOVED -> :2219
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2188 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :2277 | local-paths MOVED -> :2286 | input-row-limit MOVED -> :2277
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2207 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :2296 | local-paths MOVED -> :2305 | input-row-limit MOVED -> :2296
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2263 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :2352 | local-paths MOVED -> :2361 | input-row-limit MOVED -> :2352
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2313 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :2408 | local-paths MOVED -> :2417 | input-row-limit MOVED -> :2408
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:207: :2208 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :2297 | local-paths MOVED -> :2306 | input-row-limit MOVED -> :2297
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:207: :2264 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :2353 | local-paths MOVED -> :2362 | input-row-limit MOVED -> :2353
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:208: :2314 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :2409 | local-paths MOVED -> :2418 | input-row-limit MOVED -> :2409
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:208: :2555 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :2653 | local-paths MOVED -> :2662 | input-row-limit MOVED -> :2653
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:276: :4013 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :4138 | local-paths MOVED -> :4148 | input-row-limit MOVED -> :4138
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:277: :4074 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :4199 | local-paths MOVED -> :4209 | input-row-limit MOVED -> :4199
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:33: :2858 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :2971 | local-paths MOVED -> :2981 | input-row-limit MOVED -> :2971
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:631: :2585 (after src/tui/worker.rs)
+    gate-env-maintlock MOVED -> :2586 | local-paths MOVED -> :2586 | input-row-limit MOVED -> :2586
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:631: :2820 (after src/tui/worker.rs)
+    gate-env-maintlock MOVED -> :2821 | local-paths MOVED -> :2821 | input-row-limit MOVED -> :2821
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :349-367 (after src/tui/bridge.rs)
+    gate-env-maintlock MOVED -> :351-369 | local-paths MOVED -> :351-369 | input-row-limit MOVED -> :351-369
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :544-549 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :558-610 | local-paths MOVED -> :558-610 | input-row-limit MOVED -> :558-610
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :640-655 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :701-716 | local-paths MOVED -> :701-716 | input-row-limit MOVED -> :701-716
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :790-795 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :851-856 | local-paths MOVED -> :851-856 | input-row-limit MOVED -> :851-856
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1040-1060 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :1106-1126 | local-paths MOVED -> :1106-1126 | input-row-limit MOVED -> :1106-1126
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1220 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :1286 | local-paths MOVED -> :1286 | input-row-limit MOVED -> :1286
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1792-1810 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :1881-1899 | local-paths MOVED -> :1890-1908 | input-row-limit MOVED -> :1881-1899
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :2777 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :2890 | local-paths MOVED -> :2900 | input-row-limit MOVED -> :2890
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:796: :7039 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :7239 | local-paths MOVED -> :7322 | input-row-limit MOVED -> :7239
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:851: :6004 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :6204 | local-paths MOVED -> :6258 | input-row-limit MOVED -> :6204
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:895: :588-600 (after src/tui/worker.rs)
+    gate-env-maintlock MOVED -> :589-601 | local-paths MOVED -> :589-601 | input-row-limit MOVED -> :589-601
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:895: :1287-1304 (after src/tui/worker.rs)
+    gate-env-maintlock MOVED -> :1288-1305 | local-paths MOVED -> :1288-1305 | input-row-limit MOVED -> :1288-1305
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:296: :384-417 (after src/tui/bridge.rs)
+    gate-env-maintlock MOVED -> :386-419 | local-paths MOVED -> :386-419 | input-row-limit MOVED -> :386-419
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:296: :1202-1266 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :1268-1332 | local-paths MOVED -> :1268-1341 | input-row-limit MOVED -> :1268-1332
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:296: :1520-1533 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :1609-1622 | local-paths MOVED -> :1618-1631 | input-row-limit MOVED -> :1609-1622
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:315: :374-375 (after src/tui/approval_screen.rs)
+    gate-env-maintlock MOVED -> :453-454 | local-paths MOVED -> :448-449 | input-row-limit MOVED -> :453-454
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:316: :372 (after src/tui/approval_screen.rs)
+    gate-env-maintlock MOVED -> :451 | local-paths MOVED -> :446 | input-row-limit MOVED -> :451
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:318: :376-386 (after src/tui/approval.rs)
+    local-paths MOVED -> :369-379
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:337: :743-754 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :804-815 | local-paths MOVED -> :804-815 | input-row-limit MOVED -> :804-815
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:337: :755 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :816 | local-paths MOVED -> :816 | input-row-limit MOVED -> :816
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:470: :1013-1112 (after src/tui/event_loop.rs)
+    gate-env-maintlock MOVED -> :1054-1160 | local-paths MOVED -> :1094-1195 | input-row-limit MOVED -> :1054-1160
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:470: :619-622 (after src/tui/event_loop.rs)
+    gate-env-maintlock MOVED -> :635-638 | local-paths MOVED -> :683-686 | input-row-limit MOVED -> :635-638
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:485: :1048-1076 (after src/tui/event_loop.rs)
+    gate-env-maintlock MOVED -> :1096-1124 | local-paths MOVED -> :1129-1157 | input-row-limit MOVED -> :1096-1124
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:486: :1078-1108 (after src/tui/event_loop.rs)
+    gate-env-maintlock MOVED -> :1126-1156 | local-paths MOVED -> :1159-1191 | input-row-limit MOVED -> :1126-1156
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:486: :1090-1093 (after src/tui/event_loop.rs)
+    gate-env-maintlock MOVED -> :1138-1141 | local-paths CHANGED | input-row-limit MOVED -> :1138-1141
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:487: :1027-1045 (after src/tui/event_loop.rs)
+    gate-env-maintlock MOVED -> :1068-1093 | local-paths MOVED -> :1108-1126 | input-row-limit MOVED -> :1068-1093
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:488: :619 (after src/tui/event_loop.rs)
+    gate-env-maintlock MOVED -> :635 | local-paths MOVED -> :683 | input-row-limit MOVED -> :635
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:494: :3239 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :3352 | local-paths MOVED -> :3362 | input-row-limit MOVED -> :3352
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:494: :3187 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :3300 | local-paths MOVED -> :3310 | input-row-limit MOVED -> :3300
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1246 (after src/tui/approval.rs)
+    local-paths MOVED -> :1239
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1199-1218 (after src/tui/approval.rs)
+    local-paths MOVED -> :1192-1211
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1180-1196 (after src/tui/approval.rs)
+    local-paths MOVED -> :1173-1189
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:694: :4194 (after scripts/smoke-tui.sh)
+    gate-env-maintlock MOVED -> :4215 | local-paths MOVED -> :4215 | input-row-limit MOVED -> :4215
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5577 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :5777 | local-paths MOVED -> :5831 | input-row-limit MOVED -> :5777
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5590 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :5790 | local-paths MOVED -> :5844 | input-row-limit MOVED -> :5790
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5600 (after src/tui/shell.rs)
+    gate-env-maintlock MOVED -> :5800 | local-paths MOVED -> :5854 | input-row-limit MOVED -> :5800
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :1180-1218 (after src/tui/event_loop.rs)
+    gate-env-maintlock MOVED -> :1230-1268 | local-paths MOVED -> :1263-1310 | input-row-limit MOVED -> :1230-1268
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :755 (after src/tui/approval.rs)
+    local-paths MOVED -> :748
+# 73 bare continuations after a reference into a changed file; 58 moved or changed on some side that holds them

@@ -1,0 +1,28 @@
+SAME  scripts/fxcap/parity-ledger.toml:78 scripts/fxcap/capture.sh: scripts/fxcap/capture.sh:659@local-paths -> :671@03fb5436 (+-2 lines)
+    first: run=$(mktemp -d "$tmpdir/fxcap.XXXXXX")
+SAME  scripts/fxcap/parity-ledger.toml:85 scripts/fxcap/capture.sh: scripts/fxcap/capture.sh:314-316@local-paths -> :326-328@03fb5436 (+-2 lines)
+    first: # Each binary gets a TMPDIR inside the run (fx `$run/fxtmp`, xfx
+SAME  scripts/fxcap/parity-ledger.toml:85 scripts/fxcap/capture.sh: scripts/fxcap/capture.sh:367-373@local-paths -> :379-385@03fb5436 (+-2 lines)
+    first: # fx's side and xfx's are rewritten by the same rule, so a pair compares as it
+SAME  scripts/fxcap/parity-ledger.toml:85 scripts/fxcap/capture.sh: scripts/fxcap/capture.sh:947@local-paths -> :970@03fb5436 (+-2 lines)
+    first: launch="env -i $base FX_DISABLE_KEYCHAIN=1 FX_SKIP_ONBOARDING=1 FX_SOUND=0 TMPDIR=$run/fxtmp \
+SAME  scripts/fxcap/parity-ledger.toml:85 scripts/fxcap/capture.sh: scripts/fxcap/capture.sh:954@local-paths -> :977@03fb5436 (+-2 lines)
+    first: launch="env -i $base TMPDIR=$run/xfxtmp XFX_GATEWAY_URL=http://127.0.0.1:$port/v4/ai/language-model \
+SAME  scripts/fxcap/parity-ledger.toml:147 .prd/tui-phase4/receipts/d1/README.md: .prd/tui-phase4/receipts/d1/README.md:145@main -> :151@03fb5436 (+-2 lines)
+    first: | `rename/quit` | the notices, **no** `Continue session with:` row | Rows 2-39 identical (row 40 is tmux's `Pa
+SAME  scripts/fxcap/parity-ledger.toml:147 scripts/fxcap/capture.sh: scripts/fxcap/capture.sh:987@main -> :1147@03fb5436 (+-2 lines)
+    first: keep) tmux -f /dev/null -S "$sock" set-option -w -t cap remain-on-exit on > /dev/null ;;
+SAME  scripts/fxcap/parity-ledger.toml:816 src/tui/shell.rs: src/tui/shell.rs:40879@main -> :41113@03fb5436 (+-2 lines)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:827 src/tui/shell.rs: src/tui/shell.rs:40879@main -> :41113@03fb5436 (+-2 lines)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:839 src/tui/shell.rs: src/tui/shell.rs:40879@main -> :41113@03fb5436 (+-2 lines)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:850 src/tui/shell.rs: src/tui/shell.rs:40879@main -> :41113@03fb5436 (+-2 lines)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:861 src/tui/shell.rs: src/tui/shell.rs:40879@main -> :41113@03fb5436 (+-2 lines)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:929 src/tui/shell.rs: src/tui/shell.rs:40879@main -> :41113@03fb5436 (+-2 lines)
+    first: "  tools: {} advertised ({},",
+# 13 of 13 the same code
+# 03fb5436: 9 lines out, 9 in; each the same once its numbers are masked

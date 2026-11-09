@@ -1,0 +1,62 @@
+# head 12b56ab8; sides: main df46777e, gate-env-maintlock a1cbdcaf, sweep-wallclock 4bc9ab13, local-paths 5609108f, input-row-limit 3d3d56c8
+.prd/01-spec.md:56	[docs/parity.md:241]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/04-providers.md:13-20	[scripts/fxcap/parity-ledger.toml:196]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/07-fx-parity-program.md:18	[scripts/fxcap/parity-ledger.toml:223]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/07-fx-parity-program.md:19	[scripts/fxcap/parity-ledger.toml:28]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/07-fx-parity-program.md:23	[scripts/fxcap/parity-ledger.toml:12]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/07-fx-parity-program.md:43	[scripts/fxcap/parity-ledger.toml:250]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/07-fx-parity-program.md:45	[scripts/fxcap/parity-ledger.toml:236, scripts/fxcap/parity-ledger.toml:418]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/07-fx-parity-program.md:57	[scripts/fxcap/parity-ledger.toml:182, scripts/fxcap/parity-ledger.toml:223]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/receipts/d1/README.md:145	[scripts/fxcap/parity-ledger.toml:147]
+    main* -> 151 MOVED | gate-env-maintlock* -> 151 MOVED | sweep-wallclock* -> 151 MOVED | local-paths = | input-row-limit* -> 151 MOVED
+.prd/tui-phase4/receipts/d1/README.md:258	[scripts/fxcap/parity-ledger.toml:107]
+    main -> 264 | gate-env-maintlock -> 264 | sweep-wallclock -> 264 | local-paths* = | input-row-limit -> 264
+.prd/tui-phase4/receipts/d2c/README.md:91	[scripts/fxcap/parity-ledger.toml:115]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/receipts/d2c/README.md:146	[scripts/fxcap/parity-ledger.toml:107]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/receipts/f3/README.md:101	[scripts/fxcap/parity-ledger.toml:98]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/receipts/f4/README.md:8	[scripts/fxcap/parity-ledger.toml:107]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/receipts/f5/README.md:38	[scripts/fxcap/parity-ledger.toml:131, scripts/fxcap/parity-ledger.toml:139]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/receipts/f5/README.md:49	[scripts/fxcap/parity-ledger.toml:139]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/receipts/m1/README.md:49-50	[scripts/fxcap/parity-ledger.toml:45]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/receipts/m1/README.md:51	[scripts/fxcap/parity-ledger.toml:98]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/receipts/m1/README.md:78-79	[scripts/fxcap/parity-ledger.toml:53]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/receipts/p1/README.md:32	[scripts/fxcap/parity-ledger.toml:147, scripts/fxcap/parity-ledger.toml:155]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/receipts/w4/README.md:19-20	[scripts/fxcap/capfile.py:10]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/ssot.md:6	[scripts/fxcap/parity-ledger.toml:28]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/ssot.md:26	[scripts/fxcap/parity-ledger.toml:45]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/ssot.md:62-63	[scripts/fxcap/parity-ledger.toml:182]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/ssot.md:64	[scripts/fxcap/parity-ledger.toml:196]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/ssot.md:77	[scripts/fxcap/parity-ledger.toml:209]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/ssot.md:111	[scripts/fxcap/parity-ledger.toml:209]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/ssot.md:115	[scripts/fxcap/parity-ledger.toml:34, scripts/fxcap/parity-ledger.toml:236]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/ssot.md:143	[scripts/fxcap/parity-ledger.toml:223]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+.prd/tui-phase4/ssot.md:146	[scripts/fxcap/parity-ledger.toml:223]
+    main* = | gate-env-maintlock* = | sweep-wallclock* = | local-paths* = | input-row-limit* =
+# 30 references; 4 (side, reference) pairs MOVED; * = the side's own text cites it

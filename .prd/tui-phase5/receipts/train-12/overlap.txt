@@ -1,0 +1,25 @@
+== merge d43c8c92: ours df46777e, theirs a1cbdcaf, base 32afd307; files both changed: 0
+== merge 2c640bac: ours d43c8c92, theirs 4bc9ab13, base 3be49c15; files both changed: 0
+== merge 55d993a7: ours 2c640bac, theirs 5609108f, base ccced1f5; files both changed: 6
+  scripts/fxcap/capture.sh: ours 12 hunks, theirs 25 hunks; nearest: 11 unchanged base lines (ours 551-551, theirs 540-539)
+  scripts/fxcap/parity-ledger.toml: ours 26 hunks, theirs 4 hunks; nearest: 0 unchanged base lines (ours 78-78, theirs 77-78)
+    touching: ours 78-78, theirs 77-78
+    touching: ours 85-85, theirs 82-85
+    touching: ours 147-147, theirs 147-147
+  scripts/fxcap/test_capture.py: ours 5 hunks, theirs 14 hunks; nearest: 27 unchanged base lines (ours 173-172, theirs 200-199)
+  scripts/test-gate-env.sh: ours 7 hunks, theirs 2 hunks; nearest: 300 unchanged base lines (ours 397-396, theirs 697-697)
+  src/tui/approval.rs: ours 1 hunks, theirs 2 hunks; nearest: 1012 unchanged base lines (ours 357-363, theirs 1376-1376)
+  src/tui/shell.rs: ours 226 hunks, theirs 5 hunks; nearest: 102 unchanged base lines (ours 21083-21083, theirs 20980-20980)
+== merge 12b56ab8: ours 55d993a7, theirs 3d3d56c8, base 32afd307; files both changed: 4
+  docs/parity.md: ours 3 hunks, theirs 3 hunks; nearest: 0 unchanged base lines (ours 93-93, theirs 94-94)
+    touching: ours 93-93, theirs 94-94
+    touching: ours 237-237, theirs 237-237
+  scripts/fxcap/parity-ledger.toml: ours 24 hunks, theirs 6 hunks; nearest: 0 unchanged base lines (ours 815-815, theirs 815-815)
+    touching: ours 815-815, theirs 815-815
+    touching: ours 826-826, theirs 826-826
+    touching: ours 838-838, theirs 838-838
+    touching: ours 849-849, theirs 849-849
+    touching: ours 860-860, theirs 860-860
+    touching: ours 928-928, theirs 928-928
+  src/tui/layout.rs: ours 6 hunks, theirs 4 hunks; nearest: 4 unchanged base lines (ours 341-340, theirs 335-336)
+  src/tui/shell.rs: ours 160 hunks, theirs 2 hunks; nearest: 1 unchanged base lines (ours 41999-41999, theirs 41997-41997)
