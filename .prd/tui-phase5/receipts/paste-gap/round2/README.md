@@ -197,7 +197,9 @@ Bounds:
 - memory: 1 MiB in, and the filler keeps a regression from painting the
   screen.
 
-Results: 3 of 3 green at load average 34. Mutant 12 (fx's boundary) shows they
+Results: no raw log of round 2's repeated runs was kept, so no figure is
+claimed here (corrected in round 3; three raw runs of the round-3 versions
+are in `../round3/pty-runs.txt`). Mutant 12 (fx's boundary) shows they
 detect it (§7).
 
 ## 7. Mutants (`mutants.py`, `mutants.txt`)
