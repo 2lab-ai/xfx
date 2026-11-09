@@ -489,8 +489,18 @@ const PANEL_TOO_SMALL: &str =
 /// up, so the alternative to a sentence is a key that appears to do nothing --
 /// and a user whose `1` does nothing presses it again, harder, which is the one
 /// input pattern this gate must not train.
+///
+/// **Condition first.** On the review plane this is the status line, which a
+/// narrow screen cuts to its rows and a short one gives up from its last row
+/// (`super::approval_screen::ApprovalScreen::set_status`), so any first rows of
+/// it may be all that shows. The condition comes before the key, so no cut
+/// says "press it" without "once you can read it"
+/// (`no_cut_of_xfx_s_refusals_shows_an_instruction_without_its_condition`).
+/// Where the plane has no row for it at all -- a screen with less than two
+/// rows above the plane's chrome -- the key does nothing visible: the room is
+/// the question's first.
 pub(crate) const APPROVAL_NOT_READY: &str =
-    "the question is not on the screen yet - press it again once you can read it";
+    "the question is not on the screen yet; once you can read it, press it again";
 
 /// What they are told when this screen can never show the whole request, so no
 /// frame on it will ever grant.
@@ -498,10 +508,12 @@ pub(crate) const APPROVAL_NOT_READY: &str =
 /// A different sentence from [`APPROVAL_NOT_READY`] because it asks for a
 /// different action: waiting fixes the first and only a bigger window fixes the
 /// second. It names the two keys that still work, because a question that cannot
-/// be granted must still be refusable.
+/// be granted must still be refusable -- and what they do before them, as
+/// [`APPROVAL_NOT_READY`] puts its condition first, so a cut of it never shows
+/// "press 3" without "to refuse it".
 pub(crate) const APPROVAL_NOT_DISCLOSED: &str =
     "this screen cannot show the whole request, so it cannot be approved here; \
-     make the window larger, or press 3 or ctrl+c to refuse";
+     make the window larger, or, to refuse it, press 3 or ctrl+c";
 
 /// What the user is told when the screen cannot hold a question the **model**
 /// asked ([`super::question`]).
@@ -556,11 +568,12 @@ const PASTE_SUFFIX: &str = "Input that arrived right after the paste was ignored
 /// indent: each of the three sentences wraps into two rows of at most 18
 /// columns there, inside the plane's status rows (`super::approval_screen`'s
 /// `STATUS_ROWS`, three, which [`PASTE_SUFFIX`] needs from 29 columns down),
-/// and a status too tall for the screen is given up whole -- so a cut
+/// and each of them and [`PASTE_SUFFIX`] is given up whole by a screen too
+/// short for all of its rows ([`Shell::said_after_paste`]) -- so a cut
 /// sentence, which says something else, appears at no width and no height
 /// (`every_quarantine_sentence_is_whole_on_the_review_plane_at_the_narrowest_screen`,
-/// `a_status_is_on_the_screen_whole_or_not_at_all_at_every_height`). They are
-/// short for that, and each is true in every state that says it.
+/// `fx_s_warning_and_the_quarantine_s_sentences_are_whole_or_absent_on_a_short_plane`).
+/// They are short for that, and each is true in every state that says it.
 const PASTE_STILL: &str = "Keys ignored until input stops.";
 
 /// [`PASTE_STILL`] while a paste begun behind the first one's end marker is
@@ -12258,9 +12271,13 @@ impl Shell {
     }
 
     /// `text` under `input`, as [`Self::ignored_behind_paste`] says its own.
+    ///
+    /// On the review plane it is given up whole when the screen is too short
+    /// for all of it ([`super::approval_screen::ApprovalScreen::set_whole_status`]):
+    /// each of these, cut, says something else.
     fn said_after_paste(&mut self, text: &'static str) {
         match self.alternate.as_mut() {
-            Some(screen) => screen.set_status(text.to_string()),
+            Some(screen) => screen.set_whole_status(text.to_string()),
             None => self.announce(notice::Notice::warning("input", text)),
         }
         // The surface the paste was for is the one to repaint
@@ -39009,9 +39026,9 @@ mod tests {
     }
 
     /// The plane's status rows for `text` at `cols`, before a short screen
-    /// gives any up: wrapped inside its two-column indent.
+    /// gives any up (`super::super::approval_screen::status_rows`).
     fn plane_status_rows(text: &str, cols: u16) -> Vec<String> {
-        super::super::approval_view::safe_rows(text, cols.saturating_sub(2).max(1))
+        super::super::approval_screen::status_rows(text, cols)
     }
 
     /// How many of `rows`, from the first, are on `painted` at the plane's
