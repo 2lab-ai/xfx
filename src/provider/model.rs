@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::config::{RuntimeConfig, SettingSource};
-use crate::gateway::{read_bounded, Endpoint, USER_AGENT};
+use crate::gateway::{larger_than, read_capped, CappedRead, Endpoint, USER_AGENT};
 use crate::provider::ProviderId;
 
 /// One model a provider advertises.
@@ -202,12 +202,18 @@ const CATALOG_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 /// How long the catalog fetch waits for a local daemon to answer.
 const CATALOG_READ_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// The largest catalog response xfx will read.
+/// The largest catalog response xfx will read from a llmux daemon.
 ///
 /// The catalog is a list of model descriptors; a body past this is not a catalog
 /// and reading it would let whatever is on that port decide how much memory this
-/// command uses.
+/// command uses. xfx's own number: fx has no llmux.
 const MAX_CATALOG_BODY_BYTES: usize = 1024 * 1024;
+
+/// The largest answer the Gateway's catalog may give: "about fifty times
+/// today's model catalog. A larger response fails rather than growing memory
+/// without bound" (`max_gateway_json_bytes`, `src/gateway/client.zig:611-613
+/// @481104fd`). Past it the answer is refused, not cut to fit.
+const MAX_GATEWAY_CATALOG_BODY_BYTES: usize = 16 * 1024 * 1024;
 
 /// Parses a llmux catalog document.
 ///
@@ -815,8 +821,9 @@ pub fn resolve_in_order(ordered: &[CatalogEntry], query: &str) -> String {
 /// Used by both catalog fetching and setup probing. The timeouts are the point:
 /// what is being probed is on this machine, so a connect that has not completed
 /// in three seconds is not slow, it is absent. Bounded while it reads, not
-/// after: `read_bounded` streams and stops at the limit, so whatever is on that
-/// port cannot decide how much memory is used.
+/// after: `read_capped` streams and refuses a body past the limit, so whatever
+/// is on that port cannot decide how much memory is used -- nor have the
+/// first `max_bytes` of a longer answer, or of one cut short, read as all of it.
 pub(crate) async fn fetch_loopback_bounded(url: &str, max_bytes: usize) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .connect_timeout(CATALOG_CONNECT_TIMEOUT)
@@ -837,15 +844,21 @@ pub(crate) async fn fetch_loopback_bounded(url: &str, max_bytes: usize) -> Resul
     if !status.is_success() {
         return Err(format!("HTTP {}", status.as_u16()));
     }
-    Ok(read_bounded(response, max_bytes).await)
+    let body = read_capped(response, max_bytes)
+        .await
+        .map_err(|err| match err {
+            CappedRead::TooLarge => larger_than(max_bytes),
+            CappedRead::Read(err) => err.to_string(),
+        })?;
+    String::from_utf8(body).map_err(|_| "the answer is not UTF-8 text".to_string())
 }
 
 /// Fetches a catalog from a URL, bounded and with short timeouts.
 ///
 /// The timeouts are the point: what is being probed is on this machine, so a
 /// connect that has not completed in three seconds is not slow, it is absent.
-/// Bounded while it reads, not after: `read_bounded` streams and stops at the
-/// limit, so whatever is on that port cannot decide how much memory this uses.
+/// Bounded while it reads, not after ([`fetch_loopback_bounded`]), so whatever
+/// is on that port cannot decide how much memory this uses.
 pub(crate) async fn fetch_catalog(url: &str) -> Result<Vec<CatalogEntry>, CatalogError> {
     let body = fetch_loopback_bounded(url, MAX_CATALOG_BODY_BYTES)
         .await
@@ -904,6 +917,10 @@ pub const GATEWAY_MODELS_PATH: &str = "/coding-agent/v1/models";
 ///
 /// Longer than a loopback daemon's, because this one is on the internet; still
 /// bounded, because the thread that waits for it is the one a turn runs on.
+/// The 30 s is fx's, over the whole request -- connect, head and the last byte
+/// of the body -- and reaching it is a failure fx asks again about
+/// (`gateway_json_fetch_timeout_ms`, `src/gateway/client.zig:486-509
+/// @481104fd`); the 10 s to connect is xfx's, inside it.
 const GATEWAY_CATALOG_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const GATEWAY_CATALOG_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -997,10 +1014,26 @@ impl ModelCatalog for GatewayCatalog {
                 retry: CatalogRetry::for_status(status.as_u16()),
             });
         }
-        let body = read_bounded(response, MAX_CATALOG_BODY_BYTES).await;
+        // fx's `catalogRequestFailure` (`src/builtins/gateway.zig:2510-2533
+        // @481104fd`): its deadline is a transport failure it asks again
+        // about; an answer past the cap is a malformed one, and so is any
+        // other read that stops partway (`ReadFailed`), neither asked again.
+        let body = read_capped(response, MAX_GATEWAY_CATALOG_BODY_BYTES)
+            .await
+            .map_err(|err| match err {
+                CappedRead::TooLarge => failed(larger_than(MAX_GATEWAY_CATALOG_BODY_BYTES)),
+                CappedRead::Read(err) if err.is_timeout() => CatalogError::Gateway {
+                    detail: err.to_string(),
+                    retry: Some(CatalogRetry::Unreachable),
+                },
+                CappedRead::Read(err) => failed(err.to_string()),
+            })?;
         // An empty list is an answer, not a failure: upstream's menu says
-        // `No models available.` for it, and so does this one.
-        parse_gateway_catalog(&body)
+        // `No models available.` for it, and so does this one. Bytes that are
+        // not UTF-8 are no JSON document, to fx's parser as to this one.
+        std::str::from_utf8(&body)
+            .ok()
+            .and_then(parse_gateway_catalog)
             .ok_or_else(|| failed("the answer is not a model catalog".to_string()))
     }
 }
