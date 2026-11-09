@@ -2601,7 +2601,7 @@ impl Shell {
                     config.workspace_root.clone(),
                     config.home().map(std::path::Path::to_path_buf),
                 );
-                files.set_extra_roots(index_roots(
+                files.change_scope(index_roots(
                     &config.workspace_root,
                     &WorkspaceAccess::load(&config.workspace_root, &config.additional_directories),
                 ));
@@ -8429,13 +8429,16 @@ impl Shell {
     /// only the active roots (`runtime_changed = !access.eql(replacement)`;
     /// `eql`, `workspace_access.zig:176-189`, over the fields xfx's entries
     /// hold, path and availability, `crate::workspace::access::Entry`). Then
-    /// `invalidateScope` (`:98-104`): the folder listing in flight is stopped
-    /// (`requestStop`, `:70-72`) and an open list invalidated -- bar to row
-    /// 0, trust dropped, a browsed folder read again, the index's refresh
-    /// asked for (`FilePicker::invalidate`). And `refreshFileIndex` (`:140`):
-    /// the index's own refresh, a list open or not and eligible or not; the
-    /// list's refresh and lookup then wait, as everywhere, for it to be
-    /// eligible ([`Self::refresh_file_picker`]).
+    /// `invalidateScope` (`:98-104`): the scope's epoch moves
+    /// ([`Files::change_scope`]), so an indexed list says `Files
+    /// unavailable` until a walk of the new scope is whole; the folder
+    /// listing in flight is stopped (`requestStop`, `:70-72`) -- the index's
+    /// walk is not -- and an open list invalidated -- bar to row 0, trust
+    /// dropped, a browsed folder read again, the index's refresh asked for
+    /// (`FilePicker::invalidate`). And `refreshFileIndex` (`:140`): the
+    /// index's own refresh, a list open or not and eligible or not, queued
+    /// behind a walk that runs; the list's refresh and lookup then wait, as
+    /// everywhere, for it to be eligible ([`Self::refresh_file_picker`]).
     ///
     /// An equal access changes nothing, as fx's does: its roots are not even
     /// read again, since `index_roots` reads the filesystem and could find
@@ -8445,7 +8448,7 @@ impl Shell {
         let changed = self.workspace_access != access;
         if changed {
             self.files
-                .set_extra_roots(index_roots(&self.workspace, &access));
+                .change_scope(index_roots(&self.workspace, &access));
         }
         self.workspace_access = access;
         if changed {
@@ -35372,7 +35375,10 @@ mod tests {
         // `file_index.zig:488-523@481104fd`), where the list's own refresh
         // coalesces too; the walk that follows reads the new roots, and one
         // walk is all a change of roots costs. A refresh queued before the
-        // change is satisfied by it -- not one walk more.
+        // change is satisfied by it -- not one walk more. AT-SCOPE-INTERIM:
+        // the walk the change finds runs on to its end (`refreshOwnedRoots`
+        // stops nothing, `file_index.zig:488-497`), and the new roots are
+        // walked after it.
         let (_workspace, mut shell) = in_ws2(40, 120);
         let (_extra, path, access) = extra_with_plan(&shell);
         shell.route_bytes(b"@sch");
@@ -35381,13 +35387,14 @@ mod tests {
         shell.route_bytes(b"@sch");
         let walks = shell.files_for_test().walks_for_test();
         adopt(&mut shell, access);
+        walk.send(super::super::file_index::Published::Ready)
+            .expect("the change stopped the walk");
         walked(&mut shell);
         assert_eq!(
             shell.files_for_test().walks_for_test(),
             walks + 1,
             "not exactly one walk of the new roots"
         );
-        drop(walk);
         // The list is the new roots' walk, the workspace's match first. It may
         // hold the extra root's `plan.md` too, as fx's would: a path whose
         // name does not match is matched anywhere in it (`choosePlacement`,
@@ -35399,8 +35406,7 @@ mod tests {
         assert_eq!(rows.first().map(String::as_str), Some("src/deep/sched.rs"));
         let plan = path.join("plan.md").display().to_string();
         assert!(rows[1..].iter().all(|row| *row == plan), "{rows:?}");
-        // The stopped walk is over once a poll has run: the next episode's
-        // refresh starts at once, not behind it.
+        // With every walk over, the next episode's refresh starts at once.
         let walks = shell.files_for_test().walks_for_test();
         shell.clear_composer();
         shell.route_bytes(b"@sch");
@@ -35524,20 +35530,19 @@ mod tests {
     #[test]
     fn a_workspace_change_that_keeps_the_rows_still_resets_the_bar_and_the_trust() {
         // The reset is the list's, whether its rows change or not: an access
-        // change that moves no root keeps the index and the rows, and fx's
+        // change that moves no root walks the same roots again, and fx's
         // invalidated list is still a new episode -- untrusted until a frame
         // shows it, its bar and window on row 0 (`invalidate`,
         // `file_completion_state.zig:130-139@481104fd`; `resetFilePickerIndex`,
         // `input_completion_runtime.zig:797`).
         //
-        // Where xfx keeps the rows, fx shows `Files unavailable. tab to retry;
-        // esc to dismiss.` until a walk of the new scope is adopted: any access
-        // change moves its scope's epoch (`invalidateScope`,
-        // `app_workspace_runtime.zig:98-104`), and an indexed list whose index
-        // is of another epoch is staged unavailable
-        // (`input_completion_runtime.zig:868-890`). That is the gap
-        // AT-SCOPE-INTERIM (`docs/parity.md`); when it lands, this case's
-        // first precondition -- the rows kept -- flips.
+        // AT-SCOPE-INTERIM flipped its first precondition: the rows are not
+        // kept meanwhile. Any access change moves fx's scope epoch
+        // (`invalidateScope`, `app_workspace_runtime.zig:98-104`), and an
+        // indexed list whose index is of another epoch says `Files
+        // unavailable. tab to retry; esc to dismiss.` until a walk of the new
+        // scope is adopted (`input_completion_runtime.zig:868-890`); then the
+        // same rows come back, the list still untrusted.
         let (_workspace, mut shell) = in_ws2(40, 120);
         shell.route_bytes(b"@");
         walked(&mut shell);
@@ -35563,9 +35568,15 @@ mod tests {
             WorkspaceAccess::load(&shell.workspace.clone(), &[missing.display().to_string()]);
         adopt(&mut shell, access);
         assert_eq!(
+            listed_rows(&shell)[0],
+            status_row(FILES_UNAVAILABLE),
+            "the rows were kept across the change of scope"
+        );
+        walks_done(&mut shell);
+        assert_eq!(
             listed_paths(&shell),
             rows,
-            "the rows changed, so this proves less"
+            "the same roots walked to other rows"
         );
         assert_eq!(
             shell.file_picker.as_ref().and_then(FilePicker::chosen),
@@ -35629,7 +35640,7 @@ mod tests {
     }
 
     #[test]
-    fn the_first_episode_after_a_whole_index_refreshes_even_where_the_roots_dropped_it() {
+    fn the_first_episode_after_a_whole_index_refreshes_across_a_change_of_roots() {
         // Round 9 (gpt6 r8 MUST, opus r8 MUST): fx's skip asks whether its
         // index is loading -- `currentState() == .loading` (`main.zig:
         // 2125-2127@481104fd`), which is `.ready` once any generation has been
@@ -35657,64 +35668,6 @@ mod tests {
             walks + 3,
             "the first episode skipped its refresh after an index had been whole"
         );
-    }
-
-    #[test]
-    fn a_walk_a_change_of_roots_stopped_counts_as_whole_once_it_is_over() {
-        // Round 10 (opus r9 MUST): fx does not stop a running walk on a change
-        // of scope -- `refreshOwnedRoots` only queues the new roots behind it
-        // (`file_index.zig:488-497`, `:511-523@481104fd`) -- so that walk runs
-        // on and is adopted when whole (`joinThreadIfDone`, `:425`), and the
-        // index is `.ready` from then on. xfx stops it, and in xfx's model the
-        // stopped walk is over at the next poll: from then on xfx counts it as
-        // whole. So: A's walk held, B installed, a poll (B's walk running),
-        // then the session's first `@`: it refreshes, queued behind B's walk,
-        // as fx's does once A's walk has ended whole. Before that, or after
-        // one that would have failed, fx skips: the residuals `Files::poll`
-        // names.
-        let (_workspace, mut shell) = in_ws2(40, 120);
-        let (_a, _path, first) = extra_with_plan(&shell);
-        let (_b, _path, other) = extra_with_plan(&shell);
-        let walks = shell.files_for_test().walks_for_test();
-        adopt(&mut shell, first);
-        let _a_walk = super::super::file_index::tests::driven(shell.files_for_test());
-        adopt(&mut shell, other);
-        shell.settle_band(Instant::now());
-        assert_eq!(shell.files_for_test().walks_for_test(), walks + 2);
-        let b_walk = super::super::file_index::tests::driven(shell.files_for_test());
-        shell.route_bytes(b"@plan");
-        b_walk
-            .send(super::super::file_index::Published::Ready)
-            .expect("the walk");
-        shell.settle_band(Instant::now());
-        assert_eq!(
-            shell.files_for_test().walks_for_test(),
-            walks + 3,
-            "the first episode skipped its refresh after the stopped walk was over"
-        );
-    }
-
-    #[test]
-    fn a_first_at_before_the_poll_that_ends_a_stopped_walk_coalesces() {
-        // The same, with the `@` before the poll: in fx the stopped walk is
-        // still loading, so the first episode skips; in xfx a refresh then is
-        // queued anyway, beside the change's own. Either way, two walks.
-        let (_workspace, mut shell) = in_ws2(40, 120);
-        let (_a, _path, first) = extra_with_plan(&shell);
-        let (_b, _path, other) = extra_with_plan(&shell);
-        let walks = shell.files_for_test().walks_for_test();
-        adopt(&mut shell, first);
-        let _a_walk = super::super::file_index::tests::driven(shell.files_for_test());
-        adopt(&mut shell, other);
-        shell.route_bytes(b"@plan");
-        shell.settle_band(Instant::now());
-        assert_eq!(shell.files_for_test().walks_for_test(), walks + 2);
-        let b_walk = super::super::file_index::tests::driven(shell.files_for_test());
-        b_walk
-            .send(super::super::file_index::Published::Ready)
-            .expect("the walk");
-        shell.settle_band(Instant::now());
-        assert_eq!(shell.files_for_test().walks_for_test(), walks + 2);
     }
 
     #[test]

@@ -861,10 +861,14 @@ pub(crate) enum Published {
     Failed,
 }
 
-/// A walk in flight, and the prefix of its index published so far.
+/// A walk in flight, the scope it walks, and the prefix of its index
+/// published so far.
 struct Walk {
     rx: Receiver<Published>,
     stop: Arc<AtomicBool>,
+    /// The scope's epoch when it started (`loading.scope_epoch =
+    /// self.scope_epoch`, `file_index.zig:386@481104fd`).
+    epoch: u64,
     published: Vec<Candidate>,
 }
 
@@ -980,9 +984,21 @@ pub(crate) struct Files {
     extra: Vec<PathBuf>,
     home: Option<PathBuf>,
     git: Option<PathBuf>,
-    /// The last index a walk finished. A walk in flight searches its own
-    /// published prefix only while this is `None`.
+    /// The last index a walk finished, kept until the next one is whole --
+    /// a change of scope included, as fx keeps its adopted generation
+    /// (`active_generation`, replaced only on adoption, `file_index.zig:425`,
+    /// `:677@481104fd`). A walk in flight searches its own published prefix
+    /// only while this is `None` (`searchableGeneration`, `:647-654`).
     index: Option<Arc<Vec<Candidate>>>,
+    /// The epoch of the scope [`Self::index`] was walked for (the adopted
+    /// generation's `scope_epoch`, `readableRevision`, `:572-583`).
+    index_epoch: u64,
+    /// The workspace's scope epoch: moved by every change of the access
+    /// ([`Self::change_scope`]; `invalidateScope`, `app_workspace_runtime.
+    /// zig:98-104@481104fd`). An indexed lookup answers only from an index
+    /// or a prefix of this epoch, and is unavailable otherwise
+    /// (`prepareFilePicker`, `input_completion_runtime.zig:887-888`).
+    epoch: u64,
     /// Whether the last walk failed and there is no index to fall back on.
     failed: bool,
     walk: Option<Walk>,
@@ -999,21 +1015,6 @@ pub(crate) struct Files {
     /// 171@481104fd`: set once, never reset). That first request is skipped
     /// while no index has been whole yet ([`Self::refresh_index_for_list`]).
     episode_seen: bool,
-    /// Whether an index has been whole once this session, whatever was
-    /// dropped since: a walk's `Ready` taken in, or the end of a walk a
-    /// change of roots stopped, which xfx counts as whole (its two residuals
-    /// are named in [`Self::poll`]). fx's adopted generation is kept until
-    /// shutdown, a change of scope included (set at `file_index.zig:425`,
-    /// `:677@481104fd`; cleared only at `:325`), so once one is, its index is
-    /// never `.loading` again (`currentState`, `:333-341`). Set in
-    /// [`Self::poll`], never reset.
-    ever_whole: bool,
-    /// Whether a walk was stopped by a change of roots since the last
-    /// [`Self::poll`]. Until then a refresh is queued as if that walk still
-    /// ran, as fx's is behind a walk it does not stop (`requestStop` stops
-    /// the folder listing only, `app_workspace_runtime.zig:70-72`), so the
-    /// change's own refresh and the open list's coalesce into one walk.
-    superseded: bool,
     /// The last directory listed and what it held, or `Err` when it could not
     /// be read.
     listed: Option<Listed>,
@@ -1041,12 +1042,12 @@ impl Files {
             home,
             git: trusted_git(),
             index: None,
+            index_epoch: 0,
+            epoch: 0,
             failed: false,
             walk: None,
             pending_refresh: false,
             episode_seen: false,
-            ever_whole: false,
-            superseded: false,
             listed: None,
             listing: None,
             #[cfg(test)]
@@ -1085,22 +1086,17 @@ impl Files {
     }
 
     /// Whether the session's first index is still being built: none has
-    /// been whole yet ([`Self::ever_whole`]) -- an index dropped since by a
-    /// change of roots does not count -- and a walk is running. fx's
-    /// `isFileIndexLoading` (`main.zig:2125-2127@481104fd`) is
-    /// `currentState() == .loading` (`file_index.zig:333-341`), which is
-    /// `.ready` once a generation has been adopted, and otherwise the state
-    /// of the one loading: a failed first index with nothing walking is
-    /// `.failed`, not loading, and a walk started after it is loading again
-    /// (`startLoad` clears the failure, `:389`). A walk a change of roots
-    /// stopped counts as whole once [`Self::poll`] has ended it; before that
-    /// poll a refresh is queued anyway, and coalesces with the change's own
-    /// ([`Self::superseded`]). fx stops no such walk and is loading until a
-    /// walk is adopted, so this differs twice, both named in
-    /// [`Self::poll`]: before fx's walk would have ended, and after one that
-    /// would have failed.
+    /// been whole yet and a walk is running. fx's `isFileIndexLoading`
+    /// (`main.zig:2125-2127@481104fd`) is `currentState() == .loading`
+    /// (`file_index.zig:333-341`), which is `.ready` once a generation has
+    /// been adopted -- kept through any change of scope, as [`Self::index`]
+    /// is -- and otherwise the state of the one loading: a failed first index
+    /// with nothing walking is `.failed`, not loading, and a walk started
+    /// after it is loading again (`startLoad` clears the failure, `:389`).
+    /// A walk of the old roots is not stopped by a change of them, so it is
+    /// loading until it ends, as fx's is.
     fn loading(&self) -> bool {
-        !self.ever_whole && self.walk.is_some()
+        self.index.is_none() && self.walk.is_some()
     }
 
     /// Walks the index again (`refreshFileIndex`, `app_workspace_runtime.zig:
@@ -1108,40 +1104,30 @@ impl Files {
     /// ends ([`Self::pending_refresh`]; `refreshOwnedRoots`,
     /// `file_index.zig:488-509`).
     pub(crate) fn refresh_index(&mut self) {
-        if self.walk.is_some() || self.superseded {
+        if self.walk.is_some() {
             self.pending_refresh = true;
         } else {
             self.start_walk();
         }
     }
 
-    /// The directories added to the workspace are now `extra`. The walk the
-    /// change asks for is the caller's ([`super::shell`]'s `adopt_workspace`,
-    /// fx's `install`, `app_workspace_runtime.zig:127-143@481104fd`).
+    /// The workspace's access changed, and the directories added to it are
+    /// now `extra` -- the same ones or not: the scope's epoch moves
+    /// (`invalidateScope`, `app_workspace_runtime.zig:98-104@481104fd`, on
+    /// every change `install` sees, `:134-140`). The walk the change asks for
+    /// is the caller's ([`super::shell`]'s `adopt_workspace`; `install`'s
+    /// `refreshFileIndex`, `:140`).
     ///
-    /// An index of other roots answers for roots that are not the session's
-    /// any more -- or leaves out one that is -- so a change throws it away and
-    /// stops a walk of the old ones. fx keeps that index searchable, tagged
-    /// with the old scope, and its list says `Files unavailable` until the
-    /// new one is whole (`readableRevision`, `file_index.zig:572-583`;
-    /// `prepareFilePicker`'s epoch check, `input_completion_runtime.zig:887`);
-    /// xfx, with no scope on its index, says `indexing files...` (the gap
-    /// AT-SCOPE-INTERIM, `docs/parity.md`). The same roots again change
-    /// nothing.
-    ///
-    /// A refresh queued before the change stays queued: the walk the change
-    /// asks for takes it ([`Self::superseded`]).
-    pub(crate) fn set_extra_roots(&mut self, extra: Vec<PathBuf>) {
-        if extra == self.extra {
-            return;
-        }
+    /// Nothing is stopped or dropped. A walk of the old scope runs on, and
+    /// the new one is queued behind it (`refreshOwnedRoots`,
+    /// `file_index.zig:488-497`); the index there is stays searchable with
+    /// its old epoch, and so an indexed lookup says it is unavailable until
+    /// a walk of this scope is whole ([`Self::lookup`]; `readableRevision`,
+    /// `:572-583`; `prepareFilePicker`, `input_completion_runtime.zig:
+    /// 887-888`).
+    pub(crate) fn change_scope(&mut self, extra: Vec<PathBuf>) {
+        self.epoch = self.epoch.wrapping_add(1);
         self.extra = extra;
-        if let Some(walk) = self.walk.take() {
-            walk.stop.store(true, Atomic::Relaxed);
-            self.superseded = true;
-        }
-        self.index = None;
-        self.failed = false;
     }
 
     fn start_walk(&mut self) {
@@ -1165,6 +1151,7 @@ impl Files {
             self.walk = Some(Walk {
                 rx,
                 stop,
+                epoch: self.epoch,
                 published: Vec::new(),
             });
         } else if self.index.is_none() {
@@ -1188,9 +1175,12 @@ impl Files {
                     changed |= self.index.is_none();
                 }
                 Ok(Published::Ready) => {
+                    // Adopted whole, of the scope it walked, whatever the
+                    // scope is now (`joinThreadIfDone`, `file_index.zig:
+                    // 425@481104fd`).
                     let entries = std::mem::take(&mut walk.published);
                     self.index = Some(Arc::new(entries));
-                    self.ever_whole = true;
+                    self.index_epoch = walk.epoch;
                     self.failed = false;
                     self.walk = None;
                     changed = true;
@@ -1212,30 +1202,9 @@ impl Files {
         // 443-451@481104fd`). After a failed first index the list then says
         // it is indexing, as fx's does once `startLoad` clears the failure
         // (`:389`): a lookup reads the walk in flight before the failure.
-        if self.walk.is_none() {
-            // A walk a change of roots stopped is over by now, and from here
-            // xfx counts it as whole. fx stops no walk on a change of scope:
-            // its walk runs to its own end and is adopted if whole, and fx is
-            // `.loading` until a walk is (`refreshOwnedRoots`,
-            // `file_index.zig:488-497@481104fd`; `joinThreadIfDone`, `:425`;
-            // `currentState`, `:333-341`). This poll is not where fx adopts;
-            // xfx, having stopped the walk, cannot know when or how it would
-            // have ended. Counting it here rather than where it is stopped
-            // changes no count: a first `@` before this poll meets a refresh
-            // queued anyway (`refresh_index`). The stop leaves two
-            // residuals, each a first `@` that refreshes here where fx, still
-            // loading, skips (3 walks against 2): after this poll but before
-            // fx's walk would have ended; and after a walk that would have
-            // failed, which leaves fx loading (`:432-438`). Both end when
-            // AT-SCOPE-INTERIM lets the walk run on, as fx's does.
-            if self.superseded {
-                self.ever_whole = true;
-            }
-            self.superseded = false;
-            if self.pending_refresh {
-                self.start_walk();
-                changed = true;
-            }
+        if self.walk.is_none() && self.pending_refresh {
+            self.start_walk();
+            changed = true;
         }
         if let Some(listing) = &self.listing {
             match listing.rx.try_recv() {
@@ -1303,8 +1272,14 @@ impl Files {
             return Lookup::Unavailable;
         }
         let Some(explicit) = explicit(query) else {
+            // What a reader gets is of the scope it was walked for; of
+            // another, the list is unavailable until a walk of this one is
+            // (`prepareFilePicker`, `input_completion_runtime.zig:887-888@
+            // 481104fd`) -- adopted whole, or the first index published.
             return match (&self.index, &self.walk) {
+                (Some(_), _) if self.index_epoch != self.epoch => Lookup::Unavailable,
                 (Some(index), _) => Lookup::Rows(search(index, query)),
+                (None, Some(walk)) if walk.epoch != self.epoch => Lookup::Unavailable,
                 // The first index while it is published: what it has matched
                 // so far, or -- nothing matched yet -- that it is still loading
                 // (`input_completion_runtime.zig:838-842`).
@@ -1520,7 +1495,14 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_change_of_added_directories_drops_the_index_and_the_next_picker_walks_them() {
+    fn a_change_of_scope_keeps_the_index_and_is_unavailable_until_its_walk_is_whole() {
+        // fx keeps its adopted generation through a change of scope, with the
+        // old epoch (`readableRevision`, `file_index.zig:572-583@481104fd`),
+        // and an indexed list of another epoch is unavailable
+        // (`prepareFilePicker`, `input_completion_runtime.zig:887-888`) until
+        // a walk of the new scope is adopted -- the same roots again
+        // included, since every change of the access moves the epoch
+        // (`invalidateScope`, `app_workspace_runtime.zig:98-104`).
         let base = tempfile::tempdir().expect("a base");
         let base_path = base.path().canonicalize().expect("canonical");
         let work = base_path.join("work");
@@ -1533,21 +1515,64 @@ pub(crate) mod tests {
         settled(&mut files, |files| !files.busy());
         assert!(found_paths(files.lookup("plan")).is_empty());
 
-        files.set_extra_roots(vec![extra.clone()]);
+        files.change_scope(vec![extra.clone()]);
+        assert!(files.index.is_some(), "the old scope's index was dropped");
         assert_eq!(
             files.lookup("plan"),
-            Lookup::Loading,
-            "the old index answered"
+            Lookup::Unavailable,
+            "the old scope's index answered"
         );
         files.refresh_index();
+        assert_eq!(
+            files.lookup("plan"),
+            Lookup::Unavailable,
+            "the new walk's prefix answered while an index is held"
+        );
         settled(&mut files, |files| !files.busy());
         assert_eq!(
             found_paths(files.lookup("plan")),
             [format!("{}/plan.md", extra.display())]
         );
-        // The same roots again keep the index.
-        files.set_extra_roots(vec![extra]);
+        files.change_scope(vec![extra]);
+        assert_eq!(files.lookup("plan"), Lookup::Unavailable);
+        files.refresh_index();
+        settled(&mut files, |files| !files.busy());
         assert!(matches!(files.lookup("plan"), Lookup::Rows(_)));
+    }
+
+    #[test]
+    fn a_change_of_scope_lets_the_walk_run_on_and_its_prefix_answers_nothing() {
+        // fx's change of scope stops no walk: `refreshOwnedRoots` queues the
+        // new scope behind it (`file_index.zig:488-497@481104fd`), and the
+        // walk keeps the epoch it started with (`:386`). Its prefix -- the
+        // first index, searched as it is published -- is of the old scope,
+        // so an indexed lookup is unavailable; a first walk of the new scope
+        // is searched as it is published again.
+        let mut files = Files::new(PathBuf::from("/nonexistent-root"), None);
+        let old = driven(&mut files);
+        old.send(Published::More(candidates(&["src/main.rs"])))
+            .expect("the walk listens");
+        files.poll();
+        assert_eq!(found_paths(files.lookup("main")), ["src/main.rs"]);
+        files.change_scope(Vec::new());
+        let stop = Arc::clone(&files.walk.as_ref().expect("the walk").stop);
+        assert!(!stop.load(Atomic::Relaxed), "the change stopped the walk");
+        assert_eq!(files.lookup("main"), Lookup::Unavailable);
+        old.send(Published::Ready).expect("the walk listens");
+        assert!(files.poll());
+        assert!(
+            files.index.is_some(),
+            "the old scope's walk was not adopted"
+        );
+        assert_eq!(files.lookup("main"), Lookup::Unavailable);
+
+        let mut files = Files::new(PathBuf::from("/nonexistent-root"), None);
+        files.change_scope(Vec::new());
+        let new = driven(&mut files);
+        new.send(Published::More(candidates(&["src/main.rs"])))
+            .expect("the walk listens");
+        files.poll();
+        assert_eq!(found_paths(files.lookup("main")), ["src/main.rs"]);
     }
 
     #[test]
@@ -2055,6 +2080,7 @@ pub(crate) mod tests {
         files.walk = Some(Walk {
             rx,
             stop: Arc::new(AtomicBool::new(false)),
+            epoch: files.epoch,
             published: Vec::new(),
         });
         tx
