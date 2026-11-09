@@ -893,11 +893,71 @@ class FakeGateway(unittest.TestCase):
         d = scratch()
         write(os.path.join(d, "turns.json"), json.dumps(list(turns)))
         os.makedirs(os.path.join(d, "bodies"))
-        clean = {k: "" for k in ("FAKEGW_MODELS", "FAKEGW_MODELS_DOWN_MS", "FAKEGW_MODELS_DELAY_MS", "FAKEGW_MODELS2", "FAKEGW_CREDITS", "FAKEGW_TITLE", "FAKEGW_USAGE", "FAKEGW_RELEASE")}
+        clean = {k: "" for k in ("FAKEGW_MODELS", "FAKEGW_MODELS_DOWN_MS", "FAKEGW_MODELS_DELAY_MS", "FAKEGW_MODELS_PAD", "FAKEGW_MODELS_STALL_MS", "FAKEGW_MODELS2", "FAKEGW_CREDITS", "FAKEGW_TITLE", "FAKEGW_USAGE", "FAKEGW_RELEASE")}
         clean.update(env)
         s = Server(self, FAKEGW, os.path.join(d, "turns.json"), os.path.join(d, "bodies"), env=clean)
         s.bodies = os.path.join(d, "bodies")
         return s
+
+    def started_alone(self, **env):
+        """fakegw run directly with `env`, no capture.sh in front: its exit
+        and output, or None for an exit when it is still up after 10 s."""
+        d = scratch()
+        write(os.path.join(d, "turns.json"), "[]")
+        os.makedirs(os.path.join(d, "bodies"))
+        clean = {k: "" for k in ("FAKEGW_MODELS", "FAKEGW_MODELS_PAD", "FAKEGW_MODELS_STALL_MS", "FAKEGW_MODELS2", "FAKEGW_USAGE", "FAKEGW_RELEASE")}
+        clean.update(env)
+        p = subprocess.Popen([BUN, FAKEGW, "0", os.path.join(d, "turns.json"), os.path.join(d, "bodies")],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=dict(os.environ, **clean))
+        try:
+            out, _ = p.communicate(timeout=10)
+            return p.returncode, out
+        except subprocess.TimeoutExpired:
+            p.kill()
+            out, _ = p.communicate()
+            return None, out
+
+    def test_modelspad_and_modelsstall_out_of_their_bounds_stop_it_before_it_listens(self):
+        # The fake's own check, as capture.sh's: run on its own it cannot be
+        # told to allocate past 64 MiB or hold a body past 120 s.
+        for env, why in [
+            ({"FAKEGW_MODELS_PAD": "2000"}, "FAKEGW_MODELS_PAD takes <bytes> (67108864 at most) and head or tail, not \"2000\""),
+            ({"FAKEGW_MODELS_PAD": "67108865 tail"}, "not \"67108865 tail\""),
+            ({"FAKEGW_MODELS_PAD": "1e3 head"}, "not \"1e3 head\""),
+            ({"FAKEGW_MODELS_PAD": "-5 head"}, "not \"-5 head\""),
+            ({"FAKEGW_MODELS_STALL_MS": "120001"}, "FAKEGW_MODELS_STALL_MS takes milliseconds (120000 at most), not \"120001\""),
+            ({"FAKEGW_MODELS_STALL_MS": "1.5"}, "not \"1.5\""),
+            ({"FAKEGW_MODELS_STALL_MS": "Infinity"}, "not \"Infinity\""),
+        ]:
+            code, out = self.started_alone(**env)
+            self.assertEqual(code, 2, (env, out))
+            self.assertIn("[fakegw] refused: ", out, env)
+            self.assertIn(why, out, env)
+            self.assertNotIn("listening", out, env)
+        # At the bounds it starts.
+        g = self.gw(FAKEGW_MODELS_PAD="67108864 tail", FAKEGW_MODELS_STALL_MS="120000")
+        self.assertIn("listening", g.lines())
+
+    def test_a_catalog_longer_than_its_padding_is_refused_never_served_longer(self):
+        d = scratch()
+        catalog = os.path.join(d, "models.json")
+        write(catalog, json.dumps({"data": [{"id": "fake/a", "type": "language"}]}))
+        size = os.path.getsize(catalog)
+        # A FAKEGW_MODELS file already past the padding: refused at the start.
+        code, out = self.started_alone(FAKEGW_MODELS=catalog, FAKEGW_MODELS_PAD="%d tail" % (size - 1))
+        self.assertEqual(code, 2, out)
+        self.assertIn("refused: FAKEGW_MODELS is %d bytes, past FAKEGW_MODELS_PAD's %d" % (size, size - 1), out)
+        self.assertNotIn("listening", out)
+        # Exactly its size: served as it is.
+        g = self.gw(FAKEGW_MODELS=catalog, FAKEGW_MODELS_PAD="%d head" % size)
+        status, _, body = g.ask("GET", "/coding-agent/v1/models")
+        self.assertEqual((status, len(body)), (200, size))
+        # The built-in catalog, longer than the padding asked: a 500, logged.
+        g = self.gw(FAKEGW_MODELS_PAD="10 tail")
+        status, _, body = g.ask("GET", "/coding-agent/v1/models")
+        self.assertEqual(status, 500, body)
+        g.wait_for("-> refused: the catalog is ")
+        self.assertRegex(g.lines(), r"GET /coding-agent/v1/models -> refused: the catalog is \d+ bytes, past the padding's 10 at=\d+ms")
 
     def test_every_request_is_a_line_unknown_gets_too_and_never_a_header_value(self):
         g = self.gw()

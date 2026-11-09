@@ -34,7 +34,9 @@
 // padded after is one whose first bytes still read as the catalog; one padded before is none once
 // cut. Built in memory per answer, never a file. FAKEGW_MODELS_STALL_MS (`modelsstall <ms>`)
 // sends that catalog's head and the first half of its body at once, and the rest <ms> later --
-// or never, when the client goes first: a read stalled mid-body, past a deadline or not.
+// or never, when the client goes first: a read stalled mid-body, past a deadline or not. Both are
+// bounded here as in capture.sh (64 MiB, 120 s; `modelsPad`, below), and a catalog longer than
+// its padding is refused, never served longer.
 // FAKEGW_USAGE names a file read on every request (`capture.sh`'s `usage` verb swaps it): while it
 // exists, the usage reads fx v0.0.16 makes are answered from it, in the shapes of its own e2e fake
 // (vercel-labs/fx@481104fd tests/e2e/usage-fakes.ts) -- GET /v1/report (`{"results":[rows]}`),
@@ -214,21 +216,54 @@ const usagePaths = new Set([
   "/settings",
 ]);
 
+// FAKEGW_MODELS_PAD and FAKEGW_MODELS_STALL_MS, held to the bounds capture.sh holds its verbs
+// to -- here too, so the fake run on its own cannot be told to allocate or wait without one: a
+// whole number of bytes up to 64 MiB and `head` or `tail`; whole milliseconds up to 120 s. A value
+// out of them, or a FAKEGW_MODELS catalog already longer than the padding (so "exactly <bytes>"
+// could not hold), stops the gateway before it listens. Unset or empty is off.
+const MAX_PAD_BYTES = 64 * 1024 * 1024;
+const MAX_STALL_MS = 120_000;
+function refuseToStart(why: string): never {
+  console.error(`[fakegw] refused: ${why}`);
+  process.exit(2);
+}
+const modelsPad = ((): { size: number; where: "head" | "tail" } | null => {
+  const value = process.env.FAKEGW_MODELS_PAD;
+  if (!value) return null;
+  const m = /^([0-9]{1,8}) (head|tail)$/.exec(value);
+  if (!m || Number(m[1]) > MAX_PAD_BYTES) refuseToStart(`FAKEGW_MODELS_PAD takes <bytes> (${MAX_PAD_BYTES} at most) and head or tail, not ${JSON.stringify(value)}`);
+  return { size: Number(m[1]), where: m[2] as "head" | "tail" };
+})();
+const modelsStallMs = ((): number => {
+  const value = process.env.FAKEGW_MODELS_STALL_MS;
+  if (!value) return 0;
+  if (!/^[0-9]{1,6}$/.test(value) || Number(value) > MAX_STALL_MS) refuseToStart(`FAKEGW_MODELS_STALL_MS takes milliseconds (${MAX_STALL_MS} at most), not ${JSON.stringify(value)}`);
+  return Number(value);
+})();
+if (modelsPad && process.env.FAKEGW_MODELS && Bun.file(process.env.FAKEGW_MODELS).size > modelsPad.size) {
+  refuseToStart(`FAKEGW_MODELS is ${Bun.file(process.env.FAKEGW_MODELS).size} bytes, past FAKEGW_MODELS_PAD's ${modelsPad.size}`);
+}
+
 // The catalog the models path answers with, padded and stalled as FAKEGW_MODELS_PAD and
-// FAKEGW_MODELS_STALL_MS say; null when neither is set, so every other run answers as before.
+// FAKEGW_MODELS_STALL_MS say; null when neither is set, so every other run answers as before. A
+// catalog longer than the padding -- one that grew since the start -- is refused with a 500, never
+// served longer than asked.
 function shapedCatalog(text: string, logLine: (line: string) => void): Response | null {
-  const pad = process.env.FAKEGW_MODELS_PAD;
-  const stall = Number(process.env.FAKEGW_MODELS_STALL_MS || 0);
+  const pad = modelsPad;
+  const stall = modelsStallMs;
   if (!pad && stall <= 0) return null;
   let bytes = new TextEncoder().encode(text);
   if (pad) {
-    const [size, where] = pad.split(" ");
-    const fill = new TextEncoder().encode(" ".repeat(Math.max(0, Number(size) - bytes.length)));
-    const padded = new Uint8Array(bytes.length + fill.length);
-    padded.set(where === "head" ? fill : bytes, 0);
-    padded.set(where === "head" ? bytes : fill, where === "head" ? fill.length : bytes.length);
+    if (bytes.length > pad.size) {
+      logLine(`refused: the catalog is ${bytes.length} bytes, past the padding's ${pad.size}`);
+      return new Response("catalog past its padding", { status: 500 });
+    }
+    const fill = new TextEncoder().encode(" ".repeat(pad.size - bytes.length));
+    const padded = new Uint8Array(pad.size);
+    padded.set(pad.where === "head" ? fill : bytes, 0);
+    padded.set(pad.where === "head" ? bytes : fill, pad.where === "head" ? fill.length : bytes.length);
     bytes = padded;
-    logLine(`padded to ${bytes.length} bytes, ${where}`);
+    logLine(`padded to ${bytes.length} bytes, ${pad.where}`);
   }
   const headers = { "content-type": "application/json" };
   if (stall <= 0) return new Response(bytes, { headers });
