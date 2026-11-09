@@ -1,5 +1,5 @@
 ---
-title: TEST-ENV-ISOLATION round 3 receipt -- integration cases in a clean copy, a binding check that fails closed
+title: TEST-ENV-ISOLATION round 3 receipt -- integration cases in a clean copy, and a binding check (replaced in round 4)
 type: receipt
 tags: [xfx, phase5, tests, security, environment, receipt]
 ---
@@ -94,7 +94,12 @@ enumeration inside an allowed function, an unbound key (the name held in a
 variable outside the allow), a function-level allow over a read the check
 cannot name, and an aliased `Command` started with `.output()`.
 
-**The check now fails closed** (`src/test_env/tests.rs`):
+**The check, tightened** (`src/test_env/tests.rs`). *Round 4:* it did not
+fail closed -- the round-3 reviews found it still failing open by
+construction (a multi-line reason, a `let` cut at a `}`, `'"'`, a
+`pub(crate) use ... as`, a closure, a shadowed constant, an alias of an
+alias, `use libc::system as run`) -- and it is deleted, replaced by clippy's
+own forced report ([`../round4/README.md`](../round4/README.md)).
 
 - An `env:` allow is accepted only on a `let` statement or a match arm.
   The three function-level allows (`tui/term.rs`, `mcp/docker.rs`,
@@ -113,11 +118,9 @@ cannot name, and an aliased `Command` started with `.output()`.
   (`Command::output`, `status`, `spawn`, the socket `pair`s) is matched as
   `.name(` on any receiver and as `::name` through any alias. A module's
   function is matched by its path or as a bare imported call.
-- Crate-wide, an import that renames a reader, a `std::env` glob, a
-  `use std::env;`, `use libc::getenv`, an aliased `libc`, the word
-  `environ`, and the process's environ file under `/proc` are refused. A
-  function's `use libc::*` for errno names is allowed: a unit that names
-  `getenv` or `environ` is refused itself.
+- *(A claim about crate-wide imports stood here; it was false -- a
+  `pub(crate) use` and a braced list renamed a reader past it -- and is
+  withdrawn in round 4.)*
 - **Allowed names replace guarded ones.** `ALLOWED_NAMES` lists the 25
   names an exception may read, each with its reason, so a name nobody
   thought to forbid -- a token another tool reads -- is refused until

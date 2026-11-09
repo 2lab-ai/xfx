@@ -8,7 +8,7 @@ differing bytes 6470042
   5896527 __TEXT,__text
   417548 __TEXT,__gcc_except_tab
   82341 code signature (page hashes)
--> the same source, built twice hours apart with the same toolchain (round3/toolchain.txt), differed by 6,470,042 bytes. The cause is unexplained (round 3): nothing here identifies it. Builds made back to back reproduce (sections 3-4), so only back-to-back pairs are compared below.
+-> the same source, built twice hours apart -- with the same toolchain [inferred: round3/toolchain.txt was recorded on 2026-11-10, after both builds; no toolchain was recorded at either] -- differed by 6,470,042 bytes. The cause is unexplained (round 3): nothing here identifies it. Builds made back to back reproduce (sections 3-4), so only back-to-back pairs are compared below.
 
 ## 2. base-again vs d00bf398 (build arms as { let value = std::env::var(..); value })
 size base 11668096 head 11668096

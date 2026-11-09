@@ -17,7 +17,7 @@ step() {
   "$@" > "$log" 2>&1
   local status=$?
   echo "== $n: $* -> exit $status"
-  grep -E '^test result|^error|^warning: unused|FAILED|panicked|Running |check-|OK|ok$' "$log" \
+  grep -E '^test result|^error|^warning: unused|FAILED|panicked|Running |check-|OK|ok$|refused|NOT REFUSED|no case runs' "$log" \
     | grep -vE '^test .* \.\.\. ok$' | tail -60
 }
 
@@ -31,6 +31,8 @@ main() {
   step identity scripts/check-xfx-identity.sh
   step stubs scripts/check-no-stubs.sh
   step secrets scripts/check-no-secrets.sh
+  step env-reads python3 -I scripts/check-env-reads.py
+  step env-reads-self-test python3 -I scripts/check-env-reads.py --self-test
 }
 
 main "$@"

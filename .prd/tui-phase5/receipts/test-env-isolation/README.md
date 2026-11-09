@@ -19,8 +19,11 @@ Every claim below cites a file in this folder. Line numbers are at the base
   Its own receipt is [`round2/README.md`](round2/README.md); where it
   changes a claim below, the claim says so.
 - **Round 3** (`b039c001`): integration cases in a clean copy, and a binding
-  check that fails closed. Its receipt is
+  check that its reviews found still failing open. Its receipt is
   [`round3/README.md`](round3/README.md).
+- **Round 4**: the binding check replaced by a literal-only macro that clippy
+  itself holds, and every integration test binary isolated whole. Its
+  receipt is [`round4/README.md`](round4/README.md).
 
 **Why:** a CATALOG-REFRESH case built its runtime with `Runtime::new`, whose
 environment is `Environment::from_process()`; a reload then read the real
