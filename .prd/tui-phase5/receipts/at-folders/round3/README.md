@@ -147,7 +147,9 @@ No cell at any snap can change:
 - **The kept title** applies only to a band that has never painted and has
   written its title on its own. That happens only when the launch's first
   frame is held, and no pair scenario types an `@` word before its first
-  frame. A title is not a cell either.
+  frame. A title is not a cell either. (Round 4 reverted the kept title:
+  with the cases' bands sized as a session's is, it had no RED;
+  `../round4/README.md` §3.)
 - **The Ctrl-O lifecycle** changes only what happens to a listing in flight
   while the full transcript is up. No scenario in the sets types an `@` word
   and presses Ctrl-O (`../round2/README.md` §5).

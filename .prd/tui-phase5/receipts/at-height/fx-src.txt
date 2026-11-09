@@ -1983,3 +1983,286 @@
   145  fn checkCancellation(cancel: ?*const std.atomic.Value(bool)) error{Cancelled}!void {
   146      if (cancel) |flag| if (flag.load(.acquire)) return error.Cancelled;
   147  }
+
+== src/core/app/input_completion_runtime.zig:787-797@481104fd -- AT-FOLDERS r5: reconcileFilePicker sets indexed from fileCompletionsDependOnIndex (a decoding failure counts as indexed)
+  787  
+  788          pub fn reconcileFilePicker(app: *App) void {
+  789              if (comptime !runtime_profile.allows(App, .file_index)) return;
+  790              const picker = &app.input_runtime.picker;
+  791              const query = picker.activeFilePickerQuery(&app.input_runtime.edit_state);
+  792              var decoded_storage: [file_index.max_path_len]u8 = undefined;
+  793              const indexed = if (query) |q| blk: {
+  794                  const decoded = q.decoded_query(&decoded_storage) catch break :blk true;
+  795                  break :blk fileCompletionsDependOnIndex(app, decoded);
+  796              } else true;
+  797              if (picker.file_completion.reconcile(query, fileScopeEpoch(app), indexed)) picker.resetFilePickerIndex();
+
+== src/core/app/input_completion_runtime.zig:1065-1070@481104fd -- AT-FOLDERS r5: fileCompletionsDependOnIndex
+ 1065          fn fileCompletionsDependOnIndex(app: *App, query: []const u8) bool {
+ 1066              if (comptime @hasDecl(App, "fileCompletionsDependOnIndex")) {
+ 1067                  return app.fileCompletionsDependOnIndex(query);
+ 1068              }
+ 1069              return true;
+ 1070          }
+
+== src/core/app/app_workspace_runtime.zig:82-84@481104fd -- AT-FOLDERS r5: the app's fileCompletionsDependOnIndex is queryMode == .workspace_index
+   82          pub fn fileCompletionsDependOnIndex(_: *const App, query: []const u8) bool {
+   83              return path_completion.queryMode(query) == .workspace_index;
+   84          }
+
+== src/core/workspace/path_completion.zig:25-27@481104fd -- AT-FOLDERS r5: queryMode: a parsed explicit query is a path, anything else the index
+   25  pub fn queryMode(query: []const u8) QueryMode {
+   26      return if (parseExplicitQuery(query) != null) .explicit_path else .workspace_index;
+   27  }
+
+== src/core/input/file_completion_state.zig:147-168@481104fd -- AT-FOLDERS r5: reconcile asks for the refresh on a new episode and on a change of indexed
+  147      pub fn reconcile(self: *State, query: ?file_picker_path.Query, scope_epoch: u64, indexed: bool) bool {
+  148          const q = query orelse {
+  149              if (!self.active) return false;
+  150              self.invalidate();
+  151              return true;
+  152          };
+  153          const kept = @min(q.query.len, self.raw_query.len);
+  154          if (self.active and self.scope_epoch == scope_epoch and self.indexed == indexed and
+  155              self.at_offset == q.at_offset and self.token_start == q.token_start and
+  156              self.replace_end == q.replace_end and self.quoted == q.quoted and
+  157              self.raw_len == q.query.len and std.mem.eql(u8, self.raw_query[0..kept], q.query[0..kept])) return false;
+  158          var decoded_storage: [file_index.max_path_len]u8 = undefined;
+  159          const decoded = q.decoded_query(&decoded_storage) catch null;
+  160          const lookup = if (decoded) |bytes| if (bytes.len <= self.lookup_query.len) bytes else null else null;
+  161          const same_lookup = self.active and self.directory_request == null and self.scope_epoch == scope_epoch and self.indexed == indexed and
+  162              self.lookup_len != null and lookup != null and std.mem.eql(u8, self.lookup_query[0..self.lookup_len.?], lookup.?);
+  163          self.directory_request = null;
+  164          self.refresh_requested = self.refresh_requested or !self.active or self.indexed != indexed or self.scope_epoch != scope_epoch;
+  165          self.episode +%= 1;
+  166          self.active = true;
+  167          self.indexed = indexed;
+  168          self.scope_epoch = scope_epoch;
+
+== src/core/input/file_completion_state.zig:230-233@481104fd -- AT-FOLDERS r5: retry asks for the refresh too
+  230      pub fn retry(self: *State) void {
+  231          self.lookup_dirty = true;
+  232          self.refresh_requested = true;
+  233      }
+
+== src/core/app/app_workspace_runtime.zig:145-152@481104fd -- AT-FOLDERS r5: startFileIndex and refreshFileIndex
+  145          pub fn startFileIndex(app: *App) void {
+  146              if (app.workspace_root.len == 0) return;
+  147              app.file_index.ensureScopeEpoch(std.heap.c_allocator, scope(app), app.workspace.scope_epoch);
+  148          }
+  149  
+  150          pub fn refreshFileIndex(app: *App) void {
+  151              app.file_index.refreshScopeEpoch(std.heap.c_allocator, scope(app), app.workspace.scope_epoch);
+  152          }
+
+== src/core/app/app_entry_runtime.zig:330-335@481104fd -- AT-FOLDERS r5: the index is started at launch
+  330          if (resume_requested) app.startResumedSessionWarmup();
+  331          if (@hasDecl(App, "configureNotifications")) try app.configureNotifications();
+  332          if (@hasDecl(App, "playStartupSound")) app.playStartupSound();
+  333          if (@hasDecl(App, "startAutoUpgrade")) app.startAutoUpgrade();
+  334          if (@hasDecl(App, "startFileIndex")) app.startFileIndex();
+  335          startWorkerThread(App, app, deps) catch |err| {
+
+== src/main.zig:2125-2127@481104fd -- AT-FOLDERS r5: isFileIndexLoading
+ 2125      pub fn isFileIndexLoading(self: *App) bool {
+ 2126          return self.file_index.currentState() == .loading;
+ 2127      }
+
+== src/core/workspace/file_index.zig:333-341@481104fd -- AT-FOLDERS r5: currentState: loading only while the first generation loads
+  333      pub fn currentState(self: *const FileIndex) State {
+  334          if (self.active_generation != null) return .ready;
+  335          const loading = self.loading_generation orelse return if (self.initial_failed) .failed else .idle;
+  336          return switch (loading.currentState()) {
+  337              .loading => .loading,
+  338              .ready => .ready,
+  339              .failed, .canceled => .failed,
+  340          };
+  341      }
+
+== src/core/workspace/file_index.zig:488-523@481104fd -- AT-FOLDERS r5: a refresh during a walk is queued as pending roots
+  488      fn refreshOwnedRoots(self: *FileIndex, alloc: Allocator, roots: [][]u8, epoch: u64) void {
+  489          if (self.stop_requested.load(.seq_cst)) {
+  490              freeRoots(alloc, roots);
+  491              debug_trace.logf("core", "file index refresh discarded during shutdown generation={d}", .{self.generation});
+  492              return;
+  493          }
+  494          if (self.thread != null) {
+  495              self.replacePendingRoots(alloc, roots, epoch);
+  496              return;
+  497          }
+  498  
+  499          if (self.loading_generation != null) {
+  500              freeRoots(alloc, roots);
+  501              debug_trace.logf("core", "file index refresh discarded with unowned loading generation={d}", .{self.generation});
+  502              return;
+  503          }
+  504          freeRoots(alloc, self.roots);
+  505          self.roots = roots;
+  506          self.scope_epoch = epoch;
+  507          const started = self.startLoad(alloc);
+  508          if (!started) debug_trace.logf("core", "file index refresh not started generation={d}", .{self.generation});
+  509      }
+  510  
+  511      fn replacePendingRoots(self: *FileIndex, alloc: Allocator, roots: [][]u8, epoch: u64) void {
+  512          if (self.pending_scope) |pending| {
+  513              if (pending.epoch == epoch and rootsEqual(pending.roots, roots)) {
+  514                  freeRoots(alloc, roots);
+  515                  debug_trace.logf("core", "file index refresh coalesced generation={d} identical=true", .{self.generation});
+  516                  return;
+  517              }
+  518              freeRoots(alloc, pending.roots);
+  519              debug_trace.logf("core", "file index pending refresh superseded generation={d}", .{self.generation});
+  520          }
+  521          self.pending_scope = .{ .roots = roots, .epoch = epoch };
+  522          debug_trace.logf("core", "file index refresh coalesced generation={d} identical=false", .{self.generation});
+  523      }
+
+== src/core/app/app_input_runtime.zig:6997-7019@481104fd -- AT-FOLDERS r5: fx's test: each episode refreshes after startup loading
+ 6997  test "app_input_runtime refreshes each file picker episode after startup loading" {
+ 6998      const alloc = std.testing.allocator;
+ 6999      var app = try RoutingFakeApp.init(alloc);
+ 7000      defer app.deinit();
+ 7001  
+ 7002      for ("@first") |byte| {
+ 7003          try Runtime(RoutingFakeApp).handleTerminalByte(&app, byte, 4096, 100);
+ 7004      }
+ 7005      Runtime(RoutingFakeApp).prepareFilePicker(&app);
+ 7006      try std.testing.expect(app.input_runtime.picker.file_picker_episode_seen);
+ 7007      Runtime(RoutingFakeApp).prepareFilePicker(&app);
+ 7008      try std.testing.expectEqual(@as(usize, 1), app.file_index_refresh_count);
+ 7009  
+ 7010      try Runtime(RoutingFakeApp).handleTerminalByte(&app, ' ', 4096, 100);
+ 7011      try Runtime(RoutingFakeApp).handleTerminalByte(&app, '@', 4096, 100);
+ 7012      Runtime(RoutingFakeApp).prepareFilePicker(&app);
+ 7013      try std.testing.expectEqual(@as(usize, 2), app.file_index_refresh_count);
+ 7014  
+ 7015      for ("second") |byte| {
+ 7016          try Runtime(RoutingFakeApp).handleTerminalByte(&app, byte, 4096, 100);
+ 7017      }
+ 7018      Runtime(RoutingFakeApp).prepareFilePicker(&app);
+ 7019      try std.testing.expectEqual(@as(usize, 2), app.file_index_refresh_count);
+
+== src/core/app/app_input_runtime.zig:7050-7070@481104fd -- AT-FOLDERS r5: fx's test: the startup load is not duplicated
+ 7050  }
+ 7051  
+ 7052  test "app_input_runtime does not duplicate the startup file index load" {
+ 7053      const alloc = std.testing.allocator;
+ 7054      var app = try RoutingFakeApp.init(alloc);
+ 7055      defer app.deinit();
+ 7056      app.file_index_loading = true;
+ 7057  
+ 7058      for ("@first") |byte| {
+ 7059          try Runtime(RoutingFakeApp).handleTerminalByte(&app, byte, 4096, 100);
+ 7060      }
+ 7061      Runtime(RoutingFakeApp).prepareFilePicker(&app);
+ 7062      try std.testing.expect(app.input_runtime.picker.file_picker_episode_seen);
+ 7063      Runtime(RoutingFakeApp).prepareFilePicker(&app);
+ 7064      try std.testing.expectEqual(@as(usize, 0), app.file_index_refresh_count);
+ 7065  
+ 7066      app.file_index_loading = false;
+ 7067      try Runtime(RoutingFakeApp).handleTerminalByte(&app, ' ', 4096, 100);
+ 7068      try Runtime(RoutingFakeApp).handleTerminalByte(&app, '@', 4096, 100);
+ 7069      Runtime(RoutingFakeApp).prepareFilePicker(&app);
+ 7070      try std.testing.expectEqual(@as(usize, 1), app.file_index_refresh_count);
+
+== src/core/permissions/approval_prompt.zig:61-63@481104fd -- AT-FOLDERS r5: isActive is request != null
+   61      pub fn isActive(self: ApprovalPrompt) bool {
+   62          return self.request != null;
+   63      }
+
+== src/core/permissions/approval_prompt.zig:119-146@481104fd -- AT-FOLDERS r5: syncRuleManagement sets the request: a rule confirmation is an active approval prompt
+  119      pub fn syncRuleManagement(
+  120          self: *ApprovalPrompt,
+  121          alloc: Allocator,
+  122          request: permission_request.PermissionRequest,
+  123          event: session_permission_state.ConfirmedRuleEvent,
+  124      ) !void {
+  125          if (!request.confirmation_only or request.file != null) {
+  126              return error.InvalidRuleManagementRequest;
+  127          }
+  128          const owned_request = try permission_request.OwnedPermissionRequest.dupe(
+  129              alloc,
+  130              request,
+  131          );
+  132          var request_owned = true;
+  133          errdefer if (request_owned) {
+  134              var value = owned_request;
+  135              value.deinit(alloc);
+  136          };
+  137          const owned_event = try session_permission_state.OwnedConfirmedRuleEvent.dupe(
+  138              alloc,
+  139              event,
+  140          );
+  141          self.clearWithReason(alloc, "rule_management_started");
+  142          self.request = owned_request;
+  143          request_owned = false;
+  144          self.rule_management = owned_event;
+  145          self.decision.setConfirmationOnly(true);
+  146      }
+
+== src/core/app/app_input_runtime.zig:1392-1411@481104fd -- AT-FOLDERS r5: Enter asks the skills menu before the @ list
+ 1392                  '\r' => {
+ 1393                      if (try submitEffortMenuSelection(app)) return;
+ 1394                      if (try submitSettingsMenuSelection(app)) return;
+ 1395                      if (try submitHelpMenuSelection(app, max_input_len, max_prompt_history)) return;
+ 1396                      if (try submitMcpHostMenu(app)) return;
+ 1397                      if (try submitAuthPickerSelection(app)) return;
+ 1398                      if (try submitModelMenuSelection(app)) return;
+ 1399                      if (try submitSkillsMenuSelection(app, max_input_len)) return;
+ 1400                      if (try submitSlashPickerSelection(app)) return;
+ 1401                      if (comptime runtime_profile.allows(App, .durable_sessions)) {
+ 1402                          if (try submitSessionPickerSelection(app)) return;
+ 1403                          if (try submitForkMenuSelection(app, max_input_len)) return;
+ 1404                      }
+ 1405                      if (try completion_rt.submitFilePickerOnEnter(app, max_input_len)) |result| {
+ 1406                          if (result == .limit_exceeded) {
+ 1407                              try input_limit_feedback.report(App, app, .composer, 1);
+ 1408                          }
+ 1409                          app.shell.render_requests.request(.footer);
+ 1410                          return;
+ 1411                      }
+
+== src/core/app/app_input_runtime.zig:1998-2040@481104fd -- AT-FOLDERS r5: submitSkillsMenuSelection: a marked skill binds; a mention menu with none closes and hands Enter on
+ 1998          fn submitSkillsMenuSelection(app: *App, max_input_len: usize) !bool {
+ 1999              if (comptime !@hasField(App, "skills")) return false;
+ 2000              if (!app.skills.menu.active) return false;
+ 2001              // Captured before the sync: a stale $ anchor makes the sync close
+ 2002              // the menu, and close() resets origin to .command.
+ 2003              const origin = app.skills.menu.origin;
+ 2004              syncSkillsMenu(app);
+ 2005              const skill = app.skills.selectedMenuSkill() orelse {
+ 2006                  if (origin.isMention()) {
+ 2007                      app.skills.closeMenu();
+ 2008                      app.shell.render_requests.request(.footer);
+ 2009                      return false;
+ 2010                  }
+ 2011                  return true;
+ 2012              };
+ 2013              const target = if (!origin.isMention())
+ 2014                  skill_runtime.SkillMenuTarget{ .start = 0, .end = app.input_runtime.edit_state.input.items.len }
+ 2015              else
+ 2016                  app.skills.menu.target orelse skill_runtime.SkillMenuTarget{
+ 2017                      .start = app.input_runtime.edit_state.cursor,
+ 2018                      .end = app.input_runtime.edit_state.cursor,
+ 2019                  };
+ 2020              const raw_len = app.input_runtime.entities.skillTokenInsertedLen(
+ 2021                  app.input_runtime.edit_state.input.items,
+ 2022                  target.end,
+ 2023                  skill.name,
+ 2024              );
+ 2025              if (!app.input_runtime.insertionState().canReplaceRange(
+ 2026                  target.start,
+ 2027                  target.end,
+ 2028                  raw_len,
+ 2029                  max_input_len,
+ 2030              )) {
+ 2031                  app.skills.closeMenu();
+ 2032                  app.shell.render_requests.request(.footer);
+ 2033                  try input_limit_feedback.report(App, app, .composer, raw_len);
+ 2034                  return true;
+ 2035              }
+ 2036  
+ 2037              try app.input_runtime.skillBindingState().bindSkillToken(
+ 2038                  app.alloc,
+ 2039                  target.start,
+ 2040                  target.end,

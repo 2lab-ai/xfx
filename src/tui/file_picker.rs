@@ -533,11 +533,13 @@ pub(crate) struct FilePicker {
     /// a lookup was owed meanwhile and not run (`prepareFilePicker`,
     /// `input_completion_runtime.zig:848-853`).
     lookup_dirty: bool,
-    /// Whether the episode this list opened is still to be begun: it opened,
-    /// or was carried, while the list was not eligible, and fx takes an
-    /// episode's `refresh_requested` only once it is
-    /// (`prepareFilePicker`, `input_completion_runtime.zig:848-856@481104fd`).
-    episode_owed: bool,
+    /// Whether the index's refresh is asked for and not yet taken: on a new
+    /// episode, on a change between an indexed and an explicit query, and on
+    /// a retry (`refresh_requested`, `file_completion_state.zig:164`,
+    /// `:230-233@481104fd`). Taken where the list prepares its lookup, only
+    /// while it is eligible, and walks the index only for an indexed query
+    /// (`prepareFilePicker`, `input_completion_runtime.zig:853-866`).
+    refresh_requested: bool,
 }
 
 impl FilePicker {
@@ -557,24 +559,23 @@ impl FilePicker {
             window_start: 0,
             trusted: false,
             lookup_dirty: false,
-            episode_owed: false,
+            refresh_requested: false,
         }
     }
 
-    /// The episode this list opened waits for the list to be eligible
-    /// ([`Self::episode_owed`]).
-    pub(crate) fn owe_episode(&mut self) {
-        self.episode_owed = true;
+    /// Asks for the index's refresh ([`Self::refresh_requested`]).
+    pub(crate) fn request_refresh(&mut self) {
+        self.refresh_requested = true;
     }
 
-    /// Whether this list's episode is still to be begun.
-    pub(crate) fn episode_owed(&self) -> bool {
-        self.episode_owed
+    /// Whether the index's refresh is asked for and not yet taken.
+    pub(crate) fn refresh_requested(&self) -> bool {
+        self.refresh_requested
     }
 
-    /// Whether this list's episode is to be begun now, taken.
-    pub(crate) fn take_episode_owed(&mut self) -> bool {
-        std::mem::take(&mut self.episode_owed)
+    /// Whether the index's refresh was asked for, taken.
+    pub(crate) fn take_refresh_requested(&mut self) -> bool {
+        std::mem::take(&mut self.refresh_requested)
     }
 
     /// This list is to be looked up again once it is eligible
@@ -614,11 +615,13 @@ impl FilePicker {
     }
 
     /// Whether the query searches the workspace index rather than browsing a
-    /// path the user typed.
+    /// path the user typed -- and, as fx counts it, a query that cannot be
+    /// decoded (`fileCompletionsDependOnIndex`, whose caller takes a decoding
+    /// failure as indexed, `input_completion_runtime.zig:788-794@481104fd`).
     pub(crate) fn indexed(&self) -> bool {
         self.lookup
             .as_deref()
-            .is_some_and(|lookup| !super::file_index::is_explicit(lookup))
+            .is_none_or(|lookup| !super::file_index::is_explicit(lookup))
     }
 
     /// What the list shows.

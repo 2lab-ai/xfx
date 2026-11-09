@@ -74,6 +74,10 @@ reached from `begin_episode` and `retry`) and `lookup` (:1166).
 - The frame hold (:8686): `in_flight` needs the list eligible.
 - Also on the predicate, as fx's are: the distrust block (:6201,
   `reconcileFilePicker` `:798-799`) and Enter's arm (:6236, `:1055`).
+  - **Corrected in round 5:** this round's report said Enter under a shown
+    skills menu now goes on to the composer. It does not: the skills menu
+    takes Enter before the list does, in xfx's loop and in fx's
+    (`../round5/README.md` §4).
 
 **Which ineligible states can hold the `@` list.**
 - The full transcript: the keys it leaves unbound reach the composer

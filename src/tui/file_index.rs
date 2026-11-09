@@ -449,12 +449,13 @@ fn list_directory(directory: &Path, stop: &AtomicBool) -> Result<Vec<(String, Ki
     list_directory_until(directory, || stop.load(Atomic::Relaxed))
 }
 
-/// [`list_directory`], asking `stopped` before the folder is opened and
-/// before each entry, as fx's listing checks its cancel flag between steps
-/// (`checkCancellation`, `path_completion.zig:43-146@481104fd`). Cooperative,
-/// as fx's is: a filesystem call already in flight -- the `read_dir`, an
-/// entry's `metadata` -- runs to its end, and the listing stops at the next
-/// question.
+/// [`list_directory`], asking `stopped` where fx's listing checks its cancel
+/// flag (`checkCancellation`, `path_completion.zig:43-146@481104fd`): before
+/// the folder is opened (`:75`), and for each entry before the advance
+/// (`:89`), after it (`:91`) and before the entry's `stat` (`:95`).
+/// Cooperative, as fx's is: a filesystem call already in flight -- the
+/// `read_dir`, an advance, an entry's `metadata` -- runs to its end, and the
+/// listing stops at the next question.
 fn list_directory_until(
     directory: &Path,
     mut stopped: impl FnMut() -> bool,
@@ -462,9 +463,20 @@ fn list_directory_until(
     if stopped() {
         return Err(());
     }
-    let entries = std::fs::read_dir(directory).map_err(|_| ())?;
+    let mut entries = std::fs::read_dir(directory).map_err(|_| ())?;
     let mut out = Vec::new();
-    for entry in entries.flatten() {
+    loop {
+        if stopped() {
+            return Err(());
+        }
+        // An advance that fails fails the listing, as fx's does
+        // (`iterator.next(io) catch return error.PathUnavailable`, `:90`):
+        // the folder is unavailable, not a shorter one.
+        let entry = match entries.next() {
+            None => break,
+            Some(Ok(entry)) => entry,
+            Some(Err(_)) => return Err(()),
+        };
         if stopped() {
             return Err(());
         }
@@ -473,6 +485,9 @@ fn list_directory_until(
         };
         if !is_terminal_safe(&name) {
             continue;
+        }
+        if stopped() {
+            return Err(());
         }
         let Ok(meta) = std::fs::metadata(entry.path()) else {
             continue;
@@ -972,7 +987,8 @@ pub(crate) struct Files {
 
 impl Files {
     /// A source for the workspace at `root`, with `home` for `~`. Nothing is
-    /// read until the first [`Self::begin_episode`].
+    /// read until the first [`Self::refresh_index`] or [`Self::lookup`] of a
+    /// browsed path.
     pub(crate) fn new(root: PathBuf, home: Option<PathBuf>) -> Self {
         Self {
             root,
@@ -991,12 +1007,25 @@ impl Files {
         }
     }
 
-    /// A picker has just opened (`prepareFilePicker`'s `refresh_requested`,
-    /// `input_completion_runtime.zig:784-797`): the index is walked again
-    /// unless a walk is already running, and the directory listing is
-    /// forgotten so a browsed path is read fresh.
+    /// A picker has just opened: the directory listing is forgotten, so a
+    /// browsed path is read fresh. Whether the index is walked again is the
+    /// list's refresh request's ([`Self::refresh_index`]).
     pub(crate) fn begin_episode(&mut self) {
         self.listed = None;
+    }
+
+    /// Walks the index again, unless a walk is already running
+    /// (`refreshFileIndex`, `app_workspace_runtime.zig:150-152@481104fd`).
+    /// Asked only for a list whose query the index answers
+    /// (`prepareFilePicker`, `input_completion_runtime.zig:854-866`).
+    ///
+    /// One walk at a time, on every episode: fx skips its first episode's
+    /// refresh while the startup index is loading (`file_picker_episode_seen`,
+    /// `:857-861`) and after that queues a refresh asked for during a walk
+    /// (`replacePendingRoots`, `file_index.zig:494-523`); xfx starts no walk
+    /// at launch and queues none, so no refresh starts a second walk beside
+    /// a running one.
+    pub(crate) fn refresh_index(&mut self) {
         if self.walk.is_none() {
             self.start_walk();
         }
@@ -1168,6 +1197,8 @@ impl Files {
         {
             return Lookup::Loading;
         }
+        // Stopped and let go of together ([`Self::abandon_listing`]): its
+        // answer, `Err` once stopped, is never taken.
         if let Some(previous) = self.listing.take() {
             previous.stop.store(true, Atomic::Relaxed);
         }
@@ -1200,6 +1231,13 @@ impl Files {
     /// false, `directory_completion_job.zig:140-151@481104fd`: the task
     /// stopped, the request dropped; `Task.stop`, `:68-78`). The next lookup
     /// of that folder lists it again.
+    ///
+    /// **Every place that sets a listing's stop flag also lets go of its
+    /// receiver** -- here, the superseded listing in [`Self::lookup`], and
+    /// [`Drop`] -- so the `Err` a stopped listing answers with is never taken
+    /// into `listed`: a cancel is never shown as a folder that could not be
+    /// read, as fx's harvest drops an abandoned task's output
+    /// (`directory_completion_job.zig:191-217`).
     pub(crate) fn abandon_listing(&mut self) -> bool {
         let Some(listing) = self.listing.take() else {
             return false;
@@ -1208,14 +1246,14 @@ impl Files {
         true
     }
 
-    /// Forgets a failure, so the next lookup tries again: Tab on a picker that
-    /// says it could not read (`retry`, `file_completion_state.zig:205-208`).
+    /// Forgets a folder that could not be read, so the next lookup reads it
+    /// again: Tab on a picker that says it could not read (`retry`,
+    /// `file_completion_state.zig:230-233@481104fd`). A failed index is
+    /// walked again by the refresh the same retry asks for, and only for a
+    /// query the index answers ([`Self::refresh_index`]).
     pub(crate) fn retry(&mut self) {
         if matches!(self.listed, Some((_, Err(())))) {
             self.listed = None;
-        }
-        if self.failed && self.walk.is_none() {
-            self.start_walk();
         }
     }
 }
@@ -1228,6 +1266,8 @@ impl Drop for Files {
         if let Some(walk) = &self.walk {
             walk.stop.store(true, Atomic::Relaxed);
         }
+        // Stopped as the source and its receiver go together
+        // ([`Self::abandon_listing`]).
         if let Some(listing) = &self.listing {
             listing.stop.store(true, Atomic::Relaxed);
         }
@@ -1353,7 +1393,7 @@ pub(crate) mod tests {
         write(&extra, "plan.md");
         let mut files = Files::new(work, None);
         files.git = None;
-        files.begin_episode();
+        files.refresh_index();
         settled(&mut files, |files| !files.busy());
         assert!(found_paths(files.lookup("plan")).is_empty());
 
@@ -1363,7 +1403,7 @@ pub(crate) mod tests {
             Lookup::Loading,
             "the old index answered"
         );
-        files.begin_episode();
+        files.refresh_index();
         settled(&mut files, |files| !files.busy());
         assert_eq!(
             found_paths(files.lookup("plan")),
@@ -1829,16 +1869,16 @@ pub(crate) mod tests {
         assert_eq!(
             files.lookup("sch"),
             Lookup::Loading,
-            "nothing is read before an episode"
+            "nothing is read before a refresh"
         );
-        files.begin_episode();
+        files.refresh_index();
         settled(&mut files, |files| !files.busy());
         match files.lookup("sch") {
             Lookup::Rows(found) => assert_eq!(found[0].path, "src/deep/sched.rs"),
             other => panic!("{other:?}"),
         }
         // A refresh searches the index it has while the next one is built.
-        files.begin_episode();
+        files.refresh_index();
         assert!(matches!(files.lookup("sch"), Lookup::Rows(_)));
     }
 

@@ -6134,14 +6134,14 @@ impl Shell {
         true
     }
 
-    /// Offers one keystroke to the `@` file picker, and says whether it was
-    /// taken.
-    ///
     /// Whether the `@` list may start directory work, hold a frame for it,
     /// and own the composer's surface: fx's `filePickerEligible`
     /// (`input_completion_runtime.zig:775-786@481104fd`), term for term where
     /// xfx has the surface -- no question ([`Self::ask`]), no approval on
-    /// either plane ([`Self::asking`]), not the full transcript, and no
+    /// either plane ([`Self::asking`]) and no rule change waiting to be
+    /// confirmed ([`Self::rule_confirm`]: fx's approval prompt is active for
+    /// one too, `isActive` and `syncRuleManagement`,
+    /// `approval_prompt.zig:61-63`, `:119-145`), not the full transcript, and no
     /// catalog menu owning the surface (`catalogMenuOwnsSurface`, `:754-768`:
     /// the catalog, the settings menu, the skills menu while it is shown,
     /// `/model`'s menu, the session picker). fx's other two terms have nothing
@@ -6158,6 +6158,7 @@ impl Shell {
     fn file_picker_eligible(&self) -> bool {
         self.ask.is_none()
             && !self.asking()
+            && self.rule_confirm.is_none()
             && !self.full.is_open()
             && self.help_menu.is_none()
             && self.settings_menu.is_none()
@@ -6166,6 +6167,9 @@ impl Shell {
             && self.sessions.is_none()
     }
 
+    /// Offers one keystroke to the `@` file picker, and says whether it was
+    /// taken.
+    ///
     /// The keys upstream binds while the picker owns the composer's surface
     /// (`app_input_runtime.zig:1497-1501`, `:1582-1589`, `:1220-1235`;
     /// `input_completion_runtime.zig:209-262`): the arrows, `C-j`/`C-k` and the
@@ -6217,6 +6221,10 @@ impl Shell {
                     // only while it is eligible: fx's Tab returns before the
                     // retry otherwise (`:949`).
                     None if eligible && files.shown() == file_picker::Shown::Unavailable => {
+                        // fx's retry asks for the index's refresh too
+                        // (`file_completion_state.zig:230-233`), which an
+                        // indexed query's lookup takes.
+                        files.request_refresh();
                         self.files.retry();
                         self.refresh_file_picker();
                     }
@@ -6883,6 +6891,7 @@ impl Shell {
             files.mark_lookup_dirty();
             return;
         }
+        prepare_index(&mut self.files, files);
         let Some(lookup) = files.lookup().map(str::to_string) else {
             return;
         };
@@ -8634,8 +8643,8 @@ impl Shell {
         // `input_completion_runtime.zig:814`, `:821@481104fd`). Not eligible
         // ([`Self::file_picker_eligible`]), a listing in flight is told to
         // stop and its request dropped, and the lookup is marked to run again
-        // (`directory_completion_job.zig:140-151`); eligible again, the
-        // episode a list opened meanwhile is begun and the lookup runs, once
+        // (`directory_completion_job.zig:140-151`); eligible again, it runs,
+        // once, with the index refresh a list asked for meanwhile
         // (`prepareFilePicker`, `input_completion_runtime.zig:853-866`): the
         // folder is listed fresh, and a late answer to the dropped listing is
         // never taken. An index or a listing landing while it is not eligible
@@ -8646,15 +8655,12 @@ impl Shell {
                     files.mark_lookup_dirty();
                 }
             }
-        } else if let Some(files) = self.file_picker.as_mut() {
-            let episode = files.take_episode_owed();
-            let dirty = files.take_lookup_dirty();
-            if episode {
-                self.files.begin_episode();
-            }
-            if episode || dirty {
-                self.refresh_file_picker();
-            }
+        } else if self
+            .file_picker
+            .as_mut()
+            .is_some_and(FilePicker::take_lookup_dirty)
+        {
+            self.refresh_file_picker();
         }
         if self.files.poll() {
             self.refresh_file_picker();
@@ -9113,30 +9119,34 @@ impl Shell {
             {
                 return;
             }
-            // A picker opening is an episode, and an episode reads the
-            // workspace again (`prepareFilePicker`'s `refresh_requested`) --
-            // an episode a list opened while it was not eligible included.
-            let episode = self
-                .file_picker
-                .as_ref()
-                .is_none_or(FilePicker::episode_owed);
+            // A picker opening is an episode, which reads a browsed folder
+            // fresh ([`Files::begin_episode`]). fx's reconcile asks for the
+            // index's refresh on a new episode and on a change between an
+            // indexed and an explicit query, and a request not yet taken
+            // stands (`refresh_requested = refresh_requested or !active or
+            // indexed != indexed`, `file_completion_state.zig:164@481104fd`).
             let mut files = FilePicker::open(query);
-            if self.file_picker_eligible() {
-                if episode {
+            match self.file_picker.as_ref() {
+                None => {
                     self.files.begin_episode();
+                    files.request_refresh();
                 }
+                Some(open) if open.refresh_requested() || open.indexed() != files.indexed() => {
+                    files.request_refresh();
+                }
+                Some(_) => {}
+            }
+            if self.file_picker_eligible() {
+                prepare_index(&mut self.files, &mut files);
                 if let Some(lookup) = files.lookup().map(str::to_string) {
                     files.settle(self.files.lookup(&lookup));
                 }
             } else {
                 // fx's list takes the new query but prepares nothing while it
-                // is not eligible -- neither the episode's refresh nor the
+                // is not eligible -- neither the index's refresh nor the
                 // lookup (`prepareFilePicker`, `input_completion_runtime.zig:
                 // 848-856@481104fd`); [`Self::settle_files`] runs both once it
                 // is.
-                if episode {
-                    files.owe_episode();
-                }
                 files.mark_lookup_dirty();
             }
             self.file_picker = Some(files);
@@ -16660,6 +16670,17 @@ fn allowlist_notice(
         Tone::Neutral => notice::Notice::neutral(topic, body),
         Tone::Warning => notice::Notice::warning(topic, body),
         Tone::Error => notice::Notice::error(topic, body),
+    }
+}
+
+/// fx's `prepareFilePicker` taking the list's refresh request
+/// (`input_completion_runtime.zig:854-866@481104fd`): taken whatever the
+/// query, and the workspace walked again only for a query the index answers
+/// (`if (state.indexed)`). Called only while the list is eligible -- fx
+/// returns before it otherwise (`:853`).
+fn prepare_index(source: &mut Files, list: &mut FilePicker) {
+    if list.take_refresh_requested() && list.indexed() {
+        source.refresh_index();
     }
 }
 
@@ -44613,6 +44634,76 @@ mod tests {
         // Round 5: the folder's listing, and no walk for a folder query.
         assert_eq!(shell.files_for_test().started_for_test(), base + 1);
         assert_eq!(shell.files_for_test().walks_for_test(), walks);
+    }
+
+    #[test]
+    fn enter_under_a_mention_menu_goes_to_the_menu_while_it_shows_and_then_to_the_list() {
+        // Round 5 (gpt6 r4 SHOULD 2): the keys' real route. fx's Enter asks
+        // the skills menu before the `@` list (`submitSkillsMenuSelection`
+        // then `submitFilePickerOnEnter`, `app_input_runtime.zig:1392-1411@
+        // 481104fd`); xfx's loop offers it to the skills menu before the list
+        // (`offer_to_skills`, then `offer_to_files`). A mention menu with a
+        // skill marked binds it (`:1998-2040`); one nothing matches closes
+        // and hands Enter on (`:2005-2009`), to a list that has been eligible
+        // and shown all along.
+        let skills = tempfile::tempdir().expect("a skills root");
+        let demo = skills.path().join(".xfx/skills/demo");
+        std::fs::create_dir_all(&demo).expect("a skill");
+        std::fs::write(
+            demo.join("SKILL.md"),
+            "---\nname: demo\ndescription: Demo skill\n---\n",
+        )
+        .expect("SKILL.md");
+        let open = |paste: &str| {
+            let (workspace, mut shell) = in_ws2(40, 120);
+            shell.skills = HeldSkills::new(skills.path(), None);
+            shell.skills.settle_now();
+            shell.route_bytes(b"$");
+            shell.route_bytes(format!("\x1b[200~{paste}\x1b[201~").as_bytes());
+            (workspace, shell)
+        };
+        // Shown: the menu takes Enter and binds `demo`; the list, not
+        // eligible under it, read nothing and closes with its word behind
+        // the caret; nothing is sent.
+        let (_workspace, mut shown) = open("dem @src/");
+        assert!(shown.skills_menu.as_ref().is_some_and(SkillsMenu::visible));
+        assert_eq!(
+            shown.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Loading)
+        );
+        let base = shown.files_for_test().started_for_test();
+        shown.route_bytes(b"\r");
+        assert_eq!(shown.editor.text(), "demo @src/");
+        assert!(shown.skills_menu.is_none(), "the menu took no Enter");
+        assert!(shown.file_picker.is_none());
+        assert_eq!(shown.files_for_test().started_for_test(), base);
+        assert!(shown.sent.try_recv().is_err(), "Enter sent the line");
+        // Nothing matches `zz`: the menu is not shown, the list is eligible,
+        // its folder listed and shown. Enter closes the menu and goes on to
+        // the list, which mentions its marked folder and closes; nothing is
+        // sent.
+        let (_workspace, mut empty) = open("zz @src/");
+        assert!(
+            empty
+                .skills_menu
+                .as_ref()
+                .is_some_and(|menu| !menu.visible()),
+            "no mention menu with nothing to show"
+        );
+        listed(&mut empty);
+        assert_eq!(
+            empty
+                .file_picker
+                .as_ref()
+                .and_then(FilePicker::chosen)
+                .map(|found| found.path.as_str()),
+            Some("src")
+        );
+        empty.route_bytes(b"\r");
+        assert_eq!(empty.editor.text(), "$zz @src/ ");
+        assert!(empty.skills_menu.is_none(), "Enter left the menu");
+        assert!(empty.file_picker.is_none(), "the list took no Enter");
+        assert!(empty.sent.try_recv().is_err(), "Enter sent the line");
     }
 
     fn a_dollar_word_becomes_a_token(mut shell: Skilled) {
