@@ -1,0 +1,16 @@
+# redaction_grep.sh at b5795fae (the receipt's final form but this file and gates-files.txt; the commit that adds them is checked the same way in the hand-back)
+4a0b900b 0  Merge SUBMIT-CARD-PREVIEW (feat/p5-submit-card-preview @ 0c203cd3) int
+0040fa59 0  Merge CATALOG-REFRESH (feat/p5-catalog-refresh @ 3ffbe0c7) into train 
+d2ed0274 0  Merge PASTE-GAP (fix/p5-paste-gap @ 5cc2e42c) into train 11
+33e8e5d8 0  docs(receipt): P5 train 11 -- the merges' scripts (blocks, semantic, r
+6ae87955 0  docs(refs): P5 train 11 -- the 31 references the merges moved, re-poin
+3c63fc71 0  test(tui): P5 train 11 -- join checks 1 and 2's two tests; test only
+a51da9a2 0  docs(receipt): P5 train 11 -- the join tests' files, the selection, th
+820a8f15 0  test(tui): P5 train 11 -- join check 1's test sends an Enter inside th
+7ce122d8 0  docs(receipt): P5 train 11 -- the jobs' scripts, the shared-function t
+22c228b6 0  docs(receipt): P5 train 11 -- the merge checks at 820a8f15: resolution
+6ed18ed9 0  docs(receipt): P5 train 11 -- repointed.py and overlap.py, which the m
+ab6f4e50 0  docs(receipt): P5 train 11 -- the gate, the jobs and join check 2's by
+b5795fae 0  docs(receipt): P5 train 11 -- the sweeps, their compares and reruns, a
+# range 32afd307..b5795fae: 0; the commits' sum: 0 (of them the last term alone: 0)
+# files of this directory holding the pattern: 0
