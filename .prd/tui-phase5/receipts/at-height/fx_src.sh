@@ -149,3 +149,9 @@ show $P src/core/workspace/file_index.zig 309 331 "AT-FOLDERS r9: deinit, the on
 show $P src/core/workspace/file_index.zig 668 681 "AT-FOLDERS r9: buildFromSource, the other place a generation is adopted as active (:677; joinThreadIfDone :425 is quoted above)"
 # --- added by AT-FOLDERS round 10 (2026-11-10): a change of scope stops no walk.
 show $P src/core/workspace/file_index.zig 480 486 "AT-FOLDERS r10: refreshScopeEpoch snapshots the roots and hands them to refreshOwnedRoots, which queues them behind a running walk (quoted above, :488-523)"
+# --- added by AT-FOLDERS round 12 (2026-11-10): a query matches an added
+# root's absolute path anywhere, below every name match.
+show $P src/core/workspace/file_index.zig 957 959 "AT-FOLDERS r12: candidatesFromTrees: primary-root paths stay relative, added-root paths become absolute"
+show $P src/core/workspace/file_index.zig 1094 1099 "AT-FOLDERS r12: an added root's candidate is shown by its absolute path"
+show $P src/core/workspace/file_index.zig 1776 1819 "AT-FOLDERS r12: choosePlacement: inside the name, then crossing, then anywhere in the path"
+show $P src/core/workspace/file_index.zig 1884 1890 "AT-FOLDERS r12: scoreBetter: a name match ranks above a path-only one"

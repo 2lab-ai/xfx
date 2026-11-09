@@ -2560,3 +2560,71 @@
   484          };
   485          self.refreshOwnedRoots(alloc, roots, epoch);
   486      }
+
+== src/core/workspace/file_index.zig:957-959@481104fd -- AT-FOLDERS r12: candidatesFromTrees: primary-root paths stay relative, added-root paths become absolute
+  957  /// Converts trees into candidates in root order: primary-root paths stay
+  958  /// relative, added-root paths become absolute, overlapping roots appear once,
+  959  /// and at most `max_indexed_files` are kept. Paths may borrow tree memory.
+
+== src/core/workspace/file_index.zig:1094-1099@481104fd -- AT-FOLDERS r12: an added root's candidate is shown by its absolute path
+ 1094  ) !bool {
+ 1095      const absolute = try std.Io.Dir.path.resolveAlloc(alloc, &.{ root_path, relative });
+ 1096      if (!pathing.pathInside(root_path, absolute)) return false;
+ 1097  
+ 1098      const display = if (root_index == 0) relative else absolute;
+ 1099      if (acceptedCandidate(.{ .path = display, .kind = kind }) == null) return false;
+
+== src/core/workspace/file_index.zig:1776-1819@481104fd -- AT-FOLDERS r12: choosePlacement: inside the name, then crossing, then anywhere in the path
+ 1776  /// Pure: picks the placement that defines a candidate's score. A placement
+ 1777  /// ending in the file or folder name ranks above one ending in a parent
+ 1778  /// folder. Among those, the best placement inside the name, plus
+ 1779  /// `name_bonus`, competes with the best one that starts in the folder that
+ 1780  /// holds the name, as in `vercle` for `vercel-json/clean-urls.mdx`. Crossing
+ 1781  /// placements start no higher than that folder, so their search covers only
+ 1782  /// the folder and the name.
+ 1783  fn choosePlacement(
+ 1784      comptime T: type,
+ 1785      text: []const T,
+ 1786      path: []const u8,
+ 1787      byte_offsets: ?[]const u16,
+ 1788      base_start: usize,
+ 1789      query: []const T,
+ 1790      scratch: *AlignScratch,
+ 1791      needed: Needed,
+ 1792  ) ?Placement {
+ 1793      var best: ?Placement = null;
+ 1794      if (alignBest(T, text, path, byte_offsets, base_start, base_start, query, scratch)) |inside| {
+ 1795          best = .{
+ 1796              .name_fit = true,
+ 1797              .alignment = .{ .quality = inside.quality + name_bonus, .first_position = inside.first_position },
+ 1798              .range_start = base_start,
+ 1799              .end_min = base_start,
+ 1800          };
+ 1801      }
+ 1802      // Without a placement in the name, a path that does not hold the letters
+ 1803      // in order has no other placement either; one scan settles it.
+ 1804      if (best == null and query.len > 1 and !isSubsequence(T, text, query)) return null;
+ 1805      const crossing_can_win = if (best) |inside| inside.alignment.quality < maxCrossingQuality(T, query) else true;
+ 1806      if (needed.crossing and base_start > 0 and query.len > 1 and crossing_can_win) {
+ 1807          // text[base_start - 1] is the `/` before the name.
+ 1808          const folder_start = if (std.mem.findScalarLast(T, text[0 .. base_start - 1], '/')) |slash| slash + 1 else 0;
+ 1809          if (alignBest(T, text, path, byte_offsets, folder_start, base_start, query, scratch)) |crossing| {
+ 1810              if (best == null or crossing.quality > best.?.alignment.quality) {
+ 1811                  best = .{ .name_fit = true, .alignment = crossing, .range_start = folder_start, .end_min = base_start };
+ 1812              }
+ 1813          }
+ 1814      }
+ 1815      if (best != null) return best;
+ 1816      if (!needed.folder) return null;
+ 1817      const anywhere = alignBest(T, text, path, byte_offsets, 0, 0, query, scratch) orelse return null;
+ 1818      return .{ .name_fit = false, .alignment = anywhere, .range_start = 0, .end_min = 0 };
+ 1819  }
+
+== src/core/workspace/file_index.zig:1884-1890@481104fd -- AT-FOLDERS r12: scoreBetter: a name match ranks above a path-only one
+ 1884  inline fn scoreBetter(left: MatchScore, right: MatchScore) bool {
+ 1885      if (left.exact_fit != right.exact_fit) return left.exact_fit;
+ 1886      if (left.name_fit != right.name_fit) return left.name_fit;
+ 1887      if (left.quality != right.quality) return left.quality > right.quality;
+ 1888      if (left.first_position != right.first_position) return left.first_position < right.first_position;
+ 1889      return false;
+ 1890  }

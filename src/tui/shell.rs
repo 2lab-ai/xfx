@@ -35374,7 +35374,7 @@ mod tests {
         // walk is all a change of roots costs. A refresh queued before the
         // change is satisfied by it -- not one walk more.
         let (_workspace, mut shell) = in_ws2(40, 120);
-        let (_extra, _path, access) = extra_with_plan(&shell);
+        let (_extra, path, access) = extra_with_plan(&shell);
         shell.route_bytes(b"@sch");
         let walk = super::super::file_index::tests::driven(shell.files_for_test());
         shell.clear_composer();
@@ -35388,7 +35388,17 @@ mod tests {
             "not exactly one walk of the new roots"
         );
         drop(walk);
-        assert_eq!(listed_paths(&shell), ["src/deep/sched.rs"]);
+        // The list is the new roots' walk, the workspace's match first. It may
+        // hold the extra root's `plan.md` too, as fx's would: a path whose
+        // name does not match is matched anywhere in it (`choosePlacement`,
+        // `file_index.zig:1816-1818@481104fd`), an added root's path being
+        // absolute (`:957-958`, `:1098`), so whether `@sch` matches it hangs
+        // on the temp directory's letters. A name match ranks above it
+        // (`scoreBetter`, `:1884-1890`).
+        let rows = listed_paths(&shell);
+        assert_eq!(rows.first().map(String::as_str), Some("src/deep/sched.rs"));
+        let plan = path.join("plan.md").display().to_string();
+        assert!(rows[1..].iter().all(|row| *row == plan), "{rows:?}");
         // The stopped walk is over once a poll has run: the next episode's
         // refresh starts at once, not behind it.
         let walks = shell.files_for_test().walks_for_test();
