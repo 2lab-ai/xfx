@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Files holding each shape at a revision, raw (before any exception), by the
-# shapes scripts/check-no-local-paths.sh matches (round 2). The user name and
+# shapes scripts/check-no-local-paths.sh matches (round 7). The user name and
 # the home path are built at run time, never written here.
 #   counts.sh <repo> <rev>
 set -euo pipefail
@@ -13,7 +13,7 @@ end='([^A-Za-z0-9._-]|$)'
 mac="${start}/User[s]/${user}${end}"
 linux="${start}/hom[e]/${user}${end}"
 root='/tmp/claud[e]-[0-9]+'
-broken="(^|[[:space:]]|${control})claud[e]-[0-9]+/"
+broken="(^|[^A-Za-z0-9._~+/-]|${control})claud[e]-[0-9]+/"
 folders='/var/folder[s]/'
 count() { git -C "$repo" -c core.fsmonitor=false grep -a -l -E "$@" "$rev" -- | wc -l | tr -d ' '; }
 printf 'macOS home\t%s\n' "$(count -e "$mac")"

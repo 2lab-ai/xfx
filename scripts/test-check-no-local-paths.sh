@@ -22,7 +22,8 @@
 #   - a placeholder and a real path on one line, and a marked line followed
 #     by an unmarked one: an exception covers its own text, not its neighbour;
 #   - a redirect into a home (`>` is no placeholder), a home with no slash
-#     after it, a harness root broken after its `tmp/`, a mark in a request
+#     after it, a harness root broken after its `tmp/` (at a row's start
+#     and after a backtick, as a README quotes it), a mark in a request
 #     body, in a `.txt` and in a `/trace` report's `.md` (a capture by its
 #     name), a mark that does not end its line, and a home whose name starts
 #     with a documented placeholder's on a line that ends in that placeholder;
@@ -31,7 +32,8 @@
 #     and an authored file named into them (`fx-guide-40x120-notes.md`, a
 #     marked line: a capture, which no mark excuses).
 # Required to pass: the placeholders captures use, a relative path, the
-# documentation's `<name>` and `<digits>` forms, `$TMPDIR` and `~`, each
+# documentation's `<name>` and `<digits>` forms, `$TMPDIR` and `~`, a model
+# path with `claude-<digits>/` inside a name or after a `/`, each
 # documented placeholder (bare too), a home inside a run (`<scratch>/home/...`),
 # a marked fixture -- counted as such -- and a report renamed out of
 # capture.sh's reserved names with its line marked, read as authored text
@@ -135,6 +137,7 @@ printf 'log >%sx\n' "$linux" >"$t/redirect.sh"
 printf '<code>%sx</code>\n' "$mac" >"$t/tag.html"
 printf 'cd %s\n(%s)\n' "${s}Users${s}alice" "${s}home${s}bob" >"$t/bare.md"
 printf '  \033[38;5;250mclaude-501%sfxcap.Ab12Cd%swork\n' "$s" "$s" >"$t/wrapped.ansi"
+printf 'a short directory in the harness temp folder (`claude-%s%sp5uc`)\n' 501 "$s" >"$t/ticked.md"
 mkdir -p "$t/fx-x-40x120-bodies"
 printf '{"cwd":"%sx"} // local-path-ok\n' "$linux" >"$t/fx-x-40x120-bodies/001-completion.json"
 printf '%sx # local-path-ok\n' "$mac" >"$t/notes.txt"
@@ -166,6 +169,7 @@ want=(
 	"bare.md:1: $home_shape"
 	"bare.md:2: $linux_shape"
 	"wrapped.ansi:1: a harness scratch root, broken after its tmp/"
+	"ticked.md:1: a harness scratch root, broken after its tmp/"
 	"fx-x-40x120-bodies/001-completion.json:1: $linux_shape"
 	"notes.txt:1: $home_shape"
 	"midline.md:1: $home_shape"
@@ -217,6 +221,7 @@ new_tree "$t"
 	printf 'lock: <tmp>%sbin%ssuite-lock.sh\n' "$s" "$s"
 	printf 'old capture: fxcap.Ab12Cd%shome%s.xfx%sskills\n' "$s" "$s" "$s"
 	printf 'relative: a%sb\n' "$mac"
+	printf 'a model path: models%sclaude-3%sx, anthropic.claude-3%sx, my-claude-2%sx\n' "$s" "$s" "$s" "$s"
 	printf 'forms: %s<name>%s %s<name>%s %s<digits>\n' "${s}Users${s}" "$s" "${s}home${s}" "$s" "${s}private${s}tmp${s}claude-"
 	printf 'derived: "$TMPDIR/x" "${HOME}/x" ~/x\n'
 	printf 'placeholders: %s.zshrc %sa.png %sproject\n' "${s}home${s}u${s}" "${s}Users${s}me${s}" "${s}home${s}you${s}"

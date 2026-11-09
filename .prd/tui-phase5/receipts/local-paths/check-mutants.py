@@ -34,7 +34,9 @@ M = [
     ("no index-bit refusal", '\tS\\ * | [[:lower:]]\\ *) flagged+=("${entry#??}") ;;', "\tS\\ * | [[:lower:]]\\ *) ;;"),
     ("no missing-file refusal", 'if [ -s "$work/deleted" ]; then', "if false; then"),
     ("no root shape", '\t"a harness scratch root:/tmp/claud[e]-[0-9]+"\n', ""),
-    ("no broken-root shape", '\t"a harness scratch root, broken after its tmp/:(^|[[:space:]]|${control})claud[e]-[0-9]+/"\n', ""),
+    ("no broken-root shape", '\t"a harness scratch root, broken after its tmp/:(^|[^A-Za-z0-9._~+/-]|${control})claud[e]-[0-9]+/"\n', ""),
+    ("broken root after a space only (round 6)", '(^|[^A-Za-z0-9._~+/-]|${control})claud[e]', '(^|[[:space:]]|${control})claud[e]'),
+    ("broken root after a slash too", '(^|[^A-Za-z0-9._~+/-]|${control})claud[e]', '(^|[^A-Za-z0-9._~+-]|${control})claud[e]'),
 ]
 # The positive control's two verdicts, made to pass whatever it found.
 NO_CONTROL = [

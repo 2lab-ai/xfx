@@ -19,9 +19,12 @@
 #   /home/<name>           a Linux home directory
 #   /tmp/claude-<digits>   a harness's per-user scratch root, also as
 #                          /private/tmp/claude-<digits> on macOS, and a
-#                          `claude-<digits>/` at a row's start or after a
-#                          space or a control sequence, where a binary broke
-#                          such a root after its `tmp/`
+#                          `claude-<digits>/` at a row's start, after a
+#                          control sequence or after any character no path
+#                          name holds (a space, a backtick, a paren), where a
+#                          binary or a README broke such a root after its
+#                          `tmp/` -- not inside a name or after a `/`
+#                          (`models/claude-3/`)
 #   /var/folders/          macOS's per-user temporary root, also as  # local-path-ok
 #                          /private/var/folders/                      # local-path-ok
 #
@@ -117,7 +120,7 @@ patterns=(
 	"a macOS home directory:${start}/User[s]/${user}${end}"
 	"a Linux home directory:${start}/hom[e]/${user}${end}"
 	"a harness scratch root:/tmp/claud[e]-[0-9]+"
-	"a harness scratch root, broken after its tmp/:(^|[[:space:]]|${control})claud[e]-[0-9]+/"
+	"a harness scratch root, broken after its tmp/:(^|[^A-Za-z0-9._~+/-]|${control})claud[e]-[0-9]+/"
 	"a macOS per-user temporary root:/var/folder[s]/"
 )
 
