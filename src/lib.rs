@@ -29,6 +29,11 @@
 //! `vercel-labs/fx@580a0c5da9386317251968c09c1cee69e763487a`; see `UPSTREAM.md`
 //! for the attribution and `docs/parity.md` for what is and is not implemented.
 
+/// `env_exception!`, the literal-named reads of the real process environment
+/// that stay outside [`process_env!`].
+#[macro_use]
+mod env_exception;
+
 /// A read of the real process environment by `$who`, the function that makes
 /// it: `process_env!("config::Environment::from_process", var(key))`.
 ///
@@ -44,9 +49,12 @@
 ///   environment: the fake process's, or none (`PATH` and `TMPDIR` excepted).
 ///
 /// Every other read of the environment, in `src` and `tests`, is refused by
-/// clippy (`clippy.toml`'s `disallowed-methods`) unless an `env:` allow on its
-/// statement or match arm names its variables, which `test_env`'s binding
-/// check holds it to.
+/// clippy (`clippy.toml`'s `disallowed-methods`, on the resolved path) unless
+/// it is an `env_exception!`, whose names are literals.
+/// `scripts/check-env-reads.py` runs clippy with that lint forced on, so no
+/// allow of any spelling hides a read, and refuses every read but these
+/// macros' own arms -- this one's, whose names are computed, and
+/// `env_exception!`'s, each held to its file and its names.
 #[cfg(not(test))]
 macro_rules! process_env {
     ($who:literal, var($name:expr)) => {

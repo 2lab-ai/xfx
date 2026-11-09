@@ -1466,11 +1466,7 @@ fn escaping_operand(argv: &[String], scope: &AccessScope, cwd: &Path) -> Option<
 /// absolute paths, and locale is pinned so command output is stable across
 /// machines.
 fn minimal_environment() -> Vec<(String, String)> {
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "env: PATH -- where a direct plan finds the program it names"
-    )]
-    let path = std::env::var("PATH")
+    let path = env_exception!(var("PATH"))
         .ok()
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin".to_string());

@@ -58,15 +58,10 @@ thread_local! {
 /// credential, or a configuration. The one read of the real process in this
 /// module, and what a child of a unit test is given of it.
 fn kept() -> [(&'static str, Option<OsString>); 2] {
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "env: PATH, TMPDIR -- where programs are and where temporary files go"
-    )]
-    let kept = [
-        ("PATH", std::env::var_os("PATH")),
-        ("TMPDIR", std::env::var_os("TMPDIR")),
-    ];
-    kept
+    [
+        ("PATH", env_exception!(var_os("PATH"))),
+        ("TMPDIR", env_exception!(var_os("TMPDIR"))),
+    ]
 }
 
 /// The real process's `PATH`: where a case finds `git` and the rest.

@@ -1266,22 +1266,12 @@ fn writer_id() -> Identity {
 /// [`spawn_role`], plays the part `ROLE` names against the home `ROLE_HOME`.
 #[test]
 fn a_copy_of_this_binary_plays_its_role() {
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "env: XFX_TEST_USAGE_CACHE_ROLE -- the role this binary's copy is started with"
-    )]
-    let role = std::env::var_os(ROLE);
-    let Some(role) = role else {
+    let Some(role) = env_exception!(var_os("XFX_TEST_USAGE_CACHE_ROLE")) else {
         return;
     };
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "env: XFX_TEST_USAGE_CACHE_HOME, XFX_TEST_USAGE_CACHE_ARG -- the home and argument the copy's role is given"
-    )]
-    let (root, arg) = (std::env::var_os(ROLE_HOME), std::env::var(ROLE_ARG));
-    let root = PathBuf::from(root.expect("a home"));
+    let root = PathBuf::from(env_exception!(var_os("XFX_TEST_USAGE_CACHE_HOME")).expect("a home"));
     let home = Home::new(Some(&root)).expect("an absolute home");
-    let arg = arg.unwrap_or_default();
+    let arg = env_exception!(var("XFX_TEST_USAGE_CACHE_ARG")).unwrap_or_default();
     match role.to_str().expect("a role") {
         "writer" => {
             // Writer `i`'s `n`th store is stamped `BASE_MS + n * WRITERS + i`.

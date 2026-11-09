@@ -237,12 +237,7 @@ const CHILD_LIMIT: std::time::Duration = std::time::Duration::from_secs(120);
 
 #[test]
 fn under_an_open_umask_every_writer_makes_the_profile_home_private() {
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "env: XFX_TEST_PROFILE_HOME_UNDER_OPEN_UMASK -- the role this binary's copy is started with"
-    )]
-    let role = std::env::var_os(UNDER_OPEN_UMASK);
-    if role.is_none() {
+    if env_exception!(var_os("XFX_TEST_PROFILE_HOME_UNDER_OPEN_UMASK")).is_none() {
         return;
     }
     // The umask took: a directory made the plain way is open to everyone.

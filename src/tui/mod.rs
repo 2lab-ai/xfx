@@ -455,21 +455,15 @@ fn hold(
     // of the three sources and it is not in hand until the read is over. The
     // environment is read here rather than in `theme` so that every variable
     // this session consults is named on one screen.
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "env: COLORFGBG -- what the terminal says of itself"
-    )]
-    let colorfgbg = std::env::var(theme::COLORFGBG).ok();
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "env: COLORTERM -- what the terminal says of itself"
-    )]
-    let colorterm = std::env::var(theme::COLORTERM).ok();
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "env: TERM_PROGRAM -- what the terminal says of itself"
-    )]
-    let term_program = std::env::var(theme::TERM_PROGRAM).ok();
+    // The variable some terminals export their foreground and background
+    // indices in (`theme_detection.zig:31`).
+    let colorfgbg = env_exception!(var("COLORFGBG")).ok();
+    // The variable a terminal claims 24-bit colour in
+    // (`theme_protocol.zig:44-48`), which reaches the Ultra mark alone
+    // (`theme::ultra_marker`).
+    let colorterm = env_exception!(var("COLORTERM")).ok();
+    // The variable a terminal names itself in (`theme_protocol.zig:49-51`).
+    let term_program = env_exception!(var("TERM_PROGRAM")).ok();
     let palette = theme::Palette {
         mode: theme::detect(
             env_theme.as_deref(),

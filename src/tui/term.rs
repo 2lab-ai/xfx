@@ -174,18 +174,8 @@ struct Owned {
 static OWNED: OnceLock<Owned> = OnceLock::new();
 static TMUX: AtomicBool = AtomicBool::new(false);
 
-#[allow(
-    clippy::match_single_binding,
-    reason = "the one arm of a match on () is where an env: allow can sit on a tail expression"
-)]
 pub(crate) fn under_tmux() -> bool {
-    match () {
-        #[allow(
-            clippy::disallowed_methods,
-            reason = "env: TMUX -- whether the terminal is tmux's"
-        )]
-        () => std::env::var_os("TMUX").is_some_and(|value| !value.is_empty()),
-    }
+    env_exception!(var_os("TMUX")).is_some_and(|value| !value.is_empty())
 }
 
 pub(crate) fn capture(fd: BorrowedFd<'_>) -> io::Result<Termios> {

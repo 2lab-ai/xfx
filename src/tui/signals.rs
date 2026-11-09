@@ -1303,18 +1303,14 @@ mod tests {
     /// The signals the copy [`an_inherited_sigint_ignore_outlives_the_session`]
     /// starts was told it is started ignoring; none in the ordinary run.
     fn told_ignored_at_entry() -> Vec<libc::c_int> {
-        #[allow(
-            clippy::disallowed_methods,
-            reason = "env: XFX_TEST_IGNORED_AT_ENTRY -- what this binary's copy is told it ignores"
-        )]
-        let told = std::env::var(IGNORED_AT_ENTRY);
-        told.map(|names| {
-            names
-                .split(',')
-                .filter_map(|name| name.parse().ok())
-                .collect()
-        })
-        .unwrap_or_default()
+        env_exception!(var("XFX_TEST_IGNORED_AT_ENTRY"))
+            .map(|names| {
+                names
+                    .split(',')
+                    .filter_map(|name| name.parse().ok())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Where the copy is told which signals it was started ignoring.

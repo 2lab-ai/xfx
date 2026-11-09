@@ -7,13 +7,14 @@
 #
 # The environment rule (`src/lib.rs`'s `process_env!`, `src/test_env.rs`): the
 # process environment is read through `process_env!`, so a unit test cannot
-# read the real one. Checked on the resolved call, so an imported `var` and an
-# aliased `std::env` are caught as the plain path is. Each read that stays
-# outside it carries `#[allow(clippy::disallowed_methods, reason = "env: <the
-# variables> -- <why>")]` on its statement or match arm, and
-# `test_env::tests::every_read_outside_process_env_is_bound_to_its_variables`
-# holds each to its file and variables: only `var`/`var_os`, each argument a
-# literal or a constant it resolves, nothing from the start rule below.
+# read the real one. Checked on the resolved call, so an imported `var`, an
+# aliased `std::env`, a closure over a reader and a reference to one are
+# caught as the plain path is. A read that stays outside it is an
+# `env_exception!` (`src/env_exception.rs`), whose names are literals; but
+# for the build script, cargo's own process, nothing else lets one through.
+# `scripts/check-env-reads.py` runs clippy with the lint forced on, so an
+# allow of any spelling hides nothing from it, and holds each `env_exception!`
+# to its file and names and each start an allow lets through to a list.
 #
 # `allow-invalid` marks a path that does not resolve in every build: tokio is
 # built without `process`, mio is not a dependency of xfx's own, `vfork` is

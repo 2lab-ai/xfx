@@ -4328,11 +4328,7 @@ fn an_approved_command_runs_through_the_platform_shell_with_a_clean_environment(
     // Dynamic shell syntax can only run on the reviewed route. `CARGO_PKG_NAME`
     // is set in this test process, so an inherited environment would print
     // `[xfx]` and a built one prints `[]`.
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "env: CARGO_PKG_NAME -- cargo sets it in this test process; the case shows a command does not inherit it"
-    )]
-    let cargo_pkg_name = std::env::var("CARGO_PKG_NAME");
+    let cargo_pkg_name = xfx::env_exception!(var("CARGO_PKG_NAME"));
     assert_eq!(cargo_pkg_name.as_deref(), Ok("xfx"));
     let output = succeeds(
         &context,

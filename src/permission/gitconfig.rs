@@ -166,15 +166,11 @@ pub(crate) fn run_git(
     args: &[&str],
     environment: &[(OsString, OsString)],
 ) -> Result<(std::process::ExitStatus, Vec<u8>), String> {
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "env: PATH -- where git is found when the caller names no PATH"
-    )]
     let path = environment
         .iter()
         .find(|(name, _)| name == "PATH")
         .map(|(_, value)| value.clone())
-        .or_else(|| std::env::var_os("PATH"))
+        .or_else(|| env_exception!(var_os("PATH")))
         .unwrap_or_default();
     let git = std::env::split_paths(&path)
         .map(|dir| dir.join("git"))

@@ -131,6 +131,26 @@ jobs:
         if: matrix.part != 'release'
         run: cargo clippy --locked --all-targets -- -D warnings
 
+      # Clippy refuses every read of the process environment and every start
+      # of a child but where an allow lets one through. This runs it again
+      # with the lint forced on, so no allow of any spelling -- a group,
+      # `warnings`, `expect`, `cfg_attr`, a crate-level one -- hides a read,
+      # and holds each it lets through to a list: an `env_exception!`, whose
+      # names are literals, to its file and names; a start to its file.
+      - name: Every read of the environment clippy lets through is listed
+        if: matrix.part != 'release'
+        run: python3 scripts/check-env-reads.py
+
+      # The check above is worth its `OK` only while it refuses what it was
+      # written to refuse: each way round the rule a review found -- a
+      # renamed import, an alias of an alias, a closure, a shadowed constant,
+      # a crate-level allow, a constant passed to the macro -- is a fixture,
+      # compiled with the real macro under the real clippy.toml, and each
+      # must be refused for its reason.
+      - name: The environment check refuses every way round it
+        if: matrix.script_tests
+        run: python3 scripts/check-env-reads.py --self-test
+
       - name: Tests
         if: matrix.part != 'release'
         run: cargo test --locked --all-targets

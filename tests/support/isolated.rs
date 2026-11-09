@@ -23,12 +23,7 @@ const COPY: &str = "XFX_TEST_ISOLATED_COPY";
 
 /// Whether this process is that copy.
 fn in_the_copy() -> bool {
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "env: XFX_TEST_ISOLATED_COPY -- the role this binary's copy is started with"
-    )]
-    let copy = std::env::var_os(COPY);
-    copy.is_some()
+    xfx::env_exception!(var_os("XFX_TEST_ISOLATED_COPY")).is_some()
 }
 
 /// Runs `case` -- the calling test's name, as `--exact` takes it -- in a

@@ -28,15 +28,10 @@ pub const INHERITED_VARS: &[&str] = &["PATH", "TMPDIR"];
 /// [`INHERITED_VARS`] as the developer's process holds them: the suites' one
 /// read of the process environment.
 fn inherited() -> [(&'static str, Option<std::ffi::OsString>); 2] {
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "env: PATH, TMPDIR -- where programs are and where temporary files go"
-    )]
-    let inherited = [
-        ("PATH", std::env::var_os("PATH")),
-        ("TMPDIR", std::env::var_os("TMPDIR")),
-    ];
-    inherited
+    [
+        ("PATH", xfx::env_exception!(var_os("PATH"))),
+        ("TMPDIR", xfx::env_exception!(var_os("TMPDIR"))),
+    ]
 }
 
 /// The developer's `PATH`: where a case finds `git` and the rest.

@@ -1256,12 +1256,7 @@ const UNDER_OPEN_UMASK: &str = "XFX_TEST_UNDER_OPEN_UMASK";
 #[cfg(unix)]
 #[test]
 fn under_an_open_umask_a_forks_folders_are_private_from_creation() {
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "env: XFX_TEST_UNDER_OPEN_UMASK -- the role this binary's copy is started with"
-    )]
-    let role = std::env::var_os(UNDER_OPEN_UMASK);
-    if role.is_none() {
+    if env_exception!(var_os("XFX_TEST_UNDER_OPEN_UMASK")).is_none() {
         return;
     }
     let root = tempfile::TempDir::new().expect("a root");

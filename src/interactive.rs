@@ -1726,17 +1726,15 @@ pub async fn run(
                     }
                     Slash::Copy => copy_last_reply(conversation.as_ref(), &Clipboard::system())?,
                     Slash::Undo => undo_on_the_line(conversation.as_ref())?,
-                    #[allow(
-                        clippy::disallowed_methods,
-                        reason = "env: TMPDIR -- where /trace writes its report"
-                    )]
                     Slash::Trace => trace_on_the_line(
                         &config,
                         &model,
                         conversation.as_ref(),
                         &store,
                         &TraceTarget {
-                            dir: crate::trace::report_dir(std::env::var_os("TMPDIR").as_deref()),
+                            dir: crate::trace::report_dir(
+                                env_exception!(var_os("TMPDIR")).as_deref(),
+                            ),
                             clipboard: Clipboard::system(),
                         },
                         &mut io::stdout(),
