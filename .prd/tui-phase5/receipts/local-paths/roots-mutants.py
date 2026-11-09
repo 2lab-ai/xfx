@@ -1,4 +1,4 @@
-"""LOCAL-PATHS round 4: each mutant of scripts/fxcap/roots.py, capture.sh or
+"""LOCAL-PATHS round 5: each mutant of scripts/fxcap/roots.py, capture.sh or
 parity-ledger.toml, applied to a throwaway clone's copy (never a checkout
 anyone works in), must be failed by the tests that pin it. Each line names
 the tests that failed and the test file's line of the first failed
@@ -17,24 +17,30 @@ CAPTURE = ["test_capture.py", "RootsRewrite", "RunRoots.test_a_tmpdir_with_a_tra
            "RunRoots.test_a_root_each_side_broke_at_another_column_reads_different",
            "RunRoots.test_a_sibling_of_the_harness_tmpdir_is_left_and_refuses_nothing"]
 SWEEP = ["test_sweep.py", "Normalize"]
-SURVIVORS = '''        in_control = any(
-            any(m.start() < end and start < m.end() for start, end in view.controls)
+DROPPED = """        dropped = any(
+            not _held(view, starts, m.start(), m.end())
             for m in re.finditer(re.escape(needle) + rb"(?![" + EDGE + rb"])", data)
         )
-'''
-TMPDIR_RULE = "fx = '(<scratch(?::real)?_*>/|fxcap\\.XXXXXX/)fxtmp\\b'"
+"""
+BARE = "        bare = GUTTER_CHAR.sub(b\"\", needle)\n"
+JUDGE = "        if dropped or _find(view, needle, []) or (bare != needle and _find(view, bare, [])):"
+TMPDIR_RULE = "fx = '(<scratch(?::real)?_*>/|fxcap\\.XXXXXX/)fxtmp(?![A-Za-z0-9._~+-])'"
 M = [
     # round 3, item 1: the placeholder over the root's own columns
     ("roots.py", CAPTURE, "placeholder on the first span only", "        edits.append((s, e, ph[at : at + w]))", "        edits.append((s, e, ph if at == 0 else b\"\"))"),
     ("roots.py", CAPTURE, "placeholder not as wide as its root", "    if width >= len(full):\n        return full[:-1] + FILL * (width - len(full)) + \">\"", "    if True:\n        return full"),
     ("roots.py", CAPTURE, "no short form", "    if width >= 4:\n", "    if False:\n"),
-    # round 3, item 3 (retargeted at round 4's code): survivors by substring
-    ("roots.py", CAPTURE, "survivors by substring", SURVIVORS + "        if in_control or _find(view, needle, []):", "        if needle in data or needle in view.text:"),
-    # round 4, item 1: the bytes only where they touch a control sequence
-    ("roots.py", CAPTURE, "bytes read everywhere (round 3)", SURVIVORS, "        in_control = re.search(re.escape(needle) + rb\"(?![\" + EDGE + rb\"])\", data)\n"),
-    ("roots.py", CAPTURE, "no byte reading at all", SURVIVORS, "        in_control = False\n"),
-    ("roots.py", CAPTURE, "bytes in an OSC only", "            any(m.start() < end and start < m.end() for start, end in view.controls)",
+    # round 3, item 3 (retargeted at round 5's code): survivors by substring
+    ("roots.py", CAPTURE, "survivors by substring", DROPPED + BARE + JUDGE, "        if needle in data or needle in view.text:"),
+    # round 4, item 1: which raw bytes count
+    ("roots.py", CAPTURE, "bytes read everywhere (round 3)", DROPPED, "        dropped = re.search(re.escape(needle) + rb\"(?![\" + EDGE + rb\"])\", data)\n"),
+    ("roots.py", CAPTURE, "no byte reading at all", DROPPED, "        dropped = False\n"),
+    ("roots.py", CAPTURE, "bytes in an OSC only", "            not _held(view, starts, m.start(), m.end())",
      "            any(m.start() < end and start < m.end() for start, end in view.controls if data.startswith(b\"\\x1b]\", start))"),
+    # round 5, item 2: the bytes the view dropped at a row's edge, and a root read without its gutters
+    ("roots.py", CAPTURE, "bytes in a control only (round 4)", "            not _held(view, starts, m.start(), m.end())",
+     "            any(m.start() < end and start < m.end() for start, end in view.controls)"),
+    ("roots.py", CAPTURE, "no reading without gutters", BARE, "        bare = needle\n"),
     # round 3, item 5: a trailing-slash TMPDIR (round 4: killed by the HOME as given)
     ("capture.sh", CAPTURE, "no trailing-slash strip", "  while [[ $tmpdir == */ && $tmpdir != / ]]; do tmpdir=${tmpdir%/}; done", "  :"),
     ("roots.py", CAPTURE, "no normpath spelling", "        forms = [(given, False), (os.path.normpath(given), False)]", "        forms = [(given, False)]"),
@@ -42,10 +48,13 @@ M = [
     ("roots.py", CAPTURE, "no nF escape", "|\\x1b[\\x20-\\x2f]*[\\x30-\\x7e]\")", "|\\x1b[\\x20-\\x7e]\")"),
     ("roots.py", CAPTURE, "a backslash escape", "        edits.append((end, end, b\"!\"))", "        edits.append((end, end, b\"\\\\\"))"),
     # round 4, item 2: capture-tmpdir right after the run directory only
-    ("parity-ledger.toml", SWEEP, "any `_>/` before fxtmp (round 3)", TMPDIR_RULE, "fx = '(<scratch(?::real)?_*>/|fxcap\\.XXXXXX/|(?<=_>/))fxtmp\\b'"),
-    ("parity-ledger.toml", SWEEP, "any placeholder before fxtmp", TMPDIR_RULE, "fx = '(<!*[a-z:]+_*>/|fxcap\\.XXXXXX/)fxtmp\\b'"),
-    ("parity-ledger.toml", SWEEP, "the short form read too", TMPDIR_RULE, "fx = '(<(?:scratch(?::real)?_*|[sS]_+)>/|fxcap\\.XXXXXX/)fxtmp\\b'"),
-    ("parity-ledger.toml", SWEEP, "no zero-fill <scratch>", TMPDIR_RULE, "fx = '(<scratch(?::real)?_+>/|fxcap\\.XXXXXX/)fxtmp\\b'"),
+    ("parity-ledger.toml", SWEEP, "any `_>/` before fxtmp (round 3)", TMPDIR_RULE, "fx = '(<scratch(?::real)?_*>/|fxcap\\.XXXXXX/|(?<=_>/))fxtmp(?![A-Za-z0-9._~+-])'"),
+    ("parity-ledger.toml", SWEEP, "any placeholder before fxtmp", TMPDIR_RULE, "fx = '(<!*[a-z:]+_*>/|fxcap\\.XXXXXX/)fxtmp(?![A-Za-z0-9._~+-])'"),
+    ("parity-ledger.toml", SWEEP, "the short form read too", TMPDIR_RULE, "fx = '(<(?:scratch(?::real)?_*|[sS]_+)>/|fxcap\\.XXXXXX/)fxtmp(?![A-Za-z0-9._~+-])'"),
+    ("parity-ledger.toml", SWEEP, "no zero-fill <scratch>", TMPDIR_RULE, "fx = '(<scratch(?::real)?_+>/|fxcap\\.XXXXXX/)fxtmp(?![A-Za-z0-9._~+-])'"),
+    # round 5, item 1: the name itself, not a sibling's
+    ("parity-ledger.toml", SWEEP, "a word boundary again (round 4)", TMPDIR_RULE, "fx = '(<scratch(?::real)?_*>/|fxcap\\.XXXXXX/)fxtmp\\b'"),
+    ("parity-ledger.toml", SWEEP, "no end at all", TMPDIR_RULE, "fx = '(<scratch(?::real)?_*>/|fxcap\\.XXXXXX/)fxtmp'"),
 ]
 env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
 env["PYTHONDONTWRITEBYTECODE"] = "1"
