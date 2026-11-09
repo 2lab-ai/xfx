@@ -158,19 +158,16 @@ fn a_git_plan_reads_no_git_configuration_under_the_process_home() {
 }
 
 /// The names of the variables a child of `crate::process::command` starts
-/// with -- names only: the child prints no value.
+/// with: `env` itself, no shell, so they are exactly what it was given. Each
+/// value is dropped as it is read and none is printed.
 fn child_names() -> Vec<String> {
-    let mut command = crate::process::command("/bin/sh");
-    command
-        .args(["-c", "/usr/bin/env | /usr/bin/cut -d= -f1"])
-        .stdin(std::process::Stdio::null());
-    let output = crate::process::output(&mut command).expect("sh runs");
+    let mut command = crate::process::command("/usr/bin/env");
+    command.stdin(std::process::Stdio::null());
+    let output = crate::process::output(&mut command).expect("env runs");
     assert!(output.status.success());
     String::from_utf8_lossy(&output.stdout)
         .lines()
-        .map(str::to_string)
-        // `sh` sets these three itself, whatever it inherited.
-        .filter(|name| !matches!(name.as_str(), "PWD" | "SHLVL" | "_"))
+        .filter_map(|line| line.split_once('=').map(|(name, _)| name.to_string()))
         .collect()
 }
 
