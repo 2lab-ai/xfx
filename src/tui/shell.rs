@@ -18945,6 +18945,36 @@ mod tests {
     }
 
     #[test]
+    fn a_second_paste_begun_behind_the_first_s_end_marker_sends_nothing_across_a_gap() {
+        // Its start marker in the delivery that ended the first paste, where
+        // fx counts it (`paste_framing.zig:102-107@481104fd`): the second
+        // paste is dropped to its own end marker, a gap in its middle
+        // included, and nothing of it is typed or sent.
+        let quiet = super::super::input::Decoder::PASTE_QUIET;
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~\x1b[200~two ");
+        for at in [t0, t0 + quiet, t0 + quiet * 2] {
+            shell.end_delivery_at(at);
+        }
+        shell.route_read(b"lines\r/version\r\x1b[201~");
+        shell.end_delivery_at(t0 + quiet * 3);
+        shell.end_delivery_at(t0 + quiet * 4);
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the rest of the second paste sent a prompt"
+        );
+        assert_eq!(
+            shell.editor.text(),
+            "priornew",
+            "the second paste was typed"
+        );
+        assert_eq!(shell.document(), said(ignored_behind_the_paste()));
+    }
+
+    #[test]
     fn input_that_keeps_arriving_inside_the_quarantine_is_said_again_once_a_second() {
         // gpt6 on PASTE-GAP round 1: the warning was said once, so a stream
         // that kept the quarantine on went on being dropped with nothing on

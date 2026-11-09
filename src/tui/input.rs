@@ -3367,6 +3367,92 @@ mod tests {
     }
 
     #[test]
+    fn a_second_paste_begun_behind_the_first_s_end_marker_stays_dropped_across_a_gap() {
+        // The same hole one step earlier: a second paste whose start marker
+        // arrives in the delivery that ended the first is counted there, fx's
+        // rule (`paste_framing.zig:102-107,527-546@481104fd`), and so it was
+        // never followed -- a gap of `PASTE_QUIET` in its middle ended the
+        // quarantine and the rest of it was read as keys. Its frame is
+        // followed through the count: the second paste is dropped, as fx drops
+        // it, to its own end marker, and only then can the input go quiet.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let quiet = Decoder::PASTE_QUIET;
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        fed(
+            &mut decoder,
+            b"\x1b[200~new\x1b[201~\x1b[200~ab",
+            t0,
+            &mut out,
+        );
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0),
+            Delivery::Pasted { dropped: 8 }
+        );
+        for at in [t0 + quiet, t0 + quiet * 2, t0 + quiet * 3] {
+            deliver_at(&mut decoder, &mut out, at);
+        }
+        assert!(decoder.quarantined(), "the quiet ended a paste still open");
+        fed(&mut decoder, b"c\rd\x1b[201~", t0 + quiet * 4, &mut out);
+        deliver_at(&mut decoder, &mut out, t0 + quiet * 4 + ms);
+        deliver_at(&mut decoder, &mut out, t0 + quiet * 5 + ms);
+        assert!(!decoder.quarantined(), "the quiet after it did not end it");
+        assert_eq!(out, kept_new(), "the second paste was read");
+        fed(&mut decoder, b"\r", t0 + quiet * 6, &mut out);
+        assert_eq!(out, kept_new_then(&[Input::Action(Action::Submit)]));
+    }
+
+    #[test]
+    fn an_unterminated_paste_begun_behind_the_first_s_end_marker_never_becomes_keys() {
+        let t0 = Instant::now();
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        fed(
+            &mut decoder,
+            b"\x1b[200~new\x1b[201~\x1b[200~ab",
+            t0,
+            &mut out,
+        );
+        deliver_at(&mut decoder, &mut out, t0);
+        for at in [
+            t0 + Decoder::PASTE_QUIET,
+            t0 + Duration::from_secs(1),
+            t0 + Duration::from_secs(10),
+        ] {
+            deliver_at(&mut decoder, &mut out, at);
+        }
+        fed(&mut decoder, b"x\r", t0 + Duration::from_secs(10), &mut out);
+        deliver_at(&mut decoder, &mut out, t0 + Duration::from_secs(11));
+        assert_eq!(out, kept_new(), "the input after a quiet was keys");
+        assert!(decoder.quarantined(), "an open paste's quarantine ended");
+    }
+
+    #[test]
+    fn a_start_marker_split_across_the_settle_is_followed_into_the_quarantine() {
+        // `ESC [ 2 0` behind the end marker, the delivery's end, a quiet, then
+        // `0 ~`: the marker is whole in the quarantine, where it begins a
+        // paste, and nothing of it or after it is typed.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let quiet = Decoder::PASTE_QUIET;
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        fed(&mut decoder, b"\x1b[200~new\x1b[201~\x1b[20", t0, &mut out);
+        deliver_at(&mut decoder, &mut out, t0);
+        for at in [t0 + quiet, t0 + quiet * 3] {
+            deliver_at(&mut decoder, &mut out, at);
+        }
+        fed(&mut decoder, b"0~ab\r\x1b[201~", t0 + quiet * 4, &mut out);
+        deliver_at(&mut decoder, &mut out, t0 + quiet * 4 + ms);
+        assert!(!any_key(&out), "the split marker let keys through: {out:?}");
+        let mut second = vec![Input::Action(Action::PasteStart)];
+        second.extend(paste_bytes(b"ab\r"));
+        second.push(Input::Action(Action::PasteEnd));
+        assert_eq!(out, kept_new_then(&second));
+    }
+
+    #[test]
     fn input_dropped_before_a_paste_begun_in_the_quarantine_is_still_said() {
         // A key and a second paste's start marker with no check between them:
         // the quarantine the marker ends has dropped the key and not said so
