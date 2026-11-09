@@ -1,0 +1,23 @@
+# red5.sh on a clone at bb5f53ed (round 5's first fix: every gutter character taken out at once)
+1 a <scratch>/fxtmp/b.md:                          normalized
+1 TMPDIR=<scratch>/fxtmp:                          normalized
+1 "<scratch>/fxtmp" x:                             normalized
+1 <scratch>/fxtmp-old/a:                           compared
+1 <scratch>/fxtmp.bak:                             compared
+1 <scratch>/fxtmp_x:                               compared
+1 <scratch>/fxtmpx:                                compared
+1 <scratch>/fxtmp~:                                compared
+1 <scratch>/fxtmp+1:                               compared
+2 a root ending in a space, at a row's end:        refused
+2 a root ending in a space, at the text's end:     refused
+2 a root ending in a tab, at a row's end:          refused
+2 a root ending in a tab, at the text's end:       refused
+2 a root ending in U+2502, at a row's end:         refused
+2 a root ending in U+2502, at the text's end:      refused
+2 /tmp/a b, broken where its space ends a row:     refused
+2 /tmp/a b, broken where its space opens a row:    refused
+2 /tmp/a b, broken behind a box-drawing gutter:    refused
+2 /tmp/a b inside a row:                           written, nothing survives
+2 /tmp/a b c, broken at its first space:           passes (RED)
+2 /tmp/a b c, broken at its second space:          passes (RED)
+3 ESC <HOME> ESC[1m 2/notes:                       refused (conservative)
