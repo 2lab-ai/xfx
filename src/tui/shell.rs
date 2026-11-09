@@ -850,13 +850,14 @@ pub(crate) struct Shell {
     /// this side can say at once; a catalog nobody has read cannot be
     /// resolved here at all.
     catalog_known: CatalogKnown,
-    /// When activity -- a submitted prompt, a frame of the inline column --
-    /// is next owed a read of the rows the band holds, by the runtime's
-    /// clock: five minutes after the read that brought them began, or, once
-    /// a refresh behind them failed, when the hold it put on the next read
-    /// ends -- and, for one asking again could not change, not before the
-    /// rows are five minutes old (`beginLoad`'s `expired` and `retry_due`,
-    /// `model_cache_runtime.zig:609-623@481104fd`; [`UiEvent::CatalogLoaded`]'s
+    /// When activity -- a submitted prompt, a frame of the inline column, a
+    /// resume or a fork -- is next owed a read of the rows the band holds, by
+    /// the runtime's clock: five minutes after the read that brought them
+    /// began, or, once a refresh behind them failed, when the hold it put on
+    /// the next read ends -- and, for one asking again could not change, not
+    /// before the rows are five minutes old (`beginLoad`'s `expired` and
+    /// `retry_due`, `model_cache_runtime.zig:609-623@481104fd`;
+    /// [`UiEvent::CatalogLoaded`]'s
     /// and [`UiEvent::CatalogRefreshFailed`]'s `due`); at once for a reading
     /// earlier than the last read's start ([`CatalogDue`]). `None` beside any
     /// other [`CatalogKnown`].
@@ -3973,8 +3974,12 @@ impl Shell {
         // **A resume or a fork is activity**, as upstream's is
         // (`startResumedSessionWarmup` -> `startModelCacheWarmup`,
         // `app_session_runtime.zig:2048-2050`, from `:2065` and `:2123
-        // @481104fd`): rows the refresh interval old, or a failure past its
-        // hold, are read again. Nothing at launch, nor onto another provider:
+        // @481104fd`): rows the refresh interval old, rows whose refresh
+        // failed in a way asking again could change, and a failure -- each
+        // past any hold a failure put on the next read, and any of them at
+        // once at a reading earlier than the last read's start, by the
+        // runtime's rule ([`CatalogDue`]) -- are read again. Nothing at
+        // launch, nor onto another provider:
         // the band holds no answer then, and the runtime's own read is on its
         // way ([`Self::note_catalog_activity`]).
         let _ = self.note_catalog_activity(self.catalog_clock.now());
@@ -4668,7 +4673,9 @@ impl Shell {
             // could help (`loadedCatalogStatusText`,
             // `model_menu_presentation.zig:403-404`), and activity is owed
             // the next read once its hold ends -- or, for one asking again
-            // could not change, once the rows are the refresh interval old.
+            // could not change, once the rows are the refresh interval old as
+            // well -- and at once at a reading earlier than the failed read's
+            // start (the event's `due`, a [`CatalogDue`]).
             UiEvent::CatalogRefreshFailed {
                 provider,
                 retry,
@@ -14679,7 +14686,10 @@ impl Shell {
     /// makes, and never one this thread waits on. Rows in hand are listed at
     /// once and read again behind them, five seconds after the last read
     /// began; a load that failed is read again once its backoff is over --
-    /// the retry `xfx retries automatically.` says ([`Self::open_models_with`]).
+    /// the retry `xfx retries automatically.` says
+    /// ([`Self::open_models_with`]); rows whose refresh failed, not before its
+    /// hold ends; and any of them at once at a reading earlier than the last
+    /// read's start ([`CatalogDue`]).
     /// The rows arrive as [`UiEvent::CatalogLoaded`], and the open menu takes
     /// them.
     ///
@@ -14895,8 +14905,9 @@ impl Shell {
         self.catalog_nudged = false;
     }
 
-    /// Activity -- a submitted prompt, a frame of the inline column -- asks
-    /// the runtime for the catalog when the model cache would read it then
+    /// Activity -- a submitted prompt, a frame of the inline column, a resume
+    /// or a fork -- asks the runtime for the catalog when the model cache
+    /// would read it then
     /// (`LoadTrigger.activity`, `model_cache_runtime.zig:27-31@481104fd`;
     /// `beginLoad`, `:612-623`): a failure whose hold has ended, rows that
     /// are the refresh interval old, or rows whose refresh failed and whose
@@ -14953,7 +14964,10 @@ impl Shell {
     /// `src/main.zig:2043-2045`, `:2167-2169`) -- activity, which reads a
     /// failure again once its backoff is over (`beginLoad`,
     /// `model_cache_runtime.zig:617`, `:621-622`), and rows once they are the
-    /// refresh interval old or a refresh of them failed. Either way the
+    /// refresh interval old or a refresh of them failed in a way asking again
+    /// could change -- not before a failure's hold ends either way -- and any
+    /// of them at once at a reading earlier than the last read's start
+    /// ([`CatalogDue`]). Either way the
     /// column goes on saying what it said until the answer lands -- `unable
     /// to load models` over a failure, whose retry leaves the cache's state
     /// `.failed` (`isModelCacheLoading`, `app_render_runtime.zig:752`), or the

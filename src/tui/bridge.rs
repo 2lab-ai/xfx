@@ -303,9 +303,9 @@ pub(crate) enum UiEvent {
     /// (`crate::provider::model::CatalogRetry`). The selector remembers the
     /// failure, so a `/model <id>` still applies the id as typed, and the
     /// model cache's next trigger reads it again -- the menu opening, a
-    /// prompt, the column's frame -- once `retry_at` has come: the end of the
-    /// hold the failure put on the next read, as upstream's backoff holds it
-    /// (`crate::provider::model::failure_backoff`).
+    /// prompt, the column's frame, a resume or a fork -- once `retry_at` has
+    /// come: the end of the hold the failure put on the next read, as
+    /// upstream's backoff holds it (`crate::provider::model::failure_backoff`).
     CatalogUnread {
         provider: crate::provider::ProviderId,
         retry: Option<crate::provider::model::CatalogRetry>,
@@ -319,8 +319,9 @@ pub(crate) enum UiEvent {
     /// and activity reads again at `due`, by the runtime's clock: once the
     /// failure's hold is over -- and, for a failure asking again could not
     /// change, once the rows are the refresh interval old, counted from the
-    /// failed read's start (`beginLoad`, `model_cache_runtime.zig:609-623`;
-    /// `crate::provider::model::LoadClock::activity_due`).
+    /// failed read's start -- or at once at a reading earlier than that start
+    /// (`beginLoad`, `model_cache_runtime.zig:609-623`;
+    /// `crate::provider::model::LoadClock::activity_due`, `CatalogDue`).
     CatalogRefreshFailed {
         provider: crate::provider::ProviderId,
         retry: Option<crate::provider::model::CatalogRetry>,
@@ -1197,11 +1198,14 @@ pub(crate) enum TurnControl {
     /// drops and one typed after it is the session the reset starts.
     Rename { title: String, announced: bool },
     /// One of upstream's model-cache triggers ([`CatalogAsk`]): `/model`'s
-    /// menu opening, a submitted prompt, or a frame of the inline column. The
-    /// runtime reads the configured provider's catalog when that trigger is
-    /// due -- a first load, a failure past its backoff, rows the menu last
-    /// read five seconds ago or that are five minutes old, and any of them at
-    /// a reading earlier than the last read's start
+    /// menu opening, a submitted prompt, a frame of the inline column, or a
+    /// resume or a fork -- or an ask with none, `/settings`' and the speed
+    /// commands' ([`CatalogAsk::TOLD`]), which starts only the first load
+    /// nothing has made. The runtime reads the configured provider's catalog
+    /// when that trigger is due -- a first load, a failure past its backoff,
+    /// rows the menu last read five seconds ago or that are five minutes old,
+    /// rows whose refresh failed in a way asking again could change, past its
+    /// hold, and any of them at a reading earlier than the last read's start
     /// (`crate::provider::model::LoadTrigger`) -- and tells the answer the
     /// moment it arrives ([`UiEvent::CatalogLoaded`],
     /// [`UiEvent::CatalogUnread`], [`UiEvent::CatalogRefreshFailed`]);

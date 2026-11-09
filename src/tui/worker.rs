@@ -3314,7 +3314,8 @@ async fn turn_loop(
         // come ([`await_catalog_for_window`]); the UI is told it the moment it
         // comes, a turn running or not. **The first read only**: after it, a
         // read is the model cache's triggers' -- the menu opening, a prompt,
-        // the column's frame -- each a control message ([`ask_catalog`]),
+        // the column's frame, a resume or a fork -- each a control message
+        // ([`ask_catalog`]),
         // because "an idle session never polls the models endpoint"
         // (`LoadTrigger`, `model_cache_runtime.zig:27-28@481104fd`) and this
         // loop goes round for a title or a change as well.
@@ -4223,9 +4224,9 @@ fn told_event(
 /// One of upstream's model-cache triggers while nothing holds the runtime
 /// ([`TurnControl::Catalog`]): a read the trigger is due for starts in the
 /// background and tells its answer when it lands
-/// ([`ModelSelector::begin_load_on`]) -- the menu opening, a prompt or the
-/// column's frame, as upstream's `revalidateModelCache` and
-/// `startModelCacheWarmup` start one (`src/main.zig:2007-2041@481104fd`,
+/// ([`ModelSelector::begin_load_on`]) -- the menu opening, a prompt, the
+/// column's frame, a resume or a fork, as upstream's `revalidateModelCache`
+/// and `startModelCacheWarmup` start one (`src/main.zig:2007-2041@481104fd`,
 /// `beginLoad`, `model_cache_runtime.zig:570-648`); a read already on its
 /// way is left to tell its own answer; and when the band waits on an answer
 /// and none is due -- a failure inside its backoff or rows read less than

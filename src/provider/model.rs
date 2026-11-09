@@ -1325,14 +1325,19 @@ pub enum LoadTrigger {
     /// `app_session_runtime.zig:2048-2050`), the launch and a provider switch
     /// (`startModelCacheWarmup`): a catalog in hand is read again only once
     /// it is [`REFRESH_INTERVAL`] old, or once a refresh of it failed in a
-    /// way asking again could change. `/settings` and the speed commands are
+    /// way asking again could change -- in either case not before a
+    /// failure's hold ends -- and at once, whatever held it back, at a
+    /// reading earlier than the last read's start (`LoadClock::next`,
+    /// [`CatalogDue`]). `/settings` and the speed commands are
     /// none of these: they read what is held and start no refresh and no
     /// retry -- only the first load nothing has made.
     Activity,
     /// `/model`'s menu opening (`revalidateModelCache`, `src/main.zig:
     /// 2011-2015`, from `openModelMenu`, `app_input_runtime.zig:1897-1902`):
     /// a catalog in hand is read again once the last read began
-    /// [`PICKER_REVALIDATE_FLOOR`] ago.
+    /// [`PICKER_REVALIDATE_FLOOR`] ago, and not before a failure's hold ends
+    /// -- and at once, whatever held it back, at a reading earlier than the
+    /// last read's start (`LoadClock::next`, [`CatalogDue`]).
     PickerOpen,
 }
 
@@ -4042,7 +4047,8 @@ mod tests {
     // and after the selector is told what asked.
 
     /// What asked for the read: a submitted prompt, a frame of the inline
-    /// column, the launch (`LoadTrigger.activity`) -- or the menu opening
+    /// column, a resume or a fork, the launch or a provider switch
+    /// (`LoadTrigger.activity`) -- or the menu opening
     /// (`.picker_open`), `model_cache_runtime.zig:27-35@481104fd`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum Asked {
