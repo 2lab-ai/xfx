@@ -385,10 +385,30 @@ mod tests {
     }
 
     #[test]
-    fn the_composer_may_take_half_the_content_area_plus_one_row() {
-        assert_eq!(input_row_limit(24), 11);
-        assert_eq!(input_row_limit(10), 4);
-        assert_eq!(input_row_limit(6), 2);
+    fn the_composer_may_take_half_of_fxs_content_area_plus_one_row() {
+        // `inputRowLimit(content_bottom)` (`input_presentation.zig:252-255
+        // @481104fd`), its `content_bottom` the screen less fx's four footer
+        // rows (`main.zig:173@481104fd`, `terminal.zig:47-58@481104fd`).
+        for (rows, limit) in [
+            // `content_bottom` crosses 4: no extra rows at 4 or less, then
+            // half of 5.
+            (0, 1),
+            (4, 1),
+            (MIN_ROWS, 1),
+            (8, 1),
+            (9, 3),
+            (10, 4),
+            // Each parity of `content_bottom`: an odd one rounds down, so a
+            // screen one row taller than an even one has the same limit.
+            (24, 11),
+            (25, 11),
+            (40, 19),
+            (41, 19),
+            (42, 20),
+            (u16::MAX, 32_766),
+        ] {
+            assert_eq!(input_row_limit(rows), limit, "a {rows}-row screen");
+        }
     }
 
     #[test]
