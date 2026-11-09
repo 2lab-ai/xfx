@@ -11,8 +11,7 @@ to a line of the branch.
 | `c9c7aab7` | fakegw holds `modelspad`/`modelsstall` to their bounds itself, and refuses a catalog longer than its padding; two harness tests |
 | `b56660d1` | `docs/parity.md` and the round-1 receipt corrected |
 | `fc0cb949` | `mutants.py` -- **the gate's head** |
-| (next) | `mutants.py` builds outside the watchdog and counts only a named failing test |
-| (this one) | this receipt |
+| `c7fd9472` | this receipt, and `mutants.py` building outside the watchdog, counting only a named failing test |
 
 ## 1. The `/model` row's stale sentence
 
