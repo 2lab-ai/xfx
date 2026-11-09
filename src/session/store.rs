@@ -5346,43 +5346,128 @@ mod tests {
         assert_eq!(recorded[1].recorded.path, "/w/shot.png");
     }
 
+    /// Every file under `dir`, by its path from `dir`: its mode and its bytes
+    /// -- what a refused resume must leave as it found it.
+    fn every_file(dir: &Path) -> Vec<(String, u32, Vec<u8>)> {
+        use std::os::unix::fs::PermissionsExt;
+        let mut out = Vec::new();
+        let mut pending = vec![dir.to_path_buf()];
+        while let Some(at) = pending.pop() {
+            for entry in std::fs::read_dir(&at).expect("a listing") {
+                let path = entry.expect("an entry").path();
+                let meta = std::fs::symlink_metadata(&path).expect("metadata");
+                let name = path
+                    .strip_prefix(dir)
+                    .expect("inside")
+                    .display()
+                    .to_string();
+                let mode = meta.permissions().mode();
+                if meta.is_dir() {
+                    out.push((name, mode, Vec::new()));
+                    pending.push(path);
+                } else if meta.file_type().is_symlink() {
+                    let target = std::fs::read_link(&path).expect("a link");
+                    out.push((name, mode, target.display().to_string().into_bytes()));
+                } else {
+                    out.push((name, mode, std::fs::read(&path).expect("bytes")));
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
     #[test]
-    fn a_copy_changed_or_gone_since_it_was_saved_is_not_sent_and_the_user_is_told() {
+    fn a_prompt_images_copy_gone_or_not_a_file_refuses_the_resume_in_upstreams_words_and_changes_nothing(
+    ) {
+        // Upstream reads every prompt image's blob path as it reads the
+        // conversation (`decodeUser`, `session_adapter.zig:2871-2893@481104fd`):
+        // a blob that is not there, or not a regular file -- its `stat` does
+        // not follow a link (`blobExists`, `session.zig:1666-1681`;
+        // `storage.zig:341-346`) -- is `InvalidSessionFormat`, and the launch
+        // says `saved session is unreadable` (`app_entry_runtime.zig:278-285`).
+        // Its bytes are not read there (`api.zig:433-442`). The log has a tail
+        // past its published end, which a resume that went on would cut off.
+        for how in ["removed", "a symlink to a good copy", "a directory"] {
+            let root = tempfile::TempDir::new().expect("a root");
+            let (store, mut recorder, id, workspace) = recorder_in(root.path());
+            recorder.commit(SessionEvent::UserMessage {
+                text: "[Image #1][Image #2] compare".to_string(),
+            });
+            recorder.attach_images(&[shot(1), shot(2)]);
+            assert_eq!(recorder.failure(), None);
+            drop(recorder);
+            let dir = store.session_dir(&id);
+            let copy = dir.join(IMAGES_DIR).join(shot(2).snapshot_name());
+            std::fs::remove_file(&copy).expect("remove");
+            match how {
+                "removed" => {}
+                "a symlink to a good copy" => {
+                    let elsewhere = root.path().join("elsewhere.png");
+                    std::fs::write(&elsewhere, crate::image::fixture::SHOT_PNG).expect("a decoy");
+                    std::os::unix::fs::symlink(&elsewhere, &copy).expect("a symlink");
+                }
+                _ => std::fs::create_dir(&copy).expect("a directory"),
+            }
+            {
+                use std::io::Write as _;
+                let mut log = std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(dir.join(EVENTS_FILE))
+                    .expect("the log");
+                log.write_all(b"{\"seq\":99,\"torn\":").expect("a tail");
+            }
+            let before = every_file(&dir);
+            for waiting in [true, false] {
+                let refused = if waiting {
+                    store.resume(&Selector::Id(id.clone()), &workspace)
+                } else {
+                    store.resume_without_waiting(&Selector::Id(id.clone()), &workspace)
+                };
+                match refused {
+                    Err(err) => assert_eq!(
+                        err.to_string(),
+                        "saved session is unreadable.",
+                        "{how}, waiting: {waiting}"
+                    ),
+                    Ok(_) => panic!("{how}, waiting: {waiting}: the resume went on"),
+                }
+                assert_eq!(
+                    every_file(&dir),
+                    before,
+                    "{how}, waiting: {waiting}: a refused resume changed the session"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_prompt_images_copy_with_other_bytes_resumes_and_is_not_sent() {
+        // Its blob is there, so the session reads (`blobExists` reads no
+        // byte, `session.zig:1666-1681@481104fd`); the request that would
+        // send it fails ([`DurableState::history_messages`]).
         let root = tempfile::TempDir::new().expect("a root");
         let (store, mut recorder, id, workspace) = recorder_in(root.path());
         recorder.commit(SessionEvent::UserMessage {
-            text: "[Image #1][Image #2] compare".to_string(),
+            text: "[Image #1] look".to_string(),
         });
-        recorder.attach_images(&[shot(1), shot(2)]);
-        assert_eq!(recorder.failure(), None);
+        recorder.attach_images(&[shot(1)]);
         drop(recorder);
-        let folder = store.session_dir(&id).join(IMAGES_DIR);
-        // One replaced with other bytes of the same length, one removed.
+        let copy = store
+            .session_dir(&id)
+            .join(IMAGES_DIR)
+            .join(shot(1).snapshot_name());
         let mut tampered = crate::image::fixture::SHOT_PNG.to_vec();
         tampered[40] ^= 0xff;
-        std::fs::write(folder.join(shot(1).snapshot_name()), &tampered).expect("tamper");
-        std::fs::remove_file(folder.join(shot(2).snapshot_name())).expect("remove");
-
+        std::fs::write(&copy, &tampered).expect("tamper");
         let resumed = store
             .resume(&Selector::Id(id.clone()), &workspace)
-            .expect("a session whose images are gone still resumes");
+            .expect("its copy is there, so the session reads");
         let replay = resumed
             .session
             .state()
             .history_messages(Wire::VercelGateway, &resumed.session.state().model);
         assert_eq!(images_of(&replay.messages[0]), 0);
-        assert_eq!(replay.notices.len(), 2, "{:?}", replay.notices);
-        assert!(
-            replay.notices[0].contains("image #1")
-                && replay.notices[0].contains("not the file that was saved"),
-            "{:?}",
-            replay.notices
-        );
-        assert!(
-            replay.notices[1].contains("image #2") && replay.notices[1].contains("missing"),
-            "{:?}",
-            replay.notices
-        );
     }
 
     #[test]
@@ -5505,32 +5590,196 @@ mod tests {
         assert!(opened(vec![result(true), images("c1"), images("c1")]).is_err());
     }
 
+    /// A `read_file` result and its tool images, recorded by `recorder` in
+    /// the turn it is in: call `call_id`, output `output`, one image per
+    /// entry of `images`.
+    fn a_result_with_images(
+        recorder: &mut SessionRecorder,
+        call_id: &str,
+        output: &str,
+        images: &[crate::image::ToolImage],
+    ) {
+        recorder.commit(SessionEvent::AssistantMessage {
+            text: String::new(),
+            tool_calls: vec![RecordedToolCall {
+                id: call_id.to_string(),
+                name: "read_file".to_string(),
+                input: serde_json::json!({"path": "shot.png"}),
+            }],
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+            model: None,
+        });
+        recorder.commit(SessionEvent::ToolResult {
+            call_id: call_id.to_string(),
+            tool: "read_file".to_string(),
+            ok: true,
+            output: output.to_string(),
+            ending: None,
+            lines: None,
+            change: None,
+        });
+        recorder.attach_tool_images(call_id, images);
+    }
+
+    /// A PNG's bytes told apart by their last byte, so each has a copy of its
+    /// own.
+    fn tool_shot(last: u8) -> crate::image::ToolImage {
+        let mut bytes = crate::image::fixture::SHOT_PNG.to_vec();
+        *bytes.last_mut().expect("bytes") = last;
+        crate::image::ToolImage {
+            media_type: crate::image::MediaType::Png,
+            data: Arc::from(bytes),
+            path: "shot.png".to_string(),
+        }
+    }
+
+    /// Each tool result of `messages`: its call, its output, and how many
+    /// images go with it.
+    fn results_of(messages: &[Message]) -> Vec<(String, String, usize)> {
+        messages
+            .iter()
+            .flat_map(|message| message.content.iter())
+            .filter_map(|part| match part {
+                ContentPart::ToolResult {
+                    call_id,
+                    output,
+                    images,
+                    ..
+                } => Some((call_id.clone(), output.clone(), images.len())),
+                _ => None,
+            })
+            .collect()
+    }
+
     #[test]
-    fn a_saved_copy_that_is_a_symlink_is_not_followed() {
+    fn a_tool_images_lost_copy_is_told_to_the_model_in_front_of_its_result() {
+        // Upstream keeps a result's images under one handle and loads them
+        // whole or not at all (`retainToolImages`,
+        // `execution_memory.zig:975-991@481104fd`; `loadToolImages`,
+        // `result_store.zig:286-302`). One it cannot load is told to the
+        // model in front of the result, `[Stored tool image unavailable:
+        // <error>]`, and nothing goes on screen (`materializeToolImages`,
+        // `execution_memory.zig:993-1022`): a blob that is not there is
+        // `ResultHandleNotFound` (`result_store.zig:728-742`), one whose bytes
+        // changed `BlobDamaged` (`session_adapter.zig:1134-1160`,
+        // `session.zig:1642-1665`). Here the first result's two images lose
+        // one copy, the second's its bytes, and the third's are whole.
         let root = tempfile::TempDir::new().expect("a root");
         let (store, mut recorder, id, workspace) = recorder_in(root.path());
         recorder.commit(SessionEvent::UserMessage {
-            text: "[Image #1]".to_string(),
+            text: "look at the pictures".to_string(),
         });
-        recorder.attach_images(&[shot(1)]);
+        a_result_with_images(
+            &mut recorder,
+            "c1",
+            "two images",
+            &[tool_shot(1), tool_shot(2)],
+        );
+        a_result_with_images(&mut recorder, "c2", "one image", &[tool_shot(3)]);
+        a_result_with_images(&mut recorder, "c3", "a whole one", &[tool_shot(4)]);
+        recorder.commit(SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 4,
+            },
+        });
+        assert_eq!(recorder.failure(), None);
         drop(recorder);
-        let copy = store
-            .session_dir(&id)
-            .join(IMAGES_DIR)
-            .join(shot(1).snapshot_name());
-        let elsewhere = root.path().join("elsewhere.png");
-        std::fs::write(&elsewhere, crate::image::fixture::SHOT_PNG).expect("a decoy");
-        std::fs::remove_file(&copy).expect("remove");
-        std::os::unix::fs::symlink(&elsewhere, &copy).expect("a symlink");
+        let folder = store.session_dir(&id).join(IMAGES_DIR);
+        let name = |image: &crate::image::ToolImage, id: u32| {
+            crate::image::snapshot_name(id, &crate::image::digest(&image.data))
+        };
+        std::fs::remove_file(folder.join(name(&tool_shot(2), 2))).expect("remove");
+        let mut changed = tool_shot(3).data.to_vec();
+        changed[40] ^= 0xff;
+        std::fs::write(folder.join(name(&tool_shot(3), 1)), &changed).expect("tamper");
+
         let resumed = store
             .resume(&Selector::Id(id.clone()), &workspace)
-            .expect("resumed");
+            .expect("a tool image's copy does not stop a resume");
         let replay = resumed
             .session
             .state()
-            .history_messages(Wire::VercelGateway, &resumed.session.state().model);
-        assert_eq!(images_of(&replay.messages[0]), 0);
-        assert_eq!(replay.notices.len(), 1, "{:?}", replay.notices);
+            .history_messages(Wire::AnthropicMessages, &resumed.session.state().model);
+        assert_eq!(
+            results_of(&replay.messages),
+            [
+                (
+                    "c1".to_string(),
+                    "[Stored tool image unavailable: ResultHandleNotFound]\ntwo images".to_string(),
+                    0
+                ),
+                (
+                    "c2".to_string(),
+                    "[Stored tool image unavailable: BlobDamaged]\none image".to_string(),
+                    0
+                ),
+                ("c3".to_string(), "a whole one".to_string(), 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tool_image_never_read_back_is_unavailable_in_this_session_and_the_note_fits_the_limit() {
+        // A stored image with nothing to load it from is upstream's other
+        // note (`execution_memory.zig:1009-1011@481104fd`), and the note goes
+        // first, the result cut to fit what is left of the limit
+        // (`prependImageNotice`, `:1071-1076`; 64 KiB,
+        // `tool_result_limits.zig:7`).
+        let image = RecordedImage {
+            id: 1,
+            path: "shot.png".to_string(),
+            media_type: "image/png".to_string(),
+            sha256: crate::image::digest(crate::image::fixture::SHOT_PNG),
+            bytes: crate::image::fixture::SHOT_PNG.len() as u64,
+        };
+        let note = "[Stored tool image is unavailable in this session.]\n";
+        for output in ["an image".to_string(), "é".repeat(40 * 1024)] {
+            let state = reduce(vec![
+                started(),
+                SessionEvent::UserMessage {
+                    text: "look".to_string(),
+                },
+                SessionEvent::AssistantMessage {
+                    text: String::new(),
+                    tool_calls: vec![RecordedToolCall {
+                        id: "c1".to_string(),
+                        name: "read_file".to_string(),
+                        input: serde_json::json!({"path": "shot.png"}),
+                    }],
+                    raw_content: Vec::new(),
+                    responses_state: Vec::new(),
+                    wire: None,
+                    model: None,
+                },
+                SessionEvent::ToolResult {
+                    call_id: "c1".to_string(),
+                    tool: "read_file".to_string(),
+                    ok: true,
+                    output: output.clone(),
+                    ending: None,
+                    lines: None,
+                    change: None,
+                },
+                SessionEvent::ToolImagesAttached {
+                    call_id: "c1".to_string(),
+                    images: vec![image.clone()],
+                },
+            ])
+            .expect("reduced");
+            let replay = state.history_messages(Wire::VercelGateway, "m");
+            let results = results_of(&replay.messages);
+            assert_eq!(results.len(), 1);
+            let (_, sent, images) = &results[0];
+            assert_eq!(*images, 0);
+            assert!(sent.starts_with(note), "{:?}", &sent[..80.min(sent.len())]);
+            let limit = 64 * 1024;
+            let kept = &output[..output.floor_char_boundary(limit - note.len())];
+            assert_eq!(sent, &format!("{note}{kept}"), "the note, then what fits");
+            assert!(sent.len() <= limit);
+        }
     }
 
     #[test]

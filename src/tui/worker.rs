@@ -18755,6 +18755,352 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // IMAGE-LOSS-COPY-FX: a history image that cannot go fails or is told, as
+    // upstream's
+    // -----------------------------------------------------------------------
+
+    /// A Gateway runtime under a model the catalog says reads images, so the
+    /// image route lets a history's image through ([`image_refusal`]).
+    fn seeing_runtime() -> (tempfile::TempDir, tempfile::TempDir, Runtime) {
+        let model = "anthropic/claude-sonnet-5";
+        let (home, workspace, mut state) = under_model(model);
+        let mut seeing = published(model);
+        seeing.facts.image_input = true;
+        state.selector.set_fetcher_for_test(Box::new(Answering {
+            entries: vec![seeing],
+            asked: Arc::new(AtomicUsize::new(0)),
+        }));
+        (home, workspace, state)
+    }
+
+    /// A provider that keeps every request it is asked, where the test can
+    /// read them after the runtime that owns it is gone.
+    struct Kept {
+        script: ScriptedProvider,
+        requests: std::rc::Rc<std::cell::RefCell<Vec<crate::gateway::protocol::CompletionRequest>>>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::gateway::Provider for Kept {
+        async fn stream(
+            &self,
+            request: &crate::gateway::protocol::CompletionRequest,
+            deltas: &mut dyn crate::gateway::DeltaSink,
+        ) -> Result<Completion, crate::gateway::ProviderError> {
+            self.requests.borrow_mut().push(request.clone());
+            self.script.stream(request, deltas).await
+        }
+    }
+
+    /// [`one_turn_on`], and every event the UI was told.
+    fn one_turn_told(
+        state: &mut Runtime,
+        prompt: &str,
+        provider: Box<dyn crate::gateway::Provider>,
+    ) -> Vec<UiEvent> {
+        state.provider = Some(Bundle {
+            id: ProviderId::Gateway,
+            stream: provider,
+        });
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(1);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+            owed: 0,
+        };
+        let ended = on_a_runtime(run_turn(
+            state,
+            prompt.to_string(),
+            (Vec::new(), Vec::new()),
+            &events_tx,
+            &cancel,
+            &control,
+            &mut queue,
+        ));
+        assert_eq!(ended, Ended::Turn);
+        drop(events_tx);
+        let mut told = Vec::new();
+        while let Ok(event) = events_rx.try_recv() {
+            told.push(event);
+        }
+        told
+    }
+
+    /// How the turn ended, as `told` says it.
+    fn failure_of(told: &[UiEvent]) -> Option<String> {
+        told.iter().rev().find_map(|event| match event {
+            UiEvent::TurnEnded { failure } => Some(failure.clone()),
+            _ => None,
+        })?
+    }
+
+    /// Records in `state`'s store a session whose one turn carried
+    /// `shot.png` as image #1, and returns it with its copy's path.
+    fn a_session_with_a_prompt_image(
+        state: &Runtime,
+    ) -> (crate::session::SessionId, std::path::PathBuf) {
+        let store = open_store(&state.config).expect("a store");
+        let mut conversation = open_conversation(
+            &store,
+            &state.config,
+            &state.config.model,
+            PermissionSession::new(state.config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("open a conversation");
+        let image = crate::image::Image::new(
+            1,
+            std::path::PathBuf::from("shot.png"),
+            crate::image::MediaType::Png,
+            Arc::from(crate::image::fixture::SHOT_PNG),
+        );
+        conversation.recorder.commit(SessionEvent::UserMessage {
+            text: "[Image #1] what is it".to_string(),
+        });
+        let folder = conversation
+            .recorder
+            .attach_images(std::slice::from_ref(&image))
+            .expect("saved");
+        for event in [
+            SessionEvent::AssistantMessage {
+                text: "a picture".to_string(),
+                tool_calls: Vec::new(),
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+            SessionEvent::TurnConcluded {
+                outcome: TurnConclusion::Final {
+                    finish_reason: "stop".to_string(),
+                    steps: 1,
+                },
+            },
+        ] {
+            conversation.recorder.commit(event);
+        }
+        let id = conversation.recorder.id().clone();
+        (id, folder.join(image.snapshot_name()))
+    }
+
+    #[test]
+    fn a_resumed_prompt_image_whose_copy_changed_fails_the_turn_in_upstreams_words_and_asks_nothing(
+    ) {
+        // Upstream reads a history image's bytes when it builds the request
+        // and checks them against the image's digest; one that fails fails the
+        // build, a `try` (`loadVerifiedSnapshot`,
+        // `image_attachments.zig:1260-1320@481104fd`, from
+        // `vercel_protocol.zig:873-890` and `orchestrator.zig:7712-7716`), and
+        // the turn ends `request failed: <error>` under `system`
+        // (`app_process_runtime.zig:62-74`, `:114-126`): other bytes are
+        // `ImageSnapshotCorrupt`, a file past the image limit `ImageTooLarge`.
+        // Nothing is asked of the model. The same session, its copy put back,
+        // goes on.
+        for (how, failure) in [
+            ("other bytes", "request failed: ImageSnapshotCorrupt"),
+            ("too large", "request failed: ImageTooLarge"),
+        ] {
+            let (_home, _workspace, mut state) = seeing_runtime();
+            let (id, copy) = a_session_with_a_prompt_image(&state);
+            match how {
+                "other bytes" => {
+                    let mut tampered = crate::image::fixture::SHOT_PNG.to_vec();
+                    tampered[40] ^= 0xff;
+                    std::fs::write(&copy, &tampered).expect("tamper");
+                }
+                _ => std::fs::File::options()
+                    .write(true)
+                    .open(&copy)
+                    .and_then(|file| file.set_len(crate::image::MAX_IMAGE_BYTES + 1))
+                    .expect("grow"),
+            }
+            let resumed = Resumption::open(&state.config, &crate::session::Selector::Id(id))
+                .expect("its copy is there, so the session reads");
+            state.resume(resumed, &CancelToken::new());
+            let requests = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            let told = one_turn_told(
+                &mut state,
+                "and now?",
+                Box::new(Kept {
+                    script: ScriptedProvider::new(vec![answers("answered")]),
+                    requests: std::rc::Rc::clone(&requests),
+                }),
+            );
+            assert_eq!(failure_of(&told).as_deref(), Some(failure), "{how}");
+            assert_eq!(requests.borrow().len(), 0, "{how}: the model was asked");
+        }
+    }
+
+    #[test]
+    fn the_picker_cannot_resume_a_session_a_prompt_images_copy_is_gone_from() {
+        // Upstream's picker shows `Unable to resume this session.` for a
+        // resume that fails with anything but busy or being updated
+        // (`classifyResumeFailure`, `app_input_runtime.zig:91-99@481104fd`;
+        // `resume_menu_presentation.zig:463-467`), and a blob gone from the
+        // conversation is `InvalidSessionFormat` (`session_adapter.zig:2871-2893`).
+        let (_home, _workspace, mut state) = seeing_runtime();
+        let (id, copy) = a_session_with_a_prompt_image(&state);
+        std::fs::remove_file(&copy).expect("remove");
+        let before = state
+            .conversation
+            .as_ref()
+            .expect("a conversation")
+            .recorder
+            .id()
+            .clone();
+        let picked = state.resume_by_id(id.as_str(), &CancelToken::new());
+        assert!(
+            matches!(
+                picked,
+                Err(super::super::session_picker::ResumeFailure::Unavailable)
+            ),
+            "the picker resumed it"
+        );
+        assert_eq!(
+            state
+                .conversation
+                .as_ref()
+                .map(|conversation| conversation.recorder.id().clone()),
+            Some(before),
+            "a refused resume let the conversation in force go"
+        );
+    }
+
+    #[test]
+    fn a_prompt_image_never_read_back_fails_the_turn_as_upstreams_with_no_file() {
+        // An image the turn holds no bytes or file for is upstream's
+        // attachment with neither: `MissingImageSnapshot`
+        // (`imageFile`, `loadVerifiedSnapshot`,
+        // `image_attachments.zig:1213-1243@481104fd`, `:1260-1320`).
+        let (_home, _workspace, mut state) = seeing_runtime();
+        let conversation = state.conversation.as_mut().expect("a conversation");
+        for event in [
+            SessionEvent::UserMessage {
+                text: "[Image #1] look".to_string(),
+            },
+            SessionEvent::ImagesAttached {
+                images: vec![crate::session::RecordedImage {
+                    id: 1,
+                    path: "shot.png".to_string(),
+                    media_type: "image/png".to_string(),
+                    sha256: crate::image::digest(crate::image::fixture::SHOT_PNG),
+                    bytes: crate::image::fixture::SHOT_PNG.len() as u64,
+                }],
+            },
+            SessionEvent::TurnConcluded {
+                outcome: TurnConclusion::Final {
+                    finish_reason: "stop".to_string(),
+                    steps: 1,
+                },
+            },
+        ] {
+            conversation.recorder.commit(event);
+        }
+        let requests = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let told = one_turn_told(
+            &mut state,
+            "and now?",
+            Box::new(Kept {
+                script: ScriptedProvider::new(vec![answers("answered")]),
+                requests: std::rc::Rc::clone(&requests),
+            }),
+        );
+        assert_eq!(
+            failure_of(&told).as_deref(),
+            Some("request failed: MissingImageSnapshot")
+        );
+        assert_eq!(requests.borrow().len(), 0, "the model was asked");
+    }
+
+    #[test]
+    fn a_tool_image_that_cannot_go_is_told_to_the_model_and_the_screen_says_nothing() {
+        // `materializeToolImages` puts its note in front of the result and
+        // pushes nothing to the screen (`execution_memory.zig:993-1022
+        // @481104fd`). Live, the fixture's images were never read back
+        // (`:1009-1011`); resumed, their copy is not there
+        // (`ResultHandleNotFound`, `result_store.zig:728-742`).
+        let mut got = Vec::new();
+        for resumed in [false, true] {
+            let (_home, _workspace, mut state) = seeing_runtime();
+            unreadable_tool_images(&mut state);
+            if resumed {
+                let id = state
+                    .conversation
+                    .as_ref()
+                    .expect("a conversation")
+                    .recorder
+                    .id()
+                    .clone();
+                state.conversation = None;
+                let resumption = Resumption::open(&state.config, &crate::session::Selector::Id(id))
+                    .expect("a tool image's copy does not stop a resume");
+                state.resume(resumption, &CancelToken::new());
+            }
+            let requests = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            let told = one_turn_told(
+                &mut state,
+                "and now?",
+                Box::new(Kept {
+                    script: ScriptedProvider::new(vec![answers("answered")]),
+                    requests: std::rc::Rc::clone(&requests),
+                }),
+            );
+            let notices: Vec<String> = told
+                .iter()
+                .filter_map(|event| match event {
+                    UiEvent::Notice(notice) => Some(notice.text()),
+                    _ => None,
+                })
+                .collect();
+            let requests = requests.borrow();
+            let outputs: Vec<(String, usize)> = requests[0]
+                .messages
+                .iter()
+                .flat_map(|message| message.content.iter())
+                .filter_map(|part| match part {
+                    crate::gateway::protocol::ContentPart::ToolResult {
+                        output, images, ..
+                    } => Some((output.clone(), images.len())),
+                    _ => None,
+                })
+                .collect();
+            got.push((resumed, failure_of(&told), notices, outputs));
+        }
+        let note = |error: &str| (format!("{error}an image"), 0);
+        assert_eq!(
+            got,
+            [
+                (
+                    false,
+                    None,
+                    Vec::new(),
+                    vec![
+                        note("[Stored tool image is unavailable in this session.]\n"),
+                        note("[Stored tool image is unavailable in this session.]\n"),
+                    ]
+                ),
+                (
+                    true,
+                    None,
+                    Vec::new(),
+                    vec![
+                        note("[Stored tool image unavailable: ResultHandleNotFound]\n"),
+                        note("[Stored tool image unavailable: ResultHandleNotFound]\n"),
+                    ]
+                ),
+            ],
+            "each: resumed, the turn's end, the notices, each result as the model is sent it"
+        );
+    }
+
+    // -----------------------------------------------------------------------
     // HISTORY-NOTICE-STOP: a stopped turn leaves the history's notices unsaid
     // -----------------------------------------------------------------------
 

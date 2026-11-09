@@ -1909,18 +1909,187 @@ fn ask_resume_keeps_the_sessions_model_over_the_profiles_and_under_the_processs(
     );
 }
 
+/// Every file under `dir`, by its path from `dir`: its mode and its bytes.
+fn every_file(dir: &Path) -> Vec<(String, u32, Vec<u8>)> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut out = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(at) = pending.pop() {
+        for entry in fs::read_dir(&at).expect("a listing") {
+            let path = entry.expect("an entry").path();
+            let meta = fs::symlink_metadata(&path).expect("metadata");
+            let name = path
+                .strip_prefix(dir)
+                .expect("inside")
+                .display()
+                .to_string();
+            let mode = meta.permissions().mode();
+            if meta.is_dir() {
+                out.push((name, mode, Vec::new()));
+                pending.push(path);
+            } else {
+                out.push((name, mode, fs::read(&path).expect("bytes")));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// An image's saved bytes. A resume checks a copy by its size and digest, so
+/// these need not draw anything.
+const SHOT: &[u8] = b"\x89PNG\r\n\x1a\n -- a saved copy, checked by its size and digest only";
+
+/// Records session `name`, whose one turn carried image #1 with `copy` saved
+/// beside its log (`None`: nothing saved), then a log tail past its published
+/// end; returns the session's directory.
+fn a_session_with_a_prompt_image(sandbox: &Sandbox, name: &str, copy: Option<&[u8]>) -> PathBuf {
+    let store = SessionStore::open(&sandbox.profile_dir()).expect("open the store");
+    let mut session = store
+        .create(
+            id(name),
+            NewSession {
+                origin_workspace_root: sandbox.workspace.clone(),
+                workspace_root: sandbox.workspace.clone(),
+                model: "test/model".to_string(),
+                permission_mode: PermissionMode::Auto,
+                provider: Some(xfx::provider::ProviderId::Gateway),
+            },
+        )
+        .expect("create");
+    let sha256 = xfx::image::digest(SHOT);
+    for event in [
+        SessionEvent::UserMessage {
+            text: "[Image #1] what is it".to_string(),
+        },
+        SessionEvent::ImagesAttached {
+            images: vec![RecordedImage {
+                id: 1,
+                path: "shot.png".to_string(),
+                media_type: "image/png".to_string(),
+                sha256: sha256.clone(),
+                bytes: SHOT.len() as u64,
+            }],
+        },
+        SessionEvent::AssistantMessage {
+            text: "a picture".to_string(),
+            tool_calls: Vec::new(),
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+            model: None,
+        },
+        SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        },
+    ] {
+        store.append(&mut session, event).expect("append");
+    }
+    store.publish(&mut session).expect("publish");
+    drop(session);
+    let dir = store.session_dir(&id(name));
+    if let Some(bytes) = copy {
+        let images = dir.join("images");
+        fs::create_dir_all(&images).expect("images");
+        fs::write(images.join(xfx::image::snapshot_name(1, &sha256)), bytes).expect("a copy");
+    }
+    {
+        use std::io::Write as _;
+        let mut log = fs::OpenOptions::new()
+            .append(true)
+            .open(dir.join(EVENTS_FILE))
+            .expect("the log");
+        log.write_all(b"{\"seq\":99,\"torn\":").expect("a tail");
+    }
+    dir
+}
+
+#[test]
+fn ask_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_as_upstreams_and_changes_nothing(
+) {
+    // Upstream's `ask --resume` reads the conversation through `decodeUser`,
+    // which finds the blob gone: `InvalidSessionFormat`
+    // (`session_adapter.zig:2871-2893@481104fd`, `cli_ask.zig:926-936`). No
+    // notice names it (`askErrorNotice`, `cli_ask.zig:1189-1197`), so the
+    // error goes up and the entry prints its name, `fx: InvalidSessionFormat`
+    // (`cli_ask.zig:1306-1326`, `app_entry_runtime.zig:158-166`,
+    // `:563-567`); `--json` writes the name as its error
+    // (`cli_ask.zig:8063-8079`). No model is asked, and the session -- its log
+    // tail too -- is left as it was.
+    for json in [false, true] {
+        let sandbox = Sandbox::new();
+        let dir = a_session_with_a_prompt_image(&sandbox, "gone-image", None);
+        let before = every_file(&dir);
+        let gateway = FakeGateway::start(Vec::new());
+        let url = gateway.chat_url();
+        let mut args = vec!["ask", "--resume-id", "gone-image", "and now?"];
+        if json {
+            args.insert(1, "--json");
+        }
+        let run = sandbox.run(&args, &gateway_env(&url, TEST_KEY));
+        assert_eq!(run.code, Some(1), "json: {json}, stderr={:?}", run.stderr);
+        if json {
+            assert!(
+                run.stdout
+                    .lines()
+                    .any(|line| line.contains("\"kind\":\"error\"")
+                        && line.contains("\"message\":\"InvalidSessionFormat\"")),
+                "{:?}",
+                run.stdout
+            );
+        } else {
+            assert_eq!(run.stderr, "xfx: InvalidSessionFormat\n");
+        }
+        assert_eq!(
+            gateway.request_count(),
+            0,
+            "json: {json}: a model was asked"
+        );
+        assert_eq!(
+            every_file(&dir),
+            before,
+            "json: {json}: the refusal changed the session"
+        );
+    }
+}
+
+#[test]
+fn ask_resume_whose_prompt_images_copy_changed_fails_its_request_as_upstreams() {
+    // The blob is there, so the session reads; its bytes are checked when the
+    // request is built and fail it, `ImageSnapshotCorrupt`
+    // (`loadVerifiedSnapshot`, `image_attachments.zig:1260-1320@481104fd`,
+    // from `orchestrator.zig:7712-7716`). `ask` has no notice for it and
+    // prints the name (`cli_ask.zig:1802-1823`, `app_entry_runtime.zig:563-567`).
+    let sandbox = Sandbox::new();
+    let mut tampered = SHOT.to_vec();
+    tampered[40] ^= 0xff;
+    a_session_with_a_prompt_image(&sandbox, "changed-image", Some(&tampered));
+    let gateway = FakeGateway::start(Vec::new());
+    let url = gateway.chat_url();
+    let run = sandbox.run(
+        &["ask", "--resume-id", "changed-image", "and now?"],
+        &gateway_env(&url, TEST_KEY),
+    );
+    assert_eq!(run.code, Some(1), "stderr={:?}", run.stderr);
+    assert_eq!(run.stderr, "xfx: ImageSnapshotCorrupt\n");
+    assert_eq!(gateway.request_count(), 0, "a model was asked");
+}
+
 #[test]
 fn ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one() {
     // The log is file input. A model xfx would not have written
     // (`model_id_problem`) is not sent, as the TUI's resume does not restore
-    // one (`Resumption::selection`): the launch's model goes instead. And the
-    // history notice `ask` prints -- here an image a tool returned whose saved
-    // copy is gone, which quotes the tool's name as the log gives it -- reaches
-    // stderr through `safe_one_line` (`src/app.rs`): every control character a
-    // space, nothing raw. Red before: the log's model was the one asked for,
-    // and the notice carried its escapes to stderr. The reasoning a step
-    // sealed on the hostile wire is left out without a word, as fx leaves it
-    // (`projectProviderReplay`, `types.zig:1668-1682@481104fd`).
+    // one (`Resumption::selection`): the launch's model goes instead. An image
+    // the hostile tool returned, whose saved copy is gone, is told to the
+    // model in front of its result in upstream's words, which quote no name
+    // (`materializeToolImages`, `execution_memory.zig:993-1022@481104fd`;
+    // `ResultHandleNotFound`, `result_store.zig:728-742`), and stderr says
+    // nothing of it. The reasoning a step sealed on the hostile wire is left
+    // out without a word, as fx leaves it (`projectProviderReplay`,
+    // `types.zig:1668-1682@481104fd`).
     const HOSTILE_MODEL: &str = "m\u{1b}]0;pwned\u{7}x";
     const HOSTILE_WIRE: &str = "w\u{1b}[2Jire\u{9b}31m";
     // A line break, a carriage return and DEL too: without `safe_one_line`
@@ -2008,15 +2177,25 @@ fn ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one() {
     let model = asked.header("ai-language-model-id").expect("a model");
     assert!(!model.chars().any(char::is_control), "{model:?}");
     assert_ne!(model, HOSTILE_MODEL);
-    // The notice, made one inert line: the tool's escapes, its line break,
-    // its carriage return and its DEL are spaces, and no line of stderr
-    // begins with the forged words.
-    let notice = "xfx: an image `read [2Jfile 31m  xfx: forged  line` returned could not be read \
-                  back (its saved copy is missing), so it was not sent again";
-    assert_eq!(
-        run.stderr.lines().filter(|line| *line == notice).count(),
-        1,
-        "the notice is not on stderr as one inert line: {:?}",
+    // The model is told, in front of the result; stderr is not.
+    fn strings(value: &Value, out: &mut Vec<String>) {
+        match value {
+            Value::String(text) => out.push(text.clone()),
+            Value::Array(items) => items.iter().for_each(|item| strings(item, out)),
+            Value::Object(map) => map.values().for_each(|item| strings(item, out)),
+            _ => {}
+        }
+    }
+    let mut sent = Vec::new();
+    strings(&asked.json(), &mut sent);
+    assert!(
+        sent.iter()
+            .any(|text| text == "[Stored tool image unavailable: ResultHandleNotFound]\nan image"),
+        "the model was not told in front of the result: {sent:?}"
+    );
+    assert!(
+        !run.stderr.contains("image"),
+        "stderr spoke of the image: {:?}",
         run.stderr
     );
     assert!(

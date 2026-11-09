@@ -1061,6 +1061,107 @@ fn a_resume_that_names_no_session_is_refused_before_the_terminal_is_taken() {
 }
 
 #[test]
+fn a_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_in_upstreams_words() {
+    // Upstream's launch reads the conversation, finds a prompt image's blob
+    // gone -- `InvalidSessionFormat` (`decodeUser`,
+    // `session_adapter.zig:2871-2893@481104fd`) -- and says
+    // `fx: saved session is unreadable. …` before the terminal is taken
+    // (`initFailure`, `app_entry_runtime.zig:278-285`). Nothing of the
+    // session changes: not its log, whose unpublished tail stays, nor its
+    // files.
+    use xfx::session::{
+        NewSession, RecordedImage, SessionEvent, SessionId, SessionStore, TurnConclusion,
+    };
+    let sandbox = Sandbox::new();
+    let store = SessionStore::open(&sandbox.home.join(".xfx")).expect("open the store");
+    let id = SessionId::parse("gone-image").expect("an id");
+    let mut session = store
+        .create(
+            id.clone(),
+            NewSession {
+                origin_workspace_root: sandbox.workspace.clone(),
+                workspace_root: sandbox.workspace.clone(),
+                model: "test/model".to_string(),
+                permission_mode: xfx::config::PermissionMode::Auto,
+                provider: Some(xfx::provider::ProviderId::Gateway),
+            },
+        )
+        .expect("create");
+    for event in [
+        SessionEvent::UserMessage {
+            text: "[Image #1] what is it".to_string(),
+        },
+        SessionEvent::ImagesAttached {
+            images: vec![RecordedImage {
+                id: 1,
+                path: "shot.png".to_string(),
+                media_type: "image/png".to_string(),
+                sha256: xfx::image::digest(SHOT_PNG),
+                bytes: SHOT_PNG.len() as u64,
+            }],
+        },
+        SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        },
+    ] {
+        store.append(&mut session, event).expect("append");
+    }
+    store.publish(&mut session).expect("publish");
+    drop(session);
+    let dir = store.session_dir(&id);
+    {
+        use std::io::Write as _;
+        let mut log = OpenOptions::new()
+            .append(true)
+            .open(dir.join("events.jsonl"))
+            .expect("the log");
+        log.write_all(b"{\"seq\":99,\"torn\":").expect("a tail");
+    }
+    let files = |dir: &std::path::Path| {
+        let mut out: Vec<(String, Vec<u8>)> = std::fs::read_dir(dir)
+            .expect("a listing")
+            .map(|entry| {
+                let path = entry.expect("an entry").path();
+                let bytes = std::fs::read(&path).unwrap_or_default();
+                (
+                    path.file_name()
+                        .expect("a name")
+                        .to_string_lossy()
+                        .into_owned(),
+                    bytes,
+                )
+            })
+            .collect();
+        out.sort();
+        out
+    };
+    let before = files(&dir);
+
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let modes_before = modes(&pty);
+    let mut command = tui(&sandbox);
+    command.arg("--resume").arg("gone-image");
+    let mut launched = Session::spawn_without_taking_the_terminal(&pty, command);
+    assert_eq!(launched.wait_exit().code(), Some(1));
+    let text = launched.settled_text();
+    assert!(
+        text.contains("xfx: saved session is unreadable.\r\n"),
+        "the refusal is not upstream's: {text:?}"
+    );
+    assert_no_mode_bytes(&text);
+    assert_eq!(
+        modes_before,
+        modes(&pty),
+        "a refused resume touched the terminal"
+    );
+    assert_eq!(files(&dir), before, "a refused resume changed the session");
+}
+
+#[test]
 fn under_tmux_the_kitty_keyboard_push_is_omitted() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
