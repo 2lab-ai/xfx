@@ -18913,7 +18913,9 @@ mod tests {
         // painted. So: said once (one), not again (two); a resume away and
         // back binds a new conversation of the same session, which says it
         // again (three); a reset starts one whose history has nothing to say
-        // (four).
+        // (four). The session is resumed once before (one) too, so every
+        // conversation reads the image back and finds it gone: one and three
+        // say the same line, and only a ledger per conversation says it twice.
         let model = "anthropic/claude-sonnet-5";
         let (_home, _workspace, mut state) = under_model(model);
         state.selector.set_fetcher_for_test(Box::new(Answering {
@@ -18940,6 +18942,8 @@ mod tests {
         let other = a_saved_session(&state.config, &Grant::new("edit_file", "x".to_string()));
         let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(8);
         for work in [
+            TurnWork::Resume(other.to_string()),
+            TurnWork::Resume(first.to_string()),
             TurnWork::Submit("one".to_string()),
             TurnWork::Submit("two".to_string()),
             TurnWork::Resume(other.to_string()),
@@ -18997,12 +19001,14 @@ mod tests {
             log
         });
         let mut said: Vec<usize> = Vec::new();
+        let mut lines: Vec<String> = Vec::new();
         let (mut resumed, mut fresh) = (0, 0);
         for event in &log {
             match event {
                 UiEvent::TurnStarted { .. } => said.push(0),
                 UiEvent::Notice(notice) if notice.text().contains(NOT_SENT_AGAIN) => {
                     *said.last_mut().expect("a notice inside a turn") += 1;
+                    lines.push(notice.text());
                 }
                 UiEvent::Resumed(_) => resumed += 1,
                 UiEvent::Fresh { .. } => fresh += 1,
@@ -19012,8 +19018,12 @@ mod tests {
         }
         assert_eq!(
             (said, resumed, fresh),
-            (vec![1, 0, 1, 0], 2, 1),
+            (vec![1, 0, 1, 0], 4, 1),
             "how many times each turn said the history's notice, the resumes, the reset"
+        );
+        assert!(
+            lines.len() == 2 && lines[0] == lines[1] && lines[0].contains("could not be read back"),
+            "both conversations say the one line a resume finds: {lines:?}"
         );
     }
 
