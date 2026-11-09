@@ -6,10 +6,10 @@
 # - xfx commits the switch at once and reads the catalog behind it: the prompt
 #   is a turn waiting at its start for that first load (a window nobody else
 #   gives, `orchestrator.zig:5665-5666@481104fd`), the stop ends it there,
-#   sending nothing, and the prompt after it is answered on the Gateway. xfx
-#   says once per conversation that the llmux reasoning was not carried (fx
-#   drops it silently, `projectProviderReplay`, `types.zig:1668-1680`): the
-#   stopped turn shows nothing, so the turn after it says it.
+#   sending nothing, and the prompt after it is answered on the Gateway.
+#   Neither side says anything about the llmux reasoning the Gateway is not
+#   sent (`projectProviderReplay`, `types.zig:1668-1682@481104fd`; xfx's line
+#   about it went with HISTORY-NOTICES-COPY-FX).
 # - fx's switch is a preparation that waits for that catalog, and the prompt
 #   waits behind it: the stop cancels the preparation ("The current provider
 #   is unchanged.", `app_auth_runtime.zig:1244-1257`), the prompt is not sent,

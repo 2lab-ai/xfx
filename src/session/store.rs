@@ -463,10 +463,11 @@ pub const ABORTED_TOOL_OUTPUT: &str = crate::tools::question::ABORTED_OUTPUT;
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplayedHistory {
     pub messages: Vec<Message>,
-    /// One line per assistant turn whose recorded state was not carried over.
-    ///
-    /// A drop is never silent: the user is entitled to know that the model
-    /// resumed with less context than the log holds.
+    /// One line per image the history names whose saved copy could not be
+    /// read back, so it was not sent again. A reasoning state left behind for
+    /// another provider or model has none: upstream drops it without a word
+    /// (`projectProviderReplay`, `types.zig:1668-1682@481104fd`), and so does
+    /// xfx.
     pub notices: Vec<String>,
 }
 
@@ -871,7 +872,9 @@ fn stopped_answer(ok: bool, output: &str) -> bool {
 
 /// One turn as the messages a request carries for it on `active`, its user
 /// message first ([`DurableState::history_messages`]). A reasoning state that
-/// does not replay on `active` is dropped with a line in `notices`.
+/// does not replay on `active` is dropped without a word, as upstream's is; an
+/// image whose saved copy could not be read back is dropped with a line in
+/// `notices`.
 pub fn turn_messages(
     turn: &HistoryTurn,
     active: &Wire,
@@ -986,23 +989,11 @@ pub fn turn_messages(
                 // model made can refuse the request. The step is then sent as
                 // upstream sends one whose replay it dropped
                 // (`projectProviderReplay`, `:1548-1563`) -- its text and its
-                // calls.
+                // calls -- and **without a word**, as upstream's projection
+                // drops it (`types.zig:1668-1682@481104fd`; the encoder writes
+                // a debug trace, `builtins/gateway.zig:178-180`).
                 let same_model = sealed_by.as_deref().is_none_or(|sealed| sealed == model);
                 let state: &[serde_json::Value] = if same_model { on_wire } else { &[] };
-                if state.is_empty() && !(raw_content.is_empty() && responses_state.is_empty()) {
-                    notices.push(match sealed_by {
-                        Some(sealed) if !on_wire.is_empty() => format!(
-                            "xfx: this session recorded reasoning from {sealed} and is \
-                             continuing with {model}, so that reasoning was not carried over"
-                        ),
-                        _ => format!(
-                            "xfx: this session recorded reasoning on the {} wire and is \
-                             continuing on {}, so that reasoning was not carried over",
-                            recorded.label(),
-                            active.label()
-                        ),
-                    });
-                }
                 pending.push(if state.is_empty() {
                     Message::assistant(Some(text), calls)
                 } else {
