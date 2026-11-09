@@ -143,9 +143,13 @@ retried, lossy UTF-8, the test deadline ignored, and both `/credits` arms.
 ## Gate (`gates.sh`, `gate.txt`)
 
 At `4b586b42`, under the suite lock: 20 steps, 0 failed -- fmt, both clippys,
-`cargo test` (5466 passed, 0 failed) and `--features fault-injection`, the
-eight check scripts, both fxcap self-tests, both release builds, smoke and
-smoke-tui. "tree clean: no" is this folder's drafts, untracked then.
+`cargo test` (5466 passed, 0 failed) and `--features fault-injection`, six
+`check-*` scripts and three `test-*` ones, both fxcap self-tests, both release
+builds, smoke and smoke-tui. "tree clean: no" is this folder's drafts,
+untracked then. After it, `6dda7f8a` changed the stall scenario and
+`mutants.py` only: the two stall sweeps ran that scenario (sweep.py refuses a
+racy one before it runs), and `scripts/fxcap/test-sweep.sh` passes at the
+receipt's head (27 tests, `test-sweep.txt`).
 
 ## Security
 
