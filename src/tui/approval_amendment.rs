@@ -804,4 +804,29 @@ mod tests {
         assert_eq!(drafts.text(DENY), "");
         assert!(drafts.blocks(|_| COLS).is_empty());
     }
+
+    #[test]
+    fn super_up_and_down_are_the_whole_drafts_edges() {
+        // fx's amendment reads Super-Up and Super-Down (`draft_start`,
+        // `draft_end`) as `.cursor_home` and `.cursor_end`
+        // (`src/ui/input/runtime.zig:82-83@481104fd`), which set the caret to
+        // 0 and to the draft's length (`cursorHome`/`cursorEnd`,
+        // `approval_amendment.zig:84-92`): the whole draft's edges, on a
+        // draft a paste gave two lines as much as on one, Shift held or not.
+        let mut drafts = typed_into(ALLOW, "ab cd\nef gh");
+        assert_eq!(caret(&drafts), (1, 5));
+        for shifted in [false, true] {
+            drafts.edit(Action::Left, COLS);
+            drafts.edit(Action::DraftStart { shifted }, COLS);
+            assert_eq!(caret(&drafts), (0, 0), "shifted={shifted}: Super-Up");
+            drafts.edit(Action::Right, COLS);
+            drafts.edit(Action::DraftEnd { shifted }, COLS);
+            assert_eq!(caret(&drafts), (1, 5), "shifted={shifted}: Super-Down");
+        }
+        assert_eq!(
+            drafts.text(ALLOW),
+            "ab cd\nef gh",
+            "a caret move changed the text"
+        );
+    }
 }

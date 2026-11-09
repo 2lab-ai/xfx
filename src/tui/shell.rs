@@ -9438,10 +9438,14 @@ impl Shell {
         let drafting = self.drafting();
         let action = match event {
             Input::Text(character) => approval::Action::Text(character),
-            // Shift on Up and Down is the arrow here, as it always was: only a
-            // question's field binds it ([`Action::SelectUp`]).
-            Input::Action(Action::Up | Action::SelectUp) => approval::Action::Up,
-            Input::Action(Action::Down | Action::SelectDown) => approval::Action::Down,
+            // **The plain arrows move the choice, whether or not a draft is
+            // open** (`routeApprovalEscapeAction`,
+            // `input_approval_runtime.zig:111-126@481104fd`: the arrow's
+            // composer move, `visual_up`, is no draft key,
+            // `src/ui/input/runtime.zig:75-96`, so `.cursor_up` reaches the
+            // switch). Every other spelling of Up and Down is below.
+            Input::Action(Action::Up) => approval::Action::Up,
+            Input::Action(Action::Down) => approval::Action::Down,
             // **Left and Alt-b mark the previous choice and Right and Alt-f the
             // next, while no draft is open** -- fx's `.cursor_left`/`.word_left`
             // and `.cursor_right`/`.word_right` (`routeApprovalEscapeAction`,
@@ -9460,32 +9464,51 @@ impl Shell {
             // the swallow.
             Input::Action(Action::Left | Action::AltB) if !drafting => approval::Action::Up,
             Input::Action(Action::Right | Action::AltF) if !drafting => approval::Action::Down,
-            // **`C-p` and `C-n` are the arrows here**, collapsed at the
-            // translation rather than given to the panel as two more keys
-            // (`input_approval_runtime.zig:127-141` maps `cursor_up` and
-            // `history_up` to one action, at `c1db919`). At `481104fd` those two
-            // still move the choice (`:111-126`), but `C-p` and `C-n` reach fx's
-            // question as raw bytes it does not read
-            // (`approvalActionFromRawByte`, `src/ui/input/runtime.zig:61-73`,
-            // `:103-108`), so fx v0.0.16 moves on neither `C-p` nor `C-n`, as it
-            // moves on no Shift-Up: `docs/parity.md`'s full-screen TUI row,
-            // APPROVAL-VERTICAL-SPELLINGS.
+            // **Super-Up and Super-Down take a draft's caret to its start and
+            // its end** -- fx's `draft_start` and `draft_end`
+            // (`modifiedArrowAction`, `escape_parser.zig:74-76@481104fd`),
+            // which its amendment reads as `.cursor_home` and `.cursor_end`
+            // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:82-83`;
+            // `cursorHome`/`cursorEnd`, `approval_amendment.zig:84-92`: the
+            // whole draft's edges, not the line's). Ahead of the draft's arm
+            // below, which reads the folded key, and the fold makes these the
+            // arrows. With no draft open they are the swallow's.
+            Input::Action(edge @ (Action::DraftStart { .. } | Action::DraftEnd { .. }))
+                if drafting =>
+            {
+                approval::Action::Edit(edge)
+            }
+            // **Every other spelling of Up and Down moves nothing, with or
+            // without a draft open.** Shift-, Ctrl- and Alt-Up and -Down (and
+            // Super's with no draft) are composer moves, which reach fx's
+            // `else => {}` (`input_approval_runtime.zig:128`; `visual_up`,
+            // `paragraph_up` and their Down are no draft key,
+            // `src/ui/input/runtime.zig:86`). `C-p` and `C-n` are raw bytes
+            // there: no draft key (`fromFocusedEditorControlByte`,
+            // `shortcuts.zig:31-41`) and no approval byte
+            // (`approvalActionFromByte`, `src/ui/input/runtime.zig:61-73`,
+            // `:103-108`), so the question takes them and does nothing
+            // (`app_input_runtime.zig:1173-1184`). Swallowed here, before the
+            // panel is asked, so the choice, the draft, the frame and the
+            // readiness receipt are all exactly as they were: a key that does
+            // nothing cannot leave a choice marked that no frame has shown.
             //
-            // **A documented difference from that pin, on one surface.**
-            // Reached only with no review plane up: on the plane these two
-            // keys walk the change itself, and they are the only keys that do
-            // -- a bounded diff is up to 128 KiB
-            // (`crate::permission::ApprovalDiff`) and a screen is a few dozen
-            // rows, so a review surface with no way past its first screenful
-            // would be showing the head of a change and calling it the change.
-            // The arrows are unaffected on both surfaces: they move the choice
-            // and end editing everywhere, which is the property the pin exists
-            // for and which
-            // `up_and_down_move_the_choice_whether_or_not_a_draft_is_open`
-            // asserts in all four spellings. Upstream has no second surface to
-            // scroll, so this is a retention rather than a divergence.
-            Input::Action(Action::ControlP) => approval::Action::Up,
-            Input::Action(Action::HistoryNext) => approval::Action::Down,
+            // **`C-p` and `C-n` on the review plane are this surface's own**:
+            // they walk the change (above), the only keys that do -- a bounded
+            // diff is up to 128 KiB (`crate::permission::ApprovalDiff`) and a
+            // screen is a few dozen rows. Upstream's plane scrolls by the
+            // wheel alone (`handleApprovalWheel`), which xfx does not enable;
+            // a retention, recorded in `docs/parity.md`.
+            Input::Action(
+                Action::SelectUp
+                | Action::SelectDown
+                | Action::ComposerUp
+                | Action::ComposerDown
+                | Action::DraftStart { .. }
+                | Action::DraftEnd { .. }
+                | Action::ControlP
+                | Action::HistoryNext,
+            ) => return,
             Input::Action(Action::Tab) => approval::Action::Tab,
             Input::Action(Action::Submit) => approval::Action::Submit,
             Input::Action(Action::Escape) => approval::Action::Escape,
@@ -12436,8 +12459,12 @@ impl Shell {
             // composer sees an event); kept as the moves they are, so a route
             // that skipped the fold would still move the caret rather than drop
             // the key.
-            Action::SelectUp => self.act(Action::Up, now),
-            Action::SelectDown => self.act(Action::Down, now),
+            Action::SelectUp | Action::ComposerUp | Action::DraftStart { .. } => {
+                self.act(Action::Up, now)
+            }
+            Action::SelectDown | Action::ComposerDown | Action::DraftEnd { .. } => {
+                self.act(Action::Down, now)
+            }
             Action::AltB => self.act(Action::WordLeft, now),
             Action::AltF => self.act(Action::WordRight, now),
             Action::ComposerLeft => self.act(Action::Left, now),
@@ -13755,23 +13782,35 @@ fn image_slash_prefix(text: &str) -> Option<usize> {
     })
 }
 
-/// `event` with the spellings only an approval's choice tells apart made the
-/// keys they are everywhere else: a composer move on Left or Right
-/// (`super::input::Action::ComposerLeft`) the arrow, and Alt-f
-/// (`super::input::Action::AltF`) the word move.
+/// `event` with the spellings only an approval tells apart made the keys they
+/// are everywhere else: a composer move on Left or Right
+/// (`super::input::Action::ComposerLeft`) the arrow, Alt-f
+/// (`super::input::Action::AltF`) the word move, Ctrl- and Alt-Up and -Down
+/// (`super::input::Action::ComposerUp`) the arrows, and Super-Up and -Down
+/// (`super::input::Action::DraftStart`) the arrow they were before -- the
+/// shifted one with Shift held.
 ///
 /// An approval's choice moves on Left and Alt-f where fx's moves, and leaves
-/// Shift-Left, Ctrl-B and Ctrl-Right alone where fx's does
-/// (`input_approval_runtime.zig:90-128@481104fd`); no other surface reads them
-/// apart. The approval reads the event as it came ([`Shell::decide`]); the
-/// full transcript, which holds Left and Right, and the question read what
-/// this gives, so they see exactly the keys they saw before the three were
-/// kept apart.
+/// Shift-Left, Ctrl-B and Ctrl-Right alone where fx's does, and every
+/// modified Up and Down (`input_approval_runtime.zig:90-128@481104fd`); its
+/// amendment takes Super-Up and -Down to the draft's edges
+/// (`src/ui/input/runtime.zig:82-83`). No other surface reads them apart. The
+/// approval reads the event as it came ([`Shell::decide`]); the full
+/// transcript, which holds Left and Right, and the question read what this
+/// gives, so they see exactly the keys they saw before these were kept apart.
 fn unspelled(event: Input) -> Input {
     match event {
         Input::Action(Action::ComposerLeft) => Input::Action(Action::Left),
         Input::Action(Action::ComposerRight) => Input::Action(Action::Right),
         Input::Action(Action::AltF) => Input::Action(Action::WordRight),
+        Input::Action(Action::ComposerUp | Action::DraftStart { shifted: false }) => {
+            Input::Action(Action::Up)
+        }
+        Input::Action(Action::ComposerDown | Action::DraftEnd { shifted: false }) => {
+            Input::Action(Action::Down)
+        }
+        Input::Action(Action::DraftStart { shifted: true }) => Input::Action(Action::SelectUp),
+        Input::Action(Action::DraftEnd { shifted: true }) => Input::Action(Action::SelectDown),
         other => other,
     }
 }
@@ -22912,8 +22951,35 @@ mod tests {
             (Action::AltF, Action::WordRight, Action::WordRight),
             (Action::ComposerLeft, Action::Left, Action::Left),
             (Action::ComposerRight, Action::Right, Action::Right),
+            // The vertical spellings only the approval tells apart: each is
+            // the key every other surface saw before -- Super with Shift the
+            // shifted arrow a question's field binds, without it the arrow.
+            (Action::ComposerUp, Action::Up, Action::Up),
+            (Action::ComposerDown, Action::Down, Action::Down),
+            (
+                Action::DraftStart { shifted: false },
+                Action::Up,
+                Action::Up,
+            ),
+            (
+                Action::DraftEnd { shifted: false },
+                Action::Down,
+                Action::Down,
+            ),
+            (
+                Action::DraftStart { shifted: true },
+                Action::Up,
+                Action::SelectUp,
+            ),
+            (
+                Action::DraftEnd { shifted: true },
+                Action::Down,
+                Action::SelectDown,
+            ),
             (Action::WordLeft, Action::WordLeft, Action::WordLeft),
             (Action::Left, Action::Left, Action::Left),
+            (Action::Up, Action::Up, Action::Up),
+            (Action::ControlP, Action::ControlP, Action::ControlP),
         ] {
             assert_eq!(
                 folded(Input::Action(event)),
@@ -38558,7 +38624,7 @@ mod tests {
         // composer move, `visual_up`/`visual_down`, is no draft key
         // (`src/ui/input/runtime.zig:75-96`), so the arrow reaches the switch.
         // Neither may ever reach the editor, because they are the only way out
-        // of a draft. `C-p`, `C-n` and the shifted arrows are not these keys
+        // of a draft. `C-p`, `C-n` and the modified arrows are not these keys
         // there (`the_vertical_spellings_in_an_approval_amendment_keep_it_open_as_fxs_do`):
         // with or without a draft they move nothing and type nothing.
         for open in [false, true] {
@@ -38568,12 +38634,24 @@ mod tests {
                 shell.decide(Input::Action(Action::Tab), Instant::now());
                 type_at_the_question(&mut shell, "y");
             }
-            for still in [
+            // Super-Up and -Down are the draft's edges while one is open
+            // (`super::approval_amendment`'s
+            // `super_up_and_down_are_the_whole_drafts_edges`), and nothing
+            // at the choice.
+            let edges = [
+                Action::DraftStart { shifted: false },
+                Action::DraftEnd { shifted: true },
+            ];
+            let others = [
                 Action::ControlP,
                 Action::HistoryNext,
                 Action::SelectUp,
                 Action::SelectDown,
-            ] {
+                Action::ComposerUp,
+                Action::ComposerDown,
+            ];
+            let edges = if open { &[][..] } else { &edges[..] };
+            for &still in others.iter().chain(edges) {
                 shell.decide(Input::Action(still), Instant::now());
                 assert!(
                     shell.marked().contains("❯ 1  Apply once"),

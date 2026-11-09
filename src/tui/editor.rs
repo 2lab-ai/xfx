@@ -480,13 +480,29 @@ impl Editor {
                 self.move_to(self.line_end());
                 None
             }
+            // Super on the vertical arrows is upstream's `draft_start` and
+            // `draft_end` (`super::input::Action::DraftStart`): the caret to
+            // the start of the whole text and to its end, as an approval's
+            // amendment takes them (`cursorHome`/`cursorEnd`,
+            // `approval_amendment.zig:84-92@481104fd`). The composer never
+            // reads them -- the shell folds them back to the arrows first.
+            Action::DraftStart { .. } => {
+                self.move_to(0);
+                None
+            }
+            Action::DraftEnd { .. } => {
+                self.move_to(self.text.len());
+                None
+            }
             // Shift on the vertical arrows is a question field's to bind
-            // (`super::input::Action::SelectUp`); to an editor it is the arrow.
-            Action::Up | Action::SelectUp => {
+            // (`super::input::Action::SelectUp`), and Ctrl or Alt an
+            // approval's to leave alone (`super::input::Action::ComposerUp`);
+            // to an editor each is the arrow.
+            Action::Up | Action::SelectUp | Action::ComposerUp => {
                 self.move_by_row(Step::Up, cols);
                 None
             }
-            Action::Down | Action::SelectDown => {
+            Action::Down | Action::SelectDown | Action::ComposerDown => {
                 self.move_by_row(Step::Down, cols);
                 None
             }

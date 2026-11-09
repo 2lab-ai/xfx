@@ -185,17 +185,54 @@ pub(crate) enum Action {
     ComposerRight,
     Up,
     Down,
-    /// Up and Down with Shift held: `CSI 1;<mask> A/B` and the kitty arrow
-    /// reports with a mask that has Shift in it.
+    /// Up and Down with Ctrl or Alt held and neither Shift nor Super:
+    /// `CSI 1;<mask> A/B`, kitty's arrow reports and the kitty keypad arrows.
+    ///
+    /// Upstream decodes them to a composer move, `visual_up` under Ctrl and
+    /// `paragraph_up` under Alt (`modifiedArrowAction`,
+    /// `escape_parser.zig:83-98@481104fd`), which an approval's choice and its
+    /// amendment both leave alone (`input_approval_runtime.zig:79-128`,
+    /// `src/ui/input/runtime.zig:75-96`). The approval is the only xfx surface
+    /// that reads this; the shell folds it back to [`Action::Up`] for the full
+    /// transcript, the question and the rest (`super::shell::Shell`'s
+    /// `unspelled`).
+    ComposerUp,
+    /// Down as a composer move, the mirror of [`Action::ComposerUp`].
+    ComposerDown,
+    /// Up with Super held, whatever else is: upstream's `draft_start`
+    /// (`escape_parser.zig:74-75@481104fd`, the first arm, so Super wins over
+    /// Alt, Ctrl and Shift).
+    ///
+    /// In an approval's amendment it takes the caret to the draft's start
+    /// (`.cursor_home`, `src/ui/input/runtime.zig:82`; `cursorHome`,
+    /// `approval_amendment.zig:84-87`); at its choice it does nothing. An
+    /// editor reads it as that move. `shifted` is whether Shift was held too,
+    /// because every surface but the approval sees the key it saw before this
+    /// was kept apart -- [`Action::SelectUp`] with Shift, [`Action::Up`]
+    /// without (`super::shell::Shell`'s `unspelled`).
+    DraftStart {
+        shifted: bool,
+    },
+    /// Down with Super held: upstream's `draft_end` (`:76`), the caret to the
+    /// draft's end in an amendment (`.cursor_end`, `src/ui/input/runtime.zig:83`;
+    /// `cursorEnd`, `approval_amendment.zig:89-92`), the mirror of
+    /// [`Action::DraftStart`].
+    DraftEnd {
+        shifted: bool,
+    },
+    /// Up and Down with Shift held and not Super: `CSI 1;<mask> A/B` and the
+    /// kitty arrow reports with a mask that has Shift in it.
     ///
     /// Upstream reads them as a selection move (`extend_selection`), which
     /// only a question's freeform field gives a meaning of its own -- the
     /// choice above or below, where the plain arrows walk the field's rows
     /// (`src/ui/input/runtime.zig:175-188`, `input_question_runtime.zig:150-185`,
-    /// `c1db919`). Everywhere else they are the arrows they always were here:
-    /// the approval takes them as the arrows, and the shell folds them back
-    /// once the full transcript and the question have read the event, before
-    /// the menus and the composer do (`super::shell::Shell`'s `folded`).
+    /// `c1db919`). An approval leaves them alone, at its choice and in its
+    /// amendment (`visual_up` is no draft key, `src/ui/input/runtime.zig:86
+    /// @481104fd`). Everywhere else they are the arrows they always were here:
+    /// the shell folds them back once the full transcript, the question and
+    /// the approval have read the event, before the menus and the composer do
+    /// (`super::shell::Shell`'s `folded`).
     SelectUp,
     SelectDown,
     Home,
@@ -285,15 +322,20 @@ pub(crate) enum Action {
     BackTab,
     /// `C-p` (`0x10`, and kitty's Ctrl+P): the model catalog at the composer
     /// (`open_model_catalog`, `escape_parser.zig` at `c1db919`, :271), and
-    /// the choice above / a review walked back at a permission question.
+    /// a review walked back on a permission question's review plane.
     ///
     /// Named for the key, as [`Action::ControlJ`] is, because what it does is
     /// the surface's to say. It is **not** the recall any more (ssot
     /// divergence 8): the line before this one is the `Up` arrow's, at the
-    /// first row of the draft.
+    /// first row of the draft. At an approval's choice and in its amendment
+    /// it does nothing, as upstream's question reads no action from the byte
+    /// (`approvalActionFromRawByte`, `src/ui/input/runtime.zig:103-108
+    /// @481104fd`; `super::shell::Shell`'s `decide`).
     ControlP,
     /// The line after it, and the draft the walk began from once there are no
-    /// more. `C-n`, and `Down` at the last row.
+    /// more. `C-n`, and `Down` at the last row. A review walked on at a
+    /// permission question's review plane, and nothing at its choice or in
+    /// its amendment, as [`Action::ControlP`].
     HistoryNext,
     /// Take the last edit back. `C-_` (`0x1f`), and Super+Z on a terminal that
     /// speaks either of the two CSI-u families (`shortcuts.zig:23-24`,
@@ -1021,14 +1063,24 @@ fn csi(params: &[u8], final_byte: u8) -> Input {
 /// is upstream's composer move, which only an approval's choice tells apart
 /// from the cursor key ([`Action::ComposerLeft`]) -- the selection Shift would
 /// extend is dropped, and so is Super's jump to the line's edge. On Up and Down
-/// Shift is kept, as [`Action::SelectUp`] and [`Action::SelectDown`].
+/// every modifier is kept apart from the arrow, in upstream's order
+/// (`modifiedArrowAction`, `escape_parser.zig:73-108@481104fd`): Super first
+/// ([`Action::DraftStart`], with Shift remembered), then Shift
+/// ([`Action::SelectUp`]), then Ctrl or Alt ([`Action::ComposerUp`]); a mask
+/// with none of the four is the arrow, as upstream's table answers `null` and
+/// the plain arrow follows (`:727-733`).
 fn cursor(letter: u8, mask: u8) -> Action {
     let word = mask & (ALT | CTRL) != 0;
     let shifted = mask & SHIFT != 0;
+    let draft = mask & SUPER != 0;
     let composer = mask & (SHIFT | SUPER) != 0;
     match letter {
+        b'A' if draft => Action::DraftStart { shifted },
+        b'B' if draft => Action::DraftEnd { shifted },
         b'A' if shifted => Action::SelectUp,
         b'B' if shifted => Action::SelectDown,
+        b'A' if word => Action::ComposerUp,
+        b'B' if word => Action::ComposerDown,
         b'A' => Action::Up,
         b'B' => Action::Down,
         b'C' if word => Action::WordRight,
@@ -1926,7 +1978,9 @@ mod tests {
             (b"\x1b[57426u", Input::Action(Action::Delete)),
             (b"\x1b[57426;9u", Input::Action(Action::KillToEnd)),
             (b"\x1b[57352u", Input::Action(Action::Up)),
-            (b"\x1b[57353;5u", Input::Action(Action::Down)),
+            // Ctrl on kitty's arrow is a composer move an approval leaves
+            // alone (`escape_parser.zig:208-214@481104fd`).
+            (b"\x1b[57353;5u", Input::Action(Action::ComposerDown)),
             // Shift+Space types the space (:222).
             (b"\x1b[32;2u", Input::Text(' ')),
             // Hyper (16) is not a keypad modifier (:189-191), so it falls
@@ -2438,13 +2492,70 @@ mod tests {
             vec![Input::Action(Action::SelectDown)]
         );
         assert_eq!(decode(b"\x1b[1;6A"), vec![Input::Action(Action::SelectUp)]);
-        assert_eq!(decode(b"\x1b[1;5A"), vec![Input::Action(Action::Up)]);
+        assert_eq!(
+            decode(b"\x1b[1;5A"),
+            vec![Input::Action(Action::ComposerUp)]
+        );
         assert_eq!(decode(b"\x1b[1;5C"), vec![Input::Action(Action::WordRight)]);
         assert_eq!(decode(b"\x1b[1;16D"), vec![Input::Action(Action::WordLeft)]);
         assert_eq!(decode(b"\x1b[1;5H"), vec![Input::Action(Action::Home)]);
         assert_eq!(decode(b"\x1b[1~"), vec![Input::Action(Action::Home)]);
         assert_eq!(decode(b"\x1b[3~"), vec![Input::Action(Action::Delete)]);
         assert_eq!(decode(b"\x1b[4~"), vec![Input::Action(Action::End)]);
+    }
+
+    #[test]
+    fn every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow_in_upstreams_order() {
+        // `modifiedArrowAction` (`escape_parser.zig:73-108@481104fd`): Super
+        // first (`draft_start`/`draft_end`), then Alt (`paragraph_up`/`_down`),
+        // then Ctrl (`visual_up`/`_down`), then Shift (the same, extending a
+        // selection); a mask with none of the four is the plain arrow
+        // (`:727-733`). The CSI modifier is one more than the mask (`:722`),
+        // kitty's arrow codes (`:38-39`) and keypad arrows (`:196-197`) take the
+        // same table (`:163-167`, `:208-214`). Here Super is
+        // `DraftStart`/`DraftEnd` with Shift remembered, Shift without Super
+        // `SelectUp`/`SelectDown` (which a question's field binds), Ctrl or Alt
+        // without either `ComposerUp`/`ComposerDown`.
+        let start = |shifted| Action::DraftStart { shifted };
+        let end = |shifted| Action::DraftEnd { shifted };
+        for (bytes, expected) in [
+            // The twelve of `p5-approval-vertical-keys`.
+            (&b"\x1b[1;2B"[..], Action::SelectDown),
+            (b"\x1b[1;5B", Action::ComposerDown),
+            (b"\x1b[1;9B", end(false)),
+            (b"\x1b[1;3B", Action::ComposerDown),
+            (b"\x1b[57353;3u", Action::ComposerDown),
+            (&[0x0e], Action::HistoryNext),
+            (b"\x1b[1;2A", Action::SelectUp),
+            (b"\x1b[1;5A", Action::ComposerUp),
+            (b"\x1b[1;9A", start(false)),
+            (b"\x1b[1;3A", Action::ComposerUp),
+            (b"\x1b[57352;3u", Action::ComposerUp),
+            (&[0x10], Action::ControlP),
+            // Two modifiers at once: Super wins over all, Shift over Ctrl and
+            // Alt (whose composer moves an approval leaves alone either way).
+            (b"\x1b[1;10A", start(true)),
+            (b"\x1b[1;15B", end(false)),
+            (b"\x1b[1;16B", end(true)),
+            (b"\x1b[1;6A", Action::SelectUp),
+            (b"\x1b[1;4B", Action::SelectDown),
+            (b"\x1b[1;7A", Action::ComposerUp),
+            // The kitty arrows and keypad arrows, through the same table.
+            (b"\x1b[57352;9u", start(false)),
+            (b"\x1b[57353;10u", end(true)),
+            (b"\x1b[57352;2u", Action::SelectUp),
+            (b"\x1b[57419;5u", Action::ComposerUp),
+            (b"\x1b[57420;9u", end(false)),
+            (b"\x1b[57420;3u", Action::ComposerDown),
+            // No modifier the table reads: the arrow.
+            (b"\x1b[A", Action::Up),
+            (b"\x1b[1;1B", Action::Down),
+            (b"\x1bOB", Action::Down),
+            (b"\x1b[57352u", Action::Up),
+            (b"\x1b[57420u", Action::Down),
+        ] {
+            assert_eq!(decode(bytes), vec![Input::Action(expected)], "{bytes:?}");
+        }
     }
 
     #[test]
