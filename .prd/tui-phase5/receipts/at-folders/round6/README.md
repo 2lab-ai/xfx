@@ -100,6 +100,14 @@ dispatcher scoped here:
 walk follows, and the list shows the new root's `plan.md`. The same roots
 again walk nothing.
 
+**Corrected in round 7** (`../round7/README.md` §2):
+- Round 7 copies both of the `install` steps above.
+- The trigger is any change of the access, not of the roots, so "the same
+  roots" in this case's comment now reads "the same access".
+- With the install's own walk, this case walks twice, as fx's does: the
+  install's walk, then the open list's refresh queued behind it. "One walk
+  follows" was this round's count, not fx's.
+
 ## 3. A failed advance (gpt6 r5 SHOULD 3)
 
 `list_entries` (file_index.rs:477) now takes the listing's entries as an

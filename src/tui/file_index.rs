@@ -990,9 +990,16 @@ pub(crate) struct Files {
     /// walk ends, whatever it ends in (fx's `pending_scope`,
     /// `replacePendingRoots` and `joinThreadIfDone`, `file_index.zig:443-451`,
     /// `:494-523@481104fd`). One however many were asked for: fx coalesces
-    /// to the latest scope, and xfx's roots change only through
-    /// [`Self::set_extra_roots`], which ends the walk.
+    /// to the latest scope, and a walk reads the roots as they are when it
+    /// starts. Any walk that starts takes it: it reads the current roots,
+    /// which is all a request asks for.
     pending_refresh: bool,
+    /// Whether a walk was stopped by a change of roots since the last
+    /// [`Self::poll`]. Until then a refresh is queued as if that walk still
+    /// ran, as fx's is behind a walk it does not stop (`requestStop` stops
+    /// the folder listing only, `app_workspace_runtime.zig:70-72`), so the
+    /// change's own refresh and the open list's coalesce into one walk.
+    superseded: bool,
     /// The last directory listed and what it held, or `Err` when it could not
     /// be read.
     listed: Option<Listed>,
@@ -1023,6 +1030,7 @@ impl Files {
             failed: false,
             walk: None,
             pending_refresh: false,
+            superseded: false,
             listed: None,
             listing: None,
             #[cfg(test)]
@@ -1052,35 +1060,40 @@ impl Files {
     /// session); xfx starts no index at launch, so its first episode always
     /// starts the first walk.
     pub(crate) fn refresh_index(&mut self) {
-        if self.walk.is_some() {
+        if self.walk.is_some() || self.superseded {
             self.pending_refresh = true;
         } else {
             self.start_walk();
         }
     }
 
-    /// The directories added to the workspace are now `extra`
-    /// (`refreshFileIndex` on an install that changed the scope,
-    /// `app_workspace_runtime.zig:131-147`).
+    /// The directories added to the workspace are now `extra`. The walk the
+    /// change asks for is the caller's ([`super::shell`]'s `adopt_workspace`,
+    /// fx's `install`, `app_workspace_runtime.zig:127-143@481104fd`).
     ///
     /// An index of other roots answers for roots that are not the session's
-    /// any more -- or leaves out one that is -- so a change throws it away,
-    /// stops a walk of the old ones, and the next picker walks the new ones.
-    /// The same roots again change nothing.
+    /// any more -- or leaves out one that is -- so a change throws it away and
+    /// stops a walk of the old ones. fx keeps that index searchable, tagged
+    /// with the old scope, and its list says `Files unavailable` until the
+    /// new one is whole (`readableRevision`, `file_index.zig:572-583`;
+    /// `prepareFilePicker`'s epoch check, `input_completion_runtime.zig:887`);
+    /// xfx, with no scope on its index, says `indexing files...` (the gap
+    /// AT-SCOPE-INTERIM, `docs/parity.md`). The same roots again change
+    /// nothing.
     ///
-    /// Says whether the roots changed: a list open on the old ones asks for
-    /// a refresh ([`super::shell`]'s `adopt_workspace`).
-    pub(crate) fn set_extra_roots(&mut self, extra: Vec<PathBuf>) -> bool {
+    /// A refresh queued before the change stays queued: the walk the change
+    /// asks for takes it ([`Self::superseded`]).
+    pub(crate) fn set_extra_roots(&mut self, extra: Vec<PathBuf>) {
         if extra == self.extra {
-            return false;
+            return;
         }
         self.extra = extra;
         if let Some(walk) = self.walk.take() {
             walk.stop.store(true, Atomic::Relaxed);
+            self.superseded = true;
         }
         self.index = None;
         self.failed = false;
-        true
     }
 
     fn start_walk(&mut self) {
@@ -1093,6 +1106,8 @@ impl Files {
         let spawned = super::signals::spawn_unsignalled("xfx-file-index", move || {
             load(&root, &extra, git.as_deref(), &flag, &tx)
         });
+        // A walk of the current roots is what any queued refresh asks for.
+        self.pending_refresh = false;
         if spawned.is_ok() {
             #[cfg(test)]
             {
@@ -1148,9 +1163,13 @@ impl Files {
         // 443-451@481104fd`). After a failed first index the list then says
         // it is indexing, as fx's does once `startLoad` clears the failure
         // (`:389`): a lookup reads the walk in flight before the failure.
-        if self.walk.is_none() && std::mem::take(&mut self.pending_refresh) {
-            self.start_walk();
-            changed = true;
+        if self.walk.is_none() {
+            // A walk a change of roots stopped is over by now.
+            self.superseded = false;
+            if self.pending_refresh {
+                self.start_walk();
+                changed = true;
+            }
         }
         if let Some(listing) = &self.listing {
             match listing.rx.try_recv() {

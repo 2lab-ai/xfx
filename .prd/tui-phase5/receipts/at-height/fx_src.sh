@@ -128,3 +128,13 @@ show $P src/core/workspace/file_index.zig 463 472 "AT-FOLDERS r6: refresh: one c
 show $P src/core/input/picker_state.zig 171 171 "AT-FOLDERS r6: file_picker_episode_seen, a picker-state field set once (input_completion_runtime.zig:858-859) and never reset"
 show $P src/core/app/app_workspace_runtime.zig 98 104 "AT-FOLDERS r6: invalidateScope moves the scope epoch and invalidates the open list"
 show $P src/core/app/app_workspace_runtime.zig 127 143 "AT-FOLDERS r6: install: a changed scope invalidates it and refreshes the index"
+# --- added by AT-FOLDERS round 7 (2026-11-09): fx's install on a changed
+# scope, and the interim the old scope's index leaves.
+show $P src/core/workspace/workspace_access.zig 176 189 "AT-FOLDERS r7: eql compares every entry's path, saved, command_line, available and active"
+show $P src/core/app/app_workspace_runtime.zig 70 72 "AT-FOLDERS r7: requestStop stops the folder listing (the directory completion job), not the index's walk"
+show $P src/core/input/file_completion_state.zig 130 139 "AT-FOLDERS r7: invalidate: inactive, untrusted, lookup dirty, the folder's request dropped"
+show $P src/core/input/picker_state.zig 249 252 "AT-FOLDERS r7: resetFilePickerIndex: the bar and the window to row 0"
+show $P src/core/workspace/file_index.zig 103 108 "AT-FOLDERS r7: ReadableRevision carries a scope epoch"
+show $P src/core/workspace/file_index.zig 572 583 "AT-FOLDERS r7: readableRevision: the searchable generation's scope epoch"
+show $P src/core/workspace/file_index.zig 647 654 "AT-FOLDERS r7: searchableGeneration: the active generation first, the old scope's included"
+show $P src/core/app/input_completion_runtime.zig 884 890 "AT-FOLDERS r7: prepareFilePicker stages unavailable when the readable scope is not the workspace's"

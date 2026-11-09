@@ -2379,3 +2379,83 @@
   141              }
   142              return runtime_changed;
   143          }
+
+== src/core/workspace/workspace_access.zig:176-189@481104fd -- AT-FOLDERS r7: eql compares every entry's path, saved, command_line, available and active
+  176      pub fn eql(self: *const WorkspaceAccess, other: *const WorkspaceAccess) bool {
+  177          if (self.entries.len != other.entries.len) return false;
+  178          for (self.entries, other.entries) |left, right| {
+  179              if (!std.mem.eql(u8, left.path, right.path) or
+  180                  left.saved != right.saved or
+  181                  left.command_line != right.command_line or
+  182                  left.available != right.available or
+  183                  left.active != right.active)
+  184              {
+  185                  return false;
+  186              }
+  187          }
+  188          return true;
+  189      }
+
+== src/core/app/app_workspace_runtime.zig:70-72@481104fd -- AT-FOLDERS r7: requestStop stops the folder listing (the directory completion job), not the index's walk
+   70          pub fn requestStop(app: *App) void {
+   71              if (comptime runtime_profile.allows(App, .file_index)) app.workspace.directory_completion.stop(std.heap.c_allocator);
+   72          }
+
+== src/core/input/file_completion_state.zig:130-139@481104fd -- AT-FOLDERS r7: invalidate: inactive, untrusted, lookup dirty, the folder's request dropped
+  130      pub fn invalidate(self: *State) void {
+  131          self.episode +%= 1;
+  132          self.active = false;
+  133          self.trusted = false;
+  134          self.source = null;
+  135          self.lookup_dirty = true;
+  136          self.directory_request = null;
+  137          self.refresh_requested = false;
+  138          self.selection_missing = false;
+  139      }
+
+== src/core/input/picker_state.zig:249-252@481104fd -- AT-FOLDERS r7: resetFilePickerIndex: the bar and the window to row 0
+  249      pub fn resetFilePickerIndex(self: *State) void {
+  250          self.file_completion_index = 0;
+  251          self.file_completion_window_start = 0;
+  252      }
+
+== src/core/workspace/file_index.zig:103-108@481104fd -- AT-FOLDERS r7: ReadableRevision carries a scope epoch
+  103  pub const ReadableRevision = struct {
+  104      scope_epoch: u64 = 0,
+  105      generation: usize = 0,
+  106      count: usize = 0,
+  107      state: State = .idle,
+  108  };
+
+== src/core/workspace/file_index.zig:572-583@481104fd -- AT-FOLDERS r7: readableRevision: the searchable generation's scope epoch
+  572      pub fn readableRevision(self: *const FileIndex) ReadableRevision {
+  573          const generation = self.searchableGeneration() orelse return .{
+  574              .scope_epoch = self.scope_epoch,
+  575              .state = self.currentState(),
+  576          };
+  577          return .{
+  578              .scope_epoch = generation.scope_epoch,
+  579              .generation = generation.id,
+  580              .count = generation.count(),
+  581              .state = self.currentState(),
+  582          };
+  583      }
+
+== src/core/workspace/file_index.zig:647-654@481104fd -- AT-FOLDERS r7: searchableGeneration: the active generation first, the old scope's included
+  647      fn searchableGeneration(self: *const FileIndex) ?*const Generation {
+  648          if (self.active_generation) |active| return active;
+  649          const loading = self.loading_generation orelse return null;
+  650          return switch (loading.currentState()) {
+  651              .loading, .ready => loading,
+  652              .failed, .canceled => null,
+  653          };
+  654      }
+
+== src/core/app/input_completion_runtime.zig:884-890@481104fd -- AT-FOLDERS r7: prepareFilePicker stages unavailable when the readable scope is not the workspace's
+  884                  state.stage(app.alloc, source, .unavailable, null);
+  885                  return;
+  886              };
+  887              if (decoded.len > file_index.max_path_len or source.scope_epoch != fileScopeEpoch(app)) {
+  888                  state.stage(app.alloc, source, .unavailable, null);
+  889                  return;
+  890              }

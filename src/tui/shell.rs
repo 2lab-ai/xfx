@@ -8422,24 +8422,32 @@ impl Shell {
     }
 
     /// The directories in force are now `access`: the band's copy, and the
-    /// roots the `@` index walks besides the workspace (`install`'s
-    /// `refreshFileIndex`, `app_workspace_runtime.zig:131-147`).
+    /// roots the `@` index walks besides the workspace.
     ///
-    /// An open list on roots that changed asks for the index's refresh, as
-    /// fx's reconcile does when the scope's epoch moved (`scope_epoch !=
-    /// scope_epoch`, `file_completion_state.zig:164@481104fd`; the epoch moves
-    /// in `invalidateScope`, `app_workspace_runtime.zig:98-104`), and is
-    /// looked up again -- both, as everywhere, only while it is eligible
-    /// ([`Self::refresh_file_picker`]).
+    /// fx's `install` (`app_workspace_runtime.zig:127-143@481104fd`): the
+    /// scope changed when the access did -- any entry's path or state, not
+    /// only the active roots (`runtime_changed = !access.eql(replacement)`;
+    /// `eql`, `workspace_access.zig:176-189`, over the fields xfx's entries
+    /// hold, path and availability, `crate::workspace::access::Entry`). Then
+    /// `invalidateScope` (`:98-104`): the folder listing in flight is stopped
+    /// (`requestStop`, `:70-72`) and an open list invalidated -- bar to row
+    /// 0, trust dropped, a browsed folder read again, the index's refresh
+    /// asked for (`FilePicker::invalidate`). And `refreshFileIndex` (`:140`):
+    /// the index's own refresh, a list open or not and eligible or not; the
+    /// list's refresh and lookup then wait, as everywhere, for it to be
+    /// eligible ([`Self::refresh_file_picker`]).
     fn adopt_workspace(&mut self, access: WorkspaceAccess) {
-        let moved = self
-            .files
+        let changed = self.workspace_access != access;
+        self.files
             .set_extra_roots(index_roots(&self.workspace, &access));
         self.workspace_access = access;
-        if moved {
+        if changed {
+            self.files.abandon_listing();
+            self.files.begin_episode();
             if let Some(files) = self.file_picker.as_mut() {
-                files.request_refresh();
+                files.invalidate();
             }
+            self.files.refresh_index();
             self.refresh_file_picker();
         }
         if self.workspace_menu.is_some() {
@@ -35521,7 +35529,9 @@ mod tests {
         // `file_completion_state.zig:164@481104fd`), which a workspace change
         // does (`invalidateScope`, `app_workspace_runtime.zig:98-104`). So an
         // open `@plan` list, then a directory added that holds `plan.md`,
-        // walks the new roots and lists it.
+        // walks the new roots and lists it. Round 7: two walks, as fx's --
+        // the install's own (`install`, `:140`), and the open list's refresh
+        // queued behind it (`replacePendingRoots`, `file_index.zig:511-523`).
         let (_workspace, mut shell) = in_ws2(40, 120);
         let extra = tempfile::tempdir().expect("an extra root");
         let extra_path = extra.path().canonicalize().expect("canonical");
@@ -35547,6 +35557,11 @@ mod tests {
         assert_eq!(
             listed_paths(&shell),
             [format!("{}/plan.md", extra_path.display())]
+        );
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 2,
+            "not the install's walk and the list's refresh behind it"
         );
         // The same access again moves no scope (`install`'s
         // `runtime_changed = !access.eql(replacement)`,

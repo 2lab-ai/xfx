@@ -566,6 +566,19 @@ impl FilePicker {
         }
     }
 
+    /// The workspace's scope changed under this list (fx's `invalidate`,
+    /// `file_completion_state.zig:130-139@481104fd`, and the reconcile that
+    /// follows it, `:164`, `input_completion_runtime.zig:797`): the bar and
+    /// the window back on row 0 (`resetFilePickerIndex`,
+    /// `picker_state.zig:249-252`), its rows not trusted until a frame shows
+    /// them again, and the index's refresh asked for, as on a new episode.
+    pub(crate) fn invalidate(&mut self) {
+        self.selected = 0;
+        self.window_start = 0;
+        self.trusted = false;
+        self.refresh_requested = true;
+    }
+
     /// Asks for the index's refresh ([`Self::refresh_requested`]).
     pub(crate) fn request_refresh(&mut self) {
         self.refresh_requested = true;
