@@ -6,7 +6,10 @@
 # round it (Menu.move, settings_catalog.zig:225-241; moveVisibleItems,
 # model_cache_runtime.zig:229-245): 11 then 0, and from 0 the last. C-j and
 # C-k walk the same lists one row (routePickerControlByte, :1093-1108 of
-# app_input_runtime.zig).
+# app_input_runtime.zig); they come last, after Tab has closed the list and
+# moved to the Interface tab, so a release that types them as a newline in
+# the search spoils no snap before them. The list is opened from a menu
+# opened again, so where the pages before left the mark does not matter.
 # fx's harness launches it with FX_SOUND=0; xfx is given the same start.
 fx: env FX_AUTO_UPGRADE=0
 xfx: env XFX_SOUND=off
@@ -31,13 +34,12 @@ snap menu-pgup
 key PPage
 wait 0.6
 snap menu-pgup2
-key C-j
-wait 0.5
-snap menu-cj
-key C-k
-wait 0.5
-snap menu-ck
-key Down Down Down
+key Escape
+wait 0.7
+type /settings
+key Enter
+wait 1.2
+key Down Down Down Down Down
 wait 0.3
 key Right
 wait 1.5
@@ -60,3 +62,12 @@ snap list-cj
 key C-k
 wait 0.5
 snap list-ck
+key Tab
+wait 0.8
+snap tab
+key C-j
+wait 0.5
+snap menu-cj
+key C-k
+wait 0.5
+snap menu-ck

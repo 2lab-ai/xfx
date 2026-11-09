@@ -6,7 +6,8 @@
 # The model stage lists thirty models, so a page lands inside it; the
 # effort stage lists astra's five levels and the speed stage three rows, so
 # a page there always runs past an end. C-j and C-k walk it one row
-# (routePickerControlByte, app_input_runtime.zig:1093-1108).
+# (routePickerControlByte, app_input_runtime.zig:1093-1108); they come last,
+# so a release that types them as a newline spoils no snap before them.
 fx: env FX_AUTO_UPGRADE=0
 models p5-input-row-limit-models.json
 seed p5-effort-fork-seed-astra.json
@@ -28,12 +29,6 @@ snap model-pgdn3
 key PPage
 wait 0.6
 snap model-pgup
-key C-j
-wait 0.5
-snap model-cj
-key C-k
-wait 0.5
-snap model-ck
 key C-u
 wait 0.5
 type /model openai/gpt-6-astra 
@@ -70,3 +65,13 @@ snap levels-pgup
 key NPage
 wait 0.6
 snap levels-pgdn
+key C-u
+wait 0.5
+type /model 
+wait 1.5
+key C-j
+wait 0.5
+snap model-cj
+key C-k
+wait 0.5
+snap model-ck
