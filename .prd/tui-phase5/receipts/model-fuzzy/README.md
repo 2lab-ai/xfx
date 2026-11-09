@@ -20,7 +20,16 @@ The spec is `research/tui-phase5:.prd/tui-phase5/research/input.md` §2.8,
 | `260ffc85` | RED: Tab in the column leaves the mark where Down put it (`red.txt` §2) |
 | `fc8ec00e` | its fix -- **the code head**; the xfx captures are this binary's |
 | `8c6da0fc` | tests only: two pins the mutants need (below) |
-| (this one) | this receipt |
+| `2a43306e` | `docs/parity.md`: the column's mark after Tab |
+| `307046f1` | this receipt, before its gate |
+| `0bf5d2ab` | tests only: a comment that named the vendor match |
+| `06c08b90` | tests only: the Alt-Enter column test held c1db9191's row -- **the gate's head** |
+| (this one) | this receipt's gate |
+
+`fc8ec00e`..`06c08b90` changes nothing outside `#[cfg(test)]` and
+`docs/`/receipts (`git diff fc8ec00e 06c08b90 -- src/` touches only the
+`mod tests` blocks of `model_menu.rs`, `model_column.rs` and `shell.rs`), so
+the captures from `fc8ec00e`'s binary stand for the head.
 
 The xfx captures in `xfx/` are from the binary built at `fc8ec00e` (row 1:
 `x𝒇x v0.1.0-fc8ec00 [debug]`); those in `red/` from `ccced1f5`'s (row 1:
@@ -184,6 +193,17 @@ written; xfx left the mark on row 2, where Down had put it.
 - The RED is `260ffc85`'s test (`tab_puts_the_mark_on_the_first_row_the_written_line_lists`),
   and the fix is `fc8ec00e`.
 
+A second one turned up in the gate's first run, a test rather than a screen.
+`shell::tests::a_column_over_a_line_the_caret_has_left_hangs_from_the_caret_rows_start`
+types `/model xai/grok-4.7`, then Alt-Enter, and held `no matching models`.
+
+- That was c1db9191's answer: its completions did not trim the query
+  (`model_cache_runtime.zig:690@c1db9191`).
+- fx v0.0.16 trims the trailing newline (`:375`) and lists the model. Its
+  `model-anchor` `alt-enter` frame shows it, and the sweep moves that pair to
+  identical (below).
+- `06c08b90` sets the test to fx v0.0.16's row.
+
 Past that, the trace runs through every reader of `Column::models` and
 `ModelMenu::items` -- the render, the arrows, Enter, the exact id, Left,
 `/settings`' row, the count and the revalidation -- and each reads the one
@@ -261,7 +281,29 @@ design (`--only`).
 
 ## Gate
 
-GATE-PLACEHOLDER
+`gate.txt` is one run of the gate under `suite-lock.sh` at
+`06c08b90`, with the tree clean before and after. It covers every step in
+`.github/workflows/ci.yml`, the brief's two `--no-fail-fast` suites, and
+`sweep.yml`'s own tests (`test-sweep.sh`, `test-capture.sh`). **Every step
+exits 0.**
+
+| step | result |
+|---|---|
+| `cargo fmt --check`; `clippy --all-targets -D warnings`, plain and `--features fault-injection` | 0 |
+| `cargo test --locked --all-targets` | 0 |
+| `cargo test --locked --no-fail-fast` | 0 (5470 passed, 0 failed) |
+| `--features fault-injection`: `--test tui`, `--lib`, and `--no-fail-fast` | 0 (5507 passed, 0 failed) |
+| `check-no-stubs`, `check-no-secrets`, `test-gate-env`, `check-xfx-identity` | 0 |
+| `check-preview-contract`, `test-preview-contract`, `check-tui-preflight-cost`, `check-usage-clock` | 0 |
+| release build, `smoke.sh`, the faulty build, `smoke-tui.sh` | 0 (smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures) |
+| `fxcap/test-sweep.sh`, `fxcap/test-capture.sh` | 0 (capture: 76 tests OK) |
+
+The run before it, at `0bf5d2ab`, failed one test: the Alt-Enter one above,
+the next break. That one fixed, nothing else failed.
+
+The source change outside tests is `src/tui/model_search.rs` (150 lines
+before its `#[cfg(test)]`, doc comments included) and about 30 lines in `model_menu.rs` and
+`model_column.rs`, well under the brief's 600.
 
 ## `docs/parity.md`, the ledger, the refs
 
