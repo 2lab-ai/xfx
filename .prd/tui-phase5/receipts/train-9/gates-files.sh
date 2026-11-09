@@ -19,7 +19,7 @@ for cmd in "cargo fmt --check" ./scripts/check-xfx-identity.sh ./scripts/check-n
   [ "$rc" -eq 0 ] || failed=$((failed + 1))
 done
 # The four forms spelt with a bracket class, so this line does not match itself.
-hits=$(git diff "$base"..HEAD | grep -E '^[+]' | grep -cE '/User[s]/zhugehyu[k]|/privat[e]/tmp/claude-|claude-50[1]|zhugehyu[k]')
+hits=$(git diff "$base"..HEAD | grep -E '^[+]' | grep -cE '/User[s]/zhugehyu[k]|/privat[e]/tm[p]/claude-|claude-50[1]|zhugehyu[k]')
 echo "# added lines of git diff $base..HEAD holding the home root, the account's name, the scratch root or the uid fragment: $hits"
 rm -f "$log"
 exit $(( failed + (hits > 0) ))
