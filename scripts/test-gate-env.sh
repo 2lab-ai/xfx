@@ -461,6 +461,24 @@ after_maintenance() {
 }
 decoy_forced=1
 refuses decoy-setup-maintenance "$content_found" after_maintenance "$ilock/scripts/check-xfx-identity.sh"
+# The case above holds a run only through gc, which `-c gc.auto=0` alone
+# turns off; but with the decoy's own `maintenance.auto=true` that flag alone
+# still lets the commit start a run. So, timing aside: git's trace of the
+# same setup names no `git maintenance run` and no `git gc --auto`.
+(
+	export GIT_TRACE="$work/decoy-setup.trace"
+	new_decoy
+) </dev/null >"$work/decoy-setup.log" 2>&1
+started="$(grep -E 'run_command: git (maintenance run|gc --auto)' "$work/decoy-setup.trace" || true)"
+after_maintenance true
+if [ -n "$started" ]; then
+	problem "decoy-setup-starts-nothing: new_decoy's commit started git's maintenance:"
+	printf '%s\n' "$started" | sed 's/^.*trace: //' >&2
+else
+	printf 'test-gate-env: ok %-30s %s\n' decoy-setup-starts-nothing "new_decoy's commit starts no maintenance or gc"
+	passed=$((passed + 1))
+fi
+rm -f "${ran:?}"/* "$work/decoy-setup.trace"
 decoy_forced=""
 
 refuses identity-git-dir "$path_found" \
