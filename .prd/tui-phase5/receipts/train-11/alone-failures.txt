@@ -1,0 +1,11 @@
+# The failing lines of each run jobs.sh's alone part, and the network run's two lib failures, from their logs
+## alone: join_test_paste.rs on merge 1
+thread 'tui::event_loop::tests::a_tall_paste_with_enters_behind_its_marker_and_in_its_quarantine_previews_once_after_it' (418064620) panicked at src/tui/event_loop.rs:18978:9:
+the Enter inside the quarantine started a preview
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+## net: the lib run's two failures (net-lib.log)
+---- tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number stdout ----
+thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number' (418350013) panicked at src/tui/worker.rs:18714:9:
+---- tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one stdout ----
+thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one' (418349957) panicked at src/tui/worker.rs:19103:9:

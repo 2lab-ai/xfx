@@ -1,0 +1,8 @@
+# jobs.sh alone at 2026-11-09T14:38:52Z, load 32.19
+# alone-clone at 4a0b900b
+#   test code: 'shell.end_delivery_at(Instant::now() + super::super::input::Decoder::PASTE_QUIET);' -> 'shell.end_delivery();'
+paste, merge 1 4a0b900b, join_test_paste.rs: exit 101, FAILED; thread 'tui::event_loop::tests::a_tall_paste_with_enters_behind_its_marker_and_in_its_quarantine_previews_once_after_it' (418064620) panicked at src/tui/event_l the Enter inside the quarantine started a preview note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace  
+catalog, merge 1 4a0b900b, join_test_catalog.rs: exit 0, ok;  
+# alone-clone clean after: yes
+# jobs.sh alone done at 2026-11-09T14:40:31Z
+alone exit 0
