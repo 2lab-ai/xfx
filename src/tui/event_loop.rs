@@ -19170,23 +19170,24 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn a_tall_paste_with_an_enter_behind_its_marker_previews_nothing_and_an_enter_after_it_once() {
+    fn a_tall_paste_with_enters_behind_its_marker_and_in_its_quarantine_previews_once_after_it() {
         // P5 train 11, join check 1 (SUBMIT-CARD-PREVIEW x PASTE-GAP): what
         // one Enter does. Covered apart before: PASTE-GAP's
         // `a_readiness_gap_inside_one_paste_does_not_turn_the_rest_of_it_into_keys`
         // and PASTE-AFTER-END's carry-over test send nothing for an Enter
-        // behind a paste's end marker (the composer and the work channel, no
-        // frame); SUBMIT-CARD-PREVIEW's
+        // behind a paste's end marker or inside the quarantine after it (the
+        // composer and the work channel, no frame); SUBMIT-CARD-PREVIEW's
         // `the_tick_that_shows_a_preview_writes_the_card_in_the_next_frame`
         // previews a pasted draft whose Enter is typed apart (`route_bytes`:
         // a whole delivery and its quiet). Neither sends a paste taller than
-        // the room through the delivery the quarantine reads. Here, on a full
-        // screen, one delivery holds a twelve-line paste and an Enter behind
-        // its marker, read by the loop's own reads (`burst`): nothing is
-        // sent, nothing previewed, fx's warning written. Once the input has
-        // been quiet, an Enter of its own sends the draft once, and the tick
-        // after it writes one preview -- the newest rows only -- then the
-        // card, once, in order.
+        // the room through the loop's reads (`burst`). Here, on a full screen:
+        // a twelve-line paste and an Enter behind its marker in one delivery
+        // (PASTE-AFTER-END's rule), then an Enter in the next turn, after the
+        // readiness check that settled the paste and before the input has
+        // been quiet (PASTE-GAP's quarantine): nothing sent, no preview, fx's
+        // warning written. Once the input has been quiet, an Enter of its own
+        // sends the draft once, and the tick after it writes one preview --
+        // the newest rows only -- then the card, once, in order.
         let words: Vec<String> = (1..=12).map(|n| format!("GAP-ROW-{n:02}")).collect();
         let mut shell = shell_of(40, 120);
         let mut band = Band::new();
@@ -19239,6 +19240,31 @@ mod tests {
                 .any(|row| row.contains("Input that arrived right after the paste was ignored.")),
             "the warning was not written: {:#?}",
             terminal.everything()
+        );
+
+        // The next turn, behind the check that settled the paste: an Enter
+        // inside the quarantine is dropped, not typed.
+        let quarantined = Readable {
+            bytes: b"\r".to_vec(),
+            at: std::cell::Cell::new(0),
+        };
+        quarantined.turn(&mut shell);
+        shell.settle_input(Instant::now());
+        shell.settle_band(Instant::now());
+        assert!(
+            !shell.previewing(),
+            "the Enter inside the quarantine started a preview"
+        );
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
+        assert!(
+            shell._work.try_recv().is_err(),
+            "the Enter inside the quarantine sent the draft"
         );
 
         // The input goes quiet: an idle turn's check, and one a quiet period
