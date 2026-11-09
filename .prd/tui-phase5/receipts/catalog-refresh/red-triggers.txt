@@ -1,0 +1,49 @@
+# head 9ffb6310
+   Compiling xfx v0.1.0 (<work>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.44s
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+
+running 4 tests
+test provider::model::tests::a_reading_earlier_than_the_last_reads_start_is_due_whatever_held_it_back ... FAILED
+test tui::shell::tests::a_reading_earlier_than_the_last_reads_start_owes_the_catalog_a_read ... FAILED
+test tui::shell::tests::a_resume_or_a_fork_is_activity_for_the_catalog ... FAILED
+test tui::shell::tests::settings_and_the_speed_commands_wait_for_the_catalog_and_never_ask_for_a_read ... FAILED
+
+failures:
+
+---- provider::model::tests::a_reading_earlier_than_the_last_reads_start_is_due_whatever_held_it_back stdout ----
+
+thread 'provider::model::tests::a_reading_earlier_than_the_last_reads_start_is_due_whatever_held_it_back' (382611453) panicked at src/provider/model.rs:3005:13:
+Activity: rows read after the reading were not due
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::shell::tests::a_reading_earlier_than_the_last_reads_start_owes_the_catalog_a_read stdout ----
+
+thread 'tui::shell::tests::a_reading_earlier_than_the_last_reads_start_owes_the_catalog_a_read' (382611454) panicked at src/tui/shell.rs:48659:9:
+a reading before the rows' read began was not due
+
+---- tui::shell::tests::a_resume_or_a_fork_is_activity_for_the_catalog stdout ----
+
+thread 'tui::shell::tests::a_resume_or_a_fork_is_activity_for_the_catalog' (382611455) panicked at src/tui/shell.rs:48588:13:
+assertion `left == right` failed: a resume over rows five minutes old asked nothing
+  left: []
+ right: [("activity", false)]
+
+---- tui::shell::tests::settings_and_the_speed_commands_wait_for_the_catalog_and_never_ask_for_a_read stdout ----
+
+thread 'tui::shell::tests::settings_and_the_speed_commands_wait_for_the_catalog_and_never_ask_for_a_read' (382611456) panicked at src/tui/shell.rs:48626:13:
+assertion `left == right` failed: /settings over no answer
+  left: [("activity", true)]
+ right: [("told", true)]
+
+
+failures:
+    provider::model::tests::a_reading_earlier_than_the_last_reads_start_is_due_whatever_held_it_back
+    tui::shell::tests::a_reading_earlier_than_the_last_reads_start_owes_the_catalog_a_read
+    tui::shell::tests::a_resume_or_a_fork_is_activity_for_the_catalog
+    tui::shell::tests::settings_and_the_speed_commands_wait_for_the_catalog_and_never_ask_for_a_read
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 4559 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--lib`
+exit 101

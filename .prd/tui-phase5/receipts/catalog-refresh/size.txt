@@ -1,0 +1,9 @@
+# python3 -I size.py e705a5dc 6ab25d2a
+src/provider/catalog_clock.rs: every line +191 -0; code +112 -0
+src/provider/mod.rs: every line +1 -0; code +1 -0
+src/provider/model.rs: every line +116 -67; code +84 -57
+src/tui/bridge.rs: every line +37 -19; code +12 -8
+src/tui/event_loop.rs: every line +3 -1; code +2 -1
+src/tui/shell.rs: every line +47 -22; code +20 -13
+src/tui/worker.rs: every line +44 -16; code +35 -16
+total outside tests: every line +439 -125; code +266 -95

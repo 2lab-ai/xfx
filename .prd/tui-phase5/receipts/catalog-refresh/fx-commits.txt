@@ -1,0 +1,100 @@
+# fx commit 36e8c6fc, read with: git -C <fx-upstream> show --format='commit %H%n%n%B' 36e8c6fc
+# an ancestor of the pin (git merge-base --is-ancestor 36e8c6fc 481104fd): yes
+commit 36e8c6fcb9c87da5d571770210a76e5e1ce9b30a
+
+Start catalog refreshes only from submitted prompts
+
+The activity hook ran in snapshotAndQueuePrompt, which a paused recovery
+also reaches while App.init resumes a session. The catalog fetch thread
+then held a pointer into the App that init returns by value, so the real
+cache stayed loading and the resumed turn waited forever.
+
+Call the hook from the two user submission paths instead. Resumed
+sessions already start their catalog warmup after init.
+
+
+diff --git a/src/main.zig b/src/main.zig
+index 52ddbc96..3352ca01 100644
+--- a/src/main.zig
++++ b/src/main.zig
+@@ -1214,6 +1214,7 @@ const App = struct {
+         defer if (context_targets.len > 0) self.alloc.free(context_targets);
+ 
+         try AgentAppRuntime.refreshProjectContext(self, context_targets);
++        self.noteModelCatalogActivity();
+         self.session.setConversationLanguageFromUserMessage(prompt);
+ 
+         debug_trace.logf(
+@@ -1237,6 +1238,15 @@ const App = struct {
+         return true;
+     }
+ 
++    /// A prompt the user submitted is activity, so a stale or failed model
++    /// catalog refetches in the background. Only these submission paths call
++    /// it: a recovery continuation can queue during startup, before the App
++    /// reaches the address a fetch thread may hold. Cooperative hosts fetch
++    /// inline and skip it.
++    fn noteModelCatalogActivity(self: *App) void {
++        if (comptime !host_profile.cooperative_agent) self.startModelCacheWarmup();
++    }
++
+     pub fn adoptPendingUserPrompt(
+         self: *App,
+         draft: *const input_submit_runtime.PendingPromptDraft,
+@@ -1258,6 +1268,7 @@ const App = struct {
+             &.{};
+         defer if (context_targets.len > 0) self.alloc.free(context_targets);
+         try AgentAppRuntime.refreshProjectContext(self, context_targets);
++        self.noteModelCatalogActivity();
+         self.session.setConversationLanguageFromUserMessage(draft.prompt);
+ 
+         const skill_tokens = try promptCardSkillTokensFromDisplaySpans(
+@@ -1469,9 +1480,6 @@ const App = struct {
+         turn_id: u64,
+         user_prompt_already_presented: bool,
+     ) !bool {
+-        // A queued prompt is user activity, so a stale or failed model catalog
+-        // refetches in the background. Cooperative hosts fetch inline and skip this.
+-        if (comptime !host_profile.cooperative_agent) self.startModelCacheWarmup();
+         const queued = try self.snapshotPrompt(
+             prompt,
+             skill_tokens,
+
+# f4990675's and 65846154's messages: git show -s --format='commit %H%n%n%B' <c>
+commit f49906758e4a596f8b3222d7bb614aa05c5605e0
+
+Refresh the model catalog during a session
+
+The AI Gateway model catalog loaded once per process and never refetched,
+so a model released mid-session appeared only after restarting fx.
+
+The catalog now goes stale after five minutes and refetches on user
+activity: a queued prompt, /model completions, or a credential change.
+Opening the model picker revalidates it unless a fetch is running or one
+started in the last five seconds. An idle session never contacts the
+endpoint.
+
+Refreshes run in the background. The picker and completions keep listing
+the cached models until the new catalog is adopted at the next UI tick,
+and the open picker keeps its provider tab and selected model. A failed
+refresh keeps the cached catalog. Only the first load for a credential
+holds request capability resolution, so a prompt never waits on a retry.
+
+Consecutive failures back off for every trigger: 5 seconds, then 10, 20,
+and so on up to five minutes. A success or a credential or provider
+change clears the backoff.
+
+commit 65846154c961393e3340129380754d775584563c
+
+Wait briefly for a failed model catalog's retry
+
+When the model catalog failed to load, the retry a submitted prompt
+starts ran behind the failed state, so the prompt's first request went
+out without the model's limits. With no output limit, some providers
+stop a reply at 4,096 tokens.
+
+A request now waits up to two seconds for that retry, as it waits for a
+first load. A retry that lands in time gives the request the catalog's
+limits. A slower one leaves the request as it was before, so a retry
+that hangs never holds a prompt for longer than that.
+

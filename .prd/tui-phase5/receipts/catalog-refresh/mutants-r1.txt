@@ -1,0 +1,15 @@
+# first mutant run, on a clone at 7fa5d9c2 (12 mutants): the survivor that fccaf848 answers
+# clone at 7fa5d9c2
+- Instant restored: the catalog reads the awake clock (src/provider/catalog_clock.rs): killed by the_catalog_clock_counts_the_time_the_machine_slept, a_failures_hold_ends_while_the_machine_sleeps, rows_read_before_the_machine_slept_are_stale_after_it, rows_and_a_failure_read_before_the_machine_slept_are_due_on_waking, the_catalog_is_read_by_a_first_load_the_menu_and_activity_only_and_never_while_idle
+- Apple's catalog clock is Instant's CLOCK_UPTIME_RAW (src/provider/catalog_clock.rs): killed by the_system_catalog_clock_is_the_one_that_counts_sleep
+- a reading earlier than the last read's start is not due (src/provider/catalog_clock.rs): killed by a_reading_earlier_than_the_last_reads_start_is_due, a_reading_earlier_than_the_last_reads_start_is_due_whatever_held_it_back, a_reading_earlier_than_the_last_reads_start_owes_the_catalog_a_read
+- the runtime does not tell when the last read began (src/provider/model.rs): killed by a_reading_earlier_than_the_last_reads_start_is_due_whatever_held_it_back, activity_is_due_exactly_when_the_clock_says_it_is
+- the selector's reads are timed on the system clock, not its own (src/provider/model.rs): killed by a_failures_hold_ends_while_the_machine_sleeps, rows_read_before_the_machine_slept_are_stale_after_it, the_catalog_is_read_by_a_first_load_the_menu_and_activity_only_and_never_while_idle
+- a prompt reads the system clock, not the band's (src/tui/shell.rs): killed by rows_and_a_failure_read_before_the_machine_slept_are_due_on_waking
+- a resume or fork asks nothing (src/tui/shell.rs): killed by a_resume_or_a_fork_is_activity_for_the_catalog
+- /settings asks with activity's trigger (src/tui/shell.rs): killed by a_bare_settings_opens_upstreams_menu_under_the_composer, settings_and_the_speed_commands_wait_for_the_catalog_and_never_ask_for_a_read
+- the speed commands ask with activity's trigger (src/tui/shell.rs): killed by a_speed_command_before_the_catalog_waits_for_it_in_order_and_dies_with_the_provider, settings_and_the_speed_commands_wait_for_the_catalog_and_never_ask_for_a_read
+- TOLD carries activity's trigger (src/tui/bridge.rs): killed by settings_and_the_speed_commands_wait_for_the_catalog_and_never_ask_for_a_read
+- the runtime reads for an ask with no trigger (src/tui/worker.rs): SURVIVED
+- the column's frame asks nothing (fx's modelCompletions does) (src/tui/shell.rs): killed by the_columns_frames_wait_out_a_failed_catalogs_backoff
+11 of 12 killed
