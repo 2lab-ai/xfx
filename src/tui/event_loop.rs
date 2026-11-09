@@ -10318,6 +10318,60 @@ mod tests {
     }
 
     #[test]
+    fn an_exit_after_the_cards_frame_was_refused_still_writes_the_card() {
+        // The card's frame refused in the tick that showed its preview: the
+        // card is owed, and nothing previews it any more. A session that
+        // leaves before another tick, its drain carrying nothing, writes it
+        // in the exit's own frame, as it writes a card still previewed.
+        let words: Vec<String> = ["EXITR-ONE", "EXITR-TWO", "EXITR-THREE"]
+            .map(String::from)
+            .to_vec();
+        let (mut shell, mut band, mut failures, out, mut terminal) = full_with_draft(&words);
+        let mut out = Scripted {
+            script: vec![Step::Take, Step::Refuse],
+            update: 0,
+            torn: false,
+            written: out.written,
+            took: Vec::new(),
+        };
+        shell.route_bytes(b"\r");
+        commit_counted(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the tick, its card's frame refused");
+        assert!(
+            out.took.len() == 2 && out.took[1] == 0 && !shell.previewing() && shell.owes_document(),
+            "the card's frame was not what was refused, so this case proves nothing: {:?}",
+            out.took
+        );
+        let asked = std::cell::Cell::new(0usize);
+        let broken = shut_down(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            true,
+            Shutdown {
+                reconcile: |_, _| Ok(Reconciled),
+                drain: |_taken| {},
+                size: sized((40, 120), &asked),
+            },
+        );
+        assert!(broken.is_none(), "the screen refused: {broken:?}");
+        terminal.catch_up(&out.written);
+        card_once(
+            &terminal,
+            &words,
+            "an exit after the card's frame was refused",
+        );
+    }
+
+    #[test]
     fn a_band_that_did_not_grow_scrolls_the_document_for_nothing() {
         // The bound, and it is the expensive direction to get wrong: a scroll
         // cannot be taken back -- what leaves the top of the screen is in the
