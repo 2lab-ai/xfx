@@ -1,0 +1,8 @@
+# the file checks at the receipt's head 3b450460 (TMPDIR=<tmp>), 2026-11-09T17:07:09Z; this file is committed after them
+check-no-secrets: check-no-secrets: ok (17232 tracked file(s) scanned)
+check-xfx-identity: check-xfx-identity: ok (17232 tracked file(s) scanned)
+check-no-stubs: check-no-stubs: ok
+cargo fmt --check: ok
+redaction: the brief's grep (added lines of git diff 32afd307..HEAD, its four local-path patterns) = 0
+src, tests, build.rs, Cargo.* changed after 81ee1733: 0 diffstat lines
+an earlier run at 3c94797f: check-xfx-identity found the retired name inside a placeholder in binaries.txt; 3b450460 renamed the placeholder
