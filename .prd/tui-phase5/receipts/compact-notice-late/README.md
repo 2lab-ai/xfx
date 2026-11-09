@@ -55,7 +55,7 @@ Which build each receipt used:
 | `red3-base.txt` | `58c92ba2`'s code with the round-3 race test adapted to its API | a clone, the diff in the file |
 | `sweep-head4.md` | `730d36d1` | its banner, `v0.1.0-730d36d` |
 | `mutants4.txt` | `730d36d1` | the clone's first line |
-| `gate3.txt` | the round 3 receipt commit | the gate's first line |
+| `gate3.txt` | `111a6337`, round 3 | the gate's first line |
 
 ## What CI drew (`ci-dump.txt`)
 
@@ -349,9 +349,13 @@ reads (`../osc-program-status/fx/`).
 
 ## Gate
 
-Round 3: `../train-7/gates.sh`, unchanged, at the round 3 receipt commit (the code is
-`730d36d1`'s), in one hold of the suite lock: `gate3.txt`, in the commit after it. Round 2's is
-`gate2.txt` (20 steps, 0 failed at `83cb5a1f`), round 1's `gate.txt`.
+Round 3: `../train-7/gates.sh`, unchanged, at `111a6337` (the round 3 receipt commit; the code
+is `730d36d1`'s), the tree clean before and after, in one hold of the suite lock (`gate3.txt`):
+**20 steps, 0 failed**. fmt, clippy and clippy with the fault injector; `cargo test` (5,457
+passed, 0 failed, 15 binaries) and with the fault injector (5,494 passed, 0 failed); every
+`check-*.sh` and `test-*.sh`; fxcap `test-sweep` and `test-capture`; both release builds; `smoke`
+and `smoke-tui`. This unit's twelve tests and the original one pass in both test runs. Round 2's
+is `gate2.txt` (20 steps, 0 failed at `83cb5a1f`), round 1's `gate.txt`.
 
 ## A neighbour looked at
 

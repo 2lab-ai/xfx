@@ -1,0 +1,55 @@
+# ../train-7/gates.sh (unchanged), in one hold of the suite lock: suite-lock.sh gates.sh <repo> <log-dir> <smoke-dir>, TMPDIR=<tmp>
+# head 111a6337; tree clean: yes
+01 fmt                                exit 0     1s  load 6.44
+02 clippy                             exit 0     6s  load 6.44
+03 clippy-fault                       exit 0     5s  load 6.48
+04 test                               exit 0   105s  load 6.36
+05 test-fault                         exit 0   116s  load 6.71
+06 check-xfx-identity                 exit 0     1s  load 7.03
+07 check-no-stubs                     exit 0     8s  load 7.03
+08 check-no-secrets                   exit 0    33s  load 7.01
+09 check-preview-contract             exit 0     3s  load 7.54
+10 check-tui-preflight-cost           exit 0    84s  load 7.54
+11 check-usage-clock                  exit 0     1s  load 16.13
+12 test-check-no-secrets              exit 0    85s  load 16.13
+13 test-gate-env                      exit 0   355s  load 13.56
+14 test-preview-contract              exit 0    75s  load 15.12
+15 fxcap-test-sweep                   exit 0    16s  load 10.43
+16 fxcap-test-capture                 exit 0   271s  load 9.82
+17 build-release                      exit 0    14s  load 6.43
+18 build-faulty                       exit 0    20s  load 8.84
+19 smoke                              exit 0     2s  load 14.84
+20 smoke-tui                          exit 0    63s  load 14.05
+# 20 steps, 0 failed; tree clean after: yes
+
+# the two test steps, summed over their test binaries ("test result:" lines)
+04-test.log: 5457 passed, 0 failed, 7 ignored, 15 binaries
+05-test-fault.log: 5494 passed, 0 failed, 7 ignored, 15 binaries
+
+# this unit's twelve tests and the original one, in both
+04 test tui::event_loop::tests::a_line_after_a_stop_that_dropped_the_compaction_has_its_turn_to_itself ... ok
+04 test tui::event_loop::tests::a_stopped_compactions_sentence_the_next_line_took_away_stays_away ... ok
+04 test tui::shell::tests::a_compact_typed_while_a_reset_drains_answers_as_upstreams_would ... ok
+04 test tui::shell::tests::a_compaction_dropped_unstarted_reports_idle_after_a_failed_ones_error ... ok
+04 test tui::shell::tests::a_compaction_stopped_before_the_runtime_took_it_ends_cancelled ... ok
+04 test tui::shell::tests::a_line_sent_while_a_compaction_stops_takes_the_sentence_only_of_one_that_never_began ... ok
+04 test tui::worker::tests::a_compaction_a_stop_drops_while_other_work_lets_go_frees_its_place_at_once ... ok
+04 test tui::worker::tests::a_compaction_dropped_in_a_turns_race_with_no_room_is_told_after_that_turn_and_before_more_work ... ok
+04 test tui::worker::tests::a_compaction_dropped_with_no_room_for_its_word_is_told_once_before_the_reset_after_it ... ok
+04 test tui::worker::tests::a_dropped_compactions_place_is_held_until_its_ending_is_on_the_channel ... ok
+04 test tui::worker::tests::a_compaction_a_stop_drops_before_it_began_is_told_how_it_ended ... ok
+04 test tui::worker::tests::a_session_that_ends_with_a_drop_still_untold_ends_when_the_band_closes_its_channel ... ok
+04 test ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes ... ok
+05 test tui::event_loop::tests::a_line_after_a_stop_that_dropped_the_compaction_has_its_turn_to_itself ... ok
+05 test tui::event_loop::tests::a_stopped_compactions_sentence_the_next_line_took_away_stays_away ... ok
+05 test tui::shell::tests::a_compact_typed_while_a_reset_drains_answers_as_upstreams_would ... ok
+05 test tui::shell::tests::a_compaction_dropped_unstarted_reports_idle_after_a_failed_ones_error ... ok
+05 test tui::shell::tests::a_compaction_stopped_before_the_runtime_took_it_ends_cancelled ... ok
+05 test tui::shell::tests::a_line_sent_while_a_compaction_stops_takes_the_sentence_only_of_one_that_never_began ... ok
+05 test tui::worker::tests::a_compaction_a_stop_drops_while_other_work_lets_go_frees_its_place_at_once ... ok
+05 test tui::worker::tests::a_compaction_dropped_with_no_room_for_its_word_is_told_once_before_the_reset_after_it ... ok
+05 test tui::worker::tests::a_compaction_dropped_in_a_turns_race_with_no_room_is_told_after_that_turn_and_before_more_work ... ok
+05 test tui::worker::tests::a_dropped_compactions_place_is_held_until_its_ending_is_on_the_channel ... ok
+05 test tui::worker::tests::a_compaction_a_stop_drops_before_it_began_is_told_how_it_ended ... ok
+05 test tui::worker::tests::a_session_that_ends_with_a_drop_still_untold_ends_when_the_band_closes_its_channel ... ok
+05 test ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes ... ok
