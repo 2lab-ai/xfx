@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-32afd30 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mread the notes and tell me what they say[0m
+
+[38;5;255m●[39m [38;5;245m1 tool call · 1 read[39m
+[38;5;245m└ Read notes.txt[39m
+
+  The notes say the meeting moved to Thursday.
+
+[38;5;245m  0s (↑10 ↓80)[39m
+
+[38;5;250m* provider: Preparing Vercel AI Gateway.[39m
+
+[38;5;250m* provider: Switched to Vercel AI Gateway with fake/model-a.
+
+[38;5;255m┃[39m [1mwhat day was it again?[0m
+
+[38;5;252m▪[39m [38;5;255mCancelled[39m · What can xfx do differently?
+
+[38;5;255m┃[39m [1mand after the stop?[0m
+
+[38;5;252m! session:[38;5;250m this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that[39m
+  [38;5;250mreasoning was not carried over[39m
+
+  MARKER-AFTER-STOP: still Thursday.
+
+[38;5;245m  0s (↑6 ↓40)[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a · read the notes and tell me what  · 1k[39m
+
+
+
+
+
+
+
+
+
