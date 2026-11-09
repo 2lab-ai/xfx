@@ -13,7 +13,7 @@ import sys
 
 TESTS = [
     "a_resumed_", "a_hostile_answer_document", "a_saved_", "anything_but_an_answer",
-    "a_hostile_log_reaches_the_ui_inert", "an_ask_replays", "a_step_that_asked",
+    "a_hostile_log_reaches_the_ui_inert", "an_ask_replays", "a_step_that_asked", "the_twenty_first_element", "a_skipped_value_is_not_checked",
     "a_question_is_never_part_of_a_group",
 ]
 
@@ -47,6 +47,8 @@ MUTANTS = [
       (Q, "match seq.next_element::<Element>()? {\n                Some(Element(answer)) => answers.push(answer),", "match seq.next_element::<SavedAnswer>()? {\n                Some(answer) => answers.push(answer),")]),
     ("M13 the early count stop removed: any count past twenty decodes",
      [(Q, "if answers.len() == MAX_QUESTIONS {", "if false && answers.len() == MAX_QUESTIONS {")]),
+    ("M16 `IgnoredAny` put back for the twenty-first: its value is scanned before the count's refusal",
+     [(Q, "return match seq.next_element_seed(TwentyFirst)? {\n                    Some(()) =>", "return match seq.next_element::<serde::de::IgnoredAny>()? {\n                    Some(_) =>")]),
     ("M14 `question` or `answer` given twice accepted (the last one kept)",
      [(Q, "if slot.is_some() {", "if false && slot.is_some() {")]),
     ("M15 a key nobody reads given twice accepted",

@@ -263,9 +263,9 @@ either side.
 ## Mutants (`mutants.py`, `mutants.txt`)
 
 `mutants.py` ran on a throwaway `git clone --no-local` of the repository at
-`63e8bbeb`, never on the worktree, under one suite-lock slot. Each mutant is
+`9a2921ce` (round 3), never on the worktree, under one suite-lock slot. Each mutant is
 one or two exact substitutions (each asserted to match once), then the
-unit's tests, then `git checkout -- .`. **15 of 15 killed** (round 1: 11 of 11 at `a623824c`); the clone was clean after the run.
+unit's tests, then `git checkout -- .`. **16 of 16 killed** (round 2: 15 of 15 at `63e8bbeb`; round 1: 11 of 11 at `a623824c`); the clone was clean after the run.
 
 | mutant | what it puts back or breaks |
 |---|---|
@@ -282,6 +282,7 @@ unit's tests, then `git checkout -- .`. **15 of 15 killed** (round 1: 11 of 11 a
 | M13 | the early count stop removed: any count past twenty decodes |
 | M14 | `question` or `answer` given twice accepted |
 | M15 | an unread key given twice accepted |
+| M16 | `IgnoredAny` put back for the twenty-first (round 2's code): its value is scanned before the count's refusal; killed by `the_twenty_first_element_is_refused_at_its_first_byte_unread` |
 
 `mutants.txt` names the tests each one failed.
 
@@ -339,7 +340,7 @@ figures (in `1f4b3d03`).
 | `fx/`, `red/`, `xfx/` | the captures: fx v0.0.16, xfx at the base, xfx at the round-2 code head `63e8bbeb` |
 | `compare.py` | the pair comparison: raw `cells.py`, then the ledger's normalizations |
 | `red.txt`, `green.txt` | `compare.py` over `fx/` against `red/` and against `xfx/` |
-| `red-tests.txt`, `red-tests-r2.txt` | the RED tests at `3bd76ddb` and round 2's at `300b98fc` |
+| `red-tests.txt`, `red-tests-r2.txt`, `red-tests-r3.txt` | the RED tests at `3bd76ddb`, round 2's at `300b98fc`, round 3's at `37cdd637` |
 | `fx-src.txt` | every fx line cited, at `481104fd` (and `c1db9191` for the old bound) |
 | `probe/` | live Ctrl-O (`qr-ctrlo.cap`, not a committed scenario): fx and xfx at the code head, `compare.txt` |
 | `mutants.py`, `mutants.txt` | the mutants and their results |
