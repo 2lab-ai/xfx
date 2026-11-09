@@ -35161,6 +35161,155 @@ mod tests {
         );
     }
 
+    /// Turns of the loop until the index's walks are done, and then the
+    /// list's rows.
+    fn walked(shell: &mut Fixture) {
+        let deadline = Instant::now() + START_PATIENCE;
+        while shell.files_for_test().busy() {
+            assert!(Instant::now() < deadline, "the walk never finished");
+            std::thread::sleep(Duration::from_millis(2));
+            shell.settle_band(Instant::now());
+        }
+        listed(shell);
+    }
+
+    #[test]
+    fn a_new_episode_during_a_walk_queues_one_walk_and_its_rows_show() {
+        // Round 6 (gpt6 r5 MUST): fx keeps a refresh asked for while a walk
+        // runs as one pending scope (`refreshOwnedRoots`,
+        // `replacePendingRoots`, `file_index.zig:488-523@481104fd`) and starts
+        // it when that walk ends (`joinThreadIfDone`, `:443-451`). So a file
+        // added while the index is walked, and an `@` opened during that
+        // walk, shows once the queued walk lands.
+        let (workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@sch");
+        // That episode's walk, driven by the case from here on.
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        std::fs::write(workspace.path().join("src/newmod.rs"), "").expect("a file");
+        shell.clear_composer();
+        let walks = shell.files_for_test().walks_for_test();
+        shell.route_bytes(b"@newm");
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks,
+            "a walk started beside the running one"
+        );
+        walk.send(super::super::file_index::Published::More(
+            super::super::file_index::tests::candidates(&["Cargo.toml", "src/", "src/main.rs"]),
+        ))
+        .expect("the walk");
+        walk.send(super::super::file_index::Published::Ready)
+            .expect("the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "the refresh asked for during the walk never ran"
+        );
+        walked(&mut shell);
+        assert_eq!(listed_paths(&shell), ["src/newmod.rs"]);
+    }
+
+    #[test]
+    fn two_requests_during_one_walk_queue_one_walk() {
+        // fx coalesces: one pending scope however many requests come during a
+        // walk (`replacePendingRoots`, `file_index.zig:511-523@481104fd`). A
+        // kind change back to an indexed query and a new episode, both during
+        // one walk, make one walk after it, and none after that.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@sch");
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        let walks = shell.files_for_test().walks_for_test();
+        shell.route_bytes(b"/");
+        shell.route_bytes(&[0x7f]);
+        assert_eq!(shell.editor.text(), "@sch");
+        shell.clear_composer();
+        shell.route_bytes(b"@sch");
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks,
+            "a request during the walk started one beside it"
+        );
+        walk.send(super::super::file_index::Published::Ready)
+            .expect("the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 1);
+        walked(&mut shell);
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "more than one walk was queued"
+        );
+        assert_eq!(listed_paths(&shell), ["src/deep/sched.rs"]);
+    }
+
+    #[test]
+    fn a_failed_walk_with_a_refresh_queued_walks_again_and_shows_rows() {
+        // fx starts the pending scope whatever the walk ended in, `.failed`
+        // included (`joinThreadIfDone`, `file_index.zig:432-451@481104fd`), and
+        // a load started clears the first index's failure (`startLoad`,
+        // `:389`). So an `@` opened while the first walk runs, and then that
+        // walk failing, shows `indexing files...` and then rows -- not `Files
+        // unavailable` until Tab.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@sch");
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.clear_composer();
+        shell.route_bytes(b"@sch");
+        let walks = shell.files_for_test().walks_for_test();
+        walk.send(super::super::file_index::Published::Failed)
+            .expect("the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "the refresh queued during the failed walk never ran"
+        );
+        assert_eq!(
+            shell.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Loading),
+            "the list said the files were unavailable"
+        );
+        walked(&mut shell);
+        assert_eq!(listed_paths(&shell), ["src/deep/sched.rs"]);
+    }
+
+    #[test]
+    fn a_workspace_change_under_an_open_indexed_list_walks_the_new_roots() {
+        // Round 6 (opus r5 SHOULD 2): fx's reconcile asks for a refresh when
+        // the scope's epoch moved (`self.scope_epoch != scope_epoch`,
+        // `file_completion_state.zig:164@481104fd`), which a workspace change
+        // does (`invalidateScope`, `app_workspace_runtime.zig:98-104`). So an
+        // open `@plan` list, then a directory added that holds `plan.md`,
+        // walks the new roots and lists it.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let extra = tempfile::tempdir().expect("an extra root");
+        let extra_path = extra.path().canonicalize().expect("canonical");
+        std::fs::write(extra_path.join("plan.md"), "").expect("a file");
+        shell.route_bytes(b"@plan");
+        walked(&mut shell);
+        assert!(listed_paths(&shell).is_empty(), "the workspace has a plan");
+        let walks = shell.files_for_test().walks_for_test();
+        let access = WorkspaceAccess::load(
+            &shell.workspace.clone(),
+            &[extra_path.display().to_string()],
+        );
+        shell.apply(UiEvent::Workspace {
+            notice: notice::Notice::neutral("workspace", "added"),
+            access: Some(access),
+        });
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "the open list kept the old roots' rows"
+        );
+        walked(&mut shell);
+        assert_eq!(
+            listed_paths(&shell),
+            [format!("{}/plan.md", extra_path.display())]
+        );
+    }
+
     #[test]
     fn a_folder_query_edited_into_an_indexed_one_asks_for_the_refresh() {
         // fx's reconcile asks for the index refresh again when the query
