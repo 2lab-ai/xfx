@@ -616,11 +616,18 @@ clone at `15e37f4a`) and the same on round 7's (`red7-r7.txt`, the code of
   passes. Over the tree, before the two receipts were rewritten, it hit
   their two lines and nothing else (`counts.txt`: the shape in 2 files at
   `15e37f4a`, 0 at `797ebfa0`); at the head the check is ok (`gate.txt`).
-  The check's test plants `` (`claude-501/p5uc`) `` and passes the model
+  The check's test plants `` (`claude-<uid>/p5uc`) ``, with a uid, and passes the model
   paths; counts.sh counts the same shape (`counts.txt`).
 - **NITs**: the nested-root test and red6.sh use `/Users/someone`, the
   check's own placeholder home, not an assembled one; roots-mutants.py
   prints the first failing subTest.
+- **One more commit fails the check**: `2e90c292`'s section 11 quoted the
+  plant with its uid, which the widened shape refuses. The check ran after
+  `git add` and refused; `set -e` does not hold inside the shell's `eval`,
+  so the commit went on. The line is now `claude-<uid>`, and every commit
+  after it runs behind an explicit `if <check>; then git commit; fi`.
+  `1d707ba4`'s commit message quotes the same fragment, the one already on
+  main; a commit message is outside the check's scope (tracked files).
 
 ## Left as it is
 
