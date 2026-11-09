@@ -1,8 +1,8 @@
-pairs: base 39, head 39
-base: pass 18/39  normalized-identical 18, unresolved-defect 21
-head: pass 34/39  normalized-identical 34, unresolved-defect 5
+pairs: base 48, head 48
+base: pass 19/48  normalized-identical 19, unresolved-defect 29
+head: pass 43/48  normalized-identical 43, unresolved-defect 5
 
-moved to passing: 16
+moved to passing: 24
   p5-page-keys-column effort-pgup: unresolved-defect -> normalized-identical
   p5-page-keys-column levels-pgup: unresolved-defect -> normalized-identical
   p5-page-keys-column model-cj: unresolved-defect -> normalized-identical
@@ -17,6 +17,14 @@ moved to passing: 16
   p5-page-keys-mcp args-pgdn2: unresolved-defect -> normalized-identical
   p5-page-keys-mcp args-pgup: unresolved-defect -> normalized-identical
   p5-page-keys-mcp args-pgup2: unresolved-defect -> normalized-identical
+  p5-page-keys-mcp wrapped-cj: unresolved-defect -> normalized-identical
+  p5-page-keys-mcp wrapped-pgdn: unresolved-defect -> normalized-identical
+  p5-page-keys-mcp wrapped-pgup: unresolved-defect -> normalized-identical
+  p5-page-keys-mcp wrapped-up: unresolved-defect -> normalized-identical
+  p5-page-keys-settings empty: unresolved-defect -> normalized-identical
+  p5-page-keys-settings empty-down: unresolved-defect -> normalized-identical
+  p5-page-keys-settings empty-pgup: unresolved-defect -> normalized-identical
+  p5-page-keys-settings empty-up: unresolved-defect -> normalized-identical
   p5-page-keys-settings menu-cj: unresolved-defect -> normalized-identical
   p5-page-keys-settings menu-ck: unresolved-defect -> normalized-identical
 

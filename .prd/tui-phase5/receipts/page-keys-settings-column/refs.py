@@ -8,6 +8,10 @@ tree (the head's, once committed): every ref must name a line of <head>
 whose text is the line the same ref named at <base>, and a ref to a line this unit changed is reported, not
 mapped.
 
+`scripts/fxcap/capfile.py`'s two `warning_shown` ranges (round 2) are
+checked the same way, each end by its text: they are a range and a bare
+`:a-b` after it, so `--rewrite` leaves them to a hand edit.
+
 usage: python3 -I refs.py <base> <head> [--rewrite]   (run in the repo)
 """
 
@@ -79,6 +83,16 @@ def main():
         if len(refs_before) != len(refs_after):
             print(f"{doc}: {len(refs_before)} refs at the base, {len(refs_after)} at the head")
     if not rewrite:
+        cap = "scripts/fxcap/capfile.py"
+        pattern = re.compile(r"src/tui/shell\.rs:(\d+)-(\d+), the full\s+#\s+transcript at :(\d+)-(\d+)")
+        before = [int(n) for n in pattern.search(git("show", f"{base}:{cap}")).groups()]
+        after = [int(n) for n in pattern.search(open(cap, encoding="utf-8").read()).groups()]
+        old, new = old_text["src/tui/shell.rs"], new_text["src/tui/shell.rs"]
+        for o, n in zip(before, after):
+            total += 1
+            ok = old[o - 1] == new[n - 1] and maps["src/tui/shell.rs"](o) == n
+            wrong += not ok
+            print(f"{cap}: src/tui/shell.rs:{o} -> :{n}  {'same text' if ok else 'WRONG'}  {new[n - 1].strip()[:60]!r}")
         print(f"refs: {total}; wrong: {wrong}")
 
 

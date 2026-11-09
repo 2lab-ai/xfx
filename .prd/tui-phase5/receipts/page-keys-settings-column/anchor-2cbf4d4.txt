@@ -1,0 +1,9 @@
+# the /mcp wrapped pairs on 2cbf4d41 (round 2's first fix, before anchor_at went through column_anchor), fx/ against xfx-2cbf4d4/, cells.py:
+## wrapped-up
+6 rows differ in their cells (row 1 not compared)
+fx   row 7:   show s01  disabled
+xfx  row 7:        show s01  disabled
+## wrapped-pgup
+6 rows differ in their cells (row 1 not compared)
+fx   row 7:   show s01  disabled
+xfx  row 7:        show s01  disabled

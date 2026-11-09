@@ -179,6 +179,14 @@
  1617              if (!app.skills.menu.active) return false;
  1618              return byte == ' ' or commandSkillsMenuActive(app);
  1619          }
+== src/core/app/app_input_runtime.zig:1984-1990@481104fd
+ 1984          fn dismissActiveMenusForComposerEdit(app: *App) bool {
+ 1985              // The fork and effort menus read no query from the composer, so
+ 1986              // an edit closes them.
+ 1987              const fork_menu_closed = cancelForkMenu(app);
+ 1988              const effort_menu_closed = cancelEffortMenu(app);
+ 1989              return dismissAuthPickerForComposerEdit(app) or fork_menu_closed or effort_menu_closed;
+ 1990          }
 == src/ui/footer/input_presentation.zig:252-255@481104fd
   252  pub fn inputRowLimit(content_bottom: u16) usize {
   253      const max_extra: usize = if (content_bottom > 4) content_bottom / 2 else 0;
@@ -195,7 +203,11 @@
   178              navigateSlashCompletion(app, delta, count);
   179              return true;
   180          }
-== src/core/app/input_completion_runtime.zig:215-260@481104fd
+== src/core/app/input_completion_runtime.zig:211-213@481104fd
+  211          pub fn routePlainVertical(app: *App, direction: visual_layout.Direction, delta: i32) !void {
+  212              try routeComposerVertical(app, direction, delta, false, false);
+  213          }
+== src/core/app/input_completion_runtime.zig:215-292@481104fd
   215          pub fn routeComposerVertical(
   216              app: *App,
   217              direction: visual_layout.Direction,
@@ -242,6 +254,38 @@
   258                  navigateSlashCompletion(app, picker_delta, visible_slash_count);
   259                  return;
   260              }
+  261  
+  262              if (app.input_runtime.vertical_navigation.applyTargetWithSelection(
+  263                  &app.input_runtime.edit_state,
+  264                  &app.input_runtime.entities,
+  265                  if (scan.target) |target| target.raw_offset else null,
+  266                  scan.preferred_column,
+  267                  extend_selection,
+  268              )) return;
+  269  
+  270              if (page or extend_selection) return;
+  271  
+  272              if (direction == .up and app.input_runtime.edit_state.cursor > 0) {
+  273                  _ = horizontal_navigation.move(
+  274                      .draft_start,
+  275                      &app.input_runtime.edit_state,
+  276                      &app.input_runtime.entities,
+  277                      &app.input_runtime.vertical_navigation,
+  278                  );
+  279              } else if (direction == .up) {
+  280                  if (try restoreQueuedSteerToComposer(app)) return;
+  281                  try navigatePromptHistory(app, -1);
+  282              } else if (app.input_runtime.edit_state.cursor < app.input_runtime.edit_state.input.items.len) {
+  283                  _ = horizontal_navigation.move(
+  284                      .draft_end,
+  285                      &app.input_runtime.edit_state,
+  286                      &app.input_runtime.entities,
+  287                      &app.input_runtime.vertical_navigation,
+  288                  );
+  289              } else {
+  290                  try navigatePromptHistory(app, 1);
+  291              }
+  292          }
 == src/core/app/input_completion_runtime.zig:390-422@481104fd
   390          pub fn routeVisiblePickerMove(app: *App, delta: i32) !bool {
   391              if (try routeNonSlashPickerMove(app, delta)) return true;

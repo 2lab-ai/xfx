@@ -1,4 +1,5 @@
-"""Where each capture's mark is: for every snap in fx/, xfx-base/ and xfx/,
+"""Where each capture's mark is: for every snap in fx/, xfx-base/, xfx-r1/
+(round 1's head) and xfx/,
 each indented row whose text starts bold -- the marked setting, model,
 level, speed or `/mcp` line, and under /settings' Model row the list's
 marked model as well (a value in a settings row is bold too, but never
@@ -46,10 +47,10 @@ def mark(path):
 def main():
     for fx in sorted(glob.glob(os.path.join(HERE, "fx", "*.ansi"))):
         name = os.path.basename(fx)
-        sides = [fx, os.path.join(HERE, "xfx-base", "x" + name), os.path.join(HERE, "xfx", "x" + name)]
+        sides = [fx] + [os.path.join(HERE, side, "x" + name) for side in ("xfx-base", "xfx-r1", "xfx")]
         got = [mark(p) if os.path.exists(p) else "-" for p in sides]
-        verdict = "same" if got[0] == got[2] else "DIFFERS"
-        print(f"{name[3:-5]:42} {verdict:7} fx {got[0]:40} base {got[1]:40} head {got[2]}")
+        verdict = "same" if got[0] == got[3] else "DIFFERS"
+        print(f"{name[3:-5]:42} {verdict:7} fx {got[0]:40} base {got[1]:40} r1 {got[2]:40} head {got[3]}")
 
 
 if __name__ == "__main__":

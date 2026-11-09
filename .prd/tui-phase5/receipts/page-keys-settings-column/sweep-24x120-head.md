@@ -1,9 +1,9 @@
 # fx parity sweep
 
 - fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
-- xfx: `x𝒇x v0.1.0-c4bfa8b [debug] · Run /help for commands`, sha256 `2f9161d80d0833ea21827cdc8c60fbce9181b931dc76bb923b5afbe4c4de6602`
-- size 24x120, `--jobs 2`, 3 scenarios -- **PARTIAL**: `--only p5-page-keys-*`, wall 1m28s, load 38.3 at the start and 41.9 at the peak (1-minute average, sampled every 5 s)
-- ledger sha256 `fddfe5da938327f3b1e5fb12337fa4cb87d7342f6dc0d1c3d16eeab25f7553be`: 14 normalizations; 19 divergences approved for this pin
+- xfx: `x𝒇x v0.1.0-0312cf4 [debug] · Run /help for commands`, sha256 `0bd74fd148458c0edac0c72ff9187b00941b7451281666b306e232ba65409152`
+- size 24x120, `--jobs 2`, 3 scenarios -- **PARTIAL**: `--only p5-page-keys-*`, wall 1m31s, load 58.6 at the start and 71.5 at the peak (1-minute average, sampled every 5 s)
+- ledger sha256 `407f66a7feac087d0d2d1895c46280fc08320d14960eab8a0d40556de93a3f11`: 14 normalizations; 19 divergences approved for this pin
 
 ## Coverage
 
@@ -14,11 +14,11 @@ Tokens typed as commands that are no command of this inventory (aliases, partial
 
 Scenarios: 3 -- ran 3, failed 0, timeout 0.
 
-**pass = 34 / 39 = 87.2%**
+**pass = 43 / 48 = 89.6%**
 
 | total | ran | identical | normalized-identical | approved-divergence | approved-divergence-cascade | replaced-in-next-pin | unresolved-defect | failed | timeout |
 |---|---|---|---|---|---|---|---|---|---|
-| 39 | 39 | 0 | 34 | 0 | 0 | 0 | 5 | 0 | 0 |
+| 48 | 48 | 0 | 43 | 0 | 0 | 0 | 5 | 0 | 0 |
 
 The unit is the snap pair: one `snap` or `snapfull` label of a scenario, read from its .cap file, so a scenario that failed or timed out counts every snap it would have taken. pass = (identical + normalized-identical) / total. approved-divergence-cascade is a pair that differs by position beyond its approved rows (a row they pushed down) and whose every row left without a match, the two sides aligned as sequences, is approved; the positional diff stays in the raw output.
 
@@ -28,7 +28,7 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 
 | group | scenarios | total | ran | identical | normalized-identical | approved-divergence | approved-divergence-cascade | replaced-in-next-pin | unresolved-defect | failed | timeout | pass |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| p | 3 | 39 | 39 | 0 | 34 | 0 | 0 | 0 | 5 | 0 | 0 | 87.2% |
+| p | 3 | 48 | 48 | 0 | 43 | 0 | 0 | 0 | 5 | 0 | 0 | 89.6% |
 
 ## By surface
 
@@ -57,7 +57,7 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 | `/effort` | 1 | 17 | 17 | 0 | 17 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |
 | `/fast` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `/ultrafast` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
-| `/settings` | 1 | 15 | 15 | 0 | 10 | 0 | 0 | 0 | 5 | 0 | 0 | 66.7% |
+| `/settings` | 1 | 19 | 19 | 0 | 14 | 0 | 0 | 0 | 5 | 0 | 0 | 73.7% |
 | `/statusline` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `/sound` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `/permissions` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
@@ -67,7 +67,7 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 | `/image` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `/images` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `/paste` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
-| `/mcp` | 1 | 7 | 7 | 0 | 7 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |
+| `/mcp` | 1 | 12 | 12 | 0 | 12 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |
 | `/skills` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `/alias` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `/feedback` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
@@ -76,17 +76,17 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 | `help: tab category` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `help: enter open` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `help: esc close` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
-| `slash: ↑↓ navigate` | 1 | 15 | 15 | 0 | 10 | 0 | 0 | 0 | 5 | 0 | 0 | 66.7% |
-| `slash: enter use` | 1 | 15 | 15 | 0 | 10 | 0 | 0 | 0 | 5 | 0 | 0 | 66.7% |
-| `slash: esc close` | 1 | 15 | 15 | 0 | 10 | 0 | 0 | 0 | 5 | 0 | 0 | 66.7% |
+| `slash: ↑↓ navigate` | 2 | 31 | 31 | 0 | 26 | 0 | 0 | 0 | 5 | 0 | 0 | 83.9% |
+| `slash: enter use` | 1 | 19 | 19 | 0 | 14 | 0 | 0 | 0 | 5 | 0 | 0 | 73.7% |
+| `slash: esc close` | 1 | 19 | 19 | 0 | 14 | 0 | 0 | 0 | 5 | 0 | 0 | 73.7% |
 
 ## By scenario
 
 | scenario | status | total | ran | identical | normalized-identical | approved-divergence | approved-divergence-cascade | replaced-in-next-pin | unresolved-defect | failed | timeout | pass | first unresolved row (fx / xfx) |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | p5-page-keys-column | ran | 17 | 17 | 0 | 17 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
-| p5-page-keys-mcp | ran | 7 | 7 | 0 | 7 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
-| p5-page-keys-settings | ran | 15 | 15 | 0 | 10 | 0 | 0 | 0 | 5 | 0 | 0 | 66.7% | menu row 18: `  Sound level              off  on  max` / `  Sound level              off  on` (aligned: 1/1 rows unmatched) |
+| p5-page-keys-mcp | ran | 12 | 12 | 0 | 12 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
+| p5-page-keys-settings | ran | 19 | 19 | 0 | 14 | 0 | 0 | 0 | 5 | 0 | 0 | 73.7% | menu row 18: `  Sound level              off  on  max` / `  Sound level              off  on` (aligned: 1/1 rows unmatched) |
 
 ## Causes of the unresolved snaps
 

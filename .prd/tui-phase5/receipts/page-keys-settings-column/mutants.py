@@ -1,5 +1,6 @@
-"""PAGE-KEYS-SETTINGS-COLUMN's mutants, each on a `git clone --no-local`
-throwaway of the head and never on the worktree. Per list (the /settings
+"""PAGE-KEYS-SETTINGS-COLUMN's mutants (round 1, and round 2's at the end of
+the list), each on a `git clone --no-local` throwaway of the head and never
+on the worktree. Per list (the /settings
 menu, the /model column, /mcp's argument completions): the page key back to
 nothing, a page of one row, and a page taken round the list where fx sends it
 to the far end; and for the two lists this unit gave them, `C-j`/`C-k` back
@@ -18,7 +19,9 @@ import time
 
 sys.dont_write_bytecode = True
 
-TESTS = ["at_24_rows"]
+TESTS = ["at_24_rows", "taller_composer", "under_the_full_transcript_the", "under_the_full_transcript_no_other"]
+# `anchor:argument-row-always` is the anchor before round 2's fix (`anchor_at`
+# at 2cbf4d41), killed by the /mcp case's anchor asserts.
 ROUND_SELECTED = (
     "self.selected = usize::try_from((i64::try_from(self.selected % count).unwrap() + delta)"
     ".rem_euclid(i64::try_from(count).unwrap())).unwrap();"
@@ -104,6 +107,63 @@ MUTANTS = [
         "pub(crate) fn step_by(",
         "self.selected = advanced(self.selected, count, delta);",
         ROUND_SELECTED,
+    ),
+    # Round 2.
+    (
+        "slash:arrows-at-any-height",
+        "src/tui/shell.rs",
+        "fn offer_to_picker(",
+        ") && self.composer_grown()",
+        ") && false",
+    ),
+    (
+        "mcp:arrows-at-any-height",
+        "src/tui/shell.rs",
+        "fn offer_to_mcp_args(",
+        ") && self.composer_grown()",
+        ") && false",
+    ),
+    (
+        "full-transcript:row-keys-reach-the-lists",
+        "src/tui/shell.rs",
+        "fn consume_inputs(",
+        "            if self.full.is_open()\n                && matches!(event, Input::Action(Action::ControlJ | Action::ControlK))",
+        "            if false",
+    ),
+    (
+        "settings:empty-list-spends-every-move",
+        "src/tui/shell.rs",
+        "fn offer_to_settings(",
+        "if delta.is_some() && !repaint {",
+        "if false {",
+    ),
+    (
+        "settings:empty-list-spends-the-arrows",
+        "src/tui/shell.rs",
+        "fn offer_to_settings(",
+        "if delta.is_some() && !repaint {",
+        "if matches!(request, SettingsAction::Row(_) | SettingsAction::Page(_)) && !repaint {",
+    ),
+    (
+        "anchor:argument-row-always",
+        "src/tui/shell.rs",
+        "fn anchor_at(",
+        "        self.column_anchor(start)\n",
+        "        PROMPT_CELLS.saturating_add(self.editor.point_of(start, self.text_cols()).1)\n",
+    ),
+    (
+        "settings:empty-list-spends-a-page",
+        "src/tui/shell.rs",
+        "fn offer_to_settings(",
+        "if delta.is_some() && !repaint {",
+        "if !matches!(request, SettingsAction::Page(_)) && delta.is_some() && !repaint {",
+    ),
+    (
+        "settings:empty-list-spends-row-keys",
+        "src/tui/shell.rs",
+        "fn offer_to_settings(",
+        "if delta.is_some() && !repaint {",
+        "if matches!(request, SettingsAction::Up | SettingsAction::Down | SettingsAction::Page(_)) && !repaint {",
     ),
 ]
 

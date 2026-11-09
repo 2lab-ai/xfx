@@ -20,10 +20,12 @@ q src/core/app/app_input_runtime.zig 870 894
 q src/core/app/app_input_runtime.zig 1036 1040
 q src/core/app/app_input_runtime.zig 1093 1116
 q src/core/app/app_input_runtime.zig 1593 1619
+q src/core/app/app_input_runtime.zig 1984 1990
 # The page and where it goes.
 q src/ui/footer/input_presentation.zig 252 255
 q src/core/app/input_completion_runtime.zig 171 180
-q src/core/app/input_completion_runtime.zig 215 260
+q src/core/app/input_completion_runtime.zig 211 213
+q src/core/app/input_completion_runtime.zig 215 292
 q src/core/app/input_completion_runtime.zig 390 422
 # 1. /settings' menu and its Model row's list.
 q src/core/app/input_completion_runtime.zig 431 463
