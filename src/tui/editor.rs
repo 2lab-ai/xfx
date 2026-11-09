@@ -437,11 +437,11 @@ impl Editor {
                 | Action::ControlK => {
                     return self.delete(range.start, range.end, DeltaKind::Kill);
                 }
-                Action::Left | Action::WordLeft | Action::AltB => {
+                Action::Left | Action::ComposerLeft | Action::WordLeft | Action::AltB => {
                     self.move_to(range.start);
                     return None;
                 }
-                Action::Right | Action::WordRight => {
+                Action::Right | Action::ComposerRight | Action::WordRight | Action::AltF => {
                     self.move_to(range.end);
                     return None;
                 }
@@ -449,24 +449,26 @@ impl Editor {
             }
         }
         match action {
-            Action::Left => {
+            // A composer move on either arrow is the step to an editor
+            // (`super::input::Action::ComposerLeft`).
+            Action::Left | Action::ComposerLeft => {
                 self.move_to(self.left());
                 None
             }
-            Action::Right => {
+            Action::Right | Action::ComposerRight => {
                 self.move_to(self.right());
                 None
             }
             // Upstream's word moves (`moveWordLeft`/`moveWordRight`,
             // `horizontal_navigation.zig:85-141`): by word characters, not by
             // whitespace -- so `foo.bar` is two words to a move and one to
-            // `C-w` -- and over a block whole. Alt-b is this move to an editor
-            // (`super::input::Action::AltB`).
+            // `C-w` -- and over a block whole. Alt-b and Alt-f are these moves
+            // to an editor (`super::input::Action::AltB`, `AltF`).
             Action::WordLeft | Action::AltB => {
                 self.move_to(self.outside(self.word_move_left(), Direction::Backward));
                 None
             }
-            Action::WordRight => {
+            Action::WordRight | Action::AltF => {
                 self.move_to(self.outside(self.word_move_right(), Direction::Forward));
                 None
             }

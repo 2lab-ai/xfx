@@ -109,11 +109,6 @@ impl Default for Draft {
 }
 
 impl Draft {
-    /// Whether this side has anything to say.
-    fn empty(&self) -> bool {
-        self.editor.is_empty()
-    }
-
     /// Puts `text` in at the caret and records the delta, if the budget admits
     /// it whole.
     ///
@@ -266,8 +261,9 @@ pub(crate) struct Block {
     pub choice: usize,
     /// The rows themselves, unindented: the surface owns its own indent.
     pub rows: Vec<String>,
-    /// The caret's row inside [`Self::rows`] and the cells to its left, for the
-    /// draft that has the keys. `None` on a draft that is merely being shown.
+    /// The caret's row inside [`Self::rows`] and the cells to its left. Only
+    /// the draft that has the keys is painted ([`Drafts::blocks`]), so this is
+    /// always set today; the surfaces read it as an `Option`.
     pub caret: Option<(usize, u16)>,
 }
 
@@ -460,30 +456,29 @@ impl Drafts {
         self.notice.take()
     }
 
-    /// The rows both drafts would paint, each at its own choice's width, in
-    /// choice order.
+    /// The rows the drafts paint, each at its own choice's width, in choice
+    /// order: the one that has the keys, or none.
     ///
-    /// A draft is shown while it has the keys **or** while it holds text: a
-    /// sentence the user typed and then navigated away from still travels if
-    /// they submit that choice, so hiding it would be sending something they
-    /// cannot read back. (Upstream shows only the draft being typed; this is
-    /// the one place xfx shows more, for that reason.)
+    /// **Only the draft being typed is painted**, as upstream paints it
+    /// (`appendFileApprovalChoiceLabel`, `approval_ui.zig:1181-1193@481104fd`;
+    /// `:1413-1418`, `:1688-1694`). A draft navigated away from is kept and
+    /// not shown: Tab on its choice opens it again with its text, and
+    /// submitting that choice sends it, painted or not, as upstream's does
+    /// (`materializeResponse`, `approval_decision.zig:112-127`).
     pub(crate) fn blocks(&self, width: impl Fn(usize) -> u16) -> Vec<Block> {
         let mut blocks = Vec::new();
         for choice in 0..super::approval::CHOICE_COUNT {
             let Some(side) = side(choice) else {
                 continue;
             };
-            let draft = &self.sides[side];
-            let open = self.active == Some(choice);
-            if !open && draft.empty() {
+            if self.active != Some(choice) {
                 continue;
             }
-            let (rows, caret) = draft.viewport(width(choice));
+            let (rows, caret) = self.sides[side].viewport(width(choice));
             blocks.push(Block {
                 choice,
                 rows,
-                caret: open.then_some(caret),
+                caret: Some(caret),
             });
         }
         blocks

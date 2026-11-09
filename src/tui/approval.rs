@@ -142,9 +142,10 @@ pub(crate) fn choice(index: usize) -> Option<ApprovalAnswer> {
 pub(crate) enum Action {
     /// A character the user typed. Only `1`, `2` and `3` mean anything.
     Text(char),
-    /// The previous choice.
+    /// The previous choice: Up, and Left and Alt-b while no draft is open
+    /// (`super::shell::Shell::decide`).
     Up,
-    /// The next one.
+    /// The next one: Down, and Right and Alt-f while no draft is open.
     Down,
     /// The next one, wrapping -- Tab is a cycle rather than a walk.
     Tab,
