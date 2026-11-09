@@ -29,3 +29,8 @@ exit 0
 04 test: 5468 passed, 0 failed, 7 ignored
 06 test-fault-lib: 4575 passed, 0 failed, 7 ignored
 05 test-fault-tui: 195 passed, 0 failed, 0 ignored
+
+# on fe8e0440 (the docs-only commit after b0c8d70e), outside the lock
+check-no-secrets rc=0 36s
+check-no-stubs rc=0 8s
+check-xfx-identity rc=0 1s
