@@ -1,12 +1,13 @@
-# Every snap pair, the base sweep against round 5's at 4abe4feb (verdicts.tsv); then rounds 1-4 and round 5's first fix (bb5f53ed) against it.
+# Every snap pair, the base sweep against round 6's at 89a3fef1 (verdicts.tsv); then rounds 1-5 against it.
 pairs: before 145, after 145; same verdict 145, changed 0
 before: {'normalized-identical': 102, 'identical': 4, 'unresolved-defect': 27, 'approved-divergence-cascade': 12}
 after:  {'normalized-identical': 102, 'identical': 4, 'unresolved-defect': 27, 'approved-divergence-cascade': 12}
-round 1 -> round 5: pairs: before 145, after 145; same verdict 145, changed 0
-round 2 -> round 5: pairs: before 145, after 145; same verdict 145, changed 0
-round 3 -> round 5: pairs: before 145, after 145; same verdict 145, changed 0
-round 4 -> round 5: pairs: before 145, after 145; same verdict 145, changed 0
-round 5's first fix -> round 5: pairs: before 145, after 145; same verdict 145, changed 0
+round 1 -> round 6: pairs: before 145, after 145; same verdict 145, changed 0
+round 2 -> round 6: pairs: before 145, after 145; same verdict 145, changed 0
+round 3 -> round 6: pairs: before 145, after 145; same verdict 145, changed 0
+round 4 -> round 6: pairs: before 145, after 145; same verdict 145, changed 0
+round 5's first fix -> round 6: pairs: before 145, after 145; same verdict 145, changed 0
+round 5 -> round 6: pairs: before 145, after 145; same verdict 145, changed 0
 
 before:  pass = 106 / 145 = 73.1%; unresolved 27, failed 0, timeout 0
 after:   pass = 106 / 145 = 73.1%; unresolved 27, failed 0, timeout 0
@@ -15,3 +16,4 @@ after3:  pass = 106 / 145 = 73.1%; unresolved 27, failed 0, timeout 0
 after4:  pass = 106 / 145 = 73.1%; unresolved 27, failed 0, timeout 0
 after5:  pass = 106 / 145 = 73.1%; unresolved 27, failed 0, timeout 0
 after5b: pass = 106 / 145 = 73.1%; unresolved 27, failed 0, timeout 0
+after6:  pass = 106 / 145 = 73.1%; unresolved 27, failed 0, timeout 0

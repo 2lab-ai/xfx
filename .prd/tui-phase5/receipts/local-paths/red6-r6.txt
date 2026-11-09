@@ -1,0 +1,30 @@
+# red6.sh on the worktree (round 6: the code of 89a3fef1)
+1 <scratch>/fxtmpé/a:                            compared
+1 <scratch>/fxtmp%C3%A9/a:                       compared
+1 <scratch>/fxtmp中/a:                            compared
+1 <scratch>/fxtmp@x:                             compared
+1 <scratch>/fxtmp=x:                             compared
+1 <scratch>/fxtmp#1:                             compared
+1 <scratch>/fxtmp(1):                            compared
+1 <scratch>/fxtmp!:                              compared
+1 <scratch>/fxtmp<x:                             compared
+1 <scratch>/fxtmp-old/a:                         compared
+1 <scratch>/fxtmp.bak:                           compared
+1 <scratch>/fxtmp~:                              compared
+1 <scratch>/fxtmp+1:                             compared
+1 <scratch>/fxtmp, then /:                       normalized
+1 <scratch>/fxtmp, then a space:                 normalized
+1 <scratch>/fxtmp, then a tab:                   normalized
+1 <scratch>/fxtmp, then ":                       normalized
+1 <scratch>/fxtmp, then ':                       normalized
+1 <scratch>/fxtmp, then ):                       normalized
+1 <scratch>/fxtmp, then ]:                       normalized
+1 <scratch>/fxtmp, then }:                       normalized
+1 <scratch>/fxtmp, then >:                       normalized
+1 <scratch>/fxtmp, then ,:                       normalized
+1 <scratch>/fxtmp, then ::                       normalized
+1 <scratch>/fxtmp, then ;:                       normalized
+1 <scratch>/fxtmp, then |:                       normalized
+1 <scratch>/fxtmp, then the row's end:           normalized
+2 <home>/My Docs/... broken at its space:        refused, exit 3
+2 /tmp/a b broken at its space:                  refused before any edit

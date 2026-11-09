@@ -12,7 +12,8 @@ Every claim below names the file in this directory that backs it. Base:
 `ccced1f5`. Branch `fix/p5-local-paths`. Round 2 answered the review of
 `1fe6ea37` and the dispatcher's failed gate there (section 6); round 3 the
 review of `8e7c1c32` (section 7); round 4 the review of `21bb78b2` (section
-8); round 5 the review of `4c3f2e50` (section 9).
+8); round 5 the review of `4c3f2e50` (section 9); round 6 the review of
+`e1d34372` (section 10).
 
 ## 1. The source: every file a run writes, rewritten before anyone reads it
 
@@ -68,13 +69,16 @@ How `roots.py` finds and writes a root (its docstring is the whole rule):
 - **What survives refuses the file.** A root, in any spelling, as given or
   resolved, still in the file's visible text where it ends whole -- the
   rewrite's own rule, so a sibling whose name extends a root's is no
-  survivor, coloured mid-name or not -- or in its bytes where they run into
+  survivor, coloured mid-name or not -- or in its bytes where they overlap
   a control sequence's (an OSC payload no reader sees; a root whose head an
   escape's own bytes took, refused even beside a styled sibling, which no
   reader can tell from it there); a root with runs of gutter characters in
-  it (a space, a tab, U+2500-U+259F), read once more with every subset of
-  them taken out, since the view drops a run whole where a row's edge falls
-  beside it (a root ending in one at a row's end, or broken beside one); or
+  it (a space, a tab, U+2500-U+259F), read in the visible text with every
+  subset of them taken out, since the view drops a run whole where a row's
+  edge falls beside it (a root ending in one at a row's end, or broken beside
+  one) -- refused by the rewrite before it edits anything, so a root under
+  another one cannot slip out once the outer one is written, and by the
+  survivor reading (`--check`); or
   the run directory's own name (`fxcap.` and mktemp's tail) anywhere: exit 3,
   the file named, the survivor by placeholder. A root with more than six such
   runs is refused outright. A root a
@@ -91,9 +95,10 @@ directory's placeholder and the binary's name, `<scratch___>/fxtmp`. The
 ledger's `capture-tmpdir` reads fx's name as xfx's right after the run
 directory only -- `<scratch___>/`, `<scratch:real___>/`, a zero-filled
 `<scratch>/`, or the old `fxcap.XXXXXX/` -- and nowhere else, and only the
-name itself, ended where a path name ends (no character of roots.py's EDGE
-after it: not `fxtmp-old` or `fxtmp.bak`); `run-directory` stays for
-captures taken before.
+name itself, followed by a delimiter from a list (`/`, white space, a quote,
+`)`, `]`, `}`, `>`, `,`, `:`, `;`, `|`, or the row's end): not `fxtmp-old`,
+`fxtmp.bak`, `fxtmpé` or `fxtmp%C3%A9`; `run-directory` stays for captures
+taken before.
 
 **Widths.** The rewrite comes after the binary laid out its frame and keeps
 it, column for column. The `roots:` line each run prints first gives each
@@ -143,14 +148,15 @@ that is no placeholder.
   column; a real root against a literal `<work>`.
 - The harness suite at four TMPDIRs: 23 bytes (the dispatcher's), 26, 52 (past
   test_capture.py's 50-byte limit, so on `/tmp`, a link) and 27 with a trailing
-  slash (`test-capture.txt`): 101 tests OK at each in round 5 (at
-  `4abe4feb`, and at its first fix `bb5f53ed`), 99 in round 4, 97 in round 3. Round 2's 89 and round 1's 78 are in the same file.
+  slash (`test-capture.txt`): 101 tests OK at each in round 6 (at
+  `89a3fef1`) and in round 5 (at `4abe4feb`, and at its first fix
+  `bb5f53ed`), 99 in round 4, 97 in round 3. Round 2's 89 and round 1's 78 are in the same file.
 
 **In real captures** (`runs-scan.txt`, `runs_scan.py`: a whole root, the
 shapes, and what a broken root leaves -- `claude-<digits>`, a sweep job's
 `fxsw.` name, a run's `fxcap.` name). Of the baseline sweep's 677 capture
 files, 251 held some part of a run's paths; after round 1, 29 (round 1's own
-count saw only whole roots); after rounds 2 to 5, 0. Rounds 3 to 5: 273
+count saw only whole roots); after rounds 2 to 6, 0. Rounds 3 to 6: 273
 hold a placeholder where a path stood (an image badge's link reads
 `file://<work___>/...`), no run was refused, and each run's `roots:` line
 named `<bun:real>` too: Homebrew's `bun` is a link.
@@ -171,14 +177,15 @@ Before: `ccced1f5`'s harness from a clone, xfx built at `ccced1f5`. Round 1:
 `43024057`'s; round 2: `6cb5c4e7`'s; round 3: `f05f3bd7`'s; round 4:
 `d3804683`'s (its ledger's narrower `capture-tmpdir`); round 5: `4abe4feb`'s
 (that rule ended where a path name ends, and the survivor rule's gutter
-readings), and its first fix `bb5f53ed`'s, each from a clone, xfx built
-there.
+readings), and its first fix `bb5f53ed`'s; round 6: `89a3fef1`'s (that rule
+followed by a delimiter from a list, the rewrite's refusal), each from a
+clone, xfx built there.
 
-**145 pairs before, 145 after round 5, 145 with the same verdict, 0
-changed**, and the same against rounds 1 to 4 and round 5's first fix
+**145 pairs before, 145 after round 6, 145 with the same verdict, 0
+changed**, and the same against rounds 1 to 5 and round 5's first fix
 (`compare_verdicts.py`): normalized-identical 102, identical 4,
-approved-divergence-cascade 12, unresolved-defect 27 in all seven, pass 106 /
-145 in all seven.
+approved-divergence-cascade 12, unresolved-defect 27 in all eight, pass 106 /
+145 in all eight.
 
 ## 3. What was there: scrubbed, and read again
 
@@ -308,11 +315,14 @@ and a Linux row.
   the short form too, or with no zero fill; round 5's survivors with no
   reading at the gutters (round 4's), every gutter out at once (its first
   fix), one run out at a time only, or no bound on the runs, and the ledger
-  with a word boundary again (round 4's) or no end at all -- twenty-one,
-  each failed by RootsRewrite, RunRoots or test_sweep.py's Normalize. Round
+  with a word boundary again (round 4's) or no end at all; round 6's rewrite
+  without its refusal, and the ledger with round 5's negative class, with
+  each of its twelve delimiters missing in turn, or with no row's end --
+  thirty-six, each failed by RootsRewrite, RunRoots or test_sweep.py's
+  Normalize. Round
   5's first fix widened the byte rule to the view's trimmed gutters; that
-  mutant, run against the readings, survived (they refuse every file it did),
-  and the code is round 4's overlap again.
+  mutant, run against the readings, survived over the tested cases (section
+  9 says why it adds nothing), and the code is round 4's overlap again.
 
 **Counts** (`counts.txt`, by `counts.sh`, the round-2 shapes): files holding
 each shape at `ccced1f5` -- macOS home 6, Linux home 5, harness scratch root
@@ -487,7 +497,11 @@ on round 5's code (`red5-r5.txt`, the code of `4abe4feb`):
   `/tmp/abc`), which `bb5f53ed`'s single reading with every gutter out at
   once passed. The byte rule is round 4's control-sequence overlap again:
   `bb5f53ed` widened it to the view's trimmed gutters, and its mutant
-  survived -- the readings refuse every file it did. opus's `Refused` for
+  survived over the tested cases. The reason is structural, not a property
+  test: a root's bytes hold no newline or escape and start with `/`, so the
+  only bytes of a raw match the view can trim are a run of gutters the root
+  ends in, at a row's end -- and the reading with that run taken out ends
+  there, at the row's end. opus's `Refused` for
   every root ending in a gutter character would refuse each file of such a
   run where only some rows break; the readings refuse a file only where the
   root is broken. Roots with no gutter character, every root here and on the
@@ -498,6 +512,50 @@ on round 5's code (`red5-r5.txt`, the code of `4abe4feb`):
   colour change is read through and a row's end or a cursor move ends them;
   section 3's `<tmp>` writers in the present tense, cited
   (`zero-fill.txt`); CONTRIBUTING.md's rule wrapped.
+
+## 10. Round 6: the review of `e1d34372`
+
+`red6.sh` shows each finding on round 5's own code (`red6-r5.txt`, from a
+clone at `e1d34372`) and the same on round 6's (`red6-r6.txt`, the code of
+`89a3fef1`):
+
+| finding | round 5 | round 6 |
+|---|---|---|
+| gpt6 MUST: `<scratch>/fxtmp` then `é`, `%C3%A9`, `中`, `@`, `=`, `#`, `(`, `!`, `<` (9) | normalized, all 9 | compared, all 9 |
+| the same: round 5's `-old`, `.bak`, `~`, `+1` (4) | compared | compared |
+| the same: `/`, a space, a tab, `"`, `'`, `)`, `]`, `}`, `>`, `,`, `:`, `;`, `|`, the row's end (14) | normalized | normalized |
+| opus SHOULD 2: a scenario directory under HOME, broken at its space | published as `<home__>/My Docs/...` | refused, exit 3, the file untouched |
+| the same, a root on its own: `/tmp/a b` broken at its space | rewritten, then refused by the survivor reading | refused before any edit |
+
+- **MUST**: `fxtmp(?=[/\s"'\]}),:;|>]|$)`, the list the coordinator gave.
+  What really follows the binaries' TMPDIR in the tracked captures is `/`
+  alone (w2's and w3's, `fx-trace-...` and `xfx-image-...` under it); the
+  rest are the delimiters a binary's text puts after a directory's name.
+  Any other character can be part of a name (capture.sh's `dir` refuses only
+  an empty name, `.`, `..` and `/`), so it is a sibling and is compared. The
+  ledger now differs from roots.py's EDGE on purpose: an over-wide rewrite in
+  roots.py fails toward privacy (a sibling written as a placeholder), an
+  over-wide normalization in the ledger toward false parity (a sibling read
+  as the TMPDIR).
+- **SHOULD 2 (opus)**: rewrite() reads every root's gutter readings in the
+  view before it edits and raises Refused where one ends whole (main: the
+  guard, exit 3, the file not written). The tests read every broken case
+  both ways: the rewrite refuses, and survivors refuses the unrewritten
+  text.
+- **SHOULD 1 (opus) and the NITs**: roots.py's fail-closed docstring and
+  survivors' say what the code does (bytes: control-sequence overlap only;
+  gutters: readings of the visible text, every subset); the ledger's `why`
+  no longer claims capture.sh's `writable` holds EDGE (it lacks `~`, and the
+  ledger no longer uses EDGE); `publish`'s refusal says roots.py's line gives
+  the cause; roots-mutants.py names the first fix `bb5f53ed`, as section 9
+  does; a positive test for each delimiter; `commits.txt` through the head.
+- **SHOULD (gpt6)**: section 9 says the widened byte rule's mutant survived
+  over the tested cases, and why it adds nothing, rather than that the
+  readings refuse every file it did.
+- **Two commits fail the check**: `c57ffb77` and `e0b0e697` hold a stand-in
+  home literally in roots.py's new docstring (the check ran after `git add`
+  and refused; a `| tail -1` hid its exit status). `89a3fef1` writes it
+  `<HOME>`; the branch is not rewritten.
 
 ## Left as it is
 

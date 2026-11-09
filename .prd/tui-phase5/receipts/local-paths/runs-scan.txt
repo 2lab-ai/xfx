@@ -83,3 +83,16 @@ all        677     0     0        0     0
 after5b: capture files holding a placeholder: 273
 after5b: each run's roots line (widths masked here): roots: <work>=N <scratch>=N <scenarios>=N <bun>=N <bun:real>=N <tmp>=N <home>=N bytes
 after5b: runs refused by roots.py (LOCAL-PATH GUARD in any file of runs/): 0
+== after6 (round 6, 89a3fef1's)
+kind     files  root shape fragment   any
+ansi       290     0     0        0     0
+body        53     0     0        0     0
+clipfile     4     0     0        0     0
+files       12     0     0        0     0
+log         20     0     0        0     0
+md           6     0     0        0     0
+txt        292     0     0        0     0
+all        677     0     0        0     0
+after6: capture files holding a placeholder: 273
+after6: each run's roots line (widths masked here): roots: <work>=N <scratch>=N <scenarios>=N <bun>=N <bun:real>=N <tmp>=N <home>=N bytes
+after6: runs refused by roots.py (LOCAL-PATH GUARD in any file of runs/): 0
