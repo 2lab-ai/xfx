@@ -29,9 +29,13 @@ by the sweep before and after every run, `FX_AUTO_UPGRADE=0`.
   with and without `fault-injection`), `cargo fmt --check` and, from merge 3
   on, clippy, before it was committed: no build conflict.
 - **Token check** (train 7's script, byte for byte): **all four merges OK**;
-  negative control **30 of 30** (4 + 8 + 9 + 9). **References:** 7 moved by
-  merge 3 and 1 of them moved again by merge 4, re-pointed in two
-  numbers-only commits: **7 of 7 the same code**; 0 moved at the head.
+  negative control **30 of 30** (4 + 8 + 9 + 9). **References:** merge 3
+  moved 8 -- 7 `path:line` references and 1 bare continuation (`capfile.py`'s
+  `:14621-14623`, a form none of the scanners read; opus found it in review)
+  -- and merge 4 moved 1 of the 7 again; re-pointed in three numbers-only
+  commits: **8 of 8 the same code**. At the head 0 of the 82 `path:line`
+  references moved, and of the bare continuations after one (`refs_bare.py`,
+  added after the review) none moved outside the historical plans.
 - **Join checks:** 1 (STOP-IN-CATALOG-WAIT x train 8): the named tests pass
   at the head; no stopped-turn path reaches held rows differently. 2
   (QUESTIONS-20 x STOP-IN-CATALOG-WAIT) and 5 (PASTE-AFTER-END x QUESTIONS-20):
@@ -61,7 +65,10 @@ by the sweep before and after every run, `FX_AUTO_UPGRADE=0`.
   CONNECTs, both `w.example`; **none to the Gateway**.
 
 **Head:** the branch's tip, this receipt's last commit (`train/p5-1109b`; no
-push, no PR); its code is `99ef633f`'s.
+push, no PR). The gate and the sweeps ran on the code of `99ef633f`; after the
+review of `a1a85ed6` two comments changed and nothing else outside this
+folder (`34ce71d6`, a number in `capfile.py`'s comment; `f77446a9`, the paste
+join test's comment), so neither was run again, as the dispatcher asked.
 
 ## Units and merges
 
@@ -86,7 +93,10 @@ Every base is git's merge base. After the merges, in order:
 | `3d83254e` | merge 4's scripts; merge 3's gate, sweep and mutants files |
 | `99ef633f` | the one reference merge 4 moved again, re-pointed; numbers only -- **the code head** |
 | `9aa61e28`, `ac0279c8` | the merge checks over all four merges; **gate 3, the final sweep, its reruns and jobs-d ran at `ac0279c8`** (code of `99ef633f`) |
-| the next ones | this README and the final runs' files |
+| the next ones, to `a1a85ed6` | this README and the final runs' files (reviewed) |
+| `34ce71d6` | the review's MUST: `capfile.py`'s bare continuation re-pointed; numbers only |
+| `f77446a9` | gpt6's SHOULD: the paste join test's one-delivery comment qualified; comment only |
+| the next ones | `refs_bare.py`, the bare re-point in `repoint.py` / `repointed.py`, the merge checks again, this README's corrections |
 
 `git show --remerge-diff` of each merge is `remerge-1.txt` .. `remerge-4.txt`.
 
@@ -176,8 +186,9 @@ the ledger or `docs/parity.md` cites; QUESTIONS-20's own new references
 (`toolgroup.rs:511-513`, `docs/parity.md:162`, `question.rs:60-76`) name the
 same lines at the head as on its branch.
 
-**Merge 3 moved seven** (PASTE-AFTER-END deleted the paste refusal above
-them and added tests): four ledger citations into `shell.rs` (`send`,
+**Merge 3 moved eight** (PASTE-AFTER-END deleted the paste refusal above
+them and added tests), seven `path:line` references and one bare
+continuation. The seven: four ledger citations into `shell.rs` (`send`,
 `full_transcript::shown_event`, `resize`, and the `tools: {} advertised` row
 six entries cite), `capfile.py`'s comment on `warning_shown`,
 `smoke-tui.sh`'s `input.rs:702` and `event_loop.rs`'s
@@ -185,15 +196,28 @@ six entries cite), `capfile.py`'s comment on `warning_shown`,
 in, 12 out, each the same once its numbers are masked). **Merge 4 moved one
 of them again**: HISTORY-NOTICE-STOP's 80 lines of tests in `shell.rs` sit
 above the `tools: {} advertised` row (38636 -> 38716); re-pointed in
-`99ef633f` (`repoint.py --merge-4`). `repointed.py` checks each against
-`main`'s copy of the cited lines and two either side: **7 of 7 the same
-code** (`repointed.txt`) [measured]. Two of the seven named other code on
+`99ef633f` (`repoint.py --merge-4`). **The bare continuation** after
+`capfile.py`'s `src/tui/shell.rs:14585-14610` -- "the full transcript at
+`:14621-14623`", the owner check in `warning_shown` on `main` -- was missed by
+all three scanners, which read only `path:line` and `<basename>:line`
+(`refs.py`, `refs_all.py`, `refs_short.py`); opus found it in review of
+`a1a85ed6`, where `:14621-14623` fell inside `tick_warning`. Re-pointed to
+`:14603-14605` in `34ce71d6` (`repoint.py --bare`). `refs_bare.py` (new) reads
+the form: each `:N` or `:N-M` after a reference on its line or the four
+after, given the path of the nearest `<name>.<ext>:N` before it (fx's
+`.zig` ones included, so a continuation of an fx citation is not read as
+ours). At `b1a3d484` it finds 70 bare continuations after a reference into
+a file some side changed; the moved ones are all in the historical plans
+(15), and `capfile.py`'s no longer is (`refs-bare.txt`). `repointed.py`
+checks each re-point against `main`'s copy of the cited lines and two either
+side: **8 of 8 the same code** (`repointed.txt`) [measured]. Two of the seven named other code on
 `main` already (`input.rs:702` is a doc comment of the paste body, not
 `Action::Undo`; `event_loop.rs:972-975` is train 8's stale one): re-pointed
 by line, as train 8 did with `wrap.rs`'s, so each names what it named on
 `main` (`stale.txt`).
 
-At the head (`refs-head.txt`): 82 references, **0 moved**. The widened scans
+At the head (`refs-head.txt`): 82 `path:line` references in the ledger and
+`docs/parity.md`, **0 moved**; the bare continuations as above. The widened scans
 still flag the historical plans under `docs/superpowers/plans/` (38
 references into code QUESTIONS-20 and PASTE-AFTER-END moved, written about
 their plans' day; train 8 left these for REF-LINT, left so here) and train
@@ -287,8 +311,13 @@ there could not have asked anything. So two tests were added:
 
 **`a_paste_with_enter_behind_its_marker_on_page_ten_of_twenty_is_kept_and_answers_nothing`**
 (`tests/tui.rs`, a pty, 40x120): twenty questions, Tab nine times to page
-10, its freeform slot opened (`3`) and `keep` typed; then one write, so one
-delivery: `ESC[200~new ESC[201~` and a CR behind the marker. **The paste
+10, its freeform slot opened (`3`) and `keep` typed; then
+`ESC[200~new ESC[201~` and a CR behind the marker in one `type_bytes`, meant
+as one delivery. The pty helper does not fix that boundary: it writes the
+master until every byte is taken (`tests/support/pty.rs`), and these 16
+bytes go in one write in practice. If they arrived as two deliveries, the
+Enter would be the user's and answer question 10, and the screen checks
+fail rather than pass (gpt6's SHOULD, the test's comment says so too). **The paste
 applied** (`3) keepnew`), **the warning written** (`! input: Input that
 arrived right after the paste was ignored.`), **nothing answered** (the
 Gateway still at one request), **the panel still on its question**
@@ -318,8 +347,9 @@ STOP-IN-CATALOG-WAIT's new start-of-turn check (`machine.rs:728`) does not
 end the next turn after the stop; mutant S4 below (a stop that outlives its
 turn) makes it fail.
 
-**Mutants** (`join_mutants.py`, `jobs-b.txt`): on a `git clone --no-local`
-of `44c5d3e0`, one textual change at a time, the file restored after each
+**Mutants** (`join_mutants.py`, `jobs-b.txt`): **taken at `44c5d3e0`, before
+merge 4** (HISTORY-NOTICE-STOP is not in the clone they ran on; its own
+mutants are its receipt's), on a `git clone --no-local`, one textual change at a time, the file restored after each
 and the clone clean at the end, each cargo run bounded at 600 s; run
 against the three join tests and one test of each unit (STOP-IN-CATALOG-WAIT's
 catalog-wait test, QUESTIONS-20's 20-question pty test, PASTE-AFTER-END's
@@ -341,6 +371,17 @@ here because no test in this set has a compactor: it is killed by
 STOP-IN-CATALOG-WAIT's machine test
 (`a_turn_stopped_before_it_began_is_asked_and_stopped_and_measures_nothing`,
 its receipt's `no-machine-guard`), which every gate runs.
+
+**What the worker test is, and is not** (opus's SHOULD). It fails on each
+unit alone from a different arm: on STOP-IN-CATALOG-WAIT alone its no-stop
+arm (no batch of 20: the cap of 4), on QUESTIONS-20 alone its stop arm (the
+prompt not kept). Q1 breaks the no-stop arm's premise (a cap of 4 refuses
+the batch), S1 and S2 the stop arm's (the stopped turn keeps its prompt and
+ends as the stop); the runner keeps only the assertion's first line, so
+which arm's tuple moved is read from the mutation, not printed. So it is
+conjunctive coverage -- both units' halves pinned in one place, on one
+runtime -- not a detector of an interaction between them: each arm's
+outcome turns on one unit's code.
 
 ### 6. The paste invariant at the head (`invariant.py`, `invariant.txt`)
 
@@ -575,6 +616,10 @@ the uid fragment: **0** (the dispatcher's check, `gates-files.txt`).
   side's own citation, so a number written on this branch and moved by a
   later merge is invisible to it; `repointed.py` caught it. A train that
   re-points between merges has to run `repointed.py` after the last one.
+- **Bare continuations** (`:N` after a `path:N`): none of train 7's three
+  scanners reads them, and this train missed one (`capfile.py`, above).
+  `refs_bare.py` reads the form for this receipt; carrying it into the
+  shared scanners is REF-LINT's (opus's SHOULD 1).
 - **One shell `&` in a wait loop** during this train (01:52Z), against the
   brief's rule: the loop was found by its command line and killed by its
   PID; it started nothing.
@@ -589,6 +634,8 @@ the uid fragment: **0** (the dispatcher's check, `gates-files.txt`).
   the invariant, the shared-code check and the overlaps.
 - `token_check.py` (train 7's, byte for byte), `token-check.txt`,
   `token-self-test.txt`.
+- `refs_bare.py`, `refs-bare.txt`: the bare continuations (added after the
+  review of `a1a85ed6`).
 - `refs.py`, `refs_all.py`, `refs_short.py` (train 7's); `refs.txt`,
   `refs-all-merges.txt`, `refs-short-merges.txt` (at `b9409b36`, before the
   re-points); `refs-head.txt`, `refs-all.txt` (at `9aa61e28`); `repoint.py`

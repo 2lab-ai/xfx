@@ -1,5 +1,5 @@
 unit a832f4d7: src/tui/input.rs:471-509 `feed`, 2080 bytes, sha256 6e1257dc37c124686d9cc75cd4c09a3d57d939c85ad5759234dba0981ca82be3; the early return found 1 time(s), before the paste's own branch and any decoding: True; the whole file sha256 7e49044b0405f69d5b41d66bbdd407269c69d285e3a92b580118d5c265eb21fe
-head 9aa61e28: src/tui/input.rs:471-509 `feed`, 2080 bytes, sha256 6e1257dc37c124686d9cc75cd4c09a3d57d939c85ad5759234dba0981ca82be3; the early return found 1 time(s), before the paste's own branch and any decoding: True; the whole file sha256 7e49044b0405f69d5b41d66bbdd407269c69d285e3a92b580118d5c265eb21fe
+head b1a3d484: src/tui/input.rs:471-509 `feed`, 2080 bytes, sha256 6e1257dc37c124686d9cc75cd4c09a3d57d939c85ad5759234dba0981ca82be3; the early return found 1 time(s), before the paste's own branch and any decoding: True; the whole file sha256 7e49044b0405f69d5b41d66bbdd407269c69d285e3a92b580118d5c265eb21fe
 `feed` byte for byte the same: True; src/tui/input.rs byte for byte the same: True
 the function at the head:
     pub(crate) fn feed(&mut self, byte: u8, now: Instant, out: &mut Vec<Input>) {

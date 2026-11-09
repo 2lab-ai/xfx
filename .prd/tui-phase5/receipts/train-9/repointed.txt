@@ -1,15 +1,17 @@
-SAME  src/tui/shell.rs:13112@ccced1f5 -> :13094@9aa61e28 (+-2 lines)  [ledger (shell.rs: `send`)]
+SAME  src/tui/shell.rs:13112@ccced1f5 -> :13094@b1a3d484 (+-2 lines)  [ledger (shell.rs: `send`)]
     first: fn send(&mut self, prompt: String, text: &str) -> bool {
-SAME  src/tui/shell.rs:13423@ccced1f5 -> :13405@9aa61e28 (+-2 lines)  [ledger (shell.rs: `full_transcript::shown_event`)]
+SAME  src/tui/shell.rs:13423@ccced1f5 -> :13405@b1a3d484 (+-2 lines)  [ledger (shell.rs: `full_transcript::shown_event`)]
     first: let event = full_transcript::shown_event(event);
-SAME  src/tui/shell.rs:16321@ccced1f5 -> :16303@9aa61e28 (+-2 lines)  [ledger (shell.rs: `resize`)]
+SAME  src/tui/shell.rs:16321@ccced1f5 -> :16303@b1a3d484 (+-2 lines)  [ledger (shell.rs: `resize`)]
     first: pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Resize {
-SAME  src/tui/shell.rs:38615@ccced1f5 -> :38716@9aa61e28 (+-2 lines)  [ledger, six entries (shell.rs: `tools: {} advertised`; re-pointed again for merge 4)]
+SAME  src/tui/shell.rs:38615@ccced1f5 -> :38716@b1a3d484 (+-2 lines)  [ledger, six entries (shell.rs: `tools: {} advertised`; re-pointed again for merge 4)]
     first: "  tools: {} advertised ({},",
-SAME  src/tui/shell.rs:14603-14628@ccced1f5 -> :14585-14610@9aa61e28 (+-2 lines)  [capfile.py comment (shell.rs: `warning_shown`)]
+SAME  src/tui/shell.rs:14603-14628@ccced1f5 -> :14585-14610@b1a3d484 (+-2 lines)  [capfile.py comment (shell.rs: `warning_shown`)]
     first: fn warning_shown(&self) -> Option<&'static str> {
-SAME  src/tui/input.rs:702@ccced1f5 -> :708@9aa61e28 (+-2 lines)  [smoke-tui.sh comment (input.rs; names other code on main already, stale.txt)]
+SAME  src/tui/shell.rs:14621-14623@ccced1f5 -> :14603-14605@b1a3d484 (+-2 lines)  [capfile.py comment, its bare continuation (shell.rs: `warning_shown`'s owner check; opus, review of a1a85ed6)]
+    first: if self.owner != ScreenOwner::Primary {
+SAME  src/tui/input.rs:702@ccced1f5 -> :708@b1a3d484 (+-2 lines)  [smoke-tui.sh comment (input.rs; names other code on main already, stale.txt)]
     first: /// that were read. **Nothing of the body is ever emitted**, which is the
-SAME  src/tui/event_loop.rs:972-975@ccced1f5 -> :1000-1003@9aa61e28 (+-2 lines)  [event_loop.rs comment (event_loop.rs; train 8's stale.txt)]
+SAME  src/tui/event_loop.rs:972-975@ccced1f5 -> :1000-1003@b1a3d484 (+-2 lines)  [event_loop.rs comment (event_loop.rs; train 8's stale.txt)]
     first: // **Except what the primary plane already owed, which is paid before the
-# 7 of 7 the same code
+# 8 of 8 the same code

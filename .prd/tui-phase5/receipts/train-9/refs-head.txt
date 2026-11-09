@@ -1,4 +1,4 @@
-# head 9aa61e28; sides: main ccced1f5, stop-in-catalog-wait 05a0a857, questions-20 3824f6ba, paste-after-end a832f4d7, history-notice-stop 62d96c98
+# head b1a3d484; sides: main ccced1f5, stop-in-catalog-wait 05a0a857, questions-20 3824f6ba, paste-after-end a832f4d7, history-notice-stop 62d96c98
 docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:888]
     main* = row | stop-in-catalog-wait* = row | questions-20* = row | paste-after-end* = row | history-notice-stop* = row
 docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:196]
