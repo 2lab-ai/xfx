@@ -188,13 +188,17 @@ pub(crate) enum Action {
     ///
     /// Upstream decodes these to its own `.word_left` action, and the
     /// modified arrows -- Ctrl-Left, Alt-Left -- to a composer move instead
-    /// (`escape_parser.zig:83-92`, `:243-246`, `:528-533@481104fd`). Only a
-    /// question at a choice tells the two apart: `.word_left` is the previous
-    /// question there, as Left is, and the arrows do nothing
-    /// (`input_question_runtime.zig:190-199@481104fd`). Everywhere else this is
-    /// [`Action::WordLeft`]: the shell folds it back before any other surface
-    /// sees it (`super::shell::Shell`'s `folded`), as it does
-    /// [`Action::SelectUp`].
+    /// (`escape_parser.zig:83-92`, `:243-246`, `:528-533@481104fd`). Two of its
+    /// surfaces tell the two apart: at a question's choice `.word_left` is the
+    /// previous question, as Left is, and the arrows do nothing
+    /// (`input_question_runtime.zig:190-199@481104fd`); at an approval's choice
+    /// it is the previous choice, as Left is (`input_approval_runtime.zig:90-100
+    /// @481104fd`). A question is the only xfx surface that reads this today:
+    /// xfx's approval binds no horizontal key at a choice yet
+    /// (APPROVAL-HORIZONTAL-KEYS). Everywhere else this is
+    /// [`Action::WordLeft`]: the shell folds it back before the approvals, the
+    /// menus and the composer read the event (`super::shell::Shell`'s
+    /// `folded`), as it does [`Action::SelectUp`].
     AltB,
     WordRight,
     Backspace,
@@ -646,8 +650,8 @@ impl Decoder {
             // protocol uses (`escape_parser.zig` at `c1db919`, :529-546): the
             // word moves the modified arrows already make, and the forward
             // word delete. Lower case only, as upstream reads them. Alt-b is
-            // its own action, which only a question's choice reads differently
-            // from the arrows ([`Action::AltB`]).
+            // its own action, which a question's choice reads differently from
+            // the arrows ([`Action::AltB`]).
             b'b' => {
                 self.stage = Stage::Ground;
                 out.push(Input::Action(Action::AltB));
@@ -1310,9 +1314,18 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
         return ignore;
     }
     if mods & ALT != 0 && matches!(ascii, Some(b'b' | b'f')) {
-        // With Shift, the same move extending a selection (:244, :248).
+        // With Shift, upstream's word move extending a selection (:244,
+        // :248), a composer move: the word move here, the Shift dropped as it
+        // is from the arrows ([`cursor`]), until the composer has a selection
+        // to extend (COMPOSER-SELECTION-EXTEND). A question's draft drops it
+        // upstream too, and its choice does nothing with it
+        // (`src/ui/input/runtime.zig:155-197@481104fd`).
         if mods & SHIFT != 0 {
-            return ignore;
+            return Input::Action(if ascii == Some(b'b') {
+                Action::WordLeft
+            } else {
+                Action::WordRight
+            });
         }
         // Alt-b is upstream's `.word_left` (:245), not a composer move:
         // [`Action::AltB`].
@@ -1721,7 +1734,7 @@ mod tests {
         ("ctrl+right", b"\x1b[1;5C", Action::WordRight),
         ("shift+enter", b"\x1b[13;2u", Action::InsertNewline),
         ("ctrl+enter", b"\x1b[13;5u", Action::Submit),
-        // Upstream's `.word_left` (:243-246@481104fd), which a question's
+        // Upstream's `.word_left` (:243-246@481104fd), which xfx's question
         // choice reads apart from the modified arrows above.
         ("alt+b", b"\x1b[98;3u", Action::AltB),
         ("alt+f", b"\x1b[102;3u", Action::WordRight),

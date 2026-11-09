@@ -194,9 +194,10 @@ pub(crate) enum Act {
     Delete,
     /// The answer's word moves and kill keys, as upstream's field binds them
     /// (`question_prompt.zig:361-378`): word left and right, `C-w`, `C-u`,
-    /// `C-k`. Word left here is Ctrl-Left and Alt-Left, a composer move to
-    /// upstream, which does nothing at a choice
-    /// (`input_question_runtime.zig:196-199@481104fd`).
+    /// `C-k`. Word left here is Ctrl-Left, Alt-Left and Shift-Alt-b, and word
+    /// right Ctrl-Right, Alt-f and Shift-Alt-f: to upstream all but Alt-f are a
+    /// composer move and Alt-f is `.word_right`, and at a choice none of them
+    /// does anything (`input_question_runtime.zig:181-200@481104fd`).
     WordLeft,
     /// Alt-b: the draft's word left, as [`Act::WordLeft`] -- or, with no
     /// draft open, the previous **question**, as [`Act::Left`]. Upstream routes

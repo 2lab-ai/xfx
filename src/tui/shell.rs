@@ -12020,9 +12020,9 @@ impl Shell {
                 continue;
             }
             // Shift on Up and Down means something only to a question's
-            // field, and Alt-b apart from the word arrows only to a question's
-            // choice; to every surface below they are the keys they always
-            // were.
+            // field, and Alt-b apart from the word arrows, in xfx, only to a
+            // question's choice; to every surface below they are the keys they
+            // always were.
             let event = folded(event);
             if self.asking() {
                 self.decide(event, now);
@@ -13710,17 +13710,20 @@ fn image_slash_prefix(text: &str) -> Option<usize> {
 }
 
 /// `event` with Shift taken off Up and Down, and Alt-b made the word move it
-/// is everywhere but a question.
+/// is everywhere in xfx but a question.
 ///
 /// The decoder keeps Shift on the vertical arrows because a question's
 /// freeform field binds it -- the plain arrows walk the field's rows and the
 /// shifted ones choose (`super::input::Action::SelectUp`) -- and Alt-b apart
 /// from Ctrl-Left and Alt-Left because a question's choice binds it -- the
 /// previous question, where the arrows do nothing
-/// (`super::input::Action::AltB`). A question is the only surface that reads
-/// either. Folded back here, once, before any other surface reads the event,
-/// so the composer, the approvals and the menus see exactly the keys they saw
-/// before the two were kept apart.
+/// (`super::input::Action::AltB`). A question is the only xfx surface that
+/// reads either today; fx's approval choice binds Alt-b too, which xfx's does
+/// not yet (APPROVAL-HORIZONTAL-KEYS). Folded back here, once, after the
+/// question and the full transcript have read the event (the full transcript
+/// binds neither, so it takes them as unbound) and before the approvals, the
+/// menus and the composer do, so those see exactly the keys they saw before
+/// the two were kept apart.
 fn folded(event: Input) -> Input {
     match event {
         Input::Action(Action::SelectUp) => Input::Action(Action::Up),
@@ -22392,12 +22395,13 @@ mod tests {
             on(&fixture, "Ship it?"),
             "Alt-b in a draft left the question"
         );
-        // The caret's cell is painted on its own, so the row is read unpainted.
+        // The caret's cell is painted on its own, so the row is read unpainted
+        // (and, with the caret at the end, without the blank cell it sits on).
         let draft = |fixture: &Fixture, text: &str| {
             fixture
                 .band_rows()
                 .iter()
-                .any(|row| sgr_free(row) == format!("    3) {text}"))
+                .any(|row| sgr_free(row).trim_end() == format!("    3) {text}"))
         };
         assert!(draft(&fixture, "ab zcd"), "{:?}", fixture.band_rows());
         // So are Shift-Alt-b and Shift-Alt-f: the draft drops the Shift
