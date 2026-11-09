@@ -16002,8 +16002,6 @@ impl Shell {
         self
     }
 
-    /// The document reaching `rows` rows down the screen, as if that many had
-    /// landed, and the band floated under them.
     /// Whether the markdown presenter holds `text` in the line it has not
     /// seen the end of, which [`Self::close_answer`] would write.
     #[cfg(test)]
@@ -16011,6 +16009,8 @@ impl Shell {
         self.markdown.holds(text)
     }
 
+    /// The document reaching `rows` rows down the screen, as if that many had
+    /// landed, and the band floated under them.
     #[cfg(test)]
     pub(crate) fn with_document_rows(&mut self, rows: u32) {
         self.document_rows = rows;
