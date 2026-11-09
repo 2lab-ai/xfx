@@ -1726,25 +1726,22 @@ pub async fn run(
                     }
                     Slash::Copy => copy_last_reply(conversation.as_ref(), &Clipboard::system())?,
                     Slash::Undo => undo_on_the_line(conversation.as_ref())?,
-                    Slash::Trace => {
-                        #[allow(
-                            clippy::disallowed_methods,
-                            reason = "env: TMPDIR -- where /trace writes its report"
-                        )]
-                        let tmpdir = std::env::var_os("TMPDIR");
-                        trace_on_the_line(
-                            &config,
-                            &model,
-                            conversation.as_ref(),
-                            &store,
-                            &TraceTarget {
-                                dir: crate::trace::report_dir(tmpdir.as_deref()),
-                                clipboard: Clipboard::system(),
-                            },
-                            &mut io::stdout(),
-                            &mut io::stderr(),
-                        )?
-                    }
+                    #[allow(
+                        clippy::disallowed_methods,
+                        reason = "env: TMPDIR -- where /trace writes its report"
+                    )]
+                    Slash::Trace => trace_on_the_line(
+                        &config,
+                        &model,
+                        conversation.as_ref(),
+                        &store,
+                        &TraceTarget {
+                            dir: crate::trace::report_dir(std::env::var_os("TMPDIR").as_deref()),
+                            clipboard: Clipboard::system(),
+                        },
+                        &mut io::stdout(),
+                        &mut io::stderr(),
+                    )?,
                     Slash::Compact => {
                         writeln!(io::stderr(), "{COMPACT_ON_THE_LINE_SHELL}")?;
                     }

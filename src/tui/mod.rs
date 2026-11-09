@@ -457,13 +457,19 @@ fn hold(
     // this session consults is named on one screen.
     #[allow(
         clippy::disallowed_methods,
-        reason = "env: COLORFGBG, COLORTERM, TERM_PROGRAM -- what the terminal says of itself"
+        reason = "env: COLORFGBG -- what the terminal says of itself"
     )]
-    let (colorfgbg, colorterm, term_program) = (
-        std::env::var(theme::COLORFGBG).ok(),
-        std::env::var(theme::COLORTERM).ok(),
-        std::env::var(theme::TERM_PROGRAM).ok(),
-    );
+    let colorfgbg = std::env::var(theme::COLORFGBG).ok();
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "env: COLORTERM -- what the terminal says of itself"
+    )]
+    let colorterm = std::env::var(theme::COLORTERM).ok();
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "env: TERM_PROGRAM -- what the terminal says of itself"
+    )]
+    let term_program = std::env::var(theme::TERM_PROGRAM).ok();
     let palette = theme::Palette {
         mode: theme::detect(
             env_theme.as_deref(),

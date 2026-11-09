@@ -563,10 +563,9 @@ const EXCEPTIONS: &[(&str, &[&str])] = &[
     ("tests/cli.rs", &["PATH", "TMPDIR"]),
     // What the terminal says of itself.
     ("src/tui/term.rs", &["TMUX"]),
-    (
-        "src/tui/mod.rs",
-        &["COLORFGBG", "COLORTERM", "TERM_PROGRAM"],
-    ),
+    ("src/tui/mod.rs", &["COLORFGBG"]),
+    ("src/tui/mod.rs", &["COLORTERM"]),
+    ("src/tui/mod.rs", &["TERM_PROGRAM"]),
     // A fault-injection point, and the roles a re-run test binary is given.
     ("src/tui/fault.rs", &["XFX_TUI_FAULT"]),
     (
@@ -646,7 +645,7 @@ const STARTS: [&str; 7] = [
     "pipe",
     "socketpair",
     "popen",
-    "system(",
+    "libc::system",
 ];
 
 /// Every `.rs` file under `dir`, sorted.
@@ -702,8 +701,9 @@ fn code_and_literals(text: &str) -> (String, Vec<String>) {
     (code, literals)
 }
 
-/// The statement after an attribute that ends on line `end` (0-based): up to
-/// the first `;` at depth 0.
+/// What the attribute that ends on line `end` (0-based) is on: a statement, a
+/// match arm or an item -- up to the first `;`, `,` or `}` that closes it at
+/// depth 0.
 fn statement_after(lines: &[&str], end: usize) -> String {
     let mut statement = String::new();
     let mut depth = 0i32;
@@ -718,7 +718,7 @@ fn statement_after(lines: &[&str], end: usize) -> String {
                 _ => {}
             }
         }
-        if depth <= 0 && code.trim_end().ends_with(';') {
+        if depth <= 0 && code.trim_end().ends_with([';', ',', '}']) {
             break;
         }
     }

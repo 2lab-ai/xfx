@@ -143,13 +143,12 @@ impl Fault {
 }
 
 /// Whether this run was asked to fail at `point`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "env: XFX_TUI_FAULT -- the fault-injection point a run names"
+)]
 pub(crate) fn injected(point: Fault) -> bool {
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "env: XFX_TUI_FAULT -- the fault-injection point a run names"
-    )]
-    let named = std::env::var_os(FAULT_ENV);
-    named.is_some_and(|value| value == point.name())
+    std::env::var_os(FAULT_ENV).is_some_and(|value| value == point.name())
 }
 
 /// How far the armed fault has got: `0` before anything armed it, `1` with
