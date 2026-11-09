@@ -1,0 +1,36 @@
+# MODEL-FUZZY gate at 06c08b90: every ci.yml step plus the brief's --no-fail-fast suites and the sweep's own tests,
+# one run under suite-lock.sh, TMPDIR a short directory outside the repo. clean = git status --porcelain lines.
+# The run before it, at 0bf5d2ab, failed one test (see README, 'The next break'); this is the run after its fix.
+head 06c08b90  clean=0
+fmt                          exit=0  2s
+clippy                       exit=0  6s
+test-all-targets             exit=0  111s
+test-no-fail-fast            exit=0  97s
+clippy-fault                 exit=0  6s
+test-fault-tui               exit=0  25s
+test-fault-lib               exit=0  74s
+test-fault-nff               exit=0  104s
+no-stubs                     exit=0  9s
+no-secrets                   exit=0  36s
+gate-env                     exit=0  172s
+identity                     exit=0  1s
+preview-contract             exit=0  2s
+preview-mutants              exit=0  52s
+preflight-cost               exit=0  90s
+usage-clock                  exit=0  1s
+release-build                exit=0  14s
+smoke                        exit=0  2s
+faulty-build                 exit=0  22s
+smoke-tui                    exit=0  69s
+fxcap-test-sweep             exit=0  18s
+fxcap-test-capture           exit=0  329s
+after clean=0
+
+# totals
+cargo test --locked --no-fail-fast: passed 5470 failed 0
+cargo test --locked --features fault-injection --no-fail-fast: passed 5507 failed 0
+smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+check-no-stubs: ok
+check-no-secrets: ok (15786 tracked file(s) scanned)
+check-xfx-identity: ok (15786 tracked file(s) scanned)
+Ran 76 tests in 324.125s  OK 

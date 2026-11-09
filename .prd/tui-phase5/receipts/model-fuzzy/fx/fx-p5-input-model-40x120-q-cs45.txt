@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ cs45
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others
+
+  anthropic/claude-sonnet-4.5  200K context · 64K output · Fast
+
+Note: Gateway catalog is authenticated with an API key
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab provider     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

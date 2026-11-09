@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Models 7  [All]  Anthropic  OpenAI  Others
+
+  openai/gpt-5
+  anthropic/claude-opus-4.8
+  acme/gpt4omni
+  acme/gpt5-lite
+  openai/gpt-4.5-preview
+  anthropic/claude-sonnet-4.5
+  acme/DeepSeekCoder
+
+Note: Gateway catalog is authenticated with an API key
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab provider     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

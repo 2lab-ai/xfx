@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ anthropic sonet
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Models 1  [All]  Anthropic  OpenAI  Others
+
+  anthropic/claude-sonnet-4.5
+
+Note: Gateway catalog is authenticated with an API key
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab provider     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

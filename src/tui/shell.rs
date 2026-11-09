@@ -31647,13 +31647,18 @@ mod tests {
     fn a_column_over_a_line_the_caret_has_left_hangs_from_the_caret_rows_start() {
         // `fx-fast-astra-40x120-model-change-clears`: an Alt-Enter after
         // `/model xai/grok-4.7` leaves the caret on a second row, and fx draws
-        // the column from that row's start (`projectedAnchorColumn`).
+        // the column from that row's start (`projectedAnchorColumn`). The
+        // query now ends in a newline, which fx v0.0.16 trims with the other
+        // blanks (`matchModelQuery`, `model_cache_runtime.zig:375@481104fd`),
+        // so the column still lists the model -- the `model-anchor`
+        // `alt-enter` frame; c1db9191 did not trim and said `no matching
+        // models` (`:690@c1db9191`).
         let mut shell = speed_shell();
         shell.route_bytes(b"/model xai/grok-4.7");
         assert_eq!(column(&shell)[0], format!("{}xai/grok-4.7", " ".repeat(9)));
         shell.route_bytes(b"\x1b\r");
         assert_eq!(shell.editor.text(), "/model xai/grok-4.7\n");
-        assert_eq!(column(&shell)[0], "  no matching models");
+        assert_eq!(column(&shell)[0], "  xai/grok-4.7");
     }
 
     #[test]
