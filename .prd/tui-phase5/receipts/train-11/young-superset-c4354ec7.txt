@@ -1,0 +1,63 @@
+# The look-ahead's superset at c4354ec7 (git archive of the commit): every line under src/ and tests/ matching
+#   \.checked_sub\(|\.saturating_sub\(|\.(checked_)?duration_since\(|\s-\s*(std::time::)?Duration::|-=|backdate_(for_test|catalog)\(|catalog_due_ago\(
+# outside a `//` comment; then those that are not young-scan-c4354ec7.txt's sites and name a time ([Dd]uration|Instant|now|elapsed|deadline|clock|since|time|secs|millis|_at\b|\bat\b|began|due|catalog|ago\b), each with its class, read
+# 502 lines; 40 of them the scan's 40 sites; 462 others, 54 naming a time (below); the 408 naming none taken as integer arithmetic
+## integer arithmetic on rows, columns, bytes, indices or counts (a name such as `at`, `now`, `start`): 27
+    src/usage.rs:57:                at -= 1;
+    src/tui/full_transcript.rs:1991:            rows.copy(start.saturating_sub(at), end - at, &mut out);
+    src/tui/check.rs:2391:            let previous = column.checked_sub(1).and_then(|at| {
+    src/tui/model_menu.rs:374:        self.window_start = (window_start + at).saturating_sub(selected);
+    src/tui/fault.rs:260:    at.max(1).min(len.saturating_sub(1).max(1))
+    src/tui/shell.rs:10133:        let (reopen, mut body) = chunk.split_at(chunk.len().saturating_sub(consumed));
+    src/tui/shell.rs:10158:                .map_or(body.len(), |(at, _)| at.saturating_sub(self.emitted));
+    src/tui/session_picker.rs:431:                now.saturating_sub(1)
+    src/tui/history.rs:180:                let Some(wanted) = at.checked_sub(1) else {
+    src/tui/editor.rs:944:                if at.saturating_sub(span.start) <= span.end.saturating_sub(at) {
+    src/tui/editor.rs:1107:        let at = self.cursor.checked_sub(1)?;
+    src/tui/approval_screen.rs:467:        let mut caret = (marked.map_or(height.saturating_sub(1), |at| top + at), 0u16);
+    src/tui/edit_history.rs:235:                        start: span.start.saturating_sub(delta.at()),
+    src/tui/edit_history.rs:236:                        end: span.end.saturating_sub(delta.at()),
+    src/tui/mcp_menu.rs:815:                    Key::Up => rows[at.saturating_sub(1)].name.clone(),
+    src/mcp/catalog.rs:174:        kept -= 1;
+    src/mcp/catalog.rs:245:        end -= 1;
+    src/mcp/catalog.rs:417:        budget -= size;
+    src/mcp/catalog.rs:792:    let mut keep = max_bytes.saturating_sub(marker.len());
+    src/mcp/catalog.rs:794:        keep -= 1;
+    src/mcp/runtime.rs:102:        let doublings = u32::from(failed.saturating_sub(1).min(5));
+    src/mcp/runtime.rs:649:            self.live().closing -= 1;
+    src/mcp/runtime.rs:2457:    let start = lines.len().saturating_sub(STDERR_TAIL_LINES);
+    src/mcp/runtime.rs:2477:        end -= 1;
+    src/skills/catalog.rs:342:    let mut available = limit.saturating_sub(minimum);
+    src/skills/catalog.rs:357:            available -= spent;
+    src/skills/catalog.rs:446:        cut -= 1;
+## the wall clock (UNIX_EPOCH, *_ms), not boot-relative: 13
+    src/tui/full_transcript.rs:372:        .duration_since(UNIX_EPOCH)
+    src/tui/usage_menu.rs:500:            .map(|at| ago_text(self.snapshot.now_ms.saturating_sub(at)));
+    src/tui/session_picker.rs:957:    let delta = now_ms.saturating_sub(updated_at_ms).max(0);
+    src/usage/clock.rs:121:        ms.saturating_sub(crate::session::event::system_now_ms())
+    src/usage/cache/tests.rs:1390:        .duration_since(std::time::UNIX_EPOCH)
+    src/usage/policy.rs:59:    now_ms < at || now_ms.saturating_sub(at) >= n
+    src/mcp/docker.rs:110:            .duration_since(std::time::UNIX_EPOCH)
+    src/skills/install.rs:363:            .duration_since(std::time::UNIX_EPOCH)
+    src/permission/session_rules.rs:791:            .duration_since(std::time::UNIX_EPOCH)
+    src/session/event.rs:694:        .duration_since(UNIX_EPOCH)
+    src/session/event.rs:716:    match SystemTime::now().duration_since(UNIX_EPOCH) {
+    src/permission/authority.rs:128:                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+    tests/tui.rs:5988:        .duration_since(std::time::UNIX_EPOCH)
+## the definitions (the scan lists their callers): 7
+    src/tui/worker.rs:17177:    fn backdate_catalog(state: &mut Runtime, by: Duration) {
+    src/tui/event_loop.rs:2589:    fn catalog_due_ago(ago: Duration) -> crate::provider::catalog_clock::CatalogDue {
+    src/provider/model.rs:2397:    pub(crate) fn backdate_for_test(&mut self, by: Duration) {
+    src/provider/model.rs:2400:                at.checked_sub(by).expect(
+    src/provider/catalog_clock.rs:35:        self.0.checked_sub(earlier.0)
+    src/provider/catalog_clock.rs:41:        self.0.checked_sub(by).map(Self)
+    src/provider/catalog_clock.rs:57:        Self(self.0.saturating_sub(by))
+## a span left to wait, or Duration constants (no reading goes back): 4
+    src/process.rs:341:        read.recv_timeout(limit.saturating_sub(started.elapsed()))
+    src/tui/gesture.rs:377:                EXIT_WINDOW - Duration::from_millis(1),
+    src/tui/probe.rs:474:        let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+    src/tui/permissions.rs:428:                    .saturating_sub(now.saturating_duration_since(started));
+## FakeMachine's own bookkeeping, or a forward reading in a test: 3
+    src/provider/catalog_clock.rs:189:        machine.slept -= from_slept;
+    src/provider/catalog_clock.rs:190:        machine.awake = machine.awake.saturating_sub(by - from_slept);
+    src/provider/catalog_clock.rs:315:            clock.now().checked_duration_since(before),

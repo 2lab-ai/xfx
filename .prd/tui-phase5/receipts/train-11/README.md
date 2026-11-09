@@ -94,7 +94,8 @@ After the merges, in order:
 | `0695c1c8` | `gates-files.txt`, `redaction-grep.txt` |
 | `8056c326`, `3be49c15` | round 2: this receipt's corrections; `redaction-grep.txt` again |
 | `c4354ec7` | round 3: the tests that went five minutes (and two a minute) back on the boot clock run on clocks any runner has; test only -- **round 3's gate ran here** |
-| the next | round 3's receipt (`ci-young-clock.txt` and its harness, scans and bytes; `gates-r3.txt`); this README |
+| `a35ba6dd` | round 3's receipt (`ci-young-clock.txt` and its harness, scans and bytes; `gates-r3.txt`); this README |
+| the next | the look-ahead's superset: 11 sites the scanner had missed, the scanner extended, both scans again |
 | the last one | `gates-files-r3.txt`, `redaction-grep.txt` again |
 
 **No code changed after the gate**: `git diff --stat 820a8f15 0695c1c8 -- .
@@ -525,9 +526,11 @@ counted at least 135 s and under five minutes. Every step, with its file:
 - **Fix** (`c4354ec7`, test only): the four on a `FakeMachine` clock;
   `backdate_for_test` panics past the clock's origin; two `event_loop` tests'
   hold "a minute past" becomes one that ends as it is told.
-- **Look-ahead** (`young-scan-*.txt`): 31 sites at `3be49c15`, 7 more than
-  10 s back on the system clock; 29 at `c4354ec7`, none, each one left listed
-  with why it is safe. **Green**: the young-clock suite at `c4354ec7` at 150 s
+- **Look-ahead** (`young-scan-*.txt`): 42 sites at `3be49c15`, 7 more than
+  10 s back on the system clock; 40 at `c4354ec7`, none, each one left listed
+  with why it is safe. A superset grep (`young-superset-c4354ec7.txt`) found
+  11 sites the scanner's first form missed (none more than a second back);
+  the scanner as committed takes them. **Green**: the young-clock suite at `c4354ec7` at 150 s
   and 15 s, 4719 passed, 0 failed.
 
 ## Found on the way, not changed here
@@ -743,5 +746,5 @@ final form (`gates-files.txt`; round 3's, `gates-files-r3.txt`).
   `screen-moves-*.txt`, `screen-classes.txt`, `families.txt`.
 - Round 3: `ci-young-clock.txt`; `young-clock.sh` (parts `red`, `sub`),
   `young_clock.py`; `young_scan.py`, `young-scan-3be49c15.txt`,
-  `young-scan-c4354ec7.txt`; `join-bytes-r3.txt` (`join_bytes.sh` now takes
+  `young-scan-c4354ec7.txt`, `young-superset-c4354ec7.txt`; `join-bytes-r3.txt` (`join_bytes.sh` now takes
   the head); `gates-r3.txt`, `gates-files-r3.txt`.
