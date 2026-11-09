@@ -1,0 +1,13 @@
+# GREEN at d2e81c93 (head): cargo test --locked --lib -- at_41_rows on_an_eight_row_screen the_composer_may_take_half
+test tui::layout::tests::the_composer_may_take_half_of_fxs_content_area_plus_one_row ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_help_catalog_is_19_commands ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_effort_menu_is_19_levels_round_its_five ... ok
+test tui::shell::tests::on_an_eight_row_screen_a_page_and_the_composers_cap_are_one_row ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_model_menu_is_19_models ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_slash_menu_is_19_commands ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_resume_picker_is_19_sessions ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_fork_menu_is_19_prompts ... ok
+test tui::shell::tests::at_41_rows_the_composer_is_capped_at_19_rows_and_a_page_is_19_of_them ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_at_list_is_19_paths ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_skills_menu_is_19_skills ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 1.03s

@@ -1,0 +1,41 @@
+x𝒇x v0.1.0-d2e81c9 [debug] · Run /help for commands
+
+┃ /
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 34 · type to filter                                                                                      15–20
+
+  /effort        choose the reasoning effort for the current model                                           Model
+  /permissions   choose what xfx is allowed to do                                                            Security
+  /allowlist     manage trusted commands, tools, and URLs                                                    Security
+  /undo          undo the latest tracked file operation                                                      Session
+  /mcp           manage MCP servers and their logins                                                         Extensions
+  /skills        browse and manage skills                                                                    Extensions
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

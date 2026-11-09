@@ -1,0 +1,28 @@
+banners xfx: x𝒇x v0.1.0-d2e81c9 [debug]
+banners xfx-base: x𝒇x v0.1.0-32afd30 [debug]
+pair                                              base  head
+p5-input-row-limit-41x120-at-pgdn                   10     0
+p5-input-row-limit-41x120-at                         0     0
+p5-input-row-limit-41x120-grown-pgup                 3     0
+p5-input-row-limit-41x120-grown-pgup2                3     0
+p5-input-row-limit-41x120-grown                     22     0
+p5-input-row-limit-41x120-help-pgdn                 21     9
+p5-input-row-limit-41x120-help                       9     9
+p5-input-row-limit-41x120-slash-pgdn                 7     7
+p5-input-row-limit-41x120-slash                      1     1
+p5-input-row-limit-menus-41x120-effort-pgdn          2     0
+p5-input-row-limit-menus-41x120-effort               0     0
+p5-input-row-limit-menus-41x120-model-pgdn          20     0
+p5-input-row-limit-menus-41x120-model                0     0
+p5-input-row-limit-short-8x120-grown-pgup            4     0
+p5-input-row-limit-short-8x120-grown                 4     0
+p5-input-row-limit-short-8x120-slash-pgdn            1     0
+p5-input-row-limit-short-8x120-slash                 0     0
+pairs: 17; identical on the head (0 rows differ): 13
+
+caret                                                 fx    base    head
+p5-input-row-limit-41x120-grown-pgup                 9,7     9,6     9,7  same
+p5-input-row-limit-41x120-grown-pgup2                9,2     9,2     9,2  same
+p5-input-row-limit-41x120-grown                     9,20    9,21    9,20  same
+p5-input-row-limit-short-8x120-grown-pgup            6,2     5,2     6,2  same
+p5-input-row-limit-short-8x120-grown                 6,2     6,4     6,2  same

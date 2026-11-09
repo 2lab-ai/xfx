@@ -1,0 +1,41 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-d2e81c9 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m /
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245mCommands 34 · type to filter                                                                                        1–6[39m
+
+[1m[38;5;255m  /help     [38;5;245mshow available slash commands                                                                       General[0m
+[38;5;245m  /clear    start a fresh conversation while keeping managed processes                                          General[39m
+[38;5;245m  /new      start a fresh session                                                                               Session[39m
+[38;5;245m  /reset    reset the current session context                                                                   Session[39m
+[38;5;245m  /resume   resume a saved session                                                                              Session[39m
+[38;5;245m  /rename   rename the current session                                                                          Session[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245m↑↓ navigate     enter use     esc close[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

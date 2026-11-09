@@ -1,0 +1,41 @@
+x𝒇x v0.1.0-32afd30 [debug] · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Models 30  [All]  Anthropic  OpenAI  xAI  Others
+
+  anthropic/claude-opus-5  1M context · 64K output · Fast
+  fake/model-a
+  fake/row-26
+  xai/grok-4.7
+  fake/row-25
+  fake/row-24
+  fake/row-23
+  fake/row-22
+  fake/row-21
+  fake/row-20
+  fake/row-19
+  fake/row-18
+  fake/row-17
+  fake/row-16
+  fake/row-15
+  fake/row-14
+  fake/row-13
+  fake/row-12
+  fake/row-11
+  fake/row-10
+
+Note: Gateway catalog is authenticated with an API key
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab provider     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,56 @@
+# RED at c4558b2f (tests) over the base code 32afd307: cargo test --locked --lib -- at_41_rows on_an_eight_row_screen the_composer_may_take_half
+test tui::layout::tests::the_composer_may_take_half_of_fxs_content_area_plus_one_row ... FAILED
+test tui::shell::tests::on_an_eight_row_screen_a_page_and_the_composers_cap_are_one_row ... FAILED
+test tui::shell::tests::at_41_rows_a_page_of_the_slash_menu_is_19_commands ... FAILED
+test tui::shell::tests::at_41_rows_a_page_of_the_help_catalog_is_19_commands ... FAILED
+test tui::shell::tests::at_41_rows_a_page_of_the_fork_menu_is_19_prompts ... FAILED
+test tui::shell::tests::at_41_rows_a_page_of_the_model_menu_is_19_models ... FAILED
+test tui::shell::tests::at_41_rows_a_page_of_the_effort_menu_is_19_levels_round_its_five ... FAILED
+test tui::shell::tests::at_41_rows_a_page_of_the_resume_picker_is_19_sessions ... FAILED
+test tui::shell::tests::at_41_rows_the_composer_is_capped_at_19_rows_and_a_page_is_19_of_them ... FAILED
+test tui::shell::tests::at_41_rows_a_page_of_the_skills_menu_is_19_skills ... FAILED
+test tui::shell::tests::at_41_rows_a_page_of_the_at_list_is_19_paths ... FAILED
+thread 'tui::layout::tests::the_composer_may_take_half_of_fxs_content_area_plus_one_row' (418863547) panicked at src/tui/layout.rs:410:13:
+assertion `left == right` failed: a 7-row screen
+  left: 3
+ right: 1
+thread 'tui::shell::tests::on_an_eight_row_screen_a_page_and_the_composers_cap_are_one_row' (418863557) panicked at src/tui/shell.rs:35277:9:
+assertion `left == right` failed: a page of one row
+  left: Some(Gateway)
+ right: Some(Llmux)
+thread 'tui::shell::tests::at_41_rows_a_page_of_the_slash_menu_is_19_commands' (418863555) panicked at src/tui/shell.rs:35090:9:
+assertion `left == right` failed: a page is not 19 steps
+  left: 19
+ right: 20
+thread 'tui::shell::tests::at_41_rows_a_page_of_the_help_catalog_is_19_commands' (418863551) panicked at src/tui/shell.rs:35090:9:
+assertion `left == right` failed: a page is not 19 steps
+  left: Some("/fast")
+ right: Some("/ultrafast")
+thread 'tui::shell::tests::at_41_rows_a_page_of_the_fork_menu_is_19_prompts' (418863550) panicked at src/tui/shell.rs:35090:9:
+assertion `left == right` failed: a page is not 19 steps
+  left: Some(11)
+ right: Some(10)
+thread 'tui::shell::tests::at_41_rows_a_page_of_the_model_menu_is_19_models' (418863552) panicked at src/tui/shell.rs:35090:9:
+assertion `left == right` failed: a page is not 19 steps
+  left: Some("vendor/m20")
+ right: Some("vendor/m21")
+thread 'tui::shell::tests::at_41_rows_a_page_of_the_effort_menu_is_19_levels_round_its_five' (418863549) panicked at src/tui/shell.rs:35084:9:
+  left: Some(Auto)
+ right: Some(Auto)
+thread 'tui::shell::tests::at_41_rows_a_page_of_the_resume_picker_is_19_sessions' (418863553) panicked at src/tui/shell.rs:35090:9:
+assertion `left == right` failed: a page is not 19 steps
+  left: Some("s20")
+ right: Some("s21")
+thread 'tui::shell::tests::at_41_rows_the_composer_is_capped_at_19_rows_and_a_page_is_19_of_them' (418863556) panicked at src/tui/shell.rs:35105:9:
+assertion `left == right` failed: the composer's cap
+  left: 20
+ right: 19
+thread 'tui::shell::tests::at_41_rows_a_page_of_the_skills_menu_is_19_skills' (418863554) panicked at src/tui/shell.rs:35090:9:
+assertion `left == right` failed: a page is not 19 steps
+  left: Some("s18")
+ right: Some("s19")
+thread 'tui::shell::tests::at_41_rows_a_page_of_the_at_list_is_19_paths' (418863548) panicked at src/tui/shell.rs:35090:9:
+assertion `left == right` failed: a page is not 19 steps
+  left: Some("items/f-20.txt")
+ right: Some("items/f-21.txt")
+test result: FAILED. 0 passed; 11 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 0.03s

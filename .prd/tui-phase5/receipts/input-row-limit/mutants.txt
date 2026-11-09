@@ -1,0 +1,39 @@
+# mutants over the head d2e81c93 on a --no-local clone; tests: at_41_rows on_an_eight_row_screen the_composer_may_take_half
+old-content-bottom: KILLED (11 failed, 62s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::layout::tests::the_composer_may_take_half_of_fxs_content_area_plus_one_row
+    tui::shell::tests::at_41_rows_a_page_of_the_at_list_is_19_paths
+    tui::shell::tests::at_41_rows_a_page_of_the_effort_menu_is_19_levels_round_its_five
+    tui::shell::tests::at_41_rows_a_page_of_the_fork_menu_is_19_prompts
+    tui::shell::tests::at_41_rows_a_page_of_the_help_catalog_is_19_commands
+    tui::shell::tests::at_41_rows_a_page_of_the_model_menu_is_19_models
+    tui::shell::tests::at_41_rows_a_page_of_the_resume_picker_is_19_sessions
+    tui::shell::tests::at_41_rows_a_page_of_the_skills_menu_is_19_skills
+    tui::shell::tests::at_41_rows_a_page_of_the_slash_menu_is_19_commands
+    tui::shell::tests::at_41_rows_the_composer_is_capped_at_19_rows_and_a_page_is_19_of_them
+    tui::shell::tests::on_an_eight_row_screen_a_page_and_the_composers_cap_are_one_row
+no-guard: KILLED (2 failed, 13s;  1 file changed, 1 insertion(+), 5 deletions(-))
+    tui::layout::tests::the_composer_may_take_half_of_fxs_content_area_plus_one_row
+    tui::shell::tests::on_an_eight_row_screen_a_page_and_the_composers_cap_are_one_row
+old-limit:offer_to_catalog: KILLED (1 failed, 10s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_41_rows_a_page_of_the_help_catalog_is_19_commands
+old-limit:offer_to_skills: KILLED (1 failed, 7s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_41_rows_a_page_of_the_skills_menu_is_19_skills
+old-limit:offer_to_files: KILLED (1 failed, 7s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_41_rows_a_page_of_the_at_list_is_19_paths
+old-limit:offer_to_sessions: KILLED (1 failed, 7s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_41_rows_a_page_of_the_resume_picker_is_19_sessions
+old-limit:offer_to_models: KILLED (1 failed, 7s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_41_rows_a_page_of_the_model_menu_is_19_models
+old-limit:offer_to_effort: KILLED (1 failed, 8s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_41_rows_a_page_of_the_effort_menu_is_19_levels_round_its_five
+old-limit:offer_to_fork: KILLED (1 failed, 10s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_41_rows_a_page_of_the_fork_menu_is_19_prompts
+old-limit:offer_to_picker: KILLED (1 failed, 8s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_41_rows_a_page_of_the_slash_menu_is_19_commands
+old-limit:offer_to_provider_picker: KILLED (1 failed, 8s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::on_an_eight_row_screen_a_page_and_the_composers_cap_are_one_row
+old-limit:act, the composer's page: KILLED (1 failed, 7s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_41_rows_the_composer_is_capped_at_19_rows_and_a_page_is_19_of_them
+old-limit:fit: KILLED (2 failed, 12s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_41_rows_the_composer_is_capped_at_19_rows_and_a_page_is_19_of_them
+    tui::shell::tests::on_an_eight_row_screen_a_page_and_the_composers_cap_are_one_row
