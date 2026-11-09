@@ -38686,6 +38686,16 @@ mod tests {
                     "a key was routed into the editor: {:?}",
                     band(&shell)
                 );
+                // Up first out of the draft, as well as Down first: it ends
+                // the draft and marks the choice above, wrapping to the last.
+                assert!(shell.drafting(), "Tab did not open the draft again");
+                shell.decide(Input::Action(Action::Up), Instant::now());
+                assert!(
+                    shell.marked().contains("❯ 3  Don't apply"),
+                    "Up from a draft did not move the marker: {:?}",
+                    shell.marked()
+                );
+                assert!(!shell.drafting(), "Up from a draft kept it open");
             }
         }
     }
