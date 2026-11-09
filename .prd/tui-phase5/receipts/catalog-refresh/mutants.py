@@ -13,8 +13,9 @@ Each mutant gets one of five verdicts, counted apart:
   found in its output (a crash, a harness failure);
 - SURVIVED: it builds, and every test passes.
 
-usage: python3 -I mutants.py <clone> <cargo target dir>
-The clone and the target dir are arguments, so no path of this machine is
+usage: python3 -I mutants.py <clone> <cargo target dir> [<name part>...]
+With name parts, only the mutants whose name holds one of them run. The
+clone and the target dir are arguments, so no path of this machine is
 written here; run it under the suite lock."""
 import os, re, subprocess, sys
 
@@ -67,12 +68,18 @@ MUTANTS = [
     ("a switch keeps the old provider's catalog state and read", MODEL,
      "        *self = Self::new(config);\n        self.time = time;",
      "        let fresh = Self::new(config);\n        self.provider = fresh.provider;\n        self.model = fresh.model;\n        self.source = fresh.source;\n        self.catalog_fetcher = fresh.catalog_fetcher;\n        self.time = time;", 1),
+    ("a switch restores the old provider's catalog state alone", MODEL,
+     "        *self = Self::new(config);\n        self.time = time;",
+     "        let state = std::mem::replace(&mut self.catalog_state, CatalogState::NotLoaded);\n        *self = Self::new(config);\n        self.catalog_state = state;\n        self.time = time;", 1),
     ("a switch lets the old provider's read run on", MODEL,
      "        *self = Self::new(config);\n        self.time = time;",
      "        let mut old = std::mem::replace(self, Self::new(config));\n        std::mem::forget(old.pending.take());\n        self.time = time;", 1),
     ("the shared fixture's runtime reads the process's environment", WORKER,
      "        let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());\n        state.conversation = Some(conversation);\n        (home, workspace, state)",
      "        let _ = env;\n        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());\n        state.conversation = Some(conversation);\n        (home, workspace, state)", 1),
+    ("the shared fixture's environment carries a variable", WORKER,
+     "        let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());\n        let store = open_store(&config).expect(\"a store\");",
+     "        let env = Environment::new(\n            Some(home.path().to_path_buf()),\n            BTreeMap::from([(\"XFX_MUTANT\".to_string(), \"1\".to_string())]),\n        );\n        let store = open_store(&config).expect(\"a store\");", 1),
     ("a prompt reads the system clock, not the band's", SHELL,
      "        // `super::worker`'s `await_failed_catalog_retry`).\n        let _ = self.note_catalog_activity(self.catalog_clock.now());",
      "        // `super::worker`'s `await_failed_catalog_retry`).\n        let _ = self.note_catalog_activity(CatalogClock::system().now());", 1),
@@ -136,11 +143,12 @@ def failures(stdout):
     return found
 
 def main():
-    clone, target = sys.argv[1], sys.argv[2]
+    clone, target, parts = sys.argv[1], sys.argv[2], sys.argv[3:]
+    chosen = [m for m in MUTANTS if not parts or any(part in m[0] for part in parts)]
     head = run(clone, target, ["git", "rev-parse", "--short", "HEAD"]).stdout.strip()
-    print(f"# clone at {head}", flush=True)
+    print(f"# clone at {head}" + (f"; only {len(chosen)} of {len(MUTANTS)}, by name: {parts}" if parts else ""), flush=True)
     counts = {"killed": 0, "does not build": 0, "timed out": 0, "failed without a panic": 0, "SURVIVED": 0}
-    for name, path, old, new, times in MUTANTS:
+    for name, path, old, new, times in chosen:
         file = os.path.join(clone, path)
         text = open(file).read()
         assert text.count(old) == times, f"{name}: the edit's text is not in {path} {times} time(s)"
@@ -167,7 +175,7 @@ def main():
             run(clone, target, ["git", "checkout", "--", "src"])
         counts[verdict] += 1
         print(f"- {name} ({path}): {verdict}" + (f" -- {detail}" if detail else ""), flush=True)
-    print(f"{len(MUTANTS)} mutants: " + ", ".join(f"{n} {v}" for v, n in counts.items()))
-    return 0 if counts["killed"] == len(MUTANTS) else 1
+    print(f"{len(chosen)} mutants: " + ", ".join(f"{n} {v}" for v, n in counts.items()))
+    return 0 if counts["killed"] == len(chosen) else 1
 
 sys.exit(main())
