@@ -1,0 +1,6 @@
+# sweep-compare.sh's own output: compare.py's exit per reference (1: a pair that passes on the reference does not on the train, and fx's screen did not move alone -- the three model-column-idle pairs, README)
+compare-main: exit 1
+compare-unit-submit-card-preview: exit 0
+compare-unit-catalog-refresh: exit 1
+compare-unit-paste-gap: exit 0
+exit 0

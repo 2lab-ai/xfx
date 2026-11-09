@@ -24,8 +24,14 @@ PY
   echo; echo "## banners"
   python3 -I -B "$here/banners.py" "head=$T/sw-head:$head" "main=$T/sw-main:$main"
   echo; echo "## rescores with the head's ledger"
+  repo=$(cd "$here/../../../.." && pwd)
   for r in main scp cr pg; do
-    src=$T/sw-main; [ "$r" = main ] || src=""
-    echo "ref-$r: before $( [ -n "$src" ] && grep -o 'pass = [0-9]* / [0-9]*' "$src/scoreboard.md" || echo '(the unit sweep as its receipt states it)'); after $(grep -o 'pass = [0-9]* / [0-9]*' "$T/ref-$r/scoreboard.md"); ledger $(grep -o 'ledger sha256 `[0-9a-f]\{8\}' "$T/ref-$r/scoreboard.md" | tail -c 9); xfx $(grep -o 'xfx: .*sha256 `[0-9a-f]\{8\}' "$T/ref-$r/scoreboard.md" | grep -o '[0-9a-f]\{8\}$')"
+    case $r in
+      main) before=$(grep -o 'pass = [0-9]* / [0-9]*' "$T/sw-main/scoreboard.md") ;;
+      scp) before="$(git -C "$repo" show 0c203cd3:.prd/tui-phase5/receipts/submit-card-preview/sweep-head.md | grep -o 'pass = [0-9]* / [0-9]*') (its committed sweep-head.md)" ;;
+      cr) before="$(git -C "$repo" show 3ffbe0c7:.prd/tui-phase5/receipts/catalog-refresh/sweep-head.md | grep -o 'pass = [0-9]* / [0-9]*') (its committed sweep-head.md)" ;;
+      pg) before="$(git -C "$repo" show 5cc2e42c:.prd/tui-phase5/receipts/paste-gap/sweep-head.md | grep -o 'pass = [0-9]* / [0-9]*') (its committed sweep-head.md)" ;;
+    esac
+    echo "ref-$r: before $before; after $(grep -o 'pass = [0-9]* / [0-9]*' "$T/ref-$r/scoreboard.md"); ledger $(grep -o 'ledger sha256 `[0-9a-f]\{8\}' "$T/ref-$r/scoreboard.md" | tail -c 9); xfx $(grep -o 'xfx: .*sha256 `[0-9a-f]\{8\}' "$T/ref-$r/scoreboard.md" | grep -o '[0-9a-f]\{8\}$'); run at $(python3 -I -c "import json,sys; print(json.load(open(sys.argv[1]))['repo_head'][:8])" "$T/ref-$r/run.json")"
   done
 } | python3 -I -B "$here/redacted.py" "$here/sweep-runs.txt" "$T=<scratch>"

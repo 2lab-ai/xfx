@@ -1,4 +1,4 @@
-# Train 11's gate (gates.sh) at 820a8f15, the code head (join check 1's revised test; the commits after it add this folder's files only), in a git clone --no-local, one hold of the suite lock; started 2026-11-09T14:05:59Z (the slot's 'since')
+# Train 11's gate (gates.sh) at 820a8f15, the code head (join check 1's revised test; the commits after it add this folder's files only), in a git clone --no-local, one hold of the suite lock
 # head 820a8f15; tree clean: yes
 01 fmt                                exit 0     3s  load 27.23
 02 clippy                             exit 0    32s  load 27.23

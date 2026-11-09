@@ -1,0 +1,33 @@
+# Train 11's sweeps, as sweep.sh printed them; then each sweep's run.json, the banners (banners.py) and the rescores of the reference sweeps (sweep.sh --rescore on a copy, with the head's ledger).
+
+## main
+# main: build in mn at 32afd307, exit 0; xfx sha256 7676e4571df302e9bd9afe30c6f5eba785a2ed50f4e509cded4d97327369ec4c
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 60.65
+# main: sweep exit 0, 2212 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 15.38
+[191/193] xfx model-anchor: ran (5s)
+[192/193] xfx p5-ctrlo-wider-inline-fam: ran (8s)
+[193/193] fx (inventory): ran (30s)
+pass = 379 / 537 = 70.6%; unresolved 141, failed 0, timeout 0
+wrote <tmp>/scoreboard.md
+run.json: started 2026-11-09T23:00:01+09:00; wall 36m46s; start_load 60.65; peak_load 68.92; jobs 2; size 40x120; xfx_sha256 7676e4571df302e9bd9afe30c6f5eba785a2ed50f4e509cded4d97327369ec4c; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head 32afd3076743d0bcab0372319acff706387a8c46
+
+## head
+# head: build in hd2 at 820a8f15, exit 0; xfx sha256 bd90fc1d8089e8582d3895e025411d9488c43bb922dee8c0624081526bfe2fdd
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 14.01
+# head: sweep exit 0, 2317 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 24.09
+[201/203] fx p5-ctrlo-wider-inline-fam: ran (6s)
+[202/203] xfx p5-ctrlo-wider-inline-fam: ran (8s)
+[203/203] fx (inventory): ran (30s)
+pass = 399 / 559 = 71.4%; unresolved 143, failed 0, timeout 0
+wrote <tmp>/scoreboard.md
+run.json: started 2026-11-09T23:46:09+09:00; wall 38m35s; start_load 14.01; peak_load 48.96; jobs 2; size 40x120; xfx_sha256 bd90fc1d8089e8582d3895e025411d9488c43bb922dee8c0624081526bfe2fdd; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head 820a8f15832181a93cccb3f8316de4d33ee4add1
+
+## banners
+head: 444 xfx snaps show the banner; 444 name v0.1.0-820a8f1; others none
+main: 438 xfx snaps show the banner; 438 name v0.1.0-32afd30; others none
+
+## rescores with the head's ledger
+ref-main: before pass = 379 / 537; after pass = 379 / 537; ledger f4f31f5e; xfx 7676e457; run at 32afd307
+ref-scp: before pass = 73 / 129 (its committed sweep-head.md); after pass = 73 / 129; ledger f4f31f5e; xfx d2c264db; run at b0c8d70e
+ref-cr: before pass = 77 / 92 (its committed sweep-head.md); after pass = 77 / 92; ledger f4f31f5e; xfx 2dc558ad; run at 3d96f590
+ref-pg: before pass = 200 / 253 (its committed sweep-head.md); after pass = 200 / 253; ledger f4f31f5e; xfx 0addcfa6; run at ea2b8a60

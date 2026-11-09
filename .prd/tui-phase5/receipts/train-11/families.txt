@@ -1,0 +1,12 @@
+| family | head | main | unit-submit-card-preview | unit-catalog-refresh | unit-paste-gap |
+|---|---|---|---|---|---|
+| the submit scenarios (p5-submit-preview-*, *submit*) | 31 / 31 | 9 / 9 | 31 / 31 | - | 9 / 9 |
+| p5-submit-preview-* (SUBMIT-CARD-PREVIEW's) | 22 / 22 | - | 22 / 22 | - | - |
+| the other p5-transcript-* (SUBMIT-CARD-PREVIEW's sweep's) | 42 / 98 | 42 / 98 | 42 / 98 | - | 2 / 2 |
+| model and catalog (model*, p5-input-model*, p5-catalog-*, h1-models*, settings-model*) | 118 / 128 | 120 / 128 | - | 77 / 92 | 26 / 32 |
+| the approvals (approvals*) | 2 / 18 | 2 / 18 | - | - | 2 / 18 |
+| the pastes (paste*, p5-paste*, p5-input-paste*) | 27 / 33 | 27 / 33 | - | - | 27 / 33 |
+| the other p5-input-* (PASTE-GAP's sweep's) | 22 / 38 | 22 / 38 | - | - | 17 / 32 |
+| PASTE-GAP's sweep's others (card-wrap, composer-wrap, compact-toolarge, image-*, question*, skills-paste, p5-effort-fork-*, p5-panels-keys, p5-session-early-prefs) | 117 / 127 | 117 / 127 | - | - | 117 / 127 |
+| the changed ledger entries' others (interrupt2, model-parked, allowlist2, fulltranscript*, links, read-failures, resume-tools, timeout, p5-ctrlo-wider-inline-fam, h1-resize, p5-toolgroup-ctrlo*) | 45 / 91 | 44 / 91 | - | 4 / 5 | - |
+| every scenario swept | 399 / 559 | 379 / 537 | 73 / 129 | 77 / 92 | 200 / 253 |

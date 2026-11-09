@@ -1,0 +1,373 @@
+pairs: reference 537, train 559, shared 537; only the reference: 0
+reference: 537 pairs, pass 379; approved-divergence 9, approved-divergence-cascade 8, identical 16, normalized-identical 363, unresolved-defect 141
+train: 537 pairs, pass 377; approved-divergence 9, approved-divergence-cascade 8, identical 16, normalized-identical 361, unresolved-defect 143
+model-column-idle col-down: 0 differing rows left, 4 new
+    NEW:  fx '' / xfx '         anthropic/claude-opus-5'
+    NEW:  fx '' / xfx '         fake/model-a'
+    NEW:  fx '' / xfx '         xai/grok-4.7'
+    NEW:  fx '         unable to load models' / xfx '         openai/gpt-6-astra'
+model-column-idle col-idle: 0 differing rows left, 4 new
+    NEW:  fx '' / xfx '         anthropic/claude-opus-5'
+    NEW:  fx '' / xfx '         fake/model-a'
+    NEW:  fx '' / xfx '         xai/grok-4.7'
+    NEW:  fx '         unable to load models' / xfx '         openai/gpt-6-astra'
+model-column-idle col-typed: 0 differing rows left, 4 new
+    NEW:  fx '' / xfx '         anthropic/claude-opus-5'
+    NEW:  fx '' / xfx '         fake/model-a'
+    NEW:  fx '' / xfx '         xai/grok-4.7'
+    NEW:  fx '         unable to load models' / xfx '         openai/gpt-6-astra'
+model-parked menu-loading: 9 differing rows left, 0 new
+    left: fx '' / xfx '  xai/grok-4.7'
+    left: fx '' / xfx 'Note: Gateway catalog is authenticated with an API key'
+    left: fx '' / xfx '↑↓ navigate     tab provider     enter use     esc close'
+    left: fx '' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx 'Loading models…' / xfx '  openai/gpt-6-astra       400K context · 128K output · Fast · Ultra'
+    left: fx 'Models 0  [All]' / xfx 'Models 4  [All]  Anthropic  OpenAI  xAI  Others'
+    left: fx '~ Thinking (<s>)' / xfx '~ Generating (<s>) (↑4 ↓3)'
+    left: fx '↑↓ navigate     tab provider     enter use     esc close' / xfx '  fake/model-a'
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx '  anthropic/claude-opus-5  1M context · 64K output · Fast'
+p5-effort-fork-fork-edge status-empty: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-panels-keys approval-esc: 2 differing rows left, 2 new
+    left: fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-panels-keys btab: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-panels-keys ctrl-c: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-panels-keys end: 2 differing rows left, 2 new
+    left: fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-panels-keys open-before-approval: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-panels-keys paste: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-panels-keys tab-pgdn: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+read-failures live-ctrl-o-up1: 2 differing rows left, 2 new
+    left: fx '│  ls":{"field":"path","path":"<local-path>","error":"Not' / xfx ''
+    left: fx '├ Failed src' / xfx '│  ls":{"field":"path","path":"<local-path>","error":"Not'
+    NEW:  fx '│  ls":{"field":"path","path":"<local-path>","error":"Not' / xfx ''
+    NEW:  fx '├ Failed src' / xfx '│  ls":{"field":"path","path":"<local-path>","error":"Not'
+verdicts moved: 4
+    model-column-idle col-down: normalized-identical -> unresolved-defect
+    model-column-idle col-idle: normalized-identical -> unresolved-defect
+    model-column-idle col-typed: normalized-identical -> unresolved-defect
+    model-parked menu-loading: unresolved-defect -> normalized-identical
+fx screens not the same in the two sweeps: 123
+    composer-wrap badge-111
+    composer-wrap badge-71
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    image-composer lookalike
+    image-composer lookalike-sent
+    image-composer oversized
+    image-composer recalled
+    image-composer recalled-sent
+    image-composer recovered
+    image-composer yanked
+    image-composer yanked-sent
+    image-inline pasted
+    image-inline pasted-missing
+    image-inline pasted-sent
+    image-inline typed
+    image-inline typed-sent
+    image-undo pasted
+    image-undo yank-undone
+    image-undo yanked
+    interrupt2 cd-streaming
+    interrupt2 mid
+    links full
+    model-parked menu-loading
+    model-parked question-landed
+    model-parked question-up
+    model-reask menu-failed
+    model-reask turn-running
+    p5-ctrlo-wider-inline-fam ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo-resized
+    p5-effort-fork-fork-edge fork-of-empty
+    p5-effort-fork-fork-edge forked-first
+    p5-effort-fork-fork-edge forked-first.full
+    p5-effort-fork-fork-edge midturn
+    p5-effort-fork-fork-edge quit
+    p5-effort-fork-fork-edge resume
+    p5-effort-fork-fork-edge status-empty
+    p5-panels-keys approval-esc
+    p5-panels-keys btab
+    p5-panels-keys ctrl-c
+    p5-panels-keys end
+    p5-panels-keys open-before-approval
+    p5-panels-keys paste
+    p5-panels-keys tab-pgdn
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-cancel cmd-running
+    p5-transcript-cancel full
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 full
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    question answered
+    question answered.full
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    timeout live-ctrl-o
+xfx screens not the same in the two sweeps: 165
+    approvals after-cc-cmd-ask
+    approvals cmd2-ask
+    approvals edit-amend-typed
+    approvals edit-ask
+    approvals edit-down1
+    approvals edit-down3-wrap
+    approvals edit-tab-amend
+    approvals write-ask
+    approvals-amend-limit asked
+    approvals-amend-limit refused
+    approvals-amend-limit refused-after-edit
+    approvals-amend-limit refused-again
+    approvals-big write-big
+    approvals-big write-big-walked
+    composer-wrap badge-111
+    composer-wrap badge-71
+    fulltranscript cmd-ask
+    fulltranscript cmd-ask-ctrl-o
+    fulltranscript edit-ask
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    image-composer lookalike
+    image-composer lookalike-sent
+    image-composer oversized
+    image-composer recalled
+    image-composer recalled-sent
+    image-composer recovered
+    image-composer yanked
+    image-composer yanked-sent
+    image-inline pasted
+    image-inline pasted-missing
+    image-inline pasted-sent
+    image-inline typed
+    image-inline typed-sent
+    image-undo pasted
+    image-undo yank-undone
+    image-undo yanked
+    links full
+    model-busy during
+    model-busy-known during
+    model-column-idle col-down
+    model-column-idle col-idle
+    model-column-idle col-typed
+    model-effort explicit-bad
+    model-effort explicit-ok
+    model-effort trap
+    model-effort turn
+    model-reask menu-failed
+    model-reask reask-midturn
+    p5-ctrlo-wider-inline-fam ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo-resized
+    p5-effort-fork-effort-menu after-turn
+    p5-effort-fork-effort-menu midturn
+    p5-effort-fork-effort-menu midturn-done
+    p5-effort-fork-fork-edge fork-of-empty
+    p5-effort-fork-fork-edge forked-first
+    p5-effort-fork-fork-edge forked-first.full
+    p5-effort-fork-fork-edge midturn
+    p5-effort-fork-fork-edge quit
+    p5-effort-fork-fork-edge resume
+    p5-effort-fork-fork-edge status-empty
+    p5-input-paste-amend amend-keep
+    p5-input-paste-amend amend-paste-enter
+    p5-input-paste-amend answered
+    p5-input-paste-amend asked
+    p5-input-paste-amend choice-paste-enter
+    p5-panels-keys approval-arrives
+    p5-panels-keys approval-esc
+    p5-panels-keys btab
+    p5-panels-keys ctrl-c
+    p5-panels-keys end
+    p5-panels-keys open-before-approval
+    p5-panels-keys paste
+    p5-panels-keys tab-pgdn
+    p5-toolgroup-ctrlo dark
+    p5-toolgroup-ctrlo dark-again
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-cancel cmd-running
+    p5-transcript-cancel full
+    p5-transcript-diffask ask
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 full
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    question answered
+    question answered.full
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    resume-tools again-stopped
+    resume-tools cmd-ask
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools edit-ask
+    resume-tools end
+    resume-tools exit-ask
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    resume-tools live.full
+    resume-tools long-later
+    resume-tools write-ask
+    timeout live-ctrl-o
+passed on the reference, not on the train: 3
+    model-column-idle col-down
+    model-column-idle col-idle
+    model-column-idle col-typed; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 12
