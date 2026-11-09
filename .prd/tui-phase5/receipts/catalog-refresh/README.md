@@ -20,8 +20,9 @@ decides when xfx sends background catalog requests. Base `e705a5dc`
 After `6ab25d2a` nothing under `src/` changes but one comment, after the gate
 (below), so the swept binary's behaviour is the head's.
 
-Source outside tests, base to head: every line +439 -125, code alone (no
-blank or `//` line) +266 -95 (`size.txt`, `size.py`) -- past the brief's
+Source outside tests, base to `6ab25d2a`: every line +439 -125, code alone
+(no blank or `//` line) +266 -95 (`size.txt`, `size.py`; the comment after
+the gate adds 4 lines and takes 3) -- past the brief's
 ~400-line mark with its doc comments, under it without. A split, if wanted,
 is the triggers (`9ffb6310`, `04a1ed4e`, `6ab25d2a`) and the clock
 (`2810f53c`), each with its own RED -- but not free: `6ab25d2a` edits
