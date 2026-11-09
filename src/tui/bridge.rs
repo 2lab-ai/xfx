@@ -284,15 +284,16 @@ pub(crate) enum UiEvent {
     /// opens a socket, and the UI thread must never be the thread that waits.
     ///
     /// `due` is when activity -- a submitted prompt, a frame of the inline
-    /// column -- next owes these rows a read by the runtime's clock: the
-    /// refresh interval after the read that brought them **began**, as
-    /// upstream's `beginLoad` counts it (`expired`,
-    /// `model_cache_runtime.zig:609-611@481104fd`;
-    /// `crate::provider::model::LoadClock::activity_due`).
+    /// column -- next owes these rows a read by the runtime's clock, the
+    /// catalog's, which counts sleep: the refresh interval after the read
+    /// that brought them **began**, as upstream's `beginLoad` counts it
+    /// (`expired`, `model_cache_runtime.zig:609-611@481104fd`;
+    /// `crate::provider::model::LoadClock::activity_due`), or any reading
+    /// earlier than that start.
     CatalogLoaded {
         provider: crate::provider::ProviderId,
         entries: Vec<crate::provider::model::CatalogEntry>,
-        due: std::time::Instant,
+        due: crate::provider::catalog_clock::CatalogDue,
     },
     /// The provider's catalog could not be read.
     ///
@@ -308,7 +309,7 @@ pub(crate) enum UiEvent {
     CatalogUnread {
         provider: crate::provider::ProviderId,
         retry: Option<crate::provider::model::CatalogRetry>,
-        retry_at: std::time::Instant,
+        retry_at: crate::provider::catalog_clock::CatalogDue,
     },
     /// A read of the provider's catalog **behind the rows the band holds**
     /// failed, and the rows stand (`applyFetchLocked`,
@@ -323,7 +324,7 @@ pub(crate) enum UiEvent {
     CatalogRefreshFailed {
         provider: crate::provider::ProviderId,
         retry: Option<crate::provider::model::CatalogRetry>,
-        due: std::time::Instant,
+        due: crate::provider::catalog_clock::CatalogDue,
     },
     /// What a **completed** turn's answering request read: the context
     /// meter's numerator.
@@ -2799,7 +2800,10 @@ mod tests {
         // policy is applied at the channel rather than at the painter, so a
         // later reader of this event inherits it.
         let event = UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: crate::provider::catalog_clock::CatalogDue::at(
+                crate::provider::catalog_clock::CatalogClock::system().now()
+                    + crate::provider::model::REFRESH_INTERVAL,
+            ),
             provider: crate::provider::ProviderId::Llmux,
             entries: vec![hostile_entry()],
         }
@@ -3013,7 +3017,10 @@ mod tests {
         assert!(!UiEvent::Usage { input: Some(1) }.is_terminal());
         assert!(!UiEvent::Output(crate::agent::tokens::Progress::Settled(2)).is_terminal());
         assert!(!UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: crate::provider::catalog_clock::CatalogDue::at(
+                crate::provider::catalog_clock::CatalogClock::system().now()
+                    + crate::provider::model::REFRESH_INTERVAL,
+            ),
             provider: crate::provider::ProviderId::Gateway,
             entries: Vec::new()
         }
@@ -3021,13 +3028,17 @@ mod tests {
         assert!(!UiEvent::CatalogUnread {
             provider: crate::provider::ProviderId::Gateway,
             retry: None,
-            retry_at: std::time::Instant::now(),
+            retry_at: crate::provider::catalog_clock::CatalogDue::at(
+                crate::provider::catalog_clock::CatalogClock::system().now(),
+            ),
         }
         .is_terminal());
         assert!(!UiEvent::CatalogRefreshFailed {
             provider: crate::provider::ProviderId::Gateway,
             retry: None,
-            due: std::time::Instant::now(),
+            due: crate::provider::catalog_clock::CatalogDue::at(
+                crate::provider::catalog_clock::CatalogClock::system().now(),
+            ),
         }
         .is_terminal());
         assert!(!UiEvent::ProviderSelected {

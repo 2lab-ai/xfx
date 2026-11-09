@@ -75,6 +75,8 @@ use std::collections::VecDeque;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
+use crate::provider::catalog_clock::{CatalogClock, CatalogDue, CatalogTime};
+
 use super::activity::{Activity, Work, PHASES};
 use super::approval::{self, Panel};
 use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface};
@@ -857,7 +859,10 @@ pub(crate) struct Shell {
     /// `model_cache_runtime.zig:609-623@481104fd`; [`UiEvent::CatalogLoaded`]'s
     /// and [`UiEvent::CatalogRefreshFailed`]'s `due`). `None` beside any other
     /// [`CatalogKnown`].
-    catalog_due: Option<Instant>,
+    catalog_due: Option<CatalogDue>,
+    /// What the band reads those times against: the runtime's clock, the
+    /// catalog's, which counts sleep ([`CatalogClock`]).
+    catalog_clock: CatalogClock,
     /// A refresh behind the rows the band holds failed in a way asking again
     /// could change: `/model`'s menu says so in its note's place
     /// (`loadedCatalogStatusText`, `model_menu_presentation.zig:403-404
@@ -2383,7 +2388,7 @@ enum CatalogKnown {
     /// then opens the menu over the failure and asks nothing, as upstream's
     /// model cache starts no load inside a failure's backoff
     /// (`crate::provider::model::failure_backoff`).
-    Unread(Option<CatalogRetry>, Instant),
+    Unread(Option<CatalogRetry>, CatalogDue),
 }
 
 /// The catalog as `/model`'s column is drawn from it.
@@ -2514,6 +2519,7 @@ impl Shell {
             catalog: Vec::new(),
             catalog_known: CatalogKnown::Unasked,
             catalog_due: None,
+            catalog_clock: CatalogClock::system(),
             catalog_note: None,
             catalog_nudged: false,
             settings: TurnSettings {
@@ -3968,7 +3974,7 @@ impl Shell {
         // hold, are read again. Nothing at launch, nor onto another provider:
         // the band holds no answer then, and the runtime's own read is on its
         // way ([`Self::note_catalog_activity`]).
-        let _ = self.note_catalog_activity(Instant::now());
+        let _ = self.note_catalog_activity(self.catalog_clock.now());
         self.render.request(Reason::Footer);
     }
 
@@ -13161,7 +13167,7 @@ impl Shell {
         // the runtime reads first, so the retry is on its way before the turn
         // asks for the catalog's limits (`resolveForRequest`'s wait,
         // `super::worker`'s `await_failed_catalog_retry`).
-        let _ = self.note_catalog_activity(Instant::now());
+        let _ = self.note_catalog_activity(self.catalog_clock.now());
         // **Into the turn that is running**, as upstream's steer
         // (`admitInteractivePrompt`, `worker_runtime.zig:1080-1104`): the turn
         // takes it at its next boundary -- at once over an answer, after a
@@ -14814,7 +14820,7 @@ impl Shell {
             // the failure it holds -- `Could not reach AI Gateway; xfx retries
             // automatically.` at once, and nothing asked (`beginLoad`,
             // `:617`, `:621`; `refreshMenuLocked`, `:1046-1050`).
-            CatalogKnown::Unread(retry, retry_at) if Instant::now() < retry_at => {
+            CatalogKnown::Unread(retry, retry_at) if !retry_at.is_due(self.catalog_clock.now()) => {
                 let mut menu = ModelMenu::loading(query);
                 menu.failed(retry);
                 menu
@@ -14863,6 +14869,11 @@ impl Shell {
             .flatten()
     }
 
+    /// A reading of the clock the catalog's times are told on.
+    pub(crate) fn catalog_now(&self) -> CatalogTime {
+        self.catalog_clock.now()
+    }
+
     /// What the band knows of when the runtime next reads the catalog, let
     /// go: a new answer, or a provider whose catalog is not this one.
     fn forget_catalog_clock(&mut self) {
@@ -14880,13 +14891,15 @@ impl Shell {
     /// and its answer, whatever it is, lets the band ask again. Nothing waits
     /// on it: the band goes on saying what it says until the answer lands.
     /// Whether it asked.
-    fn note_catalog_activity(&mut self, now: Instant) -> bool {
+    fn note_catalog_activity(&mut self, now: CatalogTime) -> bool {
         if self.catalog_nudged {
             return false;
         }
+        // By the runtime's own rule ([`CatalogDue::is_due`]): a reading
+        // earlier than the last read's start is due too.
         let due = match self.catalog_known {
-            CatalogKnown::Unread(_, retry_at) => now >= retry_at,
-            CatalogKnown::Loaded => self.catalog_due.is_some_and(|due| now >= due),
+            CatalogKnown::Unread(_, retry_at) => retry_at.is_due(now),
+            CatalogKnown::Loaded => self.catalog_due.is_some_and(|due| due.is_due(now)),
             // Asked, or the launch's read still on its way: one is coming.
             CatalogKnown::Unasked | CatalogKnown::Asked => false,
         };
@@ -14946,7 +14959,7 @@ impl Shell {
     /// asks nothing, here and upstream (`flushRequestedFrame` begins no
     /// attempt without a request): the column says `unable to load models`
     /// until the next keystroke.
-    pub(crate) fn settle_column(&mut self, now: Instant) {
+    pub(crate) fn settle_column(&mut self, now: CatalogTime) {
         let ticked = std::mem::take(&mut self.animation_turned);
         if !(self.render.owed() || ticked) || !matches!(self.slot(), Some(Slot::Column)) {
             return;
@@ -16854,17 +16867,29 @@ mod tests {
     /// When the hold a failed read put on the next one ended: long enough
     /// ago that a `/model` asks again
     /// ([`crate::provider::model::failure_backoff`]).
-    fn failed_long_ago() -> Instant {
-        Instant::now()
-            .checked_sub(std::time::Duration::from_secs(2))
-            .expect("a clock older than two seconds")
+    fn failed_long_ago() -> CatalogDue {
+        CatalogDue::at(
+            catalog_now()
+                .checked_sub(std::time::Duration::from_secs(2))
+                .expect("a clock older than two seconds"),
+        )
     }
 
     /// When the hold a failed read put on the next one ends: still to come
     /// however long the test thread is held up between the failure and the
     /// `/model`.
-    fn failed_just_now() -> Instant {
-        Instant::now() + std::time::Duration::from_secs(3600)
+    fn failed_just_now() -> CatalogDue {
+        let now = catalog_now();
+        CatalogDue {
+            since: Some(now),
+            at: now + std::time::Duration::from_secs(3600),
+        }
+    }
+
+    /// A reading of the catalog's clock: the one a shell reads its catalog's
+    /// times against unless a test gives it another.
+    fn catalog_now() -> CatalogTime {
+        CatalogClock::system().now()
     }
 
     fn shell(rows: u16, cols: u16) -> Fixture {
@@ -24436,7 +24461,7 @@ mod tests {
                     Some(TurnControl::Catalog(CatalogAsk::TOLD))
                 );
                 shell.apply(UiEvent::CatalogLoaded {
-                    due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+                    due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
                     provider: ProviderId::Gateway,
                     entries: Vec::new(),
                 });
@@ -27851,7 +27876,7 @@ mod tests {
         let forged = "evil\n* provider: Switched to llmux with fable.";
         let mut shell = self::shell(24, 120);
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: vec![CatalogEntry {
                 id: forged.to_string(),
@@ -29960,7 +29985,7 @@ mod tests {
     fn harness_shell() -> Fixture {
         let mut shell = shell(40, 120);
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -29991,7 +30016,7 @@ mod tests {
     fn speed_shell() -> Fixture {
         let mut shell = shell(40, 120);
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: speed_rows(),
         });
@@ -30268,7 +30293,7 @@ mod tests {
         // announceable too.
         let mut empty = self::shell(24, 80);
         empty.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: Vec::new(),
         });
@@ -30493,7 +30518,7 @@ mod tests {
     fn the_menu_lists_the_rows_in_hand_and_walks_them_with_upstreams_keys() {
         let mut shell = shell(40, 120);
         shell.shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: vec![
                 entry("one", Some(400_000), &[]),
@@ -30620,7 +30645,7 @@ mod tests {
         // A catalog that arrives fills it, the note under it -- the fixture's
         // environment has no key, so there is none to name.
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -30629,7 +30654,7 @@ mod tests {
 
         // An empty one says so.
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: Vec::new(),
         });
@@ -30674,7 +30699,7 @@ mod tests {
         assert_eq!(rows[2], "Loading models…", "{rows:?}");
         // The turn still running, the answer lands.
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -30691,7 +30716,7 @@ mod tests {
         gateway.route_bytes(b"/model\r");
         let _ = gateway.controlled();
         gateway.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -30709,7 +30734,7 @@ mod tests {
         // A llmux catalog has no note.
         llmux.shell.gateway_note = Some("Note: Gateway catalog is authenticated with an API key");
         llmux.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: vec![entry("one", None, &[])],
         });
@@ -30862,7 +30887,7 @@ mod tests {
         assert_eq!(column(&shell)[0], "         unable to load models");
         // A frame inside the hold: asks nothing.
         assert!(shell.render.owed());
-        shell.settle_column(Instant::now());
+        shell.settle_column(catalog_now());
         assert!(shell.controlled().is_none(), "asked inside the hold");
         let _ = shell.render.begin();
         // Past the hold, an idle tick -- no frame owed -- asks nothing:
@@ -30870,7 +30895,7 @@ mod tests {
         shell.shell.catalog_known =
             CatalogKnown::Unread(Some(CatalogRetry::Unreachable), failed_long_ago());
         assert!(!shell.render.owed());
-        shell.settle_column(Instant::now());
+        shell.settle_column(catalog_now());
         assert!(shell.controlled().is_none(), "an idle tick asked");
         // The activity row's tick turning over while a turn works -- a frame
         // upstream draws every 50 ms, though no row of this band changed and
@@ -30878,18 +30903,18 @@ mod tests {
         // failure while the read is on its way.
         shell.shell.animation_turned = true;
         assert!(!shell.render.owed());
-        shell.settle_column(Instant::now());
+        shell.settle_column(catalog_now());
         assert_eq!(
             shell.controlled(),
             Some(TurnControl::Catalog(CatalogAsk::ACTIVITY))
         );
         assert_eq!(column(&shell)[0], "         unable to load models");
         shell.shell.animation_turned = true;
-        shell.settle_column(Instant::now());
+        shell.settle_column(catalog_now());
         assert!(shell.controlled().is_none(), "asked twice for one read");
         // The read lands, and the column lists it.
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
         });
@@ -30906,7 +30931,7 @@ mod tests {
         });
         asked.apply(UiEvent::Question(a_batch()));
         assert!(asked.render.owed());
-        asked.settle_column(Instant::now());
+        asked.settle_column(catalog_now());
         assert!(
             asked.controlled().is_none(),
             "a column under a question asked"
@@ -31402,7 +31427,7 @@ mod tests {
         // write took.
         let mut shell = running("say something");
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: speed_rows(),
         });
@@ -31534,7 +31559,7 @@ mod tests {
         row.id = model;
         row.facts.fast = true;
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: vec![row],
         });
@@ -31863,7 +31888,7 @@ mod tests {
         shell.route_bytes(b"\x15/model ");
         assert!(shell.controlled().is_none(), "asked a second time");
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -35916,7 +35941,7 @@ mod tests {
         shell.shell.model = "old".to_string();
         shell.shell.session_title = Some("the first prompt".to_string());
         shell.shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: vec![entry("old", Some(100_000), &[])],
         });
@@ -35949,7 +35974,7 @@ mod tests {
             Some("the first prompt")
         );
         shell.shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(1_000_000), &[])],
         });
@@ -35979,7 +36004,7 @@ mod tests {
         // -- and the document gets nothing.
         let mut shell = shell(24, 80);
         shell.shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: vec![
                 entry("fable", Some(1_000_000), &["low", "high"]),
@@ -36024,7 +36049,7 @@ mod tests {
 
         // A denominator with no numerator is not a meter.
         shell.shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(200_000), &[])],
         });
@@ -36069,7 +36094,7 @@ mod tests {
         shell.shell.statusline.context = true;
         shell.shell.model = "fable".to_string();
         shell.shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(100_000), &[])],
         });
@@ -36089,7 +36114,7 @@ mod tests {
         let mut shell = shell(24, 80);
         shell.shell.model = "fable".to_string();
         shell.shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(100_000), &[])],
         });
@@ -36105,7 +36130,7 @@ mod tests {
         // alias, because the model in force is whatever the profile spelled.
         let mut shell = shell(24, 80);
         shell.shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: vec![
                 entry("small", Some(8_000), &[]),
@@ -36144,7 +36169,7 @@ mod tests {
         shell.shell.statusline.context = true;
         shell.shell.model = "fable".to_string();
         shell.shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(200_000), &[])],
         });
@@ -41578,7 +41603,7 @@ mod tests {
     fn effort_shell(root: &std::path::Path) -> Fixture {
         let mut shell = shell_at_home(root, 40, 120);
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -41845,7 +41870,7 @@ mod tests {
         loading.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: None,
-            retry_at: Instant::now(),
+            retry_at: CatalogDue::at(catalog_now()),
         });
         let _ = loading.document();
         loading.route_bytes(b"/effort\r");
@@ -41934,7 +41959,7 @@ mod tests {
         shell.route_bytes(b"/effort\r");
         // A catalog read landing is not one.
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -42047,7 +42072,7 @@ mod tests {
         let mut shell = shell_at_home(root.path(), 40, 120);
         let forged = "odd\u{1b}]0;x\u{7}\nmodel";
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: vec![CatalogEntry {
                 id: forged.to_string(),
@@ -42259,7 +42284,7 @@ mod tests {
         assert!(matches!(shell.slot(), Some(Slot::Column)));
         // A catalog read landing is not a change of model.
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -42302,7 +42327,7 @@ mod tests {
         });
         assert!(!matches!(shell.slot(), Some(Slot::Column)));
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Llmux,
             entries: harness_rows(),
         });
@@ -42319,7 +42344,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = shell_at_home(root.path(), 40, 120);
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -42550,7 +42575,7 @@ mod tests {
             )
         );
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -42616,7 +42641,7 @@ mod tests {
         // Right opens it too; Tab closes it with the tab change.
         let mut right = with_settings(root.path());
         right.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -42643,7 +42668,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -42662,7 +42687,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -42687,7 +42712,7 @@ mod tests {
         // nothing listed is nothing to use.
         let mut none = with_settings(root.path());
         none.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,
             entries: harness_rows(),
         });
@@ -48248,11 +48273,14 @@ mod tests {
 
     /// The runtime could not read the catalog, the read that failed having
     /// failed at `failed` -- the first failure in a row.
-    fn unread_at(retry: Option<CatalogRetry>, failed: Instant) -> UiEvent {
+    fn unread_at(retry: Option<CatalogRetry>, failed: CatalogTime) -> UiEvent {
         UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry,
-            retry_at: failed + crate::provider::model::failure_backoff(1),
+            retry_at: CatalogDue {
+                since: Some(failed),
+                at: failed + crate::provider::model::failure_backoff(1),
+            },
         }
     }
 
@@ -48262,7 +48290,13 @@ mod tests {
         UiEvent::CatalogRefreshFailed {
             provider: ProviderId::Gateway,
             retry,
-            due: Instant::now() + crate::provider::model::failure_backoff(1),
+            due: {
+                let now = catalog_now();
+                CatalogDue {
+                    since: Some(now),
+                    at: now + crate::provider::model::failure_backoff(1),
+                }
+            },
         }
     }
 
@@ -48270,21 +48304,24 @@ mod tests {
     /// the next read once they are the refresh interval old, counted from
     /// then (`beginLoad`'s `expired`, `model_cache_runtime.zig:609-611
     /// @481104fd`).
-    fn loaded_from(began: Instant) -> UiEvent {
+    fn loaded_from(began: CatalogTime) -> UiEvent {
         UiEvent::CatalogLoaded {
             provider: ProviderId::Gateway,
             entries: harness_rows(),
-            due: began + REFRESH_INTERVAL,
+            due: CatalogDue {
+                since: Some(began),
+                at: began + REFRESH_INTERVAL,
+            },
         }
     }
 
     /// A refresh behind the rows the band holds failed, the runtime's clock
     /// owing activity the next read at `due`.
-    fn refresh_failed_due(retry: Option<CatalogRetry>, due: Instant) -> UiEvent {
+    fn refresh_failed_due(retry: Option<CatalogRetry>, due: CatalogTime) -> UiEvent {
         UiEvent::CatalogRefreshFailed {
             provider: ProviderId::Gateway,
             retry,
-            due,
+            due: CatalogDue::at(due),
         }
     }
 
@@ -48338,7 +48375,7 @@ mod tests {
         // words (`model_menu_presentation.zig:439-441`): the train-5 receipt's
         // `model-reask/menu-failed` and `p5-input-model-fail/fail-open`, where
         // fx said `Could not reach AI Gateway; fx retries automatically.`.
-        let two_seconds_ago = Instant::now()
+        let two_seconds_ago = catalog_now()
             .checked_sub(Duration::from_secs(2))
             .expect("a clock older than two seconds");
         let mut shell = shell(40, 120);
@@ -48362,7 +48399,7 @@ mod tests {
         // (`:1049`), the band waiting on the answer.
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
-        let ten_seconds_ago = Instant::now()
+        let ten_seconds_ago = catalog_now()
             .checked_sub(Duration::from_secs(10))
             .expect("a clock older than ten seconds");
         shell.apply(unread_at(Some(CatalogRetry::Unreachable), ten_seconds_ago));
@@ -48414,7 +48451,7 @@ mod tests {
         // catalog again once its backoff is over (`beginLoad`,
         // `model_cache_runtime.zig:617`, `:621-622`) -- the band asks the
         // runtime, without waiting on the answer, as the prompt is submitted.
-        let ten_seconds_ago = Instant::now()
+        let ten_seconds_ago = catalog_now()
             .checked_sub(Duration::from_secs(10))
             .expect("a clock older than ten seconds");
         let mut shell = shell(40, 120);
@@ -48428,7 +48465,7 @@ mod tests {
         );
         // Inside it: nothing.
         let mut shell = self::shell(40, 120);
-        shell.apply(unread_at(Some(CatalogRetry::Unreachable), Instant::now()));
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), catalog_now()));
         shell.route_bytes(b"hello\r");
         assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
         assert_eq!(catalog_asks(&mut shell), [], "asked inside the backoff");
@@ -48443,7 +48480,7 @@ mod tests {
         // upstream's `.runtime` failure (`:537-546`), says its sentence
         // (`model_menu_presentation.zig:441`), and activity asks again once
         // that failure's hold is over.
-        let ten_seconds_ago = Instant::now()
+        let ten_seconds_ago = catalog_now()
             .checked_sub(Duration::from_secs(10))
             .expect("a clock older than ten seconds");
         let mut shell = shell(40, 120);
@@ -48452,20 +48489,20 @@ mod tests {
         assert_eq!(catalog_asks(&mut shell), [("menu", true)]);
         let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
         assert_eq!(rows[2], "Loading models…", "{rows:?}");
-        shell.apply(unread_at(Some(CatalogRetry::Runtime), Instant::now()));
+        shell.apply(unread_at(Some(CatalogRetry::Runtime), catalog_now()));
         let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
         assert_eq!(
             rows[2], "Could not refresh model catalog; xfx retries automatically.",
             "{rows:?}"
         );
         assert!(
-            !shell.shell.note_catalog_activity(Instant::now()),
+            !shell.shell.note_catalog_activity(catalog_now()),
             "asked inside the new failure's hold"
         );
         assert!(
             shell
                 .shell
-                .note_catalog_activity(Instant::now() + Duration::from_secs(6)),
+                .note_catalog_activity(catalog_now() + Duration::from_secs(6)),
             "activity did not ask again past the hold"
         );
         assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
@@ -48478,22 +48515,22 @@ mod tests {
         // runtime answered that a refresh behind rows failed -- rows this
         // band does not hold. The band asks again when the runtime's clock
         // says the next read is due (the answer's `retry_at`), not never.
-        let ten_seconds_ago = Instant::now()
+        let ten_seconds_ago = catalog_now()
             .checked_sub(Duration::from_secs(10))
             .expect("a clock older than ten seconds");
         let mut shell = shell(40, 120);
         shell.apply(unread_at(Some(CatalogRetry::Unreachable), ten_seconds_ago));
-        assert!(shell.shell.note_catalog_activity(Instant::now()));
+        assert!(shell.shell.note_catalog_activity(catalog_now()));
         assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
         shell.apply(refresh_failed(Some(CatalogRetry::Unreachable)));
         assert!(
-            !shell.shell.note_catalog_activity(Instant::now()),
+            !shell.shell.note_catalog_activity(catalog_now()),
             "asked inside the hold the answer put on the next read"
         );
         assert!(
             shell
                 .shell
-                .note_catalog_activity(Instant::now() + Duration::from_secs(6)),
+                .note_catalog_activity(catalog_now() + Duration::from_secs(6)),
             "the answer left activity unable to ask again"
         );
         assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
@@ -48506,7 +48543,7 @@ mod tests {
         // `expired`, `:609-611@481104fd`), so rows a slow read brought are
         // due that much sooner after they land: a prompt at the read's start
         // plus five minutes asks, however long the read took.
-        let began = Instant::now()
+        let began = catalog_now()
             .checked_sub(REFRESH_INTERVAL + Duration::from_secs(1))
             .expect("a clock older than five minutes");
         let mut shell = shell(40, 120);
@@ -48520,7 +48557,7 @@ mod tests {
         );
         // Rows whose read began just now are not.
         let mut shell = self::shell(40, 120);
-        shell.apply(loaded_from(Instant::now()));
+        shell.apply(loaded_from(catalog_now()));
         shell.route_bytes(b"hello\r");
         assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
         assert_eq!(catalog_asks(&mut shell), [], "asked for fresh rows");
@@ -48534,7 +48571,7 @@ mod tests {
         // 609-623@481104fd`): the band asks when the runtime says, not five
         // minutes after hearing it.
         let mut shell = harness_shell();
-        let due = Instant::now() + Duration::from_secs(120);
+        let due = catalog_now() + Duration::from_secs(120);
         shell.apply(refresh_failed_due(None, due));
         assert!(!shell
             .shell
@@ -48554,7 +48591,7 @@ mod tests {
         // `:2167-2169`), which reads a failed catalog again only past its
         // backoff -- not a second after the read that failed began, as
         // c1db9191's did.
-        let two_seconds_ago = Instant::now()
+        let two_seconds_ago = catalog_now()
             .checked_sub(Duration::from_secs(2))
             .expect("a clock older than two seconds");
         let mut shell = shell(40, 120);
@@ -48562,7 +48599,7 @@ mod tests {
         shell.route_bytes(b"/model ");
         assert_eq!(column(&shell)[0], "         unable to load models");
         assert!(shell.render.owed());
-        shell.settle_column(Instant::now());
+        shell.settle_column(catalog_now());
         assert_eq!(catalog_asks(&mut shell), [], "asked inside the backoff");
         assert_eq!(column(&shell)[0], "         unable to load models");
         // Past it, the frame asks -- and the column goes on saying the
@@ -48570,7 +48607,7 @@ mod tests {
         // cache `.failed` (`model_cache_runtime.zig:633-634`), which its
         // column reads (`app_render_runtime.zig:752-753`).
         shell.shell.animation_turned = true;
-        shell.settle_column(Instant::now() + Duration::from_secs(4));
+        shell.settle_column(catalog_now() + Duration::from_secs(4));
         assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
         assert_eq!(column(&shell)[0], "         unable to load models");
     }
@@ -48588,7 +48625,7 @@ mod tests {
         // `src/main.zig:2007-2008@481104fd`): rows five minutes past their
         // read's start are read again, fresh ones are not, and a band with no
         // answer yet -- the launch's own read on its way -- asks nothing.
-        let stale = Instant::now()
+        let stale = catalog_now()
             .checked_sub(REFRESH_INTERVAL + Duration::from_secs(1))
             .expect("a clock older than five minutes");
         let resumed = || UiEvent::Resumed(replay(Some("first question alpha"), Vec::new()));
@@ -48608,7 +48645,7 @@ mod tests {
         }
         for (what, reopened) in [("a resume", resumed()), ("a fork", forked())] {
             let mut shell = shell(24, 240);
-            shell.apply(loaded_from(Instant::now()));
+            shell.apply(loaded_from(catalog_now()));
             shell.apply(reopened);
             assert_eq!(catalog_asks(&mut shell), [], "{what} asked for fresh rows");
         }
@@ -48627,10 +48664,10 @@ mod tests {
         // Here they wait for the runtime's answer when the band has none --
         // the launch's read, or a provider switch's, is on its way -- and
         // never ask with a trigger that starts one.
-        let stale = Instant::now()
+        let stale = catalog_now()
             .checked_sub(REFRESH_INTERVAL + Duration::from_secs(1))
             .expect("a clock older than five minutes");
-        let failed = Instant::now()
+        let failed = catalog_now()
             .checked_sub(Duration::from_secs(60))
             .expect("a clock older than a minute");
         for command in [&b"/settings\r"[..], b"/fast\r", b"/ultrafast on\r"] {
@@ -48658,13 +48695,49 @@ mod tests {
     }
 
     #[test]
+    fn rows_and_a_failure_read_before_the_machine_slept_are_due_on_waking() {
+        // The band reads the runtime's times on the catalog's clock, which
+        // counts sleep as fx's does (`clockMs`, `std.Io.Clock.boot`,
+        // `src/core/gateway/model_catalog.zig:72-79@481104fd`): rows read a
+        // minute before the night are asked for by the first prompt after
+        // it, and a failure's hold that ended in the night lets `/model` read
+        // again (`refreshMenuLocked`, `model_cache_runtime.zig:1046-1050`).
+        let machine = crate::provider::catalog_clock::FakeMachine::new();
+        let clock = machine.clock();
+        for (slept, asks) in [(Duration::ZERO, 0), (Duration::from_secs(8 * 3_600), 1)] {
+            let mut shell = shell(40, 120);
+            shell.shell.catalog_clock = clock.clone();
+            shell.apply(loaded_from(clock.now()));
+            machine.run(Duration::from_secs(60));
+            machine.sleep(slept);
+            shell.route_bytes(b"hello\r");
+            assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
+            assert_eq!(
+                catalog_asks(&mut shell).len(),
+                asks,
+                "{slept:?} asleep: the prompt's asks"
+            );
+        }
+        let mut shell = shell(40, 120);
+        shell.shell.catalog_clock = clock.clone();
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), clock.now()));
+        machine.sleep(Duration::from_secs(6));
+        shell.route_bytes(b"/model\r");
+        assert_eq!(
+            catalog_asks(&mut shell),
+            [("menu", true)],
+            "the menu held a failure whose hold ended asleep"
+        );
+    }
+
+    #[test]
     fn a_reading_earlier_than_the_last_reads_start_owes_the_catalog_a_read() {
         // fx: "callers treat a reading earlier than a stored one as due"
         // (`clockMs`, `src/core/gateway/model_catalog.zig:72-75@481104fd`;
         // `beginLoad`'s `elapsed` and `backoff_over`,
         // `model_cache_runtime.zig:610-618`): rows whose read began after
         // the reading, and a failure inside its hold, are both due then.
-        let began = Instant::now();
+        let began = catalog_now();
         let earlier = began
             .checked_sub(Duration::from_secs(1))
             .expect("a clock older than a second");

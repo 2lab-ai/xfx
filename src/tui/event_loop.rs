@@ -1087,7 +1087,9 @@ fn commit_counted(
     // The frame about to be painted is the `/model` column's redraw, which
     // asks for a catalog that failed again, as upstream's render path does
     // ([`Shell::settle_column`]); a tick that owes no frame asks nothing.
-    shell.settle_column(now);
+    // On the catalog's clock, which counts sleep, not the frame's.
+    let catalog_now = shell.catalog_now();
+    shell.settle_column(catalog_now);
     let mut counted = Counted::new(out);
     let committed = commit_tick(shell, band, &mut counted, failures, now, reconciled);
     shell.metrics.ansi_bytes += counted.delivered();
@@ -2472,6 +2474,23 @@ impl FrameFailures {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// When the runtime would say the catalog is next owed a read: `after`
+    /// from now on the catalog's clock.
+    fn catalog_due(after: Duration) -> crate::provider::catalog_clock::CatalogDue {
+        let clock = crate::provider::catalog_clock::CatalogClock::system();
+        crate::provider::catalog_clock::CatalogDue::at(clock.now() + after)
+    }
+
+    /// The same, `ago` before now.
+    fn catalog_due_ago(ago: Duration) -> crate::provider::catalog_clock::CatalogDue {
+        let clock = crate::provider::catalog_clock::CatalogClock::system();
+        let at = clock
+            .now()
+            .checked_sub(ago)
+            .expect("a clock older than that");
+        crate::provider::catalog_clock::CatalogDue::at(at)
+    }
 
     use super::super::deliver::{emit_counted, RawWrite};
 
@@ -4501,7 +4520,7 @@ mod tests {
         let mut band = Band::new();
         shell.save_speeds_by_hand();
         shell.apply(UiEvent::CatalogLoaded {
-            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            due: catalog_due(crate::provider::model::REFRESH_INTERVAL),
             provider: crate::provider::ProviderId::Gateway,
             entries: vec![crate::provider::model::CatalogEntry {
                 // The model a session over an empty profile is in.
@@ -7625,9 +7644,7 @@ mod tests {
         shell.apply(UiEvent::CatalogUnread {
             provider: crate::provider::ProviderId::Gateway,
             retry: Some(crate::provider::model::CatalogRetry::Unreachable),
-            retry_at: Instant::now()
-                .checked_sub(std::time::Duration::from_secs(2))
-                .expect("a clock older than two seconds"),
+            retry_at: catalog_due_ago(std::time::Duration::from_secs(2)),
         });
         shell.route_bytes(b"/model ");
         assert!(shell._control.try_recv().is_err(), "the edit asked");
@@ -15851,9 +15868,7 @@ mod tests {
                 shell.apply(UiEvent::CatalogUnread {
                     provider: crate::provider::ProviderId::Gateway,
                     retry: Some(crate::provider::model::CatalogRetry::Unreachable),
-                    retry_at: Instant::now()
-                        .checked_sub(Duration::from_secs(60))
-                        .expect("a clock older than a minute"),
+                    retry_at: catalog_due_ago(Duration::from_secs(60)),
                 });
                 launch_title(&mut shell, &mut band);
                 status_tick(&mut shell, &mut band, &mut out);
@@ -15895,7 +15910,7 @@ mod tests {
                             provider: crate::provider::ProviderId::Gateway,
                             entries: vec![row.clone()],
                             // Activity is owed the next read at once.
-                            due: Instant::now(),
+                            due: catalog_due(Duration::ZERO),
                         })
                         .expect("room");
                 }
