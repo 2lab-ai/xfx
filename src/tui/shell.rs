@@ -35557,6 +35557,15 @@ mod tests {
         shell.route_bytes(b"zzz");
         shell.route_bytes(&[0x0a]);
         assert_eq!(shell.editor.text(), "zzz\n");
+        // And a page is the caret's too: on a one-row search fx's leaves it
+        // where it is (`fx-p5-page-keys-settings-24x120-empty-pgup`), on a
+        // two-row one it moves it a row.
+        shell.route_bytes(b"zzz");
+        assert_eq!(caret_at(&shell), (1, 3));
+        shell.route_bytes(b"\x1b[5~");
+        assert_eq!(caret_at(&shell).0, 0, "PgUp was spent on an empty list");
+        shell.route_bytes(b"\x1b[6~");
+        assert_eq!(caret_at(&shell).0, 1, "PgDn was spent on an empty list");
         assert!(shell.settings_menu.is_some(), "a key closed the menu");
     }
 
