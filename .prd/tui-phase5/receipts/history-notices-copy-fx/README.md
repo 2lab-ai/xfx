@@ -1,9 +1,10 @@
-# history-notices-copy-fx: the history notices fx does not have go; the image ones are left open
+# history-notices-copy-fx: the history notices fx does not have go; the image ones stay
 
 The dispatcher's decision (reversible, the user's copy-fx pattern): xfx's history notices are xfx's
 own rule, and where fx says nothing, xfx says nothing. This unit lists every notice the history
 rebuild produces, reads what fx v0.0.16 (pin `481104fd`) does in the same situation, deletes the
-ones fx does not have, and stops at the ones that guard a data-loss case.
+ones fx does not have, and stops at the ones that guard a data-loss case. Round 2 (below) acts on
+the two engines' reviews and records the dispatcher's decision on those.
 
 Base: `32afd307` (origin/main). Every claim below is tied to a file in this folder.
 
@@ -11,13 +12,18 @@ Base: `32afd307` (origin/main). Every claim below is tied to a file in this fold
 |---|---|
 | `aa36330c` | RED, tests only (`red.txt`) |
 | `3f96a4b7` | the fix, its docs, the ledger, the scenario headers: the binary of every head capture and of the head sweep (`binaries.txt`) |
-| `81ee1733` | the ledger test made to compare one line across conversations (mutant run 1, below) -- **the code head**, gated |
-| (the receipt commits) | this folder |
+| `81ee1733` | the ledger test made to compare one line across conversations (mutant run 1, below): round 1's code head, gated (`gates.txt`) |
+| `cd1d4139` | round 2: the lines that still said a dropped reasoning state comes with a notice, and the fx citations pinned to `481104fd` |
+| `1cb8f920` | round 2: `ask --resume`'s notice output pinned again, on N5; the shell test's real reason text -- **the code head** |
+| (the receipt commits) | this folder; round 2 gated at `6ef4e6f3`, `1cb8f920` plus the runner (`gates-r2.txt`) |
 
 `81ee1733` changes only `mod tests` of `src/tui/worker.rs` (`git diff --stat 3f96a4b7 81ee1733`:
-that one file, +12/-2, inside `the_history_notice_ledger_goes_with_its_conversation`), so the
-binary built at `3f96a4b7` is the code head's binary. After the code head nothing under `src/`,
-`tests/`, `build.rs` or `Cargo.*` changes.
+that one file, +12/-2, inside `the_history_notice_ledger_goes_with_its_conversation`). Round 2
+changes, outside tests, comments only (`git diff 81ee1733 1cb8f920 -- src`: doc and `//` lines
+in `src/provider/mod.rs`, `src/session/store.rs`, `src/agent/machine.rs` and
+`src/tui/worker.rs`). So the binary built at `3f96a4b7` behaves as the code head's: every capture
+and the sweep stand. After the code head nothing under `src/`, `tests/`, `build.rs` or `Cargo.*`
+changes.
 
 ## Every notice the history rebuild produces (base `32afd307`)
 
@@ -160,6 +166,12 @@ Run 1 was on `3f96a4b7`.
   it checks that the two lines said are one and the same.
 - **Run 2 (`mutants-r2.txt`), the seven mechanism mutants on `81ee1733`:** all killed, none
   `build-failed`; `ledger-outlives-its-conversation` is now killed by the ledger test as well.
+- **Why the fixture's image is `Unread` (opus SHOULD 4).** No real path gives a live
+  conversation an `Unread` tool image: `SessionRecorder::attach_tool_images` marks every image it
+  records `Loaded`, unsaved or saved (`src/session/store.rs:2729-2753`, `:2766-2783`). The
+  fixture `unreadable_tool_images` commits `ToolImagesAttached` itself, without the copy, so its
+  live image is `Unread` (N6) and only a resume finds the copy gone (N5).
+- **Run 3 (`mutants-r3.txt`)** is round 2's: all twelve, on `1cb8f920` (below).
 
 Ten mutants over the two runs: nine killed in every target they ran, and
 `reasoning-notice-back-model-only` in two of its three. None survived everywhere.
@@ -231,17 +243,91 @@ The paragraph that carried them moved from the `/provider` row (whose notice is 
   case 1). The shell's and the worker's fixtures are private to their modules, so a test across the
   channel would need one of them moved. That gap is unchanged by this unit.
 
-## Open question for the user
+## The image notices: decided, and queued as IMAGE-LOSS-COPY-FX
 
-**The image notices N1, N2, N5, N6: keep xfx's line, or copy fx's behaviour?** They warn that a
-copy the session saved is gone or damaged, and that the model goes on without it. fx has no line,
-but it does not go on quietly either (H2-H4). The choices:
+**The dispatcher's decision (2026-11-10, reversible):** this unit keeps N1, N2, N5 and N6 as
+they are. They warn that a copy the session saved is gone or damaged and that the model goes on
+without it. fx has no such line, and it does not go on quietly either (H2-H4): a prompt image's
+lost copy makes the session unreadable or fails the request, and a tool's is told to the model,
+`[Stored tool image unavailable: <error>]`, with nothing on screen. Copying that changes what a
+resume and a request do, not only what the screen says, so it is a unit of its own,
+**IMAGE-LOSS-COPY-FX**, queued. Deleting the line alone would leave xfx quieter than fx about a
+copy the session lost.
 
-1. **Keep** (now): xfx goes on without the copy and says so once per conversation.
-2. **Copy fx**: a prompt image's copy that is gone or damaged refuses the resume (or fails the
-   turn); a tool's image it cannot load is told to the model, `[Stored tool image unavailable:
-   <error>]`, in front of the result, and nothing is said on screen. This changes what a resume
-   and a request do, not only what the screen says.
-3. **Delete the line alone**: not recommended. xfx would then be quieter than fx about lost data.
+The `/image` row of `docs/parity.md` names IMAGE-LOSS-COPY-FX as the owner, with the reason and
+`Expires date:2026-12-10`, the form `docs/parity.md`'s `/new` row uses.
 
-Until it is decided, the `/image` row of `docs/parity.md` records the divergence with its owner.
+## Round 2 (opus APPROVE-WITH-FIXES, two MUSTs; gpt6 APPROVE)
+
+- **MUST 1: lines that still said a dropped reasoning state comes with a notice** (`cd1d4139`).
+  `git grep` over `docs/`, `src/`, `tests/`, `scripts/` and `.prd/` (old receipts and plans left
+  out) for "notice", "carried over", "never silent", "says once", "drop(s) with" and "naming both
+  wires" found five that were false, all fixed:
+  - `docs/architecture.md`: the replay paragraph ("with a one-line notice on stderr naming both
+    wires" -> "without a word, as fx v0.0.16 drops it"), the wire-less record ("drops with a
+    notice" -> "drops") and the unknown wire ("the notice names the unknown wire" -> "silently
+    too");
+  - `src/provider/mod.rs`, `Wire::Unrecognized`: "always drops with a notice" -> "always drops
+    (without a word, as upstream's replay does)";
+  - `src/session/store.rs`, the prompt image comment: it no longer compares itself with "a dropped
+    reasoning record";
+  - `.prd/tui-phase4/ssot.md`, the provider-switch divergence item: it says xfx is silent now, as
+    fx, and that the image notices stay (IMAGE-LOSS-COPY-FX).
+
+  The other hits are true: other surfaces' "never silently" (a refused `TurnWork`, truncation, a
+  configured provider), the image notices' own lines, and the flipped tests' assertions.
+- **MUST 2: `xfx ask --resume`'s notice output had lost its only test** (`1cb8f920`).
+  `ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one` (`tests/sessions.rs`)
+  records a turn whose tool is named `read`, ESC, `[2Jfile`, the C1 CSI, `31m` and a bell, and
+  which returned an image never saved beside the log. On resume `ask` finds the copy missing (N5)
+  and must print, exactly once, ``xfx: an image `read [2Jfile 31m ` returned could not be read
+  back (its saved copy is missing), so it was not sent again``, with no control character on
+  stdout or stderr. Its comment says that now. Two mutants (run 3): `ask-notice-not-made-safe`
+  (`src/app.rs`'s print loop writes the notice without `safe_one_line`) and
+  `ask-notice-not-printed` (the loop prints nothing).
+- **SHOULDs.**
+  - (opus 3) The panic of the r2 ledger kill, with its left and right: `mutants.py` now records each
+    panic's message (`mutants-r3.txt`, `ledger-outlives-its-conversation`, the line under
+    `src/tui/worker.rs`'s panic).
+  - (opus 4) The fixture's `Unread` live image: the mutants section above.
+  - (opus 5) Every `ProviderReplay.matches` and `projectProviderReplay` citation outside old
+    receipts and plans now names fx at `481104fd` (`types.zig:1609-1611`, `:1668-1682`;
+    `builtins/gateway.zig:178-180`), with none left at `c1db9191`'s numbers: `docs/parity.md`'s
+    `/provider` row, `src/session/store.rs`, `src/session/store/carry_tests.rs`,
+    `src/agent/machine.rs`, `src/tui/worker.rs`, `tests/tui.rs` and `.prd/tui-phase4/ssot.md`.
+  - (opus 6) The shell test's N1 carries the reason the store gives, "its saved copy is missing"
+    (`read_snapshot`, `src/session/store.rs`).
+  - (opus 2, gpt6 1) The `/image` item's owner and expiry, and this README's decision section:
+    above. No open-loops entry: the decision is made and the unit is queued.
+  - (gpt6 2) The queued-then-Ctrl-C gap stays as stated above, for IMAGE-LOSS-COPY-FX, which
+    changes that delivery path.
+- **The PRD principle** (opus, for the user's veto): `.prd/04-providers.md` §Provenance's "A drop
+  is never silent" is now fx's rule, a silent drop. It follows the user's copy-fx goal and is
+  reversible.
+
+### Round 2's mutants (`mutants-r3.txt`, run 3: all twelve, on `1cb8f920`)
+
+The same clone, checked out at `1cb8f920`, one suite-lock slot (17:38-18:56 UTC, most of it
+queued behind other workers' jobs), 0 changed files after.
+- **The two new ones are killed** by the re-based test alone. `ask-notice-not-made-safe`: "the
+  notice is not on stderr as one inert line", with stderr holding the raw ``read\u{1b}[2Jfile\u{9b}31m\u{7}``
+  (left 0, right 1, `tests/sessions.rs:2012`). `ask-notice-not-printed`: the same assert.
+- **The ten of round 1** read as before: nine killed in every target, `reasoning-notice-back-model-only`
+  killed in lib and tui and surviving the sessions target (by design, above).
+- **The ledger kill, with its message** (opus SHOULD 3): `the_history_notice_ledger_goes_with_its_conversation`
+  panics at `src/tui/worker.rs:19019` with left `([1, 0, 0, 0], 4, 1)`, right `([1, 0, 1, 0], 4, 1)`:
+  the conversation after the resume does not say the line again under one process-wide ledger.
+
+Twelve mutants: eleven killed in every target they ran, one in two of its three.
+
+### Round 2's gate (`gates-r2.txt`)
+
+`gates.sh` ran at `6ef4e6f3` (`1cb8f920` plus `mutants.py`, a receipt file), in one suite-lock
+slot (19:02-19:33 UTC), with a clean tree before and after. Step 00 reads `rc=1`; every other
+step reads `rc=0`. `cargo test --all-targets`: 5538 passed, 0 failed (round 2 re-bases one test
+and adds none). With fault-injection: `tui` 200, lib 4640. fxcap test-sweep 70 + 27, test-capture
+79. smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures.
+
+After it, only `docs/parity.md`'s `/image` row (the owner and `Expires`) and this folder change.
+The file checks were run again over them (`checks.txt`).
+
