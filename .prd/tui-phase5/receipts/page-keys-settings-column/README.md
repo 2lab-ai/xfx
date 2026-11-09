@@ -298,7 +298,9 @@ between 22.3 (test-preview-contract) and 83.7 (test-gate-env).
   `false`. `src/tui/worker.rs` is not in this unit's diff (`git diff
   3d3d56c8 -- src/tui/worker.rs` is empty), and no key of this unit reaches
   a worker. Run alone three times after the gate on the same fault-injection
-  build, it passed 3 of 3 (`gate.txt`, last lines; load 49-50).
+  build, it passed 3 of 3 (load 49-50); and the whole step run again in its
+  own hold of the suite lock (load 45.1) passed: 5598 passed, 0 failed, 15
+  binaries (`gate.txt`, last lines).
 - Round 1's gate (`fe316934`) was 20 of 20, 5554 and 5591 passed.
 
 `gate.txt` says "tree clean: no" before and after: the only paths not
