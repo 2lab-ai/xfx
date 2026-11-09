@@ -33,3 +33,32 @@ snap args-pgup2
 key C-j
 wait 0.5
 snap args-cj
+# Round 2: the same list on a three-row composer -- two newlines typed while
+# no list is up, then the line, which slashCompletionPrefix trims them off
+# (command_specs.zig:568-576). The arrows and a page are the caret's there
+# (`capped.input_extra == 0` only, input_completion_runtime.zig:255-260);
+# C-j still walks the list (routeSlashCompletionMove, :175-180).
+key C-u
+wait 0.5
+key C-j
+key C-j
+type /mcp show 
+wait 1.5
+snap wrapped
+cursor wrapped
+key Up
+wait 0.5
+snap wrapped-up
+cursor wrapped-up
+key PPage
+wait 0.6
+snap wrapped-pgup
+cursor wrapped-pgup
+key NPage
+wait 0.6
+snap wrapped-pgdn
+cursor wrapped-pgdn
+key C-j
+wait 0.5
+snap wrapped-cj
+cursor wrapped-cj

@@ -71,3 +71,23 @@ snap menu-cj
 key C-k
 wait 0.5
 snap menu-ck
+# Round 2: a search that finds nothing. Menu.move answers false over an
+# empty list (settings_catalog.zig:227), so Up and Down go on to the caret:
+# the start and the end of the search (input_completion_runtime.zig:262-291),
+# and a page to its page of rows (:235-268).
+type zzz
+wait 0.6
+snap empty
+cursor empty
+key Up
+wait 0.5
+snap empty-up
+cursor empty-up
+key Down
+wait 0.5
+snap empty-down
+cursor empty-down
+key PPage
+wait 0.6
+snap empty-pgup
+cursor empty-pgup
