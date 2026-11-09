@@ -73,8 +73,11 @@ taken out, since the view drops a run whole where a row's edge falls beside
 it (a root ending in one at a row's end; one broken beside one): such a
 reading, ending whole, refuses the file -- in the rewrite, before any edit
 (a root under another, rewritten first, would hide it), and in the survivor
-reading (`--check`). A root with more than MAX_GUTTER_RUNS runs is refused
-outright. So does the run directory's own name (`--suffix`, mktemp's random
+reading (`--check`). Conservative, on purpose: a root that ends in a gutter
+run is refused even where it stands whole inside a row (`/tmp/fxt ` before
+`/notes`), as its reading without the run ends whole there too, and the view
+cannot tell that from the run lost at a row's edge. A root with more than
+MAX_GUTTER_RUNS runs is refused outright. So does the run directory's own name (`--suffix`, mktemp's random
 tail) anywhere at all: it names no other path, and a root a binary cut
 short (`.../fxcap.Ab12Cd/wo...`) or whose head scrolled off a frame keeps
 it. The file is named on standard error with what survived or why it was

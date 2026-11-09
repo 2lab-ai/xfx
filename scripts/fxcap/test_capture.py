@@ -213,6 +213,16 @@ class Refusals(unittest.TestCase):
         self.refused("type curl 127.0.0.1:@MCPPORT@\nsnap a\n", "a type, paste or relaunch line names @MCPPORT@")
         self.refused("work ws\nsnap a\n", "work/.mcp.json names @MCPPORT@", {"ws/.mcp.json": "@MCPPORT@\n"})
 
+    def test_a_dir_never_takes_a_binarys_tmpdir_name(self):
+        # `dir` makes $run/<name>, beside the binaries' own TMPDIRs: a name
+        # that is one or extends one would be a sibling the ledger's
+        # capture-tmpdir could be asked to read.
+        for name in ("fxtmp", "xfxtmp", "fxtmp-old", "xfxtmp.bak", "fxtmp:x", "fxtmp,x"):
+            with self.subTest(name=name):
+                self.refused("dir %s\nsnap a\n" % name, "dir takes a plain name")
+        r = capture("dir side\nwait 1\nsnap a\n")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+
     def test_a_scenario_directory_no_placeholder_can_name(self):
         # A path with a space breaks a shell word, a `&` sed's replacement, a
         # `"` the JSON: refused wherever the placeholder would go.
@@ -537,7 +547,7 @@ class RootsRewrite(unittest.TestCase):
         # HOME), broken at its space. Rewritten first, HOME's placeholder
         # took the head the survivor reading looks for, and the rest went
         # out as it was; the rewrite now refuses before any edit.
-        home = "/Us" + "ers/z"  # a stand-in HOME, assembled: this file is scanned
+        home = "/Users/someone"  # the check's own placeholder home
         scen = home + "/My Docs/xfx/scripts/fxcap/scenarios"
         rules = roots.rules_for([(home, "home"), (scen, "scenarios")])
         data = ("x %s/My \nDocs/xfx/scripts/fxcap/scenarios/a.json\n" % home).encode()
@@ -552,6 +562,15 @@ class RootsRewrite(unittest.TestCase):
         self.assertIn("LOCAL-PATH GUARD", r.stderr)
         with open(path, "rb") as f:
             self.assertEqual(f.read(), data, "a refused file is not rewritten in part")
+        # Conservative, on purpose: a root that ends in a gutter run, whole
+        # and inside a row, is refused too. The reading with that run taken
+        # out ends whole there (`/tmp/fxt` before ` /notes`), and the view
+        # cannot tell it from the run lost at a row's edge. No root here or on
+        # the CI runners has a gutter character.
+        rules = roots.rules_for([("/tmp/fxt ", "tmp")])
+        for data in (b"x /tmp/fxt /notes\n", b"x /tmp/fxt y\n", b"/tmp/fxt /a\n"):
+            with self.subTest(data=data):
+                refused(data, rules)
         # A root with more runs than that refuses its run's every file.
         many = "/tmp/" + " x" * (roots.MAX_GUTTER_RUNS + 1)
         with self.assertRaises(roots.Refused):
