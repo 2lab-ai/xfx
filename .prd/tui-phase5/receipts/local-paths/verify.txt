@@ -37,6 +37,7 @@ pair	lines before	lines after	cells before	cells after	sweep before	sweep after	
 .prd/tui-phase4/receipts/s1/fx-skills-40x120-sent.ansi | s1/xfx-skills-40x120-sent.ansi	[1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]	[1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]	(1, [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35])	(1, [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35])	[7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]	[7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]	reads the same
 .prd/tui-phase4/receipts/s1/fx-skills-40x120-sent.txt | s1/xfx-skills-40x120-sent.txt	[1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]	[1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]	-	-	-	-	reads the same
 .prd/tui-phase4/receipts/w1/fx-usage-billed-40x120-bodies/002-completion.json | xfx-usage-billed-40x120-bodies/002-completion.json	[1]	[1]	-	-	-	-	reads the same
+.prd/tui-phase4/receipts/w5/fx-workspace-index-40x120-at-plan.ansi | w5/xfx-workspace-index-40x120-at-plan.ansi	[1]	[1]	(0, [])	(0, [])	[]	[]	reads the same
 .prd/tui-phase4/receipts/w9/fx-titles-40x120-bodies/002-completion.json | xfx-titles-40x120-bodies/002-completion.json	[1]	[1]	-	-	-	-	reads the same
 .prd/tui-phase4/receipts/w9/fx-titles-off-40x120-bodies/001-completion.json | xfx-titles-off-40x120-bodies/001-completion.json	[1]	[1]	-	-	-	-	reads the same
 .prd/tui-phase4/receipts/w9/fx-titles-rename-40x120-bodies/002-completion.json | xfx-titles-rename-40x120-bodies/002-completion.json	[1]	[1]	-	-	-	-	reads the same
@@ -47,8 +48,8 @@ pair	lines before	lines after	cells before	cells after	sweep before	sweep after	
 .prd/tui-phase5/receipts/cancel-marker/fx/fx-p5-panels-keys-40x120-end.ansi | xfx/xfx-p5-panels-keys-40x120-end.ansi	[1, 10, 15, 19, 20, 21, 22, 23, 24, 25]	[1, 10, 15, 19, 20, 21, 22, 23, 24, 25]	(1, [10, 15, 19, 20, 21, 22, 23, 24, 25])	(1, [10, 15, 19, 20, 21, 22, 23, 24, 25])	[19, 20, 21, 22, 23, 24]	[19, 20, 21, 22, 23, 24]	reads the same
 .prd/tui-phase5/receipts/cancel-marker/fx/fx-p5-panels-keys-40x120-end.ansi | xfx-base/xfx-p5-panels-keys-40x120-end.ansi	[1, 10, 15, 19, 20, 21, 22, 23, 24, 25]	[1, 10, 15, 19, 20, 21, 22, 23, 24, 25]	(1, [10, 15, 19, 20, 21, 22, 23, 24, 25])	(1, [10, 15, 19, 20, 21, 22, 23, 24, 25])	[10, 19, 20, 21, 22, 23, 24]	[10, 19, 20, 21, 22, 23, 24]	reads the same
 
-41 pairs read the same, 6 the same but for the run directory's random suffix, 0 otherwise
-rewritten, with no pair to read against (21):
+42 pairs read the same, 6 the same but for the run directory's random suffix, 0 otherwise
+rewritten, with no pair to read against (26):
   .prd/tui-phase4/receipts/d1/fx-read-failures-40x120-bodies/003-completion.json
   .prd/tui-phase4/receipts/s1/fx-skills-40x120-bodies/001-completion.json
   .prd/tui-phase4/receipts/s1/fx-skills-ghost-40x120-bodies/001-completion.json
@@ -60,13 +61,20 @@ rewritten, with no pair to read against (21):
   .prd/tui-phase4/receipts/w9/fx-titles-idle-40x120-bodies/001-completion.json
   .prd/tui-phase5/receipts/cancel-marker/round2/sweep-compare.txt
   .prd/tui-phase5/receipts/cancel-marker/round3/sweep-compare.txt
+  .prd/tui-phase5/receipts/ctrlo-wider/compare-sweeps.txt
   .prd/tui-phase5/receipts/ctrlo-wider/gates-f.txt
   .prd/tui-phase5/receipts/ctrlo-wider/gates-r2.txt
   .prd/tui-phase5/receipts/ctrlo-wider/gates-train4.txt
   .prd/tui-phase5/receipts/ctrlo-wider/sweep-rerun.txt
+  .prd/tui-phase5/receipts/train-4/compare-flake-r1-1.txt
+  .prd/tui-phase5/receipts/train-4/compare-flake-r1-2.txt
+  .prd/tui-phase5/receipts/train-4/compare-flake-r1-3.txt
+  .prd/tui-phase5/receipts/train-4/compare-main.txt
   .prd/tui-phase5/receipts/transcript-receipts/code-mutant.txt
   .prd/tui-phase5/receipts/transcript-receipts/red-test.txt
   .prd/tui-phase5/receipts/tui-unsaved/red-tests-r7.txt
   .prd/tui-phase5/receipts/width-disputed/red-test-2.txt
   .prd/tui-phase5/receipts/width-disputed/red-test-3.txt
   .prd/tui-phase5/receipts/width-disputed/red-test.txt
+
+columns: 7748 of 7748 rows keep their width, in 110 of 110 files

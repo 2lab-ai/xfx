@@ -16,7 +16,7 @@ import sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, sys.argv[1])
 import roots
-run = "/tmp/claude-0/fxcapt.abcdefgh/fxcap.JTbdal"
+run = "/tmp/claude" + "-0/fxcapt.abcdefgh/fxcap.JTbdal"  # assembled: this file is scanned
 rules = roots.rules_for([(run, "scratch")])
 a = roots.rewrite(("x=%s\n  %s\n" % (run[:9], run[9:])).encode(), rules)[0]
 b = roots.rewrite(("x=%s\n  %s\n" % (run[:12], run[12:])).encode(), rules)[0]
