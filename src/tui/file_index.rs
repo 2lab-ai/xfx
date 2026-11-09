@@ -1091,8 +1091,10 @@ impl Files {
     /// of the one loading: a failed first index with nothing walking is
     /// `.failed`, not loading, and a walk started after it is loading again
     /// (`startLoad` clears the failure, `:389`). A walk a change of roots
-    /// just stopped needs no term here: a refresh then is queued anyway, and
-    /// coalesces with the change's own ([`Self::superseded`]).
+    /// stopped counts as whole once [`Self::poll`] has ended it, as fx would
+    /// have adopted it (one that would have failed is the residual named
+    /// there); before that poll a refresh is queued anyway, and coalesces
+    /// with the change's own ([`Self::superseded`]).
     fn loading(&self) -> bool {
         !self.ever_whole && self.walk.is_some()
     }
@@ -1207,7 +1209,19 @@ impl Files {
         // it is indexing, as fx's does once `startLoad` clears the failure
         // (`:389`): a lookup reads the walk in flight before the failure.
         if self.walk.is_none() {
-            // A walk a change of roots stopped is over by now.
+            // A walk a change of roots stopped is over by now -- and counts
+            // as whole: fx stops no walk on a change of scope, so its walk
+            // runs on and is adopted when whole (`refreshOwnedRoots`,
+            // `file_index.zig:488-497@481104fd`; `joinThreadIfDone`, `:425`).
+            // Here rather than where the walk is stopped, because this is
+            // where xfx's model ends that walk; a first `@` before it meets
+            // a refresh queued anyway (`refresh_index`). What xfx cannot copy:
+            // a stopped first walk that would have failed leaves fx loading
+            // (`:432-438`); xfx, having stopped it, counts it whole. That ends
+            // when AT-SCOPE-INTERIM lets the walk run on, as fx's does.
+            if self.superseded {
+                self.ever_whole = true;
+            }
             self.superseded = false;
             if self.pending_refresh {
                 self.start_walk();

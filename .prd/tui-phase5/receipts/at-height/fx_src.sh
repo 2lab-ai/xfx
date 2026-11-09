@@ -147,3 +147,5 @@ show $P src/core/app/app_workspace_runtime.zig 74 80 "AT-FOLDERS r8: fileComplet
 # `.loading` once one generation has been adopted.
 show $P src/core/workspace/file_index.zig 309 331 "AT-FOLDERS r9: deinit, the one place outside tests that clears active_generation (:325; the others are the tests at :2208 and :3205)"
 show $P src/core/workspace/file_index.zig 668 681 "AT-FOLDERS r9: buildFromSource, the other place a generation is adopted as active (:677; joinThreadIfDone :425 is quoted above)"
+# --- added by AT-FOLDERS round 10 (2026-11-10): a change of scope stops no walk.
+show $P src/core/workspace/file_index.zig 480 486 "AT-FOLDERS r10: refreshScopeEpoch snapshots the roots and hands them to refreshOwnedRoots, which queues them behind a running walk (quoted above, :488-523)"

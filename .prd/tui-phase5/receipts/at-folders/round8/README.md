@@ -63,6 +63,10 @@ meet a loading index. xfx queued one more walk there, where fx skips.
   (`superseded`). A request at that moment is queued anyway, and coalesces
   with the change's own refresh, so such a term could change no count.
   Round 8's first cut had it; it was dropped before the commit.
+  (Corrected in round 10: that holds only before the next poll. After that
+  poll, with the new roots' walk running, the stopped walk must count as
+  whole, as fx adopts it. It did not, and the first `@` skipped where fx
+  refreshes; `../round10/README.md`.)
 
 **RED:** `the_first_indexed_episode_skips_its_refresh_while_the_index_loads`.
 - An access change before any `@`, with the install's walk held in flight,

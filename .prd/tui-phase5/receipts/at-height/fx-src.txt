@@ -2551,3 +2551,12 @@
   679          self.initial_failed = false;
   680          if (previous) |active| active.destroy(alloc);
   681      }
+
+== src/core/workspace/file_index.zig:480-486@481104fd -- AT-FOLDERS r10: refreshScopeEpoch snapshots the roots and hands them to refreshOwnedRoots, which queues them behind a running walk (quoted above, :488-523)
+  480      pub fn refreshScopeEpoch(self: *FileIndex, alloc: Allocator, scope: workspace_access.AccessScope, epoch: u64) void {
+  481          const roots = activeRootsAlloc(alloc, scope) catch |err| {
+  482              debug_trace.logf("core", "file index scope snapshot failed generation={d} err={s}", .{ self.generation, @errorName(err) });
+  483              return;
+  484          };
+  485          self.refreshOwnedRoots(alloc, roots, epoch);
+  486      }
