@@ -1,0 +1,82 @@
+# Not a parity scenario: the vertical spellings at a permission question,
+# for APPROVAL-VERTICAL-SPELLINGS. First in an amendment on choice 1:
+# Shift-Up then `x`, Super-Up then `y`, Ctrl-P then `w` (fx keeps the
+# amendment open: nothing, the caret to the start, nothing). Then Down and Up
+# to choice 1 with no amendment open, and from there each spelling with a
+# snap: Shift-, Ctrl-, Super- and Alt-Down, kitty's Alt-Down, Ctrl-N, then
+# the same Up spellings and Ctrl-P; `ESC ESC [ A` last, because xfx reads it
+# as Escape and Up, and the Escape cancels the turn. The turns, the
+# workspace and the settings are approvals.cap's.
+fx: gateway approvals-fx.json
+xfx: gateway approvals-xfx.json
+work approvals-ws
+fx: seed approvals-fx-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 3
+type edit the files
+key Enter
+wait 3
+snap ask
+key Tab
+wait 0.4
+type ab cd
+wait 0.4
+key S-Up
+wait 0.4
+type x
+wait 0.4
+snap amend-shift-up
+key -H 1b 5b 31 3b 39 41
+wait 0.4
+type y
+wait 0.4
+snap amend-super-up
+key -H 10
+wait 0.4
+type w
+wait 0.4
+snap amend-ctrl-p
+key Down
+key Up
+wait 0.4
+snap choice-1
+key S-Down
+wait 0.4
+snap shift-down
+key C-Down
+wait 0.4
+snap ctrl-down
+key -H 1b 5b 31 3b 39 42
+wait 0.4
+snap super-down
+key -H 1b 5b 31 3b 33 42
+wait 0.4
+snap alt-down
+key -H 1b 5b 35 37 33 35 33 3b 33 75
+wait 0.4
+snap kitty-alt-down
+key -H 0e
+wait 0.4
+snap ctrl-n
+key S-Up
+wait 0.4
+snap shift-up
+key C-Up
+wait 0.4
+snap ctrl-up
+key -H 1b 5b 31 3b 39 41
+wait 0.4
+snap super-up
+key -H 1b 5b 31 3b 33 41
+wait 0.4
+snap alt-up
+key -H 1b 5b 35 37 33 35 32 3b 33 75
+wait 0.4
+snap kitty-alt-up
+key -H 10
+wait 0.4
+snap ctrl-p
+key -H 1b 1b 5b 41
+wait 0.6
+snap esc-esc-up

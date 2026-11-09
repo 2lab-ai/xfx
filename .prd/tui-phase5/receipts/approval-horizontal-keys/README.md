@@ -15,13 +15,18 @@ its round-2 opus review (SHOULDs 2-3) added two more: `SelectUp`'s doc in
 | `c814b534` | round 1's receipt: `xfx/` at `582ccb50`, `scope.py`, `green.txt`, `probe/` |
 | `1bed6e20` | one more test: the full transcript holds the composer spellings |
 | `09f94a35` | **the code head**: that test takes each side on its own (mutant M14 survived round 1), and `unspelled`'s doc; `git diff --stat 582ccb50 09f94a35 -- src` is `shell.rs` alone, inside `mod tests` but for that doc comment (`gate.txt`) |
-| `12848e4c` and after | `xfx/`, `probe/xfx/`, `green.txt` at `09f94a35`; `mutants.py`, `mutants.txt`, the sweeps, the gate, this file; no `src/` change |
+| `12848e4c`, `3a0094fe` | `xfx/`, `probe/xfx/`, `green.txt` at `09f94a35`; `mutants.py`, `mutants.txt`, the sweeps, the gate, this file; no `src/` change |
+| `e22a9738` | round 2: the revocation test, mutants M15 and M16 (below) |
+| `ca6fdfa0` | **round 2's code head**: comments and `docs/parity.md` only (`git diff 09f94a35 ca6fdfa0 -- src` is that test and comments) |
+| the commit after | round 2's receipt: `red-r2.txt`, `mutants.txt`, `probe/` (`p5-approval-vertical-keys`), this file |
 
 Captures: `fx/` and `probe/fx/` are fx v0.0.16 (sha256 `8e6cda2e…`, run with
 `FX_AUTO_UPGRADE=0`; `capture.sh` checked its bytes after every run); `red/`
 and `probe/red/` the base's binary (row 1 `x𝒇x v0.1.0-f686b73 [debug]`,
-sha256 `31d44e252f15…`); `xfx/` and `probe/xfx/` the code head's (row 1
-`x𝒇x v0.1.0-09f94a3 [debug]`, sha256 `5e69835e4d8d…`). No `gwlog` step, so
+sha256 `31d44e252f15…`); `xfx/` and `probe/xfx/`'s `p5-approval-other-keys`
+the code head's (row 1 `x𝒇x v0.1.0-09f94a3 [debug]`, sha256 `5e69835e4d8d…`);
+`probe/xfx/`'s `p5-approval-vertical-keys` review round 2's head (row 1
+`x𝒇x v0.1.0-ca6fdfa [debug]`, sha256 `fedecd213c2f…`). No `gwlog` step, so
 no request body is in the receipt.
 
 ## The GREEN bar, first
@@ -37,8 +42,12 @@ no unit can resolve. So this receipt measures two ways:
 
 - `scope.py`: each pair cell by cell, styles included, with the rows that
   cause's own regexes match set aside on each side (choice 2's row compared up
-  to its words, so its marker and indent still count). **29 of 29 at the
-  head** (`green.txt`), 3 of 29 at the base (`red.txt`: `ask`, `amend-alt-b`,
+  to its words, so its marker and indent still count). It also leaves out
+  row 1, the banner (`scope.py:39`), and the blank rows at the bottom
+  (`:48-49`), which `cells.py` compares as rows; nothing else is set aside, and
+  `pairs.sh` below shows the rows that differ with nothing set aside are only
+  19 and 21-25 (`answered`: 20 and 22-26). **29 of 29 at the head**
+  (`green.txt`), 3 of 29 at the base (`red.txt`: `ask`, `amend-alt-b`,
   `amend-keys`).
 - `pairs.sh`: nothing set aside, `cells.py` as the dispatcher re-runs it. At
   the head 28 of 29 pairs differ in exactly `ask`'s six rows and `answered` in
@@ -187,26 +196,44 @@ no unit can resolve. So this receipt measures two ways:
     `the_arrows_leave_a_draft_on_the_review_plane_even_though_c_p_scrolls_it`,
     which read the kept draft after Tab paints it again.
 
-## Not changed, shown by `probe/` (`probe/probe.txt`)
+## Not changed, shown by `probe/` (`probe/probe.txt`, `probe/vertical.txt`)
 
-`probe/p5-approval-other-keys.cap` is not a parity scenario. From choice 1 at
-an edit's question:
+`probe/p5-approval-other-keys.cap` (round 1) and
+`probe/p5-approval-vertical-keys.cap` (round 2) are not parity scenarios; each
+is captured on fx, the base and the head (`probe/fx`, `probe/red`,
+`probe/xfx`). At an edit's question:
 
-- **`ESC ESC [ D` cancels the turn** on xfx (`▪ Cancelled file`) and leaves the
-  choice on fx: xfx's decoder has no meta prefix and reads Escape, then Left
-  (`kitty_key`'s doc). Owner QUESTION-LEFT-SPELLINGS (proposed), with the
-  question's.
-- **Shift-, Ctrl- and Super-Down and -Up and `C-p`/`C-n` move xfx's choice one
-  step each; fx v0.0.16 leaves it on 1 for all seven**: the modified vertical
-  arrows are `composerMove` too (`escape_parser.zig:73-108`), and the raw
-  route at a question reads no `C-p`/`C-n` (`src/ui/input/runtime.zig:61-73`,
-  `:103-108`). xfx's `decide` cites `c1db919`'s `cursor_up`/`history_up` for
-  `C-p`/`C-n`; at this pin that is a divergence. Owner
-  APPROVAL-VERTICAL-SPELLINGS (proposed); this unit changes none of them
-  (base and head the same, `probe.txt`).
-- In an amendment fx's Super-Left/Right jump to the line's edge
-  (`src/ui/input/runtime.zig:82-83`); xfx's draft takes them as a step, as its
-  composer does (the composer's own Super-arrows are the same divergence).
+- **`ESC ESC [ D` and `ESC ESC [ A` cancel the turn** on xfx (`▪ Cancelled
+  file`) and leave the choice on fx: xfx's decoder has no meta prefix and
+  reads Escape, then the arrow (`kitty_key`'s doc). Owner
+  QUESTION-LEFT-SPELLINGS (proposed), with the question's.
+- **The vertical spellings: eight keys at a choice, and the amendment side.**
+  From choice 1 with no amendment open, Shift-, Ctrl-, Super- and Alt-Down,
+  kitty's Alt-Down (`CSI 57353;3u`) and `C-n`, then the same six Up spellings
+  (kitty's `CSI 57352;3u`) and `C-p`, each move xfx's choice one step
+  (wrapping); fx v0.0.16 leaves it on 1 for every one of the twelve
+  (`vertical.txt`; round 1's `probe.txt` has seven of them, Super-Up and the
+  Alt spellings added in round 2). The modified arrows are `composerMove`
+  (`escape_parser.zig:73-108`, `:208-217` for kitty's), which reaches the
+  switch's `else` (`input_approval_runtime.zig:128`); the raw route at a
+  question reads no `C-p`/`C-n` (`src/ui/input/runtime.zig:61-73`,
+  `:103-108`), while `.cursor_up`/`.history_up` still move (`:111-126`).
+  **In an amendment** fx keeps it open: Shift-Up and `C-p` do nothing and
+  Super-Up moves the caret to the start (`approvalDraftActionFromShortcut`,
+  `src/ui/input/runtime.zig:79-87`, which maps `draft_start` and no
+  `visual_up`): `ab cd`, Shift-Up, `x`, Super-Up, `y`, `C-p`, `w` is
+  `ywab cdx` on fx, while xfx's end the amendment and move the choice
+  (`amend-*`). xfx's `decide` names this (`C-p` and `C-n`). Owner unit:
+  **APPROVAL-VERTICAL-SPELLINGS** (queued); this unit changes none of them:
+  the marker lands where the base's does after every key, and only row 1
+  differs, the base painting the draft left behind (this unit's row 1).
+- **Super-Left and -Right** jump to the line's edge in fx's amendment
+  (`src/ui/input/runtime.zig:82-83`) and composer (`escape_parser.zig:74-82`),
+  and to the draft's start and end for Super-Up and -Down; xfx's draft and
+  composer take Super-Left/Right as a step and Super-Up/Down as the arrow.
+  `docs/parity.md` records the composer half on the key-report sentence and
+  the amendment half on the approval sentence. Owner unit:
+  **COMPOSER-SUPER-ARROWS** (queued).
 
 ## Mutants (`mutants.py`, `mutants.txt`)
 
@@ -221,6 +248,11 @@ up_and_down_move the_arrows_leave question:: input::tests`, 900 s each.
   the ones that reached the composer cancelled out. `09f94a35` takes each side
   from the end it would move away from.
 - **Round 2, at `09f94a35`: 14 of 14 killed**, the clone's tree clean after the run.
+- **Review round 2, at `ca6fdfa0`: 16 of 16 killed** (on top of `mutants.txt`), the clone's tree clean.
+  M15 (a reshape does not revoke the receipt) is killed by the new revocation
+  test and by `opening_a_draft_revokes_a_committed_readiness_receipt`; M16 (an
+  arrow out of a draft is not a reshape) by the new test and the panel's
+  `moving_the_choice_leaves_editing_and_keeps_both_drafts`.
 
 | mutant | killed by (round 2) |
 |---|---|
@@ -238,6 +270,8 @@ up_and_down_move the_arrows_leave question:: input::tests`, 900 s each.
 | M12 an approval's draft reads the spellings unfolded | the amendment test |
 | M13 the question reads the approval's spellings unfolded | the question's word-left test |
 | M14 the full transcript reads them unfolded | round 2's full-transcript test |
+| M15 a reshape does not revoke the readiness receipt (review round 2) | the revocation test, the Tab-open revocation test |
+| M16 an arrow out of a draft is not a reshape (review round 2) | the revocation test, the panel test |
 
 ## Sweep (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`)
 
@@ -281,6 +315,41 @@ exits 0 and the tree was the same at the end:
 tests. No test here builds a `Runtime`: the shell cases use the shell fixture,
 the others the panel, the drafts, the decoder and the folds alone. Every
 commit's added lines were scanned for local paths before it was made.
+
+## Round 2: the reviews of `3a0094fe`
+
+gpt6 (one MUST) and opus (MUST none, five SHOULDs), with the dispatcher's
+checks. `xfx/` and `green.txt` stay at `09f94a35`: round 2 changes a test,
+comments and docs, so the scenario's binary is the same code.
+
+- **MUST: leaving a filled draft revokes the readiness receipt, and nothing
+  pinned it** (the row-1 test calls `delivered` before Enter). New shell test
+  `leaving_a_filled_draft_revokes_the_receipt_and_the_next_frame_earns_it_back`:
+  the receipt is earned with `ab cd` painted on choice 1; Down and Up leave
+  the draft; the receipt is gone, an Enter sends nothing and the question
+  stays up; after the next delivered frame Enter answers `Once` with
+  `ab cd`. **RED (`red-r2.txt`)**, on a throwaway clone at `e22a9738`
+  (`3a0094fe` plus the test): it passes as committed, and fails with the
+  revocation turned off either way -- M15 (a reshape does not call
+  `invalidate_approval`) and M16 (an arrow out of a draft is not a reshape) --
+  at `leaving a filled draft kept a receipt about the screen that showed it`,
+  the assertion before the Enter.
+- **Mutants:** M15 (a `Reshaped` reply does not call `invalidate_approval`)
+  and M16 (an arrow out of a draft is not measured as a reshape) join the
+  set; at `ca6fdfa0` all 16 are killed, and the new test kills both (`mutants.txt`).
+- **The wording** (opus 1-5, gpt6's NTH): the vertical item above, now with
+  Super-Up and the Alt spellings probed and the amendment side, owner
+  APPROVAL-VERTICAL-SPELLINGS; Super-Left/Right owner COMPOSER-SUPER-ARROWS
+  with the composer half in `docs/parity.md`; `scope.py`'s row 1 and blank
+  rows (the GREEN bar); `decide`'s comment on Ctrl-B/F (fx's raw route,
+  `apply` answering `.none`, never `:128`) and on `C-p`/`C-n`;
+  `MAX_DRAFT_ROWS`' "both drafts"; and the `ask_user_question` row's cause for
+  Shift-Left and Ctrl-B, which reach the question as Left through the shell's
+  `unspelled` now.
+- **Checks at `ca6fdfa0`:** the unit's tests 168 passed (the round-1 set plus
+  the new test, with `opening_a_draft_revokes_a_committed_readiness_receipt`);
+  `cargo test --locked --test parity` 26 passed; `cargo fmt --check` and both
+  clippy runs clean. The full gate is the dispatcher's.
 
 ## Decisions (each reversible)
 
