@@ -1,31 +1,31 @@
-# Round 5's gate: every step of CI's gate job and the sweep workflow's test-sweep.sh, one at
-# a time under the suite lock (gate.sh), in the worktree at its commit (the code of 4abe4feb).
-head 026a7c5828beb7bebbc42cf5fc08e9d1c3be0cc9
+# Round 6's gate: every step of CI's gate job and the sweep workflow's test-sweep.sh, one at
+# a time under the suite lock (gate.sh), in the worktree at its commit (the code of 89a3fef1).
+head 3ed4a8c4e52b1068c16e69235eb1c2d234708719
 0        2s  fmt
-0       22s  clippy
-0       19s  clippy-fi
-0      204s  test
-0      188s  test-fi
-0       15s  check-no-stubs
-0       43s  check-no-secrets
-0        2s  check-no-local-paths
-0       49s  test-check-no-local-paths
-0      349s  test-gate-env
+0        8s  clippy
+0        8s  clippy-fi
+0      151s  test
+0      147s  test-fi
+0       10s  check-no-stubs
+0       56s  check-no-secrets
+0        3s  check-no-local-paths
+0       14s  test-check-no-local-paths
+0      318s  test-gate-env
 0        1s  check-xfx-identity
-0        3s  check-preview-contract
-0       75s  test-preview-contract
-0      114s  check-tui-preflight-cost
-0        1s  check-usage-clock
-0       20s  build-release
+0        6s  check-preview-contract
+0       77s  test-preview-contract
+0       83s  check-tui-preflight-cost
+0        0s  check-usage-clock
+0       14s  build-release
 0        2s  smoke
-0       22s  build-faulty
-0       69s  smoke-tui
-0       43s  test-sweep
+0       16s  build-faulty
+0       67s  smoke-tui
+0       18s  test-sweep
 steps 20, failed 0; tree clean
 
 # test totals: test 5459 passed, 0 failed; test-fi 5497 passed, 0 failed
-# check-no-local-paths: ok (15580 tracked file(s) scanned; 8 marked fixture line(s), 77 placeholder line(s))
+# check-no-local-paths: ok (15583 tracked file(s) scanned; 8 marked fixture line(s), 77 placeholder line(s))
 # test-check-no-local-paths: ok (10 cases)
 # test-gate-env: ok ci-script-tests-per-os test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths on macOS and Linux rows
 
-# Round 1's gate, at 6b507197, round 2's at 7d855291, round 3's at 00b8ed9e and round 4's at 730692c8: 20 steps, 0 failed, the tree clean, each.
+# Round 1's gate, at 6b507197, round 2's at 7d855291, round 3's at 00b8ed9e, round 4's at 730692c8 and round 5's at 026a7c58: 20 steps, 0 failed, the tree clean, each.

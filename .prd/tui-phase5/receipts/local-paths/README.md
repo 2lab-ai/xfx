@@ -346,21 +346,24 @@ a time under the suite lock, at the receipt's commit (`gate.txt`: the commit,
 exit status, seconds and step of each; `gate.sh` is the script). Round 1's
 gate was at `6b507197`, round 2's at `7d855291`, round 3's at `00b8ed9e`,
 round 4's at `730692c8` (the code of `cd9e446d`), round 5's at `026a7c58` (the
-code of `4abe4feb`): 20 steps, 0 failed, the tree clean, each.
+code of `4abe4feb`), round 6's at `3ed4a8c4` (the code of `89a3fef1`): 20
+steps, 0 failed, the tree clean, each.
 
 **Every commit, scanned** (`commits.sh`, `commits.txt`): each commit of the
 branch checked out in a throwaway clone and scanned by its own check and by
 the head's, as a push publishes it, with the lines the head's check names
-beyond what the base held (by file and shape), through `026a7c58`. From
-`6cb5c4e7` on, every commit passes both, but for the four section 4 names (`6b4f72fd`, `f05f3bd7`,
+beyond what the base held (by file and shape), through `3ed4a8c4`. From
+`6cb5c4e7` on, every commit passes both, but for section 10's two
+(`c57ffb77`, `e0b0e697`: two lines each, the stand-in home in a docstring,
+removed in `89a3fef1`) and the four section 4 names (`6b4f72fd`, `f05f3bd7`,
 `4a74f098`, `c6e12e82`: one line each, added and removed in round 3). Before
 it, rounds 1 and 2 had not yet scrubbed all of the base's own paths: 339 to
 56 lines named, every one the base's, except one line in `26d6c639` to
 `56e51cb0` -- a test comment in `scripts/fxcap/test_sweep.py` naming a
 fixture's redirect into `bob`'s home, which round 1's check, with no `>` as a
 path's start, passed; `506febef` (round 2's MUST 3) refuses it, and the
-comment was reworded there. No revision from the base to `026a7c58` holds
-the user's name or home path (46 revisions, by `git grep`, the end of
+comment was reworded there. No revision from the base to `3ed4a8c4` holds
+the user's name or home path (52 revisions, by `git grep`, the end of
 `commits.txt`). The
 capture harness's suite is the sweep workflow's, not the gate job's:
 `test-capture.txt`.

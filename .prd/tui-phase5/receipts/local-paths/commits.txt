@@ -1,4 +1,4 @@
-# commits.sh <clone> ccced1f5 026a7c58: every commit, its own check and 026a7c58's, on its own tree in a throwaway clone
+# commits.sh <clone> ccced1f5 3ed4a8c4: every commit, its own check and 3ed4a8c4's, on its own tree in a throwaway clone
 commit    its own check                                      the head's check
 ccced1f5  (the base)                                         exit 1, refused, 339 line(s) named
 5121c01e  (none)                                             exit 1, refused, 339 line(s) named, 0 beyond the base's
@@ -46,6 +46,12 @@ d9e3440b  exit 0, ok, 15576 files, 8 marked, 77 placeholder  exit 0, ok, 15576 f
 4abe4feb  exit 0, ok, 15577 files, 8 marked, 77 placeholder  exit 0, ok, 15577 files, 8 marked, 77 placeholder
 6492af5c  exit 0, ok, 15577 files, 8 marked, 77 placeholder  exit 0, ok, 15577 files, 8 marked, 77 placeholder
 026a7c58  exit 0, ok, 15580 files, 8 marked, 77 placeholder  exit 0, ok, 15580 files, 8 marked, 77 placeholder
+e1d34372  exit 0, ok, 15580 files, 8 marked, 77 placeholder  exit 0, ok, 15580 files, 8 marked, 77 placeholder
+c57ffb77  exit 1, refused, 2 line(s) named                   exit 1, refused, 2 line(s) named, 2 beyond the base's
+e0b0e697  exit 1, refused, 2 line(s) named                   exit 1, refused, 2 line(s) named, 2 beyond the base's
+89a3fef1  exit 0, ok, 15580 files, 8 marked, 77 placeholder  exit 0, ok, 15580 files, 8 marked, 77 placeholder
+064e1da5  exit 0, ok, 15582 files, 8 marked, 77 placeholder  exit 0, ok, 15582 files, 8 marked, 77 placeholder
+3ed4a8c4  exit 0, ok, 15583 files, 8 marked, 77 placeholder  exit 0, ok, 15583 files, 8 marked, 77 placeholder
 
 # The user name (case-insensitive) and the home path, built at run time, by git grep -l at
-# ccced1f5 and every commit after it to 026a7c58: revisions 46, holding either 0.
+# ccced1f5 and every commit after it to 3ed4a8c4: revisions 52, holding either 0.
