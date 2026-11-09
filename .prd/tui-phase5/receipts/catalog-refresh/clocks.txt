@@ -1,0 +1,11 @@
+# clocks.c (this folder), built with: cc -O0 -o <scratch>/clocks clocks.c; run on the machine the receipt was made on, 2026-11-09 14:06 KST
+# what each clock reads, in seconds since its origin
+CLOCK_MONOTONIC_RAW=914485.867
+CLOCK_MONOTONIC=914473.376
+mach_continuous_time=914485.867
+CLOCK_UPTIME_RAW=914485.867
+mach_absolute_time=914485.867
+slept_since_boot(MONOTONIC_RAW-UPTIME_RAW)=0.000 s
+# kern.boottime: { sec = 1793286344, usec = 778410 }
+# This machine has not slept since it started: CLOCK_MONOTONIC_RAW - CLOCK_UPTIME_RAW is 0, so no live test here can tell the two apart;
+# the receipt's RED and the mutants therefore run a FakeMachine that sleeps (src/provider/catalog_clock.rs), and the man page is what the ids count.

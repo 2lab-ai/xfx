@@ -1,0 +1,24 @@
+# head d67326e9, the RED commit: the new test, run before the fix (44d7f84c)
+   Compiling xfx v0.1.0 (<work>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.99s
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+
+running 1 test
+test tui::worker::tests::the_shared_fixtures_runtime_reads_only_its_own_home ... FAILED
+
+failures:
+
+---- tui::worker::tests::the_shared_fixtures_runtime_reads_only_its_own_home stdout ----
+
+thread 'tui::worker::tests::the_shared_fixtures_runtime_reads_only_its_own_home' (400816301) panicked at src/tui/worker.rs:10080:9:
+recording()'s runtime holds a home other than the test's own
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::worker::tests::the_shared_fixtures_runtime_reads_only_its_own_home
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4577 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `--lib`
+exit 101

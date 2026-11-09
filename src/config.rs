@@ -830,6 +830,13 @@ impl Environment {
         self.vars.get(key).map(String::as_str)
     }
 
+    /// Every variable this environment holds: for a test that must know it
+    /// holds none it was not given. Compared, never formatted.
+    #[cfg(test)]
+    pub(crate) fn vars_for_test(&self) -> &BTreeMap<String, String> {
+        &self.vars
+    }
+
     /// A variable that is present and not only whitespace.
     ///
     /// Upstream ignores a blank override rather than letting it displace a

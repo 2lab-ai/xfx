@@ -1,0 +1,446 @@
+# fx v0.0.16 (pin 481104fd), read with: git -C <fx-upstream> show 481104fd:<path> | sed -n '<a>,<b>p'
+# each block: path:a-b@481104fd, then the lines, numbered
+
+## src/core/app/model_cache_runtime.zig:27-53@481104fd
+   27  /// What asked for a catalog load. Every trigger is user activity, so an idle
+   28  /// session never polls the models endpoint.
+   29  pub const LoadTrigger = enum {
+   30      /// Refetches a loaded catalog only after the provider's refresh interval.
+   31      activity,
+   32      /// The model picker opened. Revalidates unless a fetch is in flight or
+   33      /// one started less than `picker_revalidate_floor_ms` ago.
+   34      picker_open,
+   35  };
+   36  
+   37  /// Reopening the picker within this window reuses the catalog it just fetched.
+   38  const picker_revalidate_floor_ms: i64 = 5_000;
+   39  
+   40  /// After consecutive failures no trigger fetches again for 5 s, then 10 s,
+   41  /// 20 s, and so on, up to five minutes, so an outage is never hammered.
+   42  const failure_backoff_base_ms: i64 = 5_000;
+   43  const failure_backoff_cap_ms: i64 = 5 * std.time.ms_per_min;
+   44  
+   45  /// How long a request waits for a failed catalog's retry before it goes out
+   46  /// without the catalog's limits.
+   47  const failed_catalog_retry_wait_ms: i64 = 2_000;
+   48  
+   49  fn failureBackoffMs(failure_streak: u32) i64 {
+   50      var delay = failure_backoff_base_ms;
+   51      var step: u32 = 1;
+   52      while (step < failure_streak and delay < failure_backoff_cap_ms) : (step += 1) delay *= 2;
+   53      return @min(delay, failure_backoff_cap_ms);
+
+## src/core/app/model_cache_runtime.zig:519-527@481104fd
+  519      pub fn startWarmup(
+  520          self: *Self,
+  521          provider: model_catalog.Provider,
+  522          access: credentials.CatalogAccess,
+  523          trigger: LoadTrigger,
+  524      ) void {
+  525          self.from_profile_settings = provider.provider_id == .configured;
+  526          if (!self.beginLoad(access, provider.refresh_interval_ms, trigger)) return;
+  527  
+
+## src/core/app/model_cache_runtime.zig:605-640@481104fd
+  605          self.mutex.unlock(io_mod.getIo());
+  606          if (reused_public_catalog) return false;
+  607          if (access_changed) self.reset();
+  608  
+  609          const now = model_catalog.clockMs();
+  610          self.mutex.lockUncancelable(io_mod.getIo());
+  611          // A clock that moved backwards makes every elapsed check due.
+  612          const elapsed = if (now < self.last_attempt_ms) std.math.maxInt(i64) else now - self.last_attempt_ms;
+  613          const expired = if (refresh_interval_ms) |interval| elapsed >= interval else false;
+  614          const picker_due = trigger == .picker_open and elapsed >= picker_revalidate_floor_ms;
+  615          // A retained catalog whose refresh failed retries once its backoff ends.
+  616          const retry_due = if (self.outcome.last_failure) |failed| failed.failure.retryable else false;
+  617          const backoff_over = now < self.last_attempt_ms or now >= self.retry_not_before_ms;
+  618          // A staged revalidation is newer than anything a fetch would start now.
+  619          // A fetch that finished after the join above still holds its thread;
+  620          // the next trigger joins it before starting another.
+  621          const should_load = !self.fetch_in_flight and self.staged == null and self.thread == null and backoff_over and switch (self.state) {
+  622              .idle, .failed => true,
+  623              .ready => expired or picker_due or retry_due,
+  624              .loading => false,
+  625          };
+  626          if (!should_load) {
+  627              self.mutex.unlock(io_mod.getIo());
+  628              return false;
+  629          }
+  630          // A first load blocks request resolution, and a failed catalog's retry
+  631          // holds it for at most `failed_catalog_retry_wait_ms`. A revalidation
+  632          // runs behind the state readers already see.
+  633          const first_load = self.state == .idle;
+  634          if (first_load) self.state = .loading;
+  635          self.fetch_in_flight = true;
+  636          self.last_attempt_ms = now;
+  637          self.requested_access = requested_access;
+  638          const failure_streak = self.failure_streak;
+  639          self.mutex.unlock(io_mod.getIo());
+  640          self.cancel_requested.store(false, .seq_cst);
+
+## src/core/app/model_cache_runtime.zig:843-853@481104fd
+  843              // A request waits a moment for a failed catalog's retry, such as
+  844              // the one a submitted prompt starts, so a retry that lands quickly
+  845              // gives this request its limits. A slow retry never holds it.
+  846              const retry_in_flight = state == .failed and self.fetch_in_flight;
+  847              self.mutex.unlock(io_mod.getIo());
+  848              const wait_for_retry = retry_in_flight and wait: {
+  849                  const now = model_catalog.clockMs();
+  850                  const until = retry_wait_until_ms orelse now + failed_catalog_retry_wait_ms;
+  851                  retry_wait_until_ms = until;
+  852                  break :wait now < until;
+  853              };
+
+## src/core/app/model_cache_runtime.zig:940-952@481104fd
+  940          self.completion_pending = true;
+  941          switch (result) {
+  942              .loaded => {
+  943                  self.failure_streak = 0;
+  944                  self.retry_not_before_ms = 0;
+  945              },
+  946              // Cancellation comes only from a reset or shutdown, which
+  947              // discards this result, so it is not a failure to back off from.
+  948              .failed => |failed| if (failed.failure.category != .cancellation) {
+  949                  self.failure_streak +|= 1;
+  950                  const delay_ms = failureBackoffMs(self.failure_streak);
+  951                  self.retry_not_before_ms = model_catalog.clockMs() + delay_ms;
+  952                  debug_trace.logf("catalog", "model catalog fetch failed category={s} failure_streak={d} retry_in_ms={d}", .{
+
+## src/core/gateway/model_catalog.zig:72-79@481104fd
+   72  /// Milliseconds on the clock that times catalog refreshes. Natively it keeps
+   73  /// counting while the machine sleeps, so a catalog goes stale overnight, and
+   74  /// ignores wall-clock changes. The libfx wasm host backs it with wall time, so
+   75  /// callers treat a reading earlier than a stored one as due.
+   76  pub fn clockMs() i64 {
+   77      const timestamp = std.Io.Clock.boot.now(io_mod.getIo());
+   78      return @intCast(@divFloor(timestamp.nanoseconds, std.time.ns_per_ms));
+   79  }
+
+## src/builtins/gateway.zig:2344-2350@481104fd
+ 2344  pub const model_catalog_provider = model_catalog.Provider{
+ 2345      .fetch_fn = fetchCatalogForProvider,
+ 2346      // An active session refetches a stale catalog so newly released models
+ 2347      // appear without a restart. Only user activity starts the refetch.
+ 2348      .refresh_interval_ms = 5 * std.time.ms_per_min,
+ 2349  };
+ 2350  
+
+## src/builtins/gateway.zig:875-879@481104fd
+  875      var local_cancel = std.atomic.Value(bool).init(false);
+  876      const cancel_flag = request.cancel_flag orelse &local_cancel;
+  877      const deadline = request.deadline orelse std.Io.Clock.Timestamp.fromNow(io_mod.getIo(), .{
+  878          .clock = .awake,
+  879          .raw = .fromMilliseconds(oauth_request_timeout_ms),
+
+## src/builtins/gateway.zig:1160-1164@481104fd
+ 1160  
+ 1161  fn deadlineAfterMs(timeout_ms: u32) std.Io.Clock.Timestamp {
+ 1162      return std.Io.Clock.Timestamp.fromNow(io_mod.getIo(), .{
+ 1163          .clock = .awake,
+ 1164          .raw = .fromMilliseconds(timeout_ms),
+
+## src/main.zig:1193-1201@481104fd
+ 1193      pub fn enqueuePromptWithSkillBindings(self: *App, prompt: []const u8, skill_tokens: []const registered_entities.SkillTokenSpan) !bool {
+ 1194          const context_targets = if (self.context_enabled)
+ 1195              try context_contract.applicableTargetsForImages(self.alloc, self.pending_images.items)
+ 1196          else
+ 1197              &.{};
+ 1198          defer if (context_targets.len > 0) self.alloc.free(context_targets);
+ 1199  
+ 1200          try AgentAppRuntime.refreshProjectContext(self, context_targets);
+ 1201          self.noteModelCatalogActivity();
+
+## src/main.zig:1225-1232@481104fd
+ 1225      /// A prompt the user submitted is activity, so a stale or failed model
+ 1226      /// catalog refetches in the background. Only these submission paths call
+ 1227      /// it: a recovery continuation can queue during startup, before the App
+ 1228      /// reaches the address a fetch thread may hold. Cooperative hosts fetch
+ 1229      /// inline and skip it.
+ 1230      fn noteModelCatalogActivity(self: *App) void {
+ 1231          if (comptime !host_profile.cooperative_agent) self.startModelCacheWarmup();
+ 1232      }
+
+## src/main.zig:1248-1256@481104fd
+ 1248      ) !void {
+ 1249          const context_targets = if (self.context_enabled)
+ 1250              try context_contract.applicableTargetsForImages(self.alloc, draft.images)
+ 1251          else
+ 1252              &.{};
+ 1253          defer if (context_targets.len > 0) self.alloc.free(context_targets);
+ 1254          try AgentAppRuntime.refreshProjectContext(self, context_targets);
+ 1255          self.noteModelCatalogActivity();
+ 1256          self.session.setConversationLanguageFromUserMessage(draft.prompt);
+
+## src/main.zig:1996-2005@481104fd
+ 1996      pub fn fetchModelIds(self: *App) !std.ArrayList([]u8) {
+ 1997          return AgentAppRuntime.fetchModelIds(
+ 1998              self,
+ 1999              if (comptime host_target.is_wasm)
+ 2000                  js_host_model_catalog.provider
+ 2001              else
+ 2002                  self.providerSet().select(self.provider_selection.selection().provider).model_catalog orelse return error.ModelCatalogUnavailable,
+ 2003              builtin_gateway.models_path,
+ 2004          );
+ 2005      }
+
+## src/main.zig:2007-2045@481104fd
+ 2007      pub fn startModelCacheWarmup(self: *App) void {
+ 2008          self.loadModelCatalog(.activity);
+ 2009      }
+ 2010  
+ 2011      /// Opening the model picker revalidates the catalog in the background;
+ 2012      /// the picker lists the cached models until the refresh lands.
+ 2013      pub fn revalidateModelCache(self: *App) void {
+ 2014          self.loadModelCatalog(.picker_open);
+ 2015      }
+ 2016  
+ 2017      fn loadModelCatalog(self: *App, trigger: model_cache_runtime.LoadTrigger) void {
+ 2018          if (comptime host_profile.cooperative_agent) {
+ 2019              // Cooperative hosts fetch inline, so only stale catalogs reload there.
+ 2020              if (self.auth.credentialNeedsRefresh()) {
+ 2021                  debug_trace.logf("auth", "model_cache_warmup_deferred reason=credential_refresh_required", .{});
+ 2022                  return;
+ 2023              }
+ 2024              self.model_cache.loadCooperative(
+ 2025                  js_host_model_catalog.provider,
+ 2026                  self.auth.modelCatalogAccess(),
+ 2027              );
+ 2028          } else {
+ 2029              // Warming without the launch credential would fetch the catalog
+ 2030              // twice; the credential's arrival starts the warmup instead.
+ 2031              if (AuthAppRuntime.startupCredentialPending(self)) {
+ 2032                  debug_trace.logf("auth", "model_cache_warmup_deferred reason=startup_credential_pending", .{});
+ 2033                  return;
+ 2034              }
+ 2035              self.model_cache.startWarmup(
+ 2036                  self.providerSet().select(self.provider_selection.selection().provider).model_catalog orelse return,
+ 2037                  self.auth.modelCatalogAccess(),
+ 2038                  trigger,
+ 2039              );
+ 2040          }
+ 2041      }
+ 2042  
+ 2043      pub fn ensureModelCache(self: *App) void {
+ 2044          self.startModelCacheWarmup();
+ 2045      }
+
+## src/main.zig:2060-2066@481104fd
+ 2060      pub fn resolvedModelCapabilities(self: *App, model: []const u8) model_capabilities.Capabilities {
+ 2061          const bundle = self.providerSet().select(self.provider_selection.selection().provider);
+ 2062          return model_capabilities.mergeCapabilities(
+ 2063              bundle.fallbackModelCapabilities(model),
+ 2064              self.model_cache.metadataForModel(model),
+ 2065          );
+ 2066      }
+
+## src/main.zig:2167-2175@481104fd
+ 2167      pub fn modelCompletions(self: *App, query: []const u8, out: [][]const u8) usize {
+ 2168          self.ensureModelCache();
+ 2169          return self.model_cache.modelCompletions(query, out);
+ 2170      }
+ 2171  
+ 2172      pub fn catalogModelCompletion(self: *App, model: []const u8) ?[]const u8 {
+ 2173          self.ensureModelCache();
+ 2174          return self.model_cache.catalogModelCompletion(model);
+ 2175      }
+
+## src/core/app/app_render_runtime.zig:559-566@481104fd
+  559              if (model_query) |picker_query| {
+  560                  model_picker_stage = picker_query.stage;
+  561                  picker_anchor = picker_query.token_start;
+  562                  switch (picker_query.stage) {
+  563                      .model => {
+  564                          const count = input_completion_runtime.CompletionRuntime(App).modelPickerCompletions(app, picker_query.query, &model_completions_buf);
+  565                          picker_items = model_completions_buf[0..count];
+  566                          picker_index = input_completion_runtime.CompletionRuntime(App).modelPickerIndex(app, picker_items);
+
+## src/core/app/input_completion_runtime.zig:1108-1110@481104fd
+ 1108          pub fn modelPickerCompletions(app: *App, query: []const u8, out: *[32][]const u8) usize {
+ 1109              const count = app.modelCompletions(query, out);
+ 1110              if (comptime !provider_runtime.supported(App)) return count;
+
+## src/core/app/app_input_runtime.zig:1897-1908@481104fd
+ 1897          /// Opens the model picker on the cached catalog and revalidates it in
+ 1898          /// the background, so models released mid-session appear once it lands.
+ 1899          fn openModelMenu(app: *App) !void {
+ 1900              if (comptime @hasDecl(App, "revalidateModelCache")) app.revalidateModelCache();
+ 1901              try app.model_cache.openMenu();
+ 1902          }
+ 1903  
+ 1904          fn openModelBrowseCatalog(app: *App) !void {
+ 1905              if (comptime !@hasField(App, "model_cache")) return;
+ 1906              if (comptime @hasField(App, "skills")) app.skills.closeMenu();
+ 1907              try openModelMenu(app);
+ 1908              app.input_runtime.inputResetState().clearCurrent(app.alloc);
+
+## src/core/app/app_input_runtime.zig:2062-2066@481104fd
+ 2062              if (item.id == .model) {
+ 2063                  if (delta > 0 and comptime @hasField(App, "model_cache")) {
+ 2064                      try openModelMenu(app);
+ 2065                      app.shell.render_requests.request(.footer);
+ 2066                  }
+
+## src/core/app/app_input_runtime.zig:2104-2107@481104fd
+ 2104                  if (selected.id == .model) {
+ 2105                      try openModelMenu(app);
+ 2106                      app.shell.render_requests.request(.footer);
+ 2107                  }
+
+## src/core/app/app_session_runtime.zig:2048-2050@481104fd
+ 2048          pub fn startResumedSessionWarmup(app: *App) void {
+ 2049              if (comptime @hasDecl(App, "startModelCacheWarmup")) app.startModelCacheWarmup();
+ 2050          }
+
+## src/core/app/app_session_runtime.zig:2063-2066@481104fd
+ 2063              v2_owned = false;
+ 2064              try installResumedV2Session(app, v2, .session);
+ 2065              startResumedSessionWarmup(app);
+ 2066              try app.finishLiveSessionResume();
+
+## src/core/app/app_session_runtime.zig:2121-2124@481104fd
+ 2121              fork_owned = false;
+ 2122              try installResumedV2Session(app, fork, .{ .fork = source_id });
+ 2123              startResumedSessionWarmup(app);
+ 2124              try app.finishLiveSessionResume();
+
+## src/core/app/app_entry_runtime.zig:330-340@481104fd
+  330          if (resume_requested) app.startResumedSessionWarmup();
+  331          if (@hasDecl(App, "configureNotifications")) try app.configureNotifications();
+  332          if (@hasDecl(App, "playStartupSound")) app.playStartupSound();
+  333          if (@hasDecl(App, "startAutoUpgrade")) app.startAutoUpgrade();
+  334          if (@hasDecl(App, "startFileIndex")) app.startFileIndex();
+  335          startWorkerThread(App, app, deps) catch |err| {
+  336              app.releaseTerminal();
+  337              reportUnexpectedInteractiveError(deps, err);
+  338              return err;
+  339          };
+  340          app.startModelCacheWarmup();
+
+## src/core/app/app_auth_runtime.zig:555-560@481104fd
+  555              // Model cache warmup waited for this credential (see startModelCacheWarmup).
+  556              if (adopted) {
+  557                  applyCredentialChange(app, true);
+  558              } else if (comptime @hasDecl(App, "startModelCacheWarmup")) {
+  559                  app.startModelCacheWarmup();
+  560              }
+
+## src/core/app/app_auth_runtime.zig:1786-1796@481104fd
+ 1786          fn applyCredentialRefreshChange(
+ 1787              app: *App,
+ 1788              change: auth_transition.CredentialChange,
+ 1789          ) void {
+ 1790              if (change == .none) return;
+ 1791              if (app.auth.modelCatalogAccess().authorizationCredential() == null) return;
+ 1792              if (change == .authority) app.model_cache.reset();
+ 1793              if (comptime @hasDecl(App, "startModelCacheWarmup")) {
+ 1794                  app.startModelCacheWarmup();
+ 1795              }
+ 1796          }
+
+## src/core/app/app_auth_runtime.zig:2015-2024@481104fd
+ 2015          fn applyCredentialChange(app: *App, changed: bool) void {
+ 2016              if (!changed) return;
+ 2017              if (comptime @hasDecl(@TypeOf(app.auth), "cancelPromptCredentialRefresh")) {
+ 2018                  app.auth.cancelPromptCredentialRefresh();
+ 2019              }
+ 2020              app.model_cache.reset();
+ 2021              if (comptime @hasDecl(App, "startModelCacheWarmup")) {
+ 2022                  app.startModelCacheWarmup();
+ 2023              }
+ 2024          }
+
+## src/core/app/app_callbacks.zig:911-919@481104fd
+  911  
+  912          fn agentResolveModelCapabilities(ctx: *anyopaque, _: Allocator, model: []const u8) model_capabilities.ResolveError!model_capabilities.Capabilities {
+  913              const app: *App = @ptrCast(@alignCast(ctx));
+  914              if (comptime runtime_profile.allows(App, .cooperative_agent)) {
+  915                  const settings = app.worker.effectiveAgentTurnSettings();
+  916                  if (settings.fast_mode or settings.ultrafast_mode) {
+  917                      if (app.worker.isCancelRequested()) return error.Cancelled;
+  918                      app.ensureModelCache();
+  919                      // A host abort can settle the fetch before queued input reaches the worker.
+
+## src/core/app/app_commands.zig:3230-3246@481104fd
+ 3230  pub fn settingsCatalogSnapshot(app: anytype) settings_catalog.Snapshot {
+ 3231      const App = @TypeOf(app.*);
+ 3232      var snapshot: settings_catalog.Snapshot = .{};
+ 3233      if (comptime provider_runtime.supported(App)) snapshot.model = provider_runtime.model(app);
+ 3234      if (comptime @hasField(App, "effort")) snapshot.effort = app.effort.displayLabel();
+ 3235      if (comptime @hasField(App, "fast_mode")) snapshot.fast_mode = app.fast_mode;
+ 3236      if (comptime @hasField(App, "worker") and
+ 3237          @hasField(@TypeOf(app.worker), "agent_turn_settings"))
+ 3238      {
+ 3239          snapshot.ultrafast_mode = app.worker.agent_turn_settings.ultrafast_mode;
+ 3240      }
+ 3241      if (comptime @hasDecl(App, "resolvedModelCapabilities") and provider_runtime.supported(App)) {
+ 3242          const capabilities = app.resolvedModelCapabilities(provider_runtime.model(app));
+ 3243          snapshot.reasoning_efforts = capabilities.reasoning_efforts;
+ 3244          snapshot.supports_fast_mode = capabilities.supports_fast_mode;
+ 3245          snapshot.supports_ultrafast_mode = capabilities.supports_ultrafast_mode;
+ 3246      }
+
+## src/core/session/session_commands.zig:825-828@481104fd
+  825                  return;
+  826              }
+  827              if (!model_capabilities.resolveForApp(App, app, model).supports_fast_mode) {
+  828                  if (announce) {
+
+## src/core/session/session_commands.zig:1290-1309@481104fd
+ 1290          fn resolveModelQuery(app: *App, query: []const u8) ![]u8 {
+ 1291              if (try app.snapshotCachedModelIds(app.alloc)) |snapshot| {
+ 1292                  var ids = snapshot;
+ 1293                  defer freeStringList(app.alloc, &ids);
+ 1294                  if (try resolveModelQueryFromIds(app.alloc, ids.items, query)) |resolved| {
+ 1295                      return resolved;
+ 1296                  }
+ 1297              }
+ 1298  
+ 1299              var ids = fetchModelIds(app) catch {
+ 1300                  return app.alloc.dupe(u8, query);
+ 1301              };
+ 1302              defer freeStringList(app.alloc, &ids);
+ 1303  
+ 1304              if (try resolveModelQueryFromIds(app.alloc, ids.items, query)) |resolved| {
+ 1305                  return resolved;
+ 1306              }
+ 1307  
+ 1308              return app.alloc.dupe(u8, query);
+ 1309          }
+
+## src/core/session/session_commands.zig:1425-1448@481104fd
+ 1425          fn resolveModelQueryFromIds(alloc: std.mem.Allocator, ids: []const []u8, query: []const u8) !?[]u8 {
+ 1426              for (ids) |id| {
+ 1427                  if (std.ascii.eqlIgnoreCase(id, query)) {
+ 1428                      return try alloc.dupe(u8, id);
+ 1429                  }
+ 1430              }
+ 1431  
+ 1432              var best_score: i32 = 0;
+ 1433              var best_id: ?[]const u8 = null;
+ 1434  
+ 1435              for (ids) |id| {
+ 1436                  const score = fuzzyModelScore(id, query);
+ 1437                  if (score > best_score) {
+ 1438                      best_score = score;
+ 1439                      best_id = id;
+ 1440                  }
+ 1441              }
+ 1442  
+ 1443              if (best_id) |id| {
+ 1444                  return try alloc.dupe(u8, id);
+ 1445              }
+ 1446  
+ 1447              return null;
+ 1448          }
+
+## src/core/config/model_capabilities.zig:133-141@481104fd
+  133  pub fn resolveForApp(comptime App: type, app: *App, model: []const u8) Capabilities {
+  134      const generic = capabilitiesForModel(model);
+  135      var capabilities = if (comptime @hasDecl(App, "resolvedModelCapabilities"))
+  136          app.resolvedModelCapabilities(model)
+  137      else
+  138          generic;
+  139      capabilities.intrinsic_fast = capabilities.intrinsic_fast or generic.intrinsic_fast;
+  140      return capabilities;
+  141  }

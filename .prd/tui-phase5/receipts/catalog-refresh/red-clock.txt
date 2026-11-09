@@ -1,0 +1,88 @@
+# RED for the clock: base's Instant semantics (the awake clock: CLOCK_UPTIME_RAW on Apple, CLOCK_MONOTONIC elsewhere) read through the new seam
+# diff applied to catalog_clock.rs:
+107c107
+<             Source::System => system::boot(),
+---
+>             Source::System => system::awake(),
+109c109
+<             Source::Fake(machine) => machine.boot(),
+---
+>             Source::Fake(machine) => machine.awake(),
+   Compiling xfx v0.1.0 (<work>)
+warning: method `boot` is never used
+   --> src/provider/catalog_clock.rs:176:8
+    |
+135 | impl FakeMachine {
+    | ---------------- method in this implementation
+...
+176 |     fn boot(&self) -> Duration {
+    |        ^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `boot` is never used
+   --> src/provider/catalog_clock.rs:211:19
+    |
+211 |     pub(super) fn boot() -> Duration {
+    |                   ^^^^
+
+warning: `xfx` (lib test) generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.90s
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+
+running 8 tests
+test provider::catalog_clock::tests::the_system_catalog_clock_is_the_one_that_counts_sleep ... ok
+test provider::catalog_clock::tests::a_reading_earlier_than_the_last_reads_start_is_due ... ok
+test provider::catalog_clock::tests::the_catalog_clock_counts_the_time_the_machine_slept ... FAILED
+test provider::model::tests::an_idle_selector_reads_nothing_whatever_its_clock_does ... ok
+test provider::model::tests::rows_read_before_the_machine_slept_are_stale_after_it ... FAILED
+test provider::model::tests::a_failures_hold_ends_while_the_machine_sleeps ... FAILED
+test tui::shell::tests::rows_and_a_failure_read_before_the_machine_slept_are_due_on_waking ... FAILED
+test tui::worker::tests::the_catalog_is_read_by_a_first_load_the_menu_and_activity_only_and_never_while_idle ... FAILED
+
+failures:
+
+---- provider::catalog_clock::tests::the_catalog_clock_counts_the_time_the_machine_slept stdout ----
+
+thread 'provider::catalog_clock::tests::the_catalog_clock_counts_the_time_the_machine_slept' (383720698) panicked at src/provider/catalog_clock.rs:287:9:
+assertion `left == right` failed: the catalog's clock did not count the night
+  left: Some(60s)
+ right: Some(28860s)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- provider::model::tests::rows_read_before_the_machine_slept_are_stale_after_it stdout ----
+
+thread 'provider::model::tests::rows_read_before_the_machine_slept_are_stale_after_it' (383720702) panicked at src/provider/model.rs:4118:9:
+rows read a minute before four minutes asleep were not five minutes old
+
+---- provider::model::tests::a_failures_hold_ends_while_the_machine_sleeps stdout ----
+
+thread 'provider::model::tests::a_failures_hold_ends_while_the_machine_sleeps' (383720700) panicked at src/provider/model.rs:4151:9:
+the failure's hold did not end in five seconds asleep
+
+---- tui::shell::tests::rows_and_a_failure_read_before_the_machine_slept_are_due_on_waking stdout ----
+
+thread 'tui::shell::tests::rows_and_a_failure_read_before_the_machine_slept_are_due_on_waking' (383720703) panicked at src/tui/shell.rs:48715:13:
+assertion `left == right` failed: 28800s asleep: the prompt's asks
+  left: 0
+ right: 1
+
+---- tui::worker::tests::the_catalog_is_read_by_a_first_load_the_menu_and_activity_only_and_never_while_idle stdout ----
+
+thread 'tui::worker::tests::the_catalog_is_read_by_a_first_load_the_menu_and_activity_only_and_never_while_idle' (383720704) panicked at src/tui/worker.rs:16645:9:
+assertion `left == right` failed: the menu did not read rows six seconds old
+  left: 2
+ right: 3
+
+
+failures:
+    provider::catalog_clock::tests::the_catalog_clock_counts_the_time_the_machine_slept
+    provider::model::tests::a_failures_hold_ends_while_the_machine_sleeps
+    provider::model::tests::rows_read_before_the_machine_slept_are_stale_after_it
+    tui::shell::tests::rows_and_a_failure_read_before_the_machine_slept_are_due_on_waking
+    tui::worker::tests::the_catalog_is_read_by_a_first_load_the_menu_and_activity_only_and_never_while_idle
+
+test result: FAILED. 3 passed; 5 failed; 0 ignored; 0 measured; 4563 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `--lib`
+exit 101

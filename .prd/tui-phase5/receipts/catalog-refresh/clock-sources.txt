@@ -1,0 +1,145 @@
+# The clocks behind fx's catalog clock and Rust's Instant, from the sources on this machine.
+# fx pins minimum_zig_version = "0.17.0" (build.zig.zon:28@481104fd); the only Zig std here is 0.16.0, the nearest.
+
+## zig 0.16.0 <zig>/lib/zig/std/Io.zig:749-763 (Clock.awake, Clock.boot)
+  749      ///
+  750      /// This clock expresses intent to **exclude time that the system is
+  751      /// suspended**. However, implementations may be unable to satisify
+  752      /// this, and may include that time.
+  753      ///
+  754      /// * On Linux, corresponds `CLOCK_MONOTONIC`.
+  755      /// * On macOS, corresponds to `CLOCK_UPTIME_RAW`.
+  756      awake,
+  757      /// Identical to `awake` except it expresses intent to **include time
+  758      /// that the system is suspended**, however, due to limitations it may
+  759      /// behave identically to `awake`.
+  760      ///
+  761      /// * On Linux, corresponds `CLOCK_BOOTTIME`.
+  762      /// * On macOS, corresponds to `CLOCK_MONOTONIC_RAW`.
+  763      boot,
+
+## zig 0.16.0 <zig>/lib/zig/std/Io/Threaded.zig:14087-14108 (clockToPosix)
+14087  pub fn clockToPosix(clock: Io.Clock) posix.clockid_t {
+14088      return switch (clock) {
+14089          .real => posix.CLOCK.REALTIME,
+14090          .awake => switch (native_os) {
+14091              .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => posix.CLOCK.UPTIME_RAW,
+14092              else => posix.CLOCK.MONOTONIC,
+14093          },
+14094          .boot => switch (native_os) {
+14095              .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => posix.CLOCK.MONOTONIC_RAW,
+14096              // On freebsd derivatives, use MONOTONIC_FAST as currently there's
+14097              // no precision tradeoff.
+14098              .freebsd, .dragonfly => posix.CLOCK.MONOTONIC_FAST,
+14099              // On linux, use BOOTTIME instead of MONOTONIC as it ticks while
+14100              // suspended.
+14101              .linux => posix.CLOCK.BOOTTIME,
+14102              // On other posix systems, MONOTONIC is generally the fastest and
+14103              // ticks while suspended.
+14104              else => posix.CLOCK.MONOTONIC,
+14105          },
+14106          .cpu_process => posix.CLOCK.PROCESS_CPUTIME_ID,
+14107          .cpu_thread => posix.CLOCK.THREAD_CPUTIME_ID,
+14108      };
+
+## rust 1.99.1 <rust-src>/library/std/src/sys/time/unix.rs:53-70 (Instant's clock)
+   53  
+   54  impl Instant {
+   55      // CLOCK_UPTIME_RAW   clock that increments monotonically, in the same man-
+   56      //                    ner as CLOCK_MONOTONIC_RAW, but that does not incre-
+   57      //                    ment while the system is asleep.  The returned value
+   58      //                    is identical to the result of mach_absolute_time()
+   59      //                    after the appropriate mach_timebase conversion is
+   60      //                    applied.
+   61      //
+   62      // We use `CLOCK_UPTIME_RAW` instead of `CLOCK_MONOTONIC` since
+   63      // `CLOCK_UPTIME_RAW` is based on `mach_absolute_time`, which is the
+   64      // clock that all timeouts and deadlines are measured against inside
+   65      // the kernel.
+   66      #[cfg(target_vendor = "apple")]
+   67      pub(crate) const CLOCK_ID: libc::clockid_t = libc::CLOCK_UPTIME_RAW;
+   68  
+   69      #[cfg(not(target_vendor = "apple"))]
+   70      pub(crate) const CLOCK_ID: libc::clockid_t = libc::CLOCK_MONOTONIC;
+
+## Darwin clock_gettime(3) on this machine (macOS 26.7.1): man clock_gettime | col -b | sed -n '29,61p'
+     CLOCK_REALTIME	the system's real time (i.e. wall time) clock,
+			expressed as the amount of time since the Epoch.  This
+			is the same as the value returned by gettimeofday(2).
+
+     CLOCK_MONOTONIC	clock that increments monotonically, tracking the time
+			since an arbitrary point, and will continue to
+			increment while the system is asleep.
+
+     CLOCK_MONOTONIC_RAW
+			clock that increments monotonically, tracking the time
+			since an arbitrary point like CLOCK_MONOTONIC.
+			However, this clock is unaffected by frequency or time
+			adjustments.  It should not be compared to other
+			system time sources.
+
+     CLOCK_MONOTONIC_RAW_APPROX
+			like CLOCK_MONOTONIC_RAW, but reads a value cached by
+			the system at context switch.  This can be read
+			faster, but at a loss of accuracy as it may return
+			values that are milliseconds old.
+
+     CLOCK_UPTIME_RAW	clock that increments monotonically, in the same
+			manner as CLOCK_MONOTONIC_RAW, but that does not
+			increment while the system is asleep.  The returned
+			value is identical to the result of
+			mach_absolute_time() after the appropriate
+			mach_timebase conversion is applied.
+
+     CLOCK_UPTIME_RAW_APPROX
+			like CLOCK_UPTIME_RAW, but reads a value cached by the
+			system at context switch.  This can be read faster,
+			but at a loss of accuracy as it may return values that
+			are milliseconds old.
+
+## libc 0.2.189 (Cargo.lock), the ids xfx reads
+src/unix/bsd/apple/mod.rs:
+2012:pub const CLOCK_MONOTONIC_RAW: crate::clockid_t = 4;
+2015:pub const CLOCK_UPTIME_RAW: crate::clockid_t = 8;
+src/unix/linux_like/mod.rs:
+432:pub const CLOCK_MONOTONIC: crate::clockid_t = 1;
+438:pub const CLOCK_BOOTTIME: crate::clockid_t = 7;
+
+## A failed reading: zig 0.16.0 <zig>/lib/zig/std/Io/Threaded.zig:11428-11445 (nowPosix returns .zero when clock_gettime fails; now() dispatches to it off Windows and WASI)
+## zig 0.16.0 only: fx pins minimum_zig_version 0.17.0 (build.zig.zon:28@481104fd), which is not on this machine
+11428  fn nowPosix(clock: Io.Clock) Io.Timestamp {
+11429      const clock_id: posix.clockid_t = clockToPosix(clock);
+11430      var timespec: posix.timespec = undefined;
+11431      switch (posix.errno(posix.system.clock_gettime(clock_id, &timespec))) {
+11432          .SUCCESS => return timestampFromPosix(&timespec),
+11433          else => return .zero,
+11434      }
+11435  }
+11436  
+11437  fn now(userdata: ?*anyopaque, clock: Io.Clock) Io.Timestamp {
+11438      const t: *Threaded = @ptrCast(@alignCast(userdata));
+11439      _ = t;
+11440      return switch (native_os) {
+11441          .windows => nowWindows(clock),
+11442          .wasi => nowWasi(clock),
+11443          else => nowPosix(clock),
+11444      };
+11445  }
+
+## beside fx's rule for it: src/core/gateway/model_catalog.zig:72-79@481104fd (git -C <fx-upstream> show 481104fd:<path>)
+   72  /// Milliseconds on the clock that times catalog refreshes. Natively it keeps
+   73  /// counting while the machine sleeps, so a catalog goes stale overnight, and
+   74  /// ignores wall-clock changes. The libfx wasm host backs it with wall time, so
+   75  /// callers treat a reading earlier than a stored one as due.
+   76  pub fn clockMs() i64 {
+   77      const timestamp = std.Io.Clock.boot.now(io_mod.getIo());
+   78      return @intCast(@divFloor(timestamp.nanoseconds, std.time.ns_per_ms));
+   79  }
+
+## and where fx stamps a read's start with the decision's own reading: src/core/app/model_cache_runtime.zig:609-612,636,951@481104fd
+  609          const now = model_catalog.clockMs();
+  610          self.mutex.lockUncancelable(io_mod.getIo());
+  611          // A clock that moved backwards makes every elapsed check due.
+  612          const elapsed = if (now < self.last_attempt_ms) std.math.maxInt(i64) else now - self.last_attempt_ms;
+  636          self.last_attempt_ms = now;
+  951                  self.retry_not_before_ms = model_catalog.clockMs() + delay_ms;

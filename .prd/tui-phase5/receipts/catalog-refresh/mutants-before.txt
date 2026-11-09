@@ -1,0 +1,4 @@
+# clone at 08cfdef0; only 2 of 25, by name: ['restores the old', 'carries a variable']
+- a switch restores the old provider's catalog state alone (src/provider/model.rs): SURVIVED
+- the shared fixture's environment carries a variable (src/tui/worker.rs): SURVIVED
+2 mutants: 0 killed, 0 does not build, 0 timed out, 0 failed without a panic, 2 SURVIVED

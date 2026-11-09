@@ -1,0 +1,17 @@
+# round 5's checks, at bb67a055 with this folder's round-5 edits staged
+# the gate's first three steps as gates.sh runs them, under the suite lock, then two checks:
+fmt exit 0
+clippy exit 0
+clippy-fault exit 0
+check-no-secrets exit 0
+check-xfx-identity exit 0
+
+# scripts/check-no-local-paths.sh: not on this branch (its base is e705a5dc) nor on main at 32afd307; taken unmodified
+# from fix/p5-local-paths at 5743e3c7, put in scripts/ for the run and taken out after
+check-no-local-paths exit 1: 341 lines in 161 files, every one of those files tracked at e705a5dc already
+of the 44 files this unit changes (git diff --name-only e705a5dc, the index), one holds a hit: src/tui/shell.rs
+src/tui/shell.rs:21047: a macOS per-user temporary root
+src/tui/shell.rs:24987: a harness scratch root
+src/tui/shell.rs:24996: a harness scratch root
+  those three lines' commits (git blame HEAD): 666e0b2d (21047), 1e2a627b (24987, 24996) -- both ancestors of e705a5dc
+so no line this unit wrote holds a local path; the per-commit grep over e705a5dc..HEAD agrees (0 for each commit)

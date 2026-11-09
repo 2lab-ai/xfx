@@ -1,0 +1,30 @@
+# RED for 6ab25d2a: bc83ad25 (the fix's parent) with only the new test added to src/tui/worker.rs
+ src/tui/worker.rs | 46 ++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 46 insertions(+)
+   Compiling getrandom v0.4.3
+   Compiling rustix v1.1.4
+   Compiling fastrand v2.5.0
+   Compiling xfx v0.1.0 (<scratch>/base-clone)
+   Compiling tempfile v3.27.0
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 50.66s
+     Running unittests src/lib.rs (<scratch>/target-base/debug/deps/xfx-aa4745569a132798)
+
+running 1 test
+test tui::worker::tests::an_ask_with_no_trigger_over_nothing_read_waits_for_the_first_load_not_for_no_rows ... FAILED
+
+failures:
+
+---- tui::worker::tests::an_ask_with_no_trigger_over_nothing_read_waits_for_the_first_load_not_for_no_rows stdout ----
+
+thread 'tui::worker::tests::an_ask_with_no_trigger_over_nothing_read_waits_for_the_first_load_not_for_no_rows' (384734196) panicked at src/tui/worker.rs:16693:9:
+no first load for the ask
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::worker::tests::an_ask_with_no_trigger_over_nothing_read_waits_for_the_first_load_not_for_no_rows
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4571 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `--lib`
+exit 101
