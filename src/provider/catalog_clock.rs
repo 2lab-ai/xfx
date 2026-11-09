@@ -6,7 +6,7 @@
 //! while the machine sleeps, so a catalog goes stale overnight, and ignores
 //! wall-clock changes". Zig's std names what `boot` reads: `CLOCK_MONOTONIC_RAW`
 //! on Apple, `CLOCK_BOOTTIME` on Linux, `CLOCK_MONOTONIC` on other POSIX
-//! systems (`clockToPosix`, `lib/std/Io/Threaded.zig:14094-14108`, zig 0.16.0).
+//! systems (`clockToPosix`, `lib/std/Io/Threaded.zig:14094-14105`, zig 0.16.0).
 //! Rust's `Instant` reads `CLOCK_UPTIME_RAW` on Apple and `CLOCK_MONOTONIC`
 //! elsewhere (`library/std/src/sys/time/unix.rs:67-70`, rust 1.99.1), which
 //! stop while the machine is asleep -- Darwin's `clock_gettime(3)`:
