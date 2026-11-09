@@ -790,7 +790,7 @@ tinued
             let file = dir.path().join(format!("case{index}"));
             std::fs::write(&file, text).expect("a case");
             let output = crate::process::output(
-                std::process::Command::new(&git)
+                crate::process::command(&git)
                     .args(["config", "--file"])
                     .arg(&file)
                     .args(["--no-includes", "-z", "--get-regexp"])

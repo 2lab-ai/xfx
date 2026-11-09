@@ -1131,7 +1131,6 @@ impl Drop for Files {
 pub(crate) mod tests {
     use super::*;
 
-    use std::process::Command;
     use std::time::{Duration, Instant};
 
     /// One span, as a list.
@@ -1356,8 +1355,7 @@ pub(crate) mod tests {
             // From nothing but PATH and TMPDIR (`crate::test_env`): no
             // `GIT_DIR`, `GIT_CONFIG_COUNT` or `GIT_CONFIG_PARAMETERS` of the
             // process's decides what this repository is.
-            let mut command = Command::new(&git);
-            crate::test_env::isolate_child(&mut command);
+            let mut command = crate::process::command(&git);
             let status = crate::process::status(
                 command
                     .args(args)

@@ -155,14 +155,14 @@ fn a_git_plan_reads_no_git_configuration_under_the_process_home() {
             CommandEffect::Denied(DeniedEffect::ConfiguredHooks)
         )
     );
-    let home = plan
-        .environment()
-        .iter()
-        .find(|(name, _)| name == "HOME")
-        .map(|(_, value)| value.as_str());
+    // Where its git's configuration comes from: no global file at all,
+    // whatever `HOME` it is handed
+    // (`a_git_planned_with_no_home_reads_no_global_configuration_wherever_home_is`).
     assert!(
-        home.is_some_and(str::is_empty),
-        "the plan hands its command the process HOME"
+        plan.environment()
+            .iter()
+            .any(|(name, value)| name == "GIT_CONFIG_GLOBAL" && value == "/dev/null"),
+        "the plan's git reads a global configuration"
     );
 }
 
@@ -592,6 +592,7 @@ const EXCEPTIONS: &[(&str, &[&str])] = &[
     ("src/mcp/transport.rs", &["XFX_TEST_SENTINEL_RUNNER"]),
     ("src/mcp/transport.rs", &["XFX_TEST_SENTINEL_RUNNER"]),
     ("src/test_env/tests.rs", &["XFX_TEST_ENV_PROXY_COPY"]),
+    ("tests/support/isolated.rs", &["XFX_TEST_ISOLATED_COPY"]),
     // An ignored case the drawn-wider sweep runs, with its own two.
     (
         "src/tui/drawn_wider.rs",
@@ -602,51 +603,99 @@ const EXCEPTIONS: &[(&str, &[&str])] = &[
     ("tests/permissions.rs", &["CARGO_PKG_NAME"]),
 ];
 
-/// What `process_env!` guards, and what a proxy is named by: no exception
-/// may read one.
-const GUARDED: &[&str] = &[
-    "HOME",
-    "XDG_CONFIG_HOME",
-    "ZDOTDIR",
-    "LLMUX_CONFIG",
-    "AI_GATEWAY_API_KEY",
-    "VERCEL_OIDC_TOKEN",
-    "XFX_MODEL",
-    "XFX_PERMISSION_MODE",
-    "XFX_MAX_AGENT_STEPS",
-    "XFX_SOUND",
-    "XFX_SKILL_SYMLINK_AUTHORITIES",
-    "XFX_GATEWAY_URL",
-    "XFX_TUI",
-    "XFX_THEME",
-    "XFX_E2E_USAGE_CLOCK_FILE",
-    "GIT_CONFIG_GLOBAL",
-    "GIT_CONFIG_NOSYSTEM",
-    "GIT_CONFIG_SYSTEM",
-    "USER",
-    "LOGNAME",
-    "SHELL",
-    "HTTP_PROXY",
-    "HTTPS_PROXY",
-    "ALL_PROXY",
-    "NO_PROXY",
+/// Every variable an exception may read, and why it may: none names the
+/// person's home, profile, configuration, an xfx setting, a proxy or a
+/// credential. A list of what is allowed rather than of what is not: a name
+/// nobody thought to forbid -- a token another tool reads -- is refused
+/// until someone adds it here with its reason.
+const ALLOWED_NAMES: &[(&str, &str)] = &[
+    ("PATH", "where programs are"),
+    ("TMPDIR", "where temporary files go"),
+    ("TEMP", "where temporary files go"),
+    ("TMP", "where temporary files go"),
+    ("TMUX", "whether the terminal is tmux's"),
+    ("COLORFGBG", "the terminal's own colours"),
+    ("COLORTERM", "the terminal's own colours"),
+    ("TERM_PROGRAM", "the terminal's own name"),
+    ("CARGO_PKG_NAME", "cargo's, in a test process"),
+    ("XFX_TUI_FAULT", "a fault-injection point a test names"),
+    (
+        "XFX_TEST_USAGE_CACHE_KILL_BEFORE_RENAME",
+        "a re-run test binary's role",
+    ),
+    ("XFX_TEST_SIGCHLD_PROBE", "a re-run test binary's role"),
+    ("XFX_TEST_PROXY_CASE_SERVER", "a re-run test binary's role"),
+    ("XFX_TEST_IGNORED_AT_ENTRY", "a re-run test binary's role"),
+    (
+        "XFX_TEST_PROFILE_HOME_UNDER_OPEN_UMASK",
+        "a re-run test binary's role",
+    ),
+    ("XFX_TEST_UNDER_OPEN_UMASK", "a re-run test binary's role"),
+    ("XFX_TEST_LOCAL_TIME_MOMENTS", "a re-run test binary's role"),
+    ("XFX_TEST_USAGE_CACHE_ROLE", "a re-run test binary's role"),
+    ("XFX_TEST_USAGE_CACHE_HOME", "a re-run test binary's role"),
+    ("XFX_TEST_USAGE_CACHE_ARG", "a re-run test binary's role"),
+    ("XFX_TEST_SENTINEL_RUNNER", "a re-run test binary's role"),
+    ("XFX_TEST_ENV_PROXY_COPY", "a re-run test binary's role"),
+    ("XFX_TEST_ISOLATED_COPY", "a re-run test binary's role"),
+    ("XFX_DRAWN_WIDER_LIST", "the drawn-wider sweep's own"),
+    ("XFX_DRAWN_WIDER_OUT", "the drawn-wider sweep's own"),
 ];
 
 /// The lint an exception allows, spelled in halves so that this file does not
 /// read as lifting it to `process::tests::no_child_process_is_made_any_other_way`.
 const DISALLOWED: &str = concat!("clippy::disallowed", "_methods");
 
-/// What starts a child or makes a pipe: an `env:` allow lifts clippy's start
-/// rule too, so its statement may hold none of these.
-const STARTS: [&str; 7] = [
-    "Command",
-    "spawn",
-    "fork",
-    "pipe",
-    "socketpair",
-    "popen",
-    "libc::system",
-];
+/// The readers an `env:` allow may hold: one variable each, named by its
+/// argument. `vars`, `vars_os`, `home_dir` and `getenv` read what no
+/// argument names, and are refused there.
+const SINGLE_READERS: [&str; 2] = ["var", "var_os"];
+
+/// What starts a child or makes a pipe, as `clippy.toml`'s start rule lists
+/// it -- every `disallowed-methods` entry but the environment's own. An
+/// `env:` allow lifts the whole lint, so its unit may call none of these,
+/// under any name: a method (`.output(`) is matched whatever its receiver
+/// is called, a module's function as `module::name(` or as an imported bare
+/// `name(`.
+fn starts() -> Vec<String> {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let rules = std::fs::read_to_string(manifest.join("clippy.toml")).expect("clippy.toml");
+    let mut starts = Vec::new();
+    for line in rules.lines() {
+        let Some(path) = line
+            .trim_start()
+            .strip_prefix("{ path = \"")
+            .and_then(|rest| rest.split_once('"'))
+            .map(|(path, _)| path)
+        else {
+            continue;
+        };
+        if ENV_READERS.contains(&path) {
+            continue;
+        }
+        let segments: Vec<&str> = path.split("::").collect();
+        let name = segments[segments.len() - 1];
+        let parent = segments[segments.len() - 2];
+        if parent.starts_with(|c: char| c.is_ascii_uppercase()) {
+            // A method: called on any receiver, or named as a path through
+            // any alias of its type -- a value that can be called later.
+            starts.push(format!(".{name}("));
+            starts.push(format!("::{name}"));
+        } else {
+            // A module's function: by its path, called or not, or called
+            // bare after an import.
+            starts.push(format!("{parent}::{name}"));
+            if name != "new" {
+                starts.push(format!(" {name}("));
+                starts.push(format!("({name}("));
+            }
+        }
+    }
+    assert!(starts.len() >= 20, "clippy.toml's start rule was not read");
+    starts.sort();
+    starts.dedup();
+    starts
+}
 
 /// Every `.rs` file under `dir`, sorted.
 fn sources(dir: &Path, found: &mut Vec<std::path::PathBuf>) {
@@ -664,65 +713,64 @@ fn sources(dir: &Path, found: &mut Vec<std::path::PathBuf>) {
     }
 }
 
-/// `text` with every string literal's contents and every comment blanked,
-/// and the literals, in order: what a statement says, apart from what it
-/// quotes.
-fn code_and_literals(text: &str) -> (String, Vec<String>) {
-    let mut code = String::new();
-    let mut literals = Vec::new();
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '"' => {
-                let mut literal = String::new();
-                while let Some(c) = chars.next() {
-                    match c {
-                        '\\' => {
-                            chars.next();
-                        }
-                        '"' => break,
-                        c => literal.push(c),
-                    }
+/// `text` with every string literal's contents and every comment turned to
+/// spaces, so that what is left is code and every offset still points at the
+/// same character of `text`.
+fn blank(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut at = 0;
+    while at < chars.len() {
+        let c = chars[at];
+        if c == '"' {
+            out.push('"');
+            at += 1;
+            while at < chars.len() && chars[at] != '"' {
+                if chars[at] == '\\' && at + 1 < chars.len() {
+                    out.push(' ');
+                    at += 1;
                 }
-                literals.push(literal);
-                code.push_str("\"\"");
+                out.push(if chars[at] == '\n' { '\n' } else { ' ' });
+                at += 1;
             }
-            '/' if chars.peek() == Some(&'/') => {
-                for c in chars.by_ref() {
-                    if c == '\n' {
-                        code.push('\n');
-                        break;
-                    }
-                }
+            if at < chars.len() {
+                out.push('"');
+                at += 1;
             }
-            c => code.push(c),
+        } else if c == '/' && chars.get(at + 1) == Some(&'/') {
+            while at < chars.len() && chars[at] != '\n' {
+                out.push(' ');
+                at += 1;
+            }
+        } else {
+            out.push(c);
+            at += 1;
         }
     }
-    (code, literals)
+    out
 }
 
-/// What the attribute that ends on line `end` (0-based) is on: a statement, a
-/// match arm or an item -- up to the first `;`, `,` or `}` that closes it at
-/// depth 0.
-fn statement_after(lines: &[&str], end: usize) -> String {
-    let mut statement = String::new();
+/// The unit an attribute that ends on line `end` (0-based) is on -- a
+/// statement or a match arm: up to the first `;`, `,` or `}` that closes it
+/// at depth 0.
+fn unit_after(lines: &[&str], end: usize) -> String {
+    let mut unit = String::new();
     let mut depth = 0i32;
     for line in &lines[end + 1..] {
-        statement.push_str(line);
-        statement.push('\n');
-        let (code, _) = code_and_literals(line);
-        for c in code.chars() {
+        unit.push_str(line);
+        unit.push('\n');
+        for c in blank(line).chars() {
             match c {
                 '(' | '[' | '{' => depth += 1,
                 ')' | ']' | '}' => depth -= 1,
                 _ => {}
             }
         }
-        if depth <= 0 && code.trim_end().ends_with([';', ',', '}']) {
+        if depth <= 0 && blank(line).trim_end().ends_with([';', ',', '}']) {
             break;
         }
     }
-    statement
+    unit
 }
 
 /// The value of `const NAME: &str = "..."`, from `text` if it is defined
@@ -730,11 +778,14 @@ fn statement_after(lines: &[&str], end: usize) -> String {
 fn constant(name: &str, text: &str, others: &[(String, String)]) -> Option<String> {
     let find = |text: &str| {
         text.lines().find_map(|line| {
-            let (code, literals) = code_and_literals(line);
-            let at = code.find(&format!("const {name}: &str = \"\""))?;
-            (code[..at].trim().is_empty() || code[..at].trim().starts_with("pub"))
-                .then(|| literals.first().cloned())
-                .flatten()
+            let code = blank(line);
+            let at = code.find(&format!("const {name}: &str = \""))?;
+            let before = code[..at].trim();
+            if !(before.is_empty() || before.starts_with("pub")) {
+                return None;
+            }
+            let value = &line[at + format!("const {name}: &str = \"").len()..];
+            value.split_once('"').map(|(value, _)| value.to_string())
         })
     };
     find(text).or_else(|| {
@@ -744,20 +795,169 @@ fn constant(name: &str, text: &str, others: &[(String, String)]) -> Option<Strin
     })
 }
 
+/// Whether `text` at `at` starts an identifier: the character before it is
+/// not part of one.
+fn word_starts(text: &str, at: usize) -> bool {
+    !text[..at]
+        .chars()
+        .next_back()
+        .is_some_and(|before| before.is_alphanumeric() || before == '_')
+}
+
+/// The variables the readers in `unit` read, or what is wrong: a reader
+/// that enumerates, a reader not called, or an argument the check cannot
+/// bind to a name. Only `std::env::var`/`var_os` called with a string
+/// literal, a `&str` constant, or the parameter of a closure over an array
+/// of string literals in the same unit, are bound; and in `src/lib.rs`,
+/// `process_env!`'s own `$name`.
+fn readers_in(
+    file: &str,
+    unit: &str,
+    text: &str,
+    others: &[(String, String)],
+) -> Result<Vec<String>, String> {
+    let code = blank(unit);
+    let mut names = Vec::new();
+    for word in ["getenv", "secure_getenv", "environ"] {
+        if code.match_indices(word).any(|(at, _)| {
+            word_starts(&code, at)
+                && !code[at + word.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_')
+        }) {
+            return Err(format!("`{word}`"));
+        }
+    }
+    let mut from = 0;
+    while let Some(found) = code[from..].find("env::") {
+        let at = from + found;
+        from = at + "env::".len();
+        // `test_env::` and the like are not `env::`.
+        if !word_starts(&code, at) {
+            continue;
+        }
+        let reader: String = code[from..]
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+        if !SINGLE_READERS.contains(&reader.as_str()) {
+            return Err(format!(
+                "`env::{reader}`, which is no single-variable reader"
+            ));
+        }
+        let open = from + reader.len();
+        if !code[open..].starts_with('(') {
+            return Err(format!("`env::{reader}` not called"));
+        }
+        let mut depth = 0i32;
+        let close = code[open..]
+            .char_indices()
+            .find_map(|(offset, c)| {
+                match c {
+                    '(' => depth += 1,
+                    ')' => depth -= 1,
+                    _ => {}
+                }
+                (depth == 0).then_some(open + offset)
+            })
+            .ok_or("a reader whose call does not close")?;
+        let argument = unit[open + 1..close].trim();
+        let shaped = |name: &str| {
+            !name.is_empty()
+                && name.starts_with(|c: char| c.is_ascii_uppercase())
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+        };
+        if let Some(literal) = argument
+            .strip_prefix('"')
+            .and_then(|rest| rest.strip_suffix('"'))
+        {
+            if !shaped(literal) {
+                return Err("a literal argument that names no variable".to_string());
+            }
+            names.push(literal.to_string());
+            continue;
+        }
+        let last = argument.rsplit("::").next().unwrap_or(argument);
+        let path = argument
+            .split("::")
+            .all(|segment| segment.chars().all(|c| c.is_alphanumeric() || c == '_'));
+        if path && shaped(last) {
+            match constant(last, text, others) {
+                Some(value) => {
+                    names.push(value);
+                    continue;
+                }
+                None => return Err(format!("`{argument}`, a constant the check cannot find")),
+            }
+        }
+        if file == "src/lib.rs" && (argument == "$name" || argument == "name") {
+            continue;
+        }
+        let closure = format!("|{argument}|");
+        if let Some(param) = code.find(&closure) {
+            let before = &unit[..param];
+            let array = before
+                .rfind('[')
+                .map(|open| &before[open + 1..])
+                .and_then(|rest| rest.split_once(']'))
+                .map(|(inside, _)| inside);
+            let literals: Option<Vec<String>> = array.and_then(|inside| {
+                inside
+                    .split(',')
+                    .map(|item| item.trim())
+                    .filter(|item| !item.is_empty())
+                    .map(|item| {
+                        item.strip_prefix('"')
+                            .and_then(|rest| rest.strip_suffix('"'))
+                            .filter(|name| shaped(name))
+                            .map(str::to_string)
+                    })
+                    .collect::<Option<Vec<String>>>()
+            });
+            if let Some(literals) = literals.filter(|literals| !literals.is_empty()) {
+                names.extend(literals);
+                continue;
+            }
+        }
+        return Err(format!(
+            "`{argument}`, an argument the check cannot bind to a name"
+        ));
+    }
+    names.sort();
+    names.dedup();
+    Ok(names)
+}
+
 /// The reads in `text` (the file `file`) allowed past clippy's environment
 /// rule, each as the variables its `env:` reason names; and what is wrong
-/// with any of them: a reason that is not the statement's variables, a
-/// statement that reads nothing, or one that starts a child.
+/// with any of them. Fails closed: an allow that is not on a statement or a
+/// match arm, an inner allow, a unit that calls a macro or starts a child,
+/// a reader that enumerates or whose argument cannot be bound, and a reason
+/// that is not the unit's variables are each refused. Every message names a
+/// line and variables' names, never a value.
 fn bound_reads(
     file: &str,
     text: &str,
     others: &[(String, String)],
+    starts: &[String],
 ) -> (Vec<(String, Vec<String>)>, Vec<String>) {
     let lines: Vec<&str> = text.lines().collect();
     let mut reads = Vec::new();
     let mut problems = Vec::new();
     for (number, line) in lines.iter().enumerate() {
-        if line.trim_start().starts_with("//") || !line.contains(DISALLOWED) {
+        let at = format!("{file}:{}", number + 1);
+        let code = blank(line);
+        if code.contains("#![") && code.contains(DISALLOWED) {
+            problems.push(format!("{at}: an inner allow of the lint"));
+        }
+        if !code.contains(DISALLOWED) {
+            continue;
+        }
+        if lines[number.saturating_sub(2)..=number]
+            .iter()
+            .any(|line| blank(line).contains("#!["))
+        {
+            problems.push(format!("{at}: an inner allow of the lint"));
             continue;
         }
         let Some(end) = (number..lines.len().min(number + 4)).find(|at| lines[*at].contains(")]"))
@@ -772,55 +972,124 @@ fn bound_reads(
         else {
             continue;
         };
-        let at = format!("{file}:{}", number + 1);
         let named: Vec<String> = reason
             .split_once(" -- ")
             .map_or(reason, |(names, _)| names)
             .split(", ")
             .map(str::to_string)
             .collect();
-        let statement = statement_after(&lines, end);
-        let (code, literals) = code_and_literals(&statement);
-        if !code.contains("std::env::") {
+        let unit = unit_after(&lines, end);
+        let code = blank(&unit);
+        let first = code.trim_start();
+        let head = first.lines().next().unwrap_or_default().trim_end();
+        let item = [
+            "fn ", "pub", "impl", "mod ", "async ", "unsafe ", "const ", "static ", "trait ",
+        ]
+        .iter()
+        .any(|keyword| first.starts_with(keyword));
+        let statement = first.starts_with("let ");
+        let arm = head.contains(" => ") || head.ends_with(" =>");
+        if item || !(statement || arm) {
             problems.push(format!(
-                "{at}: an env: allow over a statement that reads nothing"
+                "{at}: an env: allow on what is not a statement or a match arm"
+            ));
+            continue;
+        }
+        if let Some(bang) = code.match_indices('!').find(|(at, _)| {
+            code[..*at]
+                .chars()
+                .next_back()
+                .is_some_and(|c| c.is_alphanumeric() || c == '_')
+                && code[at + 1..].trim_start().starts_with(['(', '[', '{'])
+        }) {
+            problems.push(format!(
+                "{at}: an env: allow over a macro call (at offset {})",
+                bang.0
             ));
         }
-        if let Some(start) = STARTS.iter().find(|start| code.contains(*start)) {
-            problems.push(format!(
-                "{at}: an env: allow over a statement with `{start}`"
-            ));
+        if let Some(start) = starts.iter().find(|start| code.contains(start.as_str())) {
+            problems.push(format!("{at}: an env: allow over `{}`", start.trim()));
         }
-        let shaped = |name: &str| {
-            !name.is_empty()
-                && name
-                    .chars()
-                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
-                && name.starts_with(|c: char| c.is_ascii_uppercase())
-        };
-        let mut read: Vec<String> = literals.into_iter().filter(|name| shaped(name)).collect();
-        for token in code.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
-            if shaped(token) {
-                if let Some(value) = constant(token, text, others) {
-                    read.push(value);
-                }
-            }
-        }
-        read.sort();
-        read.dedup();
         let mut said = named.clone();
         said.sort();
-        if said != ["process_env!"] && read != said {
-            problems.push(format!(
-                "{at}: the allow names {said:?}, the statement reads {read:?}"
-            ));
-        }
-        if said == ["process_env!"] && !(file == "src/lib.rs" && read.is_empty()) {
-            problems.push(format!("{at}: process_env!'s allow outside its build arms"));
+        match readers_in(file, &unit, text, others) {
+            Err(why) => problems.push(format!("{at}: an env: allow over {why}")),
+            Ok(read) if said == ["process_env!"] => {
+                if !(file == "src/lib.rs" && read.is_empty()) {
+                    problems.push(format!("{at}: process_env!'s allow outside its build arms"));
+                }
+            }
+            Ok(read) if read.is_empty() => {
+                problems.push(format!(
+                    "{at}: an env: allow over a unit that reads nothing"
+                ));
+            }
+            Ok(read) if read != said => problems.push(format!(
+                "{at}: the allow names {said:?}, the unit reads {read:?}"
+            )),
+            Ok(_) => {}
         }
         reads.push((file.to_string(), named));
     }
     (reads, problems)
+}
+
+/// Every import that would let a reader be called by another name -- `use
+/// std::env;`, an aliased or glob-imported `std::env`, an imported reader,
+/// `libc::getenv` or an aliased `libc` -- in `text`: inside an `env:` allow,
+/// a reader under another name is one the binding check cannot see. And
+/// every read clippy cannot see at all, anywhere: libc's `environ`, and the
+/// process's own environ file under `/proc`. (A function's `use libc::*` for errno names is
+/// allowed: a unit that names `getenv` or `environ` is refused itself.)
+fn reader_imports(file: &str, text: &str) -> Vec<String> {
+    let mut problems = Vec::new();
+    for (number, line) in text.lines().enumerate() {
+        if line.contains(concat!("/proc/self/", "environ")) {
+            problems.push(format!(
+                "{file}:{}: a read of the process's environ file",
+                number + 1
+            ));
+        }
+        let code = blank(line);
+        if code.match_indices("environ").any(|(at, _)| {
+            word_starts(&code, at)
+                && !code[at + "environ".len()..]
+                    .starts_with(|c: char| c.is_alphanumeric() || c == '_')
+        }) {
+            problems.push(format!("{file}:{}: libc's environ", number + 1));
+        }
+        let code = code.trim();
+        if !(code.starts_with("use ")
+            || code.starts_with("pub use ")
+            || code.contains("extern crate"))
+        {
+            continue;
+        }
+        let compact: String = code.chars().filter(|c| !c.is_whitespace()).collect();
+        let readers = ["var", "var_os", "vars", "vars_os", "home_dir"];
+        let names_a_reader = |list: &str| {
+            list.split([',', '{', '}', ';'])
+                .map(|item| item.split("as").next().unwrap_or(item))
+                .any(|item| readers.contains(&item) || item == "self" || item == "*")
+        };
+        let bad = compact.ends_with("std::env;")
+            || compact.contains("std::envas")
+            || compact.contains("std::{env")
+            || compact.contains(",env,")
+            || compact.contains(",env}")
+            || compact
+                .split_once("std::env::")
+                .is_some_and(|(_, rest)| names_a_reader(rest))
+            || compact.contains("getenv")
+            || compact.contains("libcas");
+        if bad {
+            problems.push(format!(
+                "{file}:{}: an import that names a reader of the environment",
+                number + 1
+            ));
+        }
+    }
+    problems
 }
 
 #[test]
@@ -856,12 +1125,14 @@ fn every_read_outside_process_env_is_bound_to_its_variables() {
             )
         })
         .collect();
+    let starts = starts();
     let mut found = Vec::new();
     let mut problems = Vec::new();
     for (file, text) in &texts {
-        let (reads, wrong) = bound_reads(file, text, &texts);
+        let (reads, wrong) = bound_reads(file, text, &texts, &starts);
         found.extend(reads);
         problems.extend(wrong);
+        problems.extend(reader_imports(file, text));
     }
     let mut listed: Vec<(String, Vec<String>)> = EXCEPTIONS
         .iter()
@@ -886,9 +1157,10 @@ fn every_read_outside_process_env_is_bound_to_its_variables() {
     }
     for (file, names) in EXCEPTIONS {
         for name in *names {
-            if GUARDED.contains(name) {
+            if *name != "process_env!" && !ALLOWED_NAMES.iter().any(|(allowed, _)| allowed == name)
+            {
                 problems.push(format!(
-                    "{file}: an exception reads {name}, which is guarded"
+                    "{file}: an exception reads {name}, which is not an allowed name"
                 ));
             }
         }
@@ -900,53 +1172,139 @@ fn every_read_outside_process_env_is_bound_to_its_variables() {
     );
 }
 
-/// The check's own fixtures: a swapped variable, an allow over a start, an
-/// allow over nothing, and a constant whose value moved.
+/// The check's own fixtures, one for each way round it the reviews named:
+/// enumeration, an unbound key, an allow on a function or an inner allow, an
+/// aliased `Command` with `.output()`, a macro, an imported reader -- and a
+/// swapped variable, a start, a read of nothing, a moved constant. Each is
+/// refused; the accepted shapes are accepted.
 #[test]
-fn the_binding_check_refuses_a_swapped_variable_a_start_and_a_moved_constant() {
-    let allowed = |statement: &str| {
+fn the_binding_check_refuses_every_way_round_it() {
+    let starts = starts();
+    let allow = |keys: &str| {
         format!(
-            "fn f() {{\n    #[allow(\n        {DISALLOWED},\n        \
-             reason = \"env: TMUX -- the terminal\"\n    )]\n    {statement}\n}}\n"
+            "    #[allow(\n        {DISALLOWED},\n        reason = \"env: {keys} -- the fixture\"\n    )]\n"
         )
     };
-    let problems = |text: &str| bound_reads("src/fixture.rs", text, &[]).1;
-    assert!(problems(&allowed(r#"let tmux = std::env::var_os("TMUX");"#)).is_empty());
-    let swapped = problems(&allowed(r#"let tmux = std::env::var_os("HOME");"#));
-    assert!(
-        swapped
-            .iter()
-            .any(|problem| problem.contains("reads [\"HOME\"]")),
-        "{swapped:?}"
-    );
-    let started = problems(&allowed(
-        r#"let tmux = (std::env::var_os("TMUX"), Command::spawn);"#,
-    ));
-    assert!(
-        started.iter().any(|problem| problem.contains("`Command`")),
-        "{started:?}"
-    );
-    let nothing = problems(&allowed(r#"let tmux = "TMUX";"#));
-    assert!(
-        nothing
-            .iter()
-            .any(|problem| problem.contains("reads nothing")),
-        "{nothing:?}"
-    );
+    let problems = |text: &str| bound_reads("src/fixture.rs", text, &[], &starts).1;
+    let in_fn = |before: &str, keys: &str, unit: &str| {
+        format!("{before}fn f() {{\n{}    {unit}\n}}\n", allow(keys))
+    };
+    let refused = |text: &str, why: &str| {
+        let found = problems(text);
+        assert!(
+            found.iter().any(|problem| problem.contains(why)),
+            "not refused for {why}: {found:?}"
+        );
+    };
+    // Accepted: a literal, a constant, a closure over literals, an arm.
+    assert!(problems(&in_fn(
+        "",
+        "TMUX",
+        r#"let tmux = std::env::var_os("TMUX");"#
+    ))
+    .is_empty());
     let constant = |value: &str| {
         format!(
             "const NAME: &str = \"{value}\";\n{}",
-            allowed("let tmux = std::env::var_os(NAME);")
+            in_fn("", "TMUX", "let tmux = std::env::var_os(NAME);")
         )
     };
     assert!(problems(&constant("TMUX")).is_empty());
-    let moved = problems(&constant("HOME"));
-    assert!(
-        moved
-            .iter()
-            .any(|problem| problem.contains("reads [\"HOME\"]")),
-        "{moved:?}"
+    assert!(problems(&in_fn(
+        "",
+        "TMPDIR, TMP",
+        r#"let dir = ["TMPDIR", "TMP"].iter().find_map(|name| std::env::var_os(name));"#
+    ))
+    .is_empty());
+    assert!(problems(&format!(
+        "fn f() -> bool {{\n    match () {{\n{}        () => std::env::var_os(\"TMUX\").is_some(),\n    }}\n}}\n",
+        allow("TMUX")
+    ))
+    .is_empty());
+    // Enumeration, beside a bound read.
+    refused(
+        &in_fn(
+            "",
+            "TMUX",
+            r#"let tmux = (std::env::vars_os().count(), std::env::var_os("TMUX"));"#,
+        ),
+        "no single-variable reader",
     );
+    refused(
+        &in_fn("", "TMUX", r#"let tmux = (std::env::home_dir(), "TMUX");"#),
+        "no single-variable reader",
+    );
+    // An unbound key: the name held in a variable outside the allow.
+    refused(
+        &in_fn(
+            "    let key = \"HOME\";\n",
+            "TMUX",
+            "let tmux = std::env::var_os(key);",
+        ),
+        "cannot bind",
+    );
+    // An allow on a function, and an inner allow.
+    refused(
+        &format!(
+            "{}fn f() -> bool {{\n    std::env::var_os(\"TMUX\").is_some()\n}}\n",
+            allow("TMUX")
+        ),
+        "not a statement or a match arm",
+    );
+    refused(
+        &format!("#![allow({DISALLOWED}, reason = \"env: TMUX -- the fixture\")]\n"),
+        "an inner allow",
+    );
+    // An aliased `Command`, started with `.output()` inside the allow.
+    refused(
+        &in_fn(
+            "use std::process::Command as C;\n",
+            "TMUX",
+            r#"let tmux = (std::env::var_os("TMUX"), C::new("env").output());"#,
+        ),
+        "`.output(`",
+    );
+    // A macro inside the allow, whose body the check cannot see.
+    refused(
+        &in_fn(
+            "",
+            "TMUX",
+            r#"let tmux = (std::env::var_os("TMUX"), sneaky!());"#,
+        ),
+        "a macro call",
+    );
+    // A reader imported under another name.
+    assert!(!reader_imports("src/fixture.rs", "use std::env::vars_os as everything;\n").is_empty());
+    assert!(!reader_imports("src/fixture.rs", "use std::env as process;\n").is_empty());
+    assert!(!reader_imports("src/fixture.rs", "use std::env;\n").is_empty());
+    assert!(!reader_imports("src/fixture.rs", "use libc::getenv;\n").is_empty());
+    assert!(!reader_imports("src/fixture.rs", "use std::env::*;\n").is_empty());
+    assert!(reader_imports("src/fixture.rs", "use std::env::VarError;\n").is_empty());
+    assert!(reader_imports("src/fixture.rs", "    use libc::*;\n").is_empty());
+    // A swapped variable, a start, a read of nothing, a moved constant.
+    refused(
+        &in_fn("", "TMUX", r#"let tmux = std::env::var_os("HOME");"#),
+        "the unit reads [\"HOME\"]",
+    );
+    refused(
+        &in_fn(
+            "",
+            "TMUX",
+            r#"let tmux = (std::env::var_os("TMUX"), Command::spawn);"#,
+        ),
+        "`::spawn`",
+    );
+    refused(
+        &in_fn(
+            "",
+            "TMUX",
+            r#"let tmux = (std::env::var_os("TMUX"), unsafe { libc::environ });"#,
+        ),
+        "`environ`",
+    );
+    assert!(!reader_imports("src/fixture.rs", "let all = unsafe { *libc::environ };\n").is_empty());
+    refused(&in_fn("", "TMUX", r#"let tmux = "TMUX";"#), "reads nothing");
+    refused(&constant("HOME"), "the unit reads [\"HOME\"]");
 }
 
 /// A runtime's environment laid over a case's fake process: what the

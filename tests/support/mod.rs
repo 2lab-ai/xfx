@@ -16,6 +16,7 @@
 pub mod fake_clipboard;
 pub mod fake_gateway;
 pub mod fake_llmux;
+pub mod isolated;
 // The pty harness drives a real terminal, so it is unix-only; `tests/cli.rs`
 // and its siblings pull this module in on every platform.
 #[cfg(unix)]

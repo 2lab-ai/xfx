@@ -43,8 +43,10 @@
 /// - `child_var` and `child_var_os` are values only handed on to a child's
 ///   environment: the fake process's, or none (`PATH` and `TMPDIR` excepted).
 ///
-/// `test_env`'s scan holds every other read of the environment in `src` to
-/// its list.
+/// Every other read of the environment, in `src` and `tests`, is refused by
+/// clippy (`clippy.toml`'s `disallowed-methods`) unless an `env:` allow on its
+/// statement or match arm names its variables, which `test_env`'s binding
+/// check holds it to.
 #[cfg(not(test))]
 macro_rules! process_env {
     ($who:literal, var($name:expr)) => {

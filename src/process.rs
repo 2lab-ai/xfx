@@ -969,7 +969,21 @@ mod tests {
                     if line.trim_start().starts_with("//") {
                         continue;
                     }
-                    if !in_tests
+                    // In a library's test modules too: a unit test's child
+                    // goes through `command`, which gives it the case's fake
+                    // process or nothing (`crate::test_env`). The one bare
+                    // start allowed there is the case about what a bare
+                    // `Command`'s child inherits, its environment cleared.
+                    // Integration tests (`tests/`) build each child's
+                    // environment with `support::sandbox::clear_env` or
+                    // `env_clear` instead.
+                    let bare_on_purpose = path.ends_with("tui/signals.rs")
+                        && line.contains("Command::new(\"/bin/sleep\")")
+                        && lines[number..lines.len().min(number + 3)]
+                            .iter()
+                            .any(|next| next.contains(".env_clear()"));
+                    if (library || !in_tests)
+                        && !bare_on_purpose
                         && (line.contains("Command::new(")
                             || line.contains("tokio::process::Command"))
                     {

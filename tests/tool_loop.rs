@@ -2800,6 +2800,11 @@ fn replay_shape(messages: &[Message]) -> Vec<String> {
 
 #[tokio::test]
 async fn an_output_limit_does_not_clip_a_sentence_into_the_result() {
+    if support::isolated::ran_in_a_clean_copy(
+        "an_output_limit_does_not_clip_a_sentence_into_the_result",
+    ) {
+        return;
+    }
     let sentence = "please rerun it with --quiet, the log is enormous and I only care about the last line of it";
     let limits = ToolLimits {
         max_command_output_bytes: 64,
@@ -3985,6 +3990,11 @@ fn on_path(program: &str) -> bool {
 /// (`xfx::process`).
 #[test]
 fn a_timeout_inside_a_command_ends_it_on_time_from_a_thread_that_blocks_signals() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_timeout_inside_a_command_ends_it_on_time_from_a_thread_that_blocks_signals",
+    ) {
+        return;
+    }
     // `timeout` is coreutils'; where it is not installed, the shell does what
     // it does -- `TERM` to the command after a second.
     let command = if on_path("timeout") {
@@ -4542,6 +4552,11 @@ async fn a_request_a_steer_cut_short_counts_what_it_streamed() {
 
 #[tokio::test]
 async fn a_command_the_person_stopped_leaves_the_request_that_asked_for_it_counted() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_command_the_person_stopped_leaves_the_request_that_asked_for_it_counted",
+    ) {
+        return;
+    }
     // The stop reaches a running command at once (`terminal::supervise`), and
     // the turn still settles: the request that asked for the command is in the
     // turn's frame, for `/usage`, at what it reported.

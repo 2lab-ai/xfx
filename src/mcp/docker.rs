@@ -89,15 +89,21 @@ fn has_cidfile(argv: &[String]) -> bool {
 
 /// `TMPDIR`, `TEMP` or `TMP`, else `/tmp` (`temporaryRoot`).
 #[allow(
-    clippy::disallowed_methods,
-    reason = "env: TMPDIR, TEMP, TMP -- where a cidfile goes"
+    clippy::match_single_binding,
+    reason = "the one arm of a match on () is where an env: allow can sit on a tail expression"
 )]
 fn temporary_root() -> Option<PathBuf> {
-    ["TMPDIR", "TEMP", "TMP"]
-        .iter()
-        .find_map(|name| std::env::var_os(name).filter(|value| !value.is_empty()))
-        .map(PathBuf::from)
-        .or_else(|| cfg!(unix).then(|| PathBuf::from("/tmp")))
+    match () {
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "env: TMPDIR, TEMP, TMP -- where a cidfile goes"
+        )]
+        () => ["TMPDIR", "TEMP", "TMP"]
+            .iter()
+            .find_map(|name| std::env::var_os(name).filter(|value| !value.is_empty())),
+    }
+    .map(PathBuf::from)
+    .or_else(|| cfg!(unix).then(|| PathBuf::from("/tmp")))
 }
 
 /// Sixteen random bytes as hex, from the kernel.

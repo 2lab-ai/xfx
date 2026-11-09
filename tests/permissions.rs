@@ -456,6 +456,11 @@ fn auto_will_not_compile_or_run_the_workspace_it_can_write_to() {
 
 #[test]
 fn auto_can_write_a_build_script_but_cannot_make_cargo_run_it() {
+    if support::isolated::ran_in_a_clean_copy(
+        "auto_can_write_a_build_script_but_cannot_make_cargo_run_it",
+    ) {
+        return;
+    }
     // The attack in one test. Writing `build.rs` is a bounded, reversible
     // workspace change, so `auto` allows it. Executing it is not, so `auto`
     // refuses -- and the refusal names the reason rather than the rule.
@@ -497,6 +502,11 @@ fn auto_can_write_a_build_script_but_cannot_make_cargo_run_it() {
 
 #[test]
 fn a_config_alias_cannot_turn_an_admitted_cargo_command_into_a_build() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_config_alias_cannot_turn_an_admitted_cargo_command_into_a_build",
+    ) {
+        return;
+    }
     // The attack, exactly. Automatic mode may write `.cargo/config.toml` and it
     // may write `build.rs`. Cargo resolves a subcommand as built-in, then user
     // alias, then external `cargo-<name>` -- so an alias can shadow `fmt`, which
@@ -558,6 +568,11 @@ fn a_config_alias_cannot_turn_an_admitted_cargo_command_into_a_build() {
 
 #[test]
 fn a_config_alias_cannot_redirect_the_admitted_cargo_builtins() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_config_alias_cannot_redirect_the_admitted_cargo_builtins",
+    ) {
+        return;
+    }
     // The other half of the ruling: what stays admitted has to be provably
     // alias-proof, not merely well-behaved. `metadata` is a Cargo built-in, so
     // the alias is ignored; and `--no-deps` metadata never invokes `rustc`, so
@@ -662,6 +677,9 @@ fn an_empty_or_unterminated_command_is_denied_rather_than_guessed() {
 
 #[test]
 fn ask_mode_without_an_approval_channel_fails_closed() {
+    if support::isolated::ran_in_a_clean_copy("ask_mode_without_an_approval_channel_fails_closed") {
+        return;
+    }
     let tree = Tree::new();
     let plan = plan(&tree, "git status");
     let decision = session(PermissionMode::Ask).evaluate(ProposedAction::Command(&plan));
@@ -680,6 +698,11 @@ fn ask_mode_without_an_approval_channel_fails_closed() {
 
 #[test]
 fn auto_mode_admits_the_direct_grammar_and_denies_everything_else() {
+    if support::isolated::ran_in_a_clean_copy(
+        "auto_mode_admits_the_direct_grammar_and_denies_everything_else",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     let admitted = plan(&tree, "cargo --version");
     assert_eq!(
@@ -702,6 +725,11 @@ fn auto_mode_admits_the_direct_grammar_and_denies_everything_else() {
 
 #[test]
 fn auto_mode_reviews_an_unknown_command_instead_of_assuming_it_is_safe() {
+    if support::isolated::ran_in_a_clean_copy(
+        "auto_mode_reviews_an_unknown_command_instead_of_assuming_it_is_safe",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     let unknown = plan(&tree, "frobnicate --all");
     let PolicyDecision::Deny { reason, .. } =
@@ -714,6 +742,11 @@ fn auto_mode_reviews_an_unknown_command_instead_of_assuming_it_is_safe() {
 
 #[test]
 fn yolo_mode_admits_what_every_other_mode_refuses_and_says_which_source_did_it() {
+    if support::isolated::ran_in_a_clean_copy(
+        "yolo_mode_admits_what_every_other_mode_refuses_and_says_which_source_did_it",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     let plan = plan(&tree, "rm -rf src");
     assert_eq!(
@@ -731,6 +764,11 @@ fn yolo_mode_admits_what_every_other_mode_refuses_and_says_which_source_did_it()
 
 #[test]
 fn a_configured_deny_rule_outranks_the_mode_that_would_have_allowed_it() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_configured_deny_rule_outranks_the_mode_that_would_have_allowed_it",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     let plan = plan(&tree, "cargo --version");
     let rules = table(&[("bash", "cargo --version", RuleAction::Deny)]);
@@ -744,6 +782,10 @@ fn a_configured_deny_rule_outranks_the_mode_that_would_have_allowed_it() {
 
 #[test]
 fn a_configured_allow_rule_admits_without_an_approval() {
+    if support::isolated::ran_in_a_clean_copy("a_configured_allow_rule_admits_without_an_approval")
+    {
+        return;
+    }
     let tree = Tree::new();
     let plan = plan(&tree, "cargo publish");
     let rules = table(&[("bash", "cargo publish", RuleAction::Allow)]);
@@ -758,6 +800,11 @@ fn a_configured_allow_rule_admits_without_an_approval() {
 
 #[test]
 fn a_session_grant_is_exact_and_does_not_spread_to_a_neighbour() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_session_grant_is_exact_and_does_not_spread_to_a_neighbour",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     let granted = plan(&tree, "cargo --version");
     let neighbour = plan(&tree, "cargo --version --list");
@@ -783,6 +830,11 @@ fn a_session_grant_is_exact_and_does_not_spread_to_a_neighbour() {
 
 #[test]
 fn a_grant_for_a_command_does_not_follow_it_into_another_directory() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_grant_for_a_command_does_not_follow_it_into_another_directory",
+    ) {
+        return;
+    }
     // The same words in a different directory are a different command: `cat
     // notes.md` in the workspace and in a directory `--add-dir` opened read two
     // different files. A key that was only the command text would let one
@@ -843,6 +895,11 @@ fn a_grant_for_a_command_does_not_follow_it_into_another_directory() {
 
 #[test]
 fn a_command_allow_with_a_wildcard_admits_only_plain_words() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_command_allow_with_a_wildcard_admits_only_plain_words",
+    ) {
+        return;
+    }
     // `git *` must never allow a second command riding on the first
     // (`ruleTargetMatches`, `permissions.zig:1620-1630`): the static-grammar
     // narrowing is what keeps a pattern from widening into a shell.
@@ -900,6 +957,11 @@ fn a_command_allow_with_a_wildcard_admits_only_plain_words() {
 
 #[test]
 fn a_rule_keyed_by_the_terminal_tool_name_does_not_allow_a_command() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_rule_keyed_by_the_terminal_tool_name_does_not_allow_a_command",
+    ) {
+        return;
+    }
     // Upstream judges a command as `bash` / `run_command`; its `terminal` is
     // the non-run actions of its shell tool, which run nothing. A rule written
     // for that name must not admit xfx's command.
@@ -922,6 +984,11 @@ fn a_rule_keyed_by_the_terminal_tool_name_does_not_allow_a_command() {
 
 #[test]
 fn an_approval_answered_once_covers_this_call_and_not_the_next() {
+    if support::isolated::ran_in_a_clean_copy(
+        "an_approval_answered_once_covers_this_call_and_not_the_next",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     let plan = plan(&tree, "cargo publish");
     let prompter = ScriptedPrompter::new(vec![ApprovalAnswer::Once]);
@@ -941,6 +1008,11 @@ fn an_approval_answered_once_covers_this_call_and_not_the_next() {
 
 #[test]
 fn an_approval_answered_always_records_one_exact_session_grant() {
+    if support::isolated::ran_in_a_clean_copy(
+        "an_approval_answered_always_records_one_exact_session_grant",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     let plan = plan(&tree, "cargo publish");
     let prompter = ScriptedPrompter::new(vec![ApprovalAnswer::Always]);
@@ -1082,6 +1154,11 @@ fn a_prompt_bounds_the_excerpt_it_shows() {
 
 #[test]
 fn a_command_prompt_names_the_directory_the_command_would_run_in() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_command_prompt_names_the_directory_the_command_would_run_in",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     tree.mkdir("inner");
     let prompter = ScriptedPrompter::new(vec![ApprovalAnswer::Deny]);
@@ -1109,6 +1186,9 @@ fn a_command_prompt_names_the_directory_the_command_would_run_in() {
 
 #[test]
 fn a_denied_approval_refuses_and_records_nothing() {
+    if support::isolated::ran_in_a_clean_copy("a_denied_approval_refuses_and_records_nothing") {
+        return;
+    }
     let tree = Tree::new();
     let plan = plan(&tree, "cargo publish");
     let prompter = ScriptedPrompter::new(vec![ApprovalAnswer::Deny]);
@@ -1126,6 +1206,11 @@ fn a_denied_approval_refuses_and_records_nothing() {
 
 #[test]
 fn a_broken_approval_channel_denies_rather_than_defaulting_to_yes() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_broken_approval_channel_denies_rather_than_defaulting_to_yes",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     let plan = plan(&tree, "cargo publish");
     let mut asking =
@@ -1237,6 +1322,11 @@ fn a_denied_call_changes_no_file_and_still_carries_the_sentence() {
 
 #[test]
 fn an_always_answer_grants_exactly_the_tool_and_target_it_did_before() {
+    if support::isolated::ran_in_a_clean_copy(
+        "an_always_answer_grants_exactly_the_tool_and_target_it_did_before",
+    ) {
+        return;
+    }
     // Feedback is not authority: it is not part of the key, and it cannot
     // widen, narrow, or re-key what "always" bought.
     let tree = Tree::new();
@@ -1303,6 +1393,9 @@ fn a_prompter_that_cannot_amend_still_compiles_and_reports_nothing() {
 
 #[test]
 fn a_failed_approval_channel_carries_no_sentence() {
+    if support::isolated::ran_in_a_clean_copy("a_failed_approval_channel_carries_no_sentence") {
+        return;
+    }
     let tree = Tree::new();
     let plan = plan(&tree, "cargo publish");
     let mut asking =
@@ -1356,6 +1449,11 @@ fn an_authority_that_went_stale_after_the_decision_still_carries_the_sentence() 
 
 #[test]
 fn an_approved_command_runs_what_was_asked_and_carries_the_sentence() {
+    if support::isolated::ran_in_a_clean_copy(
+        "an_approved_command_runs_what_was_asked_and_carries_the_sentence",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     let context = amended(&tree, ApprovalAnswer::Once, "use --locked next time");
 
@@ -1383,6 +1481,11 @@ fn an_approved_command_runs_what_was_asked_and_carries_the_sentence() {
 
 #[test]
 fn a_denied_command_does_not_run_and_still_carries_the_sentence() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_denied_command_does_not_run_and_still_carries_the_sentence",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     tree.write("notes.md", "original\n");
     let context = amended(&tree, ApprovalAnswer::Deny, "that would delete my notes");
@@ -1411,6 +1514,10 @@ fn a_denied_command_does_not_run_and_still_carries_the_sentence() {
 
 #[test]
 fn an_authority_executes_once_and_a_replay_is_refused() {
+    if support::isolated::ran_in_a_clean_copy("an_authority_executes_once_and_a_replay_is_refused")
+    {
+        return;
+    }
     let tree = Tree::new();
     let plan = plan(&tree, "cargo --version");
     let mut owner = session(PermissionMode::Auto);
@@ -1429,6 +1536,11 @@ fn an_authority_executes_once_and_a_replay_is_refused() {
 
 #[test]
 fn an_authority_minted_by_one_session_is_unknown_to_another() {
+    if support::isolated::ran_in_a_clean_copy(
+        "an_authority_minted_by_one_session_is_unknown_to_another",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     let mut minter = session(PermissionMode::Auto);
     let authority = minter.mint_command(plan(&tree, "cargo --version"), AllowSource::AutoMode);
@@ -1439,6 +1551,9 @@ fn an_authority_minted_by_one_session_is_unknown_to_another() {
 
 #[test]
 fn two_authorities_never_share_a_nonce() {
+    if support::isolated::ran_in_a_clean_copy("two_authorities_never_share_a_nonce") {
+        return;
+    }
     let tree = Tree::new();
     let mut owner = session(PermissionMode::Auto);
     let first = owner.mint_command(plan(&tree, "cargo --version"), AllowSource::AutoMode);
@@ -1473,6 +1588,11 @@ fn a_revalidation_failure_still_burns_the_authority_it_was_given() {
 
 #[test]
 fn a_command_fingerprint_covers_the_command_the_cwd_and_the_environment() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_command_fingerprint_covers_the_command_the_cwd_and_the_environment",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     tree.mkdir("inner");
     let scope = AccessScope::primary_only(tree.root()).expect("root");
@@ -1517,6 +1637,11 @@ fn a_command_fingerprint_covers_the_command_the_cwd_and_the_environment() {
 
 #[test]
 fn an_admitted_command_names_its_route_and_a_reviewed_one_names_the_shell() {
+    if support::isolated::ran_in_a_clean_copy(
+        "an_admitted_command_names_its_route_and_a_reviewed_one_names_the_shell",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     assert!(matches!(
         plan(&tree, "cargo --version").route(),
@@ -2026,6 +2151,11 @@ fn an_ordinary_dot_directory_is_still_the_projects_own_content() {
 
 #[test]
 fn a_pre_existing_hostile_git_config_does_not_execute_on_the_automatic_route() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_pre_existing_hostile_git_config_does_not_execute_on_the_automatic_route",
+    ) {
+        return;
+    }
     // The write refusal above stops xfx from *installing* one of these. This is
     // the other direction: a repository that already carries one, opened by a
     // user who did not write it. `git diff` and `git status` are on the route
@@ -2949,6 +3079,11 @@ fn auto_mode_will_not_assemble_a_git_directory_one_ordinary_write_at_a_time() {
 
 #[test]
 fn auto_does_not_run_git_in_a_directory_whose_configuration_defines_a_hook() {
+    if support::isolated::ran_in_a_clean_copy(
+        "auto_does_not_run_git_in_a_directory_whose_configuration_defines_a_hook",
+    ) {
+        return;
+    }
     // The hook query asks the git directory the command would use: the one
     // its working directory finds, not the root's.
     let home = Tree::new();
@@ -3380,6 +3515,11 @@ fn terminal_advertises_exec_and_no_durable_action() {
 
 #[test]
 fn terminal_runs_an_admitted_command_and_reports_its_exit_status() {
+    if support::isolated::ran_in_a_clean_copy(
+        "terminal_runs_an_admitted_command_and_reports_its_exit_status",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     tree.write("notes.md", "alpha\nbeta\n");
     let context = context(&tree, PermissionMode::Auto);
@@ -3394,6 +3534,11 @@ fn terminal_runs_an_admitted_command_and_reports_its_exit_status() {
 
 #[test]
 fn terminal_reports_a_nonzero_exit_status_as_a_fact_rather_than_a_failure() {
+    if support::isolated::ran_in_a_clean_copy(
+        "terminal_reports_a_nonzero_exit_status_as_a_fact_rather_than_a_failure",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     let context = context(&tree, PermissionMode::Auto);
     let result = call(
@@ -3413,6 +3558,11 @@ fn terminal_reports_a_nonzero_exit_status_as_a_fact_rather_than_a_failure() {
 
 #[test]
 fn terminal_bounds_the_output_it_returns_and_says_that_it_did() {
+    if support::isolated::ran_in_a_clean_copy(
+        "terminal_bounds_the_output_it_returns_and_says_that_it_did",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     tree.write("big.txt", &"x".repeat(4096));
     let context = context_with_limits(
@@ -3434,6 +3584,11 @@ fn terminal_bounds_the_output_it_returns_and_says_that_it_did() {
 
 #[test]
 fn output_that_closes_xfxs_own_tags_produces_one_real_frame_and_forges_none() {
+    if support::isolated::ran_in_a_clean_copy(
+        "output_that_closes_xfxs_own_tags_produces_one_real_frame_and_forges_none",
+    ) {
+        return;
+    }
     // The frame is the only thing telling the model that these bytes are *a
     // command's output* rather than a statement by xfx. A file a stranger wrote
     // -- a fixture, a dependency's README, a log -- must not be able to end its
@@ -3493,6 +3648,11 @@ fn output_that_closes_xfxs_own_tags_produces_one_real_frame_and_forges_none() {
 
 #[test]
 fn the_command_xfx_echoes_back_cannot_close_the_tag_it_is_quoted_in() {
+    if support::isolated::ran_in_a_clean_copy(
+        "the_command_xfx_echoes_back_cannot_close_the_tag_it_is_quoted_in",
+    ) {
+        return;
+    }
     // The command text is model-supplied too, and it is interpolated into a tag
     // of xfx's. An approved shell command is the one route it can carry angle
     // brackets on, so that is where this is proven.
@@ -3530,6 +3690,11 @@ fn the_command_xfx_echoes_back_cannot_close_the_tag_it_is_quoted_in() {
 /// shown what it wrote and `timed out` (`fx-timeout-40x120-live-ctrl-o`).
 #[test]
 fn a_command_past_its_deadline_is_killed_at_once_and_the_screen_says_it_timed_out() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_command_past_its_deadline_is_killed_at_once_and_the_screen_says_it_timed_out",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     let context = context_with_limits(
         &tree,
@@ -3566,6 +3731,9 @@ fn a_command_past_its_deadline_is_killed_at_once_and_the_screen_says_it_timed_ou
 
 #[test]
 fn terminal_kills_a_command_that_outruns_its_timeout() {
+    if support::isolated::ran_in_a_clean_copy("terminal_kills_a_command_that_outruns_its_timeout") {
+        return;
+    }
     let tree = Tree::new();
     let context = context_with_limits(
         &tree,
@@ -3607,6 +3775,11 @@ fn terminal_kills_a_command_that_outruns_its_timeout() {
 /// checks. So the grace and the bound are measured from the stop.
 #[test]
 fn a_stopped_command_is_asked_to_stop_and_the_screen_is_shown_how_it_ended() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_stopped_command_is_asked_to_stop_and_the_screen_is_shown_how_it_ended",
+    ) {
+        return;
+    }
     let stop_after = |command: &str| {
         let tree = Tree::new();
         let cancel = CancelToken::new();
@@ -3684,6 +3857,9 @@ fn stop_once_written(
 
 #[test]
 fn terminal_stops_when_the_turn_is_cancelled() {
+    if support::isolated::ran_in_a_clean_copy("terminal_stops_when_the_turn_is_cancelled") {
+        return;
+    }
     let tree = Tree::new();
     let cancel = CancelToken::new();
     let context = ToolContext::new(AccessScope::primary_only(tree.root()).expect("root"))
@@ -3715,6 +3891,11 @@ fn terminal_stops_when_the_turn_is_cancelled() {
 
 #[test]
 fn a_direct_operand_that_resolves_outside_the_workspace_is_refused() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_direct_operand_that_resolves_outside_the_workspace_is_refused",
+    ) {
+        return;
+    }
     // The text classifier cannot see this: `escape.txt` is a perfectly ordinary
     // relative name. Only resolving it shows that `cat escape.txt` would read a
     // file the read tools refuse.
@@ -3739,6 +3920,10 @@ fn a_direct_operand_that_resolves_outside_the_workspace_is_refused() {
 
 #[test]
 fn a_dash_prefixed_operand_is_resolved_like_any_other() {
+    if support::isolated::ran_in_a_clean_copy("a_dash_prefixed_operand_is_resolved_like_any_other")
+    {
+        return;
+    }
     // `--` ends flag parsing, so `-escape.txt` past it is a filename. Skipping
     // dash-prefixed words when looking for escapes let exactly that through.
     let tree = Tree::new();
@@ -3772,6 +3957,11 @@ fn a_dash_prefixed_operand_is_resolved_like_any_other() {
 
 #[test]
 fn a_dash_prefixed_operand_inside_the_workspace_still_works() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_dash_prefixed_operand_inside_the_workspace_still_works",
+    ) {
+        return;
+    }
     // The counterpart: the rule is "resolve it", not "refuse it".
     let tree = Tree::new();
     tree.write("real.txt", "inside content\n");
@@ -3792,6 +3982,11 @@ fn a_dash_prefixed_operand_inside_the_workspace_still_works() {
 
 #[test]
 fn a_direct_operand_that_is_a_symlink_inside_the_workspace_is_allowed() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_direct_operand_that_is_a_symlink_inside_the_workspace_is_allowed",
+    ) {
+        return;
+    }
     // The counterpart. Refusing every symlink would make the grammar useless in
     // a real repository, and an in-workspace link resolves to a file the read
     // tools would have handed over anyway.
@@ -3810,6 +4005,11 @@ fn a_direct_operand_that_is_a_symlink_inside_the_workspace_is_allowed() {
 
 #[test]
 fn an_operand_that_names_nothing_is_not_treated_as_an_escape() {
+    if support::isolated::ran_in_a_clean_copy(
+        "an_operand_that_names_nothing_is_not_treated_as_an_escape",
+    ) {
+        return;
+    }
     // A grep pattern, a git revision, and a filename that does not exist yet all
     // look identical to a path. Refusing them would leave the grammar able to
     // express almost nothing.
@@ -3826,6 +4026,11 @@ fn an_operand_that_names_nothing_is_not_treated_as_an_escape() {
 
 #[test]
 fn a_command_that_leaves_a_process_holding_the_pipe_still_returns() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_command_that_leaves_a_process_holding_the_pipe_still_returns",
+    ) {
+        return;
+    }
     // `sh -c 'sleep 30 & echo started'` exits at once, but the background sleep
     // inherited stdout and keeps the pipe open. Joining the reader thread here
     // would block the whole turn for thirty seconds.
@@ -3850,6 +4055,11 @@ fn a_command_that_leaves_a_process_holding_the_pipe_still_returns() {
 
 #[test]
 fn a_timeout_kills_the_whole_process_group_and_not_only_the_child() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_timeout_kills_the_whole_process_group_and_not_only_the_child",
+    ) {
+        return;
+    }
     // The shell forks, so killing the process xfx spawned leaves the two sleeps
     // alive and holding the pipe. Only a group kill ends them.
     let tree = Tree::new();
@@ -3943,6 +4153,11 @@ impl Drop for SweepTag {
 
 #[test]
 fn a_cancellation_kills_the_whole_process_group_and_not_only_the_child() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_cancellation_kills_the_whole_process_group_and_not_only_the_child",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     let cancel = CancelToken::new();
     let context = ToolContext::new(AccessScope::primary_only(tree.root()).expect("root"))
@@ -4082,6 +4297,11 @@ fn terminal_refuses_a_working_directory_outside_the_workspace() {
 
 #[test]
 fn terminal_denies_a_destructive_command_in_auto_mode_and_runs_nothing() {
+    if support::isolated::ran_in_a_clean_copy(
+        "terminal_denies_a_destructive_command_in_auto_mode_and_runs_nothing",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     tree.write("victim.txt", "still here\n");
     let context = context(&tree, PermissionMode::Auto);
@@ -4096,6 +4316,11 @@ fn terminal_denies_a_destructive_command_in_auto_mode_and_runs_nothing() {
 
 #[test]
 fn an_approved_command_runs_through_the_platform_shell_with_a_clean_environment() {
+    if support::isolated::ran_in_a_clean_copy(
+        "an_approved_command_runs_through_the_platform_shell_with_a_clean_environment",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     let prompter = ScriptedPrompter::new(vec![ApprovalAnswer::Once]);
     let context = context_with_prompter(&tree, PermissionMode::Ask, prompter.clone());
@@ -4484,6 +4709,9 @@ async fn a_rule_that_asks_before_a_question_asks_in_auto_and_with_nobody_to_ask_
 #[tokio::test]
 async fn a_terminal_hidden_by_a_shell_deny_and_called_anyway_is_judged_as_a_command_and_never_runs_unasked(
 ) {
+    if support::isolated::ran_in_a_clean_copy("a_terminal_hidden_by_a_shell_deny_and_called_anyway_is_judged_as_a_command_and_never_runs_unasked") {
+        return;
+    }
     // `shell: deny` leaves the terminal out of the request, as upstream's
     // `shell` is left out (`permissionNameForTool` maps `shell` to nothing,
     // `permissions.zig:1455-1464`). A call to it anyway is judged as every
@@ -5950,6 +6178,11 @@ fn a_remembered_allow_lets_exactly_that_change_through_in_ask_mode_and_nothing_e
 
 #[test]
 fn a_remembered_deny_beats_auto_mode_and_a_configured_allow_but_not_a_configured_deny_order() {
+    if support::isolated::ran_in_a_clean_copy(
+        "a_remembered_deny_beats_auto_mode_and_a_configured_allow_but_not_a_configured_deny_order",
+    ) {
+        return;
+    }
     let tree = Tree::new();
     let store = TempDir::new().unwrap();
     let rules = store.path().join("permissions.json");

@@ -825,8 +825,15 @@ mod tests {
     #[test]
     fn a_child_process_inherits_the_mask_its_thread_was_started_with() {
         let mut child = spawn_unsignalled("xfx-test", || {
-            crate::process::spawn(std::process::Command::new("/bin/sleep").arg("30"))
-                .expect("a child")
+            // Bare on purpose -- the mask a bare `Command`'s child inherits is
+            // this case's subject -- and given no environment
+            // (`process::tests::no_child_process_is_made_any_other_way`).
+            crate::process::spawn(
+                std::process::Command::new("/bin/sleep")
+                    .arg("30")
+                    .env_clear(),
+            )
+            .expect("a child")
         })
         .expect("a thread")
         .join()

@@ -2939,6 +2939,11 @@ fn a_daemon_that_is_not_listening_is_a_catalog_that_is_unavailable_not_empty() {
 
 #[test]
 fn bundle_select_with_gateway_credential_yields_gateway_bundle() {
+    if support::isolated::ran_in_a_clean_copy(
+        "bundle_select_with_gateway_credential_yields_gateway_bundle",
+    ) {
+        return;
+    }
     use xfx::provider::Bundle;
 
     let sandbox = Sandbox::new();

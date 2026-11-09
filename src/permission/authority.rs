@@ -2374,7 +2374,7 @@ mod tests {
         }
 
         fn run_with(&self, argv: &[String], extra: &[(&str, &str)]) -> std::process::ExitStatus {
-            let mut command = std::process::Command::new(&self.git);
+            let mut command = crate::process::command(&self.git);
             command
                 .args(&argv[1..])
                 .current_dir(self.repo())
@@ -2632,7 +2632,7 @@ mod tests {
         let source_path = source.path().canonicalize().expect("canonical");
         let in_source = |args: &[&str]| {
             crate::process::output(
-                std::process::Command::new(&fixture.git)
+                crate::process::command(&fixture.git)
                     .args(args)
                     .current_dir(&source_path)
                     .env_clear()
@@ -2703,7 +2703,7 @@ mod tests {
         let source = source.path().canonicalize().expect("canonical");
         let git_in = |dir: &Path, args: &[&str]| {
             let status = crate::process::status(
-                std::process::Command::new(&fixture.git)
+                crate::process::command(&fixture.git)
                     .args(args)
                     .current_dir(dir)
                     .env_clear()
