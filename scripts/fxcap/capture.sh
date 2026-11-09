@@ -436,15 +436,16 @@ roots_line() {
 # Puts each staged file or directory, $stage/<name>, in the out directory as
 # <dest> (its name the same): roots.py writes its roots as placeholders, and
 # only then is it renamed into place. A file roots.py refuses -- a root that
-# survived its rewrite -- never reaches the out directory, and the run fails
-# (exit 3). A directory already at <dest> (an earlier `gwlog`'s bodies) is
+# survived its rewrite, or one it cannot write (broken beside a space, or
+# with too many runs of them) -- never reaches the out directory, and the run
+# fails (exit 3). A directory already at <dest> (an earlier `gwlog`'s bodies) is
 # moved aside into the stage first.
 publish() {
   local dest staged
   for dest in "$@"; do
     staged=$stage/${dest##*/}
     python3 -I "$roots_py" "${root_args[@]}" -- "$staged" ||
-      { echo "LOCAL-PATH GUARD: refusing to write ${dest##*/}: a path of this run survived its rewrite" >&2; exit 3; }
+      { echo "LOCAL-PATH GUARD: refusing to write ${dest##*/}: roots.py refused it (its line above says why: a path of this run that survived the rewrite, or a root it cannot write)" >&2; exit 3; }
   done
   for dest in "$@"; do
     staged=$stage/${dest##*/}

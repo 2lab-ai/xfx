@@ -63,19 +63,22 @@ escaped is one column wider.
 its spellings and as given or resolved, still in the file refuses it: in its
 visible text where it ends whole, by the rewrite's own rule -- so a sibling
 whose name extends the HOME's (`<HOME>2/notes`, coloured mid-name or not) is
-no survivor of it -- and, by its bytes, where the visible text does not hold
-them whole: in a control sequence's bytes (an OSC payload no reader sees, a
-link's target; a root whose head an escape's own bytes took, `ESC / h`
-being an nF escape, which is refused even beside a styled sibling, as no
-reader can tell the two apart there) or in a gutter dropped at a row's edge
-(a root ending in a space, a tab or a box-drawing character, at a row's
-end). A root with such a character inside it is read once more without it,
-as the view joins two rows where a row's end fell beside one. So does
-the run directory's own name (`--suffix`, mktemp's random tail) anywhere at
-all: it names no other path, and a root a binary cut short
-(`.../fxcap.Ab12Cd/wo...`) or whose head scrolled off a frame keeps it. The
-file is named on standard error with what survived, by placeholder, never
-the path, and the exit status is 3. A fragment of a root above the run
+no survivor of it -- and, by its bytes, only where they overlap a control
+sequence's (an OSC payload no reader sees, a link's target; a root whose
+head an escape's own bytes took, `ESC / h` being an nF escape, which is
+refused even beside a styled sibling, as no reader can tell the two apart
+there). A root with runs of gutter characters in it (spaces, tabs,
+U+2500-U+259F) is read in the visible text with every subset of those runs
+taken out, since the view drops a run whole where a row's edge falls beside
+it (a root ending in one at a row's end; one broken beside one): such a
+reading, ending whole, refuses the file -- in the rewrite, before any edit
+(a root under another, rewritten first, would hide it), and in the survivor
+reading (`--check`). A root with more than MAX_GUTTER_RUNS runs is refused
+outright. So does the run directory's own name (`--suffix`, mktemp's random
+tail) anywhere at all: it names no other path, and a root a binary cut
+short (`.../fxcap.Ab12Cd/wo...`) or whose head scrolled off a frame keeps
+it. The file is named on standard error with what survived or why it was
+refused, by placeholder, never the root's path, and the exit status is 3. A fragment of a root above the run
 directory (the harness's TMPDIR or HOME) holds no run name;
 scripts/check-no-local-paths.sh's shapes are what refuse such a fragment in
 a tracked file.
@@ -327,8 +330,16 @@ def _in_controls(data, controls, rules):
 def rewrite(data, rules):
     """`data` with its literal placeholders escaped and its roots written as
     their placeholders, each over its own characters; and how many of each
-    were written."""
+    were written. Refused, before any edit, where a root with gutter runs
+    reads broken beside one (`_broken_at_gutters`): it cannot be written
+    over its own columns, and a root it is under, written first, would hide
+    it from the survivor reading (`/Users/z/My Docs/...` broken at its space
+    under HOME `/Users/z`)."""
     view = View(data)
+    for needle, name, real in rules:
+        if any(_find(view, v, []) for v in _broken_at_gutters(needle)):
+            raise Refused("<%s%s> broken at a row's edge beside a space, a tab or a box-drawing character"
+                          % (name, ":real" if real else ""))
     edits = []  # (start, end, replacement)
     for m in LITERAL.finditer(view.text):
         # One `!`, right after the `<`.
@@ -384,11 +395,12 @@ def survivors(data, rules, suffix):
     - a root whose bytes, ending whole there, run into a control sequence's
       (an OSC payload; a head an escape's own bytes took);
     - a root with gutter characters in it (a space, a tab, U+2500-U+259F),
-      read once more with any of its runs of them taken out: where a row's
+      read with every subset of its runs of them taken out: where a row's
       edge fell beside a run, the view dropped it whole (`/tmp/a b` broken
       after its space reads `/tmp/ab`; a root ending in a space, at a row's
-      end, reads without it). The rewrite never finds such a root, so it is
-      refused; a sibling that reads like one (`/tmp/ab`) is refused too;
+      end, reads without it). The rewrite refuses such a file before it
+      edits it; this reads it as `--check` does. A sibling that reads like
+      one (`/tmp/ab`) is refused too;
     - or the run directory's own name, anywhere.
 
     A root's bytes in the visible text are the view's to judge: it reads

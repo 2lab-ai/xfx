@@ -499,18 +499,25 @@ class RootsRewrite(unittest.TestCase):
         # The view drops a row's edge gutters (spaces, tabs, U+2500-U+259F). A
         # root that ends in one, at a row's end, loses that character to it;
         # a root with one inside it, broken beside it at a row's end, reads
-        # joined without it. Neither is found to be written, so each refuses
-        # the file: fail closed.
+        # joined without it. Neither can be written over its own columns, so
+        # each refuses the file, twice over: the rewrite refuses before it
+        # edits anything, and the survivor reading (`--check`, no rewrite)
+        # refuses what it reads.
+        def refused(data, rules, name="tmp"):
+            with self.assertRaises(roots.Refused):
+                roots.rewrite(data, rules)
+            self.assertEqual(roots.survivors(data, rules, None), [name])
+
         for root in ("/tmp/fxt ", "/tmp/fxt\t", "/tmp/fxt\u2502"):
             rules = roots.rules_for([(root, "tmp")])
             for data in (("x %s\nnext\n" % root).encode(), ("x %s" % root).encode()):
                 with self.subTest(root=root, data=data):
-                    self.assertEqual(roots.survivors(roots.rewrite(data, rules)[0], rules, None), ["tmp"])
+                    refused(data, rules)
         spaced = "/tmp/a b"
         rules = roots.rules_for([(spaced, "tmp")])
         for data in (b"x /tmp/a \nb/notes\n", b"x /tmp/a\n b/notes\n", b"x /tmp/a\t\n  \xe2\x94\x82 b/notes\n"):
             with self.subTest(data=data):
-                self.assertEqual(roots.survivors(roots.rewrite(data, rules)[0], rules, None), ["tmp"])
+                refused(data, rules)
         # Away from a row's edge such a root is found and written, and
         # nothing survives.
         got = roots.rewrite(b"x /tmp/a b/notes\n", rules)[0]
@@ -523,9 +530,28 @@ class RootsRewrite(unittest.TestCase):
         for data in (b"x /tmp/a \nb c/notes\n", b"x /tmp/a b \nc/notes\n", b"x /tmp/a  \n  \xe2\x94\x82 b c\n",
                      b"x /tmp/a \nb \nc/notes\n"):
             with self.subTest(data=data):
-                self.assertEqual(roots.survivors(roots.rewrite(data, rules)[0], rules, None), ["tmp"])
+                refused(data, rules)
         got = roots.rewrite(b"x /tmp/a b c\n", rules)[0]
         self.assertEqual(roots.survivors(got, rules, None), [])
+        # Nested: a root under another one (the scenario directory under
+        # HOME), broken at its space. Rewritten first, HOME's placeholder
+        # took the head the survivor reading looks for, and the rest went
+        # out as it was; the rewrite now refuses before any edit.
+        home = "/Us" + "ers/z"  # a stand-in HOME, assembled: this file is scanned
+        scen = home + "/My Docs/xfx/scripts/fxcap/scenarios"
+        rules = roots.rules_for([(home, "home"), (scen, "scenarios")])
+        data = ("x %s/My \nDocs/xfx/scripts/fxcap/scenarios/a.json\n" % home).encode()
+        with self.assertRaises(roots.Refused):
+            roots.rewrite(data, rules)
+        d = scratch()
+        path = os.path.join(d, "nested.txt")
+        write(path, data.decode())
+        r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "roots.py"), "--root", home, "home",
+                            "--root", scen, "scenarios", "--", path], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIn("LOCAL-PATH GUARD", r.stderr)
+        with open(path, "rb") as f:
+            self.assertEqual(f.read(), data, "a refused file is not rewritten in part")
         # A root with more runs than that refuses its run's every file.
         many = "/tmp/" + " x" * (roots.MAX_GUTTER_RUNS + 1)
         with self.assertRaises(roots.Refused):
