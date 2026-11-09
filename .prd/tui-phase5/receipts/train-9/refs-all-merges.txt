@@ -1,4 +1,22 @@
-# head afe31cb2; sides: main ccced1f5, stop-in-catalog-wait 05a0a857, questions-20 3824f6ba
+# head b9409b36; sides: main ccced1f5, stop-in-catalog-wait 05a0a857, questions-20 3824f6ba, paste-after-end a832f4d7, history-notice-stop 62d96c98
 docs/superpowers/plans/2026-08-24-provider-frame.md: tests/tool_loop.rs:1266
-    main MOVED -> 1274 | stop-in-catalog-wait MOVED -> 1274
-# 192 references in 592 files; 1 moved or changed on some side that cites them
+    main MOVED -> 1274 | stop-in-catalog-wait MOVED -> 1274 | paste-after-end MOVED -> 1274 | history-notice-stop MOVED -> 1274
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/approval.rs:552-585
+    main MOVED -> 545-578 | stop-in-catalog-wait MOVED -> 545-578 | questions-20 MOVED -> 545-578 | history-notice-stop MOVED -> 545-578
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:499-522
+    main MOVED -> 492-515 | stop-in-catalog-wait MOVED -> 492-515 | questions-20 MOVED -> 492-515 | history-notice-stop MOVED -> 492-515
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:782
+    main MOVED -> 775 | stop-in-catalog-wait MOVED -> 775 | questions-20 MOVED -> 775 | history-notice-stop MOVED -> 775
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/event_loop.rs:889-923
+    main MOVED -> 917-951 | stop-in-catalog-wait MOVED -> 917-951 | questions-20 MOVED -> 917-951 | history-notice-stop MOVED -> 917-951
+scripts/fxcap/capfile.py: src/tui/shell.rs:14603-14628
+    main MOVED -> 14585-14610 | stop-in-catalog-wait MOVED -> 14585-14610 | questions-20 MOVED -> 14585-14610 | history-notice-stop MOVED -> 14585-14610
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:13112
+    main MOVED -> 13094 | stop-in-catalog-wait MOVED -> 13094 | questions-20 MOVED -> 13094 | history-notice-stop MOVED -> 13094
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:13423
+    main MOVED -> 13405 | stop-in-catalog-wait MOVED -> 13405 | questions-20 MOVED -> 13405 | history-notice-stop MOVED -> 13405
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:16321
+    main MOVED -> 16303 | stop-in-catalog-wait MOVED -> 16303 | questions-20 MOVED -> 16303 | history-notice-stop MOVED -> 16303
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:38615
+    main MOVED -> 38636 | stop-in-catalog-wait MOVED -> 38636 | questions-20 MOVED -> 38636 | history-notice-stop MOVED -> 38556
+# 192 references in 592 files; 10 moved or changed on some side that cites them

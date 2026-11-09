@@ -1,0 +1,17 @@
+src/tui/worker.rs `async fn one_turn(`: changed by stop-in-catalog-wait, history-notice-stop; every other side holds main's; the head's is history-notice-stop's
+    main e99c5a1f5a6e | stop-in-catalog-wait 384e43952166 | questions-20 e99c5a1f5a6e | paste-after-end e99c5a1f5a6e | history-notice-stop 11f09e8ad441 | head 11f09e8ad441
+src/interactive.rs `pub(crate) fn unsaid(`: changed by history-notice-stop; every other side holds main's; the head's is history-notice-stop's
+    main 6f73e3111825 | stop-in-catalog-wait 6f73e3111825 | questions-20 6f73e3111825 | paste-after-end 6f73e3111825 | history-notice-stop 6fa3bbc9ac52 | head 6fa3bbc9ac52
+src/interactive.rs `pub(crate) fn said(`: the same on every side that holds it
+    main - | stop-in-catalog-wait - | questions-20 - | paste-after-end - | history-notice-stop 640c6b58409d | head 640c6b58409d
+src/tui/shell.rs `UiEvent::Notice(notice) => self.announce(notice),`: the same on every side that holds it
+    main dea48984643e | stop-in-catalog-wait dea48984643e | questions-20 dea48984643e | paste-after-end dea48984643e | history-notice-stop dea48984643e | head dea48984643e
+src/tui/shell.rs `fn announce(`: the same on every side that holds it
+    main 32cf66399114 | stop-in-catalog-wait 32cf66399114 | questions-20 32cf66399114 | paste-after-end 32cf66399114 | history-notice-stop 32cf66399114 | head 32cf66399114
+src/tui/shell.rs `fn mark(&mut self`: the same on every side that holds it
+    main 751e149b5ce8 | stop-in-catalog-wait 751e149b5ce8 | questions-20 751e149b5ce8 | paste-after-end 751e149b5ce8 | history-notice-stop 751e149b5ce8 | head 751e149b5ce8
+src/tui/shell.rs `fn abandon_answer(`: the same on every side that holds it
+    main 5af2c2d10f67 | stop-in-catalog-wait 5af2c2d10f67 | questions-20 5af2c2d10f67 | paste-after-end 5af2c2d10f67 | history-notice-stop 5af2c2d10f67 | head 5af2c2d10f67
+src/tui/bridge.rs `pub(crate) async fn send_ui(`: the same on every side that holds it
+    main ee66142c17eb | stop-in-catalog-wait ee66142c17eb | questions-20 ee66142c17eb | paste-after-end ee66142c17eb | history-notice-stop ee66142c17eb | head ee66142c17eb
+# 8 functions; 6 the same on every side that holds them

@@ -1,0 +1,52 @@
+commit 189b8b1028d3ab87bcdf3041a052561288cbadd6
+Merge: dfedcd1a a832f4d7
+
+Merge PASTE-AFTER-END (feat/p5-paste-after-end @ a832f4d7) into train 9
+
+A paste whose end marker shares its delivery with more input is
+applied, the bytes behind the marker are dropped, and
+`! input: Input that arrived right after the paste was ignored.` is
+written, as fx v0.0.16 does; Phase 4's X1 refusal is deleted. The
+decoder returns Delivery = Quiet | Pasted { dropped }; feed's early
+return for a byte behind the marker is unchanged.
+
+Conflict: src/tui/event_loop.rs, the end of the tests module: train
+8's join test (a_stops_held_rows_over_a_groups_long_rows_are_written_as_their_text_lays)
+and PASTE-AFTER-END's Readable helper and its 32-read carry-over test
+were both appended there. Both kept, train 8's first.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+
+diff --git a/src/tui/event_loop.rs b/src/tui/event_loop.rs
+remerge CONFLICT (content): Merge conflict in src/tui/event_loop.rs
+index c1fb6cdd..6c90d4bc 100644
+--- a/src/tui/event_loop.rs
++++ b/src/tui/event_loop.rs
+@@ -16041,7 +16041,6 @@ mod tests {
+         );
+     }
+ 
+-<<<<<<< dfedcd1a (docs(receipt): P5 train 9 -- the receipt's scripts (the gate and the head sweep run here))
+     #[test]
+     fn a_stops_held_rows_over_a_groups_long_rows_are_written_as_their_text_lays() {
+         // Train 8, join check 1 (GRID-ROW-COST x STOP-NEXT-2). GRID-ROW-COST:
+@@ -16184,7 +16183,9 @@ mod tests {
+             "each: the long rows laid from their text before the stop; nothing held written \
+              while held; then the held read written, the late text only with a finish, and \
+              the long rows known by their text again"
+-=======
++        );
++    }
++
+     /// A terminal holding `bytes` that stays readable until all of them are
+     /// read: [`burst`]'s `ready` is true while any is left, and a read takes
+     /// up to a buffer of them. [`Self::turn`] runs one turn and says how many
+@@ -16304,7 +16305,6 @@ mod tests {
+                 Ok(crate::tui::bridge::TurnWork::Submit(prompt)) if prompt == "priornew"
+             ),
+             "an Enter of its own did not send the draft"
+->>>>>>> a832f4d7 (docs(receipt): PASTE-AFTER-END -- the round-2 sweep sentence names the four pairs that changed class)
+         );
+     }
+ }

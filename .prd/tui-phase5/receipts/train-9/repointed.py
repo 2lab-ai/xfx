@@ -21,7 +21,7 @@ ROWS = [
     ("ledger (shell.rs: `send`)", "src/tui/shell.rs", 13112, "ccced1f5", 13094, 1, 2, None),
     ("ledger (shell.rs: `full_transcript::shown_event`)", "src/tui/shell.rs", 13423, "ccced1f5", 13405, 1, 2, None),
     ("ledger (shell.rs: `resize`)", "src/tui/shell.rs", 16321, "ccced1f5", 16303, 1, 2, None),
-    ("ledger, six entries (shell.rs: `tools: {} advertised`)", "src/tui/shell.rs", 38615, "ccced1f5", 38636, 1, 2, None),
+    ("ledger, six entries (shell.rs: `tools: {} advertised`; re-pointed again for merge 4)", "src/tui/shell.rs", 38615, "ccced1f5", 38716, 1, 2, None),
     ("capfile.py comment (shell.rs: `warning_shown`)", "src/tui/shell.rs", 14603, "ccced1f5", 14585, 26, 2, None),
     ("smoke-tui.sh comment (input.rs; names other code on main already, stale.txt)", "src/tui/input.rs", 702, "ccced1f5", 708, 1, 2, None),
     ("event_loop.rs comment (event_loop.rs; train 8's stale.txt)", "src/tui/event_loop.rs", 972, "ccced1f5", 1000, 4, 2, None),

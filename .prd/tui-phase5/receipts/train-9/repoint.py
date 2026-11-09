@@ -7,10 +7,13 @@ left, as train 8 left them (stale.txt). Two of the seven name other code on
 `main` already (`smoke-tui.sh`'s `input.rs:702`, `event_loop.rs`'s
 `event_loop.rs:972-975`): re-pointed by line, as train 8 re-pointed
 `wrap.rs`'s `check.rs:1689-1694`, so each names what it named on `main`.
-Train 8's repoint.py with this train's rows. Run once on the branch;
-refuses a reference it cannot find exactly as many times as REPOINTS says.
+Train 8's repoint.py with this train's rows. Run once on the branch for
+merge 3 (REPOINTS), and once more for merge 4 (`--merge-4`, REPOINTS_4:
+HISTORY-NOTICE-STOP's 80 lines of tests in `shell.rs` moved the code under
+the one of merge 3's re-points below them again); refuses a reference it
+cannot find exactly as many times as the list says.
 
-    python3 -I -B repoint.py <checkout>
+    python3 -I -B repoint.py <checkout> [--merge-4]
 """
 
 import pathlib
@@ -27,6 +30,9 @@ REPOINTS = [
     ("scripts/smoke-tui.sh", "input.rs:702", "input.rs:708", 1),
     ("src/tui/event_loop.rs", "event_loop.rs:972-975", "event_loop.rs:1000-1003", 1),
 ]
+REPOINTS_4 = [
+    ("scripts/fxcap/parity-ledger.toml", "src/tui/shell.rs:38636", "src/tui/shell.rs:38716", 6),
+]
 
 
 def pattern(ref):
@@ -36,7 +42,7 @@ def pattern(ref):
 
 def main():
     checkout = pathlib.Path(sys.argv[1])
-    for citing, old, new, count in REPOINTS:
+    for citing, old, new, count in (REPOINTS_4 if sys.argv[2:] == ["--merge-4"] else REPOINTS):
         path = checkout / citing
         text = path.read_text()
         found = len(pattern(old).findall(text))

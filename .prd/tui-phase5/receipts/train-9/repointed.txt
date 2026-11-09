@@ -1,0 +1,15 @@
+SAME  src/tui/shell.rs:13112@ccced1f5 -> :13094@3d83254e (+-2 lines)  [ledger (shell.rs: `send`)]
+    first: fn send(&mut self, prompt: String, text: &str) -> bool {
+SAME  src/tui/shell.rs:13423@ccced1f5 -> :13405@3d83254e (+-2 lines)  [ledger (shell.rs: `full_transcript::shown_event`)]
+    first: let event = full_transcript::shown_event(event);
+SAME  src/tui/shell.rs:16321@ccced1f5 -> :16303@3d83254e (+-2 lines)  [ledger (shell.rs: `resize`)]
+    first: pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Resize {
+DIFFERENT  src/tui/shell.rs:38615@ccced1f5 -> :38636@3d83254e (+-2 lines)  [ledger, six entries (shell.rs: `tools: {} advertised`)]
+    first: }
+SAME  src/tui/shell.rs:14603-14628@ccced1f5 -> :14585-14610@3d83254e (+-2 lines)  [capfile.py comment (shell.rs: `warning_shown`)]
+    first: fn warning_shown(&self) -> Option<&'static str> {
+SAME  src/tui/input.rs:702@ccced1f5 -> :708@3d83254e (+-2 lines)  [smoke-tui.sh comment (input.rs; names other code on main already, stale.txt)]
+    first: /// that were read. **Nothing of the body is ever emitted**, which is the
+SAME  src/tui/event_loop.rs:972-975@ccced1f5 -> :1000-1003@3d83254e (+-2 lines)  [event_loop.rs comment (event_loop.rs; train 8's stale.txt)]
+    first: // **Except what the primary plane already owed, which is paid before the
+# 6 of 7 the same code
