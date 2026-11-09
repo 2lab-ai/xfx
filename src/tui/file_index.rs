@@ -444,7 +444,7 @@ fn has_git_metadata(root: &Path) -> bool {
 /// ignored -- the user typed the path (`completeCancellable`,
 /// `path_completion.zig:44-120`). A symlink is what it points at, and one that
 /// points nowhere is left out.
-fn list_directory(directory: &Path) -> Result<Vec<(String, Kind)>, ()> {
+fn list_directory(directory: &Path, _stop: &AtomicBool) -> Result<Vec<(String, Kind)>, ()> {
     let entries = std::fs::read_dir(directory).map_err(|_| ())?;
     let mut out = Vec::new();
     for entry in entries.flatten() {
@@ -941,6 +941,10 @@ pub(crate) struct Files {
     /// be read.
     listed: Option<Listed>,
     listing: Option<Listing>,
+    /// How many walks and listings this source has started, for a case to
+    /// count the directory work a session asked for.
+    #[cfg(test)]
+    started: usize,
 }
 
 impl Files {
@@ -957,6 +961,8 @@ impl Files {
             walk: None,
             listed: None,
             listing: None,
+            #[cfg(test)]
+            started: 0,
         }
     }
 
@@ -1002,6 +1008,10 @@ impl Files {
             load(&root, &extra, git.as_deref(), &flag, &tx)
         });
         if spawned.is_ok() {
+            #[cfg(test)]
+            {
+                self.started += 1;
+            }
             self.walk = Some(Walk {
                 rx,
                 stop,
@@ -1064,6 +1074,26 @@ impl Files {
         changed
     }
 
+    /// The walks and listings this source has started.
+    #[cfg(test)]
+    pub(crate) fn started_for_test(&self) -> usize {
+        self.started
+    }
+
+    /// Whether a directory listing is in flight.
+    #[cfg(test)]
+    pub(crate) fn listing_in_flight_for_test(&self) -> bool {
+        self.listing.is_some()
+    }
+
+    /// The stop flag of the listing in flight, for a case to watch.
+    #[cfg(test)]
+    pub(crate) fn listing_stop_for_test(&self) -> Option<Arc<AtomicBool>> {
+        self.listing
+            .as_ref()
+            .map(|listing| Arc::clone(&listing.stop))
+    }
+
     /// Whether a worker is still running.
     #[cfg(test)]
     pub(crate) fn busy(&self) -> bool {
@@ -1112,11 +1142,16 @@ impl Files {
         let (tx, rx) = mpsc::channel();
         let stop = Arc::new(AtomicBool::new(false));
         let target = directory.clone();
+        let flag = Arc::clone(&stop);
         let spawned = super::signals::spawn_unsignalled("xfx-file-listing", move || {
-            let _ = tx.send(list_directory(&target));
+            let _ = tx.send(list_directory(&target, &flag));
         });
         if spawned.is_err() {
             return Lookup::Unavailable;
+        }
+        #[cfg(test)]
+        {
+            self.started += 1;
         }
         self.listing = Some(Listing {
             directory,
@@ -1575,7 +1610,8 @@ pub(crate) mod tests {
     #[test]
     fn a_browsed_directory_lists_its_entries_by_name() {
         let dir = seeded();
-        let entries = list_directory(&dir.path().join("src")).expect("a listing");
+        let entries =
+            list_directory(&dir.path().join("src"), &AtomicBool::new(false)).expect("a listing");
         let browse = |query: &str| -> Vec<String> {
             rank_listing(&entries, &explicit(query).expect("a path"))
                 .into_iter()
@@ -1599,7 +1635,7 @@ pub(crate) mod tests {
             one(4..6),
             "the span is in the shown path, past the prefix"
         );
-        assert!(list_directory(&dir.path().join("missing")).is_err());
+        assert!(list_directory(&dir.path().join("missing"), &AtomicBool::new(false)).is_err());
     }
 
     /// The rows `query` makes of `entries`, a directory with its slash.
@@ -1675,6 +1711,46 @@ pub(crate) mod tests {
         assert_eq!(rows.len(), MOST_RESULTS);
         assert_eq!(rows[0], dir("big"));
         assert_eq!(rows[1], file("big/f-00"));
+    }
+
+    #[test]
+    fn a_listing_stops_between_entries_once_told_to() {
+        // fx's listing checks its cancel flag between entries
+        // (`completeCancellable`, `checkCancellation`, `path_completion.zig:
+        // 44-147@481104fd`): cooperative, so a stopped listing of a large
+        // folder ends early rather than reading every entry.
+        let dir = tempfile::tempdir().expect("a folder");
+        for n in 0..2000 {
+            std::fs::write(dir.path().join(format!("f-{n:04}")), "").expect("a file");
+        }
+        let go = AtomicBool::new(false);
+        assert_eq!(
+            list_directory(dir.path(), &go).map(|entries| entries.len()),
+            Ok(2000)
+        );
+        let stop = AtomicBool::new(true);
+        assert_eq!(
+            list_directory(dir.path(), &stop).map(|entries| entries.len()),
+            Err(()),
+            "a stopped listing read the folder"
+        );
+    }
+
+    #[test]
+    fn abandoning_a_listing_tells_it_to_stop() {
+        // gpt6 r3 SHOULD 1: the listing is told to stop (`Task.stop`,
+        // `directory_completion_job.zig:68-78@481104fd`), not only forgotten.
+        let dir = seeded();
+        let mut files = Files::new(dir.path().to_path_buf(), None);
+        let _answer = driven_listing(&mut files, "src");
+        let stop = files.listing_stop_for_test().expect("a listing in flight");
+        assert!(files.abandon_listing());
+        assert!(
+            stop.load(Atomic::Relaxed),
+            "the listing was not told to stop"
+        );
+        assert!(!files.listing_in_flight_for_test());
+        assert!(!files.abandon_listing(), "there was a second one");
     }
 
     /// Polls `files` until `done` says so, for at most two seconds.

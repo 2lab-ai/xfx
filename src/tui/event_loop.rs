@@ -16415,10 +16415,12 @@ mod tests {
     /// and then what the tick after the rows land does. The turn's bell is
     /// owed where a session owes it, when the pacer has presented everything
     /// (`Shell::settle_band`; this turn left it nothing to pace).
-    fn a_turn_inside_a_listing(held: bool) -> (Vec<String>, Vec<String>) {
+    fn a_turn_inside_a_listing(held: bool) -> (Vec<String>, Vec<String>, Vec<String>) {
         let mut fixture = shell_of(40, 120);
         fixture.shell.sound_for_test(true);
+        // Sized before the first tick, as a session's is (`mod.rs:479`).
         let mut band = Band::new();
+        band.invalidate(40, 120);
         let mut out = StatusScreen::default();
         let mut failures = FrameFailures::default();
         launch_title(&mut fixture.shell, &mut band);
@@ -16455,9 +16457,13 @@ mod tests {
             .expect("the listing");
         let window = out.vectors.len();
         tick(&mut fixture.shell, &mut out, 6);
+        // gpt6 r3 SHOULD 2: and one idle tick after the release.
+        let released = out.vectors.len();
+        tick(&mut fixture.shell, &mut out, 8);
         (
             published(&out.vectors[before..window]),
-            published(&out.vectors[window..]),
+            published(&out.vectors[window..released]),
+            published(&out.vectors[released..]),
         )
     }
 
@@ -16475,8 +16481,8 @@ mod tests {
         // `working` and then `done`, and its title goes out, in the order an
         // unheld run writes them; the frames and the bell wait, and the bell
         // follows the frame that releases them -- the answer's rows first.
-        let (unheld, unheld_after) = a_turn_inside_a_listing(false);
-        let (held, held_after) = a_turn_inside_a_listing(true);
+        let (unheld, unheld_after, unheld_idle) = a_turn_inside_a_listing(false);
+        let (held, held_after, held_idle) = a_turn_inside_a_listing(true);
         let neither = |run: &[String]| -> Vec<String> {
             run.iter()
                 .filter(|e| *e != "frame" && !e.starts_with("bell"))
@@ -16503,6 +16509,13 @@ mod tests {
         // bell after it.
         assert_eq!(held_after, ["frame", "bell x1"], "the tick after the hold");
         assert_eq!(unheld_after, ["frame"]);
+        // Nothing doubled: the idle tick after rings no bell, held or not.
+        for idle in [&held_idle, &unheld_idle] {
+            assert!(
+                !idle.iter().any(|e| e.starts_with("bell")),
+                "the idle tick rang again: {idle:?}"
+            );
+        }
     }
 
     #[test]
@@ -16516,7 +16529,10 @@ mod tests {
         let mut fixture = shell_of(40, 120);
         let listing =
             super::super::file_index::tests::driven_listing(fixture.shell.files_for_test(), "tree");
+        // opus r3 SHOULD 1: sized before the first tick, as a session's band
+        // is (`mod.rs:479`), not the unsized band no session runs.
         let mut band = Band::new();
+        band.invalidate(40, 120);
         let mut out = StatusScreen::default();
         let mut failures = FrameFailures::default();
         launch_title(&mut fixture.shell, &mut band);

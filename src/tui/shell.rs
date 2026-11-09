@@ -34784,9 +34784,19 @@ mod tests {
             shell.file_picker.as_ref().map(FilePicker::shown),
             Some(file_picker::Shown::Loading)
         );
+        let stop = shell
+            .files_for_test()
+            .listing_stop_for_test()
+            .expect("the listing is out");
         shell.route_bytes(&[0x0f]);
         assert!(shell.full.is_open(), "Ctrl-O opened no transcript");
         shell.settle_band(now);
+        // gpt6 r3 SHOULD 1: the dropped listing is told to stop, not only
+        // forgotten (`Task.stop`, `directory_completion_job.zig:68-78@481104fd`).
+        assert!(
+            stop.load(std::sync::atomic::Ordering::Relaxed),
+            "the abandoned listing was not told to stop"
+        );
         shell.route_bytes(&[0x0f]);
         assert!(!shell.full.is_open());
         assert_eq!(shell.editor.text(), "@src/", "the query was edited");
@@ -34822,6 +34832,160 @@ mod tests {
             rows,
             ["src", "src/deep", "src/lib.rs", "src/main.rs"],
             "the superseded listing's answer was taken"
+        );
+    }
+
+    #[test]
+    fn no_listing_starts_while_the_list_is_not_eligible() {
+        // Round 4 (opus r3 MUST): fx's one acquisition boundary,
+        // `prepareFilePicker`, returns at once while the list is not eligible
+        // (`input_completion_runtime.zig:846-853@481104fd`; `filePickerEligible`,
+        // `:775-786`). So the index's walk publishing while the full
+        // transcript is up starts no listing of `@src/`'s folder -- the
+        // lookup waits -- and closing the transcript starts exactly one.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        let _first = super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
+        shell.route_bytes(b"@src/");
+        let now = Instant::now();
+        shell.settle_band(now);
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O opened no transcript");
+        shell.settle_band(now);
+        let base = shell.files_for_test().started_for_test();
+        // The walk publishes, and the session hears it, behind the transcript.
+        walk.send(super::super::file_index::Published::More(
+            super::super::file_index::tests::candidates(&["Cargo.toml", "src/", "src/main.rs"]),
+        ))
+        .expect("the walk");
+        walk.send(super::super::file_index::Published::Ready)
+            .expect("the walk");
+        shell.settle_band(now);
+        shell.settle_band(now);
+        assert!(
+            !shell.files_for_test().listing_in_flight_for_test(),
+            "a listing started under the transcript"
+        );
+        assert_eq!(shell.files_for_test().started_for_test(), base);
+        // Closed: one fresh listing, and the folder's rows from it.
+        shell.route_bytes(&[0x0f]);
+        assert!(!shell.full.is_open());
+        shell.settle_band(now);
+        assert_eq!(
+            shell.files_for_test().started_for_test(),
+            base + 1,
+            "not exactly one listing after the transcript closed"
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while shell
+            .file_picker
+            .as_ref()
+            .is_some_and(|files| files.shown() == file_picker::Shown::Loading)
+        {
+            assert!(
+                Instant::now() < deadline,
+                "the folder was never listed again"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+            shell.settle_band(Instant::now());
+        }
+        assert_eq!(
+            listed_paths(&shell),
+            ["src", "src/deep", "src/lib.rs", "src/main.rs"]
+        );
+        assert_eq!(shell.files_for_test().started_for_test(), base + 1);
+    }
+
+    #[test]
+    fn an_at_word_typed_under_the_full_transcript_reads_nothing_until_it_closes() {
+        // Round 4: the keys the transcript leaves unbound reach the composer
+        // (`app_input_runtime.zig:973-994@481104fd`), so `@src/` can be typed
+        // under it. fx's list reconciles to that query but prepares nothing
+        // while it is not eligible -- neither the episode's index refresh nor
+        // the folder's listing (`prepareFilePicker`,
+        // `input_completion_runtime.zig:848-856`) -- and prepares both once
+        // the transcript closes.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O opened no transcript");
+        let base = shell.files_for_test().started_for_test();
+        shell.route_bytes(b"@src/");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.editor.text(),
+            "@src/",
+            "the keys did not reach the composer"
+        );
+        assert!(shell.file_picker.is_some(), "no list for the query");
+        assert_eq!(
+            shell.files_for_test().started_for_test(),
+            base,
+            "a walk or a listing started under the transcript"
+        );
+        shell.route_bytes(&[0x0f]);
+        assert!(!shell.full.is_open());
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().started_for_test(),
+            base + 2,
+            "not the episode's walk and the folder's listing once it closed"
+        );
+        listed(&mut shell);
+        assert_eq!(
+            listed_paths(&shell),
+            ["src", "src/deep", "src/lib.rs", "src/main.rs"]
+        );
+    }
+
+    /// The rows the `@` list holds, by path.
+    fn listed_paths(shell: &Fixture) -> Vec<String> {
+        shell
+            .file_picker
+            .as_ref()
+            .expect("the list")
+            .rows_for_test()
+            .iter()
+            .map(|found| found.path.clone())
+            .collect()
+    }
+
+    #[test]
+    fn tab_under_the_full_transcript_asks_for_no_read() {
+        // Round 4 (opus r3 MUST): fx's Tab returns before its retry while the
+        // list is not eligible (`autocompleteFilePickerSelection`,
+        // `input_completion_runtime.zig:946-958@481104fd`), so a folder that
+        // could not be read is not read again behind the transcript; once it
+        // is closed, Tab asks again.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let _walk = super::super::file_index::tests::driven(shell.files_for_test());
+        let answer =
+            super::super::file_index::tests::driven_listing(shell.files_for_test(), "nope");
+        shell.route_bytes(b"@nope/");
+        answer.send(Err(())).expect("the listing");
+        listed(&mut shell);
+        assert_eq!(
+            shell.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Unavailable)
+        );
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O opened no transcript");
+        let base = shell.files_for_test().started_for_test();
+        shell.route_bytes(b"\t");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().started_for_test(),
+            base,
+            "Tab under the transcript read the folder again"
+        );
+        shell.route_bytes(&[0x0f]);
+        assert!(!shell.full.is_open());
+        shell.settle_band(Instant::now());
+        listed(&mut shell);
+        shell.route_bytes(b"\t");
+        assert_eq!(
+            shell.files_for_test().started_for_test(),
+            base + 1,
+            "Tab on the composer's plane did not ask again"
         );
     }
 
