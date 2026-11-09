@@ -10055,6 +10055,10 @@ mod tests {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
+        // Its environment named, over the test's own home: a runtime reads it
+        // again when a switch reloads the profile (`select_provider`), and the
+        // process's would be the real home's.
+        let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
         let store = open_store(&config).expect("a store");
         let conversation = open_conversation(
             &store,
@@ -10065,7 +10069,7 @@ mod tests {
             &CancelToken::new(),
         )
         .expect("open a conversation");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
         state.conversation = Some(conversation);
         (home, workspace, state)
     }
