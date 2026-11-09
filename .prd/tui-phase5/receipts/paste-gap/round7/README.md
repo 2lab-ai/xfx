@@ -64,15 +64,24 @@ and 63 columns, showing 0 rows where round 5 showed 1 or 2.
 
 **The widths, a measured change from the brief.** The brief asks for both
 refusals at 20 and 30 columns. The plane cannot grant a file review below
-63 columns: its choices are not whole there (`plane_grants_from`,
-`shell.rs:39052`: every fixture is undisclosed at 62 columns and whole at
-63). And the shell composes the question when it is installed
+63 columns. Its second choice is whole only where the 7-cell prefix and the
+label both fit (`approval_view.rs:301`, `:803-804`):
+- an Edit's label, "Apply + allow future edits to this file for this
+  session", is 56 cells (`:268`), so an Edit is grantable from 63;
+- a Write's label, "… writes …", is 57 (`:269`), so a Write is grantable
+  from 64.
+
+Both were measured (`../round8/grant-widths.txt`). `plane_grants_from`
+(`shell.rs:39052`) measures the one request the test passes, an Edit
+(`asked_about_a_large_change`, `:39079-39080`): 63. (Corrected in round 8.
+This said "every fixture … whole at 63", which holds for Edit questions
+only.) And the shell composes the question when it is installed
 (`shell.rs:5156`). So at 20 and 30 columns a `1` is refused as *never
 whole*, before the frame and after it alike, and "not yet" cannot be
 reached there. The test therefore presses:
 - at 20 and 30 columns, before the frame and after it: APPROVAL_NOT_DISCLOSED;
-- at the narrowest grantable width (63, measured by the test) and at 80,
-  before the frame: APPROVAL_NOT_READY.
+- at the narrowest width the plane grants this Edit at (63, measured by the
+  test) and at 80, before the frame: APPROVAL_NOT_READY.
 
 **The oracle is round 5 itself** (`oracle.txt`). This test, alone, inserted
 into a `git clone --no-local` at `f9328d4e`, **passes there** (1 passed, 0 failed). So
