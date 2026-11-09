@@ -1,0 +1,596 @@
+== src/ui/input/shortcuts.zig:11-29@481104fd
+   11  pub fn fromControlByte(byte: u8) ?ShortcutAction {
+   12      return switch (byte) {
+   13          1 => move(.line_start),
+   14          5 => move(.line_end),
+   15          2 => move(.character_left),
+   16          6 => move(.character_right),
+   17          14 => .history_next,
+   18          4 => .delete_forward,
+   19          11 => .delete_to_line_end,
+   20          21 => .delete_to_line_start,
+   21          23 => .delete_whitespace_word_left,
+   22          25 => .yank,
+   23          31 => .undo,
+   24          12 => .redraw,
+   25          127, 8 => .delete_backward,
+   26          '\n' => .insert_newline,
+   27          else => null,
+   28      };
+   29  }
+== src/ui/input/shortcuts.zig:43-63@481104fd
+   43  pub fn fromEscapeAction(action: InputEscapeAction) ?ShortcutAction {
+   44      return switch (action) {
+   45          .cursor_up => move(.visual_up),
+   46          .cursor_down => move(.visual_down),
+   47          .cursor_left => move(.character_left),
+   48          .cursor_right => move(.character_right),
+   49          .word_left => move(.word_left),
+   50          .word_right => move(.word_right),
+   51          .home => move(.line_start),
+   52          .end => move(.line_end),
+   53          .page_up => move(.page_up),
+   54          .page_down => move(.page_down),
+   55          .delete_next => .delete_forward,
+   56          .delete_word_left => .delete_word_left,
+   57          .delete_word_right => .delete_word_right,
+   58          .delete_to_line_start => .delete_to_line_start,
+   59          .delete_to_line_end => .delete_to_line_end,
+   60          .insert_newline => .insert_newline,
+   61          .composer_shortcut => |shortcut| shortcut,
+   62          .remapped_byte => |byte| fromControlByte(byte),
+   63          else => null,
+== src/ui/input/shortcuts.zig:103-117@481104fd
+  103          try std.testing.expectEqual(@as(?ShortcutAction, null), fromFocusedEditorControlByte(byte));
+  104      }
+  105  }
+  106  
+  107  test "composer shortcut table excludes app and terminal controls" {
+  108      const excluded_bytes = [_]u8{
+  109          3,
+  110          15,
+  111          16,
+  112          18,
+  113          22,
+  114          24,
+  115          '\r',
+  116          '\t',
+  117          0x1b,
+== src/core/app/app_input_runtime.zig:298-328@481104fd
+  298                          .word_left,
+  299                          .word_right,
+  300                          .line_start,
+  301                          .line_end,
+  302                          .draft_start,
+  303                          .draft_end,
+  304                          .paragraph_up,
+  305                          .paragraph_down,
+  306                          => {
+  307                              completion_rt.abandonModelPickerOptions(app);
+  308                              _ = app.input_runtime.moveInputCursor(intent);
+  309                          },
+  310                          .visual_up,
+  311                          .visual_down,
+  312                          .page_up,
+  313                          .page_down,
+  314                          => {
+  315                              const direction: visual_layout.Direction = switch (intent.kind) {
+  316                                  .visual_up, .page_up => .up,
+  317                                  .visual_down, .page_down => .down,
+  318                                  else => unreachable,
+  319                              };
+  320                              const delta: i32 = if (direction == .up) -1 else 1;
+  321                              try completion_rt.routeComposerVertical(
+  322                                  app,
+  323                                  direction,
+  324                                  delta,
+  325                                  intent.extend_selection,
+  326                                  intent.kind == .page_up or intent.kind == .page_down,
+  327                              );
+  328                          },
+== src/core/app/app_input_runtime.zig:403-407@481104fd
+  403                  .history_next => {
+  404                      try completion_rt.navigatePromptHistory(app, 1);
+  405                      syncCatalogMenus(app);
+  406                      app.shell.render_requests.request(.footer);
+  407                  },
+== src/core/app/app_input_runtime.zig:870-894@481104fd
+  870                  if (try app_auth_runtime.Runtime(App).routeAuthPickerByte(app, byte)) return;
+  871              }
+  872              if (try full_transcript_rt.routeByte(app, byte)) return;
+  873              if (try routeActiveModalInput(app, raw, input_limits.decision_bytes)) return;
+  874              if (byte >= 0x80) {
+  875                  try handleTextByte(app, .composer, byte, max_input_len);
+  876                  return;
+  877              }
+  878              if (try routeUpgradeShortcut(app, byte)) return;
+  879              if (try routePickerControlByte(app, byte)) return;
+  880  
+  881              if (isComposerEditingByte(byte, raw.composer_shortcut) and
+  882                  !activeCatalogMenuOwnsByte(app, byte) and
+  883                  dismissActiveMenusForComposerEdit(app))
+  884              {
+  885                  app.shell.render_requests.request(.footer);
+  886              }
+  887              try handleComposerByte(
+  888                  app,
+  889                  byte,
+  890                  raw.composer_shortcut,
+  891                  max_input_len,
+  892                  max_prompt_history,
+  893              );
+  894          }
+== src/core/app/app_input_runtime.zig:1036-1040@481104fd
+ 1036                  .page_up,
+ 1037                  .page_down,
+ 1038                  .mouse_wheel,
+ 1039                  .mouse_pointer,
+ 1040                  => {},
+== src/core/app/app_input_runtime.zig:1093-1116@481104fd
+ 1093          fn routePickerControlByte(app: *App, byte: u8) !bool {
+ 1094              if (!composerPickerSurfaceVisible(app)) return false;
+ 1095              const delta = pickerControlDelta(byte) orelse return false;
+ 1096              if (!try routeVisiblePickerMove(app, delta)) return false;
+ 1097              app.input_runtime.vertical_navigation.reset();
+ 1098              app.shell.render_requests.request(.footer);
+ 1099              return true;
+ 1100          }
+ 1101  
+ 1102          fn pickerControlDelta(byte: u8) ?i32 {
+ 1103              return switch (byte) {
+ 1104                  10 => 1,
+ 1105                  11 => -1,
+ 1106                  else => null,
+ 1107              };
+ 1108          }
+ 1109  
+ 1110          fn composerPickerSurfaceVisible(app: *App) bool {
+ 1111              if (app.question_prompt.isActive() or approvalOwnsCurrentSurface(app)) return false;
+ 1112              if (comptime @hasField(App, "terminal")) {
+ 1113                  if (app.terminal.fullTranscriptScreenActive()) return false;
+ 1114              }
+ 1115              return true;
+ 1116          }
+== src/core/app/app_input_runtime.zig:1593-1619@481104fd
+ 1593          fn isComposerEditingByte(
+ 1594              byte: u8,
+ 1595              composer_shortcut: ?input_action.ShortcutAction,
+ 1596          ) bool {
+ 1597              if (composer_shortcut) |shortcut| {
+ 1598                  return switch (shortcut) {
+ 1599                      .redraw => false,
+ 1600                      else => true,
+ 1601                  };
+ 1602              }
+ 1603              return switch (byte) {
+ 1604                  ' ', 22 => true,
+ 1605                  else => byte >= 32 and byte != 127,
+ 1606              };
+ 1607          }
+ 1608  
+ 1609          fn activeCatalogMenuOwnsByte(app: *App, byte: u8) bool {
+ 1610              if (settingsMenuActive(app)) return true;
+ 1611              // Typing filters its list.
+ 1612              if (mcpHostMenuActive(app)) return true;
+ 1613              if (helpMenuActive(app)) return true;
+ 1614              if (modelMenuActive(app)) return true;
+ 1615              if (sessionMenuActive(app)) return true;
+ 1616              if (comptime !@hasField(App, "skills")) return false;
+ 1617              if (!app.skills.menu.active) return false;
+ 1618              return byte == ' ' or commandSkillsMenuActive(app);
+ 1619          }
+== src/ui/footer/input_presentation.zig:252-255@481104fd
+  252  pub fn inputRowLimit(content_bottom: u16) usize {
+  253      const max_extra: usize = if (content_bottom > 4) content_bottom / 2 else 0;
+  254      return max_extra + 1;
+  255  }
+== src/core/app/input_completion_runtime.zig:171-180@481104fd
+  171          fn navigateSlashCompletion(app: *App, delta: i32, count: usize) void {
+  172              navigatePickerOptions(&app.input_runtime.picker.slash_completion_index, &app.input_runtime.picker.slash_completion_window_start, count, delta);
+  173          }
+  174  
+  175          pub fn routeSlashCompletionMove(app: *App, delta: i32) bool {
+  176              const count = visibleSlashCompletionCount(app);
+  177              if (count == 0) return false;
+  178              navigateSlashCompletion(app, delta, count);
+  179              return true;
+  180          }
+== src/core/app/input_completion_runtime.zig:215-260@481104fd
+  215          pub fn routeComposerVertical(
+  216              app: *App,
+  217              direction: visual_layout.Direction,
+  218              delta: i32,
+  219              extend_selection: bool,
+  220              page: bool,
+  221          ) !void {
+  222              const row_count = if (page)
+  223                  input_presentation.inputRowLimit(app.shell.layout.content_bottom)
+  224              else
+  225                  @as(usize, 1);
+  226              const picker_delta = if (page)
+  227                  delta * @as(i32, @intCast(@min(row_count, std.math.maxInt(i32))))
+  228              else
+  229                  delta;
+  230              if (try routeNonSlashPickerMove(app, picker_delta)) {
+  231                  app.input_runtime.vertical_navigation.reset();
+  232                  return;
+  233              }
+  234  
+  235              const scan = if (page)
+  236                  ui_input.scanInputCursorRows(
+  237                      &app.input_runtime,
+  238                      direction,
+  239                      row_count,
+  240                      app.shell.layout.cols,
+  241                      app.pending_images.items,
+  242                  )
+  243              else
+  244                  ui_input.scanInputCursorVertical(
+  245                      &app.input_runtime,
+  246                      direction,
+  247                      app.shell.layout.cols,
+  248                      app.pending_images.items,
+  249                  );
+  250              const capped = input_presentation.cappedInputRows(
+  251                  scan.total_rows,
+  252                  app.shell.layout.content_bottom,
+  253                  true,
+  254              );
+  255              const visible_slash_count = if (capped.input_extra == 0) visibleSlashCompletionCount(app) else 0;
+  256              if (visible_slash_count > 0) {
+  257                  app.input_runtime.vertical_navigation.reset();
+  258                  navigateSlashCompletion(app, picker_delta, visible_slash_count);
+  259                  return;
+  260              }
+== src/core/app/input_completion_runtime.zig:390-422@481104fd
+  390          pub fn routeVisiblePickerMove(app: *App, delta: i32) !bool {
+  391              if (try routeNonSlashPickerMove(app, delta)) return true;
+  392              return routeSlashCompletionMove(app, delta);
+  393          }
+  394  
+  395          fn routeNonSlashPickerMove(app: *App, delta: i32) !bool {
+  396              if (try routeMcpHostMenuMove(app, delta)) return true;
+  397              if (try routeSettingsMenuMove(app, delta)) return true;
+  398              if (try routeHelpMenuMove(app, delta)) return true;
+  399              if (try routeModelMenuMove(app, delta)) return true;
+  400              if (try routeEffortMenuMove(app, delta)) return true;
+  401              if (routeAuthPickerMove(app, delta)) return true;
+  402              if (try routeSkillsMenuMove(app, delta)) return true;
+  403              if (comptime runtime_profile.allows(App, .durable_sessions)) {
+  404                  if (try routeSessionPickerMove(app, delta)) return true;
+  405                  if (try routeForkMenuMove(app, delta)) return true;
+  406              }
+  407              if (hasFileQuery(app)) {
+  408                  navigateFilePicker(app, delta);
+  409                  return true;
+  410              }
+  411              if (hasModelQuery(app)) {
+  412                  navigateModelPicker(app, delta);
+  413                  return true;
+  414              }
+  415              if (provider_picker_runtime.Runtime(App).hasQuery(app)) {
+  416                  if (!app.stream.active) provider_picker_runtime.Runtime(App).navigate(app, delta);
+  417                  return true;
+  418              }
+  419              // Mid-turn bare `/model`: consume arrows without slash/skill navigation.
+  420              if (app.stream.active and picker_state.isBareModelCommandAtCursor(&app.input_runtime.edit_state)) return true;
+  421              return false;
+  422          }
+== src/core/app/input_completion_runtime.zig:431-463@481104fd
+  431          fn routeSettingsMenuMove(app: *App, delta: i32) !bool {
+  432              const menu = &app.input_runtime.settings_menu;
+  433              if (!menu.active) return false;
+  434              const snapshot = app_commands.settingsCatalogSnapshot(app);
+  435              var projection = render_input.settingsMenuProjection(
+  436                  menu,
+  437                  snapshot,
+  438                  app.input_runtime.edit_state.input.items,
+  439              );
+  440              if (comptime @hasField(App, "model_cache")) {
+  441                  if (app.model_cache.menu.active) {
+  442                      projection.models = render_input.modelMenuProjection(&app.model_cache);
+  443                      _ = app.model_cache.menu.moveVisibleItems(
+  444                          delta,
+  445                          @max(
+  446                              settings_menu_presentation.visibleModelItemsForBudget(
+  447                                  projection,
+  448                                  app.shell.layout.cols,
+  449                                  try inlineMenuRowBudget(app, settings_menu_presentation.max_inline_rows),
+  450                              ),
+  451                              1,
+  452                          ),
+  453                      );
+  454                      return true;
+  455                  }
+  456              }
+  457              const visible_items = settings_menu_presentation.visibleNavigationItemsForBudget(
+  458                  projection,
+  459                  app.shell.layout.cols,
+  460                  try inlineMenuRowBudget(app, settings_menu_presentation.max_inline_rows),
+  461              );
+  462              return menu.move(&snapshot, app.input_runtime.edit_state.input.items, delta, visible_items);
+  463          }
+== src/core/config/settings_catalog.zig:225-241@481104fd
+  225      pub fn move(self: *Menu, snapshot: *const Snapshot, query: []const u8, delta: i32, visible_items: u16) bool {
+  226          const item_count = filteredCount(snapshot.*, self.category, query);
+  227          if (!self.active or item_count == 0) return false;
+  228  
+  229          const current: i32 = @intCast(self.selected_index % item_count);
+  230          var next = current + delta;
+  231          if (next < 0) next = @as(i32, @intCast(item_count)) - 1;
+  232          if (next >= @as(i32, @intCast(item_count))) next = 0;
+  233          self.selected_index = @intCast(next);
+  234          self.window_start = updateWindowStart(
+  235              self.window_start,
+  236              item_count,
+  237              self.selected_index,
+  238              @max(visible_items, 1),
+  239          );
+  240          return true;
+  241      }
+== src/core/config/settings_catalog.zig:261-276@481104fd
+  261  const specs = [_]Spec{
+  262      .{ .id = .statusline_context, .category = .interface, .label = "Status line context", .description = "Show context usage in the status line" },
+  263      .{ .id = .statusline_session, .category = .interface, .label = "Status line session", .description = "Show the session title in the status line" },
+  264      .{ .id = .statusline_workspace, .category = .interface, .label = "Status line workspace", .description = "Show the workspace path and Git branch in the status line" },
+  265      .{ .id = .slash_menu_categories, .category = .interface, .label = "Slash menu categories", .description = "Show categories and skill sources in slash-command results" },
+  266      .{ .id = .collapse_tool_calls, .category = .interface, .label = "Collapse tool calls", .description = "Show only a summary for each group of tool calls" },
+  267      .{ .id = .model, .category = .agent, .label = "Model", .description = "Choose the model used for new turns" },
+  268      .{ .id = .effort, .category = .agent, .label = "Reasoning effort", .description = "Control how much reasoning the model applies" },
+  269      .{ .id = .fast_mode, .category = .agent, .label = "Fast mode", .description = "Use faster inference when the model supports it" },
+  270      .{ .id = .ultrafast_mode, .category = .agent, .label = "Ultra mode", .description = "Request the highest-speed mode when the model supports it" },
+  271      .{ .id = .permission_mode, .category = .agent, .label = "Permission mode", .description = "Choose when fx asks before taking actions" },
+  272      .{ .id = .session_titles, .category = .agent, .label = "Session titles", .description = "Generate a short session title from the first prompt" },
+  273      .{ .id = .sound_level, .category = .notifications, .label = "Sound level", .description = "Choose off, on, or max sounds and terminal bells" },
+  274      .{ .id = .startup_scrollback, .category = .advanced, .label = "Startup scrollback", .description = "Restore terminal output when fx starts" },
+  275      .{ .id = .prompt_history, .category = .advanced, .label = "Prompt history", .description = "Save accepted prompts and slash commands for composer history" },
+  276  };
+== src/core/config/settings_catalog.zig:408-414@481104fd
+  408  fn updateWindowStart(start: usize, count: usize, selected: usize, visible: u16) usize {
+  409      const width: usize = @max(visible, 1);
+  410      if (count <= width) return 0;
+  411      if (selected < start) return selected;
+  412      if (selected >= start + width) return selected - width + 1;
+  413      return @min(start, count - width);
+  414  }
+== src/core/app/model_cache_runtime.zig:229-245@481104fd
+  229      pub fn moveVisibleItems(self: *ModelMenu, delta: i32, visible_items: u16) bool {
+  230          const item_count = self.filteredItemCount();
+  231          if (!self.active or self.load_state != .ready or item_count == 0) return false;
+  232  
+  233          const current: i32 = @intCast(self.selected_index % item_count);
+  234          var next = current + delta;
+  235          if (next < 0) next = @as(i32, @intCast(item_count)) - 1;
+  236          if (next >= @as(i32, @intCast(item_count))) next = 0;
+  237          self.selected_index = @intCast(next);
+  238          self.window_start = list_window.updateEdgeStart(
+  239              self.window_start,
+  240              item_count,
+  241              self.selected_index,
+  242              @max(visible_items, 1),
+  243          );
+  244          return true;
+  245      }
+== src/core/app/input_completion_runtime.zig:629-631@481104fd
+  629          pub fn hasModelQuery(app: *App) bool {
+  630              return app.input_runtime.picker.activeModelPickerQuery(&app.input_runtime.edit_state) != null;
+  631          }
+== src/core/app/input_completion_runtime.zig:1072-1106@481104fd
+ 1072          pub fn navigateModelPicker(app: *App, delta: i32) void {
+ 1073              const query = app.input_runtime.picker.activeModelPickerQuery(&app.input_runtime.edit_state) orelse return;
+ 1074              switch (query.stage) {
+ 1075                  .model => navigateModelCompletion(app, query.query, delta),
+ 1076                  .effort => {
+ 1077                      var values: [types.ReasoningEffort.max_options + 1]types.ReasoningEffort = undefined;
+ 1078                      navigatePickerOptions(&app.input_runtime.picker.model_picker_effort_index, &app.input_runtime.picker.model_picker_effort_window_start, effortCompletionValues(app, effortPickerModel(app, query.command), query.query, &values), delta);
+ 1079                  },
+ 1080                  .fast => {
+ 1081                      var labels: [3][]const u8 = undefined;
+ 1082                      const count = speedPickerLabels(app, query.query, &labels);
+ 1083                      if (count == 0) return;
+ 1084                      var display_index = speedPickerIndex(app, labels[0..count]);
+ 1085                      navigatePickerOptions(
+ 1086                          &display_index,
+ 1087                          &app.input_runtime.picker.model_picker_fast_window_start,
+ 1088                          count,
+ 1089                          delta,
+ 1090                      );
+ 1091                      app.input_runtime.picker.model_picker_fast_index = speedOptionIndex(
+ 1092                          labels[display_index % count],
+ 1093                      );
+ 1094                  },
+ 1095              }
+ 1096          }
+ 1097  
+ 1098          fn navigateModelCompletion(app: *App, query: []const u8, delta: i32) void {
+ 1099              var buf: [32][]const u8 = undefined;
+ 1100              const count = modelPickerCompletions(app, query, &buf);
+ 1101              if (count == 0) return;
+ 1102              app.input_runtime.picker.model_completion_index = modelPickerIndex(app, buf[0..count]);
+ 1103              app.input_runtime.picker.model_completion_window_start = modelPickerWindowStart(app, count, app.input_runtime.picker.model_completion_index);
+ 1104              app.input_runtime.picker.model_completion_anchor_current = false;
+ 1105              navigatePickerOptions(&app.input_runtime.picker.model_completion_index, &app.input_runtime.picker.model_completion_window_start, count, delta);
+ 1106          }
+== src/core/app/input_completion_runtime.zig:1135-1158@481104fd
+ 1135          pub fn modelPickerIndex(app: *App, completions: []const []const u8) usize {
+ 1136              if (completions.len == 0) return 0;
+ 1137              if (comptime !provider_runtime.supported(App)) return app.input_runtime.picker.model_completion_index % completions.len;
+ 1138              if (app.input_runtime.picker.model_completion_anchor_current) {
+ 1139                  if (modelCompletionIndex(completions, provider_runtime.model(app))) |index| return index;
+ 1140              }
+ 1141              return app.input_runtime.picker.model_completion_index % completions.len;
+ 1142          }
+ 1143  
+ 1144          pub fn modelPickerWindowStart(app: *App, count: usize, index: usize) usize {
+ 1145              if (app.input_runtime.picker.model_completion_anchor_current) {
+ 1146                  return list_window.updateEdgeStart(0, count, index, list_window.default_max_picker_rows);
+ 1147              }
+ 1148              return app.input_runtime.picker.model_completion_window_start;
+ 1149          }
+ 1150  
+ 1151          fn modelCompletionIndex(completions: []const []const u8, model: []const u8) ?usize {
+ 1152              for (completions, 0..) |candidate, index| {
+ 1153                  if (std.mem.eql(u8, candidate, model)) return index;
+ 1154              }
+ 1155              return null;
+ 1156          }
+ 1157  
+ 1158          const navigatePickerOptions = list_window.advanceSelection;
+== src/core/shared/list_window.zig:1-68@481104fd
+    1  const std = @import("std");
+    2  
+    3  pub const default_max_picker_rows: u16 = 6;
+    4  
+    5  pub const Window = struct {
+    6      start: usize,
+    7      end: usize,
+    8  };
+    9  
+   10  pub fn centered(count: usize, selected: usize, max_rows: u16) Window {
+   11      if (count == 0 or max_rows == 0) return .{ .start = 0, .end = 0 };
+   12      const rows: usize = max_rows;
+   13      if (count <= rows) return .{ .start = 0, .end = count };
+   14  
+   15      var start = if (selected >= rows / 2) selected - rows / 2 else 0;
+   16      if (start + rows > count) start = count - rows;
+   17      return .{ .start = start, .end = start + rows };
+   18  }
+   19  
+   20  pub fn edgeFromSelection(count: usize, selected: usize, max_rows: u16) Window {
+   21      if (count == 0 or max_rows == 0) return .{ .start = 0, .end = 0 };
+   22      const rows: usize = max_rows;
+   23      if (count <= rows) return .{ .start = 0, .end = count };
+   24  
+   25      const start = if (selected >= rows) selected - rows + 1 else 0;
+   26      return .{ .start = start, .end = @min(start + rows, count) };
+   27  }
+   28  
+   29  pub fn edgeFromStart(count: usize, start: usize, max_rows: u16) Window {
+   30      if (count == 0 or max_rows == 0) return .{ .start = 0, .end = 0 };
+   31      const rows: usize = max_rows;
+   32      if (count <= rows) return .{ .start = 0, .end = count };
+   33  
+   34      const clamped_start = @min(start, count - rows);
+   35      return .{ .start = clamped_start, .end = clamped_start + rows };
+   36  }
+   37  
+   38  /// Moves a picker selection by `delta`, wrapping at both ends, and scrolls the
+   39  /// window to keep it visible.
+   40  pub fn advanceSelection(index: *usize, window_start: *usize, count: usize, delta: i32) void {
+   41      advanceSelectionWithin(index, window_start, count, delta, default_max_picker_rows);
+   42  }
+   43  
+   44  /// `advanceSelection` for a picker that shows up to `max_rows` rows.
+   45  pub fn advanceSelectionWithin(index: *usize, window_start: *usize, count: usize, delta: i32, max_rows: u16) void {
+   46      if (count == 0) return;
+   47      const current: i32 = @intCast(index.* % count);
+   48      var next = current + delta;
+   49      if (next < 0) next = @as(i32, @intCast(count)) - 1;
+   50      if (next >= @as(i32, @intCast(count))) next = 0;
+   51      index.* = @intCast(next);
+   52      window_start.* = updateEdgeStart(window_start.*, count, index.*, max_rows);
+   53  }
+   54  
+   55  pub fn updateEdgeStart(current_start: usize, count: usize, selected: usize, max_rows: u16) usize {
+   56      if (count == 0 or max_rows == 0) return 0;
+   57      const rows: usize = max_rows;
+   58      if (count <= rows) return 0;
+   59  
+   60      const clamped_selected = @min(selected, count - 1);
+   61      var start = @min(current_start, count - rows);
+   62      if (clamped_selected < start) {
+   63          start = clamped_selected;
+   64      } else if (clamped_selected >= start + rows) {
+   65          start = clamped_selected - rows + 1;
+   66      }
+   67      return start;
+   68  }
+== src/core/app/input_completion_runtime.zig:111-131@481104fd
+  111          pub fn slashCompletionCount(app: *App) usize {
+  112              if (!slashCompletionQueryActive(app)) return 0;
+  113              return slashCompletionCandidateCount(app);
+  114          }
+  115  
+  116          fn visibleSlashCompletionQueryActive(app: *App) bool {
+  117              if (comptime @hasField(App, "question_prompt")) {
+  118                  if (app.question_prompt.isActive()) return false;
+  119              }
+  120              if (comptime @hasField(App, "approval_prompt")) {
+  121                  if (app.approval_prompt.isActive()) return false;
+  122              }
+  123              if (hasFileQuery(app)) return false;
+  124              return slashCompletionQueryActive(app);
+  125          }
+  126  
+  127          /// Returns selectable completions projected by the footer.
+  128          pub fn visibleSlashCompletionCount(app: *App) usize {
+  129              if (!visibleSlashCompletionQueryActive(app)) return 0;
+  130              return slashCompletionCandidateCount(app);
+  131          }
+== src/core/slash_commands/command_specs.zig:568-585@481104fd
+  568  pub fn slashCompletionPrefix(registry: SlashRegistry, input: []const u8) ?[]const u8 {
+  569      const prefix = std.mem.trimStart(u8, input, " \t\r\n");
+  570      if (prefix.len == 0 or prefix[0] != '/') return null;
+  571  
+  572      const command_end = std.mem.findAny(u8, prefix, " \t\r\n") orelse return prefix;
+  573      const spec = registry.lookup(prefix[0..command_end]) orelse return prefix;
+  574      if (!spec.has_args) return null;
+  575      return prefix;
+  576  }
+  577  
+  578  pub fn slashCompletionCount(registry: SlashRegistry, prefix: []const u8) usize {
+  579      if (runtimeArgQuery(registry, prefix)) |query| {
+  580          var count: usize = 0;
+  581          for (registry.arguments) |entry| {
+  582              if (runtimeArgMatches(registry, entry.full, query)) count += 1;
+  583          }
+  584          return count;
+  585      }
+== src/core/slash_commands/command_specs.zig:876-897@481104fd
+  876  fn runtimeArgCommand(registry: SlashRegistry) []const u8 {
+  877      const first = registry.arguments[0].full;
+  878      return first[0 .. std.mem.findScalar(u8, first, ' ') orelse first.len];
+  879  }
+  880  
+  881  /// What follows the command the app's completions are for, untrimmed at
+  882  /// the end so a finished word moves on to the next one.
+  883  fn runtimeArgQuery(registry: SlashRegistry, prefix: []const u8) ?[]const u8 {
+  884      if (registry.arguments.len == 0) return null;
+  885      const command = runtimeArgCommand(registry);
+  886      if (!std.mem.startsWith(u8, prefix, command) or prefix.len == command.len) return null;
+  887      if (prefix[command.len] != ' ') return null;
+  888      return std.mem.trimStart(u8, prefix[command.len..], " ");
+  889  }
+  890  
+  891  /// A verb matches before its first space, and `VERB NAME` after it.
+  892  fn runtimeArgMatches(registry: SlashRegistry, full: []const u8, query: []const u8) bool {
+  893      const rest = full[runtimeArgCommand(registry).len + 1 ..];
+  894      const naming = std.mem.findScalar(u8, query, ' ') != null;
+  895      if (naming != (std.mem.findScalar(u8, rest, ' ') != null)) return false;
+  896      return std.ascii.startsWithIgnoreCase(rest, query);
+  897  }
+== src/core/app/app_mcp_runtime.zig:459-468@481104fd
+  459      const verb_completions = [_]mod_registry.ArgumentCompletion{
+  460          .{ .full = "/mcp list", .description = "configured servers" },
+  461          .{ .full = "/mcp show", .description = "connect to a server and list its tools" },
+  462          .{ .full = "/mcp add", .description = "add a server" },
+  463          .{ .full = "/mcp remove", .description = "remove a server and its login" },
+  464          .{ .full = "/mcp login", .description = "sign in to an HTTP server" },
+  465          .{ .full = "/mcp logout", .description = "sign out of an HTTP server" },
+  466          .{ .full = "/mcp approve", .description = "approve a project server" },
+  467          .{ .full = "/mcp reject", .description = "reject a project server" },
+  468      };
+== src/core/mcp_host/config.zig:14-18@481104fd
+   14  /// Why a configured server is not given to the engine.
+   15  pub const Held = enum {
+   16      /// `"enabled": false`.
+   17      disabled,
+   18      /// A project server nobody approved yet.
+== src/core/mcp_host/config.zig:186-192@481104fd
+  186      return url[0 .. std.mem.findScalarPos(u8, url, authority, '/') orelse url.len];
+  187  }
+  188  
+  189  fn heldFor(c: *const McpServerConfig) ?Held {
+  190      if (!c.enabled) return .disabled;
+  191      if (c.source == .workspace) if (c.workspace_admission) |admission| switch (admission) {
+  192          .pending => return .waiting_for_approval,

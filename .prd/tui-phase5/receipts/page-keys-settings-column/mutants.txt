@@ -1,0 +1,30 @@
+# mutants over the head c4bfa8b1 on a --no-local clone; tests: at_24_rows
+settings:no-page-key: KILLED (1 failed, 60s;  1 file changed, 2 deletions(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end
+settings:page-of-one: KILLED (2 failed, 16s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end
+    tui::shell::tests::at_24_rows_a_page_of_the_settings_model_list_is_11_models
+settings:round: KILLED (1 failed, 11s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end
+settings:no-row-keys: KILLED (1 failed, 10s;  1 file changed, 2 deletions(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end
+settings-list:moves-the-menu: KILLED (1 failed, 13s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_settings_model_list_is_11_models
+column:no-page-key: KILLED (2 failed, 12s;  1 file changed, 2 deletions(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_effort_and_speed_columns_runs_to_the_far_end
+    tui::shell::tests::at_24_rows_a_page_of_the_model_column_is_11_models
+column:page-of-one: KILLED (2 failed, 13s;  1 file changed, 2 insertions(+), 2 deletions(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_effort_and_speed_columns_runs_to_the_far_end
+    tui::shell::tests::at_24_rows_a_page_of_the_model_column_is_11_models
+column:round: KILLED (2 failed, 15s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_effort_and_speed_columns_runs_to_the_far_end
+    tui::shell::tests::at_24_rows_a_page_of_the_model_column_is_11_models
+column:no-row-keys: KILLED (2 failed, 19s;  1 file changed, 2 deletions(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_effort_and_speed_columns_runs_to_the_far_end
+    tui::shell::tests::at_24_rows_a_page_of_the_model_column_is_11_models
+mcp:no-page-key: KILLED (1 failed, 15s;  1 file changed, 1 insertion(+), 2 deletions(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_mcp_arguments_is_11_servers
+mcp:page-of-one: KILLED (1 failed, 19s;  1 file changed, 2 insertions(+), 2 deletions(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_mcp_arguments_is_11_servers
+mcp:round: KILLED (1 failed, 17s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_mcp_arguments_is_11_servers

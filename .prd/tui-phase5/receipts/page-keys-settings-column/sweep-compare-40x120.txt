@@ -1,0 +1,12 @@
+pairs: base 206, head 206
+base: pass 133/206  identical 1, normalized-identical 132, unresolved-defect 73
+head: pass 136/206  identical 1, normalized-identical 135, unresolved-defect 70
+
+moved to passing: 3
+  model-column-idle col-down: unresolved-defect -> normalized-identical
+  model-column-idle col-idle: unresolved-defect -> normalized-identical
+  model-column-idle col-typed: unresolved-defect -> normalized-identical
+
+dropped from passing: 0
+
+other verdict changes: 0

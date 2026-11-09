@@ -1,0 +1,7 @@
+# GREEN: the same five cases at the fix (c4bfa8b1), `cargo test --locked --lib -- at_24_rows`.
+test tui::shell::tests::at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end ... ok
+test tui::shell::tests::at_24_rows_a_page_of_the_settings_model_list_is_11_models ... ok
+test tui::shell::tests::at_24_rows_a_page_of_the_model_column_is_11_models ... ok
+test tui::shell::tests::at_24_rows_a_page_of_the_effort_and_speed_columns_runs_to_the_far_end ... ok
+test tui::shell::tests::at_24_rows_a_page_of_the_mcp_arguments_is_11_servers ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4634 filtered out; finished in 0.15s

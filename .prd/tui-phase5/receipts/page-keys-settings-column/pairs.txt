@@ -1,0 +1,44 @@
+banners fx: 𝒇x v0.0.16
+banners xfx: x𝒇x v0.1.0-c4bfa8b [debug]
+banners xfx-base: x𝒇x v0.1.0-3d3d56c [debug]
+pair                                                  base  head
+p5-page-keys-column-24x120-effort-pgdn                   0     0
+p5-page-keys-column-24x120-effort-pgdn2                  0     0
+p5-page-keys-column-24x120-effort-pgup                   3     0
+p5-page-keys-column-24x120-effort                        0     0
+p5-page-keys-column-24x120-levels-pgdn                   0     0
+p5-page-keys-column-24x120-levels-pgup                   3     0
+p5-page-keys-column-24x120-levels                        0     0
+p5-page-keys-column-24x120-model-cj                     10     0
+p5-page-keys-column-24x120-model-ck                     10     0
+p5-page-keys-column-24x120-model-pgdn                    6     0
+p5-page-keys-column-24x120-model-pgdn2                   6     0
+p5-page-keys-column-24x120-model-pgdn3                   0     0
+p5-page-keys-column-24x120-model-pgup                    6     0
+p5-page-keys-column-24x120-model                         0     0
+p5-page-keys-column-24x120-speed-pgdn                    3     0
+p5-page-keys-column-24x120-speed-pgup                    3     0
+p5-page-keys-column-24x120-speed                         0     0
+p5-page-keys-mcp-24x120-args-cj                          6     0
+p5-page-keys-mcp-24x120-args-pgdn                        6     0
+p5-page-keys-mcp-24x120-args-pgdn2                       6     0
+p5-page-keys-mcp-24x120-args-pgdn3                       0     0
+p5-page-keys-mcp-24x120-args-pgup                        6     0
+p5-page-keys-mcp-24x120-args-pgup2                       6     0
+p5-page-keys-mcp-24x120-args                             0     0
+p5-page-keys-settings-24x120-list-cj                     0     0
+p5-page-keys-settings-24x120-list-ck                     0     0
+p5-page-keys-settings-24x120-list-pgdn                   0     0
+p5-page-keys-settings-24x120-list-pgdn2                  0     0
+p5-page-keys-settings-24x120-list-pgdn3                  0     0
+p5-page-keys-settings-24x120-list-pgup                   0     0
+p5-page-keys-settings-24x120-list                        0     0
+p5-page-keys-settings-24x120-menu-cj                    11     0
+p5-page-keys-settings-24x120-menu-ck                    11     0
+p5-page-keys-settings-24x120-menu-pgdn                   2     1
+p5-page-keys-settings-24x120-menu-pgdn2                  1     1
+p5-page-keys-settings-24x120-menu-pgup                  12     1
+p5-page-keys-settings-24x120-menu-pgup2                 12     1
+p5-page-keys-settings-24x120-menu                        1     1
+p5-page-keys-settings-24x120-tab                         0     0
+pairs: 39; identical on the head (0 rows differ): 34; differing on the base: 21
