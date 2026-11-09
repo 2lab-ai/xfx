@@ -200,6 +200,20 @@ class Normalize(unittest.TestCase):
         self.assertEqual(len(cells.differing(a, b)), 4)
         self.assertEqual(cells.unaligned(a, b), (0, 1))
 
+    def test_a_binarys_tmpdir_is_read_after_the_run_directory_only(self):
+        # fx's `fxtmp` is xfx's `xfxtmp` where it is the binary's own TMPDIR:
+        # under the run directory, as capture.sh writes it at any width,
+        # resolved or not, zero-filled as units wrote it by hand before
+        # LOCAL-PATHS, or masked by run-directory.
+        for run in ("<scratch______________>", "<scratch:real_________>", "<scratch>", "/t/fxcap.Lq26sv"):
+            self.assertEqual(compare("saved at %s/fxtmp/a.md" % run, "saved at %s/xfxtmp/a.md" % run, self.led), [], run)
+        # Anywhere else an `fxtmp` is a name the binary printed and is compared:
+        # under another root, an escaped literal, plain text ending `_>`, and
+        # the short form `<s__>`, which no run directory takes (it is never
+        # narrower than `<scratch>`: `$TMPDIR/fxcap.XXXXXX`, 13 columns or more).
+        for prefix in ("<work___>", "<work:real__>", "<tmp______>", "<!scratch__>", "a_>", "<s__>", "<S__>", "x/"):
+            self.assertEqual(len(compare("saved at %s/fxtmp/a.md" % prefix, "saved at %s/xfxtmp/a.md" % prefix, self.led)), 1, prefix)
+
     def test_capture_run_directories_are_masked_to_the_same_length(self):
         self.assertEqual(compare("ws=/t/fxcap.Kun3pm/work x", "ws=/t/fxcap.uqw49D/work x", self.led), [])
         self.assertEqual(compare("ws=/t/fxcap.Ku…", "ws=/t/fxcap.uq…", self.led), [])

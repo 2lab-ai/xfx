@@ -325,6 +325,15 @@
 # file roots.py refuses never reaches it: the run fails (exit 3). At the
 # run's end everything it left there is read once more (`--check`).
 #
+# Every such file is named `<bin>-<scenario>-<rows>x<cols>-...` (a `/trace`
+# report's copy `...-<label>-<n>.md`, a request body under `...-bodies/`).
+# That name is reserved for captures: scripts/check-no-local-paths.sh reads
+# any tracked file so named, or under a directory so named, as a binary's
+# text, which no `local-path-ok` mark excuses. A capture renamed out of it is
+# read by its kind alone (a report renamed to another `.md` is authored
+# text, whose marks excuse their lines), and an authored file named into it
+# is read as a capture.
+#
 #   work         $run/work, the binary's working directory
 #   scratch      $run, the rest of the run: its HOME is <scratch___>/home,
 #                its TMPDIR <scratch___>/fxtmp or <scratch___>/xfxtmp
@@ -357,17 +366,20 @@
 #
 # fx's side and xfx's are rewritten by the same rule, so a pair compares as it
 # did: the two runs of a sweep unit share one TMPDIR, so each root is as long
-# on both sides. The two binaries' own TMPDIRs are kept apart under
-# <scratch> -- `fxtmp` is one byte shorter than `xfxtmp`, and one placeholder
-# for both would shorten xfx's rows by a byte more than fx's -- so a row that
-# names one keeps its width relative to the other side's, as the ledger's
-# `capture-tmpdir` reads it.
+# on both sides. The two binaries' own TMPDIRs are no roots of their own:
+# each is written as the run directory's placeholder and its own name,
+# `<scratch___>/fxtmp` and `<scratch___>/xfxtmp`, so a row that names one is
+# a column wider on xfx's side, as it was on the screen, and the ledger's
+# `capture-tmpdir` reads fx's name as xfx's right after that placeholder.
 #
 # The rewrite comes after the binary laid out its frame, and keeps it: a path
 # it wrapped or padded to its real width keeps that layout, column for column.
-# The `roots:` line each run prints first gives each root's width on that run
-# (`:real` too, where the resolved path is another), so a reader knows how
-# wide a placeholder is without counting.
+# The `roots:` line each run prints first gives each root's length on that
+# run in bytes (`:real` too, where the resolved path is another). A
+# placeholder is as wide as its root in columns (roots.py counts them as
+# cells.py does): the same number for a root of ASCII characters, every root
+# on the CI runners and on this machine; a root with a character past ASCII
+# is wider in bytes than in columns.
 #
 # A line prefixed `fx: ` or `xfx: ` applies to that binary only. The two
 # products name their tools and settings differently (fx's `shell` with
@@ -405,8 +417,8 @@ writable='^/[A-Za-z0-9._/+-]+$'
 root_args=() stage='' roots_py='' net_out='' net_prefix='' net_since=''
 
 # Each root's length on this run, in bytes (the C locale's `${#}`), for a
-# claim about a path's width: a stored row is shorter by it where the
-# placeholder stands, both sides alike.
+# claim about a path's width: its placeholder is that many columns wide for
+# an ASCII root, and no row moves where it stands.
 roots_line() {
   local LC_ALL=C line='roots:' i root real
   for (( i = 0; i < ${#root_args[@]}; i++ )); do
@@ -414,7 +426,7 @@ roots_line() {
     root=${root_args[i + 1]%/}
     line+=" <${root_args[i + 2]}>=${#root}"
     # The resolved form, when it is another path: its own placeholder, its
-    # own width (roots.py `rules_for`).
+    # own length (roots.py `rules_for`).
     real=$(realpath "$root" 2>/dev/null || true)
     [[ -z $real || $real == "$root" ]] || line+=" <${root_args[i + 2]}:real>=${#real}"
   done
