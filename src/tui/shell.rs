@@ -35331,6 +35331,18 @@ mod tests {
             listed_paths(&shell),
             [format!("{}/plan.md", extra_path.display())]
         );
+        // The same roots again move no scope (`install`'s `runtime_changed`,
+        // `app_workspace_runtime.zig:131-141`): no walk.
+        let walks = shell.files_for_test().walks_for_test();
+        let same = WorkspaceAccess::load(
+            &shell.workspace.clone(),
+            &[extra_path.display().to_string()],
+        );
+        shell.apply(UiEvent::Workspace {
+            notice: notice::Notice::neutral("workspace", "unchanged"),
+            access: Some(same),
+        });
+        assert_eq!(shell.files_for_test().walks_for_test(), walks);
     }
 
     #[test]

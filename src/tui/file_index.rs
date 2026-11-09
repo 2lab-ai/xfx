@@ -1094,9 +1094,6 @@ impl Files {
                 self.started += 1;
                 self.walks += 1;
             }
-            // A load started clears the first index's failure (`startLoad`,
-            // `file_index.zig:389@481104fd`): the list says it is indexing.
-            self.failed = false;
             self.walk = Some(Walk {
                 rx,
                 stop,
@@ -1143,8 +1140,9 @@ impl Files {
         }
         // The walk ended -- ready, failed or gone -- with a refresh asked for
         // meanwhile: it starts now (`joinThreadIfDone`, `file_index.zig:
-        // 443-451@481104fd`), and after a failed first index the list says it
-        // is indexing again rather than that the files are unavailable.
+        // 443-451@481104fd`). After a failed first index the list then says
+        // it is indexing, as fx's does once `startLoad` clears the failure
+        // (`:389`): a lookup reads the walk in flight before the failure.
         if self.walk.is_none() && std::mem::take(&mut self.pending_refresh) {
             self.start_walk();
             changed = true;
