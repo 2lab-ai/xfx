@@ -4208,12 +4208,22 @@ impl Shell {
     }
 
     /// Whether a preview's frame landed since the last ask, so the card owes
-    /// its frame now: fx builds it as soon as the preview's frame has
-    /// committed, 1-2 ms later, with nothing read and no resize taken between
-    /// the two (`pending_prompt_frame_committed`, then the next `build`;
-    /// `.prd/tui-phase5/receipts/submit-card-preview/fx-trace.txt`). A
-    /// screen that changed size between them would hold the preview's rows
-    /// where no frame of this phase repaints them.
+    /// its frame now, in the same tick (`super::event_loop`'s `commit_tick`):
+    /// upstream adopts the card once its preview's frame has committed and
+    /// writes it in its next frame (`noteCommittedFrame`,
+    /// `src/core/app/input_submit_runtime.zig:289-307@481104fd`). Between the
+    /// tick's two frames nothing is read and no resize is taken.
+    ///
+    /// What that cannot close is a write that fails: the card's frame refused
+    /// or torn before its rows, or the preview's frame torn (its recovery
+    /// repaints the preview and lands no band, `failed_band`). The preview is
+    /// up and the card unwritten until the next tick, and a screen that
+    /// shrinks first moves rows of the preview into the terminal's history,
+    /// or keeps them above the band, where they are the document's to xfx
+    /// after a resize (`a_failed_write_and_a_shrink_before_the_retry_leave_
+    /// only_what_the_shrink_took`). The terminal does that before xfx can
+    /// know. Upstream's preview and card are two writes as well, and leave
+    /// the same window.
     pub(crate) fn take_preview_shown(&mut self) -> bool {
         std::mem::take(&mut self.preview_shown)
     }

@@ -9575,11 +9575,12 @@ mod tests {
 
     #[test]
     fn the_tick_that_shows_a_preview_writes_the_card_in_the_next_frame() {
-        // fx builds the frame that writes the card as soon as the preview's
-        // frame has committed, with no read and no resize between the two
-        // (`fx-trace.txt`: `pending_prompt_frame_committed`, then the next
-        // `build` 1-2 ms later). So does xfx: one tick writes the preview's
-        // frame and then the card's -- two updates, the preview the first.
+        // fx adopts the card once its preview's frame has committed, and its
+        // next frame writes it (`noteCommittedFrame`,
+        // `src/core/app/input_submit_runtime.zig:289-307@481104fd`). xfx
+        // writes both in one tick, with no read and no resize between them:
+        // the preview's frame and then the card's -- two updates, the
+        // preview the first.
         let words: Vec<String> = ["TICK-ONE", "TICK-TWO", "TICK-THREE"]
             .map(String::from)
             .to_vec();
