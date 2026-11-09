@@ -22330,6 +22330,58 @@ mod tests {
     }
 
     #[test]
+    fn alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not() {
+        // fx routes `.word_left` with Left to `retreatToPrevious`, which stops
+        // at the first question (`input_question_runtime.zig:190-195`,
+        // `question_prompt.zig:609-615@481104fd`). `.word_left` is what Alt-b
+        // decodes to in each of its spellings -- `ESC b`, kitty's `CSI 98;3u`
+        // and xterm's `CSI 27;3;98~` (`escape_parser.zig:243-246`, `:528-533`)
+        // -- while Ctrl-Left and Alt-Left are a composer move (`:83-92`) that a
+        // choice leaves alone, as it does Alt-f and Ctrl-Right (`:196-199`).
+        // `fx-p5-question-word-left-40x120-*`.
+        let mut fixture = shell(24, 120);
+        asking_question(&mut fixture, a_batch());
+        let on = |fixture: &Fixture, text: &str| {
+            fixture.band_rows().iter().any(|row| row.contains(text))
+        };
+        for alt_b in [&b"\x1bb"[..], b"\x1b[98;3u", b"\x1b[27;3;98~"] {
+            fixture.route_bytes(b"\t");
+            assert!(on(&fixture, "Ship it?"), "Tab reached the second question");
+            for word_key in [
+                &b"\x1b[1;5D"[..],
+                b"\x1b[1;3D",
+                b"\x1b[57417;5u",
+                b"\x1bf",
+                b"\x1b[1;5C",
+            ] {
+                fixture.route_bytes(word_key);
+                assert!(
+                    on(&fixture, "Ship it?"),
+                    "{word_key:?} moved off the question"
+                );
+            }
+            fixture.route_bytes(alt_b);
+            assert!(
+                on(&fixture, "Which depth?"),
+                "{alt_b:?} did not go back a question: {:?}",
+                fixture.band_rows()
+            );
+            fixture.route_bytes(alt_b);
+            assert!(on(&fixture, "Which depth?"), "{alt_b:?} at the first");
+        }
+        // Inside a draft Alt-b is the caret's word move, and the question
+        // stays where it is (`.edit_freeform = .cursor_word_left`,
+        // `src/ui/input/runtime.zig:155-197`).
+        fixture.route_bytes(b"\t");
+        fixture.route_bytes(b"3");
+        fixture.route_bytes(b"ab cd");
+        fixture.route_bytes(b"\x1bb");
+        fixture.route_bytes(b"z");
+        assert!(on(&fixture, "Ship it?"), "Alt-b in a draft left the question");
+        assert!(on(&fixture, "ab zcd"), "{:?}", fixture.band_rows());
+    }
+
+    #[test]
     fn a_model_question_takes_the_composers_rows_and_gives_them_back() {
         // Upstream's question replaces the footer -- composer, blank and
         // statusline -- with its own rules, rows and hint
