@@ -44,8 +44,9 @@
                 0,
             ),
             (
+                // A hold that ends as it is told: due on any boot clock.
                 "past the failure's hold",
-                Some(failed(catalog_due_ago(Duration::from_secs(60)))),
+                Some(failed(catalog_due(Duration::ZERO))),
                 1,
             ),
         ];

@@ -70,6 +70,13 @@ theirs -> merged exactly ours'.
   asked the catalog (`first-asks.txt`, 8 of 8); reruns: head 2 of 3, `main` 3
   of 3. Not settled until the cause's own fix. Against each unit's own sweep:
   **0 down** but those same three on CATALOG-REFRESH's (0, 8 and 10 up).
+- **Round 3, PR #89's arm64 CI** (`ci-young-clock.txt`): four
+  CATALOG-REFRESH tests went five minutes back on the boot clock, which a
+  runner up under five minutes has not counted. **A test defect**: no
+  production path goes back on the catalog clock. Reproduced here on a young
+  boot clock (the same four, the same way), fixed in tests at `c4354ec7`;
+  after the look-ahead nothing goes back more than 10 s on the system clock.
+  Gate at `c4354ec7` **20 of 20**, `cargo test` 5644 / 5681 as before.
 
 After the merges, in order:
 
@@ -83,12 +90,20 @@ After the merges, in order:
 | `7ce122d8` | the jobs' scripts, the shared-function table, the regroup check |
 | `22c228b6`, `6ed18ed9` | the merge checks' files, at `820a8f15`, and two of train 10's scripts they ran |
 | `ab6f4e50` | the gate's and the jobs' files, join check 2's bytes, at `820a8f15` |
-| the next | the sweeps' files, their compares and reruns; this README |
-| the last one | `gates-files.txt`, `redaction-grep.txt` |
+| `b5795fae` | the sweeps' files, their compares and reruns; this README |
+| `0695c1c8` | `gates-files.txt`, `redaction-grep.txt` |
+| `8056c326`, `3be49c15` | round 2: this receipt's corrections; `redaction-grep.txt` again |
+| `c4354ec7` | round 3: the tests that went five minutes (and two a minute) back on the boot clock run on clocks any runner has; test only -- **round 3's gate ran here** |
+| the next | round 3's receipt (`ci-young-clock.txt` and its harness, scans and bytes; `gates-r3.txt`); this README |
+| the last one | `gates-files-r3.txt`, `redaction-grep.txt` again |
 
-**No code changed after the gate**: `git diff --stat 820a8f15 <tip> -- .
+**No code changed after the gate**: `git diff --stat 820a8f15 0695c1c8 -- .
 ':!.prd/tui-phase5/receipts/train-11'` is empty (`gates-files.txt`, which
-`gates-files.sh` writes in a clone at the receipt's final form).
+`gates-files.sh` writes in a clone at the receipt's final form). Round 3
+changed test code at `c4354ec7` and ran the gate again there; nothing after
+it but this folder (`gates-files-r3.txt`). The sweeps stay at `820a8f15`:
+`c4354ec7` touches tests modules and one `#[cfg(test)]` fn only
+(`ci-young-clock.txt`), none of it in a binary a sweep runs.
 
 A gate and a head sweep begun at `a51da9a2` were stopped part-way when join
 check 1's test was found to put its Enter in the paste's own delivery --
@@ -326,8 +341,10 @@ preview by `the_tick_that_shows_a_preview_writes_the_card_in_the_next_frame`
 (no catalog told). **Added**:
 `a_submit_that_previews_asks_a_due_catalog_once_and_writes_the_bytes_it_writes_without_one`
 (`event_loop.rs`): one Enter on a three-line draft over a full screen, three
-cases -- no catalog told; a failure whose hold has 60 s to run; one whose
-hold ended 60 s ago: the Enter asks `ACTIVITY` once past the hold and nothing
+cases -- no catalog told; a failure whose hold has 60 s to run; one past its
+hold (round 3: a hold that ends as it is told, `catalog_due(Duration::ZERO)`;
+it was one that ended 60 s ago, a reading a runner booted under a minute
+before has not got -- `ci-young-clock.txt`): the Enter asks `ACTIVITY` once past the hold and nothing
 otherwise; neither the preview's tick nor the next asks; the card once, the
 draft sent; and the preview's tick writes the same bytes in all three.
 
@@ -337,7 +354,8 @@ run at the head twice, on SUBMIT-CARD-PREVIEW's tip `0c203cd3` and on merge 1
 (the last two without CATALOG-REFRESH, so with its two helpers as their
 types have them, `join_helpers_catalog.rs`): **all 12 dumps the same 438
 bytes** (sha256 `12824a1c5a716dc6...`) [measured] -- the preview's update and
-the card's, byte-identical to the unit's own.
+the card's, byte-identical to the unit's own. Round 3, with the head at
+`c4354ec7` and the revised case: the same 12 dumps (`join-bytes-r3.txt`).
 
 **On merge 1** (no CATALOG-REFRESH; `jobs-alone.txt`): **passes**. So this test
 pins the meeting's outcome -- one ask per submit, the preview and card
@@ -483,6 +501,34 @@ Load at the steps' starts 7.2-27.2. **Every side's tests are in**
 5644 against train 10's 5539 at `main`'s code: **+105** = 28 + 20 + 55 + 2;
 with fault injection 5681 against 5576, the same +105. The harness's `def
 test_` 176 (no unit added one).
+
+**Round 3, at `c4354ec7`** (`gates-r3.txt`, the same script, one hold of the
+lock, load 15.1-61.0): **20 steps, 0 failed, none run again**; `cargo test`
+5644 passed (lib 4720), with fault injection 5681 (lib 4743), 0 failed, 7
+ignored each -- the same counts (the fix changes tests, adds none); smoke-tui
+1167 checks, 0 failures.
+
+## Round 3: PR #89's arm64 gate, a young boot clock (`ci-young-clock.txt`)
+
+PR #89's `gate (aarch64-unknown-linux-gnu)` at `3be49c15`: lib 4710 passed,
+4 failed, all CATALOG-REFRESH's -- three `checked_sub(5 min + 1 s).expect(..)`
+and one five-minute `backdate_catalog` whose `backdate_for_test` left the
+time where it was. The catalog clock counts from boot; that runner had
+counted at least 135 s and under five minutes. Every step, with its file:
+
+- **Test-only** (`young-clock.sh sub`, `young_scan.py`): the lib builds both
+  ways with `CatalogTime`'s `Sub` made `#[cfg(test)]`; no site outside a tests
+  module goes back on a `CatalogTime` or an `Instant`.
+- **RED here** (`young_clock.py`, in a `git clone --no-local` only): the system
+  catalog clock read as a machine booted 150 s before; the same four fail the
+  same way at the same lines, nothing else. At 15 s, the minute-back ones too.
+- **Fix** (`c4354ec7`, test only): the four on a `FakeMachine` clock;
+  `backdate_for_test` panics past the clock's origin; two `event_loop` tests'
+  hold "a minute past" becomes one that ends as it is told.
+- **Look-ahead** (`young-scan-*.txt`): 31 sites at `3be49c15`, 7 more than
+  10 s back on the system clock; 29 at `c4354ec7`, none, each one left listed
+  with why it is safe. **Green**: the young-clock suite at `c4354ec7` at 150 s
+  and 15 s, 4719 passed, 0 failed.
 
 ## Found on the way, not changed here
 
@@ -659,7 +705,7 @@ it, `set -o pipefail`, an explicit `if`) and over the whole range by
 `redaction_grep.sh` (`redaction-grep.txt`; its pattern spelt with bracket
 classes so the file does not match itself; every line the last term matches
 is listed there, to be read). `gates-files.sh` in a clone at the receipt's
-final form (`gates-files.txt`).
+final form (`gates-files.txt`; round 3's, `gates-files-r3.txt`).
 
 ## Files
 
@@ -695,3 +741,7 @@ final form (`gates-files.txt`).
   `sweep-*.md`; `sweep-compare.sh` / `sweep-compare.txt` (compare.py's exits), `compare.py`, `screen_moves.py`,
   `screen_classes.py`, `families.py`, `banners.py`; `compare-*.txt`,
   `screen-moves-*.txt`, `screen-classes.txt`, `families.txt`.
+- Round 3: `ci-young-clock.txt`; `young-clock.sh` (parts `red`, `sub`),
+  `young_clock.py`; `young_scan.py`, `young-scan-3be49c15.txt`,
+  `young-scan-c4354ec7.txt`; `join-bytes-r3.txt` (`join_bytes.sh` now takes
+  the head); `gates-r3.txt`, `gates-files-r3.txt`.

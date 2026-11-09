@@ -9,9 +9,9 @@
 # CATALOG-REFRESH its two helpers as those sides' types have them
 # (join_helpers_catalog.rs). The test run alone (`--exact`); each case's
 # sha256 printed, the head twice.
-# usage: join_bytes.sh <repo> <scratch>
+# usage: join_bytes.sh <repo> <scratch> [<head>]   (<head> defaults to 820a8f15; round 3 ran it at c4354ec7)
 set -u
-repo=$1 scratch=$2
+repo=$1 scratch=$2 head=${3:-820a8f15}
 here=$(cd "$(dirname "$0")" && pwd)
 c="$scratch/bytes-clone"
 rm -rf "$c" && git clone -q --no-local "$repo" "$c" || exit 2
@@ -52,8 +52,8 @@ PY
     [ -f "$f" ] && echo "    $(basename "$f"): $(wc -c < "$f" | tr -d ' ') bytes, sha256 $(shasum -a 256 "$f" | cut -c1-16)"
   done
 }
-one head 820a8f15 -
-one head-again 820a8f15 -
+one head "$head" -
+one head-again "$head" -
 one submit-card-preview 0c203cd3 "$here/join_helpers_catalog.rs"
 one merge-1 4a0b900b "$here/join_helpers_catalog.rs"
 git -C "$c" checkout -q -- . && git -C "$c" clean -qfd

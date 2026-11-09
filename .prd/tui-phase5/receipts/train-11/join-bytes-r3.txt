@@ -1,0 +1,26 @@
+# the probe put into the test the tree holds
+head c4354ec7: exit 0, ok
+    tick-0.bytes: 438 bytes, sha256 12824a1c5a716dc6
+    tick-1.bytes: 438 bytes, sha256 12824a1c5a716dc6
+    tick-2.bytes: 438 bytes, sha256 12824a1c5a716dc6
+# the probe put into the test the tree holds
+head-again c4354ec7: exit 0, ok
+    tick-0.bytes: 438 bytes, sha256 12824a1c5a716dc6
+    tick-1.bytes: 438 bytes, sha256 12824a1c5a716dc6
+    tick-2.bytes: 438 bytes, sha256 12824a1c5a716dc6
+# the test put in with the probe
+submit-card-preview 0c203cd3: exit 0, ok
+    tick-0.bytes: 438 bytes, sha256 12824a1c5a716dc6
+    tick-1.bytes: 438 bytes, sha256 12824a1c5a716dc6
+    tick-2.bytes: 438 bytes, sha256 12824a1c5a716dc6
+# the test put in with the probe
+merge-1 4a0b900b: exit 0, ok
+    tick-0.bytes: 438 bytes, sha256 12824a1c5a716dc6
+    tick-1.bytes: 438 bytes, sha256 12824a1c5a716dc6
+    tick-2.bytes: 438 bytes, sha256 12824a1c5a716dc6
+# bytes-clone clean after: yes
+# tick-0: 4 of 4 dumps; 1 distinct sha256 among them
+# tick-1: 4 of 4 dumps; 1 distinct sha256 among them
+# tick-2: 4 of 4 dumps; 1 distinct sha256 among them
+# all cases, all four runs: 5256 bytes in 12 dumps, 1 distinct
+exit 0
