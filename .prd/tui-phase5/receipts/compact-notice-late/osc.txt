@@ -1,0 +1,86 @@
+# STOP-NEXT-2's checker (../stop-next-2/osc.py, unchanged) over the three osc compaction scenarios' xfx wires from sweep-base/-head/-head2/-head3/-head4, against fx v0.0.16's wires as that checker reads them (../osc-program-status/fx/). Wires copied into a scratch layout the checker reads (<oscchk>).
+## osc.py base 58c92ba
+same p5-lifecycle-osc-compact-40x120    c00-noop               fx  1  base  1  state=idle:app=<program>
+same p5-lifecycle-osc-compact-40x120    c01-answered           fx  5  base  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-compact-40x120    c02-compacted          fx  7  base  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+build: every base wire carries v0.1.0-58c92ba and no other banner
+3 wire pairs, 0 failing claims
+exit 0
+same p5-lifecycle-osc-compactfail-40x120 f00-answered           fx  5  base  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-compactfail-40x120 f01-failed             fx  7  base  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program>
+build: every base wire carries v0.1.0-58c92ba and no other banner
+2 wire pairs, 0 failing claims
+exit 0
+same p5-lifecycle-osc-autocompactfail-40x120 o00-answered           fx  5  base  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-autocompactfail-40x120 o01-failed             fx  7  base  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program>
+build: every base wire carries v0.1.0-58c92ba and no other banner
+2 wire pairs, 0 failing claims
+exit 0
+## osc.py head 0cc9b34
+same p5-lifecycle-osc-compact-40x120    c00-noop               fx  1  head  1  state=idle:app=<program>
+same p5-lifecycle-osc-compact-40x120    c01-answered           fx  5  head  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-compact-40x120    c02-compacted          fx  7  head  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+build: every head wire carries v0.1.0-0cc9b34 and no other banner
+3 wire pairs, 0 failing claims
+exit 0
+same p5-lifecycle-osc-compactfail-40x120 f00-answered           fx  5  head  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-compactfail-40x120 f01-failed             fx  7  head  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program>
+build: every head wire carries v0.1.0-0cc9b34 and no other banner
+2 wire pairs, 0 failing claims
+exit 0
+same p5-lifecycle-osc-autocompactfail-40x120 o00-answered           fx  5  head  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-autocompactfail-40x120 o01-failed             fx  7  head  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program>
+build: every head wire carries v0.1.0-0cc9b34 and no other banner
+2 wire pairs, 0 failing claims
+exit 0
+## osc.py head2 ed0e4e3
+same p5-lifecycle-osc-compact-40x120    c00-noop               fx  1  head2  1  state=idle:app=<program>
+same p5-lifecycle-osc-compact-40x120    c01-answered           fx  5  head2  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-compact-40x120    c02-compacted          fx  7  head2  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+build: every head2 wire carries v0.1.0-ed0e4e3 and no other banner
+3 wire pairs, 0 failing claims
+exit 0
+same p5-lifecycle-osc-compactfail-40x120 f00-answered           fx  5  head2  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-compactfail-40x120 f01-failed             fx  7  head2  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program>
+build: every head2 wire carries v0.1.0-ed0e4e3 and no other banner
+2 wire pairs, 0 failing claims
+exit 0
+same p5-lifecycle-osc-autocompactfail-40x120 o00-answered           fx  5  head2  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-autocompactfail-40x120 o01-failed             fx  7  head2  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program>
+build: every head2 wire carries v0.1.0-ed0e4e3 and no other banner
+2 wire pairs, 0 failing claims
+exit 0
+## osc.py head3 d268896
+same p5-lifecycle-osc-compact-40x120    c00-noop               fx  1  head3  1  state=idle:app=<program>
+same p5-lifecycle-osc-compact-40x120    c01-answered           fx  5  head3  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-compact-40x120    c02-compacted          fx  7  head3  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+build: every head3 wire carries v0.1.0-d268896 and no other banner
+3 wire pairs, 0 failing claims
+exit 0
+same p5-lifecycle-osc-compactfail-40x120 f00-answered           fx  5  head3  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-compactfail-40x120 f01-failed             fx  7  head3  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program>
+build: every head3 wire carries v0.1.0-d268896 and no other banner
+2 wire pairs, 0 failing claims
+exit 0
+same p5-lifecycle-osc-autocompactfail-40x120 o00-answered           fx  5  head3  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-autocompactfail-40x120 o01-failed             fx  7  head3  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program>
+build: every head3 wire carries v0.1.0-d268896 and no other banner
+2 wire pairs, 0 failing claims
+exit 0
+## osc.py head4 730d36d
+same p5-lifecycle-osc-compact-40x120    c00-noop               fx  1  head4  1  state=idle:app=<program>
+same p5-lifecycle-osc-compact-40x120    c01-answered           fx  5  head4  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-compact-40x120    c02-compacted          fx  7  head4  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+build: every head4 wire carries v0.1.0-730d36d and no other banner
+3 wire pairs, 0 failing claims
+exit 0
+same p5-lifecycle-osc-compactfail-40x120 f00-answered           fx  5  head4  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-compactfail-40x120 f01-failed             fx  7  head4  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program>
+build: every head4 wire carries v0.1.0-730d36d and no other banner
+2 wire pairs, 0 failing claims
+exit 0
+same p5-lifecycle-osc-autocompactfail-40x120 o00-answered           fx  5  head4  5  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program>
+same p5-lifecycle-osc-autocompactfail-40x120 o01-failed             fx  7  head4  7  state=idle:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=done:app=<program> > state=working:app=<program> > state=error:app=<program>
+build: every head4 wire carries v0.1.0-730d36d and no other banner
+2 wire pairs, 0 failing claims
+exit 0

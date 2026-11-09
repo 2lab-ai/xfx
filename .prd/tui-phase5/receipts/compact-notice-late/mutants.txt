@@ -1,0 +1,9 @@
+# mutants of the fix, on a clone at ed0e4e3a
+M1 no idle gate: killed: test tui::event_loop::tests::a_stopped_compactions_sentence_the_next_line_took_away_stays_away ... FAILED | test tui::shell::tests::a_stopped_compaction_is_over_only_after_a_drain_that_began_with_nothing_in_hand_emptied ... FAILED
+M2 no emptied gate: killed: test tui::shell::tests::a_stopped_compaction_is_over_only_after_a_drain_that_began_with_nothing_in_hand_emptied ... FAILED
+M3 count read after the drain: killed: test tui::shell::tests::a_stopped_compaction_is_over_only_after_a_drain_that_began_with_nothing_in_hand_emptied ... FAILED
+M4 the base's settle-time inference back: killed: test tui::event_loop::tests::a_stopped_compactions_sentence_the_next_line_took_away_stays_away ... FAILED | test tui::shell::tests::a_compaction_stopped_before_the_runtime_took_it_ends_cancelled ... FAILED | test tui::shell::tests::a_stopped_compaction_is_over_only_after_a_drain_that_began_with_nothing_in_hand_emptied ... FAILED
+M5 no inference at all: killed: test tui::shell::tests::a_compaction_dropped_unstarted_reports_idle_after_a_failed_ones_error ... FAILED | test tui::shell::tests::a_compaction_stopped_before_the_runtime_took_it_ends_cancelled ... FAILED | test tui::shell::tests::a_stopped_compaction_is_over_only_after_a_drain_that_began_with_nothing_in_hand_emptied ... FAILED
+M6 settle any running one, not only a stopped one: survived
+M7 no program status for it: killed: test tui::shell::tests::a_compaction_dropped_unstarted_reports_idle_after_a_failed_ones_error ... FAILED
+# done

@@ -106,6 +106,17 @@ pub(crate) enum Update {
     Summarizing,
     /// It is over.
     Settled(Feedback),
+    /// A stop dropped it before the runtime took it, so it never began
+    /// (`super::worker`'s `Queue::abandon`). Upstream's worker settles that
+    /// one cancelled at the stop's own keystroke (`cancelActiveOperation` ->
+    /// `cancelContextCompaction`,
+    /// `src/core/app/input_interrupt_runtime.zig:77-90@481104fd`,
+    /// `src/core/agent/worker_runtime.zig:1007-1009`), so a line sent after
+    /// the stop has already taken its sentence away ([`Compaction::answered`]).
+    /// One the runtime took ends with [`Self::Settled`], and a line sent while
+    /// it is stopping takes nothing away: upstream's dismissal refuses an
+    /// operation still running (`compaction_activity.zig:129-137`).
+    Dropped,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,6 +137,8 @@ pub(crate) struct Compaction {
     started: Option<Instant>,
     /// When its sentence goes, for one that goes by itself.
     expires: Option<Instant>,
+    /// A line was sent while it was stopping ([`Self::answer`]).
+    answered: bool,
 }
 
 impl Compaction {
@@ -136,6 +149,7 @@ impl Compaction {
             phase: Phase::Preparing,
             started: None,
             expires: None,
+            answered: false,
         }
     }
 
@@ -172,6 +186,19 @@ impl Compaction {
     /// Whether the user has asked it to stop and it has not said it did.
     pub(crate) fn stopped(&self) -> bool {
         self.phase == Phase::Stopping
+    }
+
+    /// A line has been sent while it is stopping. Nothing to take away yet;
+    /// what it means depends on how it ends ([`Update::Dropped`]).
+    pub(crate) fn answer(&mut self) {
+        if self.stopped() {
+            self.answered = true;
+        }
+    }
+
+    /// Whether a line was sent while it was stopping.
+    pub(crate) fn answered(&self) -> bool {
+        self.answered
     }
 
     pub(crate) fn settle(&mut self, feedback: Feedback, now: Instant) {

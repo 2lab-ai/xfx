@@ -1,0 +1,490 @@
+# fx v0.0.16 at 481104fd: what a stopped compaction's sentence does after the next line.
+# Each block: path:first-last@481104fd, then the lines (cat -n numbering = file line).
+
+== src/core/output/compaction_activity.zig:3-4@481104fd -- an operation has an identity of its own
+     3	/// Process-local identity, distinct from a turn: one turn can compact repeatedly.
+     4	pub const OperationId = enum(u64) { _ };
+
+== src/core/output/compaction_activity.zig:42-63@481104fd -- visible: false once dismissed; active: not terminal
+    42	pub const Operation = struct {
+    43	    id: OperationId,
+    44	    turn_id: ?u64,
+    45	    origin: Origin,
+    46	    phase: Phase = .preparing,
+    47	    /// Manual admission resets this when queued; automatic consumers use the turn clock.
+    48	    started_at_ms: i64,
+    49	    expires_at_ms: ?i64 = null,
+    50	    dismissed: bool = false,
+    51	
+    52	    pub fn visible(self: Operation, now_ms: i64) bool {
+    53	        if (self.dismissed) return false;
+    54	        if (self.expires_at_ms) |expiry| if (now_ms >= expiry) return false;
+    55	        return switch (self.phase) {
+    56	            .terminal => |feedback| feedback.outcome != .succeeded,
+    57	            .preparing, .running, .stopping => true,
+    58	        };
+    59	    }
+    60	
+    61	    pub fn active(self: Operation) bool {
+    62	        return self.phase != .terminal;
+    63	    }
+
+== src/core/output/compaction_activity.zig:118-149@481104fd -- settle: only the matching operation, only while active; dismiss: keeps the op, marks it dismissed
+   118	    pub fn settle(self: *State, id: OperationId, feedback: Feedback, now_ms: i64) void {
+   119	        const op = self.match(id) orelse return;
+   120	        if (!op.active()) return;
+   121	        op.phase = .{ .terminal = feedback };
+   122	        op.expires_at_ms = switch (feedback.outcome) {
+   123	            .no_op, .busy => now_ms +| 1500,
+   124	            .succeeded, .cancelled, .failed => null,
+   125	        };
+   126	        self.snapshot.revision += 1;
+   127	    }
+   128	
+   129	    /// Dismisses only the terminal feedback observed by the caller, never newer work.
+   130	    pub fn dismiss(self: *State, id: OperationId, revision: u64) bool {
+   131	        if (revision != self.snapshot.revision) return false;
+   132	        const op = self.match(id) orelse return false;
+   133	        if (op.active() or op.dismissed) return false;
+   134	        op.dismissed = true;
+   135	        self.snapshot.revision += 1;
+   136	        return true;
+   137	    }
+   138	
+   139	    pub fn expire(self: *State, id: OperationId, revision: u64, now_ms: i64) bool {
+   140	        const op = self.match(id) orelse return false;
+   141	        const expiry = op.expires_at_ms orelse return false;
+   142	        if (now_ms < expiry) return false;
+   143	        return self.dismiss(id, revision);
+   144	    }
+   145	
+   146	    fn match(self: *State, id: OperationId) ?*Operation {
+   147	        const op = if (self.snapshot.operation) |*value| value else return null;
+   148	        return if (op.id == id) op else null;
+   149	    }
+
+== src/core/output/compaction_activity.zig:152-174@481104fd -- test: a second settle of a terminal op changes nothing (:158-161)
+   152	test "compaction activity is bounded and rejects stale updates and dismissals" {
+   153	    try std.testing.expect(@sizeOf(State) <= 128);
+   154	    var state: State = .{};
+   155	    const manual = state.begin(.manual, null, 10);
+   156	    state.queued(manual, 7, 20);
+   157	    state.running(manual, .summary);
+   158	    state.settle(manual, .{ .outcome = .succeeded, .publication = .committed }, 30);
+   159	    const settled = state.snapshot;
+   160	    state.settle(manual, failure(error.Cancelled, .summary, true), 40);
+   161	    try std.testing.expectEqualDeep(settled, state.snapshot);
+   162	    const auto = state.begin(.automatic, 7, 50);
+   163	    const overflow = state.begin(.provider_overflow, 7, 60);
+   164	    try std.testing.expect(manual != auto and auto != overflow);
+   165	    try std.testing.expect(state.snapshot.revision > settled.revision);
+   166	    state.settle(auto, failure(error.ConnectionTimedOut, .summary, false), 70);
+   167	    try std.testing.expect(!state.dismiss(manual, settled.revision));
+   168	    try std.testing.expectEqual(overflow, state.snapshot.operation.?.id);
+   169	    state.stopping(overflow);
+   170	    state.running(overflow, .publication);
+   171	    try std.testing.expect(state.snapshot.operation.?.phase == .stopping);
+   172	    state.settle(overflow, .{ .outcome = .succeeded, .publication = .committed }, 80);
+   173	    try std.testing.expect(!state.snapshot.operation.?.visible(80));
+   174	}
+
+== src/core/agent/worker_runtime.zig:577-619@481104fd -- the state is the worker's, under its mutex; settle/snapshot/dismiss
+   577	    /// Presentation metadata only; all access is protected by worker_mutex.
+   578	    compaction_presentation: compaction_activity.State = .{},
+   579	
+   580	    pub fn beginCompactionActivity(self: *WorkerRuntime, origin: compaction_activity.Origin, turn_id: ?u64) compaction_activity.OperationId {
+   581	        self.worker_mutex.lockUncancelable(io_mod.getIo());
+   582	        defer self.worker_mutex.unlock(io_mod.getIo());
+   583	        return self.compaction_presentation.begin(origin, turn_id, io_mod.milliTimestamp());
+   584	    }
+   585	
+   586	    /// A rejected intent must not hide an already-running compaction.
+   587	    pub fn rejectCompactionActivity(self: *WorkerRuntime, outcome: compaction_activity.Outcome) void {
+   588	        self.worker_mutex.lockUncancelable(io_mod.getIo());
+   589	        defer self.worker_mutex.unlock(io_mod.getIo());
+   590	        if (self.compaction_presentation.snapshot.operation) |op| if (op.active()) return;
+   591	        const now = io_mod.milliTimestamp();
+   592	        const id = self.compaction_presentation.begin(.manual, null, now);
+   593	        self.compaction_presentation.settle(id, .{ .outcome = outcome }, now);
+   594	    }
+   595	
+   596	    pub fn runCompactionActivity(self: *WorkerRuntime, id: compaction_activity.OperationId, stage: compaction_activity.Stage) void {
+   597	        self.worker_mutex.lockUncancelable(io_mod.getIo());
+   598	        defer self.worker_mutex.unlock(io_mod.getIo());
+   599	        self.compaction_presentation.running(id, stage);
+   600	    }
+   601	
+   602	    pub fn settleCompactionActivity(self: *WorkerRuntime, id: compaction_activity.OperationId, feedback: compaction_activity.Feedback) void {
+   603	        self.worker_mutex.lockUncancelable(io_mod.getIo());
+   604	        defer self.worker_mutex.unlock(io_mod.getIo());
+   605	        self.compaction_presentation.settle(id, feedback, io_mod.milliTimestamp());
+   606	    }
+   607	
+   608	    /// Cheap by-value read; does not clone permissions or allocate.
+   609	    pub fn compactionActivitySnapshot(self: *WorkerRuntime) compaction_activity.Snapshot {
+   610	        self.worker_mutex.lockUncancelable(io_mod.getIo());
+   611	        defer self.worker_mutex.unlock(io_mod.getIo());
+   612	        return self.compaction_presentation.snapshot;
+   613	    }
+   614	
+   615	    pub fn dismissCompactionActivity(self: *WorkerRuntime, id: compaction_activity.OperationId, revision: u64) bool {
+   616	        self.worker_mutex.lockUncancelable(io_mod.getIo());
+   617	        defer self.worker_mutex.unlock(io_mod.getIo());
+   618	        return self.compaction_presentation.dismiss(id, revision);
+   619	    }
+
+== src/core/agent/worker_runtime.zig:1002-1021@481104fd -- a queued compaction the cancel drops is settled cancelled by the worker
+  1002	    pub fn cancelContextCompaction(
+  1003	        self: *WorkerRuntime,
+  1004	        alloc: std.mem.Allocator,
+  1005	    ) bool {
+  1006	        self.worker_mutex.lockUncancelable(io_mod.getIo());
+  1007	        if (self.queued_context_compaction) |task| {
+  1008	            self.queued_context_compaction = null;
+  1009	            if (task.operation_id) |id| self.compaction_presentation.settle(id, .{ .outcome = .cancelled }, io_mod.milliTimestamp());
+  1010	            self.worker_cond.broadcast(io_mod.getIo());
+  1011	            self.worker_mutex.unlock(io_mod.getIo());
+  1012	            freeContextCompactionTask(alloc, task);
+  1013	            debug_trace.eventf(
+  1014	                "context_compaction",
+  1015	                "cancelled",
+  1016	                .{},
+  1017	                "phase=queued",
+  1018	                .{},
+  1019	            );
+  1020	            return true;
+  1021	        }
+
+== src/core/agent/worker_runtime.zig:1846-1850@481104fd -- the same on a queue discard
+  1846	        if (self.queued_context_compaction) |task| {
+  1847	            if (task.operation_id) |id| self.compaction_presentation.settle(id, .{ .outcome = .cancelled }, io_mod.milliTimestamp());
+  1848	            freeContextCompactionTask(alloc, task);
+  1849	            self.queued_context_compaction = null;
+  1850	        }
+
+== src/core/agent/worker_runtime.zig:2973-2999@481104fd -- test: settle after terminal leaves the snapshot as it was (:2987-2988)
+  2973	test "compaction activity survives worker finish without allocating a permission snapshot" {
+  2974	    var runtime: WorkerRuntime = .{};
+  2975	    defer runtime.deinit(std.testing.allocator);
+  2976	    try std.testing.expect(runtime.beginDirectProcessing(17));
+  2977	    const first = runtime.beginCompactionActivity(.automatic, 17);
+  2978	    runtime.runCompactionActivity(first, .publication);
+  2979	    runtime.requestInteractiveCancel();
+  2980	    try std.testing.expect(runtime.compactionActivitySnapshot().operation.?.phase == .stopping);
+  2981	    runtime.settleCompactionActivity(first, .{ .outcome = .succeeded, .stage = .publication, .publication = .committed });
+  2982	    runtime.finishProcessing();
+  2983	    try std.testing.expectEqual(@as(u64, 0), runtime.activeTurnId());
+  2984	    const terminal = runtime.compactionActivitySnapshot();
+  2985	    try std.testing.expectEqual(first, terminal.operation.?.id);
+  2986	    try std.testing.expectEqual(compaction_activity.Outcome.succeeded, terminal.operation.?.phase.terminal.outcome);
+  2987	    runtime.settleCompactionActivity(first, .{ .outcome = .cancelled });
+  2988	    try std.testing.expectEqualDeep(terminal, runtime.compactionActivitySnapshot());
+  2989	
+  2990	    const next = runtime.beginCompactionActivity(.manual, null);
+  2991	    const started = runtime.compactionActivitySnapshot();
+  2992	    runtime.rejectCompactionActivity(.busy);
+  2993	    try std.testing.expectEqualDeep(started, runtime.compactionActivitySnapshot());
+  2994	    try std.testing.expect(!runtime.dismissCompactionActivity(first, terminal.revision));
+  2995	    runtime.settleCompactionActivity(first, compaction_activity.failure(error.Aborted, .publication, true));
+  2996	    try std.testing.expectEqual(next, runtime.compactionActivitySnapshot().operation.?.id);
+  2997	    runtime.settleCompactionActivity(next, compaction_activity.failure(error.OutOfMemory, .preparation, false));
+  2998	    try std.testing.expectEqual(error.OutOfMemory, runtime.compactionActivitySnapshot().operation.?.phase.terminal.err.?);
+  2999	}
+
+== src/core/app/app_agent_runtime.zig:1026-1044@481104fd -- the running manual compaction: acknowledged settlement wins; cancel settles cancelled
+  1026	        pub fn processContextCompaction(
+  1027	            app: *App,
+  1028	            job: worker_runtime.ContextCompactionTask,
+  1029	            gateway_retry_count: usize,
+  1030	            failure_provenance: ?*?compaction_activity.ErrorProvenance,
+  1031	        ) anyerror!void {
+  1032	            if (failure_provenance) |out| out.* = null;
+  1033	            const operation_id = job.operation_id orelse app.worker.beginCompactionActivity(.manual, job.turn_id);
+  1034	            app.worker.runCompactionActivity(operation_id, .preparation);
+  1035	            // Covers early cancellation before compaction starts; acknowledged settlement wins.
+  1036	            defer if (app.worker.isCancelRequested()) {
+  1037	                app.worker.settleCompactionActivity(operation_id, .{ .outcome = .cancelled });
+  1038	            };
+  1039	            compactWithActivity(app, job, gateway_retry_count, operation_id) catch |err| {
+  1040	                app.worker.settleCompactionActivity(operation_id, compaction_activity.failure(err, .preparation, app.worker.isCancelRequested()));
+  1041	                if (failure_provenance) |out| out.* = .{ .operation_id = operation_id, .turn_id = job.turn_id, .err = err };
+  1042	                return err;
+  1043	            };
+  1044	        }
+
+== src/core/app/input_submit_runtime.zig:639-647@481104fd -- submit: the line dismisses the observed operation by id and revision
+   639	        pub fn submit(app: *App, max_prompt_history: usize) !void {
+   640	            if (comptime @hasField(App, "worker")) {
+   641	                if (comptime @hasDecl(@TypeOf(app.worker), "compactionActivitySnapshot")) {
+   642	                    const observed = app.worker.compactionActivitySnapshot();
+   643	                    if (observed.operation) |op| {
+   644	                        if (app.worker.dismissCompactionActivity(op.id, observed.revision)) app.shell.render_requests.request(.footer);
+   645	                    }
+   646	                }
+   647	            }
+
+== src/core/output/activity_status.zig:17-37@481104fd -- the row reads the snapshot: nothing for an op not visible
+    17	pub fn compactionProjection(
+    18	    buf: []u8,
+    19	    snapshot: compaction_activity.Snapshot,
+    20	    stream: StreamState,
+    21	    now_ms: i64,
+    22	) ActivityProjection {
+    23	    const op = snapshot.operation orelse return .none;
+    24	    if (!op.visible(now_ms)) return .none;
+    25	    const label: []const u8 = switch (op.phase) {
+    26	        .preparing => "• Preparing compaction",
+    27	        .running => |stage| if (stage == .preparation) "• Preparing compaction" else "• Compacting",
+    28	        .stopping => "• Stopping compaction",
+    29	        .terminal => |feedback| return .{ .turn_thinking = .{
+    30	            .label = compactionFeedbackLabel(feedback),
+    31	            .tone = switch (feedback.outcome) {
+    32	                .failed => .danger,
+    33	                .busy => .warning,
+    34	                .succeeded, .no_op, .cancelled => .neutral,
+    35	            },
+    36	        } },
+    37	    };
+
+== tests/e2e/tui-compaction-activity.test.ts:455-475@481104fd -- e2e: once dismissed, the pane stays without the sentence
+   455	  for (const trigger of ["auto", "ordinary"] as const) {
+   456	    test(`${trigger}: cancellation provenance preserves the correct transcript after reopen`, async () => {
+   457	      const f = await fixture(trigger);
+   458	      let passed = false;
+   459	      try {
+   460	        const terminal = await f.launch();
+   461	        await terminal.sendText("Cancel this held response.");
+   462	        await until(() => trigger === "auto" ? f.counts().summaries === 1 : f.counts().ordinary === 2, "held cancellation boundary");
+   463	        await terminal.waitForText(trigger === "auto" ? ACTIVITY : /Thinking \(/, 10_000);
+   464	        await terminal.sendInterruptEscapePair(10_000);
+   465	        if (trigger === "auto") {
+   466	          await terminal.waitForText("Compaction cancelled.", 10_000);
+   467	          // An empty composer already exists while feedback is visible. Wait
+   468	          // for Escape's visible acknowledgement, not a fixed sendKeys delay,
+   469	          // so the slash in /quit cannot become part of a Meta key sequence.
+   470	          terminal.sendKeysImmediate(["Escape"]);
+   471	        } else {
+   472	          await terminal.waitForText("Cancelled", 10_000);
+   473	        }
+   474	        await terminal.waitForPane((pane) => hasEmptyComposer(pane) &&
+   475	          !/Compaction cancelled|Compacting|Thinking/.test(pane), 5000);
+
+== src/core/app/input_interrupt_runtime.zig:57-65@481104fd -- Escape: the same dismissal, by id and revision
+    57	        pub fn dismissCompactionFeedback(app: *App) bool {
+    58	            if (comptime !@hasDecl(@TypeOf(app.worker), "compactionActivitySnapshot")) return false;
+    59	            const observed = app.worker.compactionActivitySnapshot();
+    60	            const op = observed.operation orelse return false;
+    61	            if (!op.visible(@import("../shared/io.zig").milliTimestamp())) return false;
+    62	            if (!app.worker.dismissCompactionActivity(op.id, observed.revision)) return false;
+    63	            app.shell.render_requests.request(.footer);
+    64	            return true;
+    65	        }
+
+== src/core/app/input_interrupt_runtime.zig:191-205@481104fd -- test: a dismissed sentence is not dismissed twice; active work is not cancelled
+   191	test "idle compaction feedback dismissal is scoped and never cancels active work" {
+   192	    const FakeApp = struct {
+   193	        worker: worker_runtime.WorkerRuntime = .{},
+   194	        shell: struct { render_requests: @import("../../ui/render_request.zig").RenderRequestState = .{} } = .{},
+   195	    };
+   196	    var app: FakeApp = .{};
+   197	    defer app.worker.deinit(std.testing.allocator);
+   198	    const id = app.worker.beginCompactionActivity(.manual, null);
+   199	    try std.testing.expect(!InterruptRuntime(FakeApp).dismissCompactionFeedback(&app));
+   200	    app.worker.settleCompactionActivity(id, .{ .outcome = .cancelled });
+   201	    try std.testing.expect(InterruptRuntime(FakeApp).dismissCompactionFeedback(&app));
+   202	    try std.testing.expect(app.shell.render_requests.hasReason(.footer));
+   203	    try std.testing.expect(!app.worker.isCancelRequested());
+   204	    try std.testing.expect(!InterruptRuntime(FakeApp).dismissCompactionFeedback(&app));
+   205	}
+
+== src/core/app/input_interrupt_runtime.zig:67-90@481104fd -- Ctrl-C over a compaction: cancelContextCompaction from the input thread (cited :77-90)
+    67	        pub fn cancelActiveOperation(app: *App) !void {
+    68	            if (comptime @hasField(App, "auth")) {
+    69	                if (comptime @hasDecl(@TypeOf(app.auth), "cancelProviderPreparation")) {
+    70	                    if (app.auth.cancelProviderPreparation()) {
+    71	                        if (comptime @hasDecl(App, "cancelPendingSubmission")) _ = App.cancelPendingSubmission(app);
+    72	                        app.shell.render_requests.request(.footer);
+    73	                        return;
+    74	                    }
+    75	                }
+    76	            }
+    77	            if (activeCancellationTarget(app) == .context_compaction) {
+    78	                if (comptime !@hasDecl(
+    79	                    @TypeOf(app.worker),
+    80	                    "cancelContextCompaction",
+    81	                )) return;
+    82	                const cancelled = app.worker.cancelContextCompaction(
+    83	                    std.heap.c_allocator,
+    84	                );
+    85	                if (!cancelled) return;
+    86	                app.pacer.clear(app.alloc);
+    87	                if (comptime @hasDecl(App, "playCancelSound")) app.playCancelSound();
+    88	                app.shell.render_requests.request(.footer);
+    89	                return;
+    90	            }
+
+== src/core/agent/worker_runtime.zig:1022-1035@481104fd -- a running compaction is only marked stopping (cited :1022-1024)
+  1022	        if (self.active_context_compaction) {
+  1023	            self.worker_cancel_requested.store(true, .seq_cst);
+  1024	            self.stopCompactionActivityLocked();
+  1025	            self.worker_cond.broadcast(io_mod.getIo());
+  1026	            self.worker_mutex.unlock(io_mod.getIo());
+  1027	            debug_trace.eventf(
+  1028	                "context_compaction",
+  1029	                "cancel_requested",
+  1030	                .{},
+  1031	                "phase=running",
+  1032	                .{},
+  1033	            );
+  1034	            return true;
+  1035	        }
+
+== src/core/app/input_submit_runtime.zig:140-161@481104fd -- request_context_compaction: no context first, then busy while the worker processes anything (cited :140-154, :149-153)
+   140	        pub fn request_context_compaction(app: *App) !void {
+   141	            if (app.submission.compaction_pending) return;
+   142	            const observed = app.worker.compactionActivitySnapshot();
+   143	            if (observed.operation) |op| if (op.active()) return;
+   144	            defer app.shell.render_requests.request(.footer);
+   145	            if (!app.hasContextToCompact()) {
+   146	                app.worker.rejectCompactionActivity(.no_op);
+   147	                return;
+   148	            }
+   149	            if (app.submission.pending != null or app.worker.isProcessing() or
+   150	                app.worker.queuedPromptCount() > 0 or app.worker.contextCompactionStatus() != .idle)
+   151	            {
+   152	                app.worker.rejectCompactionActivity(.busy);
+   153	                return;
+   154	            }
+   155	            app.submission.compaction_operation = app.worker.beginCompactionActivity(.manual, null);
+   156	            app.submission.compaction_pending = true;
+   157	            collect_context_compaction(app);
+   158	            if (app.submission.compaction_pending) {
+   159	                debug_trace.logf("input", "manual_compaction_auth_pending", .{});
+   160	            }
+   161	        }
+
+== src/core/session/session.zig:1597-1602@481104fd -- hasContextToCompact
+  1597	    pub fn hasContextToCompact(self: *const SessionRuntime) bool {
+  1598	        for (self.agent.history.items) |turn| {
+  1599	            if (turn != .compacted_summary) return true;
+  1600	        }
+  1601	        return false;
+  1602	    }
+
+== src/core/app/app_session_runtime.zig:1524-1554@481104fd -- /new: newSession -> resetSessionWithBackgroundPolicy, a pending transition while the worker processes (cited :1532-1554)
+  1524	        pub fn newSession(app: *App) !void {
+  1525	            try resetSessionWithBackgroundPolicy(app, .carry_forward);
+  1526	        }
+  1527	
+  1528	        pub fn resetSession(app: *App) !void {
+  1529	            try resetSessionWithBackgroundPolicy(app, .stop_forget);
+  1530	        }
+  1531	
+  1532	        fn resetSessionWithBackgroundPolicy(
+  1533	            app: *App,
+  1534	            background_policy: BackgroundSessionPolicy,
+  1535	        ) !void {
+  1536	            if (comptime @hasDecl(@TypeOf(app.worker), "holdSessionTransition")) {
+  1537	                app.worker.holdSessionTransition();
+  1538	            }
+  1539	            errdefer {
+  1540	                app.session_persistence.pending_live_session_wait = null;
+  1541	                releaseLiveSessionTransitionHold(app);
+  1542	            }
+  1543	            const previous_policy = app.session_persistence.pending_live_session_policy;
+  1544	            const processing = app.worker.isProcessing();
+  1545	            const decision = decideLiveSessionTransition(
+  1546	                runtime_profile.allows(App, .cooperative_agent),
+  1547	                processing,
+  1548	                previous_policy,
+  1549	                .{ .request = background_policy },
+  1550	            );
+  1551	            if (previous_policy == null) {
+  1552	                const now = operation_control.monotonicMillis(io_mod.getIo());
+  1553	                app.session_persistence.pending_live_session_wait = if (processing) .{ .worker = now } else .{ .geometry = now };
+  1554	            }
+
+== src/core/app/app_session_runtime.zig:1780-1816@481104fd -- the idle transition: retire the compaction, reset the session at once (cited :1788-1816)
+  1780	        fn retireLiveSessionCompaction(app: *App) void {
+  1781	            // Called after the worker is idle, before installing the next session.
+  1782	            const observed = app.worker.compactionActivitySnapshot();
+  1783	            if (observed.operation) |op| {
+  1784	                _ = app.worker.dismissCompactionActivity(op.id, observed.revision);
+  1785	            }
+  1786	        }
+  1787	
+  1788	        fn applyIdleLiveSessionTransition(
+  1789	            app: *App,
+  1790	            background_policy: BackgroundSessionPolicy,
+  1791	            preserve_scrollback: bool,
+  1792	        ) !void {
+  1793	            if (preserve_scrollback) {
+  1794	                if (comptime @hasField(App, "terminal")) {
+  1795	                    if (comptime @hasField(@TypeOf(app.terminal), "alternate_screen_owner")) {
+  1796	                        if (app.terminal.alternate_screen_owner != .none) return error.SessionScrollbackHandoffUnavailable;
+  1797	                    }
+  1798	                }
+  1799	                if (!freshSessionResizeReady(app)) return error.SessionScrollbackHandoffUnavailable;
+  1800	                try app.shell.commitVisibleTranscriptBeforeFreshSession(app.alloc, &app.metrics);
+  1801	                beginLiveSessionCancellation(app);
+  1802	            }
+  1803	            retireLiveSessionCompaction(app);
+  1804	            clearCachedSessionTitle(app);
+  1805	            app.worker.discardEvents(std.heap.c_allocator);
+  1806	
+  1807	            if (comptime @hasField(App, "subagents") and
+  1808	                @hasDecl(@TypeOf(app.subagents), "clearProjection"))
+  1809	            {
+  1810	                app.subagents.clearProjection(app.alloc);
+  1811	            }
+  1812	
+  1813	            closeWritableSession(app);
+  1814	            app.stopStream();
+  1815	            app.shell.clearTranscript(app.alloc);
+  1816	            app.session.reset(app.alloc);
+
+== src/core/output/activity_status.zig:43-67@481104fd -- compactionFeedbackLabel: the sentences
+    43	
+    44	fn compactionFeedbackLabel(feedback: compaction_activity.Feedback) []const u8 {
+    45	    if (feedback.publication == .uncertain)
+    46	        return "Compaction could not confirm saved context. Reopen the session before retrying.";
+    47	    if (feedback.publication == .committed)
+    48	        return "Compaction saved context, but could not finish. Reopen the session before retrying.";
+    49	    if (feedback.outcome == .failed) {
+    50	        if (feedback.err) |err| {
+    51	            switch (err) {
+    52	                error.CompactionAuthenticationRejected => return "Compaction was not started. Check authentication and try /compact again.",
+    53	                error.ContextCapacityExceeded => return "Context is too large to compact. Choose a model with a larger context window.",
+    54	                else => {},
+    55	            }
+    56	        }
+    57	    }
+    58	    return switch (feedback.outcome) {
+    59	        .succeeded => "",
+    60	        .no_op => "No context to compact.",
+    61	        .busy => "Wait for the active work to finish before compacting context.",
+    62	        .cancelled => "Compaction cancelled. Try /compact again when ready.",
+    63	        .failed => if (feedback.stage == .preparation)
+    64	            "Compaction was not started. Try /compact again."
+    65	        else
+    66	            "Compaction failed. Try /compact again.",
+    67	    };
+
+== src/ui/terminal/program_status.zig:80-96@481104fd -- noteCompaction: a manual compaction's result, once; cancelled is idle
+    80	    pub fn noteCompaction(self: *Reporter, snapshot: compaction_activity.Snapshot) void {
+    81	        const operation = snapshot.operation orelse return;
+    82	        if (operation.origin != .manual) return;
+    83	        const feedback = switch (operation.phase) {
+    84	            .terminal => |value| value,
+    85	            .preparing, .running, .stopping => return,
+    86	        };
+    87	        if (self.noted_compaction == operation.id) return;
+    88	        self.noted_compaction = operation.id;
+    89	        switch (feedback.outcome) {
+    90	            .succeeded => self.settle(.done),
+    91	            .failed => self.settle(.@"error"),
+    92	            .cancelled => self.settle(.idle),
+    93	            // Nothing ran, so there is no result to report.
+    94	            .no_op, .busy => {},
+    95	        }
+    96	    }
