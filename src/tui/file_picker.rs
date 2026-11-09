@@ -1347,6 +1347,19 @@ mod tests {
             browsed.rows(3, 40, 1, DARK),
             ["  \u{1b}[38;5;245mDirectory unavailable. tab to retry; e\u{1b}[0m"]
         );
+        // Round 5: a query that cannot be decoded -- a quoted path ending in
+        // a lone `\` -- is unavailable, and indexed as fx counts it
+        // (`reconcileFilePicker`: a decoding failure is indexed,
+        // `input_completion_runtime.zig:793-794@481104fd`), so it says
+        // `Files unavailable` (`app_render_runtime.zig:647-651`) and its
+        // episode's refresh walks the index.
+        let undecodable = FilePicker::open(query("@\"a\\").expect("a query"));
+        assert_eq!(undecodable.lookup(), None);
+        assert!(undecodable.indexed());
+        assert_eq!(
+            undecodable.rows(3, 60, 1, DARK),
+            ["  \u{1b}[38;5;245mFiles unavailable. tab to retry; esc to dismiss.\u{1b}[0m"]
+        );
     }
 
     #[test]
