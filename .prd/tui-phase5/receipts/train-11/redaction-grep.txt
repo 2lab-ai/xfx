@@ -1,4 +1,4 @@
-# redaction_grep.sh at b5795fae (the receipt's final form but this file and gates-files.txt; the commit that adds them is checked the same way in the hand-back)
+# redaction_grep.sh at 8056c326 (round 2: the receipt in its final form but this file; the commit that adds it is checked the same way in the hand-back). check-no-secrets at 8056c326: check-no-secrets: ok (18288 tracked file(s) scanned)
 4a0b900b 0  Merge SUBMIT-CARD-PREVIEW (feat/p5-submit-card-preview @ 0c203cd3) int
 0040fa59 0  Merge CATALOG-REFRESH (feat/p5-catalog-refresh @ 3ffbe0c7) into train 
 d2ed0274 0  Merge PASTE-GAP (fix/p5-paste-gap @ 5cc2e42c) into train 11
@@ -12,5 +12,7 @@ a51da9a2 0  docs(receipt): P5 train 11 -- the join tests' files, the selection, 
 6ed18ed9 0  docs(receipt): P5 train 11 -- repointed.py and overlap.py, which the m
 ab6f4e50 0  docs(receipt): P5 train 11 -- the gate, the jobs and join check 2's by
 b5795fae 0  docs(receipt): P5 train 11 -- the sweeps, their compares and reruns, a
-# range 32afd307..b5795fae: 0; the commits' sum: 0 (of them the last term alone: 0)
+0695c1c8 0  docs(receipt): P5 train 11 -- the file checks and the redaction check 
+8056c326 0  docs(receipt): P5 train 11 round 2 -- the sweep drop as the registered
+# range 32afd307..8056c326: 0; the commits' sum: 0 (of them the last term alone: 0)
 # files of this directory holding the pattern: 0
