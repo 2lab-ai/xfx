@@ -69,8 +69,8 @@ meet a loading index. xfx queued one more walk there, where fx skips.
   only then. Round 8 never counted it whole, so the first `@` skipped even
   then. Round 10 counts it whole at that poll, which leaves two residuals
   the other way: before fx's walk would have ended, and after one that
-  would have failed; `../round10/README.md`. Both ended when
-  AT-SCOPE-INTERIM lets the walk run on, as fx's does: both are gone (`../../at-scope-interim/README.md`).)
+  would have failed; `../round10/README.md`. Both ended with
+  AT-SCOPE-INTERIM, which lets the walk run on, as fx's does (`../../at-scope-interim/README.md`).)
 
 **RED:** `the_first_indexed_episode_skips_its_refresh_while_the_index_loads`.
 - An access change before any `@`, with the install's walk held in flight,
