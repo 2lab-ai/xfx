@@ -1,0 +1,101 @@
+# jobs-a at 2026-11-09T00:17:16Z, load 6.08
+## join checks 1, 2, 5 and 6: the named tests at 44c5d3e0
+# named-clone at 44c5d3e0
+lib: exit 0
+    test agent::machine::tests::a_turn_stopped_before_it_began_is_asked_and_stopped_and_measures_nothing ... ok
+    test agent::machine::tests::a_compaction_the_first_request_needed_that_failed_leaves_no_turn_and_a_stopped_one_does ... ok
+    test tui::event_loop::tests::a_delivery_past_the_32nd_read_goes_on_into_the_next_turn_unsettled ... ok
+    test tui::shell::tests::a_paste_with_input_behind_its_end_marker_reaches_the_answer_and_answers_nothing ... ok
+    test tui::shell::tests::catalog_asks_around_a_stop_leave_its_count_and_the_next_start_its_own ... ok
+    test tui::event_loop::tests::a_catalog_answer_read_in_a_stops_window_reaches_the_band_and_leaves_the_stop_as_it_was ... ok
+    test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+    test tui::event_loop::tests::a_groups_long_rows_stay_what_their_text_lays_through_scrolls_themes_and_a_resize ... ok
+    test tui::event_loop::tests::a_stops_held_rows_over_a_groups_long_rows_are_written_as_their_text_lays ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+    test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 4550 filtered out; finished in 26.38s
+tui: exit 0
+    test a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing ... ok
+    test an_enter_one_read_behind_a_paste_s_end_marker_is_behind_it_too ... ok
+    test a_paste_with_enter_behind_its_marker_on_page_ten_of_twenty_is_kept_and_answers_nothing ... ok
+    test the_request_after_a_cancelled_question_answers_it_aborted_as_upstreams_does ... ok
+    test twenty_questions_are_one_panel_and_their_answers_reach_the_next_request_in_order ... ok
+    test six_questions_open_the_panel_and_twenty_one_or_none_are_refused_in_upstreams_words ... ok
+    test a_stop_at_a_twenty_question_panel_is_one_cancelled_row_and_the_next_turn_carries_its_prompt ... ok
+    test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 179 filtered out; finished in 2.61s
+## join check 2 on each side alone
+## stop-in-catalog-wait 05a0a857, lib, the tests unchanged: build exit 0, 0 errors
+## stop-in-catalog-wait 05a0a857, tui, the tests unchanged: build exit 101, 2 errors
+    error[E0425]: cannot find function `question_batch` in this scope
+         --> tests/tui.rs:14530:55
+    error[E0425]: cannot find function `tool_output` in this scope
+         --> tests/tui.rs:14598:13
+    copied in from the head: tests/tui.rs: fn question_batch(, fn tool_output(
+## stop-in-catalog-wait, the worker test: exit 101; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4538 filtered out; finished in 3.16s
+    ---- tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop stdout ----
+    
+    thread 'tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop' (369715578) panicked at src/tui/worker.rs:18165:9:
+    assertion `left == right` failed: each: whether stopped, the batches the band was shown (their sizes), the turn's end, whether it came when it should (with the stop: 300 ms to 1 s; without it: past 1.2 s), the model's requests, what the log says of the turn
+      left: [(true, [], [Some("the turn was cancelled")], true, 0, ["asked first", "1 image(s)", "interrupted cancelled"]), (false, [], [None], true, 2, ["asked first", "1 image(s)", "final stop"])]
+     right: [(true, [], [Some("the turn was cancelled")], true, 0, ["asked first", "1 image(s)", "interrupted cancelled"]), (false, [20], [None], true, 2, ["asked first", "1 image(s)", "final stop"])]
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    
+    
+    error: test failed, to rerun pass `--lib`
+## stop-in-catalog-wait, the panel test: exit 101; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 181 filtered out; finished in 20.95s
+    ---- a_stop_at_a_twenty_question_panel_is_one_cancelled_row_and_the_next_turn_carries_its_prompt stdout ----
+    
+    thread 'a_stop_at_a_twenty_question_panel_is_one_cancelled_row_and_the_next_turn_carries_its_prompt' (369717763) panicked at tests/support/pty.rs:367:13:
+    timed out waiting for ["Pick 1?", "Question 1 of 20"] on the screen, [] off it; terminal so far:
+    [>4;2m[>1u[?2004h[?7l[?2031h[22;2t]11;?\[?996n[6n]2;xfx v0.1.0 | workspace]7501;state=idle:app=xfx\[?2026h[?25l[1;1H[1;38;5;255mx𝒇x[0m[38;5;245m v0.1.0-05a0a85 [38;5;255m[debug][38;5;245m · Run /help for commands[0m[K[2;1H[K[2;1H[K[3;1H[K[3;1H[38;5;255m┃[0m [1mask twenty[0m[K[4;1H[K[4;1H[K[5;1H[J[5;1H[38;5;252m• Thinking (0s)[0m[38;5;245m (↑3 ↓0)[7;1H[0m[38;5;255m┃[0m [9;1H[38;5;252mauto[0m[38;5;245m · glm-5.2[0m[7;3H[?2026l[?25h]7501;state=working:app=xfx\[?2026h[?25l[5;3H[38;5;252mGenerating (0s)[0m[38;5;245m (↑3 ↓5)[0m[7;3H[?2026l[?25h]7501;state=done:app=xfx\]2;ask twenty[?2026h[?25l[5;1H[K[5;1H  MARKER-NEXT[K[6;1H[K[6;1H[K[7;1H[K[7;1H[38;5;245m  0s (↑3 ↓5)[0m[K[8;1H[K[8;1H[K[9;1H[38;5;255m┃[0m [K[11;1H[38;5;252mauto[0m[38;5;245m · glm-5.2[0m[9;3H[?2026l[?25h
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    
+    
+    error: test failed, to rerun pass `--test tui`
+## questions-20 3824f6ba, lib, the tests unchanged: build exit 101, 1 errors
+    error[E0425]: cannot find function `turns_logged` in this scope
+         --> src/tui/worker.rs:17741:17
+## questions-20 3824f6ba, tui, the tests unchanged: build exit 0, 0 errors
+    copied in from the head: src/tui/worker.rs: fn turns_logged(
+## questions-20, the worker test: exit 101; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4541 filtered out; finished in 3.18s
+    ---- tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop stdout ----
+    
+    thread 'tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop' (369804802) panicked at src/tui/worker.rs:17751:9:
+    assertion `left == right` failed: each: whether stopped, the batches the band was shown (their sizes), the turn's end, whether it came when it should (with the stop: 300 ms to 1 s; without it: past 1.2 s), the model's requests, what the log says of the turn
+      left: [(true, [], [Some("the turn was cancelled")], true, 0, []), (false, [20], [None], true, 2, ["asked first", "1 image(s)", "final stop"])]
+     right: [(true, [], [Some("the turn was cancelled")], true, 0, ["asked first", "1 image(s)", "interrupted cancelled"]), (false, [20], [None], true, 2, ["asked first", "1 image(s)", "final stop"])]
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    
+    
+    error: test failed, to rerun pass `--lib`
+## questions-20, the panel test: exit 0; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 183 filtered out; finished in 2.24s
+## join check 5 on each side alone
+## paste-after-end a832f4d7, the test unchanged: build exit 101, 2 errors
+    error[E0425]: cannot find function `question_batch` in this scope
+         --> tests/tui.rs:14582:51
+    error[E0425]: cannot find function `tool_output` in this scope
+         --> tests/tui.rs:14629:18
+    copied in from the head: tests/tui.rs: fn question_batch(, fn tool_output(
+## paste-after-end, the paste test: exit 101; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 182 filtered out; finished in 21.14s
+    ---- a_paste_with_enter_behind_its_marker_on_page_ten_of_twenty_is_kept_and_answers_nothing stdout ----
+    
+    thread 'a_paste_with_enter_behind_its_marker_on_page_ten_of_twenty_is_kept_and_answers_nothing' (369857805) panicked at tests/support/pty.rs:367:13:
+    timed out waiting for ["Pick 1?", "Question 1 of 20"] on the screen, [] off it; terminal so far:
+    [>4;2m[>1u[?2004h[?7l[?2031h[22;2t]11;?\[?996n[6n]2;xfx v0.1.0 | workspace]7501;state=idle:app=xfx\[?2026h[?25l[1;1H[1;38;5;255mx𝒇x[0m[38;5;245m v0.1.0-a832f4d [38;5;255m[debug][38;5;245m · Run /help for commands[0m[K[2;1H[K[2;1H[K[3;1H[K[3;1H[38;5;255m┃[0m [1mask twenty[0m[K[4;1H[K[4;1H[K[5;1H[J[5;1H[38;5;252m• Thinking (0s)[0m[38;5;245m (↑3 ↓0)[7;1H[0m[38;5;255m┃[0m [9;1H[38;5;252mauto[0m[38;5;245m · glm-5.2[0m[7;3H[?2026l[?25h]7501;state=working:app=xfx\[?2026h[?25l[5;3H[38;5;252mGenerating (0s)[0m[38;5;245m (↑3 ↓5)[0m[7;3H[?2026l[?25h]7501;state=done:app=xfx\]2;ask twenty[?2026h[?25l[5;1H[K[5;1H  MARKER-TWENTY[K[6;1H[K[6;1H[K[7;1H[K[7;1H[38;5;245m  0s (↑3 ↓5)[0m[K[8;1H[K[8;1H[K[9;1H[38;5;255m┃[0m [K[11;1H[38;5;252mauto[0m[38;5;245m · glm-5.2[0m[9;3H[?2026l[?25h
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    
+    
+    error: test failed, to rerun pass `--test tui`
+## questions-20 3824f6ba, the test unchanged: build exit 0, 0 errors
+## questions-20, the paste test: exit 101; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 183 filtered out; finished in 21.98s
+    ---- a_paste_with_enter_behind_its_marker_on_page_ten_of_twenty_is_kept_and_answers_nothing stdout ----
+    
+    thread 'a_paste_with_enter_behind_its_marker_on_page_ten_of_twenty_is_kept_and_answers_nothing' (369903771) panicked at tests/support/pty.rs:367:13:
+    timed out waiting for ["! input: Input that arrived right after the paste was ignored.", "3) keepnew", "Pick 10?", "Question 10 of 20"] on the screen, ["Pick 11?", "Paste was not applied"] off it; terminal so far:
+    [>4;2m[>1u[?2004h[?7l[?2031h[22;2t]11;?\[?996n[6n]2;xfx v0.1.0 | workspace]7501;state=idle:app=xfx\[?2026h[?25l[1;1H[1;38;5;255mx𝒇x[0m[38;5;245m v0.1.0-3824f6b [38;5;255m[debug][38;5;245m · Run /help for commands[0m[K[2;1H[K[2;1H[K[3;1H[K[3;1H[38;5;255m┃[0m [1mask twenty[0m[K[4;1H[K[4;1H[K[5;1H[J[5;1H[38;5;252m• Thinking (0s)[0m[38;5;245m (↑3 ↓0)[7;1H[0m[38;5;255m┃[0m [9;1H[38;5;252mauto[0m[38;5;245m · glm-5.2[0m[7;3H[?2026l[?25h]7501;state=working:app=xfx\]7501;state=blocked:kind=question:app=xfx:msg=UGljayAxPw==\[?2026h[?25l[5;1H[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[6;1H[0m  [1mPick 1?[7;1H[0m[K[8;1H[1m[38;5;255m    1) Keep 1[0m                        [38;5;245mLeave it as it is.[9;1H    2) Change 1[0m                      [38;5;245mApply the change.[10;1H    3) Other[12;1H[0m[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[13;1H[0m[38;5;245m1–3 choose now    ↑↓ options    tab questions    enter answer    esc cancel                             Question 1 of 20[0m[8;1H[?2026l[?25h[?2026h[?25l[6;9H[1m0?[8;14H[0m[1m[38;5;255m0[9;16H[0m[38;5;245m0[13;104HQuestion 10[0m[8;1H[?2026l[?25h]7501;state=blocked:kind=question:app=xfx:msg=UGljayAxMD8=\[?2026h[?25l[8;1H[38;5;245m    1) Keep 10[10;1H[0m[1m[38;5;255m    3) keep[0m[7m [13;1H[0m[38;5;245mtype answer    ↑↓←→ cursor    shift+↑↓ options    tab questions    enter answer    esc cancel[0m[10;12H[?2026l[?25h[?2026h[?25l[5;1H[K[5;1H[38;5;252m✗ [0m[38;5;252minput:[0m[38;5;250m Paste was not applied because extra input followed its end marker.[0m[K[6;1H[K[6;1H[K[7;1H[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[8;1H[0m  [1mPick 10?[0m[K[9;1H[K[10;1H[38;5;245m    1) Keep 10[0m                       [38;5;245mLeave it as it is.[11;1H    2) Change 10[0m                     [38;5;245mApply the change.[12;1H[0m[1m[38;5;255m    3) keep[0m[7m [0m[K[13;1H[K[14;1H[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[15;1H[0m[38;5;245mtype answer    ↑↓←→ cursor    shift+↑↓ options    tab questions    enter answer    esc cancel          Question 10 of 20[0m[12;12H[?2026l[?25h
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    
+    
+    error: test failed, to rerun pass `--test tui`
+# jobs-a done at 2026-11-09T00:24:29Z
+jobs-a exit 0

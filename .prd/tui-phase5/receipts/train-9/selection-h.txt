@@ -1,0 +1,17 @@
+# Train 9's sweep of merge 4 (HISTORY-NOTICE-STOP): its own sweep's selection
+# (the 38 stop and history scenarios: every scenario that presses Ctrl-C to
+# stop a turn, every provider* -- its provider-carry-back-stop included --
+# and resume*, undo-resume, and the two p5-lifecycle resumes), its twelve
+# globs as its sweep ran them.
+interrupt*
+p5-stop-in-catalog-wait
+p5-lifecycle-osc-stopnext
+p5-lifecycle-osc-interrupt*
+p5-toolstop-*
+provider*
+resume*
+undo-resume
+permissions-midturn
+p5-effort-fork-effort-ctrlc
+p5-lifecycle-v1resume
+p5-lifecycle-relhome-resume

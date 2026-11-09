@@ -1,0 +1,7 @@
+| family | head | main | unit-paste-after-end |
+|---|---|---|---|
+| the paste scenarios (p5-input-paste*, paste-*, *-paste) | 29 / 36 | 17 / 22 | 29 / 36 |
+| the question scenarios (p5-input-question*, question*) | 44 / 46 | 29 / 32 | 29 / 32 |
+| p5-input-question20, -21 | 12 / 14 | - | - |
+| the approvals (approvals*, p5-input-approval) | 2 / 21 | 2 / 21 | 2 / 21 |
+| every scenario swept | 215 / 267 | 188 / 239 | 200 / 253 |

@@ -12,8 +12,7 @@ merges=("$@")
 here=$(cd "$(dirname "$0")" && pwd)
 rd() { python3 -I -B "$here/redacted.py" "$1" "$repo=<repo>"; }
 JOINS=${JOINS:-b9409b36}
-SIDES=(main=ccced1f5 stop-in-catalog-wait=05a0a857 questions-20=3824f6ba paste-after-end=a832f4d7)
-[ -n "${HNS:-}" ] && SIDES+=("history-notice-stop=$HNS")
+SIDES=(main=ccced1f5 stop-in-catalog-wait=05a0a857 questions-20=3824f6ba paste-after-end=a832f4d7 history-notice-stop=62d96c98)
 {
   echo "# token_check.py (train 7's, unchanged: $(cmp -s "$here/token_check.py" "$here/../train-7/token_check.py" && echo 'byte for byte the same file' || echo 'DIFFERENT from train 7s')) over the merges"
   python3 -I -B "$here/token_check.py" "$repo" "${merges[@]}"; echo "# exit $?"
@@ -34,4 +33,5 @@ python3 -I -B "$here/refs.py" "$repo" "$head" "${SIDES[@]}" | rd "$here/refs-hea
 python3 -I -B "$here/repointed.py" "$repo" "$head" | rd "$here/repointed.txt"
 python3 -I -B "$here/stale.py" "$repo" "$head" | rd "$here/stale.txt"
 python3 -I -B "$here/invariant.py" "$repo" a832f4d7 "$head" | rd "$here/invariant.txt"
+python3 -I -B "$here/shared.py" "$repo" "$head" "${SIDES[@]}" | rd "$here/shared.txt"
 python3 -I -B "$here/overlap.py" "$repo" "${merges[@]}" | rd "$here/overlap.txt"

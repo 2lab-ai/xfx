@@ -1,0 +1,30 @@
+# jobs-b at 2026-11-09T01:08:22Z, load 5.75
+# mut-clone at 44c5d3e0
+# 44c5d3e0 docs(receipt): P5 train 9 -- merge 3's scripts (re-points, invariant, p; limit 600 s a cargo run
+unchanged: exit 0; join-wait ok; stop-unit ok; join-panel ok; q20-unit ok; join-paste ok; paste-unit ok
+Q1 the cap back to 4 (QUESTIONS-20's M1): KILLED; join-wait FAILED; stop-unit ok; join-panel FAILED; q20-unit FAILED; join-paste FAILED; paste-unit ok
+    join-wait said: assertion `left == right` failed: each: whether stopped, the batches the band was shown (their sizes), the turn's end, whether it came when it should (with the stop: 300 ms to 1 s; without it: past 1.2 s), the model's re
+    join-panel said: timed out waiting for ["Pick 1?", "Question 1 of 20"] on the screen, [] off it; terminal so far: / [>4;2m[>1u[?2004h[?7l[?2031h[22;2t]11;?\[?996n[6n]2;xfx v0.1.0 | workspace]7501;state=idle:app=xfx\[?2026h
+    q20-unit said: timed out waiting for ["Pick 1?", "Question 1 of 20"] on the screen, [] off it; terminal so far: / [>4;2m[>1u[?2004h[?7l[?2031h[22;2t]11;?\[?996n[6n]2;xfx v0.1.0 | workspace]7501;state=idle:app=xfx\[?2026h
+    join-paste said: timed out waiting for ["Pick 1?", "Question 1 of 20"] on the screen, [] off it; terminal so far: / [>4;2m[>1u[?2004h[?7l[?2031h[22;2t]11;?\[?996n[6n]2;xfx v0.1.0 | workspace]7501;state=idle:app=xfx\[?2026h
+S1 a prompt's images do not wait for the first load (STOP-IN-CATALOG-WAIT's prompt-images-first-load-not-waited): KILLED; join-wait FAILED; stop-unit FAILED; join-panel ok; q20-unit ok; join-paste ok; paste-unit ok
+    join-wait said: assertion `left == right` failed: each: whether stopped, the batches the band was shown (their sizes), the turn's end, whether it came when it should (with the stop: 300 ms to 1 s; without it: past 1.2 s), the model's re
+    stop-unit said: assertion `left == right` failed: each: the starts, both turns' ends, whether the first came when it should (with the stop: 300 ms to 1 s; without it: past 1.2 s), what the log says of the turns / left: [(UltraRetry, tru
+S2 the image refusal asked of a stopped turn (STOP-IN-CATALOG-WAIT's image-refusal-asked-when-stopped): KILLED; join-wait FAILED; stop-unit FAILED; join-panel ok; q20-unit ok; join-paste ok; paste-unit ok
+    join-wait said: assertion `left == right` failed: each: whether stopped, the batches the band was shown (their sizes), the turn's end, whether it came when it should (with the stop: 300 ms to 1 s; without it: past 1.2 s), the model's re
+    stop-unit said: assertion `left == right` failed: each: the starts, both turns' ends, whether the first came when it should (with the stop: 300 ms to 1 s; without it: past 1.2 s), what the log says of the turns / left: [(UltraRetry, tru
+S3 the machine measures a stopped turn's compaction (STOP-IN-CATALOG-WAIT's no-machine-guard): SURVIVED; join-wait ok; stop-unit ok; join-panel ok; q20-unit ok; join-paste ok; paste-unit ok
+S4 a stop outlives its turn (STOP-IN-CATALOG-WAIT's stop-leaks-to-next-turn): KILLED; join-wait ok; stop-unit FAILED; join-panel FAILED; q20-unit ok; join-paste ok; paste-unit ok
+    stop-unit said: assertion `left == right` failed: PromptImageFirstLoad: the second turn's end, with the stop and without it / left: Some(Some("the turn was cancelled")) / right: Some(None)
+    join-panel said: timed out waiting for "MARKER-NEXT" on the terminal; terminal so far: / [>4;2m[>1u[?2004h[?7l[?2031h[22;2t]11;?\[?996n[6n]2;xfx v0.1.0 | workspace]7501;state=idle:app=xfx\[?2026h[?25l[1;1H[1;38;5;255mx𝒇
+P1 a stop at the panel answers the batch declined, not aborted: KILLED; join-wait ok; stop-unit ok; join-panel FAILED; q20-unit ok; join-paste ok; paste-unit ok
+    join-panel said: assertion `left == right` failed: Ctrl-C: { / "prompt": [ / {
+X1 the bytes behind the marker are decoded: a trailing CR submits (PASTE-AFTER-END's mutant 1): KILLED; join-wait ok; stop-unit ok; join-panel ok; q20-unit ok; join-paste FAILED; paste-unit FAILED
+    join-paste said: timed out waiting for ["! input: Input that arrived right after the paste was ignored.", "3) keepnew", "Pick 10?", "Question 10 of 20"] on the screen, ["Pick 11?", "Paste was not applied"] off it; terminal so far: / [>4
+    paste-unit said: timed out waiting for ["! input: Input that arrived right after the paste was ignored.", "┃ priornew"] on the screen, ["Paste was not applied"] off it; terminal so far: / [>4;2m[>1u[?2004h[?7l[?2031h[22;2t]11;?\
+X6 no warning (PASTE-AFTER-END's mutant 6): KILLED; join-wait ok; stop-unit ok; join-panel ok; q20-unit ok; join-paste FAILED; paste-unit FAILED
+    join-paste said: timed out waiting for ["! input: Input that arrived right after the paste was ignored.", "3) keepnew", "Pick 10?", "Question 10 of 20"] on the screen, ["Pick 11?", "Paste was not applied"] off it; terminal so far: / [>4
+    paste-unit said: timed out waiting for ["! input: Input that arrived right after the paste was ignored.", "┃ priornew"] on the screen, ["Paste was not applied"] off it; terminal so far: / [>4;2m[>1u[?2004h[?7l[?2031h[22;2t]11;?\
+# 7 of 8 killed; clone clean after: True
+# jobs-b done at 2026-11-09T01:16:28Z, load 6.71
+jobs-b exit 0
