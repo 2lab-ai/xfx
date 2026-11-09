@@ -18,3 +18,7 @@
 - llmux: a body cut short is no document (src/provider/model.rs): killed by a_llmux_catalog_of_1_mib_is_read_and_one_cut_short_is_no_answer
 4 of 4 killed
 # Together: 9 of 9 killed by a named test.
+# Renamed after round 2's review: "fakegw: a catalog past its padding served as it is" (run 1, above)
+# is "fakegw: no request-time size check (the fill then throws, a generic 500 with no refused line)" in
+# mutants.py: `" ".repeat(negative)` throws, so the request ends in fakegw's generic 500 and the test
+# fails waiting for the refused line, not at its status assert.

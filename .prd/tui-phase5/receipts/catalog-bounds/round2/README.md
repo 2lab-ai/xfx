@@ -79,7 +79,10 @@ directory, each under `../bounded.py` (300 s, 3 GiB). Four on the llmux
 mapping (no document as unavailable, too large or not UTF-8 as no answer, a
 cut-short body as no document) and five on fakegw (no padding bound, no stall
 bound, a padding that is not a whole number, no start-up size check, a catalog
-past its padding served). All nine killed by a named test. The first run built
+past its padding not refused by fakegw's own request-time check -- the fill
+then throws, the request becomes fakegw's generic 500, and the test dies at
+waiting for the `refused` line, not at the status). All nine killed by a
+named test. The first run built
 the crate inside the watchdog, which killed the four Rust builds -- not
 counted; `mutants.py` (as committed) builds outside it and counts only a named
 failing test, and its rerun of those four killed each (`mutants.txt` has both

@@ -38,7 +38,7 @@ MUTANTS = [
      "/^([0-9]{1,8}) (head|tail)$/", "/^([0-9.e-]{1,8}) (head|tail)$/"),
     ("fakegw: no start-up check of the catalog's size", FAKEGW, HARNESS,
      "Bun.file(process.env.FAKEGW_MODELS).size > modelsPad.size) {", "false) {"),
-    ("fakegw: a catalog past its padding served as it is", FAKEGW, HARNESS,
+    ("fakegw: no request-time size check (the fill then throws, a generic 500 with no refused line)", FAKEGW, HARNESS,
      "    if (bytes.length > pad.size) {", "    if (false) {"),
 ]
 

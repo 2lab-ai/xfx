@@ -30,9 +30,13 @@ The xfx captures here are from the binary built at `c9ebc953` (row 1:
 `x𝒇x v0.1.0-c9ebc95 [debug]`, sha256 `0d36907bd7ad…`, `sweep-head.md`); the
 base's from `ccced1f5` (`v0.1.0-ccced1f`, `e6d36b282f0a…`, `sweep-base.md`);
 fx is the v0.0.16 release binary, sha256 `8e6cda2e…`, checked by the sweep
-before and after each run. The commits after `c9ebc953` change no source
-outside tests: a parity sentence, a test's margin (`4b586b42`), the stall
-scenario's wait and a mutant (`6dda7f8a`), and this folder.
+before and after each run. In round 1 the commits after `c9ebc953` change no
+source outside tests: a parity sentence, a test's margin (`4b586b42`), the
+stall scenario's wait and a mutant (`6dda7f8a`), and this folder. Round 2's
+`1c74f828` does change source -- `src/provider/model.rs` and
+`src/llmux/setup.rs`, the llmux catalog's failure mapping
+(`round2/README.md`, item 3) -- and the captures stay valid: every scenario
+here runs on the Gateway, and none reaches llmux.
 
 ## What fx v0.0.16 does (`fx-cites.txt`, every line quoted)
 
@@ -70,7 +74,7 @@ mcp and llmux-turn readers are streams and error quotes, not JSON answers).
 | xfx | fx counterpart @481104fd | bounds before -> after | what each failure says |
 |---|---|---|---|
 | **Gateway catalog**, `GatewayCatalog::fetch` (`src/provider/model.rs`); the only Gateway catalog GET -- `catalog_for` -> the model selector, so the launch's load, `/model`, its inline column and `/model <q>` lookups all ask through it | `fetchModelCatalogResponse` -> `fetchGatewayJsonCancellable`, behind the refresh (`model_catalog_provider`, `gateway.zig:2344`), `fx models` (`fetchCliModelCatalog`, `:1035`) and the one-shots (`fetchModelIds[Cancellable]`, `session_commands.zig:1287`, `main.zig:1997`) -- **same constants** | 30 s total, 10 s connect, **1 MiB cut to fit** -> 30 s total, 10 s connect, **16 MiB refused past it** | timeout (connect, head, mid-body) -> `Could not reach AI Gateway; xfx retries automatically.`; past 16 MiB -> `Unable to load models.`; a read that stops partway, or bytes not UTF-8 -> `Unable to load models.`; no answer at all -> the retry sentence (MODELS-REASK's, wider than fx's three, `docs/parity.md` `/model`) |
-| **llmux catalog**, `fetch_catalog` / `fetch_loopback_bounded`, and `xfx setup llmux`'s two probes | none: fx has no llmux | 3 s connect, 5 s total, **1 MiB cut to fit** -> the same numbers, **refused past them** | round 1: every failure `catalog is unavailable: ...; check the daemon is running`; from round 2, past 1 MiB or not UTF-8 `catalog is malformed: ...; check the daemon is an llmux version ...`, and only no whole answer unavailable; the menu `Unable to load models.` as before |
+| **llmux catalog**, `fetch_catalog` / `fetch_loopback_bounded`, and `xfx setup llmux`'s two probes | none: fx has no llmux | 3 s connect, 5 s total, **1 MiB cut to fit** -> the same numbers, **refused past them** | round 1: every failure `catalog is unavailable: ...; check the daemon is running`; from round 2, past 1 MiB or not UTF-8 `catalog is malformed: ...; check the daemon is an llmux version ...`, and only no whole answer (no connection, a failed status such as 404 or 503, a body cut short) unavailable; the menu `Unable to load models.` as before |
 | **`/credits`**, `credits::ask_at` | `fetchGatewayGetResult` (`client.zig:438-471`): no deadline, no cap -- **not the same constants** | 64 KiB cut to fit -> 64 KiB refused past it (a refusal's body still only quoted) | past it `invalid JSON response from gateway`; cut short `failed to fetch credits from gateway` (fx's, `gateway.zig:813-815`) |
 | **usage report**, `usage::report::get` | `fetchUsageGet` (`client.zig:284-309`): `usage_request_timeout_ms`, `usage_response_max_bytes` -- its own constants | unchanged (it already refused past its cap); its private reader is now the shared `read_capped` | unchanged: `TOO_LARGE`, `CUT_SHORT` |
 
