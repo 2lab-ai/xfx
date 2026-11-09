@@ -9589,11 +9589,11 @@ fn a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_be
     // The other way, and the one part that does not translate: Anthropic's
     // signed `thinking` blocks. Upstream sends a message's replay state only
     // to the provider that produced it and the rest of the message as it is
-    // (`projectProviderReplay`, `types.zig:1548-1563`, called by every
-    // encoder -- `builtins/gateway.zig:178@481104fd`): here the Gateway gets
-    // the call and the answer, and no thinking. Upstream drops it without a
-    // word (`types.zig:1668-1682@481104fd`; a debug trace, `gateway.zig:180`),
-    // and so does xfx: no turn after the switch says anything about it.
+    // (`projectProviderReplay`, `types.zig:1668-1682@481104fd`, called by
+    // every encoder -- `builtins/gateway.zig:178`): here the Gateway gets the
+    // call and the answer, and no thinking. Upstream drops it without a word
+    // (a debug trace, `gateway.zig:180`), and so does xfx: no turn after the
+    // switch says anything about it.
     let daemon = support::fake_llmux::FakeLlmux::start(vec![
         support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_thinking_then_tool(
             "SECRET-THOUGHT",
@@ -9727,9 +9727,9 @@ fn after_a_switch_the_context_meter_keeps_the_tokens_against_the_new_providers_w
 #[test]
 fn after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent() {
     // fx's replay goes back only to the provider **and the model** that
-    // sealed it (`ProviderReplay.matches`, `vercel-labs/fx@c1db9191
-    // src/core/shared/types.zig:1512-1515`); a step it does not match is sent
-    // as its text and calls (`projectProviderReplay`, `:1548-1563`). A daemon
+    // sealed it (`ProviderReplay.matches`, `vercel-labs/fx@481104fd
+    // src/core/shared/types.zig:1609-1611`); a step it does not match is sent
+    // as its text and calls (`projectProviderReplay`, `:1668-1682`). A daemon
     // asked by one model to verify a signature another made can refuse the
     // request, so the request after `/model claude-fable-5[1m]` carries the
     // first turn's call and answer and none of `m-1`'s thinking -- and, as
@@ -9897,7 +9897,7 @@ fn a_session_that_switched_provider_resumes_on_the_provider_it_recorded_whatever
     // resumed turn goes to llmux, in the model llmux was asked in, carrying
     // both turns -- the Gateway's as text, llmux's own blocks verbatim with
     // their signature, since this provider and model sealed them
-    // (`ProviderReplay.matches`, `types.zig:1512-1515`). Red before: it went
+    // (`ProviderReplay.matches`, `types.zig:1609-1611@481104fd`). Red before: it went
     // to the Gateway, in `zai/glm-5.2`.
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
         support::fake_gateway::content_only(&["MARKER-GATEWAY-FIRST"]),

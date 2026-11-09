@@ -50,9 +50,9 @@ pub enum Wire {
     /// A wire a later binary recorded and this one does not know.
     ///
     /// Kept verbatim rather than collapsed: it never equals an active wire, so
-    /// it always drops with a notice, and it is written back unchanged so a
-    /// binary that *does* know it can still replay the state after this one has
-    /// read the record.
+    /// it always drops (without a word, as upstream's replay does), and it is
+    /// written back unchanged so a binary that *does* know it can still replay
+    /// the state after this one has read the record.
     Unrecognized(String),
 }
 

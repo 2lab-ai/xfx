@@ -434,9 +434,9 @@ fn a_switched_session_goes_to_the_gateway_without_the_thinking_llmux_sealed() {
 #[test]
 fn a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls() {
     // Upstream's replay goes back only to the provider **and the model** that
-    // sealed it (`ProviderReplay.matches`, `types.zig:1512-1515`); a step
-    // whose state does not match is sent as its text and its calls
-    // (`projectProviderReplay`, `:1548-1563`). The same session on the same
+    // sealed it (`ProviderReplay.matches`, `types.zig:1609-1611@481104fd`); a
+    // step whose state does not match is sent as its text and its calls
+    // (`projectProviderReplay`, `:1668-1682`). The same session on the same
     // wire, asked by another model: no block `fable` signed reaches `opus`,
     // and what `fable` said and called still does.
     let replay = switched_session().history_messages(Wire::AnthropicMessages, "opus");

@@ -2847,7 +2847,7 @@ impl Runtime {
     /// safe because the history is never one wire's bytes: it is rebuilt from
     /// the log for every request ([`crate::session::DurableState::history_messages`]),
     /// a step's replay state goes only to the wire that sealed it -- upstream's
-    /// `projectProviderReplay`, `types.zig:1548-1563` -- and a call id the new
+    /// `projectProviderReplay`, `types.zig:1668-1682@481104fd` -- and a call id the new
     /// wire cannot take goes under a portable alias
     /// ([`crate::gateway::tool_call_ids`]). The switch itself is written into
     /// the log, provider and model both, as upstream's patch writes them
