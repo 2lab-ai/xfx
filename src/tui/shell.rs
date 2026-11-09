@@ -35812,6 +35812,12 @@ mod tests {
     /// or, with `None`, still running at the `@` and ended whole after it.
     /// The list's first row as the `@` left it, the rows once every walk is
     /// done, and how many walks it all took.
+    ///
+    /// Its premise -- nothing adopted while A runs, A being the session's
+    /// first walk -- is xfx's: fx's first walk is its launch walk
+    /// (`app_entry_runtime.zig:334@481104fd`), which plays A's part in fx's
+    /// version of this trace. That is the gap AT-LAUNCH-WALK
+    /// (`docs/parity.md`).
     fn first_at_after_two_changes(
         a_ends: Option<super::super::file_index::Published>,
     ) -> (String, Vec<String>, usize) {
@@ -35938,6 +35944,88 @@ mod tests {
             (after_tab, shell.files_for_test().walks_for_test() - walks),
             (status_row(FILES_UNAVAILABLE), 2),
             "Tab added a walk to the one queued"
+        );
+    }
+
+    #[test]
+    fn a_change_before_any_walk_lists_the_first_walks_prefix_with_no_launch_walk() {
+        // NOT fx's: the gap AT-LAUNCH-WALK (`docs/parity.md`), pinned so
+        // that unit flips it, as this one flipped the keeps-the-rows case.
+        // fx walks at launch (`app_entry_runtime.zig:334@481104fd`;
+        // `startFileIndex` -> `ensureScopeEpoch`, `app_workspace_runtime.zig:
+        // 145-148`), so a change of the access before the first `@` finds a
+        // generation of the launch's epoch, adopted or loading, and an
+        // indexed list says `Files unavailable` until the new scope's walk
+        // is adopted (`input_completion_runtime.zig:887-888`). xfx starts no
+        // walk at launch: the change's walk is the session's first, of the
+        // new epoch, and its prefix is searched as it is published --
+        // `indexing files...`, then its rows.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, path, access) = extra_with_plan(&shell);
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            0,
+            "a walk at launch: this case's premise is gone"
+        );
+        adopt(&mut shell, access);
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.route_bytes(b"@plan");
+        let at_once = listed_rows(&shell)[0].clone();
+        let plan = format!("{}/plan.md", path.display());
+        walk.send(super::super::file_index::Published::More(
+            super::super::file_index::tests::candidates(&[&plan]),
+        ))
+        .expect("the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            (
+                at_once,
+                shell.file_picker.as_ref().map(FilePicker::shown),
+                listed_paths(&shell)
+            ),
+            (
+                status_row("indexing files..."),
+                Some(file_picker::Shown::Rows),
+                vec![plan]
+            ),
+            "xfx's first walk after a change before any walk"
+        );
+    }
+
+    #[test]
+    fn a_first_at_before_the_poll_that_takes_a_finished_walks_end_skips_its_refresh() {
+        // The one effect of the tick `docs/parity.md` names: fx's index is
+        // `.ready` or `.failed` once its loader has finished, before it is
+        // joined (`currentState`, `file_index.zig:333-341@481104fd`), so the
+        // session's first `@` typed then asks for its refresh
+        // (`input_completion_runtime.zig:857-861`); xfx learns of the walk's
+        // end at the poll, and until then counts it as running
+        // (`Files::loading`), so that `@` skips -- one walk fewer than fx,
+        // and only with nothing queued. Off screen: the poll runs before
+        // every frame (`settle_files`). Pinned as xfx's; a copy of fx's
+        // flips it. (Its first walk is the change's, as xfx starts none at
+        // launch: AT-LAUNCH-WALK.)
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, path, access) = extra_with_plan(&shell);
+        let walks = shell.files_for_test().walks_for_test();
+        adopt(&mut shell, access);
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        let plan = format!("{}/plan.md", path.display());
+        walk.send(super::super::file_index::Published::More(
+            super::super::file_index::tests::candidates(&[&plan]),
+        ))
+        .expect("the walk");
+        walk.send(super::super::file_index::Published::Ready)
+            .expect("the walk");
+        shell.route_bytes(b"@plan");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            (
+                shell.files_for_test().walks_for_test() - walks,
+                listed_paths(&shell)
+            ),
+            (1, vec![plan]),
+            "the first `@` refreshed before the poll took the walk's end"
         );
     }
 

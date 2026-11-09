@@ -1566,6 +1566,13 @@ pub(crate) mod tests {
         );
         assert_eq!(files.lookup("main"), Lookup::Unavailable);
 
+        // A change before any walk: the walk it starts is the first, of the
+        // new epoch, and its prefix is searched. That is xfx's, not fx's, in a
+        // session: fx's launch walk (`app_entry_runtime.zig:334@481104fd`)
+        // would hold the old epoch, and the list say `Files unavailable`.
+        // xfx starts no walk at launch -- the gap AT-LAUNCH-WALK
+        // (`docs/parity.md`), pinned at the shell by
+        // `a_change_before_any_walk_lists_the_first_walks_prefix_with_no_launch_walk`.
         let mut files = Files::new(PathBuf::from("/nonexistent-root"), None);
         files.change_scope(Vec::new());
         let new = driven(&mut files);
