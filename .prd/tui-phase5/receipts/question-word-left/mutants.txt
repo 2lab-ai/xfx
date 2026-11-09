@@ -1,0 +1,10 @@
+# mutants, each on a git clone --no-local throwaway of this branch at 8cb952a2 (no remote), one at a time, the file restored after each, under the suite lock
+# per mutant: cargo test --locked --lib -- alt_b question:: input::tests, 900 s timeout; the failing tests are listed
+M1 Alt-b at a choice does nothing again: KILLED (59s) tui::question::tests::alt_b_goes_back_a_question_at_a_choice_and_a_word_in_a_draft, tui::shell::tests::alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not
+M2 Alt-b moves the marked choice up one instead of the question back: KILLED (25s) tui::question::tests::alt_b_goes_back_a_question_at_a_choice_and_a_word_in_a_draft, tui::shell::tests::alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not
+M3 the word arrows (Ctrl-Left, Alt-Left) go back a question too: KILLED (10s) tui::question::tests::alt_b_goes_back_a_question_at_a_choice_and_a_word_in_a_draft, tui::shell::tests::alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not
+M4 Alt-b in a draft is not the word move: KILLED (11s) tui::question::tests::alt_b_goes_back_a_question_at_a_choice_and_a_word_in_a_draft, tui::shell::tests::alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not
+M5 the decoder reads ESC b as WordLeft again: KILLED (15s) tui::input::tests::the_forward_word_delete_and_the_page_keys_decode_in_every_spelling, tui::input::tests::alt_b_is_its_own_action_and_the_modified_left_arrows_are_word_left, tui::shell::tests::alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not
+M6 the decoder reads kitty/xterm Alt-b as WordLeft again: KILLED (16s) tui::input::tests::every_key_the_herdr_receipt_captured_decodes_to_its_binding, tui::input::tests::alt_b_is_its_own_action_and_the_modified_left_arrows_are_word_left, tui::shell::tests::alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not
+M7 the shell's fold lets Alt-b through to the other surfaces: KILLED (11s) tui::shell::tests::alt_b_is_the_word_move_to_every_surface_below_a_question
+7 of 7 killed; the clone's tree after the run: clean

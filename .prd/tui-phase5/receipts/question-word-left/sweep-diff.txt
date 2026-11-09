@@ -1,0 +1,33 @@
+# sweep-diff: every pair's verdict at the base (32afd307) and the head (8cb952a2), 40x120, --only '*question*' '*approval*' 'filepicker-keys'
+# pairs: base 95, head 95; passing: base 67, head 70
+# moved: 3; dropped (pass at base, not at head): 0
+MOVED p5-question-word-left alt-b: unresolved-defect -> normalized-identical
+MOVED p5-question-word-left kitty-alt-b: unresolved-defect -> normalized-identical
+MOVED p5-question-word-left mok-alt-b: unresolved-defect -> normalized-identical
+# unresolved at the head:
+  approvals after-cc-cmd-ask: unresolved-defect
+  approvals after-esc: unresolved-defect
+  approvals after-esc.full: unresolved-defect
+  approvals cmd2-ask: unresolved-defect
+  approvals edit-amend-typed: unresolved-defect
+  approvals edit-ask: unresolved-defect
+  approvals edit-down1: unresolved-defect
+  approvals edit-down3-wrap: unresolved-defect
+  approvals edit-tab-amend: unresolved-defect
+  approvals write-ask: unresolved-defect
+  approvals-amend-limit asked: unresolved-defect
+  approvals-amend-limit refused: unresolved-defect
+  approvals-amend-limit refused-after-edit: unresolved-defect
+  approvals-amend-limit refused-again: unresolved-defect
+  approvals-big write-big: unresolved-defect
+  approvals-big write-big-walked: unresolved-defect
+  p5-input-approval after: unresolved-defect
+  p5-input-approval cmd-ask: unresolved-defect
+  p5-input-approval edit-ask: unresolved-defect
+  p5-input-question20 resumed: unresolved-defect
+  p5-input-question20 resumed.full: unresolved-defect
+  p5-transcript-question asked: unresolved-defect
+  p5-transcript-question full-120: unresolved-defect
+  p5-transcript-question full-60: unresolved-defect
+  p5-transcript-question narrow: unresolved-defect
+# verdict kinds seen: ['identical', 'normalized-identical', 'unresolved-defect']

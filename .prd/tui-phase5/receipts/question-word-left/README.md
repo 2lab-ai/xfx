@@ -9,7 +9,8 @@ opus review named the gap (its SHOULD 1). The base is `origin/main` at
 |---|---|
 | `d45823bc` | RED: the shell test, the scenario `p5-question-word-left`, `fx/`, `red/`, `fx-src.txt`, `pairs.sh`, `red.txt` |
 | `8cb952a2` | **the code head**: the decoder's `Action::AltB`, the panel's `Act::AltB`, the shell's fold, the tests, `docs/parity.md` |
-| the commits after | this file, `xfx/`, `probe/`, `green.txt`, `mutants.py`, `mutants.txt`, the sweeps, `gate.txt`; no `src/` change |
+| `b3a23c52` | `xfx/`, `probe/`, `green.txt`, `mutants.py`, this file -- **the gate ran here**; no `src/` change |
+| the last commit | `mutants.txt`, the sweeps, `gate.txt`, this file's results; no `src/` change |
 
 The xfx captures in `xfx/` and `probe/` come from the binary built at
 `8cb952a2` (row 1 `x𝒇x v0.1.0-8cb952a [debug]`, sha256 `ade20524aa2b…`); those
@@ -134,7 +135,18 @@ reads the folded `WordLeft`, as before.
 under the suite lock; per mutant `cargo test --locked --lib -- alt_b question::
 input::tests` with a 900 s timeout. M2 reads the brief's "a retreat by one
 instead of a page" as fx's page is one question: Alt-b moving the marked
-choice up one instead of the question back.
+choice up one instead of the question back. **7 of 7 killed**, the clone's tree
+clean after the run:
+
+| mutant | killed by |
+|---|---|
+| M1 Alt-b at a choice does nothing again (the base's behaviour) | the panel test, the shell test |
+| M2 Alt-b moves the marked choice up one instead of the question back | the panel test, the shell test |
+| M3 Ctrl-Left and Alt-Left go back a question too | the panel test, the shell test |
+| M4 Alt-b in a draft is not the word move | the panel test, the shell test |
+| M5 the decoder reads `ESC b` as `WordLeft` again | the decoder test, the ESC-spelling table, the shell test |
+| M6 the decoder reads kitty/xterm Alt-b as `WordLeft` again | the decoder test, the herdr table, the shell test |
+| M7 the fold lets `AltB` through to the other surfaces | the fold test |
 
 ## Sweep (`sweep-base.md`, `sweep-head.md`, `sweep-diff.txt`)
 
@@ -142,9 +154,34 @@ choice up one instead of the question back.
 'filepicker-keys'` at 40x120 with this branch's scenarios and ledger, once with
 the base binary and once with the head's, each under the suite lock.
 `filepicker-keys` is the one other scenario that sends Alt-b (in the composer,
-over the file picker).
+over the file picker). `sweep-base.md` and `sweep-head.md` are the scoreboards
+(redacted by the sweep); `sweep-diff.txt` is every pair's verdict at both,
+compared:
+
+- **base 67 / 95, head 70 / 95.** The three that moved are this unit's targets,
+  `p5-question-word-left`'s `alt-b`, `kitty-alt-b` and `mok-alt-b`, from
+  unresolved to normalized-identical.
+- **None dropped.** `filepicker-keys`' seven pairs, Alt-b in the composer
+  among them, are normalized-identical at both.
+- The 25 unresolved at the head are the same 25 as at the base: the approval
+  scenarios' rows, `p5-input-question20`'s `resumed` and `resumed.full`
+  (`question-resume-replay`) and `p5-transcript-question`'s four; this unit
+  touches none of those scenarios.
 
 ## Gate (`gate.txt`)
 
-The brief's gate, run once at the receipt's last code-identical commit, under
-the suite lock, with a short `TMPDIR`.
+The brief's gate, run once at `b3a23c52` (`src/` and `tests/` identical to the
+code head `8cb952a2`), under the suite lock, with a short `TMPDIR`. Every step
+exits 0:
+
+| step | result |
+|---|---|
+| `cargo fmt --check` | clean |
+| `cargo clippy --locked --all-targets -- -D warnings` | clean |
+| `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | clean |
+| `cargo test --locked --no-fail-fast` | 5543 passed, 0 failed, 7 ignored (15 result lines) |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 5580 passed, 0 failed, 7 ignored (15 result lines) |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | exit 0 each |
+
+No test in this unit builds a `Runtime`: the shell tests use the shell fixture
+(`shell(rows, cols)`), the others the panel, the decoder and the fold alone.

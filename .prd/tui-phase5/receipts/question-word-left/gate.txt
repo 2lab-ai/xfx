@@ -1,0 +1,11 @@
+# The brief's gate, once, in the worktree at the commit below (src/ identical to the code head 8cb952a2), under the machine's suite lock, TMPDIR a short <tmp> dir
+# step | exit | wall time | the sum of every 'test result:' line
+head b3a23c52, tree clean: yes
+cargo fmt --check | exit 0 | 1s | 
+cargo clippy --locked --all-targets -- -D warnings | exit 0 | 6s | 
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings | exit 0 | 17s | 
+cargo test --locked --no-fail-fast | exit 0 | 226s | 15 result lines, 5543 passed, 0 failed, 7 ignored
+cargo test --locked --features fault-injection --no-fail-fast | exit 0 | 196s | 15 result lines, 5580 passed, 0 failed, 7 ignored
+scripts/check-xfx-identity.sh | exit 0 | 1s | 
+scripts/check-no-stubs.sh | exit 0 | 18s | 
+scripts/check-no-secrets.sh | exit 0 | 50s | 
