@@ -694,3 +694,28 @@
  5979      try std.testing.expect(app.approval_prompt.isAmending());
  5980      try std.testing.expectEqual(@as(usize, 2), app.approval_prompt.draftCursorForChoice(0));
  5981  }
+
+## src/core/permissions/approval_decision.zig:249-271
+  249  test "approval decision maps selection and submission actions" {
+  250      const alloc = std.testing.allocator;
+  251      var state = State{};
+  252      defer state.deinit(alloc);
+  253  
+  254      try std.testing.expectEqual(
+  255          ToolPermissionDecision.once,
+  256          state.selectedDecision(),
+  257      );
+  258      try std.testing.expectEqual(
+  259          Event.redraw,
+  260          try state.apply(alloc, .{ .move_choice = .previous }, true, null),
+  261      );
+  262      try std.testing.expectEqual(@as(u8, 2), state.choice_index);
+  263      try std.testing.expectEqual(
+  264          ToolPermissionDecision.deny,
+  265          (try state.apply(alloc, .submit, true, null)).decision,
+  266      );
+  267      try std.testing.expectEqual(
+  268          ToolPermissionDecision.always,
+  269          (try state.apply(alloc, .{ .number = 1 }, true, null)).decision,
+  270      );
+  271  }
