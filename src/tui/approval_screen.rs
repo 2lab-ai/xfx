@@ -961,6 +961,44 @@ mod tests {
     }
 
     #[test]
+    fn a_status_is_on_the_screen_whole_or_not_at_all_at_every_height() {
+        // opus on PASTE-GAP round 5 (SHOULD 3): a screen too short for the
+        // whole status gave up its rows from the last, so at one height the
+        // plane painted a sentence's first row alone -- and a cut sentence
+        // says something else. Given up whole: at every height, all of its
+        // rows or none.
+        let cols = super::super::layout::MIN_COLS;
+        for status in [
+            "Keys ignored until input stops.",
+            "Input that arrived right after the paste was ignored.",
+        ] {
+            let mut screen = screen();
+            screen.set_status(status.to_string());
+            let rows: Vec<String> = safe_rows(status, cols - 2)
+                .into_iter()
+                .take(STATUS_ROWS)
+                .map(|row| format!("  {row}"))
+                .collect();
+            let mut seen = false;
+            for height in super::super::layout::MIN_ROWS..=40 {
+                let composed = screen.composition(cols, height);
+                let shown = rows
+                    .iter()
+                    .filter(|row| composed.rows.contains(row))
+                    .count();
+                assert!(
+                    shown == 0 || shown == rows.len(),
+                    "{height} rows show {shown} of {status:?}'s {}: {:?}",
+                    rows.len(),
+                    composed.rows
+                );
+                seen |= shown > 0;
+            }
+            assert!(seen, "{status:?} was never on the screen");
+        }
+    }
+
+    #[test]
     fn a_change_scrolled_out_of_the_viewport_is_no_longer_visible() {
         // The half of the clause `super::approval_readiness::Readiness`'s `seen`
         // remembers: what is on the screen **now** is a different fact from

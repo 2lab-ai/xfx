@@ -38578,6 +38578,9 @@ mod tests {
             }
             shell.end_delivery_at(at);
             shell.end_delivery_at(at + quiet);
+            // And the turn ends as the loop ends one: the plane is painted
+            // after `settle_input` (`super::super::event_loop`'s turn).
+            shell.settle_input(at + quiet);
             assert!(
                 !shell.decoder.quarantined(),
                 "{sentence:?}: still quarantined"
@@ -38666,19 +38669,25 @@ mod tests {
         // most once a `PASTE_REPEAT`, however the hold flaps; and when it stops
         // on `ESC [` with nothing after it, what holds it then is the last
         // thing said.
+        //
+        // gpt6 on round 5: every notice of every turn is counted -- not the
+        // first one a turn's rows hold -- fx's first warning is told apart
+        // from xfx's repeats, and every interval is checked, the one from
+        // fx's warning to the first repeat included.
         let tick = super::super::event_loop::TICK;
         let repeat = super::super::input::Decoder::PASTE_REPEAT;
         let mut shell = shell(24, 160);
         let _ = shell.document();
         let t0 = Instant::now();
-        let mut said_at = Vec::new();
-        let mut last_said = String::new();
+        let mut notices: Vec<(Instant, String)> = Vec::new();
         let mut take = |shell: &mut Fixture, at: Instant| {
-            let rows = shell.document();
-            if let Some(row) = rows.iter().find(|row| row.starts_with("! input: ")) {
-                said_at.push(at);
-                last_said = row.clone();
-            }
+            let said: Vec<String> = shell
+                .document()
+                .into_iter()
+                .filter(|row| row.starts_with("! input: "))
+                .collect();
+            assert!(said.len() <= 1, "one turn said {said:?}");
+            notices.extend(said.into_iter().map(|row| (at, row)));
         };
         shell.route_read(b"\x1b[200~new\x1b[201~");
         shell.end_delivery_at(t0);
@@ -38702,18 +38711,246 @@ mod tests {
             take(&mut shell, check);
         }
         assert!(
-            said_at.len() >= 4,
-            "too few said to mean anything: {said_at:?}"
+            notices.len() >= 4,
+            "too few said to mean anything: {notices:?}"
         );
-        for pair in said_at[1..].windows(2) {
+        let warning = format!("! input: {PASTE_SUFFIX}");
+        assert_eq!(notices[0].1, warning, "fx's warning is said first");
+        for (_, row) in &notices[1..] {
             assert!(
-                pair[1].saturating_duration_since(pair[0]) >= repeat,
-                "two sentences {:?} apart",
-                pair[1].saturating_duration_since(pair[0])
+                QUARANTINE_SENTENCES
+                    .iter()
+                    .any(|sentence| *row == format!("! input: {sentence}")),
+                "a repeat that is not one of xfx's sentences: {row:?}"
+            );
+        }
+        for pair in notices.windows(2) {
+            assert!(
+                pair[1].0.saturating_duration_since(pair[0].0) >= repeat,
+                "{:?} then {:?}, {:?} apart",
+                pair[0].1,
+                pair[1].1,
+                pair[1].0.saturating_duration_since(pair[0].0)
             );
         }
         assert!(shell.decoder.quarantined(), "an open sequence was released");
-        assert_eq!(last_said, format!("! input: {PASTE_UNTIL_KEY}"));
+        assert_eq!(
+            notices.last().map(|(_, row)| row.as_str()),
+            Some(format!("! input: {PASTE_UNTIL_KEY}").as_str())
+        );
+    }
+
+    /// The review plane with `sentence` on it: `opening` read, then a byte a
+    /// turn until the repeat is due and `last` in that turn
+    /// ([`streamed_to_the_repeat`]), and the turn ended as the loop ends one
+    /// (`super::super::event_loop`'s turn: the burst, then
+    /// [`Shell::settle_input`], then the frame). What that turn owed is
+    /// taken -- its document rows and its frame -- and its time returned.
+    fn said_on_the_plane(opening: &[u8], last: &[u8], sentence: &str) -> (Fixture, Instant) {
+        let mut shell = on_the_plane(100);
+        let at = streamed_to_the_repeat(&mut shell, Instant::now(), opening, last);
+        shell.settle_input(at);
+        let painted = unwrapped(&shell.screen_rows());
+        assert!(painted.contains(sentence), "not said: {painted:?}");
+        let _ = shell.document();
+        let _ = shell.render.begin();
+        (shell, at)
+    }
+
+    /// After `transition`'s turn: the plane was repainted, and it says no
+    /// sentence about the quarantine any more -- and nothing new either,
+    /// there or in the document.
+    fn says_no_hold_after(shell: &mut Fixture, transition: &str) {
+        let repainted = shell.render.begin().is_some();
+        let painted = unwrapped(&shell.screen_rows());
+        for stale in QUARANTINE_SENTENCES {
+            assert!(
+                !painted.contains(stale),
+                "{transition}: {stale:?} is still on the plane: {painted:?}"
+            );
+        }
+        assert!(
+            !painted.contains(PASTE_SUFFIX),
+            "{transition}: a new notice: {painted:?}"
+        );
+        assert!(
+            shell.document().is_empty(),
+            "{transition}: said in the document"
+        );
+        assert!(repainted, "{transition}: the plane was not repainted");
+    }
+
+    #[test]
+    fn the_plane_s_sentence_goes_when_a_breaking_byte_ends_the_open_sequence() {
+        // gpt6 on PASTE-GAP round 5: "Key sequence open" said, then `x`
+        // breaks the sequence inside `PASTE_REPEAT`. The quarantine goes on,
+        // held by the quiet now, and the notice is not due -- but the plane's
+        // line is a view of now, not a notice, so it does not wait for one.
+        let tick = super::super::event_loop::TICK;
+        let (mut shell, at) =
+            said_on_the_plane(b"\x1b[200~new\x1b[201~", b"\x1b[", PASTE_UNTIL_KEY);
+        let at = at + tick;
+        shell.route_read(b"x");
+        shell.end_delivery_at(at);
+        shell.settle_input(at);
+        assert!(shell.decoder.quarantined(), "the quarantine ended");
+        says_no_hold_after(&mut shell, "Marker -> Quiet");
+    }
+
+    #[test]
+    fn the_plane_s_sentence_goes_when_the_dropped_paste_s_end_marker_arrives() {
+        // gpt6 on PASTE-GAP round 5: "Paste still open" said, then that
+        // paste's end marker inside `PASTE_REPEAT`. The quiet holds the
+        // quarantine now, and the paste is not open.
+        let tick = super::super::event_loop::TICK;
+        let (mut shell, at) =
+            said_on_the_plane(b"\x1b[200~new\x1b[201~\x1b[200~two ", b"y", PASTE_UNTIL_END);
+        let at = at + tick;
+        shell.route_read(b"\x1b[201~");
+        shell.end_delivery_at(at);
+        shell.settle_input(at);
+        assert!(shell.decoder.quarantined(), "the quarantine ended");
+        says_no_hold_after(&mut shell, "Paste -> Quiet");
+    }
+
+    #[test]
+    fn the_plane_s_sentence_goes_when_a_whole_paste_replaces_the_quarantine() {
+        // opus on PASTE-GAP round 5 (SHOULD 1), and gpt6's MUST 2: a paste
+        // begun inside the quarantine ends it, and when that paste settles in
+        // the same delivery with nothing behind it, the quarantine after it
+        // is a new one -- held by the quiet, as the old one was, and with
+        // nothing said in it. "Keys ignored until input stops." was said in
+        // the old one, about input the user's paste is not.
+        let tick = super::super::event_loop::TICK;
+        let (mut shell, at) = said_on_the_plane(b"\x1b[200~new\x1b[201~", b"y", PASTE_STILL);
+        let at = at + tick;
+        shell.route_read(b"\x1b[200~x\x1b[201~");
+        shell.end_delivery_at(at);
+        shell.settle_input(at);
+        assert!(
+            shell.decoder.quarantined(),
+            "the paste settled with no quarantine after it"
+        );
+        says_no_hold_after(&mut shell, "a whole paste");
+    }
+
+    #[test]
+    fn the_plane_s_sentence_goes_when_a_paste_begins_in_a_turn_that_ends_at_the_read_cap() {
+        // gpt6 on PASTE-GAP round 5 (MUST 2): a paste begun inside the
+        // quarantine and longer than a turn's reads. The turn ends at its
+        // read cap (`super::super::event_loop`'s `burst`, `still_at`), with no
+        // check that finds nothing -- and the quarantine is over.
+        let tick = super::super::event_loop::TICK;
+        let (mut shell, at) = said_on_the_plane(b"\x1b[200~new\x1b[201~", b"y", PASTE_STILL);
+        let at = at + tick;
+        shell.route_read(b"\x1b[200~a paste longer than the turn's reads");
+        shell.still_at(at);
+        shell.settle_input(at);
+        assert!(
+            shell.decoder.pasting() && !shell.decoder.quarantined(),
+            "not a paste begun"
+        );
+        says_no_hold_after(&mut shell, "the read cap");
+    }
+
+    #[test]
+    fn the_plane_s_sentence_goes_when_the_quiet_ends_the_quarantine() {
+        // Round 5's case, through the turn's end.
+        let tick = super::super::event_loop::TICK;
+        let quiet = super::super::input::Decoder::PASTE_QUIET;
+        let (mut shell, at) = said_on_the_plane(b"\x1b[200~new\x1b[201~", b"y", PASTE_STILL);
+        let at = at + tick;
+        shell.end_delivery_at(at);
+        shell.end_delivery_at(at + quiet);
+        shell.settle_input(at + quiet);
+        assert!(!shell.decoder.quarantined(), "still quarantined");
+        says_no_hold_after(&mut shell, "the quiet");
+    }
+
+    #[test]
+    fn fx_s_warning_on_the_plane_outlives_every_change_of_hold_and_the_quarantine() {
+        // fx's own warning is about what happened, so it is as true after the
+        // quarantine as during it: through an open sequence, the byte that
+        // breaks it, and the quiet, it stays.
+        let tick = super::super::event_loop::TICK;
+        let quiet = super::super::input::Decoder::PASTE_QUIET;
+        let mut shell = on_the_plane(100);
+        let mut at = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~y");
+        shell.end_delivery_at(at);
+        shell.settle_input(at);
+        for (bytes, state) in [
+            (&b"\x1b["[..], "an open sequence"),
+            (b"x", "the byte that breaks it"),
+            (b"", "the quiet"),
+        ] {
+            at += tick;
+            shell.route_read(bytes);
+            shell.end_delivery_at(at);
+            if bytes.is_empty() {
+                shell.end_delivery_at(at + quiet);
+            }
+            shell.settle_input(at);
+            let painted = unwrapped(&shell.screen_rows());
+            assert!(
+                painted.contains(PASTE_SUFFIX),
+                "{state}: fx's warning was taken down: {painted:?}"
+            );
+        }
+        assert!(!shell.decoder.quarantined(), "still quarantined");
+    }
+
+    #[test]
+    fn a_flapping_hold_never_leaves_the_plane_naming_the_other_one() {
+        // gpt6 on PASTE-GAP round 5: `ESC [`, `x`, `ESC [`, ... -- the hold
+        // flipping every turn for several `PASTE_REPEAT`s, on the plane. At
+        // the end of every turn the plane names what holds the quarantine
+        // then, or nothing; and it does name each, so this is not a plane
+        // that says nothing at all.
+        let tick = super::super::event_loop::TICK;
+        let mut shell = on_the_plane(100);
+        let mut at = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(at);
+        shell.settle_input(at);
+        let mut named = [false; 2];
+        for step in 0..450 {
+            at += tick;
+            let open = step % 2 == 0;
+            shell.route_read(if open { b"\x1b[" } else { b"x" });
+            shell.end_delivery_at(at);
+            shell.settle_input(at);
+            let (now, other) = if open {
+                (PASTE_UNTIL_KEY, PASTE_STILL)
+            } else {
+                (PASTE_STILL, PASTE_UNTIL_KEY)
+            };
+            let painted = unwrapped(&shell.screen_rows());
+            assert!(
+                !painted.contains(other) && !painted.contains(PASTE_UNTIL_END),
+                "step {step}: held by {now:?}, the plane says {painted:?}"
+            );
+            named[usize::from(open)] |= painted.contains(now);
+        }
+        assert_eq!(named, [true, true], "a sentence was never said");
+    }
+
+    #[test]
+    fn fx_s_warning_is_whole_on_the_review_plane_at_every_width_down_to_the_narrowest() {
+        // opus on PASTE-GAP round 5 (SHOULD 4): fx's own sentence takes three
+        // rows of the plane's status from 29 columns down to `MIN_COLS`, and
+        // the plane gave its status two, so the user read "Input that arrived
+        // right after the" -- which does not say the input was ignored. fx's
+        // words are not changed; the plane's status has the room for them.
+        for cols in super::super::layout::MIN_COLS..=40 {
+            let mut shell = on_the_plane(cols);
+            shell.route_bytes(b"\x1b[200~new\x1b[201~\r");
+            let painted = unwrapped(&shell.screen_rows());
+            assert!(
+                painted.contains(PASTE_SUFFIX),
+                "{cols} columns: {painted:?}"
+            );
+        }
     }
 
     #[test]
