@@ -17,13 +17,13 @@ CAPTURE = ["test_capture.py", "RootsRewrite", "RunRoots.test_a_tmpdir_with_a_tra
            "RunRoots.test_a_root_each_side_broke_at_another_column_reads_different",
            "RunRoots.test_a_sibling_of_the_harness_tmpdir_is_left_and_refuses_nothing"]
 SWEEP = ["test_sweep.py", "Normalize"]
-DROPPED = """        dropped = any(
-            not _held(view, starts, m.start(), m.end())
+IN_CONTROL = """        in_control = any(
+            any(m.start() < end and start < m.end() for start, end in view.controls)
             for m in re.finditer(re.escape(needle) + rb"(?![" + EDGE + rb"])", data)
         )
 """
-BARE = "        bare = GUTTER_CHAR.sub(b\"\", needle)\n"
-JUDGE = "        if dropped or _find(view, needle, []) or (bare != needle and _find(view, bare, [])):"
+BROKEN = "        broken = any(_find(view, v, []) for v in _broken_at_gutters(needle))\n"
+JUDGE = "        if in_control or broken or _find(view, needle, []):"
 TMPDIR_RULE = "fx = '(<scratch(?::real)?_*>/|fxcap\\.XXXXXX/)fxtmp(?![A-Za-z0-9._~+-])'"
 M = [
     # round 3, item 1: the placeholder over the root's own columns
@@ -31,16 +31,18 @@ M = [
     ("roots.py", CAPTURE, "placeholder not as wide as its root", "    if width >= len(full):\n        return full[:-1] + FILL * (width - len(full)) + \">\"", "    if True:\n        return full"),
     ("roots.py", CAPTURE, "no short form", "    if width >= 4:\n", "    if False:\n"),
     # round 3, item 3 (retargeted at round 5's code): survivors by substring
-    ("roots.py", CAPTURE, "survivors by substring", DROPPED + BARE + JUDGE, "        if needle in data or needle in view.text:"),
+    ("roots.py", CAPTURE, "survivors by substring", IN_CONTROL + BROKEN + JUDGE, "        if needle in data or needle in view.text:"),
     # round 4, item 1: which raw bytes count
-    ("roots.py", CAPTURE, "bytes read everywhere (round 3)", DROPPED, "        dropped = re.search(re.escape(needle) + rb\"(?![\" + EDGE + rb\"])\", data)\n"),
-    ("roots.py", CAPTURE, "no byte reading at all", DROPPED, "        dropped = False\n"),
-    ("roots.py", CAPTURE, "bytes in an OSC only", "            not _held(view, starts, m.start(), m.end())",
+    ("roots.py", CAPTURE, "bytes read everywhere (round 3)", IN_CONTROL, "        in_control = re.search(re.escape(needle) + rb\"(?![\" + EDGE + rb\"])\", data)\n"),
+    ("roots.py", CAPTURE, "no byte reading at all", IN_CONTROL, "        in_control = False\n"),
+    ("roots.py", CAPTURE, "bytes in an OSC only", "            any(m.start() < end and start < m.end() for start, end in view.controls)",
      "            any(m.start() < end and start < m.end() for start, end in view.controls if data.startswith(b\"\\x1b]\", start))"),
-    # round 5, item 2: the bytes the view dropped at a row's edge, and a root read without its gutters
-    ("roots.py", CAPTURE, "bytes in a control only (round 4)", "            not _held(view, starts, m.start(), m.end())",
-     "            any(m.start() < end and start < m.end() for start, end in view.controls)"),
-    ("roots.py", CAPTURE, "no reading without gutters", BARE, "        bare = needle\n"),
+    # round 5, item 2: a root read with any of its gutter runs taken out
+    ("roots.py", CAPTURE, "no reading at its gutters (round 4)", BROKEN, "        broken = False\n"),
+    ("roots.py", CAPTURE, "every gutter out at once (cfd582a7)", BROKEN,
+     "        broken = _find(view, GUTTER_RUN.sub(b\"\", needle), []) if GUTTER_RUN.search(needle) else False\n"),
+    ("roots.py", CAPTURE, "one run out at a time only", "        if all(keep):\n", "        if all(keep) or list(keep).count(False) != 1:\n"),
+    ("roots.py", CAPTURE, "no bound on the runs", "            if len(GUTTER_RUN.findall(os.fsencode(form))) > MAX_GUTTER_RUNS:\n", "            if False:\n"),
     # round 3, item 5: a trailing-slash TMPDIR (round 4: killed by the HOME as given)
     ("capture.sh", CAPTURE, "no trailing-slash strip", "  while [[ $tmpdir == */ && $tmpdir != / ]]; do tmpdir=${tmpdir%/}; done", "  :"),
     ("roots.py", CAPTURE, "no normpath spelling", "        forms = [(given, False), (os.path.normpath(given), False)]", "        forms = [(given, False)]"),

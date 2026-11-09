@@ -20,4 +20,5 @@
 2 /tmp/a b inside a row:                           written, nothing survives
 2 /tmp/a b c, broken at its first space:           passes (RED)
 2 /tmp/a b c, broken at its second space:          passes (RED)
+2 /tmp/a b c, broken at both:                      passes (RED)
 3 ESC <HOME> ESC[1m 2/notes:                       refused (conservative)

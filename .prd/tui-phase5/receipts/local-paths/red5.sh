@@ -42,7 +42,8 @@ for data, label in ((b"x /tmp/a \nb/notes\n", "where its space ends a row"), (b"
 got = roots.rewrite(b"x /tmp/a b/notes\n", rules)[0]
 say("2 /tmp/a b inside a row:", "written, nothing survives" if not roots.survivors(got, rules, None) and b"/tmp/a b" not in got else "not written (RED)")
 rules = roots.rules_for([("/tmp/a b c", "tmp")])
-for data, label in ((b"x /tmp/a \nb c/notes\n", "at its first space"), (b"x /tmp/a b \nc/notes\n", "at its second space")):
+for data, label in ((b"x /tmp/a \nb c/notes\n", "at its first space"), (b"x /tmp/a b \nc/notes\n", "at its second space"),
+                    (b"x /tmp/a \nb \nc/notes\n", "at both")):
     left = roots.survivors(roots.rewrite(data, rules)[0], rules, None)
     say("2 /tmp/a b c, broken %s:" % label, "refused" if left else "passes (RED)")
 
