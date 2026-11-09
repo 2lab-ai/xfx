@@ -1,0 +1,14 @@
+=== ~/.xfx/history.jsonl (126 bytes)
+{"schema_version":1,"timestamp_ms":1794262827789,"workspace_root":"<scratch>/work","text":"/quit"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/events.jsonl (1430 bytes)
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":1,"event_id":"7fe49cf92c8726e41e0cf3f1417f9c9d","timestamp_ms":1794262601233,"event":{"kind":"session_started","id":"kH1xJ5Cm-oRk","origin_workspace_root":"/tmp/fx-v2-fixtures/work","workspace_root":"/tmp/fx-v2-fixtures/work","model":"spacexai/grok-4.7","permission_mode":"auto","provider":"gateway"}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":2,"event_id":"240820bdec0e3ebfff53347401cfdd2b","timestamp_ms":1794262601246,"event":{"kind":"user_message","text":"[Image #1] first prompt alpha"}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":3,"event_id":"ed5d43d1d393c7c0c3f26098ab5afa35","timestamp_ms":1794262601251,"event":{"kind":"images_attached","images":[{"id":1,"path":"shot.png","media_type":"image/png","sha256":"3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0","bytes":73}]}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":4,"event_id":"df6438691e1c04bdc44fbac49fd0c6e9","timestamp_ms":1794262601256,"event":{"kind":"assistant_message","text":"ALPHA answer.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":5,"event_id":"77d15a8f3ea3be219b3bae078aba7759","timestamp_ms":1794262601260,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/session.json (588 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"kH1xJ5Cm-oRk","log_generation":"912e30986cd56ee634186a20686cbf7d","created_at_ms":1794262601233,"updated_at_ms":1794262601260,"origin_workspace_root":"/tmp/fx-v2-fixtures/work","workspace_root":"/tmp/fx-v2-fixtures/work","model":"spacexai/grok-4.7","permission_mode":"auto","title":"[Image #1] first prompt alpha","history_turns":1,"permission_grants":0,"total_input_tokens":0,"total_output_tokens":0,"last_event_seq":5,"event_log_bytes":1430,"event_log_sha256":"439e837765861560267859cc4e43976ddeeef01ffaf2166cc8d119b0c3162802"}
+

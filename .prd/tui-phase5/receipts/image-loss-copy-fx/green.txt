@@ -1,0 +1,67 @@
+# python3 -I .prd/tui-phase4/receipts/m1/cells.py fx/fx-p5-image-loss-gone-40x120-quit.full.ansi xfx/xfx-p5-image-loss-gone-40x120-quit.full.ansi
+row 41: fx [(41, '1', ()), (42, '7', ()), (43, ' ', ()), (44, '2', ())]
+row 41: xfx [(41, '2', ()), (42, '7', ()), (43, ' ', ()), (44, '2', ())]
+1 rows differ in their cells (row 1 not compared)
+
+# python3 -I .prd/tui-phase4/receipts/m1/cells.py fx/fx-p5-image-loss-gone-40x120-quit.full.ansi base-xfx/xfx-p5-image-loss-gone-40x120-quit.full.ansi
+row 41: fx [(41, '1', ()), (42, '7', ()), (43, ' ', ()), (44, '2', ())]
+row 41: xfx [(41, '3', ()), (42, '8', ()), (43, ' ', ()), (44, '2', ())]
+1 rows differ in their cells (row 1 not compared)
+
+# python3 -I .prd/tui-phase4/receipts/m1/cells.py fx/fx-p5-image-loss-gone-40x120-refused.full.ansi xfx/xfx-p5-image-loss-gone-40x120-refused.full.ansi
+row 2: fx []
+row 2: xfx [(0, 'x', ()), (1, 'f', ()), (2, 'x', ()), (3, ':', ())]
+row 3: fx [(0, 'f', ()), (1, 'x', ()), (2, ':', ()), (3, ' ', ())]
+row 3: xfx []
+row 42: fx [(41, '1', ()), (42, '9', ()), (43, ' ', ()), (44, '2', ())]
+row 42: xfx [(41, '2', ()), (42, '9', ()), (43, ' ', ()), (44, '2', ())]
+3 rows differ in their cells (row 1 not compared)
+
+# python3 -I .prd/tui-phase4/receipts/m1/cells.py fx/fx-p5-image-loss-gone-40x120-refused.full.ansi base-xfx/xfx-p5-image-loss-gone-40x120-refused.full.ansi
+row 2: fx []
+row 2: xfx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 'e', (('fg', 250),))]
+row 3: fx [(0, 'f', ()), (1, 'x', ()), (2, ':', ()), (3, ' ', ())]
+row 3: xfx []
+row 4: fx []
+row 4: xfx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, '[', (('bold', True),)), (3, 'I', (('bold', True),))]
+row 6: fx []
+row 6: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'A', ()), (3, 'L', ())]
+row 8: fx []
+row 8: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+row 10: fx []
+row 10: xfx [(0, '┃', (('fg', 255),))]
+row 12: fx []
+row 12: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+row 42: fx [(0, 'P', ()), (1, 'a', ()), (2, 'n', ()), (3, 'e', ())]
+row 42: xfx []
+8 rows differ in their cells (row 1 not compared)
+
+# fx: the last refused frame's text rows, then the session's files after the run
+𝒇x v0.0.16 · Run /help for commands
+fx: saved session is unreadable. Run `fx doctor`; if it is recoverable, use `fx session recover <id>`.
+Pane is dead (status 1, Tue Nov 10 07:20:19 2026)
+=== ~/.fx/sessions/v2/index.jsonl (1694 bytes)
+=== ~/.fx/sessions/v2/kH1xJ5Cm-oRk/log.jsonl (5749 bytes)
+
+# xfx: the last refused frame's text rows, then the session's files after the run
+x𝒇x v0.1.0-0f0b678 [debug] · Run /help for commands
+xfx: saved session is unreadable.
+Pane is dead (status 1, Tue Nov 10 07:20:29 2026)
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/events.jsonl (1430 bytes)
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/session.json (588 bytes)
+
+# base-xfx: the last refused frame's text rows, then the session's files after the run
+x𝒇x v0.1.0-714f628 [debug] · Run /help for commands
+* session resumed: [Image #1] first prompt alpha
+┃ [Image 1] first prompt alpha
+  ALPHA answer.
+  0s (↑9 ↓4)
+┃
+auto · model-a
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/events.jsonl (1737 bytes)
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/session.json (605 bytes)
+
+# the seeds' sizes (bytes)
+p5-image-loss-gone-fx.jsonl 5749
+p5-image-loss-gone-xfx-events.jsonl 1430
+p5-image-loss-gone-xfx-session.json 588

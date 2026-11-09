@@ -1,0 +1,8 @@
+# the file checks at the receipt's head (this folder staged), and the citation check
+check-no-secrets rc=0
+check-xfx-identity rc=0
+check-no-stubs rc=0
+redaction grep over git diff 714f6283 + the staged folder: 0
+# bash fx_src.sh <fx-upstream> --check README.md
+checked 41 citations
+rc=0

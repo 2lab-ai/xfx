@@ -1,0 +1,42 @@
+x𝒇x v0.1.0-0f0b678 [debug] · Run /help for commands
+xfx: saved session is unreadable.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 1, Tue Nov 10 07:20:29 2026)
