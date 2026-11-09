@@ -16931,14 +16931,15 @@ mod tests {
     /// has one, opens; a 503 once they run out -- counting how often it was
     /// asked.
     struct Turns {
-        answers: Mutex<
-            std::collections::VecDeque<(
-                Option<tokio::sync::oneshot::Receiver<()>>,
-                Vec<CatalogEntry>,
-            )>,
-        >,
+        answers: Mutex<std::collections::VecDeque<Turn>>,
         asked: Arc<AtomicUsize>,
     }
+
+    /// One of [`Turns`]' answers: its gate, if it has one, and its rows.
+    type Turn = (
+        Option<tokio::sync::oneshot::Receiver<()>>,
+        Vec<CatalogEntry>,
+    );
 
     #[async_trait::async_trait(?Send)]
     impl crate::provider::model::ModelCatalog for Turns {
