@@ -213,16 +213,20 @@ class Normalize(unittest.TestCase):
         # narrower than `<scratch>`: `$TMPDIR/fxcap.XXXXXX`, 13 columns or more).
         for prefix in ("<work___>", "<work:real__>", "<tmp______>", "<!scratch__>", "a_>", "<s__>", "<S__>", "x/"):
             self.assertEqual(len(compare("saved at %s/fxtmp/a.md" % prefix, "saved at %s/xfxtmp/a.md" % prefix, self.led)), 1, prefix)
-        # And only the name itself, ended where a path name ends (roots.py's
-        # EDGE, the characters that continue one): a directory under it, the
-        # end of the text, a quote after it. A sibling whose name extends
-        # `fxtmp` is another file, compared.
+        # And only the name itself, followed by what ends a directory's name
+        # in a binary's text: a directory under it, white space, a quote, a
+        # closing bracket, `>`, `,`, `:`, `;`, `|`, or the end of the row. A
+        # sibling whose name extends `fxtmp` -- by any other character, a
+        # letter past ASCII or a percent-encoded one among them -- is another
+        # file, compared.
         run = "<scratch______________>"
-        for fx, xfx in (("a %s/fxtmp/b.md", "a %s/xfxtmp/b.md"), ("TMPDIR=%s/fxtmp", "TMPDIR=%s/xfxtmp"),
-                        ('"%s/fxtmp" x', '"%s/xfxtmp" x')):
-            self.assertEqual(compare(fx % run, xfx % run, self.led), [], fx)
-        for name in ("fxtmp-old/a", "fxtmp.bak", "fxtmp_x", "fxtmpx", "fxtmp~", "fxtmp+1"):
-            self.assertEqual(len(compare("a %s/%s" % (run, name), "a %s/x%s" % (run, name), self.led)), 1, name)
+        for after in ("/b.md", " x", "\tx", '" x', "' x", ") x", "] x", "} x", "> x", ", x", ": x", "; x", "| x", ""):
+            with self.subTest(after=after):
+                self.assertEqual(compare("a %s/fxtmp%s" % (run, after), "a %s/xfxtmp%s" % (run, after), self.led), [])
+        for name in ("fxtmp-old/a", "fxtmp.bak", "fxtmp_x", "fxtmpx", "fxtmp~", "fxtmp+1", "fxtmp\u00e9/a",
+                     "fxtmp%C3%A9/a", "fxtmp\u4e2d/a", "fxtmp@x", "fxtmp=x", "fxtmp#1", "fxtmp(1)", "fxtmp!", "fxtmp<x"):
+            with self.subTest(name=name):
+                self.assertEqual(len(compare("a %s/%s" % (run, name), "a %s/x%s" % (run, name), self.led)), 1)
 
     def test_capture_run_directories_are_masked_to_the_same_length(self):
         self.assertEqual(compare("ws=/t/fxcap.Kun3pm/work x", "ws=/t/fxcap.uqw49D/work x", self.led), [])

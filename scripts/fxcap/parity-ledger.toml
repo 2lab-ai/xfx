@@ -75,14 +75,14 @@ fx = '(?<=fxcap\.)[A-Za-z0-9]{1,6}'
 xfx = '(?<=fxcap\.)[A-Za-z0-9]{1,6}'
 mask = "X"
 why = "capture.sh runs each binary in its own `mktemp -d .../fxcap.XXXXXX`, so a path on screen (/status's workspace, a picker's root) carries a different random suffix on each side. capture.sh writes the whole run directory as `<scratch>` (or `<work>`) since LOCAL-PATHS, wherever a frame wraps or colours it, and refuses a capture that keeps any of its name; this rule reads the captures taken before it (`--rescore`). Masked to the same length, so nothing after it moves."
-source = ["scripts/fxcap/capture.sh:658"]
+source = ["scripts/fxcap/capture.sh:659"]
 
 [[normalization]]
 id = "capture-tmpdir"
-fx = '(<scratch(?::real)?_*>/|fxcap\.XXXXXX/)fxtmp(?![A-Za-z0-9._~+-])'
+fx = '''(<scratch(?::real)?_*>/|fxcap\.XXXXXX/)fxtmp(?=[/\s"'\]}),:;|>]|$)'''
 replace = '\1xfxtmp'
-why = "capture.sh gives each binary a TMPDIR inside its run named for the binary, fx `$run/fxtmp`, xfx `$run/xfxtmp`, so where `/trace` says it wrote names the driver's directory, not the product's. On fx's side, after run-directory, and only right after the run directory: as capture.sh writes it now, `<scratch___>` filled to its width (`<scratch:real___>` resolved), as units wrote it by hand before LOCAL-PATHS, `<scratch>`, or as a capture from before LOCAL-PATHS holds it, masked to `fxcap.XXXXXX`. The run directory, `$TMPDIR/fxcap.XXXXXX`, is 13 columns or more, never narrower than `<scratch>`, so its short form `<s__>` is not read (resolved, it is narrower than `<scratch:real>` only where the TMPDIR resolves to `/`, and `<S__>` is not read either); nor is an `fxtmp` under another placeholder (`<work___>/fxtmp` is a name in the workspace), an escaped literal (`<!scratch__>`) or other text. And only the name itself, ended where a path name ends -- no character of roots.py's EDGE (`A-Za-z0-9._~+-`, what continues a path name there and in capture.sh's `writable`) after it: `<scratch___>/fxtmp/`, a quote or the end of the row after it, but not `fxtmp-old`, `fxtmp.bak` or `fxtmp_x`, a sibling's name."
-source = ["scripts/fxcap/capture.sh:314-316", "scripts/fxcap/capture.sh:368-373"]
+why = "capture.sh gives each binary a TMPDIR inside its run named for the binary, fx `$run/fxtmp`, xfx `$run/xfxtmp`, so where `/trace` says it wrote names the driver's directory, not the product's. On fx's side, after run-directory, and only right after the run directory: as capture.sh writes it now, `<scratch___>` filled to its width (`<scratch:real___>` resolved), as units wrote it by hand before LOCAL-PATHS, `<scratch>`, or as a capture from before LOCAL-PATHS holds it, masked to `fxcap.XXXXXX`. The run directory, `$TMPDIR/fxcap.XXXXXX`, is 13 columns or more, never narrower than `<scratch>`, so its short form `<s__>` is not read (resolved, it is narrower than `<scratch:real>` only where the TMPDIR resolves to `/`, and `<S__>` is not read either); nor is an `fxtmp` under another placeholder (`<work___>/fxtmp` is a name in the workspace), an escaped literal (`<!scratch__>`) or other text. And only the name itself, followed by what ends a directory's name in a binary's text: a directory under it (`/`, all that the captures hold today), white space, a quote, a closing bracket, `>`, `,`, `:`, `;`, `|`, or the end of the row. A name can hold any other character, so a sibling that extends `fxtmp` by one -- `fxtmp-old`, `fxtmp.bak`, `fxtmp\u00e9`, `fxtmp%C3%A9`, `fxtmp@x` -- is another file and is compared. This list is not roots.py's EDGE: an over-wide rewrite there fails toward privacy (a sibling written as a placeholder), an over-wide normalization here toward false parity (a sibling read as the TMPDIR), so each errs its own safe way."
+source = ["scripts/fxcap/capture.sh:314-316", "scripts/fxcap/capture.sh:368-373", "scripts/fxcap/capture.sh:939", "scripts/fxcap/capture.sh:946"]
 
 # Each run's own clock and its own ids. The two binaries run one after the
 # other, so what a clock or a random id reads is the run's, not the product's;
@@ -144,7 +144,7 @@ fx = '^(Pane is dead \(status \d+, ).*(\))$'
 xfx = '^(Pane is dead \(status \d+, ).*(\))$'
 replace = '\1<tmux clock>\2'
 why = "tmux's own line under a pane whose program has exited (capture.sh `keep`) ends with tmux's clock; the exit status before it is compared."
-source = [".prd/tui-phase4/receipts/d1/README.md:151", ".prd/tui-phase4/receipts/p1/README.md:32", "scripts/fxcap/capture.sh:1114"]
+source = [".prd/tui-phase4/receipts/d1/README.md:151", ".prd/tui-phase4/receipts/p1/README.md:32", "scripts/fxcap/capture.sh:1115"]
 
 [[normalization]]
 id = "session-id"
