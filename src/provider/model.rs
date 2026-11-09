@@ -1297,6 +1297,10 @@ pub struct ModelSelector {
     /// What those times are read on: the clock that counts sleep
     /// ([`CatalogClock`]).
     time: CatalogClock,
+    /// The catalog a test hands the selector [`Self::renew`] builds next, in
+    /// place of the provider's.
+    #[cfg(test)]
+    fetcher_after_renew: Option<Fetcher>,
     /// Reads handed to this selector that it did not take the answer of
     /// ([`Self::adopt_loads`]): each runs on to tell its answer, and is stopped
     /// with the selector -- so a provider switch, which replaces it, is never
@@ -1899,6 +1903,8 @@ impl ModelSelector {
             pending: None,
             clock: LoadClock::default(),
             time: CatalogClock::system(),
+            #[cfg(test)]
+            fetcher_after_renew: None,
             strays: Vec::new(),
         }
     }
@@ -1921,8 +1927,15 @@ impl ModelSelector {
     /// on the clock that counts sleep, and a clock a test gave it survives.
     pub fn renew(&mut self, config: &RuntimeConfig) {
         let time = self.time.clone();
+        #[cfg(test)]
+        let handed = self.fetcher_after_renew.take();
         *self = Self::new(config);
         self.time = time;
+        #[cfg(test)]
+        if let Some(fetcher) = handed {
+            self.catalog_fetcher = Some(fetcher);
+            self.catalog_state = CatalogState::NotLoaded;
+        }
     }
 
     /// The provider whose catalog this selector browses.
@@ -2334,6 +2347,8 @@ impl ModelSelector {
             pending: None,
             clock: LoadClock::default(),
             time: CatalogClock::system(),
+            #[cfg(test)]
+            fetcher_after_renew: None,
             strays: Vec::new(),
         }
     }
@@ -2367,6 +2382,18 @@ impl ModelSelector {
     #[cfg(test)]
     pub(crate) fn set_clock_for_test(&mut self, clock: CatalogClock) {
         self.time = clock;
+    }
+
+    /// The selector the next switch builds ([`Self::renew`]) asks `fetcher`
+    /// -- one a test wrote -- in place of the provider's catalog, with
+    /// nothing loaded: a switch run through the runtime's own path, with no
+    /// socket opened.
+    #[cfg(test)]
+    pub(crate) fn hand_fetcher_to_next_for_test(
+        &mut self,
+        fetcher: Box<dyn ModelCatalog + Send + Sync>,
+    ) {
+        self.fetcher_after_renew = Some(Fetcher::from(fetcher));
     }
 
     /// A catalog this selector *asks* -- one a test wrote -- in place of the

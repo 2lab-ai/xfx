@@ -16765,6 +16765,92 @@ mod tests {
         assert_eq!(asked.load(Ordering::SeqCst), 2);
     }
 
+    #[test]
+    fn a_told_ask_put_aside_behind_a_switch_starts_the_first_load_once_and_never_a_refresh() {
+        // The runtime's own path, in `turn_loop`'s order: `/settings` (or a
+        // speed command) typed while a provider switch runs is put aside
+        // (`run_setup` -> `raced_against_control` -> `CatalogAsks::AfterWork`),
+        // asked once the switch is over (`apply_deferred` -> `ask_catalog`),
+        // and the loop's own first load finds that read on its way
+        // (`begin_catalog_read`): one read, one answer. Asked again -- after
+        // a success, and after a failure past its hold -- it reads nothing.
+        for fails in [false, true] {
+            let machine = crate::provider::catalog_clock::FakeMachine::new();
+            let (_home, _workspace, mut state) = recording();
+            state.selector.set_clock_for_test(machine.clock());
+            let asked = Arc::new(AtomicUsize::new(0));
+            let answers = if fails {
+                std::collections::VecDeque::new()
+            } else {
+                vec![vec![published("anthropic/claude-opus-5")]].into()
+            };
+            state
+                .selector
+                .hand_fetcher_to_next_for_test(Box::new(InTurn {
+                    answers: Mutex::new(answers),
+                    asked: Arc::clone(&asked),
+                }));
+            let (events, mut received) = mpsc::channel(bridge::UI_EVENTS);
+            let (control_tx, control_rx) = mpsc::unbounded_channel();
+            let control = ControlChannel::new(control_rx);
+            control_tx
+                .send(TurnControl::Catalog(bridge::CatalogAsk::TOLD))
+                .expect("alive");
+            let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+            let outstanding = AtomicUsize::new(1);
+            let mut queue = Queue {
+                work: &mut work_rx,
+                outstanding: &outstanding,
+                taken: 0,
+            };
+            let cancel = Cancellation::new(CancelToken::new());
+            on_a_runtime(async {
+                let ended = run_setup(
+                    &mut state,
+                    ProviderId::Gateway,
+                    &events,
+                    &cancel,
+                    &control,
+                    &mut queue,
+                )
+                .await;
+                assert_eq!(ended, Ended::Turn);
+                assert_eq!(asked.load(Ordering::SeqCst), 0, "read during the switch");
+                let ended =
+                    apply_deferred(&mut state, ended, &events, &cancel, &control, &mut queue).await;
+                assert_eq!(ended, Ended::Turn);
+                begin_catalog_read(&mut state, &events);
+                state.selector.settle_load().await;
+            });
+            assert_eq!(asked.load(Ordering::SeqCst), 1, "fails={fails}: reads");
+            let answers: Vec<UiEvent> = told(&mut received)
+                .into_iter()
+                .filter(|event| {
+                    matches!(
+                        event,
+                        UiEvent::CatalogLoaded { .. }
+                            | UiEvent::CatalogUnread { .. }
+                            | UiEvent::CatalogRefreshFailed { .. }
+                    )
+                })
+                .collect();
+            assert_eq!(answers.len(), 1, "fails={fails}: {answers:?}");
+            assert_eq!(
+                matches!(answers[0], UiEvent::CatalogUnread { .. }),
+                fails,
+                "{answers:?}"
+            );
+            // Asked again, at once and past any hold: told as held, nothing
+            // read.
+            for slept in [Duration::ZERO, Duration::from_secs(3_600)] {
+                machine.sleep(slept);
+                ask_and_settle(&mut state, &events, bridge::CatalogAsk::TOLD);
+                assert_eq!(asked.load(Ordering::SeqCst), 1, "fails={fails}: read again");
+                assert_eq!(told(&mut received).len(), 1, "fails={fails}: not told once");
+            }
+        }
+    }
+
     /// `ask`, asked with nothing holding the runtime, and any read on its
     /// way then waited out: a read it started has been counted by the time
     /// this returns, so the next ask is decided after it.
