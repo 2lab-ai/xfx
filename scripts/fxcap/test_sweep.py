@@ -213,18 +213,17 @@ class Normalize(unittest.TestCase):
         # narrower than `<scratch>`: `$TMPDIR/fxcap.XXXXXX`, 13 columns or more).
         for prefix in ("<work___>", "<work:real__>", "<tmp______>", "<!scratch__>", "a_>", "<s__>", "<S__>", "x/"):
             self.assertEqual(len(compare("saved at %s/fxtmp/a.md" % prefix, "saved at %s/xfxtmp/a.md" % prefix, self.led)), 1, prefix)
-        # And only the name itself, followed by what ends a directory's name
-        # in a binary's text: a directory under it, white space, a quote, a
-        # closing bracket, `>`, `,`, `:`, `;`, `|`, or the end of the row. A
-        # sibling whose name extends `fxtmp` -- by any other character, a
-        # letter past ASCII or a percent-encoded one among them -- is another
-        # file, compared.
+        # And only the name itself, with a directory under it: `/` is the one
+        # follower the tracked captures hold (w2's and w3's reports and
+        # images). Any other character can be part of a name, so a sibling
+        # that extends `fxtmp` by one -- or the name before anything but `/`
+        # -- is compared.
         run = "<scratch______________>"
-        for after in ("/b.md", " x", "\tx", '" x', "' x", ") x", "] x", "} x", "> x", ", x", ": x", "; x", "| x", ""):
-            with self.subTest(after=after):
-                self.assertEqual(compare("a %s/fxtmp%s" % (run, after), "a %s/xfxtmp%s" % (run, after), self.led), [])
+        self.assertEqual(compare("a %s/fxtmp/b.md" % run, "a %s/xfxtmp/b.md" % run, self.led), [])
         for name in ("fxtmp-old/a", "fxtmp.bak", "fxtmp_x", "fxtmpx", "fxtmp~", "fxtmp+1", "fxtmp\u00e9/a",
-                     "fxtmp%C3%A9/a", "fxtmp\u4e2d/a", "fxtmp@x", "fxtmp=x", "fxtmp#1", "fxtmp(1)", "fxtmp!", "fxtmp<x"):
+                     "fxtmp%C3%A9/a", "fxtmp\u4e2d/a", "fxtmp@x", "fxtmp=x", "fxtmp#1", "fxtmp(1)", "fxtmp!", "fxtmp<x",
+                     "fxtmp,backup/a", "fxtmp backup/a", "fxtmp:x", "fxtmp)", "fxtmp", "fxtmp\tx", 'fxtmp"', "fxtmp'",
+                     "fxtmp]", "fxtmp}", "fxtmp>", "fxtmp;", "fxtmp|"):
             with self.subTest(name=name):
                 self.assertEqual(len(compare("a %s/%s" % (run, name), "a %s/x%s" % (run, name), self.led)), 1)
 
