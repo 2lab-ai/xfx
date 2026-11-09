@@ -1,0 +1,6 @@
+# only_collect_facts_makes_a_reconciled with the one-line fn shape added, on round 5's rule (a line that opens a signature is a signature to its end): cargo test --locked --lib -- event_loop::tests::only_collect_facts
+test tui::event_loop::tests::only_collect_facts_makes_a_reconciled ... FAILED
+thread 'tui::event_loop::tests::only_collect_facts_makes_a_reconciled' (385585459) panicked at src/tui/event_loop.rs:9575:9:
+  left: [11, 13, 14, 15, 16]
+ right: [11, 13, 14, 15, 16, 17]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4562 filtered out; finished in 0.01s

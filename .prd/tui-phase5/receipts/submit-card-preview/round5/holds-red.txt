@@ -1,0 +1,5 @@
+# shell::tests::the_presenter_holds_no_empty_text before MarkdownProcessor::holds checks for an empty text
+test tui::shell::tests::the_presenter_holds_no_empty_text ... FAILED
+thread 'tui::shell::tests::the_presenter_holds_no_empty_text' (385769696) panicked at src/markdown/processor.rs:214:30:
+window size must be non-zero
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4563 filtered out; finished in 0.13s

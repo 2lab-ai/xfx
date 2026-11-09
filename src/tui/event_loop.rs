@@ -9519,7 +9519,10 @@ mod tests {
                 let behind = before.strip_suffix('&').map_or(before, str::trim_end);
                 // A `let`'s annotation is before its `=`; a closure's
                 // parameters are between its first two bars.
-                let declared = signature
+                // A signature ends at its line's first `{`: past it is the
+                // body, even on the line that opened it.
+                let in_signature = signature && line.find('{').is_none_or(|open| at < open);
+                let declared = in_signature
                     || definition.is_some()
                     || (trimmed.starts_with("let ") && !line[..at].contains('='))
                     || line[..at].matches('|').count() % 2 == 1;
@@ -9566,14 +9569,15 @@ mod tests {
                       commit(&Reconciled);\n\
                       Ok(Reconciled)\n\
                       let held = Holder { token: Reconciled };\n\
-                      let made = items.map(|_| Holder { token: Reconciled });\n";
+                      let made = items.map(|_| Holder { token: Reconciled });\n\
+                      fn make() -> Holder { Holder { token: Reconciled } }\n";
         let lines: Vec<usize> = reconciled_made(shapes).iter().map(|(n, _)| *n).collect();
         // Lines 11 (the literal's field), 13 (the borrow), 14 (`Ok`), and 15
         // and 16 (a literal's field after a `let`'s `=` and in a closure's
-        // body).
+        // body), and 17 (a literal's field in a one-line fn's body).
         assert_eq!(
             lines,
-            [11, 13, 14, 15, 16],
+            [11, 13, 14, 15, 16, 17],
             "the scan's shapes: {:#?}",
             reconciled_made(shapes)
         );

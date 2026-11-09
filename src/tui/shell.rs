@@ -17191,6 +17191,15 @@ mod tests {
     }
 
     #[test]
+    fn the_presenter_holds_no_empty_text() {
+        // The test-only question has an answer for every text, the empty one
+        // included: nothing to look for is nothing held, rather than a panic
+        // on a window of no bytes.
+        let shell = shell(24, 80);
+        assert!(!shell.presenter_holds(""), "an empty text was held");
+    }
+
+    #[test]
     fn a_card_sent_after_a_resize_before_a_frame_lands_is_written_whole() {
         // fx measures its preview from its last committed frame
         // (`presentation_shell.cursor_row`, committed at
