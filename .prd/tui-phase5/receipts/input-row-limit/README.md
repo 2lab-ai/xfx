@@ -108,13 +108,16 @@ why no 40x120 capture has ever shown it.
 ## RED (`red-unit.txt`; pairs: `pairs.txt` column `base`)
 
 - **Unit** (`c4558b2f` over the base's code, `red-unit.txt`): all 11 new cases
-  fail. The function's boundary table fails at `8 rows: left 3, right 1`. Each
-  41-row surface case fails on `a page is not 19 steps` (19 steps reach the
-  20th entry where the page reached the 21st: `s20` vs `s21`, `f-20` vs
-  `f-21`, `vendor/m20` vs `m21`, turn 11 vs 10). The composer case fails on its
-  cap, `left: 20, right: 19`. The effort case fails on `the page did not move
-  the mark` (20 is 0 round five levels). The 8-row case fails because PgDn
-  wrapped the provider column back to `Gateway`.
+  fail. The function's boundary table fails at its first row past 4 rows,
+  `a 7-row screen`, `left: 3, right: 1`. Seven of the 41-row cases fail on
+  `a page is not 19 steps`: 19 steps reach where fx's page does, and the
+  page went one further (`s20` vs `s21`, `items/f-20.txt` vs `f-21`,
+  `vendor/m20` vs `m21`, `/fast` vs `/ultrafast`, turn 11 vs 10, index 19 vs
+  20, `s18` vs `s19`). The effort case fails at the page's `assert_ne`
+  (`shell.rs:35084`, both sides `Auto`: 20 is 0 round five levels). The
+  composer case fails on `the composer's cap`, `left: 20, right: 19`. The
+  8-row case fails on `a page of one row`: PgDn wrapped the provider column
+  back to `Gateway`.
 - **Pairs at 41x120 and 8x120.** These pairs differ on the base: `at-pgdn` 10
   rows, `grown` 22, `grown-pgup` 3, `grown-pgup2` 3, `help-pgdn` 21,
   `menus model-pgdn` 20, `menus effort-pgdn` 2, `short grown` 4,
@@ -150,15 +153,59 @@ why no 40x120 capture has ever shown it.
 
 ## Mutants (`mutants.txt`, made by `mutants.py`)
 
-TODO-MUTANTS
+All 13 were killed. Each ran on a `git clone --no-local` of the head
+(`d2e81c93`) in the scratch directory, never on the worktree: the clone's
+tree reset, one edit, and the unit's 11 cases run (`cargo test --lib --
+at_41_rows on_an_eight_row_screen the_composer_may_take_half`, under the
+suite lock).
+
+| mutant | killed by |
+|---|---|
+| the old `content_bottom`, `rows - 3` (guard kept) | all 11 |
+| no `> 4` guard | the boundary table (7 and 8 rows) and the 8-row case |
+| each of the 11 surfaces left on `(rows - 3) / 2 + 1`, one at a time | that surface's case; `fit`'s also by the 8-row case |
+
+So a revert, or a half-revert that leaves any one surface on the old limit,
+fails at least one case.
 
 ## The sweep (`sweep-41x120-base.md`, `sweep-41x120-head.md`, `sweep-compare.txt`)
 
-TODO-SWEEP
+`sweep.sh` against fx v0.0.16 at **41x120**, `--jobs 2`, under the suite
+lock, over 18 scenarios that page or grow the composer:
+`p5-input-row-limit*` (this unit's three), `composer*`, `filepicker*`,
+`p5-input-at*`, `p5-panels-keys`, `fulltranscript*`, `card-wrap*` and
+`p5-ctrlo-wider-inline-fam`. It ran on the base's build, then on the head's
+(scoreboards: `x𝒇x v0.1.0-32afd30`, `v0.1.0-d2e81c9`), with the ledger as it
+is at the head.
+
+- **pass 61/120 → 67/120.** Six pairs move to normalized-identical, and
+  **none drops** (`sweep-compare.txt`): `p5-input-row-limit` `at-pgdn`,
+  `grown`, `grown-pgup` and `grown-pgup2`; `p5-input-row-limit-menus`
+  `model-pgdn` and `effort-pgdn`.
+- **Named, not counted.** On the base, exactly those six were the snaps no
+  cause covered ("Rows no cause covers (6 snaps)", `sweep-41x120-base.md`).
+  On the head, no snap is left without a cause. `help-pgdn` and
+  `slash-pgdn` stay under the ledger's existing `menu-count`, `menu-shift`
+  and `C7-help-entries`.
+- **Why 41 and not 40.** At every even height from 10 up, `(rows - 3) / 2`
+  equals `(rows - 4) / 2`, so the base and the head compute the same limit
+  there (the boundary table's `(40, 19)`, `(42, 20)`). A 40x120 sweep cannot
+  move, and none was run.
 
 ## The gate (`gate.txt`, made by `gates.sh`)
 
-TODO-GATE
+**20 steps, 0 failed**, run once at `8baf0154`, whose code is the head's,
+in one hold of the suite lock (`gate.txt`). The steps are fmt, clippy (plain
+and fault-injection), `cargo test` (plain and fault-injection), the `check-*`
+scripts, their self-tests, the fxcap sweep and capture self-tests, both
+release builds, smoke and smoke-tui. The tests: 5549 passed and 0 failed;
+5586 and 0 under fault-injection (15 binaries each; their result lines are
+copied into `gate.txt`). The 1-minute load at a step's start was between 46.0 (clippy-fault)
+and 5.0 (the release build). No step failed, and none was rerun.
+
+`gate.txt` says "tree clean: no" before and after. The only paths not
+committed were in this folder: the README being written, and the sweep files
+and `compare.py`, added after `8baf0154`.
 
 ## `docs/parity.md` and the ledger
 
