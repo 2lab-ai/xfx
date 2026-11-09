@@ -731,9 +731,10 @@ fn keyed(
 /// means. `InsertNewline`, `Eof`, `ControlP`, `HistoryNext`, `Redraw`
 /// and `Ignore` are the session's or the panel's and are not a draft's at all,
 /// and `SelectUp`, `ComposerUp` and their Down are composer moves an amendment
-/// leaves alone (`src/ui/input/runtime.zig:86@481104fd`). `DraftStart` and
-/// `DraftEnd` -- Super-Up and -Down -- are the draft's edges
-/// (`super::shell::Shell::decide` hands them over unfolded).
+/// leaves alone (`src/ui/input/runtime.zig:86@481104fd`). This reads a folded
+/// key, so `DraftStart` and `DraftEnd` -- Super-Up and -Down, the draft's
+/// edges -- never reach it: `super::shell::Shell::decide` hands them to the
+/// draft unfolded, ahead of it.
 pub(crate) fn edits(action: super::input::Action) -> bool {
     use super::input::Action as Key;
     matches!(
@@ -742,8 +743,6 @@ pub(crate) fn edits(action: super::input::Action) -> bool {
             | Key::Right
             | Key::Home
             | Key::End
-            | Key::DraftStart { .. }
-            | Key::DraftEnd { .. }
             | Key::WordLeft
             | Key::WordRight
             | Key::Backspace

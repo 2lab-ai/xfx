@@ -1,16 +1,17 @@
 # The vertical spellings at a permission question
 # (APPROVAL-VERTICAL-SPELLINGS). fx v0.0.16 moves the choice on the plain
 # arrows alone. Shift-, Ctrl-, Super- and Alt-Up and -Down (Alt also as
-# kitty's report of the arrow) are composer moves and C-p and C-n raw bytes
-# the question does not read (input_approval_runtime.zig:111-128,
-# escape_parser.zig:73-108, src/ui/input/runtime.zig:61-108@481104fd).
+# kitty's report of the arrow) are composer moves, C-p the model-catalog
+# action, and C-n a raw byte the question does not read
+# (input_approval_runtime.zig:111-128, escape_parser.zig:73-108, :268-274,
+# src/ui/input/runtime.zig:61-108@481104fd).
 # First in an amendment on choice 1 holding `ab cd`, each key and then a
 # letter: the amendment stays open, Super-Up and Super-Down take the caret
 # to the draft's start and end, and the other ten leave it where it is. Then
 # Down and Up to choice 1 with no amendment open, and each key again: the
 # choice stays on 1. Enter last answers it, with the draft it holds.
 # Not here: `ESC ESC [ A` (fx's meta prefix), which xfx reads as Escape and
-# Up; the Escape cancels the turn (owner QUESTION-LEFT-SPELLINGS).
+# Up; the Escape cancels the turn (owner META-PREFIX-DECODE).
 # The turns, the workspace and the settings are approvals.cap's.
 fx: gateway approvals-fx.json
 xfx: gateway approvals-xfx.json

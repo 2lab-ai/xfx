@@ -36,6 +36,15 @@ ranges=(
   src/core/app/app_input_runtime.zig:1126-1185
   src/core/app/app_input_runtime.zig:5931-5961
   src/core/app/input_paste_runtime.zig:19-25
+  src/ui/input/escape_parser.zig:268-274
+  src/ui/input/terminal_action_decoder.zig:103-124
+  src/core/app/app_input_runtime.zig:623-656
+  src/core/app/app_input_runtime.zig:1229-1258
+  src/core/app/input_approval_runtime.zig:186-218
+  src/ui/render_request.zig:172-177
+  src/ui/render_request.zig:367-370
+  src/ui/approval_screen.zig:600-607
+  src/ui/footer/approval_readiness.zig:15-38
 )
 {
   echo "# fx v0.0.16 ($pin), every line this receipt cites, as git show $pin:<path> prints it, numbered."
@@ -52,8 +61,12 @@ ranges=(
   git -C "$fx" grep -n 'history_up\|history_down' "$pin" -- src/ui src/core/input | sed "s/^$pin://"
 } > "$here/fx-src.txt"
 
-# The check. Reads README.md, plus whatever text is piped in (the unit's added
-# lines, e.g. `git diff <base> -- src tests docs | grep '^+'`), if any.
+# The check. Reads README.md, plus whatever text is piped in, if any: the
+# unit's added text, as
+#   { git diff 2593f49c -- src tests scripts/fxcap/scenarios | grep '^+';
+#     git diff --word-diff=porcelain 2593f49c -- docs/parity.md | grep '^+'; }
+# (words for docs/parity.md, whose rows are one line each: a changed row's
+# other units' citations are not this unit's).
 inputs=("$here/README.md")
 if [[ ! -t 0 ]]; then
   # The check's own source is a heredoc on python's stdin, so the piped

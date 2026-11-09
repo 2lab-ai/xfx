@@ -328,14 +328,17 @@ pub(crate) enum Action {
     /// the surface's to say. It is **not** the recall any more (ssot
     /// divergence 8): the line before this one is the `Up` arrow's, at the
     /// first row of the draft. At an approval's choice and in its amendment
-    /// it does nothing, as upstream's question reads no action from the byte
-    /// (`approvalActionFromRawByte`, `src/ui/input/runtime.zig:103-108
-    /// @481104fd`; `super::shell::Shell`'s `decide`).
+    /// it does nothing: upstream decodes it as `.open_model_catalog`
+    /// (`escape_parser.zig:268-274@481104fd`), which its question's switch
+    /// leaves to `else => {}` (`input_approval_runtime.zig:128`;
+    /// `super::shell::Shell`'s `decide`).
     ControlP,
     /// The line after it, and the draft the walk began from once there are no
     /// more. `C-n`, and `Down` at the last row. A review walked on at a
     /// permission question's review plane, and nothing at its choice or in
-    /// its amendment, as [`Action::ControlP`].
+    /// its amendment, where upstream's question reads no action from the raw
+    /// byte (`approvalActionFromRawByte`, `src/ui/input/runtime.zig:103-108
+    /// @481104fd`).
     HistoryNext,
     /// Take the last edit back. `C-_` (`0x1f`), and Super+Z on a terminal that
     /// speaks either of the two CSI-u families (`shortcuts.zig:23-24`,
@@ -1063,12 +1066,18 @@ fn csi(params: &[u8], final_byte: u8) -> Input {
 /// is upstream's composer move, which only an approval's choice tells apart
 /// from the cursor key ([`Action::ComposerLeft`]) -- the selection Shift would
 /// extend is dropped, and so is Super's jump to the line's edge. On Up and Down
-/// every modifier is kept apart from the arrow, in upstream's order
-/// (`modifiedArrowAction`, `escape_parser.zig:73-108@481104fd`): Super first
-/// ([`Action::DraftStart`], with Shift remembered), then Shift
-/// ([`Action::SelectUp`]), then Ctrl or Alt ([`Action::ComposerUp`]); a mask
-/// with none of the four is the arrow, as upstream's table answers `null` and
-/// the plain arrow follows (`:727-733`).
+/// every modifier is kept apart from the arrow, in **this decoder's own
+/// classification**: Super first ([`Action::DraftStart`], with Shift
+/// remembered), then Shift ([`Action::SelectUp`]), then Ctrl or Alt
+/// ([`Action::ComposerUp`]). Upstream's table reads Super, then Alt, then
+/// Ctrl, then Shift (`modifiedArrowAction`, `escape_parser.zig:73-108
+/// @481104fd`). The only line an approval draws through those is Super's --
+/// `draft_start`/`draft_end` against every other composer move, which it
+/// leaves alone -- so any order with Super first gives upstream's result
+/// there; Shift before Ctrl and Alt is so `super::shell::Shell`'s
+/// `unspelled` can give every other surface the key it had (any Shift was
+/// [`Action::SelectUp`]). A mask with none of the four is the arrow, as
+/// upstream's table answers `null` and the plain arrow follows (`:727-733`).
 fn cursor(letter: u8, mask: u8) -> Action {
     let word = mask & (ALT | CTRL) != 0;
     let shifted = mask & SHIFT != 0;
@@ -2505,17 +2514,18 @@ mod tests {
     }
 
     #[test]
-    fn every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow_in_upstreams_order() {
+    fn every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow() {
         // `modifiedArrowAction` (`escape_parser.zig:73-108@481104fd`): Super
         // first (`draft_start`/`draft_end`), then Alt (`paragraph_up`/`_down`),
         // then Ctrl (`visual_up`/`_down`), then Shift (the same, extending a
         // selection); a mask with none of the four is the plain arrow
         // (`:727-733`). The CSI modifier is one more than the mask (`:722`),
         // kitty's arrow codes (`:38-39`) and keypad arrows (`:196-197`) take the
-        // same table (`:163-167`, `:208-214`). Here Super is
-        // `DraftStart`/`DraftEnd` with Shift remembered, Shift without Super
-        // `SelectUp`/`SelectDown` (which a question's field binds), Ctrl or Alt
-        // without either `ComposerUp`/`ComposerDown`.
+        // same table (`:163-167`, `:208-214`). This decoder's own
+        // classification (`cursor`): Super is `DraftStart`/`DraftEnd` with
+        // Shift remembered, Shift without Super `SelectUp`/`SelectDown` (which
+        // a question's field binds), Ctrl or Alt without either
+        // `ComposerUp`/`ComposerDown`.
         let start = |shifted| Action::DraftStart { shifted };
         let end = |shifted| Action::DraftEnd { shifted };
         for (bytes, expected) in [

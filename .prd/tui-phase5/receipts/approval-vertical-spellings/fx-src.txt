@@ -708,6 +708,192 @@
    24      return normalized;
    25  }
 
+## src/ui/input/escape_parser.zig:268-274
+  268  pub fn controlByteFeatureAction(byte: u8) ?InputEscapeAction {
+  269      return switch (byte) {
+  270          15 => .toggle_full_transcript,
+  271          16 => .open_model_catalog,
+  272          else => null,
+  273      };
+  274  }
+
+## src/ui/input/terminal_action_decoder.zig:103-124
+  103              if (action) |resolved| {
+  104                  const was_cancel_pending = self.takeCancelPending();
+  105                  appendAction(&ingress, resolved, was_cancel_pending);
+  106                  return ingress;
+  107              }
+  108  
+  109              if (self.stage != 0 or prior_stage != 0) {
+  110                  if (self.stage == 0) {
+  111                      _ = self.takeCancelPending();
+  112                      appendAction(&ingress, .ignore, false);
+  113                  }
+  114                  return ingress;
+  115              }
+  116          }
+  117  
+  118          if (escape_parser.controlByteFeatureAction(byte)) |resolved| {
+  119              appendAction(&ingress, resolved, false);
+  120          } else {
+  121              appendRaw(&ingress, byte);
+  122          }
+  123          return ingress;
+  124      }
+
+## src/core/app/app_input_runtime.zig:623-656
+  623              var replay_byte = ingress.replay_byte_after_routing;
+  624              if (ingress.event) |event| {
+  625                  switch (event) {
+  626                      .paste_byte => |byte| {
+  627                          const routed = try routeActivePasteByte(app, byte);
+  628                          std.debug.assert(routed);
+  629                      },
+  630                      .raw => |raw| try handleRawTerminalInputWithLimits(
+  631                          app,
+  632                          raw,
+  633                          input_limits,
+  634                          max_prompt_history,
+  635                      ),
+  636                      .action => |decoded| {
+  637                          switch (try routeResolvedEscapeAction(
+  638                              app,
+  639                              decoded.action,
+  640                              decoded.composer_shortcut,
+  641                              decoded.approval_focused_edit,
+  642                              decoded.question_action,
+  643                              decoded.cancel_pending,
+  644                              input_limits.composer_bytes,
+  645                          )) {
+  646                              .done => {},
+  647                              .remapped_byte => |byte| {
+  648                                  std.debug.assert(replay_byte == null);
+  649                                  replay_byte = byte;
+  650                              },
+  651                          }
+  652                      },
+  653                  }
+  654              }
+  655              return replay_byte;
+  656          }
+
+## src/core/app/app_input_runtime.zig:1229-1258
+ 1229          fn handleTextByte(app: *App, owner: text_scalar.Owner, byte: u8, max_input_len: usize) !void {
+ 1230              const transition = text_scalar.advance(app.input_runtime.text_scalar, owner, byte);
+ 1231              app.input_runtime.text_scalar = transition.next;
+ 1232              const step = transition.step;
+ 1233              if (step.dropped) |drop| {
+ 1234                  debug_trace.logf(
+ 1235                      "input",
+ 1236                      "text scalar dropped owner={s} bytes={d} reason={s}",
+ 1237                      .{ @tagName(drop.owner), drop.bytes, @tagName(drop.reason) },
+ 1238                  );
+ 1239              }
+ 1240              const scalar = step.scalar orelse return;
+ 1241              const bytes = scalar.slice();
+ 1242              switch (scalar.owner) {
+ 1243                  .question_freeform => switch (try app.question_prompt.insertFreeformSlice(app.alloc, bytes, max_input_len)) {
+ 1244                      .inserted => {
+ 1245                          app.input_runtime.input_limit_rejection = input_limit_rejection.clear();
+ 1246                          app.shell.render_requests.request(.modal);
+ 1247                      },
+ 1248                      .inactive => {},
+ 1249                      .limit_exceeded => try input_limit_feedback.report(App, app, .question_freeform, bytes.len),
+ 1250                  },
+ 1251                  .approval_amendment => switch (try app.approval_prompt.decision.insertAmendmentSlice(app.alloc, bytes, max_input_len)) {
+ 1252                      .inserted => {
+ 1253                          app.input_runtime.input_limit_rejection = input_limit_rejection.clear();
+ 1254                          app.shell.render_requests.request(.modal);
+ 1255                      },
+ 1256                      .inactive => {},
+ 1257                      .limit_exceeded => try input_limit_feedback.report(App, app, .approval_amendment, bytes.len),
+ 1258                  },
+
+## src/core/app/input_approval_runtime.zig:186-218
+  186                  try submitRuleManagementChoice(app, decision);
+  187                  return;
+  188              }
+  189              if (try submitSubagentPermissionChoice(app, decision)) return;
+  190              var affirmative_claimed = false;
+  191              if (decision != .deny and
+  192                  app.approval_prompt.request.?.file != null)
+  193              {
+  194                  admitPendingApprovalResize(app);
+  195                  const approval = app.approval_prompt.projection().?;
+  196                  const ready = if (comptime @hasField(App, "terminal"))
+  197                      approval_screen.fileApprovalAffirmativeReady(
+  198                          &app.shell,
+  199                          approval,
+  200                          &app.approval_screen,
+  201                      )
+  202                  else
+  203                      approval_ui.fileApprovalAffirmativeReady(
+  204                          &app.shell,
+  205                          approval,
+  206                      );
+  207                  if (!ready) {
+  208                      requestActiveSurfaceFrame(app);
+  209                      debug_trace.logf(
+  210                          "permission",
+  211                          "file_approval_confirmation_blocked request_id={d} decision={s}",
+  212                          .{
+  213                              app.approval_prompt.request.?.id,
+  214                              @tagName(decision),
+  215                          },
+  216                      );
+  217                      return;
+  218                  }
+
+## src/ui/render_request.zig:172-177
+  172      pub fn settledForApproval(self: RenderRequestState) bool {
+  173          return !reasonsAffectApproval(self.pending_reasons) and
+  174              self.pending_invalidations.isEmpty() and
+  175              !self.attempt_affects_approval and
+  176              !self.resizeLifecyclePending();
+  177      }
+
+## src/ui/render_request.zig:367-370
+  367  fn reasonsAffectApproval(reasons: ReasonSet) bool {
+  368      return reasons.contains(.modal) or reasons.contains(.resize) or
+  369          reasons.contains(.external_damage) or reasons.contains(.first_frame);
+  370  }
+
+## src/ui/approval_screen.zig:600-607
+  600  pub fn fileApprovalAffirmativeReady(
+  601      shell: anytype,
+  602      approval: approval_prompt.Projection,
+  603      screen_state: *const interaction_state.ApprovalScreenState,
+  604  ) bool {
+  605      const settled = approval_readiness.settledFileApproval(shell, approval) orelse return false;
+  606      return approval_readiness.screenCommitSupportsAffirmative(settled, screen_state);
+  607  }
+
+## src/ui/footer/approval_readiness.zig:15-38
+   15  pub fn settledFileApproval(
+   16      shell: anytype,
+   17      approval: ApprovalProjection,
+   18  ) ?SettledFileApproval {
+   19      const Shell = @TypeOf(shell.*);
+   20      if (comptime !(@hasField(Shell, "render_requests") and
+   21          @hasField(Shell, "layout") and
+   22          @hasField(Shell, "terminal_dimensions_invalid") and
+   23          @hasField(Shell, "pending_resize_observation")))
+   24      {
+   25          return null;
+   26      } else {
+   27          const request = approval.request;
+   28          const file_request = request.file orelse return null;
+   29          if (!shell.render_requests.settledForApproval()) return null;
+   30          if (!resize_runtime.lifecycleIdle(shell)) return null;
+   31          if (shell.layout.rows == 0 or shell.layout.cols == 0) return null;
+   32          return .{
+   33              .request_id = request.id,
+   34              .file_request = file_request,
+   35              .rows = shell.layout.rows,
+   36              .cols = shell.layout.cols,
+   37          };
+   38      }
+
 ## git grep -n 'history_up\|history_down' 481104fd -- src/ui src/core/input
 src/core/input/input_action.zig:71:    history_up,
 src/core/input/input_action.zig:72:    history_down,

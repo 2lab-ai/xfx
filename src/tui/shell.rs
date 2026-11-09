@@ -9483,22 +9483,26 @@ impl Shell {
             // Super's with no draft) are composer moves, which reach fx's
             // `else => {}` (`input_approval_runtime.zig:128`; `visual_up`,
             // `paragraph_up` and their Down are no draft key,
-            // `src/ui/input/runtime.zig:86`). `C-p` and `C-n` are raw bytes
-            // there: no draft key (`fromFocusedEditorControlByte`,
-            // `shortcuts.zig:31-41`) and no approval byte
-            // (`approvalActionFromByte`, `src/ui/input/runtime.zig:61-73`,
-            // `:103-108`), so the question takes them and does nothing
-            // (`app_input_runtime.zig:1173-1184`). Swallowed here, before the
-            // panel is asked, so the choice, the draft, the frame and the
-            // readiness receipt are all exactly as they were: a key that does
-            // nothing cannot leave a choice marked that no frame has shown.
+            // `src/ui/input/runtime.zig:86`). `C-p` is fx's decoded
+            // `.open_model_catalog` (`controlByteFeatureAction`,
+            // `escape_parser.zig:268-274`; `terminal_action_decoder.zig:118-122`),
+            // which carries no composer move (`shortcuts.zig:63`) and reaches
+            // the same `else`. `C-n` is a raw byte (`appendRaw`), no draft key
+            // (`fromFocusedEditorControlByte`, `shortcuts.zig:31-41`) and no
+            // approval byte (`approvalActionFromByte`,
+            // `src/ui/input/runtime.zig:61-73`, `:103-108`), so the question
+            // takes it and does nothing (`app_input_runtime.zig:1173-1184`).
+            // Swallowed here, before the panel is asked, so the choice, the
+            // draft, the frame and the readiness receipt are all exactly as
+            // they were: a key that does nothing cannot leave a choice marked
+            // that no frame has shown.
             //
             // **`C-p` and `C-n` on the review plane are this surface's own**:
             // they walk the change (above), the only keys that do -- a bounded
             // diff is up to 128 KiB (`crate::permission::ApprovalDiff`) and a
             // screen is a few dozen rows. Upstream's plane scrolls by the
-            // wheel alone (`handleApprovalWheel`), which xfx does not enable;
-            // a retention, recorded in `docs/parity.md`.
+            // wheel (`handleApprovalWheel`), which xfx does not enable; a
+            // retention, recorded in `docs/parity.md`.
             Input::Action(
                 Action::SelectUp
                 | Action::SelectDown
@@ -22756,10 +22760,11 @@ mod tests {
         // Down is a composer move (`modifiedArrowAction`,
         // `escape_parser.zig:73-108@481104fd`; the CSI modifier `:721-730`,
         // kitty's arrow codes `:38-39` through `:208-217`), which reaches the
-        // switch's `else => {}` (`input_approval_runtime.zig:128`). `C-p` and
-        // `C-n` are raw bytes no approval action is made of
+        // switch's `else => {}` (`input_approval_runtime.zig:128`). So does
+        // `C-p`, decoded as `.open_model_catalog` (`escape_parser.zig:268-274`).
+        // `C-n` is a raw byte no approval action is made of
         // (`approvalActionFromRawByte`, `src/ui/input/runtime.zig:61-73`,
-        // `:103-108`; `shortcuts.zig:11-41`), and the question takes them and
+        // `:103-108`; `shortcuts.zig:11-41`), and the question takes it and
         // does nothing (`app_input_runtime.zig:1173-1184`). Only the plain
         // arrows move, wrapping (`input_approval_runtime.zig:111-126`).
         // `fx-p5-approval-vertical-keys-40x120-*`.
@@ -22825,13 +22830,16 @@ mod tests {
         // (`src/ui/input/runtime.zig:75-96`, `:121-129`;
         // `input_approval_runtime.zig:79-89`). Super-Up and Super-Down are
         // `draft_start` and `draft_end` (`escape_parser.zig:74-76`), so the
-        // caret goes to the draft's start and its end (`:82-83`; `cursorHome`
-        // and `cursorEnd`, `approval_amendment.zig:84-92`). Shift- and
-        // Ctrl-Up/Down are `visual_up`/`visual_down` and Alt-Up/Down
-        // `paragraph_up`/`paragraph_down` (`escape_parser.zig:84-85`, `:93-94`,
-        // `:100-101`), which it does not name (`:86`): the switch's
-        // `else => {}` (`input_approval_runtime.zig:128`), nothing. `C-p` and
-        // `C-n` are no draft key (`shortcuts.zig:31-41`) and no approval byte
+        // caret goes to the draft's start and its end
+        // (`src/ui/input/runtime.zig:82-83`; `cursorHome` and `cursorEnd`,
+        // `approval_amendment.zig:84-92`). Shift- and Ctrl-Up/Down are
+        // `visual_up`/`visual_down` and Alt-Up/Down `paragraph_up`/
+        // `paragraph_down` (`escape_parser.zig:84-85`, `:93-94`, `:100-101`),
+        // which it does not name (`src/ui/input/runtime.zig:86`): the switch's
+        // `else => {}` (`input_approval_runtime.zig:128`), nothing. `C-p` is
+        // `.open_model_catalog` (`escape_parser.zig:268-274`), with no
+        // composer move (`shortcuts.zig:63`): the same `else`. `C-n` is a raw
+        // byte, no draft key (`shortcuts.zig:31-41`) and no approval byte
         // (`src/ui/input/runtime.zig:61-73`): nothing
         // (`app_input_runtime.zig:1173-1184`). The amendment stays open and
         // the choice where it is through all twelve; the letter after each
@@ -22882,13 +22890,16 @@ mod tests {
     fn a_no_op_vertical_spelling_keeps_the_receipt_and_enter_answers_the_choice_shown() {
         // A key that leaves the choice and the amendment as they were changes
         // nothing on the screen, so the readiness receipt about that screen is
-        // left exactly as it was, and Enter after it answers the choice the
-        // last disclosed frame marked, with the draft that frame showed. When
-        // these keys moved the marker (a `Moved` reply, which keeps the
-        // receipt: all three choices are on every frame), an Enter in the same
-        // read answered a choice no frame had shown marked -- after Shift-Down,
-        // `Always`. Super-Up and Super-Down in an amendment move the caret,
-        // which is not nothing, and are the amendment test's.
+        // left exactly as it was, and Enter after it, with no frame between,
+        // answers the choice the last disclosed frame marked, with the draft
+        // that frame showed. When these keys moved the marker (a `Moved`
+        // reply, which keeps the receipt: all three choices are on every
+        // frame), such an Enter answered a choice no frame had shown marked --
+        // after Shift-Down, `Always`. Two deliveries here, so the receipt can
+        // be read between them; the one-read cases, key and Enter in one
+        // buffer, are `a_vertical_spelling_and_enter_in_one_read_answer_the_choice_shown`.
+        // Super-Up and Super-Down in an amendment move the caret, which is not
+        // nothing: they are that test's.
         for open in [false, true] {
             for (name, key) in VERTICAL_SPELLINGS {
                 if open && name.starts_with("super") {
@@ -22911,8 +22922,7 @@ mod tests {
                     receipt,
                     "open={open} {name}: a key that moved nothing touched the receipt"
                 );
-                // No frame between: the Enter is read with the key, as a
-                // terminal that sends both in one write has it read.
+                // No frame between the key and the Enter.
                 shell.route_bytes(b"\r");
                 assert_eq!(
                     shell.controlled(),
@@ -22936,6 +22946,87 @@ mod tests {
             !shell.approval_ready(ApprovalId(1)),
             "the arrow out of a filled draft kept the receipt"
         );
+    }
+
+    #[test]
+    fn a_vertical_spelling_and_enter_in_one_read_answer_the_choice_shown() {
+        // A terminal sends a key and the Enter after it in one write, and the
+        // decoder reads them from one buffer (`route_bytes` is one read). The
+        // answer must be the choice the last disclosed frame marked, with the
+        // draft that frame showed.
+        let answered = |shell: &mut Fixture, feedback: Option<&str>, what: &str| {
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: feedback.map(str::to_string),
+                }),
+                "{what}"
+            );
+        };
+        let open = |shell: &mut Fixture| {
+            shell.route_bytes(b"\tab cd");
+            delivered(shell);
+            assert!(shell.approval_ready(ApprovalId(1)), "no receipt was earned");
+        };
+        // Each spelling and `\r` in one buffer, at a choice and in an
+        // amendment (Super-Up and -Down there below).
+        for amending in [false, true] {
+            for (name, key) in VERTICAL_SPELLINGS {
+                if amending && name.starts_with("super") {
+                    continue;
+                }
+                let mut shell = shell(24, 80);
+                asking(&mut shell);
+                if amending {
+                    open(&mut shell);
+                }
+                shell.route_bytes(&[key, b"\r"].concat());
+                answered(
+                    &mut shell,
+                    amending.then_some("ab cd"),
+                    &format!("amending={amending} {name}"),
+                );
+            }
+        }
+        // All twelve and `\r` in one buffer, at a choice and in an amendment:
+        // nothing moves, and Super-Up and -Down there move only the caret,
+        // which is not part of the receipt's identity
+        // (`super::approval_readiness::Intent`), so the draft is unchanged.
+        for amending in [false, true] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            if amending {
+                open(&mut shell);
+            }
+            let mut all: Vec<u8> = VERTICAL_SPELLINGS
+                .iter()
+                .flat_map(|(_, key)| key.iter().copied())
+                .collect();
+            all.push(b'\r');
+            shell.route_bytes(&all);
+            answered(
+                &mut shell,
+                amending.then_some("ab cd"),
+                &format!("amending={amending}: the twelve and Enter in one read"),
+            );
+        }
+        // Super-Up or Super-Down in an amendment, then Enter at once. The
+        // caret moved, which is a frame (`Moved`) and not a new screen: a
+        // receipt is about the question, its plane, its size and its layout,
+        // never the caret (`super::approval_readiness::Intent`), so it holds,
+        // and the answer is the choice shown with the draft unchanged.
+        for (name, key) in [
+            ("super-up", &b"\x1b[1;9A"[..]),
+            ("super-down", b"\x1b[1;9B"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            open(&mut shell);
+            shell.route_bytes(&[key, b"\r"].concat());
+            answered(&mut shell, Some("ab cd"), name);
+        }
     }
 
     #[test]
