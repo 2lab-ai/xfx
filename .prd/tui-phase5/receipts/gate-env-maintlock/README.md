@@ -167,9 +167,10 @@ the decoy. The trace check came after the fix. Its RED is mutants 1 and 2
 below, which are the head with the fix taken out, and `trunc-runs.txt`
 (a by-hand run in the clone; its commands are not in this folder, *(not
 measured here)*):
-the head's test cut after the trace check (`:482` head), with `sg` as at
-`base`, which shows both cases failing, and as in mutant 2, which shows
-`decoy-setup-starts-nothing` failing alone.
+the test at `2bc8fa55` cut after the trace check, at its `:482` there (the
+section's last line at that commit; at `2a9b1c22` the section ends at
+`:522`), with `sg` as at `base`, which shows both cases failing, and as in
+mutant 2, which shows `decoy-setup-starts-nothing` failing alone.
 
 **GREEN, round 2** (`runs-r2/green-{1,2,3}.log`), the worktree at `2bc8fa55`: three
 runs, each exit 0 and `test-gate-env: ok (64 cases)`, the base's 62 cases
@@ -251,8 +252,10 @@ line.
 None of the three printed a line other than `ok`, `skip` and the grep
 banner.
 
-**The full gate** (`gates.sh`, `gate-r3/`), at `2a9b1c22`, inside one hold of
-the suite lock: 20 steps, 0 failed (`gate-r3/summary.txt`).
+**The full gate** (`gates.sh`, `gate-r3/`), at `2a9b1c22`, started through
+`suite-lock.sh` (*(not measured here)*: neither `gates.sh` nor
+`gate-r3/summary.txt` records a slot): 20 steps, 0 failed
+(`gate-r3/summary.txt`).
 - `cargo test`: 5539 passed, 0 failed (`gate-r3/04-test.log`, the result
   lines only).
 - With fault injection: 5576 passed, 0 failed (`05-test-fault.log`).
@@ -260,9 +263,13 @@ the suite lock: 20 steps, 0 failed (`gate-r3/summary.txt`).
 - `check-xfx-identity` and `check-no-secrets`: ok, 17192 tracked files.
 
 Its "tree clean: no" is this round's receipt files, uncommitted under this
-folder while the gate ran: no file outside `.prd/` differed from
-`2a9b1c22`. `gates-r3-quick.txt` reruns the quick gates on the head that
-holds this receipt.
+folder while the gate ran. That no file outside `.prd/` differed from
+`2a9b1c22` then is *(not measured here)*: no porcelain list was saved during
+the gate. The commits since support it (`nonprd-diff.txt`): `git diff
+2a9b1c22 ad2493ab` outside `.prd/` is empty, inside it are 46 added files and
+this README modified, and the tracked count goes 17192 (the gate's scans)
+→ 17237 at `d115fb39` (+45 receipt files). `gates-r3-quick.txt` reruns the
+quick gates at `d115fb39`, the commit that holds this round's receipt.
 
 `trace-line.log` (`trace-line.sh`) shows the commit line the case requires,
 `trace: built-in: git commit -q -m decoy`, as git 2.56.0 writes it for
