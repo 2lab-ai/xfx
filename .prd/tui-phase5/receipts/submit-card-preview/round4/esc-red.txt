@@ -1,0 +1,5 @@
+# cargo test --locked --lib -- event_loop::tests::the_test_terminal   (the round-4 regression, with the second-ESC arm taken out of Terminal::escape)
+test tui::event_loop::tests::the_test_terminal_parses_one_stream_across_reads ... FAILED
+  left: ["┃ A", "B", "C[4;1HD", ""]
+ right: ["┃ A", "B", "C", "D"]
+# with it: ok

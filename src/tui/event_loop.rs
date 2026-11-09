@@ -9206,6 +9206,9 @@ mod tests {
                         }
                     }
                 }
+                // A second `ESC` aborts the first, and the escape starts again
+                // there: the next update's, after a tear one byte past an `ESC`.
+                Some('\u{1b}') => Some(at),
                 Some(_) => Some(at + 1),
                 None => None,
             }
@@ -9336,7 +9339,7 @@ mod tests {
     fn the_test_terminal_parses_one_stream_across_reads() {
         // A character and a CSI torn across two reads are read whole; a CSI
         // the next update's `ESC` cuts short is aborted, and that update is
-        // read from its `ESC`.
+        // read from its `ESC`; so is a lone `ESC` the next one follows.
         let mut terminal = Terminal::new(4, 20);
         let mut written = "\u{2503} A\u{1b}[2".as_bytes().to_vec();
         written.truncate(1);
@@ -9347,9 +9350,15 @@ mod tests {
         terminal.catch_up(&written);
         written.extend_from_slice(b"\x1b[3;1HC");
         terminal.catch_up(&written);
+        // And a tear one byte past an `ESC`: the next update's `ESC` starts
+        // the escape again rather than ending it.
+        written.extend_from_slice(b"\x1b");
+        terminal.catch_up(&written);
+        written.extend_from_slice(b"\x1b[4;1HD");
+        terminal.catch_up(&written);
         assert_eq!(
             terminal.everything(),
-            ["\u{2503} A", "B", "C", ""],
+            ["\u{2503} A", "B", "C", "D"],
             "the reads were not parsed as one stream"
         );
         assert!(terminal.pending.is_empty(), "bytes left unparsed");
@@ -9919,19 +9928,44 @@ mod tests {
             tick(&mut shell, &mut band, &mut out);
             out.script = script;
             out.update = 0;
+            out.took.clear();
             shell.route_bytes(b"\r");
             assert!(
                 shell.previewing(),
                 "{what}: no preview, so this case proves nothing"
             );
             tick(&mut shell, &mut band, &mut out);
-            // Every step met in this tick (a tear's recovery writes after it).
-            assert!(
-                out.took.len() >= out.script.len(),
-                "{what}: the tick's writes {:?}",
-                out.took
-            );
             drop(tick);
+            // Which write each step met, from what the tick left: in every
+            // case the preview's newest row is up and the card's first row is
+            // nowhere -- the window this test is about.
+            let screen = terminal.everything();
+            let up = screen
+                .iter()
+                .any(|row| *row == expected[expected.len() - 1])
+                && !screen.iter().any(|row| *row == expected[0]);
+            match out.script[..] {
+                [Step::Take, Step::Refuse] => assert!(
+                    out.took.len() == 2 && out.took[0] > 0 && out.took[1] == 0 && up,
+                    "{what}: not the preview's frame taken and the card's refused, the \
+                     preview up ({:?}): {screen:#?}",
+                    out.took
+                ),
+                [Step::Take, Step::Tear(taken)] => assert!(
+                    out.took.len() > 2 && out.took[0] > 0 && out.took[1] == taken && up,
+                    "{what}: not the preview's frame taken and the card's torn before its \
+                     rows, closed, the preview up ({:?}): {screen:#?}",
+                    out.took
+                ),
+                // The recovery repaints the torn preview, and lands no band.
+                [Step::Half] => assert!(
+                    out.took.len() > 1 && out.took[0] > 0 && up,
+                    "{what}: not the preview's frame torn and repainted, the preview up \
+                     ({:?}): {screen:#?}",
+                    out.took
+                ),
+                _ => unreachable!("{what}: a script this test does not read"),
+            }
             let before = terminal.history.len();
             terminal.resize(24, 120);
             let took: Vec<String> = terminal.history[before..]
@@ -9945,6 +9979,7 @@ mod tests {
                 .cloned()
                 .collect();
             adopt_resize(&mut shell, &mut band, || (24, 120));
+            let shrunk = out.written.len();
             for _ in 0..4 {
                 commit_counted(
                     &mut shell,
@@ -9967,11 +10002,32 @@ mod tests {
                 .zip(&expected)
                 .take_while(|(row, expected)| row == expected)
                 .count();
-            // The band's repaint after a shorter screen covers the
-            // document's last row, as it covers any document's.
-            assert!(
-                found + 1 >= expected.len(),
-                "{what}: the card from its first row: {rows:#?}"
+            // Written whole: every row of the card, in the card's own style,
+            // once and in order in what xfx wrote after the shrink -- the
+            // card's frame. (The tall preview's own frame paints its rows
+            // behind the same rail, as band rows.)
+            let written = String::from_utf8_lossy(&out.written[shrunk..]).into_owned();
+            let mut from = 0;
+            for word in &words {
+                let row = format!("\u{1b}[38;5;255m\u{2503}\u{1b}[0m \u{1b}[1m{word}\u{1b}[0m");
+                assert_eq!(
+                    written.matches(&row).count(),
+                    1,
+                    "{what}: the card's {word} not written once"
+                );
+                from += written[from..]
+                    .find(&row)
+                    .unwrap_or_else(|| panic!("{what}: the card's {word} written out of order"))
+                    + row.len();
+            }
+            // Still visible whole, a separate claim: every row of it on the
+            // terminal from its first. The card's frame comes after the
+            // shrink, so no repaint for the shorter screen covers its last
+            // row (that is a row written before a shrink, the tall test's).
+            assert_eq!(
+                found,
+                expected.len(),
+                "{what}: the card on the terminal from its first row: {rows:#?}"
             );
             assert!(
                 !rows[start + found..].iter().any(carries),
@@ -9995,6 +10051,13 @@ mod tests {
                     && kept.starts_with(&besides[took.len()..]),
                 "{what}: rows of the card besides it {besides:#?}, against those the shrink \
                  took {took:#?} and kept {kept:#?}"
+            );
+            // And how many, for this screen and this card: 10 rows into the
+            // history, and 2 of the preview's kept above the band.
+            assert_eq!(
+                (took.len(), besides.len() - took.len()),
+                (10, 2),
+                "{what}: the rows the shrink took, and those it kept above the band"
             );
         }
     }
