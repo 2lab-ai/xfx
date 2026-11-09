@@ -449,11 +449,16 @@ EOF
 chmod 755 "$work/maint-hooks/pre-auto-gc"
 # Runs a gate once the decoy's background maintenance, if there is any, has
 # let go of its lock: the sums before are taken, so a lock seen there is seen
-# to go.
+# to go. A lock still there after 10 s is a failure of its own, exit 3, and
+# the gate is not run: with the lock in both sums, the case would pass.
 after_maintenance() {
 	local i=0
 	: >"$work/maint-go"
-	while [ -e "$decoy/.git/objects/maintenance.lock" ] && [ "$i" -lt 200 ]; do
+	while [ -e "$decoy/.git/objects/maintenance.lock" ]; do
+		if [ "$i" -ge 200 ]; then
+			printf "test-gate-env: the decoy's objects/maintenance.lock was still there after 10 s; the gate was not run\n" >&2
+			return 3
+		fi
 		sleep 0.05
 		i=$((i + 1))
 	done
@@ -464,17 +469,52 @@ refuses decoy-setup-maintenance "$content_found" after_maintenance "$ilock/scrip
 # The case above holds a run only through gc, which `-c gc.auto=0` alone
 # turns off; but with the decoy's own `maintenance.auto=true` that flag alone
 # still lets the commit start a run. So, timing aside: git's trace of the
-# same setup names no `git maintenance run` and no `git gc --auto`.
+# same setup names no `git maintenance run` and no `git gc --auto`. The trace
+# must also hold the commit's own line, as git 2.56 writes it: a trace that
+# is missing, empty or in another format is a failure, not a pass. And the
+# hook must not have run.
+set +e
 (
+	set -e
 	export GIT_TRACE="$work/decoy-setup.trace"
 	new_decoy
 ) </dev/null >"$work/decoy-setup.log" 2>&1
-started="$(grep -E 'run_command: git (maintenance run|gc --auto)' "$work/decoy-setup.trace" || true)"
-after_maintenance true
-if [ -n "$started" ]; then
-	problem "decoy-setup-starts-nothing: new_decoy's commit started git's maintenance:"
-	printf '%s\n' "$started" | sed 's/^.*trace: //' >&2
+setup_status=$?
+set -e
+if [ "$setup_status" -ne 0 ]; then
+	problem "decoy-setup-starts-nothing: new_decoy exited $setup_status under GIT_TRACE; its output:"
+	cat "$work/decoy-setup.log" >&2
+	exit 1
+fi
+setup_ok=1
+if ! after_maintenance true 2>"$work/decoy-setup.wait"; then
+	problem "decoy-setup-starts-nothing: $(sed 's/^test-gate-env: //' "$work/decoy-setup.wait")"
+	setup_ok=0
+fi
+commit_line="trace: built-in: git commit -q -m decoy"
+grep_status=0
+if [ ! -s "$work/decoy-setup.trace" ]; then
+	problem "decoy-setup-starts-nothing: git's trace recorded nothing (no trace file, or an empty one)"
+	setup_ok=0
+elif ! grep -q -F -e "$commit_line" "$work/decoy-setup.trace"; then
+	problem "decoy-setup-starts-nothing: git's trace recorded nothing this check can read: no '$commit_line' in it"
+	setup_ok=0
 else
+	started="$(grep -E -e 'run_command: git (maintenance run|gc --auto)' "$work/decoy-setup.trace")" ||
+		grep_status=$?
+	if [ "$grep_status" -eq 0 ]; then
+		problem "decoy-setup-starts-nothing: new_decoy's commit started git's maintenance:"
+		printf '%s\n' "$started" | sed 's/^.*trace: //' >&2
+		setup_ok=0
+	elif [ "$grep_status" -ne 1 ]; then
+		problem "decoy-setup-starts-nothing: grep could not read git's trace (status $grep_status)"
+		setup_ok=0
+	fi
+fi
+if ! nothing_ran decoy-setup-starts-nothing; then
+	setup_ok=0
+fi
+if [ "$setup_ok" -eq 1 ]; then
 	printf 'test-gate-env: ok %-30s %s\n' decoy-setup-starts-nothing "new_decoy's commit starts no maintenance or gc"
 	passed=$((passed + 1))
 fi
