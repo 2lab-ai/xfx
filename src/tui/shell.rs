@@ -19042,21 +19042,24 @@ mod tests {
     }
 
     /// xfx's sentence for input still being dropped while a paste begun behind
-    /// the first one's end marker is open: what ends it is that paste's end,
-    /// not a pause. Spelled out, as [`still_ignored_after_the_paste`] is.
+    /// the first one's end marker is open: a pause does nothing until that
+    /// paste's end arrives. Spelled out, as [`still_ignored_after_the_paste`]
+    /// is.
     fn still_ignored_until_the_paste_ends() -> notice::Notice {
         notice::Notice::warning(
             "input",
-            "Input is still being ignored until the paste's end arrives.",
+            "Input is still being ignored; a pause won't end it until the paste's end arrives.",
         )
     }
 
-    /// And while a marker is half read: what ends it is one more byte, then
-    /// a pause.
+    /// And while a marker is read past its first byte: a pause does nothing
+    /// until the escape sequence it began is finished or broken -- by however
+    /// many keys that takes.
     fn still_ignored_until_one_more_key() -> notice::Notice {
         notice::Notice::warning(
             "input",
-            "Input is still being ignored until one more key and a moment's pause.",
+            "Input is still being ignored; a pause won't end it until the escape sequence \
+             it began is finished or broken.",
         )
     }
 
@@ -19151,6 +19154,109 @@ mod tests {
         said_so.extend(said(still_ignored_after_the_paste()));
         assert_eq!(shell.document(), said_so);
         assert_eq!(shell.editor.text(), "priornew");
+    }
+
+    #[test]
+    fn a_key_that_continues_a_held_marker_keeps_the_marker_sentence_true() {
+        // gpt6 on PASTE-GAP round 3: from a held `ESC [`, a `2` is another
+        // prefix of a start marker, so the pause still releases nothing -- a
+        // sentence promising that one more key would do was false. The repeat
+        // said while `ESC [` is held stays true when `2` and `0` follow and
+        // the input stops: nothing is released, nothing more is said, and the
+        // key that breaks the sequence and a pause end it.
+        let tick = super::super::event_loop::TICK;
+        let quiet = super::super::input::Decoder::PASTE_QUIET;
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(t0);
+        let first = t0 + tick;
+        let mut at = t0;
+        loop {
+            at += tick;
+            let repeat_due =
+                at.saturating_duration_since(first) >= super::super::input::Decoder::PASTE_REPEAT;
+            shell.route_read(if repeat_due { b"\x1b[" } else { b"y" });
+            shell.end_delivery_at(at);
+            if repeat_due {
+                break;
+            }
+        }
+        shell.route_read(b"2");
+        shell.end_delivery_at(at + tick);
+        shell.route_read(b"0");
+        shell.end_delivery_at(at + tick * 2);
+        for later in [1, 5, 10] {
+            shell.end_delivery_at(at + Duration::from_secs(later));
+        }
+        assert!(
+            shell.decoder.quarantined(),
+            "a pause released a continued marker"
+        );
+        let mut said_so = said(ignored_behind_the_paste());
+        said_so.extend(said(still_ignored_until_one_more_key()));
+        assert_eq!(
+            shell.document(),
+            said_so,
+            "the sentence changed or repeated"
+        );
+        shell.route_read(b"x");
+        let broke = at + Duration::from_secs(11);
+        shell.end_delivery_at(broke);
+        shell.end_delivery_at(broke + quiet);
+        assert!(
+            !shell.decoder.quarantined(),
+            "breaking it and a pause did not end it"
+        );
+        assert_eq!(shell.editor.text(), "priornew");
+    }
+
+    #[test]
+    fn a_hold_changed_by_held_bytes_alone_is_said_once_in_its_own_words() {
+        // opus on PASTE-GAP round 3: after a repeat saying "until it stops
+        // for a moment", an `ESC [` alone and then nothing holds the
+        // quarantine through any pause -- and its two bytes are held, not
+        // counted, so nothing more was said and the sentence on the screen
+        // was false. The new hold is said `PASTE_REPEAT` after the last
+        // sentence, once, however long the input then stays still.
+        let tick = super::super::event_loop::TICK;
+        let repeat = super::super::input::Decoder::PASTE_REPEAT;
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(t0);
+        // A stream until the quiet's repeat has been said.
+        let first = t0 + tick;
+        let mut at = t0;
+        loop {
+            at += tick;
+            shell.route_read(b"y");
+            shell.end_delivery_at(at);
+            if at.saturating_duration_since(first) >= repeat {
+                break;
+            }
+        }
+        let repeated = at;
+        // Then `ESC [`, and nothing after it.
+        shell.route_read(b"\x1b[");
+        shell.end_delivery_at(repeated + tick);
+        let mut check = repeated + tick;
+        while check < repeated + Duration::from_secs(10) {
+            check += tick * 25;
+            shell.end_delivery_at(check);
+        }
+        assert!(
+            shell.decoder.quarantined(),
+            "a pause released a held marker"
+        );
+        let mut said_so = said(ignored_behind_the_paste());
+        said_so.extend(said(still_ignored_after_the_paste()));
+        said_so.extend(said(still_ignored_until_one_more_key()));
+        assert_eq!(shell.document(), said_so);
     }
 
     #[test]
