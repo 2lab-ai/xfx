@@ -997,8 +997,15 @@ pub(crate) struct Files {
     /// Whether the session's first indexed episode has asked for the
     /// index's refresh (fx's `file_picker_episode_seen`, `picker_state.zig:
     /// 171@481104fd`: set once, never reset). That first request is skipped
-    /// while the index is loading ([`Self::refresh_index_for_list`]).
+    /// while no index has been whole yet ([`Self::refresh_index_for_list`]).
     episode_seen: bool,
+    /// Whether an index has been whole once this session -- a walk's
+    /// `Ready` taken in -- whatever was dropped since. fx's adopted
+    /// generation is kept until shutdown, a change of scope included (set at
+    /// `file_index.zig:425`, `:677@481104fd`; cleared only at `:325`), so
+    /// once one is, its index is never `.loading` again (`currentState`,
+    /// `:333-341`). Set in [`Self::poll`], never reset.
+    ever_whole: bool,
     /// Whether a walk was stopped by a change of roots since the last
     /// [`Self::poll`]. Until then a refresh is queued as if that walk still
     /// ran, as fx's is behind a walk it does not stop (`requestStop` stops
@@ -1036,6 +1043,7 @@ impl Files {
             walk: None,
             pending_refresh: false,
             episode_seen: false,
+            ever_whole: false,
             superseded: false,
             listed: None,
             listing: None,
@@ -1057,9 +1065,10 @@ impl Files {
 
     /// The refresh an indexed list asks for (`prepareFilePicker`,
     /// `input_completion_runtime.zig:854-866@481104fd`): the session's first
-    /// one is skipped while the index is loading -- the walk that loads it
-    /// is the refresh it would have asked for (`file_picker_episode_seen`,
-    /// `isFileIndexLoading`, `:857-861`) -- and every later one is
+    /// one is skipped while no index has been whole yet and a walk runs --
+    /// the walk that builds it is the refresh it would have asked for
+    /// (`file_picker_episode_seen`, `isFileIndexLoading`, `:857-861`) -- and
+    /// every later one is
     /// [`Self::refresh_index`]. xfx starts no index at launch, but a
     /// `/workspace` change before any `@` does ([`super::shell`]'s
     /// `adopt_workspace`).
@@ -1073,13 +1082,19 @@ impl Files {
         self.refresh_index();
     }
 
-    /// Whether the first index is still being built: none whole yet, and a
-    /// walk running (fx's `currentState() == .loading`, `file_index.zig:
-    /// 333-341@481104fd`, `main.zig:2125-2127`). A walk a change of roots
+    /// Whether the session's first index is still being built: none has
+    /// been whole yet ([`Self::ever_whole`]) -- an index dropped since by a
+    /// change of roots does not count -- and a walk is running. fx's
+    /// `isFileIndexLoading` (`main.zig:2125-2127@481104fd`) is
+    /// `currentState() == .loading` (`file_index.zig:333-341`), which is
+    /// `.ready` once a generation has been adopted, and otherwise the state
+    /// of the one loading: a failed first index with nothing walking is
+    /// `.failed`, not loading, and a walk started after it is loading again
+    /// (`startLoad` clears the failure, `:389`). A walk a change of roots
     /// just stopped needs no term here: a refresh then is queued anyway, and
     /// coalesces with the change's own ([`Self::superseded`]).
     fn loading(&self) -> bool {
-        self.index.is_none() && self.walk.is_some()
+        !self.ever_whole && self.walk.is_some()
     }
 
     /// Walks the index again (`refreshFileIndex`, `app_workspace_runtime.zig:
@@ -1169,6 +1184,7 @@ impl Files {
                 Ok(Published::Ready) => {
                     let entries = std::mem::take(&mut walk.published);
                     self.index = Some(Arc::new(entries));
+                    self.ever_whole = true;
                     self.failed = false;
                     self.walk = None;
                     changed = true;

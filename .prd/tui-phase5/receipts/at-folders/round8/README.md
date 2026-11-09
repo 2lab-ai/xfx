@@ -39,6 +39,12 @@ an indexed list. The session's first such request sets
   `main.zig:2125-2127`).
 - The flag is a picker-state field that is set once and never reset
   (`picker_state.zig:171`).
+- **Corrected in round 9** (`../round9/README.md` §1): "loading" means no
+  generation adopted yet this session, with one in progress. fx keeps an
+  adopted generation across a change of scope (set at `file_index.zig:425`
+  and `:677`, cleared only at shutdown, `:325`), so `currentState` is
+  `.ready` from then on. "No generation is whole yet" therefore means "none
+  has been whole this session", not "none is held now".
 
 **Why round 8 needs it.** Round 7's install walk means a `/workspace` change
 before any `@` starts the index. So the session's first indexed `@` can now
@@ -48,7 +54,9 @@ meet a loading index. xfx queued one more walk there, where fx skips.
 - `Files::episode_seen` (file_index.rs:1001) is the session flag.
 - `Files::refresh_index_for_list` (:1066) skips the first request while
   `loading()` (:1081): no index yet, and a walk running. Every later request
-  is `refresh_index`.
+  is `refresh_index`. (Round 9: "no index yet" is now "none has been whole
+  this session"; round 8's `index.is_none()` skipped where fx asks once a
+  change of roots had dropped a whole index.)
 - `prepare_index` (shell.rs:16713) calls it. The install's own refresh still
   calls `refresh_index`, ungated, as fx's `install` does.
 - `loading()` has no term for a walk a change of roots has just stopped
@@ -82,7 +90,8 @@ meet a loading index. xfx queued one more walk there, where fx skips.
   | an open, eligible, indexed list with no walk running | 2 |
 
 - the first-episode skip, with what ships: xfx starts no index at launch,
-  but a `/workspace` change before the first `@` does;
+  but a `/workspace` change before the first `@` does (round 9 states the
+  skip's condition as "while no index has been whole yet this session");
 - "xfx drops the old index and stops its walk" where the roots moved; where
   they did not, xfx keeps its index and rows (§3).
 

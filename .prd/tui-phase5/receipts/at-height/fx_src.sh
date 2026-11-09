@@ -143,3 +143,7 @@ show $P src/core/app/input_completion_runtime.zig 884 890 "AT-FOLDERS r7: prepar
 show $P src/core/app/input_completion_runtime.zig 853 866 "AT-FOLDERS r8: the refresh request taken: indexed only, and the session's first skipped while the index is loading"
 show $P src/core/app/input_completion_runtime.zig 867 890 "AT-FOLDERS r8: the indexed source is fileCompletionRevision; a source of another scope epoch is staged unavailable"
 show $P src/core/app/app_workspace_runtime.zig 74 80 "AT-FOLDERS r8: fileCompletionRevision is the index's readableRevision; the scope epoch is the workspace's"
+# --- added by AT-FOLDERS round 9 (2026-11-09): what keeps fx's index out of
+# `.loading` once one generation has been adopted.
+show $P src/core/workspace/file_index.zig 309 331 "AT-FOLDERS r9: deinit, the one place outside tests that clears active_generation (:325; the others are the tests at :2208 and :3205)"
+show $P src/core/workspace/file_index.zig 668 681 "AT-FOLDERS r9: buildFromSource, the other place a generation is adopted as active (:677; joinThreadIfDone :425 is quoted above)"

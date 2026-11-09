@@ -2510,3 +2510,44 @@
    78          pub fn fileCompletionScopeEpoch(app: *const App) u64 {
    79              return app.workspace.scope_epoch;
    80          }
+
+== src/core/workspace/file_index.zig:309-331@481104fd -- AT-FOLDERS r9: deinit, the one place outside tests that clears active_generation (:325; the others are the tests at :2208 and :3205)
+  309      pub fn deinit(self: *FileIndex, alloc: Allocator) void {
+  310          self.requestStop();
+  311          if (self.thread) |handle| {
+  312              handle.join();
+  313              self.thread = null;
+  314              debug_trace.logf("core", "file index shutdown joined generation={d}", .{self.generation});
+  315          }
+  316          if (self.loading_generation) |generation| {
+  317              debug_trace.logf("core", "file index generation discarded generation={d} state={s}", .{ generation.id, @tagName(generation.currentState()) });
+  318              generation.destroy(alloc);
+  319          }
+  320          self.loading_generation = null;
+  321          if (self.active_generation) |generation| {
+  322              debug_trace.logf("core", "file index shutdown reclaiming generation={d}", .{generation.id});
+  323              generation.destroy(alloc);
+  324          }
+  325          self.active_generation = null;
+  326          freeRoots(alloc, self.roots);
+  327          self.roots = &.{};
+  328          if (self.pending_scope) |pending| freeRoots(alloc, pending.roots);
+  329          self.pending_scope = null;
+  330          debug_trace.logf("core", "file index shutdown complete generation={d}", .{self.generation});
+  331      }
+
+== src/core/workspace/file_index.zig:668-681@481104fd -- AT-FOLDERS r9: buildFromSource, the other place a generation is adopted as active (:677; joinThreadIfDone :425 is quoted above)
+  668      fn buildFromSource(self: *FileIndex, alloc: Allocator, source: CandidateSource) !void {
+  669          if (self.thread != null or self.loading_generation != null) return error.LoadInProgress;
+  670          const generation_id = self.generation + 1;
+  671          const generation = try Generation.create(alloc, generation_id);
+  672          errdefer generation.destroy(alloc);
+  673          try generation.fillProgressive(alloc, source, null);
+  674          generation.finish(.ready);
+  675  
+  676          const previous = self.active_generation;
+  677          self.active_generation = generation;
+  678          self.generation = generation_id;
+  679          self.initial_failed = false;
+  680          if (previous) |active| active.destroy(alloc);
+  681      }
