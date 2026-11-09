@@ -21,7 +21,7 @@ ranges=(
   src/core/permissions/approval_decision.zig:214-246
   src/core/permissions/approval_amendment.zig:84-92
   src/ui/input/runtime.zig:61-133
-  src/ui/input/shortcuts.zig:11-65
+  src/ui/input/shortcuts.zig:11-105
   src/ui/input/escape_parser.zig:38-39
   src/ui/input/escape_parser.zig:61-109
   src/ui/input/escape_parser.zig:146-167
@@ -35,6 +35,7 @@ ranges=(
   src/core/app/app_input_runtime.zig:1004-1012
   src/core/app/app_input_runtime.zig:1126-1185
   src/core/app/app_input_runtime.zig:5931-5961
+  src/core/app/input_paste_runtime.zig:19-25
 )
 {
   echo "# fx v0.0.16 ($pin), every line this receipt cites, as git show $pin:<path> prints it, numbered."
@@ -44,12 +45,24 @@ ranges=(
     echo "## $r"
     git -C "$fx" show "$pin:$path" | awk -v a="${span%-*}" -v b="${span#*-}" 'NR>=a && NR<=b {printf "%5d  %s\n", NR, $0}'
   done
+  # Who makes `.history_up`/`.history_down` at the pin: the enum declares them,
+  # and no decoder under src/ui or src/core/input emits either.
+  echo
+  echo "## git grep -n 'history_up\|history_down' $pin -- src/ui src/core/input"
+  git -C "$fx" grep -n 'history_up\|history_down' "$pin" -- src/ui src/core/input | sed "s/^$pin://"
 } > "$here/fx-src.txt"
 
 # The check. Reads README.md, plus whatever text is piped in (the unit's added
-# source lines, e.g. `git diff <base> -- src tests | grep '^+'`), if any.
+# lines, e.g. `git diff <base> -- src tests docs | grep '^+'`), if any.
 inputs=("$here/README.md")
-[[ -t 0 ]] || inputs+=(-)
+if [[ ! -t 0 ]]; then
+  # The check's own source is a heredoc on python's stdin, so the piped
+  # lines go through a file.
+  piped=$(mktemp "${TMPDIR:-/tmp}/fx_src.XXXXXX")
+  trap 'rm -f "$piped"' EXIT
+  cat > "$piped"
+  inputs+=("$piped")
+fi
 python3 -I - "$here/fx-src.txt" "${inputs[@]}" <<'PY'
 import re, sys
 src = open(sys.argv[1], encoding="utf-8").read()
@@ -58,7 +71,7 @@ for path, a, b in re.findall(r"^## (\S+?):(\d+)-(\d+)$", src, re.M):
     have.setdefault(path.rsplit("/", 1)[-1], []).append((int(a), int(b)))
 text = ""
 for name in sys.argv[2:]:
-    text += sys.stdin.read() if name == "-" else open(name, encoding="utf-8").read()
+    text += open(name, encoding="utf-8").read() + "\n\n"
 cite = re.compile(r"([a-z_]+\.zig)((?::\d+(?:-\d+)?)+)|(?<![\w.])(:\d+(?:-\d+)?)(?![\d\w])")
 bad, n, current = [], 0, None
 for line in text.splitlines():

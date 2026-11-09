@@ -254,7 +254,7 @@
   132      return typed;
   133  }
 
-## src/ui/input/shortcuts.zig:11-65
+## src/ui/input/shortcuts.zig:11-105
    11  pub fn fromControlByte(byte: u8) ?ShortcutAction {
    12      return switch (byte) {
    13          1 => move(.line_start),
@@ -310,6 +310,46 @@
    63          else => null,
    64      };
    65  }
+   66  
+   67  test "composer shortcut raw control bytes map only typing-edit actions" {
+   68      const Case = struct {
+   69          byte: u8,
+   70          action: ShortcutAction,
+   71      };
+   72      const cases = [_]Case{
+   73          .{ .byte = 1, .action = move(.line_start) },
+   74          .{ .byte = 5, .action = move(.line_end) },
+   75          .{ .byte = 2, .action = move(.character_left) },
+   76          .{ .byte = 6, .action = move(.character_right) },
+   77          .{ .byte = 14, .action = .history_next },
+   78          .{ .byte = 4, .action = .delete_forward },
+   79          .{ .byte = 11, .action = .delete_to_line_end },
+   80          .{ .byte = 21, .action = .delete_to_line_start },
+   81          .{ .byte = 23, .action = .delete_whitespace_word_left },
+   82          .{ .byte = 25, .action = .yank },
+   83          .{ .byte = 31, .action = .undo },
+   84          .{ .byte = 12, .action = .redraw },
+   85          .{ .byte = 127, .action = .delete_backward },
+   86          .{ .byte = 8, .action = .delete_backward },
+   87          .{ .byte = '\n', .action = .insert_newline },
+   88      };
+   89  
+   90      for (cases) |case| {
+   91          try std.testing.expectEqual(@as(?ShortcutAction, case.action), fromControlByte(case.byte));
+   92      }
+   93  }
+   94  
+   95  test "focused editor controls include only ticketed cursor and deletion aliases" {
+   96      const included_bytes = [_]u8{ 1, 5, 2, 6, 11, 21, 23 };
+   97      for (included_bytes) |byte| {
+   98          try std.testing.expectEqual(fromControlByte(byte), fromFocusedEditorControlByte(byte));
+   99      }
+  100  
+  101      const excluded_bytes = [_]u8{ 3, 4, 8, 10, 12, 14, 16, 25, 31, 127 };
+  102      for (excluded_bytes) |byte| {
+  103          try std.testing.expectEqual(@as(?ShortcutAction, null), fromFocusedEditorControlByte(byte));
+  104      }
+  105  }
 
 ## src/ui/input/escape_parser.zig:38-39
    38  const kitty_up_key: u16 = 57352;
@@ -658,3 +698,16 @@
  5959      try std.testing.expectEqual(@as(u8, 2), app.approval_prompt.decision.choice_index);
  5960      try std.testing.expect(app.shell.render_requests.hasReason(.modal));
  5961  }
+
+## src/core/app/input_paste_runtime.zig:19-25
+   19  fn normalizeApprovalAmendmentPasteInPlace(bytes: []u8) []u8 {
+   20      const normalized = text_utils.normalizeLineEndingsInPlace(bytes);
+   21      for (normalized) |*byte| {
+   22          if (byte.* == '\n' or byte.* == '\t') byte.* = ' ';
+   23      }
+   24      return normalized;
+   25  }
+
+## git grep -n 'history_up\|history_down' 481104fd -- src/ui src/core/input
+src/core/input/input_action.zig:71:    history_up,
+src/core/input/input_action.zig:72:    history_down,

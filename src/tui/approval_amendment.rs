@@ -811,8 +811,12 @@ mod tests {
         // `draft_end`) as `.cursor_home` and `.cursor_end`
         // (`src/ui/input/runtime.zig:82-83@481104fd`), which set the caret to
         // 0 and to the draft's length (`cursorHome`/`cursorEnd`,
-        // `approval_amendment.zig:84-92`): the whole draft's edges, on a
-        // draft a paste gave two lines as much as on one, Shift held or not.
+        // `approval_amendment.zig:84-92`): the whole draft's edges, Shift held
+        // or not. fx's draft never holds a line break -- its paste turns each
+        // into a space (`normalizeApprovalAmendmentPasteInPlace`,
+        // `input_paste_runtime.zig:19-25`) -- and xfx's paste keeps them
+        // (`a_bracketed_paste_becomes_draft_text_and_never_an_entity`), so
+        // the edges are the draft's here even where Home is a line's.
         let mut drafts = typed_into(ALLOW, "ab cd\nef gh");
         assert_eq!(caret(&drafts), (1, 5));
         for shifted in [false, true] {

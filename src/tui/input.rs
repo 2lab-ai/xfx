@@ -213,10 +213,10 @@ pub(crate) enum Action {
     DraftStart {
         shifted: bool,
     },
-    /// Down with Super held: upstream's `draft_end` (`:76`), the caret to the
-    /// draft's end in an amendment (`.cursor_end`, `src/ui/input/runtime.zig:83`;
-    /// `cursorEnd`, `approval_amendment.zig:89-92`), the mirror of
-    /// [`Action::DraftStart`].
+    /// Down with Super held: upstream's `draft_end` (`escape_parser.zig:76`),
+    /// the caret to the draft's end in an amendment (`.cursor_end`,
+    /// `src/ui/input/runtime.zig:83`; `cursorEnd`, `approval_amendment.zig:89-92`),
+    /// the mirror of [`Action::DraftStart`].
     DraftEnd {
         shifted: bool,
     },
