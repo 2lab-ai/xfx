@@ -53,6 +53,14 @@
 #                          read can still be on its way when the model asks
 #                          its question; with it (`0` too) the gateway log's
 #                          catalog lines say when, in ms since it started
+#   modelspad <bytes> <head|tail>
+#                          that path's catalog padded with spaces, before or
+#                          after it, to exactly <bytes> (64 MiB at most): JSON
+#                          either way -- past a client's cap, or a body whose
+#                          first bytes still read as the catalog
+#   modelsstall <ms>       that path sends its head and half its body, and the
+#                          rest <ms> later (120000 at most): a read stalled
+#                          mid-body, past a client's deadline or not
 #   models2 <catalog.json> from this line on, that path answers
 #                          <catalog.json> instead -- an ask answered after the
 #                          line (after any `modelsdelay`) gets it: a model
@@ -548,7 +556,7 @@ main() {
   # What lsof names as the executable of the binary's pid, for `signal`.
   bin_real=$(realpath "$bin")
 
-  local turns='[]' extra_env='' models='' credits='' titled='' nomodel='' modelsdown='' modelsdelay=''
+  local turns='[]' extra_env='' models='' credits='' titled='' nomodel='' modelsdown='' modelsdelay='' modelspad='' modelsstall=''
   local jobctl='' clock='' usage='' mcpmode='' keep='' nodraw=''
   # The directories `work` and `dir` copied into, whose files get the
   # placeholders too; and whether a line the run fills names `@MCPPORT@`.
@@ -581,6 +589,8 @@ main() {
     [[ $line == models\ * ]] && models=$scenarios/${line#models }
     [[ $line == modelsdown\ * ]] && modelsdown=${line#modelsdown }
     [[ $line == modelsdelay\ * ]] && modelsdelay=${line#modelsdelay }
+    [[ $line == modelspad\ * ]] && modelspad=${line#modelspad }
+    [[ $line == modelsstall\ * ]] && modelsstall=${line#modelsstall }
     [[ $line == credits\ * ]] && credits=$scenarios/${line#credits }
     [[ $line == titled\ * ]] && titled=$scenarios/${line#titled }
     [[ $line == nomodel ]] && nomodel=1
@@ -620,6 +630,10 @@ main() {
       jobctl) jobctl=1 ;;
       modelsdelay\ *)
         [[ ${line#modelsdelay } =~ ^[0-9]+$ ]] || { echo "modelsdelay takes milliseconds, not ${line#modelsdelay }" >&2; exit 2; } ;;
+      modelspad\ *)
+        [[ ${line#modelspad } =~ ^([0-9]{1,8})\ (head|tail)$ ]] && (( 10#${BASH_REMATCH[1]} <= 67108864 )) || { echo "modelspad takes <bytes> (64 MiB at most) and head or tail, not ${line#modelspad }" >&2; exit 2; } ;;
+      modelsstall\ *)
+        [[ ${line#modelsstall } =~ ^[0-9]{1,6}$ ]] && (( 10#${line#modelsstall } <= 120000 )) || { echo "modelsstall takes milliseconds (120000 at most), not ${line#modelsstall }" >&2; exit 2; } ;;
       clock\ *)
         [[ ${line#clock } =~ ^[0-9]+$ ]] || { echo "clock takes milliseconds since the epoch, not ${line#clock }" >&2; exit 2; }
         [[ -n $clock ]] || clock=${line#clock } ;;
@@ -652,7 +666,7 @@ main() {
         text=${label#* }
         label=${label%% *}
         [[ ${line#expect } == *' '* && $text =~ [^[:space:]] ]] || { echo "expect takes <label> <text>, not ${line#expect }" >&2; exit 2; } ;;
-      modelsdelay|models2|clock|usage|mcphttp|resize|signal|rehomefile|sockets|until|absent|expect)
+      modelsdelay|modelspad|modelsstall|models2|clock|usage|mcphttp|resize|signal|rehomefile|sockets|until|absent|expect)
         echo "$line takes an argument: see the verbs at the top of capture.sh" >&2; exit 2 ;;
     esac
   done < "$file"
@@ -665,7 +679,7 @@ main() {
   # A held stream (a turn's `holdAt`) goes on once this file has a line for
   # it: `release` writes one, `held` waits for the hold in the gateway's log.
   local holds=0
-  FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_DOWN_MS=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
+  FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_DOWN_MS=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
   gateway=$!
   sock=$run/s
   trap cleanup EXIT
@@ -845,7 +859,7 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
     # binary again with no arguments, rather than with the word `relaunch`.
     [[ $line == *' '* ]] || rest=''
     case $verb in
-      ''|'#'*|gateway|env|seed|homefile|work|models|credits|titled|modelsdown|modelsdelay|jobctl|nomodel|nodraw|githead|sparsepng|pnghdr|dir) ;;
+      ''|'#'*|gateway|env|seed|homefile|work|models|credits|titled|modelsdown|modelsdelay|modelspad|modelsstall|jobctl|nomodel|nodraw|githead|sparsepng|pnghdr|dir) ;;
       wait) sleep "$rest" ;;
       held)
         holds=$((holds + 1))

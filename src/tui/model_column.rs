@@ -5,7 +5,8 @@
 //! src/core/app/input_completion_runtime.zig:1029-1360`, the stage machine in
 //! `src/core/input/picker_state.zig:205-487`): typing `/model ` opens a column
 //! of the catalog's models **under the argument** (`fx-model-40x120-space`),
-//! the text after it filters them, Enter on a model opens a second column
+//! the text after it searches them as the menu does ([`super::model_search`],
+//! v0.0.16's ranks), Enter on a model opens a second column
 //! under the next token -- `default`, then the levels the catalog lists for
 //! that model, in its order (`fx-model-40x120-gpt-enter`) -- and Enter there
 //! opens a third, the speed -- `normal`, then `fast` and `ultrafast` where the
@@ -67,6 +68,7 @@ use crate::provider::effort::{Effort, Speed};
 use crate::provider::model::CatalogEntry;
 
 use super::effort_menu;
+use super::model_search;
 use super::picker::{edge_start, ellipsized};
 use super::theme::Palette;
 
@@ -377,15 +379,14 @@ impl Column {
         self.dismissed = dismissed;
     }
 
-    /// The models `query` lists, in the catalog's order: every id containing
-    /// it, ignoring case (`modelCompletions`, `model_cache_runtime.zig:681-695`).
+    /// The models `query` lists, ranked as the menu ranks them -- better
+    /// matches first, equal ones in the catalog's order -- and the first
+    /// [`MOST_MODELS`] of them (`modelCompletions`,
+    /// `model_cache_runtime.zig:895-913@481104fd`; [`model_search`]).
     pub(crate) fn models<'c>(query: &str, catalog: Known<'c>) -> Vec<&'c CatalogEntry> {
-        catalog
-            .rows()
-            .iter()
-            .filter(|entry| query.is_empty() || contains_ignoring_case(&entry.id, query))
-            .take(MOST_MODELS)
-            .collect()
+        let mut models = model_search::ranked(catalog.rows(), |entry| entry.id.as_str(), query);
+        models.truncate(MOST_MODELS);
+        models
     }
 
     /// The model `query` names exactly, ignoring case and the blanks round it
@@ -660,8 +661,11 @@ impl Column {
 
     /// Tab: the marked row written into the composer
     /// (`autocompleteModelPickerSelection`, `:1085-1121`) -- the model's id,
-    /// with the column still on the models; or the level after the model, with
-    /// the column still on the levels and the mark on it. On an `/effort`
+    /// with the column still on the models and the mark back on the first
+    /// row the written line lists, which under the ranks can be more than
+    /// that model (`commit`, `src/core/input/composer_text_replacement.zig:
+    /// 73-92@481104fd`, `model_completion_index = 0`); or the level after the
+    /// model, with the column still on the levels and the mark on it. On an `/effort`
     /// line, the level after `/effort ` as it is shown -- `default` for the
     /// default -- and, the text being replaced, the mark back on the first
     /// row the line now lists (`:1168-1175@481104fd`; `replace` clears the
@@ -675,6 +679,8 @@ impl Column {
         match query.stage {
             Stage::Model => {
                 let id = self.chosen_model(query, catalog)?.id.clone();
+                self.model_index = 0;
+                self.model_window = 0;
                 Some(format!("{PREFIX}{id}"))
             }
             Stage::Effort => {
@@ -1774,6 +1780,129 @@ mod tests {
         assert_eq!(
             plain(&column.rows(&at_zz(), known, 10, 120, 6, PALETTE))[0],
             "          no matching effort"
+        );
+    }
+
+    /// fx's completions case's catalog (`:2129-2134@481104fd`), and the model
+    /// `cs45` is for.
+    fn ranked() -> Vec<CatalogEntry> {
+        [
+            "openai/gpt-4.5-preview",
+            "openai/gpt-5",
+            "anthropic/claude-opus-4.8",
+            "acme/gpt5-lite",
+            "anthropic/claude-sonnet-4.5",
+        ]
+        .iter()
+        .map(|id| entry(id, &[]))
+        .collect()
+    }
+
+    fn typed(query: &str) -> Query<'_> {
+        Query {
+            stage: Stage::Model,
+            command: Command::Model,
+            query,
+            token_start: PREFIX.len(),
+        }
+    }
+
+    #[test]
+    fn the_column_lists_its_models_ranked_as_fxs_completions_are() {
+        // `model completions rank fuzzy matches below verbatim ones`
+        // (`src/core/app/model_cache_runtime.zig:2125-2156@481104fd`).
+        let rows = ranked();
+        let known = Known::Rows(&rows);
+        let ids = |query: &str| {
+            Column::models(query, known)
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            ids("gpt5"),
+            ["acme/gpt5-lite", "openai/gpt-5", "openai/gpt-4.5-preview"]
+        );
+        assert_eq!(ids("anthropic opus"), ["anthropic/claude-opus-4.8"]);
+        assert_eq!(ids("cs45"), ["anthropic/claude-sonnet-4.5"]);
+        assert_eq!(ids("").len(), 5);
+        assert_eq!(ids("")[0], "openai/gpt-4.5-preview");
+        // An exact id is a substring match, and a fuzzy one can rank under it
+        // (`p5-input-model-rank` `c-gpt5-tab`).
+        assert_eq!(
+            ids("openai/gpt-5"),
+            ["openai/gpt-5", "openai/gpt-4.5-preview"]
+        );
+        // The id alone: not a name or an alias the row carries.
+        let mut glm = entry("zai/glm-5", &[]);
+        glm.name = Some("Zhipu GLM".to_string());
+        glm.aliases = vec!["zhipu".to_string()];
+        let named = [glm];
+        assert!(Column::models("zhipu", Known::Rows(&named)).is_empty());
+        assert_eq!(Column::models("z.ai glm", Known::Rows(&named)).len(), 1);
+
+        // fx fills its 32 places rank by rank (`modelCompletions`, `:897-913`),
+        // so the cap keeps the best matches, not the first in the catalog.
+        let mut many: Vec<CatalogEntry> = (0..MOST_MODELS)
+            .map(|n| entry(&format!("acme/gpt-4.5-r{n}"), &[]))
+            .collect();
+        many.push(entry("acme/gpt5-last", &[]));
+        let listed = Column::models("gpt5", Known::Rows(&many));
+        assert_eq!(listed.len(), MOST_MODELS);
+        assert_eq!(listed[0].id, "acme/gpt5-last");
+        assert_eq!(listed[MOST_MODELS - 1].id, "acme/gpt-4.5-r30");
+    }
+
+    #[test]
+    fn enter_and_the_arrows_take_the_ranked_rows() {
+        let rows = ranked();
+        let known = Known::Rows(&rows);
+        let chosen = |column: &Column, query: &str| {
+            column
+                .chosen_model(&typed(query), known)
+                .map(|entry| entry.id.clone())
+        };
+        // `/model cs45` and Enter: the first row the column lists.
+        let mut column = Column::default();
+        assert_eq!(
+            chosen(&column, "cs45").as_deref(),
+            Some("anthropic/claude-sonnet-4.5")
+        );
+        // Down from acme/gpt5-lite is openai/gpt-5, the second rank's.
+        assert!(column.step(&typed("gpt5"), known, true));
+        assert_eq!(chosen(&column, "gpt5").as_deref(), Some("openai/gpt-5"));
+        // The id spelled out is still the one Enter takes.
+        assert_eq!(
+            Column::exact_model("OPENAI/gpt-5", known).map(|entry| entry.id.as_str()),
+            Some("openai/gpt-5")
+        );
+    }
+
+    #[test]
+    fn tab_puts_the_mark_on_the_first_row_the_written_line_lists() {
+        // fx writes the marked row as a replacement, which takes the mark back
+        // to the first row (`commit`, `src/core/input/composer_text_replacement.zig:73-92@481104fd`:
+        // `model_completion_index = 0`). Under the ranks the line Tab writes
+        // can list more than its own row -- `openai/gpt-5` finds
+        // `openai/gpt-4.5-preview` fuzzily -- so a mark left where Down put it
+        // lands on another model (`p5-input-model-rank` `c-gpt5-tab`).
+        let rows = ranked();
+        let known = Known::Rows(&rows);
+        let mut column = Column::default();
+        assert!(column.step(&typed("gpt5"), known, true));
+        assert_eq!(
+            column.complete(&typed("gpt5"), known),
+            Some("/model openai/gpt-5".to_string())
+        );
+        let drawn = plain(&column.rows(&typed("openai/gpt-5"), known, 7, 120, 2, PALETTE));
+        assert_eq!(
+            drawn,
+            ["       openai/gpt-5", "       openai/gpt-4.5-preview"]
+        );
+        let marked = column.rows(&typed("openai/gpt-5"), known, 7, 120, 2, PALETTE);
+        assert!(
+            marked[0].contains(PALETTE.subtitle()) && !marked[1].contains(PALETTE.subtitle()),
+            "the mark is not on the first row: {marked:?}"
         );
     }
 }

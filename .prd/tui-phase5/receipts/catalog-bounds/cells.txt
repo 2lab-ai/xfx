@@ -1,0 +1,13 @@
+# cells.py (.prd/tui-phase4/receipts/m1/cells.py) over each fx/xfx pair here; row 1 is not compared.
+# It has no product-name rule: the head stall's one row differs only by fx's own name (the sweep's
+# ledger reads fx's `fx` as `xfx`, rule product-name, and calls the pair normalized-identical).
+base over menu: row 5: fx [(7, '0', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+head over menu: 0 rows differ in their cells (row 1 not compared)
+base at menu: row 5: fx [(7, '8', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+head at menu: 0 rows differ in their cells (row 1 not compared)
+base 2mib menu: row 5: fx [(7, '8', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+head 2mib menu: 0 rows differ in their cells (row 1 not compared)
+base stall loading: 0 rows differ in their cells (row 1 not compared)
+head stall loading: 0 rows differ in their cells (row 1 not compared)
+base stall timed-out: row 7: fx [(0, 'C', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, 'u', (('fg', 245),)), (3, 'l', (('fg', 245),))]
+head stall timed-out: row 7: fx [(28, 'f', (('fg', 245),)), (29, 'x', (('fg', 245),)), (30, ' ', ()), (31, 'r', (('fg', 245),))]

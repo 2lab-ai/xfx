@@ -1,0 +1,21 @@
+
+running 1 test
+test credits::tests::an_answer_past_64_kib_or_cut_short_is_not_read_as_one ... FAILED
+
+failures:
+
+---- credits::tests::an_answer_past_64_kib_or_cut_short_is_not_read_as_one stdout ----
+
+thread 'credits::tests::an_answer_past_64_kib_or_cut_short_is_not_read_as_one' (372823103) panicked at src/credits.rs:487:9:
+assertion `left == right` failed
+  left: [Credits { balance: Some("42.17"), used: Some("7.83"), plan: Some("pro") }, Credits { balance: Some("42.17"), used: Some("7.83"), plan: Some("pro") }]
+ right: [Failed("invalid JSON response from gateway"), Failed("failed to fetch credits from gateway")]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    credits::tests::an_answer_past_64_kib_or_cut_short_is_not_read_as_one
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4555 filtered out; finished in 0.04s
+
+bounded: exit 101 after 0.9s, peak rss 0 MiB

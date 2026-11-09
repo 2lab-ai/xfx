@@ -1,0 +1,15 @@
+# PR #82 CI, run 42485857189 attempt 1, job 128747443572: gate (aarch64-apple-darwin),
+# step "Tests, with the fault injector" (gh run view --attempt 1 --job 128747443572 --log-failed).
+# ESC shown as ^[. The terminal dump is cut at the compaction's start, then split at each
+# frame's ?2026h (synchronized update begin): one line per frame.
+
+test ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes ... FAILED
+timed out waiting for ["MARKER-THREE"] on the screen, ["Compaction cancelled."] off it; terminal so far:
+
+[frame 0] 8;3H^[[?2026l^[[?25h^G
+[frame 1] ^[[?25l^[[18;1H^[[38;5;252m• Preparing compaction (0s)^[[20;1H^[[0m^[[38;5;255m┃^[[0m ^[[K^[[22;1H^[[38;5;252mauto^[[0m^[[38;5;245m · glm-5.2^[[0m^[[20;3H^[[?2026l^[[?25h^[]7501;state=working:app=xfx^[\
+[frame 2] ^[[?25l^[[18;3H^[[38;5;252mCompacting (0s)^[[0m^[[K^[[20;3H^[[?2026l^[[?25h^[]7501;state=idle:app=xfx^[\
+[frame 3] ^[[?25l^[[18;3H^[[38;5;252mStopping compaction (0s)^[[22;1H^[[0m^[[38;5;245mpress ctrl+c again to exit^[[0m^[[20;3H^[[?2026l^[[?25h
+[frame 4] ^[[?25l^[[18;1H^[[38;5;245mCompaction cancelled. Try /compact again when ready.^[[0m^[[20;3H^[[?2026l^[[?25h
+[frame 5] ^[[?25l^[[18;1H^[[K^[[18;1H^[[38;5;255m┃^[[0m ^[[1mthird question^[[0m^[[K^[[19;1H^[[K^[[19;1H^[[K^[[20;1H^[[38;5;245mCompaction cancelled. Try /compact again when ready.^[[22;1H^[[0m^[[38;5;255m┃^[[0m ^[[K^[[24;1H^[[38;5;252mauto^[[0m^[[38;5;245m · glm-5.2^[[0m^[[22;3H^[[?2026l^[[?25h^[]7501;state=working:app=xfx^[\^[]7501;state=done:app=xfx^[\
+[frame 6] ^[[?25l^[[20;1H^[[K^[[20;1H  MARKER-THREE^[[K^[[21;1H^[[K^[[21;1H^[[K^[[22;1H^[[K^[[22;1H^[[38;5;245m  0s (↑4 ↓5)^[[0m^[[K^[[23;1H^[[K^[[23;1H^[[K^[[24;1H^[[38;5;245mCompaction cancelled. Try /compact again when ready.^[[26;1H^[[0m^[[38;5;255m┃^[[0m ^[[28;1H^[[38;5;252mauto^[[0m^[[38;5;245m · glm-5.2^[[0m^[[26;3H^[[?2026l^[[?25h^G

@@ -25,7 +25,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::config::{Credential, RuntimeConfig};
-use crate::gateway::{read_bounded, Endpoint, USER_AGENT};
+use crate::gateway::{read_bounded, read_capped, CappedRead, Endpoint, USER_AGENT};
 use crate::provider::ProviderId;
 
 /// What every `/credits` notice is filed under.
@@ -220,8 +220,26 @@ async fn ask_at(url: &str, secret: &str) -> Answer {
         return failed();
     };
     let status = response.status().as_u16();
-    let body = read_bounded(response, MAX_BODY_BYTES).await;
-    answer(status, &body, secret)
+    if status != 200 {
+        // A refusal's body is only quoted, so a bounded start of it will do.
+        return answer(
+            status,
+            &read_bounded(response, MAX_BODY_BYTES).await,
+            secret,
+        );
+    }
+    // An answer is read whole or not at all. Past the cap it is no credits
+    // answer, which fx -- reading without one -- would say of a body it could
+    // not parse; a read that stops partway is fx's failed fetch
+    // (`gateway.zig:813-815,825-827@481104fd`).
+    match read_capped(response, MAX_BODY_BYTES).await {
+        Ok(body) => match String::from_utf8(body) {
+            Ok(body) => answer(status, &body, secret),
+            Err(_) => Answer::Failed(INVALID_JSON.to_string()),
+        },
+        Err(CappedRead::TooLarge) => Answer::Failed(INVALID_JSON.to_string()),
+        Err(CappedRead::Read(_)) => failed(),
+    }
 }
 
 /// What a Gateway answer of `status` with `body` says.
@@ -453,6 +471,72 @@ mod tests {
             "credits::tests::the_question_takes_no_proxy_to_a_loopback_gateway",
             crate::test_net::json_answer(BALANCE),
         );
+    }
+
+    #[test]
+    fn an_answer_past_64_kib_or_cut_short_is_not_read_as_one() {
+        // Read whole or not at all. With the padding after it, the first
+        // 64 KiB of a longer answer is a credits answer, and so is what came
+        // before the end of a body that stops short of its declared length.
+        use crate::test_net::Listener;
+        let answer_of = |sent: String| {
+            let gateway = Listener::answering(sent);
+            let answer = on_a_runtime(ask_at(&format!("{}{CREDITS_PATH}", gateway.origin()), KEY));
+            gateway.finish();
+            answer
+        };
+        let padded = |bytes: usize| format!("{BALANCE}{}", " ".repeat(bytes - BALANCE.len()));
+        let sized = |body: &str| {
+            format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            )
+        };
+        let at_cap = answer_of(sized(&padded(MAX_BODY_BYTES)));
+        let past = answer_of(sized(&padded(MAX_BODY_BYTES + 1)));
+        let cut = sized(&padded(BALANCE.len() + 100));
+        let cut = answer_of(cut[..cut.len() - 100].to_string());
+        assert!(
+            matches!(at_cap, Answer::Credits { .. }),
+            "an answer of exactly the cap is read: {at_cap:?}"
+        );
+        // Past the cap, and cut short: fx's GET fails there, and it says so
+        // (`gateway.zig:813-815@481104fd`).
+        assert_eq!(
+            [past, cut],
+            [
+                Answer::Failed(INVALID_JSON.to_string()),
+                Answer::Failed(FETCH_FAILED.to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn an_answer_that_is_not_utf8_is_invalid_json() {
+        // Not decoded lossily into a balance: fx's parser refuses the bytes
+        // (`gateway.zig:825-827@481104fd`).
+        let body = b"{\"balance\":\"42.\xff\",\"used\":\"7.83\",\"plan\":\"pro\"}";
+        let mut sent = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        sent.extend_from_slice(body);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+        let origin = format!(
+            "http://127.0.0.1:{}",
+            listener.local_addr().expect("an address").port()
+        );
+        let server = std::thread::spawn(move || {
+            use std::io::Write;
+            let (mut stream, _) = listener.accept().expect("a connection");
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+            crate::test_net::read_request(&mut stream);
+            let _ = stream.write_all(&sent);
+        });
+        let answer = on_a_runtime(ask_at(&format!("{origin}{CREDITS_PATH}"), KEY));
+        server.join().expect("the server");
+        assert_eq!(answer, Answer::Failed(INVALID_JSON.to_string()));
     }
 
     #[test]

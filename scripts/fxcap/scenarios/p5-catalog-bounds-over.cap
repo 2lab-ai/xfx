@@ -1,0 +1,14 @@
+# CATALOG-BOUNDS: the Gateway catalog answers 16777217 bytes, one past fx's
+# 16 MiB (`max_gateway_json_bytes`, src/gateway/client.zig:611-635), padded
+# after the catalog, so its first bytes still read as one: fx refuses it
+# (`GatewayJsonResponseTooLarge`, a malformed answer it does not retry,
+# src/builtins/gateway.zig:2510-2533), and `/model` cannot load models.
+fx: env FX_AUTO_UPGRADE=0
+models p5-input-models.json
+modelspad 16777217 tail
+wait 4
+type /model
+key Enter
+wait 3
+snap menu
+gwlog

@@ -1520,6 +1520,13 @@ pub(crate) async fn send_terminal(events: &Sender<UiEvent>, event: UiEvent) {
     let _ = events.send(event.made_inert()).await;
 }
 
+/// [`send_terminal`] for a caller that cannot await: the event goes now if the
+/// channel has room for it, and says whether it went. One that did not is the
+/// caller's to send again with [`send_terminal`].
+pub(crate) fn try_send_terminal(events: &Sender<UiEvent>, event: UiEvent) -> bool {
+    events.try_send(event.made_inert()).is_ok()
+}
+
 /// Drives `future` to completion on the calling thread.
 ///
 /// The two synchronous seams the turn machine owns -- `output::EventSink` and

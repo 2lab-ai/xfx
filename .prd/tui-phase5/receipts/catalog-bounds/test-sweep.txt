@@ -1,0 +1,4 @@
+# scripts/fxcap/test-sweep.sh at 57eea98a, exit 0
+Ran 27 tests in 9.691s
+
+OK

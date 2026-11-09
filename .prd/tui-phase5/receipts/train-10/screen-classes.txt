@@ -1,0 +1,15 @@
+== screen-moves-main.txt: 68 listed lines
+  37  a saved session's id (resume ids, /status's Session row)
+  20  AT-HEIGHT: the @ list's height and rows
+  7  MODEL-FUZZY: the ranked rows
+  3  the spinner's glyph in front of Compacting (a frame's timing)
+  1  model-parked menu-loading: the catalog's arrival before the snap (reruns.txt)
+== screen-moves-unit-at-height.txt: 16 listed lines
+  6  MODEL-FUZZY: the ranked rows
+  5  PASTE-AFTER-END / QUESTIONS-20 (on main, not on the unit)
+  5  the checkout path in an MCP server's command row (fx's moved too)
+== screen-moves-unit-model-fuzzy.txt: 18 listed lines
+  17  a saved session's id (resume ids, /status's Session row)
+  1  model-parked menu-loading: the catalog's arrival before the snap (reruns.txt)
+== screen-moves-unit-compact-notice-late.txt: 1 listed lines
+  1  the spinner's glyph in front of Compacting (a frame's timing)

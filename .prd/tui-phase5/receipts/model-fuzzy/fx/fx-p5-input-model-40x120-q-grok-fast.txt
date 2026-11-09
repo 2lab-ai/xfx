@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ grok fast
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Models 2  [All]  Anthropic  OpenAI  xAI  Z.AI  Others
+
+  xai/grok-5-fast              1M context · Fast
+  xai/grok-4.7-fast            2M context · 30K output
+
+Note: Gateway catalog is authenticated with an API key
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab provider     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

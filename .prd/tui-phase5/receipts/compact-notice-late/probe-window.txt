@@ -1,0 +1,41 @@
+# The one-tick window this fix widens: the stop drops the compaction between a
+# tick's drain and its settle, and a line is read in the next tick before its
+# drain. Run once on a throwaway clone at ed0e4e3a with this test added to
+# src/tui/shell.rs's tests (not committed). On the base, tick k's settle would
+# have said the sentence (shell.rs:10477-10490@58c92ba2) and the line would have
+# taken it away.
+    #[test]
+    fn zz_probe_line_in_the_tick_after_the_drop() {
+        let mut shell = with_a_turn();
+        shell.route_bytes(b"/compact\r");
+        shell.route_bytes(&[0x03]);
+        let mut seen = Vec::new();
+        // Tick k: the drain finds nothing, the runtime drops it, the settle.
+        shell.take_ui_events(|_| true);
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        let now = Instant::now();
+        seen.push(format!("tick k: {:?}", compaction_row(&mut shell, now)));
+        // Tick k+1: the line is read before the drain.
+        shell.route_bytes(b"next question\r");
+        shell.take_ui_events(|_| true);
+        seen.push(format!("tick k+1: {:?}", compaction_row(&mut shell, now)));
+        let _ = shell.picks_up();
+        shell.start_turn();
+        shell.take_ui_events(|_| true);
+        seen.push(format!("in its turn: {:?}", compaction_row(&mut shell, now + Duration::from_secs(4))));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.take_ui_events(|_| true);
+        seen.push(format!("after its end: {:?}", compaction_row(&mut shell, now + Duration::from_secs(5))));
+        panic!("PROBE {seen:#?}");
+    }
+
+
+# result
+PROBE [
+    "tick k: Some(\"• Stopping compaction (0s)\")",
+    "tick k+1: Some(\"• Stopping compaction (0s)\")",
+    "in its turn: Some(\"• Stopping compaction (4s)\")",
+    "after its end: Some(\"Compaction cancelled. Try /compact again when ready.\")",
+]

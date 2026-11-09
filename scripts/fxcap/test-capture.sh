@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The capture harness's own tests (scripts/fxcap/test_capture.py): every verb
 # capture.sh has for the 0.0.16 delta (resize, signal and jobctl, rehomefile,
-# clock, usage, models2 and modelsdelay, mcphttp, sockets, held and release,
-# until, absent and expect, the launch wait and nodraw, the placeholders,
+# clock, usage, models2, modelsdelay, modelspad and modelsstall, mcphttp,
+# sockets, held and release, until, absent and expect, the launch wait and nodraw, the placeholders,
 # each refusal), run end to end over a stub binary -- a link to /bin/bash or
 # /bin/cat, never fx or xfx -- on tmux servers of their own; and fakegw.ts,
 # mcphttp.ts and the p5-mcp stdio fixture, asked directly on 127.0.0.1.

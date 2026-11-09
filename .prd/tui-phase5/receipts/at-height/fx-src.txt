@@ -1,0 +1,651 @@
+
+== src/ui/footer/picker_presentation.zig:647-672@481104fd -- the list picker's height, the @ list's height, the @ list's item rows
+  647  pub fn activeListPickerReservedRows(terminal_rows: u16, input_extra: u16, banner_rows: u16) u16 {
+  648      const fixed_rows: u16 = 5 +| input_extra +| banner_rows;
+  649      const available_rows = terminal_rows -| fixed_rows;
+  650      if (available_rows == 0) return 1;
+  651      return @min(input_presentation.max_model_picker_rows, available_rows);
+  652  }
+  653  
+  654  /// The @ file picker grows past the list picker's six rows when the terminal
+  655  /// has room, because the file a user wants is often just below row 6.
+  656  const max_file_picker_rows: u16 = 10;
+  657  
+  658  /// The @ file picker keeps the list picker's height, and grows up to
+  659  /// `max_file_picker_rows` while at least five transcript rows stay visible
+  660  /// above it.
+  661  pub fn filePickerReservedRows(terminal_rows: u16, input_extra: u16, banner_rows: u16) u16 {
+  662      const fixed_rows: u16 = 5 +| input_extra +| banner_rows;
+  663      const minimum_transcript_rows: u16 = 5;
+  664      const grown = @min(max_file_picker_rows, (terminal_rows -| fixed_rows) -| minimum_transcript_rows);
+  665      return @max(activeListPickerReservedRows(terminal_rows, input_extra, banner_rows), grown);
+  666  }
+  667  
+  668  /// File rows in a file picker of `picker_rows` rows; a status line, when
+  669  /// shown, takes the first row.
+  670  pub fn filePickerItemRows(picker_rows: u16, has_status: bool) u16 {
+  671      return picker_rows -| @intFromBool(has_status and picker_rows > 1);
+  672  }
+
+== src/ui/footer/picker_presentation.zig:1588-1597@481104fd -- fx's own height table
+ 1588  test "file picker grows to ten rows while five transcript rows stay visible" {
+ 1589      try std.testing.expectEqual(@as(u16, 10), filePickerReservedRows(40, 0, 0));
+ 1590      try std.testing.expectEqual(@as(u16, 10), filePickerReservedRows(24, 0, 0));
+ 1591      try std.testing.expectEqual(@as(u16, 8), filePickerReservedRows(18, 0, 0));
+ 1592      // Short terminals keep the list picker's height.
+ 1593      try std.testing.expectEqual(@as(u16, 6), filePickerReservedRows(16, 0, 0));
+ 1594      try std.testing.expectEqual(@as(u16, 6), filePickerReservedRows(12, 0, 0));
+ 1595      try std.testing.expectEqual(@as(u16, 1), filePickerReservedRows(6, 0, 0));
+ 1596      try std.testing.expectEqual(@as(u16, 6), filePickerReservedRows(20, 2, 4));
+ 1597  }
+
+== src/core/shared/list_window.zig:1-3@481104fd -- six rows: default_max_picker_rows
+    1  const std = @import("std");
+    2  
+    3  pub const default_max_picker_rows: u16 = 6;
+
+== src/core/shared/list_window.zig:38-68@481104fd -- advanceSelectionWithin and updateEdgeStart: wrap, edge-scroll
+   38  /// Moves a picker selection by `delta`, wrapping at both ends, and scrolls the
+   39  /// window to keep it visible.
+   40  pub fn advanceSelection(index: *usize, window_start: *usize, count: usize, delta: i32) void {
+   41      advanceSelectionWithin(index, window_start, count, delta, default_max_picker_rows);
+   42  }
+   43  
+   44  /// `advanceSelection` for a picker that shows up to `max_rows` rows.
+   45  pub fn advanceSelectionWithin(index: *usize, window_start: *usize, count: usize, delta: i32, max_rows: u16) void {
+   46      if (count == 0) return;
+   47      const current: i32 = @intCast(index.* % count);
+   48      var next = current + delta;
+   49      if (next < 0) next = @as(i32, @intCast(count)) - 1;
+   50      if (next >= @as(i32, @intCast(count))) next = 0;
+   51      index.* = @intCast(next);
+   52      window_start.* = updateEdgeStart(window_start.*, count, index.*, max_rows);
+   53  }
+   54  
+   55  pub fn updateEdgeStart(current_start: usize, count: usize, selected: usize, max_rows: u16) usize {
+   56      if (count == 0 or max_rows == 0) return 0;
+   57      const rows: usize = max_rows;
+   58      if (count <= rows) return 0;
+   59  
+   60      const clamped_selected = @min(selected, count - 1);
+   61      var start = @min(current_start, count - rows);
+   62      if (clamped_selected < start) {
+   63          start = clamped_selected;
+   64      } else if (clamped_selected >= start + rows) {
+   65          start = clamped_selected - rows + 1;
+   66      }
+   67      return start;
+   68  }
+
+== src/core/shared/list_window.zig:70-101@481104fd -- fx's scroll tests
+   70  test "selection scrolls only past the picker's own row count" {
+   71      var index: usize = 0;
+   72      var start: usize = 0;
+   73      const rows: u16 = 10;
+   74      for (0..9) |_| advanceSelectionWithin(&index, &start, 30, 1, rows);
+   75      try std.testing.expectEqual(@as(usize, 9), index);
+   76      try std.testing.expectEqual(@as(usize, 0), start);
+   77      advanceSelectionWithin(&index, &start, 30, 1, rows);
+   78      try std.testing.expectEqual(@as(usize, 10), index);
+   79      try std.testing.expectEqual(@as(usize, 1), start);
+   80      // Other pickers keep six rows.
+   81      index = 0;
+   82      start = 0;
+   83      for (0..6) |_| advanceSelection(&index, &start, 30, 1);
+   84      try std.testing.expectEqual(@as(usize, 1), start);
+   85  }
+   86  
+   87  test "edge window start lets selection move back up before reverse scrolling" {
+   88      const rows: u16 = 6;
+   89  
+   90      var start = updateEdgeStart(0, 11, 5, rows);
+   91      try std.testing.expectEqual(@as(usize, 0), start);
+   92      try std.testing.expectEqual(@as(usize, 5), 5 - start);
+   93  
+   94      start = updateEdgeStart(start, 11, 6, rows);
+   95      try std.testing.expectEqual(@as(usize, 1), start);
+   96      try std.testing.expectEqual(@as(usize, 5), 6 - start);
+   97  
+   98      start = updateEdgeStart(start, 11, 5, rows);
+   99      try std.testing.expectEqual(@as(usize, 1), start);
+  100      try std.testing.expectEqual(@as(usize, 4), 5 - start);
+  101  }
+
+== src/core/input/file_completion_state.zig:70-78@481104fd -- the receipt carries the painted rows (default six)
+   70  pub const Receipt = struct {
+   71      episode: u64,
+   72      revision: u64,
+   73      selected: ?usize,
+   74      window_start: usize,
+   75      /// File rows the frame painted. The render runtime sets it from the
+   76      /// committed frame.
+   77      visible_rows: u16 = list_window.default_max_picker_rows,
+   78  };
+
+== src/core/input/file_completion_state.zig:104-110@481104fd -- the state keeps them (default six; reset only by deinit)
+  104      trusted: bool = false,
+  105      selection_missing: bool = false,
+  106      /// File rows the last acknowledged frame painted; navigation scrolls the
+  107      /// window the user sees.
+  108      visible_rows: u16 = list_window.default_max_picker_rows,
+  109      prepared: ?Snapshot = null,
+  110      presented: ?Snapshot = null,
+
+== src/core/input/file_completion_state.zig:239-249@481104fd -- navigate scrolls within visible_rows
+  239      pub fn navigate(self: *State, index: *usize, window: *usize, delta: i32) void {
+  240          if (!self.trusted) return;
+  241          const value = self.current() orelse return;
+  242          const count = value.items().len;
+  243          if (count == 0) return;
+  244          if (self.selection_missing) {
+  245              index.* = if (delta < 0) count - 1 else 0;
+  246              window.* = 0;
+  247              self.selection_missing = false;
+  248          } else list_window.advanceSelectionWithin(index, window, count, delta, self.visible_rows);
+  249      }
+
+== src/core/input/file_completion_state.zig:251-277@481104fd -- view hands the stored window to the frame
+  251      pub fn view(self: *const State, index: usize, window: usize) View {
+  252          if (!self.active) return .{};
+  253          const current_rows = self.current();
+  254          const value = if (self.prepared) |*ready|
+  255              if (ready.episode == self.episode) ready else current_rows orelse return .{}
+  256          else
+  257              current_rows orelse return .{};
+  258          var selected_index: ?usize = if (!self.selection_missing and value.items().len > 0) 0 else null;
+  259          if (current_rows) |old| {
+  260              if (old.items().len > 0) selected_index = null;
+  261              if (!self.selection_missing and index < old.items().len) {
+  262                  const choice = old.items()[index];
+  263                  for (value.items(), 0..) |item, i| {
+  264                      if (item.kind == choice.kind and std.mem.eql(u8, item.path, choice.path)) {
+  265                          selected_index = i;
+  266                          break;
+  267                      }
+  268                  }
+  269              }
+  270          }
+  271          return .{
+  272              .items = value.items(),
+  273              .status = if ((value.status == .ready and selected_index == null) or
+  274                  (value.status == .empty and self.selection_missing)) .stale else value.status,
+  275              .receipt = .{ .episode = self.episode, .revision = value.id, .selected = selected_index, .window_start = window },
+  276          };
+  277      }
+
+== src/core/input/file_completion_state.zig:279-296@481104fd -- acknowledge: the window as given, the painted rows taken
+  279      /// No-fail acknowledgement of the exact captured, visibly committed rowset.
+  280      pub fn acknowledge(self: *State, alloc: std.mem.Allocator, receipt: Receipt, index: *usize, window: *usize) void {
+  281          if (!self.active or receipt.episode != self.episode) return;
+  282          if (self.prepared) |ready| {
+  283              if (ready.id == receipt.revision and ready.episode == receipt.episode) {
+  284                  if (self.presented) |*old| old.deinit(alloc);
+  285                  self.presented = ready;
+  286                  self.prepared = null;
+  287              }
+  288          }
+  289          const value = self.current() orelse return;
+  290          if (value.id != receipt.revision) return;
+  291          self.selection_missing = self.selection_missing or (receipt.selected == null and value.items().len > 0);
+  292          index.* = receipt.selected orelse 0;
+  293          window.* = receipt.window_start;
+  294          self.visible_rows = receipt.visible_rows;
+  295          self.trusted = true;
+  296      }
+
+== src/core/input/file_completion_state.zig:319-350@481104fd -- fx's navigation test
+  319  test "file picker navigation scrolls within the rows the last frame painted" {
+  320      const alloc = std.testing.allocator;
+  321      var state: State = .{};
+  322      defer state.deinit(alloc);
+  323      const q = file_picker_path.query_at("@./", 3).?;
+  324      _ = state.reconcile(q, 1, false);
+  325      var items: [30]file_index.SearchResult = undefined;
+  326      var names: [30][16]u8 = undefined;
+  327      for (&items, &names, 0..) |*item, *name, i| {
+  328          item.* = .{ .path = try std.mem.print(name, "./{d:0>2}.txt", .{i}), .kind = .file, .matched_spans = &.{} };
+  329      }
+  330      state.stage(alloc, .{}, .ready, try Rows.copy(alloc, &items));
+  331      var index: usize = 0;
+  332      var window: usize = 0;
+  333      var receipt = state.view(index, window).receipt.?;
+  334      receipt.visible_rows = 6;
+  335      state.acknowledge(alloc, receipt, &index, &window);
+  336      for (0..7) |_| state.navigate(&index, &window, 1);
+  337      try std.testing.expectEqual(@as(usize, 2), window);
+  338      // Moving back up keeps the window until the selection reaches its top.
+  339      for (0..5) |_| state.navigate(&index, &window, -1);
+  340      try std.testing.expectEqual(@as(usize, 2), window);
+  341      state.navigate(&index, &window, -1);
+  342      try std.testing.expectEqual(@as(usize, 1), window);
+  343  
+  344      receipt = state.view(index, window).receipt.?;
+  345      receipt.visible_rows = 10;
+  346      state.acknowledge(alloc, receipt, &index, &window);
+  347      for (0..8) |_| state.navigate(&index, &window, 1);
+  348      try std.testing.expectEqual(@as(usize, 9), index);
+  349      try std.testing.expectEqual(@as(usize, 1), window);
+  350  }
+
+== src/core/app/app_render_runtime.zig:1854-1859@481104fd -- only a committed frame that showed the file picker sets the receipt
+ 1854                  .file_picker_receipt = if (result.is_committed() and presentation_commits_transcript and
+ 1855                      footer_measurement != null and footer_measurement.?.show_picker and
+ 1856                      footer_measurement.?.picker_kind == .file and footer_measurement.?.picker_rows > 0)
+ 1857                      paintedFilePickerReceipt(file_picker_receipt, footer_measurement.?.picker_rows, footer_ctx.file_completion_status != null)
+ 1858                  else
+ 1859                      null,
+
+== src/core/app/app_render_runtime.zig:2355-2361@481104fd -- paintedFilePickerReceipt
+ 2355  /// Records how many file rows the frame painted, so keyboard navigation
+ 2356  /// scrolls the same window the user sees.
+ 2357  fn paintedFilePickerReceipt(receipt: ?input_completion_runtime.FilePickerReceipt, picker_rows: u16, has_status: bool) ?input_completion_runtime.FilePickerReceipt {
+ 2358      var painted = receipt orelse return null;
+ 2359      painted.visible_rows = picker_presentation.filePickerItemRows(picker_rows, has_status);
+ 2360      return painted;
+ 2361  }
+
+== src/core/app/app_render_runtime.zig:647-654@481104fd -- the status line over rows: only Selection unavailable (stale)
+  647              const file_status: ?[]const u8 = switch (file_view.status) {
+  648                  .unavailable => if (app.input_runtime.picker.file_completion.indexed)
+  649                      "Files unavailable. tab to retry; esc to dismiss."
+  650                  else
+  651                      "Directory unavailable. tab to retry; esc to dismiss.",
+  652                  .stale => "Selection unavailable. navigate to choose; tab to retry.",
+  653                  .loading, .ready, .empty => null,
+  654              };
+
+== src/ui/footer/paint_plan.zig:925-942@481104fd -- the frame re-fits the window from the stored start, over the item rows
+  925          } else if (input.picker_kind == .file and input.file_picker_items.len > 0) {
+  926              const selected = input.picker_selection_index % input.file_picker_items.len;
+  927              var row = rows.picker_start;
+  928              const visible_rows = picker_presentation.filePickerItemRows(input.picker_rows, ctx.file_completion_status != null);
+  929              const status_rows = input.picker_rows - visible_rows;
+  930              if (status_rows > 0) {
+  931                  const status = ctx.file_completion_status.?;
+  932                  var status_row = try picker_presentation.composePickerOptionRow(alloc, .file, input.picker_start_col, status, false, shell.layout.cols);
+  933                  try pushFooterBandRow(alloc, &frame, plan, row, &status_row);
+  934                  row += 1;
+  935              }
+  936              const window_start = picker_presentation.updateEdgeScrollPickerWindowStart(input.picker_window_start, input.file_picker_items.len, selected, visible_rows);
+  937              const window = picker_presentation.edgeScrollPickerWindowFromStart(input.file_picker_items.len, window_start, visible_rows);
+  938              for (input.file_picker_items[window.start..window.end], window.start..) |item, i| {
+  939                  var picker_row = try picker_presentation.composeFilePickerOptionRow(alloc, input.picker_start_col, item, ctx.file_completion_has_selection and i == selected, shell.layout.cols);
+  940                  try pushFooterBandRow(alloc, &frame, plan, row, &picker_row);
+  941                  row += 1;
+  942              }
+
+== src/ui/footer/surface_frame.zig:526-542@481104fd -- banner_rows and the list picker's height
+  526      const banner_rows = if (viewer_active) 0 else steeringBannerRowsForLayout(
+  527          ctx,
+  528          shell.layout.cols,
+  529          shell.layout.rows,
+  530          input_visible,
+  531          composer_top_chrome_rows,
+  532          geometry.input_extra,
+  533      );
+  534      const banner_active = switch (mode) {
+  535          .reservation => modal_active or banner_rows > 0,
+  536          .measurement, .frame => banner_rows > 0,
+  537      };
+  538      const list_picker_rows = picker_presentation.activeListPickerReservedRows(
+  539          shell.layout.rows,
+  540          geometry.input_extra,
+  541          banner_rows,
+  542      );
+
+== src/ui/footer/surface_frame.zig:659-666@481104fd -- the @ list's band rows
+  659      else if (slash_menu_layout) |layout|
+  660          layout.row_count
+  661      else if (show_file_query)
+  662          picker_presentation.filePickerReservedRows(shell.layout.rows, geometry.input_extra, banner_rows)
+  663      else if (show_picker)
+  664          list_picker_rows
+  665      else
+  666          0;
+
+== src/ui/footer/render_input.zig:540-551@481104fd -- banner rows: the message rows and one composer gap
+  540  pub fn steeringBannerRows(ctx: RenderContext, width: u16) u16 {
+  541      return steeringBannerRowsForMessages(
+  542          ctx.steering_messages,
+  543          ctx.steering_waits_for_boundary,
+  544          width,
+  545      );
+  546  }
+  547  
+  548  test "steering banner reserves message rows and one composer gap" {
+  549      for ([_]bool{ false, true }) |waiting| {
+  550          try std.testing.expectEqual(@as(u16, if (waiting) 3 else 0), steeringBannerRowsForMessages(&.{"first\nsecond\nthird"}, waiting, 80));
+  551      }
+
+== src/ui/footer/surface_frame.zig:356-369@481104fd -- the banner is clamped to the screen
+  356  pub fn clampSteeringBannerRows(
+  357      requested: u16,
+  358      terminal_rows: u16,
+  359      input_visible: bool,
+  360      composer_top_chrome_rows: u16,
+  361      input_extra: u16,
+  362  ) u16 {
+  363      if (requested == 0) return 0;
+  364      const non_banner_rows: u16 = if (input_visible)
+  365          footer_layout.reservedBaseRows(true, composer_top_chrome_rows) +| 1 +| input_extra
+  366      else
+  367          3;
+  368      return @min(requested, terminal_rows -| non_banner_rows);
+  369  }
+
+== src/core/app/input_completion_runtime.zig:215-233@481104fd -- PgUp/PgDn: a page is inputRowLimit(content_bottom) rows, then the same navigate
+  215          pub fn routeComposerVertical(
+  216              app: *App,
+  217              direction: visual_layout.Direction,
+  218              delta: i32,
+  219              extend_selection: bool,
+  220              page: bool,
+  221          ) !void {
+  222              const row_count = if (page)
+  223                  input_presentation.inputRowLimit(app.shell.layout.content_bottom)
+  224              else
+  225                  @as(usize, 1);
+  226              const picker_delta = if (page)
+  227                  delta * @as(i32, @intCast(@min(row_count, std.math.maxInt(i32))))
+  228              else
+  229                  delta;
+  230              if (try routeNonSlashPickerMove(app, picker_delta)) {
+  231                  app.input_runtime.vertical_navigation.reset();
+  232                  return;
+  233              }
+
+== src/core/app/input_completion_runtime.zig:939-944@481104fd -- navigateFilePicker
+  939          fn navigateFilePicker(app: *App, delta: i32) void {
+  940              reconcileFilePicker(app);
+  941              if (!filePickerEligible(app)) return;
+  942              const picker = &app.input_runtime.picker;
+  943              picker.file_completion.navigate(&picker.file_completion_index, &picker.file_completion_window_start, delta);
+  944          }
+
+== src/core/app/input_completion_runtime.zig:788-798@481104fd -- a changed @ query resets the bar and the window to 0, and keeps visible_rows
+  788          pub fn reconcileFilePicker(app: *App) void {
+  789              if (comptime !runtime_profile.allows(App, .file_index)) return;
+  790              const picker = &app.input_runtime.picker;
+  791              const query = picker.activeFilePickerQuery(&app.input_runtime.edit_state);
+  792              var decoded_storage: [file_index.max_path_len]u8 = undefined;
+  793              const indexed = if (query) |q| blk: {
+  794                  const decoded = q.decoded_query(&decoded_storage) catch break :blk true;
+  795                  break :blk fileCompletionsDependOnIndex(app, decoded);
+  796              } else true;
+  797              if (picker.file_completion.reconcile(query, fileScopeEpoch(app), indexed)) picker.resetFilePickerIndex();
+  798              const eligible = filePickerEligible(app);
+
+== src/core/input/picker_state.zig:249-252@481104fd -- resetFilePickerIndex
+  249      pub fn resetFilePickerIndex(self: *State) void {
+  250          self.file_completion_index = 0;
+  251          self.file_completion_window_start = 0;
+  252      }
+
+== src/core/input/file_completion_state.zig:121-143@481104fd -- deinit resets every field; invalidate and distrust clear trusted, and leave visible_rows
+  121      pub fn deinit(self: *State, alloc: std.mem.Allocator) void {
+  122          if (self.prepared) |*value| value.deinit(alloc);
+  123          if (self.presented) |*value| value.deinit(alloc);
+  124          const state_info = @typeInfo(State).@"struct";
+  125          inline for (state_info.field_names, state_info.field_types, state_info.field_attrs) |field_name, field_type, field_attrs| {
+  126              @field(self.*, field_name) = field_attrs.defaultValue(field_type).?;
+  127          }
+  128      }
+  129  
+  130      pub fn invalidate(self: *State) void {
+  131          self.episode +%= 1;
+  132          self.active = false;
+  133          self.trusted = false;
+  134          self.source = null;
+  135          self.lookup_dirty = true;
+  136          self.directory_request = null;
+  137          self.refresh_requested = false;
+  138          self.selection_missing = false;
+  139      }
+  140  
+  141      pub fn distrust(self: *State) void {
+  142          self.trusted = false;
+  143      }
+
+== src/core/input/file_completion_state.zig:147-196@481104fd -- reconcile: a changed query clears trusted (:175) and leaves visible_rows
+  147      pub fn reconcile(self: *State, query: ?file_picker_path.Query, scope_epoch: u64, indexed: bool) bool {
+  148          const q = query orelse {
+  149              if (!self.active) return false;
+  150              self.invalidate();
+  151              return true;
+  152          };
+  153          const kept = @min(q.query.len, self.raw_query.len);
+  154          if (self.active and self.scope_epoch == scope_epoch and self.indexed == indexed and
+  155              self.at_offset == q.at_offset and self.token_start == q.token_start and
+  156              self.replace_end == q.replace_end and self.quoted == q.quoted and
+  157              self.raw_len == q.query.len and std.mem.eql(u8, self.raw_query[0..kept], q.query[0..kept])) return false;
+  158          var decoded_storage: [file_index.max_path_len]u8 = undefined;
+  159          const decoded = q.decoded_query(&decoded_storage) catch null;
+  160          const lookup = if (decoded) |bytes| if (bytes.len <= self.lookup_query.len) bytes else null else null;
+  161          const same_lookup = self.active and self.directory_request == null and self.scope_epoch == scope_epoch and self.indexed == indexed and
+  162              self.lookup_len != null and lookup != null and std.mem.eql(u8, self.lookup_query[0..self.lookup_len.?], lookup.?);
+  163          self.directory_request = null;
+  164          self.refresh_requested = self.refresh_requested or !self.active or self.indexed != indexed or self.scope_epoch != scope_epoch;
+  165          self.episode +%= 1;
+  166          self.active = true;
+  167          self.indexed = indexed;
+  168          self.scope_epoch = scope_epoch;
+  169          @memcpy(self.raw_query[0..kept], q.query[0..kept]);
+  170          self.raw_len = q.query.len;
+  171          self.at_offset = q.at_offset;
+  172          self.token_start = q.token_start;
+  173          self.replace_end = q.replace_end;
+  174          self.quoted = q.quoted;
+  175          self.trusted = false;
+  176          self.selection_missing = false;
+  177          self.lookup_len = if (lookup) |bytes| bytes.len else null;
+  178          if (lookup) |bytes| @memcpy(self.lookup_query[0..bytes.len], bytes);
+  179          if (same_lookup and !self.lookup_dirty) {
+  180              // Reuse bytes for another occurrence, never its old presentation
+  181              // authority. Ownership moves into the unacknowledged slot.
+  182              if (self.prepared == null) {
+  183                  self.prepared = self.presented;
+  184                  self.presented = null;
+  185              }
+  186              if (self.prepared) |*value| {
+  187                  value.episode = self.episode;
+  188                  value.id = self.next_revision;
+  189                  self.next_revision +%= 1;
+  190              }
+  191          } else {
+  192              self.lookup_dirty = true;
+  193              self.source = null;
+  194          }
+  195          return true;
+  196      }
+
+== src/core/input/file_completion_state.zig:204-237@481104fd -- stage leaves trusted; current is the presented snapshot; selected and acceptedEmpty need trusted
+  204      pub fn stage(self: *State, alloc: std.mem.Allocator, source: file_index.ReadableRevision, status: Status, rows: ?Rows) void {
+  205          if (self.prepared) |*old| old.deinit(alloc);
+  206          self.prepared = .{ .id = self.next_revision, .episode = self.episode, .status = status, .rows = rows };
+  207          self.next_revision +%= 1;
+  208          self.source = source;
+  209          self.lookup_dirty = false;
+  210      }
+  211  
+  212      fn current(self: *const State) ?*const Snapshot {
+  213          if (!self.active) return null;
+  214          if (self.presented) |*value| if (value.episode == self.episode) return value;
+  215          return null;
+  216      }
+  217  
+  218      pub fn selected(self: *const State, index: usize) ?file_index.SearchResult {
+  219          if (!self.trusted or self.selection_missing) return null;
+  220          const value = self.current() orelse return null;
+  221          if (value.status != .ready or index >= value.items().len) return null;
+  222          return value.items()[index];
+  223      }
+  224  
+  225      pub fn acceptedEmpty(self: *const State) bool {
+  226          const value = self.current() orelse return false;
+  227          return self.trusted and !self.selection_missing and value.status == .empty;
+  228      }
+  229  
+  230      pub fn retry(self: *State) void {
+  231          self.lookup_dirty = true;
+  232          self.refresh_requested = true;
+  233      }
+  234  
+  235      pub fn rejectSelection(self: *State) void {
+  236          self.selection_missing = true;
+  237      }
+
+== src/core/app/app_render_runtime.zig:1002-1026@481104fd -- a frame not committed distrusts; a committed one acknowledges with a receipt, distrusts without
+ 1002              if (!result.is_committed()) {
+ 1003                  input_completion_runtime.CompletionRuntime(App).distrustFilePicker(app);
+ 1004                  render_requests.resetInputPendingAbortStreak();
+ 1005                  attempt.restore();
+ 1006                  debug_trace.logf(
+ 1007                      "frame_schedule",
+ 1008                      "attempt_restore outcome={s} reasons={s} reason_count={d} invalidations={d} pending_reason_count={d} animation_phase={d} animation_deadline_ms={d}",
+ 1009                      .{
+ 1010                          @tagName(result.shadow_state),
+ 1011                          reason_names,
+ 1012                          snapshot.reasons.count(),
+ 1013                          snapshot.invalidations.len,
+ 1014                          render_requests.pendingReasonCount(),
+ 1015                          render_requests.visibleAnimationPhase(),
+ 1016                          render_requests.animation_next_deadline_ms,
+ 1017                      },
+ 1018                  );
+ 1019                  return;
+ 1020              }
+ 1021  
+ 1022              if (result.file_picker_receipt) |receipt| {
+ 1023                  input_completion_runtime.CompletionRuntime(App).acknowledgeFilePicker(app, receipt);
+ 1024              } else {
+ 1025                  input_completion_runtime.CompletionRuntime(App).distrustFilePicker(app);
+ 1026              }
+
+== src/core/app/input_completion_runtime.zig:775-809@481104fd -- filePickerEligible; reconcile distrusts while ineligible, resize-pending, reset-pending or dimensions invalid
+  775          fn filePickerEligible(app: *App) bool {
+  776              if (comptime !runtime_profile.allows(App, .file_index)) return false;
+  777              if (comptime @hasField(App, "question_prompt")) if (app.question_prompt.isActive()) return false;
+  778              if (comptime @hasField(App, "approval_prompt")) if (app.approval_prompt.isActive()) return false;
+  779              if (comptime @hasField(App, "auth")) {
+  780                  if (comptime @hasDecl(@TypeOf(app.auth), "pickerView")) if (app.auth.pickerView().active) return false;
+  781              }
+  782              if (comptime @hasField(App, "shell")) {
+  783                  if (comptime @hasDecl(@TypeOf(app.shell), "fullTranscriptActive")) if (app.shell.fullTranscriptActive()) return false;
+  784              }
+  785              return !catalogMenuOwnsSurface(app);
+  786          }
+  787  
+  788          pub fn reconcileFilePicker(app: *App) void {
+  789              if (comptime !runtime_profile.allows(App, .file_index)) return;
+  790              const picker = &app.input_runtime.picker;
+  791              const query = picker.activeFilePickerQuery(&app.input_runtime.edit_state);
+  792              var decoded_storage: [file_index.max_path_len]u8 = undefined;
+  793              const indexed = if (query) |q| blk: {
+  794                  const decoded = q.decoded_query(&decoded_storage) catch break :blk true;
+  795                  break :blk fileCompletionsDependOnIndex(app, decoded);
+  796              } else true;
+  797              if (picker.file_completion.reconcile(query, fileScopeEpoch(app), indexed)) picker.resetFilePickerIndex();
+  798              const eligible = filePickerEligible(app);
+  799              if (!eligible) picker.file_completion.distrust();
+  800              if (comptime @hasDecl(App, "reconcileDirectoryCompletion")) app.reconcileDirectoryCompletion(eligible);
+  801              if (comptime @hasField(App, "shell")) {
+  802                  if (comptime @hasField(@TypeOf(app.shell), "render_requests")) {
+  803                      if (app.shell.render_requests.resizeLifecyclePending()) picker.file_completion.distrust();
+  804                  }
+  805                  if (comptime @hasField(@TypeOf(app.shell), "terminal_reset_pending")) {
+  806                      if (app.shell.terminal_reset_pending or app.shell.terminal_dimensions_invalid) picker.file_completion.distrust();
+  807                  }
+  808              }
+  809          }
+
+== src/core/app/input_completion_runtime.zig:946-966@481104fd -- Tab: no selection chooses nothing (retry only for unavailable or stale)
+  946          pub fn autocompleteFilePickerSelection(app: *App, max_input_len: usize) !edit_contract.InsertResult {
+  947              if (comptime !runtime_profile.allows(App, .file_index)) return .inactive;
+  948              reconcileFilePicker(app);
+  949              if (!filePickerEligible(app)) return .inactive;
+  950              const selection = resolveFilePickerSelection(app) orelse {
+  951                  const picker = &app.input_runtime.picker;
+  952                  const status = filePickerView(app).status;
+  953                  if (status != .loading and (status == .unavailable or status == .stale or picker.file_completion.selection_missing)) picker.file_completion.retry();
+  954                  app.shell.render_requests.request(.footer);
+  955                  return .inactive;
+  956              };
+  957              return applyFilePickerSelection(app, selection, max_input_len, .open);
+  958          }
+  959  
+  960          fn resolveFilePickerSelection(app: *App) ?FilePickerSelection {
+  961              const picker = &app.input_runtime.picker;
+  962              const query = picker.activeFilePickerQuery(&app.input_runtime.edit_state) orelse return null;
+  963              const choice = picker.file_completion.selected(picker.file_completion_index) orelse return null;
+  964              return .{ .query = query, .choice = choice };
+  965          }
+  966  
+
+== src/core/app/input_completion_runtime.zig:1034-1056@481104fd -- Enter: no selection is spent unless acceptedEmpty
+ 1034          pub fn submitFilePickerOnEnter(app: *App, max_input_len: usize) !?edit_contract.InsertResult {
+ 1035              if (comptime !runtime_profile.allows(App, .file_index)) return null;
+ 1036              reconcileFilePicker(app);
+ 1037              if (!filePickerOwnsSurface(app)) return null;
+ 1038              const selection = resolveFilePickerSelection(app) orelse {
+ 1039                  if (app.input_runtime.picker.file_completion.acceptedEmpty()) return null;
+ 1040                  return .inactive;
+ 1041              };
+ 1042              const result = try applyFilePickerSelection(app, selection, max_input_len, .select);
+ 1043              debug_trace.logf(
+ 1044                  "input",
+ 1045                  "file picker Enter consumed selected={s} limit_exceeded={s}",
+ 1046                  .{
+ 1047                      if (result == .inserted) "true" else "false",
+ 1048                      if (result == .limit_exceeded) "true" else "false",
+ 1049                  },
+ 1050              );
+ 1051              return result;
+ 1052          }
+ 1053  
+ 1054          pub fn filePickerOwnsSurface(app: *App) bool {
+ 1055              return filePickerEligible(app) and hasFileQuery(app);
+ 1056          }
+
+== src/core/input/picker_state.zig:196-213@481104fd -- invalidate on a new inline-picker episode and on dismiss
+  196      pub fn resetInlinePickerEpisode(self: *State) void {
+  197          self.file_completion.invalidate();
+  198          self.slash_completion_index = 0;
+  199          self.slash_completion_window_start = 0;
+  200          self.inline_picker_suppression = null;
+  201      }
+  202  
+  203      pub fn resetInlinePickerForHistoryRecall(self: *State, editor: *const editor_state.State) void {
+  204          self.resetInlinePickerEpisode();
+  205          self.inline_picker_suppression = suppressionForHistoryRecall(
+  206              self.inlinePickerTriggerKind(editor),
+  207          );
+  208      }
+  209  
+  210      pub fn dismissInlinePicker(self: *State, kind: InlinePickerKind) void {
+  211          if (kind == .file) self.file_completion.invalidate();
+  212          self.inline_picker_suppression = .{ .dismissed_until_trigger_change = kind };
+  213      }
+
+== src/ui/resize_runtime.zig:657-662@481104fd -- dimensions invalid: set on a resize no layout fits
+  657  fn handleInvalidResize(shell: *TranscriptRuntime, err: anyerror) !void {
+  658      if (!ui_terminal.isInvalidLayoutError(err)) return err;
+  659      if (!shell.has_committed_frame) return err;
+  660      shell.terminal_dimensions_invalid = true;
+  661      try recordOwnedBandInvalidation(shell, .resize);
+  662      shell.footer_viewport.invalidateAfterExternalClear();
+
+== src/ui/footer/picker_presentation.zig:634-639@c1db9191 -- the old height: the list picker's, at most six
+  634  pub fn activeListPickerReservedRows(terminal_rows: u16, input_extra: u16, banner_rows: u16) u16 {
+  635      const fixed_rows: u16 = 5 +| input_extra +| banner_rows;
+  636      const available_rows = terminal_rows -| fixed_rows;
+  637      if (available_rows == 0) return 1;
+  638      return @min(input_presentation.max_model_picker_rows, available_rows);
+  639  }
+
+== src/ui/footer/surface_frame.zig:636-641@c1db9191 -- the old @ band rows: show_picker, so list_picker_rows
+  636      else if (slash_menu_layout) |layout|
+  637          layout.row_count
+  638      else if (show_picker)
+  639          list_picker_rows
+  640      else
+  641          0;

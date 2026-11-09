@@ -1,0 +1,29 @@
+# jobs.sh mutants at 2026-11-09T06:30:15Z, load 43.74
+# mutants-clone at e28e1b15
+# e28e1b15 docs(receipt): P5 train 10 -- the re-point, shared, stale, selection, s; limit 900 s a cargo run
+unchanged: exit 0; join-catalog ok; join-compact ok; join-paste ok; join-question ok; fuzzy-unit ok; cnl-unit ok; hns-unit ok; paste-unit ok; at-unit ok
+F1 no ranks, catalog order (MODEL-FUZZY's tier-order mutant): KILLED; join-catalog FAILED; join-compact ok; join-paste ok; join-question ok; fuzzy-unit FAILED; cnl-unit ok; hns-unit ok; paste-unit ok; at-unit ok
+    join-catalog said: assertion `left == right` failed: past 16 MiB: the rows after the failure, substring then words then fuzzy / left: ["openai/gpt-4.5-preview", "openai/gpt-5", "acme/gpt5-lite"] / right: ["acme/gpt5-lite", "openai/gpt-5", 
+    fuzzy-unit said: assertion `left == right` failed / left: ["openai/gpt-4.5-preview", "openai/gpt-5", "acme/gpt5-lite"] / right: ["acme/gpt5-lite", "openai/gpt-5", "openai/gpt-4.5-preview"]
+F2 the mark looked up in catalog order on a reload (MODEL-FUZZY's): KILLED; join-catalog ok; join-compact ok; join-paste ok; join-question ok; fuzzy-unit FAILED; cnl-unit ok; hns-unit ok; paste-unit ok; at-unit ok
+    fuzzy-unit said: assertion `left == right` failed / left: Some("acme/gpt5-pro") / right: Some("openai/gpt-4.5-preview")
+C1 a failed refresh behind rows drops them (the band's CatalogRefreshFailed arm): KILLED; join-catalog FAILED; join-compact ok; join-paste ok; join-question ok; fuzzy-unit ok; cnl-unit ok; hns-unit ok; paste-unit ok; at-unit ok
+    join-catalog said: assertion `left == right` failed: past 16 MiB: the rows behind a failed refresh / left: [] / right: ["acme/gpt5-lite", "openai/gpt-5", "openai/gpt-4.5-preview"]
+N1 a dropped compaction is not told (COMPACT-NOTICE-LATE's abandon): KILLED; join-catalog ok; join-compact FAILED; join-paste ok; join-question ok; fuzzy-unit ok; cnl-unit FAILED; hns-unit ok; paste-unit ok; at-unit ok
+    join-compact said: assertion `left == right` failed: the two turns' ends; the history notice said per turn; each compaction word, with how many turns had started / left: ([Some("the turn was cancelled"), None], [0, 1], []) / right: ([Some(
+    cnl-unit said: assertion `left == right` failed: each: (the stop, what the band was told, the places still held) / left: [("a cancel", [], 0), ("a reset", ["the fence"], 0), ("a prompt and a compaction, a cancel twice", [], 0)] / right
+N2 a history notice is marked said whether or not it was handed on (HISTORY-NOTICE-STOP's one_turn): KILLED; join-catalog ok; join-compact FAILED; join-paste ok; join-question ok; fuzzy-unit ok; cnl-unit ok; hns-unit FAILED; paste-unit ok; at-unit ok
+    join-compact said: assertion `left == right` failed: the two turns' ends; the history notice said per turn; each compaction word, with how many turns had started / left: ([Some("the turn was cancelled"), None], [0, 0], [(1, "Dropped")]) / 
+    hns-unit said: assertion `left == right` failed: each: both turns' ends, and how many times each turn said the history's notice / left: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 0]), (WindowRetry, false, [None, N
+X1 the bytes behind the marker are decoded (PASTE-AFTER-END's 1): KILLED; join-catalog ok; join-compact ok; join-paste FAILED; join-question ok; fuzzy-unit ok; cnl-unit ok; hns-unit ok; paste-unit FAILED; at-unit ok
+    join-paste said: assertion `left == right` failed: the paste was lost, or the Enter behind its marker took the marked row / left: "┃ @items/f-03.txt 0" / right: "┃ @f-0"
+    paste-unit said: assertion `left == right` failed: the paste did not reach the answer / left: "    1) Yes" / right: "    3) keepnew "
+X6 no warning (PASTE-AFTER-END's 6): KILLED; join-catalog ok; join-compact ok; join-paste FAILED; join-question ok; fuzzy-unit ok; cnl-unit ok; hns-unit ok; paste-unit FAILED; at-unit ok
+    join-paste said: no warning
+    paste-unit said: assertion `left == right` failed / left: [] / right: ["! input: Input that arrived right after the paste was ignored.", ""]
+Q1 a question leaves the @ list up (ask_question's dismissal): KILLED; join-catalog ok; join-compact ok; join-paste ok; join-question FAILED; fuzzy-unit ok; cnl-unit ok; hns-unit ok; paste-unit ok; at-unit ok
+    join-question said: the list stayed up behind the panel / note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+Q1+Q2 and the list is offered the keys before the panel: KILLED; join-catalog ok; join-compact ok; join-paste ok; join-question FAILED; fuzzy-unit ok; cnl-unit ok; hns-unit ok; paste-unit ok; at-unit ok
+    join-question said: the list stayed up behind the panel / note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+# 9 of 9 killed; clone clean after: True
+# jobs.sh mutants done at 2026-11-09T06:35:06Z

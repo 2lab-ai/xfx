@@ -1,0 +1,305 @@
+# MODEL-FUZZY RED
+
+## 1. The tests on main's matcher (commit cda3c90e's tests over ccced1f5's code; 900 s limit, ulimit -v)
+$ cargo test --locked --lib -- model_menu::tests::the_search_finds_what_fxs_own_table_finds model_menu::tests::better_matches_list_first_and_the_mark_keeps_its_model_through_a_revalidation model_menu::tests::the_search_reads_the_whole_id_and_nothing_else_a_row_carries model_column::tests::the_column_lists_its_models_ranked_as_fxs_completions_are model_column::tests::enter_and_the_arrows_take_the_ranked_rows
+
+running 5 tests
+test tui::model_column::tests::enter_and_the_arrows_take_the_ranked_rows ... FAILED
+test tui::model_menu::tests::better_matches_list_first_and_the_mark_keeps_its_model_through_a_revalidation ... FAILED
+test tui::model_menu::tests::the_search_reads_the_whole_id_and_nothing_else_a_row_carries ... FAILED
+test tui::model_menu::tests::the_search_finds_what_fxs_own_table_finds ... FAILED
+test tui::model_column::tests::the_column_lists_its_models_ranked_as_fxs_completions_are ... FAILED
+
+failures:
+
+---- tui::model_column::tests::enter_and_the_arrows_take_the_ranked_rows stdout ----
+
+thread 'tui::model_column::tests::enter_and_the_arrows_take_the_ranked_rows' (364216584) panicked at src/tui/model_column.rs:1854:9:
+assertion `left == right` failed
+  left: None
+ right: Some("anthropic/claude-sonnet-4.5")
+
+---- tui::model_menu::tests::better_matches_list_first_and_the_mark_keeps_its_model_through_a_revalidation stdout ----
+
+thread 'tui::model_menu::tests::better_matches_list_first_and_the_mark_keeps_its_model_through_a_revalidation' (364216586) panicked at src/tui/model_menu.rs:1338:9:
+assertion `left == right` failed
+  left: ["acme/gpt5-lite"]
+ right: ["acme/gpt5-lite", "openai/gpt-5", "openai/gpt-4.5-preview"]
+
+---- tui::model_menu::tests::the_search_reads_the_whole_id_and_nothing_else_a_row_carries stdout ----
+
+thread 'tui::model_menu::tests::the_search_reads_the_whole_id_and_nothing_else_a_row_carries' (364216588) panicked at src/tui/model_menu.rs:1388:9:
+assertion `left == right` failed
+  left: None
+ right: Some("anthropic/claude-opus-5")
+
+---- tui::model_menu::tests::the_search_finds_what_fxs_own_table_finds stdout ----
+
+thread 'tui::model_menu::tests::the_search_finds_what_fxs_own_table_finds' (364216587) panicked at src/tui/model_menu.rs:1308:13:
+"claude sonnet 4.5" finds anthropic/claude-sonnet-4.5
+
+---- tui::model_column::tests::the_column_lists_its_models_ranked_as_fxs_completions_are stdout ----
+
+thread 'tui::model_column::tests::the_column_lists_its_models_ranked_as_fxs_completions_are' (364216585) panicked at src/tui/model_column.rs:1816:9:
+assertion `left == right` failed
+  left: ["acme/gpt5-lite"]
+ right: ["acme/gpt5-lite", "openai/gpt-5", "openai/gpt-4.5-preview"]
+
+
+failures:
+    tui::model_column::tests::enter_and_the_arrows_take_the_ranked_rows
+    tui::model_column::tests::the_column_lists_its_models_ranked_as_fxs_completions_are
+    tui::model_menu::tests::better_matches_list_first_and_the_mark_keeps_its_model_through_a_revalidation
+    tui::model_menu::tests::the_search_finds_what_fxs_own_table_finds
+    tui::model_menu::tests::the_search_reads_the_whole_id_and_nothing_else_a_row_carries
+
+test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 4550 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--lib`
+
+## 2. Tab's mark (commit 260ffc85's test over 08763761's code, the ranks in, Tab not yet fixed)
+
+running 1 test
+test tui::model_column::tests::tab_puts_the_mark_on_the_first_row_the_written_line_lists ... FAILED
+
+failures:
+
+---- tui::model_column::tests::tab_puts_the_mark_on_the_first_row_the_written_line_lists stdout ----
+
+thread 'tui::model_column::tests::tab_puts_the_mark_on_the_first_row_the_written_line_lists' (364691768) panicked at src/tui/model_column.rs:1891:9:
+the mark is not on the first row: ["       \u{1b}[38;5;245mopenai/gpt-5\u{1b}[0m", "       \u{1b}[1;38;5;255mopenai/gpt-4.5-preview\u{1b}[0m"]
+
+
+failures:
+    tui::model_column::tests::tab_puts_the_mark_on_the_first_row_the_written_line_lists
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4559 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--lib`
+
+## 3. The capture pairs on main's binary (red/, row 1: x𝒇x v0.1.0-ccced1f [debug]): python3 -I scripts/fxcap/cells.py fx/<snap>.ansi red/<snap>.ansi
+DIFF p5-input-model-40x120-inline-gpt6.ansi
+    row 5: fx [(9, 'o', (('bold', True), ('fg', 255))), (10, 'p', (('bold', True), ('fg', 255))), (11, 'e', (('bold', True), ('fg', 255))), (12, 'n', (('bold', True), ('fg', 255)))]
+    row 5: xfx [(9, 'n', (('fg', 245),)), (10, 'o', (('fg', 245),)), (11, ' ', ()), (12, 'm', (('fg', 245),))]
+    1 rows differ in their cells (row 1 not compared)
+SAME p5-input-model-40x120-model.ansi
+DIFF p5-input-model-40x120-q-anthropic-opus.ansi
+    row 5: fx [(7, '1', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 5: xfx [(7, '0', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 7: fx [(0, ' ', ()), (1, ' ', ()), (2, 'a', (('bold', True), ('fg', 255))), (3, 'n', (('bold', True), ('fg', 255)))]
+    row 7: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, ' ', ()), (3, 'm', (('fg', 245),))]
+    2 rows differ in their cells (row 1 not compared)
+DIFF p5-input-model-40x120-q-cs45.ansi
+    row 5: fx [(7, '1', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 5: xfx [(7, '0', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 7: fx [(0, ' ', ()), (1, ' ', ()), (2, 'a', (('bold', True), ('fg', 255))), (3, 'n', (('bold', True), ('fg', 255)))]
+    row 7: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, ' ', ()), (3, 'm', (('fg', 245),))]
+    2 rows differ in their cells (row 1 not compared)
+DIFF p5-input-model-40x120-q-grok-fast.ansi
+    row 5: fx [(7, '2', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 5: xfx [(7, '0', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 7: fx [(0, ' ', ()), (1, ' ', ()), (2, 'x', (('bold', True), ('fg', 255))), (3, 'a', (('bold', True), ('fg', 255)))]
+    row 7: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, ' ', ()), (3, 'm', (('fg', 245),))]
+    row 8: fx [(0, ' ', ()), (1, ' ', ()), (2, 'x', (('fg', 245),)), (3, 'a', (('fg', 245),))]
+    row 8: xfx []
+    row 9: fx []
+    row 9: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, 't', (('fg', 245),)), (3, 'e', (('fg', 245),))]
+DIFF p5-input-model-40x120-q-sonnet45.ansi
+    row 5: fx [(7, '1', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 5: xfx [(7, '0', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 7: fx [(0, ' ', ()), (1, ' ', ()), (2, 'a', (('bold', True), ('fg', 255))), (3, 'n', (('bold', True), ('fg', 255)))]
+    row 7: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, ' ', ()), (3, 'm', (('fg', 245),))]
+    2 rows differ in their cells (row 1 not compared)
+DIFF p5-input-model-40x120-q-zai-glm.ansi
+    row 5: fx [(7, '1', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 5: xfx [(7, '0', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 7: fx [(0, ' ', ()), (1, ' ', ()), (2, 'z', (('bold', True), ('fg', 255))), (3, 'a', (('bold', True), ('fg', 255)))]
+    row 7: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, ' ', ()), (3, 'm', (('fg', 245),))]
+    2 rows differ in their cells (row 1 not compared)
+DIFF p5-input-model-rank-40x120-c-anthropic-opus.ansi
+    row 3: fx [(14, 'o', (('fg', 250),)), (15, 'p', (('fg', 250),)), (16, 'e', (('fg', 250),)), (17, 'n', (('fg', 250),))]
+    row 3: xfx [(14, 'a', (('fg', 250),)), (15, 'c', (('fg', 250),)), (16, 'm', (('fg', 250),)), (17, 'e', (('fg', 250),))]
+    row 9: fx [(9, 'a', (('bold', True), ('fg', 255))), (10, 'n', (('bold', True), ('fg', 255))), (11, 't', (('bold', True), ('fg', 255))), (12, 'h', (('bold', True), ('fg', 255)))]
+    row 9: xfx [(9, 'n', (('fg', 245),)), (10, 'o', (('fg', 245),)), (11, ' ', ()), (12, 'm', (('fg', 245),))]
+    row 16: fx [(10, '-', (('fg', 245),)), (11, '5', (('fg', 245),))]
+    row 16: xfx [(10, '5', (('fg', 245),)), (11, '-', (('fg', 245),)), (12, 'l', (('fg', 245),)), (13, 'i', (('fg', 245),))]
+    3 rows differ in their cells (row 1 not compared)
+DIFF p5-input-model-rank-40x120-c-cs45-enter.ansi
+    row 3: fx [(14, 'o', (('fg', 250),)), (15, 'p', (('fg', 250),)), (16, 'e', (('fg', 250),)), (17, 'n', (('fg', 250),))]
+    row 3: xfx [(14, 'a', (('fg', 250),)), (15, 'c', (('fg', 250),)), (16, 'm', (('fg', 250),)), (17, 'e', (('fg', 250),))]
+    row 9: fx [(7, ' ', ()), (8, 'p', (('fg', 250),)), (9, 'i', (('fg', 250),)), (10, 'c', (('fg', 250),))]
+    row 9: xfx [(7, ':', (('fg', 250),)), (8, ' ', ()), (9, 's', (('fg', 250),)), (10, 'a', (('fg', 250),))]
+    2 rows differ in their cells (row 1 not compared)
+DIFF p5-input-model-rank-40x120-c-cs45.ansi
+    row 3: fx [(14, 'o', (('fg', 250),)), (15, 'p', (('fg', 250),)), (16, 'e', (('fg', 250),)), (17, 'n', (('fg', 250),))]
+    row 3: xfx [(14, 'a', (('fg', 250),)), (15, 'c', (('fg', 250),)), (16, 'm', (('fg', 250),)), (17, 'e', (('fg', 250),))]
+    row 9: fx [(9, 'a', (('bold', True), ('fg', 255))), (10, 'n', (('bold', True), ('fg', 255))), (11, 't', (('bold', True), ('fg', 255))), (12, 'h', (('bold', True), ('fg', 255)))]
+    row 9: xfx [(9, 'n', (('fg', 245),)), (10, 'o', (('fg', 245),)), (11, ' ', ()), (12, 'm', (('fg', 245),))]
+    row 16: fx [(10, '-', (('fg', 245),)), (11, '5', (('fg', 245),))]
+    row 16: xfx [(10, '5', (('fg', 245),)), (11, '-', (('fg', 245),)), (12, 'l', (('fg', 245),)), (13, 'i', (('fg', 245),))]
+    3 rows differ in their cells (row 1 not compared)
+DIFF p5-input-model-rank-40x120-c-gpt5-down.ansi
+    row 3: fx [(14, 'o', (('fg', 250),)), (15, 'p', (('fg', 250),)), (16, 'e', (('fg', 250),)), (17, 'n', (('fg', 250),))]
+    row 3: xfx [(14, 'a', (('fg', 250),)), (15, 'c', (('fg', 250),)), (16, 'm', (('fg', 250),)), (17, 'e', (('fg', 250),))]
+    row 9: fx [(9, 'a', (('fg', 245),)), (10, 'c', (('fg', 245),)), (11, 'm', (('fg', 245),)), (12, 'e', (('fg', 245),))]
+    row 9: xfx [(9, 'a', (('bold', True), ('fg', 255))), (10, 'c', (('bold', True), ('fg', 255))), (11, 'm', (('bold', True), ('fg', 255))), (12, 'e', (('bold', True), ('fg', 255)))]
+    row 10: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 10: xfx []
+    row 11: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 11: xfx []
+DIFF p5-input-model-rank-40x120-c-gpt5-lite.ansi
+    row 3: fx [(14, 'o', (('fg', 250),)), (15, 'p', (('fg', 250),)), (16, 'e', (('fg', 250),)), (17, 'n', (('fg', 250),))]
+    row 3: xfx [(14, 'a', (('fg', 250),)), (15, 'c', (('fg', 250),)), (16, 'm', (('fg', 250),)), (17, 'e', (('fg', 250),))]
+    row 9: fx [(9, 'a', (('bold', True), ('fg', 255))), (10, 'c', (('bold', True), ('fg', 255))), (11, 'm', (('bold', True), ('fg', 255))), (12, 'e', (('bold', True), ('fg', 255)))]
+    row 9: xfx [(9, 'n', (('fg', 245),)), (10, 'o', (('fg', 245),)), (11, ' ', ()), (12, 'm', (('fg', 245),))]
+    row 16: fx [(10, '-', (('fg', 245),)), (11, '5', (('fg', 245),))]
+    row 16: xfx [(10, '5', (('fg', 245),)), (11, '-', (('fg', 245),)), (12, 'l', (('fg', 245),)), (13, 'i', (('fg', 245),))]
+    3 rows differ in their cells (row 1 not compared)
+DIFF p5-input-model-rank-40x120-c-gpt5-tab.ansi
+    row 3: fx [(14, 'o', (('fg', 250),)), (15, 'p', (('fg', 250),)), (16, 'e', (('fg', 250),)), (17, 'n', (('fg', 250),))]
+    row 3: xfx [(14, 'a', (('fg', 250),)), (15, 'c', (('fg', 250),)), (16, 'm', (('fg', 250),)), (17, 'e', (('fg', 250),))]
+    row 7: fx [(9, 'o', ()), (10, 'p', ()), (11, 'e', ()), (12, 'n', ())]
+    row 7: xfx [(9, 'a', ()), (10, 'c', ()), (11, 'm', ()), (12, 'e', ())]
+    row 9: fx [(9, 'o', (('bold', True), ('fg', 255))), (10, 'p', (('bold', True), ('fg', 255))), (11, 'e', (('bold', True), ('fg', 255))), (12, 'n', (('bold', True), ('fg', 255)))]
+    row 9: xfx [(9, 'a', (('bold', True), ('fg', 255))), (10, 'c', (('bold', True), ('fg', 255))), (11, 'm', (('bold', True), ('fg', 255))), (12, 'e', (('bold', True), ('fg', 255)))]
+    row 10: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 10: xfx []
+DIFF p5-input-model-rank-40x120-c-gpt5.ansi
+    row 3: fx [(14, 'o', (('fg', 250),)), (15, 'p', (('fg', 250),)), (16, 'e', (('fg', 250),)), (17, 'n', (('fg', 250),))]
+    row 3: xfx [(14, 'a', (('fg', 250),)), (15, 'c', (('fg', 250),)), (16, 'm', (('fg', 250),)), (17, 'e', (('fg', 250),))]
+    row 10: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 10: xfx []
+    row 11: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 11: xfx []
+    row 16: fx [(10, '-', (('fg', 245),)), (11, '5', (('fg', 245),))]
+    row 16: xfx [(10, '5', (('fg', 245),)), (11, '-', (('fg', 245),)), (12, 'l', (('fg', 245),)), (13, 'i', (('fg', 245),))]
+DIFF p5-input-model-rank-40x120-c-mi.ansi
+    row 3: fx [(14, 'o', (('fg', 250),)), (15, 'p', (('fg', 250),)), (16, 'e', (('fg', 250),)), (17, 'n', (('fg', 250),))]
+    row 3: xfx [(14, 'a', (('fg', 250),)), (15, 'c', (('fg', 250),)), (16, 'm', (('fg', 250),)), (17, 'e', (('fg', 250),))]
+    row 16: fx [(10, '-', (('fg', 245),)), (11, '5', (('fg', 245),))]
+    row 16: xfx [(10, '5', (('fg', 245),)), (11, '-', (('fg', 245),)), (12, 'l', (('fg', 245),)), (13, 'i', (('fg', 245),))]
+    2 rows differ in their cells (row 1 not compared)
+DIFF p5-input-model-rank-40x120-c-paste-anthropic-opus.ansi
+    row 3: fx [(14, 'o', (('fg', 250),)), (15, 'p', (('fg', 250),)), (16, 'e', (('fg', 250),)), (17, 'n', (('fg', 250),))]
+    row 3: xfx [(14, 'a', (('fg', 250),)), (15, 'c', (('fg', 250),)), (16, 'm', (('fg', 250),)), (17, 'e', (('fg', 250),))]
+    row 9: fx [(9, 'a', (('bold', True), ('fg', 255))), (10, 'n', (('bold', True), ('fg', 255))), (11, 't', (('bold', True), ('fg', 255))), (12, 'h', (('bold', True), ('fg', 255)))]
+    row 9: xfx [(9, 'n', (('fg', 245),)), (10, 'o', (('fg', 245),)), (11, ' ', ()), (12, 'm', (('fg', 245),))]
+    row 16: fx [(10, '-', (('fg', 245),)), (11, '5', (('fg', 245),))]
+    row 16: xfx [(10, '5', (('fg', 245),)), (11, '-', (('fg', 245),)), (12, 'l', (('fg', 245),)), (13, 'i', (('fg', 245),))]
+    3 rows differ in their cells (row 1 not compared)
+DIFF p5-input-model-rank-40x120-c-paste-gpt-5.ansi
+    row 3: fx [(14, 'o', (('fg', 250),)), (15, 'p', (('fg', 250),)), (16, 'e', (('fg', 250),)), (17, 'n', (('fg', 250),))]
+    row 3: xfx [(14, 'a', (('fg', 250),)), (15, 'c', (('fg', 250),)), (16, 'm', (('fg', 250),)), (17, 'e', (('fg', 250),))]
+    row 9: fx [(9, 'o', (('bold', True), ('fg', 255))), (10, 'p', (('bold', True), ('fg', 255))), (11, 'e', (('bold', True), ('fg', 255))), (12, 'n', (('bold', True), ('fg', 255)))]
+    row 9: xfx [(9, 'n', (('fg', 245),)), (10, 'o', (('fg', 245),)), (11, ' ', ()), (12, 'm', (('fg', 245),))]
+    row 10: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 10: xfx []
+    row 11: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 11: xfx []
+SAME p5-input-model-rank-40x120-model.ansi
+DIFF p5-input-model-rank-40x120-q-anth-slash.ansi
+    row 5: fx [(7, '1', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 5: xfx [(7, '0', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 7: fx [(0, ' ', ()), (1, ' ', ()), (2, 'a', (('bold', True), ('fg', 255))), (3, 'n', (('bold', True), ('fg', 255)))]
+    row 7: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, ' ', ()), (3, 'm', (('fg', 245),))]
+    2 rows differ in their cells (row 1 not compared)
+SAME p5-input-model-rank-40x120-q-blank.ansi
+DIFF p5-input-model-rank-40x120-q-dsc.ansi
+    row 5: fx [(7, '1', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 5: xfx [(7, '0', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 7: fx [(0, ' ', ()), (1, ' ', ()), (2, 'a', (('bold', True), ('fg', 255))), (3, 'c', (('bold', True), ('fg', 255)))]
+    row 7: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, ' ', ()), (3, 'm', (('fg', 245),))]
+    2 rows differ in their cells (row 1 not compared)
+DIFF p5-input-model-rank-40x120-q-gpt-5-words.ansi
+    row 5: fx [(7, '3', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 5: xfx [(7, '0', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 7: fx [(0, ' ', ()), (1, ' ', ()), (2, 'o', (('bold', True), ('fg', 255))), (3, 'p', (('bold', True), ('fg', 255)))]
+    row 7: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, ' ', ()), (3, 'm', (('fg', 245),))]
+    row 8: fx [(0, ' ', ()), (1, ' ', ()), (2, 'a', (('fg', 245),)), (3, 'c', (('fg', 245),))]
+    row 8: xfx []
+    row 9: fx [(0, ' ', ()), (1, ' ', ()), (2, 'o', (('fg', 245),)), (3, 'p', (('fg', 245),))]
+    row 9: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, 't', (('fg', 245),)), (3, 'e', (('fg', 245),))]
+DIFF p5-input-model-rank-40x120-q-gpt5-all.ansi
+    row 5: fx [(7, '3', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 5: xfx [(7, '1', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 8: fx [(0, ' ', ()), (1, ' ', ()), (2, 'o', (('fg', 245),)), (3, 'p', (('fg', 245),))]
+    row 8: xfx []
+    row 9: fx [(0, ' ', ()), (1, ' ', ()), (2, 'o', (('fg', 245),)), (3, 'p', (('fg', 245),))]
+    row 9: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, 't', (('fg', 245),)), (3, 'e', (('fg', 245),))]
+    row 10: fx []
+    row 10: xfx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+DIFF p5-input-model-rank-40x120-q-gpt5-down.ansi
+    row 5: fx [(7, '3', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 5: xfx [(7, '1', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 7: fx [(2, 'a', (('fg', 245),)), (3, 'c', (('fg', 245),)), (4, 'm', (('fg', 245),)), (5, 'e', (('fg', 245),))]
+    row 7: xfx [(2, 'a', (('bold', True), ('fg', 255))), (3, 'c', (('bold', True), ('fg', 255))), (4, 'm', (('bold', True), ('fg', 255))), (5, 'e', (('bold', True), ('fg', 255)))]
+    row 8: fx [(0, ' ', ()), (1, ' ', ()), (2, 'o', (('bold', True), ('fg', 255))), (3, 'p', (('bold', True), ('fg', 255)))]
+    row 8: xfx []
+    row 9: fx [(0, ' ', ()), (1, ' ', ()), (2, 'o', (('fg', 245),)), (3, 'p', (('fg', 245),))]
+    row 9: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, 't', (('fg', 245),)), (3, 'e', (('fg', 245),))]
+DIFF p5-input-model-rank-40x120-q-gpt5-enter.ansi
+    row 3: fx [(14, 'o', (('fg', 250),)), (15, 'p', (('fg', 250),)), (16, 'e', (('fg', 250),)), (17, 'n', (('fg', 250),))]
+    row 3: xfx [(14, 'a', (('fg', 250),)), (15, 'c', (('fg', 250),)), (16, 'm', (('fg', 250),)), (17, 'e', (('fg', 250),))]
+    row 9: fx [(10, '-', (('fg', 245),)), (11, '5', (('fg', 245),))]
+    row 9: xfx [(10, '5', (('fg', 245),)), (11, '-', (('fg', 245),)), (12, 'l', (('fg', 245),)), (13, 'i', (('fg', 245),))]
+    2 rows differ in their cells (row 1 not compared)
+DIFF p5-input-model-rank-40x120-q-gpt5-openai.ansi
+    row 5: fx [(7, '2', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, 'A', (('fg', 245),))]
+    row 5: xfx [(7, '0', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, 'A', (('fg', 245),))]
+    row 7: fx [(0, ' ', ()), (1, ' ', ()), (2, 'o', (('bold', True), ('fg', 255))), (3, 'p', (('bold', True), ('fg', 255)))]
+    row 7: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, ' ', ()), (3, 'm', (('fg', 245),))]
+    row 8: fx [(0, ' ', ()), (1, ' ', ()), (2, 'o', (('fg', 245),)), (3, 'p', (('fg', 245),))]
+    row 8: xfx []
+    row 9: fx []
+    row 9: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, 't', (('fg', 245),)), (3, 'e', (('fg', 245),))]
+DIFF p5-input-model-rank-40x120-q-gpt5.ansi
+    row 5: fx [(7, '3', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 5: xfx [(7, '1', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 8: fx [(0, ' ', ()), (1, ' ', ()), (2, 'o', (('fg', 245),)), (3, 'p', (('fg', 245),))]
+    row 8: xfx []
+    row 9: fx [(0, ' ', ()), (1, ' ', ()), (2, 'o', (('fg', 245),)), (3, 'p', (('fg', 245),))]
+    row 9: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, 't', (('fg', 245),)), (3, 'e', (('fg', 245),))]
+    row 10: fx []
+    row 10: xfx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+SAME p5-input-model-rank-40x120-q-mi.ansi
+DIFF p5-input-model-rank-40x120-q-omi.ansi
+    row 5: fx [(7, '1', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 5: xfx [(7, '0', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 7: fx [(0, ' ', ()), (1, ' ', ()), (2, 'a', (('bold', True), ('fg', 255))), (3, 'c', (('bold', True), ('fg', 255)))]
+    row 7: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, ' ', ()), (3, 'm', (('fg', 245),))]
+    2 rows differ in their cells (row 1 not compared)
+SAME p5-input-model-rank-40x120-q-padded.ansi
+SAME p5-input-model-rank-40x120-q-punct.ansi
+SAME p5-input-model-rank-40x120-q-sc.ansi
+DIFF p5-input-model-rank-40x120-q-sonet.ansi
+    row 5: fx [(7, '1', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 5: xfx [(7, '0', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 7: fx [(0, ' ', ()), (1, ' ', ()), (2, 'a', (('bold', True), ('fg', 255))), (3, 'n', (('bold', True), ('fg', 255)))]
+    row 7: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, ' ', ()), (3, 'm', (('fg', 245),))]
+    2 rows differ in their cells (row 1 not compared)
+SAME p5-input-model-rank-40x120-q-sonnet-opus.ansi
+DIFF p5-input-model-swap-40x120-after.ansi
+    row 5: fx [(7, '4', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 5: xfx [(7, '2', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 8: fx [(2, 'a', (('fg', 245),)), (3, 'c', (('fg', 245),)), (4, 'm', (('fg', 245),)), (5, 'e', (('fg', 245),))]
+    row 8: xfx [(2, 'a', (('bold', True), ('fg', 255))), (3, 'c', (('bold', True), ('fg', 255))), (4, 'm', (('bold', True), ('fg', 255))), (5, 'e', (('bold', True), ('fg', 255)))]
+    row 9: fx [(0, ' ', ()), (1, ' ', ()), (2, 'o', (('bold', True), ('fg', 255))), (3, 'p', (('bold', True), ('fg', 255)))]
+    row 9: xfx []
+    row 10: fx [(0, ' ', ()), (1, ' ', ()), (2, 'o', (('fg', 245),)), (3, 'p', (('fg', 245),))]
+    row 10: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, 't', (('fg', 245),)), (3, 'e', (('fg', 245),))]
+DIFF p5-input-model-swap-40x120-before.ansi
+    row 5: fx [(7, '3', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 5: xfx [(7, '1', (('bold', True), ('fg', 255))), (8, ' ', ()), (9, ' ', ()), (10, '[', (('bold', True), ('fg', 255)))]
+    row 7: fx [(2, 'a', (('fg', 245),)), (3, 'c', (('fg', 245),)), (4, 'm', (('fg', 245),)), (5, 'e', (('fg', 245),))]
+    row 7: xfx [(2, 'a', (('bold', True), ('fg', 255))), (3, 'c', (('bold', True), ('fg', 255))), (4, 'm', (('bold', True), ('fg', 255))), (5, 'e', (('bold', True), ('fg', 255)))]
+    row 8: fx [(0, ' ', ()), (1, ' ', ()), (2, 'o', (('bold', True), ('fg', 255))), (3, 'p', (('bold', True), ('fg', 255)))]
+    row 8: xfx []
+    row 9: fx [(0, ' ', ()), (1, ' ', ()), (2, 'o', (('fg', 245),)), (3, 'p', (('fg', 245),))]
+    row 9: xfx [(0, 'N', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, 't', (('fg', 245),)), (3, 'e', (('fg', 245),))]
+DIFF p5-input-model-swap-40x120-enter.ansi
+    row 3: fx [(14, 'o', (('fg', 250),)), (15, 'p', (('fg', 250),)), (16, 'e', (('fg', 250),)), (17, 'n', (('fg', 250),))]
+    row 3: xfx [(14, 'a', (('fg', 250),)), (15, 'c', (('fg', 250),)), (16, 'm', (('fg', 250),)), (17, 'e', (('fg', 250),))]
+    row 9: fx [(10, '-', (('fg', 245),)), (11, '5', (('fg', 245),))]
+    row 9: xfx [(10, '5', (('fg', 245),)), (11, '-', (('fg', 245),)), (12, 'l', (('fg', 245),)), (13, 'i', (('fg', 245),))]
+    2 rows differ in their cells (row 1 not compared)
+SAME p5-input-model-swap-40x120-first.ansi

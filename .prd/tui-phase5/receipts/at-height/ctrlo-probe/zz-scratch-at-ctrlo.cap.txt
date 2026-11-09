@@ -1,0 +1,13 @@
+fx: env FX_AUTO_UPGRADE=0
+work p5-input-at-height-ws
+wait 4
+type @f-
+wait 1.5
+key C-o
+wait 0.8
+snap open
+key C-j
+wait 0.4
+key C-o
+wait 0.8
+snap cj-back

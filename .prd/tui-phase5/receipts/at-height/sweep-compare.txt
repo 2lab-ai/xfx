@@ -1,0 +1,33 @@
+# round 3: python3 -I compare.py <base sweep>/pairs.json <head sweep>/pairs.json (base v0.1.0-712dd8d from round 2's run, same binary and scenarios; head v0.1.0-3a76208; both rescored with the ledger at 3a76208f)
+pairs: base 149, head 149
+base: pass 64/149  normalized-identical 64, unresolved-defect 85
+head: pass 83/149  normalized-identical 83, unresolved-defect 66
+
+moved to passing: 19
+  filepicker at: unresolved-defect -> normalized-identical
+  filepicker at-claim: unresolved-defect -> normalized-identical
+  filepicker at-sch: unresolved-defect -> normalized-identical
+  filepicker-keys at-ck: unresolved-defect -> normalized-identical
+  filepicker-keys at-pgdn: unresolved-defect -> normalized-identical
+  filepicker-narrow at-alpha: unresolved-defect -> normalized-identical
+  filepicker-narrow at-alpha-down: unresolved-defect -> normalized-identical
+  filepicker-narrow at-deep: unresolved-defect -> normalized-identical
+  p5-input-at-dir dir-query: unresolved-defect -> normalized-identical
+  p5-input-at-gate downs-after: unresolved-defect -> normalized-identical
+  p5-input-at-gate downs-in-the-read: unresolved-defect -> normalized-identical
+  p5-input-at-gate tab-in-the-read: unresolved-defect -> normalized-identical
+  p5-input-at-height at: unresolved-defect -> normalized-identical
+  p5-input-at-height down12: unresolved-defect -> normalized-identical
+  p5-input-at-height pgup: unresolved-defect -> normalized-identical
+  p5-input-at-height up6: unresolved-defect -> normalized-identical
+  p5-input-at-height up9: unresolved-defect -> normalized-identical
+  p5-input-at-resize down12: unresolved-defect -> normalized-identical
+  workspace-index at-all: unresolved-defect -> normalized-identical
+
+dropped from passing: 0
+
+other verdict changes: 0
+
+# uncaused snaps (scoreboard.json causes.unattributed) in the picker and composer scenarios
+base: 19 -- filepicker at, filepicker at-sch, filepicker at-claim, filepicker-keys at-pgdn, filepicker-keys at-ck, filepicker-narrow at-alpha, filepicker-narrow at-alpha-down, filepicker-narrow at-deep, p5-input-at-dir dir-query, p5-input-at-gate downs-in-the-read, p5-input-at-gate downs-after, p5-input-at-gate tab-in-the-read, p5-input-at-height at, p5-input-at-height down12, p5-input-at-height up6, p5-input-at-height up9, p5-input-at-height pgup, p5-input-at-resize down12, workspace-index at-all
+head: 0 -- none

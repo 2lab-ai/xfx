@@ -1,0 +1,56 @@
+SAME  scripts/fxcap/parity-ledger.toml:78 scripts/fxcap/capture.sh: scripts/fxcap/capture.sh:538@main -> :546@e28e1b15 (+-2 lines)
+    first: run=$(mktemp -d "${TMPDIR:-/tmp}/fxcap.XXXXXX")
+SAME  scripts/fxcap/parity-ledger.toml:85 scripts/fxcap/capture.sh: scripts/fxcap/capture.sh:317-319@main -> :325-327@e28e1b15 (+-2 lines)
+    first: # Each binary gets a TMPDIR inside the run (fx `$run/fxtmp`, xfx
+SAME  scripts/fxcap/parity-ledger.toml:147 scripts/fxcap/capture.sh: scripts/fxcap/capture.sh:973@main -> :987@e28e1b15 (+-2 lines)
+    first: keep) tmux -f /dev/null -S "$sock" set-option -w -t cap remain-on-exit on > /dev/null ;;
+SAME  scripts/fxcap/parity-ledger.toml:505 src/tui/shell.rs: src/tui/shell.rs:13405@main -> :13498@e28e1b15 (+-2 lines)
+    first: let event = full_transcript::shown_event(event);
+SAME  scripts/fxcap/parity-ledger.toml:551 src/tui/shell.rs: src/tui/shell.rs:13094@main -> :13187@e28e1b15 (+-2 lines)
+    first: fn send(&mut self, prompt: String, text: &str) -> bool {
+SAME  scripts/fxcap/parity-ledger.toml:689 src/tui/shell.rs: src/tui/shell.rs:16412@at-height -> :16413@e28e1b15 (+-2 lines)
+    first: pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Resize {
+SAME  scripts/fxcap/parity-ledger.toml:815 src/tui/shell.rs: src/tui/shell.rs:38716@main -> :39046@e28e1b15 (+-2 lines)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:826 src/tui/shell.rs: src/tui/shell.rs:38716@main -> :39046@e28e1b15 (+-2 lines)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:838 src/tui/shell.rs: src/tui/shell.rs:38716@main -> :39046@e28e1b15 (+-2 lines)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:849 src/tui/shell.rs: src/tui/shell.rs:38716@main -> :39046@e28e1b15 (+-2 lines)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:860 src/tui/shell.rs: src/tui/shell.rs:38716@main -> :39046@e28e1b15 (+-2 lines)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:874 (bare): src/tui/shell.rs:1658@at-height -> :1658@e28e1b15 (+-2 lines)
+    first: /// lands and never given back, so no two images in one process answer to
+SAME  scripts/fxcap/parity-ledger.toml:928 src/tui/shell.rs: src/tui/shell.rs:38716@main -> :39046@e28e1b15 (+-2 lines)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:998 src/tui/shell.rs: src/tui/shell.rs:16303@main -> :16413@e28e1b15 (+-2 lines)
+    first: pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Resize {
+SAME  docs/parity.md:241 (bare): src/tui/worker.rs:3550@main -> :3556@e28e1b15 (+-2 lines)
+    first: queue.outstanding.fetch_sub(1, Ordering::Release);
+SAME  scripts/fxcap/capfile.py:165 src/tui/shell.rs: src/tui/shell.rs:14585-14610@main -> :14687-14712@e28e1b15 (+-2 lines)
+    first: fn warning_shown(&self) -> Option<&'static str> {
+SAME  scripts/fxcap/capfile.py:166 (bare): src/tui/shell.rs:14603-14605@main -> :14705-14707@e28e1b15 (+-2 lines)
+    first: if self.owner != ScreenOwner::Primary {
+SAME  tests/tui.rs:9245 src/tui/shell.rs: src/tui/shell.rs:2015@main -> :2024@e28e1b15 (+-2 lines)
+    first: .collect()
+SAME  tests/tui.rs:9205 src/tui/shell.rs: src/tui/shell.rs:2703@main -> :2713@e28e1b15 (+-2 lines)
+    first: // kept for the case to answer ([`super::credits_ask::Asks::by_hand`]).
+SAME  scripts/smoke-tui.sh:11191 shell.rs: src/tui/shell.rs:2597@main -> :2607@e28e1b15 (+-2 lines)
+    first: pending_cut: None,
+SAME  src/tui/event_loop.rs:12929 event_loop.rs: src/tui/event_loop.rs:1000-1003@main -> :1005-1008@e28e1b15 (+-2 lines)
+    first: // **Except what the primary plane already owed, which is paid before the
+SAME  src/tui/event_loop.rs:12828 shell.rs: src/tui/shell.rs:2706@main -> :2716@e28e1b15 (+-2 lines)
+    first: #[cfg(test)]
+SAME  src/tui/shell.rs:22671 shell.rs: src/tui/shell.rs:5816@main -> :5870@e28e1b15 (+-2 lines)
+    first: true
+SAME  src/tui/shell.rs:10534 (bare): src/tui/worker.rs:3524@main -> :3530@e28e1b15 (+-2 lines)
+    first: };
+SAME  src/tui/shell.rs:22672 (bare): src/tui/shell.rs:6004@main -> :6058@e28e1b15 (+-2 lines)
+    first: let mut repaint = false;
+SAME  docs/parity.md:241 worker.rs: src/tui/worker.rs:3867@main -> :3917@e28e1b15 (+-2 lines)
+    first: bridge::send_terminal(events, UiEvent::TurnEnded { failure }).await;
+SAME  src/tui/shell.rs:10533 worker.rs: src/tui/worker.rs:3867@main -> :3917@e28e1b15 (+-2 lines)
+    first: bridge::send_terminal(events, UiEvent::TurnEnded { failure }).await;
+# 27 of 27 the same code
+# 589248ac: 25 lines out, 25 in; each the same once its numbers are masked

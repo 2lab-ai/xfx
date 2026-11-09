@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-ccced1f [debug] · Run /help for commands
+
+* Switched to acme/gpt5-lite (effort: default, speed: normal)
+
+* model picker: saved to user settings (scope=user); fresh sessions here use higher-precedence model=process_override
+
+┃ /model anthropicopus
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+         no matching models
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+auto · gpt5-lite
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

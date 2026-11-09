@@ -1,0 +1,351 @@
+commit 5a98001acba418816e8616b3f033e0c96e6d7ed0
+Merge: 33e476fa 96cc7849
+
+Merge COMPACT-NOTICE-LATE (fix/p5-compact-notice-late @ 96cc7849) into train 10
+
+The compaction worker owns its ending, as fx's does: a compaction a stop
+drops before it began is told the band (Update::Dropped) from inside the
+stop, through try_send_terminal, and its place goes with the word; with
+the band's channel full the word and the place wait (Queue::owed,
+tell_dropped), told before any more work and before a reset's
+conversation goes. The band settles a compaction only on the runtime's
+word; /compact during a reset answers from it.
+
+Conflict: src/tui/event_loop.rs, the end of the tests module (forecast):
+train 8's join test and PASTE-AFTER-END's carry-over test (main's 267
+lines) and COMPACT-NOTICE-LATE's 243 lines of tests were both appended
+after base line 15841 (58c92ba2), and git interleaved them around the
+lines they share. Both kept whole, main's first (append_both.py);
+checked from both ends (filecheck.py): ours -> merged is exactly theirs'
+one hunk, theirs -> merged exactly ours' seven (one of them slid by its
+leading blank line).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+
+diff --git a/src/tui/event_loop.rs b/src/tui/event_loop.rs
+remerge CONFLICT (content): Merge conflict in src/tui/event_loop.rs
+index 0766e1ac..7291203e 100644
+--- a/src/tui/event_loop.rs
++++ b/src/tui/event_loop.rs
+@@ -16041,7 +16041,6 @@ mod tests {
+         );
+     }
+ 
+-<<<<<<< 33e476fa (Merge MODEL-FUZZY (feat/p5-model-fuzzy @ 8d9ab0a0) into train 10)
+     #[test]
+     fn a_stops_held_rows_over_a_groups_long_rows_are_written_as_their_text_lays() {
+         // Train 8, join check 1 (GRID-ROW-COST x STOP-NEXT-2). GRID-ROW-COST:
+@@ -16164,7 +16163,151 @@ mod tests {
+                 after.contains("late.txt"),
+                 after.contains("LATE-TEXT"),
+                 known_after,
+-=======
++            ));
++        }
++        assert_eq!(
++            got,
++            vec![
++                ("the stop's own end", true, false, false, true, false, true),
++                ("a finished end", true, false, false, true, true, true),
++                (
++                    "a drain that empties before the end",
++                    true,
++                    false,
++                    false,
++                    true,
++                    false,
++                    true
++                ),
++            ],
++            "each: the long rows laid from their text before the stop; nothing held written \
++             while held; then the held read written, the late text only with a finish, and \
++             the long rows known by their text again"
++        );
++    }
++
++    /// A terminal holding `bytes` that stays readable until all of them are
++    /// read: [`burst`]'s `ready` is true while any is left, and a read takes
++    /// up to a buffer of them. [`Self::turn`] runs one turn and says how many
++    /// have been read in all.
++    struct Readable {
++        bytes: Vec<u8>,
++        at: std::cell::Cell<usize>,
++    }
++
++    impl Readable {
++        fn turn(&self, shell: &mut Shell) -> usize {
++            let mut buffer = [0u8; BURST_BYTES];
++            burst(
++                shell,
++                &mut buffer,
++                || Ok(self.at.get() < self.bytes.len()),
++                |buffer| {
++                    let at = self.at.get();
++                    let taken = buffer.len().min(self.bytes.len() - at);
++                    buffer[..taken].copy_from_slice(&self.bytes[at..at + taken]);
++                    self.at.set(at + taken);
++                    Ok(taken)
++                },
++            )
++            .expect("a turn's reads");
++            self.at.get()
++        }
++    }
++
++    /// The composer's row as plain text: the band's row that starts with
++    /// its marker once its colours are taken out, its padding cut.
++    fn composer(shell: &Shell) -> String {
++        shell
++            .band_rows()
++            .into_iter()
++            .map(|row| plain(&row))
++            .find(|row| row.starts_with(COMPOSER_MARKER))
++            .map(|row| row.trim_end().to_string())
++            .unwrap_or_default()
++    }
++
++    /// `row` without its `CSI … m` colour sequences.
++    fn plain(row: &str) -> String {
++        let mut out = String::new();
++        let mut chars = row.chars();
++        while let Some(c) = chars.next() {
++            if c == '\u{1b}' {
++                for c in chars.by_ref() {
++                    if c == 'm' {
++                        break;
++                    }
++                }
++                continue;
++            }
++            out.push(c);
++        }
++        out
++    }
++
++    #[test]
++    fn a_delivery_past_the_32nd_read_goes_on_into_the_next_turn_unsettled() {
++        // fx carries a burst still readable after its 32nd read into the next
++        // turn without settling it (`event_loop.zig:109-112@481104fd`), so
++        // input behind a paste's end marker more than 4 KiB down one delivery
++        // is still behind it. A pty cannot hold that much at once -- macOS's
++        // raw input queue takes 1 022 bytes (the receipt's `pty-queue.txt`)
++        // -- so this is the loop's own turn, fed by a terminal that stays
++        // readable until every byte is read.
++        let mut shell = shell();
++        shell.route_read(b"prior");
++        shell.end_delivery();
++        let mut bytes = b"\x1b[200~new\x1b[201~".to_vec();
++        bytes.extend(std::iter::repeat_n(b'x', READ_BURSTS * BURST_BYTES));
++        bytes.extend(b"\r");
++        let terminal = Readable {
++            bytes,
++            at: std::cell::Cell::new(0),
++        };
++
++        // The first turn stops at the cap with input still waiting, and the
++        // paste has not ended: its end is the delivery's, and the delivery
++        // goes on.
++        assert_eq!(terminal.turn(&mut shell), READ_BURSTS * BURST_BYTES);
++        assert_eq!(
++            composer(&shell),
++            format!("{COMPOSER_MARKER} prior"),
++            "the delivery was settled at the 32nd read"
++        );
++        assert!(shell._work.try_recv().is_err(), "a turn was started");
++
++        // The second reads the rest, the Enter among it, and finds nothing:
++        // the paste stands, the Enter behind its marker is counted, and the
++        // warning is said.
++        assert_eq!(terminal.turn(&mut shell), terminal.bytes.len());
++        assert_eq!(composer(&shell), format!("{COMPOSER_MARKER} priornew"));
++        assert!(
++            shell._work.try_recv().is_err(),
++            "the Enter more than 32 reads behind the end marker submitted the draft"
++        );
++        let said = shell
++            .take_pending()
++            .into_iter()
++            .flat_map(|append| append.rows)
++            .collect::<Vec<_>>()
++            .join("\n");
++        assert!(
++            said.contains("Input that arrived right after the paste was ignored."),
++            "{said:?}"
++        );
++
++        // An Enter in a delivery of its own sends the draft.
++        shell.route_read(b"\r");
++        shell.end_delivery();
++        assert!(
++            matches!(
++                shell._work.try_recv(),
++                Ok(crate::tui::bridge::TurnWork::Submit(prompt)) if prompt == "priornew"
++            ),
++            "an Enter of its own did not send the draft"
++        );
++    }
++
+     // -----------------------------------------------------------------------
+     // COMPACT-NOTICE-LATE
+     // -----------------------------------------------------------------------
+@@ -16309,151 +16452,10 @@ mod tests {
+                 cleared,
+                 band_says(&shell, COMPACTION_CANCELLED),
+                 band_says(&shell, "Preparing compaction"),
+->>>>>>> 96cc7849 (docs(receipt): compact-notice-late round 3 -- the gate)
+             ));
+         }
+         assert_eq!(
+             got,
+-<<<<<<< 33e476fa (Merge MODEL-FUZZY (feat/p5-model-fuzzy @ 8d9ab0a0) into train 10)
+-            vec![
+-                ("the stop's own end", true, false, false, true, false, true),
+-                ("a finished end", true, false, false, true, true, true),
+-                (
+-                    "a drain that empties before the end",
+-                    true,
+-                    false,
+-                    false,
+-                    true,
+-                    false,
+-                    true
+-                ),
+-            ],
+-            "each: the long rows laid from their text before the stop; nothing held written \
+-             while held; then the held read written, the late text only with a finish, and \
+-             the long rows known by their text again"
+-        );
+-    }
+-
+-    /// A terminal holding `bytes` that stays readable until all of them are
+-    /// read: [`burst`]'s `ready` is true while any is left, and a read takes
+-    /// up to a buffer of them. [`Self::turn`] runs one turn and says how many
+-    /// have been read in all.
+-    struct Readable {
+-        bytes: Vec<u8>,
+-        at: std::cell::Cell<usize>,
+-    }
+-
+-    impl Readable {
+-        fn turn(&self, shell: &mut Shell) -> usize {
+-            let mut buffer = [0u8; BURST_BYTES];
+-            burst(
+-                shell,
+-                &mut buffer,
+-                || Ok(self.at.get() < self.bytes.len()),
+-                |buffer| {
+-                    let at = self.at.get();
+-                    let taken = buffer.len().min(self.bytes.len() - at);
+-                    buffer[..taken].copy_from_slice(&self.bytes[at..at + taken]);
+-                    self.at.set(at + taken);
+-                    Ok(taken)
+-                },
+-            )
+-            .expect("a turn's reads");
+-            self.at.get()
+-        }
+-    }
+-
+-    /// The composer's row as plain text: the band's row that starts with
+-    /// its marker once its colours are taken out, its padding cut.
+-    fn composer(shell: &Shell) -> String {
+-        shell
+-            .band_rows()
+-            .into_iter()
+-            .map(|row| plain(&row))
+-            .find(|row| row.starts_with(COMPOSER_MARKER))
+-            .map(|row| row.trim_end().to_string())
+-            .unwrap_or_default()
+-    }
+-
+-    /// `row` without its `CSI … m` colour sequences.
+-    fn plain(row: &str) -> String {
+-        let mut out = String::new();
+-        let mut chars = row.chars();
+-        while let Some(c) = chars.next() {
+-            if c == '\u{1b}' {
+-                for c in chars.by_ref() {
+-                    if c == 'm' {
+-                        break;
+-                    }
+-                }
+-                continue;
+-            }
+-            out.push(c);
+-        }
+-        out
+-    }
+-
+-    #[test]
+-    fn a_delivery_past_the_32nd_read_goes_on_into_the_next_turn_unsettled() {
+-        // fx carries a burst still readable after its 32nd read into the next
+-        // turn without settling it (`event_loop.zig:109-112@481104fd`), so
+-        // input behind a paste's end marker more than 4 KiB down one delivery
+-        // is still behind it. A pty cannot hold that much at once -- macOS's
+-        // raw input queue takes 1 022 bytes (the receipt's `pty-queue.txt`)
+-        // -- so this is the loop's own turn, fed by a terminal that stays
+-        // readable until every byte is read.
+-        let mut shell = shell();
+-        shell.route_read(b"prior");
+-        shell.end_delivery();
+-        let mut bytes = b"\x1b[200~new\x1b[201~".to_vec();
+-        bytes.extend(std::iter::repeat_n(b'x', READ_BURSTS * BURST_BYTES));
+-        bytes.extend(b"\r");
+-        let terminal = Readable {
+-            bytes,
+-            at: std::cell::Cell::new(0),
+-        };
+-
+-        // The first turn stops at the cap with input still waiting, and the
+-        // paste has not ended: its end is the delivery's, and the delivery
+-        // goes on.
+-        assert_eq!(terminal.turn(&mut shell), READ_BURSTS * BURST_BYTES);
+-        assert_eq!(
+-            composer(&shell),
+-            format!("{COMPOSER_MARKER} prior"),
+-            "the delivery was settled at the 32nd read"
+-        );
+-        assert!(shell._work.try_recv().is_err(), "a turn was started");
+-
+-        // The second reads the rest, the Enter among it, and finds nothing:
+-        // the paste stands, the Enter behind its marker is counted, and the
+-        // warning is said.
+-        assert_eq!(terminal.turn(&mut shell), terminal.bytes.len());
+-        assert_eq!(composer(&shell), format!("{COMPOSER_MARKER} priornew"));
+-        assert!(
+-            shell._work.try_recv().is_err(),
+-            "the Enter more than 32 reads behind the end marker submitted the draft"
+-        );
+-        let said = shell
+-            .take_pending()
+-            .into_iter()
+-            .flat_map(|append| append.rows)
+-            .collect::<Vec<_>>()
+-            .join("\n");
+-        assert!(
+-            said.contains("Input that arrived right after the paste was ignored."),
+-            "{said:?}"
+-        );
+-
+-        // An Enter in a delivery of its own sends the draft.
+-        shell.route_read(b"\r");
+-        shell.end_delivery();
+-        assert!(
+-            matches!(
+-                shell._work.try_recv(),
+-                Ok(crate::tui::bridge::TurnWork::Submit(prompt)) if prompt == "priornew"
+-            ),
+-            "an Enter of its own did not send the draft"
+-=======
+             [
+                 ("a prompt", true, false, false),
+                 ("/compact", true, false, true),
+@@ -16546,7 +16548,6 @@ mod tests {
+                 ("the line with the stop", (false, false), (false, false)),
+             ],
+             "each: (`Stopping compaction`, the sentence) during the line's turn, then after it"
+->>>>>>> 96cc7849 (docs(receipt): compact-notice-late round 3 -- the gate)
+         );
+     }
+ }

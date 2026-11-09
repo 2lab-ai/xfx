@@ -1,0 +1,14 @@
+# redaction_grep.sh at 0b7700f4 (the commit that adds this file is checked in the hand-back)
+13e7c9a0 0  Merge CATALOG-BOUNDS (feat/p5-catalog-bounds @ e705a5dc) into train 10
+33e476fa 0  Merge MODEL-FUZZY (feat/p5-model-fuzzy @ 8d9ab0a0) into train 10
+5a98001a 0  Merge COMPACT-NOTICE-LATE (fix/p5-compact-notice-late @ 96cc7849) into
+64873172 0  Merge AT-HEIGHT (feat/p5-at-height @ af2b6137) into train 10
+b5e242e7 0  docs(receipt): P5 train 10 -- the merges' scripts (rowmerge, rowcheck,
+589248ac 0  docs(refs): P5 train 10 -- the 26 references the merges moved, re-poin
+de663b7c 0  test(tui): P5 train 10 -- join checks 1, 2 and 3's four tests; test on
+e28e1b15 0  docs(receipt): P5 train 10 -- the re-point, shared, stale, selection, 
+5f07b290 0  docs(receipt): P5 train 10 -- the merge checks at e28e1b15: resolution
+0b7700f4 0  docs(receipt): P5 train 10 -- the gate, the sweeps and their compares,
+# range 6bb9fd90..0b7700f4: 0; the commits' sum: 0
+# files of this directory holding the pattern: 0
+# exit 0

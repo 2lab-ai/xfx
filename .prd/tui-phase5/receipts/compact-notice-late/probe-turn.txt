@@ -1,0 +1,37 @@
+# The neighbour's probe: a stopped turn's TurnStarted and TurnEnded sent and the
+# place given back, either after the tick's drain (race = true, the CI
+# schedule) or before it (race = false). Run once on a throwaway clone at
+# 0cc9b34c with this test appended to src/tui/event_loop.rs's tests (not
+# committed). Result: the document each wrote, colours stripped.
+
+    #[test]
+    fn zz_probe_turn_stop_race() {
+        let mut out = Vec::new();
+        for race in [false, true] {
+            let mut shell = shell();
+            shell.route_bytes(b"first question\r");
+            shell.settle_band(Instant::now());
+            let started = shell.turn_starts();
+            shell.route_bytes(&[0x03]);
+            shell.settle_band(Instant::now());
+            let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+            if race {
+                take_ui_events(&mut shell, &mut receiver);
+            }
+            events.try_send(started).expect("room");
+            events.try_send(UiEvent::TurnEnded { failure: Some(bridge::TURN_CANCELLED.to_string()) }).expect("room");
+            shell.handle.give_back();
+            if !race {
+                take_ui_events(&mut shell, &mut receiver);
+            }
+            shell.settle_band(Instant::now());
+            for _ in 0..3 { take_ui_events(&mut shell, &mut receiver); shell.settle_band(Instant::now()); }
+            let doc: Vec<String> = shell.take_pending().iter().map(|a| format!("{a:?}")).collect();
+            out.push((race, doc.join(" / "), shell.band_rows().join(" | ")));
+        }
+        panic!("PROBE {out:#?}");
+    }
+
+# result, per case: the number of rows appended, then the rows
+race = false 4 ['┃ first question', '', '▪ Cancelled · What can xfx do differently?', '']
+race = true 4 ['┃ first question', '', '▪ Cancelled · What can xfx do differently?', '']

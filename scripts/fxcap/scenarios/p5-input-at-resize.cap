@@ -1,0 +1,28 @@
+# AT-HEIGHT (input cluster U1): a resize re-fits the @ picker. The window is
+# kept where navigation left it and each frame paints the rows that keep the
+# bar in view (paint_plan.zig:936-937); the next move scrolls by the rows that
+# frame painted (app_render_runtime.zig:2357-2360, file_completion_state.zig:
+# 248, :294). Launched at 40x120, shrunk to 16x120, grown back.
+fx: env FX_AUTO_UPGRADE=0
+work p5-input-at-height-ws
+wait 4
+type @f-
+wait 1.5
+key Down Down Down Down Down Down Down Down Down Down Down Down
+wait 0.6
+snap down12
+resize 16x120
+wait 1
+snap short
+key Up
+wait 0.6
+snap short-up1
+key Up Up Up Up Up Up
+wait 0.6
+snap short-up7
+resize 40x120
+wait 1
+snap tall
+key Down
+wait 0.6
+snap tall-down1

@@ -1,0 +1,40 @@
+# Observation, not fixed here: a prompt queued behind a compaction the stop
+# dropped unstarted. Run once on a throwaway clone at 0cc9b34c with this test
+# added to src/tui/shell.rs's tests (not committed). Not run on the base: its
+# settle needs `outstanding() == 0` as well (shell.rs:10477@58c92ba2), which the
+# queued prompt keeps at 1 until its turn ends.
+    #[test]
+    fn zz_probe_prompt_behind_a_dropped_compaction() {
+        let mut shell = with_a_turn();
+        shell.route_bytes(b"/compact\r");
+        shell.route_bytes(&[0x03]);
+        shell.route_bytes(b"next question\r");
+        let mut seen = Vec::new();
+        seen.push(format!("outstanding {}", shell.work.outstanding()));
+        // The runtime drops the compaction unstarted, then takes the prompt.
+        let first = shell.picks_up();
+        shell.work.give_back();
+        seen.push(format!("dropped {first:?}; outstanding {}", shell.work.outstanding()));
+        shell.take_ui_events(|_| true);
+        let second = shell.picks_up();
+        shell.start_turn();
+        let now = Instant::now();
+        seen.push(format!("took {second:?}: {:?}", compaction_row(&mut shell, now + Duration::from_secs(5))));
+        shell.take_ui_events(|_| true);
+        seen.push(format!("in its turn: {:?}", compaction_row(&mut shell, now + Duration::from_secs(9))));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.work.give_back();
+        shell.take_ui_events(|_| true);
+        seen.push(format!("after its end: {:?}", compaction_row(&mut shell, now + Duration::from_secs(10))));
+        panic!("PROBE {seen:#?}");
+    }
+
+
+# result
+PROBE [
+    "outstanding 2",
+    "dropped Compact; outstanding 1",
+    "took Submit(\"next question\"): Some(\"• Stopping compaction (5s)\")",
+    "in its turn: Some(\"• Stopping compaction (9s)\")",
+    "after its end: Some(\"Compaction cancelled. Try /compact again when ready.\")",
+]

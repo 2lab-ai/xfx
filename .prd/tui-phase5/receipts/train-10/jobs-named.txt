@@ -1,0 +1,33 @@
+# jobs.sh named at 2026-11-09T06:23:22Z, load 31.05
+# named-clone at e28e1b15
+lib: exit 0
+    test tui::model_menu::tests::better_matches_list_first_and_the_mark_keeps_its_model_through_a_revalidation ... ok
+    test tui::shell::tests::a_paste_with_input_behind_its_end_marker_reaches_the_answer_and_answers_nothing ... ok
+    test tui::shell::tests::a_question_dismisses_the_menu_and_leaves_the_approval_panel_alone ... ok
+    test tui::event_loop::tests::a_delivery_past_the_32nd_read_goes_on_into_the_next_turn_unsettled ... ok
+    test tui::shell::tests::a_catalog_that_arrives_or_fails_is_what_the_open_menu_shows ... ok
+    test tui::shell::tests::a_question_dismisses_the_file_list ... ok
+    test tui::shell::tests::a_twenty_question_panel_over_an_open_at_list_has_its_tab_arrows_and_enter ... ok
+    test provider::model::tests::a_gateway_catalog_one_byte_past_16_mib_fails_and_is_not_cut_to_fit ... ok
+    test tui::worker::tests::a_compaction_dropped_with_no_room_for_its_word_is_told_once_before_the_reset_after_it ... ok
+    test tui::worker::tests::a_compaction_dropped_in_a_turns_race_with_no_room_is_told_after_that_turn_and_before_more_work ... ok
+    test tui::shell::tests::a_catalog_read_that_fails_too_large_or_stalled_then_loads_ranks_in_three_tiers_and_keeps_its_mark_by_id ... ok
+    test tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... ok
+    test tui::event_loop::tests::a_stopped_compactions_sentence_the_next_line_took_away_stays_away ... ok
+    test tui::worker::tests::a_compaction_a_stop_drops_before_it_began_is_told_how_it_ended ... ok
+    test tui::event_loop::tests::a_key_spent_mid_resize_asks_for_the_frame_that_shows_the_list_again ... ok
+    test tui::event_loop::tests::a_paste_into_the_at_word_with_an_enter_behind_its_marker_is_kept_trusted_and_sends_nothing ... ok
+    test tui::event_loop::tests::a_new_at_words_arrows_wait_for_the_frame_that_shows_its_rows ... ok
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... ok
+    test provider::model::tests::a_gateway_catalog_past_its_deadline_is_a_failure_asked_again_about ... ok
+    test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+    test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 4603 filtered out; finished in 10.43s
+tui: exit 0
+    test a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing ... ok
+    test an_enter_one_read_behind_a_paste_s_end_marker_is_behind_it_too ... ok
+    test a_paste_with_enter_behind_its_marker_on_page_ten_of_twenty_is_kept_and_answers_nothing ... ok
+    test twenty_questions_are_one_panel_and_their_answers_reach_the_next_request_in_order ... ok
+    test ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes ... ok
+    test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 181 filtered out; finished in 11.70s
+# jobs.sh named done at 2026-11-09T06:25:38Z

@@ -1,0 +1,23 @@
+# at fc0cb949 (source head 1c74f828): the llmux, /credits and Gateway catalog cases
+test credits::tests::a_field_upstream_does_not_read_is_not_printed ... ok
+test credits::tests::a_gateway_error_object_is_titled_by_its_status ... ok
+test credits::tests::a_redirect_is_an_error_and_never_followed_with_the_key ... ok
+test credits::tests::an_answer_past_64_kib_or_cut_short_is_not_read_as_one ... ok
+test credits::tests::an_answer_that_is_not_utf8_is_invalid_json ... ok
+test credits::tests::an_answer_with_nothing_in_it_says_so ... ok
+test credits::tests::an_error_body_is_one_bounded_line_without_the_credential ... ok
+test credits::tests::an_unreadable_provider_asks_nobody_and_says_so_in_the_turns_words ... ok
+test credits::tests::the_question_goes_to_the_origin_a_turn_is_sent_to ... ok
+test credits::tests::the_question_takes_no_proxy_to_a_loopback_gateway ... ok
+test credits::tests::three_fields_are_three_lines_in_upstreams_order ... ok
+test credits::tests::what_is_not_a_credits_answer_is_an_error_in_upstreams_words ... ok
+test provider::model::tests::a_gateway_catalog_cut_short_or_not_text_is_no_catalog ... ok
+test provider::model::tests::a_gateway_catalog_one_byte_past_16_mib_fails_and_is_not_cut_to_fit ... ok
+test provider::model::tests::a_gateway_catalog_past_its_deadline_is_a_failure_asked_again_about ... ok
+test provider::model::tests::a_gateway_catalog_up_to_16_mib_loads ... ok
+test provider::model::tests::a_llmux_catalog_of_1_mib_is_read_and_one_cut_short_is_no_answer ... ok
+test provider::model::tests::a_llmux_catalog_past_1_mib_is_malformed_not_cut_to_fit ... ok
+test provider::model::tests::a_llmux_catalog_that_is_not_utf8_is_malformed ... ok
+test provider::model::tests::a_llmux_catalog_without_vendors_is_listed_by_name ... ok
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 4539 filtered out; finished in 1.69s
+bounded: exit 0 after 2.1s, peak rss 204 MiB

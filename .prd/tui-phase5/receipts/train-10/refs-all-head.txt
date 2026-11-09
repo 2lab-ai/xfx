@@ -1,0 +1,18 @@
+# head e28e1b15; sides: main 6bb9fd90, catalog-bounds e705a5dc, model-fuzzy 8d9ab0a0, compact-notice-late 96cc7849, at-height af2b6137
+docs/superpowers/plans/2026-08-24-provider-frame.md: src/llmux/setup.rs:355-380
+    main MOVED -> 357-382 | model-fuzzy MOVED -> 357-382 | compact-notice-late MOVED -> 357-382 | at-height MOVED -> 357-382
+docs/superpowers/plans/2026-08-24-provider-frame.md: tests/tool_loop.rs:1266
+    catalog-bounds MOVED -> 1274 | model-fuzzy MOVED -> 1274 | compact-notice-late MOVED -> 1274 | at-height MOVED -> 1274
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/approval.rs:552-585
+    catalog-bounds MOVED -> 545-578 | model-fuzzy MOVED -> 545-578 | compact-notice-late MOVED -> 545-578 | at-height MOVED -> 545-578
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:3108
+    main MOVED -> 3118 | catalog-bounds MOVED -> 3118 | model-fuzzy MOVED -> 3118 | compact-notice-late MOVED -> 3118
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:499-522
+    catalog-bounds MOVED -> 492-515 | model-fuzzy MOVED -> 492-515 | compact-notice-late MOVED -> 492-515 | at-height MOVED -> 492-515
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:782
+    catalog-bounds MOVED -> 775 | model-fuzzy MOVED -> 775 | compact-notice-late MOVED -> 775 | at-height MOVED -> 775
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/shell.rs:1593
+    main MOVED -> 1602 | catalog-bounds MOVED -> 1602 | model-fuzzy MOVED -> 1602 | compact-notice-late MOVED -> 1602
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/event_loop.rs:889-923
+    main MOVED -> 894-928 | catalog-bounds MOVED -> 922-956 | model-fuzzy MOVED -> 922-956 | compact-notice-late MOVED -> 922-956 | at-height MOVED -> 917-951
+# 192 references in 596 files; 8 moved or changed on some side that cites them

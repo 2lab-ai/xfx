@@ -782,6 +782,11 @@ fn adopt_resume(shell: &mut Shell, band: &mut Band, plane_restored: bool) {
     // document's included -- and `external_damage` is where both halves of that
     // are recorded together.
     shell.external_damage();
+    // And the `@` list's keys wait for the frame that repaints it, as fx's
+    // do while the reset a resume asks for is pending (`requestTerminalReset`,
+    // `app_lifecycle.zig:1210@481104fd`; `terminal_reset_pending`,
+    // `input_completion_runtime.zig:805-806`).
+    shell.file_picker_unseen();
 }
 
 /// Re-solves the band from the terminal's size, once the debounce is out.
@@ -1540,6 +1545,8 @@ fn landed_band(shell: &mut Shell, failures: &mut FrameFailures, ready: &BandAtte
         Built::Frame => Outcome::Painted,
         Built::Unchanged => Outcome::Unchanged,
     });
+    // And the `@` list's arrows scroll the rows this frame showed it in.
+    shell.file_picker_landed();
     // `/stats`'s `redraws`: a whole repaint that **landed**. A damaged attempt
     // that was refused is restored and counted by the tick that finally lands
     // it, so a screen that refused three times is still one repaint.
@@ -2209,8 +2216,10 @@ fn paint_alternate(
                     band.frame_landed(&frame, &shell.geometry, cursor);
                     debug_assert!(!band.on_alternate());
                     // The band on the primary plane is now exactly what this
-                    // frame painted, so whatever asked for a frame has had one.
+                    // frame painted, so whatever asked for a frame has had one
+                    // -- an `@` list it showed included.
                     let _ = shell.render.begin();
+                    shell.file_picker_landed();
                     failures.succeeded();
                     Ok(())
                 }
@@ -2245,6 +2254,11 @@ fn paint_alternate(
                 Ok(()) => {
                     band.frame_landed(&frame, &shell.geometry, cursor);
                     shell.approval_landed(Outcome::Painted);
+                    // The band has left the screen, and the `@` list with it:
+                    // its keys wait for the frame that gives the plane back
+                    // (every frame of this plane is one without it,
+                    // `app_render_runtime.zig:1024-1026@481104fd`).
+                    shell.file_picker_unseen();
                     let _ = shell.render.begin();
                     failures.succeeded();
                     // The matrix row for a panic while the **other** plane is
@@ -12811,7 +12825,7 @@ mod tests {
             "the draft's caret (row {caret_row}) overlaps the document (band starts at row {})",
             rig.geometry.band_top()
         );
-        // Two `\n` (`InsertNewline`, `shell.rs:2706`) over three lines: this
+        // Two `\n` (`InsertNewline`, `shell.rs:2716`) over three lines: this
         // is really a *multirow* draft and not just a wide one-row composer.
         assert_eq!(
             rig.geometry.input_rows(),
@@ -12912,7 +12926,7 @@ mod tests {
     // (`transcript.rs:505-531` adopts only on `Landed::All`). So an append the
     // terminal refused must leave the retained row reading exactly what the
     // last accepted vector put there -- and the frame that would have followed
-    // it must not run at all (`event_loop.rs:1000-1003`). Nothing here caches a
+    // it must not run at all (`event_loop.rs:1005-1008`). Nothing here caches a
     // source anywhere: the freshness is read off the screen the accepted bytes
     // make.
     //
@@ -16305,6 +16319,648 @@ mod tests {
                 Ok(crate::tui::bridge::TurnWork::Submit(prompt)) if prompt == "priornew"
             ),
             "an Enter of its own did not send the draft"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // COMPACT-NOTICE-LATE
+    // -----------------------------------------------------------------------
+
+    /// Upstream's sentence for a stopped compaction (`compactionFeedbackLabel`,
+    /// `src/core/output/activity_status.zig:43-67@481104fd`).
+    const COMPACTION_CANCELLED: &str = "Compaction cancelled. Try /compact again when ready.";
+
+    /// Whether one of the band's rows says `needle`.
+    fn band_says(shell: &Shell, needle: &str) -> bool {
+        shell.band_rows().iter().any(|row| row.contains(needle))
+    }
+
+    /// [`shell`], with a turn in its conversation as `/status` reads it, so a
+    /// `/compact` has something to compact.
+    fn shell_with_a_turn() -> Fixture {
+        let shell = shell();
+        let config = RuntimeConfig::load_with(
+            &Environment::new(Some(shell._home.path().to_path_buf()), BTreeMap::new()),
+            &shell._workspace.path().join("work"),
+        )
+        .expect("load a configuration");
+        let mut snapshot = crate::output::StatusSnapshot::new(
+            &config,
+            crate::build_info(),
+            crate::output::SessionFacts::default(),
+        );
+        snapshot.history_turns = 1;
+        shell.handle.publish_status(snapshot);
+        shell
+    }
+
+    #[test]
+    fn a_stopped_compactions_sentence_the_next_line_took_away_stays_away() {
+        // PR #82's CI, `ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes`
+        // (`tests/tui.rs`): the row said the sentence, the line sent took it
+        // away, and it was back in the same frame, under `third question`, and
+        // stayed. The runtime sends a compaction's ending before it gives its
+        // place back (`run_compact`, then `turn_loop`'s `fetch_sub`), so a tick
+        // whose drain came before both and whose settle came after them finds
+        // nothing in hand with the ending still on the channel. Upstream's
+        // line dismisses the sentence for good: its settle reaches only an
+        // operation that is still running (`State.settle`,
+        // `src/core/output/compaction_activity.zig:118-120@481104fd`), and a
+        // dismissed one stays dismissed (`:129-137`, `visible`, `:52-53`).
+        //
+        // The schedule is the loop's own (`session`): the keys, then the
+        // drain, then the settle, with the runtime's two steps between one
+        // tick's drain and its settle. The next line is typed as a person
+        // types it: once the row says the sentence. The lines: a prompt;
+        // `/compact`, whose new compaction the stale ending would settle; a
+        // command that sends the runtime nothing; a prompt after an automatic
+        // compaction stopped inside its turn. And the Escape, which takes the
+        // sentence away too (`dismissCompactionFeedback`,
+        // `src/core/app/input_interrupt_runtime.zig:57-65@481104fd`).
+        let mut got = Vec::new();
+        for case in [
+            "a prompt",
+            "/compact",
+            "/version",
+            "an Escape",
+            "a prompt after an automatic one",
+        ] {
+            let automatic = case.ends_with("automatic one");
+            let mut shell = if automatic {
+                let (mut shell, _, _) = status_running(b"go\r");
+                shell.apply(UiEvent::Compaction(crate::tui::compaction::Update::Began {
+                    automatic: true,
+                }));
+                shell
+            } else {
+                let mut shell = shell_with_a_turn();
+                shell.route_bytes(b"/compact\r");
+                // The runtime took it: it is waiting for its notes.
+                assert_eq!(
+                    shell._work.try_recv().ok(),
+                    Some(crate::tui::bridge::TurnWork::Compact),
+                    "{case}"
+                );
+                shell
+            };
+            shell.settle_band(Instant::now());
+            shell.route_bytes(&[0x03]);
+            shell.settle_band(Instant::now());
+            assert!(band_says(&shell, "Stopping compaction"), "{case}");
+            let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+            // The tick the runtime ends in. Its drain finds nothing...
+            take_ui_events(&mut shell, &mut receiver);
+            // ...the runtime says how it ended and gives its place back...
+            events
+                .try_send(UiEvent::Compaction(
+                    crate::tui::compaction::Update::Settled(
+                        crate::tui::compaction::Feedback::Cancelled,
+                    ),
+                ))
+                .expect("room");
+            if automatic {
+                events
+                    .try_send(UiEvent::TurnEnded {
+                        failure: Some(bridge::TURN_CANCELLED.to_string()),
+                    })
+                    .expect("room");
+            }
+            shell.handle.give_back();
+            // ...and the tick settles.
+            shell.settle_band(Instant::now());
+            let mut ticks = 0;
+            while !band_says(&shell, COMPACTION_CANCELLED) {
+                ticks += 1;
+                assert!(
+                    ticks <= 3,
+                    "{case}: the sentence never came: {:?}",
+                    shell.band_rows()
+                );
+                take_ui_events(&mut shell, &mut receiver);
+                shell.settle_band(Instant::now());
+            }
+            match case {
+                "/compact" => shell.route_bytes(b"/compact\r"),
+                "/version" => shell.route_bytes(b"/version\r"),
+                "an Escape" => {
+                    shell.route_bytes(&[0x1b]);
+                    // Alone long enough to be the key (`settle_input`).
+                    shell.settle_input(
+                        Instant::now()
+                            + crate::tui::input::Decoder::ESC_TIMEOUT
+                            + Duration::from_millis(1),
+                    );
+                }
+                _ => shell.route_bytes(b"third question\r"),
+            }
+            // The row as the line or the Escape left it, before anything more
+            // is read.
+            shell.settle_band(Instant::now());
+            let cleared = !band_says(&shell, COMPACTION_CANCELLED);
+            for _ in 0..3 {
+                take_ui_events(&mut shell, &mut receiver);
+                shell.settle_band(Instant::now());
+            }
+            got.push((
+                case,
+                cleared,
+                band_says(&shell, COMPACTION_CANCELLED),
+                band_says(&shell, "Preparing compaction"),
+            ));
+        }
+        assert_eq!(
+            got,
+            [
+                ("a prompt", true, false, false),
+                ("/compact", true, false, true),
+                ("/version", true, false, false),
+                ("an Escape", true, false, false),
+                ("a prompt after an automatic one", true, false, false),
+            ],
+            "each: (the line or the Escape took the sentence away, the sentence on the row \
+             three drains later, the new compaction's own row)"
+        );
+    }
+
+    #[test]
+    fn a_line_after_a_stop_that_dropped_the_compaction_has_its_turn_to_itself() {
+        // Upstream settles a queued compaction cancelled at the stop's own
+        // keystroke (`cancelActiveOperation` -> `cancelContextCompaction`,
+        // `src/core/app/input_interrupt_runtime.zig:77-90@481104fd`,
+        // `src/core/agent/worker_runtime.zig:1007-1009`), so the next line
+        // takes its sentence away (`submit`,
+        // `src/core/app/input_submit_runtime.zig:639-647`) and that line's
+        // turn has the row to itself. The drop here is the real runtime loop's
+        // (`super::super::worker::loop_reads_its_control`); the line's turn is
+        // the band's events. Two schedules: the line pasted into the tick after
+        // the drop, read before that tick's drain; and the line typed with the
+        // stop, before the runtime read it.
+        let mut got = Vec::new();
+        for case in [
+            "the line in the tick after the drop",
+            "the line with the stop",
+        ] {
+            let mut shell = shell_with_a_turn();
+            let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+            shell.route_bytes(b"/compact\r");
+            shell.route_bytes(&[0x03]);
+            if case == "the line with the stop" {
+                shell.route_bytes(b"next question\r");
+            }
+            shell.settle_band(Instant::now());
+            // A tick. Its drain finds nothing, the runtime reads the stop and
+            // drops the compaction it never took, and the tick settles.
+            take_ui_events(&mut shell, &mut receiver);
+            let stop = shell._control.try_recv().expect("the stop went out");
+            crate::tui::worker::loop_reads_its_control(
+                &shell.handle,
+                &mut shell._work,
+                vec![stop],
+                &events,
+            );
+            shell.settle_band(Instant::now());
+            if case == "the line in the tick after the drop" {
+                shell.route_bytes(b"next question\r");
+            }
+            take_ui_events(&mut shell, &mut receiver);
+            shell.settle_band(Instant::now());
+            // The line's turn: the runtime takes it, starts it, ends it.
+            assert!(
+                matches!(
+                    shell._work.try_recv(),
+                    Ok(crate::tui::bridge::TurnWork::Submit(_))
+                ),
+                "{case}: the line is the work left"
+            );
+            shell.start_turn();
+            take_ui_events(&mut shell, &mut receiver);
+            shell.settle_band(Instant::now());
+            let during = (
+                band_says(&shell, "Stopping compaction"),
+                band_says(&shell, COMPACTION_CANCELLED),
+            );
+            shell.apply(UiEvent::TurnEnded { failure: None });
+            shell.handle.give_back();
+            for _ in 0..3 {
+                take_ui_events(&mut shell, &mut receiver);
+                shell.settle_band(Instant::now());
+            }
+            let after = (
+                band_says(&shell, "Stopping compaction"),
+                band_says(&shell, COMPACTION_CANCELLED),
+            );
+            got.push((case, during, after));
+        }
+        assert_eq!(
+            got,
+            [
+                (
+                    "the line in the tick after the drop",
+                    (false, false),
+                    (false, false)
+                ),
+                ("the line with the stop", (false, false), (false, false)),
+            ],
+            "each: (`Stopping compaction`, the sentence) during the line's turn, then after it"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // the `@` list's height and scroll
+    // -----------------------------------------------------------------------
+
+    /// The `@` list's rows as the band paints them now: each row's path and
+    /// whether the grey bar is on it.
+    fn at_rows(shell: &Shell) -> Vec<(String, bool)> {
+        const PATH: usize = "items/f-01.txt".len();
+        shell
+            .band_rows()
+            .iter()
+            .filter_map(|row| {
+                // The letters the query matched are bold inside the path.
+                let mut text = String::new();
+                let mut rest = row.as_str();
+                while let Some(at) = rest.find('\u{1b}') {
+                    text.push_str(&rest[..at]);
+                    rest = &rest[at..];
+                    rest = rest.find('m').map_or("", |end| &rest[end + 1..]);
+                }
+                text.push_str(rest);
+                let at = text.find("items/f-")?;
+                let path = text.get(at..at + PATH)?.to_string();
+                Some((path, row.contains("\u{1b}[48;5;239m")))
+            })
+            .collect()
+    }
+
+    /// The paths `first..=last` of the thirty, and which of them has the bar.
+    fn at_window(first: usize, last: usize, marked: usize) -> Vec<(String, bool)> {
+        (first..=last)
+            .map(|n| (format!("items/f-{n:02}.txt"), n == marked))
+            .collect()
+    }
+
+    /// A session at `rows` x `cols` in a workspace of thirty files every
+    /// ranking ties on (`items/f-01.txt` .. `items/f-30.txt`, the scenarios'
+    /// `p5-input-at-height-ws`), with `@f-` typed and its ten rows painted.
+    struct AtList {
+        shell: Fixture,
+        band: Band,
+        out: FlakyScreen,
+        failures: FrameFailures,
+    }
+
+    impl AtList {
+        fn open(rows: u16, cols: u16) -> Self {
+            let shell = shell_of(rows, cols);
+            let items = shell._workspace.path().join("work").join("items");
+            std::fs::create_dir(&items).expect("a folder");
+            for n in 1..=30 {
+                std::fs::write(items.join(format!("f-{n:02}.txt")), "x\n").expect("a file");
+            }
+            let mut list = Self {
+                shell,
+                band: Band::new(),
+                out: screen(),
+                failures: FrameFailures::default(),
+            };
+            list.shell.route_bytes(b"@f-");
+            let deadline = Instant::now() + crate::process::START_PATIENCE;
+            while at_rows(&list.shell).len() < 6 {
+                assert!(
+                    Instant::now() < deadline,
+                    "the list never arrived: {:?}",
+                    list.shell.band_rows()
+                );
+                list.tick();
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            list.tick();
+            list
+        }
+
+        /// One turn of the loop: what the keys and the index owe, then the
+        /// frame.
+        fn tick(&mut self) {
+            let now = Instant::now();
+            self.shell.settle_input(now);
+            self.shell.settle_band(now);
+            commit_frame(
+                &mut self.shell,
+                &mut self.band,
+                &mut self.out,
+                &mut self.failures,
+                now,
+                Reconciled,
+            )
+            .expect("a frame");
+        }
+
+        /// `bytes` typed, and the frame after them.
+        fn keys(&mut self, bytes: &[u8]) -> Vec<(String, bool)> {
+            self.shell.route_bytes(bytes);
+            self.tick();
+            at_rows(&self.shell)
+        }
+
+        fn resize(&mut self, rows: u16, cols: u16) -> Vec<(String, bool)> {
+            adopt_resize(&mut self.shell, &mut self.band, || (rows, cols));
+            self.tick();
+            at_rows(&self.shell)
+        }
+    }
+
+    const DOWN: &[u8] = b"\x1b[B";
+    const UP: &[u8] = b"\x1b[A";
+
+    #[test]
+    fn the_at_list_scrolls_by_the_rows_the_frame_that_landed_painted() {
+        // fx v0.0.16 gives the `@` list ten rows on a 40-row screen
+        // (`filePickerReservedRows`, `picker_presentation.zig:661-666`), and
+        // its arrows scroll the window the last committed frame painted
+        // (`paintedFilePickerReceipt`, `app_render_runtime.zig:2357-2360`;
+        // `acknowledge`, `file_completion_state.zig:294`; `navigate`, `:248`)
+        // -- the captures `p5-input-at-height` and `p5-input-at-resize`, over
+        // thirty names every ranking ties on.
+        let mut list = AtList::open(40, 120);
+        assert_eq!(at_rows(&list.shell), at_window(1, 10, 1), "ten rows at 40");
+
+        // Down twelve times: the bar on the last row, the window on 4-13.
+        assert_eq!(
+            list.keys(&DOWN.repeat(12)),
+            at_window(4, 13, 13),
+            "after Down x12"
+        );
+        // Up six: the bar moves and the window stays.
+        assert_eq!(list.keys(&UP.repeat(6)), at_window(4, 13, 7), "after Up x6");
+        // Up three more: the bar reaches the window's top row, f-04, and the
+        // window stays (`fx-p5-input-at-height-40x120-up9`; on 18 rows the
+        // window is 6-13 and moves to 4-11, `-18x120-up9`).
+        assert_eq!(list.keys(&UP.repeat(3)), at_window(4, 13, 4), "after Up x9");
+
+        // Back to f-13 and onto a 16-row screen: six rows, painted to keep
+        // the bar in view, while the window navigation left stays where it
+        // was (`paint_plan.zig:936-937`) -- so the first Up after it moves
+        // the window, scrolling the six rows that frame painted.
+        list.keys(&DOWN.repeat(9));
+        assert_eq!(list.resize(16, 120), at_window(8, 13, 13), "at 16 rows");
+        assert_eq!(list.keys(UP), at_window(7, 12, 12), "Up at 16 rows");
+    }
+
+    #[test]
+    fn a_new_at_words_arrows_wait_for_the_frame_that_shows_its_rows() {
+        // fx's arrows move the bar only over rows a committed frame has shown
+        // (`navigate` returns while `!trusted`, `file_completion_state.zig:
+        // 239-240@481104fd`): a changed query clears it (`reconcile`, `:175`)
+        // and only `acknowledge` sets it (`:295`), from a committed frame that
+        // showed the picker (`app_render_runtime.zig:1022-1026`). So a new `@`
+        // word and three Downs in one read, before any frame: the Downs are
+        // spent and the bar is on the first row; after that frame, three
+        // Downs move it three rows.
+        let mut list = AtList::open(40, 120);
+        let mut typed = b"\x15@f-".to_vec();
+        typed.extend(DOWN.repeat(3));
+        assert_eq!(
+            list.keys(&typed),
+            at_window(1, 10, 1),
+            "the Downs moved the bar"
+        );
+        assert_eq!(list.keys(&DOWN.repeat(3)), at_window(1, 10, 4));
+        // A query changed inside the word is a new query too: one more
+        // letter and a Down in one read leave the bar on the first row of the
+        // new rows.
+        let mut typed = b"0".to_vec();
+        typed.extend(DOWN);
+        assert_eq!(
+            list.keys(&typed),
+            at_window(1, 10, 1),
+            "@f-0's Down moved the bar"
+        );
+        assert_eq!(list.keys(DOWN), at_window(1, 10, 2));
+    }
+
+    #[test]
+    fn a_refused_frame_leaves_the_at_lists_arrows_waiting_for_one_that_lands() {
+        // fx distrusts the picker when a frame is not committed
+        // (`app_render_runtime.zig:1002-1003@481104fd`), so the next arrow is
+        // spent until a committed frame shows the rows again (`:1022-1023`).
+        let mut list = AtList::open(40, 120);
+        list.out.refusals = 1;
+        list.shell.route_bytes(DOWN);
+        list.tick();
+        list.shell.route_bytes(DOWN);
+        list.tick();
+        assert_eq!(
+            at_rows(&list.shell),
+            at_window(1, 10, 2),
+            "after a refused frame"
+        );
+        assert_eq!(list.keys(DOWN), at_window(1, 10, 3));
+
+        // A resize whose first frame is refused: the arrow after it is spent,
+        // the frame that lands shows six rows from the window the 10-row
+        // moves left (rank 3), and the next Up scrolls those six.
+        list.keys(&UP.repeat(2));
+        assert_eq!(list.keys(&DOWN.repeat(12)), at_window(4, 13, 13));
+        list.out.refusals = 1;
+        adopt_resize(&mut list.shell, &mut list.band, || (16, 120));
+        list.tick();
+        list.shell.route_bytes(UP);
+        list.tick();
+        assert_eq!(
+            at_rows(&list.shell),
+            at_window(8, 13, 13),
+            "the frame that landed"
+        );
+        assert_eq!(list.keys(UP), at_window(7, 12, 12));
+    }
+
+    #[test]
+    fn a_resize_spends_the_at_lists_keys_until_its_frame_lands() {
+        // fx distrusts the list from the screen's signal to the frame at its
+        // new size, and while no layout fits the screen
+        // (`resizeLifecyclePending`, `terminal_dimensions_invalid`,
+        // `input_completion_runtime.zig:803-806@481104fd`).
+        let mut list = AtList::open(40, 120);
+        // A signal not answered yet: the Down is spent.
+        list.shell.render.mark_resize(Instant::now());
+        list.shell.route_bytes(DOWN);
+        // Answered, as the loop answers it (`take_resize`, then the resolve).
+        assert!(list.shell.render.force_resize());
+        assert_eq!(
+            list.resize(40, 121),
+            at_window(1, 10, 1),
+            "a Down moved the bar mid-resize"
+        );
+        assert_eq!(list.keys(DOWN), at_window(1, 10, 2));
+        // A screen no band fits on, a Down, and the screen back: spent.
+        list.resize(5, 121);
+        list.shell.route_bytes(DOWN);
+        assert_eq!(
+            list.resize(40, 121),
+            at_window(1, 10, 2),
+            "a Down moved the bar off screen"
+        );
+    }
+
+    #[test]
+    fn a_key_spent_mid_resize_asks_for_the_frame_that_shows_the_list_again() {
+        // fx asks for a frame after every key the list takes, whether it
+        // moved anything or not: the arrows and page keys
+        // (`app_input_runtime.zig:310-330`, `:1013-1020@481104fd`), Tab on a
+        // file query (`:1317-1321`), and Enter the list answers (`:1405-1410`).
+        // So a key spent while a resize is pending, on a resize that comes
+        // back the same size (which asks for no frame of its own), still gets
+        // the frame that shows the list and trusts it again.
+        let mut list = AtList::open(40, 120);
+        for key in [DOWN, b"\t".as_slice(), b"\r".as_slice()] {
+            list.shell.render.mark_resize(Instant::now());
+            list.shell.route_bytes(key);
+            assert!(list.shell.render.force_resize());
+            adopt_resize(&mut list.shell, &mut list.band, || (40, 120));
+            list.tick();
+            let marked = at_rows(&list.shell)
+                .iter()
+                .position(|(_, bar)| *bar)
+                .expect("a bar");
+            assert_eq!(
+                list.keys(DOWN),
+                at_window(1, 10, marked + 2),
+                "after {key:?} spent mid-resize, the Down was spent too"
+            );
+        }
+    }
+
+    #[test]
+    fn a_resume_spends_the_at_lists_keys_until_its_frame_lands() {
+        // A job-control resume resets fx's terminal (`requestTerminalReset`,
+        // `app_lifecycle.zig:1200-1211@481104fd`, which sets
+        // `terminal_reset_pending`, `transcript/runtime.zig:7167`), and fx
+        // distrusts the list while that is pending
+        // (`input_completion_runtime.zig:805-806`).
+        let mut list = AtList::open(40, 120);
+        adopt_resume(&mut list.shell, &mut list.band, false);
+        list.shell.route_bytes(DOWN);
+        list.tick();
+        assert_eq!(
+            at_rows(&list.shell),
+            at_window(1, 10, 1),
+            "a Down moved the bar after a resume"
+        );
+        assert_eq!(list.keys(DOWN), at_window(1, 10, 2));
+    }
+
+    #[test]
+    fn under_the_full_transcript_the_at_list_takes_no_key() {
+        // fx's list is not eligible while the full transcript is up
+        // (`filePickerEligible`, `input_completion_runtime.zig:783`, `:798-799
+        // @481104fd`), and every frame of it lands without the list
+        // (`app_render_runtime.zig:1024-1026`). The keys the transcript
+        // leaves unbound -- Tab here -- reach the list's handler; it takes
+        // none. Ctrl-O and Tab in one read: nothing is chosen, and after the
+        // plane comes back the list is there with the bar on f-01.
+        let mut list = AtList::open(40, 120);
+        list.keys(b"\x0f\t");
+        assert!(list.band.on_alternate(), "Ctrl-O did not take the plane");
+        assert_eq!(
+            list.keys(b"\x0f"),
+            at_window(1, 10, 1),
+            "Tab chose a row under Ctrl-O"
+        );
+        // And the return, with a Down in the same read: the last frame that
+        // landed was the transcript's, so the Down is spent; after the frame
+        // that gives the plane back, it moves the bar.
+        list.keys(b"\x0f");
+        assert!(list.band.on_alternate());
+        let mut typed = b"\x0f".to_vec();
+        typed.extend(DOWN);
+        assert_eq!(
+            list.keys(&typed),
+            at_window(1, 10, 1),
+            "the Down moved the bar"
+        );
+        assert_eq!(list.keys(DOWN), at_window(1, 10, 2));
+    }
+
+    #[test]
+    fn the_frame_that_gives_the_plane_back_is_one_the_at_lists_arrows_scroll() {
+        // Ctrl-O over the `@` list, a resize while the transcript is up, and
+        // Ctrl-O again: the frame that gives the plane back paints the band,
+        // the list in six rows, and it is a committed frame like any other
+        // (`paintedFilePickerReceipt` for any committed frame that showed the
+        // picker, `app_render_runtime.zig:1854-1857@481104fd`). Two Ups after
+        // it: the first scrolls six rows from where the window was left
+        // (rank 3) to 6, and the second keeps the window there. Had the
+        // return not counted, the first would have scrolled ten from 3, kept
+        // 3, and the second moved the window to 5.
+        let mut list = AtList::open(40, 120);
+        assert_eq!(list.keys(&DOWN.repeat(12)), at_window(4, 13, 13));
+        list.keys(b"\x0f");
+        assert!(list.band.on_alternate(), "Ctrl-O did not take the plane");
+        list.resize(16, 120);
+        list.keys(b"\x0f");
+        assert!(!list.band.on_alternate(), "Ctrl-O did not give it back");
+        assert_eq!(
+            at_rows(&list.shell),
+            at_window(8, 13, 13),
+            "the band it gave back"
+        );
+        assert_eq!(list.keys(UP), at_window(7, 12, 12), "the first Up");
+        assert_eq!(list.keys(UP), at_window(7, 12, 11), "the second Up");
+    }
+
+    #[test]
+    fn a_paste_into_the_at_word_with_an_enter_behind_its_marker_is_kept_trusted_and_sends_nothing()
+    {
+        // Train 10, join check 3 (AT-HEIGHT x PASTE-AFTER-END). PASTE-AFTER-END:
+        // the bytes behind a paste's end marker in its read are no keys -- the
+        // paste is kept and the warning written (`Decoder::feed`'s early
+        // return, `input.rs`; fx's `app_input_runtime.zig:9686-9740@481104fd`).
+        // AT-HEIGHT: the `@` list's keys act only over rows a frame showed, and
+        // a changed query is a new list, trusted again only by the frame that
+        // shows it. A paste into the word changes its query; the frame it asks
+        // for shows the new rows, and the Enter behind its marker neither takes
+        // the marked row nor sends the line.
+        let mut list = AtList::open(40, 120);
+        assert_eq!(list.keys(&DOWN.repeat(2)), at_window(1, 10, 3));
+        let before = list.out.written.len();
+        let rows = list.keys(b"\x1b[200~0\x1b[201~\r");
+        assert_eq!(
+            composer(&list.shell),
+            format!("{COMPOSER_MARKER} @f-0"),
+            "the paste was lost, or the Enter behind its marker took the marked row"
+        );
+        assert!(
+            list.shell._work.try_recv().is_err(),
+            "the Enter behind the end marker sent the line"
+        );
+        let painted = String::from_utf8_lossy(&list.out.written[before..]).to_string();
+        assert!(
+            painted.contains("Input that arrived right after the paste was ignored."),
+            "no warning"
+        );
+        assert_eq!(rows, at_window(1, 10, 1), "the new query's rows");
+        // Trusted by the paste's own frame: the first Down moves the bar.
+        assert_eq!(
+            list.keys(DOWN),
+            at_window(1, 10, 2),
+            "the list the paste left waited for another frame"
+        );
+
+        // A paste with nothing behind it, the same way; then an Enter of its
+        // own takes the row the list marks.
+        let rows = list.keys(b"\x1b[200~1\x1b[201~");
+        assert_eq!(composer(&list.shell), format!("{COMPOSER_MARKER} @f-01"));
+        assert_eq!(rows.first(), Some(&("items/f-01.txt".to_string(), true)));
+        list.keys(b"\r");
+        assert!(
+            composer(&list.shell).contains("items/f-01.txt"),
+            "{}",
+            composer(&list.shell)
+        );
+        assert!(
+            list.shell._work.try_recv().is_err(),
+            "the Enter on a marked row sent the line"
         );
     }
 }

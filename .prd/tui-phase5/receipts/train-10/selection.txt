@@ -1,0 +1,74 @@
+# Train 10's sweep selection (selection.py 6bb9fd90 <head>); 373 scenarios at the head.
+# the model and catalog scenarios (the brief's)
+model*
+p5-input-model*
+p5-catalog-bounds-*
+# the @ list (the brief's)
+p5-input-at*
+filepicker*
+# the compaction and stop scenarios (the brief's)
+compact*
+*compact*
+*stop*
+interrupt*
+p5-transcript-cancel
+# CATALOG-BOUNDS' own sweep's (the brief's)
+h1-models*
+settings-model*
+# MODEL-FUZZY's own sweep's (the brief's)
+*model*
+*effort*
+# COMPACT-NOTICE-LATE's own sweep's (the brief's)
+p5-lifecycle-*compact*
+# AT-HEIGHT's own sweep's (the brief's)
+p5-input-*
+composer*
+workspace-index
+startup
+h1-resize
+model-column
+settings-scrollback
+p5-mcp-config
+p5-mcp-verbs
+# the scenarios of the 18 ledger entries the train changed
+#   cause activity-tokens-before-request (changed): model-parked
+model-parked
+#   cause amendment-card-after-stop (changed): approvals
+approvals
+#   cause at-folder-row (added): p5-input-at, p5-input-at-dir, filepicker
+p5-input-at
+p5-input-at-dir
+filepicker
+#   cause at-ranking (added): p5-input-at, workspace-index
+#   cause at-resize-band-at-the-bottom (added): p5-input-at-resize
+p5-input-at-resize
+#   cause cancel-page-edge (changed): p5-transcript-cancel
+#   cause full-transcript-shift (changed): fulltranscript*, links, read-failures, resume-tools, timeout
+fulltranscript*
+links
+read-failures
+resume-tools
+timeout
+#   cause resize-document-repaint (changed): p5-ctrlo-wider-inline-fam, h1-resize
+p5-ctrlo-wider-inline-fam
+#   cause safe-page-edge (changed): p5-transcript-safe, p5-transcript-safetab
+p5-transcript-safe
+p5-transcript-safetab
+#   cause session-record (changed): *
+#   cause stats-bytes (changed): *
+#   cause submit-multi-card-whole (changed): p5-transcript-submit-multi
+p5-transcript-submit-multi
+#   cause toolgroup-ctrlo-record-short (changed): p5-toolgroup-ctrlo, p5-toolgroup-ctrlo-tc
+p5-toolgroup-ctrlo
+p5-toolgroup-ctrlo-tc
+#   cause transcript-page-offset (changed): p5-transcript-anchor, p5-transcript-anchormid, p5-transcript-resize, p5-transcript-records, p5-transcript-question
+p5-transcript-anchor
+p5-transcript-anchormid
+p5-transcript-resize
+p5-transcript-records
+p5-transcript-question
+#   divergence answer-drawn-wider-named (changed): p5-ctrlo-wider-inline-fam
+#   normalization capture-tmpdir (changed): -
+#   normalization run-directory (changed): -
+#   normalization tmux-dead-pane (changed): -
+# 120 scenarios (121 .cap files; a scenario with one per side counts once)

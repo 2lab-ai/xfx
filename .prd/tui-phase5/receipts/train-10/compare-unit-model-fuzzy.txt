@@ -1,0 +1,87 @@
+pairs: reference 233, train 640, shared 233; only the reference: 0
+reference: 233 pairs, pass 204; approved-divergence-cascade 2, identical 1, normalized-identical 203, unresolved-defect 27
+train: 233 pairs, pass 204; approved-divergence-cascade 2, identical 1, normalized-identical 203, unresolved-defect 27
+model-parked menu-loading: 1 differing rows left, 9 new
+    left: fx '~ Thinking (<s>)' / xfx '~ Thinking (<s>) (↑4 ↓0)'
+    NEW:  fx '' / xfx '  xai/grok-4.7'
+    NEW:  fx '' / xfx 'Note: Gateway catalog is authenticated with an API key'
+    NEW:  fx '' / xfx '↑↓ navigate     tab provider     enter use     esc close'
+    NEW:  fx '' / xfx '──────────────────────────────────────────────────────────────────────'
+    NEW:  fx 'Loading models…' / xfx '  openai/gpt-6-astra       400K context · 128K output · Fast · Ultra'
+    NEW:  fx 'Models 0  [All]' / xfx 'Models 4  [All]  Anthropic  OpenAI  xAI  Others'
+    NEW:  fx '~ Thinking (<s>)' / xfx '~ Generating (<s>) (↑4 ↓3)'
+    NEW:  fx '↑↓ navigate     tab provider     enter use     esc close' / xfx '  fake/model-a'
+    NEW:  fx '──────────────────────────────────────────────────────────────────────' / xfx '  anthropic/claude-opus-5  1M context · 64K output · Fast'
+p5-effort-fork-fork status: 2 differing rows left, 2 new
+    left: fx '  Turns             2' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             2' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-effort-fork-fork-edge status-empty: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-effort-fork-oldread-src doctor.full: 2 differing rows left, 2 new
+    left: fx '[doctor] mcp_servers=0 mcp_configuration_issues=0' / xfx '[ok] workspace: using workspace <local-path>'
+    left: fx '[ok] workspace: using workspace <local-path>' / xfx '[warn] config: no config files found; using defaults and env overrides'
+    NEW:  fx '[doctor] mcp_servers=0 mcp_configuration_issues=0' / xfx '[ok] workspace: using workspace <local-path>'
+    NEW:  fx '[ok] workspace: using workspace <local-path>' / xfx '[warn] config: no config files found; using defaults and env overrides'
+verdicts moved: 0
+fx screens not the same in the two sweeps: 25
+    model-column-reask col-back
+    model-column-reask col-down
+    model-reask menu-failed
+    p5-effort-fork-fork continued
+    p5-effort-fork-fork forked
+    p5-effort-fork-fork forked.full
+    p5-effort-fork-fork quit
+    p5-effort-fork-fork resume
+    p5-effort-fork-fork status
+    p5-effort-fork-fork-continue continued
+    p5-effort-fork-fork-continue forked
+    p5-effort-fork-fork-edge fork-of-empty
+    p5-effort-fork-fork-edge forked-first
+    p5-effort-fork-fork-edge forked-first.full
+    p5-effort-fork-fork-edge quit
+    p5-effort-fork-fork-edge resume
+    p5-effort-fork-fork-edge status-empty
+    p5-effort-fork-fork-empty forked
+    p5-effort-fork-oldread-src doctor.full
+    p5-effort-fork-oldread-src resume-source
+    p5-effort-fork-oldread-v1 resume-id
+    p5-effort-fork-oldread-v2 continued
+    p5-effort-fork-oldread-v2 quit
+    p5-effort-fork-oldread-v2 resume-id
+    p5-effort-fork-oldread-v2 resume-id.full
+xfx screens not the same in the two sweeps: 28
+    model-column-reask col-back
+    model-column-reask col-down
+    model-parked menu-loading
+    model-reask menu-failed
+    model-reask turn-running
+    p5-effort-fork-fork continued
+    p5-effort-fork-fork forked
+    p5-effort-fork-fork forked.full
+    p5-effort-fork-fork quit
+    p5-effort-fork-fork resume
+    p5-effort-fork-fork status
+    p5-effort-fork-fork-continue continued
+    p5-effort-fork-fork-continue forked
+    p5-effort-fork-fork-edge fork-of-empty
+    p5-effort-fork-fork-edge forked-first
+    p5-effort-fork-fork-edge forked-first.full
+    p5-effort-fork-fork-edge midturn
+    p5-effort-fork-fork-edge quit
+    p5-effort-fork-fork-edge resume
+    p5-effort-fork-fork-edge status-empty
+    p5-effort-fork-fork-empty forked
+    p5-effort-fork-oldread-src doctor.full
+    p5-effort-fork-oldread-src resume-source
+    p5-effort-fork-oldread-v1 resume-id
+    p5-effort-fork-oldread-v2 continued
+    p5-effort-fork-oldread-v2 quit
+    p5-effort-fork-oldread-v2 resume-id
+    p5-effort-fork-oldread-v2 resume-id.full
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 4

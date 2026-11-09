@@ -1232,6 +1232,15 @@ pub(crate) struct Shell {
     /// ([`super::picker::Trigger::File`]), and [`Self::reconcile_picker`] asks
     /// for this one first, as upstream does.
     file_picker: Option<FilePicker>,
+    /// The rows the last frame that landed painted the `@` list in, which its
+    /// arrows scroll (`visible_rows`, `file_completion_state.zig:106-108`,
+    /// `:248`, `:294@481104fd`): six until a frame paints one
+    /// ([`Self::file_picker_landed`]). Kept here for the session, as fx keeps
+    /// it in the picker's state (only `deinit` resets it, `:121-128`;
+    /// `invalidate` and `reconcile` leave it, `:130-139`, `:147-196`) -- though
+    /// no key reads it across words: a new word's keys wait for its first
+    /// frame, which sets it ([`FilePicker::trust`]).
+    file_rows_painted: u16,
     /// Where the picker's rows come from: the workspace index and the last
     /// directory browsed, each read on a worker thread
     /// ([`super::file_index::Files`]). Nothing is read until a picker opens.
@@ -2576,6 +2585,7 @@ impl Shell {
             picker: None,
             dismissed: Dismissed::default(),
             file_picker: None,
+            file_rows_painted: file_picker::MOST_ROWS,
             files: {
                 // `~` is the profile's home, held to `HOME`'s one rule
                 // ([`crate::config::home_dir`]): an empty or relative
@@ -5351,9 +5361,53 @@ impl Shell {
         self.readiness.landed(outcome);
     }
 
+    /// A frame landed: when it showed the `@` list, the rows it painted the
+    /// list in are the rows the list's arrows scroll until the next one lands
+    /// (`paintedFilePickerReceipt`, `app_render_runtime.zig:2355-2360@481104fd`,
+    /// for a committed frame that showed the file picker in rows of its own,
+    /// `:1854-1857`; `acknowledge`, `file_completion_state.zig:294`).
+    ///
+    /// All of them are file rows. Upstream gives the first to a status line
+    /// only while it says `Selection unavailable` over rows
+    /// (`filePickerItemRows`, `picker_presentation.zig:668-672`); xfx's list
+    /// has no such state -- a refresh that loses the marked path puts the mark
+    /// back on the first row ([`FilePicker::settle`]) -- so its band rows are
+    /// its file rows.
+    ///
+    /// And it is what the list's keys wait for: a frame that showed it trusts
+    /// it (`acknowledge`, `file_completion_state.zig:295`), and one that
+    /// landed without it does not (`distrustFilePicker`,
+    /// `app_render_runtime.zig:1024-1026`).
+    pub(crate) fn file_picker_landed(&mut self) {
+        let shown = self.geometry.panel > 0 && matches!(self.slot(), Some(Slot::Files(_)));
+        let Some(files) = self.file_picker.as_mut() else {
+            return;
+        };
+        if shown {
+            files.trust();
+            self.file_rows_painted = self.geometry.panel;
+        } else {
+            files.distrust();
+        }
+    }
+
+    /// A frame did not show the `@` list -- it was refused or torn, or it took
+    /// the other plane -- or the screen is about to be repainted whole (a
+    /// resize, a resume), so its keys wait for one that does
+    /// (`distrustFilePicker`, `app_render_runtime.zig:1002-1003`,
+    /// `:1024-1026@481104fd`; `filePickerEligible`,
+    /// `input_completion_runtime.zig:775-786`, `:798-799`).
+    pub(crate) fn file_picker_unseen(&mut self) {
+        if let Some(files) = self.file_picker.as_mut() {
+            files.distrust();
+        }
+    }
+
     /// A write the screen refused: it may have left half a frame.
     pub(crate) fn approval_write_failed(&mut self) {
         self.readiness.write_failed();
+        // And the `@` list it carried is not known to be on the screen.
+        self.file_picker_unseen();
         if let Some(menu) = self.mcp_menu.as_ref() {
             menu.forget_drawn();
         }
@@ -6092,6 +6146,15 @@ impl Shell {
         let Some(files) = self.file_picker.as_mut() else {
             return false;
         };
+        // From the screen's signal to the frame at its new size, the rows on
+        // it are not the ones the keys would act on (`resizeLifecyclePending`,
+        // `input_completion_runtime.zig:803@481104fd`); and while the full
+        // transcript is up the list is not on the screen at all -- the keys
+        // it leaves unbound reach here, and fx's list takes none of them
+        // (`filePickerEligible`, `:775-786`, `:798-799`).
+        if self.render.resize_pending() || self.full.is_open() {
+            files.distrust();
+        }
         let page = i64::from(layout::input_row_limit(self.geometry.rows));
         let delta = match action {
             Action::Up | Action::ControlK => -1,
@@ -6099,7 +6162,7 @@ impl Shell {
             Action::PageUp => -page,
             Action::PageDown => page,
             Action::Tab => {
-                match files.marked().cloned() {
+                match files.chosen().cloned() {
                     Some(found) => self.complete_file(&found),
                     // Nothing to choose: a picker that could not read is
                     // asked to read again (`autocompleteFilePickerSelection`,
@@ -6110,18 +6173,34 @@ impl Shell {
                     }
                     None => {}
                 }
+                // A frame whatever Tab did: a Tab spent while the list waited
+                // for one is what brings the frame it waits for
+                // (`app_input_runtime.zig:1317-1321@481104fd`).
+                self.render.request(Reason::Modal);
                 return true;
             }
+            // Under the full transcript the list does not own the surface:
+            // its Enter answers nothing, and Enter goes on to send the line
+            // (`submitFilePickerOnEnter`, `input_completion_runtime.zig:
+            // 1034-1037`; `filePickerOwnsSurface`, `:1054-1056`).
+            Action::Submit if self.full.is_open() => return false,
             Action::Submit => {
                 return match files.enter() {
                     file_picker::Enter::Accept(found) => {
                         self.complete_file(&found);
+                        self.render.request(Reason::Modal);
                         true
                     }
                     // Nothing matched: the line goes as typed, and the
                     // keystroke goes on to send it.
                     file_picker::Enter::Submit => false,
-                    file_picker::Enter::Wait => true,
+                    // Spent, and a frame asked for, as fx asks for one
+                    // whenever its list answers Enter (`app_input_runtime.zig:
+                    // 1405-1410`).
+                    file_picker::Enter::Wait => {
+                        self.render.request(Reason::Modal);
+                        true
+                    }
                 };
             }
             Action::Escape => {
@@ -6130,9 +6209,13 @@ impl Shell {
             }
             _ => return false,
         };
-        if files.step(delta) {
-            self.render.request(Reason::Modal);
-        }
+        // A frame whether the mark moved or not, as fx asks for one after
+        // every arrow and page key (`app_input_runtime.zig:310-330`,
+        // `:1013-1020@481104fd`): an arrow spent while the list waited for a
+        // frame -- after a resize that came back the same size, say, which
+        // asks for none of its own -- is what brings that frame.
+        files.step(delta, self.file_rows_painted);
+        self.render.request(Reason::Modal);
         true
     }
 
@@ -10447,8 +10530,8 @@ impl Shell {
         //
         // **A turn that started is not over until its end is read.** The
         // runtime gives a place back after it has sent the work's terminal
-        // event (`TurnEnded`, `worker.rs:3867`, then `turn_loop`'s
-        // `fetch_sub`, `:3524`), so this can run between the two with a
+        // event (`TurnEnded`, `worker.rs:3917`, then `turn_loop`'s
+        // `fetch_sub`, `:3530`), so this can run between the two with a
         // started turn's end still in the channel -- and a stopped turn's end
         // says `the turn was cancelled`. A cancel taken here would leave that
         // end to read as the turn's failure: an `error` report after the
@@ -10474,25 +10557,6 @@ impl Shell {
             self.stop_reads_end = false;
             self.compaction_ended_turn = false;
             self.cancel_owed = None;
-        }
-        // The same for a compaction the user stopped before the runtime took it
-        // off the queue: it never began, so it never says how it ended. Once
-        // nothing is in hand it is over, cancelled -- and an ending the runtime
-        // did send, a moment late, still replaces this one
-        // ([`Self::compaction_update`]).
-        if self.work.outstanding() == 0 {
-            if let Some(compaction) = self.compaction.as_mut() {
-                if compaction.stopped() {
-                    compaction.settle(compaction::Feedback::Cancelled, now);
-                    if !compaction.automatic() {
-                        self.program_status
-                            .compaction(program_status::of_compaction(
-                                compaction::Feedback::Cancelled,
-                            ));
-                    }
-                    self.render.request(Reason::Footer);
-                }
-            }
         }
         let armed = self.gestures.escape_armed(now);
         if armed != self.escape_armed {
@@ -11540,13 +11604,37 @@ impl Shell {
                     compaction.summarizing();
                 }
             }
+            // Only a stopped one can have been dropped, and only one that
+            // is still stopping is about it: a compaction the line after it
+            // began is another one ([`compaction::Update::Dropped`]). Its
+            // result is noted once, as a settle's is.
+            compaction::Update::Dropped => {
+                let Some(compaction) = self
+                    .compaction
+                    .as_mut()
+                    .filter(|compaction| compaction.stopped())
+                else {
+                    return;
+                };
+                compaction.settle(compaction::Feedback::Cancelled, Instant::now());
+                let answered = compaction.answered();
+                self.program_status
+                    .compaction(program_status::of_compaction(
+                        compaction::Feedback::Cancelled,
+                    ));
+                // Upstream's line came after the stop's settle, and took the
+                // sentence away (`submit`,
+                // `src/core/app/input_submit_runtime.zig:639-647@481104fd`).
+                if answered {
+                    self.compaction = None;
+                }
+            }
             compaction::Update::Settled(feedback) => {
                 let automatic = self.compaction.as_ref().is_some_and(Compaction::automatic);
                 // A manual one's result, once: upstream notes each operation's
                 // terminal phase a single time (`noteCompaction`,
-                // `program_status.zig:80-96`), and one this session already
-                // settled -- stopped before the runtime took it -- has had its
-                // say. An automatic one belongs to its turn's outcome.
+                // `program_status.zig:80-96`), and one already settled has had
+                // its say. An automatic one belongs to its turn's outcome.
                 let running = self.compaction.as_ref().is_none_or(Compaction::active);
                 if !automatic && running {
                     self.program_status
@@ -12907,13 +12995,18 @@ impl Shell {
         // sent now asks again ([`Self::fork`]).
         self.close_fork_menu();
         // A compaction's sentence is answered by the next line sent, whatever
-        // it is (`submit`, `input_submit_runtime.zig:628-635`).
+        // it is (`submit`,
+        // `src/core/app/input_submit_runtime.zig:639-647@481104fd`). One still
+        // stopping keeps its row; the line is noted, and what it takes away
+        // depends on how the compaction ends ([`compaction::Update::Dropped`]).
         if self
             .compaction
             .as_ref()
             .is_some_and(|compaction| !compaction.active())
         {
             self.compaction = None;
+        } else if let Some(compaction) = self.compaction.as_mut() {
+            compaction.answer();
         }
         let mut text = self.editor.text().to_string();
         if let Some((cut, submitted)) = self.after_badges(&text) {
@@ -14225,7 +14318,15 @@ impl CommandHandlers for Shell {
         if self.compacting() {
             return;
         }
-        if self.work.status().history_turns == 0 {
+        // A reset the runtime has not yet said is done (its fence,
+        // [`Self::draining`]) leaves the board on the conversation it drops.
+        // Upstream's `/new` is done at once when nothing runs, so the
+        // conversation is empty (`applyIdleLiveSessionTransition`,
+        // `src/core/app/app_session_runtime.zig:1788-1816@481104fd`); while
+        // work runs, it waits for that work, and the busy check below answers
+        // (`decideLiveSessionTransition`, `:1532-1554`).
+        let resetting = self.draining.is_some();
+        if self.work.status().history_turns == 0 || (resetting && self.work.outstanding() == 0) {
             self.compaction = Some(Compaction::refused(compaction::Feedback::NoOp, now));
             return;
         }
@@ -14233,7 +14334,8 @@ impl CommandHandlers for Shell {
         // `queuedPromptCount` (`input_submit_runtime.zig:148-153`). Other work
         // -- a catalog read, a listing -- is not a conversation a compaction
         // would cut into, and it queues behind that as it would behind a turn.
-        if self.activity.working() || self.waiting_prompts().next().is_some() {
+        // A reset waiting on work is upstream's processing worker.
+        if self.activity.working() || self.waiting_prompts().next().is_some() || resetting {
             self.compaction = Some(Compaction::refused(compaction::Feedback::Busy, now));
             return;
         }
@@ -16075,7 +16177,11 @@ impl Shell {
             | None => 0,
         };
         let snapshot = self.settings_snapshot();
-        let panel = |input_rows: u16| match slot {
+        // Asked with the composer's height and the waiting prompt's rows the
+        // try below shows (none when it shows none). Only the `@` list's
+        // height counts them here; fx's other list pickers count them too
+        // (`surface_frame.zig:538-542@481104fd`), which MENU-BANNER-ROWS owns.
+        let panel = |input_rows: u16, banner: u16| match slot {
             Some(Slot::Catalog(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Mcp(menu)) => {
                 let room = super::mcp_menu::room(rows, input_rows.saturating_sub(1));
@@ -16095,10 +16201,13 @@ impl Shell {
             Some(Slot::McpArgs(_)) => {
                 McpArgs::height(rows, input_rows.saturating_sub(1) + u16::from(activity))
             }
-            // Upstream's budget for a list (`activeListPickerReservedRows`)
-            // leaves no room for a running turn's row, which xfx's band puts
-            // above the composer; on a screen that short the list gives way
-            // first, down to the one row it never goes below.
+            // Upstream's budget for the `@` list (`filePickerReservedRows`,
+            // `surface_frame.zig:661-662@481104fd`) counts a waiting prompt's
+            // rows and the blank under them (`banner_rows`,
+            // `render_input.zig:548-551`) but leaves no room for a running
+            // turn's row, which xfx's band puts above the composer; on a
+            // screen that short the list gives way first, down to the one row
+            // it never goes below.
             Some(Slot::Files(_)) => {
                 let room = rows
                     .saturating_sub(
@@ -16107,7 +16216,8 @@ impl Shell {
                             .saturating_add(u16::from(activity)),
                     )
                     .max(1);
-                FilePicker::height(rows, input_rows.saturating_sub(1)).min(room)
+                let banner = if banner > 0 { banner + 1 } else { 0 };
+                FilePicker::height(rows, input_rows.saturating_sub(1), banner).min(room)
             }
             _ => fixed,
         };
@@ -16184,13 +16294,13 @@ impl Shell {
                             rows,
                             cols,
                             input_rows,
-                            panel(input_rows),
+                            panel(input_rows, banner),
                             more,
                             banner,
                         )
                     })
                     .or_else(|| {
-                        layout::solve_band(rows, cols, input_rows, activity, panel(input_rows))
+                        layout::solve_band(rows, cols, input_rows, activity, panel(input_rows, 0))
                     })
             })
             .map(|geometry| self.placed(geometry))
@@ -16307,6 +16417,10 @@ impl Shell {
         self.screen = (rows, cols);
         self.document_rows = u32::MAX;
         self.tail_unknown = true;
+        // The `@` list on the screen was the old size's, and the next one is
+        // not on it yet (`resizeLifecyclePending`, `terminal_dimensions_invalid`,
+        // `input_completion_runtime.zig:803-806@481104fd`).
+        self.file_picker_unseen();
         // And a handoff still owed -- deferred behind a question or a screen
         // no band fits on -- was measured against the rows the terminal has
         // just reflowed.
@@ -22554,8 +22668,8 @@ mod tests {
             Ok(TurnControl::QuestionCancelled { .. })
         ));
         // `released`, not `document`: the notice is behind the pacer, which is
-        // how the existing too-small assertions read it (`shell.rs:5816`,
-        // `:6004`). Concatenated rather than compared row by row, because a
+        // how the existing too-small assertions read it (`shell.rs:5870`,
+        // `:6058`). Concatenated rather than compared row by row, because a
         // twenty-column screen is exactly the one that wraps this sentence --
         // and what the case is about is that the refusal was said, not where the
         // wrap fell.
@@ -24168,6 +24282,39 @@ mod tests {
             rows.iter().all(|row| super::super::wrap::width(row) <= 40),
             "{band:#?}"
         );
+    }
+
+    #[test]
+    fn a_waiting_prompts_rows_come_out_of_the_at_lists_growth() {
+        // `filePickerReservedRows(rows, input_extra, banner_rows)`
+        // (`picker_presentation.zig:661-666@481104fd`, from
+        // `surface_frame.zig:526-533`, `:661-662`): the banner is the waiting
+        // prompt's rows and the blank under them (`render_input.zig:548-551`).
+        // On 20 rows the list grows to ten with nothing waiting, and to eight
+        // past a one-row waiting prompt: 20 - (5 + 2) - 5.
+        let mut alone = running("first");
+        alone.resize(20, 120);
+        alone.route_bytes(b"@");
+        alone.settle_band(Instant::now());
+        assert!(alone.file_picker.is_some());
+        assert_eq!(alone.geometry.panel, 10);
+
+        let mut shell = running("first");
+        shell.resize(20, 120);
+        shell.route_bytes(b"second\r");
+        shell.settle_band(Instant::now());
+        shell.route_bytes(b"@");
+        shell.settle_band(Instant::now());
+        let band = uncoloured_rows(&shell.band_rows());
+        assert_eq!(
+            band.iter()
+                .filter(|row| row.starts_with('\u{250b}'))
+                .count(),
+            1,
+            "{band:#?}"
+        );
+        assert!(shell.file_picker.is_some());
+        assert_eq!(shell.geometry.panel, 8, "{band:#?}");
     }
 
     #[test]
@@ -31647,13 +31794,18 @@ mod tests {
     fn a_column_over_a_line_the_caret_has_left_hangs_from_the_caret_rows_start() {
         // `fx-fast-astra-40x120-model-change-clears`: an Alt-Enter after
         // `/model xai/grok-4.7` leaves the caret on a second row, and fx draws
-        // the column from that row's start (`projectedAnchorColumn`).
+        // the column from that row's start (`projectedAnchorColumn`). The
+        // query now ends in a newline, which fx v0.0.16 trims with the other
+        // blanks (`matchModelQuery`, `model_cache_runtime.zig:375@481104fd`),
+        // so the column still lists the model -- the `model-anchor`
+        // `alt-enter` frame; c1db9191 did not trim and said `no matching
+        // models` (`:690@c1db9191`).
         let mut shell = speed_shell();
         shell.route_bytes(b"/model xai/grok-4.7");
         assert_eq!(column(&shell)[0], format!("{}xai/grok-4.7", " ".repeat(9)));
         shell.route_bytes(b"\x1b\r");
         assert_eq!(shell.editor.text(), "/model xai/grok-4.7\n");
-        assert_eq!(column(&shell)[0], "  no matching models");
+        assert_eq!(column(&shell)[0], "  xai/grok-4.7");
     }
 
     #[test]
@@ -34180,6 +34332,9 @@ mod tests {
     /// `git`: in the macOS x86_64 preview build of 2026-11-06 the work-tree
     /// case, four starts of `git`, took about 17 s, and two cases that gave
     /// the index 5 s failed beside it.
+    ///
+    /// And then the frame that shows them, which the list's keys wait for
+    /// ([`Shell::file_picker_landed`]).
     fn listed(shell: &mut Fixture) {
         let deadline = Instant::now() + START_PATIENCE;
         while Instant::now() < deadline {
@@ -34189,6 +34344,7 @@ mod tests {
                 .as_ref()
                 .is_some_and(|files| files.shown() != file_picker::Shown::Loading)
             {
+                shell.file_picker_landed();
                 return;
             }
             std::thread::sleep(Duration::from_millis(2));
@@ -34220,9 +34376,12 @@ mod tests {
         shell.route_bytes(b"@");
         listed(&mut shell);
         let rows = shell.band_rows();
-        // `fx-composer-40x120-at.ansi`: the composer, a rule, six rows two
+        // `fx-composer-40x120-at.ansi`: the composer, a rule, the rows two
         // columns in with the first on the grey bar, a rule -- and the hint
-        // row as it was, because upstream's file picker has no key help.
+        // row as it was, because upstream's file picker has no key help. Ten
+        // rows on this screen in fx v0.0.16 (`filePickerReservedRows`,
+        // `picker_presentation.zig:661-666@481104fd`; `filepicker`'s `at` at
+        // 40x120): all nine of the workspace's, and a blank one.
         assert_eq!(rows[0], composer_row("@"));
         assert_eq!(rows[1], divider(120));
         assert_eq!(
@@ -34234,10 +34393,14 @@ mod tests {
                 file_row(2, "docs/guide.md", false),
                 file_row(2, "src/", false),
                 file_row(2, "src/deep/", false),
+                file_row(2, "src/deep/sched.rs", false),
+                file_row(2, "src/lib.rs", false),
+                file_row(2, "src/main.rs", false),
+                String::new(),
             ]
         );
-        assert_eq!(rows[8], divider(120));
-        assert_eq!(rows[9], hint_row(IDLE_HINT));
+        assert_eq!(rows[12], divider(120));
+        assert_eq!(rows[13], hint_row(IDLE_HINT));
         // The caret stays in the composer: the list is a view of it.
         assert_eq!(
             shell.cursor(),
@@ -34301,7 +34464,9 @@ mod tests {
             ],
             "the published prefix is listed before the index is whole"
         );
-        // The mark is kept on its path as the list grows under it.
+        // The frame that shows them, which the Down waits for. The mark is
+        // kept on its path as the list grows under it.
+        shell.file_picker_landed();
         shell.route_bytes(b"\x1b[B");
         walk.send(Published::More(candidates(&["docs/", "docs/guide.md"])))
             .expect("the shell holds the walk");
@@ -34326,22 +34491,15 @@ mod tests {
         let (_workspace, mut shell) = in_ws2(40, 120);
         shell.route_bytes(b"@sch");
         listed(&mut shell);
-        // `fx-composer-40x120-at-sch.ansi`: one row, the rest blank.
+        // `fx-composer-40x120-at-sch.ansi`: one row, the rest blank -- nine
+        // of them in fx v0.0.16's ten (`filepicker`'s `at-sch` at 40x120).
         let selected = PALETTE.selected();
-        assert_eq!(
-            listed_rows(&shell),
-            [
-                format!(
-                    "  {selected}src/deep/\u{1b}[1msch\u{1b}[0m{selected}ed.rs{}",
-                    PALETTE.reset()
-                ),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-            ]
-        );
+        let mut expected = vec![format!(
+            "  {selected}src/deep/\u{1b}[1msch\u{1b}[0m{selected}ed.rs{}",
+            PALETTE.reset()
+        )];
+        expected.resize(10, String::new());
+        assert_eq!(listed_rows(&shell), expected);
     }
 
     #[test]
@@ -34572,6 +34730,178 @@ mod tests {
         shell.route_bytes(b"\r");
         assert_eq!(shell.editor.text(), "Read @first-file.txt suffix");
         assert_eq!(shell.editor.caret(), "Read @first-file.txt ".len());
+    }
+
+    #[test]
+    fn tab_and_enter_before_a_new_words_first_frame_choose_nothing_and_send_nothing() {
+        // fx chooses only from rows a committed frame has shown: `selected`
+        // and `acceptedEmpty` both need `trusted`
+        // (`file_completion_state.zig:218-228@481104fd`), which a changed
+        // query clears (`reconcile`, `:175`). Tab with nothing chosen does
+        // nothing (`autocompleteFilePickerSelection`,
+        // `input_completion_runtime.zig:946-957`), and Enter is spent: it
+        // submits a query nothing matched only once a frame has shown
+        // `no matching files` (`submitFilePickerOnEnter`, `:1034-1041`).
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@");
+        listed(&mut shell);
+        shell.file_picker_landed();
+        // A new word and Down, Tab in one read.
+        shell.route_bytes(b"\x15@s\x1b[B\t");
+        assert_eq!(shell.editor.text(), "@s", "Tab chose a row no frame showed");
+        let first = shell
+            .file_picker
+            .as_ref()
+            .and_then(|files| files.rows_for_test().first().cloned())
+            .expect("rows");
+        shell.file_picker_landed();
+        shell.route_bytes(b"\t");
+        let chosen = match first.kind {
+            super::super::file_index::Kind::Directory => format!("@{}/", first.path),
+            _ => format!("@{} ", first.path),
+        };
+        assert_eq!(shell.editor.text(), chosen, "the Down moved the bar");
+
+        // A word nothing matches, and Enter in the same read: spent.
+        shell.route_bytes(b"\x15@zzzz-not-here\r");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "Enter sent before the frame"
+        );
+        assert_eq!(shell.editor.text(), "@zzzz-not-here");
+        shell.file_picker_landed();
+        shell.route_bytes(b"\r");
+        match shell.picks_up() {
+            TurnWork::Submit(prompt) => assert_eq!(prompt, "@zzzz-not-here"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn only_a_frame_that_landed_showing_the_list_changes_the_rows_its_arrows_scroll() {
+        // `paintedFilePickerReceipt` reaches `acknowledge` only for a
+        // committed frame (`app_render_runtime.zig:1002-1003`, `:1022-1023`,
+        // `:1854-1857@481104fd`): a refused write on a shorter screen leaves
+        // the count as the last landed frame set it, and the keys wait.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@");
+        listed(&mut shell);
+        assert_eq!(shell.file_rows_painted, 10);
+        assert!(!matches!(shell.resize(16, 120), Resize::TooSmall));
+        assert_eq!(shell.geometry.panel, 6);
+        shell.approval_write_failed();
+        assert_eq!(shell.file_rows_painted, 10, "a refused frame set them");
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(|files| files.marked())
+                .map(|found| found.path.as_str()),
+            Some("Cargo.toml"),
+            "a key moved the bar after a refused frame"
+        );
+        shell.file_picker_landed();
+        assert_eq!(shell.file_rows_painted, 6);
+    }
+
+    #[test]
+    fn enter_under_the_full_transcript_goes_on_to_the_composer() {
+        // fx's list does not own the surface while the full transcript is up,
+        // so its Enter handler answers nothing and Enter submits the line
+        // (`submitFilePickerOnEnter`, `input_completion_runtime.zig:1034-1037
+        // @481104fd`; `filePickerOwnsSurface`, `:1054-1056`): fx's captures
+        // show `@zzzz-none` and `@f-` both sent (receipt `ctrlo-probe/`).
+        for (draft, rows) in [("review @definitely-not-present", false), ("@gui", true)] {
+            let (_workspace, mut shell) = in_ws2(40, 120);
+            shell.route_bytes(draft.as_bytes());
+            listed(&mut shell);
+            assert_eq!(
+                shell
+                    .file_picker
+                    .as_ref()
+                    .is_some_and(|files| files.marked().is_some()),
+                rows
+            );
+            shell.route_bytes(b"\x0f");
+            assert!(shell.full.is_open(), "Ctrl-O did not open the transcript");
+            shell.route_bytes(b"\r");
+            match shell.sent.try_recv() {
+                Ok(TurnWork::Submit(prompt)) => assert_eq!(prompt, draft),
+                other => panic!("{draft}: Enter under Ctrl-O sent {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_frame_that_shows_another_surface_over_the_list_neither_trusts_it_nor_sets_its_rows() {
+        // fx trusts the list, and takes its painted rows, only from a frame
+        // whose receipt shows the file picker (`picker_kind == .file`,
+        // `app_render_runtime.zig:1854-1857@481104fd`). The read-only panel
+        // outranks a list a paste opens under it (`Self::slot`; the paste
+        // reaches the composer, `Self::pasted`), so a frame lands showing the
+        // panel while the list exists: it leaves the count at six, and the
+        // Down after the panel closes is spent.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.open_info_panel(fx_status_panel());
+        pasted(&mut shell, "@");
+        listed(&mut shell);
+        assert!(
+            matches!(shell.slot(), Some(Slot::Info(_))),
+            "the panel is not in front"
+        );
+        assert!(
+            shell.geometry.panel > 6,
+            "the panel is not the taller occupant"
+        );
+        assert_eq!(
+            shell.file_rows_painted, 6,
+            "the panel's frame set the list's rows"
+        );
+        escape(&mut shell);
+        assert!(shell.info_panel.is_none());
+        assert!(shell.file_picker.is_some(), "the list went with the panel");
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(|files| files.marked())
+                .map(|found| found.path.as_str()),
+            Some("Cargo.toml"),
+            "a Down moved the bar no frame had shown"
+        );
+    }
+
+    #[test]
+    fn a_frame_that_gave_the_list_no_rows_leaves_the_rows_its_arrows_scroll() {
+        // fx sets the painted rows only from a frame whose footer gave the
+        // file picker rows of its own (`picker_rows > 0`,
+        // `app_render_runtime.zig:1854-1857@481104fd`): a frame that landed on
+        // a band with no panel showed no list, so it is not a frame the
+        // arrows scroll.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@");
+        listed(&mut shell);
+        assert_eq!(shell.geometry.panel, 10);
+        shell.file_picker_landed();
+        assert_eq!(shell.file_rows_painted, 10);
+        shell.geometry = crate::tui::layout::solve(40, 120, 1).expect("a band");
+        assert_eq!(shell.geometry.panel, 0);
+        assert!(matches!(shell.slot(), Some(Slot::Files(_))));
+        shell.file_picker_landed();
+        assert_eq!(shell.file_rows_painted, 10, "a frame with no list set them");
+        // And a frame that landed without the list leaves its keys waiting.
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(|files| files.marked())
+                .map(|found| found.path.as_str()),
+            Some("Cargo.toml"),
+            "a key moved the bar after a frame without the list"
+        );
     }
 
     #[test]
@@ -43404,17 +43734,167 @@ mod tests {
 
     #[test]
     fn a_compaction_stopped_before_the_runtime_took_it_ends_cancelled() {
-        // Dropped from the queue by the cancel, it never says how it ended:
-        // once nothing is in hand, it is over.
+        // Dropped from the queue by the stop, it never began, and the runtime
+        // says so ([`compaction::Update::Dropped`]). Nothing else ends it: not
+        // its place given back, nor a drain that emptied the channel.
         let mut shell = with_a_turn();
         shell.route_bytes(b"/compact\r");
         shell.route_bytes(&[0x03]);
         let _ = shell.picks_up();
         shell.work.give_back();
+        let stopping = Some("\u{2022} Stopping compaction (0s)");
+        assert_eq!(
+            compaction_row(&mut shell, Instant::now()).as_deref(),
+            stopping,
+            "nothing in hand ended it"
+        );
+        shell.ui_events_taken(true);
+        assert_eq!(
+            compaction_row(&mut shell, Instant::now()).as_deref(),
+            stopping,
+            "an emptied channel ended it"
+        );
+        shell.apply(UiEvent::Compaction(compaction::Update::Dropped));
         assert_eq!(
             compaction_row(&mut shell, Instant::now()).as_deref(),
             Some("Compaction cancelled. Try /compact again when ready.")
         );
+    }
+
+    #[test]
+    fn a_line_sent_while_a_compaction_stops_takes_the_sentence_only_of_one_that_never_began() {
+        // Upstream settles a queued compaction at the stop's keystroke
+        // (`cancelContextCompaction`,
+        // `src/core/agent/worker_runtime.zig:1007-1009@481104fd`), so a line
+        // after the stop dismisses its sentence; one it had taken is still
+        // stopping when the line comes, and its dismissal refuses an operation
+        // still running (`compaction_activity.zig:129-137`), so the sentence
+        // its end brings stays.
+        // A line sent before the stop is no line after it: upstream's
+        // dismissal found the operation running then.
+        let mut got = Vec::new();
+        for (ending, update, line_first) in [
+            ("dropped", compaction::Update::Dropped, false),
+            (
+                "taken",
+                compaction::Update::Settled(compaction::Feedback::Cancelled),
+                false,
+            ),
+            ("dropped, the line first", compaction::Update::Dropped, true),
+        ] {
+            let mut shell = with_a_turn();
+            shell.route_bytes(b"/compact\r");
+            let _ = shell.picks_up();
+            if line_first {
+                shell.route_bytes(b"/version\r");
+            }
+            shell.route_bytes(&[0x03]);
+            if !line_first {
+                shell.route_bytes(b"/version\r");
+            }
+            let held = compaction_row(&mut shell, Instant::now());
+            shell.apply(UiEvent::Compaction(update));
+            got.push((ending, held, compaction_row(&mut shell, Instant::now())));
+        }
+        let stopping = Some("\u{2022} Stopping compaction (0s)".to_string());
+        let cancelled = Some("Compaction cancelled. Try /compact again when ready.".to_string());
+        assert_eq!(
+            got,
+            [
+                ("dropped", stopping.clone(), None),
+                ("taken", stopping.clone(), cancelled.clone()),
+                ("dropped, the line first", stopping, cancelled),
+            ],
+            "each: (how it ended, the row after the line and the stop, the row after the end)"
+        );
+        // A drop is about a compaction still stopping and no other: not one
+        // that runs, nor a row with none.
+        let mut shell = with_a_turn();
+        shell.route_bytes(b"/compact\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::Compaction(compaction::Update::Dropped));
+        assert_eq!(
+            compaction_row(&mut shell, Instant::now()).as_deref(),
+            Some("\u{2022} Preparing compaction (0s)")
+        );
+        let mut shell = with_a_turn();
+        shell.apply(UiEvent::Compaction(compaction::Update::Dropped));
+        assert_eq!(compaction_row(&mut shell, Instant::now()), None);
+    }
+
+    #[test]
+    fn a_compact_typed_while_a_reset_drains_answers_as_upstreams_would() {
+        // Upstream's `/new` is the conversation's at once when nothing runs
+        // (`applyIdleLiveSessionTransition`, `session.reset`,
+        // `src/core/app/app_session_runtime.zig:1788-1816@481104fd`), so a
+        // `/compact` after it finds nothing to compact
+        // (`hasContextToCompact`, `src/core/session/session.zig:1597-1602`);
+        // while work runs the reset waits for it (`decideLiveSessionTransition`,
+        // `app_session_runtime.zig:1532-1554`) and a `/compact` is busy
+        // (`request_context_compaction`,
+        // `src/core/app/input_submit_runtime.zig:140-154`). Neither queues one.
+        // Here the board the band reads is the old conversation's until the
+        // reset's fence, so the keystroke is answered from the reset itself.
+        let mut got = Vec::new();
+        for case in ["nothing in hand", "a turn in hand"] {
+            let mut shell = with_a_turn();
+            if case == "a turn in hand" {
+                shell.route_bytes(b"first question\r");
+                let _ = shell.picks_up();
+                shell.start_turn();
+            }
+            shell.route_bytes(b"/new\r");
+            shell.route_bytes(b"/compact\r");
+            let queued = shell.sent.try_recv().ok();
+            got.push((case, compaction_row(&mut shell, Instant::now()), queued));
+        }
+        assert_eq!(
+            got,
+            [
+                (
+                    "nothing in hand",
+                    Some("No context to compact.".to_string()),
+                    None
+                ),
+                (
+                    "a turn in hand",
+                    Some(
+                        "Wait for the active work to finish before compacting context.".to_string()
+                    ),
+                    None
+                ),
+            ],
+            "each: (the row, the work sent)"
+        );
+    }
+
+    #[test]
+    fn a_compaction_dropped_unstarted_reports_idle_after_a_failed_ones_error() {
+        // `noteCompaction`: a manual compaction's cancel is `idle`
+        // (`src/ui/terminal/program_status.zig:80-96@481104fd`). Typed and
+        // stopped in one read and dropped before the tick, it never reports
+        // `working`, so only its own result moves the report off the failure
+        // before it.
+        let mut shell = with_a_turn();
+        shell.route_bytes(b"/compact\r");
+        let _ = shell.picks_up();
+        shell.settle_band(Instant::now());
+        assert_eq!(status_of(&mut shell).as_deref(), Some("working"));
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Failed,
+        )));
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+        assert_eq!(status_of(&mut shell).as_deref(), Some("error"));
+        shell.route_bytes(b"/compact\r\x03");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::Compaction(compaction::Update::Dropped));
+        shell.work.give_back();
+        assert_eq!(
+            compaction_row(&mut shell, Instant::now()).as_deref(),
+            Some("Compaction cancelled. Try /compact again when ready.")
+        );
+        assert_eq!(status_of(&mut shell).as_deref(), Some("idle"));
     }
 
     #[test]
@@ -48786,6 +49266,202 @@ mod tests {
                 1,
                 false,
             )
+        );
+    }
+
+    #[test]
+    fn a_catalog_read_that_fails_too_large_or_stalled_then_loads_ranks_in_three_tiers_and_keeps_its_mark_by_id(
+    ) {
+        // Train 10, join check 1 (MODEL-FUZZY x CATALOG-BOUNDS). How a read
+        // fails is CATALOG-BOUNDS': an answer past fx's 16 MiB is one asking
+        // again would only repeat (`retry: None`,
+        // `provider::model::tests::a_gateway_catalog_one_byte_past_16_mib_fails_and_is_not_cut_to_fit`),
+        // one still coming at the deadline is one xfx asks again about
+        // (`Some(CatalogRetry::Unreachable)`,
+        // `a_gateway_catalog_past_its_deadline_is_a_failure_asked_again_about`).
+        // The runtime tells either as `CatalogUnread` when it held no rows and
+        // as `CatalogRefreshFailed` behind rows it keeps, whatever the retry
+        // (`Applied::of`, `provider/model.rs`). What the menu lists after it
+        // is MODEL-FUZZY's: fx's three tiers over the whole id, each in
+        // catalog order, and the mark kept on its model by id across a reload
+        // (fx's own case, `model_cache_runtime.zig:2086-2123@481104fd`), here
+        // with a failure before the first rows and one between two reads.
+        let ids = |ids: &[&str]| -> Vec<CatalogEntry> {
+            ids.iter()
+                .map(|id| CatalogEntry {
+                    id: id.to_string(),
+                    aliases: Vec::new(),
+                    name: None,
+                    efforts: Vec::new(),
+                    max_context: None,
+                    facts: Default::default(),
+                })
+                .collect()
+        };
+        let first = [
+            "openai/gpt-4.5-preview",
+            "openai/gpt-5",
+            "anthropic/claude-opus-4.8",
+            "acme/gpt5-lite",
+        ];
+        let mut second = vec!["acme/gpt5-pro"];
+        second.extend(first);
+        let loaded = |entries: Vec<CatalogEntry>| UiEvent::CatalogLoaded {
+            due: Instant::now() + REFRESH_INTERVAL,
+            provider: ProviderId::Gateway,
+            entries,
+        };
+        // The ids the menu lists, in its order.
+        let listed = |shell: &Shell| -> Vec<String> {
+            menu(shell)
+                .iter()
+                .filter_map(|row| {
+                    visible_text(row)
+                        .split_whitespace()
+                        .find(|word| word.contains('/'))
+                        .map(str::to_string)
+                })
+                .collect()
+        };
+        let marked = |shell: &Shell| {
+            shell
+                .model_menu
+                .as_ref()
+                .and_then(ModelMenu::selected)
+                .map(str::to_string)
+        };
+        for (what, retry, says) in [
+            ("past 16 MiB", None, "Unable to load models."),
+            (
+                "stalled to its deadline",
+                Some(CatalogRetry::Unreachable),
+                "Could not reach AI Gateway; xfx retries automatically.",
+            ),
+        ] {
+            // The menu's first read fails; the next one loads.
+            let mut shell = shell(40, 120);
+            shell.route_bytes(b"/model\r");
+            shell.apply(UiEvent::CatalogUnread {
+                provider: ProviderId::Gateway,
+                retry,
+                retry_at: failed_long_ago(),
+            });
+            let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+            assert_eq!(rows, ["Models 0  [All]", "", says], "{what}");
+            shell.route_bytes(b"gpt5");
+            shell.apply(loaded(ids(&first)));
+            assert_eq!(
+                listed(&shell),
+                ["acme/gpt5-lite", "openai/gpt-5", "openai/gpt-4.5-preview"],
+                "{what}: the rows after the failure, substring then words then fuzzy"
+            );
+            assert_eq!(marked(&shell).as_deref(), Some("acme/gpt5-lite"), "{what}");
+            shell.route_bytes(b"\x1b[B");
+            assert_eq!(marked(&shell).as_deref(), Some("openai/gpt-5"), "{what}");
+
+            // A refresh behind those rows fails the same way: rows and mark stand.
+            shell.apply(UiEvent::CatalogRefreshFailed {
+                provider: ProviderId::Gateway,
+                retry,
+                due: Instant::now() + crate::provider::model::failure_backoff(1),
+            });
+            assert_eq!(
+                listed(&shell),
+                ["acme/gpt5-lite", "openai/gpt-5", "openai/gpt-4.5-preview"],
+                "{what}: the rows behind a failed refresh"
+            );
+            assert_eq!(
+                marked(&shell).as_deref(),
+                Some("openai/gpt-5"),
+                "{what}: the mark behind a failed refresh"
+            );
+
+            // The read after it brings a better match: it ranks first, and the
+            // mark stays on its model, now third.
+            shell.apply(loaded(ids(&second)));
+            assert_eq!(
+                listed(&shell),
+                [
+                    "acme/gpt5-pro",
+                    "acme/gpt5-lite",
+                    "openai/gpt-5",
+                    "openai/gpt-4.5-preview"
+                ],
+                "{what}: the rows of the read after the failed one"
+            );
+            assert_eq!(
+                marked(&shell).as_deref(),
+                Some("openai/gpt-5"),
+                "{what}: the mark after the reload"
+            );
+        }
+    }
+
+    #[test]
+    fn a_twenty_question_panel_over_an_open_at_list_has_its_tab_arrows_and_enter() {
+        // Train 10, join check 3 (AT-HEIGHT x QUESTIONS-20). AT-HEIGHT's `@`
+        // list takes Tab, the arrows and Enter (`offer_to_files`), and a
+        // twenty-question panel binds the same keys -- Tab is its next page
+        // (`Question 10 of 20` after nine). The panel is asked before
+        // `offer_to_files` (`Self::answer`, first in `consume`'s chain after
+        // the full transcript), and its arrival dismisses the list
+        // (`ask_question` -> `dismiss_picker`), so no key of the batch can
+        // reach the list, and the answer does not put it back.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let started = turn_running(&mut shell, b"ask me\r");
+        assert_eq!(shell.picks_up(), TurnWork::Submit("ask me".to_string()));
+        shell.route_bytes(b"@");
+        listed(&mut shell);
+        assert!(
+            shell
+                .file_picker
+                .as_ref()
+                .is_some_and(|files| files.chosen().is_some()),
+            "the list had no row a Tab or an Enter would take"
+        );
+        shell.apply(UiEvent::Question(QuestionRequest {
+            id: QuestionId(20),
+            entries: (1..=20)
+                .map(|n| QuestionEntry {
+                    question: format!("Pick {n}?"),
+                    options: vec![choice(&format!("Keep {n}"), None), choice("Skip", None)],
+                })
+                .collect(),
+        }));
+        shell.settle_band(started);
+        assert!(
+            shell.file_picker.is_none(),
+            "the list stayed up behind the panel"
+        );
+        let page = |shell: &Shell, n: usize| {
+            shell
+                .band_rows()
+                .iter()
+                .any(|row| visible_text(row).contains(&format!("Question {n} of 20")))
+        };
+        assert!(page(&shell, 1), "{:?}", shell.band_rows());
+
+        // Tab nine times walks the panel to its tenth page.
+        shell.route_bytes(&b"\t".repeat(9));
+        assert!(page(&shell, 10), "{:?}", shell.band_rows());
+        // Down and Enter answer question ten with its second choice.
+        shell.route_bytes(b"\x1b[B");
+        shell.route_bytes(b"\r");
+        assert!(page(&shell, 11), "{:?}", shell.band_rows());
+        assert_eq!(
+            shell.editor.text(),
+            "@",
+            "a key of the batch reached the composer"
+        );
+        assert!(shell.file_picker.is_none(), "the answer put the list back");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a key of the batch sent the draft"
+        );
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the batch went before its twenty answers"
         );
     }
 }

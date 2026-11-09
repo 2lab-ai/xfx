@@ -1,0 +1,8 @@
+# lines holding #[test] under src and tests (git grep -c '#\[test\]'), and '    def test_' under scripts/fxcap, per commit
+6bb9fd90 Merge pull request #87 from 2lab-ai/train/p5-1109b           rust  5394  fxcap 173
+e705a5dc docs(catalog-bounds): round 2 review wording -- source after rust  5383  fxcap 176
+8d9ab0a0 docs(receipt): MODEL-FUZZY -- the gate at 06c08b90, and the  rust  5384  fxcap 173
+96cc7849 docs(receipt): compact-notice-late round 3 -- the gate       rust  5371  fxcap 165
+af2b6137 docs(receipt): AT-HEIGHT round 3 -- the two reviews' MUSTs,  rust  5384  fxcap 165
+64873172 Merge AT-HEIGHT (feat/p5-at-height @ af2b6137) into train 10 rust  5448  fxcap 176
+de663b7c test(tui): P5 train 10 -- join checks 1, 2 and 3's four test rust  5452  fxcap 176

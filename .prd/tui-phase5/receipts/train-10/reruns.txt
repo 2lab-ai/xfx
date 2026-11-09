@@ -1,0 +1,37 @@
+# Train 10's movers, swept again (reruns.sh: sweep-rerun.sh, each in one hold of the suite lock, --jobs 1), as printed; then each run's catalog asks (asks.py) and workspace-index at-plan's differing rows.
+# head rerun 1 of model-parked at e28e1b15; xfx sha256 fc425fa462ce0570c8b03eeea24357f32680f6fb4c31246190b7213c7b772466; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 20.07
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 5 / 5 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 2 of model-parked at e28e1b15; xfx sha256 fc425fa462ce0570c8b03eeea24357f32680f6fb4c31246190b7213c7b772466; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 20.25
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 5 / 5 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 3 of model-parked at e28e1b15; xfx sha256 fc425fa462ce0570c8b03eeea24357f32680f6fb4c31246190b7213c7b772466; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 10.60
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 5 / 5 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 1 of workspace-index at e28e1b15; xfx sha256 fc425fa462ce0570c8b03eeea24357f32680f6fb4c31246190b7213c7b772466; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 6.71
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 2 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 2 of workspace-index at e28e1b15; xfx sha256 fc425fa462ce0570c8b03eeea24357f32680f6fb4c31246190b7213c7b772466; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 11.98
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 1 / 2 = 50.0%; unresolved 1, failed 0, timeout 0
+# head rerun 3 of workspace-index at e28e1b15; xfx sha256 fc425fa462ce0570c8b03eeea24357f32680f6fb4c31246190b7213c7b772466; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 9.87
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 1 / 2 = 50.0%; unresolved 1, failed 0, timeout 0
+# main rerun 1 of model-parked at 6bb9fd90; xfx sha256 03467c268cf4ad6ce7e9633b8dfe072e5ada7518619844ec6f0099006fbda8e3; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 12.30
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 4 / 5 = 80.0%; unresolved 1, failed 0, timeout 0
+# main rerun 2 of model-parked at 6bb9fd90; xfx sha256 03467c268cf4ad6ce7e9633b8dfe072e5ada7518619844ec6f0099006fbda8e3; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 11.07
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 5 / 5 = 100.0%; unresolved 0, failed 0, timeout 0
+# main rerun 3 of model-parked at 6bb9fd90; xfx sha256 03467c268cf4ad6ce7e9633b8dfe072e5ada7518619844ec6f0099006fbda8e3; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 19.15
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 5 / 5 = 100.0%; unresolved 0, failed 0, timeout 0
+
+## model-parked menu-loading: the pair's verdict and each binary's catalog asks
+main-sweep: model-parked menu-loading unresolved-defect; fx asked at 773 ms, 7391 ms; answered 200 at 15393 ms; xfx asked at 1264 ms, 7911 ms; answered 200 at 15917 ms
+head-sweep: model-parked menu-loading unresolved-defect; fx asked at 2581 ms, 9201 ms; answered 200 at 17203 ms; xfx asked at 6670 ms; answered 200 at 14672 ms
+head-rerun-1: model-parked menu-loading normalized-identical; fx asked at 14311 ms; answered 200 at 22314 ms; xfx asked at 15819 ms; answered 200 at 23820 ms
+head-rerun-2: model-parked menu-loading normalized-identical; fx asked at 26445 ms; answered 200 at 34447 ms; xfx asked at 29289 ms; answered 200 at 37290 ms
+head-rerun-3: model-parked menu-loading normalized-identical; fx asked at 13440 ms; answered 200 at 21442 ms; xfx asked at 6061 ms; answered 200 at 14063 ms
+main-rerun-1: model-parked menu-loading unresolved-defect; fx asked at 1064 ms, 7673 ms; answered 200 at 15674 ms; xfx asked at 955 ms, 7526 ms; answered 200 at 15529 ms
+main-rerun-2: model-parked menu-loading normalized-identical; fx asked at 23707 ms; answered 200 at 31707 ms; xfx asked at 25130 ms; answered 200 at 33130 ms
+main-rerun-3: model-parked menu-loading normalized-identical; fx asked at 11587 ms; answered 200 at 19588 ms; xfx asked at 7400 ms; answered 200 at 15400 ms
+
+## workspace-index at-plan: the pair's verdict and differing rows
+head-sweep normalized-identical []
+head-rerun-1 normalized-identical []
+head-rerun-2 unresolved-defect [(13, '  <scratch>/rr-head/fxsw.unin34ke/001/fxcap.XXXXXX/extra/notes/', '  <scratch>/rr-head/fxsw.unin34ke/001/fxcap.XXXXXX/extra/notes/')]
+head-rerun-3 unresolved-defect [(13, '  <scratch>/rr-head/fxsw.5kmdob2x/001/fxcap.XXXXXX/extra/notes/', '  <scratch>/rr-head/fxsw.5kmdob2x/001/fxcap.XXXXXX/extra/notes/')]
+at-height-unit unresolved-defect [(13, '  <local-path>', '  <local-path>')]
+main-sweep unresolved-defect [(18, '', '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'), (19, '', 'auto · model-a'), (22, '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────', ''), (23, 'auto · model-a', '')]

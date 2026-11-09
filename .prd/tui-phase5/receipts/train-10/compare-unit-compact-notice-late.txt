@@ -1,0 +1,15 @@
+pairs: reference 29, train 640, shared 29; only the reference: 0
+reference: 29 pairs, pass 29; identical 2, normalized-identical 27
+train: 29 pairs, pass 29; identical 2, normalized-identical 27
+verdicts moved: 0
+fx screens not the same in the two sweeps: 3
+    compact-cancel esc1
+    compact-inturn answered
+    compact-inturn compacting
+xfx screens not the same in the two sweeps: 4
+    compact-inturn answered
+    compact-inturn compacting
+    p5-lifecycle-compactok c02-compacting
+    p5-lifecycle-compactok c03-compacted
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 0

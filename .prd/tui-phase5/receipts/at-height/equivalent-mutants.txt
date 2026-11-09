@@ -1,0 +1,20 @@
+# The surviving mutants, and why each is equivalent.
+
+## reset-per-word (file_rows_painted put back to six for each new @ word)
+Survives rounds 2 and 3, and it is equivalent:
+- A new word's FilePicker starts untrusted, so its keys are spent until its
+  first frame lands (file_completion_state.zig:175, :239-240@481104fd), and
+  that frame sets the count before any key reads it. The count's one reader
+  (offer_to_files' step) is behind that gate (opus, round 2).
+- The count is fx's `visible_rows`, kept in the picker state for the
+  session (only deinit resets it, :121-128). No key in fx reads it across
+  words either.
+
+## landed-any-slot -- not equivalent (round 2 said it was; opus round 2, MUST 2)
+The read-only panel outranks a list that a paste opens under it: the panel
+comes first in Shell::slot, and reconcile_picker opens the list behind it.
+Round 2's probe tried Ctrl-P, `/provider @s` and `/mcp show @s`, not the
+panel, and wrongly concluded that no surface outranks a live list.
+Round 3's test kills the mutant:
+shell::a_frame_that_shows_another_surface_over_the_list_neither_trusts_it_nor_sets_its_rows
+(mutants-run4.txt).

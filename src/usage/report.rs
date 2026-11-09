@@ -59,7 +59,7 @@ use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::{CredentialSource, RuntimeConfig};
-use crate::gateway::{Endpoint, USER_AGENT};
+use crate::gateway::{read_capped, CappedRead, Endpoint, USER_AGENT};
 use crate::provider::ProviderId;
 
 /// The largest answer read from `/v1/report` (`max_body_bytes`,
@@ -993,35 +993,16 @@ async fn get(client: &reqwest::Client, url: &str, secret: &str) -> Result<(u16, 
         .await
         .map_err(|_| Failed::network(UNREACHABLE))?;
     let status = response.status().as_u16();
-    Ok((status, read_capped(response, MAX_BODY_BYTES).await?))
-}
-
-/// The body, or a refusal once it is past `limit`: a declared length past it
-/// is refused before a byte is read, and a body that grows past it is
-/// dropped at the chunk that crosses.
-///
-/// Not `crate::gateway::read_bounded`, which keeps the first `limit` bytes
-/// and stops: a report cut short is not a report, and fx refuses it
-/// (`error.StreamTooLong => error.UsageResponseTooLarge`, `client.zig:430-431`).
-async fn read_capped(mut response: reqwest::Response, limit: usize) -> Result<Vec<u8>, Failed> {
-    if response
-        .content_length()
-        .is_some_and(|length| length > limit as u64)
-    {
-        return Err(Failed::network(TOO_LARGE));
-    }
-    let mut body = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
+    // Not `crate::gateway::read_bounded`, which keeps the first bytes and
+    // stops: a report cut short is not a report, and fx refuses it
+    // (`error.StreamTooLong => error.UsageResponseTooLarge`, `client.zig:430-431`).
+    let body = read_capped(response, MAX_BODY_BYTES)
         .await
-        .map_err(|_| Failed::network(CUT_SHORT))?
-    {
-        if chunk.len() > limit - body.len() {
-            return Err(Failed::network(TOO_LARGE));
-        }
-        body.extend_from_slice(&chunk);
-    }
-    Ok(body)
+        .map_err(|err| match err {
+            CappedRead::TooLarge => Failed::network(TOO_LARGE),
+            CappedRead::Read(_) => Failed::network(CUT_SHORT),
+        })?;
+    Ok((status, body))
 }
 
 #[cfg(test)]

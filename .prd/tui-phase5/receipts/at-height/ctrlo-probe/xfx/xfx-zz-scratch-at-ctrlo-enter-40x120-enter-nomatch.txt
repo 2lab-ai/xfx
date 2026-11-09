@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-3a76208 [debug] · Run /help for commands
+
+┃ @zzzz-none
+
+✗ system: the Gateway returned HTTP 500: unexpected request
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

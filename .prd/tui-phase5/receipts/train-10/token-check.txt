@@ -1,0 +1,115 @@
+# token_check.py (train 7's, unchanged: byte for byte the same file) over the merges
+merge 13e7c9a0: ours 6bb9fd90, theirs e705a5dc, base ccced1f5 -- OK
+  parity row '`/model`': changed by ours+theirs; 598 tokens added, 11 deleted, all as expected; 7 clauses (each with its side's token either side) whole and contiguous; each side's tokens in its order
+  parity row '`/provider`': changed by ours; 226 tokens added, 0 deleted, all as expected, in order
+  parity row '`/credits`': changed by theirs; 61 tokens added, 0 deleted, all as expected, in order
+  parity row '`ask_user_question`': changed by ours; 303 tokens added, 1 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours; 170 tokens added, 43 deleted, all as expected, in order
+  parity row "a question's line breaks in a program status message": changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause cancel-page-edge: changed by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause question-cap-four: deleted by ours, kept so
+  ledger cause question-resume-replay: added by ours, kept so
+  ledger cause resize-document-repaint: changed by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause submit-multi-card-whole: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger divergence answer-drawn-wider-named: changed by ours, kept so
+  ledger comments: 1 added, 0 deleted, all as expected
+merge 33e476fa: ours 13e7c9a0, theirs 8d9ab0a0, base ccced1f5 -- OK
+  parity row '`/model`': changed by ours+theirs; 903 tokens added, 18 deleted, all as expected; 12 clauses (each with its side's token either side) whole and contiguous; each side's tokens in its order
+  parity row '`/provider`': changed by ours; 226 tokens added, 0 deleted, all as expected, in order
+  parity row '`/credits`': changed by ours; 61 tokens added, 0 deleted, all as expected, in order
+  parity row '`ask_user_question`': changed by ours; 303 tokens added, 1 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours; 170 tokens added, 43 deleted, all as expected, in order
+  parity row "a question's line breaks in a program status message": changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause cancel-page-edge: changed by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause question-cap-four: deleted by ours, kept so
+  ledger cause question-resume-replay: added by ours, kept so
+  ledger cause resize-document-repaint: changed by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause submit-multi-card-whole: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger divergence answer-drawn-wider-named: changed by ours, kept so
+  ledger comments: 1 added, 0 deleted, all as expected
+merge 5a98001a: ours 33e476fa, theirs 96cc7849, base 58c92ba2 -- OK
+  parity row '`/model`': changed by ours; 901 tokens added, 16 deleted, all as expected, in order
+  parity row '`/provider`': changed by ours; 226 tokens added, 0 deleted, all as expected, in order
+  parity row '`/compact`': changed by theirs; 260 tokens added, 0 deleted, all as expected, in order
+  parity row '`/credits`': changed by ours; 61 tokens added, 0 deleted, all as expected, in order
+  parity row '`ask_user_question`': changed by ours; 303 tokens added, 1 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours; 170 tokens added, 43 deleted, all as expected, in order
+  parity row "a question's line breaks in a program status message": changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause answer-modifier-sequence-wider: changed by ours, kept so
+  ledger cause call-row-page-edge: changed by ours, kept so
+  ledger cause cancel-page-edge: changed by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause question-cap-four: deleted by ours, kept so
+  ledger cause question-resume-replay: added by ours, kept so
+  ledger cause resize-document-repaint: changed by ours, kept so
+  ledger cause ri-run-pairing: changed by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause submit-multi-card-whole: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger divergence answer-drawn-wider-named: changed by ours, kept so
+  ledger divergence answer-label-and-modifier-named: changed by ours, kept so
+  ledger divergence call-row-arabic-letter-mark: changed by ours, kept so
+  ledger divergence call-row-raw-argument: changed by ours, kept so
+  ledger divergence call-row-source-cut: changed by ours, kept so
+  ledger divergence ctrl-o-drawn-wider-named: changed by ours, kept so
+  ledger divergence inline-band-row-anchor: changed by ours, kept so
+  ledger normalization capture-tmpdir: changed by ours, kept so
+  ledger normalization run-directory: changed by ours, kept so
+  ledger normalization tmux-dead-pane: changed by ours, kept so
+  ledger comments: 1 added, 0 deleted, all as expected
+merge 64873172: ours 5a98001a, theirs af2b6137, base 712dd8d1 -- OK
+  parity row '`/model`': changed by ours; 901 tokens added, 16 deleted, all as expected, in order
+  parity row '`/provider`': changed by ours; 226 tokens added, 0 deleted, all as expected, in order
+  parity row '`/compact`': changed by ours; 260 tokens added, 0 deleted, all as expected, in order
+  parity row '`/credits`': changed by ours; 61 tokens added, 0 deleted, all as expected, in order
+  parity row '`ask_user_question`': changed by ours; 303 tokens added, 1 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours; 170 tokens added, 43 deleted, all as expected, in order
+  parity row '`@` file picker': changed by theirs; 420 tokens added, 7 deleted, all as expected, in order
+  parity row "a question's line breaks in a program status message": changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause activity-tokens-before-request: changed by theirs, kept so
+  ledger cause amendment-card-after-stop: changed by theirs, kept so
+  ledger cause answer-modifier-sequence-wider: changed by ours, kept so
+  ledger cause at-folder-row: added by theirs, kept so
+  ledger cause at-ranking: added by theirs, kept so
+  ledger cause at-resize-band-at-the-bottom: added by theirs, kept so
+  ledger cause call-row-page-edge: changed by ours, kept so
+  ledger cause cancel-page-edge: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause full-transcript-shift: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause question-cap-four: deleted by ours, kept so
+  ledger cause question-resume-replay: added by ours, kept so
+  ledger cause resize-document-repaint: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause ri-run-pairing: changed by ours, kept so
+  ledger cause safe-page-edge: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause session-record: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause stats-bytes: changed by theirs, kept so
+  ledger cause submit-multi-card-whole: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause toolgroup-ctrlo-record-short: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause transcript-page-offset: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger divergence answer-drawn-wider-named: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger divergence answer-label-and-modifier-named: changed by ours, kept so
+  ledger divergence call-row-arabic-letter-mark: changed by ours, kept so
+  ledger divergence call-row-raw-argument: changed by ours, kept so
+  ledger divergence call-row-source-cut: changed by ours, kept so
+  ledger divergence ctrl-o-drawn-wider-named: changed by ours, kept so
+  ledger divergence inline-band-row-anchor: changed by ours, kept so
+  ledger normalization capture-tmpdir: changed by ours, kept so
+  ledger normalization run-directory: changed by ours, kept so
+  ledger normalization tmux-dead-pane: changed by ours, kept so
+  ledger comments: 1 added, 0 deleted, all as expected
+# exit 0

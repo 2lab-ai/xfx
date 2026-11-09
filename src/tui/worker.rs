@@ -3288,11 +3288,17 @@ async fn turn_loop(
         work,
         outstanding,
         taken: 0,
+        owed: 0,
     };
     // Whether the UI can still send a change. A closed channel answers `recv`
     // at once, every time, so an arm left on it would spin this loop.
     let mut changes_open = true;
     loop {
+        // A compaction a stop dropped before it began is told first, whatever
+        // dropped it -- this loop's own read of the stop, or a race's while
+        // other work ran ([`Queue::abandon`]) -- before anything else is
+        // taken.
+        queue.tell_dropped(events).await;
         // Before anything else is taken: a switch the runtime has got past --
         // made, or dropped unstarted by an interrupt -- gives back the prompt
         // the band held for it, which asks now, ahead of its own turn
@@ -3379,12 +3385,12 @@ async fn turn_loop(
         };
         let item = match next {
             Taken::Abandon(through) => {
-                queue.abandon(through);
+                queue.abandon(through, events);
                 continue;
             }
             Taken::Reset(through) => {
-                queue.abandon(through);
-                drop_conversation(&mut state, events, through).await;
+                queue.abandon(through, events);
+                reset_conversation(&mut state, events, through, &mut queue).await;
                 continue;
             }
             Taken::Model(change) => {
@@ -3403,7 +3409,7 @@ async fn turn_loop(
                         return settled(state, changes);
                     }
                     Ended::Reset(through) => {
-                        drop_conversation(&mut state, events, through).await;
+                        reset_conversation(&mut state, events, through, &mut queue).await;
                         write_renamed_after_reset(&mut state, events, &cancel).await;
                     }
                     Ended::Turn => {}
@@ -3564,12 +3570,26 @@ async fn turn_loop(
             // ([`apply_deferred`]), and the ones typed after the reset written
             // into the session it starts.
             Ended::Reset(through) => {
-                drop_conversation(&mut state, events, through).await;
+                reset_conversation(&mut state, events, through, &mut queue).await;
                 write_renamed_after_reset(&mut state, events, &cancel).await;
             }
             Ended::Turn => {}
         }
     }
+}
+
+/// A reset, from the loop: what its stop dropped is told before the
+/// conversation goes ([`Queue::tell_dropped`]), so the ending of a compaction
+/// it dropped is on the near side of the fence, with the conversation it was
+/// about ([`drop_conversation`]).
+async fn reset_conversation(
+    state: &mut Runtime,
+    events: &Sender<UiEvent>,
+    through: usize,
+    queue: &mut Queue<'_>,
+) {
+    queue.tell_dropped(events).await;
+    drop_conversation(state, events, through).await;
 }
 
 /// `/new`, `/clear` and `/reset`, with the line shell's own meaning: the
@@ -3709,6 +3729,10 @@ struct Queue<'a> {
     /// arithmetic: paired with the count the UI quotes, it says exactly which
     /// waiting items an interrupt was about.
     taken: usize,
+    /// Compactions [`Self::abandon`] dropped before they began whose ending
+    /// could not go when they were dropped -- the band's channel was full --
+    /// and whose places are held until it has gone ([`Self::tell_dropped`]).
+    owed: usize,
 }
 
 impl Queue<'_> {
@@ -3721,24 +3745,50 @@ impl Queue<'_> {
     /// Drops every piece of work submitted through `through` that nobody has
     /// started yet, giving each place back. Returns how many.
     ///
-    /// `through` is how many submissions the UI had made when the key was
-    /// pressed, and **only the work before that line is dropped**. Work that
-    /// arrived after the interrupt is a new intention, and eating it would make
-    /// Ctrl-C swallow the question the user asked next -- reachable in the
-    /// plainest way there is, because the UI paints the interrupt notice on its
-    /// own thread and the user can read it and type again long before this
-    /// thread has looked at the message.
-    fn abandon(&mut self, through: usize) -> usize {
+    /// **A compaction is told it ended**, cancelled ([`Update::Dropped`]), and
+    /// only then gives its place back: the band put it on the row at the
+    /// keystroke and has no other way to learn that it never began -- with
+    /// other work in hand, a dropped one and a taken one whose ending is on its
+    /// way look the same from there. Upstream's worker settles the queued
+    /// compaction it drops, cancelled, and takes it off its queue in the same
+    /// step (`cancelContextCompaction`,
+    /// `src/core/agent/worker_runtime.zig:1002-1021@481104fd`; a discard,
+    /// `:1846-1847`). This runs inside a race's stop
+    /// ([`raced_against_control`]), which cannot await, so the word goes now if
+    /// the channel has room, and the place with it -- the work in front can go
+    /// on for seconds (a provider probe), and a place held that long would
+    /// refuse the next prompt ([`WORK_LIMIT`]). With the channel full the word
+    /// waits for this work to let go, and so does the place
+    /// ([`Self::tell_dropped`]).
+    fn abandon(&mut self, through: usize, events: &Sender<UiEvent>) -> usize {
         let mut dropped = 0usize;
         while self.taken < through {
-            if self.work.try_recv().is_err() {
+            let Ok(item) = self.work.try_recv() else {
                 break;
-            }
+            };
             self.taken += 1;
-            self.outstanding.fetch_sub(1, Ordering::Release);
+            let told = !matches!(item, TurnWork::Compact)
+                || bridge::try_send_terminal(events, UiEvent::Compaction(Update::Dropped));
+            if told {
+                self.outstanding.fetch_sub(1, Ordering::Release);
+            } else {
+                self.owed += 1;
+            }
             dropped += 1;
         }
         dropped
+    }
+
+    /// Tells the band, for each compaction [`Self::abandon`] dropped and could
+    /// not tell then, that it ended without beginning ([`Update::Dropped`]),
+    /// and only then gives its place back -- the order every piece of work
+    /// keeps, its last word before its place ([`turn_loop`]).
+    async fn tell_dropped(&mut self, events: &Sender<UiEvent>) {
+        while self.owed > 0 {
+            bridge::send_terminal(events, UiEvent::Compaction(Update::Dropped)).await;
+            self.owed -= 1;
+            self.outstanding.fetch_sub(1, Ordering::Release);
+        }
     }
 }
 
@@ -3835,7 +3885,7 @@ async fn run_turn(
     // would sit there claiming a place the band is still announcing.
     let ((caught, titled), ended) = raced_against_control(body, control, &asks, |through| {
         turn.cancel();
-        queue.abandon(through);
+        queue.abandon(through, events);
     })
     .await;
     asks.finish(&mut state.selector);
@@ -3901,7 +3951,7 @@ async fn run_compact(
     let body = compact_between_turns(state, events, &turn);
     let (feedback, ended) = raced_against_control(body, control, &asks, |through| {
         turn.cancel();
-        queue.abandon(through);
+        queue.abandon(through, events);
     })
     .await;
     asks.finish(&mut state.selector);
@@ -4919,7 +4969,7 @@ async fn run_setup(
             &Arc::new(CatalogAsks::AfterWork),
             |through| {
                 turn.cancel();
-                queue.abandon(through);
+                queue.abandon(through, events);
             },
         )
         .await;
@@ -5146,7 +5196,7 @@ async fn change_model(
             &Arc::new(CatalogAsks::AfterWork),
             |through| {
                 turn.cancel();
-                queue.abandon(through);
+                queue.abandon(through, events);
             },
         )
         .await;
@@ -6492,6 +6542,40 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     UNKNOWN_PANIC.to_string()
 }
 
+/// Test support for the band's cases (`super::event_loop`'s tests): the real
+/// [`turn_loop`], over a shell's own work channel and count, reading
+/// `control` and then a [`TurnControl::Shutdown`]. The loop reads its control
+/// channel first (`biased`), so it acts on every message and returns without
+/// taking any work they did not drop. It counts from the shell's first
+/// submission, so it is called before the case takes any work off the
+/// channel. The runtime has no credential ([`tests::recording`]): nothing it
+/// could start reaches a socket.
+#[cfg(test)]
+pub(crate) fn loop_reads_its_control(
+    handle: &WorkHandle,
+    work: &mut Receiver<TurnWork>,
+    control: Vec<TurnControl>,
+    events: &Sender<UiEvent>,
+) {
+    let (_home, _workspace, state) = tests::recording();
+    let (control_tx, control_rx) = mpsc::unbounded_channel();
+    for message in control.into_iter().chain([TurnControl::Shutdown]) {
+        control_tx
+            .send(message)
+            .expect("the loop's control channel is open");
+    }
+    let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+    tests::on_a_runtime(turn_loop(
+        state,
+        events,
+        work,
+        &mut changes,
+        ControlChannel::new(control_rx),
+        Cancellation::new(CancelToken::new()),
+        &handle.outstanding,
+    ));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6940,8 +7024,9 @@ mod tests {
             work: &mut work_rx,
             outstanding: &handle.outstanding,
             taken: 0,
+            owed: 0,
         };
-        let dropped = queue.abandon(handle.accepted());
+        let dropped = queue.abandon(handle.accepted(), &unread());
 
         assert_eq!(dropped, 2);
         assert_eq!(queue.taken, 2, "the drops were not counted as taken");
@@ -6987,8 +7072,9 @@ mod tests {
             work: &mut work_rx,
             outstanding: &handle.outstanding,
             taken: 1,
+            owed: 0,
         };
-        let dropped = queue.abandon(through);
+        let dropped = queue.abandon(through, &unread());
 
         assert_eq!(dropped, 0, "the interrupt reached past the keystroke");
         assert_eq!(
@@ -7017,11 +7103,12 @@ mod tests {
             work: &mut work_rx,
             outstanding: &handle.outstanding,
             taken: 0,
+            owed: 0,
         };
         let running = queue.work.try_recv().expect("the turn began");
         let _running = queue.took(running);
 
-        assert_eq!(queue.abandon(through), 0);
+        assert_eq!(queue.abandon(through, &unread()), 0);
         assert_eq!(
             queue.work.try_recv(),
             Ok(TurnWork::Submit("queued after".into())),
@@ -7186,6 +7273,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &counted,
             taken: 1,
+            owed: 0,
         };
         let (was_stopped, ended) = on_a_runtime(raced_against_control(
             body,
@@ -7193,7 +7281,7 @@ mod tests {
             &Arc::new(CatalogAsks::AfterWork),
             |through| {
                 stopped.store(true, Ordering::Release);
-                queue.abandon(through);
+                queue.abandon(through, &unread());
             },
         ));
 
@@ -7279,9 +7367,15 @@ mod tests {
         (body, stopped)
     }
 
+    /// A band channel nobody reads, for the drops that have nothing to tell
+    /// it: no compaction among them ([`Queue::abandon`]).
+    fn unread() -> Sender<UiEvent> {
+        mpsc::channel(bridge::UI_EVENTS).0
+    }
+
     /// Runs `work` on a runtime of its own, in a set of local tasks, as the
     /// worker thread does.
-    fn on_a_runtime<T>(work: impl Future<Output = T>) -> T {
+    pub(super) fn on_a_runtime<T>(work: impl Future<Output = T>) -> T {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -7933,6 +8027,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
 
         let ended = on_a_runtime(run_turn(
@@ -8185,6 +8280,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 1,
+            owed: 0,
         };
 
         let started = Instant::now();
@@ -8289,6 +8385,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 1,
+            owed: 0,
         };
         let (published, concluded) = on_a_runtime(async {
             let mut turn = std::pin::pin!(run_turn(
@@ -9072,6 +9169,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
         on_a_runtime(run_turn(
             state,
@@ -9626,6 +9724,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
         let ended = on_a_runtime(run_turn(
             state,
@@ -10057,7 +10156,7 @@ mod tests {
     /// that named a different one would be building a session production
     /// cannot produce -- `spawn` constructs the selector from the same
     /// configuration the conversation is opened against.
-    fn recording() -> (tempfile::TempDir, tempfile::TempDir, Runtime) {
+    pub(super) fn recording() -> (tempfile::TempDir, tempfile::TempDir, Runtime) {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
@@ -10114,6 +10213,457 @@ mod tests {
     }
 
     #[test]
+    fn a_compaction_a_stop_drops_before_it_began_is_told_how_it_ended() {
+        // Upstream's worker settles the queued compaction a stop drops, as
+        // cancelled (`cancelContextCompaction`,
+        // `src/core/agent/worker_runtime.zig:1002-1021@481104fd`; a reset's
+        // discard, `:1846-1847`): that is the band's only word about one that
+        // never began. Both ways a stop between items drops one: a cancel,
+        // and a reset, whose fence comes after the word. And a prompt dropped
+        // beside it, then the same stop again: one word, for the compaction
+        // alone, and every place given back once.
+        let mut got = Vec::new();
+        for stop in [
+            "a cancel",
+            "a reset",
+            "a prompt and a compaction, a cancel twice",
+        ] {
+            let (handle, mut work_rx, _control) = WorkHandle::detached();
+            let twice = stop.ends_with("twice");
+            if twice {
+                handle
+                    .submit(TurnWork::Submit("dropped".into()))
+                    .expect("idle");
+            }
+            handle.submit(TurnWork::Compact).expect("room");
+            let through = handle.accepted();
+            let message = if stop == "a reset" {
+                TurnControl::Reset { through }
+            } else {
+                TurnControl::Cancel { through }
+            };
+            let messages = if twice {
+                vec![message.clone(), message]
+            } else {
+                vec![message]
+            };
+            let (events, mut seen) = mpsc::channel(bridge::UI_EVENTS);
+            loop_reads_its_control(&handle, &mut work_rx, messages, &events);
+            drop(events);
+            let mut said = Vec::new();
+            while let Ok(event) = seen.try_recv() {
+                said.push(match event {
+                    UiEvent::Compaction(_) => "the compaction's end".to_string(),
+                    UiEvent::Fresh { .. } => "the fence".to_string(),
+                    other => format!("{other:?}"),
+                });
+            }
+            got.push((stop, said, handle.outstanding()));
+        }
+        assert_eq!(
+            got,
+            [
+                ("a cancel", vec!["the compaction's end".to_string()], 0),
+                (
+                    "a reset",
+                    vec!["the compaction's end".to_string(), "the fence".to_string()],
+                    0
+                ),
+                (
+                    "a prompt and a compaction, a cancel twice",
+                    vec!["the compaction's end".to_string()],
+                    0
+                ),
+            ],
+            "each: (the stop, what the band was told, the places still held)"
+        );
+    }
+
+    #[test]
+    fn a_compaction_a_stop_drops_while_other_work_lets_go_frees_its_place_at_once() {
+        // Upstream's worker settles the queued compaction a stop drops, and
+        // takes it off its queue, at the stop's own keystroke
+        // (`cancelContextCompaction`,
+        // `src/core/agent/worker_runtime.zig:1002-1021@481104fd`). Here the
+        // stop is read inside the race of the work in front of it -- a provider
+        // switch whose probe is still out (`run_setup`), which goes on until it
+        // returns -- and the compaction's place must be free from the stop on,
+        // as the base's was: held, the session's two places are spent
+        // (`WORK_LIMIT`) and the next prompt is refused. The band is told while
+        // the switch still runs, once.
+        let (handle, mut work_rx, _control) = WorkHandle::detached();
+        handle
+            .submit(TurnWork::Setup(ProviderId::Llmux))
+            .expect("idle");
+        assert!(
+            matches!(work_rx.try_recv(), Ok(TurnWork::Setup(_))),
+            "the switch is taken"
+        );
+        handle.submit(TurnWork::Compact).expect("one may wait");
+        let through = handle.accepted();
+        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        control_tx
+            .send(TurnControl::Cancel { through })
+            .expect("open");
+        let control = ControlChannel::new(control_rx);
+        let (events, mut seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &handle.outstanding,
+            taken: 1,
+            owed: 0,
+        };
+        let (release, released) = tokio::sync::oneshot::channel::<()>();
+        let asks = Arc::new(CatalogAsks::AfterWork);
+        let (during, admitted) = on_a_runtime(async {
+            let mut race = std::pin::pin!(raced_against_control(
+                async {
+                    let _ = released.await;
+                },
+                &control,
+                &asks,
+                |through| {
+                    queue.abandon(through, &events);
+                },
+            ));
+            for poll in 0..PARKED_POLLS {
+                let pending = std::future::poll_fn(|context| {
+                    std::task::Poll::Ready(race.as_mut().poll(context).is_pending())
+                })
+                .await;
+                assert!(pending, "poll {poll}: the switch let go by itself");
+            }
+            let mut during = Vec::new();
+            while let Ok(event) = seen.try_recv() {
+                during.push(event);
+            }
+            let admitted = handle.submit(TurnWork::Submit("next question".into()));
+            let _ = release.send(());
+            let ((), ended) = race.await;
+            assert_eq!(ended, Ended::Turn);
+            (during, admitted)
+        });
+        drop(events);
+        assert_eq!(
+            (during, admitted),
+            (vec![UiEvent::Compaction(Update::Dropped)], Ok(())),
+            "(what the band was told while the switch ran, the next prompt)"
+        );
+        assert!(seen.try_recv().is_err(), "the band was told twice");
+        assert_eq!(
+            handle.outstanding(),
+            2,
+            "the switch's place and the prompt's, and no other"
+        );
+    }
+
+    #[test]
+    fn a_compaction_dropped_with_no_room_for_its_word_is_told_once_before_the_reset_after_it() {
+        // The stop is read in a race while the band's channel is full: the
+        // word cannot go then, so it and the place wait (`Queue::owed`). The
+        // stop comes twice, then a reset, all while the work in front still
+        // runs: one word, on the near side of the reset's fence
+        // (`reset_conversation`), and the place held until it went.
+        let (_home, _workspace, mut state) = recording();
+        let (handle, mut work_rx, _control) = WorkHandle::detached();
+        handle
+            .submit(TurnWork::Setup(ProviderId::Llmux))
+            .expect("idle");
+        let _ = work_rx.try_recv();
+        handle.submit(TurnWork::Compact).expect("one may wait");
+        let through = handle.accepted();
+        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        for message in [
+            TurnControl::Cancel { through },
+            TurnControl::Cancel { through },
+            TurnControl::Reset { through },
+        ] {
+            control_tx.send(message).expect("open");
+        }
+        let control = ControlChannel::new(control_rx);
+        let (events, mut seen) = mpsc::channel::<UiEvent>(1);
+        let filler = UiEvent::Delta("filler".to_string());
+        events.try_send(filler.clone()).expect("the one permit");
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &handle.outstanding,
+            taken: 1,
+            owed: 0,
+        };
+        let (release, released) = tokio::sync::oneshot::channel::<()>();
+        let asks = Arc::new(CatalogAsks::AfterWork);
+        let held = on_a_runtime(async {
+            let ended = {
+                let mut race = std::pin::pin!(raced_against_control(
+                    async {
+                        let _ = released.await;
+                    },
+                    &control,
+                    &asks,
+                    |through| {
+                        queue.abandon(through, &events);
+                    },
+                ));
+                for poll in 0..PARKED_POLLS {
+                    let pending = std::future::poll_fn(|context| {
+                        std::task::Poll::Ready(race.as_mut().poll(context).is_pending())
+                    })
+                    .await;
+                    assert!(pending, "poll {poll}: the work let go by itself");
+                }
+                let _ = release.send(());
+                race.await.1
+            };
+            assert_eq!(
+                ended,
+                Ended::Reset(through),
+                "the reset was read in the race"
+            );
+            let mut reset =
+                std::pin::pin!(reset_conversation(&mut state, &events, through, &mut queue));
+            for poll in 0..PARKED_POLLS {
+                let pending = std::future::poll_fn(|context| {
+                    std::task::Poll::Ready(reset.as_mut().poll(context).is_pending())
+                })
+                .await;
+                assert!(
+                    pending,
+                    "poll {poll}: the reset went with no room for the word"
+                );
+            }
+            let held = handle.outstanding();
+            assert_eq!(seen.recv().await, Some(filler));
+            // The band reads on, one slot at a time, while the reset ends.
+            let mut said = Vec::new();
+            tokio::time::timeout(TEST_DRAIN, async {
+                loop {
+                    tokio::select! {
+                        biased;
+                        event = seen.recv() => match event {
+                            Some(event) => said.push(event),
+                            None => break,
+                        },
+                        () = reset.as_mut() => {
+                            while let Ok(event) = seen.try_recv() {
+                                said.push(event);
+                            }
+                            break;
+                        }
+                    }
+                }
+            })
+            .await
+            .expect("the reset never ended");
+            (held, said)
+        });
+        let (held, said) = held;
+        assert_eq!(
+            (held, said, handle.outstanding()),
+            (
+                2,
+                vec![
+                    UiEvent::Compaction(Update::Dropped),
+                    UiEvent::Fresh { through }
+                ],
+                1
+            ),
+            "(the places held while there was no room, what the band was told, the places \
+             after: the work in front's alone)"
+        );
+    }
+
+    #[test]
+    fn a_session_that_ends_with_a_drop_still_untold_ends_when_the_band_closes_its_channel() {
+        // `Worker::shutdown` drains, then closes the channel, and a send parked
+        // on it then resolves `Err` (`worker.rs`'s shutdown, step 4). A
+        // compaction dropped while the channel is full is waited on at the top
+        // of the loop (`Queue::tell_dropped`); the close lets that wait end, the
+        // place goes back once, and the loop reads its `Shutdown`.
+        let (_home, _workspace, state) = recording();
+        let (handle, mut work_rx, _control) = WorkHandle::detached();
+        handle.submit(TurnWork::Compact).expect("idle");
+        let (events, mut seen) = mpsc::channel::<UiEvent>(1);
+        let filler = UiEvent::Delta("filler".to_string());
+        events.try_send(filler.clone()).expect("the one permit");
+        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        control_tx
+            .send(TurnControl::Cancel { through: 1 })
+            .expect("open");
+        control_tx.send(TurnControl::Shutdown).expect("open");
+        let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+        let held = on_a_runtime(async {
+            let mut looped = std::pin::pin!(turn_loop(
+                state,
+                &events,
+                &mut work_rx,
+                &mut changes,
+                ControlChannel::new(control_rx),
+                Cancellation::new(CancelToken::new()),
+                &handle.outstanding,
+            ));
+            for poll in 0..PARKED_POLLS {
+                let pending = std::future::poll_fn(|context| {
+                    std::task::Poll::Ready(looped.as_mut().poll(context).is_pending())
+                })
+                .await;
+                assert!(pending, "poll {poll}: the loop left with the word untold");
+            }
+            let held = handle.outstanding();
+            seen.close();
+            tokio::time::timeout(TEST_DRAIN, looped)
+                .await
+                .expect("the loop never ended once the band closed its channel");
+            held
+        });
+        let mut said = Vec::new();
+        while let Ok(event) = seen.try_recv() {
+            said.push(event);
+        }
+        assert_eq!(
+            (held, said, handle.outstanding()),
+            (1, vec![filler], 0),
+            "(the place while the word waited, what reached the band, the places after)"
+        );
+    }
+
+    #[test]
+    fn a_compaction_dropped_in_a_turns_race_with_no_room_is_told_after_that_turn_and_before_more_work(
+    ) {
+        // The real loop and turn. A prompt is taken and its start waits on a
+        // full channel; a stop arrives, which the turn's race reads first
+        // (`biased`) and which drops the compaction behind it with the channel
+        // still full (the start took the room). The word waits: after the
+        // turn's end, at the top of the next pass, before anything else is
+        // taken -- and the place with it (`Queue::tell_dropped`).
+        let (_home, _workspace, state) = recording();
+        assert!(
+            Bundle::select(&state.config, &CancelToken::new()).is_err(),
+            "the fixture would reach a real endpoint"
+        );
+        let (handle, mut work_rx, _control) = WorkHandle::detached();
+        handle
+            .submit(TurnWork::Submit("first question".into()))
+            .expect("idle");
+        handle.submit(TurnWork::Compact).expect("one may wait");
+        let through = handle.accepted();
+        let (events, mut seen) = mpsc::channel::<UiEvent>(1);
+        events
+            .try_send(UiEvent::Delta("filler".to_string()))
+            .expect("the one permit");
+        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+        let (order, held) = on_a_runtime(async {
+            let mut looped = std::pin::pin!(turn_loop(
+                state,
+                &events,
+                &mut work_rx,
+                &mut changes,
+                ControlChannel::new(control_rx),
+                Cancellation::new(CancelToken::new()),
+                &handle.outstanding,
+            ));
+            let pending = std::future::poll_fn(|context| {
+                std::task::Poll::Ready(looped.as_mut().poll(context).is_pending())
+            })
+            .await;
+            assert!(pending, "the loop ran out with the prompt's start unsent");
+            control_tx
+                .send(TurnControl::Cancel { through })
+                .expect("open");
+            let mut order = Vec::new();
+            let mut held = None;
+            for _ in 0..10_000 {
+                tokio::task::yield_now().await;
+                if let Ok(event) = seen.try_recv() {
+                    match event {
+                        UiEvent::TurnStarted { .. } => order.push("the turn's start"),
+                        UiEvent::TurnEnded { .. } => {
+                            order.push("the turn's end");
+                            held = Some(handle.outstanding());
+                            control_tx.send(TurnControl::Shutdown).expect("open");
+                        }
+                        UiEvent::Compaction(Update::Dropped) => order.push("the drop"),
+                        _ => {}
+                    }
+                }
+                let pending = std::future::poll_fn(|context| {
+                    std::task::Poll::Ready(looped.as_mut().poll(context).is_pending())
+                })
+                .await;
+                if !pending {
+                    break;
+                }
+            }
+            while let Ok(event) = seen.try_recv() {
+                if event == UiEvent::Compaction(Update::Dropped) {
+                    order.push("the drop");
+                }
+            }
+            (order, held)
+        });
+        assert_eq!(
+            (order, held, handle.outstanding()),
+            (
+                vec!["the turn's start", "the turn's end", "the drop"],
+                Some(1),
+                0
+            ),
+            "(the order, the places when the turn's end was read, the places after)"
+        );
+    }
+
+    #[test]
+    fn a_dropped_compactions_place_is_held_until_its_ending_is_on_the_channel() {
+        // The order every piece of work keeps: its last word, then its place
+        // ([`turn_loop`]). Deterministic: the channel's one permit is taken,
+        // so the word parks, and the loop is polled by hand while it does --
+        // the place must still be held. The word is the drop's own.
+        let (handle, mut work_rx, _control) = WorkHandle::detached();
+        handle.submit(TurnWork::Compact).expect("idle");
+        let (_home, _workspace, state) = recording();
+        let (events, mut seen) = mpsc::channel::<UiEvent>(1);
+        let filler = UiEvent::Fresh { through: 0 };
+        events.try_send(filler.clone()).expect("the one permit");
+        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        control_tx
+            .send(TurnControl::Cancel { through: 1 })
+            .expect("open");
+        control_tx.send(TurnControl::Shutdown).expect("open");
+        let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+        on_a_runtime(async {
+            let mut looped = std::pin::pin!(turn_loop(
+                state,
+                &events,
+                &mut work_rx,
+                &mut changes,
+                ControlChannel::new(control_rx),
+                Cancellation::new(CancelToken::new()),
+                &handle.outstanding,
+            ));
+            for poll in 0..PARKED_POLLS {
+                let pending = std::future::poll_fn(|context| {
+                    std::task::Poll::Ready(looped.as_mut().poll(context).is_pending())
+                })
+                .await;
+                assert!(pending, "poll {poll}: the loop left without its word");
+            }
+            assert_eq!(
+                handle.outstanding(),
+                1,
+                "the place went back before the band was told"
+            );
+            assert_eq!(seen.recv().await, Some(filler));
+            let _ = looped.await;
+        });
+        assert_eq!(
+            seen.try_recv(),
+            Ok(UiEvent::Compaction(Update::Dropped)),
+            "the drop's word"
+        );
+        assert_eq!(handle.outstanding(), 0, "the place was kept");
+    }
+
+    #[test]
     fn a_reset_between_turns_drops_what_waits_and_then_says_the_conversation_is_gone() {
         // The fence a reset drains to (`UiEvent::Fresh`): sent once the drop
         // has happened, quoting the reset's count. What was submitted through
@@ -10131,8 +10681,9 @@ mod tests {
             work: &mut work_rx,
             outstanding: &handle.outstanding,
             taken: 0,
+            owed: 0,
         };
-        assert_eq!(queue.abandon(through), 1);
+        assert_eq!(queue.abandon(through, &unread()), 1);
         assert_eq!(handle.outstanding(), 1);
         assert_eq!(
             queue.work.try_recv(),
@@ -10495,6 +11046,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
         // Said by the shell already, as one typed while work runs is.
         control.defer_rename("Typed Before".to_string(), false, true);
@@ -10758,6 +11310,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
         for change in changes {
             match change {
@@ -10812,6 +11365,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
         let ended = on_a_runtime(change_model(
             state, change, &events_tx, &cancel, &control, &mut queue,
@@ -11522,6 +12076,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
         control.defer(ModelChange {
             name: "kept/model".to_string(),
@@ -13094,6 +13649,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
         let path = in_workspace(&state, "a.txt");
         assert!(
@@ -13143,6 +13699,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
         let first = in_workspace(&state, "a.txt");
         let second = in_workspace(&state, "b.txt");
@@ -15833,6 +16390,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
 
         let ended = on_a_runtime(run_turn(
@@ -17170,6 +17728,7 @@ mod tests {
             work: &mut work_rx,
             outstanding: &outstanding,
             taken: 0,
+            owed: 0,
         };
         on_a_runtime(run_turn(
             state,
@@ -18437,5 +18996,99 @@ mod tests {
             (vec![1, 0, 1, 0], 2, 1),
             "how many times each turn said the history's notice, the resumes, the reset"
         );
+    }
+
+    #[test]
+    fn a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs(
+    ) {
+        // Train 10, join check 2 (COMPACT-NOTICE-LATE x HISTORY-NOTICE-STOP),
+        // on the real `turn_loop`. Three submissions: a prompt stopped in its
+        // catalog wait before its request (HISTORY-NOTICE-STOP's `WindowRetry`
+        // case), a `/compact` queued behind it, and a prompt after them. A
+        // Ctrl-C quoting the first two, 300 ms in: the stopped turn hands no
+        // history notice on, so the notice is the third submission's turn's,
+        // said once (`one_turn` marks it said only once `send_ui` has queued
+        // it); the compaction the stop dropped before it began is told the
+        // band once, `Dropped`, inside the stop (`Queue::abandon` ->
+        // `try_send_terminal`), before the next turn starts; and every place
+        // is given back.
+        let (_home, _workspace, mut state, first, held) = waiting_in(CatalogWait::WindowRetry);
+        sealed_on_llmux(&mut state);
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(3);
+        work_tx.try_send(first).expect("room");
+        work_tx.try_send(TurnWork::Compact).expect("room");
+        work_tx
+            .try_send(TurnWork::Submit("third".to_string()))
+            .expect("room");
+        drop(work_tx);
+        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+        let (events, mut seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        let outstanding = AtomicUsize::new(3);
+        let stopper = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            let _ = control_tx.send(TurnControl::Cancel { through: 2 });
+            // Held until the loop has run out of work: a closed control
+            // channel is no stop.
+            std::thread::sleep(Duration::from_secs(8));
+        });
+        let log = on_a_runtime(async {
+            let run = turn_loop(
+                state,
+                &events,
+                &mut work_rx,
+                &mut changes,
+                ControlChannel::new(control_rx),
+                Cancellation::new(CancelToken::new()),
+                &outstanding,
+            );
+            let watch = async {
+                let mut log = Vec::new();
+                let mut ends = 0;
+                while ends < 2 {
+                    match tokio::time::timeout(TEST_DRAIN, seen.recv()).await {
+                        Ok(Some(event)) => {
+                            if matches!(event, UiEvent::TurnEnded { .. }) {
+                                ends += 1;
+                            }
+                            log.push(event);
+                        }
+                        _ => break,
+                    }
+                }
+                log
+            };
+            let (_, log) = tokio::join!(run, watch);
+            log
+        });
+        drop(stopper);
+        drop(held);
+        let mut ends = Vec::new();
+        let mut said: Vec<usize> = Vec::new();
+        let mut compactions = Vec::new();
+        for event in &log {
+            match event {
+                UiEvent::TurnStarted { .. } => said.push(0),
+                UiEvent::TurnEnded { failure } => ends.push(failure.clone()),
+                UiEvent::Notice(notice) if notice.text().contains(NOT_CARRIED) => {
+                    *said.last_mut().expect("a notice inside a turn") += 1;
+                }
+                UiEvent::Compaction(update) => {
+                    compactions.push((said.len(), format!("{update:?}")))
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(
+            (ends, said, compactions),
+            (
+                vec![Some(bridge::TURN_CANCELLED.to_string()), None],
+                vec![0, 1],
+                vec![(1, "Dropped".to_string())],
+            ),
+            "the two turns' ends; the history notice said per turn; each compaction word, \
+             with how many turns had started"
+        );
+        assert_eq!(outstanding.load(Ordering::Acquire), 0, "a place was kept");
     }
 }

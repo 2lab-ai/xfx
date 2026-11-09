@@ -1,0 +1,4 @@
+snaps whose screen differs only in clock-like or run-local text: 1; otherwise: 1
+  of them, snaps where fx's screen moved at the same rows as xfx's: 0 snaps
+  snaps where xfx's screen moved alone or at other rows than fx's: 1
+    xfx p5-lifecycle-compactok c02-compacting rows [18]: [('• Compacting (0s)', '  Compacting (0s)')]

@@ -795,6 +795,7 @@ mod mcp_args;
 mod mcp_menu;
 mod model_column;
 mod model_menu;
+mod model_search;
 mod notice;
 mod pacer;
 mod panic;

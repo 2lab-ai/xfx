@@ -1,0 +1,32 @@
+# RED, round 3, at 088e8a50 (round 2's head d268896a's code + receipts + these two tests)
+
+running 2 tests
+test tui::worker::tests::a_compaction_a_stop_drops_while_other_work_lets_go_frees_its_place_at_once ... FAILED
+test tui::shell::tests::a_compact_typed_while_a_reset_drains_answers_as_upstreams_would ... FAILED
+
+failures:
+
+---- tui::worker::tests::a_compaction_a_stop_drops_while_other_work_lets_go_frees_its_place_at_once stdout ----
+
+thread 'tui::worker::tests::a_compaction_a_stop_drops_while_other_work_lets_go_frees_its_place_at_once' (363704970) panicked at src/tui/worker.rs:10279:9:
+assertion `left == right` failed: (what the band was told while the switch ran, the next prompt)
+  left: ([], Err(Busy))
+ right: ([Compaction(Dropped)], Ok(()))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::shell::tests::a_compact_typed_while_a_reset_drains_answers_as_upstreams_would stdout ----
+
+thread 'tui::shell::tests::a_compact_typed_while_a_reset_drains_answers_as_upstreams_would' (363704969) panicked at src/tui/shell.rs:43430:9:
+assertion `left == right` failed: each: (the row, the work sent)
+  left: [("nothing in hand", Some("• Preparing compaction (0s)"), Some(Compact)), ("a turn in hand", Some("• Preparing compaction (0s)"), Some(Compact))]
+ right: [("nothing in hand", Some("No context to compact."), None), ("a turn in hand", Some("Wait for the active work to finish before compacting context."), None)]
+
+
+failures:
+    tui::shell::tests::a_compact_typed_while_a_reset_drains_answers_as_upstreams_would
+    tui::worker::tests::a_compaction_a_stop_drops_while_other_work_lets_go_frees_its_place_at_once
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4542 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--lib`
+exit: 101

@@ -1,0 +1,118 @@
+# MODEL-FUZZY (U8, I13): what fx v0.0.16 does, read at the pin.
+# Every line is `git -C <fx-upstream> show 481104fd:<path>`, cited path:line@481104fd
+# unless marked @c1db9191 (the old version). M = src/core/app/model_cache_runtime.zig,
+# P = src/ui/footer/model_menu_presentation.zig, I = src/core/app/input_completion_runtime.zig.
+
+## The change
+f9ddaff8 "Make model search fuzzy across provider and model names" (2026-10-27), an
+ancestor of 481104fd: 1 file, M, +244 -23. model_menu_presentation.zig changed in the range
+only for the I14 sentence and std API renames (`git diff c1db9191 481104fd -- P`).
+
+## The matcher: matchModelQuery, M:371-389
+- M:375  `const text = std.mem.trim(u8, query, " \t\r\n");`  the blanks round the query go.
+- M:376  `if (text_utils.containsIgnoreCase(id, text)) return .substring;`  the whole query as
+         typed, ASCII case ignored; an empty needle is contained (src/core/shared/text_utils.zig:5-6,
+         `if (needle.len == 0) return true;`), so an empty or all-blank query lists everything
+         (M:2063-2064, `""` and `" \t"` are `.substring`).
+- M:379  `std.mem.tokenizeAny(u8, text, " \t\r\n")`  words split at the same four bytes, empty
+         tokens skipped.
+- M:381  `if (!hasAlphanumeric(word)) continue;`  a word with no ASCII letter or digit is passed
+         over (M:391-396); a query of only those ends `.none` unless it was a substring
+         (M:2082, `"- /"` is `.none`).
+- M:382-386  run -> `.words` (only from `.none`: a words match never lifts a fuzzy one), else
+         word-start subsequence -> `.fuzzy`, else `return .none`: every word must match, and the
+         result is the worst word's.
+- M:371-373 doc: "Matches `query` against the full model id, provider prefix included ... every
+         word must match. An empty query matches everything."
+- M:340-347  modelMenuItemMatch: the provider tab filter, then `matchModelQuery(item.id, query)`
+         -- the id only. Old: M:252-261@c1db9191, `query_text.len == 0 or containsIgnoreCase(item.id,
+         query_text) or containsIgnoreCase(item.provider, query_text)` -- id or provider, substring.
+
+## The ranks: ModelMatch, M:349-369
+- M:352-362  `enum(u2) { none, fuzzy, words, substring }`, worst to best; `betterThan` compares
+         the backing ints (M:364-366).
+- M:369  `const ranked_model_matches = [_]ModelMatch{ .substring, .words, .fuzzy };`
+- M:298-315  modelMenuItemAt: for each rank in that order, the items of that rank in catalog
+         order -- "Better matches list first, and rows that match equally well keep catalog
+         order." (M:298-299)
+- M:286-296  modelMenuFilteredItemCount: every item whose match is not `.none`.
+
+## Words: containsAlphanumericRun, M:398-413
+- For each id start that is ASCII alphanumeric, the word's alphanumerics are compared one by one
+  with the id's next alphanumeric, skipping every other id byte; case ignored (`toLower`).
+  "`anthropic sonnet` and `sonnet45` find `anthropic/claude-sonnet-4.5`" (M:358-359).
+
+## Fuzzy: containsWordStartSubsequence, M:415-436; isIdWordStart, M:438-447
+- M:420-426  the word's first alphanumeric must equal (case ignored) an id byte that starts an id
+         word -- the first such position.
+- M:428-434  the rest of the word's alphanumerics in order after it, any distance apart.
+- M:416-417 "Anchoring the first letter keeps short words from matching scattered letters across
+         unrelated models."
+- M:440-447  a word start is an alphanumeric byte at index 0, after a non-alphanumeric byte, or
+         where `isDigit(previous) != isDigit(byte)` -- letters into digits or back. A change of case
+         is not one (no case test in the function). "`gpt-4o` has the words `gpt`, `4`, and `o`"
+         (M:438-439). All of it is std.ascii: a byte outside ASCII is never alphanumeric, so it is
+         punctuation.
+
+## fx's own tests (transcribed into xfx, see README)
+- M:2060-2084  "model queries match the full id verbatim, by words, and fuzzily": the table
+         (`""`, `" \t"`, `" Claude-Sonnet "`, `"ANTHROPIC/claude"` substring; `"claude sonnet 4.5"`,
+         `"anthropic sonnet"`, `"Sonnet45"`, `"sonnet 4-5"`, `"anthropic / sonnet"` words; `"cs45"`,
+         `"anthropic sonet"`, `acme/gpt4omni`+`"omi"` fuzzy; `acme/gpt4omni`+`"mi"`, `"opus"`,
+         `"sonnet opus"`, `"nthrpc"`, `"- /"`, `""`+`"a"` none).
+- M:2086-2123  "model menu ranks fuzzy matches below verbatim ones and keeps the selection":
+         `gpt5` lists acme/gpt5-lite, openai/gpt-5, openai/gpt-4.5-preview; the OpenAI tab lists
+         openai/gpt-5, openai/gpt-4.5-preview; one down marks openai/gpt-5; a revalidated catalog
+         with acme/gpt5-pro first leaves `selected_index == 2` on openai/gpt-5.
+- M:2125-2156  "model completions rank fuzzy matches below verbatim ones": the same three in the
+         same order from modelCompletions("gpt5"); two places keep acme/gpt5-lite, openai/gpt-5;
+         `"anthropic opus"` gives 1; `""` gives 4, first openai/gpt-4.5-preview.
+
+## The menu: query, count, rows, "No models found.", highlight
+- The query is the composer's text while the menu is up: syncModelMenu,
+  src/core/app/app_input_runtime.zig:2523-2527@481104fd (`setMenuQuery(edit_state.input.items)`),
+  from syncCatalogMenus (:2478-2485); setQuery keeps at most 256 bytes and puts the mark on row 0
+  (M:197, M:209-215). The 256-byte cap is old (M:136@c1db9191) and not part of I13.
+- Count: `Models N` is appendHeaderTitle(projection.filteredItemCount()) (P:155-158, P:224-230).
+- Rows: composeModelMenuRow takes `projection.itemAt(display_index)` (P:140-141), the ranked list.
+- Empty: composeStateRow, `.ready => if (projection.items.len == 0) "No models available." else
+  "No models found."` (P:394-401).
+- No highlight of matched letters: composeTitleRow (P:301-333) writes the id whole in the selected
+  or dim style. `matched_spans` highlighting exists only for the file picker
+  (src/ui/footer/picker_presentation.zig:1070@481104fd).
+- Enter: selectedModelAlloc, `self.itemAt(self.selected_index)` (M:270-274), the ranked row.
+
+## The mark across a catalog swap
+- M:317-338  modelMenuDisplayIndex: the first item with the id; its rank; its display index is the
+  number of items ranked better, plus those of the same rank before it in catalog order -- the
+  inverse of modelMenuItemAt. `.none` -> null.
+- M:1121-1146  hydrateMenuSnapshot over a ready menu: the tab kept if the new rows show it, else
+  All; the mark on the previous id's display index, else `@min(selected_index, match_count -| 1)`;
+  the window shifted with it. f9ddaff8 replaced the old catalog-order loop here with
+  modelMenuDisplayIndex.
+
+## Every caller
+1. The `/model` menu: modelMenuItemAt / modelMenuFilteredItemCount / modelMenuDisplayIndex (above).
+2. `/settings`' Model row reads that menu (composeModelRow, src/ui/footer/
+   settings_menu_presentation.zig:277-310@481104fd), so it lists the same ranked rows.
+3. The `/model <query>` column: modelCompletions, M:895-913 -- for each rank in
+   ranked_model_matches, the catalog's ids of that rank, until `out` (32 places, I:1108-1109) is
+   full. Old: M:681-695@c1db9191, `query.len == 0 or containsIgnoreCase(entry.id, query)` -- no trim,
+   no ranks.
+   - The query is everything after `/model ` (rawModelPickerQuery, src/core/input/
+     picker_state.zig:298-316@481104fd).
+   - Its readers: modelPickerCompletions (I:1108-1124; with an empty query and the anchor set it
+     adds the model in force), the render (src/core/app/app_render_runtime.zig:563-567), navigation
+     (I:1098-1106), exactModelCompletion (I:1237-1247: the trimmed query spelled as an id, case
+     ignored, among the 32), syncModelCompletionSelection (I:1415-1432, Left back to the models).
+   - Tab writes the marked row with setModelComposerText (I:1166-1180), a replacement whose commit
+     sets `model_completion_index = 0` and `model_completion_window_start = 0`
+     (src/core/input/composer_text_replacement.zig:73-92@481104fd).
+   - A typed space with a model query inserts nothing: the Space branch
+     (src/core/app/app_input_runtime.zig:1355-1363@481104fd) only calls advanceModelPickerOnSpace
+     (I:1210-1219), which advances on an exact id and otherwise returns false.
+   - No row says why: `no matching models` (src/ui/footer/picker_presentation.zig:915-921).
+4. Not a caller: `/model <word>` sent as a command resolves by resolveModelQueryFromIds
+   (src/core/session/session_commands.zig:1425-1448@481104fd: exact id ignoring case, else the best
+   fuzzyModelScore, :1760) -- both byte-identical to c1db9191 (`diff` of the two function bodies is
+   empty). Subagents' model contract uses the same score (src/core/subagent/model_contract.zig:42-51).
