@@ -1,0 +1,12 @@
+tracked captures holding a zero-filled placeholder at 6492af5c: 1315
+  of them, holding one at ccced1f5 already: 1307
+  not at ccced1f5 (this unit's own receipt text): .prd/tui-phase5/receipts/local-paths/harness.txt, .prd/tui-phase5/receipts/local-paths/red3-r2.txt, .prd/tui-phase5/receipts/local-paths/red4-r3.txt, .prd/tui-phase5/receipts/local-paths/red4-r4.txt, .prd/tui-phase5/receipts/local-paths/red5-r4.txt, .prd/tui-phase5/receipts/local-paths/red5-r5a.txt, .prd/tui-phase5/receipts/local-paths/roots-mutants.txt, .prd/tui-phase5/receipts/local-paths/runs-scan.txt
+  .prd/tui-phase4/receipts/w3: 14
+  .prd/tui-phase4/receipts/w5: 56
+  .prd/tui-phase4/receipts/w9: 14
+  the most, by directory: mcp-menu 253, mcp-verbs 132, status-panel 86, w2 72, info-panel 68
+
+what wrote them (line numbers, the text left out):
+  scripts/fxcap/capture.sh at ccced1f5: lines 942, 1096, 1109
+  scripts/fxcap/sweep.py at 6492af5c: lines 1130
+  scripts/fxcap/ci_sweep.py at 6492af5c: lines 595
