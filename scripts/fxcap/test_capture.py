@@ -170,6 +170,11 @@ class Refusals(unittest.TestCase):
             # The old form, a moment on the gateway's clock: refused, not read as a file name.
             ("models2 c.json 5000\nsnap a\n", "models2 takes <catalog.json>, served from its line on, not c.json 5000"),
             ("modelsdelay soon\nsnap a\n", "modelsdelay takes milliseconds, not soon"),
+            ("modelspad 2000\nsnap a\n", "modelspad takes <bytes> (64 MiB at most) and head or tail, not 2000"),
+            ("modelspad 67108865 tail\nsnap a\n", "modelspad takes <bytes> (64 MiB at most) and head or tail, not 67108865 tail"),
+            ("modelspad\nsnap a\n", "modelspad takes an argument"),
+            ("modelsstall 120001\nsnap a\n", "modelsstall takes milliseconds (120000 at most), not 120001"),
+            ("modelsstall\nsnap a\n", "modelsstall takes an argument"),
             ("clock yesterday\nsnap a\n", "clock takes milliseconds since the epoch, not yesterday"),
             ("usage missing.json\nsnap a\n", "usage takes a file in"),
             ("mcphttp sometimes\nsnap a\n", "mcphttp takes ready, methodnotfound, hang, fail, rpcerror, modern, notimpl, old2024, malformed, hostile, ssehold, sseidless, ssestrid or ssefail, not sometimes"),
@@ -518,6 +523,32 @@ class Verbs(unittest.TestCase):
         answered = [int(m) for m in re.findall(r"GET /coding-agent/v1/models -> 200 at=(\d+)ms", log)]
         self.assertEqual(len(asked), 2, log)
         self.assertTrue(all(b - a >= 200 for a, b in zip(asked, answered)), log)
+
+    def test_modelspad_and_modelsstall(self):
+        # The catalog padded to exactly its size, before it or after it, and
+        # half of it sent at once with the rest held back: a client with a
+        # deadline gets the first half and gives up, one without waits it out.
+        # Each marker is split by quotes as typed, so only the output shows it.
+        one = '{"data":[{"id":"fake/one"}]}'
+        size = ("type n=$(curl -s \"$FX_E2E_GATEWAY_MODELS_URL\" | wc -c | tr -d ' '); "
+                "f=$(curl -s \"$FX_E2E_GATEWAY_MODELS_URL\" | head -c 1); echo \"si\"\"ze:$n first:[$f]\"\n"
+                "key Enter\nuntil shown size:\n")
+        r = capture("models one.json\nmodelspad 2000 tail\n" + size + "snap a\ngwlog\n", {"one.json": one})
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertIn("size:2000 first:[{]", r.screen("a"))
+        self.assertIn("-> padded to 2000 bytes, tail", r.file("gateway", ".log"))
+
+        stalled = ("type curl -s -m 0.5 \"$FX_E2E_GATEWAY_MODELS_URL\" | wc -c | tr -d ' '; "
+                   "curl -s \"$FX_E2E_GATEWAY_MODELS_URL\" | wc -c | tr -d ' '; echo do\"\"ne\n"
+                   "key Enter\nuntil shown done\n")
+        r = capture("models one.json\nmodelspad 2000 head\nmodelsstall 1500\n" + stalled + "snap a\ngwlog\n", {"one.json": one})
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        # The rows as the screen joins them: the first half, then the whole.
+        self.assertRegex(r.screen("a"), r'ne\s*1000\s*2000\s*done')
+        log = r.file("gateway", ".log")
+        self.assertEqual(log.count("-> padded to 2000 bytes, head"), 2, log)
+        self.assertEqual(log.count("-> stalled after 1000 of 2000 bytes for 1500ms"), 2, log)
+        self.assertIn("stalled read: the client went", log)
 
     def test_mcphttp_on_cue(self):
         rpc = ("type curl -s -m 1 -w ' status:%%{http_code}\\n' -H 'content-type: application/json' "

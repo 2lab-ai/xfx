@@ -1,0 +1,18 @@
+# CATALOG-BOUNDS: the Gateway's catalog sends its head and half its body,
+# then nothing for 45 s. fx's 30 s deadline is the whole request's
+# (`gateway_json_fetch_timeout_ms`, src/gateway/client.zig:486-509), and
+# reaching it is a failure it says it retries (`catalogRequestFailure`,
+# src/builtins/gateway.zig:2510-2518), so `/model`, opened on the launch's
+# first load, says so once 30 s are past -- inside the 5 s backoff after
+# the failure, before anything could ask again.
+fx: env FX_AUTO_UPGRADE=0
+models p5-input-models.json
+modelsstall 45000
+wait 4
+type /model
+key Enter
+wait 2
+snap loading
+wait 26
+snap timed-out
+gwlog

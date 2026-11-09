@@ -1,6 +1,7 @@
 // Loopback fake AI Gateway for side-by-side fx/xfx captures.
 // Usage: [FAKEGW_MODELS=<catalog.json>] [FAKEGW_MODELS_DOWN_MS=<ms>] [FAKEGW_MODELS_DELAY_MS=<ms>] [FAKEGW_CREDITS=<credits.json>] [FAKEGW_TITLE=<title.json>]
-//        [FAKEGW_MODELS2=<file>] [FAKEGW_USAGE=<usage.json>]
+//        [FAKEGW_MODELS2=<file>] [FAKEGW_MODELS_PAD="<bytes> <head|tail>"] [FAKEGW_MODELS_STALL_MS=<ms>]
+//        [FAKEGW_USAGE=<usage.json>]
 //        [FAKEGW_RELEASE=<file>]
 //        bun fakegw.ts <port> <script.json> [bodies-dir]
 // script.json: array of turns. Each turn is
@@ -28,6 +29,12 @@
 // `models2` line renames a catalog into place): a model released while the binary runs, at a
 // point in the scenario rather than a moment on the gateway's clock, which load moves.
 // Both files are read whole (`settled`): one read empty or half written is read again.
+// FAKEGW_MODELS_PAD (`modelspad <bytes> <head|tail>`) pads the catalog the models path serves with
+// spaces, before it or after it, to exactly <bytes>: JSON either way. Past a client's cap, a body
+// padded after is one whose first bytes still read as the catalog; one padded before is none once
+// cut. Built in memory per answer, never a file. FAKEGW_MODELS_STALL_MS (`modelsstall <ms>`)
+// sends that catalog's head and the first half of its body at once, and the rest <ms> later --
+// or never, when the client goes first: a read stalled mid-body, past a deadline or not.
 // FAKEGW_USAGE names a file read on every request (`capture.sh`'s `usage` verb swaps it): while it
 // exists, the usage reads fx v0.0.16 makes are answered from it, in the shapes of its own e2e fake
 // (vercel-labs/fx@481104fd tests/e2e/usage-fakes.ts) -- GET /v1/report (`{"results":[rows]}`),
@@ -207,6 +214,45 @@ const usagePaths = new Set([
   "/settings",
 ]);
 
+// The catalog the models path answers with, padded and stalled as FAKEGW_MODELS_PAD and
+// FAKEGW_MODELS_STALL_MS say; null when neither is set, so every other run answers as before.
+function shapedCatalog(text: string, logLine: (line: string) => void): Response | null {
+  const pad = process.env.FAKEGW_MODELS_PAD;
+  const stall = Number(process.env.FAKEGW_MODELS_STALL_MS || 0);
+  if (!pad && stall <= 0) return null;
+  let bytes = new TextEncoder().encode(text);
+  if (pad) {
+    const [size, where] = pad.split(" ");
+    const fill = new TextEncoder().encode(" ".repeat(Math.max(0, Number(size) - bytes.length)));
+    const padded = new Uint8Array(bytes.length + fill.length);
+    padded.set(where === "head" ? fill : bytes, 0);
+    padded.set(where === "head" ? bytes : fill, where === "head" ? fill.length : bytes.length);
+    bytes = padded;
+    logLine(`padded to ${bytes.length} bytes, ${where}`);
+  }
+  const headers = { "content-type": "application/json" };
+  if (stall <= 0) return new Response(bytes, { headers });
+  const half = Math.floor(bytes.length / 2);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(bytes.slice(0, half));
+      logLine(`stalled after ${half} of ${bytes.length} bytes for ${stall}ms`);
+      timer = setTimeout(() => {
+        try {
+          controller.enqueue(bytes.slice(half));
+          controller.close();
+        } catch {}
+      }, stall);
+    },
+    cancel() {
+      clearTimeout(timer);
+      logLine("stalled read: the client went");
+    },
+  });
+  return new Response(body, { headers });
+}
+
 // A JSON file a run swaps while the gateway serves it (FAKEGW_USAGE, FAKEGW_MODELS2), read whole:
 // its text, or null while it is absent. A read that does not parse -- the file empty or half
 // written by a writer that truncates and then writes -- is read again every 10 ms, for up to
@@ -377,7 +423,12 @@ async function answer(req: Request, asked: number): Promise<Response> {
           log(`GET ${url.pathname} -> second catalog`);
           return new Response(second, { headers: { "content-type": "application/json" } });
         }
-        if (process.env.FAKEGW_MODELS) return new Response(await Bun.file(process.env.FAKEGW_MODELS).text(), { headers: { "content-type": "application/json" } });
+        const catalog = process.env.FAKEGW_MODELS
+          ? await Bun.file(process.env.FAKEGW_MODELS).text()
+          : JSON.stringify({ data: [{ id: "fake/model-a", type: "language", tags: ["tool-use"] }] });
+        const shaped = shapedCatalog(catalog, (line) => log(`GET ${url.pathname} -> ${line}`));
+        if (shaped) return shaped;
+        if (process.env.FAKEGW_MODELS) return new Response(catalog, { headers: { "content-type": "application/json" } });
         return Response.json({ data: [{ id: "fake/model-a", type: "language", tags: ["tool-use"] }] });
       }
       return new Response("not found", { status: 404 });
