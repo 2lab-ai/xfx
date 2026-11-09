@@ -2565,6 +2565,15 @@ WAIT = 20.0
 
 # How long a poll sleeps when the master has nothing yet.
 IDLE_POLL = 0.002
+# How long `send` lets the terminal stay quiet, before the write that follows
+# one that ended a bracketed paste: xfx takes input that follows a paste for
+# the clipboard's until the input has been quiet for 50 ms
+# (`Decoder::PASTE_QUIET`, src/tui/input.rs), and a person's next key comes
+# later than that, after they have seen the paste land -- so the whole pause
+# is taken at the next write, after whatever the trial waited to see. Five
+# times the bound, for a loop slow to look twice under load.
+# tests/support/pty.rs' `PASTE_PAUSE` is the same rule.
+PASTE_PAUSE = 0.25
 
 # The bytes that mean the TUI has taken the terminal (`?2004h`, the last of the
 # interactive mode set). Response-only: nothing this harness types contains it,
@@ -3024,6 +3033,14 @@ class Session:
     def send(self, data):
         if isinstance(data, str):
             data = data.encode("utf-8")
+        # The write after one that ended a paste waits PASTE_PAUSE first,
+        # pumping so the child's output still has somewhere to go.
+        if getattr(self, "_pasted", False):
+            self._pasted = False
+            resume = time.time() + PASTE_PAUSE
+            while time.time() < resume:
+                self.pump(IDLE_POLL)
+        ended_paste = b"\x1b[201~" in data
         while data:
             try:
                 written = os.write(self.terminal.master, data)
@@ -3037,6 +3054,7 @@ class Session:
                     continue
                 raise
             data = data[written:]
+        self._pasted = ended_paste
 
     def wait_until(self, what, ready, timeout=WAIT):
         deadline = time.time() + timeout

@@ -3364,9 +3364,10 @@ fn a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing
     // `input_paste_runtime.zig:168-198@481104fd`): input that arrives behind a
     // paste's end marker in the same delivery is taken for the clipboard's,
     // not the user's -- a copied `ESC[201~` followed by a newline in one
-    // delivery would otherwise be a prompt nobody typed. The paste is kept, the bytes behind the marker are
-    // dropped without being read as keys, and fx warns under `input`
-    // (`fx-p5-input-paste-40x120-paste-enter`). One write, so one read.
+    // delivery would otherwise be a prompt nobody typed. The paste is kept,
+    // the bytes behind the marker are dropped without being read as keys, and
+    // fx warns under `input` (`fx-p5-input-paste-40x120-paste-enter`). One
+    // write, so one read.
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
         support::fake_gateway::content_only(&["MARKER-PRIOR"]),
     )]);

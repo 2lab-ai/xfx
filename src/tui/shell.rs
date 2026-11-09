@@ -10354,7 +10354,7 @@ impl Shell {
     }
 
     /// The terminal has nothing more to read: the delivery the reads since the
-    /// last one were part of is over (`settleTerminalPasteDeliveryEpoch`,
+    /// last one were part of is over (`settleTerminalPasteDeliveryEpochWithLimits`,
     /// `app_input_runtime.zig:790-813@481104fd`).
     ///
     /// Said by the loop's readiness check and nowhere else
@@ -10363,9 +10363,17 @@ impl Shell {
     /// [`Action::PasteEnd`], whatever followed its marker; if something did,
     /// that is said after the paste is settled ([`Self::ignored_behind_paste`]),
     /// as fx finishes the paste first and warns second
-    /// (`input_paste_runtime.zig:189-196@481104fd`).
+    /// (`input_paste_runtime.zig:189-196@481104fd`). What arrives after that,
+    /// before the input has gone quiet, is the paste's too
+    /// ([`super::input::Decoder::PASTE_QUIET`]), and said the same way if the
+    /// paste's delivery said nothing.
     pub(crate) fn end_delivery(&mut self) {
-        match self.decoder.end_delivery() {
+        self.end_delivery_at(Instant::now());
+    }
+
+    /// [`Self::end_delivery`], for a check that found nothing at `now`.
+    pub(crate) fn end_delivery_at(&mut self, now: Instant) {
+        match self.decoder.end_delivery(now) {
             Delivery::Quiet => {}
             Delivery::Pasted { dropped } => {
                 self.consume(vec![Input::Action(Action::PasteEnd)], Instant::now());
@@ -10373,17 +10381,22 @@ impl Shell {
                     self.ignored_behind_paste();
                 }
             }
+            Delivery::Ignored { .. } => self.ignored_behind_paste(),
         }
     }
 
     /// `bytes` as one whole delivery: [`Self::route_read`], then
-    /// [`Self::end_delivery`] -- the shape every keystroke a test types has,
-    /// and the shape the loop gives one write that fits in one read. A case
-    /// about a delivery made of several reads calls the two itself.
+    /// [`Self::end_delivery`], and then quiet for as long as a paste's
+    /// quarantine lasts -- the shape every keystroke a test types has, since a
+    /// person's next key comes later than that, and the shape the loop gives
+    /// one write that fits in one read. A case about a delivery made of several
+    /// reads, or about input soon after a paste, calls them itself.
     #[cfg(test)]
     pub(crate) fn route_bytes(&mut self, bytes: &[u8]) {
         self.route_read(bytes);
-        self.end_delivery();
+        let now = Instant::now();
+        self.end_delivery_at(now);
+        self.end_delivery_at(now + super::input::Decoder::PASTE_QUIET);
     }
 
     /// Resolves what only the passage of time resolves: a bare `ESC` that has
@@ -18825,12 +18838,14 @@ mod tests {
             "the second read's Enter sent"
         );
         assert_eq!(shell.document(), said(ignored_behind_the_paste()));
+        shell.end_delivery_at(Instant::now() + super::super::input::Decoder::PASTE_QUIET);
 
-        // The same bytes in two deliveries are a paste and then a key, and
-        // nothing is said about them.
+        // The same bytes in two deliveries with the input quiet between them
+        // are a paste and then a key, and nothing is said about them.
         shell.route_read(b"\x1b[200~new\x1b[201~");
         shell.end_delivery();
         assert_eq!(shell.editor.text(), "priornewnew", "a paste that stands");
+        shell.end_delivery_at(Instant::now() + super::super::input::Decoder::PASTE_QUIET);
         shell.route_read(b"\r");
         shell.end_delivery();
         assert!(
@@ -37942,6 +37957,71 @@ mod tests {
         );
         assert!(shell.panel.is_some(), "the question went away");
         assert_eq!(shell.document(), said(ignored_behind_the_paste()));
+    }
+
+    #[test]
+    fn a_question_that_opens_between_a_paste_s_bytes_and_its_end_answers_nothing() {
+        // opus r1 on PASTE-AFTER-END: a delivery can span two turns of the
+        // loop (the 32-read cap, a signal), and the runtime's events are taken
+        // between turns, so a question can open after the composer took a
+        // paste's bytes and before the delivery that carried its end marker is
+        // over. The `PasteEnd` then reaches the question, which takes no text
+        // with no draft open: the Enter behind the marker answers nothing, the
+        // panel stays, and the warning is said.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.route_read(b"\x1b[200~new\x1b[201~\r");
+        shell.apply(UiEvent::Approval(question(asked())));
+        shell.settle_band(started);
+        let _ = shell.document();
+        delivered(&mut shell);
+        shell.end_delivery();
+        assert_eq!(shell.controlled(), None, "the paste answered the question");
+        assert!(shell.panel.is_some(), "the question went away");
+        assert_eq!(shell.document(), said(ignored_behind_the_paste()));
+        assert_eq!(
+            shell.editor.text(),
+            "",
+            "the paste landed in the composer behind the panel"
+        );
+        // And the question still takes its own keys once the input is quiet.
+        shell.end_delivery_at(Instant::now() + super::super::input::Decoder::PASTE_QUIET);
+        shell.route_bytes(b"1");
+        assert!(
+            matches!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    answer: ApprovalAnswer::Once,
+                    ..
+                })
+            ),
+            "the question did not take a key of its own"
+        );
+    }
+
+    #[test]
+    fn a_question_cannot_close_between_a_paste_s_bytes_and_its_end() {
+        // The other way round has no path: a question closes only on its own
+        // keys ([`Shell::decide`]'s answer, [`Shell::answer`]'s), and nothing
+        // between a paste's start and the end of the delivery that ends it is a
+        // key. Not even the turn's end, taken between two turns of the loop,
+        // takes it down -- so the draft that took the paste's start is the one
+        // its `PasteEnd` reaches.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tkeep");
+        shell.route_read(b"\x1b[200~new\x1b[201~\r");
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.settle_band(Instant::now());
+        shell.end_delivery();
+        assert!(shell.panel.is_some(), "the question closed mid-delivery");
+        assert!(
+            band(&shell).contains("keepnew"),
+            "the paste did not reach the draft that took its start: {:?}",
+            band(&shell)
+        );
+        assert_eq!(shell.controlled(), None, "the Enter behind it answered");
+        assert_eq!(shell.editor.text(), "", "the paste reached the composer");
     }
 
     #[test]

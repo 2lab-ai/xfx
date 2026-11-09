@@ -625,8 +625,12 @@ fn read_burst(
 /// That is a boundary a terminal draws, not one a clipboard does: a terminal
 /// that writes one paste with a moment between two of its writes -- a paste
 /// longer than the pty's input queue arrives as the terminal refills it --
-/// ends the delivery at that moment, and what follows is read as keys, in fx
-/// v0.0.16 as here (`docs/parity.md`'s `full-screen TUI` row).
+/// ends the delivery at that moment, and fx v0.0.16 reads what follows as
+/// keys. Here it is still the paste's, until a check finds nothing a quiet
+/// period after the last one did: every turn's check says so, an idle one's
+/// too, and only the decoder reads the time between them
+/// ([`super::input::Decoder::PASTE_QUIET`], `docs/parity.md`'s `full-screen
+/// TUI` row).
 ///
 /// `ready` and `read` are the terminal's ([`read_burst`]); a case passes its
 /// own, so where a delivery ends is tested without a terminal's timing.
@@ -15978,7 +15982,8 @@ mod tests {
             "{said:?}"
         );
 
-        // An Enter in a delivery of its own sends the draft.
+        // An Enter of its own, once the input has been quiet, sends the draft.
+        shell.end_delivery_at(Instant::now() + super::super::input::Decoder::PASTE_QUIET);
         shell.route_read(b"\r");
         shell.end_delivery();
         assert!(
@@ -16020,6 +16025,134 @@ mod tests {
             composer(&shell),
             format!("{COMPOSER_MARKER} priornew"),
             "the bytes after the gap were typed"
+        );
+        // Said once, as the same bytes in one delivery are.
+        let said = shell
+            .take_pending()
+            .into_iter()
+            .flat_map(|append| append.rows)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            said.iter()
+                .filter(|row| row.contains("Input that arrived right after the paste was ignored."))
+                .count(),
+            1,
+            "{said:?}"
+        );
+
+        // An idle turn finds nothing, and so does one a quiet period later:
+        // the quarantine is over, and an Enter is a key again.
+        let idle = Readable {
+            bytes: Vec::new(),
+            at: std::cell::Cell::new(0),
+        };
+        idle.turn(&mut shell);
+        assert!(shell._work.try_recv().is_err());
+        shell.end_delivery_at(Instant::now() + super::super::input::Decoder::PASTE_QUIET);
+        let enter = Readable {
+            bytes: b"\r".to_vec(),
+            at: std::cell::Cell::new(0),
+        };
+        enter.turn(&mut shell);
+        assert!(
+            matches!(
+                shell._work.try_recv(),
+                Ok(crate::tui::bridge::TurnWork::Submit(prompt)) if prompt == "priornew"
+            ),
+            "an Enter after the quiet did not send the draft"
+        );
+    }
+
+    /// What a scripted turn's checks answer, in order.
+    type Checks = Vec<io::Result<bool>>;
+    /// What a scripted turn's reads return, in order.
+    type Reads = Vec<rustix::io::Result<Vec<u8>>>;
+
+    /// One turn of [`burst`] over scripted answers: `ready` answers from
+    /// `checks` in order (then `Ok(false)`), `read` from `reads`.
+    fn scripted(shell: &mut Shell, checks: Checks, reads: Reads) -> io::Result<()> {
+        let mut checks = checks.into_iter();
+        let mut reads = reads.into_iter();
+        let mut buffer = [0u8; BURST_BYTES];
+        burst(
+            shell,
+            &mut buffer,
+            || checks.next().unwrap_or(Ok(false)),
+            |buffer| {
+                let bytes = reads.next().expect("a read nobody scripted")?;
+                buffer[..bytes.len()].copy_from_slice(&bytes);
+                Ok(bytes.len())
+            },
+        )
+    }
+
+    #[test]
+    fn a_turn_cut_short_by_a_signal_or_a_read_that_would_wait_settles_nothing() {
+        // `burst`'s other arms (`event_loop.zig:94-119@481104fd` has the same
+        // three): a readiness check interrupted by a signal, and a read that
+        // was interrupted or would have waited, end the turn **without**
+        // ending the delivery -- the next turn's check does that -- so a paste
+        // whose end marker arrived before them has not settled, and an Enter
+        // behind its marker in the next turn is still behind it.
+        let cut_short: [(Checks, Reads); 3] = [
+            (
+                vec![Ok(true), Err(io::ErrorKind::Interrupted.into())],
+                vec![Ok(b"\x1b[200~new\x1b[201~".to_vec())],
+            ),
+            (
+                vec![Ok(true), Ok(true)],
+                vec![
+                    Ok(b"\x1b[200~new\x1b[201~".to_vec()),
+                    Err(rustix::io::Errno::INTR),
+                ],
+            ),
+            (
+                vec![Ok(true), Ok(true)],
+                vec![
+                    Ok(b"\x1b[200~new\x1b[201~".to_vec()),
+                    Err(rustix::io::Errno::WOULDBLOCK),
+                ],
+            ),
+        ];
+        for (case, (checks, reads)) in cut_short.into_iter().enumerate() {
+            let mut shell = shell();
+            shell.route_read(b"prior");
+            shell.end_delivery();
+            scripted(&mut shell, checks, reads).expect("the turn is not an error");
+            assert_eq!(
+                composer(&shell),
+                format!("{COMPOSER_MARKER} prior"),
+                "case {case}: the cut-short turn settled the paste"
+            );
+            assert!(!shell.leaving(), "case {case}: the session was left");
+            scripted(&mut shell, vec![Ok(true)], vec![Ok(b"\r".to_vec())]).expect("a turn");
+            assert_eq!(composer(&shell), format!("{COMPOSER_MARKER} priornew"));
+            assert!(
+                shell._work.try_recv().is_err(),
+                "case {case}: the Enter behind the marker submitted the draft"
+            );
+        }
+    }
+
+    #[test]
+    fn a_read_of_nothing_leaves_the_session_and_settles_nothing() {
+        // `Ok(0)` is no writer left on the terminal: the session is over
+        // (`event_loop.zig:95-99@481104fd`), and the delivery is not ended on
+        // the way out -- nothing will be read again.
+        let mut shell = shell();
+        shell.route_read(b"prior");
+        shell.end_delivery();
+        scripted(
+            &mut shell,
+            vec![Ok(true), Ok(true)],
+            vec![Ok(b"\x1b[200~new\x1b[201~".to_vec()), Ok(Vec::new())],
+        )
+        .expect("the turn is not an error");
+        assert!(shell.leaving(), "the end of input did not end the session");
+        assert_eq!(
+            composer(&shell),
+            format!("{COMPOSER_MARKER} prior"),
+            "the end of input settled the paste"
         );
     }
 }

@@ -33,6 +33,21 @@ pub const WAIT: Duration = Duration::from_secs(20);
 /// How long the harness sleeps when a non-blocking descriptor has nothing yet.
 pub const IDLE_POLL: Duration = Duration::from_millis(2);
 
+/// How long [`Session::type_bytes`] lets the terminal stay quiet after a write
+/// that ended a bracketed paste, before it types anything more.
+///
+/// The TUI takes input that follows a paste for the clipboard's until the
+/// input has been quiet for 50 ms (`PASTE_QUIET` in `src/tui/input.rs`, not
+/// visible from here, so spelled out): a person's next key comes later than
+/// that, after they have seen the paste land, and a test's would not, since a
+/// needle on the screen can be found a millisecond after the paste settled. So
+/// the whole pause is taken at the next write -- which comes after whatever the
+/// test waited to see -- rather than counted from the paste's own write: a
+/// debug build on a loaded machine can take most of a pause that long to read
+/// and settle a paste of a few kilobytes. Five times the bound, so a loop slow
+/// to look twice has looked by then.
+pub const PASTE_PAUSE: Duration = Duration::from_millis(250);
+
 /// How many times a pty allocation is attempted before the harness gives up.
 ///
 /// Allocating a pty is not purely a function of this process: `/dev/ptmx` is a
@@ -210,6 +225,8 @@ pub struct Session {
     pub reading: Arc<AtomicBool>,
     pub reader: Option<JoinHandle<()>>,
     pub exited: Option<ExitStatus>,
+    /// Whether the last write ended a bracketed paste ([`PASTE_PAUSE`]).
+    pasted: AtomicBool,
 }
 
 impl Session {
@@ -300,6 +317,7 @@ impl Session {
             reading,
             reader: Some(reader),
             exited: None,
+            pasted: AtomicBool::new(false),
         }
     }
 
@@ -314,8 +332,21 @@ impl Session {
     ///
     /// Written in a loop because the master is non-blocking: a full input queue
     /// is a `WouldBlock`, not a failure, and the reader on the other side is a
-    /// real process that will get to it.
+    /// real process that will get to it. The write after one that ended a
+    /// bracketed paste waits [`PASTE_PAUSE`] first, as a person's next key
+    /// would; what one write carries behind an end marker is still written
+    /// with it.
     pub fn type_bytes(&self, bytes: &[u8]) {
+        if self.pasted.swap(false, Ordering::SeqCst) {
+            thread::sleep(PASTE_PAUSE);
+        }
+        self.write_all(bytes);
+        if bytes.windows(6).any(|window| window == b"\x1b[201~") {
+            self.pasted.store(true, Ordering::SeqCst);
+        }
+    }
+
+    fn write_all(&self, bytes: &[u8]) {
         let deadline = Instant::now() + WAIT;
         let mut rest = bytes;
         while !rest.is_empty() {
