@@ -25,11 +25,17 @@
 #     after it, a harness root broken after its `tmp/`, a mark in a request
 #     body, in a `.txt` and in a `/trace` report's `.md` (a capture by its
 #     name), a mark that does not end its line, and a home whose name starts
-#     with a documented placeholder's on a line that ends in that placeholder.
+#     with a documented placeholder's on a line that ends in that placeholder;
+#   - capture.sh's reserved names, both ways: a report renamed out of them
+#     (`trace-report.md`, an unmarked line: refused as any authored file's)
+#     and an authored file named into them (`fx-guide-40x120-notes.md`, a
+#     marked line: a capture, which no mark excuses).
 # Required to pass: the placeholders captures use, a relative path, the
 # documentation's `<name>` and `<digits>` forms, `$TMPDIR` and `~`, each
 # documented placeholder (bare too), a home inside a run (`<scratch>/home/...`),
-# and a marked fixture -- counted as such.
+# a marked fixture -- counted as such -- and a report renamed out of
+# capture.sh's reserved names with its line marked, read as authored text
+# (counted as marked too: the convention's limit, which the name is for).
 # And the environment: `GIT_DIR` naming a clean decoy, `GIT_INDEX_FILE`
 # naming an empty index, `GREP_OPTIONS`, and a HOME whose config sets
 # `grep.column`, `color.grep` and an fsmonitor program must not change the
@@ -136,6 +142,9 @@ printf 'see %sx local-path-ok here\n' "$mac" >"$t/midline.md"
 mkdir -p "$t/w3"
 printf 'Workspace: %swork  # local-path-ok\n' "$linux" >"$t/w3/xfx-trace-40x120-report-1.md"
 printf 'cp x %subuntu%sy; cd %su\n' "${s}home${s}" "$s" "${s}home${s}" >"$t/sentinel.sh"
+printf 'Workspace: %swork\n' "$linux" >"$t/w3/trace-report.md"
+mkdir -p "$t/docs"
+printf 'cd %swork  # local-path-ok: an example\n' "$linux" >"$t/docs/fx-guide-40x120-notes.md"
 track "$t"
 run_check "$t"
 want=(
@@ -162,6 +171,8 @@ want=(
 	"midline.md:1: $home_shape"
 	"w3/xfx-trace-40x120-report-1.md:1: $linux_shape"
 	"sentinel.sh:1: $linux_shape"
+	"w3/trace-report.md:1: $linux_shape"
+	"docs/fx-guide-40x120-notes.md:1: $linux_shape"
 )
 missing=()
 for line in "${want[@]}"; do
@@ -213,16 +224,18 @@ new_tree "$t"
 	printf 'inside a run: <scratch____>%shome%su%sx <work:real__>%sUsers%scarol%snotes <h__>%shome%sdave%s `%s` (%s) cd %s\n' \
 		"$s" "$s" "$s" "$s" "$s" "$s" "$s" "$s" "$s" "${s}Users${s}me" "${s}home${s}me" "${s}home${s}u"
 } >"$t/clean.md"
+mkdir -p "$t/w3"
+printf 'Workspace: %swork  # local-path-ok\n' "$linux" >"$t/w3/trace-report.md"
 track "$t"
 run_check "$t"
 if [ "$status" -ne 0 ]; then
 	problem "passes: the check exited $status on a tree with no local path:"
 	show
-elif [ -z "$self_marked" ] || ! grep -q -x -F "check-no-local-paths: ok (2 tracked file(s) scanned; $((self_marked + 1)) marked fixture line(s), $((self_placeheld + 2)) placeholder line(s))" "$work/out"; then
-	problem "passes: the check passed without counting the one marked line and the two placeholder lines:"
+elif [ -z "$self_marked" ] || ! grep -q -x -F "check-no-local-paths: ok (3 tracked file(s) scanned; $((self_marked + 2)) marked fixture line(s), $((self_placeheld + 2)) placeholder line(s))" "$work/out"; then
+	problem "passes: the check passed without counting the two marked lines and the two placeholder lines:"
 	show
 else
-	ok passes "placeholders, relative and derived paths, one marked fixture"
+	ok passes "placeholders, relative and derived paths, a marked fixture, a renamed report"
 fi
 
 # --- the environment ----------------------------------------------------------

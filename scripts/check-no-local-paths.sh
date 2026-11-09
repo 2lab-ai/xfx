@@ -9,9 +9,9 @@
 # 2026-11-09 `main` held 156 files with one machine's scratch root in them,
 # every image capture embedded the harness's run directory, and four units in
 # one night committed scratch paths in receipt scripts and READMEs.
-# scripts/fxcap/capture.sh now writes a run's own roots as placeholders
-# (`<work>`, `<scratch>`, `<tmp>`, `<home>`); this check is what holds the
-# tree to it.
+# scripts/fxcap/capture.sh now writes a run's own roots as placeholders, each
+# as wide as its root (`<work______>`, `<scratch___>`, `<tmp___>`, `<h__>`:
+# scripts/fxcap/roots.py); this check is what holds the tree to it.
 #
 # It looks for the shapes such a path has, never for one machine's names:
 #
@@ -43,15 +43,23 @@
 #   again, so a line that holds one and a real path as well is still refused:
 #   a home directory that is nobody's (`allowed` below: a test's `/home/u`, a
 #   README's `/home/you`), and a path that continues one of capture.sh's
-#   placeholders (`<scratch>/home/...`, a run's HOME).
+#   placeholders, at any width or in its short form (`<scratch___>/home/...`,
+#   a run's HOME).
 # - **A line that ends in a `local-path-ok` comment**, for a fixture that
 #   must hold such a shape on purpose: a redaction test's input, the shapes
 #   this file's own documentation names. The mark follows a comment opener
 #   (`#`, `//`, `--`, `;`, `<!--`, `/*`) on that line and ends it, a reason
-#   after a `:` allowed; it excuses that line only. In a capture -- a `.txt`,
-#   `.ansi`, `.wire`, `.json`, `.log` and the rest capture.sh writes, or a
-#   file under a `*-bodies/` directory -- no mark excuses anything: the text
-#   is a binary's, not a fixture's.
+#   after a `:` allowed; it excuses that line only. In a capture no mark
+#   excuses anything: the text is a binary's, not a fixture's. A capture is a
+#   file of a kind capture.sh writes (a `.txt`, `.ansi`, `.wire`, `.json`,
+#   `.log` and the rest) or one under a `*-bodies/` directory, whatever its
+#   name; or a file by the name capture.sh gives every file it writes,
+#   `<bin>-<scenario>-<rows>x<cols>-...`, or under a directory so named,
+#   wherever it is -- a `/trace` report's `.md` among them. That name is
+#   reserved for captures (capture.sh says so too): a capture renamed out of
+#   it is read by its kind alone (a report renamed `notes.md` is authored
+#   text, whose marks excuse their lines; a shape on an unmarked line is
+#   still refused), and an authored file named into it is a capture.
 #
 # The scan is over *tracked* files -- what a push publishes -- read from the
 # working tree, every one as text: a binary file can carry a path as well as
@@ -142,8 +150,8 @@ marked_re="(^|[[:space:]])(#|//|--|;|<!--|/[*]).*${marker}(:.*)?([[:space:]]*(--
 # Whether a file is a capture, whose text no mark excuses: by its name, any
 # file scripts/fxcap/capture.sh writes or a directory it fills
 # (`<bin>-<scenario>-<rows>x<cols>-<label>...`, a `/trace` report's `.md`
-# and a request body's directory among them); and by its kind, whatever its
-# name.
+# and a request body's directory among them: a name reserved for captures,
+# as the header says); and by its kind, whatever its name.
 capture_name_re='(^|/)x?fx-[^/]*-[0-9]{1,4}x[0-9]{1,4}-'
 is_capture() {
 	if [[ $1 =~ $capture_name_re ]]; then
