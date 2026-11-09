@@ -38466,6 +38466,71 @@ mod tests {
         assert!(shell.document().is_empty(), "said behind the plane");
     }
 
+    /// A question on the review plane, at `cols`, with a turn running: the
+    /// surface every quarantine sentence below is said on.
+    fn on_the_plane(cols: u16) -> Fixture {
+        let mut shell = shell(40, cols);
+        let started = turn_running(&mut shell, b"rewrite the notes\r");
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        let _ = shell.document();
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Alternate,
+            "{cols} columns"
+        );
+        shell
+    }
+
+    /// From `t0`: `opening` read and settled, then a byte a turn until the
+    /// repeat is due, and `last` in the turn it falls due in. Returns that
+    /// turn's time.
+    fn streamed_to_the_repeat(
+        shell: &mut Fixture,
+        t0: Instant,
+        opening: &[u8],
+        last: &[u8],
+    ) -> Instant {
+        let tick = super::super::event_loop::TICK;
+        shell.route_read(opening);
+        shell.end_delivery_at(t0);
+        let first = t0 + tick;
+        let mut at = t0;
+        loop {
+            at += tick;
+            let due =
+                at.saturating_duration_since(first) >= super::super::input::Decoder::PASTE_REPEAT;
+            shell.route_read(if due { last } else { b"y" });
+            shell.end_delivery_at(at);
+            if due {
+                return at;
+            }
+        }
+    }
+
+    #[test]
+    fn every_quarantine_sentence_is_whole_on_the_review_plane_at_the_narrowest_screen() {
+        // opus on PASTE-GAP round 4: the plane gives its status two rows
+        // (`super::approval_screen`'s `STATUS_ROWS`), so a sentence wider than
+        // two rows of the narrowest screen a session has (`MIN_COLS`) was cut
+        // -- and a cut sentence says something else. Each of the three, said
+        // in its own state, is whole there.
+        let cols = super::super::layout::MIN_COLS;
+        for (opening, last, sentence) in [
+            (&b"\x1b[200~new\x1b[201~"[..], &b"y"[..], PASTE_STILL),
+            (b"\x1b[200~new\x1b[201~\x1b[200~two ", b"y", PASTE_UNTIL_END),
+            (b"\x1b[200~new\x1b[201~", b"\x1b[", PASTE_UNTIL_KEY),
+        ] {
+            let mut shell = on_the_plane(cols);
+            streamed_to_the_repeat(&mut shell, Instant::now(), opening, last);
+            let painted = unwrapped(&shell.screen_rows());
+            assert!(
+                painted.contains(sentence),
+                "{sentence:?} is not whole at {cols} columns: {painted:?}"
+            );
+        }
+    }
+
     #[test]
     fn an_oversized_paste_with_input_behind_it_on_the_review_plane_ends_on_the_warning() {
         // fx writes two notices here, the limit's and then the warning
