@@ -55,8 +55,8 @@ thread_local! {
 
 /// What a unit test still takes from the real process, by name: where
 /// programs are, and where temporary files go. Neither names the developer, a
-/// credential, or a configuration. The one read of the real process in this
-/// module, and what a child of a unit test is given of it.
+/// credential, or a configuration. The one place this module reads the real
+/// process, and what a child of a unit test is given of it.
 fn kept() -> [(&'static str, Option<OsString>); 2] {
     [
         ("PATH", env_exception!(var_os("PATH"))),

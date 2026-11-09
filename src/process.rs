@@ -886,9 +886,21 @@ mod tests {
     }
 
     /// The rule, kept by reading the library's own code: every child process
-    /// is made by [`command`]. A test module -- everything from a file's first
-    /// unindented `#[cfg(test)]` or `#[cfg(all(test, …))]` that puts a `mod`
-    /// under it -- may make one as it likes.
+    /// is made by [`command`] -- in a test module too, where `command` gives a
+    /// unit test's child the case's fake process or nothing
+    /// (`crate::test_env`). Two exceptions, and no other:
+    ///
+    /// - this file's code outside its test module (everything before its
+    ///   first unindented `#[cfg(test)]` or `#[cfg(all(test, …))]` that puts
+    ///   a `mod` under it), where [`command`] makes the one `Command` every
+    ///   other comes from;
+    /// - in `tui/signals.rs`, the case about what a bare `Command`'s child
+    ///   inherits, its environment cleared on the next lines.
+    ///
+    /// Integration tests (`tests/`) are not read: each builds its children's
+    /// environment with `support::sandbox::clear_env`, and each test binary
+    /// runs its cases in a copy of itself whose environment is built from
+    /// nothing (`tests/support/isolated.rs`).
     ///
     /// Every start of one, tests' too, goes through [`spawn`], and every pipe
     /// through [`pipe`]: that half is clippy's, on the resolved call
@@ -911,9 +923,10 @@ mod tests {
             "std::process::Command::spawn",
             "std::process::Command::status",
             "std::process::Command::output",
-            "tokio::process::Command::spawn",
-            "tokio::process::Command::status",
-            "tokio::process::Command::output",
+            // Spelled in halves: this module's lines are read below.
+            concat!("tokio::process::", "Command::spawn"),
+            concat!("tokio::process::", "Command::status"),
+            concat!("tokio::process::", "Command::output"),
             "libc::fork",
             "libc::vfork",
             "libc::forkpty",
@@ -939,7 +952,12 @@ mod tests {
             );
         }
         let root = manifest.join("src");
-        let mut stack = vec![root.clone(), manifest.join("tests")];
+        let mut stack = vec![root.clone()];
+        // Spelled in halves, so that this file's test module, which the
+        // check reads, does not hold what it looks for.
+        let made = concat!("Command", "::new(");
+        let made_by_tokio = concat!("tokio::process::", "Command");
+        let bare_sleep = concat!("Command", "::new(\"/bin/sleep\")");
         let mut found = Vec::new();
         while let Some(dir) = stack.pop() {
             for entry in std::fs::read_dir(&dir).expect("a source dir") {
@@ -948,15 +966,13 @@ mod tests {
                     stack.push(path);
                     continue;
                 }
-                if path.extension().and_then(OsStr::to_str) != Some("rs")
-                    || path.ends_with("process.rs") && path.parent() == Some(root.as_path())
-                {
+                if path.extension().and_then(OsStr::to_str) != Some("rs") {
                     continue;
                 }
-                let library = path.starts_with(&root);
+                let this_file = path == root.join("process.rs");
                 let text = std::fs::read_to_string(&path).expect("a source file");
                 let lines: Vec<&str> = text.lines().collect();
-                let mut in_tests = !library;
+                let mut in_tests = false;
                 for (number, line) in lines.iter().enumerate() {
                     in_tests |= (line.starts_with("#[cfg(test)]")
                         || line.starts_with("#[cfg(all(test"))
@@ -964,27 +980,15 @@ mod tests {
                             .iter()
                             .find(|next| !next.starts_with("#["))
                             .is_some_and(|next| next.contains("mod "));
-                    if line.trim_start().starts_with("//") {
+                    if line.trim_start().starts_with("//") || this_file && !in_tests {
                         continue;
                     }
-                    // In a library's test modules too: a unit test's child
-                    // goes through `command`, which gives it the case's fake
-                    // process or nothing (`crate::test_env`). The one bare
-                    // start allowed there is the case about what a bare
-                    // `Command`'s child inherits, its environment cleared.
-                    // Integration tests (`tests/`) build each child's
-                    // environment with `support::sandbox::clear_env` or
-                    // `env_clear` instead.
                     let bare_on_purpose = path.ends_with("tui/signals.rs")
-                        && line.contains("Command::new(\"/bin/sleep\")")
+                        && line.contains(bare_sleep)
                         && lines[number..lines.len().min(number + 3)]
                             .iter()
                             .any(|next| next.contains(".env_clear()"));
-                    if (library || !in_tests)
-                        && !bare_on_purpose
-                        && (line.contains("Command::new(")
-                            || line.contains("tokio::process::Command"))
-                    {
+                    if !bare_on_purpose && (line.contains(made) || line.contains(made_by_tokio)) {
                         found.push(format!("{}:{}", path.display(), number + 1));
                     }
                 }
@@ -1034,7 +1038,9 @@ mod tests {
         }
         use std::os::unix::process::CommandExt;
 
-        let mut probe = std::process::Command::new(std::env::current_exe().expect("this binary"));
+        // Its environment cleared, as every unit test's child's is
+        // (`command`), and its role passed on its own.
+        let mut probe = command(std::env::current_exe().expect("this binary"));
         probe
             .args([
                 "--exact",
