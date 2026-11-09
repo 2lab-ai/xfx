@@ -1,0 +1,21 @@
+# cargo test --locked --lib -- inside_the_quarantine split_across_the_quiet begun_in_the_quarantine begun_inside_the_quarantine said_again_once_a_second begun_behind_the_first split_across_the_settle being_dropped first_empty_check_at_or_past paste_quiet_stays_within quarantine_ends_only cumulative_bound an_escape_sequence_behind_the_end_marker
+# at 45dffff4 (round 2's code head)
+test tui::input::tests::paste_quiet_stays_within_what_was_measured ... ok
+test tui::input::tests::a_quarantine_ends_at_the_first_empty_check_at_or_past_the_quiet ... ok
+test tui::input::tests::an_unterminated_paste_begun_behind_the_first_s_end_marker_never_becomes_keys ... ok
+test tui::input::tests::input_dropped_before_a_paste_begun_in_the_quarantine_is_still_said ... ok
+test tui::input::tests::a_quarantine_ends_only_after_two_empty_checks_a_quiet_period_apart ... ok
+test tui::input::tests::an_escape_sequence_behind_the_end_marker_is_counted_and_never_decoded ... ok
+test tui::input::tests::a_start_marker_inside_a_paste_being_dropped_is_its_content_and_one_end_closes_it ... ok
+test tui::input::tests::a_second_paste_begun_behind_the_first_s_end_marker_stays_dropped_across_a_gap ... ok
+test tui::input::tests::an_unterminated_paste_begun_inside_the_quarantine_never_becomes_keys ... ok
+test tui::input::tests::a_start_marker_inside_a_paste_begun_in_the_quarantine_is_its_content ... ok
+test tui::input::tests::a_start_marker_split_across_the_settle_is_followed_into_the_quarantine ... ok
+test tui::input::tests::a_second_paste_inside_the_quarantine_is_a_paste_across_a_gap_in_its_middle ... ok
+test tui::input::tests::a_start_marker_split_across_the_quiet_holds_the_quarantine ... ok
+test tui::probe::tests::a_second_escape_starts_the_next_candidate_rather_than_being_dropped ... ok
+test tui::input::tests::the_cumulative_bound_holds_at_every_prefix_of_deterministic_noise ... ok
+test tui::shell::tests::a_second_paste_inside_the_quarantine_with_a_gap_in_its_middle_is_kept_and_sends_nothing ... ok
+test tui::shell::tests::input_that_keeps_arriving_inside_the_quarantine_is_said_again_once_a_second ... ok
+test tui::shell::tests::a_second_paste_begun_behind_the_first_s_end_marker_sends_nothing_across_a_gap ... ok
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 4545 filtered out; finished in 0.04s

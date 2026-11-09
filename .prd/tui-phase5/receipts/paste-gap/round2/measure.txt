@@ -1,0 +1,46 @@
+# round2/paste_xfx.py against a real xfx (round 1's driver plus two modes, `double` and `late`; its
+# docstring has the fields). Two benign pastes: `early-paste-text`, then `second-`, a pause of 120 ms,
+# `paste CR /version CR` and the second paste's end marker.
+#   double  the second paste's start marker in the first one's delivery (one write with its end)
+#   late    the second paste written 10 ms after the first: its start marker inside the quarantine
+# paste_submitted = the second paste's own CR was read as a key and sent a prompt by itself.
+# prompt = what the driver's own Enter (or that CR) sent. Builds, each checked by the revision in it:
+#   r1     ea2b8a60 (round 1's code head, v0.1.0-ea2b8a6)
+#   r2a    227e00d5 (round 2's first code commit, v0.1.0-227e00d)
+#   final  45dffff4 (round 2's code head, v0.1.0-45dffff; its code is 8ccf2590's plus one test)
+
+## double, r1 -- the rest of the second paste is keys: `paste` is sent
+{"mode": "double", "size": 120, "paste_submitted": true, "head": true, "typed_bytes": 5, "dropped_before_keys": 85, "first_key_token": null, "warning": true, "other": "paste", "prompt": "early-paste-textpaste", "seconds": 4.6}
+{"mode": "double", "size": 120, "paste_submitted": true, "head": true, "typed_bytes": 5, "dropped_before_keys": 85, "first_key_token": null, "warning": true, "other": "paste", "prompt": "early-paste-textpaste", "seconds": 3.4}
+{"mode": "double", "size": 120, "paste_submitted": true, "head": true, "typed_bytes": 5, "dropped_before_keys": 85, "first_key_token": null, "warning": true, "other": "paste", "prompt": "early-paste-textpaste", "seconds": 3.4}
+
+## double, r2a -- the same: its start marker was counted behind the first end marker and never followed (the hole 8ccf2590 closes)
+{"mode": "double", "size": 120, "paste_submitted": true, "head": true, "typed_bytes": 5, "dropped_before_keys": 85, "first_key_token": null, "warning": true, "other": "paste", "prompt": "early-paste-textpaste", "seconds": 4.3}
+{"mode": "double", "size": 120, "paste_submitted": true, "head": true, "typed_bytes": 5, "dropped_before_keys": 85, "first_key_token": null, "warning": true, "other": "paste", "prompt": "early-paste-textpaste", "seconds": 3.4}
+{"mode": "double", "size": 120, "paste_submitted": true, "head": true, "typed_bytes": 5, "dropped_before_keys": 85, "first_key_token": null, "warning": true, "other": "paste", "prompt": "early-paste-textpaste", "seconds": 3.4}
+
+## double, final -- nothing sent; the second paste is dropped to its own end marker, as fx drops a paste in the first one's delivery
+{"mode": "double", "size": 120, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 85, "first_key_token": null, "warning": true, "other": "", "prompt": "early-paste-text", "seconds": 3.1}
+{"mode": "double", "size": 120, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 85, "first_key_token": null, "warning": true, "other": "", "prompt": "early-paste-text", "seconds": 2.5}
+{"mode": "double", "size": 120, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 85, "first_key_token": null, "warning": true, "other": "", "prompt": "early-paste-text", "seconds": 2.6}
+
+## late, r1 -- the rest of the second paste is keys: `paste` is sent
+{"mode": "late", "size": 120, "paste_submitted": true, "head": true, "typed_bytes": 5, "dropped_before_keys": 85, "first_key_token": null, "warning": true, "other": "paste", "prompt": "early-paste-textpaste", "seconds": 3.5}
+{"mode": "late", "size": 120, "paste_submitted": true, "head": true, "typed_bytes": 5, "dropped_before_keys": 85, "first_key_token": null, "warning": true, "other": "paste", "prompt": "early-paste-textpaste", "seconds": 3.4}
+{"mode": "late", "size": 120, "paste_submitted": true, "head": true, "typed_bytes": 5, "dropped_before_keys": 85, "first_key_token": null, "warning": true, "other": "paste", "prompt": "early-paste-textpaste", "seconds": 3.4}
+
+## late, final -- nothing sent; the second paste is a paste, newlines and all
+{"mode": "late", "size": 120, "paste_submitted": false, "head": true, "typed_bytes": 21, "dropped_before_keys": 85, "first_key_token": null, "warning": false, "other": "second-paste\n/version", "prompt": "early-paste-textsecond-paste\n/version", "seconds": 2.6}
+{"mode": "late", "size": 120, "paste_submitted": false, "head": true, "typed_bytes": 21, "dropped_before_keys": 85, "first_key_token": null, "warning": false, "other": "second-paste\n/version", "prompt": "early-paste-textsecond-paste\n/version", "seconds": 2.7}
+{"mode": "late", "size": 120, "paste_submitted": false, "head": true, "typed_bytes": 21, "dropped_before_keys": 85, "first_key_token": null, "warning": false, "other": "second-paste\n/version", "prompt": "early-paste-textsecond-paste\n/version", "seconds": 2.6}
+
+## the round-1 threat on the final build (round 1's payload: an embedded end marker, a CR at the end)
+## pty (load average 42.7 at the start)
+{"mode": "pty", "size": 4096, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 4061, "first_key_token": null, "warning": true, "other": "", "seconds": 2.5}
+{"mode": "pty", "size": 65536, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 65501, "first_key_token": null, "warning": true, "other": "", "seconds": 2.5}
+{"mode": "pty", "size": 65536, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 65501, "first_key_token": null, "warning": true, "other": "", "seconds": 2.5}
+{"mode": "pty", "size": 1048576, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 1048541, "first_key_token": null, "warning": true, "other": "", "seconds": 2.5}
+## outer terminal -> tmux -> xfx
+{"mode": "outer", "size": 4096, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 4061, "first_key_token": null, "warning": true, "other": "", "seconds": 4.1}
+{"mode": "outer", "size": 65536, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 65501, "first_key_token": null, "warning": true, "other": "", "seconds": 4.2}
+{"mode": "outer", "size": 1048576, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 1048541, "first_key_token": null, "warning": true, "other": "", "seconds": 5.0}

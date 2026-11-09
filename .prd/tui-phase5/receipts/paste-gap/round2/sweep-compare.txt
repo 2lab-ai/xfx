@@ -1,0 +1,4 @@
+# python3 -I ../../paste-after-end/cmp_sweeps.py <round 1's base pairs.json (a832f4d7)> <round 2's head pairs.json (45dffff4)>
+base: 253 pairs, 200 pass, 20 with uncaused rows
+head: 253 pairs, 200 pass, 20 with uncaused rows
+drops: 0
