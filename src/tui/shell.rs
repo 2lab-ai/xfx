@@ -48561,6 +48561,116 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // CATALOG-REFRESH: which asks read the catalog, and the clock they count
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_resume_or_a_fork_is_activity_for_the_catalog() {
+        // fx starts the model cache's activity trigger as a session is resumed
+        // from the picker or forked (`startResumedSessionWarmup` ->
+        // `startModelCacheWarmup` -> `loadModelCatalog(.activity)`,
+        // `app_session_runtime.zig:2048-2050`, `:2065`, `:2123`;
+        // `src/main.zig:2007-2008@481104fd`): rows five minutes past their
+        // read's start are read again, fresh ones are not, and a band with no
+        // answer yet -- the launch's own read on its way -- asks nothing.
+        let stale = Instant::now()
+            .checked_sub(REFRESH_INTERVAL + Duration::from_secs(1))
+            .expect("a clock older than five minutes");
+        let resumed = || UiEvent::Resumed(replay(Some("first question alpha"), Vec::new()));
+        let forked = || UiEvent::Forked {
+            replay: replay(Some("first prompt alpha (fork)"), Vec::new()),
+            source: "1793751392050-7d3ce346fd20313d".to_string(),
+        };
+        for (what, reopened) in [("a resume", resumed()), ("a fork", forked())] {
+            let mut shell = shell(24, 240);
+            shell.apply(loaded_from(stale));
+            shell.apply(reopened);
+            assert_eq!(
+                catalog_asks(&mut shell),
+                [("activity", false)],
+                "{what} over rows five minutes old asked nothing"
+            );
+        }
+        for (what, reopened) in [("a resume", resumed()), ("a fork", forked())] {
+            let mut shell = shell(24, 240);
+            shell.apply(loaded_from(Instant::now()));
+            shell.apply(reopened);
+            assert_eq!(catalog_asks(&mut shell), [], "{what} asked for fresh rows");
+        }
+        let mut shell = shell(24, 240);
+        shell.apply(resumed());
+        assert_eq!(catalog_asks(&mut shell), [], "asked before any answer");
+    }
+
+    #[test]
+    fn settings_and_the_speed_commands_wait_for_the_catalog_and_never_ask_for_a_read() {
+        // fx's `/settings`, `/fast` and `/ultrafast` read the capabilities its
+        // model cache holds and start no load (`settingsCatalogSnapshot` ->
+        // `resolvedModelCapabilities`, `app_commands.zig:3230-3246`;
+        // `handleFast`'s `resolveForApp`, `session_commands.zig:827`;
+        // `model_capabilities.zig:133-141`; `src/main.zig:2060-2066@481104fd`).
+        // Here they wait for the runtime's answer when the band has none --
+        // the launch's read, or a provider switch's, is on its way -- and
+        // never ask with a trigger that starts one.
+        let stale = Instant::now()
+            .checked_sub(REFRESH_INTERVAL + Duration::from_secs(1))
+            .expect("a clock older than five minutes");
+        let failed = Instant::now()
+            .checked_sub(Duration::from_secs(60))
+            .expect("a clock older than a minute");
+        for command in [&b"/settings\r"[..], b"/fast\r", b"/ultrafast on\r"] {
+            let typed = String::from_utf8_lossy(command).trim_end().to_string();
+            // No answer yet: waited for, with nothing read for it.
+            let mut shell = shell(40, 120);
+            shell.route_bytes(command);
+            assert_eq!(
+                catalog_asks(&mut shell),
+                [("told", true)],
+                "{typed} over no answer"
+            );
+            // Rows five minutes old, and a failure past its hold: read by
+            // fx's activity, but neither of these is activity.
+            for held in [
+                loaded_from(stale),
+                unread_at(Some(CatalogRetry::Unreachable), failed),
+            ] {
+                let mut shell = self::shell(40, 120);
+                shell.apply(held);
+                shell.route_bytes(command);
+                assert_eq!(catalog_asks(&mut shell), [], "{typed} asked for a read");
+            }
+        }
+    }
+
+    #[test]
+    fn a_reading_earlier_than_the_last_reads_start_owes_the_catalog_a_read() {
+        // fx: "callers treat a reading earlier than a stored one as due"
+        // (`clockMs`, `src/core/gateway/model_catalog.zig:72-75@481104fd`;
+        // `beginLoad`'s `elapsed` and `backoff_over`,
+        // `model_cache_runtime.zig:610-618`): rows whose read began after
+        // the reading, and a failure inside its hold, are both due then.
+        let began = Instant::now();
+        let earlier = began
+            .checked_sub(Duration::from_secs(1))
+            .expect("a clock older than a second");
+        let mut shell = shell(40, 120);
+        shell.apply(loaded_from(began));
+        assert!(!shell.shell.note_catalog_activity(began));
+        assert!(
+            shell.shell.note_catalog_activity(earlier),
+            "a reading before the rows' read began was not due"
+        );
+        assert_eq!(catalog_asks(&mut shell), [("activity", false)]);
+        let mut shell = self::shell(40, 120);
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), began));
+        assert!(!shell.shell.note_catalog_activity(began));
+        assert!(
+            shell.shell.note_catalog_activity(earlier),
+            "a reading before the failed read was inside its hold"
+        );
+    }
+
+    // -----------------------------------------------------------------------
     // Train 7, join check 1 (b), the band's half: MODELS-REASK's asks around
     // STOP-NEXT-2's stop
     // -----------------------------------------------------------------------

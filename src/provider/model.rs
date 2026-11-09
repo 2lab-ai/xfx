@@ -2987,6 +2987,37 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn a_reading_earlier_than_the_last_reads_start_is_due_whatever_held_it_back() {
+        // fx: "A clock that moved backwards makes every elapsed check due"
+        // (`beginLoad`, `model_cache_runtime.zig:610-611@481104fd`), and its
+        // backoff is over (`backoff_over`, `:617`): "callers treat a reading
+        // earlier than a stored one as due" (`clockMs`,
+        // `src/core/gateway/model_catalog.zig:72-75`).
+        let began = Instant::now();
+        let earlier = began
+            .checked_sub(Duration::from_secs(1))
+            .expect("a clock older than a second");
+        let fresh = LoadClock::default().after(began, false, began);
+        let failed = LoadClock::default().after(began, true, began);
+        for trigger in [LoadTrigger::Activity, LoadTrigger::PickerOpen] {
+            assert!(!fresh.due(Held::Rows { retry_due: false }, trigger, began));
+            assert!(
+                fresh.due(Held::Rows { retry_due: false }, trigger, earlier),
+                "{trigger:?}: rows read after the reading were not due"
+            );
+            assert!(!failed.due(Held::Failed, trigger, began));
+            assert!(
+                failed.due(Held::Failed, trigger, earlier),
+                "{trigger:?}: a failure's hold held a reading before its read"
+            );
+            assert!(
+                failed.due(Held::Rows { retry_due: true }, trigger, earlier),
+                "{trigger:?}: a failed refresh's hold held a reading before its read"
+            );
+        }
+    }
+
     /// A catalog that answers once `gate` opens, or never.
     struct Waiting {
         gate: std::sync::Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
