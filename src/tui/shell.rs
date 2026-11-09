@@ -10530,8 +10530,8 @@ impl Shell {
         //
         // **A turn that started is not over until its end is read.** The
         // runtime gives a place back after it has sent the work's terminal
-        // event (`TurnEnded`, `worker.rs:3867`, then `turn_loop`'s
-        // `fetch_sub`, `:3524`), so this can run between the two with a
+        // event (`TurnEnded`, `worker.rs:3917`, then `turn_loop`'s
+        // `fetch_sub`, `:3530`), so this can run between the two with a
         // started turn's end still in the channel -- and a stopped turn's end
         // says `the turn was cancelled`. A cancel taken here would leave that
         // end to read as the turn's failure: an `error` report after the
@@ -22668,8 +22668,8 @@ mod tests {
             Ok(TurnControl::QuestionCancelled { .. })
         ));
         // `released`, not `document`: the notice is behind the pacer, which is
-        // how the existing too-small assertions read it (`shell.rs:5816`,
-        // `:6004`). Concatenated rather than compared row by row, because a
+        // how the existing too-small assertions read it (`shell.rs:5870`,
+        // `:6058`). Concatenated rather than compared row by row, because a
         // twenty-column screen is exactly the one that wraps this sentence --
         // and what the case is about is that the refusal was said, not where the
         // wrap fell.
