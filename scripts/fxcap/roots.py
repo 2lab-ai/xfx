@@ -333,8 +333,8 @@ def rewrite(data, rules):
     were written. Refused, before any edit, where a root with gutter runs
     reads broken beside one (`_broken_at_gutters`): it cannot be written
     over its own columns, and a root it is under, written first, would hide
-    it from the survivor reading (`/Users/z/My Docs/...` broken at its space
-    under HOME `/Users/z`)."""
+    it from the survivor reading (`<HOME>/My Docs/...` broken at its space,
+    under HOME)."""
     view = View(data)
     for needle, name, real in rules:
         if any(_find(view, v, []) for v in _broken_at_gutters(needle)):
