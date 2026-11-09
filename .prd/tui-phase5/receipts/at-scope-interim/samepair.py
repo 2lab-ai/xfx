@@ -1,5 +1,5 @@
 """Two captures of one scenario from two sweeps, cell by cell (cells.py's
-parser), row 1 (the banner) left out, with the names each run made for
+parser), row 1 (the banner) left out, every differing cell listed, with the names each run made for
 itself -- the sweep's directory (`fxsw.` and 8 characters) and the run's
 (`fxcap.` and 6) -- written as X. Their styles are kept: a cell inside such a
 name that one capture paints bold and the other does not still differs.
@@ -36,6 +36,8 @@ for i in range(1, max(len(a), len(b))):
     q = b[i] if i < len(b) else []
     if p != q:
         differ += 1
-        first = next((j for j in range(max(len(p), len(q))) if (p[j] if j < len(p) else None) != (q[j] if j < len(q) else None)), None)
-        print("row %d differs; first differing cell index %s: %r / %r" % (i + 1, first, p[first] if first is not None and first < len(p) else None, q[first] if first is not None and first < len(q) else None))
+        cells = [j for j in range(max(len(p), len(q))) if (p[j] if j < len(p) else None) != (q[j] if j < len(q) else None)]
+        print("row %d differs in %d cells:" % (i + 1, len(cells)))
+        for j in cells:
+            print("  index %d: %r / %r" % (j, p[j] if j < len(p) else None, q[j] if j < len(q) else None))
 print("%d rows differ (row 1 not compared; the run's names masked, styles kept)" % differ)

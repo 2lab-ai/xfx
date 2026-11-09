@@ -60,6 +60,10 @@ MUTANTS = [
     # a path list is not the index's: its source is the app's own epoch (input_completion_runtime.zig:867)
     ("epoch-check-on-a-path-list", FI, "        let Some(directory) = resolve(&self.root, self.home.as_deref(), explicit.parent) else {\n",
      "        if self.index.is_some() && self.index_epoch != self.epoch {\n            return Lookup::Unavailable;\n        }\n        let Some(directory) = resolve(&self.root, self.home.as_deref(), explicit.parent) else {\n"),
+    # round 2: the two cases that pin xfx's side of a named difference
+    ("walk-at-launch", SH, "                    &WorkspaceAccess::load(&config.workspace_root, &config.additional_directories),\n                ));\n                files\n",
+     "                    &WorkspaceAccess::load(&config.workspace_root, &config.additional_directories),\n                ));\n                files.refresh_index();\n                files\n"),
+    ("never-loading", FI, "        self.index.is_none() && self.walk.is_some()", "        false"),
     # the shell moves the epoch on every change it sees
     ("no-scope-change-in-adopt", SH, "            self.files\n                .change_scope(index_roots(&self.workspace, &access));",
      "            let _ = index_roots(&self.workspace, &access);"),
