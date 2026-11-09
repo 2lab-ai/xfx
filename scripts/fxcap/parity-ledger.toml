@@ -650,6 +650,16 @@ xfx_row = '^✗ system: the Gateway returned HTTP 502: |^auto · model-a$'
 why = "Every request of the turn answers 502. fx backs off and is still retrying when Escape stops the turn (`⚠ Provider unavailable · HTTP 502 · … retrying request in Ns`), so its stop leaves `▪ Cancelled · What can fx do differently?`; xfx gives up after three attempts (`gateway::DEFAULT_MAX_ATTEMPTS`, src/gateway/mod.rs:59) before `r01` (2.1 s) and writes the failure, so its row 5 is `✗ system: the Gateway returned HTTP 502: …` from `r01` on, where fx's is the retry row and then the cancelled line, and the Escape that arms fx's `esc again to interrupt` finds no turn on xfx's (`r04a-esc-armed`). The retry budget K-recover owns for `interrupt-retry`. Named by T-U4: the deleted `cancelled-marker` took fx's `▪ Cancelled` row in `r04-after-esc` and `r05-after-esc-4.5s`, and these rows were otherwise uncaused (.prd/tui-phase5/receipts/cancel-marker/README.md)."
 
 [[cause]]
+id = "question-resume-ctrlo-detail"
+kind = "unit"
+owner = "QUESTION-RESUME-CTRLO a resumed ask's saved detail in Ctrl-O (docs/parity.md:162), not yet a branch"
+scenarios = ["p5-question-resume-ctrlo"]
+snaps = ["resumed-ctrlo"]
+fx_row = '^│  (?:questions: |\[\{"question"|1","description"|\(ask_user_question: )|^  X+ UTC · Tool$|^$'
+xfx_row = '^$'
+why = "fx v0.0.16 hands each replayed `ask_user_question` call its saved detail (`attachHistoricalToolDetail`, `app_session_runtime.zig:4337`, `:4607@481104fd`), so its Ctrl-O shows the call's arguments and its result under the batch's resolutions (`│  questions: [...]`, `│  [{\"question\":...}]`) and under `● Asked`, which it heads `<ts> UTC · Tool`. xfx's replay writes both rows as blocks that carry no call (QUESTION-RESUME, .prd/tui-phase5/receipts/question-resume/), so its Ctrl-O shows the resolution and `● Asked` alone, and the rows after them stand higher. The rows themselves, on the screen and in Ctrl-O, match; the inline `resumed` pairs are identical."
+
+[[cause]]
 id = "at-ranking"
 kind = "unit"
 owner = "I-U2 @ fzf-style ranking (input cluster I3), not yet a branch"

@@ -1,0 +1,46 @@
+[
+ {
+  "tool": {
+   "name": "ask_user_question",
+   "input": {
+    "questions": [
+     {
+      "question": "Solo 1?",
+      "options": [
+       {
+        "label": "Keep 1",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 1",
+        "description": "Apply the change."
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "delayMs": 100,
+  "chunks": [
+   "One ",
+   "done."
+  ]
+ },
+ {
+  "tool": {
+   "name": "ask_user_question",
+   "input": {
+    "questions": []
+   }
+  }
+ },
+ {
+  "delayMs": 100,
+  "chunks": [
+   "None ",
+   "asked."
+  ]
+ }
+]
