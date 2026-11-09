@@ -130,8 +130,13 @@ folder.
    - **Every key the list takes asks for a frame, spent or not** (round 3):
      the arrows and page keys (`app_input_runtime.zig:310-330`,
      `:1013-1020`), Tab on a file query (`:1317-1321`), and Enter whenever
-     the list answers it (`:1405-1410`). That frame is what restores trust
-     after a spent key.
+     the list answers it (`:1405-1410`). What restores trust after a resize
+     is any committed frame that shows the list (`app_render_runtime.zig:
+     1022-1023`), and fx's resize signal asks for one of its own
+     (`observeResizeSignal`, `render_request.zig:196-200`); xfx's asks for
+     none, so a key the list hands on mid-resize asks for it too (corrected
+     by AT-FOLDERS, opus r3 SHOULD 1; these lines are quoted in
+     `fx-src.txt` from line 653, added by AT-FOLDERS).
    - **A job-control resume** resets the terminal (`requestTerminalReset`,
      `app_lifecycle.zig:1200-1211`), which sets `terminal_reset_pending`
      (`transcript/runtime.zig:7167`), which distrusts (`:805-806`).

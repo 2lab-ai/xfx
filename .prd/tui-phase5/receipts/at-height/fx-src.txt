@@ -649,3 +649,713 @@
   639          list_picker_rows
   640      else
   641          0;
+
+== src/core/app/app_input_runtime.zig:310-330@481104fd -- AT-HEIGHT r3: the arrows and page keys route, then ask for a frame (:330)
+  310                          .visual_up,
+  311                          .visual_down,
+  312                          .page_up,
+  313                          .page_down,
+  314                          => {
+  315                              const direction: visual_layout.Direction = switch (intent.kind) {
+  316                                  .visual_up, .page_up => .up,
+  317                                  .visual_down, .page_down => .down,
+  318                                  else => unreachable,
+  319                              };
+  320                              const delta: i32 = if (direction == .up) -1 else 1;
+  321                              try completion_rt.routeComposerVertical(
+  322                                  app,
+  323                                  direction,
+  324                                  delta,
+  325                                  intent.extend_selection,
+  326                                  intent.kind == .page_up or intent.kind == .page_down,
+  327                              );
+  328                          },
+  329                      }
+  330                      app.shell.render_requests.request(.footer);
+
+== src/core/app/app_input_runtime.zig:1013-1020@481104fd -- AT-HEIGHT r3: plain Up and Down route, then ask for a frame
+ 1013                  .cursor_up => {
+ 1014                      try completion_rt.routePlainVertical(app, .up, -1);
+ 1015                      app.shell.render_requests.request(.footer);
+ 1016                  },
+ 1017                  .cursor_down => {
+ 1018                      try completion_rt.routePlainVertical(app, .down, 1);
+ 1019                      app.shell.render_requests.request(.footer);
+ 1020                  },
+
+== src/core/app/app_input_runtime.zig:1317-1321@481104fd -- AT-HEIGHT r3: Tab on a file query, then a frame whatever it did
+ 1317                      } else if (completion_rt.hasFileQuery(app)) {
+ 1318                          if ((try completion_rt.autocompleteFilePickerSelection(app, max_input_len)) == .limit_exceeded) {
+ 1319                              try input_limit_feedback.report(App, app, .composer, 1);
+ 1320                          }
+ 1321                          app.shell.render_requests.request(.footer);
+
+== src/core/app/app_input_runtime.zig:1405-1410@481104fd -- AT-HEIGHT r3: Enter the list answers, then a frame
+ 1405                      if (try completion_rt.submitFilePickerOnEnter(app, max_input_len)) |result| {
+ 1406                          if (result == .limit_exceeded) {
+ 1407                              try input_limit_feedback.report(App, app, .composer, 1);
+ 1408                          }
+ 1409                          app.shell.render_requests.request(.footer);
+ 1410                          return;
+
+== src/core/app/app_lifecycle.zig:1198-1212@481104fd -- AT-HEIGHT r3: a job-control resume resets the terminal (:1210)
+ 1198  /// Re-arm raw mode after a job-control continue, re-query layout in case the
+ 1199  /// terminal was resized while stopped, then request a full repaint.
+ 1200  fn resumeTerminalAfterJobControl(
+ 1201      terminal: *TerminalState,
+ 1202      shell: *TranscriptRuntime,
+ 1203      metrics: *Metrics,
+ 1204      footer_rows: u16,
+ 1205  ) !void {
+ 1206      shell.layout = terminal.queryLayout(footer_rows) catch shell.layout;
+ 1207      try terminal.captureOriginalTermios();
+ 1208      try terminal.enableRawMode();
+ 1209      try enableInteractiveTerminalModes(shell, metrics);
+ 1210      try shell.requestTerminalReset(metrics);
+ 1211      shell.render_requests.request(.first_frame);
+ 1212  }
+
+== src/ui/transcript/runtime.zig:7164-7168@481104fd -- AT-HEIGHT r3: the reset sets terminal_reset_pending (:7167)
+ 7164          self.render_requests.clearPendingInvalidations();
+ 7165          self.footer_viewport.has_frame = false;
+ 7166          self.footer_viewport.clearExternalInvalidation();
+ 7167          self.terminal_reset_pending = true;
+ 7168          try self.initViewportWithReservedRows(metrics, 1, min_body_rows);
+
+== src/ui/render_request.zig:196-200@481104fd -- AT-FOLDERS: the resize signal asks for a frame of its own (:199)
+  196      pub fn observeResizeSignal(self: *RenderRequestState, now_ms: i64, debounce_ms: i64) void {
+  197          self.resize_dirty = true;
+  198          self.resize_apply_after_ms = now_ms + debounce_ms;
+  199          self.request(.resize);
+  200      }
+
+== src/ui/render_request.zig:216-226@481104fd -- AT-FOLDERS: resize pending, and a commit blocked while it is
+  216      pub fn resizeLifecyclePending(self: RenderRequestState) bool {
+  217          return self.resize_dirty or self.pending_settled_width_reflow;
+  218      }
+  219  
+  220      pub fn shouldApplyDeferredResize(self: RenderRequestState, now_ms: i64) bool {
+  221          return self.resize_dirty and now_ms >= self.resize_apply_after_ms;
+  222      }
+  223  
+  224      pub fn blocksFrameCommit(self: RenderRequestState) bool {
+  225          return self.resize_dirty or self.frame_admission_block_depth > 0;
+  226      }
+
+== src/core/app/input_completion_runtime.zig:78-80@481104fd -- AT-FOLDERS: FolderAction, open or select
+   78          /// What accepting a folder row does: Tab opens it to list its
+   79          /// contents, Enter selects the folder itself.
+   80          const FolderAction = enum { open, select };
+
+== src/core/app/input_completion_runtime.zig:967-1032@481104fd -- AT-FOLDERS: applyFilePickerSelection -- a selected folder is path + /, quote closed, a space
+  967          fn applyFilePickerSelection(
+  968              app: *App,
+  969              selection: FilePickerSelection,
+  970              max_input_len: usize,
+  971              folder_action: FolderAction,
+  972          ) !edit_contract.InsertResult {
+  973              if (!file_picker_path.isRepresentable(selection.choice.path)) {
+  974                  debug_trace.logf("input", "file picker rejected unrepresentable selection bytes={d}", .{selection.choice.path.len});
+  975                  app.input_runtime.picker.resetFilePickerIndex();
+  976                  return .inactive;
+  977              }
+  978              var query_storage: [file_index.max_path_len]u8 = undefined;
+  979              const decoded_query = try selection.query.decoded_query(&query_storage);
+  980              const indexed = fileCompletionsDependOnIndex(app, decoded_query);
+  981              if (!isCurrentFileCompletion(app, decoded_query, selection.choice.path, selection.choice.kind)) {
+  982                  debug_trace.logf("input", "file picker rejected stale selection bytes={d} kind={s}", .{ selection.choice.path.len, @tagName(selection.choice.kind) });
+  983                  app.input_runtime.picker.file_completion.rejectSelection();
+  984                  return .inactive;
+  985              }
+  986  
+  987              const items = app.input_runtime.edit_state.input.items;
+  988              const replace_start = selection.query.at_offset;
+  989              const replace_end = selection.query.replace_end;
+  990              const tail = items[replace_end..];
+  991              const reuses_terminator = tail.len > 0 and picker_state.isFilePickerTerminator(tail[0]);
+  992              const is_directory = selection.choice.kind == .directory;
+  993              const opens_directory = is_directory and folder_action == .open;
+  994              const adds_terminator = !opens_directory and !reuses_terminator;
+  995              // An opened folder stays an active query so its contents list next.
+  996              // A selected folder is finished like a file: its path with the
+  997              // trailing slash, any quote closed, and a separating space.
+  998              const selected_folder = if (is_directory and !opens_directory)
+  999                  try std.mem.concat(app.alloc, u8, &.{ selection.choice.path, "/" })
+ 1000              else
+ 1001                  null;
+ 1002              defer if (selected_folder) |path| app.alloc.free(path);
+ 1003              const encoded = try file_picker_path.encode(app.alloc, selected_folder orelse selection.choice.path, .{
+ 1004                  .quoted = selection.query.quoted,
+ 1005                  .directory = opens_directory,
+ 1006                  .workspace_relative = indexed,
+ 1007              });
+ 1008              var replacement = std.ArrayList(u8).fromOwnedSlice(encoded);
+ 1009              defer replacement.deinit(app.alloc);
+ 1010              const separator_offset = replace_start + replacement.items.len;
+ 1011              if (adds_terminator) try replacement.append(app.alloc, ' ');
+ 1012              const cursor_after_replacement = replace_start + replacement.items.len + @intFromBool(!opens_directory and reuses_terminator);
+ 1013  
+ 1014              const result = try app.input_runtime.replacementState(&app.pending_images).replaceRangeBounded(
+ 1015                  app.alloc,
+ 1016                  .{ .start = replace_start, .end = replace_end },
+ 1017                  replacement.items,
+ 1018                  cursor_after_replacement,
+ 1019                  max_input_len,
+ 1020              );
+ 1021              if (result == .inserted) {
+ 1022                  if (adds_terminator) {
+ 1023                      app.input_runtime.entities.markFileCompletionSeparator(
+ 1024                          app.input_runtime.edit_state.input.items,
+ 1025                          app.input_runtime.edit_state.cursor,
+ 1026                          separator_offset,
+ 1027                      );
+ 1028                  }
+ 1029                  if (opens_directory) app.input_runtime.picker.resetFilePickerIndex();
+ 1030              }
+ 1031              return result;
+ 1032          }
+
+== src/core/workspace/path_completion.zig:44-143@481104fd -- AT-FOLDERS: completeCancellable reserves row 0 for the listed folder; listedFolder
+   44  pub fn completeCancellable(
+   45      workspace_root: []const u8,
+   46      home_dir: ?[]const u8,
+   47      query: []const u8,
+   48      cancel: ?*const std.atomic.Value(bool),
+   49      out: []file_index.SearchResult,
+   50      match_spans: []file_index.MatchSpan,
+   51      path_storage: []u8,
+   52  ) (Error || error{Cancelled})!usize {
+   53      try checkCancellation(cancel);
+   54      if (out.len == 0) return 0;
+   55      const parsed = parseExplicitQuery(query) orelse return 0;
+   56      const matcher = file_index.NameQuery.init(parsed.basename_query) orelse return 0;
+   57      var scores: [file_index.max_search_results]file_index.NameQuery.Score = undefined;
+   58      const slot_len: usize = file_index.max_path_len;
+   59      if (out.len > scores.len or out.len > path_storage.len / slot_len) return error.NoSpaceLeft;
+   60  
+   61      var resolve_storage: [file_index.max_path_len * 4]u8 = undefined;
+   62      var resolve_fba = std.heap.FixedBufferAllocator.init(&resolve_storage);
+   63      try checkCancellation(cancel);
+   64      const resolved = pathing.resolve_workspace_or_external_literal_path_with_home(
+   65          resolve_fba.allocator(),
+   66          workspace_root,
+   67          parsed.parent,
+   68          home_dir,
+   69      ) catch |err| switch (err) {
+   70          error.OutOfMemory => return error.NoSpaceLeft,
+   71          else => return error.PathUnavailable,
+   72      };
+   73  
+   74      const io = io_mod.getIo();
+   75      try checkCancellation(cancel);
+   76      var dir = std.Io.Dir.openDirAbsolute(io, resolved, .{ .iterate = true }) catch return error.PathUnavailable;
+   77      defer dir.close(io);
+   78  
+   79      // Listing a folder's contents: the folder itself is the first row, so it
+   80      // can be selected and not only opened.
+   81      const folder = listedFolder(parsed);
+   82      const reserved: usize = @intFromBool(folder != null);
+   83      const entries = out[reserved..];
+   84      const entry_storage = path_storage[reserved * slot_len ..];
+   85  
+   86      var count: usize = 0;
+   87      var iterator = dir.iterate();
+   88      while (true) {
+   89          try checkCancellation(cancel);
+   90          const entry = (iterator.next(io) catch return error.PathUnavailable) orelse break;
+   91          try checkCancellation(cancel);
+   92          if (!text_utils.isTerminalSafe(entry.name)) continue;
+   93          const score = matcher.score(entry.name) orelse continue;
+   94          // candidateKind may stat symlinks or unknown kinds.
+   95          try checkCancellation(cancel);
+   96          const kind = candidateKind(&dir, entry.name, entry.kind) orelse continue;
+   97  
+   98          var candidate_storage: [file_index.max_path_len]u8 = undefined;
+   99          const candidate_len = parsed.display_prefix.len + entry.name.len;
+  100          if (candidate_len > candidate_storage.len) continue;
+  101          @memcpy(candidate_storage[0..parsed.display_prefix.len], parsed.display_prefix);
+  102          @memcpy(candidate_storage[parsed.display_prefix.len..candidate_len], entry.name);
+  103          const candidate = candidate_storage[0..candidate_len];
+  104          if (!text_utils.isTerminalSafe(candidate)) continue;
+  105          if (!file_picker_path.isRepresentable(candidate)) continue;
+  106          count = insertCandidate(entries, entry_storage, &scores, &matcher, count, candidate, kind, score);
+  107      }
+  108  
+  109      var spans_used: usize = 0;
+  110      for (entries[0..count]) |*result| {
+  111          try checkCancellation(cancel);
+  112          const span_count = matcher.match_spans(result.path[parsed.display_prefix.len..], match_spans[spans_used..]) catch |err| switch (err) {
+  113              error.NoSpaceLeft => return error.NoSpaceLeft,
+  114              error.InvalidIndexData => return error.PathUnavailable,
+  115          };
+  116          const spans = match_spans[spans_used..][0..span_count];
+  117          for (spans) |*span| {
+  118              span.byte_start += @intCast(parsed.display_prefix.len);
+  119              span.byte_end += @intCast(parsed.display_prefix.len);
+  120          }
+  121          result.matched_spans = spans;
+  122          spans_used += span_count;
+  123      }
+  124      if (folder) |path| {
+  125          const slot = pathSlot(path_storage, 0);
+  126          @memcpy(slot[0..path.len], path);
+  127          out[0] = .{ .path = slot[0..path.len], .kind = .directory, .matched_spans = &.{} };
+  128      }
+  129      try checkCancellation(cancel);
+  130      return reserved + count;
+  131  }
+  132  
+  133  /// The folder whose contents a query lists (`src/` lists `src`, `~` lists
+  134  /// `~`), or null when the query names a partial entry or the root.
+  135  fn listedFolder(parsed: ParsedQuery) ?[]const u8 {
+  136      if (parsed.basename_query.len != 0) return null;
+  137      const prefix = parsed.display_prefix;
+  138      if (prefix.len < 2 or !std.Io.Dir.path.isSep(prefix[prefix.len - 1])) return null;
+  139      const folder = prefix[0 .. prefix.len - 1];
+  140      if (std.Io.Dir.path.isSep(folder[folder.len - 1])) return null;
+  141      if (!text_utils.isTerminalSafe(folder) or !file_picker_path.isRepresentable(folder)) return null;
+  142      return folder;
+  143  }
+
+== src/core/workspace/path_completion.zig:171-190@481104fd -- AT-FOLDERS: parseExplicitQuery, ~ . .. and a /
+  171  fn parseExplicitQuery(query: []const u8) ?ParsedQuery {
+  172      inline for (.{ "~", ".", ".." }) |shortcut| {
+  173          if (std.mem.eql(u8, query, shortcut)) return .{
+  174              .parent = query,
+  175              .display_prefix = shortcut ++ "/",
+  176              .basename_query = "",
+  177          };
+  178      }
+  179      var separator_index: ?usize = null;
+  180      for (query, 0..) |byte, index| {
+  181          if (std.Io.Dir.path.isSep(byte)) separator_index = index;
+  182      }
+  183      const separator = separator_index orelse return null;
+  184      const parent = if (separator == 0) query[0..1] else query[0..separator];
+  185      return .{
+  186          .parent = parent,
+  187          .display_prefix = query[0 .. separator + 1],
+  188          .basename_query = query[separator + 1 ..],
+  189      };
+  190  }
+
+== src/core/workspace/path_completion.zig:307-330@481104fd -- AT-FOLDERS: fx's test, . and .. list themselves first
+  307  test "path completion browses bare current and parent directories" {
+  308      const alloc = std.testing.allocator;
+  309      var tmp = std.testing.tmpDir(.{});
+  310      defer tmp.cleanup();
+  311      try writeTestFile(tmp.dir, "workspace/local.txt");
+  312      try writeTestFile(tmp.dir, "parent.txt");
+  313      const root = try io_mod.dirRealpathAlloc(alloc, tmp.dir, "workspace");
+  314      defer alloc.free(root);
+  315      var results: [4]file_index.SearchResult = undefined;
+  316      var spans: [4]file_index.MatchSpan = undefined;
+  317      var paths: [4 * file_index.max_path_len]u8 = undefined;
+  318  
+  319      try std.testing.expectEqual(@as(usize, 2), try complete(root, ".", &results, &spans, &paths));
+  320      try std.testing.expectEqualStrings(".", results[0].path);
+  321      try std.testing.expectEqual(file_index.CandidateKind.directory, results[0].kind);
+  322      try std.testing.expectEqualStrings("./local.txt", results[1].path);
+  323      try std.testing.expectEqual(@as(usize, 0), results[1].matched_spans.len);
+  324      try std.testing.expect(isCurrentCandidateKind(root, results[1].path, .file));
+  325  
+  326      try std.testing.expectEqual(@as(usize, 3), try complete(root, "..", &results, &spans, &paths));
+  327      try std.testing.expectEqualStrings("..", results[0].path);
+  328      try std.testing.expectEqualStrings("../parent.txt", results[1].path);
+  329      try std.testing.expectEqualStrings("../workspace", results[2].path);
+  330      try std.testing.expect(isCurrentCandidateKind(root, results[2].path, .directory));
+
+== src/core/workspace/path_completion.zig:401-434@481104fd -- AT-FOLDERS: fx's test, a folder first so it can be selected
+  401  test "path completion lists a folder first so it can be selected" {
+  402      const alloc = std.testing.allocator;
+  403      var tmp = std.testing.tmpDir(.{});
+  404      defer tmp.cleanup();
+  405      try writeTestFile(tmp.dir, "workspace/src/main.zig");
+  406      try writeTestFile(tmp.dir, "home/notes.txt");
+  407      const root = try io_mod.dirRealpathAlloc(alloc, tmp.dir, "workspace");
+  408      defer alloc.free(root);
+  409      const home = try io_mod.dirRealpathAlloc(alloc, tmp.dir, "home");
+  410      defer alloc.free(home);
+  411      var results: [4]file_index.SearchResult = undefined;
+  412      var spans: [4]file_index.MatchSpan = undefined;
+  413      var paths: [4 * file_index.max_path_len]u8 = undefined;
+  414  
+  415      try std.testing.expectEqual(@as(usize, 2), try complete(root, "src/", &results, &spans, &paths));
+  416      try std.testing.expectEqualStrings("src", results[0].path);
+  417      try std.testing.expectEqual(file_index.CandidateKind.directory, results[0].kind);
+  418      try std.testing.expectEqual(@as(usize, 0), results[0].matched_spans.len);
+  419      try std.testing.expectEqualStrings("src/main.zig", results[1].path);
+  420      try std.testing.expect(isCurrentCandidateKind(root, results[0].path, .directory));
+  421  
+  422      // A partial name lists matching entries only.
+  423      try std.testing.expectEqual(@as(usize, 1), try complete(root, "src/ma", &results, &spans, &paths));
+  424      try std.testing.expectEqualStrings("src/main.zig", results[0].path);
+  425  
+  426      var cancel: std.atomic.Value(bool) = .init(false);
+  427      try std.testing.expectEqual(@as(usize, 2), try completeCancellable(root, home, "~", &cancel, &results, &spans, &paths));
+  428      try std.testing.expectEqualStrings("~", results[0].path);
+  429      try std.testing.expectEqualStrings("~/notes.txt", results[1].path);
+  430  
+  431      // With room for one row, the folder itself is kept.
+  432      try std.testing.expectEqual(@as(usize, 1), try complete(root, "src/", results[0..1], &spans, paths[0..file_index.max_path_len]));
+  433      try std.testing.expectEqualStrings("src", results[0].path);
+  434  }
+
+== src/core/input/file_picker_path.zig:5-16@481104fd -- AT-FOLDERS: needs_quotes, isRepresentable
+    5  fn needs_quotes(path: []const u8) bool {
+    6      if (std.mem.endsWith(u8, path, ".")) return true;
+    7      for (path) |byte| {
+    8          if (byte >= 0x80 or std.ascii.isAlphanumeric(byte)) continue;
+    9          if (byte != '_' and byte != '-' and byte != '.' and byte != '/' and byte != '~') return true;
+   10      }
+   11      return false;
+   12  }
+   13  
+   14  pub fn isRepresentable(path: []const u8) bool {
+   15      return path.len > 0 and text_utils.isTerminalSafe(path);
+   16  }
+
+== src/core/input/file_picker_path.zig:222-243@481104fd -- AT-FOLDERS: encode
+  222  pub fn encode(alloc: std.mem.Allocator, path: []const u8, options: EncodeOptions) ![]u8 {
+  223      if (!isRepresentable(path)) return error.InvalidPath;
+  224      const quote = options.quoted or needs_quotes(path);
+  225      const prefix_relative = options.workspace_relative and path[0] == '~';
+  226      var length = try std.math.add(usize, 1 + @as(usize, @intFromBool(quote)) + @as(usize, @intFromBool(quote and !options.directory)) + @as(usize, @intFromBool(options.directory)) + @as(usize, if (prefix_relative) 2 else 0), path.len);
+  227      if (quote) for (path) |byte| {
+  228          if (byte == '\\' or byte == '"') length = try std.math.add(usize, length, 1);
+  229      };
+  230      var out: std.ArrayList(u8) = .empty;
+  231      errdefer out.deinit(alloc);
+  232      try out.ensureTotalCapacity(alloc, length);
+  233      out.appendAssumeCapacity('@');
+  234      if (quote) out.appendAssumeCapacity('"');
+  235      if (prefix_relative) out.appendSliceAssumeCapacity("./");
+  236      for (path) |byte| {
+  237          if (quote and (byte == '\\' or byte == '"')) out.appendAssumeCapacity('\\');
+  238          out.appendAssumeCapacity(byte);
+  239      }
+  240      if (options.directory) out.appendAssumeCapacity('/');
+  241      if (quote and !options.directory) out.appendAssumeCapacity('"');
+  242      return out.toOwnedSlice(alloc);
+  243  }
+
+== src/core/input/file_completion_state.zig:7-7@481104fd -- AT-FOLDERS: capacity, the rows a listing has
+    7  pub const capacity = 32;
+
+== src/core/app/app_input_runtime.zig:6708-6757@481104fd -- AT-FOLDERS: fx's test, Tab opens a typed folder and Enter selects it
+ 6708  test "app_input_runtime opens typed directories with Tab and selects them with Enter" {
+ 6709      const alloc = std.testing.allocator;
+ 6710      const completions = [_]file_index.Candidate{.{ .path = "src/nested", .kind = .directory }};
+ 6711      const cases = [_]struct {
+ 6712          input: []const u8,
+ 6713          cursor: usize,
+ 6714          opened: []const u8,
+ 6715          opened_cursor: usize,
+ 6716          selected: []const u8,
+ 6717          selected_cursor: usize,
+ 6718      }{
+ 6719          .{
+ 6720              .input = "@srcn",
+ 6721              .cursor = "@srcn".len,
+ 6722              .opened = "@src/nested/",
+ 6723              .opened_cursor = "@src/nested/".len,
+ 6724              .selected = "@src/nested/ ",
+ 6725              .selected_cursor = "@src/nested/ ".len,
+ 6726          },
+ 6727          .{
+ 6728              .input = "before @srcn tail",
+ 6729              .cursor = "before @srcn".len,
+ 6730              .opened = "before @src/nested/ tail",
+ 6731              .opened_cursor = "before @src/nested/".len,
+ 6732              .selected = "before @src/nested/ tail",
+ 6733              .selected_cursor = "before @src/nested/ ".len,
+ 6734          },
+ 6735      };
+ 6736  
+ 6737      for ([_]u8{ '\t', '\r' }) |byte| {
+ 6738          const opens = byte == '\t';
+ 6739          for (cases) |case| {
+ 6740              var app = try RoutingFakeApp.init(alloc);
+ 6741              defer app.deinit();
+ 6742              app.file_completion_values = &completions;
+ 6743              app.expected_file_completion_kind = .directory;
+ 6744              try app.input_runtime.textReplacementState().replace(alloc, case.input);
+ 6745              app.input_runtime.edit_state.cursor = case.cursor;
+ 6746  
+ 6747              presentRoutingFilePicker(&app);
+ 6748              try Runtime(RoutingFakeApp).handleByte(&app, byte, 4096, 100);
+ 6749  
+ 6750              try std.testing.expectEqualStrings(if (opens) case.opened else case.selected, app.input_runtime.edit_state.input.items);
+ 6751              try std.testing.expectEqual(if (opens) case.opened_cursor else case.selected_cursor, app.input_runtime.edit_state.cursor);
+ 6752              try std.testing.expectEqual(file_index.CandidateKind.directory, app.validated_file_completion_kind.?);
+ 6753              try std.testing.expectEqual(opens, app.input_runtime.picker.activeFilePickerQuery(&app.input_runtime.edit_state) != null);
+ 6754              try std.testing.expectEqual(@as(usize, 0), app.submitted_prompt_count);
+ 6755          }
+ 6756      }
+ 6757  }
+
+== src/core/app/input_completion_runtime.zig:2200-2235@481104fd -- AT-FOLDERS: fx's test, a listed folder first and Enter selects it (a space in its name)
+ 2200  test "filesystem file picker lists an opened folder first and Enter selects it" {
+ 2201      const alloc = std.testing.allocator;
+ 2202      var tmp = std.testing.tmpDir(.{});
+ 2203      defer tmp.cleanup();
+ 2204      try tmp.dir.createDirPath(std.testing.io, "workspace/space dir");
+ 2205      try tmp.dir.writeFile(std.testing.io, .{
+ 2206          .sub_path = "workspace/space dir/item.txt",
+ 2207          .data = "inside",
+ 2208      });
+ 2209  
+ 2210      const io_mod = @import("../shared/io.zig");
+ 2211      const workspace_root = try io_mod.dirRealpathAlloc(alloc, tmp.dir, "workspace");
+ 2212      defer alloc.free(workspace_root);
+ 2213  
+ 2214      const rt = CompletionRuntime(FilesystemFilePickerTestApp);
+ 2215      var app = FilesystemFilePickerTestApp{
+ 2216          .alloc = alloc,
+ 2217          .workspace_root = workspace_root,
+ 2218      };
+ 2219      defer app.deinit();
+ 2220  
+ 2221      try app.input_runtime.textReplacementState().replace(alloc, "@./space");
+ 2222      try presentFilePickerForTest(&app);
+ 2223      try std.testing.expectEqual(edit_contract.InsertResult.inserted, try rt.autocompleteFilePickerSelection(&app, 4096));
+ 2224      try std.testing.expectEqualStrings("@\"./space dir/", app.input_runtime.edit_state.input.items);
+ 2225  
+ 2226      try presentFilePickerForTest(&app);
+ 2227      const folder = app.input_runtime.picker.file_completion.selected(0).?;
+ 2228      try std.testing.expectEqualStrings("./space dir", folder.path);
+ 2229      try std.testing.expectEqual(file_index.CandidateKind.directory, folder.kind);
+ 2230      try std.testing.expectEqualStrings("./space dir/item.txt", app.input_runtime.picker.file_completion.selected(1).?.path);
+ 2231  
+ 2232      try std.testing.expectEqual(edit_contract.InsertResult.inserted, (try rt.submitFilePickerOnEnter(&app, 4096)).?);
+ 2233      try std.testing.expectEqualStrings("@\"./space dir/\" ", app.input_runtime.edit_state.input.items);
+ 2234      try std.testing.expect(app.input_runtime.picker.activeFilePickerQuery(&app.input_runtime.edit_state) == null);
+ 2235  }
+
+== src/core/input/picker_state.zig:99-139@481104fd -- AT-FOLDERS: FileListingWait, hold_ms = 8
+   99  /// Paces the frame for a keystroke that started a folder listing. Most folders
+  100  /// list well within one event-loop tick, so that frame waits for the rows and
+  101  /// the keystroke paints together with them instead of over an empty
+  102  /// "indexing files..." list. Times are monotonic milliseconds. Modeled in
+  103  /// `tests/tla/indexer/ListingWait.tla`.
+  104  const FileListingWait = struct {
+  105      const hold_ms: i64 = 8;
+  106  
+  107      started_ms: ?i64 = null,
+  108      // The previous listing outlasted the wait, so the next keystroke paints at
+  109      // once instead of paying the wait again on a slow folder.
+  110      last_outlasted_hold: bool = false,
+  111  
+  112      /// Returns true while the next frame should wait for an in-flight listing.
+  113      /// Keystrokes during one listing share its wait.
+  114      pub fn hold(self: *FileListingWait, listing_in_flight: bool, now_ms: i64) bool {
+  115          if (!listing_in_flight) {
+  116              if (self.started_ms) |started| self.last_outlasted_hold = !withinHold(started, now_ms);
+  117              self.started_ms = null;
+  118              return false;
+  119          }
+  120          if (self.started_ms == null) self.started_ms = now_ms;
+  121          return self.active(now_ms);
+  122      }
+  123  
+  124      pub fn active(self: FileListingWait, now_ms: i64) bool {
+  125          return !self.last_outlasted_hold and self.measuring(now_ms);
+  126      }
+  127  
+  128      /// True during the first tick of every listing, waited for or not, so a
+  129      /// listing that finishes in time is seen at once and waiting turns back on.
+  130      pub fn measuring(self: FileListingWait, now_ms: i64) bool {
+  131          const started = self.started_ms orelse return false;
+  132          return withinHold(started, now_ms);
+  133      }
+  134  
+  135      fn withinHold(started_ms: i64, now_ms: i64) bool {
+  136          // A clock that steps backwards ends the wait instead of extending it.
+  137          return now_ms >= started_ms and now_ms - started_ms < hold_ms;
+  138      }
+  139  };
+
+== src/core/input/picker_state.zig:172-172@481104fd -- AT-FOLDERS: the wait lives in the picker's state
+  172      file_listing_wait: FileListingWait = .{},
+
+== src/core/input/picker_state.zig:1087-1112@481104fd -- AT-FOLDERS: fx's test of the wait
+ 1087  test "folder listing wait spans one tick and is skipped after a slow listing" {
+ 1088      var wait: FileListingWait = .{};
+ 1089      try std.testing.expect(!wait.hold(false, 100));
+ 1090      // Keystrokes during one listing share the first keystroke's wait.
+ 1091      try std.testing.expect(wait.hold(true, 100));
+ 1092      try std.testing.expect(wait.hold(true, 100 + FileListingWait.hold_ms - 1));
+ 1093      try std.testing.expect(wait.active(100 + FileListingWait.hold_ms - 1));
+ 1094      // A listing that outlasts the wait paints at once from then on.
+ 1095      try std.testing.expect(!wait.hold(true, 100 + FileListingWait.hold_ms));
+ 1096      try std.testing.expect(!wait.hold(true, 140));
+ 1097      try std.testing.expect(!wait.active(140));
+ 1098      try std.testing.expect(!wait.hold(false, 141));
+ 1099      // The folder was slow, so the next keystroke does not wait for it, but
+ 1100      // the listing is still watched for its first tick.
+ 1101      try std.testing.expect(!wait.hold(true, 200));
+ 1102      try std.testing.expect(!wait.active(200));
+ 1103      try std.testing.expect(wait.measuring(200 + FileListingWait.hold_ms - 1));
+ 1104      try std.testing.expect(!wait.measuring(200 + FileListingWait.hold_ms));
+ 1105      // A listing that finishes within the wait turns waiting back on.
+ 1106      try std.testing.expect(!wait.hold(false, 202));
+ 1107      try std.testing.expect(wait.hold(true, 300));
+ 1108      try std.testing.expect(!wait.hold(false, 301));
+ 1109      try std.testing.expect(wait.hold(true, 400));
+ 1110      // A clock that steps backwards ends the wait.
+ 1111      try std.testing.expect(!wait.hold(true, 350));
+ 1112  }
+
+== src/core/app/input_completion_runtime.zig:817-844@481104fd -- AT-FOLDERS: holdFrameForFileListing, fileListingHoldPending
+  817          /// Returns true while the frame for a keystroke that started a folder
+  818          /// listing should wait for its rows, so they paint together.
+  819          pub fn holdFrameForFileListing(app: *App, now_ms: i64) bool {
+  820              if (comptime !runtime_profile.allows(App, .file_index)) return false;
+  821              app.harvestDirectoryCompletion(filePickerEligible(app));
+  822              const picker = &app.input_runtime.picker;
+  823              const state = &picker.file_completion;
+  824              if (!state.active) {
+  825                  picker.file_listing_wait = .{};
+  826                  return false;
+  827              }
+  828              const in_flight = !state.indexed and state.directory_request != null;
+  829              const was_holding = picker.file_listing_wait.active(now_ms);
+  830              const hold = picker.file_listing_wait.hold(in_flight, now_ms);
+  831              if (was_holding and !hold and in_flight) {
+  832                  debug_trace.logf("input", "file picker painted before folder listing request={d}", .{state.directory_request.?});
+  833              }
+  834              return hold;
+  835          }
+  836  
+  837          /// For the first tick of every folder listing, the event loop checks
+  838          /// back every millisecond instead of every tick. A listing that
+  839          /// finishes in that time is seen at once, which also turns waiting
+  840          /// back on after a slow folder.
+  841          pub fn fileListingHoldPending(app: *const App, now_ms: i64) bool {
+  842              if (comptime !runtime_profile.allows(App, .file_index)) return false;
+  843              return app.input_runtime.picker.file_listing_wait.measuring(now_ms);
+  844          }
+
+== src/core/app/input_completion_runtime.zig:2237-2282@481104fd -- AT-FOLDERS: fx's tests, a held frame released with its rows; watched after a slow folder
+ 2237  test "filesystem file picker releases a held folder frame only with its rows" {
+ 2238      const alloc = std.testing.allocator;
+ 2239      var tmp = std.testing.tmpDir(.{});
+ 2240      defer tmp.cleanup();
+ 2241      try tmp.dir.createDirPath(std.testing.io, "workspace/tree");
+ 2242      try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "workspace/tree/leaf.txt", .data = "leaf" });
+ 2243  
+ 2244      const io_mod = @import("../shared/io.zig");
+ 2245      const workspace_root = try io_mod.dirRealpathAlloc(alloc, tmp.dir, "workspace");
+ 2246      defer alloc.free(workspace_root);
+ 2247  
+ 2248      const rt = CompletionRuntime(FilesystemFilePickerTestApp);
+ 2249      var app = FilesystemFilePickerTestApp{
+ 2250          .alloc = alloc,
+ 2251          .workspace_root = workspace_root,
+ 2252      };
+ 2253      defer app.deinit();
+ 2254  
+ 2255      try app.input_runtime.textReplacementState().replace(alloc, "@./tree/");
+ 2256      rt.prepareFilePicker(&app);
+ 2257      // The clock stands still, so the wait can end only because the rows arrived.
+ 2258      const now_ms: i64 = 1_000;
+ 2259      var polls: usize = 0;
+ 2260      while (rt.holdFrameForFileListing(&app, now_ms)) : (polls += 1) {
+ 2261          if (polls == 5_000) return error.TestUnexpectedResult;
+ 2262          std.Io.sleep(std.testing.io, .fromMilliseconds(1), .awake) catch unreachable;
+ 2263      }
+ 2264      const view = rt.filePickerView(&app);
+ 2265      try std.testing.expectEqual(file_completion_state.Status.ready, view.status);
+ 2266      try std.testing.expectEqual(@as(usize, 2), view.items.len);
+ 2267      try std.testing.expectEqualStrings("./tree", view.items[0].path);
+ 2268      try std.testing.expectEqualStrings("./tree/leaf.txt", view.items[1].path);
+ 2269      try std.testing.expect(!rt.fileListingHoldPending(&app, now_ms));
+ 2270  }
+ 2271  
+ 2272  test "file picker keeps watching a listing after a slow folder so waiting can turn back on" {
+ 2273      const rt = CompletionRuntime(FilePickerTestApp);
+ 2274      var app: FilePickerTestApp = .{ .alloc = std.testing.allocator };
+ 2275      defer app.deinit();
+ 2276  
+ 2277      // The previous folder outlasted the wait, so this listing's frame paints
+ 2278      // at once, but the loop still checks back every millisecond.
+ 2279      app.input_runtime.picker.file_listing_wait = .{ .started_ms = 1_000, .last_outlasted_hold = true };
+ 2280      try std.testing.expect(!app.input_runtime.picker.file_listing_wait.active(1_001));
+ 2281      try std.testing.expect(rt.fileListingHoldPending(&app, 1_001));
+ 2282  }
+
+== src/main.zig:173-207@481104fd -- AT-FOLDERS: the loop's poll timeout, 1 ms while a listing is in its first tick
+  173  const footer_rows: u16 = 4;
+  174  const active_poll_timeout_ms: i32 = 8;
+  175  const focused_ui_worker_poll_timeout_ms: i32 = 1;
+  176  const idle_wasm_poll_timeout_ms: i32 = 16;
+  177  const resize_debounce_ms: i64 = 100;
+  178  const max_transcript_bytes: usize = 256 * 1024;
+  179  const default_max_agent_steps: usize = agent_steps.default_max_agent_steps;
+  180  const native_gateway_provider = builtin_gateway.provider;
+  181  const max_history_turns: usize = 8;
+  182  const max_list_entries: usize = 100;
+  183  const max_read_file_bytes: usize = 50 * 1024;
+  184  const max_read_file_lines: usize = 400;
+  185  const max_read_file_line_len: usize = 2000;
+  186  const max_command_output_bytes: usize = 64 * 1024;
+  187  const input_escape_timeout_ms: i64 = 30;
+  188  
+  189  /// The first frame counts as focused work: an idle wait before it would only
+  190  /// delay the launch.
+  191  fn nativeLoopPollTimeoutMs(
+  192      default_timeout_ms: i32,
+  193      first_frame_pending: bool,
+  194      auth_refresh_active: bool,
+  195      skills_refresh_active: bool,
+  196      transcript_page_work_active: bool,
+  197      file_listing_hold_pending: bool,
+  198  ) i32 {
+  199      return if (first_frame_pending or
+  200          auth_refresh_active or
+  201          skills_refresh_active or
+  202          transcript_page_work_active or
+  203          file_listing_hold_pending)
+  204          @min(default_timeout_ms, focused_ui_worker_poll_timeout_ms)
+  205      else
+  206          default_timeout_ms;
+  207  }
+
+== src/main.zig:1131-1144@481104fd -- AT-FOLDERS: the timeout asks fileListingHoldPending
+ 1131      pub fn loopPollTimeoutMs(ctx: *anyopaque, default_timeout_ms: i32) i32 {
+ 1132          const self: *App = @ptrCast(@alignCast(ctx));
+ 1133          if (comptime !host_target.is_wasm) {
+ 1134              return nativeLoopPollTimeoutMs(
+ 1135                  default_timeout_ms,
+ 1136                  self.shell.render_requests.hasReason(.first_frame),
+ 1137                  self.auth.sourceInventoryRefreshActive(),
+ 1138                  self.skills.refreshActive(),
+ 1139                  self.fullTranscriptFocusedWorkActive(),
+ 1140                  InputAppRuntime.fileListingHoldPending(self, app_permission_runtime.monotonicMillis()),
+ 1141              );
+ 1142          }
+ 1143          return if (self.pacer.hasPending()) default_timeout_ms else idle_wasm_poll_timeout_ms;
+ 1144      }
+
+== src/main.zig:2992-3012@481104fd -- AT-FOLDERS: loopCommitFrame holds flushRequestedFrame while holdFrameForFileListing
+ 2992      pub fn loopCommitFrame(ctx: *anyopaque) !void {
+ 2993          const self: *App = @ptrCast(@alignCast(ctx));
+ 2994          defer SessionAppRuntime.finishDeferredSessionInputReplay(self);
+ 2995          if (!try WorkerAppRuntime.authorizeInteractiveAdmission(self)) return;
+ 2996          if (self.terminal_input_runtime.native_clear_probe.active()) return;
+ 2997          _ = self.admitPendingResizeSignal("post_input");
+ 2998          InputAppRuntime.prepareFilePicker(self);
+ 2999          if (comptime !host_target.is_wasm) {
+ 3000              if (self.shell.sessionScrollbackHandoffPending()) {
+ 3001                  try SessionAppRuntime.settlePendingLiveSessionTransition(self);
+ 3002                  if (self.shell.sessionScrollbackHandoffPending()) return;
+ 3003              }
+ 3004          }
+ 3005          _ = try InputAppRuntime.flushDeferredSessionInput(self, input_limits, max_prompt_history);
+ 3006          if (self.should_exit) return;
+ 3007          if (!InputAppRuntime.holdFrameForFileListing(self, app_permission_runtime.monotonicMillis())) try self.flushRequestedFrame();
+ 3008          if (comptime !host_target.is_wasm) {
+ 3009              try SessionAppRuntime.settlePendingLiveSessionTransition(self);
+ 3010              if (try InputAppRuntime.flushDeferredSessionInput(self, input_limits, max_prompt_history)) try self.flushRequestedFrame();
+ 3011          }
+ 3012      }
