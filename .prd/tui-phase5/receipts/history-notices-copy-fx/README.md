@@ -332,3 +332,16 @@ and adds none). With fault-injection: `tui` 200, lib 4640. fxcap test-sweep 70 +
 After it, only `docs/parity.md`'s `/image` row (the owner and `Expires`) and this folder change.
 The file checks were run again over them (`checks.txt`).
 
+## Round 3 (both engines: MUST none; `round3.txt`)
+
+- The `ask --resume` test's hostile tool name also carries a line break, a carriage return and
+  DEL, with `xfx: forged` after the break. The exact-line assert now pins the one-line property at
+  that call site, and a second assert refuses any stderr line that begins with the forged words.
+  Both ask mutants are still killed with the new input (`ask-notice-not-made-safe` prints the raw
+  name across two lines; left 0, right 1).
+- The notice table's "kept, open" cells and the "why they stay" paragraph say decided and queued
+  as IMAGE-LOSS-COPY-FX.
+- `tests/tui.rs`'s two `gateway.zig` citations name `481104fd`.
+- At `3c7057e7`: `cargo test --test sessions --test parity --test tui`, 65 + 26 + 186 passed, 0
+  failed (`tests/parity.rs` reads `docs/parity.md`, which changed after round 2's gate); fmt and
+  clippy clean. The full gate is the dispatcher's.

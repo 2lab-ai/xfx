@@ -1,0 +1,26 @@
+# round 3: the two ask-notice mutants on the git clone --no-local checked out at 3c7057e7 (<tmp>/mclone), one suite-lock slot, 2026-11-09T19:48:28Z -> 19:58:44Z, rc=0; 0 changed files after
+r4 ask-notice-not-made-safe [sessions]: killed
+    test ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one ... FAILED
+    thread 'ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one' (436444525) panicked at tests/sessions.rs:2016:5:
+      assertion `left == right` failed: the notice is not on stderr as one inert line: "xfx: an image `read\u{1b}[2Jfile\u{9b}31m\u{7}\nxfx: forged\r\u{7f}line` returned could not be read back (its saved copy is missing), so it was not sent again\n"
+        left: 0
+       right: 1
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 64 filtered out; finished in 2.23s
+    error: test failed, to rerun pass `--test sessions`
+r4 ask-notice-not-printed [sessions]: killed
+    test ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one ... FAILED
+    thread 'ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one' (436448588) panicked at tests/sessions.rs:2016:5:
+      assertion `left == right` failed: the notice is not on stderr as one inert line: ""
+        left: 0
+       right: 1
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 64 filtered out; finished in 1.70s
+    error: test failed, to rerun pass `--test sessions`
+
+# then, at 3c7057e7 in the worktree, one suite-lock slot: cargo test --locked --test sessions --test parity --test tui --no-fail-fast (rc=0)
+     Running tests/parity.rs
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.45s
+     Running tests/sessions.rs
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.87s
+     Running tests/tui.rs
+test result: ok. 186 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.98s
+# cargo fmt --check: ok; cargo clippy --locked --all-targets -- -D warnings: rc=0
