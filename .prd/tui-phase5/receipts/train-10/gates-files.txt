@@ -1,0 +1,11 @@
+# The file checks with the receipt in its final form, at 0b7700f4, in a `git clone --no-local`; each exit from `$?` right after its command.
+# tree clean: yes
+cargo fmt --check: exit 0; 
+./scripts/check-xfx-identity.sh: exit 0; check-xfx-identity: ok (17154 tracked file(s) scanned)
+./scripts/check-no-stubs.sh: exit 0; check-no-stubs: ok
+./scripts/check-no-secrets.sh: exit 0; check-no-secrets: ok (17154 tracked file(s) scanned)
+# added lines of git diff 6bb9fd90..HEAD holding the home root, the account's name, the scratch root or the uid fragment: 0
+# gates-files.sh exit 0
+
+# no code changed after the gate: git diff --stat e28e1b15 0b7700f4 -- . ':!.prd/tui-phase5/receipts/train-10' (empty below this line means none)
+# (end)

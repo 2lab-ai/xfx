@@ -80,7 +80,12 @@ After the merges, in order:
 | `de663b7c` | the four join tests; test only -- **the code head** |
 | `e28e1b15` | the rest of the scripts; **the gate, the head sweep and every job ran here** (code of `de663b7c`) |
 | `5f07b290` | the merge checks' files, at `e28e1b15` |
-| the next ones | the gate's, sweeps' and jobs' files; this README |
+| `0b7700f4` | the gate's, sweeps' and jobs' files; this README |
+| the last one | `gates-files.txt`, `redaction-grep.txt` |
+
+**No code changed after the gate**: `git diff --stat e28e1b15 0b7700f4 -- .
+':!.prd/tui-phase5/receipts/train-10'` is empty (`gates-files.txt`), so the
+gate, the sweep and every job ran on the code of the branch's tip.
 
 `git show --remerge-diff` of each merge is `remerge-1.txt` .. `remerge-4.txt`.
 
@@ -622,10 +627,11 @@ scratch directories as arguments or variables. The brief's check -- the added
 lines of `git show` of each commit this train adds, and of
 `6bb9fd90..HEAD`, against the home root, the harness temp roots, the macOS
 per-user temp root and the account's name -- **0 for every commit and 0 for
-the range** (`redaction-grep.txt`, run after the last commit; its pattern is
-spelt there with bracket classes so the file does not match itself), and
-`gates-files.sh` (train 9's) with the receipt in its final form
-(`gates-files.txt`).
+the range** (`redaction-grep.txt`, run at `0b7700f4`; its pattern is spelt
+there with bracket classes so the file does not match itself; the commit that
+adds it and `gates-files.txt` is checked the same way in the hand-back), and
+`gates-files.sh` (train 9's) in a clone at `0b7700f4`, the receipt in its
+final form but those two files (`gates-files.txt`).
 
 ## Found on the way, not changed here
 
