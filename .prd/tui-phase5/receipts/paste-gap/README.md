@@ -203,7 +203,24 @@ the sweep. Under the suite lock, one after the other.
 
 ## 9. Gate (`gates.txt`)
 
-Pending: filled from `gates.txt` in the last commit.
+Every CI step of `ci.yml`, in order, at **`c62ce382`**, under the suite lock
+(one slot for the run). That head is a receipt-only commit: every file the
+binary is built from is as at `ea2b8a60`. **All exit 0.**
+
+| step | result |
+|---|---|
+| fmt, clippy, fault-injection clippy | exit 0 |
+| `cargo test --locked --all-targets` | 14 binaries, **5459 passed**, 0 failed (PASTE-AFTER-END: 5449; +10, this unit's new tests) |
+| with the fault injector | 15 binaries, **5497 passed**, 0 failed (5487; +10) |
+| no-stubs, no-secrets, gate-env, identity | exit 0 |
+| preview contract and its mutants, preflight cost, usage clock | exit 0 |
+| release and faulty builds, `smoke.sh` | exit 0 |
+| `smoke-tui.sh` | 37 scenarios + the oracle, **1167 checks, 0 failures**; `7-multiline-and-paste-framing` and `21-paste-entities` `ok` |
+
+Every new test is `ok` in the `test` log, and so are the two pty paste tests
+and the 32-read carry-over (`gates.txt`). A first queued run never got a slot
+under its 3 h bound and was stopped before any step; this one ran with a 6 h
+bound.
 
 ## parity.md
 
