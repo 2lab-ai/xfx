@@ -2388,10 +2388,20 @@ impl ModelSelector {
     /// when the last read began, and when the hold a failure put on the next
     /// one ends. For MODELS-REASK's tests, which ask what upstream's model
     /// cache would do seconds or minutes after a read without waiting for
-    /// them.
+    /// them. **Panics when the clock has not counted `by`** -- a machine
+    /// booted more recently than that has no such reading (PR #89's arm64
+    /// runner) -- rather than leaving the time where it was and the test
+    /// deciding on a read it never moved; drive such a test on a
+    /// [`crate::provider::catalog_clock::FakeMachine`].
     #[cfg(test)]
     pub(crate) fn backdate_for_test(&mut self, by: Duration) {
-        let back = |at: Option<CatalogTime>| at.map(|at| at.checked_sub(by).unwrap_or(at));
+        let back = |at: Option<CatalogTime>| {
+            at.map(|at| {
+                at.checked_sub(by).expect(
+                    "a catalog clock that has counted that far; drive the test on a FakeMachine",
+                )
+            })
+        };
         self.clock.began = back(self.clock.began);
         self.clock.not_before = back(self.clock.not_before);
     }

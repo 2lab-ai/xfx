@@ -50919,11 +50919,18 @@ mod tests {
         // (`last_attempt_ms`, set as it starts, `model_cache_runtime.zig:636`;
         // `expired`, `:609-611@481104fd`), so rows a slow read brought are
         // due that much sooner after they land: a prompt at the read's start
-        // plus five minutes asks, however long the read took.
-        let began = catalog_now()
+        // plus five minutes asks, however long the read took. On a fake
+        // machine's catalog clock: a reading five minutes back is one the
+        // system clock of a machine booted less than five minutes ago does
+        // not have (PR #89's arm64 runner).
+        let machine = crate::provider::catalog_clock::FakeMachine::new();
+        let clock = machine.clock();
+        let began = clock
+            .now()
             .checked_sub(REFRESH_INTERVAL + Duration::from_secs(1))
-            .expect("a clock older than five minutes");
+            .expect("the fake machine has been up an hour");
         let mut shell = shell(40, 120);
+        shell.shell.catalog_clock = clock.clone();
         shell.apply(loaded_from(began));
         shell.route_bytes(b"hello\r");
         assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
@@ -50934,7 +50941,8 @@ mod tests {
         );
         // Rows whose read began just now are not.
         let mut shell = self::shell(40, 120);
-        shell.apply(loaded_from(catalog_now()));
+        shell.shell.catalog_clock = clock.clone();
+        shell.apply(loaded_from(clock.now()));
         shell.route_bytes(b"hello\r");
         assert_eq!(shell.picks_up(), TurnWork::Submit("hello".to_string()));
         assert_eq!(catalog_asks(&mut shell), [], "asked for fresh rows");
@@ -51003,9 +51011,14 @@ mod tests {
         // `src/main.zig:2007-2008@481104fd`): rows five minutes past their
         // read's start are read again, fresh ones are not, and a band with no
         // answer yet -- the launch's own read on its way -- asks nothing.
-        let stale = catalog_now()
+        // On a fake machine's catalog clock, whose readings go back five
+        // minutes on any host.
+        let machine = crate::provider::catalog_clock::FakeMachine::new();
+        let clock = machine.clock();
+        let stale = clock
+            .now()
             .checked_sub(REFRESH_INTERVAL + Duration::from_secs(1))
-            .expect("a clock older than five minutes");
+            .expect("the fake machine has been up an hour");
         let resumed = || UiEvent::Resumed(replay(Some("first question alpha"), Vec::new()));
         let forked = || UiEvent::Forked {
             replay: replay(Some("first prompt alpha (fork)"), Vec::new()),
@@ -51013,6 +51026,7 @@ mod tests {
         };
         for (what, reopened) in [("a resume", resumed()), ("a fork", forked())] {
             let mut shell = shell(24, 240);
+            shell.shell.catalog_clock = clock.clone();
             shell.apply(loaded_from(stale));
             shell.apply(reopened);
             assert_eq!(
@@ -51023,11 +51037,13 @@ mod tests {
         }
         for (what, reopened) in [("a resume", resumed()), ("a fork", forked())] {
             let mut shell = shell(24, 240);
-            shell.apply(loaded_from(catalog_now()));
+            shell.shell.catalog_clock = clock.clone();
+            shell.apply(loaded_from(clock.now()));
             shell.apply(reopened);
             assert_eq!(catalog_asks(&mut shell), [], "{what} asked for fresh rows");
         }
         let mut shell = shell(24, 240);
+        shell.shell.catalog_clock = clock.clone();
         shell.apply(resumed());
         assert_eq!(catalog_asks(&mut shell), [], "asked before any answer");
     }
@@ -51042,17 +51058,24 @@ mod tests {
         // Here they wait for the runtime's answer when the band has none --
         // the launch's read, or a provider switch's, is on its way -- with no
         // trigger: no refresh and no retry, only the first load nothing has
-        // made (the runtime's half, `super::worker`'s `trigger_over`).
-        let stale = catalog_now()
+        // made (the runtime's half, `super::worker`'s `trigger_over`). On a
+        // fake machine's catalog clock, whose readings go back five minutes
+        // on any host.
+        let machine = crate::provider::catalog_clock::FakeMachine::new();
+        let clock = machine.clock();
+        let stale = clock
+            .now()
             .checked_sub(REFRESH_INTERVAL + Duration::from_secs(1))
-            .expect("a clock older than five minutes");
-        let failed = catalog_now()
+            .expect("the fake machine has been up an hour");
+        let failed = clock
+            .now()
             .checked_sub(Duration::from_secs(60))
-            .expect("a clock older than a minute");
+            .expect("the fake machine has been up an hour");
         for command in [&b"/settings\r"[..], b"/fast\r", b"/ultrafast on\r"] {
             let typed = String::from_utf8_lossy(command).trim_end().to_string();
             // No answer yet: waited for, with nothing read for it.
             let mut shell = shell(40, 120);
+            shell.shell.catalog_clock = clock.clone();
             shell.route_bytes(command);
             assert_eq!(
                 catalog_asks(&mut shell),
@@ -51066,6 +51089,7 @@ mod tests {
                 unread_at(Some(CatalogRetry::Unreachable), failed),
             ] {
                 let mut shell = self::shell(40, 120);
+                shell.shell.catalog_clock = clock.clone();
                 shell.apply(held);
                 shell.route_bytes(command);
                 assert_eq!(catalog_asks(&mut shell), [], "{typed} asked for a read");

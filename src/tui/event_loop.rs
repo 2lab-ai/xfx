@@ -17898,7 +17898,10 @@ mod tests {
                 shell.apply(UiEvent::CatalogUnread {
                     provider: crate::provider::ProviderId::Gateway,
                     retry: Some(crate::provider::model::CatalogRetry::Unreachable),
-                    retry_at: catalog_due_ago(Duration::from_secs(60)),
+                    // A hold that ends as it is told: due on any boot clock,
+                    // where a minute back is not on a machine booted less
+                    // than a minute ago.
+                    retry_at: catalog_due(Duration::ZERO),
                 });
                 launch_title(&mut shell, &mut band);
                 status_tick(&mut shell, &mut band, &mut out);
@@ -19388,8 +19391,9 @@ mod tests {
                 0,
             ),
             (
+                // A hold that ends as it is told: due on any boot clock.
                 "past the failure's hold",
-                Some(failed(catalog_due_ago(Duration::from_secs(60)))),
+                Some(failed(catalog_due(Duration::ZERO))),
                 1,
             ),
         ];

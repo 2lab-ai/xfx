@@ -17858,8 +17858,14 @@ mod tests {
         // after the last read began the menu's reads them again
         // (`picker_revalidate_floor_ms`) and a submitted prompt's does not --
         // activity waits for the refresh interval (`builtins/gateway.zig:
-        // 2348`, five minutes).
+        // 2348`, five minutes). On a fake machine's catalog clock: the
+        // backdates below go five minutes back, which the system clock of a
+        // machine booted less than five minutes ago cannot (PR #89's arm64
+        // runner; `backdate_for_test` now says so rather than leaving the
+        // times where they were).
         let (_home, _workspace, mut state) = recording();
+        let machine = crate::provider::catalog_clock::FakeMachine::new();
+        state.selector.set_clock_for_test(machine.clock());
         let asked = Arc::new(AtomicUsize::new(0));
         state.selector.set_fetcher_for_test(Box::new(InTurn {
             answers: Mutex::new(
