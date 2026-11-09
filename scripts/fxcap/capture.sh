@@ -334,20 +334,25 @@
 #                or /var/tmp, which name no one
 #   <home>       this script's own HOME (the user's: no binary is given it)
 #
-# A root as given is `<name>`; resolved, when that differs (macOS's /tmp and
-# /var are links), `<name:real>`: a binary that prints `$PWD` and its pair
-# that prints `getcwd()` differ in the capture as they did on the screen. Its
-# JSON-escaped and percent-encoded spellings are the same root. roots.py finds
-# a root in the text a reader sees: across a colour change (a picker bolds the
-# letters a query matched, inside a path), across a row's end (a terminal's
-# wrap at its margin, or a binary's own break behind a gutter), and inside an
-# OSC 8 link's target; it ends where no path-name character follows it. Its
-# placeholder stands where its first character stood, and every control
-# sequence, gutter and row end between its characters stays. Text that
-# already reads like a placeholder gains a backslash first (`<work>` ->
-# `<\work>`), so a placeholder is a root and nothing else. A root that
-# survives -- in any form, or the run directory's own name -- refuses the
-# file. roots.py's docstring is the whole rule.
+# A root is written as a placeholder exactly as wide as it: its name between
+# `<` and `>`, filled with `_` to the root's width (`<work_______>`), or, for
+# a root narrower than its name, the name's letter (`/root` is `<h__>`); a
+# root narrower than four columns refuses the file. The placeholder is written
+# over the root's own characters, column for column, so a wrap or a colour
+# change inside a root stays where it was and every column after it keeps its
+# column. A root as given is `<name...>`; resolved, when that differs (macOS's
+# /tmp and /var are links), `<name:real...>`, as wide as the resolved path: a
+# binary that prints `$PWD` and its pair that prints `getcwd()` differ in the
+# capture as they did on the screen. Its JSON-escaped, percent-encoded and
+# `//`-collapsed spellings are the same root. roots.py finds a root in the
+# text a reader sees: across a colour change (a picker bolds the letters a
+# query matched, inside a path), across a row's end (a terminal's wrap at its
+# margin, or a binary's own break behind a gutter), and inside an OSC 8
+# link's target; it ends where no path-name character follows it in its row.
+# Text that already reads like a placeholder gains a `!` first (`<work>` ->
+# `<!work>`), so a placeholder is a root and nothing else. A root that
+# survives -- in any spelling, where it ends whole, or the run directory's own
+# name anywhere -- refuses the file. roots.py's docstring is the whole rule.
 #
 # fx's side and xfx's are rewritten by the same rule, so a pair compares as it
 # did: the two runs of a sweep unit share one TMPDIR, so each root is as long
@@ -357,12 +362,11 @@
 # names one keeps its width relative to the other side's, as the ledger's
 # `capture-tmpdir` reads it.
 #
-# The rewrite comes after the binary laid out its frame: a path it wrapped or
-# padded to its real width keeps that layout, and the stored row is shorter
-# where a placeholder stands (a root broken across rows leaves its placeholder
-# on the first, which can then be longer than the screen). A claim about a
-# path's width reads the `roots:` line each run prints first, each root's
-# length in bytes on that run.
+# The rewrite comes after the binary laid out its frame, and keeps it: a path
+# it wrapped or padded to its real width keeps that layout, column for column.
+# The `roots:` line each run prints first gives each root's width on that run
+# (`:real` too, where the resolved path is another), so a reader knows how
+# wide a placeholder is without counting.
 #
 # A line prefixed `fx: ` or `xfx: ` applies to that binary only. The two
 # products name their tools and settings differently (fx's `shell` with
@@ -403,10 +407,15 @@ root_args=() stage='' roots_py='' net_out='' net_prefix='' net_since=''
 # claim about a path's width: a stored row is shorter by it where the
 # placeholder stands, both sides alike.
 roots_line() {
-  local LC_ALL=C line='roots:' i
+  local LC_ALL=C line='roots:' i root real
   for (( i = 0; i < ${#root_args[@]}; i++ )); do
     [[ ${root_args[i]} == --root ]] || continue
-    line+=" <${root_args[i + 2]}>=${#root_args[i + 1]}"
+    root=${root_args[i + 1]%/}
+    line+=" <${root_args[i + 2]}>=${#root}"
+    # The resolved form, when it is another path: its own placeholder, its
+    # own width (roots.py `rules_for`).
+    real=$(realpath "$root" 2>/dev/null || true)
+    [[ -z $real || $real == "$root" ]] || line+=" <${root_args[i + 2]}:real>=${#real}"
   done
   echo "$line bytes"
 }
@@ -628,8 +637,12 @@ main() {
   if [[ $path_scenarios =~ $writable ]]; then fill_scenarios=$path_scenarios; fi
   if [[ $path_bun =~ $writable ]]; then fill_bun=$path_bun; fi
 
-  local run port='' bin
-  run=$(mktemp -d "${TMPDIR:-/tmp}/fxcap.XXXXXX")
+  local run port='' bin tmpdir=${TMPDIR:-/tmp}
+  # Without its trailing slashes (macOS's own TMPDIR ends in one): mktemp
+  # would name `<TMPDIR>//fxcap.XXXXXX`, a path a binary that normalizes it
+  # prints otherwise.
+  while [[ $tmpdir == */ && $tmpdir != / ]]; do tmpdir=${tmpdir%/}; done
+  run=$(mktemp -d "$tmpdir/fxcap.XXXXXX")
   mkdir -p "$run/home" "$run/work"
   # What roots.py writes each of this run's roots as (the list at the top),
   # and the run directory's own name, which no file may keep. A shared system
@@ -641,9 +654,9 @@ main() {
   net_out=$out net_prefix=$which-$scenario-$size- net_since=$run/started
   root_args=(--suffix "${run##*/}" --root "$run/work" work --root "$run" scratch --root "$path_scenarios" scenarios)
   [[ -z $path_bun ]] || root_args+=(--root "$path_bun" bun)
-  case ${TMPDIR:-} in
-    ''|/tmp|/tmp/|/private/tmp|/private/tmp/|/var/tmp|/var/tmp/) ;;
-    *) root_args+=(--root "$TMPDIR" tmp) ;;
+  case $tmpdir in
+    /|/tmp|/private/tmp|/var/tmp) ;;
+    *) root_args+=(--root "$tmpdir" tmp) ;;
   esac
   [[ -z ${HOME:-} || $HOME == / ]] || root_args+=(--root "$HOME" home)
   roots_line

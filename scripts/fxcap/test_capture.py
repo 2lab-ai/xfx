@@ -280,21 +280,25 @@ class Placeholders(unittest.TestCase):
         # placeholder (RunRoots): `@SCENARIOS@` is the resolved scenario
         # directory, `@HOME@` the run's HOME.
         a = r.screen("a")
-        self.assertIn("env:<scenarios>/x:<bun>", a)
-        self.assertRegex(a, r"typed:<scenarios>:<bun>:\d+")
-        self.assertIn("pasted-2:<scenarios>", a)
-        self.assertRegex(a, r"s=<scenarios> b=<bun> h=<scratch>/home p=\d+ m=\d+")
-        self.assertRegex(a, r"\d+ m=\d+<scratch>/home", "the `dir` copy's file, after the work file's")
+        # Each placeholder as wide as its path (roots.py).
+        C, B = P("scenarios", scen), P("bun", BUN)
+        run = glob.glob(os.path.join(os.path.dirname(r.scen), "fxcap.*"))[0]
+        H = re.escape(P("scratch", run))
+        self.assertIn("env:%s/x:%s" % (C, B), a)
+        self.assertRegex(a, r"typed:%s:%s:\d+" % (re.escape(C), re.escape(B)))
+        self.assertIn("pasted-2:" + C, a)
+        self.assertRegex(a, r"s=%s b=%s h=%s/home p=\d+ m=\d+" % (re.escape(C), re.escape(B), H))
+        self.assertRegex(a, r"\d+ m=\d+%s/home" % H, "the `dir` copy's file, after the work file's")
         self.assertNotIn(scen, r.file("a"))
         self.assertNotIn(BUN, r.file("a"))
         # So does the `home` dump.
         home = r.file("h", ".files")
-        self.assertRegex(home, r'\{"s=<scenarios> b=<bun> h=<scratch>/home p=\d+ m=\d+"\}')
+        self.assertRegex(home, r'\{"s=%s b=%s h=%s/home p=\d+ m=\d+"\}' % (re.escape(C), re.escape(B), H))
         self.assertNotIn(scen, home)
         self.assertNotIn(BUN, home)
         work = r.file("work-w")
         self.assertIn("== ./raw.bin\n\x00@BUN@", work, "a file with a NUL is left as it is")
-        self.assertIn("relaunched:<scenarios>", r.screen("b"))
+        self.assertIn("relaunched:" + C, r.screen("b"))
 
     def test_a_file_seeded_owner_only_stays_so(self):
         r = capture(
@@ -308,9 +312,20 @@ class Placeholders(unittest.TestCase):
         self.assertIn("mode:700 mode:700 mode:600", r.screen("a"))
 
 
+def width_of(data):
+    """Columns of a row's visible text, as cells.py counts them."""
+    return roots._width(re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)", "", data))
+
+
+def P(name, path, real=False):
+    """The placeholder for `path`, as wide as it."""
+    return roots.make_placeholder(name, roots._width(path), real)
+
+
 class RootsRewrite(unittest.TestCase):
-    """roots.py on bytes, no tmux: each way a frame can carry a root, the
-    literal placeholders, and the refusal."""
+    """roots.py on bytes, no tmux: each way a frame can carry a root, each
+    placeholder written over its root's own columns, the literal placeholders,
+    and the refusal."""
 
     RUN = "/private/tmp/claude-501/fxcapt.njl2bbl3/fxcap.JTbdal"  # local-path-ok: a fixture root, never read
 
@@ -320,58 +335,95 @@ class RootsRewrite(unittest.TestCase):
     def rw(self, data):
         return roots.rewrite(data, self.rules())[0]
 
-    def test_a_root_wrapped_at_the_margin_at_every_byte(self):
-        run = self.RUN.encode()
+    def test_a_root_wrapped_at_the_margin_wraps_its_placeholder_at_every_byte(self):
+        run, S = self.RUN.encode(), P("scratch", self.RUN).encode()
         for k in range(1, len(run)):
             with self.subTest(k=k):
-                got = self.rw(b"tmp=" + run[:k] + b"\n" + run[k:] + b"/fxtmp\n")
-                self.assertEqual(got, b"tmp=<scratch>\n/fxtmp\n")
+                data = b"tmp=" + run[:k] + b"\n" + run[k:] + b"/fxtmp\n"
+                got = self.rw(data)
+                self.assertEqual(got, b"tmp=" + S[:k] + b"\n" + S[k:] + b"/fxtmp\n")
+                self.assertEqual(len(got), len(data))
                 self.assertEqual(roots.survivors(got, self.rules(), "fxcap.JTbdal"), [])
+
+    def test_a_root_wrapped_at_two_offsets_reads_different_on_each_side(self):
+        # The same root on both sides, broken by each at another column: the
+        # pair differs after the rewrite as it did before it.
+        run = self.RUN.encode()
+        fx = self.rw(b"x=" + run[:9] + b"\n  " + run[9:] + b"\n")
+        xfx = self.rw(b"x=" + run[:12] + b"\n  " + run[12:] + b"\n")
+        S = P("scratch", self.RUN).encode()
+        self.assertEqual(fx, b"x=" + S[:9] + b"\n  " + S[9:] + b"\n")
+        self.assertEqual(xfx, b"x=" + S[:12] + b"\n  " + S[12:] + b"\n")
+        self.assertNotEqual(fx, xfx)
 
     def test_a_root_a_binary_broke_behind_a_gutter_keeps_the_gutter_and_the_colours(self):
         # fx's notice (receipts/s1 `bogus`, rows 19-20): the row ends with the
         # root's head, the next opens with two spaces and a colour.
-        run = self.RUN.encode()
+        run, W, S = self.RUN.encode(), P("work", self.RUN + "/work").encode(), P("scratch", self.RUN).encode()
         got = self.rw(b"Remove it from " + run[:13] + b"\n  \x1b[38;5;250m" + run[13:] + b"/work/.fx\x1b[39m\n")
-        self.assertEqual(got, b"Remove it from <work>\n  \x1b[38;5;250m/.fx\x1b[39m\n")
+        self.assertEqual(got, b"Remove it from " + W[:13] + b"\n  \x1b[38;5;250m" + W[13:] + b"/.fx\x1b[39m\n")
         boxed = self.rw(b"\xe2\x94\x82 " + run[:20] + b" \xe2\x94\x82\n\xe2\x94\x82 " + run[20:] + b"/x \xe2\x94\x82\n")
-        self.assertEqual(boxed, b"\xe2\x94\x82 <scratch> \xe2\x94\x82\n\xe2\x94\x82 /x \xe2\x94\x82\n")
+        self.assertEqual(boxed, b"\xe2\x94\x82 " + S[:20] + b" \xe2\x94\x82\n\xe2\x94\x82 " + S[20:] + b"/x \xe2\x94\x82\n")
 
-    def test_a_root_a_colour_change_splits_is_one_root_and_its_colours_follow_it(self):
+    def test_a_colour_change_inside_a_root_stays_where_it_was(self):
         # The @plan picker bolds the letters a query matched, some inside the
         # run directory (workspace-index `at-plan`).
-        run = self.RUN.encode()
-        ansi = b"  \x1b[38;5;245m" + run[:1] + b"\x1b[1m" + run[1:2] + b"\x1b[0m\x1b[38;5;245m" + run[2:] + b"/extra/\x1b[39m\n"
-        txt = b"  " + run + b"/extra/\n"
+        run, S = self.RUN.encode(), P("scratch", self.RUN).encode()
+        sgr = (b"\x1b[38;5;245m", b"\x1b[1m", b"\x1b[0m\x1b[38;5;245m", b"\x1b[39m")
+        ansi = b"  " + sgr[0] + run[:1] + sgr[1] + run[1:2] + sgr[2] + run[2:] + b"/extra/" + sgr[3] + b"\n"
         got = self.rw(ansi)
-        self.assertEqual(got, b"  \x1b[38;5;245m<scratch>\x1b[1m\x1b[0m\x1b[38;5;245m/extra/\x1b[39m\n")
-        # The .txt of the same frame reads the same text.
+        self.assertEqual(got, b"  " + sgr[0] + S[:1] + sgr[1] + S[1:2] + sgr[2] + S[2:] + b"/extra/" + sgr[3] + b"\n")
+        # The .txt of the same frame reads the same text, and every cell of
+        # both is where it was.
+        txt = b"  " + run + b"/extra/\n"
         self.assertEqual(cells_text(got), self.rw(txt).decode())
+        self.assertEqual(width_of(got.decode()), width_of(ansi.decode()))
+        # Two frames that bolded other letters of the root differ still.
+        other = b"  " + sgr[0] + run[:4] + sgr[1] + run[4:5] + sgr[2] + run[5:] + b"/extra/" + sgr[3] + b"\n"
+        self.assertNotEqual(self.rw(other), got)
 
     def test_every_spelling_and_an_osc_8_target(self):
-        esc = self.RUN.replace("/", "\\/").encode()
-        self.assertEqual(self.rw(b'{"cwd":"' + esc + b'\\/work"}'), b'{"cwd":"<work>"}')
-        self.assertEqual(
-            self.rw(b"\x1b]8;;file://" + self.RUN.encode() + b"/work/a.png\x1b\\[i]\x1b]8;;\x1b\\\n"),
-            b"\x1b]8;;file://<work>/a.png\x1b\\[i]\x1b]8;;\x1b\\\n",
-        )
+        esc = self.RUN.replace("/", "\\/") + "\\/work"
+        got = self.rw(b'{"cwd":"' + esc.encode() + b'"}')
+        self.assertEqual(got, b'{"cwd":"' + P("work", esc).encode() + b'"}')
+        self.assertEqual(json.loads(got)["cwd"], P("work", esc))
+        link = b"\x1b]8;;file://" + self.RUN.encode() + b"/work/a.png\x1b\\[i]\x1b]8;;\x1b\\\n"
+        self.assertEqual(self.rw(link), b"\x1b]8;;file://" + P("work", self.RUN + "/work").encode() + b"/a.png\x1b\\[i]\x1b]8;;\x1b\\\n")
         spaced = roots.rules_for([("/tmp/a b/fxcap.Q1w2E3", "scratch")])
-        self.assertEqual(roots.rewrite(b"file:///tmp/a%20b/fxcap.Q1w2E3/x", spaced)[0], b"file://<scratch>/x")
+        pct = "/tmp/a%20b/fxcap.Q1w2E3"
+        self.assertEqual(roots.rewrite(("file://%s/x" % pct).encode(), spaced)[0], ("file://%s/x" % P("scratch", pct)).encode())
+        # A TMPDIR with a trailing slash names `<TMPDIR>//fxcap.X`; a binary
+        # that normalizes the path prints it with one slash.
+        doubled = roots.rules_for([("/tmp/a//b/fxcap.Q1w2E3", "scratch")])
+        got = roots.rewrite(b"/tmp/a/b/fxcap.Q1w2E3/x /tmp/a//b/fxcap.Q1w2E3/y", doubled)[0]
+        self.assertEqual(got, ("%s/x %s/y" % (P("scratch", "/tmp/a/b/fxcap.Q1w2E3"), P("scratch", "/tmp/a//b/fxcap.Q1w2E3"))).encode())
 
-    def test_a_root_ends_whole(self):
+    def test_an_nf_escape_beside_a_root_is_a_control_sequence(self):
+        # `ESC ( B` (designate G0 as ASCII) is three bytes; read as two, its
+        # `B` was text, and the root before it did not end whole.
+        run, W = self.RUN.encode(), P("work", self.RUN + "/work").encode()
+        self.assertEqual(self.rw(b"x \x1b(B" + run + b"/work\x1b(B y\n"), b"x \x1b(B" + W + b"\x1b(B y\n")
+
+    def test_a_root_ends_whole_within_its_row(self):
         run = self.RUN.encode()
-        self.assertEqual(self.rw(run + b"/workx\n"), b"<scratch>/workx\n")
-        self.assertEqual(self.rw(run + b"/work\nabc\n"), b"<work>\nabc\n")
+        S, W = P("scratch", self.RUN).encode(), P("work", self.RUN + "/work").encode()
+        self.assertEqual(self.rw(run + b"/workx\n"), S + b"/workx\n")
+        self.assertEqual(self.rw(run + b"/work\nabc\n"), W + b"\nabc\n")
 
     def test_a_literal_placeholder_is_never_a_root(self):
         # One side shows the real root, the other the text `<work>`: they
         # must not read the same.
         real = self.rw(b"x=" + self.RUN.encode() + b"/work\n")
         literal = self.rw(b"x=<work>\n")
-        self.assertEqual(real, b"x=<work>\n")
-        self.assertEqual(literal, b"x=<\\work>\n")
+        self.assertEqual(real, b"x=" + P("work", self.RUN + "/work").encode() + b"\n")
+        self.assertEqual(literal, b"x=<!work>\n")
         self.assertNotEqual(real, literal)
-        self.assertEqual(self.rw(b"<\\work> <wo\x1b[1mrk> <tmp:real>"), b"<\\\\work> <\\wo\x1b[1mrk> <\\tmp:real>")
+        self.assertEqual(
+            self.rw(b"<!work> <wo\x1b[1mrk> <tmp:real> <work___> <h__> <b> <a__>"),
+            b"<!!work> <!wo\x1b[1mrk> <!tmp:real> <!work___> <!h__> <b> <a__>",
+        )
+        # The escape keeps a JSON body a JSON body.
+        self.assertEqual(json.loads(self.rw(b'{"text":"<work> and <!scratch__>"}')), {"text": "<!work> and <!!scratch__>"})
 
     def test_a_resolved_root_is_its_own_placeholder(self):
         d = scratch()
@@ -383,7 +435,40 @@ class RootsRewrite(unittest.TestCase):
         resolved = os.path.realpath(given)
         self.assertNotEqual(given, resolved)
         got = roots.rewrite(("%s and %s\n" % (given, resolved)).encode(), rules)[0]
-        self.assertEqual(got, b"<scratch> and <scratch:real>\n")
+        self.assertEqual(got, ("%s and %s\n" % (P("scratch", given), P("scratch", resolved, True))).encode())
+
+    def test_a_root_narrower_than_its_name_and_one_too_narrow(self):
+        home = "/" + "root"
+        got = roots.rewrite(("cd %s/x\n" % home).encode(), roots.rules_for([(home, "home")]))[0]
+        self.assertEqual(got, b"cd <h__>/x\n")
+        with self.assertRaises(roots.Refused):
+            roots.rewrite(b"cd /ab/x\n", roots.rules_for([("/ab", "home")]))
+        d = scratch()
+        path = os.path.join(d, "f.txt")
+        write(path, "cd /ab/x\n")
+        r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "roots.py"), "--root", "/ab", "home", "--", path],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIn("has no placeholder of its width", r.stderr)
+
+    def test_a_root_of_other_characters_keeps_its_columns(self):
+        root = "/tmp/j\u00f6s\u00e9/fxcap.Q1w2E3"
+        row = ("[%s/x]\n" % root).encode()
+        got = roots.rewrite(row, roots.rules_for([(root, "scratch")]))[0].decode()
+        self.assertEqual(width_of(got), width_of(row.decode()))
+        self.assertEqual(got, "[%s/x]\n" % P("scratch", root))
+
+    def test_a_sibling_of_an_outer_root_is_neither_rewritten_nor_refused(self):
+        # A path whose name extends a root's is another path: left as it is,
+        # and no survivor (the rewrite's rule, the refusal's rule).
+        home, tmp, scen = "/ho" + "me/alice", "/tmp/fxt", "/src/scen"
+        rules = roots.rules_for([(home, "home"), (tmp, "tmp"), (scen, "scenarios")])
+        siblings = ("%s2/notes %s2/x %s-old/x\n" % (home, tmp, scen)).encode()
+        self.assertEqual(roots.rewrite(siblings, rules)[0], siblings)
+        self.assertEqual(roots.survivors(siblings, rules, "fxcap.JTbdal"), [])
+        # The roots themselves, left unwritten, are survivors.
+        whole = ("%s/notes %s %s/x\n" % (home, tmp, scen)).encode()
+        self.assertEqual(sorted(roots.survivors(whole, rules, None)), ["home", "scenarios", "tmp"])
 
     def test_what_survives_refuses_the_file(self):
         # A binary that cut the root's head off (an ellipsis), or a head that
@@ -414,12 +499,12 @@ def cells_text(data):
 
 class RunRoots(unittest.TestCase):
     """Every file a run writes for the out directory names the run's own
-    roots by placeholder -- `<work>`, `<scratch>`, `<scenarios>`, `<bun>`,
-    `<tmp>`, `<home>` -- however the binary printed them: a snap's rows and
-    its colours, read apart, an OSC 8 link's target, a title, the wire, a
-    request body, mcphttp's log, a clipboard copy, a copied file's path, a
-    report, the workspace and HOME dumps. At any length of TMPDIR, fx's side
-    and xfx's alike."""
+    roots by a placeholder as wide as each -- `<work___>`, `<scratch___>`,
+    `<scenarios___>`, `<bun___>`, `<tmp___>`, `<home___>` -- however the binary
+    printed them: a snap's rows and its colours, read apart, an OSC 8 link's
+    target, a title, the wire, a request body, mcphttp's log, a clipboard
+    copy, a copied file's path, a report, the workspace and HOME dumps. At any
+    length of TMPDIR, fx's side and xfx's alike, every column where it was."""
 
     # The stub binary prints, one item a row: its working directory (as
     # `$PWD` says it and as `pwd -P` resolves it), its HOME and TMPDIR, the
@@ -470,14 +555,21 @@ class RunRoots(unittest.TestCase):
         "home h\n"
     )
 
-    def capture_at(self, extra, which="fx", d=None):
-        """The CAP at a TMPDIR `extra` bytes longer than the scratch base."""
+    def capture_at(self, extra, which="fx", d=None, cap=None, tmpdir=None):
+        """A capture at a TMPDIR `extra` bytes longer than the scratch base
+        (`tmpdir`, if given, is what capture.sh is handed as TMPDIR)."""
         if d is None:
             d = scratch()
             if extra:
                 d = os.path.join(d, "t" * (extra - 1))
                 os.makedirs(d)
-        return capture(self.CAP, which=which, d=d, env={"HOME": HOMEDIR}), d
+        env = {"HOME": HOMEDIR}
+        if tmpdir is not None:
+            env["TMPDIR"] = tmpdir
+        return capture(cap or self.CAP, which=which, d=d, env=env), d
+
+    def newest_run(self, d):
+        return sorted(glob.glob(os.path.join(d, "fxcap.*")), key=os.path.getmtime)[-1]
 
     def roots_of(self, d):
         """The paths no file of a run in `d` may hold, as given and resolved,
@@ -502,9 +594,30 @@ class RunRoots(unittest.TestCase):
         self.assertEqual(len(hits), 1, (prefix, rows))
         return hits[0]
 
+    def expected(self, d):
+        """Each placeholder the newest run in `d` writes, as wide as its root.
+        What the binary derives from `getcwd()` is the run resolved; its HOME
+        and TMPDIR are the run as given. Where TMPDIR goes through a link
+        (macOS's /tmp, /var/folders), each is its own."""
+        run = self.newest_run(d)
+        real = os.path.realpath(run) != run
+        rrun, rtmp = os.path.realpath(run), os.path.realpath(d)
+        return {
+            "work": P("work", rrun + "/work", real),
+            "scratch": P("scratch", run),
+            "scratch_p": P("scratch", rrun, real),
+            "tmp": P("tmp", rtmp, real),
+            "home": P("home", HOMEDIR),
+            "scen": P("scenarios", os.path.realpath(os.path.join(d, "scenarios"))),
+            "run": run,
+            "real": real,
+        }
+
     def assert_written_by_placeholder(self, r, d):
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
-        side, real = r.which, os.path.realpath(d) != d
+        side = r.which
+        x = self.expected(d)
+        W, S = x["work"], x["scratch"]
         files = list(self.files(r))
         kinds = {os.path.basename(p).split(".", 1)[-1] for p, _ in files}
         for kind in ("txt", "ansi", "full.txt", "full.ansi", "title", "cursor", "bells", "wire", "clip",
@@ -513,68 +626,70 @@ class RunRoots(unittest.TestCase):
         for path, data in files:
             for root in self.roots_of(d):
                 self.assertNotIn(root.encode(), data, "%s holds %s" % (path, root))
-        # What the binary derives from `getcwd()` is the run resolved; its
-        # HOME and TMPDIR are the run as given. Where TMPDIR goes through a
-        # link (macOS's /tmp, /var/folders), the two are each their own.
-        r_ = ":real" if real else ""
-        work, scr, tmp = "<work%s>" % r_, "<scratch%s>" % r_, "<tmp%s>" % r_
-        # The .txt, row by row: what the binary printed, each root in place.
+        # The .txt, row by row: what the binary printed, each root in place,
+        # as wide as it was.
         rows = self.rows(r, "a")
         for prefix, want in (
-            ("cwd=", "cwd=" + work),
-            ("real=", "real=" + work),
-            ("home=", "home=<scratch>/home"),
-            ("tmp=", "tmp=<scratch>/%stmp" % side),
-            ("up=", "up=" + tmp),
-            ("user=", "user=<home>"),
-            ("scen=", "scen=<scenarios>"),
-            ("edge=", "edge=%s/workx" % scr),
-            ("bold=", "bold=" + work),
-            ("tint=", "tint=" + work),
+            ("cwd=", "cwd=" + W),
+            ("real=", "real=" + W),
+            ("home=", "home=%s/home" % S),
+            ("tmp=", "tmp=%s/%stmp" % (S, side)),
+            ("up=", "up=" + x["tmp"]),
+            ("user=", "user=" + x["home"]),
+            ("scen=", "scen=" + x["scen"]),
+            ("edge=", "edge=%s/workx" % x["scratch_p"]),
+            ("bold=", "bold=" + W),
+            ("tint=", "tint=" + W),
         ):
             self.assertEqual(rows[self.row(rows, prefix)], want)
-        # Wrapped at the margin: the placeholder ends the first row, and the
-        # root's rest is gone from the second, which is then empty.
+        # Wrapped at the margin: the placeholder wraps where the root did,
+        # seven columns in.
         i = self.row(rows, "wrap=")
-        self.assertEqual(rows[i], "wrap=" + " " * 188 + work)
-        self.assertEqual(rows[i + 1], "")
-        # Broken behind a gutter: the gutter stays.
+        self.assertEqual(rows[i : i + 2], ["wrap=" + " " * 188 + W[:7], W[7:]])
+        # Broken behind a gutter: the gutter and the break stay.
         i = self.row(rows, "broke=")
-        self.assertEqual(rows[i : i + 2], ["broke=" + work, "  \u2502 /end"])
+        self.assertEqual(rows[i : i + 2], ["broke=" + W[:9], "  \u2502 %s/end" % W[9:]])
         # The .ansi, read apart from the .txt: the coloured root, the root a
-        # colour splits (its colour changes after the placeholder), the link.
+        # colour splits (each change where it was), the wrap, the link.
         ansi = self.rows(r, "a", ".ansi")
         tint = ansi[self.row(ansi, "tint=")]
-        self.assertIn("\x1b[38;5;245m%s\x1b[39m" % work, tint)
+        self.assertIn("\x1b[38;5;245m%s\x1b[39m" % W, tint)
         bold = ansi[self.row(ansi, "bold=")]
-        self.assertTrue(bold.startswith("bold=" + work), repr(bold))
-        self.assertIn("\x1b[1m", bold[len("bold=" + work):])
-        self.assertEqual(ansi[self.row(ansi, "wrap=")].rstrip(), "wrap=" + " " * 188 + work)
+        changes = [width_of(bold[: m.start()]) for m in re.finditer(r"\x1b\[[0-9;]*m", bold)]
+        self.assertEqual(re.sub(r"\x1b\[[0-9;]*m", "", bold), "bold=" + W)
+        self.assertIn(len("bold=") + 3, changes, repr(bold))
+        self.assertIn(len("bold=") + 7, changes, repr(bold))
+        self.assertEqual([a.rstrip() for a in ansi[self.row(ansi, "wrap=") :][:2]], ["wrap=" + " " * 188 + W[:7], W[7:]])
         link = ansi[self.row(ansi, "link=")]
         # tmux's `capture-pane -e` writes the link where it keeps hyperlinks
         # (3.7b here); where it writes none, no file holds a root all the
         # same (above), and the wire holds the link (below).
         if "\x1b]8;;" in link:
-            self.assertIn("\x1b]8;;file://%s/shot.png" % work, link)
+            self.assertIn("\x1b]8;;file://%s/shot.png" % W, link)
         # Every other kind.
-        self.assertEqual(r.file("t", ".title").strip(), "at " + work)
+        self.assertEqual(r.file("t", ".title").strip(), "at " + W)
         self.assertRegex(r.file("c", ".cursor"), r"^\d+,\d+\n$")
         self.assertEqual(r.file("b", ".bells"), "bells=1\nclients=0\n")
         wire = r.file("w", ".wire")
-        for want in ("cwd=" + work, "file://%s/shot.png" % work, "broke=" + work, "wrap=" + " " * 188 + work):
+        for want in ("cwd=" + W, "file://%s/shot.png" % W, "broke=" + W[:9], "wrap=" + " " * 188 + W):
             self.assertIn(want, wire)
-        self.assertEqual(r.file("k", ".clip"), work)
-        self.assertEqual(r.file("f", ".clipfile"), work + "/shot.png\n")
-        self.assertEqual(r.file("r-1", ".md"), "report %s\n" % work)
+        self.assertEqual(r.file("k", ".clip"), W)
+        self.assertEqual(r.file("f", ".clipfile"), W + "/shot.png\n")
+        self.assertEqual(r.file("r-1", ".md"), "report %s\n" % W)
         self.assertRegex(r.file("s", ".sockets"), r"^pid \d+\n$")
         self.assertRegex(r.file("mcphttp", ".port"), r"^\d+\n$")
-        self.assertIn(" GET %s/mcp " % work, r.file("mcphttp", ".log"))
+        self.assertIn(" GET %s/mcp " % W, r.file("mcphttp", ".log"))
         bodies = glob.glob(os.path.join(r.out, "%s-t-%s-bodies" % (side, r.size), "*"))
-        self.assertTrue(any('{"cwd":"%s"}' % work in slurp(b) for b in bodies), bodies)
-        self.assertIn("== ./made.txt\n%s\n" % work, r.file("work-w"))
-        self.assertIn(work, r.file("h", ".files"))
-        run = sorted(glob.glob(os.path.join(d, "fxcap.*")), key=os.path.getmtime)[-1]
-        self.assertIn("roots: <work>=%d <scratch>=%d " % (len(run) + 5, len(run)), r.stdout)
+        self.assertTrue(any('{"cwd":"%s"}' % W in slurp(b) for b in bodies), bodies)
+        self.assertIn("== ./made.txt\n%s\n" % W, r.file("work-w"))
+        self.assertIn(W, r.file("h", ".files"))
+        # The `roots:` line: each root's width on this run, the resolved
+        # form's too where it is another path.
+        run = x["run"]
+        want = "roots: <work>=%d " % (len(run) + 5)
+        if x["real"]:
+            want += "<work:real>=%d " % (len(os.path.realpath(run)) + 5)
+        self.assertIn(want + "<scratch>=%d " % len(run), r.stdout)
 
     def test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir(self):
         # Three lengths of TMPDIR: the wrap and the pads land at a different
@@ -584,20 +699,53 @@ class RunRoots(unittest.TestCase):
                 r, d = self.capture_at(extra)
                 self.assert_written_by_placeholder(r, d)
 
+    def test_a_tmpdir_with_a_trailing_slash(self):
+        # macOS's own TMPDIR ends in `/`. Through a link too, the binary's
+        # HOME normalized (`//` to `/`, as a binary that joins paths prints it)
+        # is the run's root.
+        d = scratch()
+        os.makedirs(os.path.join(d, "r"))
+        os.symlink(os.path.join(d, "r"), os.path.join(d, "l"))
+        link = os.path.join(d, "l")
+        cap = ("keep\nwait 1\n"
+               "type clear; printf 'norm=%s\\n' \"$(printf %s \"$HOME\" | tr -s /)\"; echo DO\"\"NE\n"
+               "key Enter\nuntil shown DONE\nsnap a\n")
+        r, _ = self.capture_at(0, d=link, cap=cap, tmpdir=link + "/")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        run = self.newest_run(link)
+        self.assertNotIn("//", run)
+        self.assertIn("norm=%s/home" % P("scratch", run), self.rows(r, "a"))
+        r, d = self.capture_at(9, tmpdir=None)
+        r2, _ = self.capture_at(0, d=d, tmpdir=d + "/")
+        self.assert_written_by_placeholder(r2, d)
+
+    def test_a_sibling_of_the_harness_tmpdir_is_left_and_refuses_nothing(self):
+        cap = ("keep\nwait 1\n"
+               "type clear; printf 'sib=%s2/notes\\n' \"$(dirname \"$(dirname \"$PWD\")\")\"; echo DO\"\"NE\n"
+               "key Enter\nuntil shown DONE\nsnap a\n")
+        r, d = self.capture_at(0, cap=cap)
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertIn("sib=%s2/notes" % os.path.realpath(d), self.rows(r, "a"))
+
     def test_a_resolved_root_reads_as_its_own_placeholder(self):
         # TMPDIR through a link. The binary's HOME and TMPDIR are the run as
         # given; its working directory is the run resolved (`env -i` drops
         # PWD, so the shell's `$PWD` is `getcwd()` too). One root, two
-        # placeholders: a binary that printed the other form would differ.
+        # placeholders, each as wide as its own path: a binary that printed
+        # the other form would differ.
         d = scratch()
         os.makedirs(os.path.join(d, "r"))
         os.symlink(os.path.join(d, "r"), os.path.join(d, "l"))
-        r, _ = self.capture_at(0, d=os.path.join(d, "l"))
+        link = os.path.join(d, "l")
+        r, _ = self.capture_at(0, d=link)
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        run = self.newest_run(link)
+        S, W = P("scratch", run), P("work", os.path.realpath(run) + "/work", True)
         rows = self.rows(r, "a")
-        for prefix, want in (("home=", "home=<scratch>/home"), ("tmp=", "tmp=<scratch>/fxtmp"),
-                             ("cwd=", "cwd=<work:real>"), ("real=", "real=<work:real>")):
+        for prefix, want in (("home=", "home=%s/home" % S), ("tmp=", "tmp=%s/fxtmp" % S),
+                             ("cwd=", "cwd=" + W), ("real=", "real=" + W)):
             self.assertEqual(rows[self.row(rows, prefix)], want)
+        self.assertTrue(W.startswith("<work:real"))
 
     def test_both_sides_are_written_alike_and_keep_their_widths(self):
         # The sweep's way: both sides in one TMPDIR, one after the other, so
@@ -605,21 +753,39 @@ class RunRoots(unittest.TestCase):
         fx, d = self.capture_at(0)
         xfx, _ = self.capture_at(0, which="xfx", d=d)
         self.assert_written_by_placeholder(xfx, d)
+        S = self.expected(d)["scratch"]
         for ext in (".txt", ".ansi"):
             a, b = fx.file("a", ext).split("\n"), xfx.file("a", ext).split("\n")
             self.assertEqual(len(a), len(b))
             for x, y in zip(a, b):
                 if x.startswith("pad2="):
-                    # Padded to the real TMPDIRs' widths: `<scratch>/fxtmp`
-                    # one column further right than xfx's `<scratch>/xfxtmp`,
-                    # as `fxtmp` is one byte shorter, and the bracket where
-                    # it was.
+                    # Padded to the real TMPDIRs' widths: fx's `/fxtmp` one
+                    # column further right than xfx's `/xfxtmp`, as `fxtmp`
+                    # is one byte shorter, and the bracket where it was.
                     self.assertEqual(x.rindex("]"), y.rindex("]"))
-                    self.assertEqual(x.index("<scratch>/fxtmp") - 1, y.index("<scratch>/xfxtmp"))
+                    self.assertEqual(x.index(S + "/fxtmp") - 1, y.index(S + "/xfxtmp"))
                 else:
                     # Each binary's own TMPDIR keeps its own name, as the
                     # ledger's `capture-tmpdir` reads it; nothing else differs.
-                    self.assertEqual(x.replace("<scratch>/fxtmp", "<scratch>/xfxtmp"), y)
+                    self.assertEqual(x.replace(S + "/fxtmp", S + "/xfxtmp"), y)
+
+    def test_a_root_each_side_broke_at_another_column_reads_different(self):
+        # The same root, broken by fx after its ninth byte and by xfx after
+        # its twelfth: the pair differs after the rewrite as it did before.
+        cap = ("keep\nwait 1\n"
+               "fx: type clear; p=\"$PWD\"; printf 'x=%s\\n  %s\\n' \"${p:0:9}\" \"${p:9}\"; echo DO\"\"NE\n"
+               "xfx: type clear; p=\"$PWD\"; printf 'x=%s\\n  %s\\n' \"${p:0:12}\" \"${p:12}\"; echo DO\"\"NE\n"
+               "key Enter\nuntil shown DONE\nsnap a\n")
+        fx, d = self.capture_at(0, cap=cap)
+        Wfx = self.expected(d)["work"]
+        xfx, _ = self.capture_at(0, which="xfx", d=d, cap=cap)
+        Wxfx = self.expected(d)["work"]
+        self.assertEqual(Wfx, Wxfx)
+        a, b = self.rows(fx, "a"), self.rows(xfx, "a")
+        i, j = self.row(a, "x="), self.row(b, "x=")
+        self.assertEqual(a[i : i + 2], ["x=" + Wfx[:9], "  " + Wfx[9:]])
+        self.assertEqual(b[j : j + 2], ["x=" + Wfx[:12], "  " + Wfx[12:]])
+        self.assertNotEqual(a, b)
 
     def test_a_real_root_and_a_literal_placeholder_never_read_the_same(self):
         # One side prints its working directory, the other the text `<work>`.
@@ -627,12 +793,12 @@ class RunRoots(unittest.TestCase):
                "fx: type clear; printf 'x=%s\\n' \"$PWD\"; echo DO\"\"NE\n"
                "xfx: type clear; printf 'x=<work>\\n'; echo DO\"\"NE\n"
                "key Enter\nuntil shown DONE\nsnap a\n")
-        fx = capture(cap)
-        d = os.path.dirname(fx.scen)
-        xfx = capture(cap, which="xfx", d=d)
-        a, b = fx.file("a").split("\n"), xfx.file("a").split("\n")
-        self.assertIn("x=<work%s>" % (":real" if os.path.realpath(d) != d else ""), a)
-        self.assertIn("x=<\\work>", b)
+        fx, d = self.capture_at(0, cap=cap)
+        W = self.expected(d)["work"]
+        xfx, _ = self.capture_at(0, which="xfx", d=d, cap=cap)
+        a, b = self.rows(fx, "a"), self.rows(xfx, "a")
+        self.assertIn("x=" + W, a)
+        self.assertIn("x=<!work>", b)
         self.assertNotEqual(a, b)
 
 

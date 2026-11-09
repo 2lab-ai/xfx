@@ -75,14 +75,14 @@ fx = '(?<=fxcap\.)[A-Za-z0-9]{1,6}'
 xfx = '(?<=fxcap\.)[A-Za-z0-9]{1,6}'
 mask = "X"
 why = "capture.sh runs each binary in its own `mktemp -d .../fxcap.XXXXXX`, so a path on screen (/status's workspace, a picker's root) carries a different random suffix on each side. capture.sh writes the whole run directory as `<scratch>` (or `<work>`) since LOCAL-PATHS, wherever a frame wraps or colours it, and refuses a capture that keeps any of its name; this rule reads the captures taken before it (`--rescore`). Masked to the same length, so nothing after it moves."
-source = ["scripts/fxcap/capture.sh:632"]
+source = ["scripts/fxcap/capture.sh:645"]
 
 [[normalization]]
 id = "capture-tmpdir"
-fx = '(?:(?<=fxcap\.XXXXXX/)|(?<=<scratch>/)|(?<=<scratch:real>/))fxtmp\b'
+fx = '(?:(?<=fxcap\.XXXXXX/)|(?<=_>/)|(?<=<scratch>/)|(?<=<scratch:real>/))fxtmp\b'
 replace = "xfxtmp"
-why = "capture.sh gives each binary a TMPDIR inside its run named for the binary, fx `$run/fxtmp`, xfx `$run/xfxtmp`, so where `/trace` says it wrote names the driver's directory, not the product's. On fx's side, after run-directory: the run directory as capture.sh writes it now, `<scratch>` (`<scratch:real>` resolved), or as a capture from before LOCAL-PATHS holds it, masked to `fxcap.XXXXXX`."
-source = ["scripts/fxcap/capture.sh:314-316", "scripts/fxcap/capture.sh:353-358"]
+why = "capture.sh gives each binary a TMPDIR inside its run named for the binary, fx `$run/fxtmp`, xfx `$run/xfxtmp`, so where `/trace` says it wrote names the driver's directory, not the product's. On fx's side, after run-directory: the run directory as capture.sh writes it now, `<scratch___>` filled to the run directory's width (`<scratch:real___>` resolved; the fill ends `_>`), or as a capture from before LOCAL-PATHS holds it, masked to `fxcap.XXXXXX`."
+source = ["scripts/fxcap/capture.sh:314-316", "scripts/fxcap/capture.sh:358-363"]
 
 # Each run's own clock and its own ids. The two binaries run one after the
 # other, so what a clock or a random id reads is the run's, not the product's;
@@ -104,7 +104,7 @@ xfx = '^[• ](?= (?:Generating|Running|Thinking|Compacting) \(\d)'
 replace = "~"
 attrs = "none"
 why = "The activity row's marker blinks (`•`, then a blank between pulses); a snap catches whichever phase its moment falls on. The marker cell only: the word, its clock and its counts are compared."
-source = [".prd/tui-phase4/receipts/d1/README.md:252", ".prd/tui-phase4/receipts/d2c/README.md:146", ".prd/tui-phase4/receipts/f4/README.md:8"]
+source = [".prd/tui-phase4/receipts/d1/README.md:258", ".prd/tui-phase4/receipts/d2c/README.md:146", ".prd/tui-phase4/receipts/f4/README.md:8"]
 
 [[normalization]]
 id = "activity-clock"
@@ -144,7 +144,7 @@ fx = '^(Pane is dead \(status \d+, ).*(\))$'
 xfx = '^(Pane is dead \(status \d+, ).*(\))$'
 replace = '\1<tmux clock>\2'
 why = "tmux's own line under a pane whose program has exited (capture.sh `keep`) ends with tmux's clock; the exit status before it is compared."
-source = [".prd/tui-phase4/receipts/d1/README.md:145", ".prd/tui-phase4/receipts/p1/README.md:32", "scripts/fxcap/capture.sh:1088"]
+source = [".prd/tui-phase4/receipts/d1/README.md:151", ".prd/tui-phase4/receipts/p1/README.md:32", "scripts/fxcap/capture.sh:1101"]
 
 [[normalization]]
 id = "session-id"
