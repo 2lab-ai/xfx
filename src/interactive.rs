@@ -3951,7 +3951,7 @@ mod tests {
         // line shell writes each line it found to stderr and records it then:
         // a line that could not be written is still unsaid, and once written,
         // the next turn's identical rebuild says nothing. A line the rebuild
-        // repeats (a sealed step per step) is said once.
+        // repeats (an image per result that returned it) is said once.
         struct Closed;
         impl Write for Closed {
             fn write(&mut self, _: &[u8]) -> io::Result<usize> {

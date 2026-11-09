@@ -1912,11 +1912,11 @@ fn ask_resume_keeps_the_sessions_model_over_the_profiles_and_under_the_processs(
 fn ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one() {
     // The log is file input. A model xfx would not have written
     // (`model_id_problem`) is not sent, as the TUI's resume does not restore
-    // one (`Resumption::selection`): the launch's model goes instead. And the
-    // notice about the history -- which quotes the wire a step's reasoning
-    // was recorded on, as the log names it -- reaches the terminal inert.
-    // Red before: the log's model was the one asked for, and the notice
-    // carried its escapes to stderr.
+    // one (`Resumption::selection`): the launch's model goes instead. And
+    // nothing the log names reaches the terminal with its escapes. Red before:
+    // the log's model was the one asked for, and a notice quoting the wire a
+    // step's reasoning was recorded on carried its escapes to stderr; that
+    // notice is gone since HISTORY-NOTICES-COPY-FX.
     const HOSTILE_MODEL: &str = "m\u{1b}]0;pwned\u{7}x";
     const HOSTILE_WIRE: &str = "w\u{1b}[2Jire\u{9b}31m";
     let sandbox = Sandbox::new();
@@ -1968,9 +1968,12 @@ fn ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one() {
     let model = asked.header("ai-language-model-id").expect("a model");
     assert!(!model.chars().any(char::is_control), "{model:?}");
     assert_ne!(model, HOSTILE_MODEL);
+    // The reasoning the hostile wire sealed is left out of the request without
+    // a word, as fx's `projectProviderReplay` leaves it
+    // (`types.zig:1668-1682@481104fd`).
     assert!(
-        run.stderr.contains("recorded reasoning on the"),
-        "the notice was not printed: {:?}",
+        !run.stderr.contains("recorded reasoning"),
+        "a notice fx does not have was printed: {:?}",
         run.stderr
     );
     for output in [&run.stdout, &run.stderr] {
@@ -2892,7 +2895,7 @@ fn a_legacy_record_with_blocks_and_no_wire_replays_on_the_messages_wire() {
 }
 
 #[test]
-fn a_legacy_record_is_dropped_with_a_notice_on_any_other_wire() {
+fn a_legacy_record_is_dropped_without_a_word_on_any_other_wire() {
     let (profile, workspace) = (Profile::new(), Workspace::new());
     let state = recorded_state(
         &profile,
@@ -2908,10 +2911,9 @@ fn a_legacy_record_is_dropped_with_a_notice_on_any_other_wire() {
     // The turn still replays as text and tool calls: dropped state degrades a
     // request, it never deletes a turn.
     assert_eq!(replay.messages[1].text(), "answered");
-    assert_eq!(replay.notices.len(), 1);
-    let notice = &replay.notices[0];
-    assert!(notice.contains("anthropic_messages"), "{notice}");
-    assert!(notice.contains("vercel_gateway"), "{notice}");
+    // And without a word, as fx drops a replay that does not match
+    // (`projectProviderReplay`, `types.zig:1668-1682@481104fd`).
+    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
 }
 
 #[test]
@@ -2937,9 +2939,8 @@ fn responses_state_recorded_under_one_authority_is_never_sent_to_another() {
     ] {
         let replay = state.history_messages(active.clone(), &state.model);
         assert!(replay.messages[1].raw_blocks().is_none(), "for {active:?}");
-        assert_eq!(replay.notices.len(), 1, "for {active:?}");
         assert!(
-            replay.notices[0].contains("codex_responses"),
+            replay.notices.is_empty(),
             "for {active:?}: {:?}",
             replay.notices
         );
@@ -2961,18 +2962,15 @@ fn a_wire_this_version_does_not_know_drops_rather_than_guessing() {
 
     let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
     assert!(replay.messages[1].raw_blocks().is_none());
-    assert!(
-        replay.notices[0].contains("some_future_wire"),
-        "{:?}",
-        replay.notices
-    );
+    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
 }
 
 #[test]
 fn a_wire_less_responses_state_record_drops_rather_than_replaying_under_active() {
     // A record with responses_state but no wire is invalid: no pre-wire binary
     // wrote responses_state, so it must be from a future wire this binary does
-    // not know. It must drop with a notice, never replay under the active wire.
+    // not know. It must drop, without a word as fx drops one, and never replay
+    // under the active wire.
     let (profile, workspace) = (Profile::new(), Workspace::new());
     let state = recorded_state(
         &profile,
@@ -2986,12 +2984,7 @@ fn a_wire_less_responses_state_record_drops_rather_than_replaying_under_active()
         replay.messages[1].raw_blocks().is_none(),
         "wire-less responses_state must not replay under active CodexResponses"
     );
-    assert_eq!(replay.notices.len(), 1, "must generate a drop notice");
-    assert!(
-        replay.notices[0].contains("responses"),
-        "notice should mention responses_state: {:?}",
-        replay.notices
-    );
+    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
 }
 
 #[test]

@@ -18758,51 +18758,67 @@ mod tests {
     // HISTORY-NOTICE-STOP: a stopped turn leaves the history's notices unsaid
     // -----------------------------------------------------------------------
 
-    /// What the history notice about sealed reasoning says, whichever wire.
-    const NOT_CARRIED: &str = "not carried over";
+    /// What a history notice about an image says, whichever arm: one the
+    /// session never read back, and one whose saved copy could not be.
+    const NOT_SENT_AGAIN: &str = "so it was not sent again";
 
-    /// Puts into `state`'s conversation a turn llmux answered, both of whose
-    /// steps sealed their reasoning: on the Gateway its history rebuilds with
-    /// the same notice twice, once per step, and says it once.
-    fn sealed_on_llmux(state: &mut Runtime) {
-        let sealed = |text: &str| {
-            vec![
-                serde_json::json!({"type": "thinking", "thinking": "SEALED", "signature": "sig-1"}),
-                serde_json::json!({"type": "text", "text": text}),
+    /// Puts into `state`'s conversation a turn whose two `read_file` calls each
+    /// returned the same image, whose saved copy is not there: its history
+    /// rebuilds with the same notice twice, once per result, and says it once.
+    /// The same after a resume, which reads the copy back and finds it gone.
+    fn unreadable_tool_images(state: &mut Runtime) {
+        let image = crate::session::RecordedImage {
+            id: 1,
+            path: "shot.png".to_string(),
+            media_type: "image/png".to_string(),
+            sha256: crate::image::digest(crate::image::fixture::SHOT_PNG),
+            bytes: crate::image::fixture::SHOT_PNG.len() as u64,
+        };
+        let call = |id: &str| crate::session::RecordedToolCall {
+            id: id.to_string(),
+            name: "read_file".to_string(),
+            input: serde_json::json!({"path": "shot.png"}),
+        };
+        let result = |id: &str| {
+            [
+                SessionEvent::ToolResult {
+                    call_id: id.to_string(),
+                    tool: "read_file".to_string(),
+                    ok: true,
+                    output: "an image".to_string(),
+                    ending: None,
+                    lines: None,
+                    change: None,
+                },
+                SessionEvent::ToolImagesAttached {
+                    call_id: id.to_string(),
+                    images: vec![image.clone()],
+                },
             ]
         };
         let conversation = state.conversation.as_mut().expect("a conversation");
-        for event in [
+        let mut events = vec![
             SessionEvent::UserMessage {
-                text: "read it".to_string(),
+                text: "look at it".to_string(),
             },
             SessionEvent::AssistantMessage {
                 text: String::new(),
-                tool_calls: vec![crate::session::RecordedToolCall {
-                    id: "toolu_1".to_string(),
-                    name: "read_file".to_string(),
-                    input: serde_json::json!({"path": "notes.txt"}),
-                }],
-                raw_content: sealed(""),
+                tool_calls: vec![call("toolu_1"), call("toolu_2")],
+                raw_content: Vec::new(),
                 responses_state: Vec::new(),
-                wire: Some(Wire::AnthropicMessages),
+                wire: None,
                 model: None,
             },
-            SessionEvent::ToolResult {
-                call_id: "toolu_1".to_string(),
-                tool: "read_file".to_string(),
-                ok: true,
-                output: "NOTES".to_string(),
-                ending: None,
-                lines: None,
-                change: None,
-            },
+        ];
+        events.extend(result("toolu_1"));
+        events.extend(result("toolu_2"));
+        events.extend([
             SessionEvent::AssistantMessage {
-                text: "LLMUX-ANSWER".to_string(),
+                text: "LOOKED".to_string(),
                 tool_calls: Vec::new(),
-                raw_content: sealed("LLMUX-ANSWER"),
+                raw_content: Vec::new(),
                 responses_state: Vec::new(),
-                wire: Some(Wire::AnthropicMessages),
+                wire: None,
                 model: None,
             },
             SessionEvent::TurnConcluded {
@@ -18811,7 +18827,8 @@ mod tests {
                     steps: 2,
                 },
             },
-        ] {
+        ]);
+        for event in events {
             conversation.recorder.commit(event);
         }
         let wire = state.config.provider.wire();
@@ -18825,7 +18842,7 @@ mod tests {
             .history_messages(wire, &model);
         assert_eq!(replay.notices.len(), 2, "{:?}", replay.notices);
         assert!(
-            replay.notices[0] == replay.notices[1] && replay.notices[0].contains(NOT_CARRIED),
+            replay.notices[0] == replay.notices[1] && replay.notices[0].contains(NOT_SENT_AGAIN),
             "{:?}",
             replay.notices
         );
@@ -18834,10 +18851,12 @@ mod tests {
     #[test]
     fn a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn() {
         // xfx says once per conversation what the history could not carry --
-        // here, reasoning llmux sealed, on the Gateway (`/provider` in
-        // docs/parity.md; `.prd/04-providers.md` §Provenance: "a drop is never
-        // silent"). Upstream drops it without a word (`projectProviderReplay`,
-        // `types.zig:1668-1680@481104fd`). Its `[context]` lines, said once a
+        // here, an image a tool returned whose saved copy is not there (the
+        // `/image` row of docs/parity.md). Upstream has no such line: it tells
+        // the model of a tool image it cannot load, not the screen
+        // (`execution_memory.zig:1013-1018@481104fd`), and refuses a session a
+        // prompt image's blob is gone from (`session_adapter.zig:2876`,
+        // `:2881-2893`). Its `[context]` lines, said once a
         // session (`claimContextNotice`, `session.zig:1551-1561`), survive such
         // a stop too: a project file's is claimed and written at submission
         // (`refreshProjectContext`, `app_agent_runtime.zig:906-938`, from
@@ -18855,7 +18874,7 @@ mod tests {
         for wait in [CatalogWait::WindowRetry, CatalogWait::PromptImageFirstLoad] {
             for stop in [Some(Duration::from_millis(300)), None] {
                 let (_home, _workspace, mut state, first, held) = waiting_in(wait);
-                sealed_on_llmux(&mut state);
+                unreadable_tool_images(&mut state);
                 let log = first_of_two_and_a_stop(state, first, stop);
                 drop(held);
                 let mut ends = Vec::new();
@@ -18864,7 +18883,7 @@ mod tests {
                     match event {
                         UiEvent::TurnStarted { .. } => said.push(0),
                         UiEvent::TurnEnded { failure } => ends.push(failure.clone()),
-                        UiEvent::Notice(notice) if notice.text().contains(NOT_CARRIED) => {
+                        UiEvent::Notice(notice) if notice.text().contains(NOT_SENT_AGAIN) => {
                             *said.last_mut().expect("a notice inside a turn") += 1;
                         }
                         _ => {}
@@ -18910,7 +18929,7 @@ mod tests {
                 answers("four"),
             ])),
         });
-        sealed_on_llmux(&mut state);
+        unreadable_tool_images(&mut state);
         let first = state
             .conversation
             .as_ref()
@@ -18982,7 +19001,7 @@ mod tests {
         for event in &log {
             match event {
                 UiEvent::TurnStarted { .. } => said.push(0),
-                UiEvent::Notice(notice) if notice.text().contains(NOT_CARRIED) => {
+                UiEvent::Notice(notice) if notice.text().contains(NOT_SENT_AGAIN) => {
                     *said.last_mut().expect("a notice inside a turn") += 1;
                 }
                 UiEvent::Resumed(_) => resumed += 1,
@@ -19013,7 +19032,7 @@ mod tests {
         // `try_send_terminal`), before the next turn starts; and every place
         // is given back.
         let (_home, _workspace, mut state, first, held) = waiting_in(CatalogWait::WindowRetry);
-        sealed_on_llmux(&mut state);
+        unreadable_tool_images(&mut state);
         let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(3);
         work_tx.try_send(first).expect("room");
         work_tx.try_send(TurnWork::Compact).expect("room");
@@ -19070,7 +19089,7 @@ mod tests {
             match event {
                 UiEvent::TurnStarted { .. } => said.push(0),
                 UiEvent::TurnEnded { failure } => ends.push(failure.clone()),
-                UiEvent::Notice(notice) if notice.text().contains(NOT_CARRIED) => {
+                UiEvent::Notice(notice) if notice.text().contains(NOT_SENT_AGAIN) => {
                     *said.last_mut().expect("a notice inside a turn") += 1;
                 }
                 UiEvent::Compaction(update) => {

@@ -388,11 +388,10 @@ fn a_switched_session_goes_to_llmux_with_its_own_blocks_and_the_gateways_turn_as
 fn a_switched_session_goes_to_the_gateway_without_the_thinking_llmux_sealed() {
     // Upstream sends a step's replay state only to the provider that made it
     // and the rest of the step as it is (`projectProviderReplay`,
-    // `types.zig:1548-1563`). xfx drops it the same way and, by its own rule,
-    // says so (`.prd/04-providers.md` §Provenance): one line per step whose
-    // state stayed behind.
+    // `types.zig:1668-1682@481104fd`), without a word. xfx drops it the same
+    // way.
     let replay = switched_session().history_messages(Wire::VercelGateway, "zai/glm-5.2");
-    assert_eq!(replay.notices.len(), 2, "{:?}", replay.notices);
+    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
     let mut messages = replay.messages;
     messages.push(Message::user("third"));
     let body = gateway_body(messages);
@@ -441,11 +440,8 @@ fn a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_call
     // wire, asked by another model: no block `fable` signed reaches `opus`,
     // and what `fable` said and called still does.
     let replay = switched_session().history_messages(Wire::AnthropicMessages, "opus");
-    assert_eq!(
-        replay.notices,
-        ["xfx: this session recorded reasoning from fable and is continuing with opus, so \
-             that reasoning was not carried over"; 2]
-    );
+    // Without a word, as fx's projection.
+    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
     let mut messages = replay.messages;
     messages.push(Message::user("third"));
     let body = llmux_body(messages);

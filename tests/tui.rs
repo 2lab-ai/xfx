@@ -9590,10 +9590,10 @@ fn a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_be
     // signed `thinking` blocks. Upstream sends a message's replay state only
     // to the provider that produced it and the rest of the message as it is
     // (`projectProviderReplay`, `types.zig:1548-1563`, called by every
-    // encoder -- `builtins/gateway.zig:183`): here the Gateway gets the call
-    // and the answer, and no thinking. Upstream drops it silently (a debug
-    // trace, `:185`); xfx says so (`.prd/04-providers.md` §Provenance) --
-    // once for the conversation, not once per step on every turn after.
+    // encoder -- `builtins/gateway.zig:178@481104fd`): here the Gateway gets
+    // the call and the answer, and no thinking. Upstream drops it without a
+    // word (`types.zig:1668-1682@481104fd`; a debug trace, `gateway.zig:180`),
+    // and so does xfx: no turn after the switch says anything about it.
     let daemon = support::fake_llmux::FakeLlmux::start(vec![
         support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_thinking_then_tool(
             "SECRET-THOUGHT",
@@ -9641,10 +9641,9 @@ fn a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_be
     assert_eq!(session.wait_exit().code(), Some(0));
 
     let text = session.settled_text();
-    assert_eq!(text.matches("not carried over").count(), 1, "{text:?}");
     assert!(
-        text.contains("continuing on") && !text.contains("resuming on"),
-        "the notice still speaks of a resume: {text:?}"
+        !text.contains("not carried over") && !text.contains("recorded reasoning"),
+        "xfx spoke of the reasoning it left behind, which fx does not: {text:?}"
     );
 
     let body = gateway.requests()[0].json();
@@ -9733,8 +9732,8 @@ fn after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent() {
     // as its text and calls (`projectProviderReplay`, `:1548-1563`). A daemon
     // asked by one model to verify a signature another made can refuse the
     // request, so the request after `/model claude-fable-5[1m]` carries the
-    // first turn's call and answer and none of `m-1`'s thinking -- and says
-    // so, once.
+    // first turn's call and answer and none of `m-1`'s thinking -- and, as
+    // fx, says nothing about it.
     let daemon = support::fake_llmux::FakeLlmux::start(vec![
         support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_thinking_then_tool(
             "SIGNED-BY-M1",
@@ -9809,11 +9808,9 @@ fn after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent() {
         );
     }
     let text = session.settled_text();
-    assert_eq!(
-        text.matches("recorded reasoning from m-1 and is continuing with claude-fable-5[1m]")
-            .count(),
-        1,
-        "{text:?}"
+    assert!(
+        !text.contains("recorded reasoning") && !text.contains("not carried over"),
+        "xfx spoke of the reasoning m-1 sealed, which fx does not: {text:?}"
     );
     // The model is recorded beside the blocks it sealed, as fx records it
     // with its replay (`ProviderReplay.source`).
