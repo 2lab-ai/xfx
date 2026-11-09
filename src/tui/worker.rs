@@ -16798,26 +16798,7 @@ mod tests {
         // a success, and after a failure past its hold -- it reads nothing.
         for fails in [false, true] {
             let machine = crate::provider::catalog_clock::FakeMachine::new();
-            // The environment named, never the process's: the switch reloads
-            // the profile through it (`select_provider`), and this one's home
-            // is the test's own. Its profile is on llmux with no daemon named,
-            // so that side has no catalog and opens no socket; the switch is
-            // to the Gateway, whose setup opens none either.
-            let home = tempfile::tempdir().expect("a home");
-            let workspace = tempfile::tempdir().expect("a workspace");
-            crate::provider::profile::write_preference(
-                &home.path().join(".xfx").join("settings.json"),
-                &[crate::config::PROVIDER_KEY],
-                serde_json::json!("llmux"),
-            )
-            .expect("seed");
-            let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
-            let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
-            assert_eq!(config.provider, ProviderId::Llmux, "the seed");
-            assert_eq!(config.llmux_url, None, "a daemon named");
-            let store = open_store(&config).expect("a store");
-            let mut state =
-                Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+            let (home, _workspace, mut state) = on_llmux_with_no_daemon();
             state.selector.set_clock_for_test(machine.clock());
             let asked = Arc::new(AtomicUsize::new(0));
             let answers = if fails {
@@ -16896,6 +16877,226 @@ mod tests {
                 assert_eq!(told(&mut received).len(), 1, "fails={fails}: not told once");
             }
         }
+    }
+
+    /// A runtime whose profile, in a temporary home, is on llmux with no
+    /// daemon named: that side has no catalog and opens no socket, and a
+    /// switch to the Gateway ([`switched_to_gateway`]) opens none either. Its
+    /// environment is named, never the process's: the switch reloads the
+    /// profile through it (`select_provider`).
+    fn on_llmux_with_no_daemon() -> (tempfile::TempDir, tempfile::TempDir, Runtime) {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        crate::provider::profile::write_preference(
+            &home.path().join(".xfx").join("settings.json"),
+            &[crate::config::PROVIDER_KEY],
+            serde_json::json!("llmux"),
+        )
+        .expect("seed");
+        let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        assert_eq!(config.provider, ProviderId::Llmux, "the seed");
+        assert_eq!(config.llmux_url, None, "a daemon named");
+        let store = open_store(&config).expect("a store");
+        let state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+        (home, workspace, state)
+    }
+
+    /// [`on_llmux_with_no_daemon`]'s runtime switched to the Gateway through
+    /// the runtime's own path (`run_setup`), nothing asked meanwhile.
+    fn switched_to_gateway(state: &mut Runtime, events: &Sender<UiEvent>) {
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(1);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+        let cancel = Cancellation::new(CancelToken::new());
+        let ended = on_a_runtime(run_setup(
+            state,
+            ProviderId::Gateway,
+            events,
+            &cancel,
+            &control,
+            &mut queue,
+        ));
+        assert_eq!(ended, Ended::Turn);
+        assert_eq!(state.config.provider, ProviderId::Gateway, "no switch");
+    }
+
+    /// A catalog that gives its answers in turn -- each once its gate, if it
+    /// has one, opens; a 503 once they run out -- counting how often it was
+    /// asked.
+    struct Turns {
+        answers: Mutex<
+            std::collections::VecDeque<(
+                Option<tokio::sync::oneshot::Receiver<()>>,
+                Vec<CatalogEntry>,
+            )>,
+        >,
+        asked: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::provider::model::ModelCatalog for Turns {
+        async fn fetch(&self) -> Result<Vec<CatalogEntry>, crate::provider::model::CatalogError> {
+            self.asked.fetch_add(1, Ordering::SeqCst);
+            let next = self.answers.lock().expect("answers").pop_front();
+            let Some((gate, entries)) = next else {
+                return Unreachable.fetch().await;
+            };
+            if let Some(gate) = gate {
+                let _ = gate.await;
+            }
+            Ok(entries)
+        }
+    }
+
+    #[test]
+    fn a_switch_drops_the_old_providers_rows_read_and_backoff_and_keeps_the_clock() {
+        // The switch builds the next provider's selector anew
+        // (`ModelSelector::renew`, from `Runtime::adopt`): nothing of the old
+        // provider's catalog survives it -- not its rows, not a read on its
+        // way, whose answer is never told, and not a failure's hold, which
+        // would otherwise keep the new provider's first load waiting --
+        // where upstream resets its cache on a credential or provider change
+        // (`applyCredentialChange` -> `reset`, `app_auth_runtime.zig:
+        // 2015-2024@481104fd`; `resetForProviderChange`,
+        // `model_cache_runtime.zig:676-685`, from `restoreSessionCredential`,
+        // `app_auth_runtime.zig:152-158`). Only the clock its reads are timed
+        // on carries over.
+        let old_rows = vec![published("anthropic/claude-opus-5")];
+        let late_rows = vec![published("openai/gpt-6-astra")];
+
+        // Rows, and a refresh of them that failed: a hold on the next read.
+        let machine = crate::provider::catalog_clock::FakeMachine::new();
+        let (_home, _workspace, mut state) = on_llmux_with_no_daemon();
+        state.selector.set_clock_for_test(machine.clock());
+        let asked = Arc::new(AtomicUsize::new(0));
+        state.selector.set_fetcher_for_test(Box::new(Turns {
+            answers: Mutex::new(vec![(None, old_rows.clone())].into()),
+            asked: Arc::clone(&asked),
+        }));
+        let (events, mut received) = mpsc::channel(bridge::UI_EVENTS);
+        begin_catalog_read(&mut state, &events);
+        on_a_runtime(state.selector.settle_load());
+        machine.sleep(crate::provider::model::REFRESH_INTERVAL);
+        ask_and_settle(&mut state, &events, bridge::CatalogAsk::ACTIVITY);
+        assert_eq!(asked.load(Ordering::SeqCst), 2);
+        assert!(state.selector.entry("anthropic/claude-opus-5").is_some());
+        assert!(
+            state.selector.refresh_retry().is_some(),
+            "no failed refresh"
+        );
+        let now = state.selector.now();
+        assert!(
+            !state.selector.would_load(LoadTrigger::PickerOpen, now),
+            "no hold on the next read"
+        );
+        let fresh = Arc::new(AtomicUsize::new(0));
+        state
+            .selector
+            .hand_fetcher_to_next_for_test(Box::new(Turns {
+                answers: Mutex::new(std::collections::VecDeque::new()),
+                asked: Arc::clone(&fresh),
+            }));
+        switched_to_gateway(&mut state, &events);
+        assert!(matches!(state.selector.catalog(), CatalogState::NotLoaded));
+        assert!(
+            state.selector.entry("anthropic/claude-opus-5").is_none(),
+            "old rows kept"
+        );
+        assert_eq!(state.selector.refresh_retry(), None, "the old failure kept");
+        assert_eq!(state.selector.failure_retry(), None);
+        assert_eq!(
+            state.selector.clock(),
+            LoadClock::default(),
+            "the old hold kept"
+        );
+        assert!(
+            state
+                .selector
+                .would_load(LoadTrigger::Activity, state.selector.now()),
+            "the old provider's hold held the new one's first load"
+        );
+        assert_eq!(
+            state.selector.now(),
+            machine.clock().now(),
+            "the clock lost"
+        );
+        let _ = told(&mut received);
+
+        // Rows, and a read of them on its way: stopped with the selector, its
+        // answer never told -- however late it would have come.
+        let machine = crate::provider::catalog_clock::FakeMachine::new();
+        let (_home, _workspace, mut state) = on_llmux_with_no_daemon();
+        state.selector.set_clock_for_test(machine.clock());
+        let (open, gate) = tokio::sync::oneshot::channel();
+        let asked = Arc::new(AtomicUsize::new(0));
+        state.selector.set_fetcher_for_test(Box::new(Turns {
+            answers: Mutex::new(vec![(None, old_rows), (Some(gate), late_rows)].into()),
+            asked: Arc::clone(&asked),
+        }));
+        let (events, mut received) = mpsc::channel(bridge::UI_EVENTS);
+        begin_catalog_read(&mut state, &events);
+        on_a_runtime(state.selector.settle_load());
+        machine.sleep(crate::provider::model::REFRESH_INTERVAL);
+        on_a_runtime(ask_catalog(
+            &mut state,
+            &events,
+            bridge::CatalogAsk::ACTIVITY,
+        ));
+        assert!(state.selector.is_loading(), "no read on its way");
+        let deadline = Instant::now() + TEST_DRAIN;
+        while asked.load(Ordering::SeqCst) < 2 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(
+            asked.load(Ordering::SeqCst),
+            2,
+            "the read never reached its catalog"
+        );
+        let _ = told(&mut received);
+        state
+            .selector
+            .hand_fetcher_to_next_for_test(Box::new(Turns {
+                answers: Mutex::new(std::collections::VecDeque::new()),
+                asked: Arc::new(AtomicUsize::new(0)),
+            }));
+        switched_to_gateway(&mut state, &events);
+        assert!(
+            !state.selector.is_loading(),
+            "the old read is the new selector's"
+        );
+        assert!(matches!(state.selector.catalog(), CatalogState::NotLoaded));
+        assert!(
+            state.selector.entry("anthropic/claude-opus-5").is_none(),
+            "old rows kept"
+        );
+        assert!(
+            open.send(()).is_err(),
+            "the old provider's read was still waiting for its answer after the switch"
+        );
+        let late: Vec<UiEvent> = told(&mut received)
+            .into_iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    UiEvent::CatalogLoaded { .. }
+                        | UiEvent::CatalogUnread { .. }
+                        | UiEvent::CatalogRefreshFailed { .. }
+                )
+            })
+            .collect();
+        assert_eq!(late, Vec::new(), "the old provider's late answer was told");
+        assert_eq!(
+            state.selector.now(),
+            machine.clock().now(),
+            "the clock lost"
+        );
     }
 
     /// `ask`, asked with nothing holding the runtime, and any read on its
