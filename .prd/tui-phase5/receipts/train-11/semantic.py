@@ -19,13 +19,17 @@ fix is spelt as the tree already spells it:
    added: `owed: 0`, as `turn_loop` and every other literal on main start it.
 
     python3 -I -B semantic.py <worktree>
+    python3 -I -B semantic.py --reverse <worktree>   # takes them out again
 
 Each replacement must match exactly the number of times given, or nothing
-is written.
+is written. `--reverse` is for the check from both ends (merge-checks.sh):
+the merge commit's two files with the four taken out are git's merge,
+ours -> it exactly theirs' hunks and theirs -> it exactly ours'.
 """
 import sys
 
-root = sys.argv[1]
+reverse = sys.argv[1] == "--reverse"
+root = sys.argv[-1]
 FIXES = [
     ("src/tui/shell.rs",
      "            due: Instant::now() + REFRESH_INTERVAL,\n            provider: ProviderId::Gateway,\n            entries,\n",
@@ -40,12 +44,16 @@ FIXES = [
      "                outstanding: &outstanding,\n                taken: 0,\n                owed: 0,\n            };\n",
      1),
     ("src/tui/worker.rs",
-     "            outstanding: &outstanding,\n            taken: 0,\n        };\n",
-     "            outstanding: &outstanding,\n            taken: 0,\n            owed: 0,\n        };\n",
+     "            outstanding: &outstanding,\n            taken: 0,\n        };\n"
+     "        let cancel = Cancellation::new(CancelToken::new());\n        let ended = on_a_runtime(run_setup(\n",
+     "            outstanding: &outstanding,\n            taken: 0,\n            owed: 0,\n        };\n"
+     "        let cancel = Cancellation::new(CancelToken::new());\n        let ended = on_a_runtime(run_setup(\n",
      1),
 ]
 texts = {}
 for path, old, new, count in FIXES:
+    if reverse:
+        old, new = new, old
     text = texts.setdefault(path, open(f"{root}/{path}", encoding="utf-8").read())
     found = text.count(old)
     if found != count:
