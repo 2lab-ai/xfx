@@ -94,9 +94,15 @@ for name in "${!GIT_@}"; do
 	esac
 done
 # Git for this test's own scratch repositories: no global or system config,
-# so no hook, template or fsmonitor of the caller's runs in them.
+# so no hook, template or fsmonitor of the caller's runs in them. And no
+# auto-maintenance, whatever a repository's own config says: `git commit`
+# starts it, detached, and it went on writing in the decoy after the commit
+# returned (decoy-setup-maintenance). `maintenance.auto=false` stops it;
+# `gc.auto=0` stops a `gc --auto` too, for a git from before `git
+# maintenance` (2.29).
 sg() {
-	GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c core.fsmonitor=false "$@"
+	GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+		git -c core.fsmonitor=false -c maintenance.auto=false -c gc.auto=0 "$@"
 }
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/xfx-gate-env.XXXXXX")"
