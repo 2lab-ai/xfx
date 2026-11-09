@@ -42,3 +42,8 @@ assertion failed: undecodable.indexed()
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4589 filtered out; finished in 0.00s
 # and with this round's indexed(): ok.
 # enter_under_a_mention_menu_goes_to_the_menu_while_it_shows_and_then_to_the_list (in 475fd5f1) pins the route and is not a RED: the route did not change this round.
+
+# added after the fix, as mutant targets: an_episode_opened_under_the_transcript_keeps_its_refresh_across_keys and tab_retries_a_failed_index_by_walking_it_and_a_failed_folder_without. On round 4's code (a --no-local clone at df74d4b0 with the two cases applied) both pass: round 4 walked at every episode, so neither difference could be seen there. They pin round 5's rule:
+test tui::shell::tests::an_episode_opened_under_the_transcript_keeps_its_refresh_across_keys ... ok
+test tui::shell::tests::tab_retries_a_failed_index_by_walking_it_and_a_failed_folder_without ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4589 filtered out; finished in 0.02s

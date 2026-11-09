@@ -35081,6 +35081,87 @@ mod tests {
     }
 
     #[test]
+    fn an_episode_opened_under_the_transcript_keeps_its_refresh_across_keys() {
+        // fx's refresh request stands until it is taken (`refresh_requested
+        // = refresh_requested or ...`, `file_completion_state.zig:164@
+        // 481104fd`), and nothing takes it while the list is not eligible
+        // (`input_completion_runtime.zig:853`). So `@sch` typed key by key
+        // under the full transcript -- an episode at the `@`, then three
+        // queries of the same kind -- walks once, when the transcript closes.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O opened no transcript");
+        let walks = shell.files_for_test().walks_for_test();
+        shell.route_bytes(b"@sch");
+        shell.settle_band(Instant::now());
+        assert_eq!(shell.editor.text(), "@sch");
+        assert_eq!(shell.files_for_test().walks_for_test(), walks);
+        shell.route_bytes(&[0x0f]);
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "the episode's refresh was lost to the keys after its `@`"
+        );
+    }
+
+    #[test]
+    fn tab_retries_a_failed_index_by_walking_it_and_a_failed_folder_without() {
+        // fx's Tab on a list that says it could not read asks for a lookup
+        // and for the index's refresh (`retry`, `file_completion_state.zig:
+        // 230-233@481104fd`), and the refresh walks only for an indexed query
+        // (`input_completion_runtime.zig:855-856`). So with the index's walk
+        // failed, Tab on `@sch` walks again, and Tab on an unreadable folder
+        // reads the folder again and walks nothing.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        walk.send(super::super::file_index::Published::Failed)
+            .expect("the walk");
+        shell.route_bytes(b"@sch");
+        listed(&mut shell);
+        assert_eq!(
+            shell.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Unavailable),
+            "the failed walk left the list with rows"
+        );
+        let walks = shell.files_for_test().walks_for_test();
+        shell.route_bytes(b"\t");
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "Tab did not walk the failed index again"
+        );
+        // A folder that cannot be read, with the index failed again.
+        let (_workspace, mut folder) = in_ws2(40, 120);
+        let walk = super::super::file_index::tests::driven(folder.files_for_test());
+        walk.send(super::super::file_index::Published::Failed)
+            .expect("the walk");
+        folder.settle_band(Instant::now());
+        let answer =
+            super::super::file_index::tests::driven_listing(folder.files_for_test(), "nope");
+        folder.route_bytes(b"\x1b[200~@nope/\x1b[201~");
+        answer.send(Err(())).expect("the listing");
+        listed(&mut folder);
+        assert_eq!(
+            folder.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Unavailable)
+        );
+        let walks = folder.files_for_test().walks_for_test();
+        let base = folder.files_for_test().started_for_test();
+        folder.route_bytes(b"\t");
+        assert_eq!(
+            folder.files_for_test().walks_for_test(),
+            walks,
+            "Tab on a folder walked the index"
+        );
+        assert_eq!(
+            folder.files_for_test().started_for_test(),
+            base + 1,
+            "Tab did not read the folder again"
+        );
+    }
+
+    #[test]
     fn a_folder_query_edited_into_an_indexed_one_asks_for_the_refresh() {
         // fx's reconcile asks for the index refresh again when the query
         // changes between an indexed and an explicit one (`refresh_requested
