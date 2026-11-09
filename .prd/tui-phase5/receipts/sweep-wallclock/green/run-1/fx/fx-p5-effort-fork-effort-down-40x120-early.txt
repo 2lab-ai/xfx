@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* effort: openai/gpt-6-astra has no levels to choose from
+
+┃
+
+auto · gpt-6-astra
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

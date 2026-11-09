@@ -1,0 +1,180 @@
+run 1 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=1677ms
+run 1 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=1677ms
+run 1 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=1676ms -> 503 at=1677ms headers=authorization
+run 1 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=7792ms
+run 1 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=7792ms
+run 1 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=7792ms -> 503 at=7792ms headers=authorization
+run 1 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=19642ms
+run 1 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 200 at=19642ms
+run 1 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=19642ms -> 200 at=19643ms headers=authorization
+run 1 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=1432ms
+run 1 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=1432ms
+run 1 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=1431ms -> 503 at=1432ms headers=authorization
+run 1 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=7542ms
+run 1 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=7543ms
+run 1 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=7542ms -> 503 at=7543ms headers=authorization
+run 1 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=19416ms
+run 1 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=19416ms
+run 1 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=19416ms -> 200 at=19416ms headers=authorization
+run 1 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=1989ms
+run 1 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=1989ms
+run 1 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=1988ms -> 503 at=1989ms headers=authorization
+run 1 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=7635ms
+run 1 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=7635ms
+run 1 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=7635ms -> 503 at=7635ms headers=authorization
+run 1 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=17652ms
+run 1 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 200 at=17653ms
+run 1 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=17652ms -> 200 at=17654ms headers=authorization
+run 1 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=2570ms
+run 1 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=2570ms
+run 1 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=2569ms -> 503 at=2570ms headers=authorization
+run 1 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=8146ms
+run 1 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=8146ms
+run 1 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=8146ms -> 503 at=8146ms headers=authorization
+run 1 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=18175ms
+run 1 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=18175ms
+run 1 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=18175ms -> 200 at=18176ms headers=authorization
+run 2 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=1377ms
+run 2 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=1377ms
+run 2 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=1376ms -> 503 at=1377ms headers=authorization
+run 2 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=7482ms
+run 2 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=7483ms
+run 2 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=7482ms -> 503 at=7483ms headers=authorization
+run 2 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=19372ms
+run 2 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 200 at=19372ms
+run 2 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=19372ms -> 200 at=19373ms headers=authorization
+run 2 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=874ms
+run 2 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=874ms
+run 2 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=872ms -> 503 at=874ms headers=authorization
+run 2 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=7000ms
+run 2 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=7000ms
+run 2 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=7000ms -> 503 at=7000ms headers=authorization
+run 2 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=18868ms
+run 2 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=18868ms
+run 2 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=18868ms -> 200 at=18869ms headers=authorization
+run 2 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=1677ms
+run 2 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=1678ms
+run 2 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=1677ms -> 503 at=1678ms headers=authorization
+run 2 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=7323ms
+run 2 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=7323ms
+run 2 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=7323ms -> 503 at=7323ms headers=authorization
+run 2 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=17369ms
+run 2 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 200 at=17369ms
+run 2 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=17369ms -> 200 at=17370ms headers=authorization
+run 2 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=794ms
+run 2 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=794ms
+run 2 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=793ms -> 503 at=794ms headers=authorization
+run 2 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=6513ms
+run 2 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=6513ms
+run 2 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=6513ms -> 503 at=6513ms headers=authorization
+run 2 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=16518ms
+run 2 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=16519ms
+run 2 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=16518ms -> 200 at=16527ms headers=authorization
+run 3 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=1746ms
+run 3 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=1746ms
+run 3 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=1745ms -> 503 at=1746ms headers=authorization
+run 3 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=7849ms
+run 3 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=7849ms
+run 3 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=7849ms -> 503 at=7849ms headers=authorization
+run 3 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=19725ms
+run 3 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 200 at=19725ms
+run 3 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=19725ms -> 200 at=19726ms headers=authorization
+run 3 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=1158ms
+run 3 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=1158ms
+run 3 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=1158ms -> 503 at=1159ms headers=authorization
+run 3 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=7265ms
+run 3 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=7265ms
+run 3 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=7265ms -> 503 at=7265ms headers=authorization
+run 3 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=19123ms
+run 3 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=19123ms
+run 3 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=19123ms -> 200 at=19124ms headers=authorization
+run 3 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=2051ms
+run 3 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=2051ms
+run 3 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=2050ms -> 503 at=2051ms headers=authorization
+run 3 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=7686ms
+run 3 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=7686ms
+run 3 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=7686ms -> 503 at=7686ms headers=authorization
+run 3 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=17713ms
+run 3 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 200 at=17713ms
+run 3 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=17713ms -> 200 at=17714ms headers=authorization
+run 3 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=1354ms
+run 3 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=1354ms
+run 3 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=1353ms -> 503 at=1354ms headers=authorization
+run 3 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=6992ms
+run 3 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=6992ms
+run 3 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=6992ms -> 503 at=6992ms headers=authorization
+run 3 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=17035ms
+run 3 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=17036ms
+run 3 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=17035ms -> 200 at=17036ms headers=authorization
+run 4 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=1364ms
+run 4 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=1364ms
+run 4 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=1364ms -> 503 at=1364ms headers=authorization
+run 4 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=7468ms
+run 4 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=7468ms
+run 4 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=7468ms -> 503 at=7468ms headers=authorization
+run 4 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=19336ms
+run 4 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 200 at=19336ms
+run 4 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=19336ms -> 200 at=19336ms headers=authorization
+run 4 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=748ms
+run 4 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=748ms
+run 4 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=747ms -> 503 at=748ms headers=authorization
+run 4 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=6846ms
+run 4 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=6846ms
+run 4 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=6846ms -> 503 at=6846ms headers=authorization
+run 4 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=18705ms
+run 4 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=18705ms
+run 4 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=18705ms -> 200 at=18706ms headers=authorization
+run 4 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=1653ms
+run 4 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=1653ms
+run 4 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=1652ms -> 503 at=1653ms headers=authorization
+run 4 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=7289ms
+run 4 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=7289ms
+run 4 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=7289ms -> 503 at=7289ms headers=authorization
+run 4 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=17310ms
+run 4 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 200 at=17310ms
+run 4 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=17310ms -> 200 at=17311ms headers=authorization
+run 4 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=818ms
+run 4 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=818ms
+run 4 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=817ms -> 503 at=818ms headers=authorization
+run 4 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=6410ms
+run 4 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=6410ms
+run 4 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=6410ms -> 503 at=6410ms headers=authorization
+run 4 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=16457ms
+run 4 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=16457ms
+run 4 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=16457ms -> 200 at=16458ms headers=authorization
+run 5 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=1652ms
+run 5 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=1652ms
+run 5 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=1651ms -> 503 at=1652ms headers=authorization
+run 5 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=7757ms
+run 5 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=7757ms
+run 5 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=7757ms -> 503 at=7757ms headers=authorization
+run 5 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=19624ms
+run 5 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 200 at=19624ms
+run 5 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=19624ms -> 200 at=19625ms headers=authorization
+run 5 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=1161ms
+run 5 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=1161ms
+run 5 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=1160ms -> 503 at=1161ms headers=authorization
+run 5 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=7325ms
+run 5 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=7325ms
+run 5 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=7324ms -> 503 at=7325ms headers=authorization
+run 5 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=19202ms
+run 5 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=19202ms
+run 5 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=19202ms -> 200 at=19203ms headers=authorization
+run 5 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=1944ms
+run 5 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=1945ms
+run 5 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=1944ms -> 503 at=1945ms headers=authorization
+run 5 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=7581ms
+run 5 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=7581ms
+run 5 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=7581ms -> 503 at=7581ms headers=authorization
+run 5 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=17608ms
+run 5 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 200 at=17608ms
+run 5 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=17608ms -> 200 at=17609ms headers=authorization
+run 5 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=890ms
+run 5 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=890ms
+run 5 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=889ms -> 503 at=890ms headers=authorization
+run 5 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=6575ms
+run 5 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=6575ms
+run 5 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=6575ms -> 503 at=6575ms headers=authorization
+run 5 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=16627ms
+run 5 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=16627ms
+run 5 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=16627ms -> 200 at=16627ms headers=authorization

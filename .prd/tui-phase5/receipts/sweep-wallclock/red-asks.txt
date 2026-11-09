@@ -1,0 +1,236 @@
+run 1 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=6831ms
+run 1 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=6831ms
+run 1 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=6831ms -> 503 at=6832ms headers=authorization
+run 1 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=12939ms
+run 1 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 200 at=12939ms
+run 1 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=12939ms -> 200 at=12940ms headers=authorization
+run 1 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=3845ms
+run 1 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=3845ms
+run 1 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=3844ms -> 503 at=3845ms headers=authorization
+run 1 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=9947ms
+run 1 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=9947ms
+run 1 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=9946ms -> 200 at=9947ms headers=authorization
+run 1 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=6462ms
+run 1 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=6462ms
+run 1 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=6461ms -> 503 at=6462ms headers=authorization
+run 1 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=12122ms
+run 1 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 200 at=12122ms
+run 1 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=12122ms -> 200 at=12123ms headers=authorization
+run 1 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=4034ms
+run 1 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=4034ms
+run 1 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=4033ms -> 503 at=4034ms headers=authorization
+run 1 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=9666ms
+run 1 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=9666ms
+run 1 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=9666ms -> 200 at=9667ms headers=authorization
+run 1 model-floor fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=8411ms
+run 1 model-floor fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=8411ms
+run 1 model-floor fx: [fakegw] request GET /coding-agent/v1/models at=8410ms -> 503 at=8411ms headers=authorization
+run 1 model-floor fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=14818ms
+run 1 model-floor fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=14818ms
+run 1 model-floor fx: [fakegw] request GET /coding-agent/v1/models at=14818ms -> 503 at=14818ms headers=authorization
+run 1 model-floor xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=4417ms
+run 1 model-floor xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=4417ms
+run 1 model-floor xfx: [fakegw] request GET /coding-agent/v1/models at=4416ms -> 503 at=4417ms headers=authorization
+run 1 model-floor xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=10825ms
+run 1 model-floor xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=10825ms
+run 1 model-floor xfx: [fakegw] request GET /coding-agent/v1/models at=10825ms -> 503 at=10825ms headers=authorization
+run 1 model-parked fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=7197ms
+run 1 model-parked fx: [fakegw] GET /coding-agent/v1/models -> 200 at=15199ms
+run 1 model-parked fx: [fakegw] request GET /coding-agent/v1/models at=7196ms -> 200 at=15200ms headers=authorization
+run 1 model-parked xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=2806ms
+run 1 model-parked xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=2806ms
+run 1 model-parked xfx: [fakegw] request GET /coding-agent/v1/models at=2805ms -> 503 at=2806ms headers=authorization
+run 1 model-parked xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=9422ms
+run 1 model-parked xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=17424ms
+run 1 model-parked xfx: [fakegw] request GET /coding-agent/v1/models at=9422ms -> 200 at=17425ms headers=authorization
+run 1 model-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 1 model-reask fx: [fakegw] request GET /coding-agent/v1/models at=8058ms -> 200 at=8060ms headers=authorization
+run 1 model-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 1 model-reask fx: [fakegw] request GET /coding-agent/v1/models at=16293ms -> 200 at=16293ms headers=authorization
+run 1 model-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 1 model-reask xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down)
+run 1 model-reask xfx: [fakegw] request GET /coding-agent/v1/models at=4274ms -> 503 at=4275ms headers=authorization
+run 1 model-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 1 model-reask xfx: [fakegw] request GET /coding-agent/v1/models at=12460ms -> 200 at=12460ms headers=authorization
+run 1 p5-stop-in-catalog-wait fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=8749ms
+run 1 p5-stop-in-catalog-wait fx: [fakegw] GET /coding-agent/v1/models -> 200 at=18749ms
+run 1 p5-stop-in-catalog-wait fx: [fakegw] request GET /coding-agent/v1/models at=8748ms -> 200 at=18750ms headers=authorization
+run 1 p5-stop-in-catalog-wait xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=3647ms
+run 1 p5-stop-in-catalog-wait xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=13650ms
+run 1 p5-stop-in-catalog-wait xfx: [fakegw] request GET /coding-agent/v1/models at=3647ms -> 200 at=13650ms headers=authorization
+run 2 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=9351ms
+run 2 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 200 at=9352ms
+run 2 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=9351ms -> 200 at=9352ms headers=authorization
+run 2 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=10374ms
+run 2 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=10374ms
+run 2 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=10374ms -> 200 at=10375ms headers=authorization
+run 2 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=9003ms
+run 2 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 200 at=9003ms
+run 2 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=9002ms -> 200 at=9004ms headers=authorization
+run 2 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=12128ms
+run 2 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=12128ms
+run 2 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=12127ms -> 200 at=12129ms headers=authorization
+run 2 model-floor fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=10796ms
+run 2 model-floor fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=10796ms
+run 2 model-floor fx: [fakegw] request GET /coding-agent/v1/models at=10795ms -> 503 at=10796ms headers=authorization
+run 2 model-floor fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=17173ms
+run 2 model-floor fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=17173ms
+run 2 model-floor fx: [fakegw] request GET /coding-agent/v1/models at=17173ms -> 503 at=17173ms headers=authorization
+run 2 model-floor xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=12677ms
+run 2 model-floor xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=12677ms
+run 2 model-floor xfx: [fakegw] request GET /coding-agent/v1/models at=12676ms -> 503 at=12677ms headers=authorization
+run 2 model-floor xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=19065ms
+run 2 model-floor xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=19065ms
+run 2 model-floor xfx: [fakegw] request GET /coding-agent/v1/models at=19065ms -> 503 at=19065ms headers=authorization
+run 2 model-parked fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=9728ms
+run 2 model-parked fx: [fakegw] GET /coding-agent/v1/models -> 200 at=17731ms
+run 2 model-parked fx: [fakegw] request GET /coding-agent/v1/models at=9727ms -> 200 at=17731ms headers=authorization
+run 2 model-parked xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=9088ms
+run 2 model-parked xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=17089ms
+run 2 model-parked xfx: [fakegw] request GET /coding-agent/v1/models at=9087ms -> 200 at=17089ms headers=authorization
+run 2 model-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 2 model-reask fx: [fakegw] request GET /coding-agent/v1/models at=8636ms -> 200 at=8637ms headers=authorization
+run 2 model-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 2 model-reask fx: [fakegw] request GET /coding-agent/v1/models at=16851ms -> 200 at=16851ms headers=authorization
+run 2 model-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 2 model-reask xfx: [fakegw] request GET /coding-agent/v1/models at=11840ms -> 200 at=11841ms headers=authorization
+run 2 model-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 2 model-reask xfx: [fakegw] request GET /coding-agent/v1/models at=20025ms -> 200 at=20029ms headers=authorization
+run 2 p5-stop-in-catalog-wait fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=10431ms
+run 2 p5-stop-in-catalog-wait fx: [fakegw] GET /coding-agent/v1/models -> 200 at=20433ms
+run 2 p5-stop-in-catalog-wait fx: [fakegw] request GET /coding-agent/v1/models at=10430ms -> 200 at=20434ms headers=authorization
+run 2 p5-stop-in-catalog-wait xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=10673ms
+run 2 p5-stop-in-catalog-wait xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=20676ms
+run 2 p5-stop-in-catalog-wait xfx: [fakegw] request GET /coding-agent/v1/models at=10673ms -> 200 at=20676ms headers=authorization
+run 3 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=11011ms
+run 3 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 200 at=11011ms
+run 3 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=11010ms -> 200 at=11011ms headers=authorization
+run 3 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=21542ms
+run 3 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=21542ms
+run 3 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=21541ms -> 200 at=21543ms headers=authorization
+run 3 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=10656ms
+run 3 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 200 at=10656ms
+run 3 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=10655ms -> 200 at=10660ms headers=authorization
+run 3 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=20718ms
+run 3 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=20718ms
+run 3 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=20717ms -> 200 at=20719ms headers=authorization
+run 3 model-floor fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=12915ms
+run 3 model-floor fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=12916ms
+run 3 model-floor fx: [fakegw] request GET /coding-agent/v1/models at=12914ms -> 503 at=12916ms headers=authorization
+run 3 model-floor fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=19340ms
+run 3 model-floor fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=19340ms
+run 3 model-floor fx: [fakegw] request GET /coding-agent/v1/models at=19340ms -> 503 at=19340ms headers=authorization
+run 3 model-floor xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=19988ms
+run 3 model-floor xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=19989ms
+run 3 model-floor xfx: [fakegw] request GET /coding-agent/v1/models at=19987ms -> 503 at=19989ms headers=authorization
+run 3 model-floor xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=26374ms
+run 3 model-floor xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=26375ms
+run 3 model-floor xfx: [fakegw] request GET /coding-agent/v1/models at=26374ms -> 503 at=26375ms headers=authorization
+run 3 model-parked fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=12535ms
+run 3 model-parked fx: [fakegw] GET /coding-agent/v1/models -> 200 at=20537ms
+run 3 model-parked fx: [fakegw] request GET /coding-agent/v1/models at=12534ms -> 200 at=20538ms headers=authorization
+run 3 model-parked xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=22409ms
+run 3 model-parked xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=30410ms
+run 3 model-parked xfx: [fakegw] request GET /coding-agent/v1/models at=22407ms -> 200 at=30410ms headers=authorization
+run 3 model-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 3 model-reask fx: [fakegw] request GET /coding-agent/v1/models at=11353ms -> 200 at=11355ms headers=authorization
+run 3 model-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 3 model-reask fx: [fakegw] request GET /coding-agent/v1/models at=19536ms -> 200 at=19537ms headers=authorization
+run 3 model-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 3 model-reask xfx: [fakegw] request GET /coding-agent/v1/models at=20472ms -> 200 at=20474ms headers=authorization
+run 3 model-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 3 model-reask xfx: [fakegw] request GET /coding-agent/v1/models at=28670ms -> 200 at=28670ms headers=authorization
+run 3 p5-stop-in-catalog-wait fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=13260ms
+run 3 p5-stop-in-catalog-wait fx: [fakegw] GET /coding-agent/v1/models -> 200 at=23261ms
+run 3 p5-stop-in-catalog-wait fx: [fakegw] request GET /coding-agent/v1/models at=13259ms -> 200 at=23261ms headers=authorization
+run 3 p5-stop-in-catalog-wait xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=21437ms
+run 3 p5-stop-in-catalog-wait xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=31444ms
+run 3 p5-stop-in-catalog-wait xfx: [fakegw] request GET /coding-agent/v1/models at=21436ms -> 200 at=31445ms headers=authorization
+run 4 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=20690ms
+run 4 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 200 at=20690ms
+run 4 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=20689ms -> 200 at=20690ms headers=authorization
+run 4 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=17231ms
+run 4 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=17231ms
+run 4 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=17230ms -> 200 at=17232ms headers=authorization
+run 4 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=20005ms
+run 4 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 200 at=20005ms
+run 4 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=20004ms -> 200 at=20006ms headers=authorization
+run 4 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=17000ms
+run 4 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=17000ms
+run 4 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=16999ms -> 200 at=17001ms headers=authorization
+run 4 model-floor fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=22068ms
+run 4 model-floor fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=22068ms
+run 4 model-floor fx: [fakegw] request GET /coding-agent/v1/models at=22067ms -> 503 at=22068ms headers=authorization
+run 4 model-floor fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=28465ms
+run 4 model-floor fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=28465ms
+run 4 model-floor fx: [fakegw] request GET /coding-agent/v1/models at=28465ms -> 503 at=28465ms headers=authorization
+run 4 model-floor xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=17331ms
+run 4 model-floor xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=17331ms
+run 4 model-floor xfx: [fakegw] request GET /coding-agent/v1/models at=17330ms -> 503 at=17331ms headers=authorization
+run 4 model-floor xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=23724ms
+run 4 model-floor xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=23724ms
+run 4 model-floor xfx: [fakegw] request GET /coding-agent/v1/models at=23724ms -> 503 at=23724ms headers=authorization
+run 4 model-parked fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=21029ms
+run 4 model-parked fx: [fakegw] GET /coding-agent/v1/models -> 200 at=29031ms
+run 4 model-parked fx: [fakegw] request GET /coding-agent/v1/models at=21028ms -> 200 at=29032ms headers=authorization
+run 4 model-parked xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=15664ms
+run 4 model-parked xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=23665ms
+run 4 model-parked xfx: [fakegw] request GET /coding-agent/v1/models at=15663ms -> 200 at=23665ms headers=authorization
+run 4 model-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 4 model-reask fx: [fakegw] request GET /coding-agent/v1/models at=20345ms -> 200 at=20346ms headers=authorization
+run 4 model-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 4 model-reask fx: [fakegw] request GET /coding-agent/v1/models at=28543ms -> 200 at=28543ms headers=authorization
+run 4 model-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 4 model-reask xfx: [fakegw] request GET /coding-agent/v1/models at=17184ms -> 200 at=17186ms headers=authorization
+run 4 model-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 4 model-reask xfx: [fakegw] request GET /coding-agent/v1/models at=25368ms -> 200 at=25371ms headers=authorization
+run 4 p5-stop-in-catalog-wait fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=21716ms
+run 4 p5-stop-in-catalog-wait fx: [fakegw] GET /coding-agent/v1/models -> 200 at=31718ms
+run 4 p5-stop-in-catalog-wait fx: [fakegw] request GET /coding-agent/v1/models at=21715ms -> 200 at=31718ms headers=authorization
+run 4 p5-stop-in-catalog-wait xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=16912ms
+run 4 p5-stop-in-catalog-wait xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=26917ms
+run 4 p5-stop-in-catalog-wait xfx: [fakegw] request GET /coding-agent/v1/models at=16912ms -> 200 at=26917ms headers=authorization
+run 5 model-column-idle fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=17516ms
+run 5 model-column-idle fx: [fakegw] GET /coding-agent/v1/models -> 200 at=17516ms
+run 5 model-column-idle fx: [fakegw] request GET /coding-agent/v1/models at=17515ms -> 200 at=17517ms headers=authorization
+run 5 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=14897ms
+run 5 model-column-idle xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=14897ms
+run 5 model-column-idle xfx: [fakegw] request GET /coding-agent/v1/models at=14896ms -> 200 at=14898ms headers=authorization
+run 5 model-column-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=18204ms
+run 5 model-column-reask fx: [fakegw] GET /coding-agent/v1/models -> 200 at=18204ms
+run 5 model-column-reask fx: [fakegw] request GET /coding-agent/v1/models at=18203ms -> 200 at=18205ms headers=authorization
+run 5 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=14809ms
+run 5 model-column-reask xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=14810ms
+run 5 model-column-reask xfx: [fakegw] request GET /coding-agent/v1/models at=14808ms -> 200 at=14810ms headers=authorization
+run 5 model-floor fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=19254ms
+run 5 model-floor fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=19254ms
+run 5 model-floor fx: [fakegw] request GET /coding-agent/v1/models at=19253ms -> 503 at=19254ms headers=authorization
+run 5 model-floor fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=25652ms
+run 5 model-floor fx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=25652ms
+run 5 model-floor fx: [fakegw] request GET /coding-agent/v1/models at=25652ms -> 503 at=25652ms headers=authorization
+run 5 model-floor xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=16332ms
+run 5 model-floor xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=16332ms
+run 5 model-floor xfx: [fakegw] request GET /coding-agent/v1/models at=16331ms -> 503 at=16332ms headers=authorization
+run 5 model-floor xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=22750ms
+run 5 model-floor xfx: [fakegw] GET /coding-agent/v1/models -> 503 (down) at=22750ms
+run 5 model-floor xfx: [fakegw] request GET /coding-agent/v1/models at=22750ms -> 503 at=22750ms headers=authorization
+run 5 model-parked fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=18919ms
+run 5 model-parked fx: [fakegw] GET /coding-agent/v1/models -> 200 at=26920ms
+run 5 model-parked fx: [fakegw] request GET /coding-agent/v1/models at=18918ms -> 200 at=26920ms headers=authorization
+run 5 model-parked xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=15228ms
+run 5 model-parked xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=23229ms
+run 5 model-parked xfx: [fakegw] request GET /coding-agent/v1/models at=15227ms -> 200 at=23231ms headers=authorization
+run 5 model-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 5 model-reask fx: [fakegw] request GET /coding-agent/v1/models at=17848ms -> 200 at=17849ms headers=authorization
+run 5 model-reask fx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 5 model-reask fx: [fakegw] request GET /coding-agent/v1/models at=26065ms -> 200 at=26066ms headers=authorization
+run 5 model-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 5 model-reask xfx: [fakegw] request GET /coding-agent/v1/models at=15076ms -> 200 at=15077ms headers=authorization
+run 5 model-reask xfx: [fakegw] GET /coding-agent/v1/models bearer=yes
+run 5 model-reask xfx: [fakegw] request GET /coding-agent/v1/models at=23337ms -> 200 at=23341ms headers=authorization
+run 5 p5-stop-in-catalog-wait fx: [fakegw] GET /coding-agent/v1/models bearer=yes at=19607ms
+run 5 p5-stop-in-catalog-wait fx: [fakegw] GET /coding-agent/v1/models -> 200 at=29607ms
+run 5 p5-stop-in-catalog-wait fx: [fakegw] request GET /coding-agent/v1/models at=19606ms -> 200 at=29614ms headers=authorization
+run 5 p5-stop-in-catalog-wait xfx: [fakegw] GET /coding-agent/v1/models bearer=yes at=17829ms
+run 5 p5-stop-in-catalog-wait xfx: [fakegw] GET /coding-agent/v1/models -> 200 at=27831ms
+run 5 p5-stop-in-catalog-wait xfx: [fakegw] request GET /coding-agent/v1/models at=17828ms -> 200 at=27832ms headers=authorization

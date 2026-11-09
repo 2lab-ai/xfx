@@ -44,10 +44,14 @@
 # fixture on this machine.
 #   models <catalog.json>  what the fake gateway answers for
 #                          GET /coding-agent/v1/models (default: one model)
-#   modelsdown <ms>        that path answers 503 for the first <ms> after the
-#                          gateway starts, and the catalog after: a catalog
-#                          the launch could not read that is back by the time
-#                          `/model` asks again
+#   modelsdown             that path answers 503 from the launch on, until a
+#                          `modelsup` line (or for the whole run, without
+#                          one): a catalog the launch could not read
+#   modelsup               from this line on, that path answers again -- a
+#                          catalog back at a point in the scenario rather than
+#                          a moment on the gateway's clock, which each binary's
+#                          launch reaches at a different time (FLAKE-MODELSDOWN,
+#                          registry #19; the old `modelsdown <ms>` is refused)
 #   modelsdelay <ms>       a catalog that path serves answers <ms> after it
 #                          is asked (a `modelsdown` 503 answers at once), so a
 #                          read can still be on its way when the model asks
@@ -556,7 +560,7 @@ main() {
   # What lsof names as the executable of the binary's pid, for `signal`.
   bin_real=$(realpath "$bin")
 
-  local turns='[]' extra_env='' models='' credits='' titled='' nomodel='' modelsdown='' modelsdelay='' modelspad='' modelsstall=''
+  local turns='[]' extra_env='' models='' credits='' titled='' nomodel='' modelsdown='' modelsup='' modelsdelay='' modelspad='' modelsstall=''
   local jobctl='' clock='' usage='' mcpmode='' keep='' nodraw=''
   # The directories `work` and `dir` copied into, whose files get the
   # placeholders too; and whether a line the run fills names `@MCPPORT@`.
@@ -587,7 +591,9 @@ main() {
       chmod 600 "$run/home/$dest"
     fi
     [[ $line == models\ * ]] && models=$scenarios/${line#models }
-    [[ $line == modelsdown\ * ]] && modelsdown=${line#modelsdown }
+    # The file whose arrival ends the outage (`modelsup` puts it in place).
+    [[ $line == modelsdown ]] && modelsdown=$run/models-up
+    [[ $line == modelsup ]] && modelsup=1
     [[ $line == modelsdelay\ * ]] && modelsdelay=${line#modelsdelay }
     [[ $line == modelspad\ * ]] && modelspad=${line#modelspad }
     [[ $line == modelsstall\ * ]] && modelsstall=${line#modelsstall }
@@ -654,7 +660,9 @@ main() {
         [[ -n $from && -f $scenarios/$from ]] || { echo "rehomefile takes <path> <file in $scenarios>, not ${line#rehomefile }" >&2; exit 2; } ;;
       jobctl\ *) echo "jobctl takes no argument, not ${line#jobctl }" >&2; exit 2 ;;
       nodraw\ *) echo "nodraw takes no argument, not ${line#nodraw }" >&2; exit 2 ;;
-      held\ *|release\ *) echo "${line%% *} takes no argument, not ${line#* }" >&2; exit 2 ;;
+      held\ *|release\ *|modelsup\ *) echo "${line%% *} takes no argument, not ${line#* }" >&2; exit 2 ;;
+      # The old form, a moment on the gateway's clock: refused, not read anew.
+      modelsdown\ *) echo "modelsdown takes no argument (down from the launch until a \`modelsup\` line), not ${line#modelsdown }: the wall-clock form is retired (FLAKE-MODELSDOWN)" >&2; exit 2 ;;
       until\ *)
         local cond=${line#until } text
         text=${cond#* }
@@ -670,6 +678,7 @@ main() {
         echo "$line takes an argument: see the verbs at the top of capture.sh" >&2; exit 2 ;;
     esac
   done < "$file"
+  [[ -z $modelsup || -n $modelsdown ]] || { echo "modelsup ends a \`modelsdown\` outage, and this scenario has no modelsdown line" >&2; exit 2; }
   printf '%s' "$turns" > "$run/turns.json"
   # Port 0: the OS picks a free one, and the gateway says which.
   mkdir -p "$run/bodies"
@@ -679,7 +688,7 @@ main() {
   # A held stream (a turn's `holdAt`) goes on once this file has a line for
   # it: `release` writes one, `held` waits for the hold in the gateway's log.
   local holds=0
-  FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_DOWN_MS=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
+  FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
   gateway=$!
   sock=$run/s
   trap cleanup EXIT
@@ -874,6 +883,7 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
       # (FLAKE-MCPMODE, registry #19; test_capture.py
       # test_a_file_a_verb_changes_mid_run_is_replaced_whole).
       release) { cat "$run/gw-release" 2>/dev/null || true; echo release; } > "$run/gw-release.tmp"; mv -f "$run/gw-release.tmp" "$run/gw-release" ;;
+      modelsup) echo up > "$run/models-up.tmp"; mv -f "$run/models-up.tmp" "$run/models-up" ;;
       until)
         local cond=${rest%% *} text=${rest#* } screen on seen='' looks=0 began=$SECONDS
         : > "$run/until"

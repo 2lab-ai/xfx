@@ -1,0 +1,13 @@
+# RED: the new harness tests (test_capture.py at the head) over the base's capture.sh and fakegw.ts (3be49c15); run directory paths written <tmp>
+FAIL: test_modelsdown_answers_503_until_its_file_is_in_place (__main__.FakeGateway.test_modelsdown_answers_503_until_its_file_is_in_place)
+AssertionError: Tuples differ: (200,) != (503,)
+FAIL: test_each_verbs_arguments (__main__.Refusals.test_each_verbs_arguments) (cap='modelsdown 6000')
+AssertionError: 0 != 2 : up: a first frame after 0.08 s (2 looks)
+FAIL: test_each_verbs_arguments (__main__.Refusals.test_each_verbs_arguments) (cap='modelsdown')
+AssertionError: 'modelsup takes no argument, not now' not found in 'unknown verb modelsup in <tmp>/fxcapt.X/scenarios/t.cap\n'
+FAIL: test_each_verbs_arguments (__main__.Refusals.test_each_verbs_arguments) (cap='modelsup')
+AssertionError: 'modelsup ends a `modelsdown` outage, and this scenario has no modelsdown line' not found in 'unknown verb modelsup in <tmp>/fxcapt.X/scenarios/t.cap\n'
+FAIL: test_modelsdown_until_modelsup (__main__.Verbs.test_modelsdown_until_modelsup)
+AssertionError: 1 != 0 : up: a first frame after 0.09 s (2 looks)
+Ran 3 tests in 94.506s
+FAILED (failures=5)

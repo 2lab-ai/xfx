@@ -1,0 +1,11 @@
+run 1: 19:48:41 load { 35.38 36.93 38.63 } (model-column-idle model-column-reask)
+run 1: done 19:49:21 load { 25.77 34.39 37.63 }
+run 2: 19:49:21 load { 25.77 34.39 37.63 } (model-column-idle model-column-reask)
+run 2: done 19:50:00 load { 17.17 31.11 36.28 }
+run 3: 19:50:01 load { 17.17 31.11 36.28 } (model-column-idle model-column-reask)
+run 3: done 19:50:40 load { 12.41 28.11 34.94 }
+run 4: 19:50:40 load { 12.41 28.11 34.94 } (model-column-idle model-column-reask)
+run 4: done 19:51:19 load { 9.51 25.66 33.77 }
+run 5: 19:51:19 load { 9.51 25.66 33.77 } (model-column-idle model-column-reask)
+run 5: done 19:51:59 load { 10.73 23.90 32.74 }
+exit 0
