@@ -1004,6 +1004,9 @@ pub(crate) struct Files {
     /// How many of them were walks.
     #[cfg(test)]
     walks: usize,
+    /// How many lookups the session asked for.
+    #[cfg(test)]
+    lookups: usize,
 }
 
 impl Files {
@@ -1026,6 +1029,8 @@ impl Files {
             started: 0,
             #[cfg(test)]
             walks: 0,
+            #[cfg(test)]
+            lookups: 0,
         }
     }
 
@@ -1177,6 +1182,12 @@ impl Files {
         self.walks
     }
 
+    /// The lookups the session has asked of this source.
+    #[cfg(test)]
+    pub(crate) fn lookups_for_test(&self) -> usize {
+        self.lookups
+    }
+
     /// Whether a directory listing is in flight.
     #[cfg(test)]
     pub(crate) fn listing_in_flight_for_test(&self) -> bool {
@@ -1199,6 +1210,10 @@ impl Files {
 
     /// What `query` -- the decoded text after the `@` -- finds now.
     pub(crate) fn lookup(&mut self, query: &str) -> Lookup {
+        #[cfg(test)]
+        {
+            self.lookups += 1;
+        }
         if query.len() > MOST_PATH_BYTES {
             return Lookup::Unavailable;
         }

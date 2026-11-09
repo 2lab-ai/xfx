@@ -35297,6 +35297,223 @@ mod tests {
         assert_eq!(listed_paths(&shell), ["src/deep/sched.rs"]);
     }
 
+    /// Turns of the loop until no walk is running, with or without a list.
+    fn walks_done(shell: &mut Fixture) {
+        let deadline = Instant::now() + START_PATIENCE;
+        while shell.files_for_test().busy() {
+            assert!(Instant::now() < deadline, "the walk never finished");
+            std::thread::sleep(Duration::from_millis(2));
+            shell.settle_band(Instant::now());
+        }
+        shell.settle_band(Instant::now());
+    }
+
+    /// A directory holding `plan.md`, and the access that adds it to the
+    /// shell's workspace.
+    fn extra_with_plan(
+        shell: &Fixture,
+    ) -> (tempfile::TempDir, std::path::PathBuf, WorkspaceAccess) {
+        let extra = tempfile::tempdir().expect("an extra root");
+        let path = extra.path().canonicalize().expect("canonical");
+        std::fs::write(path.join("plan.md"), "").expect("a file");
+        let access = WorkspaceAccess::load(&shell.workspace.clone(), &[path.display().to_string()]);
+        (extra, path, access)
+    }
+
+    fn adopt(shell: &mut Fixture, access: WorkspaceAccess) {
+        shell.apply(UiEvent::Workspace {
+            notice: notice::Notice::neutral("workspace", "changed"),
+            access: Some(access),
+        });
+    }
+
+    #[test]
+    fn a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once() {
+        // Round 7 (gpt6 r6 MUST 1): fx's install refreshes into the one pending
+        // scope while a walk runs (`refreshOwnedRoots`, `replacePendingRoots`,
+        // `file_index.zig:488-523@481104fd`), where the list's own refresh
+        // coalesces too; the walk that follows reads the new roots, and one
+        // walk is all a change of roots costs. A refresh queued before the
+        // change is satisfied by it -- not one walk more.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, _path, access) = extra_with_plan(&shell);
+        shell.route_bytes(b"@sch");
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.clear_composer();
+        shell.route_bytes(b"@sch");
+        let walks = shell.files_for_test().walks_for_test();
+        adopt(&mut shell, access);
+        walked(&mut shell);
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "not exactly one walk of the new roots"
+        );
+        drop(walk);
+        assert_eq!(listed_paths(&shell), ["src/deep/sched.rs"]);
+    }
+
+    #[test]
+    fn a_workspace_change_with_no_list_open_walks_the_new_roots_at_once() {
+        // Round 7 (gpt6 r6 MUST 2, opus r6 MUST): fx's install refreshes the
+        // index on a changed scope, a list open or not (`install`,
+        // `app_workspace_runtime.zig:127-143@481104fd`), so the next `@`
+        // finds the added directory's file at once. That `@` is an episode,
+        // and its refresh walks once more, privately, as fx's does
+        // (`prepareFilePicker`, `input_completion_runtime.zig:854-866`).
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, path, access) = extra_with_plan(&shell);
+        let walks = shell.files_for_test().walks_for_test();
+        adopt(&mut shell, access);
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "the workspace change walked nothing"
+        );
+        walks_done(&mut shell);
+        shell.route_bytes(b"@plan");
+        assert_eq!(
+            shell.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Rows),
+            "the first `@` after the change was still indexing"
+        );
+        assert_eq!(
+            listed_paths(&shell),
+            [format!("{}/plan.md", path.display())]
+        );
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 2);
+    }
+
+    #[test]
+    fn a_workspace_change_that_moves_no_root_still_refreshes_the_index() {
+        // fx's trigger is any change of the access, not of the active roots:
+        // `eql` compares every entry's path, `saved`, `command_line`,
+        // `available` and `active` (`workspace_access.zig:176-189@481104fd`).
+        // A directory added that is not there is an entry, unavailable, and
+        // no root -- and still a changed scope.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let gone = tempfile::tempdir().expect("a parent");
+        let missing = gone
+            .path()
+            .canonicalize()
+            .expect("canonical")
+            .join("missing");
+        let access =
+            WorkspaceAccess::load(&shell.workspace.clone(), &[missing.display().to_string()]);
+        assert!(
+            super::index_roots(&shell.workspace, &access).is_empty(),
+            "the missing directory is a root, so this proves nothing"
+        );
+        let walks = shell.files_for_test().walks_for_test();
+        adopt(&mut shell, access.clone());
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "a change of the access that moved no root walked nothing"
+        );
+        walks_done(&mut shell);
+        // The same access again is no change.
+        adopt(&mut shell, access);
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 1);
+    }
+
+    #[test]
+    fn a_workspace_change_resets_an_open_list_and_reads_its_folder_again() {
+        // fx's `invalidateScope` invalidates the open list
+        // (`app_workspace_runtime.zig:98-104@481104fd`; `invalidate`,
+        // `file_completion_state.zig:130-139`): trust dropped, the folder's
+        // request dropped -- so it is read again -- and the next reconcile
+        // puts the bar and the window back on row 0 (`resetFilePickerIndex`,
+        // `input_completion_runtime.zig:797`, `picker_state.zig:249-252`).
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, _path, access) = extra_with_plan(&shell);
+        shell.route_bytes(b"\x1b[200~@src/\x1b[201~");
+        listed(&mut shell);
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(FilePicker::chosen)
+                .map(|found| found.path.as_str()),
+            Some("src/deep"),
+            "Down did not move the bar, so this proves nothing"
+        );
+        let listings = |shell: &mut Fixture| {
+            let files = shell.files_for_test();
+            files.started_for_test() - files.walks_for_test()
+        };
+        let base = listings(&mut shell);
+        adopt(&mut shell, access);
+        assert_eq!(
+            shell.file_picker.as_ref().and_then(FilePicker::chosen),
+            None,
+            "the list kept its trust across the change of scope"
+        );
+        assert_eq!(
+            listings(&mut shell),
+            base + 1,
+            "the folder was not read again"
+        );
+        listed(&mut shell);
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(FilePicker::chosen)
+                .map(|found| found.path.as_str()),
+            Some("src"),
+            "the bar did not go back to row 0"
+        );
+    }
+
+    #[test]
+    fn a_workspace_change_behind_the_transcript_looks_nothing_up_until_it_closes() {
+        // Round 7 (gpt6 r6 SHOULD, opus r6 SHOULD 3): the install's walk is
+        // the index's, and starts under the full transcript too; the list's
+        // own refresh and lookup wait for it to be eligible (`prepareFilePicker`,
+        // `input_completion_runtime.zig:853@481104fd`), and then show the new
+        // root's rows at once.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, path, access) = extra_with_plan(&shell);
+        shell.route_bytes(b"@plan");
+        walked(&mut shell);
+        assert!(listed_paths(&shell).is_empty(), "the workspace has a plan");
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O opened no transcript");
+        let walks = shell.files_for_test().walks_for_test();
+        let lookups = shell.files_for_test().lookups_for_test();
+        adopt(&mut shell, access);
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "the install's walk waited for the list"
+        );
+        walks_done(&mut shell);
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "the list's refresh walked under the transcript"
+        );
+        assert_eq!(
+            shell.files_for_test().lookups_for_test(),
+            lookups,
+            "the list was looked up under the transcript"
+        );
+        shell.route_bytes(&[0x0f]);
+        assert!(!shell.full.is_open());
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            listed_paths(&shell),
+            [format!("{}/plan.md", path.display())]
+        );
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 2,
+            "the list's refresh did not run once it was eligible"
+        );
+    }
+
     #[test]
     fn a_workspace_change_under_an_open_indexed_list_walks_the_new_roots() {
         // Round 6 (opus r5 SHOULD 2): fx's reconcile asks for a refresh when
@@ -35331,8 +35548,9 @@ mod tests {
             listed_paths(&shell),
             [format!("{}/plan.md", extra_path.display())]
         );
-        // The same roots again move no scope (`install`'s `runtime_changed`,
-        // `app_workspace_runtime.zig:131-141`): no walk.
+        // The same access again moves no scope (`install`'s
+        // `runtime_changed = !access.eql(replacement)`,
+        // `app_workspace_runtime.zig:134-141`): no walk.
         let walks = shell.files_for_test().walks_for_test();
         let same = WorkspaceAccess::load(
             &shell.workspace.clone(),
