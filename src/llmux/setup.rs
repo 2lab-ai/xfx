@@ -302,7 +302,9 @@ async fn probe(base: &str) -> Result<Vec<model::CatalogEntry>, SetupError> {
 
 /// Fetches the root endpoint to identify the daemon using the shared loopback helper.
 async fn fetch_root(base: &str) -> Result<String, String> {
-    model::fetch_loopback_bounded(&format!("{base}/"), 1024 * 1024).await
+    model::fetch_loopback_bounded(&format!("{base}/"), 1024 * 1024)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 /// Keeps the configured model when the daemon has it, else takes the first.

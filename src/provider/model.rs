@@ -824,7 +824,11 @@ pub fn resolve_in_order(ordered: &[CatalogEntry], query: &str) -> String {
 /// after: `read_capped` streams and refuses a body past the limit, so whatever
 /// is on that port cannot decide how much memory is used -- nor have the
 /// first `max_bytes` of a longer answer, or of one cut short, read as all of it.
-pub(crate) async fn fetch_loopback_bounded(url: &str, max_bytes: usize) -> Result<String, String> {
+pub(crate) async fn fetch_loopback_bounded(
+    url: &str,
+    max_bytes: usize,
+) -> Result<String, LoopbackFailure> {
+    use LoopbackFailure::{NoAnswer, NotADocument};
     let client = reqwest::Client::builder()
         .connect_timeout(CATALOG_CONNECT_TIMEOUT)
         .read_timeout(CATALOG_READ_TIMEOUT)
@@ -833,24 +837,44 @@ pub(crate) async fn fetch_loopback_bounded(url: &str, max_bytes: usize) -> Resul
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(USER_AGENT)
         .build()
-        .map_err(|err| format!("could not build HTTP client: {err}"))?;
+        .map_err(|err| NoAnswer(format!("could not build HTTP client: {err}")))?;
 
     let response = client
         .get(url)
         .send()
         .await
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| NoAnswer(err.to_string()))?;
     let status = response.status();
     if !status.is_success() {
-        return Err(format!("HTTP {}", status.as_u16()));
+        return Err(NoAnswer(format!("HTTP {}", status.as_u16())));
     }
     let body = read_capped(response, max_bytes)
         .await
         .map_err(|err| match err {
-            CappedRead::TooLarge => larger_than(max_bytes),
-            CappedRead::Read(err) => err.to_string(),
+            CappedRead::TooLarge => NotADocument(larger_than(max_bytes)),
+            CappedRead::Read(err) => NoAnswer(err.to_string()),
         })?;
-    String::from_utf8(body).map_err(|_| "the answer is not UTF-8 text".to_string())
+    String::from_utf8(body).map_err(|_| NotADocument("the answer is not UTF-8 text".to_string()))
+}
+
+/// Why [`fetch_loopback_bounded`] has no text to give, in words a refusal can
+/// quote ([`fmt::Display`]).
+#[derive(Debug)]
+pub(crate) enum LoopbackFailure {
+    /// Nothing whole answered: no connection, a failed status, or a body that
+    /// stopped partway.
+    NoAnswer(String),
+    /// Something answered whole, and it is no document: past the cap, or not
+    /// UTF-8 text.
+    NotADocument(String),
+}
+
+impl fmt::Display for LoopbackFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoAnswer(detail) | Self::NotADocument(detail) => f.write_str(detail),
+        }
+    }
 }
 
 /// Fetches a catalog from a URL, bounded and with short timeouts.
@@ -860,9 +884,15 @@ pub(crate) async fn fetch_loopback_bounded(url: &str, max_bytes: usize) -> Resul
 /// Bounded while it reads, not after ([`fetch_loopback_bounded`]), so whatever
 /// is on that port cannot decide how much memory this uses.
 pub(crate) async fn fetch_catalog(url: &str) -> Result<Vec<CatalogEntry>, CatalogError> {
+    // A daemon that answered with no document is malformed, whose hint is
+    // its version; only one that did not answer whole is unavailable, whose
+    // hint is whether it runs.
     let body = fetch_loopback_bounded(url, MAX_CATALOG_BODY_BYTES)
         .await
-        .map_err(|err| CatalogError::Unavailable { detail: err })?;
+        .map_err(|err| match err {
+            LoopbackFailure::NoAnswer(detail) => CatalogError::Unavailable { detail },
+            LoopbackFailure::NotADocument(detail) => CatalogError::Malformed { detail },
+        })?;
     let entries = parse_llmux_catalog(&body).ok_or_else(|| {
         let clipped = if body.len() > 100 {
             // Safely clip to a UTF-8 character boundary, then show the byte count

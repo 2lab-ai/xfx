@@ -512,6 +512,34 @@ mod tests {
     }
 
     #[test]
+    fn an_answer_that_is_not_utf8_is_invalid_json() {
+        // Not decoded lossily into a balance: fx's parser refuses the bytes
+        // (`gateway.zig:825-827@481104fd`).
+        let body = b"{\"balance\":\"42.\xff\",\"used\":\"7.83\",\"plan\":\"pro\"}";
+        let mut sent = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        sent.extend_from_slice(body);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+        let origin = format!(
+            "http://127.0.0.1:{}",
+            listener.local_addr().expect("an address").port()
+        );
+        let server = std::thread::spawn(move || {
+            use std::io::Write;
+            let (mut stream, _) = listener.accept().expect("a connection");
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+            crate::test_net::read_request(&mut stream);
+            let _ = stream.write_all(&sent);
+        });
+        let answer = on_a_runtime(ask_at(&format!("{origin}{CREDITS_PATH}"), KEY));
+        server.join().expect("the server");
+        assert_eq!(answer, Answer::Failed(INVALID_JSON.to_string()));
+    }
+
+    #[test]
     fn a_redirect_is_an_error_and_never_followed_with_the_key() {
         use crate::test_net::{json_answer, redirect, Listener};
         for status in [307u16, 308] {
