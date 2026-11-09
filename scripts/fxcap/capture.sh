@@ -325,14 +325,15 @@
 # file roots.py refuses never reaches it: the run fails (exit 3). At the
 # run's end everything it left there is read once more (`--check`).
 #
-#   <work>       $run/work, the binary's working directory
-#   <scratch>    $run, the rest of the run: its HOME is <scratch>/home, its
-#                TMPDIR <scratch>/fxtmp or <scratch>/xfxtmp
-#   <scenarios>  the scenario directory, resolved (what `@SCENARIOS@` is)
-#   <bun>        the `bun` that runs fakegw.ts (what `@BUN@` is)
-#   <tmp>        this script's own TMPDIR, unless that is /tmp, /private/tmp
-#                or /var/tmp, which name no one
-#   <home>       this script's own HOME (the user's: no binary is given it)
+#   work         $run/work, the binary's working directory
+#   scratch      $run, the rest of the run: its HOME is <scratch___>/home,
+#                its TMPDIR <scratch___>/fxtmp or <scratch___>/xfxtmp
+#   scenarios    the scenario directory, resolved (what `@SCENARIOS@` is)
+#   bun          the `bun` that runs fakegw.ts (what `@BUN@` is)
+#   tmp          this script's own TMPDIR without its trailing slashes,
+#                unless that is /tmp, /private/tmp or /var/tmp, which name
+#                no one
+#   home         this script's own HOME (the user's: no binary is given it)
 #
 # A root is written as a placeholder exactly as wide as it: its name between
 # `<` and `>`, filled with `_` to the root's width (`<work_______>`), or, for
