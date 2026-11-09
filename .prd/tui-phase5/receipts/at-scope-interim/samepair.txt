@@ -1,0 +1,15 @@
+# python3 -I samepair.py scripts/fxcap/cells.py <base sweep capture> <head sweep capture>, for workspace-index's two snaps on each side
+== xfx at-plan: base sweep vs head sweep
+0 rows differ (row 1 not compared; the run's names masked, styles kept)
+== xfx at-all: base sweep vs head sweep
+0 rows differ (row 1 not compared; the run's names masked, styles kept)
+== fx at-plan: base sweep vs head sweep
+row 13 differs; first differing cell index 50: (50, 'X', (('fg', 245),)) / (50, 'X', (('bold', True), ('fg', 245)))
+1 rows differ (row 1 not compared; the run's names masked, styles kept)
+== fx at-all: base sweep vs head sweep
+0 rows differ (row 1 not compared; the run's names masked, styles kept)
+# each capture's run directory, as its text shows it:
+base sweep, fx: fxcap.RmwRfV 
+base sweep, xfx: fxcap.gyUsKU 
+head sweep, fx: fxcap.NpCJBx 
+head sweep, xfx: fxcap.5Jqbc9 
