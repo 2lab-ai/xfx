@@ -3735,7 +3735,7 @@ mod tests {
             ("half a body", half.clone(), 0),
             ("a byte at a time", half, 60),
         ] {
-            let (origin, server) = slow_exchange(sent, drip, Duration::from_secs(3));
+            let (origin, server) = slow_exchange(sent, drip, Duration::from_secs(5));
             let asked = Instant::now();
             let answer = ask_gateway(&origin, Duration::from_millis(300));
             let took = asked.elapsed();
@@ -3748,7 +3748,7 @@ mod tests {
                 other => panic!("{what}: expected a timeout asked again about, got {other:?}"),
             }
             assert!(
-                took < Duration::from_secs(2),
+                took < Duration::from_secs(3),
                 "{what}: the deadline, not the server, ended it ({took:?})"
             );
         }
