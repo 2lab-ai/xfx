@@ -1,6 +1,6 @@
 # catalog-refresh: which asks read the model catalog, and a clock that counts sleep
 
-**Rounds 2 to 4** are at the end (§ Round 2, § Round 3, § Round 4); the
+**Rounds 2 to 5** are at the end (§ Round 2 to § Round 5); the
 sections between are round 1's, with later rounds' corrections made in place
 where a sentence was wrong.
 
@@ -197,6 +197,8 @@ rests on the tests and the table.
 - GREEN at `bd67c79e` (code outside tests at `b2731faa`; since, comments and
   `#[cfg(test)]` lines): every RED test above, the clock's, the counts',
   rounds 2's to 4's, and the band's idle-tick test, 22 passing (`green.txt`).
+  The source since differs by round 5's comment lines alone
+  (`src-since-gate.txt`).
 
 ## Mutants (`mutants.py`, `mutants.txt`)
 
@@ -252,8 +254,10 @@ ignored), six `check-*` scripts and three `test-*` ones, both fxcap
 self-tests, both release builds, smoke, and smoke-tui (37 scenarios and the
 oracle, 1168 checks, 0 failures). The counts are round 3's: round 4 adds
 assertions, not tests. "tree clean: no" is this README and the receipt files
-written while the gate waited for its slot and ran; `src/` last changed at
-`bd67c79e`, the gate's head, and the commits after it are this folder's.
+written while the gate waited for its slot and ran. After the gate's head,
+`src/` changes in round 5's comment lines alone (`bb67a055`;
+`src-since-gate.txt` holds the diff), and every other commit is this
+folder's.
 Round 3's gate (`3a0bcdb1`, 5489 and 5526 passed), round 2's (`38ba66a7`,
 5487 and 5524) and round 1's (`b57fa272`, 5482 and 5519) are replaced by this
 one.
@@ -382,10 +386,10 @@ dispatcher's gate on `86b86004` passed 21 of 21.
 
 | # | item | commit | evidence here |
 |---|---|---|---|
-| 1 | the parity row's "Inside a failure's hold `/model` ... asks nothing" and "asked again only at the next ask after the backoff" qualified, and two more of its sentences pointed at the rule (the column's frame, the retryable sentences); in the source comments, every promise of no read inside a hold, or closed list of when a read is due, qualified -- outside tests and in them | `08cfdef0` | `hold-sentences.txt`: every sentence checked, each with its decision (`sentences.py` lists them) |
+| 1 | the parity row's "Inside a failure's hold `/model` ... asks nothing" and "asked again only at the next ask after the backoff" qualified, and two more of its sentences pointed at the rule (the column's frame, the retryable sentences); in the source comments, every line saying "backoff", "hold" or "asks nothing" read, and each promise of no read inside a hold, or closed list of when a read is due, among them qualified -- outside tests and in them (closed lists written without those words: § Round 5) | `08cfdef0` | `hold-sentences.txt`: every sentence checked, each with its decision (`sentences.py` lists them) |
 | 2 | `CatalogKnown::Unread`: the hold holds for readings not earlier than the failed read's start; an earlier one is due at once -- said apart | `08cfdef0` | `src/tui/shell.rs` |
-| 3 | `renew`'s test seam turns only `Unavailable` into `NotLoaded` | RED `4dd1bb65`, fix `bd67c79e` | `mutants-before.txt`; `mutants-r4.txt` |
-| 4 | `fresh == 0` after both switches; the seeded hold pinned with `retry_at()`; the fixture guard compares the environment's variables with an empty map, printing neither | RED `4dd1bb65` (the variables), fix `bd67c79e` | `mutants-before.txt`; `mutants-r4.txt`; `green.txt` |
+| 3 | `renew`'s test seam turns only `Unavailable` into `NotLoaded` | RED run at `08cfdef0`, recorded in `4dd1bb65`; fix `bd67c79e` | `mutants-before.txt`; `mutants-r4.txt` |
+| 4 | `fresh == 0` after both switches; the seeded hold pinned with `retry_at()`; the fixture guard compares the environment's variables with an empty map, printing neither | RED (the variables) run at `08cfdef0`, recorded in `4dd1bb65`; fix `bd67c79e` | `mutants-before.txt`; `mutants-r4.txt`; `green.txt` |
 
 **Item 3 had the hole the review named.** At `08cfdef0`, a mutant restoring
 the old provider's `catalog_state` after `Self::new` survived
@@ -425,3 +429,59 @@ passed, smoke-tui 1168 checks, `gate.txt`); the sweep
 still at `3d96f590` (§ Sweep); the size against `e705a5dc`, +548 -144 in all
 and +305 -98 in code outside tests (`size.txt`), the six more code lines
 `#[cfg(test)]`.
+
+## Round 5
+
+Round 4 (`487a76cd`) had two confirming reviews: gpt6 APPROVE, opus
+APPROVE-WITH-FIXES with one SHOULD and receipt nits. The dispatcher's gate on
+`487a76cd` passed 21 of 21. Docs and receipt only: nothing executable
+changes, so no gate and no mutants ran.
+
+| # | item | commit | evidence here |
+|---|---|---|---|
+| 1 | `LoadTrigger::Activity`'s "read again only once ..." names a failure's hold and the earlier reading (`LoadClock::next`, `CatalogDue`); so do `::PickerOpen`'s and the same closed lists in the refresh failure's event and handler, the menu's (`use_model`), the column's (`settle_column`), a resume's, and the control message's (`TurnControl::Catalog`, which now names TOLD's ask too) | `bb67a055` | `src-since-gate.txt`: the diff, comment lines only |
+| 1b | found by the same search: six lists of the model cache's triggers that left out a resume or a fork, activity since round 1 (`04a1ed4e`) -- `TurnControl::Catalog`, `UiEvent::CatalogUnread`, the launch read's comment and `ask_catalog`, the band's `catalog_due` and `note_catalog_activity` -- and the model tests' `Asked` | `bb67a055` | the same |
+| 2 | the search widened to the closed-list words, each sentence decided; round 4's item 1 now says what round 4 searched | this one | `hold-sentences.txt` (round 5's section), `sentences.py` |
+| 3 | the RED cells name the run's commit and the one that recorded it; `hold-sentences.txt` regenerated after this README's last edit; the 372 recorded; GREEN and the gate at `bd67c79e`, and what `src/` changes since | this one | `unit-tests.txt`, `src-since-gate.txt` |
+
+**Item 2: widened, and the claim says what was searched.** Every comment
+sentence of the seven files, and every sentence of the parity row, that says
+"only", "not before", "never" or "once" and also names the catalog's reads --
+the catalog, a refresh, a retry, a read again, due, a trigger, the model
+cache, a first load, a backoff or a hold -- each decided (`hold-sentences.txt`,
+round 5's section): 176 sentences, 93 outside tests, 66 in the
+test modules and 17 in the row: 13 qualified in this round, 20 qualified
+before (13 in round 4, 7 in round 3), 7 that say a read comes once a hold is
+over or `retry_at` has come (the hold being `CatalogDue`'s, which carries the
+rule), 8 the due rule itself or a pointer to it, 7 the ask with no trigger
+(no refresh, no retry, whatever the clock reads), 6 the line-mode
+`ensure_catalog` or `/model <query>`, 10 a test's own readings, 1 the
+earlier-reading case itself, 3 quotes of fx, and 101 no rule of when the
+catalog is read. The four words alone, with no word for the
+catalog's reads in the sentence, are on 1551 comment lines of these files,
+too many to decide line by line; the search stops at the sentences that name
+the catalog's reads, and this paragraph is the claim.
+
+**Item 3.** The RED for items 3 and 4 ran at `08cfdef0`
+(`mutants-before.txt:1`) and was recorded in `4dd1bb65`; the table says both.
+The 372 is round 4's run of the unit's test modules at `bd67c79e`
+(`unit-tests.txt`). GREEN, that run and the gate ran at `bd67c79e`;
+`git diff --stat bd67c79e..487a76cd -- src` prints nothing, and
+`bd67c79e..bb67a055` changes the four files of round 5's comment commit, 0
+of the changed lines anything but a comment (`src-since-gate.txt`, with the
+whole diff).
+
+**Checks** at `bb67a055` with this folder's edits (`checks-r5.txt`): fmt, clippy and clippy with fault
+injection, as `gates.sh` runs them, exit 0 under the suite lock;
+check-no-secrets and check-xfx-identity exit 0. check-no-local-paths is not
+on this branch or on main at `32afd307`: run unmodified from
+`fix/p5-local-paths` (`5743e3c7`), it exits 1 on 341 lines in 161 files,
+every one of them tracked at the base already -- the LOCAL-PATHS unit's
+sweep. The one file of this unit's 44 among them is `src/tui/shell.rs`, at
+three lines that base commits wrote (`666e0b2d`, `1e2a627b`); no line this
+unit wrote holds a local path, as the per-commit grep says.
+
+**Round 5's figures:** source outside tests against `e705a5dc`, +597 -169 in
+all and +305 -98 in code (`size.txt`); since the swept binary, code +7 -1,
+all `#[cfg(test)]` (`src-since-sweep.txt`); round 4's GREEN, mutants and
+gate stand, at `bd67c79e`.

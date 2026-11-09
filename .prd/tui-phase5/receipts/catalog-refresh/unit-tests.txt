@@ -1,0 +1,4 @@
+# head bd67c79e, under the suite lock: cargo test --locked --lib -- tui::worker::tests:: provider::model::tests:: provider::catalog_clock:: config::
+# (round 4's run of the unit's test modules; the result line as cargo printed it, and the count of its ok lines)
+test result: ok. 372 passed; 0 failed; 0 ignored; 0 measured; 4207 filtered out; finished in 18.25s
+ok lines: 372
