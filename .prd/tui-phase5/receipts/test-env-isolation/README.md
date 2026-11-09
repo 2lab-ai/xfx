@@ -241,6 +241,20 @@ comparison above is the proof that it compiles to the same code.
 
 ## Open
 
+- **A launched worker's fake process narrows to `Environment`'s keys.** In a
+  case that launches the worker inside a `FakeProcess`, `carried` gives the
+  runtime thread the case's fake; then `Runtime::new` ->
+  `with_environment` -> `for_this_thread` replaces it with one made from the
+  `Environment` -- `HOME` and the nine keys `from_process` takes
+  (`config.rs:801-816`). `XFX_GATEWAY_URL`, `GIT_CONFIG_*` and `ZDOTDIR` are
+  not among them, so that thread's `Endpoint::from_process`,
+  `GitEnvironment::from_process` and `LinkBase::from_environment` would then
+  see them unset where the case set them. Still fail-closed (the fake, never
+  the real process), and no case today sets them and launches; a future one
+  would silently get the compiled-default endpoint. The fix for the train:
+  `for_this_thread` overlays the environment onto the thread's existing fake
+  instead of replacing it.
+
 - `minimal_environment` in a unit test hands a command `HOME=""` when the
   case gave no fake home. git takes an empty `HOME` as set and looks for
   `/.gitconfig`; that file exists on no runner this repository uses. The
