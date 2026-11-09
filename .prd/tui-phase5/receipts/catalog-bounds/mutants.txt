@@ -1,0 +1,16 @@
+- no declared-length check (src/gateway/mod.rs): killed by an_answer_over_1_mib_is_refused_without_being_read_whole
+- an answer of exactly the cap refused (src/gateway/mod.rs): killed by an_answer_past_64_kib_or_cut_short_is_not_read_as_one, a_gateway_catalog_up_to_16_mib_loads, a_llmux_catalog_past_1_mib_or_cut_short_is_no_catalog, an_answer_over_1_mib_is_refused_without_being_read_whole
+- no cap while it reads (src/gateway/mod.rs): killed by a_gateway_catalog_one_byte_past_16_mib_fails_and_is_not_cut_to_fit, an_answer_over_1_mib_is_refused_without_being_read_whole
+- a failed read keeps the bytes before it (src/gateway/mod.rs): killed by a_gateway_catalog_cut_short_or_not_text_is_no_catalog, an_answer_past_64_kib_or_cut_short_is_not_read_as_one, a_llmux_catalog_past_1_mib_or_cut_short_is_no_catalog, a_gateway_catalog_past_its_deadline_is_a_failure_asked_again_about
+- the Gateway's cap is the old 1 MiB (src/provider/model.rs): killed by a_gateway_catalog_one_byte_past_16_mib_fails_and_is_not_cut_to_fit, a_gateway_catalog_up_to_16_mib_loads
+- a deadline mid-body is not retried (src/provider/model.rs): killed by a_gateway_catalog_past_its_deadline_is_a_failure_asked_again_about
+- every failed read is retried (src/provider/model.rs): killed by a_gateway_catalog_cut_short_or_not_text_is_no_catalog
+- too large is retried (src/provider/model.rs): killed by a_gateway_catalog_one_byte_past_16_mib_fails_and_is_not_cut_to_fit
+- bytes that are not UTF-8 read lossily (src/provider/model.rs): killed by a_gateway_catalog_cut_short_or_not_text_is_no_catalog
+- the deadline is the constant, not the catalog's (src/provider/model.rs): killed by a_gateway_catalog_past_its_deadline_is_a_failure_asked_again_about
+- llmux: past its cap is no failure (src/provider/model.rs): did not build -- replaced at 6dda7f8a by "llmux: no cap", below
+- credits: past its cap is read cut to fit (src/credits.rs): killed by an_answer_past_64_kib_or_cut_short_is_not_read_as_one
+- credits: a read cut short is invalid JSON (src/credits.rs): killed by an_answer_past_64_kib_or_cut_short_is_not_read_as_one
+12 of 13 killed by a test, 1 by not building (at 80589da1); with the replacement, 13 of 13 by a test
+# rerun at 6dda7f8a, the one mutant replaced:
+- llmux: no cap (src/provider/model.rs): killed by a_llmux_catalog_past_1_mib_or_cut_short_is_no_catalog

@@ -1,0 +1,26 @@
+pairs 97; base pass 78; head pass 80
+## up: 4
+- p5-catalog-bounds-2mib menu: unresolved-defect -> normalized-identical
+- p5-catalog-bounds-at menu: unresolved-defect -> normalized-identical
+- p5-catalog-bounds-over menu: unresolved-defect -> normalized-identical
+- p5-catalog-bounds-stall timed-out: unresolved-defect -> normalized-identical
+## down: 2
+- model-column-reask col-back: normalized-identical -> unresolved-defect  (row 9: fx `         openai/gpt-6-astra` / xfx `         unable to load models`)
+- model-column-reask col-down: normalized-identical -> unresolved-defect  (row 9: fx `         openai/gpt-6-astra` / xfx `         unable to load models`)
+## fail-both: 15
+- model typed: unresolved-defect -> unresolved-defect  (row 7: fx `  /model   choose what model and reasoning effort to use                                                          Model` / xfx `  /model   show the model, or `/model <id>` to use another one from now on                                        Model`)
+- model-anchor alt-enter: unresolved-defect -> unresolved-defect  (row 6: fx `  xai/grok-4.7` / xfx `  no matching models`)
+- model-parked menu-loading: unresolved-defect -> unresolved-defect  (row 5: fx `~ Thinking (<s>)` / xfx `~ Thinking (<s>) (↑4 ↓0)`)
+- p5-input-model inline-gpt6: unresolved-defect -> unresolved-defect  (row 5: fx `         openai/gpt-6-astra` / xfx `         no matching models`)
+- p5-input-model q-anthropic-opus: unresolved-defect -> unresolved-defect  (row 5: fx `Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+- p5-input-model q-cs45: unresolved-defect -> unresolved-defect  (row 5: fx `Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+- p5-input-model q-grok-fast: unresolved-defect -> unresolved-defect  (row 5: fx `Models 2  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+- p5-input-model q-sonnet45: unresolved-defect -> unresolved-defect  (row 5: fx `Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+- p5-input-model q-zai-glm: unresolved-defect -> unresolved-defect  (row 5: fx `Models 1  [All]  Anthropic  OpenAI  xAI  Z.AI  Others` / xfx `Models 0  [All]  Anthropic  OpenAI  xAI  Z.AI  Others`)
+- settings-model enter: unresolved-defect -> unresolved-defect  (row 14: fx `  Sound level              off  on  max` / xfx `  Sound level              off  on`)
+- settings-model marked: unresolved-defect -> unresolved-defect  (row 18: fx `  Sound level              off  on  max` / xfx `  Sound level              off  on`)
+- settings-model-list enter: unresolved-defect -> unresolved-defect  (row 21: fx `  Sound level              off  on  max` / xfx `  Sound level              off  on`)
+- settings-model-list list: unresolved-defect -> unresolved-defect  (row 17: fx `  Sound level              off  on  max` / xfx `  Sound level              off  on`)
+- settings-model-list list-down: unresolved-defect -> unresolved-defect  (row 17: fx `  Sound level              off  on  max` / xfx `  Sound level              off  on`)
+- settings-model-list used: unresolved-defect -> unresolved-defect  (row 22: fx `  Sound level              off  on  max` / xfx `  Sound level              off  on`)
+## pass both: 76

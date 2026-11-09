@@ -1,0 +1,5 @@
+[fakegw] listening 52799
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] GET /coding-agent/v1/models -> stalled after 849 of 1698 bytes for 45000ms at=1409ms
+[fakegw] request GET /coding-agent/v1/models at=1399ms -> 200 at=1418ms headers=authorization
+[fakegw] GET /coding-agent/v1/models -> stalled read: the client went at=31401ms
