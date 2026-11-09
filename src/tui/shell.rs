@@ -12020,8 +12020,10 @@ impl Shell {
                 continue;
             }
             // Shift on Up and Down means something only to a question's
-            // field; to every surface below it is the arrow it always was.
-            let event = unshifted(event);
+            // field, and Alt-b apart from the word arrows only to a question's
+            // choice; to every surface below they are the keys they always
+            // were.
+            let event = folded(event);
             if self.asking() {
                 self.decide(event, now);
                 continue;
@@ -12387,12 +12389,13 @@ impl Shell {
             // wrap, so a row that did not change is the first row for an `Up`
             // and the last one for a `Down` -- the same fact, measured by the
             // module that owns the wrap instead of restated by this one.
-            // Never reaches here (`unshifted` folds them back before the
-            // composer sees an event); kept as the arrows they are, so a route
+            // Never reaches here (`folded` folds them back before the
+            // composer sees an event); kept as the moves they are, so a route
             // that skipped the fold would still move the caret rather than drop
             // the key.
             Action::SelectUp => self.act(Action::Up, now),
             Action::SelectDown => self.act(Action::Down, now),
+            Action::AltB => self.act(Action::WordLeft, now),
             Action::Up | Action::Down => {
                 let cols = self.text_cols();
                 let from = self.editor.point(cols).0;
@@ -13706,18 +13709,23 @@ fn image_slash_prefix(text: &str) -> Option<usize> {
     })
 }
 
-/// `event` with Shift taken off Up and Down.
+/// `event` with Shift taken off Up and Down, and Alt-b made the word move it
+/// is everywhere but a question.
 ///
 /// The decoder keeps Shift on the vertical arrows because a question's
 /// freeform field binds it -- the plain arrows walk the field's rows and the
-/// shifted ones choose (`super::input::Action::SelectUp`) -- and that is the
-/// only surface that does. Folded back here, once, before any other surface
-/// reads the event, so the composer, the approvals and the menus see exactly
-/// the keys they saw before Shift was kept.
-fn unshifted(event: Input) -> Input {
+/// shifted ones choose (`super::input::Action::SelectUp`) -- and Alt-b apart
+/// from Ctrl-Left and Alt-Left because a question's choice binds it -- the
+/// previous question, where the arrows do nothing
+/// (`super::input::Action::AltB`). A question is the only surface that reads
+/// either. Folded back here, once, before any other surface reads the event,
+/// so the composer, the approvals and the menus see exactly the keys they saw
+/// before the two were kept apart.
+fn folded(event: Input) -> Input {
     match event {
         Input::Action(Action::SelectUp) => Input::Action(Action::Up),
         Input::Action(Action::SelectDown) => Input::Action(Action::Down),
+        Input::Action(Action::AltB) => Input::Action(Action::WordLeft),
         other => other,
     }
 }
@@ -22377,8 +22385,37 @@ mod tests {
         fixture.route_bytes(b"ab cd");
         fixture.route_bytes(b"\x1bb");
         fixture.route_bytes(b"z");
-        assert!(on(&fixture, "Ship it?"), "Alt-b in a draft left the question");
-        assert!(on(&fixture, "ab zcd"), "{:?}", fixture.band_rows());
+        assert!(
+            on(&fixture, "Ship it?"),
+            "Alt-b in a draft left the question"
+        );
+        // The caret's cell is painted on its own, so the row is read unpainted.
+        assert!(
+            fixture
+                .band_rows()
+                .iter()
+                .any(|row| sgr_free(row) == "    3) ab zcd"),
+            "{:?}",
+            fixture.band_rows()
+        );
+    }
+
+    #[test]
+    fn alt_b_is_the_word_move_to_every_surface_below_a_question() {
+        // Folded once, before the approvals, the menus and the composer read
+        // the event, as Shift on Up and Down is ([`folded`]).
+        for (event, surfaces_see) in [
+            (Action::AltB, Action::WordLeft),
+            (Action::SelectUp, Action::Up),
+            (Action::SelectDown, Action::Down),
+            (Action::WordLeft, Action::WordLeft),
+        ] {
+            assert_eq!(
+                folded(Input::Action(event)),
+                Input::Action(surfaces_see),
+                "{event:?}"
+            );
+        }
     }
 
     #[test]

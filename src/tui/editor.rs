@@ -437,7 +437,7 @@ impl Editor {
                 | Action::ControlK => {
                     return self.delete(range.start, range.end, DeltaKind::Kill);
                 }
-                Action::Left | Action::WordLeft => {
+                Action::Left | Action::WordLeft | Action::AltB => {
                     self.move_to(range.start);
                     return None;
                 }
@@ -460,8 +460,9 @@ impl Editor {
             // Upstream's word moves (`moveWordLeft`/`moveWordRight`,
             // `horizontal_navigation.zig:85-141`): by word characters, not by
             // whitespace -- so `foo.bar` is two words to a move and one to
-            // `C-w` -- and over a block whole.
-            Action::WordLeft => {
+            // `C-w` -- and over a block whole. Alt-b is this move to an editor
+            // (`super::input::Action::AltB`).
+            Action::WordLeft | Action::AltB => {
                 self.move_to(self.outside(self.word_move_left(), Direction::Backward));
                 None
             }

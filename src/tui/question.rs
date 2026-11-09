@@ -194,8 +194,16 @@ pub(crate) enum Act {
     Delete,
     /// The answer's word moves and kill keys, as upstream's field binds them
     /// (`question_prompt.zig:361-378`): word left and right, `C-w`, `C-u`,
-    /// `C-k`.
+    /// `C-k`. Word left here is Ctrl-Left and Alt-Left, a composer move to
+    /// upstream, which does nothing at a choice
+    /// (`input_question_runtime.zig:196-199@481104fd`).
     WordLeft,
+    /// Alt-b: the draft's word left, as [`Act::WordLeft`] -- or, with no
+    /// draft open, the previous **question**, as [`Act::Left`]. Upstream routes
+    /// its `.word_left`, which only Alt-b decodes to, with Left to
+    /// `retreatToPrevious` (`input_question_runtime.zig:190-195@481104fd`;
+    /// [`super::input::Action::AltB`]).
+    AltB,
     WordRight,
     DeleteWordLeft,
     KillToStart,
@@ -223,6 +231,7 @@ impl Act {
             Action::SelectDown => Some(Self::SelectDown),
             Action::Delete => Some(Self::Delete),
             Action::WordLeft => Some(Self::WordLeft),
+            Action::AltB => Some(Self::AltB),
             Action::WordRight => Some(Self::WordRight),
             // `C-w`, and Alt-Backspace, which the decoder reads as a deletion
             // by word characters: this field has the whitespace one only.
@@ -825,7 +834,9 @@ impl QuestionPanel {
             // At a choice, Left is the previous question and stops at the
             // first; nothing about the one it leaves changes, its answer
             // included (`retreatToPrevious`, `question_prompt.zig:605-615`).
-            Act::Left if !drafting => {
+            // Alt-b too: upstream binds `.word_left` beside `.cursor_left`
+            // (`input_question_runtime.zig:190-195@481104fd`).
+            Act::Left | Act::AltB if !drafting => {
                 if self.current == 0 {
                     return Answered::Nothing;
                 }
@@ -855,6 +866,7 @@ impl QuestionPanel {
             | Act::Home
             | Act::End
             | Act::WordLeft
+            | Act::AltB
             | Act::WordRight
             | Act::DeleteWordLeft
             | Act::KillToStart
@@ -884,7 +896,7 @@ impl QuestionPanel {
                     }
                     Act::Left => draft.left(),
                     Act::Right => draft.right(),
-                    Act::WordLeft => draft.word_left(),
+                    Act::WordLeft | Act::AltB => draft.word_left(),
                     Act::WordRight => draft.word_right(),
                     Act::Home => draft.home(),
                     _ => draft.end(),
@@ -2852,6 +2864,55 @@ mod tests {
         assert!(panel.hint_text(120, false).ends_with("Question 1 of 2"));
         panel.apply(Act::Text('z'), 120, 40);
         assert_eq!(panel.draft(), Some("azb"));
+    }
+
+    #[test]
+    fn alt_b_goes_back_a_question_at_a_choice_and_a_word_in_a_draft() {
+        // `.cursor_left, .word_left => retreatToPrevious`, one page of the
+        // batch back and none past the first, while the arrows' composer move,
+        // word right and Right do nothing at a choice
+        // (`input_question_runtime.zig:190-199`, `question_prompt.zig:609-615`
+        // `@481104fd`; `fx-p5-question-word-left-40x120-{alt-b,ctrl-left,
+        // alt-f,right,alt-b-first,draft-alt-b}`).
+        let mut panel = batch(20);
+        let page = |panel: &QuestionPanel| panel.hint_text(120, false);
+        assert_eq!(panel.apply(Act::AltB, 120, 40), Answered::Nothing);
+        for _ in 0..3 {
+            panel.apply(Act::Tab, 120, 40);
+        }
+        assert!(page(&panel).ends_with("Question 4 of 20"));
+        for act in [Act::WordLeft, Act::WordRight, Act::Right] {
+            assert_eq!(panel.apply(act, 120, 40), Answered::Nothing, "{act:?}");
+            assert!(page(&panel).ends_with("Question 4 of 20"), "{act:?}");
+        }
+        assert_eq!(panel.apply(Act::AltB, 120, 40), Answered::Redraw);
+        assert!(
+            page(&panel).ends_with("Question 3 of 20"),
+            "one question back: {}",
+            page(&panel)
+        );
+        assert!(
+            panel.painted(120, 40, &DARK)[2].starts_with("\u{1b}[1;38;5;255m    1) Keep 3"),
+            "the page it lands on keeps its own marked choice"
+        );
+        panel.apply(Act::AltB, 120, 40);
+        panel.apply(Act::AltB, 120, 40);
+        assert!(page(&panel).ends_with("Question 1 of 20"));
+        assert_eq!(
+            panel.apply(Act::AltB, 120, 40),
+            Answered::Nothing,
+            "stops at the first"
+        );
+        // Inside a draft it is the caret's word move, on the same page.
+        panel.apply(Act::Tab, 120, 40);
+        panel.apply(Act::Text('3'), 120, 40);
+        for character in "ab cd".chars() {
+            panel.apply(Act::Text(character), 120, 40);
+        }
+        assert_eq!(panel.apply(Act::AltB, 120, 40), Answered::Redraw);
+        panel.apply(Act::Text('z'), 120, 40);
+        assert_eq!(panel.draft(), Some("ab zcd"));
+        assert!(page(&panel).ends_with("Question 2 of 20"));
     }
 
     #[test]

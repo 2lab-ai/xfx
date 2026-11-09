@@ -177,12 +177,25 @@ pub(crate) enum Action {
     /// (`src/ui/input/runtime.zig:175-188`, `input_question_runtime.zig:150-185`,
     /// `c1db919`). Everywhere else they are the arrows they always were here:
     /// the shell folds them back before any other surface sees them
-    /// (`super::shell::Shell`'s `unshifted`).
+    /// (`super::shell::Shell`'s `folded`).
     SelectUp,
     SelectDown,
     Home,
     End,
     WordLeft,
+    /// Alt-b, in each of its spellings: `ESC b`, kitty's `CSI 98;3u` and
+    /// xterm's `CSI 27;3;98~`.
+    ///
+    /// Upstream decodes these to its own `.word_left` action, and the
+    /// modified arrows -- Ctrl-Left, Alt-Left -- to a composer move instead
+    /// (`escape_parser.zig:83-92`, `:243-246`, `:528-533@481104fd`). Only a
+    /// question at a choice tells the two apart: `.word_left` is the previous
+    /// question there, as Left is, and the arrows do nothing
+    /// (`input_question_runtime.zig:190-199@481104fd`). Everywhere else this is
+    /// [`Action::WordLeft`]: the shell folds it back before any other surface
+    /// sees it (`super::shell::Shell`'s `folded`), as it does
+    /// [`Action::SelectUp`].
+    AltB,
     WordRight,
     Backspace,
     Delete,
@@ -632,10 +645,12 @@ impl Decoder {
             // Alt-b, Alt-f and Alt-d in the spelling a terminal without a key
             // protocol uses (`escape_parser.zig` at `c1db919`, :529-546): the
             // word moves the modified arrows already make, and the forward
-            // word delete. Lower case only, as upstream reads them.
+            // word delete. Lower case only, as upstream reads them. Alt-b is
+            // its own action, which only a question's choice reads differently
+            // from the arrows ([`Action::AltB`]).
             b'b' => {
                 self.stage = Stage::Ground;
-                out.push(Input::Action(Action::WordLeft));
+                out.push(Input::Action(Action::AltB));
             }
             b'f' => {
                 self.stage = Stage::Ground;
@@ -1299,8 +1314,10 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
         if mods & SHIFT != 0 {
             return ignore;
         }
+        // Alt-b is upstream's `.word_left` (:245), not a composer move:
+        // [`Action::AltB`].
         return Input::Action(if ascii == Some(b'b') {
-            Action::WordLeft
+            Action::AltB
         } else {
             Action::WordRight
         });
@@ -1704,7 +1721,9 @@ mod tests {
         ("ctrl+right", b"\x1b[1;5C", Action::WordRight),
         ("shift+enter", b"\x1b[13;2u", Action::InsertNewline),
         ("ctrl+enter", b"\x1b[13;5u", Action::Submit),
-        ("alt+b", b"\x1b[98;3u", Action::WordLeft),
+        // Upstream's `.word_left` (:243-246@481104fd), which a question's
+        // choice reads apart from the modified arrows above.
+        ("alt+b", b"\x1b[98;3u", Action::AltB),
         ("alt+f", b"\x1b[102;3u", Action::WordRight),
     ];
 
@@ -1913,12 +1932,45 @@ mod tests {
     }
 
     #[test]
+    fn alt_b_is_its_own_action_and_the_modified_left_arrows_are_word_left() {
+        // Upstream's `.word_left` is Alt-b's alone (`escape_parser.zig:243-246`,
+        // `:528-533@481104fd`; kitty and xterm's report share the keycode
+        // table); Ctrl-Left and Alt-Left are a composer move (`:83-92`). Only
+        // a question's choice reads the two apart ([`Action::AltB`]).
+        for (bytes, spelling) in [
+            (&b"\x1bb"[..], "ESC b"),
+            (b"\x1b[98;3u", "kitty"),
+            (b"\x1b[27;3;98~", "modifyOtherKeys"),
+        ] {
+            assert_eq!(
+                decode(bytes),
+                vec![Input::Action(Action::AltB)],
+                "{spelling}"
+            );
+        }
+        for bytes in [
+            &b"\x1b[1;3D"[..],
+            b"\x1b[1;5D",
+            b"\x1b[1;7D",
+            b"\x1b[57417;5u",
+        ] {
+            assert_eq!(
+                decode(bytes),
+                vec![Input::Action(Action::WordLeft)],
+                "{bytes:?}"
+            );
+        }
+        // Shift with it is a selection move upstream, which xfx has none of.
+        assert_eq!(decode(b"\x1b[98;4u"), vec![Input::Action(Action::Ignore)]);
+    }
+
+    #[test]
     fn the_forward_word_delete_and_the_page_keys_decode_in_every_spelling() {
         // Each is a real upstream result (`escape_parser.zig` at `c1db919`)
         // that has an action here now.
         for (bytes, action, upstream) in [
             (&b"\x1bd"[..], Action::DeleteWordRight, "ESC d :541-546"),
-            (b"\x1bb", Action::WordLeft, "ESC b :529-534"),
+            (b"\x1bb", Action::AltB, "ESC b :529-534"),
             (b"\x1bf", Action::WordRight, "ESC f :535-540"),
             (b"\x1b[100;3u", Action::DeleteWordRight, "kitty Alt-d :251"),
             (
