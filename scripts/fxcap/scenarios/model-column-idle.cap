@@ -7,7 +7,8 @@
 # `app_render_runtime.zig:928-929`): nothing animates while idle, so the
 # column's render path -- the only thing that asks the cache again
 # (`footerContext`, `:561-563`) -- does not run. The column opens past the
-# launch read's 5 s and reads again (503); the catalog comes back; `col-idle`,
+# launch read's 5 s and reads again (503); once it is on the screen over the
+# failure, the catalog comes back; `col-idle`,
 # past that read's 10 s, still says `unable to load models`, and the next
 # keystroke's frame asks again and lists the rows. The outage ends at a line,
 # not at a moment on the gateway's clock, which each binary's launch reaches
@@ -19,6 +20,7 @@ modelsdelay 0
 wait 6
 type /model
 key Space
+until shown unable to load models
 wait 0.8
 snap col-down
 modelsup
