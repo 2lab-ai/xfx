@@ -254,7 +254,28 @@ with the same ledger (sha256 `530ac71a…`) and the same scenario files.
 
 ## 9. Gate (`gates.txt`)
 
-Pending the fault-injection re-run; filled in the last commit from `gates.txt`.
+Every CI step of `ci.yml` ran in order at **`45dffff4`**, under the suite
+lock, at load average 39-48.
+
+| step | result |
+|---|---|
+| fmt, clippy, fault-injection clippy | exit 0 |
+| `cargo test --locked --all-targets` | 14 binaries, **5475 passed**, 0 failed (round 1: 5459) |
+| with the fault injector | 15 binaries, 5512 passed, **1 failed**: `a_clipboard_read_goes_under_the_real_tmp_whatever_tmpdir_says` timed out waiting for its badge |
+| the same, re-run alone under the lock (load 19-30) | 15 binaries, **5513 passed, 0 failed** |
+| no-stubs, no-secrets, gate-env, identity, preview contract and its mutants, preflight cost, usage clock | exit 0 |
+| release and faulty builds, `smoke.sh` | exit 0 |
+| `smoke-tui.sh` | 37 scenarios + the oracle, **1167 checks, 0 failures**; scenarios 7 and 21 (the paste ones) `ok` |
+
+The one failure:
+- The test types `/paste\r`, a slash command that reads the clipboard image
+  through a subprocess, so no bracketed paste and no quarantine is involved.
+- It passed in the same gate's plain suite, and 3 of 3 alone with the fault
+  injector (`gates.txt`).
+- The re-run ran on `a1bc7c87`, a receipt-only commit: every file the binary
+  is built from is as at `45dffff4`.
+
+Every round-2 test is `ok` in the `test` log.
 
 ## parity.md
 
