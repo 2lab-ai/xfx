@@ -108,7 +108,10 @@ takes them they go on to the composer as a newline and a kill
   base**: there its keys fall through to `/model`'s menu handler
   (`offer_to_models`, whose `ModelAction::of` maps PgUp/PgDn and `C-j`/`C-k`),
   which moves the same list.
-- **Pairs at 24x120** (`pairs.txt`): 21 of 39 differ on the base.
+- **Pairs at 24x120** (`pairs.txt`): 21 of 39 differ on the base -- the 19
+  below, and `menu` and `menu-pgdn2`, whose one row is `sound-max`'s on the
+  head too (`menu-pgdn2`'s second page runs from `Sound level` past the end
+  to the first setting, where the base's mark had stayed).
   - settings menu: `menu-pgdn` 2 rows, `menu-pgup` 12, `menu-pgup2` 12,
     `menu-cj` 11, `menu-ck` 11 -- the base's mark never left `Status line
     context`, and its `C-j` typed a newline into the search (`marks.txt`).
@@ -119,7 +122,9 @@ takes them they go on to the composer as a newline and a kill
     identical on the base (the fall-through above). So are `model-pgdn3` and
     `args-pgdn3` (three pages past the end land on the first row, where the
     base's mark had stayed) and `effort-pgdn`, `effort-pgdn2`, `levels-pgdn`
-    (a page down from the first row runs past the end to the first).
+    (a page down from the first row runs past the end to the first). The
+    five first snaps (`model`, `effort`, `speed`, `levels`, `args`) are
+    before any key. 18 in all.
 
 ## GREEN (`pairs.txt` column `head`, `marks.txt`, `green-unit.txt`)
 
