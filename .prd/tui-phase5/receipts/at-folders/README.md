@@ -120,14 +120,15 @@ is empty: after the head's build only this folder changes.
   `Shell::hold_frame_for_file_listing` takes the workers' results first
   (`settle_files`), forgets the wait when no list is up, and counts a
   listing in flight as a list that browses a path (`!indexed()`) and still
-  says `Loading`. `Shell::file_listing_hold_pending` is `measuring`.
-- The loop: `commit_or_hold` skips the turn's commit while the shell holds,
-  and `wait_timeout` is 1 ms while a listing is in its first tick, else the
-  8 ms `TICK`. The listing's worker wakes nothing, so the 1 ms poll is what
-  hears it, as in fx.
-- **Where xfx differs** (`docs/parity.md`'s row): held, the whole tick's
-  writes wait -- the program status report and the title ride the frame in
-  xfx's commit -- where fx holds only `flushRequestedFrame`. At most 8 ms.
+  says `Loading`, and -- since round 2 -- not while the full transcript is
+  up. `Shell::file_listing_hold_pending` is `measuring`.
+- The loop: `commit_or_hold` holds the turn's **frame** while the shell
+  holds, and `wait_timeout` is 1 ms while a listing is in its first tick,
+  else the 8 ms `TICK`. The listing's worker wakes nothing, so the 1 ms poll
+  is what hears it, as in fx.
+- **Round 2 (`round2/README.md`)**: only the frame is held, as only fx's
+  `flushRequestedFrame` is. The status report, the title (on its own) and
+  the bells go out on their tick. Round 1 held the whole tick; that is gone.
 
 ## 4. RED (`7ef30e66`, `red-unit.txt`)
 
@@ -252,7 +253,8 @@ after (load 14-45 over the run):
   file, `@dir/` and the listing goes on)" is rewritten -- Enter mentions a
   folder (`@dir/ `, the quote closed, the list closes), Tab opens it; a
   path-shaped query lists its folder first; the 8 ms hold, its skip and
-  re-arm; and the one narrower point above (the whole tick held). The
+  re-arm; and (round 2) what the hold holds -- the frame alone -- and no
+  hold under the full transcript. The
   receipt pointer names this folder.
 - `file_picker.rs`' module doc ("Tab and Enter both …") is rewritten the same
   way; `completion`'s and `complete_file`'s docs too.
@@ -268,7 +270,7 @@ after (load 14-45 over the run):
   list re-reads the index. Untouched.
 - fx's `isCurrentFileCompletion` check before a choice is applied
   (`input_completion_runtime.zig:981-985`, `fx-src.txt:765-769`) is not
-  ported, here or at the base; no unit owns it yet (for the dispatcher's
-  queue; not a user decision).
+  ported, here or at the base. It belongs to the queued AT-STALE-SELECTION
+  (dispatcher, round 1).
 - **I-U2 ranking**: a folder query's entries are still ranked by xfx's eight
   facts; with no name typed they tie, so byte order, as fx.
