@@ -9453,6 +9453,41 @@ mod tests {
     }
 
     #[test]
+    fn only_collect_facts_makes_a_reconciled() {
+        // The token's promise ([`Reconciled`]) holds only while nothing but
+        // `collect_facts` makes one, and inside this module the compiler
+        // cannot say so: a unit struct is a value anywhere it is in scope.
+        // So this test does. Every `Reconciled` in the code ahead of these
+        // tests is a type -- a parameter's, a return's, a borrow's, the
+        // struct's own -- except `collect_facts`' one `Ok(Reconciled)`.
+        let source = include_str!("event_loop.rs");
+        let code = &source[..source.find("\nmod tests {").expect("the tests module")];
+        let word = |c: char| c.is_alphanumeric() || c == '_';
+        let mut made = Vec::new();
+        for (n, line) in code.lines().enumerate() {
+            let line = line.split("//").next().unwrap_or("");
+            let mut from = 0;
+            while let Some(at) = line[from..].find("Reconciled").map(|at| at + from) {
+                from = at + "Reconciled".len();
+                let before = line[..at].trim_end();
+                if (before.ends_with(word) && !before.ends_with("struct"))
+                    || line[from..].starts_with(word)
+                {
+                    continue;
+                }
+                let typed = before.ends_with([':', '<', '&']) || before.ends_with("struct");
+                if !typed {
+                    made.push((n + 1, line.trim().to_string()));
+                }
+            }
+        }
+        assert!(
+            made.len() == 1 && made[0].1 == "Ok(Reconciled)",
+            "a Reconciled made outside collect_facts: {made:#?}"
+        );
+    }
+
+    #[test]
     fn a_painted_preview_leaves_the_card_once_across_a_resize_before_the_card() {
         // The preview's frame has landed -- its row is on the screen -- and
         // the screen changes size before the frame that writes the card:
