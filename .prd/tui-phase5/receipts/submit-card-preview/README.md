@@ -31,10 +31,14 @@ tags: [xfx, tui, phase5, fx-0.0.16, transcript, submit]
     frame), `5ada0b12`/`077c3b63` (the token), `7e02e097`/`0921c058` (the
     exit's owed frame), `4c9fe627` (docs), `dba00dfb` (references),
     `3d09af8f` (the exit guard's lib test, the scanner);
+  - round 4: `a2b59b17` (the exit's wide rule pinned), `bd8f5d12` (its
+    docs), `74da5413` (the shrink test, the second `ESC`), `d3414f05` (the
+    token scan): tests and comments only;
   - the rest are this receipt's own commits (no source).
 - **Build.** Every `xfx/` capture is from a binary built at `3d09af8f`, the
-  last commit that touches `src/`. Row 1 of each `.full` snap says
-  `v0.1.0-3d09af8`. Every `red/` capture is from a binary built at
+  last commit that changes xfx's code outside its tests (round 4 changed
+  only tests and comments there, `round4/outside-tests.txt`). Row 1 of each
+  `.full` snap says `v0.1.0-3d09af8`. Every `red/` capture is from a binary built at
   `58c92ba2` (`v0.1.0-58c92ba`). `fx/` is fx v0.0.16, sha256 `8e6cda2e…`,
   run with `FX_AUTO_UPGRADE=0`.
 
@@ -157,7 +161,16 @@ Results:
   `PREVIEW-LINE-1`.
 - **GREEN** (`green.txt`, the head against fx and against the base): all
   134 claims hold: frame1, frame2, card and later for 18 pairs, 53 snaps,
-  and 9 whole histories. In every pair the frame after the card's is the
+  and 9 whole histories.
+  - **The 134 hold on a passing sample, not on every timing.** The first
+    capture of `p5-transcript-submit-multi` from `3d09af8f`'s build failed
+    frame1, frame2 and card. The preview's frame was built a tick before
+    the turn's start was read, so the whole document sat one row lower than
+    fx's, not just the activity row (`round3/race.txt`).
+  - Seven more captures had the activity row in that frame. The receipt
+    holds the next one.
+  - The ledger's cause `preview-frame-before-the-turn-start` names the
+    owner, SUBMIT-PREVIEW-EDGES. In every pair the frame after the card's is the
   base's frame after its card on the screen, and its bytes are the base's
   in 15 of 18 (`its bytes: the base's`). The other three differ only in the
   activity row: the head's card frame took the activity update the base
@@ -360,13 +373,18 @@ Every claim below rests on a file in `round3/` or on a test named in it.
   - (b) `a_failed_write_and_a_shrink_before_the_retry_leave_only_what_the_shrink_took`.
     A 60-row card. Its card frame is refused, or torn before its rows, or
     its preview frame is torn. Then 40 rows shrink to 24 before the retry.
-    - The card is written once, whole and in order. Its last row may go
-      under the band's resize repaint, as any document's does.
-    - The only other rows of it are the shrink's: the rows it moved into
-      the history (10 in each case), and the preview rows it kept above
-      the new band (2 each). These were measured on the final case set;
-      `af19bcf1`'s message gives 10, 6 and 10, from an earlier middle case
-      (the card's frame torn in its rows) the test no longer runs. After a resize xfx takes those 2 for the
+    - Written whole: every row of the card, once and in order, in what xfx
+      writes after the shrink (the card's frame).
+    - Visible whole, a separate claim: all 60 rows on the terminal from
+      the card's first row. The card's frame comes after the shrink, so no
+      repaint for the shorter screen covers its last row. (Round 3 said its
+      last row "may go under" the repaint; round 4's exact assertion shows
+      it does not.)
+    - The only other rows of it are the shrink's: 10 rows it moved into the
+      history and 2 preview rows it kept above the new band, in each case,
+      asserted exactly since round 4. `af19bcf1`'s message gives 10, 6 and
+      10, from an earlier middle case (the card's frame torn in its rows)
+      the test no longer runs. After a resize xfx takes those 2 for the
       document's, so they go up with the card. No row xfx wrote after the
       shrink is among them.
     - A card frame torn inside its rows ends the session, as any document
@@ -432,12 +450,9 @@ Every claim below rests on a file in `round3/` or on a test named in it.
   stream across reads. An unfinished character or escape sequence waits for
   the next bytes, and an `ESC` aborts an unfinished CSI or OSC
   (`the_test_terminal_parses_one_stream_across_reads`).
-  - One limit is not modelled: a tear exactly one byte past an `ESC`. A
-    real terminal restarts the escape at the next update's `ESC`. This
-    model reads `ESC ESC` as a two-byte escape, then prints the rest of the
-    next update's first sequence, from its `[`, as text. None of the five
-    tears in these tests lands there: the byte before each is `0`, `2`, `2`,
-    `7` or `m`, checked with a temporary assertion that was not committed.
+  - A tear exactly one byte past an `ESC` now restarts the escape at the
+    next update's `ESC`, as a real terminal does (round 4,
+    `round4/esc-red.txt`).
 - `round3/repoint.txt`: 12 references round 3's source moved, re-pointed
   in `dba00dfb`, each one's cited text the same.
 - **A race, found by the captures** (`round3/race.txt`). The first capture
@@ -448,15 +463,74 @@ Every claim below rests on a file in `round3/` or on a test named in it.
     and the document did not scroll as fx's does. fx draws the activity row
     with the prompt; xfx draws it once the turn starts (T7).
   - An instrumented build of the same commit logged what `preview_room`
-    read at that Enter: a band frame landed (`landed_bottom` 35) and 35
-    document rows, so a room of 1, as fx's. The fallback deletion did not
-    cause it.
+    read at that Enter, and what it returned: a band frame landed
+    (`landed_bottom` 35), 35 document rows, and `Some(1)`, a room of 1, as
+    fx's (`round4/preview-room-log.txt`, from a run of its own). The
+    fallback deletion did not cause it.
   - Six more captures from the same build all had the activity row in that
     frame, and the receipt holds the first of them.
   - Round 3 changed neither when the activity row appears nor when the
     preview's frame is built, so the race is older than round 3 [not
-    traced further]; the earlier captures all won it. Closing it is T7's:
-    the activity row drawn with the prompt.
+    traced further]; the earlier captures all won it. Its owner is the
+    queued unit SUBMIT-PREVIEW-EDGES, named by the ledger's cause
+    `preview-frame-before-the-turn-start` (`scripts/fxcap/parity-ledger.toml`).
+    The fix is to build the frame that clears the composer against a
+    running turn's band.
+
+## Round 4 (opus: APPROVE; gpt6: APPROVE-WITH-FIXES)
+
+Every claim below rests on a file in `round4/` or on a test named in it.
+The dispatcher kept the exit's wide rule.
+
+- **1. The exit writes whatever the document owes** (gpt6's MUST, opus
+  SHOULD 2), `a2b59b17`. Four exit tests, each with a drain that carried
+  nothing:
+  - (a) an answer's rows a refused frame left owed: written once, in order;
+  - (b) a winch outstanding at exit with a card held: the exit's resize
+    drops the preview, and the card is still written once. This is read off
+    the exit's own bytes: the composer drew the draft behind the same rail,
+    so the screen alone cannot tell (the first draft of this test passed
+    for that reason);
+  - (c) rows owed while Ctrl-O held the other plane: written after the plane
+    is given back;
+  - (d) after a stop, the pacer's text, the presenter's held line and late
+    text stay unwritten, and the stop's own line is written; at a `/clear`,
+    the pacer's text stays unwritten.
+  - RED: `round4/narrowing-red.txt`. With the exit's owed frame narrowed to
+    the card, all four fail and the card's exit tests pass. That narrowing
+    is in `mutants.py` and must die.
+  - Said in `shut_down`'s comment, `docs/parity.md` ("Every way out
+    flushes") and above (`bd8f5d12`). The guard's comment now names every
+    case it skips: before the first band, and after a handoff or a wipe
+    lands until the next band.
+  - **Found, not this unit's** (the base's, not fixed). An operational
+    notice and an answer's last line, released together by `flush_paced`
+    (the exit's drain), share one row: `OWED-NOTICEOWED-ANSWER-TWO`. The
+    notice's mark runs before `close_answer` writes the line the presenter
+    held. This reproduces with `flush_paced` alone, without an exit; the
+    paced tick path was not reproduced. Test (a) uses answer rows only.
+- **2. The shrink test** (opus SHOULD 1, gpt6 SHOULD 1), `74da5413`.
+  - It checks which write each step met, as the sibling test does.
+  - Its claims are now exact and separate: written whole after the shrink,
+    visible whole (60 of 60), and the leftover is 10 rows into the history
+    plus 2 kept above the band.
+- **3. Two `ESC`s in a row** (opus SHOULD 4, gpt6 SHOULD 2), `74da5413`.
+  The second restarts the escape, as a real terminal does. The regression
+  fails without it, printing the next update's CSI as text
+  (`round4/esc-red.txt`).
+- **4. The race's owner** (opus SHOULD 3, gpt6 SHOULD 3).
+  - The ledger's cause `preview-frame-before-the-turn-start` names its
+    owner, SUBMIT-PREVIEW-EDGES.
+  - The GREEN summary carries the qualification.
+  - The instrumented log is a file: `round4/preview-room-log.txt` shows
+    `Some(1)` at the Enter.
+- **5. The token scan** (opus SHOULD 5), `d3414f05`. A struct literal's
+  `field: Reconciled` now counts as a token made. The scan is pinned on each
+  shape.
+- **No behaviour change** (`round4/outside-tests.txt`). Since `3d09af8f`,
+  `src/` changed 0 code lines outside the tests (23 comment or blank lines).
+  So the captures, `check.py`'s claims and the sweeps from `3d09af8f`'s
+  build stand for the head, and neither was taken again.
 
 ## Local paths in the captures
 

@@ -38,6 +38,11 @@ TESTS = [
     "an_exit_after_the_cards_frame_was_refused",
     "an_exit_before_the_band_painted",
     "a_failed_write_and_a_shrink_before_the_retry",
+    "an_exit_writes_answer_rows_a_refused_frame_left_owed",
+    "an_exit_with_a_winch_outstanding_writes_the_card",
+    "an_exit_from_the_other_plane_writes",
+    "an_exit_writes_nothing_a_stop_or_a_reset",
+    "the_test_terminal_parses_one_stream",
 ]
 SHELL, LOOP, LAYOUT = "src/tui/shell.rs", "src/tui/event_loop.rs", "src/tui/layout.rs"
 MUTANTS = [
@@ -98,6 +103,22 @@ MUTANTS = [
     ("the exit: a frame before the band painted", LOOP,
      "    let owed = band.painted_top().is_some() && shell.owes_document();",
      "    let owed = shell.owes_document();"),
+    # The exit's owed frame narrowed to the card: a flag set when a preview's
+    # frame lands, cleared when a document update lands, and the exit writing
+    # only for it (round 4's tests other than the card's must kill it).
+    ("the exit: owed narrowed to the card", None, [
+        (SHELL, "    landed_bottom: Option<u16>,\n",
+         "    landed_bottom: Option<u16>,\n    card_unwritten: bool,\n"),
+        (SHELL, "            landed_bottom: None,\n",
+         "            landed_bottom: None,\n            card_unwritten: false,\n"),
+        (SHELL, "            self.preview_shown = true;\n",
+         "            self.preview_shown = true;\n            self.card_unwritten = true;\n"),
+        (SHELL, "    pub(crate) fn settle_document(&mut self) {\n        self.transcript.settle();\n",
+         "    pub(crate) fn card_unwritten(&self) -> bool {\n        self.card_unwritten && self.owes_document()\n    }\n\n"
+         "    pub(crate) fn settle_document(&mut self) {\n        self.card_unwritten = false;\n        self.transcript.settle();\n"),
+        (LOOP, "    let owed = band.painted_top().is_some() && shell.owes_document();",
+         "    let owed = band.painted_top().is_some() && shell.card_unwritten();"),
+    ]),
     # Expected to survive: the room measured before the draft goes, where
     # 4db02b1e moved it from. Both read the last landed band, and none since
     # a resize is no preview at either.
@@ -149,22 +170,26 @@ if verdict != "passed":
     sys.exit(1)
 survived = equivalent = 0
 for name, path, *edit in MUTANTS:
-    # One edit, or (for a mutant that moves a line) a list of them.
+    # One edit; a list of them in one file (a mutant that moves a line); or,
+    # with no path, a list of (path, old, new) across files.
     edits = edit[0] if len(edit) == 1 else [tuple(edit)]
-    full = os.path.join(clone, path)
-    text = open(full).read()
-    missing = [old for old, _ in edits if text.count(old) != 1]
+    edits = [e if len(e) == 3 else (path,) + tuple(e) for e in edits]
+    paths = sorted({p for p, _, _ in edits})
+    path = ", ".join(paths)
+    texts = {p: open(os.path.join(clone, p)).read() for p in paths}
+    missing = [(p, old) for p, old, _ in edits if texts[p].count(old) != 1]
     if missing:
-        print("SKIPPED  %s: %r occurs %d times" % (name, missing[0][:40], text.count(missing[0])))
+        print("SKIPPED  %s: %r occurs %d times" % (name, missing[0][1][:40], texts[missing[0][0]].count(missing[0][1])))
         survived += 1
         continue
-    for old, new in edits:
-        text = text.replace(old, new)
-    open(full, "w").write(text)
+    for p, old, new in edits:
+        texts[p] = texts[p].replace(old, new)
+    for p in paths:
+        open(os.path.join(clone, p), "w").write(texts[p])
     try:
         verdict, failing = tests()
     finally:
-        run("git", "-C", clone, "checkout", "-q", "--", path, check=True)
+        run("git", "-C", clone, "checkout", "-q", "--", *paths, check=True)
     killed = verdict in ("failed", "timed out", "did not build")
     expected = name.startswith("EQUIVALENT ")
     if expected:

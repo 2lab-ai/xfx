@@ -1,0 +1,2 @@
+# git diff 3d09af8f..d3414f05 -- src, the lines outside each file's tests module: 23 comment or blank, 0 code
+# files: src/tui/event_loop.rs
