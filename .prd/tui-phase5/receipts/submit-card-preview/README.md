@@ -213,11 +213,16 @@ build (`3d09af8f`, sha256 `d2c264db…`). The comparison is
 one at a time, in one suite-lock slot: fmt, both clippy runs, the full
 `cargo test`, both fault-injection runs, every `check-*`/`test-*` script,
 the release build, `smoke.sh`, the faulty build and `smoke-tui.sh`. It ran
-on `b0c8d70e`, which adds round 3's captures. The two commits after it
-are docs only. The first adds `gates.txt`, `mutants.txt`, the sweeps and
-this README; the three tracked-file scanners then ran on it, outside the
-lock, and the second adds their lines to the end of `gates.txt`. Step 00
-is `false` and reads `rc=1`.
+on `b0c8d70e`, which adds round 3's captures. Every commit after it is docs
+only:
+- `fe8e0440` adds `gates.txt`, `mutants.txt`, the sweeps and this README;
+- `8e365e9e` adds the scanners' lines on `fe8e0440`;
+- the next commit corrects this README (the residual counts, the
+  equivalence check, the terminal model's limit).
+
+The three tracked-file scanners ran again on that last commit, outside the
+lock. Their lines are at the end of `gates.txt`, added by the commit after
+it. Step 00 is `false` and reads `rc=1`.
 
 All 21 steps read `rc=0`. Step 04 ran 5468 tests, step 06 ran 4575 and
 step 05 ran 195, with 0 failed in each. Earlier runs: `7e4f6d47` (round 2)
@@ -356,8 +361,10 @@ Every claim below rests on a file in `round3/` or on a test named in it.
     - The card is written once, whole and in order. Its last row may go
       under the band's resize repaint, as any document's does.
     - The only other rows of it are the shrink's: the rows it moved into
-      the history (10, 6 and 10), and the preview rows it kept above the
-      new band (2 each). After a resize xfx takes those 2 for the
+      the history (10 in each case), and the preview rows it kept above
+      the new band (2 each). These were measured on the final case set;
+      `af19bcf1`'s message gives 10, 6 and 10, from an earlier middle case
+      (the card's frame torn in its rows) the test no longer runs. After a resize xfx takes those 2 for the
       document's, so they go up with the card. No row xfx wrote after the
       shrink is among them.
     - A card frame torn inside its rows ends the session, as any document
@@ -388,6 +395,14 @@ Every claim below rests on a file in `round3/` or on a test named in it.
   - The `d82556e5` survivor is now a true equivalent. `mutants.py` carries
     it as `EQUIVALENT room: measured before the draft goes`, expected to
     survive.
+    - Checked here, not only by opus's trace. Nothing between `send`'s
+      `work.submit` and the echo's measurement writes what `preview_room`
+      reads (`transcript`, `raw_gap`, `group`, `document_rows`,
+      `landed_bottom`; the screen's rows and columns).
+    - That covers the 50 lines in between and, transitively, the 19 Shell
+      methods they call (`edited`, `moved`, `refit`, `take_draft`,
+      `ask_for_title` and theirs). The only touch is `placed` reading
+      `ends_blank()` and `document_rows`.
 - **3. opus's other SHOULDs.**
   - (3) RED `5ada0b12` (`round3/token-red.txt`), fix `077c3b63`:
     `commit_frame_led` borrows the token, and the tick's two frames share
@@ -415,6 +430,12 @@ Every claim below rests on a file in `round3/` or on a test named in it.
   stream across reads. An unfinished character or escape sequence waits for
   the next bytes, and an `ESC` aborts an unfinished CSI or OSC
   (`the_test_terminal_parses_one_stream_across_reads`).
+  - One limit is not modelled: a tear exactly one byte past an `ESC`. A
+    real terminal restarts the escape at the next update's `ESC`. This
+    model reads `ESC ESC` as a two-byte escape, then prints the rest of the
+    next update's first sequence, from its `[`, as text. None of the five
+    tears in these tests lands there: the byte before each is `0`, `2`, `2`,
+    `7` or `m`, checked with a temporary assertion that was not committed.
 - `round3/repoint.txt`: 12 references round 3's source moved, re-pointed
   in `dba00dfb`, each one's cited text the same.
 - **A race, found by the captures** (`round3/race.txt`). The first capture
