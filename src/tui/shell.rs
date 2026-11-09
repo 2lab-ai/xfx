@@ -22692,6 +22692,213 @@ mod tests {
         );
     }
 
+    /// The ten vertical keys, in twelve spellings, that fx v0.0.16's approval
+    /// does not move its choice on (`p5-approval-vertical-keys`): Shift-,
+    /// Ctrl-, Super- and Alt-Down (Alt also as kitty's report of the arrow,
+    /// `CSI 57353;3u`) and `C-n`, then the same on Up and `C-p`.
+    const VERTICAL_SPELLINGS: [(&str, &[u8]); 12] = [
+        ("shift-down", b"\x1b[1;2B"),
+        ("ctrl-down", b"\x1b[1;5B"),
+        ("super-down", b"\x1b[1;9B"),
+        ("alt-down", b"\x1b[1;3B"),
+        ("kitty-alt-down", b"\x1b[57353;3u"),
+        ("ctrl-n", &[0x0e]),
+        ("shift-up", b"\x1b[1;2A"),
+        ("ctrl-up", b"\x1b[1;5A"),
+        ("super-up", b"\x1b[1;9A"),
+        ("alt-up", b"\x1b[1;3A"),
+        ("kitty-alt-up", b"\x1b[57352;3u"),
+        ("ctrl-p", &[0x10]),
+    ];
+
+    #[test]
+    fn the_vertical_spellings_at_an_approval_choice_move_nothing_and_the_arrows_still_do() {
+        // fx v0.0.16 at a choice with no amendment open. Every modified Up and
+        // Down is a composer move (`modifiedArrowAction`,
+        // `escape_parser.zig:73-108@481104fd`; the CSI modifier `:721-730`,
+        // kitty's arrow codes `:38-39` through `:208-217`), which reaches the
+        // switch's `else => {}` (`input_approval_runtime.zig:128`). `C-p` and
+        // `C-n` are raw bytes no approval action is made of
+        // (`approvalActionFromRawByte`, `src/ui/input/runtime.zig:61-73`,
+        // `:103-108`; `shortcuts.zig:11-41`), and the question takes them and
+        // does nothing (`app_input_runtime.zig:1173-1184`). Only the plain
+        // arrows move, wrapping (`input_approval_runtime.zig:111-126`).
+        // `fx-p5-approval-vertical-keys-40x120-*`.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        let on = |shell: &Fixture, choice: &str| shell.marked().contains(&format!("❯ {choice}  "));
+        assert!(on(&shell, "1"), "{:?}", shell.marked());
+        for (name, key) in VERTICAL_SPELLINGS {
+            shell.route_bytes(key);
+            assert!(
+                on(&shell, "1"),
+                "{name} ({key:?}) moved the choice: {:?}",
+                shell.marked()
+            );
+        }
+        // The same keys by the other routes fx resolves through the one table:
+        // the kitty keypad arrows with a modifier (`escape_parser.zig:196-197`,
+        // then `:163-167`), the kitty arrows with Super or Shift, and two
+        // modifiers at once, Super first (`:74`) and then Alt, Ctrl and Shift
+        // (`:83`, `:90`, `:99`).
+        for key in [
+            &b"\x1b[57419;5u"[..],
+            b"\x1b[57420;2u",
+            b"\x1b[57419;9u",
+            b"\x1b[57352;9u",
+            b"\x1b[57353;2u",
+            b"\x1b[1;10A",
+            b"\x1b[1;6B",
+            b"\x1b[1;4A",
+            b"\x1b[1;16B",
+        ] {
+            shell.route_bytes(key);
+            assert!(
+                on(&shell, "1"),
+                "{key:?} moved the choice: {:?}",
+                shell.marked()
+            );
+        }
+        // The plain arrows, in each spelling, still move it and wrap.
+        for (key, lands) in [
+            (&b"\x1b[B"[..], "2"),
+            (b"\x1b[B", "3"),
+            (b"\x1b[B", "1"),
+            (b"\x1b[A", "3"),
+            (b"\x1b[57352u", "2"),
+            (b"\x1bOA", "1"),
+            (b"\x1b[57420u", "2"),
+            (b"\x1b[57353u", "3"),
+        ] {
+            shell.route_bytes(key);
+            assert!(
+                on(&shell, lands),
+                "{key:?} did not mark choice {lands}: {:?}",
+                shell.marked()
+            );
+        }
+    }
+
+    #[test]
+    fn the_vertical_spellings_in_an_approval_amendment_keep_it_open_as_fxs_do() {
+        // fx v0.0.16 in an amendment: the decoded action's composer move is
+        // the draft's only if `approvalDraftActionFromShortcut` names it
+        // (`src/ui/input/runtime.zig:75-96`, `:121-129`;
+        // `input_approval_runtime.zig:79-89`). Super-Up and Super-Down are
+        // `draft_start` and `draft_end` (`escape_parser.zig:74-76`), so the
+        // caret goes to the draft's start and its end (`:82-83`; `cursorHome`
+        // and `cursorEnd`, `approval_amendment.zig:84-92`). Shift- and
+        // Ctrl-Up/Down are `visual_up`/`visual_down` and Alt-Up/Down
+        // `paragraph_up`/`paragraph_down` (`escape_parser.zig:84-85`, `:93-94`,
+        // `:100-101`), which it does not name (`:86`): the switch's
+        // `else => {}` (`input_approval_runtime.zig:128`), nothing. `C-p` and
+        // `C-n` are no draft key (`shortcuts.zig:31-41`) and no approval byte
+        // (`src/ui/input/runtime.zig:61-73`): nothing
+        // (`app_input_runtime.zig:1173-1184`). The amendment stays open and
+        // the choice where it is through all twelve; the letter after each
+        // pins where the caret was. `fx-p5-approval-vertical-keys-40x120-amend-*`.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tab cd");
+        let keys: [(&str, &[u8], &[u8]); 12] = [
+            ("shift-up", b"\x1b[1;2A", b"x"),
+            ("super-up", b"\x1b[1;9A", b"y"),
+            ("ctrl-p", &[0x10], b"w"),
+            ("shift-down", b"\x1b[1;2B", b"v"),
+            ("ctrl-up", b"\x1b[1;5A", b"u"),
+            ("ctrl-down", b"\x1b[1;5B", b"t"),
+            ("alt-up", b"\x1b[1;3A", b"s"),
+            ("alt-down", b"\x1b[1;3B", b"r"),
+            ("kitty-alt-up", b"\x1b[57352;3u", b"q"),
+            ("kitty-alt-down", b"\x1b[57353;3u", b"p"),
+            ("ctrl-n", &[0x0e], b"o"),
+            ("super-down", b"\x1b[1;9B", b"n"),
+        ];
+        for (name, key, letter) in keys {
+            shell.route_bytes(key);
+            assert!(shell.drafting(), "{name} ({key:?}) ended the amendment");
+            assert!(
+                shell.marked().contains("❯ 1  "),
+                "{name} ({key:?}) moved the choice: {:?}",
+                shell.marked()
+            );
+            shell.route_bytes(letter);
+        }
+        // fx's example (`ab cd`, Shift-Up, `x`, Super-Up, `y`, `C-p`, `w`
+        // gives `ywab cdx`), and the rest typed at the caret Super-Up left,
+        // until Super-Down takes it to the end for the last.
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("ywvutsrqpoab cdxn".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn a_no_op_vertical_spelling_keeps_the_receipt_and_enter_answers_the_choice_shown() {
+        // A key that leaves the choice and the amendment as they were changes
+        // nothing on the screen, so the readiness receipt about that screen is
+        // left exactly as it was, and Enter after it answers the choice the
+        // last disclosed frame marked, with the draft that frame showed. When
+        // these keys moved the marker (a `Moved` reply, which keeps the
+        // receipt: all three choices are on every frame), an Enter in the same
+        // read answered a choice no frame had shown marked -- after Shift-Down,
+        // `Always`. Super-Up and Super-Down in an amendment move the caret,
+        // which is not nothing, and are the amendment test's.
+        for open in [false, true] {
+            for (name, key) in VERTICAL_SPELLINGS {
+                if open && name.starts_with("super") {
+                    continue;
+                }
+                let mut shell = shell(24, 80);
+                asking(&mut shell);
+                if open {
+                    shell.route_bytes(b"\tab cd");
+                    delivered(&mut shell);
+                }
+                assert!(
+                    shell.approval_ready(ApprovalId(1)),
+                    "no receipt was earned, so this case proves nothing"
+                );
+                let receipt = format!("{:?}", shell.readiness);
+                shell.route_bytes(key);
+                assert_eq!(
+                    format!("{:?}", shell.readiness),
+                    receipt,
+                    "open={open} {name}: a key that moved nothing touched the receipt"
+                );
+                // No frame between: the Enter is read with the key, as a
+                // terminal that sends both in one write has it read.
+                shell.route_bytes(b"\r");
+                assert_eq!(
+                    shell.controlled(),
+                    Some(TurnControl::Answer {
+                        id: ApprovalId(1),
+                        answer: ApprovalAnswer::Once,
+                        feedback: open.then(|| "ab cd".to_string()),
+                    }),
+                    "open={open} {name}: Enter did not answer the choice the last frame showed"
+                );
+            }
+        }
+        // And a key that still changes what the card shows still revokes it:
+        // the plain arrow out of a filled draft takes the draft's rows away.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tab cd");
+        delivered(&mut shell);
+        shell.route_bytes(b"\x1b[B");
+        assert!(
+            !shell.approval_ready(ApprovalId(1)),
+            "the arrow out of a filled draft kept the receipt"
+        );
+    }
+
     #[test]
     fn the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest() {
         // `folded`'s own contract: `AltB` to `WordLeft`, Shift taken off Up
@@ -38345,46 +38552,62 @@ mod tests {
 
     #[test]
     fn up_and_down_move_the_choice_whether_or_not_a_draft_is_open() {
-        // Four cases, because `input_approval_runtime.zig:127-141` maps
-        // `cursor_up`/`history_up` to one action and `cursor_down`/`history_down`
-        // to another **regardless of whether an amendment is open**. The shell
-        // collapses each pair at the translation rather than giving the panel
-        // four keys to keep in step -- and neither spelling may ever reach the
-        // editor, because they are the only way out of a draft.
+        // fx v0.0.16 maps `cursor_up` to the previous choice and `cursor_down`
+        // to the next **whether or not an amendment is open**
+        // (`input_approval_runtime.zig:111-126@481104fd`): the plain arrow's
+        // composer move, `visual_up`/`visual_down`, is no draft key
+        // (`src/ui/input/runtime.zig:75-96`), so the arrow reaches the switch.
+        // Neither may ever reach the editor, because they are the only way out
+        // of a draft. `C-p`, `C-n` and the shifted arrows are not these keys
+        // there (`the_vertical_spellings_in_an_approval_amendment_keep_it_open_as_fxs_do`):
+        // with or without a draft they move nothing and type nothing.
         for open in [false, true] {
-            for (up, down) in [
-                (Action::Up, Action::Down),
-                (Action::ControlP, Action::HistoryNext),
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            if open {
+                shell.decide(Input::Action(Action::Tab), Instant::now());
+                type_at_the_question(&mut shell, "y");
+            }
+            for still in [
+                Action::ControlP,
+                Action::HistoryNext,
+                Action::SelectUp,
+                Action::SelectDown,
             ] {
-                let mut shell = shell(24, 80);
-                asking(&mut shell);
-                if open {
-                    shell.decide(Input::Action(Action::Tab), Instant::now());
-                    type_at_the_question(&mut shell, "y");
-                }
-                shell.decide(Input::Action(down), Instant::now());
-                assert!(
-                    shell.marked().contains("❯ 2  Apply + allow"),
-                    "open={open} {down:?}: the marker did not move: {:?}",
-                    shell.marked()
-                );
-                shell.decide(Input::Action(up), Instant::now());
+                shell.decide(Input::Action(still), Instant::now());
                 assert!(
                     shell.marked().contains("❯ 1  Apply once"),
-                    "open={open} {up:?}: the marker did not come back: {:?}",
+                    "open={open} {still:?}: the marker moved: {:?}",
                     shell.marked()
                 );
-                // And nothing of either key reached the draft: what was typed
-                // is still exactly what was typed, once Tab paints it again
-                // (only the draft that has the keys is painted).
-                if open {
-                    shell.decide(Input::Action(Action::Tab), Instant::now());
-                    assert!(
-                        band(&shell).contains("Apply once, y "),
-                        "an arrow was routed into the editor: {:?}",
-                        band(&shell)
-                    );
-                }
+                assert_eq!(shell.drafting(), open, "open={open} {still:?}");
+            }
+            shell.decide(Input::Action(Action::Down), Instant::now());
+            assert!(
+                shell.marked().contains("❯ 2  Apply + allow"),
+                "open={open}: Down did not move the marker: {:?}",
+                shell.marked()
+            );
+            shell.decide(Input::Action(Action::Up), Instant::now());
+            assert!(
+                shell.marked().contains("❯ 1  Apply once"),
+                "open={open}: Up did not bring the marker back: {:?}",
+                shell.marked()
+            );
+            assert!(
+                !shell.drafting(),
+                "open={open}: an arrow kept the draft open"
+            );
+            // And nothing of any of these keys reached the draft: what was
+            // typed is still exactly what was typed, once Tab paints it again
+            // (only the draft that has the keys is painted).
+            if open {
+                shell.decide(Input::Action(Action::Tab), Instant::now());
+                assert!(
+                    band(&shell).contains("Apply once, y "),
+                    "a key was routed into the editor: {:?}",
+                    band(&shell)
+                );
             }
         }
     }
