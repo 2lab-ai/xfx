@@ -2,6 +2,7 @@
 once, and says what it wrote where.
 
 usage: python3 -I .prd/tui-phase5/receipts/local-paths/scrub.py [--apply] [--round-2] <manifest.tsv>
+       python3 -I .prd/tui-phase5/receipts/local-paths/scrub.py [--apply] --round-3 <rev> <earlier manifest>... <manifest.tsv>
 
 Without --apply it changes nothing and writes the manifest of what it would
 change. It matches the shape of a harness root -- `/tmp/claude-<digits>`,
@@ -39,6 +40,18 @@ Round 2 (LOCAL-PATHS review) added two passes, run after the line rules:
   `<scratch>`.
 
 Their counts are the manifest's `split` and `tail` columns.
+
+Round 3 (`--round-3 <rev>`, the review of round 2) writes every root as
+capture.sh writes it now, a placeholder exactly as wide as the root
+(`scripts/fxcap/roots.py`): each capture file an earlier round rewrote (the
+earlier manifests; a capture by scripts/check-no-local-paths.sh's rule, its
+name or its kind) is read as it was at <rev>, before any round touched it,
+and every root in it -- whole, broken across rows, split by colours, or a
+quoted row's tail -- is written over its own columns, so a wrap or a colour
+change inside it stays where it was. Prose (a README, a loop file, a script)
+keeps the short placeholders of the earlier rounds: no column of it is a
+measurement. Its counts are the manifest's `split` (every root found in the
+visible text) and `tail` columns.
 """
 
 import os
@@ -139,6 +152,94 @@ def split_pass(data):
     return bytes(out + data[pos:]), len(taken)
 
 
+def width_split_pass(data):
+    """Round 3: every root in the visible text, written over its own columns
+    by a placeholder as wide as it; none that touches a marked line."""
+    view = roots.View(data)
+    marked = marked_ranges(data)
+    edits, taken = [], []
+    for name, rule in SPLIT:
+        name = name.decode().strip("<>")
+        for m in rule.finditer(view.text):
+            a, b = m.span()
+            if not view.ends_whole(b) or any(a < y and x < b for x, y in taken):
+                continue
+            spans = view.spans(a, b)
+            if any(x < my and mx < y for x, y in spans for mx, my in marked):
+                continue
+            taken.append((a, b))
+            edits.extend(roots._over(data, spans, name, False))
+    if not edits:
+        return data, 0
+    out, pos = bytearray(), 0
+    for x, y, new in sorted(edits):
+        out += data[pos:x] + new
+        pos = y
+    return bytes(out + data[pos:]), len(taken)
+
+
+def width_tail_pass(data):
+    """Round 3: a quoted row's opening tail of a harness root, as wide as it."""
+    def one(m):
+        frag = m.group(0)[len(m.group("lead")):]
+        name = "work" if m.group("work") else "scratch"
+        return m.group("lead") + roots.make_placeholder(name, roots._width(frag.decode("utf-8", "replace"))).encode()
+
+    out, n = [], 0
+    for line in data.splitlines(keepends=True):
+        if MARK not in line:
+            line, k = TAIL.subn(one, line)
+            n += k
+        out.append(line)
+    return b"".join(out), n
+
+
+CAPTURE_NAME = re.compile(r"(^|/)x?fx-[^/]*-[0-9]{1,4}x[0-9]{1,4}-")
+CAPTURE_KINDS = (".txt", ".ansi", ".wire", ".json", ".log", ".files", ".clip", ".clipfile", ".title", ".cursor", ".bells", ".sockets", ".port")
+
+
+def is_capture(rel):
+    """scripts/check-no-local-paths.sh's `is_capture`."""
+    return bool(CAPTURE_NAME.search(rel)) or "-bodies/" in rel or rel.endswith(CAPTURE_KINDS)
+
+
+def round_3(root, rev, earlier, manifest, apply):
+    files = set()
+    for path in earlier:
+        with open(path, encoding="utf-8") as f:
+            for line in f.read().splitlines()[1:]:
+                rel = line.split("\t")[0]
+                if not rel.startswith("TOTAL"):
+                    files.add(rel)
+    rows, totals = [], {"split": 0, "tail": 0}
+    for rel in sorted(files):
+        if not is_capture(rel):
+            continue
+        before = subprocess.run(["git", "-C", root, "show", "%s:%s" % (rev, rel)], capture_output=True, check=True, env=git_env()).stdout
+        data, split = width_split_pass(before)
+        data, tail = width_tail_pass(data)
+        for left in (rb"/tmp/claude-[0-9]+", rb"fxcap\.[A-Za-z0-9]{6}(?<!XXXXXX)"):
+            if re.search(left, data) and not any(MARK in line for line in data.splitlines() if re.search(left, line)):
+                sys.exit("%s: a root survives round 3" % rel)
+        path = os.path.join(root, rel)
+        with open(path, "rb") as f:
+            now = f.read()
+        if data == now:
+            continue
+        rows.append((rel, {"split": split, "tail": tail}))
+        totals["split"] += split
+        totals["tail"] += tail
+        if apply:
+            with open(path, "wb") as f:
+                f.write(data)
+    with open(manifest, "w", encoding="utf-8") as f:
+        f.write("file\tsplit\ttail\n")
+        for rel, c in rows:
+            f.write("%s\t%d\t%d\n" % (rel, c["split"], c["tail"]))
+        f.write("TOTAL %d files\t%d\t%d\n" % (len(rows), totals["split"], totals["tail"]))
+    print("%s %d files: %s" % ("rewrote" if apply else "would rewrite", len(rows), totals))
+
+
 def tail_pass(data):
     out, n = [], 0
     for line in data.splitlines(keepends=True):
@@ -177,6 +278,12 @@ def scrub(path, data, described):
 def main():
     args = sys.argv[1:]
     apply = "--apply" in args
+    if "--round-3" in args:
+        rest = [a for a in args if a != "--apply"]
+        i = rest.index("--round-3")
+        rev, paths = rest[i + 1], rest[i + 2 :]
+        root = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+        return round_3(root, rev, paths[:-1], paths[-1], apply)
     args = [a for a in args if a not in ("--apply", "--round-2")]
     if len(args) != 1:
         sys.exit(__doc__)

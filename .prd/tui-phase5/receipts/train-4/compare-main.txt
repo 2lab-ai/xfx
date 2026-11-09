@@ -929,10 +929,10 @@ p5-toolstop-retint-tc light: 5 differing rows left, 0 new
     left: fx '└ Cancelled sleep 6 && echo "x" # note' / xfx '└ Cancelled sleep 6 && echo "x" # note'
     left: fx '● 1 tool call · 1 command · 1 cancelled' / xfx '● 1 tool call · 1 command · 1 cancelled'
 read-failures live-ctrl-o-up1: 2 differing rows left, 2 new
-    left: fx '<work>/src","error":"NotRegularFi' / xfx ''
-    left: fx '├ Failed src' / xfx '<work>/src","error":"NotRegularFi'
-    NEW:  fx '<work>/src","error":"NotRegularFi' / xfx ''
-    NEW:  fx '├ Failed src' / xfx '<work>/src","error":"NotRegularFi'
+    left: fx '<work_____________________________________>/src","error":"NotRegularFi' / xfx ''
+    left: fx '├ Failed src' / xfx '<work_____________________________________>/src","error":"NotRegularFi'
+    NEW:  fx '<work_____________________________________>/src","error":"NotRegularFi' / xfx ''
+    NEW:  fx '├ Failed src' / xfx '<work_____________________________________>/src","error":"NotRegularFi'
 verdicts moved: 46
     h1-models2 after: normalized-identical -> unresolved-defect
     p5-inline-code-retint-light-tc dark: unresolved-defect -> normalized-identical

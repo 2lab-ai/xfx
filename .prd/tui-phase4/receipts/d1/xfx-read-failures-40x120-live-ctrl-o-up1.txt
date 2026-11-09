@@ -26,7 +26,7 @@ x𝒇x v0.1.0-2d0432b [debug] · Run /help for commands
 ● 4 tool calls · 3 read · 1 list · 4 failed
 ├ Failed src
 │  {"error":{"type":"tool_execution_failed","tool_name":"read_file","message":"read_file requires a regular file","detai
-│  ls":{"field":"path","path":"<work>/src","error":"NotRegularFile"},"suggestion":"Us
+│  ls":{"field":"path","path":"<work___________________________________>/src","error":"NotRegularFile"},"suggestion":"Us
 │  e glob_files to inspect directory contents, then choose a regular file."}}
 
   2026-10-07 04:51:35.670 UTC · Tool

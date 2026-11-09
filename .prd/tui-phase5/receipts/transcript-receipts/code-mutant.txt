@@ -1,7 +1,7 @@
 # a throwaway clone of f84734dc (git clone --no-local), with one change: fx_names loses its U+2028-U+202E arm,
 # so U+202E (the right-to-left override) is no longer escaped:
 -        || (0x2028..=0x202e).contains(&code)
-# TMPDIR=<tmp>/tr cargo test --locked --lib tui::full_transcript
+# TMPDIR=<tmp__________________>/tr cargo test --locked --lib tui::full_transcript
 test tui::full_transcript::tests::a_files_line_is_spelled_as_fxs_append_terminal_safe_line_spells_it ... FAILED
 test tui::full_transcript::tests::a_changes_rows_write_a_files_bytes_as_fx_does_and_hand_the_terminal_none ... FAILED
 thread 'tui::full_transcript::tests::a_files_line_is_spelled_as_fxs_append_terminal_safe_line_spells_it' (265278202) panicked at src/tui/full_transcript.rs:2865:13:

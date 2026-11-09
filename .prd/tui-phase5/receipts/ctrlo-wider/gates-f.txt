@@ -14,7 +14,7 @@ exit 0, 20 s
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 20.16s
 
 ## test
-$ <tmp>/bin/suite-lock.sh cargo test --locked --no-fail-fast
+$ <tmp__________________>/bin/suite-lock.sh cargo test --locked --no-fail-fast
 exit 0, 210 s
     Finished `test` profile [unoptimized + debuginfo] target(s) in 10.34s
 test result: ok. 4378 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 51.59s
@@ -34,7 +34,7 @@ test result: ok. 177 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fi
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
 
 ## test-fault
-$ <tmp>/bin/suite-lock.sh cargo test --locked --features fault-injection --no-fail-fast
+$ <tmp__________________>/bin/suite-lock.sh cargo test --locked --features fault-injection --no-fail-fast
 exit 0, 204 s
     Finished `test` profile [unoptimized + debuginfo] target(s) in 37.18s
 test result: ok. 4401 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 59.58s
@@ -135,11 +135,11 @@ exit 0, 53 s
     Finished `release` profile [optimized] target(s) in 52.44s
 
 ## smoke
-$ scripts/smoke.sh target/release/xfx <tmp>/cw/smoke-f/smoke
+$ scripts/smoke.sh target/release/xfx <tmp__________________>/cw/smoke-f/smoke
 exit 0, 10 s
 
 ## smoke-tui
-$ <tmp>/bin/suite-lock.sh scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <tmp>/cw/smoke-f/smoke-tui
+$ <tmp__________________>/bin/suite-lock.sh scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx <tmp__________________>/cw/smoke-f/smoke-tui
 exit 0, 76 s
 
 # done 2026-11-08T03:54:42Z

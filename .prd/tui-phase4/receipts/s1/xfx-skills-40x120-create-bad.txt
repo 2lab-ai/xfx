@@ -3,9 +3,9 @@ x𝒇x v0.1.0-0e78888 [debug] · Run /help for commands
 * skills: Skill 'nope' not found.
 
 * skills: xfx workspace roots are auto-discovered from .xfx/skills and skills/.
-  xfx managed install root: <scratch>/home/.xfx/skills
+  xfx managed install root: <scratch___________________________>/home/.xfx/skills
 
-* skills: Created <scratch>/home/.xfx/skills/made/SKILL.md
+* skills: Created <scratch___________________________>/home/.xfx/skills/made/SKILL.md
 
 * skills: Invalid skill name. Use a single directory name without '/' or '\'.
 

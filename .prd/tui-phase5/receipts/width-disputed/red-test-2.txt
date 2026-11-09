@@ -1,4 +1,4 @@
-# TMPDIR=<tmp>/tr cargo test --locked --lib tui::wrap::tests::a_cluster_that_holds
+# TMPDIR=<tmp__________________>/tr cargo test --locked --lib tui::wrap::tests::a_cluster_that_holds
 # on d3584529's code (2f328d47's product code) with only this test added; (cluster, painter, fx's count by the port)
 
 running 1 test

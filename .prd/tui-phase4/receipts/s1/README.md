@@ -30,10 +30,11 @@ the same verdicts row for row once the two fixes below were in.
 
 Sanitized: each run directory's random suffix was written as `XXXXXX`
 (`/private/tmp/claude-<uid>/fxcap.XXXXXX`), the same length, so no row moved.
-Since LOCAL-PATHS (2026-11-09) the whole run directory is written `<scratch>`
-(`<work>` for its `work`): a row that holds it is shorter, on both sides alike,
-and stays where it was; every pair reads as it did
-(`.prd/tui-phase5/receipts/local-paths/verify.txt`). No
+Since LOCAL-PATHS (2026-11-09) the whole run directory is written as a
+placeholder exactly as wide as it (`<scratch____>`, `<work____>` for its
+`work`), over its own columns -- where fx broke it after `/private/tmp/`, the
+placeholder breaks there too -- so still no row moves, and every pair reads as
+it did (`.prd/tui-phase5/receipts/local-paths/verify.txt`). No
 home path, key or bearer appears in any file. The fake key
 (`fake-key-not-real`) appears nowhere.
 

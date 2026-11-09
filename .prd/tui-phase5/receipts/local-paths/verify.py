@@ -78,6 +78,12 @@ def pairs_of(rel):
     return []
 
 
+def columns(row):
+    """A row's visible width, control sequences set aside, as cells.py counts."""
+    text = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\\\)|\x1b[\x20-\x2f]*[\x30-\x7e]", b"", row)
+    return sum(cells.width(ch) for ch in text.decode("utf-8", "replace"))
+
+
 def differing_lines(a, b):
     la, lb = a.split(b"\n"), b.split(b"\n")
     return sorted(i + 1 for i in range(max(len(la), len(lb))) if (la[i] if i < len(la) else None) != (lb[i] if i < len(lb) else None))
@@ -150,6 +156,27 @@ def main():
     print("rewritten, with no pair to read against (%d):" % len(alone))
     for rel in alone:
         print("  " + rel)
+    # Every rewritten capture, paired or not, row by row: the columns of its
+    # visible text, at <base-rev> and now (round 3's placeholders keep them).
+    rows = same_rows = files_same = 0
+    other_files = []
+    for rel in rewritten:
+        b, n = at(base, rel), now(rel)
+        lb, ln = b.split(b"\n"), n.split(b"\n")
+        ok = len(lb) == len(ln)
+        for x, y in zip(lb, ln):
+            rows += 1
+            if columns(x) == columns(y):
+                same_rows += 1
+            else:
+                ok = False
+        files_same += ok
+        if not ok:
+            other_files.append(rel)
+    print()
+    print("columns: %d of %d rows keep their width, in %d of %d files" % (same_rows, rows, files_same, len(rewritten)))
+    for rel in other_files:
+        print("  width changed: " + rel)
     return 1 if other else 0
 
 

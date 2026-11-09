@@ -16,13 +16,13 @@ test tui::shell::tests::with_no_room_a_clipboard_image_or_slash_image_says_so_be
 m8-noescape exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4004 filtered out; finished in 0.09s 
 test clipboard::tests::a_hostile_path_is_one_string_to_the_real_applescript_interpreter ... FAILED
 thread 'clipboard::tests::a_hostile_path_is_one_string_to_the_real_applescript_interpreter' (273532177) panicked at src/clipboard.rs:785:9:
-  left: Some("<tmp>/tui-unsaved/.tmp8w2o2k/xy\\z\"w/clipboard.png")
- right: Some("<tmp>/tui-unsaved/.tmp8w2o2k/x\" & (do shell script \"touch <tmp>/tui-unsaved/.tmp8w2o2k/canary\") & \"y\\\\z\\\"w/clipboard.png")
+  left: Some("<tmp__________________>/tui-unsaved/.tmp8w2o2k/xy\\z\"w/clipboard.png")
+ right: Some("<tmp__________________>/tui-unsaved/.tmp8w2o2k/x\" & (do shell script \"touch <tmp__________________>/tui-unsaved/.tmp8w2o2k/canary\") & \"y\\\\z\\\"w/clipboard.png")
 ## M9: quotes escaped before backslashes
 m9-order exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4004 filtered out; finished in 0.07s 
 test clipboard::tests::a_hostile_path_is_one_string_to_the_real_applescript_interpreter ... FAILED
 thread 'clipboard::tests::a_hostile_path_is_one_string_to_the_real_applescript_interpreter' (273534273) panicked at src/clipboard.rs:784:9:
-osascript refused "\"<tmp>/tui-unsaved/.tmpkM6FkL/x\\\\\" & (do shell script \\\\\"touch <tmp>/tui-unsaved/.tmpkM6FkL/canary\\\\\") & \\\\\"y\\\\\\\\z\\\\\\\\\"w/clipboard.png\""
+osascript refused "\"<tmp__________________>/tui-unsaved/.tmpkM6FkL/x\\\\\" & (do shell script \\\\\"touch <tmp__________________>/tui-unsaved/.tmpkM6FkL/canary\\\\\") & \\\\\"y\\\\\\\\z\\\\\\\\\"w/clipboard.png\""
 ## M10: a clipboard image copied before the room check (the base order)
 m10-clipboard exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4004 filtered out; finished in 0.34s 
 test tui::shell::tests::with_no_room_a_clipboard_image_or_slash_image_says_so_before_any_copy ... FAILED

@@ -82,11 +82,12 @@ envelope with the absolute target. `live-ctrl-o-up1` differs only in the
 session record (F5's row #2). The envelope rows name the run's own
 temporary directory (`/private/tmp/claude-<uid>/fxcap.*`): it is in what the
 model was sent, and a stand-in of another length would move the breaks being
-compared. Since LOCAL-PATHS (2026-11-09) it is written `<work>` (`<scratch>`
-elsewhere in the run) after the capture, never before it: each row that holds
-it is shorter, on both sides alike, every break stays on the row it was on,
-and the pairs read as they did but for the run directory's random suffix,
-each side's own (`.prd/tui-phase5/receipts/local-paths/verify.txt`).
+compared. Since LOCAL-PATHS (2026-11-09) it is written, after the capture,
+as a placeholder exactly as wide as it (`<work____>`, `<scratch____>`
+elsewhere in the run), over its own columns: every row keeps its width and
+every break its column, and the pairs read as they did but for the run
+directory's random suffix, each side's own
+(`.prd/tui-phase5/receipts/local-paths/verify.txt`).
 `resume-tools`: `end`, `again-stopped`, `resumed` and `ctrl-o-up2` are
 identical masked; the live Ctrl-O's stopped `sleep 4` is `└ Cancelled sleep
 4` / `│ signal 15` on both; the replayed stamps are fx's on both -- the notice

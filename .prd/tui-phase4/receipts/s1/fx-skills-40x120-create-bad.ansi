@@ -3,10 +3,10 @@
 [38;5;250m* skills: Skill 'nope' not found.[39m
 
 [38;5;250m* skills: fx workspace roots are auto-discovered from .fx/skills and skills/.[39m
-  [38;5;250mfx managed install root: <scratch>/home/.fx/skills[39m
+  [38;5;250mfx managed install root: <scratch___________________________>/home/.fx/skills[39m
   [38;5;250mcompatibility roots are auto-discovered from workspace and home (.opencode/.codex/.claude/.agents/.claw).[39m
 
-[38;5;250m* skills: Created <scratch>/home/.fx/skills/made/SKILL.md[39m
+[38;5;250m* skills: Created <scratch___________________________>/home/.fx/skills/made/SKILL.md[39m
 
 [38;5;250m* skills: Invalid skill name. Use a single directory name without '/' or '\'.[39m
 
