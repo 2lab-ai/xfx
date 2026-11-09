@@ -104,3 +104,42 @@ src/unix/bsd/apple/mod.rs:
 src/unix/linux_like/mod.rs:
 432:pub const CLOCK_MONOTONIC: crate::clockid_t = 1;
 438:pub const CLOCK_BOOTTIME: crate::clockid_t = 7;
+
+## A failed reading: zig 0.16.0 <zig>/lib/zig/std/Io/Threaded.zig:11428-11445 (nowPosix returns .zero when clock_gettime fails; now() dispatches to it off Windows and WASI)
+## zig 0.16.0 only: fx pins minimum_zig_version 0.17.0 (build.zig.zon:28@481104fd), which is not on this machine
+11428  fn nowPosix(clock: Io.Clock) Io.Timestamp {
+11429      const clock_id: posix.clockid_t = clockToPosix(clock);
+11430      var timespec: posix.timespec = undefined;
+11431      switch (posix.errno(posix.system.clock_gettime(clock_id, &timespec))) {
+11432          .SUCCESS => return timestampFromPosix(&timespec),
+11433          else => return .zero,
+11434      }
+11435  }
+11436  
+11437  fn now(userdata: ?*anyopaque, clock: Io.Clock) Io.Timestamp {
+11438      const t: *Threaded = @ptrCast(@alignCast(userdata));
+11439      _ = t;
+11440      return switch (native_os) {
+11441          .windows => nowWindows(clock),
+11442          .wasi => nowWasi(clock),
+11443          else => nowPosix(clock),
+11444      };
+11445  }
+
+## beside fx's rule for it: src/core/gateway/model_catalog.zig:72-79@481104fd (git -C <fx-upstream> show 481104fd:<path>)
+   72  /// Milliseconds on the clock that times catalog refreshes. Natively it keeps
+   73  /// counting while the machine sleeps, so a catalog goes stale overnight, and
+   74  /// ignores wall-clock changes. The libfx wasm host backs it with wall time, so
+   75  /// callers treat a reading earlier than a stored one as due.
+   76  pub fn clockMs() i64 {
+   77      const timestamp = std.Io.Clock.boot.now(io_mod.getIo());
+   78      return @intCast(@divFloor(timestamp.nanoseconds, std.time.ns_per_ms));
+   79  }
+
+## and where fx stamps a read's start with the decision's own reading: src/core/app/model_cache_runtime.zig:609-612,636,951@481104fd
+  609          const now = model_catalog.clockMs();
+  610          self.mutex.lockUncancelable(io_mod.getIo());
+  611          // A clock that moved backwards makes every elapsed check due.
+  612          const elapsed = if (now < self.last_attempt_ms) std.math.maxInt(i64) else now - self.last_attempt_ms;
+  636          self.last_attempt_ms = now;
+  951                  self.retry_not_before_ms = model_catalog.clockMs() + delay_ms;
