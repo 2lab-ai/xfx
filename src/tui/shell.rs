@@ -35479,14 +35479,30 @@ mod tests {
         assert_eq!(order[13], Some(Setting::PromptHistory));
         pages_as_fx_does(&mut shell, &order, 0, &marked);
         // Nothing listed: `Menu.move` answers `false` (`settings_catalog.zig:
-        // 227`), so `C-j` goes on to the composer, a newline in the search,
-        // with the menu still up (`activeCatalogMenuOwnsByte`,
-        // `app_input_runtime.zig:1609-1610`).
+        // 227`), so every move goes on, with the menu still up
+        // (`activeCatalogMenuOwnsByte`, `app_input_runtime.zig:1609-1610`).
+        // Up and Down are then the caret's, to the start and the end of a
+        // one-row search (`routeComposerVertical`, `input_completion_runtime.
+        // zig:272-288@481104fd`; `fx-p5-page-keys-settings-24x120-empty-up`);
+        // a page leaves the text alone; `C-k` from the start kills the search
+        // and `C-j` is a newline in it.
         shell.route_bytes(b"zzz");
         assert_eq!(marked(&shell), None, "the search found a setting");
+        let caret = |shell: &Fixture| shell.editor.point(shell.text_cols()).1;
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(caret(&shell), 0, "Up was spent on an empty list");
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(caret(&shell), 3, "Down was spent on an empty list");
+        shell.route_bytes(b"\x1b[6~\x1b[5~");
+        assert_eq!(shell.editor.text(), "zzz");
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(shell.editor.text(), "", "C-k was spent on an empty list");
+        assert_eq!(marked(&shell), order.first().cloned().flatten());
+        shell.route_bytes(b"zzz");
         shell.route_bytes(&[0x0a]);
         assert_eq!(shell.editor.text(), "zzz\n");
-        assert!(shell.settings_menu.is_some(), "C-j closed the menu");
+        assert!(shell.settings_menu.is_some(), "a key closed the menu");
     }
 
     #[test]
@@ -35622,6 +35638,268 @@ mod tests {
         assert_eq!(order[0].as_deref(), Some("/mcp show s01"));
         pages_as_fx_does(&mut shell, &order, 0, &marked);
         runtime.shutdown();
+    }
+
+    /// The composer's caret, as (row, cell) at its width.
+    fn caret_at(shell: &Fixture) -> (usize, usize) {
+        let (row, cells) = shell.editor.point(shell.text_cols());
+        (row, usize::from(cells))
+    }
+
+    /// On a composer of more than one row the arrows and a page are the
+    /// caret's and the slash list's mark stays; `C-j` still walks it.
+    /// fx gives a slash list those keys only while `capped.input_extra` is 0
+    /// (`routeComposerVertical`, `input_completion_runtime.zig:255-260
+    /// @481104fd`; the caret otherwise, `:262-291`), and `C-j`/`C-k` reach it
+    /// by `routeSlashCompletionMove` (`:175-180`), which asks no height.
+    /// `marked` reads the mark; the caret starts on the composer's last row.
+    fn a_slash_list_leaves_a_taller_composer_its_arrows<T: PartialEq + std::fmt::Debug>(
+        shell: &mut Fixture,
+        marked: &impl Fn(&Fixture) -> T,
+    ) {
+        let rows = shell.geometry.input_rows();
+        assert!(
+            rows > 1,
+            "the composer is one row: {:?} at {} columns",
+            shell.editor.rows(shell.text_cols()),
+            shell.text_cols()
+        );
+        let mark = marked(shell);
+        let (row, _) = caret_at(shell);
+        assert_eq!(
+            row + 1,
+            usize::from(rows),
+            "the caret is not on the last row"
+        );
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(caret_at(shell).0, row - 1, "Up did not move the caret");
+        assert_eq!(marked(shell), mark, "Up walked the list");
+        for (key, name) in [
+            (&b"\x1b[5~"[..], "PgUp"),
+            (b"\x1b[6~", "PgDn"),
+            (b"\x1b[B", "Down"),
+        ] {
+            shell.route_bytes(key);
+            assert_eq!(marked(shell), mark, "{name} walked the list");
+        }
+        shell.route_bytes(&[0x0a]);
+        assert_ne!(marked(shell), mark, "C-j did not walk the list");
+    }
+
+    #[test]
+    fn mcp_arguments_on_a_taller_composer_leave_the_arrows_and_pages_to_the_caret() {
+        // Two newlines first, with no list up, so they are newlines; then the
+        // line `slashCompletionPrefix` trims them off (`command_specs.zig:
+        // 568-576@481104fd`), three rows in all
+        // (`fx-p5-page-keys-mcp-24x120-wrapped-*`).
+        let servers: Vec<String> = (1..=24)
+            .map(|n| {
+                format!(r#""s{n:02}":{{"type":"http","url":"http://127.0.0.1:9/s{n:02}","enabled":false}}"#)
+            })
+            .collect();
+        let profile = format!(r#"{{"mcpServers":{{{}}}}}"#, servers.join(","));
+        let (mut shell, runtime, _home) = mcp_args_shell_over(&profile, 24);
+        shell.route_bytes(&[0x0a, 0x0a]);
+        shell.route_bytes(b"/mcp show ");
+        let marked = |shell: &Fixture| {
+            shell
+                .mcp_args
+                .as_ref()
+                .and_then(|args| args.chosen())
+                .map(str::to_string)
+        };
+        assert_eq!(marked(&shell).as_deref(), Some("/mcp show s01"));
+        assert_eq!(shell.geometry.input_rows(), 3);
+        a_slash_list_leaves_a_taller_composer_its_arrows(&mut shell, &marked);
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn a_slash_menu_on_a_taller_composer_leaves_the_arrows_and_pages_to_the_caret() {
+        // Two skills whose names outrun a 40-column composer: the slash word
+        // that lists both wraps.
+        let root = tempfile::tempdir().expect("a root");
+        let skills = root.path().join("work").join("skills");
+        for name in [
+            "wrap-the-composer-past-its-first-row-and-on-one",
+            "wrap-the-composer-past-its-first-row-and-on-two",
+        ] {
+            std::fs::create_dir_all(skills.join(name)).expect("a skill");
+            std::fs::write(
+                skills.join(name).join("SKILL.md"),
+                format!("---\nname: {name}\ndescription: a long name\n---\n\n# {name}\n"),
+            )
+            .expect("SKILL.md");
+        }
+        let mut skilled = skilled_over(root, 24, 40);
+        skilled.route_bytes(b"/wrap-the-composer-past-its-first-row-and-on-");
+        skills_landed(&mut skilled);
+        let marked = |shell: &Fixture| shell.picker.as_ref().map(|picker| picker.marked());
+        let (_, count) = marked(&skilled.shell).expect("a menu");
+        assert_eq!(count, 2, "the menu lists both skills");
+        a_slash_list_leaves_a_taller_composer_its_arrows(&mut skilled.shell, &marked);
+    }
+
+    /// While the full transcript is up, `C-k` and `C-j` are the composer's
+    /// -- a kill to the end and a newline -- and no list behind the screen
+    /// moves: fx's `routePickerControlByte` refuses them once
+    /// `composerPickerSurfaceVisible` is false (`app_input_runtime.zig:1094`,
+    /// `:1110-1116@481104fd`). The caret is at the end of the draft, so the
+    /// kill takes nothing. A list that no edit of the draft leaves up --
+    /// `/effort`'s and `/fork`'s, which read no search -- is closed by the
+    /// kill instead, as fx's are (`dismissActiveMenusForComposerEdit`,
+    /// `:881-886`, `:1984-1990`): `closes`.
+    fn row_keys_reach_the_composer_under_the_full_transcript<T: PartialEq + std::fmt::Debug>(
+        shell: &mut Fixture,
+        marked: &impl Fn(&Fixture) -> Option<T>,
+        closes: bool,
+    ) {
+        let draft = shell.editor.text().to_string();
+        let mark = marked(shell);
+        assert!(mark.is_some(), "no list is up");
+        shell.route_bytes(b"\x0f");
+        assert!(shell.full.is_open(), "C-o opened no full transcript");
+        shell.route_bytes(&[0x0b]);
+        if closes {
+            assert_eq!(marked(shell), None, "C-k left the list up");
+        } else {
+            assert_eq!(marked(shell), mark, "C-k walked a list behind the screen");
+        }
+        assert_eq!(shell.editor.text(), draft);
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(
+            shell.editor.text(),
+            format!("{draft}\n"),
+            "C-j did not reach the composer"
+        );
+        assert!(shell.full.is_open(), "C-j closed the full transcript");
+    }
+
+    #[test]
+    fn under_the_full_transcript_the_settings_menu_takes_no_row_key() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 24, 120);
+        shell.route_bytes(b"/settings\r");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut shell,
+            &|shell: &Fixture| {
+                shell
+                    .settings_menu
+                    .as_ref()
+                    .and_then(|menu| menu.selected(&shell.settings_snapshot()))
+            },
+            false,
+        );
+        assert!(shell.settings_menu.is_some());
+    }
+
+    #[test]
+    fn under_the_full_transcript_the_model_column_takes_no_row_key() {
+        let mut shell = harness_shell();
+        shell.route_bytes(b"/model ");
+        assert_eq!(marked_row(&shell).as_deref(), Some("openai/gpt-6-astra"));
+        row_keys_reach_the_composer_under_the_full_transcript(&mut shell, &marked_row, false);
+    }
+
+    #[test]
+    fn under_the_full_transcript_the_model_menu_takes_no_row_key() {
+        let mut shell = harness_shell();
+        shell.route_bytes(b"/model\r");
+        assert!(shell.model_menu.is_some(), "/model opened no menu");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut shell,
+            &|shell: &Fixture| {
+                shell
+                    .model_menu
+                    .as_ref()
+                    .and_then(ModelMenu::selected)
+                    .map(str::to_string)
+            },
+            false,
+        );
+    }
+
+    #[test]
+    fn under_the_full_transcript_the_mcp_arguments_take_no_row_key() {
+        let (mut shell, runtime, _home) = mcp_args_shell();
+        shell.route_bytes(b"/mcp ");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut shell,
+            &|shell: &Fixture| {
+                shell
+                    .mcp_args
+                    .as_ref()
+                    .and_then(|args| args.chosen())
+                    .map(str::to_string)
+            },
+            false,
+        );
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn under_the_full_transcript_no_other_list_takes_a_row_key() {
+        // The same refusal for the other lists that walk on `C-j`/`C-k`
+        // (`routeVisiblePickerMove`, `input_completion_runtime.zig:390-422`),
+        // by the same one check: here the slash menu, `/help`'s catalog,
+        // `/provider`'s column, `/effort`'s menu and `/fork`'s menu. The `@`
+        // list's keys are unit CTRLO-AT-KEYS's.
+        let mut slash = shell(24, 120);
+        slash.route_bytes(b"/");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut slash,
+            &|shell: &Fixture| shell.picker.as_ref().map(|picker| picker.marked()),
+            false,
+        );
+        let mut catalog = with_catalog(24, 120);
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut catalog,
+            &|shell: &Fixture| {
+                shell
+                    .help_menu
+                    .as_ref()
+                    .and_then(HelpMenu::selected)
+                    .map(|spec| spec.name)
+            },
+            false,
+        );
+        let mut provider = shell(24, 120);
+        provider.route_bytes(b"/provider ");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut provider,
+            &|shell: &Fixture| {
+                shell
+                    .provider_picker
+                    .as_ref()
+                    .and_then(|column| column.chosen())
+            },
+            false,
+        );
+        let root = tempfile::tempdir().expect("a root");
+        let mut effort = effort_shell_at(root.path(), 24, 120);
+        effort.route_bytes(b"/effort\r");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut effort,
+            &|shell: &Fixture| {
+                shell
+                    .effort_menu
+                    .as_ref()
+                    .map(|menu| menu.selected().clone())
+            },
+            true,
+        );
+        let mut fork = shell(24, 120);
+        forked_menu(
+            &mut fork,
+            (1..=5)
+                .map(|turn| fork_point(turn, &format!("prompt {turn}")))
+                .collect(),
+        );
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut fork,
+            &|shell: &Fixture| shell.fork_menu.as_ref().map(|menu| menu.selected().turn),
+            true,
+        );
     }
 
     #[test]
