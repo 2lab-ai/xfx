@@ -22673,6 +22673,38 @@ mod tests {
     }
 
     #[test]
+    fn the_full_transcript_holds_the_composer_spellings_of_the_arrows_as_it_holds_the_arrows() {
+        // The full transcript holds Left and Right (`full_transcript.rs`'s
+        // `key`, `Reply::Held`) and reads the event `unspelled`, so Shift- and
+        // Super-Left and -Right and Ctrl-B and Ctrl-F, which the decoder keeps
+        // apart for an approval's choice, are held too: none reaches the
+        // composer behind the screen.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"ab");
+        shell.route_bytes(b"\x0f");
+        assert!(shell.full.is_open(), "Ctrl-O opened no full transcript");
+        for key in [
+            &b"\x1b[1;2D"[..],
+            b"\x1b[1;9D",
+            &[0x02],
+            b"\x1b[1;2C",
+            b"\x1b[1;9C",
+            &[0x06],
+        ] {
+            shell.route_bytes(key);
+            assert!(shell.full.is_open(), "{key:?} closed the full transcript");
+        }
+        shell.route_bytes(b"\x0f");
+        assert!(!shell.full.is_open(), "Ctrl-O did not close it");
+        shell.route_bytes(b"z");
+        assert_eq!(
+            shell.editor.text(),
+            "abz",
+            "a key under the full transcript moved the composer's caret"
+        );
+    }
+
+    #[test]
     fn a_model_question_takes_the_composers_rows_and_gives_them_back() {
         // Upstream's question replaces the footer -- composer, blank and
         // statusline -- with its own rules, rows and hint
