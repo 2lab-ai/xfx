@@ -1,19 +1,21 @@
-# The catalog cannot be read at launch (503 for the first six seconds, longer
-# than either binary takes to start under load), a turn starts once it is
-# back, and `/model` asks again while it runs -- with the catalog answering
-# eight seconds after it is asked. The model's question arrives while that
-# read is on its way, and is up when it lands. fx's load runs on a thread of
-# its own (`startWarmup` -> `preloadThreadMain`,
-# `model_cache_runtime.zig:321-349`, `:698-743`), so the question does not
-# hold it; the menu behind the question takes the rows (`pollLoadTransition`,
-# `:549-557`), and they are there when the question is answered. The gateway
-# log stamps when the read was asked and when it answered, ahead of the
-# completion the answer sends.
+# The catalog cannot be read at launch (503 until the `modelsup` line, past the
+# launch read and before the prompt: a point in the scenario, not a moment on
+# the gateway's clock, which each binary's launch reaches at a different time,
+# registry #19), a turn starts once it is back, and `/model` asks again while
+# it runs -- with the catalog answering eight seconds after it is asked. The
+# model's question arrives while that read is on its way, and is up when it
+# lands. fx's load runs on a thread of its own (`startWarmup` ->
+# `preloadThreadMain`, `model_cache_runtime.zig:321-349`, `:698-743`), so the
+# question does not hold it; the menu behind the question takes the rows
+# (`pollLoadTransition`, `:549-557`), and they are there when the question is
+# answered. The gateway log stamps when the read was asked and when it
+# answered, ahead of the completion the answer sends.
 models models.json
-modelsdown 6000
+modelsdown
 modelsdelay 8000
 gateway model-parked-turns.json
 wait 6.5
+modelsup
 snap start
 type pick a database
 key Enter

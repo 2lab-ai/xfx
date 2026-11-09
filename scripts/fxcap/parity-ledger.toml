@@ -1055,15 +1055,15 @@ xfx_row = 'work · (?: 1m|now) · 1 turn$'
 fix = "seed the saved sessions with fixed timestamps (homefile), or take the picker snaps well clear of a minute after the first prompts"
 why = "The picker's age column reads the run's clock; the snaps fall about a minute after the sessions were made, so one run says ` 1m` and the other `now`."
 
-[[cause]]
-id = "catalog-window"
-kind = "nondeterminism"
-owner = "FLAKE-MODELSDOWN (registry #19): scenario + fakegw"
-scenarios = ["model-reask", "model-column-idle", "model-column-reask"]
-snaps = ["menu-failed", "col-*"]
-whole_snap = true
-fix = "an outage counted in catalog requests, or from a scenario line, rather than milliseconds since the gateway started (`modelsdown`, a fakegw/capture.sh change, not a scenario file); `model-column-hold` shows the column's rule with no gateway clock in it"
-why = "`modelsdown <ms>` is wall-clock from the gateway's start, and each binary launches a different time after it. Since MODELS-REASK both read the catalog by fx v0.0.16's rule -- at launch, then past each failure's hold (5 s, 10 s, ...) -- so a pair differs only when one binary's read lands on the other side of the outage's end: in MODELS-REASK's sweeps the first ask came 1.2 to 13.6 s after the gateway started, and `model-column-idle`'s column read at 6805 ms on xfx (503) and 9012 ms on fx (200) in one, `model-column-reask`'s at 8502 ms on xfx (503) and 12766 ms on fx (200) in another (.prd/tui-phase5/receipts/models-reask/README.md)."
+# No cause for the catalog outage's window. `modelsdown <ms>` counted from the
+# fake gateway's start, and each binary launches a different time after it
+# (its first catalog read 1 to 17 s after the gateway started in train 11's
+# sweeps), so a pair turned on which side of the outage's end each binary's
+# read landed: `catalog-window`, FLAKE-MODELSDOWN (registry #19). The outage
+# now ends at a scenario line (`modelsdown` ... `modelsup`, capture.sh): every
+# read before the line fails and every read after it is answered, on every
+# run (.prd/tui-phase5/receipts/sweep-wallclock/README.md). A pair of those
+# scenarios that differs is a difference, on its first run.
 
 [[cause]]
 id = "activity-tokens-before-request"

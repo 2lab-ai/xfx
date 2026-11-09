@@ -170,6 +170,10 @@ class Refusals(unittest.TestCase):
             # The old form, a moment on the gateway's clock: refused, not read as a file name.
             ("models2 c.json 5000\nsnap a\n", "models2 takes <catalog.json>, served from its line on, not c.json 5000"),
             ("modelsdelay soon\nsnap a\n", "modelsdelay takes milliseconds, not soon"),
+            # The old form, a moment on the gateway's clock (FLAKE-MODELSDOWN): refused, not read anew.
+            ("modelsdown 6000\nsnap a\n", "modelsdown takes no argument (down from the launch until a `modelsup` line), not 6000: the wall-clock form is retired"),
+            ("modelsdown\nmodelsup now\nsnap a\n", "modelsup takes no argument, not now"),
+            ("modelsup\nsnap a\n", "modelsup ends a `modelsdown` outage, and this scenario has no modelsdown line"),
             ("modelspad 2000\nsnap a\n", "modelspad takes <bytes> (64 MiB at most) and head or tail, not 2000"),
             ("modelspad 67108865 tail\nsnap a\n", "modelspad takes <bytes> (64 MiB at most) and head or tail, not 67108865 tail"),
             ("modelspad\nsnap a\n", "modelspad takes an argument"),
@@ -523,6 +527,25 @@ class Verbs(unittest.TestCase):
         answered = [int(m) for m in re.findall(r"GET /coding-agent/v1/models -> 200 at=(\d+)ms", log)]
         self.assertEqual(len(asked), 2, log)
         self.assertTrue(all(b - a >= 200 for a, b in zip(asked, answered)), log)
+
+    def test_modelsdown_until_modelsup(self):
+        # The outage a scenario line ends (FLAKE-MODELSDOWN, registry #19):
+        # every ask before the `modelsup` line is answered 503, however long
+        # after the gateway started it comes, and the asks after it get the
+        # catalog. Each answer is waited for on the screen, so no step races
+        # another however late the shell or the gateway runs.
+        get = "type curl -s -o /dev/null -w '%s-%%{http_code}\\n' \"$FX_E2E_GATEWAY_MODELS_URL\"\nkey Enter\nuntil shown %s-%s\n"
+        r = capture(
+            "models one.json\nmodelsdown\nmodelsdelay 0\n" + get % ("a1", "a1", "503") + "wait 1\n" + get % ("a2", "a2", "503")
+            + "modelsup\n" + get % ("a3", "a3", "200") + "snap a\ngwlog\n",
+            {"one.json": '{"data":[{"id":"fake/one"}]}\n'},
+        )
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        a = r.screen("a")
+        self.assertLess(a.index("a2-503"), a.index("a3-200"))
+        log = r.file("gateway", ".log")
+        self.assertEqual(log.count("GET /coding-agent/v1/models -> 503 (down)"), 2, log)
+        self.assertEqual(log.count("GET /coding-agent/v1/models -> 200"), 1, log)
 
     def test_modelspad_and_modelsstall(self):
         # The catalog padded to exactly its size, before it or after it, and
@@ -893,7 +916,7 @@ class FakeGateway(unittest.TestCase):
         d = scratch()
         write(os.path.join(d, "turns.json"), json.dumps(list(turns)))
         os.makedirs(os.path.join(d, "bodies"))
-        clean = {k: "" for k in ("FAKEGW_MODELS", "FAKEGW_MODELS_DOWN_MS", "FAKEGW_MODELS_DELAY_MS", "FAKEGW_MODELS_PAD", "FAKEGW_MODELS_STALL_MS", "FAKEGW_MODELS2", "FAKEGW_CREDITS", "FAKEGW_TITLE", "FAKEGW_USAGE", "FAKEGW_RELEASE")}
+        clean = {k: "" for k in ("FAKEGW_MODELS", "FAKEGW_MODELS_UP", "FAKEGW_MODELS_DELAY_MS", "FAKEGW_MODELS_PAD", "FAKEGW_MODELS_STALL_MS", "FAKEGW_MODELS2", "FAKEGW_CREDITS", "FAKEGW_TITLE", "FAKEGW_USAGE", "FAKEGW_RELEASE")}
         clean.update(env)
         s = Server(self, FAKEGW, os.path.join(d, "turns.json"), os.path.join(d, "bodies"), env=clean)
         s.bodies = os.path.join(d, "bodies")
@@ -1077,6 +1100,25 @@ class FakeGateway(unittest.TestCase):
         self.assertIn("holdAt 5 not held: this turn has 2 event(s): holdAt is 1 to 1", log)
         self.assertIn("holdAt 1 not held: the llmux wire is not paced", log)
         self.assertNotIn("hold 1 after", log)
+
+    def test_modelsdown_answers_503_until_its_file_is_in_place(self):
+        # FAKEGW_MODELS_UP names a file not there yet: 503, at once, until it
+        # is put in place, and the catalog after -- whenever that is, not a
+        # window on the gateway's clock (FLAKE-MODELSDOWN, registry #19).
+        # Unset, the catalog from the first ask.
+        d = scratch()
+        write(os.path.join(d, "one.json"), '{"data":[{"id":"fake/one"}]}')
+        up = os.path.join(d, "models-up")
+        g = self.gw(FAKEGW_MODELS=os.path.join(d, "one.json"), FAKEGW_MODELS_UP=up)
+        self.assertEqual(g.ask("GET", "/coding-agent/v1/models")[:1], (503,))
+        self.assertEqual(g.ask("GET", "/coding-agent/v1/models")[:1], (503,))
+        write(up, "up\n")
+        status, _, body = g.ask("GET", "/coding-agent/v1/models")
+        self.assertEqual(status, 200)
+        self.assertIn(b"fake/one", body)
+        self.assertEqual(g.lines().count("GET /coding-agent/v1/models -> 503 (down)"), 2)
+        plain = self.gw(FAKEGW_MODELS=os.path.join(d, "one.json"))
+        self.assertEqual(plain.ask("GET", "/coding-agent/v1/models")[0], 200)
 
     def test_models2_swaps_the_catalog_with_the_times_logged(self):
         d = scratch()

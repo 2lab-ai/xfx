@@ -1,5 +1,5 @@
 // Loopback fake AI Gateway for side-by-side fx/xfx captures.
-// Usage: [FAKEGW_MODELS=<catalog.json>] [FAKEGW_MODELS_DOWN_MS=<ms>] [FAKEGW_MODELS_DELAY_MS=<ms>] [FAKEGW_CREDITS=<credits.json>] [FAKEGW_TITLE=<title.json>]
+// Usage: [FAKEGW_MODELS=<catalog.json>] [FAKEGW_MODELS_UP=<file>] [FAKEGW_MODELS_DELAY_MS=<ms>] [FAKEGW_CREDITS=<credits.json>] [FAKEGW_TITLE=<title.json>]
 //        [FAKEGW_MODELS2=<file>] [FAKEGW_MODELS_PAD="<bytes> <head|tail>"] [FAKEGW_MODELS_STALL_MS=<ms>]
 //        [FAKEGW_USAGE=<usage.json>]
 //        [FAKEGW_RELEASE=<file>]
@@ -441,10 +441,13 @@ async function answer(req: Request, asked: number): Promise<Response> {
         const timed = Boolean(process.env.FAKEGW_MODELS_DELAY_MS);
         const at = (ms: number) => (timed ? ` at=${ms}ms` : "");
         log(`GET ${url.pathname} bearer=${req.headers.get("authorization")?.startsWith("Bearer ") ? "yes" : "no"}${at(asked - started)}`);
-        // FAKEGW_MODELS_DOWN_MS (`modelsdown`): unavailable for that long after the gateway
-        // starts, so a catalog the launch could not read is back for a later ask. A 503 answers
-        // at once.
-        if (asked - started < Number(process.env.FAKEGW_MODELS_DOWN_MS || 0)) {
+        // FAKEGW_MODELS_UP (`modelsdown`): unavailable until the file it names exists --
+        // capture.sh's `modelsup` line puts it in place -- so a catalog the launch could not read
+        // is back from a point in the scenario, not a moment on this gateway's clock, which each
+        // binary's launch reaches at a different time (FLAKE-MODELSDOWN, registry #19). Read on
+        // every ask; a 503 answers at once.
+        const up = process.env.FAKEGW_MODELS_UP;
+        if (up && !(await Bun.file(up).exists())) {
           log(`GET ${url.pathname} -> 503 (down)${at(Date.now() - started)}`);
           return new Response("unavailable", { status: 503 });
         }

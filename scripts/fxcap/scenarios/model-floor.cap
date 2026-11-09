@@ -12,7 +12,7 @@
 # menu's search rather than submitting the command -- the empty composer row
 # in `inside-floor` is what says it was submitted.
 models models.json
-modelsdown 600000
+modelsdown
 modelsdelay 0
 wait 4
 snap start

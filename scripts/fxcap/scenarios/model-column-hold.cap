@@ -6,9 +6,9 @@
 # that retry is on its way, the cache staying `.failed` (`:633-634`;
 # `app_render_runtime.zig:752-753`). Against each binary's own clock, not the
 # fake gateway's: the catalog is a body neither binary can read until the
-# `models2` line, rather than an outage counted from the gateway's start
-# (`modelsdown`, registry #19), and the launch read's failure is waited for on
-# the screen. `modelsdelay 1500` holds every answer a second and a half, so a
+# `models2` line, a point in the scenario rather than a moment on the
+# gateway's clock (registry #19), and the launch read's failure is waited for
+# on the screen. `modelsdelay 1500` holds every answer a second and a half, so a
 # read is on its way long enough to be seen, and stamps the gateway log's
 # catalog lines with when they were asked. From the launch read's failure:
 # the column's first frame past 5 s reads again (6.5 s, the second failure,

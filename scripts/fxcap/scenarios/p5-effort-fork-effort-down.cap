@@ -1,8 +1,8 @@
 fx: env FX_AUTO_UPGRADE=0
-# /effort while the catalog cannot be read (503 for the first 60 s): which
-# no-levels notice a failed catalog gives.
+# /effort while the catalog cannot be read (503 throughout: `modelsdown` with
+# no `modelsup`): which no-levels notice a failed catalog gives.
 models p5-effort-fork-models.json
-modelsdown 60000
+modelsdown
 seed p5-effort-fork-seed-astra.json
 nomodel
 wait 1
