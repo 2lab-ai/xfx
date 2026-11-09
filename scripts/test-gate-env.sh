@@ -72,6 +72,9 @@
 # tree, and a submodule; the reason git gives when the root's `.git` cannot
 # be opened; and both remedies for an entry with both bits.
 #
+# GATE-ENV-MAINTLOCK-F adds: the decoy's own setup leaving git's
+# auto-maintenance running in the decoy, which a case then blamed on its gate.
+#
 # Requires git, ruby (check-preview-contract.sh) and rustc (build.rs), and a
 # user that cannot read a mode-000 file (not root).
 
@@ -301,14 +304,27 @@ printf '[core]\n\tfsmonitor = %s\n\thooksPath = %s\n' "$home/fsmonitor" "$home/h
 
 # A repository the gates must neither read nor write. Its tracked files are
 # "$decoy_tracks" (default d.txt), copied from "$decoy_from" when that is set.
+# With "$decoy_forced" set, its own config asks for auto-maintenance with work
+# to do (decoy-setup-maintenance, below).
 decoy="$work/decoy"
 decoy_tracks="d.txt"
 decoy_from=""
+decoy_forced=""
 new_decoy() {
 	local name
 	rm -rf "${decoy:?}"
 	mkdir -p "$decoy"
 	sg -C "$decoy" init -q
+	if [ -n "$decoy_forced" ]; then
+		rm -f "$work/maint-calls" "$work/maint-go"
+		sg -C "$decoy" config maintenance.auto true
+		sg -C "$decoy" config maintenance.strategy gc
+		sg -C "$decoy" config gc.auto 1
+		sg -C "$decoy" config core.hooksPath "$work/maint-hooks"
+		mkdir -p "$decoy/.git/objects/17"
+		: >"$decoy/.git/objects/17/$(printf '%038d' 1)"
+		: >"$decoy/.git/objects/17/$(printf '%038d' 2)"
+	fi
 	for name in $decoy_tracks; do
 		mkdir -p "$(dirname "$decoy/$name")"
 		if [ -n "$decoy_from" ]; then
@@ -393,6 +409,53 @@ key_found="possible OpenAI-style key:"
 readme_found="does not document the qualified install command"
 grep_failed="git grep could not search"
 listing_failed="git ls-files could not list"
+
+# --- the decoy's own setup -------------------------------------------------
+#
+# `git commit` starts auto-maintenance, a detached `git maintenance run
+# --auto`, and since git 2.55 that run holds objects/maintenance.lock in the
+# background after the commit returns. new_decoy commits, so the lock could
+# be in the decoy for the sums before a gate and gone for the sums after:
+# identity-own-miscased reported "the gate wrote into the decoy repository"
+# about a gate that was never given the decoy (2026-11-09). Here the decoy's
+# own config turns that on: the gc task (the default since 2.54 is the
+# geometric one), `gc.auto=1`, and two names in objects/17, which is all
+# git's estimate of the loose objects counts. Its `core.hooksPath` holds a
+# `pre-auto-gc` hook, outside the decoy, that leaves its name in "$ran". Its
+# first call, made before the run detaches, lets gc go on; the second, from
+# the background `git gc --auto`, holds the run and its lock until the sums
+# before are taken, then stops gc, so the names are never read as objects.
+# Both waits are bounded at 10 s.
+mkdir -p "$work/maint-hooks"
+cat >"$work/maint-hooks/pre-auto-gc" <<EOF
+#!/bin/sh
+: >>"$ran/pre-auto-gc"
+calls=\$((\$(cat "$work/maint-calls" 2>/dev/null || echo 0) + 1))
+echo "\$calls" >"$work/maint-calls"
+[ "\$calls" -ge 2 ] || exit 0
+i=0
+while [ ! -e "$work/maint-go" ] && [ "\$i" -lt 200 ]; do
+	sleep 0.05
+	i=\$((i + 1))
+done
+exit 1
+EOF
+chmod 755 "$work/maint-hooks/pre-auto-gc"
+# Runs a gate once the decoy's background maintenance, if there is any, has
+# let go of its lock: the sums before are taken, so a lock seen there is seen
+# to go.
+after_maintenance() {
+	local i=0
+	: >"$work/maint-go"
+	while [ -e "$decoy/.git/objects/maintenance.lock" ] && [ "$i" -lt 200 ]; do
+		sleep 0.05
+		i=$((i + 1))
+	done
+	"$@"
+}
+decoy_forced=1
+refuses decoy-setup-maintenance "$content_found" after_maintenance "$ilock/scripts/check-xfx-identity.sh"
+decoy_forced=""
 
 refuses identity-git-dir "$path_found" \
 	env GIT_DIR="$decoy/.git" "$ipath/scripts/check-xfx-identity.sh"
