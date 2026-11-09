@@ -21,11 +21,11 @@
 //!   values. The case for `from_process` itself is the one that needs this;
 //!   a case that drives the TUI's worker, whose launch reads the process as a
 //!   real launch does, is the other.
-//! - A runtime a case builds with `Runtime::with_environment` makes its
-//!   environment the fake process of its thread ([`FakeProcess::for_this_thread`]):
-//!   the Gateway's address, git's selectors and the link bases it reads in a
-//!   turn are then that environment's, and one with no home and no variable
-//!   is the empty process.
+//! - A runtime a case builds with `Runtime::with_environment` lays its
+//!   environment over the fake process of its thread
+//!   ([`FakeProcess::over_this_thread`]): what the environment holds wins,
+//!   and the thread's fake process, if any, fills the rest. With none, an
+//!   environment with no home and no variable is the empty process.
 //!
 //! A panic and not a quietly empty environment: an empty one makes a case
 //! that reached the process pass green, and that is the class of bug this
@@ -53,10 +53,27 @@ thread_local! {
     static FAKE: RefCell<Option<Rc<FakeProcess>>> = const { RefCell::new(None) };
 }
 
-/// The variables a child of a unit test is still given from the real
-/// process: where programs are, and where temporary files go. Neither names
-/// the developer, a credential, or a configuration.
-const CHILD_KEEPS: [&str; 2] = ["PATH", "TMPDIR"];
+/// What a unit test still takes from the real process, by name: where
+/// programs are, and where temporary files go. Neither names the developer, a
+/// credential, or a configuration. The one read of the real process in this
+/// module, and what a child of a unit test is given of it.
+fn kept() -> [(&'static str, Option<OsString>); 2] {
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "env: PATH, TMPDIR -- where programs are and where temporary files go"
+    )]
+    let kept = [
+        ("PATH", std::env::var_os("PATH")),
+        ("TMPDIR", std::env::var_os("TMPDIR")),
+    ];
+    kept
+}
+
+/// The real process's `PATH`: where a case finds `git` and the rest.
+pub(crate) fn path() -> OsString {
+    let [(_, path), _] = kept();
+    path.unwrap_or_default()
+}
 
 /// A process environment for a case to run in: a home and variables, all
 /// the case's own.
@@ -90,17 +107,33 @@ impl FakeProcess {
         body()
     }
 
-    /// This, as the process of the current thread from now on -- for a
-    /// thread that is the case's own: libtest runs each case on a thread of
+    /// This, laid over the process of the current thread from now on -- for
+    /// a thread that is the case's own: libtest runs each case on a thread of
     /// its own that ends with it, as a TUI runtime's thread ends with the
-    /// runtime. `tui::worker`'s `Runtime::with_environment` makes its
-    /// environment the process this way, so a runtime a case builds from an
-    /// explicit environment reads that one and nothing else.
+    /// runtime. `tui::worker`'s `Runtime::with_environment` lays its
+    /// environment over the thread's process this way.
     ///
-    /// Two edges: the last one made on a thread is the one in force, and one
-    /// made inside a [`Self::run`] or [`Self::enter`] scope ends with it.
-    pub(crate) fn for_this_thread(self) {
-        drop(FAKE.with(|slot| slot.replace(Some(Rc::new(self)))));
+    /// **Precedence:** what this holds wins -- its `HOME` and each variable
+    /// it sets; the fake process already on the thread fills the rest. So a
+    /// runtime a case builds from an explicit environment reads that, and a
+    /// worker launched in a fake process keeps what an `Environment` does not
+    /// hold -- `XFX_GATEWAY_URL`, `GIT_CONFIG_*`, `ZDOTDIR`. With no fake
+    /// process on the thread, this alone is the process.
+    ///
+    /// Two edges: the last one laid on a thread is the one in force, and one
+    /// laid inside a [`Self::run`] or [`Self::enter`] scope ends with it.
+    pub(crate) fn over_this_thread(self) {
+        FAKE.with(|slot| {
+            let merged = match slot.borrow().as_deref() {
+                Some(under) => {
+                    let mut vars = under.vars.clone();
+                    vars.extend(self.vars);
+                    FakeProcess { vars }
+                }
+                None => self,
+            };
+            drop(slot.replace(Some(Rc::new(merged))));
+        });
     }
 
     /// [`Self::run`] for a body that is not a closure -- an `async` case on
@@ -187,8 +220,10 @@ pub(crate) fn child_var_os(name: impl AsRef<OsStr>) -> Option<OsString> {
     let fake = FAKE.with(|slot| slot.borrow().clone());
     match fake.and_then(|fake| fake.vars.get(name).cloned()) {
         Some(value) => Some(value),
-        None if CHILD_KEEPS.iter().any(|kept| OsStr::new(kept) == name) => std::env::var_os(name),
-        None => None,
+        None => kept()
+            .into_iter()
+            .find(|(kept, _)| OsStr::new(kept) == name)
+            .and_then(|(_, value)| value),
     }
 }
 
@@ -198,6 +233,79 @@ pub(crate) fn child_var(name: impl AsRef<OsStr>) -> Result<String, VarError> {
         Some(value) => value.into_string().map_err(VarError::NotUnicode),
         None => Err(VarError::NotPresent),
     }
+}
+
+/// `environment` -- a command's, as `permission::authority` builds it -- with
+/// `GIT_CONFIG_GLOBAL=/dev/null` when its `HOME` is empty or missing: a unit
+/// test that gave no home of its own.
+///
+/// Such a command is handed `HOME=""`, and git then looks for `/.gitconfig`
+/// and `/.config/git/config`. Isolation excludes the global configuration
+/// instead of counting on those files not existing. A case that gives a home
+/// on purpose keeps it, and git reads what that home holds. The system
+/// configuration stays as a build reads it: it is the machine's, not the
+/// person's. In name order, as the rest of the environment is.
+pub(crate) fn without_a_global_git_configuration(
+    mut environment: Vec<(String, String)>,
+) -> Vec<(String, String)> {
+    let homeless = !environment
+        .iter()
+        .any(|(name, value)| name == "HOME" && !value.is_empty());
+    if homeless
+        && !environment
+            .iter()
+            .any(|(name, _)| name == "GIT_CONFIG_GLOBAL")
+    {
+        environment.push(("GIT_CONFIG_GLOBAL".to_string(), "/dev/null".to_string()));
+        environment.sort();
+    }
+    environment
+}
+
+/// The proxies a client built under `crate::gateway::bearer_rules` takes in a
+/// unit test: the case's fake process's, never the real process's.
+///
+/// reqwest reads `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` and `NO_PROXY`
+/// (either case) from the process when a client is built, and a proxy URL can
+/// carry a user and password. So this starts from `no_proxy()` and adds the
+/// fake's, by scheme as reqwest would, the upper-case name first: with no
+/// fake proxy, a client goes direct. (The rule after this one -- no proxy at
+/// all for anything but https -- still applies.)
+///
+/// One exception: a copy of the test binary that `crate::test_net` started
+/// keeps reqwest's own reading, because proving that reading is what that
+/// copy is for, and its environment is one its parent built from nothing.
+pub(crate) fn proxies(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    if crate::test_net::server_in_this_copy().is_some() {
+        return builder;
+    }
+    let mut builder = builder.no_proxy();
+    let Some(fake) = FAKE.with(|slot| slot.borrow().clone()) else {
+        return builder;
+    };
+    let named = |upper: &str, lower: &str| {
+        [upper, lower]
+            .into_iter()
+            .find_map(|name| fake.vars.get(OsStr::new(name)))
+            .and_then(|value| value.to_str())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let exempt = named("NO_PROXY", "no_proxy")
+        .as_deref()
+        .and_then(reqwest::NoProxy::from_string);
+    type Scheme = fn(String) -> reqwest::Result<reqwest::Proxy>;
+    let schemes: [(&str, &str, Scheme); 3] = [
+        ("HTTPS_PROXY", "https_proxy", reqwest::Proxy::https),
+        ("HTTP_PROXY", "http_proxy", reqwest::Proxy::http),
+        ("ALL_PROXY", "all_proxy", reqwest::Proxy::all),
+    ];
+    for (upper, lower, proxy) in schemes {
+        if let Some(Ok(proxy)) = named(upper, lower).map(proxy) {
+            builder = builder.proxy(proxy.no_proxy(exempt.clone()));
+        }
+    }
+    builder
 }
 
 /// The panic: the function and the variable's name, and what to do instead.
@@ -220,8 +328,8 @@ fn refuse(who: &str, name: &OsStr) -> ! {
 /// caller sets afterwards apply to the fake as they would to the real one.
 pub(crate) fn isolate_child(command: &mut Command) {
     command.env_clear();
-    for name in CHILD_KEEPS {
-        if let Some(value) = std::env::var_os(name) {
+    for (name, value) in kept() {
+        if let Some(value) = value {
             command.env(name, value);
         }
     }

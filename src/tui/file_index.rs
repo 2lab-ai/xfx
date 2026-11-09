@@ -1353,8 +1353,13 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().expect("a temp dir");
         let root = dir.path();
         let run = |args: &[&str]| {
+            // From nothing but PATH and TMPDIR (`crate::test_env`): no
+            // `GIT_DIR`, `GIT_CONFIG_COUNT` or `GIT_CONFIG_PARAMETERS` of the
+            // process's decides what this repository is.
+            let mut command = Command::new(&git);
+            crate::test_env::isolate_child(&mut command);
             let status = crate::process::status(
-                Command::new(&git)
+                command
                     .args(args)
                     .current_dir(root)
                     .env("GIT_CONFIG_GLOBAL", "/dev/null")

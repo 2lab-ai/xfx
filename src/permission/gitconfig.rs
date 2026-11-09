@@ -166,6 +166,10 @@ pub(crate) fn run_git(
     args: &[&str],
     environment: &[(OsString, OsString)],
 ) -> Result<(std::process::ExitStatus, Vec<u8>), String> {
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "env: PATH -- where git is found when the caller names no PATH"
+    )]
     let path = environment
         .iter()
         .find(|(name, _)| name == "PATH")
@@ -764,7 +768,7 @@ tinued
         // The differential: each text through `git config --file`, which
         // reads it with git's own parser. Where this parser answers, the
         // answer is git's, byte for byte; where it refuses, auto asks.
-        let git = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        let git = std::env::split_paths(&crate::test_env::path())
             .map(|dir| dir.join("git"))
             .find(|git| git.is_file())
             .expect("git on PATH: this test runs the real one");

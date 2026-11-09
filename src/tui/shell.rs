@@ -2445,6 +2445,10 @@ impl Shell {
         // hands it a directory, so a case that types `/trace` cannot leave a
         // report in the suite runner's own temporary directory.
         #[cfg(not(test))]
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "env: TMPDIR -- where /trace writes its report"
+        )]
         let trace_dir = crate::trace::report_dir(std::env::var_os("TMPDIR").as_deref());
         #[cfg(test)]
         let trace_dir = std::path::PathBuf::from(super::copy::NOWHERE);

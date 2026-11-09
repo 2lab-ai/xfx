@@ -3975,8 +3975,7 @@ fn usage_frame(journal: &RecordingJournal) -> &SessionEvent {
 /// Whether `program` is on this process's `PATH`, which the terminal tool
 /// passes to its commands.
 fn on_path(program: &str) -> bool {
-    std::env::var_os("PATH")
-        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
+    std::env::split_paths(&support::sandbox::path()).any(|dir| dir.join(program).is_file())
 }
 
 /// A command the terminal tool runs starts with no signal blocked, whichever

@@ -89,8 +89,16 @@ mod tests {
     #[test]
     #[ignore = "run by scripts/drawn-wider/sweep.sh"]
     fn xfx_counts() {
-        let list = std::env::var("XFX_DRAWN_WIDER_LIST").expect("XFX_DRAWN_WIDER_LIST");
-        let out = std::env::var("XFX_DRAWN_WIDER_OUT").expect("XFX_DRAWN_WIDER_OUT");
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "env: XFX_DRAWN_WIDER_LIST, XFX_DRAWN_WIDER_OUT -- what the sweep script hands this ignored case"
+        )]
+        let (list, out) = (
+            std::env::var("XFX_DRAWN_WIDER_LIST"),
+            std::env::var("XFX_DRAWN_WIDER_OUT"),
+        );
+        let list = list.expect("XFX_DRAWN_WIDER_LIST");
+        let out = out.expect("XFX_DRAWN_WIDER_OUT");
         let mut counts = String::new();
         for code in std::fs::read_to_string(list).expect("the list").lines() {
             let value = u32::from_str_radix(code, 16).expect("a hexadecimal code point");

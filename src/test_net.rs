@@ -37,7 +37,12 @@ const BAD_GATEWAY: &str =
 
 /// The server's origin when this process is the copy, `None` in the parent.
 pub(crate) fn server_in_this_copy() -> Option<String> {
-    std::env::var(SERVER).ok()
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "env: XFX_TEST_PROXY_CASE_SERVER -- the role this binary's copy is started with"
+    )]
+    let server = std::env::var(SERVER).ok();
+    server
 }
 
 /// A `200` with a JSON body.

@@ -5,6 +5,15 @@
 # `map(Command::output)` are each caught; `process::tests::no_child_process_is_made_any_other_way`
 # keeps these entries here, one to a line.
 #
+# The environment rule (`src/lib.rs`'s `process_env!`, `src/test_env.rs`): the
+# process environment is read through `process_env!`, so a unit test cannot
+# read the real one. Checked on the resolved call, so an imported `var` and an
+# aliased `std::env` are caught as the plain path is. Each read that stays
+# outside it carries `#[allow(clippy::disallowed_methods, reason = "env: <the
+# variables>: <why>")]` on its own statement, and
+# `test_env::tests::every_read_outside_process_env_is_bound_to_its_variables`
+# holds each to its file and variables.
+#
 # `allow-invalid` marks a path that does not resolve in every build: tokio is
 # built without `process`, mio is not a dependency of xfx's own, `vfork` is
 # not in libc on every target, and `pipe_with` is rustix's only where the
@@ -31,4 +40,10 @@ disallowed-methods = [
   { path = "libc::socketpair", reason = "macOS marks a socket pair close-on-exec only after making it, so a start's fork can hand it to a child: make it in crate::process, under the start lock" },
   { path = "std::os::unix::net::UnixStream::pair", reason = "macOS marks a socket pair close-on-exec only after making it, so a start's fork can hand it to a child: make it in crate::process, under the start lock" },
   { path = "std::os::unix::net::UnixDatagram::pair", reason = "macOS marks a socket pair close-on-exec only after making it, so a start's fork can hand it to a child: make it in crate::process, under the start lock" },
+  { path = "std::env::var", reason = "the process environment is read through process_env! (src/lib.rs), so a unit test cannot read the real one" },
+  { path = "std::env::var_os", reason = "the process environment is read through process_env! (src/lib.rs), so a unit test cannot read the real one" },
+  { path = "std::env::vars", reason = "the process environment is read through process_env! (src/lib.rs), so a unit test cannot read the real one" },
+  { path = "std::env::vars_os", reason = "the process environment is read through process_env! (src/lib.rs), so a unit test cannot read the real one" },
+  { path = "std::env::home_dir", reason = "the process environment is read through process_env! (src/lib.rs), so a unit test cannot read the real one" },
+  { path = "libc::getenv", reason = "the process environment is read through process_env! (src/lib.rs), so a unit test cannot read the real one" },
 ]

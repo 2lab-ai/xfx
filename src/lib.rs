@@ -47,20 +47,47 @@
 /// its list.
 #[cfg(not(test))]
 macro_rules! process_env {
-    ($who:literal, var($name:expr)) => {
-        ::std::env::var($name)
-    };
-    ($who:literal, var_os($name:expr)) => {
-        ::std::env::var_os($name)
-    };
-    ($who:literal, child_var($name:expr)) => {
-        ::std::env::var($name)
-    };
-    ($who:literal, child_var_os($name:expr)) => {
-        ::std::env::var_os($name)
-    };
+    ($who:literal, var($name:expr)) => {{
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "env: process_env! -- a build reads the process"
+        )]
+        let value = ::std::env::var($name);
+        value
+    }};
+    ($who:literal, var_os($name:expr)) => {{
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "env: process_env! -- a build reads the process"
+        )]
+        let value = ::std::env::var_os($name);
+        value
+    }};
+    ($who:literal, child_var($name:expr)) => {{
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "env: process_env! -- a build reads the process"
+        )]
+        let value = ::std::env::var($name);
+        value
+    }};
+    ($who:literal, child_var_os($name:expr)) => {{
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "env: process_env! -- a build reads the process"
+        )]
+        let value = ::std::env::var_os($name);
+        value
+    }};
     ($who:literal, lookup) => {
-        |name: &str| ::std::env::var(name).ok()
+        |name: &str| {
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "env: process_env! -- a build reads the process"
+            )]
+            let value = ::std::env::var(name).ok();
+            value
+        }
     };
 }
 

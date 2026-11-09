@@ -29,6 +29,15 @@ fn panic_of(body: impl FnOnce()) -> Option<String> {
     )
 }
 
+/// A comparison of a value read from a (fake) process environment: on a
+/// mismatch it says which variable, never what either side holds. If the
+/// guard ever let a case read the real process, an `assert_eq!` here would
+/// print the real value -- the leak this module exists to stop.
+#[track_caller]
+fn same(equal: bool, which: &str) {
+    assert!(equal, "{which} is not what the case's process holds");
+}
+
 /// `body` is refused, by a panic that names `who`.
 fn refused(who: &str, body: impl FnOnce()) {
     match panic_of(body) {
@@ -87,7 +96,7 @@ fn whether_the_tui_runs_is_refused() {
 
 /// The real `git`, as the plan's own would be found.
 fn git() -> std::path::PathBuf {
-    std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+    std::env::split_paths(&super::path())
         .map(|dir| dir.join("git"))
         .find(|git| git.is_file())
         .expect("git on PATH: this runs the real one")
@@ -216,7 +225,7 @@ fn a_git_planned_with_no_home_reads_no_global_configuration_wherever_home_is() {
         ("HOME".to_string(), home.clone()),
         (
             "PATH".to_string(),
-            std::env::var("PATH").unwrap_or_default(),
+            super::path().to_string_lossy().into_owned(),
         ),
     ];
     assert!(
@@ -238,7 +247,12 @@ fn a_git_planned_with_no_home_reads_no_global_configuration_wherever_home_is() {
 #[test]
 fn an_https_client_takes_no_proxy_from_the_process() {
     const COPY: &str = "XFX_TEST_ENV_PROXY_COPY";
-    if let Some(target) = std::env::var_os(COPY) {
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "env: XFX_TEST_ENV_PROXY_COPY -- the role this case's copy is started with"
+    )]
+    let copy = std::env::var_os(COPY);
+    if let Some(target) = copy {
         let target = target.to_string_lossy().into_owned();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -331,19 +345,22 @@ fn inside_a_fake_process_each_reader_takes_the_fake_and_only_its_own_names() {
         .var("XFX_FAKE_NOT_READ", "x")
         .run(|| {
             let env = Environment::from_process();
-            assert_eq!(env.home(), Some(home.path()));
-            assert_eq!(env.var("XFX_MODEL"), Some("xfx-fake-model"));
-            assert_eq!(env.var("AI_GATEWAY_API_KEY"), Some("xfx-fake-gateway-key"));
-            assert_eq!(env.var("XFX_FAKE_NOT_READ"), None);
-            assert_eq!(
-                crate::gateway::Endpoint::from_process()
-                    .expect("an endpoint")
-                    .url(),
-                "https://fake.invalid/v1"
+            same(env.home() == Some(home.path()), "HOME");
+            same(env.var("XFX_MODEL") == Some("xfx-fake-model"), "XFX_MODEL");
+            same(
+                env.var("AI_GATEWAY_API_KEY") == Some("xfx-fake-gateway-key"),
+                "AI_GATEWAY_API_KEY",
             );
-            assert_eq!(
-                GitEnvironment::from_process(),
-                GitEnvironment::default().with("GIT_CONFIG_GLOBAL", "/dev/null")
+            same(env.var("XFX_FAKE_NOT_READ").is_none(), "XFX_FAKE_NOT_READ");
+            same(
+                crate::gateway::Endpoint::from_process()
+                    .is_ok_and(|endpoint| endpoint.url() == "https://fake.invalid/v1"),
+                "XFX_GATEWAY_URL",
+            );
+            same(
+                GitEnvironment::from_process()
+                    == GitEnvironment::default().with("GIT_CONFIG_GLOBAL", "/dev/null"),
+                "GIT_CONFIG_GLOBAL",
             );
         });
 }
@@ -358,8 +375,8 @@ fn a_fake_process_ends_with_its_body_however_the_body_ends() {
     FakeProcess::new().var("XFX_MODEL", "outer").run(|| {
         FakeProcess::new()
             .var("XFX_MODEL", "inner")
-            .run(|| assert_eq!(model().as_deref(), Some("inner")));
-        assert_eq!(model().as_deref(), Some("outer"));
+            .run(|| same(model().as_deref() == Some("inner"), "the inner XFX_MODEL"));
+        same(model().as_deref() == Some("outer"), "the outer XFX_MODEL");
     });
     assert!(panic_of(|| FakeProcess::new().run(|| panic!("the body"))).is_some());
     refused("config::Environment::from_process", || {
@@ -379,7 +396,7 @@ fn a_carried_body_runs_in_the_process_of_the_thread_that_made_it() {
         })
     });
     let seen = std::thread::spawn(carried).join().expect("joined");
-    assert_eq!(seen.as_deref(), Some("carried"));
+    same(seen.as_deref() == Some("carried"), "the carried XFX_MODEL");
     let outside = super::carried(|| panic_of(|| drop(Environment::from_process())));
     let refusal = std::thread::spawn(outside).join().expect("joined");
     assert!(
@@ -398,7 +415,8 @@ fn a_lookup_is_the_process_it_was_made_in_on_any_thread() {
     let answer = std::thread::spawn(move || (lookup("XFX_FAKE"), lookup("XFX_FAKE_UNSET")))
         .join()
         .expect("joined");
-    assert_eq!(answer, (Some("made".to_string()), None));
+    same(answer.0.as_deref() == Some("made"), "XFX_FAKE");
+    same(answer.1.is_none(), "XFX_FAKE_UNSET");
     let outside = super::lookup("test_env::tests::outside");
     refused("test_env::tests::outside", || drop(outside("XFX_FAKE")));
 }
@@ -418,9 +436,15 @@ fn an_mcp_runtime_made_outside_a_fake_process_refuses_its_lookup() {
     let runtime = FakeProcess::new()
         .var("XFX_FAKE", "fake")
         .run(|| crate::mcp::McpRuntime::new(paths()));
-    assert_eq!(runtime.looked_up("XFX_FAKE").as_deref(), Some("fake"));
+    same(
+        runtime.looked_up("XFX_FAKE").as_deref() == Some("fake"),
+        "XFX_FAKE",
+    );
     let seam = crate::mcp::McpRuntime::with_environment(paths(), &[("XFX_GIVEN", "given")]);
-    assert_eq!(seam.looked_up("XFX_GIVEN").as_deref(), Some("given"));
+    same(
+        seam.looked_up("XFX_GIVEN").as_deref() == Some("given"),
+        "XFX_GIVEN",
+    );
     refused("mcp::McpRuntime::with_environment", || {
         drop(seam.looked_up("XFX_FAKE"));
     });
@@ -435,17 +459,17 @@ fn what_is_only_handed_to_a_child_is_the_fakes_or_nothing() {
         "XDG_CONFIG_HOME",
         "USER",
     ] {
-        assert_eq!(super::child_var_os(name), None, "{name}");
+        same(super::child_var_os(name).is_none(), name);
     }
     assert!(super::child_var_os("PATH").is_some());
     FakeProcess::new().home("/fake/home").run(|| {
-        assert_eq!(
-            super::child_var_os("HOME"),
-            Some(OsString::from("/fake/home"))
+        same(
+            super::child_var_os("HOME") == Some(OsString::from("/fake/home")),
+            "HOME",
         );
-        assert_eq!(
-            super::child_var("USER"),
-            Err(std::env::VarError::NotPresent)
+        same(
+            super::child_var("USER") == Err(std::env::VarError::NotPresent),
+            "USER",
         );
         assert!(super::child_var_os("PATH").is_some());
     });
@@ -499,127 +523,131 @@ fn a_git_plan_reads_the_git_configuration_of_the_fake_home() {
 }
 
 // ---------------------------------------------------------------------------
-// the rest of `src`
+// the rest of the crate: clippy's environment rule, and its exceptions
 // ---------------------------------------------------------------------------
 
-/// What reads the process environment without `process_env!`, by file, and
-/// why each may. A read added anywhere else -- or one more in a listed file --
-/// fails this case until it goes through `process_env!` or is listed here
-/// with its reason. None of these names the developer's home, profile,
-/// configuration, an xfx setting or a credential.
-const LISTED: &[(&str, usize, &str)] = &[
-    (
-        "src/lib.rs",
-        5,
-        "process_env!'s build arms: std::env itself",
-    ),
-    (
-        "src/test_env.rs",
-        2,
-        "PATH and TMPDIR, the two a child keeps",
-    ),
-    ("src/test_env/tests.rs", 1, "PATH, to find git"),
-    (
-        "src/interactive.rs",
-        1,
-        "TMPDIR: where /trace writes its report",
-    ),
-    (
-        "src/tui/shell.rs",
-        1,
-        "TMPDIR: where /trace writes its report",
-    ),
-    (
-        "src/mcp/docker.rs",
-        1,
-        "TMPDIR, TEMP or TMP: where a cidfile goes",
-    ),
-    ("src/tui/term.rs", 1, "TMUX: whether the terminal is tmux's"),
+/// The readers of the process environment `clippy.toml` disallows: checked
+/// on the resolved call, so an imported `var` or an aliased `std::env` is
+/// caught as the plain path is.
+const ENV_READERS: [&str; 6] = [
+    "std::env::var",
+    "std::env::var_os",
+    "std::env::vars",
+    "std::env::vars_os",
+    "std::env::home_dir",
+    "libc::getenv",
+];
+
+/// Every read of the process environment that stays outside `process_env!`,
+/// by file and by the variables its statement reads -- one entry per
+/// `#[allow(clippy::disallowed_methods, reason = "env: ...")]`. A read added,
+/// moved, or changed to read another variable fails
+/// [`every_read_outside_process_env_is_bound_to_its_variables`]. None names
+/// the person's home, profile, configuration, an xfx setting or a credential
+/// ([`GUARDED`]).
+const EXCEPTIONS: &[(&str, &[&str])] = &[
+    // `process_env!`'s build arms: `std::env` itself, in a build only.
+    ("src/lib.rs", &["process_env!"]),
+    ("src/lib.rs", &["process_env!"]),
+    ("src/lib.rs", &["process_env!"]),
+    ("src/lib.rs", &["process_env!"]),
+    ("src/lib.rs", &["process_env!"]),
+    // Where programs are and where temporary files go.
+    ("src/test_env.rs", &["PATH", "TMPDIR"]),
+    ("src/permission/authority.rs", &["PATH"]),
+    ("src/permission/gitconfig.rs", &["PATH"]),
+    ("src/interactive.rs", &["TMPDIR"]),
+    ("src/tui/shell.rs", &["TMPDIR"]),
+    ("src/mcp/docker.rs", &["TMPDIR", "TEMP", "TMP"]),
+    ("tests/support/sandbox.rs", &["PATH", "TMPDIR"]),
+    ("tests/cli.rs", &["PATH", "TMPDIR"]),
+    // What the terminal says of itself.
+    ("src/tui/term.rs", &["TMUX"]),
     (
         "src/tui/mod.rs",
-        3,
-        "COLORFGBG, COLORTERM, TERM_PROGRAM: the terminal's own",
+        &["COLORFGBG", "COLORTERM", "TERM_PROGRAM"],
     ),
-    (
-        "src/permission/authority.rs",
-        5,
-        "PATH: one for a command, four in tests",
-    ),
-    (
-        "src/permission/gitconfig.rs",
-        2,
-        "PATH: finding git, once in a test",
-    ),
-    (
-        "src/mcp/transport.rs",
-        3,
-        "PATH and a sentinel runner's role, in tests",
-    ),
-    (
-        "src/tui/fault.rs",
-        1,
-        "the fault-injection point a test names",
-    ),
+    // A fault-injection point, and the roles a re-run test binary is given.
+    ("src/tui/fault.rs", &["XFX_TUI_FAULT"]),
     (
         "src/usage/cache.rs",
-        1,
-        "a fault-injection role a test names",
+        &["XFX_TEST_USAGE_CACHE_KILL_BEFORE_RENAME"],
     ),
-    ("src/process.rs", 1, "a re-run test binary's role"),
-    ("src/test_net.rs", 1, "a re-run test binary's role"),
-    ("src/tui/signals.rs", 1, "a re-run test binary's role"),
+    ("src/process.rs", &["XFX_TEST_SIGCHLD_PROBE"]),
+    ("src/test_net.rs", &["XFX_TEST_PROXY_CASE_SERVER"]),
+    ("src/tui/signals.rs", &["XFX_TEST_IGNORED_AT_ENTRY"]),
     (
         "src/profile_home/tests.rs",
-        1,
-        "a re-run test binary's role",
+        &["XFX_TEST_PROFILE_HOME_UNDER_OPEN_UMASK"],
     ),
     (
         "src/session/store/fork/tests.rs",
-        1,
-        "a re-run test binary's role",
+        &["XFX_TEST_UNDER_OPEN_UMASK"],
     ),
-    ("src/local_time/tests.rs", 1, "a re-run test binary's role"),
+    ("src/local_time/tests.rs", &["XFX_TEST_LOCAL_TIME_MOMENTS"]),
+    ("src/usage/cache/tests.rs", &["XFX_TEST_USAGE_CACHE_ROLE"]),
     (
         "src/usage/cache/tests.rs",
-        3,
-        "a re-run test binary's role and arguments",
+        &["XFX_TEST_USAGE_CACHE_HOME", "XFX_TEST_USAGE_CACHE_ARG"],
     ),
+    ("src/mcp/transport.rs", &["XFX_TEST_SENTINEL_RUNNER"]),
+    ("src/mcp/transport.rs", &["XFX_TEST_SENTINEL_RUNNER"]),
+    ("src/test_env/tests.rs", &["XFX_TEST_ENV_PROXY_COPY"]),
+    // An ignored case the drawn-wider sweep runs, with its own two.
     (
         "src/tui/drawn_wider.rs",
-        2,
-        "the drawn-wider harness's own two, in a test",
+        &["XFX_DRAWN_WIDER_LIST", "XFX_DRAWN_WIDER_OUT"],
     ),
+    // Set by cargo in a test process: the case shows a command does not
+    // inherit it.
+    ("tests/permissions.rs", &["CARGO_PKG_NAME"]),
 ];
 
-/// The spellings of a read: `std::env`'s functions under any path, and
-/// libc's. Spelled in halves so that this list is not a read itself.
-const READS: [&str; 6] = [
-    concat!("env", "::var("),
-    concat!("env", "::var_os("),
-    concat!("env", "::vars("),
-    concat!("env", "::vars_os("),
-    concat!("env", "::home_dir("),
-    concat!("get", "env("),
+/// What `process_env!` guards, and what a proxy is named by: no exception
+/// may read one.
+const GUARDED: &[&str] = &[
+    "HOME",
+    "XDG_CONFIG_HOME",
+    "ZDOTDIR",
+    "LLMUX_CONFIG",
+    "AI_GATEWAY_API_KEY",
+    "VERCEL_OIDC_TOKEN",
+    "XFX_MODEL",
+    "XFX_PERMISSION_MODE",
+    "XFX_MAX_AGENT_STEPS",
+    "XFX_SOUND",
+    "XFX_SKILL_SYMLINK_AUTHORITIES",
+    "XFX_GATEWAY_URL",
+    "XFX_TUI",
+    "XFX_THEME",
+    "XFX_E2E_USAGE_CLOCK_FILE",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_NOSYSTEM",
+    "GIT_CONFIG_SYSTEM",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
 ];
 
-/// How many times `line` reads by one of [`READS`]: each spelling where it
-/// starts a path segment -- `test_env::var(`, a function of this module's,
-/// is not `env::var(`.
-fn reads_in(line: &str) -> usize {
-    READS
-        .iter()
-        .map(|read| {
-            line.match_indices(read)
-                .filter(|(at, _)| {
-                    !line[..*at]
-                        .chars()
-                        .next_back()
-                        .is_some_and(|before| before.is_alphanumeric() || before == '_')
-                })
-                .count()
-        })
-        .sum()
-}
+/// The lint an exception allows, spelled in halves so that this file does not
+/// read as lifting it to `process::tests::no_child_process_is_made_any_other_way`.
+const DISALLOWED: &str = concat!("clippy::disallowed", "_methods");
+
+/// What starts a child or makes a pipe: an `env:` allow lifts clippy's start
+/// rule too, so its statement may hold none of these.
+const STARTS: [&str; 7] = [
+    "Command",
+    "spawn",
+    "fork",
+    "pipe",
+    "socketpair",
+    "popen",
+    "system(",
+];
 
 /// Every `.rs` file under `dir`, sorted.
 fn sources(dir: &Path, found: &mut Vec<std::path::PathBuf>) {
@@ -637,47 +665,375 @@ fn sources(dir: &Path, found: &mut Vec<std::path::PathBuf>) {
     }
 }
 
+/// `text` with every string literal's contents and every comment blanked,
+/// and the literals, in order: what a statement says, apart from what it
+/// quotes.
+fn code_and_literals(text: &str) -> (String, Vec<String>) {
+    let mut code = String::new();
+    let mut literals = Vec::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => {
+                let mut literal = String::new();
+                while let Some(c) = chars.next() {
+                    match c {
+                        '\\' => {
+                            chars.next();
+                        }
+                        '"' => break,
+                        c => literal.push(c),
+                    }
+                }
+                literals.push(literal);
+                code.push_str("\"\"");
+            }
+            '/' if chars.peek() == Some(&'/') => {
+                for c in chars.by_ref() {
+                    if c == '\n' {
+                        code.push('\n');
+                        break;
+                    }
+                }
+            }
+            c => code.push(c),
+        }
+    }
+    (code, literals)
+}
+
+/// The statement after an attribute that ends on line `end` (0-based): up to
+/// the first `;` at depth 0.
+fn statement_after(lines: &[&str], end: usize) -> String {
+    let mut statement = String::new();
+    let mut depth = 0i32;
+    for line in &lines[end + 1..] {
+        statement.push_str(line);
+        statement.push('\n');
+        let (code, _) = code_and_literals(line);
+        for c in code.chars() {
+            match c {
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' => depth -= 1,
+                _ => {}
+            }
+        }
+        if depth <= 0 && code.trim_end().ends_with(';') {
+            break;
+        }
+    }
+    statement
+}
+
+/// The value of `const NAME: &str = "..."`, from `text` if it is defined
+/// there, or else from the one other file in `others` that defines it.
+fn constant(name: &str, text: &str, others: &[(String, String)]) -> Option<String> {
+    let find = |text: &str| {
+        text.lines().find_map(|line| {
+            let (code, literals) = code_and_literals(line);
+            let at = code.find(&format!("const {name}: &str = \"\""))?;
+            (code[..at].trim().is_empty() || code[..at].trim().starts_with("pub"))
+                .then(|| literals.first().cloned())
+                .flatten()
+        })
+    };
+    find(text).or_else(|| {
+        let mut found = others.iter().filter_map(|(_, text)| find(text));
+        let first = found.next()?;
+        found.next().is_none().then_some(first)
+    })
+}
+
+/// The reads in `text` (the file `file`) allowed past clippy's environment
+/// rule, each as the variables its `env:` reason names; and what is wrong
+/// with any of them: a reason that is not the statement's variables, a
+/// statement that reads nothing, or one that starts a child.
+fn bound_reads(
+    file: &str,
+    text: &str,
+    others: &[(String, String)],
+) -> (Vec<(String, Vec<String>)>, Vec<String>) {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut reads = Vec::new();
+    let mut problems = Vec::new();
+    for (number, line) in lines.iter().enumerate() {
+        if line.trim_start().starts_with("//") || !line.contains(DISALLOWED) {
+            continue;
+        }
+        let Some(end) = (number..lines.len().min(number + 4)).find(|at| lines[*at].contains(")]"))
+        else {
+            continue;
+        };
+        let attribute = lines[number..=end].join(" ");
+        let Some(reason) = attribute
+            .split_once("reason = \"env: ")
+            .and_then(|(_, rest)| rest.split_once('"'))
+            .map(|(reason, _)| reason)
+        else {
+            continue;
+        };
+        let at = format!("{file}:{}", number + 1);
+        let named: Vec<String> = reason
+            .split_once(" -- ")
+            .map_or(reason, |(names, _)| names)
+            .split(", ")
+            .map(str::to_string)
+            .collect();
+        let statement = statement_after(&lines, end);
+        let (code, literals) = code_and_literals(&statement);
+        if !code.contains("std::env::") {
+            problems.push(format!(
+                "{at}: an env: allow over a statement that reads nothing"
+            ));
+        }
+        if let Some(start) = STARTS.iter().find(|start| code.contains(*start)) {
+            problems.push(format!(
+                "{at}: an env: allow over a statement with `{start}`"
+            ));
+        }
+        let shaped = |name: &str| {
+            !name.is_empty()
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+                && name.starts_with(|c: char| c.is_ascii_uppercase())
+        };
+        let mut read: Vec<String> = literals.into_iter().filter(|name| shaped(name)).collect();
+        for token in code.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
+            if shaped(token) {
+                if let Some(value) = constant(token, text, others) {
+                    read.push(value);
+                }
+            }
+        }
+        read.sort();
+        read.dedup();
+        let mut said = named.clone();
+        said.sort();
+        if said != ["process_env!"] && read != said {
+            problems.push(format!(
+                "{at}: the allow names {said:?}, the statement reads {read:?}"
+            ));
+        }
+        if said == ["process_env!"] && !(file == "src/lib.rs" && read.is_empty()) {
+            problems.push(format!("{at}: process_env!'s allow outside its build arms"));
+        }
+        reads.push((file.to_string(), named));
+    }
+    (reads, problems)
+}
+
 #[test]
-fn every_other_read_of_the_environment_in_src_is_listed() {
+fn clippy_disallows_every_reader_of_the_environment() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let rules = std::fs::read_to_string(manifest.join("clippy.toml")).expect("clippy.toml");
+    for path in ENV_READERS {
+        let entry = format!("{{ path = \"{path}\", ");
+        assert!(
+            rules
+                .lines()
+                .any(|line| line.trim_start().starts_with(&entry)),
+            "clippy.toml no longer disallows {path}"
+        );
+    }
+}
+
+#[test]
+fn every_read_outside_process_env_is_bound_to_its_variables() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut files = Vec::new();
     sources(&manifest.join("src"), &mut files);
+    sources(&manifest.join("tests"), &mut files);
+    let texts: Vec<(String, String)> = files
+        .iter()
+        .map(|path| {
+            (
+                path.strip_prefix(manifest)
+                    .expect("under the manifest")
+                    .to_string_lossy()
+                    .into_owned(),
+                std::fs::read_to_string(path).expect("a source file"),
+            )
+        })
+        .collect();
+    let mut found = Vec::new();
     let mut problems = Vec::new();
-    let mut seen = BTreeSet::new();
-    for path in files {
-        let relative = path
-            .strip_prefix(manifest)
-            .expect("under the manifest")
-            .to_string_lossy()
-            .into_owned();
-        let text = std::fs::read_to_string(&path).expect("a source file");
-        let mut hits = Vec::new();
-        for (index, line) in text.lines().enumerate() {
-            if line.trim_start().starts_with("//") {
-                continue;
-            }
-            hits.extend(std::iter::repeat_n(index + 1, reads_in(line)));
-        }
-        let listed = LISTED.iter().find(|(file, _, _)| *file == relative);
-        if !hits.is_empty() || listed.is_some() {
-            seen.insert(relative.clone());
-        }
-        let expected = listed.map_or(0, |(_, count, _)| *count);
-        if hits.len() != expected {
-            problems.push(format!(
-                "{relative}: {} reads at lines {hits:?}, {expected} listed",
-                hits.len()
-            ));
+    for (file, text) in &texts {
+        let (reads, wrong) = bound_reads(file, text, &texts);
+        found.extend(reads);
+        problems.extend(wrong);
+    }
+    let mut listed: Vec<(String, Vec<String>)> = EXCEPTIONS
+        .iter()
+        .map(|(file, names)| {
+            (
+                file.to_string(),
+                names.iter().map(|name| name.to_string()).collect(),
+            )
+        })
+        .collect();
+    for (file, names) in &found {
+        match listed
+            .iter()
+            .position(|entry| entry == &(file.clone(), names.clone()))
+        {
+            Some(at) => drop(listed.remove(at)),
+            None => problems.push(format!("{file}: an unlisted read of {names:?}")),
         }
     }
-    for (file, _, _) in LISTED {
-        if !seen.contains(*file) {
-            problems.push(format!("{file} is listed and has no read"));
+    for (file, names) in listed {
+        problems.push(format!("{file}: a listed read of {names:?} is not there"));
+    }
+    for (file, names) in EXCEPTIONS {
+        for name in *names {
+            if GUARDED.contains(name) {
+                problems.push(format!(
+                    "{file}: an exception reads {name}, which is guarded"
+                ));
+            }
         }
     }
     assert!(
         problems.is_empty(),
         "a read of the process environment outside process_env!:\n{}",
         problems.join("\n")
+    );
+}
+
+/// The check's own fixtures: a swapped variable, an allow over a start, an
+/// allow over nothing, and a constant whose value moved.
+#[test]
+fn the_binding_check_refuses_a_swapped_variable_a_start_and_a_moved_constant() {
+    let allowed = |statement: &str| {
+        format!(
+            "fn f() {{\n    #[allow(\n        {DISALLOWED},\n        \
+             reason = \"env: TMUX -- the terminal\"\n    )]\n    {statement}\n}}\n"
+        )
+    };
+    let problems = |text: &str| bound_reads("src/fixture.rs", text, &[]).1;
+    assert!(problems(&allowed(r#"let tmux = std::env::var_os("TMUX");"#)).is_empty());
+    let swapped = problems(&allowed(r#"let tmux = std::env::var_os("HOME");"#));
+    assert!(
+        swapped
+            .iter()
+            .any(|problem| problem.contains("reads [\"HOME\"]")),
+        "{swapped:?}"
+    );
+    let started = problems(&allowed(
+        r#"let tmux = (std::env::var_os("TMUX"), Command::spawn);"#,
+    ));
+    assert!(
+        started.iter().any(|problem| problem.contains("`Command`")),
+        "{started:?}"
+    );
+    let nothing = problems(&allowed(r#"let tmux = "TMUX";"#));
+    assert!(
+        nothing
+            .iter()
+            .any(|problem| problem.contains("reads nothing")),
+        "{nothing:?}"
+    );
+    let constant = |value: &str| {
+        format!(
+            "const NAME: &str = \"{value}\";\n{}",
+            allowed("let tmux = std::env::var_os(NAME);")
+        )
+    };
+    assert!(problems(&constant("TMUX")).is_empty());
+    let moved = problems(&constant("HOME"));
+    assert!(
+        moved
+            .iter()
+            .any(|problem| problem.contains("reads [\"HOME\"]")),
+        "{moved:?}"
+    );
+}
+
+/// A runtime's environment laid over a case's fake process: what the
+/// environment holds wins, the fake fills the rest; with no fake on the
+/// thread, the environment alone is the process.
+#[test]
+fn an_environment_laid_over_a_fake_process_wins_where_it_holds_and_no_further() {
+    let under = FakeProcess::new()
+        .home("/fake/under")
+        .var("XFX_MODEL", "under")
+        .var("XFX_GATEWAY_URL", "https://under.invalid/v1");
+    let over = FakeProcess::new()
+        .home("/fake/over")
+        .var("XFX_MODEL", "over");
+    under.run(|| {
+        over.clone().over_this_thread();
+        let env = Environment::from_process();
+        same(env.home() == Some(Path::new("/fake/over")), "HOME");
+        same(env.var("XFX_MODEL") == Some("over"), "XFX_MODEL");
+        same(
+            crate::gateway::Endpoint::from_process()
+                .is_ok_and(|endpoint| endpoint.url() == "https://under.invalid/v1"),
+            "XFX_GATEWAY_URL",
+        );
+    });
+    let alone = std::thread::spawn(move || {
+        over.over_this_thread();
+        let env = Environment::from_process();
+        (
+            env.home() == Some(Path::new("/fake/over")),
+            crate::gateway::Endpoint::from_process()
+                .is_ok_and(|endpoint| endpoint.url() == crate::gateway::DEFAULT_CHAT_URL),
+        )
+    })
+    .join()
+    .expect("joined");
+    same(alone.0, "HOME, laid on a thread with no fake process");
+    same(
+        alone.1,
+        "XFX_GATEWAY_URL, laid on a thread with no fake process",
+    );
+}
+
+/// Sends one request from an https client built under `bearer_rules` in
+/// `process`, and says how many requests a loopback proxy received.
+fn requests_to_a_proxy(process: impl FnOnce(&str) -> FakeProcess) -> usize {
+    let proxy = crate::test_net::Listener::answering(
+        "HTTP/1.1 502 Bad Gateway\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_string(),
+    );
+    let target = crate::test_net::Listener::answering(String::new());
+    let https = target.origin().replacen("http://", "https://", 1);
+    process(&proxy.origin()).run(|| {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a runtime")
+            .block_on(async {
+                let client = crate::gateway::bearer_rules(reqwest::Client::builder(), &https)
+                    .timeout(std::time::Duration::from_secs(5))
+                    .build()
+                    .expect("a client");
+                let _ = client.get(&https).send().await;
+            });
+    });
+    drop(target.finish());
+    proxy.finish().len()
+}
+
+/// The way a case gives a client a proxy: its fake process's `HTTPS_PROXY`,
+/// which `NO_PROXY` there still exempts a host from.
+#[test]
+fn an_https_client_takes_the_fake_processs_proxy_and_its_exemptions() {
+    assert_eq!(
+        requests_to_a_proxy(|proxy| FakeProcess::new().var("HTTPS_PROXY", proxy)),
+        1,
+        "the fake process's HTTPS_PROXY was not taken"
+    );
+    assert_eq!(
+        requests_to_a_proxy(|proxy| FakeProcess::new()
+            .var("HTTPS_PROXY", proxy)
+            .var("NO_PROXY", "127.0.0.1")),
+        0,
+        "the fake process's NO_PROXY was not honoured"
+    );
+    assert_eq!(
+        requests_to_a_proxy(|_| FakeProcess::new()),
+        0,
+        "a client took a proxy the fake process does not name"
     );
 }

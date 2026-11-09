@@ -887,7 +887,13 @@ mod fs {
         drop(file);
 
         #[cfg(test)]
-        if std::env::var_os(KILL_BEFORE_RENAME).is_some() {
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "env: XFX_TEST_USAGE_CACHE_KILL_BEFORE_RENAME -- a fault a copy of the test binary is started with"
+        )]
+        let kill = std::env::var_os(KILL_BEFORE_RENAME);
+        #[cfg(test)]
+        if kill.is_some() {
             let _ = rustix::process::kill_process(
                 rustix::process::getpid(),
                 rustix::process::Signal::KILL,

@@ -82,7 +82,7 @@ impl FakeClipboard {
 
     /// Puts the fake tools ahead of everything else on `command`'s `PATH`.
     pub fn first_on_path(&self, command: &mut Command) {
-        let inherited = std::env::var_os("PATH").unwrap_or_default();
+        let inherited = super::sandbox::path();
         let mut path = std::ffi::OsString::from(self.dir.path());
         path.push(":");
         path.push(inherited);

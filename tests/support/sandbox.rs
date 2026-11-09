@@ -25,12 +25,32 @@ use super::fake_llmux::FakeLlmux;
 /// own was missing some of these; this is the list of what is kept.
 pub const INHERITED_VARS: &[&str] = &["PATH", "TMPDIR"];
 
+/// [`INHERITED_VARS`] as the developer's process holds them: the suites' one
+/// read of the process environment.
+fn inherited() -> [(&'static str, Option<std::ffi::OsString>); 2] {
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "env: PATH, TMPDIR -- where programs are and where temporary files go"
+    )]
+    let inherited = [
+        ("PATH", std::env::var_os("PATH")),
+        ("TMPDIR", std::env::var_os("TMPDIR")),
+    ];
+    inherited
+}
+
+/// The developer's `PATH`: where a case finds `git` and the rest.
+pub fn path() -> std::ffi::OsString {
+    let [(_, path), _] = inherited();
+    path.unwrap_or_default()
+}
+
 /// Clears `command`'s environment down to [`INHERITED_VARS`]: what a case
 /// wants the child to have, it sets after this.
 pub fn clear_env(command: &mut Command) {
     command.env_clear();
-    for key in INHERITED_VARS {
-        if let Some(value) = std::env::var_os(key) {
+    for (key, value) in inherited() {
+        if let Some(value) = value {
             command.env(key, value);
         }
     }

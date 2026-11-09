@@ -89,9 +89,14 @@ fn has_cidfile(argv: &[String]) -> bool {
 
 /// `TMPDIR`, `TEMP` or `TMP`, else `/tmp` (`temporaryRoot`).
 fn temporary_root() -> Option<PathBuf> {
-    ["TMPDIR", "TEMP", "TMP"]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "env: TMPDIR, TEMP, TMP -- where a cidfile goes"
+    )]
+    let found = ["TMPDIR", "TEMP", "TMP"]
         .iter()
-        .find_map(|name| std::env::var_os(name).filter(|value| !value.is_empty()))
+        .find_map(|name| std::env::var_os(name).filter(|value| !value.is_empty()));
+    found
         .map(PathBuf::from)
         .or_else(|| cfg!(unix).then(|| PathBuf::from("/tmp")))
 }

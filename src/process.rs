@@ -896,7 +896,10 @@ mod tests {
     /// in a later statement as well as in the one that made it. Kept here:
     /// each entry is still a line of its own in `clippy.toml`, not commented
     /// out, and no code but this file's lifts them -- by name, by the old
-    /// name, or by a group or `warnings` allow that holds them.
+    /// name, or by a group or `warnings` allow that holds them -- except the
+    /// environment rule's own exceptions, whose reason is `env: ...` and
+    /// whose statements `crate::test_env`'s binding check holds to reading
+    /// the environment and starting nothing.
     ///
     /// A guard against the ordinary ways to slip past the rule by accident,
     /// not a proof that none is left: a macro, an attribute under `cfg_attr`,
@@ -972,15 +975,24 @@ mod tests {
                     {
                         found.push(format!("{}:{}", path.display(), number + 1));
                     }
-                    if [
-                        "disallowed_method",
-                        "clippy::all",
-                        "clippy::style",
-                        "allow(warnings",
-                        "expect(warnings",
-                    ]
-                    .iter()
-                    .any(|lift| line.contains(lift))
+                    // The environment rule's exceptions (`clippy.toml`) are
+                    // the same lint: an allow whose reason is `env: ...`,
+                    // which `test_env`'s binding check holds to a statement
+                    // that reads the environment and starts nothing.
+                    let env_rule = line.contains("clippy::disallowed_methods")
+                        && lines[number..lines.len().min(number + 3)]
+                            .iter()
+                            .any(|next| next.contains("reason = \"env: "));
+                    if !env_rule
+                        && [
+                            "disallowed_method",
+                            "clippy::all",
+                            "clippy::style",
+                            "allow(warnings",
+                            "expect(warnings",
+                        ]
+                        .iter()
+                        .any(|lift| line.contains(lift))
                     {
                         found.push(format!(
                             "{}:{} (lifts the start rule)",
@@ -1030,7 +1042,12 @@ mod tests {
         // `wait` then fails, and the id of a process group whose leader xfx
         // is about to signal can be handed out again first. The disposition
         // is the whole process's, so the case runs in a process of its own.
-        if std::env::var_os(SIGCHLD_PROBE).is_some() {
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "env: XFX_TEST_SIGCHLD_PROBE -- the role this binary's copy is started with"
+        )]
+        let probe = std::env::var_os(SIGCHLD_PROBE);
+        if probe.is_some() {
             return sigchld_probe();
         }
         use std::os::unix::process::CommandExt;

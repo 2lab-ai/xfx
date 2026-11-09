@@ -1804,11 +1804,12 @@ impl Runtime {
         prompter: TuiPrompter,
         questioner: Arc<TuiQuestioner>,
     ) -> Self {
-        // In a unit test, the rest of what this runtime reads of the process
-        // -- the Gateway's address, git's selectors, the link bases -- is
-        // `env`'s too, on this thread from now on (`crate::test_env`).
+        // In a unit test, what this runtime reads of the process -- the
+        // Gateway's address, git's selectors, the link bases -- is `env`'s
+        // where `env` holds it, and the thread's fake process's for the rest,
+        // on this thread from now on (`crate::test_env`).
         #[cfg(test)]
-        env.fake_process().for_this_thread();
+        env.fake_process().over_this_thread();
         let selector = ModelSelector::new(&config);
         let board = StatusBoard::new(status_snapshot(&config, selector.model(), None));
         let settings = crate::provider::effort::TurnSettings {

@@ -119,6 +119,10 @@ pub(crate) fn build_client(endpoint: &Endpoint) -> Result<reqwest::Client, Provi
 /// ([`may_use_a_proxy`]).
 pub(crate) fn bearer_rules(builder: reqwest::ClientBuilder, url: &str) -> reqwest::ClientBuilder {
     let builder = builder.redirect(reqwest::redirect::Policy::none());
+    // In a unit test, a proxy comes from the case's fake process, never from
+    // the process the suite runs in (`crate::test_env`); a build is unchanged.
+    #[cfg(test)]
+    let builder = crate::test_env::proxies(builder);
     if may_use_a_proxy(url) {
         builder
     } else {

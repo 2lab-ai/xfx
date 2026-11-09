@@ -2083,8 +2083,13 @@ fn a_pre_existing_hostile_git_config_does_not_execute_on_the_automatic_route() {
 /// configuration says, so proving that it no longer does needs git. Every
 /// supported target's runner has it -- it is what checked the commit out.
 fn git(root: &Path, args: &[&str]) {
+    // From nothing but PATH and TMPDIR (`support::sandbox::clear_env`): no
+    // `GIT_DIR`, `GIT_CONFIG_COUNT`/`KEY_n`/`VALUE_n` or
+    // `GIT_CONFIG_PARAMETERS` of the developer's decides what this fixture is.
+    let mut command = Command::new("git");
+    support::sandbox::clear_env(&mut command);
     let output = xfx::process::output(
-        Command::new("git")
+        command
             .args(args)
             .current_dir(root)
             // A developer's own identity, hooks, and templates must not decide what
@@ -2645,7 +2650,7 @@ fn real_git(dir: &Path, home: &Path, args: &[&str]) {
             .env_clear()
             .env("HOME", home)
             .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("PATH", std::env::var_os("PATH").unwrap_or_default()),
+            .env("PATH", support::sandbox::path()),
     )
     .expect("git on PATH: this test runs the real one");
     assert!(
@@ -2810,7 +2815,7 @@ fn git_says(dir: &Path, home: &Path, args: &[&str]) -> String {
             .env_clear()
             .env("HOME", home)
             .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("PATH", std::env::var_os("PATH").unwrap_or_default()),
+            .env("PATH", support::sandbox::path()),
     )
     .expect("git on PATH: this test runs the real one");
     String::from_utf8_lossy(&output.stdout).trim().to_string()
@@ -4098,7 +4103,12 @@ fn an_approved_command_runs_through_the_platform_shell_with_a_clean_environment(
     // Dynamic shell syntax can only run on the reviewed route. `CARGO_PKG_NAME`
     // is set in this test process, so an inherited environment would print
     // `[xfx]` and a built one prints `[]`.
-    assert_eq!(std::env::var("CARGO_PKG_NAME").as_deref(), Ok("xfx"));
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "env: CARGO_PKG_NAME -- cargo sets it in this test process; the case shows a command does not inherit it"
+    )]
+    let cargo_pkg_name = std::env::var("CARGO_PKG_NAME");
+    assert_eq!(cargo_pkg_name.as_deref(), Ok("xfx"));
     let output = succeeds(
         &context,
         "terminal",

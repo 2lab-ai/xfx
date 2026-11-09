@@ -455,9 +455,15 @@ fn hold(
     // of the three sources and it is not in hand until the read is over. The
     // environment is read here rather than in `theme` so that every variable
     // this session consults is named on one screen.
-    let colorfgbg = std::env::var(theme::COLORFGBG).ok();
-    let colorterm = std::env::var(theme::COLORTERM).ok();
-    let term_program = std::env::var(theme::TERM_PROGRAM).ok();
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "env: COLORFGBG, COLORTERM, TERM_PROGRAM -- what the terminal says of itself"
+    )]
+    let (colorfgbg, colorterm, term_program) = (
+        std::env::var(theme::COLORFGBG).ok(),
+        std::env::var(theme::COLORTERM).ok(),
+        std::env::var(theme::TERM_PROGRAM).ok(),
+    );
     let palette = theme::Palette {
         mode: theme::detect(
             env_theme.as_deref(),

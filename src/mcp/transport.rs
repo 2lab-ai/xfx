@@ -2618,10 +2618,7 @@ mod tests {
             crate::process::command(std::env::current_exe().expect("this test binary"));
         runner
             .env_clear()
-            .env(
-                "PATH",
-                std::env::var_os("PATH").unwrap_or_else(|| "/usr/bin:/bin".into()),
-            )
+            .env("PATH", crate::test_env::path())
             .env("TMPDIR", dir.path())
             .env("HOME", dir.path())
             .env("LOGNAME", "xfx-sentinel-logname")
@@ -2731,8 +2728,13 @@ mod tests {
     #[test]
     #[ignore = "run by a_server_and_its_docker_cleanup_see_only_what_they_are_given"]
     fn sentinel_runner_a_stdio_server_sees_six_names_and_its_own_env() {
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "env: XFX_TEST_SENTINEL_RUNNER -- the role the runner is started with"
+        )]
+        let runner = std::env::var_os(SENTINEL_RUNNER);
         assert!(
-            std::env::var_os(SENTINEL_RUNNER).is_some(),
+            runner.is_some(),
             "runs only in a_server_and_its_docker_cleanup_see_only_what_they_are_given's runner"
         );
         let dir = tempfile::tempdir().expect("dir");
@@ -2780,8 +2782,13 @@ mod tests {
     fn sentinel_runner_a_docker_cleanup_runs_with_the_servers_environment() {
         use std::os::unix::fs::PermissionsExt;
 
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "env: XFX_TEST_SENTINEL_RUNNER -- the role the runner is started with"
+        )]
+        let runner = std::env::var_os(SENTINEL_RUNNER);
         assert!(
-            std::env::var_os(SENTINEL_RUNNER).is_some(),
+            runner.is_some(),
             "runs only in a_server_and_its_docker_cleanup_see_only_what_they_are_given's runner"
         );
         // A `docker` written for the test: `run` names a container in the

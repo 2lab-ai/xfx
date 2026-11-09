@@ -175,7 +175,12 @@ static OWNED: OnceLock<Owned> = OnceLock::new();
 static TMUX: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn under_tmux() -> bool {
-    std::env::var_os("TMUX").is_some_and(|value| !value.is_empty())
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "env: TMUX -- whether the terminal is tmux's"
+    )]
+    let tmux = std::env::var_os("TMUX");
+    tmux.is_some_and(|value| !value.is_empty())
 }
 
 pub(crate) fn capture(fd: BorrowedFd<'_>) -> io::Result<Termios> {

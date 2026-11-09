@@ -71,8 +71,16 @@ impl Sandbox {
         // the binary (`tests/support/sandbox.rs`'s `clear_env`, which this
         // suite does not include).
         command.env_clear();
-        for key in ["PATH", "TMPDIR"] {
-            if let Some(value) = std::env::var_os(key) {
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "env: PATH, TMPDIR -- where programs are and where temporary files go"
+        )]
+        let inherited = [
+            ("PATH", std::env::var_os("PATH")),
+            ("TMPDIR", std::env::var_os("TMPDIR")),
+        ];
+        for (key, value) in inherited {
+            if let Some(value) = value {
                 command.env(key, value);
             }
         }
