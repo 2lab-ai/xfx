@@ -16264,6 +16264,25 @@ mod tests {
     }
 
     #[test]
+    fn a_key_handed_on_under_the_full_transcript_writes_nothing() {
+        // The distrust block asks for a frame under the full transcript too.
+        // That frame paints nothing new: the transcript plane is unchanged,
+        // so not a byte goes out for an unbound key there.
+        let mut list = AtList::open(40, 120);
+        list.keys(b"\x0f");
+        assert!(list.band.on_alternate(), "Ctrl-O did not take the plane");
+        list.tick();
+        let before = list.out.written.len();
+        list.keys(b"\x07");
+        assert_eq!(
+            String::from_utf8_lossy(&list.out.written[before..]),
+            "",
+            "an unbound key under Ctrl-O wrote to the screen"
+        );
+        assert!(list.band.on_alternate());
+    }
+
+    #[test]
     fn under_the_full_transcript_the_at_list_takes_no_key() {
         // fx's list is not eligible while the full transcript is up
         // (`filePickerEligible`, `input_completion_runtime.zig:783`, `:798-799
