@@ -1,0 +1,59 @@
+# after rewrite_root.py: the same claims and comparisons on the rewritten captures, against their output before it
+
+## check.py <repo> . xfx red (69 claims): output before and after the rewrite compared
+byte-identical; 0 claims failed: none
+
+## check.py <repo> . red: output before and after compared
+byte-identical; 7 claims failed: p5-submit-preview-first block frame1, p5-submit-preview-fresh block frame1, p5-submit-preview-full block frame1, p5-submit-preview-full five frame1, p5-submit-preview-full image frame1, p5-submit-preview-notice block frame1, p5-transcript-submit-multi submit frame1
+
+## scripts/fxcap/cells.py, fx's against xfx's and against the base's, every image pair and the two block pairs whose captures held links (snaps and frames): output before and after compared
+byte-identical; the lines after the rewrite:
+xfx p5-submit-preview-full-40x120-image-frame0.ansi: 0 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-full-40x120-image-frame0.ansi: 0 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-full-40x120-image-frame1.ansi: 1 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-full-40x120-image-frame1.ansi: 33 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-full-40x120-image-frame2.ansi: 1 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-full-40x120-image-frame2.ansi: 1 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-full-40x120-image-frame3.ansi: 1 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-full-40x120-image-frame3.ansi: 1 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-full-40x120-image-held.ansi: 1 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-full-40x120-image-held.ansi: 1 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-full-40x120-image-wireend.ansi: 0 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-full-40x120-image-wireend.ansi: 0 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-full-40x120-image.ansi: 0 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-full-40x120-image.ansi: 0 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-notice-40x120-block-frame0.ansi: 0 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-notice-40x120-block-frame0.ansi: 0 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-notice-40x120-block-frame1.ansi: 1 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-notice-40x120-block-frame1.ansi: 2 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-notice-40x120-block-frame2.ansi: 1 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-notice-40x120-block-frame2.ansi: 1 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-notice-40x120-block-frame3.ansi: 1 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-notice-40x120-block-frame3.ansi: 1 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-notice-40x120-block-held.ansi: 0 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-notice-40x120-block-held.ansi: 0 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-notice-40x120-block-wireend.ansi: 0 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-notice-40x120-block-wireend.ansi: 0 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-notice-40x120-block.ansi: 0 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-notice-40x120-block.ansi: 0 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-notice-40x120-block.full.ansi: 0 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-notice-40x120-block.full.ansi: 0 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-full-40x120-block-frame0.ansi: 0 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-full-40x120-block-frame0.ansi: 0 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-full-40x120-block-frame1.ansi: 1 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-full-40x120-block-frame1.ansi: 33 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-full-40x120-block-frame2.ansi: 1 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-full-40x120-block-frame2.ansi: 1 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-full-40x120-block-frame3.ansi: 1 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-full-40x120-block-frame3.ansi: 1 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-full-40x120-block-held.ansi: 0 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-full-40x120-block-held.ansi: 0 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-full-40x120-block-wireend.ansi: 0 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-full-40x120-block-wireend.ansi: 0 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-full-40x120-block.ansi: 0 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-full-40x120-block.ansi: 0 rows differ in their cells (row 1 not compared)
+xfx p5-submit-preview-full-40x120-block.full.ansi: 0 rows differ in their cells (row 1 not compared)
+red p5-submit-preview-full-40x120-block.full.ansi: 0 rows differ in their cells (row 1 not compared)
+
+## frames.py over the rewritten wires of those three pairs, all three sides, against the rewritten screens
+45 screens replayed, 0 differ

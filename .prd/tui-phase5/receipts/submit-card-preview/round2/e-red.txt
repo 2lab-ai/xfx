@@ -1,0 +1,20 @@
+# SHOULD (e) RED: cargo test --locked --lib -- a_draft_and_its_enter_in_one_read, on 9f94af7e's source plus this test
+running 1 test
+test tui::event_loop::tests::a_draft_and_its_enter_in_one_read_measure_the_room_the_last_frame_left ... FAILED
+failures:
+---- tui::event_loop::tests::a_draft_and_its_enter_in_one_read_measure_the_room_the_last_frame_left stdout ----
+thread 'tui::event_loop::tests::a_draft_and_its_enter_in_one_read_measure_the_room_the_last_frame_left' (363253207) panicked at src/tui/event_loop.rs:9752:13:
+the preview was measured from a composer no frame showed: ONEREAD-THREE: "\u{1b}[?2026h\u{1b}[?25l\u{1b}[34;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[1mONEREAD-THREE\u{1b}[35;1H\u{1b}[0m\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[1mONEREAD-FOUR\u{1b}[36;1H\u{1b}[0m\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[1mONEREAD-FIVE\u{
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+failures:
+    tui::event_loop::tests::a_draft_and_its_enter_in_one_read_measure_the_room_the_last_frame_left
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4552 filtered out; finished in 0.20s
+error: test failed, to rerun pass `--lib`
+
+# and check.py over the oneread capture (fx v0.0.16 against 9f94af7e's build, the base's 58c92ba2 for card/later/snaps):
+FAIL   p5-submit-preview-oneread oneread frame1: 17 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Thinking' | '  Thinking (0s) (↑20 ↓0)'
+         row 2: '  Filler line 16 of the first answer.' | '  Filler line 17 of the first answer.'
+         row 4: '  Filler line 17 of the first answer.' | '  Filler line 18 of the first answer.'
+--
+1 claims failed: p5-submit-preview-oneread oneread frame1

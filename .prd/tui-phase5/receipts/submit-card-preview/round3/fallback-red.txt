@@ -1,0 +1,5 @@
+# cargo test --locked --lib -- shell::tests::a_card_sent_after_a_resize   (at the RED commit, before the fallback is deleted)
+test tui::shell::tests::a_card_sent_after_a_resize_before_a_frame_lands_is_written_whole ... FAILED
+thread 'tui::shell::tests::a_card_sent_after_a_resize_before_a_frame_lands_is_written_whole' (370320852) panicked at src/tui/shell.rs:17180:9:
+a preview measured against a band no frame of this size painted
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4555 filtered out; finished in 0.01s

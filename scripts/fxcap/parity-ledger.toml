@@ -432,8 +432,8 @@ expires = "date:2027-05-06"
 source = ["docs/parity.md:99", "src/tui/mcp_menu.rs:1500"]
 
 # v0.0.16 transcript (T-U6, T-U6b): a change's bytes on the review and in
-# Ctrl-O. (The frame that writes a submitted prompt's card is a cause
-# awaiting the user: `submit-multi-card-whole`, under the causes.)
+# Ctrl-O. (The frame that writes a submitted prompt's card copies fx's since
+# SUBMIT-CARD-PREVIEW: a tall card's newest rows first, the card a frame later.)
 
 [[divergence]]
 id = "review-diff-spelling"
@@ -542,13 +542,14 @@ source = ["src/tui/frame.rs:2757", "docs/parity.md:237"]
 # (b) units in flight, the specific rows first.
 
 [[cause]]
-id = "submit-multi-card-whole"
-kind = "decision"
-owner = "user decision multi-line card preview"
+id = "preview-frame-before-the-turn-start"
+kind = ["unit", "nondeterminism"]
+owner = "SUBMIT-PREVIEW-EDGES"
 scenarios = ["p5-transcript-submit-multi"]
-snaps = ["frame1"]
-rows = ["32-36"]
-why = "Awaiting the user, to be asked at the epic-4 (Transcript) preview: copy fx's one-frame last-line preview of a multi-line card on a full screen, or keep the card whole from the first frame? fx v0.0.16's first frame after Enter shows only the prompt's last line and its next frame writes the card (70611a91); xfx's first frame writes the whole card (`send` and `echo`, src/tui/shell.rs:13187). One frame, a few milliseconds, and every snap after it is the same (.prd/tui-phase5/receipts/transcript-receipts, `frame` and `same`). xfx keeps the whole card until then: the dispatcher's interim choice (2026-11-07), not the user's, so it approves nothing. Resolved when the user answers: fx's preview copied, or the whole card written down as a lasting difference."
+snaps = ["frame1", "frame2", "card"]
+whole_snap = true
+fix = "build the frame that clears the composer against the band a running turn has, the activity row in it, whether or not the turn's start has been read -- fx draws `• Thinking` with the prompt -- so the preview and the document sit where fx's do whichever comes first"
+why = "The frame that clears the composer (the card's preview) is built in the tick after the Enter is read, whatever the worker has said by then. When the turn's start reaches the shell a tick late, that frame's band has no activity row: the preview sits one row lower and the document does not scroll as fx's does, so frame 1, frame 2 and the card's frame are one row off fx's and the base's; the frame after the card's is the base's again. Seen once in seven captures of p5-transcript-submit-multi from one build, and in neither of two instrumented runs of the same commit (.prd/tui-phase5/receipts/submit-card-preview/round3/race.txt; round4/preview-room-log.txt:2 records the second's win, and the first, round 3's probe, has no file in the receipt); any previewed card can meet it. These are check.py's frame claims, not sweep snaps."
 
 [[cause]]
 id = "diffctl-xfx-reads-first"
@@ -972,7 +973,7 @@ owner = "unowned (not traced to the line)"
 scenarios = ["allowlist2"]
 snaps = ["after-reset", "final"]
 whole_snap = true
-xfx = ["src/tui/layout.rs:91"]
+xfx = ["src/tui/layout.rs:98"]
 fx = ["src/ui/render_engine/footer_layout.zig:39-60@c1db9191"]
 why = "Once /allowlist's notices fill the screen fx's band stands three rows above the bottom and xfx's on it, so the document above differs by those rows. The two placement functions are named; which input differs is not yet traced."
 
@@ -1020,7 +1021,7 @@ owner = "unowned (not traced past the band's top)"
 scenarios = ["interrupt2"]
 snaps = ["mid", "esc1"]
 whole_snap = true
-xfx = ["src/tui/layout.rs:91"]
+xfx = ["src/tui/layout.rs:98"]
 fx = ["src/ui/render_engine/footer_layout.zig:50@c1db9191"]
 why = "With the whole answer delivered and the turn held open, fx leaves a blank row between the answer's last line and the activity row and xfx does not (the same in two retakes with the fixed turns file, xfx at plan de6618de); in this sweep it is mixed with the stream's timing."
 

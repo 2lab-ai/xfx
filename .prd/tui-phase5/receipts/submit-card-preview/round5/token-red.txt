@@ -1,0 +1,7 @@
+# only_collect_facts_makes_a_reconciled with round 4's rules (a whole let line, any | before the token): cargo test --locked --lib -- event_loop::tests::only_collect_facts
+test tui::event_loop::tests::only_collect_facts_makes_a_reconciled ... FAILED
+thread 'tui::event_loop::tests::only_collect_facts_makes_a_reconciled' (379970381) panicked at src/tui/event_loop.rs:9574:9:
+  left: [11, 13, 14]
+ right: [11, 13, 14, 15, 16]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4562 filtered out; finished in 0.01s
+# with round 5's: ok

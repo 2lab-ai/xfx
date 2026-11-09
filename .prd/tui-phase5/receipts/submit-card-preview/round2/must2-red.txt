@@ -1,0 +1,123 @@
+# MUST 2 and SHOULD (d) RED: cargo test --locked --lib -- the_tick_that_shows_a_preview a_tall_preview_leaves_the_card_once a_question_that_takes_the_plane_before_the_preview a_painted_preview_leaves_the_card_once, on 72d1b68f's source plus these tests
+running 4 tests
+test tui::event_loop::tests::the_tick_that_shows_a_preview_writes_the_card_in_the_next_frame ... FAILED
+test tui::event_loop::tests::a_question_that_takes_the_plane_before_the_preview_lands_gets_the_card_first ... FAILED
+test tui::event_loop::tests::a_tall_preview_leaves_the_card_once_across_a_resize_after_its_tick ... FAILED
+test tui::event_loop::tests::a_painted_preview_leaves_the_card_once_across_a_resize_before_the_card ... ok
+failures:
+---- tui::event_loop::tests::the_tick_that_shows_a_preview_writes_the_card_in_the_next_frame stdout ----
+thread 'tui::event_loop::tests::the_tick_that_shows_a_preview_writes_the_card_in_the_next_frame' (362199325) panicked at src/tui/event_loop.rs:9433:9:
+the tick wrote one update: "\u{1b}[?2026h\u{1b}[?25l\u{1b}[36;3H\u{1b}[1mTICK-THREE\u{1b}[37;1H\u{1b}[0m\u{1b}[K\u{1b}[38;3H\u{1b}[K\u{1b}[38;3H\u{1b}[?2026l\u{1b}[?25h"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+---- tui::event_loop::tests::a_question_that_takes_the_plane_before_the_preview_lands_gets_the_card_first stdout ----
+thread 'tui::event_loop::tests::a_question_that_takes_the_plane_before_the_preview_lands_gets_the_card_first' (362199323) panicked at src/tui/event_loop.rs:9548:13:
+the card's PLANE-ONE was not written before the plane changed hands: "\u{1b}[?1049h\u{1b}[?2026h\u{1b}[?25l\u{1b}[1;1H\u{1b}[2J\u{1b}[1;1H     \u{1b}[38;5;245m13\u{1b}[0m \u{1b}[38;5;252m+\u{1b}[0m \u{1b}[38;5;252mbeta\u{1b}[0m\u{1b}[2;1H     \u{1b}[38;5;245m14\u{1b}[0m \u{1b}[38;5;252m+\u{1b}[0m \u{1b}[38;5;252mbeta\u{1b}[0m\u{1b}[3;1H     \u{1b}[38;5;245m15\u{1b}[0m \u{1b}[38;5;252m+\u{1b}[0m \u
+---- tui::event_loop::tests::a_tall_preview_leaves_the_card_once_across_a_resize_after_its_tick stdout ----
+thread 'tui::event_loop::tests::a_tall_preview_leaves_the_card_once_across_a_resize_after_its_tick' (362199324) panicked at src/tui/event_loop.rs:9275:9:
+assertion `left == right` failed: 24x120: the card's rows, history and screen: [
+    "",
+    "",
+    "┃ TALL-PREVIEW-ROW-29",
+    "┃ TALL-PREVIEW-ROW-30",
+    "┃ TALL-PREVIEW-ROW-31",
+    "┃ TALL-PREVIEW-ROW-32",
+    "┃ TALL-PREVIEW-ROW-33",
+    "┃ TALL-PREVIEW-ROW-34",
+    "┃ TALL-PREVIEW-ROW-35",
+    "┃ TALL-PREVIEW-ROW-36",
+    "┃ TALL-PREVIEW-ROW-37",
+    "┃ TALL-PREVIEW-ROW-38",
+    "┃ TALL-PREVIEW-ROW-39",
+    "┃ TALL-PREVIEW-ROW-40",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "┃ TALL-PREVIEW-ROW-01",
+    "┃ TALL-PREVIEW-ROW-02",
+    "┃ TALL-PREVIEW-ROW-03",
+    "┃ TALL-PREVIEW-ROW-04",
+    "┃ TALL-PREVIEW-ROW-05",
+    "┃ TALL-PREVIEW-ROW-06",
+    "┃ TALL-PREVIEW-ROW-07",
+    "┃ TALL-PREVIEW-ROW-08",
+    "┃ TALL-PREVIEW-ROW-09",
+    "┃ TALL-PREVIEW-ROW-10",
+    "┃ TALL-PREVIEW-ROW-11",
+    "┃ TALL-PREVIEW-ROW-12",
+    "┃ TALL-PREVIEW-ROW-13",
+    "┃ TALL-PREVIEW-ROW-14",
+    "┃ TALL-PREVIEW-ROW-15",
+    "┃ TALL-PREVIEW-ROW-16",
+    "┃ TALL-PREVIEW-ROW-17",
+    "┃ TALL-PREVIEW-ROW-18",
+    "┃ TALL-PREVIEW-ROW-19",
+    "┃ TALL-PREVIEW-ROW-20",
+    "┃ TALL-PREVIEW-ROW-21",
+    "┃ TALL-PREVIEW-ROW-22",
+    "┃ TALL-PREVIEW-ROW-23",
+    "┃ TALL-PREVIEW-ROW-24",
+    "┃ TALL-PREVIEW-ROW-25",
+    "┃ TALL-PREVIEW-ROW-26",
+    "┃ TALL-PREVIEW-ROW-27",
+    "┃ TALL-PREVIEW-ROW-28",
+    "┃ TALL-PREVIEW-ROW-29",
+    "┃ TALL-PREVIEW-ROW-30",
+    "┃ TALL-PREVIEW-ROW-31",
+    "┃ TALL-PREVIEW-ROW-32",
+    "┃ TALL-PREVIEW-ROW-33",
+    "┃ TALL-PREVIEW-ROW-34",
+    "┃ TALL-PREVIEW-ROW-35",
+    "┃ TALL-PREVIEW-ROW-36",
+    "┃ TALL-PREVIEW-ROW-37",
+    "┃ TALL-PREVIEW-ROW-38",
+    "┃ TALL-PREVIEW-ROW-39",
+    "┃ TALL-PREVIEW-ROW-40",
+    "┃ TALL-PREVIEW-ROW-41",
+    "┃ TALL-PREVIEW-ROW-42",
+    "┃ TALL-PREVIEW-ROW-43",
+    "┃ TALL-PREVIEW-ROW-44",
+    "┃ TALL-PREVIEW-ROW-45",
+    "┃ TALL-PREVIEW-ROW-46",
+    "┃ TALL-PREVIEW-ROW-47",
+    "┃ TALL-PREVIEW-ROW-48",
+    "┃ TALL-PREVIEW-ROW-49",
+    "┃ TALL-PREVIEW-ROW-50",
+    "┃ TALL-PREVIEW-ROW-51",
+    "┃ TALL-PREVIEW-ROW-52",
+    "┃ TALL-PREVIEW-ROW-53",
+    "┃ TALL-PREVIEW-ROW-54",
+    "┃ TALL-PREVIEW-ROW-55",
+    "┃ TALL-PREVIEW-ROW-56",
+    "┃ TALL-PREVIEW-ROW-57",
+    "┃ TALL-PREVIEW-ROW-58",
+    "┃ TALL-PREVIEW-ROW-59",
+    "┃ TALL-PREVIEW-ROW-60",
+    "",
+    "┃",
+    "",
+    "run `xfx setup` · auto · glm-5.2",
+]
+  left: ["┃ TALL-PREVIEW-ROW-29", "┃ TALL-PREVIEW-ROW-30", "┃ TALL-PREVIEW-ROW-31", "┃ TALL-PREVIEW-ROW-32", "┃ TALL-PREVIEW-ROW-33", "┃ TALL-PREVIEW-ROW-34", "┃ TALL-PREVIEW-ROW-35", "┃ TALL-PREVIEW-ROW-36", "┃ TALL-PREVIEW-ROW-37", "┃ TALL-PREVIEW-ROW-38", "┃ TALL-PREVIEW-ROW-39", "┃ TALL-PREVIEW-ROW-40", "┃ TALL-PREVIEW-ROW-01", "┃ TALL-PREVIEW-ROW-02", "┃ TALL-PREVIEW-ROW-03", "┃ TALL-PREVIEW-
+ right: ["┃ TALL-PREVIEW-ROW-01", "┃ TALL-PREVIEW-ROW-02", "┃ TALL-PREVIEW-ROW-03", "┃ TALL-PREVIEW-ROW-04", "┃ TALL-PREVIEW-ROW-05", "┃ TALL-PREVIEW-ROW-06", "┃ TALL-PREVIEW-ROW-07", "┃ TALL-PREVIEW-ROW-08", "┃ TALL-PREVIEW-ROW-09", "┃ TALL-PREVIEW-ROW-10", "┃ TALL-PREVIEW-ROW-11", "┃ TALL-PREVIEW-ROW-12", "┃ TALL-PREVIEW-ROW-13", "┃ TALL-PREVIEW-ROW-14", "┃ TALL-PREVIEW-ROW-15", "┃ TALL-PREVIEW-
+failures:
+    tui::event_loop::tests::a_question_that_takes_the_plane_before_the_preview_lands_gets_the_card_first
+    tui::event_loop::tests::a_tall_preview_leaves_the_card_once_across_a_resize_after_its_tick
+    tui::event_loop::tests::the_tick_that_shows_a_preview_writes_the_card_in_the_next_frame
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 4544 filtered out; finished in 0.06s
+error: test failed, to rerun pass `--lib`

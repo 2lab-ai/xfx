@@ -1,0 +1,24 @@
+  0s (↑4 ↓40)
+
+┃ five line one
+┃ five line two
+┃ five line three
+┃ five line four
+┃ five line five
+
+  Five answer.
+
+  1s (↑16 ↓40)
+
+* images: attached image: shot.png
+
+┃ [Image 1]image line one
+┃ image line two
+
+  Image answer.
+
+  1s (↑10 ↓40)
+
+┃
+
+auto · model-a

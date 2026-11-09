@@ -1,0 +1,21 @@
+# fx v0.0.16's own frame trace (FX_TRACE_LOG, FX_TRACE_SCOPES=frame_plan,frame_diff,input) for two runs of
+# p5-submit-preview-first and p5-submit-preview-notice, each with the trace variables added to its fx line and nothing
+# else changed; the pending-prompt lines, as written (app_render_runtime.zig:1713-1727, input_submit_runtime.zig:293-299, :579-584, all @481104fd).
+# start = the preview's first row, paint_rows = rows painted, layout_rows = the tail's rows plus its separator,
+# transcript = the frame's transcript band. The rest of each trace is timing and is not kept.
+
+## p5-submit-preview-first
+[input] event=pending_prompt_installed turn_id=1 prompt_bytes=1193 images=0 skill_spans=0
+[frame_plan] pending_prompt_tail start=3 paint_rows=32 layout_rows=36 bytes=1531 transcript=1..35 body=retain
+[input] event=pending_prompt_frame_committed turn_id=1
+[input] event=pending_prompt_adopted turn_id=1
+[input] event=pending_prompt_queued turn_id=1
+[input] event=pending_prompt_cleared turn_id=1 reason=worker_begin_presented phase=queued
+
+## p5-submit-preview-notice
+[input] event=pending_prompt_installed turn_id=1 prompt_bytes=1203 images=1 skill_spans=0
+[frame_plan] pending_prompt_tail start=3 paint_rows=32 layout_rows=34 bytes=1531 transcript=1..35 body=paint
+[input] event=pending_prompt_frame_committed turn_id=1
+[input] event=pending_prompt_adopted turn_id=1
+[input] event=pending_prompt_queued turn_id=1
+[input] event=pending_prompt_cleared turn_id=1 reason=worker_begin_presented phase=queued

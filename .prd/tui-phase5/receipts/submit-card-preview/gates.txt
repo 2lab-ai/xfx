@@ -1,0 +1,36 @@
+# head 91a1260dd95bff0109f74617cf5969f082efd1c1, tree: 0 tracked changes
+# slot taken 2026-11-09T04:29:59Z
+00 false rc=1 0s
+01 fmt rc=0 4s
+02 clippy rc=0 25s
+03 clippy-fault rc=0 23s
+04 test rc=0 199s
+05 test-fault-tui rc=0 51s
+06 test-fault-lib rc=0 93s
+07 check-no-stubs rc=0 12s
+08 check-no-secrets rc=0 53s
+09 test-check-no-secrets rc=0 105s
+10 test-gate-env rc=0 375s
+11 check-xfx-identity rc=0 4s
+12 check-preview-contract rc=0 13s
+13 test-preview-contract rc=0 128s
+14 check-tui-preflight-cost rc=0 131s
+15 check-usage-clock rc=0 15s
+16 fxcap-test-sweep rc=0 37s
+17 fxcap-test-capture rc=0 330s
+18 build-release rc=0 21s
+19 smoke rc=0 1s
+20 build-faulty rc=0 18s
+21 smoke-tui rc=0 69s
+# done 2026-11-09T04:58:26Z
+exit 0
+
+# step 04's and 06's test counts
+04 test: 5472 passed, 0 failed, 7 ignored
+06 test-fault-lib: 4579 passed, 0 failed, 7 ignored
+05 test-fault-tui: 195 passed, 0 failed, 0 ignored
+
+# on ee54095a (the docs-only commit after 91a1260d), outside the lock
+check-no-secrets rc=0 70s
+check-no-stubs rc=0 9s
+check-xfx-identity rc=0 1s

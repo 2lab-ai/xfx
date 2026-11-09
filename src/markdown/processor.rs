@@ -204,6 +204,18 @@ impl MarkdownProcessor {
         }
     }
 
+    /// Whether the line this presenter holds, the one it has not seen the
+    /// end of, carries `text`. An empty `text` is nothing to look for, and
+    /// is not held.
+    #[cfg(test)]
+    pub(crate) fn holds(&self, text: &str) -> bool {
+        let text = text.as_bytes();
+        !text.is_empty()
+            && [&self.line_buf, &self.pending_top_level_line]
+                .iter()
+                .any(|held| held.windows(text.len()).any(|window| window == text))
+    }
+
     pub fn styles(&self) -> &Styles {
         &self.styles
     }

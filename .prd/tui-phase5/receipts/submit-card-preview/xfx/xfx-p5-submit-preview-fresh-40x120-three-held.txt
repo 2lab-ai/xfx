@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands
+
+┃ fresh line one
+┃ fresh line two
+┃ fresh line three
+
+• Generating (1s) (↑13 ↓2)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

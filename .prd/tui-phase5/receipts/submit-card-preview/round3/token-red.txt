@@ -1,0 +1,11 @@
+# cargo test --locked --lib -- event_loop::tests::only_collect_facts   (at the RED commit, before commit_frame_led borrows the token)
+test tui::event_loop::tests::only_collect_facts_makes_a_reconciled ... FAILED
+thread 'tui::event_loop::tests::only_collect_facts_makes_a_reconciled' (370529337) panicked at src/tui/event_loop.rs:9484:9:
+a Reconciled made outside collect_facts: [
+    (
+        708,
+        "Ok(Reconciled)",
+    (
+        1201,
+        "commit_frame_led(shell, band, out, failures, now, Reconciled, &mut None)?;",
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4556 filtered out; finished in 0.00s

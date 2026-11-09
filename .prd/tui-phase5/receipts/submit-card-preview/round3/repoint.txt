@@ -1,0 +1,14 @@
+# python3 -I -B repoint.py <repo> 4db02b1e dba00dfb   (the check, on the commit that holds the re-pointed numbers; --write ran once before it, at 4c9fe627)
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:13614 at 4db02b1e is :13631 at dba00dfb  'let event = full_transcript::shown_event(event);'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:38994 at 4db02b1e is :39067 at dba00dfb  'String::new(),'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:38994 at 4db02b1e is :39067 at dba00dfb  'String::new(),'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:38994 at 4db02b1e is :39067 at dba00dfb  'String::new(),'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:38994 at 4db02b1e is :39067 at dba00dfb  'String::new(),'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:38994 at 4db02b1e is :39067 at dba00dfb  'String::new(),'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:10303 at 4db02b1e is :10313 at dba00dfb  '/// would have had written on its own.'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:10303 at 4db02b1e is :10313 at dba00dfb  '/// would have had written on its own.'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:38994 at 4db02b1e is :39067 at dba00dfb  'String::new(),'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:16533 at 4db02b1e is :16550 at dba00dfb  'pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Res'
+same     scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:4439 at 4db02b1e is :4449 at dba00dfb  '};'
+same     scripts/fxcap/capfile.py: src/tui/shell.rs:14794-14819 at 4db02b1e is :14811-14836 at dba00dfb  "fn warning_shown(&self) -> Option<&'static str> {"
+12 references moved, 0 whose cited text changed
