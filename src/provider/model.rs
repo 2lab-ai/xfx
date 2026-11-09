@@ -1940,7 +1940,13 @@ impl ModelSelector {
         #[cfg(test)]
         if let Some(fetcher) = handed {
             self.catalog_fetcher = Some(fetcher);
-            self.catalog_state = CatalogState::NotLoaded;
+            // A provider with no catalog of its own -- a test's temporary home
+            // holds no credential -- is built `Unavailable`; with the test's
+            // catalog it is what [`Self::new`] builds over one, `NotLoaded`.
+            // Any other state is the one `Self::new` built, left as it is.
+            if matches!(self.catalog_state, CatalogState::Unavailable) {
+                self.catalog_state = CatalogState::NotLoaded;
+            }
         }
     }
 
@@ -2392,9 +2398,10 @@ impl ModelSelector {
     }
 
     /// The selector the next switch builds ([`Self::renew`]) asks `fetcher`
-    /// -- one a test wrote -- in place of the provider's catalog, with
-    /// nothing loaded: a switch run through the runtime's own path, with no
-    /// socket opened.
+    /// -- one a test wrote -- in place of the provider's catalog, and is
+    /// otherwise as [`Self::new`] built it, a provider with no catalog of its
+    /// own reading as one with a catalog does (`NotLoaded`): a switch run
+    /// through the runtime's own path, with no socket opened.
     #[cfg(test)]
     pub(crate) fn hand_fetcher_to_next_for_test(
         &mut self,

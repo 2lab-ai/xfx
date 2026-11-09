@@ -10079,12 +10079,16 @@ mod tests {
     fn the_shared_fixtures_runtime_reads_only_its_own_home() {
         // A runtime reads its environment again when a switch reloads the
         // profile (`select_provider`): the fixture every case here starts from
-        // must hold the test's own home, never the process's. Compared, never
-        // printed.
+        // must hold the test's own home and no variable, never the process's
+        // home or variables. Compared, never printed.
         let (home, _workspace, state) = recording();
         assert!(
             state.env.home() == Some(home.path()),
             "recording()'s runtime holds a home other than the test's own"
+        );
+        assert!(
+            state.env.vars_for_test() == &BTreeMap::new(),
+            "recording()'s runtime holds variables the test did not give it"
         );
     }
 
@@ -16996,8 +17000,12 @@ mod tests {
         );
         let now = state.selector.now();
         assert!(
-            !state.selector.would_load(LoadTrigger::PickerOpen, now),
+            state.selector.retry_at().is_some_and(|at| now < at),
             "no hold on the next read"
+        );
+        assert!(
+            !state.selector.would_load(LoadTrigger::PickerOpen, now),
+            "the hold let the menu read"
         );
         let fresh = Arc::new(AtomicUsize::new(0));
         state
@@ -17014,10 +17022,16 @@ mod tests {
         );
         assert_eq!(state.selector.refresh_retry(), None, "the old failure kept");
         assert_eq!(state.selector.failure_retry(), None);
+        assert_eq!(state.selector.retry_at(), None, "the old hold kept");
         assert_eq!(
             state.selector.clock(),
             LoadClock::default(),
-            "the old hold kept"
+            "the old reads' clock kept"
+        );
+        assert_eq!(
+            fresh.load(Ordering::SeqCst),
+            0,
+            "the switch read the new provider's catalog"
         );
         assert!(
             state
@@ -17063,16 +17077,22 @@ mod tests {
             "the read never reached its catalog"
         );
         let _ = told(&mut received);
+        let fresh = Arc::new(AtomicUsize::new(0));
         state
             .selector
             .hand_fetcher_to_next_for_test(Box::new(Turns {
                 answers: Mutex::new(std::collections::VecDeque::new()),
-                asked: Arc::new(AtomicUsize::new(0)),
+                asked: Arc::clone(&fresh),
             }));
         switched_to_gateway(&mut state, &events);
         assert!(
             !state.selector.is_loading(),
             "the old read is the new selector's"
+        );
+        assert_eq!(
+            fresh.load(Ordering::SeqCst),
+            0,
+            "the switch read the new provider's catalog"
         );
         assert!(matches!(state.selector.catalog(), CatalogState::NotLoaded));
         assert!(
