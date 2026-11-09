@@ -32,7 +32,10 @@ replaced). `fx-src.txt:N` below means that file.
 | `9294e3f2` | ledger: the `at-folder-row` cause deleted |
 | `18492259` | ledger refs at the head's tests (`refs.txt`: 16 checked, 0 wrong) |
 | `9a83cad3` | test only: a key handed on under Ctrl-O writes nothing (the distrust's frame request there) -- **the head's build** (`v0.1.0-9a83cad`), the gate's and the sweep's commit |
-| (receipt commit) | this folder |
+| `6310d5c3`, (this commit) | this folder: the receipt, then the gate's result |
+
+`git diff --stat 9a83cad3..HEAD -- . ':(exclude).prd/tui-phase5/receipts/at-folders'`
+is empty: after the head's build only this folder changes.
 
 ## 1. AT-HEIGHT's leftover (opus r3 SHOULD 1)
 
@@ -229,7 +232,19 @@ scored with the ledger at `18492259`, which no later commit changes.
 
 ## 9. The gate (`gate.txt`, `gates.sh`)
 
-GATE-TEXT
+Every CI step the brief lists (`gates.sh`, AT-HEIGHT's unchanged), in a
+`--no-local` clone at `9a83cad3`, in one hold of the suite lock, with
+`TMPDIR=<scratch>/atfg`. **20 steps, 0 failed**, the tree clean before and
+after (load 14-45 over the run):
+- fmt, clippy, and clippy with fault injection;
+- `cargo test`: 5484 passed, 0 failed; with fault injection: 5521 passed, 0
+  failed (AT-HEIGHT's head: 5470 and 5507);
+- the identity, stubs, secrets, preview-contract, preflight-cost and
+  usage-clock checks, and their self-tests;
+- the fxcap sweep and capture self-tests (68 capture tests, with the new
+  workspace's `space dir/` in the tree);
+- both release builds; smoke; smoke-tui: 37 scenarios and the oracle, 1168
+  checks, 0 failures.
 
 ## 10. docs/parity.md and the ledger
 
@@ -253,7 +268,7 @@ GATE-TEXT
   list re-reads the index. Untouched.
 - fx's `isCurrentFileCompletion` check before a choice is applied
   (`input_completion_runtime.zig:981-985`, `fx-src.txt:765-769`) is not
-  ported, here or at the base; no unit names it yet (an open question in the
-  report).
+  ported, here or at the base; no unit owns it yet (for the dispatcher's
+  queue; not a user decision).
 - **I-U2 ranking**: a folder query's entries are still ranked by xfx's eight
   facts; with no name typed they tie, so byte order, as fx.
