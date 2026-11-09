@@ -33,7 +33,7 @@
 ┃ tall prompt body 58
 ┃ TALL_PROMPT_TAIL
 
-• Generating (1s) (↑298 ↓1)
+  Generating (1s) (↑298 ↓1)
 
 ┃
 

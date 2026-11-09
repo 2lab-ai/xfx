@@ -7,7 +7,7 @@
 
   Filler line 30 of the first answer.
 
-  0s (↑4 ↓40)
+  1s (↑4 ↓40)
 
 ┃ five line one
 ┃ five line two

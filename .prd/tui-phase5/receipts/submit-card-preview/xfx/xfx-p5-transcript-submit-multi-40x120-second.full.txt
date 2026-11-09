@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands
+x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands
 
 ┃ fill the screen
 
@@ -62,7 +62,7 @@ x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands
 
   Filler line 30 of the first answer.
 
-  0s (↑4 ↓40)
+  1s (↑4 ↓40)
 
 ┃ multi line one
 ┃ multi line two

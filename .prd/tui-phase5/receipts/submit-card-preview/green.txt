@@ -1,6 +1,6 @@
-# python3 -I -B check.py <repo> . xfx red   (4db02b1e's build against fx v0.0.16, and against the base's, 58c92ba2; 40x120, 30x100, 24x80)
+# python3 -I -B check.py <repo> . xfx red   (3d09af8f's build against fx v0.0.16, and against the base's, 58c92ba2; 40x120, 30x100, 24x80; p5-transcript-submit-multi from the second capture, round3/race.txt)
 ok     p5-submit-preview-first 24x80 block frame1: 0 of 25 rows differ, 2 set aside
-         set aside (banner) row 1: '𝒇x v0.0.16 · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
+         set aside (banner) row 1: '𝒇x v0.0.16 · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
          set aside (activity) row 20: '• Thinking' | '• Thinking (0s) (↑298 ↓0)'
 ok     p5-submit-preview-first 24x80 block frame2: 0 of 25 rows differ, 1 set aside
          set aside (activity) row 20: '• Thinking' | '• Thinking (0s) (↑298 ↓0)'
@@ -8,7 +8,7 @@ ok     p5-submit-preview-first 24x80 block card: 0 of 25 rows differ, 0 set asid
 ok     p5-submit-preview-first 24x80 block later: 0 of 25 rows differ, 0 set aside
          its bytes: the base's
 ok     p5-submit-preview-first 30x100 block frame1: 0 of 31 rows differ, 2 set aside
-         set aside (banner) row 1: '𝒇x v0.0.16 · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
+         set aside (banner) row 1: '𝒇x v0.0.16 · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
          set aside (activity) row 26: '• Thinking' | '• Thinking (0s) (↑298 ↓0)'
 ok     p5-submit-preview-first 30x100 block frame2: 0 of 31 rows differ, 1 set aside
          set aside (activity) row 26: '• Thinking' | '• Thinking (0s) (↑298 ↓0)'
@@ -16,13 +16,14 @@ ok     p5-submit-preview-first 30x100 block card: 0 of 31 rows differ, 0 set asi
 ok     p5-submit-preview-first 30x100 block later: 0 of 31 rows differ, 0 set aside
          its bytes: the base's
 ok     p5-submit-preview-first block frame1: 0 of 41 rows differ, 2 set aside
-         set aside (banner) row 1: '𝒇x v0.0.16 · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
+         set aside (banner) row 1: '𝒇x v0.0.16 · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
          set aside (activity) row 36: '• Thinking' | '• Thinking (0s) (↑298 ↓0)'
 ok     p5-submit-preview-first block frame2: 0 of 41 rows differ, 1 set aside
          set aside (activity) row 36: '• Thinking' | '• Thinking (0s) (↑298 ↓0)'
 ok     p5-submit-preview-first block card: 0 of 41 rows differ, 0 set aside
-ok     p5-submit-preview-first block later: 0 of 41 rows differ, 0 set aside
-         its bytes: the base's
+ok     p5-submit-preview-first block later: 0 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Generating (0s) (↑298 ↓1)' | '  Thinking (0s) (↑298 ↓0)'
+         its bytes: not the base's (37 against 95)
 ok     p5-submit-preview-fresh block frame1: 0 of 41 rows differ, 1 set aside
          set aside (activity) row 36: '• Thinking' | '• Thinking (0s) (↑298 ↓0)'
 ok     p5-submit-preview-fresh block frame2: 0 of 41 rows differ, 1 set aside
@@ -31,15 +32,15 @@ ok     p5-submit-preview-fresh block card: 0 of 41 rows differ, 0 set aside
 ok     p5-submit-preview-fresh block later: 0 of 41 rows differ, 0 set aside
          its bytes: the base's
 ok     p5-submit-preview-fresh three frame1: 0 of 41 rows differ, 2 set aside
-         set aside (banner) row 1: '𝒇x v0.0.16 · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
+         set aside (banner) row 1: '𝒇x v0.0.16 · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
          set aside (activity) row 7: '• Thinking' | '• Thinking (0s) (↑13 ↓0)'
 ok     p5-submit-preview-fresh three frame2: 0 of 41 rows differ, 2 set aside
-         set aside (banner) row 1: '𝒇x v0.0.16 · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
+         set aside (banner) row 1: '𝒇x v0.0.16 · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
          set aside (activity) row 7: '• Thinking (0s)' | '• Generating (0s) (↑13 ↓2)'
 ok     p5-submit-preview-fresh three card: 0 of 41 rows differ, 1 set aside
-         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
+         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
 ok     p5-submit-preview-fresh three later: 0 of 41 rows differ, 1 set aside
-         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
+         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
          its bytes: the base's
 ok     p5-submit-preview-full 24x80 block frame1: 0 of 25 rows differ, 1 set aside
          set aside (activity) row 20: '• Thinking' | '• Thinking (0s) (↑298 ↓0)'
@@ -48,34 +49,46 @@ ok     p5-submit-preview-full 24x80 block frame2: 0 of 25 rows differ, 1 set asi
 ok     p5-submit-preview-full 24x80 block card: 0 of 25 rows differ, 0 set aside
 ok     p5-submit-preview-full 24x80 block later: 0 of 25 rows differ, 0 set aside
          its bytes: the base's
-ok     p5-submit-preview-full 24x80 five frame1: 0 of 25 rows differ, 1 set aside
-         set aside (activity) row 20: '• Thinking' | '  Thinking (0s) (↑16 ↓0)'
-ok     p5-submit-preview-full 24x80 five frame2: 0 of 25 rows differ, 1 set aside
-         set aside (activity) row 20: '• Thinking' | '  Thinking (0s) (↑16 ↓0)'
-ok     p5-submit-preview-full 24x80 five card: 0 of 25 rows differ, 0 set aside
-ok     p5-submit-preview-full 24x80 five later: 0 of 25 rows differ, 0 set aside
-         its bytes: the base's
-ok     p5-submit-preview-full 24x80 image frame1: 0 of 25 rows differ, 1 set aside
+ok     p5-submit-preview-full 24x80 five frame1: 0 of 25 rows differ, 2 set aside
+         set aside (wall clock) row 14: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+         set aside (activity) row 20: '• Thinking' | '• Thinking (0s) (↑16 ↓0)'
+ok     p5-submit-preview-full 24x80 five frame2: 0 of 25 rows differ, 2 set aside
+         set aside (wall clock) row 12: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+         set aside (activity) row 20: '• Thinking' | '• Thinking (0s) (↑16 ↓0)'
+ok     p5-submit-preview-full 24x80 five card: 0 of 25 rows differ, 2 set aside
+         set aside (wall clock) row 12: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+         set aside (activity) row 20: '  Thinking (0s) (↑16 ↓0)' | '• Thinking (0s) (↑16 ↓0)'
+ok     p5-submit-preview-full 24x80 five later: 0 of 25 rows differ, 1 set aside
+         set aside (wall clock) row 12: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+         its bytes: not the base's (96 against 94)
+ok     p5-submit-preview-full 24x80 image frame1: 0 of 25 rows differ, 2 set aside
+         set aside (wall clock) row 4: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
          set aside (activity) row 20: '• Thinking' | '  Thinking (0s) (↑10 ↓0)'
-ok     p5-submit-preview-full 24x80 image frame2: 0 of 25 rows differ, 1 set aside
+ok     p5-submit-preview-full 24x80 image frame2: 0 of 25 rows differ, 2 set aside
+         set aside (wall clock) row 3: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
          set aside (activity) row 20: '• Thinking' | '  Thinking (0s) (↑10 ↓0)'
-ok     p5-submit-preview-full 24x80 image card: 0 of 25 rows differ, 0 set aside
-ok     p5-submit-preview-full 24x80 image later: 0 of 25 rows differ, 0 set aside
+ok     p5-submit-preview-full 24x80 image card: 0 of 25 rows differ, 1 set aside
+         set aside (wall clock) row 3: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+ok     p5-submit-preview-full 24x80 image later: 0 of 25 rows differ, 1 set aside
+         set aside (wall clock) row 3: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
          its bytes: the base's
 ok     p5-submit-preview-full 30x100 block frame1: 0 of 31 rows differ, 1 set aside
-         set aside (activity) row 26: '• Thinking' | '• Thinking (0s) (↑298 ↓0)'
+         set aside (activity) row 26: '• Thinking' | '  Thinking (0s) (↑298 ↓0)'
 ok     p5-submit-preview-full 30x100 block frame2: 0 of 31 rows differ, 1 set aside
-         set aside (activity) row 26: '• Thinking' | '• Thinking (0s) (↑298 ↓0)'
-ok     p5-submit-preview-full 30x100 block card: 0 of 31 rows differ, 0 set aside
-ok     p5-submit-preview-full 30x100 block later: 0 of 31 rows differ, 0 set aside
+         set aside (activity) row 26: '• Thinking' | '  Thinking (0s) (↑298 ↓0)'
+ok     p5-submit-preview-full 30x100 block card: 0 of 31 rows differ, 1 set aside
+         set aside (activity) row 26: '• Thinking (0s) (↑298 ↓0)' | '  Thinking (0s) (↑298 ↓0)'
+ok     p5-submit-preview-full 30x100 block later: 0 of 31 rows differ, 1 set aside
+         set aside (activity) row 26: '• Generating (0s) (↑298 ↓2)' | '  Generating (0s) (↑298 ↓2)'
          its bytes: the base's
 ok     p5-submit-preview-full 30x100 five frame1: 0 of 31 rows differ, 1 set aside
          set aside (activity) row 26: '• Thinking' | '  Thinking (0s) (↑16 ↓0)'
 ok     p5-submit-preview-full 30x100 five frame2: 0 of 31 rows differ, 1 set aside
          set aside (activity) row 26: '• Thinking' | '  Thinking (0s) (↑16 ↓0)'
 ok     p5-submit-preview-full 30x100 five card: 0 of 31 rows differ, 0 set aside
-ok     p5-submit-preview-full 30x100 five later: 0 of 31 rows differ, 0 set aside
-         its bytes: the base's
+ok     p5-submit-preview-full 30x100 five later: 0 of 31 rows differ, 1 set aside
+         set aside (activity) row 26: '  Generating (0s) (↑16 ↓1)' | '• Thinking (0s) (↑16 ↓0)'
+         its bytes: not the base's (54 against 94)
 ok     p5-submit-preview-full 30x100 image frame1: 0 of 31 rows differ, 1 set aside
          set aside (activity) row 26: '• Thinking' | '  Thinking (0s) (↑10 ↓0)'
 ok     p5-submit-preview-full 30x100 image frame2: 0 of 31 rows differ, 1 set aside
@@ -83,12 +96,15 @@ ok     p5-submit-preview-full 30x100 image frame2: 0 of 31 rows differ, 1 set as
 ok     p5-submit-preview-full 30x100 image card: 0 of 31 rows differ, 0 set aside
 ok     p5-submit-preview-full 30x100 image later: 0 of 31 rows differ, 0 set aside
          its bytes: the base's
-ok     p5-submit-preview-full block frame1: 0 of 41 rows differ, 1 set aside
-         set aside (activity) row 36: '• Thinking' | '• Thinking (0s) (↑298 ↓0)'
+ok     p5-submit-preview-full block frame1: 0 of 41 rows differ, 2 set aside
+         set aside (wall clock) row 23: '  1s (↑16 ↓40)' | '  2s (↑16 ↓40)'
+         set aside (activity) row 36: '• Thinking' | '  Thinking (0s) (↑298 ↓0)'
 ok     p5-submit-preview-full block frame2: 0 of 41 rows differ, 1 set aside
-         set aside (activity) row 36: '• Thinking' | '• Thinking (0s) (↑298 ↓0)'
-ok     p5-submit-preview-full block card: 0 of 41 rows differ, 0 set aside
-ok     p5-submit-preview-full block later: 0 of 41 rows differ, 0 set aside
+         set aside (activity) row 36: '• Thinking' | '  Thinking (0s) (↑298 ↓0)'
+ok     p5-submit-preview-full block card: 0 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Thinking (0s) (↑298 ↓0)' | '  Thinking (0s) (↑298 ↓0)'
+ok     p5-submit-preview-full block later: 0 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Generating (0s) (↑298 ↓2)' | '  Generating (0s) (↑298 ↓2)'
          its bytes: the base's
 ok     p5-submit-preview-full five frame1: 0 of 41 rows differ, 1 set aside
          set aside (activity) row 36: '• Thinking' | '  Thinking (0s) (↑16 ↓0)'
@@ -97,12 +113,16 @@ ok     p5-submit-preview-full five frame2: 0 of 41 rows differ, 1 set aside
 ok     p5-submit-preview-full five card: 0 of 41 rows differ, 0 set aside
 ok     p5-submit-preview-full five later: 0 of 41 rows differ, 0 set aside
          its bytes: the base's
-ok     p5-submit-preview-full image frame1: 0 of 41 rows differ, 1 set aside
+ok     p5-submit-preview-full image frame1: 0 of 41 rows differ, 2 set aside
+         set aside (wall clock) row 30: '  1s (↑16 ↓40)' | '  2s (↑16 ↓40)'
          set aside (activity) row 36: '• Thinking' | '  Thinking (0s) (↑10 ↓0)'
-ok     p5-submit-preview-full image frame2: 0 of 41 rows differ, 1 set aside
+ok     p5-submit-preview-full image frame2: 0 of 41 rows differ, 2 set aside
+         set aside (wall clock) row 29: '  1s (↑16 ↓40)' | '  2s (↑16 ↓40)'
          set aside (activity) row 36: '• Thinking' | '  Thinking (0s) (↑10 ↓0)'
-ok     p5-submit-preview-full image card: 0 of 41 rows differ, 0 set aside
-ok     p5-submit-preview-full image later: 0 of 41 rows differ, 0 set aside
+ok     p5-submit-preview-full image card: 0 of 41 rows differ, 1 set aside
+         set aside (wall clock) row 29: '  1s (↑16 ↓40)' | '  2s (↑16 ↓40)'
+ok     p5-submit-preview-full image later: 0 of 41 rows differ, 1 set aside
+         set aside (wall clock) row 29: '  1s (↑16 ↓40)' | '  2s (↑16 ↓40)'
          its bytes: the base's
 ok     p5-submit-preview-notice block frame1: 0 of 41 rows differ, 1 set aside
          set aside (activity) row 36: '• Thinking' | '• Thinking (0s) (↑301 ↓0)'
@@ -111,12 +131,18 @@ ok     p5-submit-preview-notice block frame2: 0 of 41 rows differ, 1 set aside
 ok     p5-submit-preview-notice block card: 0 of 41 rows differ, 0 set aside
 ok     p5-submit-preview-notice block later: 0 of 41 rows differ, 0 set aside
          its bytes: the base's
-ok     p5-submit-preview-oneread oneread frame1: 0 of 41 rows differ, 1 set aside
-         set aside (activity) row 36: '• Thinking' | '  Thinking (0s) (↑20 ↓0)'
-ok     p5-submit-preview-oneread oneread frame2: 0 of 41 rows differ, 1 set aside
-         set aside (activity) row 36: '• Thinking' | '  Thinking (0s) (↑20 ↓0)'
-ok     p5-submit-preview-oneread oneread card: 0 of 41 rows differ, 0 set aside
-ok     p5-submit-preview-oneread oneread later: 0 of 41 rows differ, 0 set aside
+ok     p5-submit-preview-oneread oneread frame1: 0 of 41 rows differ, 2 set aside
+         set aside (wall clock) row 32: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+         set aside (activity) row 36: '• Thinking' | '• Thinking (0s) (↑20 ↓0)'
+ok     p5-submit-preview-oneread oneread frame2: 0 of 41 rows differ, 2 set aside
+         set aside (wall clock) row 28: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+         set aside (activity) row 36: '• Thinking' | '• Thinking (0s) (↑20 ↓0)'
+ok     p5-submit-preview-oneread oneread card: 0 of 41 rows differ, 2 set aside
+         set aside (wall clock) row 28: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+         set aside (activity) row 36: '  Thinking (0s) (↑20 ↓0)' | '• Thinking (0s) (↑20 ↓0)'
+ok     p5-submit-preview-oneread oneread later: 0 of 41 rows differ, 2 set aside
+         set aside (wall clock) row 28: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+         set aside (activity) row 36: '  Generating (0s) (↑20 ↓1)' | '• Generating (0s) (↑20 ↓1)'
          its bytes: the base's
 ok     p5-transcript-submit submit frame1: 0 of 41 rows differ, 1 set aside
          set aside (activity) row 36: '• Thinking' | '  Thinking (0s) (↑4 ↓0)'
@@ -125,86 +151,118 @@ ok     p5-transcript-submit submit frame2: 0 of 41 rows differ, 1 set aside
 ok     p5-transcript-submit submit card: 0 of 41 rows differ, 0 set aside
 ok     p5-transcript-submit submit later: 0 of 41 rows differ, 0 set aside
          its bytes: the base's
-ok     p5-transcript-submit-multi submit frame1: 0 of 41 rows differ, 1 set aside
-         set aside (activity) row 36: '• Thinking' | '  Thinking (0s) (↑13 ↓0)'
-ok     p5-transcript-submit-multi submit frame2: 0 of 41 rows differ, 1 set aside
-         set aside (activity) row 36: '• Thinking' | '  Thinking (0s) (↑13 ↓0)'
-ok     p5-transcript-submit-multi submit card: 0 of 41 rows differ, 0 set aside
-ok     p5-transcript-submit-multi submit later: 0 of 41 rows differ, 0 set aside
+ok     p5-transcript-submit-multi submit frame1: 0 of 41 rows differ, 2 set aside
+         set aside (wall clock) row 32: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+         set aside (activity) row 36: '• Thinking' | '• Thinking (0s) (↑13 ↓0)'
+ok     p5-transcript-submit-multi submit frame2: 0 of 41 rows differ, 2 set aside
+         set aside (wall clock) row 30: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+         set aside (activity) row 36: '• Thinking' | '• Thinking (0s) (↑13 ↓0)'
+ok     p5-transcript-submit-multi submit card: 0 of 41 rows differ, 2 set aside
+         set aside (wall clock) row 30: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+         set aside (activity) row 36: '  Thinking (0s) (↑13 ↓0)' | '• Thinking (0s) (↑13 ↓0)'
+ok     p5-transcript-submit-multi submit later: 0 of 41 rows differ, 2 set aside
+         set aside (wall clock) row 30: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+         set aside (activity) row 36: '  Generating (0s) (↑13 ↓2)' | '• Generating (0s) (↑13 ↓2)'
          its bytes: the base's
 ok     p5-submit-preview-first 24x80 block.full whole: 60 card rows, once each, in order, rows 3-62
 ok     p5-submit-preview-first 24x80 block-held snap: 0 of 25 rows differ, 0 set aside
 ok     p5-submit-preview-first 24x80 block snap: 0 of 25 rows differ, 0 set aside
 ok     p5-submit-preview-first 24x80 block.full snap: 0 of 71 rows differ, 1 set aside
-         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
+         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
 ok     p5-submit-preview-first 30x100 block.full whole: 60 card rows, once each, in order, rows 3-62
 ok     p5-submit-preview-first 30x100 block-held snap: 0 of 31 rows differ, 0 set aside
 ok     p5-submit-preview-first 30x100 block snap: 0 of 31 rows differ, 0 set aside
 ok     p5-submit-preview-first 30x100 block.full snap: 0 of 71 rows differ, 1 set aside
-         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
+         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
 ok     p5-submit-preview-first block.full whole: 60 card rows, once each, in order, rows 3-62
-ok     p5-submit-preview-first block-held snap: 0 of 41 rows differ, 0 set aside
-ok     p5-submit-preview-first block snap: 0 of 41 rows differ, 0 set aside
-ok     p5-submit-preview-first block.full snap: 0 of 71 rows differ, 1 set aside
-         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
+ok     p5-submit-preview-first block-held snap: 0 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Generating (1s) (↑298 ↓1)' | '  Generating (1s) (↑298 ↓1)'
+ok     p5-submit-preview-first block snap: 0 of 41 rows differ, 1 set aside
+         set aside (wall clock) row 36: '  1s (↑298 ↓40)' | '  2s (↑298 ↓40)'
+ok     p5-submit-preview-first block.full snap: 0 of 71 rows differ, 2 set aside
+         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
+         set aside (wall clock) row 66: '  1s (↑298 ↓40)' | '  2s (↑298 ↓40)'
 ok     p5-submit-preview-fresh block.full whole: 60 card rows, once each, in order, rows 11-70
 ok     p5-submit-preview-fresh block-held snap: 0 of 41 rows differ, 0 set aside
 ok     p5-submit-preview-fresh block snap: 0 of 41 rows differ, 0 set aside
 ok     p5-submit-preview-fresh block.full snap: 0 of 79 rows differ, 1 set aside
-         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
+         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
 ok     p5-submit-preview-fresh three-held snap: 0 of 41 rows differ, 1 set aside
-         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
+         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
 ok     p5-submit-preview-fresh three snap: 0 of 41 rows differ, 1 set aside
-         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
+         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
 ok     p5-submit-preview-full 24x80 block.full whole: 60 card rows, once each, in order, rows 86-145
 ok     p5-submit-preview-full 24x80 block-held snap: 0 of 25 rows differ, 0 set aside
 ok     p5-submit-preview-full 24x80 block snap: 0 of 25 rows differ, 0 set aside
-ok     p5-submit-preview-full 24x80 block.full snap: 0 of 154 rows differ, 1 set aside
-         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
-ok     p5-submit-preview-full 24x80 filled snap: 0 of 25 rows differ, 0 set aside
-ok     p5-submit-preview-full 24x80 five-held snap: 0 of 25 rows differ, 0 set aside
-ok     p5-submit-preview-full 24x80 five snap: 0 of 25 rows differ, 0 set aside
-ok     p5-submit-preview-full 24x80 image-held snap: 0 of 25 rows differ, 0 set aside
-ok     p5-submit-preview-full 24x80 image snap: 0 of 25 rows differ, 0 set aside
+ok     p5-submit-preview-full 24x80 block.full snap: 0 of 154 rows differ, 2 set aside
+         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
+         set aside (wall clock) row 65: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+ok     p5-submit-preview-full 24x80 filled snap: 0 of 25 rows differ, 1 set aside
+         set aside (wall clock) row 20: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+ok     p5-submit-preview-full 24x80 five-held snap: 0 of 25 rows differ, 1 set aside
+         set aside (wall clock) row 12: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+ok     p5-submit-preview-full 24x80 five snap: 0 of 25 rows differ, 1 set aside
+         set aside (wall clock) row 10: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+ok     p5-submit-preview-full 24x80 image-held snap: 0 of 25 rows differ, 1 set aside
+         set aside (wall clock) row 3: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+ok     p5-submit-preview-full 24x80 image snap: 0 of 25 rows differ, 1 set aside
+         set aside (wall clock) row 1: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
 ok     p5-submit-preview-full 30x100 block.full whole: 60 card rows, once each, in order, rows 86-145
-ok     p5-submit-preview-full 30x100 block-held snap: 0 of 31 rows differ, 0 set aside
+ok     p5-submit-preview-full 30x100 block-held snap: 0 of 31 rows differ, 1 set aside
+         set aside (activity) row 26: '• Generating (1s) (↑298 ↓2)' | '  Generating (1s) (↑298 ↓2)'
 ok     p5-submit-preview-full 30x100 block snap: 0 of 31 rows differ, 0 set aside
 ok     p5-submit-preview-full 30x100 block.full snap: 0 of 154 rows differ, 1 set aside
-         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
+         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
 ok     p5-submit-preview-full 30x100 filled snap: 0 of 31 rows differ, 0 set aside
-ok     p5-submit-preview-full 30x100 five-held snap: 0 of 31 rows differ, 0 set aside
+ok     p5-submit-preview-full 30x100 five-held snap: 0 of 31 rows differ, 1 set aside
+         set aside (activity) row 26: '  Generating (1s) (↑16 ↓1)' | '• Generating (1s) (↑16 ↓1)'
 ok     p5-submit-preview-full 30x100 five snap: 0 of 31 rows differ, 0 set aside
 ok     p5-submit-preview-full 30x100 image-held snap: 0 of 31 rows differ, 0 set aside
 ok     p5-submit-preview-full 30x100 image snap: 0 of 31 rows differ, 0 set aside
 ok     p5-submit-preview-full block.full whole: 60 card rows, once each, in order, rows 86-145
-ok     p5-submit-preview-full block-held snap: 0 of 41 rows differ, 0 set aside
+ok     p5-submit-preview-full block-held snap: 0 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '• Generating (1s) (↑298 ↓2)' | '  Generating (1s) (↑298 ↓2)'
 ok     p5-submit-preview-full block snap: 0 of 41 rows differ, 0 set aside
-ok     p5-submit-preview-full block.full snap: 0 of 154 rows differ, 1 set aside
-         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
+ok     p5-submit-preview-full block.full snap: 0 of 154 rows differ, 2 set aside
+         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
+         set aside (wall clock) row 75: '  1s (↑16 ↓40)' | '  2s (↑16 ↓40)'
 ok     p5-submit-preview-full filled snap: 0 of 41 rows differ, 0 set aside
-ok     p5-submit-preview-full five-held snap: 0 of 41 rows differ, 0 set aside
-ok     p5-submit-preview-full five snap: 0 of 41 rows differ, 0 set aside
-ok     p5-submit-preview-full image-held snap: 0 of 41 rows differ, 0 set aside
-ok     p5-submit-preview-full image snap: 0 of 41 rows differ, 0 set aside
+ok     p5-submit-preview-full five-held snap: 0 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '  Generating (1s) (↑16 ↓1)' | '• Generating (1s) (↑16 ↓1)'
+ok     p5-submit-preview-full five snap: 0 of 41 rows differ, 1 set aside
+         set aside (wall clock) row 36: '  1s (↑16 ↓40)' | '  2s (↑16 ↓40)'
+ok     p5-submit-preview-full image-held snap: 0 of 41 rows differ, 1 set aside
+         set aside (wall clock) row 29: '  1s (↑16 ↓40)' | '  2s (↑16 ↓40)'
+ok     p5-submit-preview-full image snap: 0 of 41 rows differ, 1 set aside
+         set aside (wall clock) row 27: '  1s (↑16 ↓40)' | '  2s (↑16 ↓40)'
 ok     p5-submit-preview-notice block.full whole: 60 card rows, once each, in order, rows 5-64
 ok     p5-submit-preview-notice block-held snap: 0 of 41 rows differ, 0 set aside
 ok     p5-submit-preview-notice block snap: 0 of 41 rows differ, 0 set aside
 ok     p5-submit-preview-notice block.full snap: 0 of 73 rows differ, 1 set aside
-         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
-ok     p5-submit-preview-oneread filled snap: 0 of 41 rows differ, 0 set aside
-ok     p5-submit-preview-oneread oneread-held snap: 0 of 41 rows differ, 0 set aside
-ok     p5-submit-preview-oneread oneread snap: 0 of 41 rows differ, 0 set aside
+         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
+ok     p5-submit-preview-oneread filled snap: 0 of 41 rows differ, 1 set aside
+         set aside (wall clock) row 36: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+ok     p5-submit-preview-oneread oneread-held snap: 0 of 41 rows differ, 2 set aside
+         set aside (wall clock) row 28: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+         set aside (activity) row 36: '  Generating (1s) (↑20 ↓1)' | '• Generating (1s) (↑20 ↓1)'
+ok     p5-submit-preview-oneread oneread snap: 0 of 41 rows differ, 1 set aside
+         set aside (wall clock) row 26: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
 ok     p5-transcript-submit tall.full whole: 60 card rows, once each, in order, rows 73-132
 ok     p5-transcript-submit filled snap: 0 of 41 rows differ, 0 set aside
 ok     p5-transcript-submit second snap: 0 of 41 rows differ, 0 set aside
 ok     p5-transcript-submit submit-0.15 snap: 0 of 41 rows differ, 0 set aside
 ok     p5-transcript-submit tall snap: 0 of 41 rows differ, 0 set aside
 ok     p5-transcript-submit tall.full snap: 0 of 141 rows differ, 1 set aside
-         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
-ok     p5-transcript-submit-multi filled snap: 0 of 41 rows differ, 0 set aside
-ok     p5-transcript-submit-multi second snap: 0 of 41 rows differ, 0 set aside
-ok     p5-transcript-submit-multi second.full snap: 0 of 78 rows differ, 1 set aside
-         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-4db02b1 [debug] · Run /help for commands'
-ok     p5-transcript-submit-multi submit-0.15 snap: 0 of 41 rows differ, 0 set aside
+         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
+ok     p5-transcript-submit-multi filled snap: 0 of 41 rows differ, 1 set aside
+         set aside (wall clock) row 36: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+ok     p5-transcript-submit-multi second snap: 0 of 41 rows differ, 1 set aside
+         set aside (wall clock) row 28: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+ok     p5-transcript-submit-multi second.full snap: 0 of 78 rows differ, 2 set aside
+         set aside (banner) row 1: 'x𝒇x v0.1.0-58c92ba [debug] · Run /help for commands' | 'x𝒇x v0.1.0-3d09af8 [debug] · Run /help for commands'
+         set aside (wall clock) row 65: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+ok     p5-transcript-submit-multi submit-0.15 snap: 0 of 41 rows differ, 2 set aside
+         set aside (wall clock) row 30: '  0s (↑4 ↓40)' | '  1s (↑4 ↓40)'
+         set aside (activity) row 36: '  Generating (1s) (↑13 ↓2)' | '• Generating (1s) (↑13 ↓2)'
 
 0 claims failed: none

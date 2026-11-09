@@ -95,7 +95,9 @@ one-row composer:
 
 - `Shell::preview_room` measures the room when the card is echoed, against
   the content bottom of the band the last landed frame painted
-  (`Shell::band_landed`), as fx measures from its last committed frame.
+  (`Shell::band_landed`), as fx measures from its last committed frame. With
+  no band frame landed since a resize there is nothing to measure from, and
+  no preview.
 - `Shell::preview_card` puts the card's newest rows, built by
   `transcript::pushed_rows` from the bytes the card's own push writes, at
   the band's top (`Geometry::previewed`).
@@ -104,15 +106,20 @@ one-row composer:
 - When that band frame lands, `Shell::preview_landed` (from `landed_band`)
   drops the preview, and the same tick writes the card's frame
   (`commit_tick`). That frame leaves the screen the base's first frame
-  left; its bytes are not the base's (see the results below). fx builds its card frame
-  1-2 ms after the preview's frame commits (`fx-trace.txt`).
+  left; its bytes are not the base's (see the results below). fx adopts the
+  card once its preview's frame has committed, and its next frame writes it
+  (`noteCommittedFrame`, F7).
 - A band solved without the preview's rows (the slash menu, a steer's
   banner) drops it for good (`unplaced_preview_gone`). A question or Ctrl-O
   that takes the other plane gives it up, so the card is paid before
   `1049h`.
-- The preview is band rows, so neither a carry nor a resize can move one of
-  them into scrollback. A resize drops the preview. The exit's frame writes
-  a card that is still held (`flush_paced`, `shut_down`).
+- The preview is band rows, so a carry cannot move one of them into
+  scrollback, and a resize drops the preview. What stays open is a write
+  that fails, then a shrink before the retry (round 3): the terminal can
+  move preview rows into its history first.
+- The exit's frame writes a card that is still held (`flush_paced`,
+  `shut_down`), and, once a band has painted, a card still owed after its
+  frame was refused.
 - A card is written at once, as before, when it fits, and in each case
   under "Where xfx previews less than fx".
 
@@ -257,6 +264,9 @@ the fx line it differs from:
   banner. The card is written whole that frame, and the preview is gone for
   good (MUST 1).
 - **A resize** before the preview's frame. The preview is dropped.
+- **A card sent after a resize**, before a band frame of the new size has
+  landed: nothing to measure from, so no preview. fx measures from its last
+  committed frame (`runtime.zig:9929-9932`), then one of the old size.
 - **The other plane.** A question or Ctrl-O takes the other plane before
   the preview's frame. The card is paid whole before `1049h`. fx paints no
   pending card while the alternate screen owns rendering (`:1264-1268`).
@@ -280,11 +290,12 @@ Every claim below rests on a file in `round2/` or on a test named in it.
     rows under the cursor go first, then rows off the top into the history.
   - RED `05a6811b` (`round2/must2-red.txt`). The preview's tick wrote only
     the preview. A 60-line first prompt's 32-row preview, then a shorter
-    screen, left 14 preview rows in the history ahead of the card.
+    screen, left 12 preview rows in the history ahead of the card (after
+    the 2 blank document rows).
   - Fix `1577d48e`. The card's frame now follows the preview's in the same
-    tick, as fx builds it 1-2 ms after its preview's frame commits
-    (`fx-trace.txt`), so a resize never finds the preview's rows with the
-    card unwritten.
+    tick, with nothing read and no resize taken between them, so a resize
+    finds the preview's rows with the card unwritten only after a write
+    that fails (round 3).
   - `d37abb11` covers four more cases: the preview's frame refused, the
     card's frame refused, the preview's frame torn, Ctrl-O read with the
     Enter, and an answer starting with the preview. In each, the card is in
@@ -324,6 +335,80 @@ Every claim below rests on a file in `round2/` or on a test named in it.
   falls back to the band of the moment, and no frame has shown the
   composer either measurement would read. `send` now measures the room
   where it echoes the card, and the mutant is deleted.
+
+## Round 3 (opus: APPROVE; gpt6: APPROVE-WITH-FIXES)
+
+Every claim below rests on a file in `round3/` or on a test named in it.
+
+- **1. The window a failed write leaves** (gpt6 MUST 1, opus SHOULD 1).
+  The code had no defect here; the claim was wrong (`af19bcf1`, `4c9fe627`).
+  - (b) `a_failed_write_and_a_shrink_before_the_retry_leave_only_what_the_shrink_took`.
+    A 60-row card. Its card frame is refused, or torn before its rows, or
+    its preview frame is torn. Then 40 rows shrink to 24 before the retry.
+    - The card is written once, whole and in order. Its last row may go
+      under the band's resize repaint, as any document's does.
+    - The only other rows of it are the shrink's: the rows it moved into
+      the history (10, 6 and 10), and the preview rows it kept above the
+      new band (2 each). After a resize xfx takes those 2 for the
+      document's, so they go up with the card. No row xfx wrote after the
+      shrink is among them.
+    - A card frame torn inside its rows ends the session, as any document
+      update torn there does (`commit_primary`), so it has no retry. The
+      first draft of the test kept ticking past that error and showed a
+      duplicated card row. That was the test, not xfx.
+  - (a) "a resize never finds the preview's rows with the card unwritten"
+    is replaced by the real residual in `Shell::take_preview_shown`, in
+    `docs/parity.md` and here.
+  - (c) `a_painted_preview_...` now says it runs `commit_frame`'s single
+    frames: the delayed window, for a one-row preview.
+  - (d) After the first tick, `a_refused_or_torn_write_...` asserts which
+    write each step met (`Scripted::took`):
+    - preview frame refused: nothing taken, screen unchanged;
+    - card frame refused: the preview up, the card not written;
+    - card frame torn before its rows: the preview up, and the card
+      offered again whole next tick;
+    - preview frame torn: the tear's bytes; the recovery repaints the
+      preview, and the card waits;
+    - card frame torn in its rows: the session ends.
+- **2. `4db02b1e`** (gpt6 MUST 2, opus SHOULD 2). RED `2eb01a15`
+  (`round3/fallback-red.txt`), fix `4aa962ef`: no preview until a band
+  frame of the screen's size has landed.
+  - The shell fixtures land a band (`Shell::band_landed`) where the
+    draft's frame would. The guard tests land one too, so the guard is what
+    answers. The slash-menu test checks the preview it denies.
+  - The comment at the echo is fixed.
+  - The `d82556e5` survivor is now a true equivalent. `mutants.py` carries
+    it as `EQUIVALENT room: measured before the draft goes`, expected to
+    survive.
+- **3. opus's other SHOULDs.**
+  - (3) RED `5ada0b12` (`round3/token-red.txt`), fix `077c3b63`:
+    `commit_frame_led` borrows the token, and the tick's two frames share
+    the one its tick took. `only_collect_facts_makes_a_reconciled` holds
+    what the compiler cannot. `3d09af8f` refines it, so that a value borrow
+    counts as a token made.
+  - (5) Receipt fixes:
+    - "14 preview rows" now reads 12 preview rows after 2 blank document
+      rows.
+    - "16 tests" was 16 filters and 17 tests; round 3 runs 21 filters and
+      22 tests.
+    - "1-2 ms" is dropped: `fx-trace.txt` keeps no timing lines.
+    - "Nothing read and no resize taken" now backs only xfx's tick. `run`
+      reads and resizes in `collect_facts` and `read_burst`, ahead of
+      `commit_counted`.
+  - (6) RED `7e02e097` (`round3/exit-red.txt`), fix `0921c058`: the exit
+    writes what the document owes, once a band has painted.
+    - The first version wrote any owed document, and painted a band at a
+      probe exit (`tests/tui.rs`,
+      `a_keystroke_that_arrives_with_the_answer_is_deferred_rather_than_swallowed`).
+    - `Band::painted_top` now guards it, and
+      `an_exit_before_the_band_painted_...` (`3d09af8f`) pins the guard in
+      the lib tests.
+- **4. gpt6's nice-to-have** (`af19bcf1`). The test terminal parses one
+  stream across reads. An unfinished character or escape sequence waits for
+  the next bytes, and an `ESC` aborts an unfinished CSI or OSC
+  (`the_test_terminal_parses_one_stream_across_reads`).
+- `round3/repoint.txt`: 12 references round 3's source moved, re-pointed
+  in `dba00dfb`, each one's cited text the same.
 
 ## Local paths in the captures
 

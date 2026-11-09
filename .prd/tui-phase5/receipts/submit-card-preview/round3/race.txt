@@ -1,0 +1,28 @@
+# check.py <repo> . xfx red on the first round-3 capture of every scenario (3d09af8f's build): p5-transcript-submit-multi lost the race below
+FAIL   p5-transcript-submit-multi submit frame1: 18 of 41 rows differ, 0 set aside
+         row 2: '  Filler line 16 of the first answer.' | '  Filler line 15 of the first answer.'
+         row 4: '  Filler line 17 of the first answer.' | '  Filler line 16 of the first answer.'
+FAIL   p5-transcript-submit-multi submit frame2: 20 of 41 rows differ, 0 set aside
+         row 2: '  Filler line 17 of the first answer.' | '  Filler line 16 of the first answer.'
+         row 4: '  Filler line 18 of the first answer.' | '  Filler line 17 of the first answer.'
+FAIL   p5-transcript-submit-multi submit card: 20 of 41 rows differ, 0 set aside
+         row 2: '  Filler line 17 of the first answer.' | '  Filler line 16 of the first answer.'
+         row 4: '  Filler line 18 of the first answer.' | '  Filler line 17 of the first answer.'
+ok     p5-transcript-submit-multi submit later: 0 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '  Generating (0s) (↑13 ↓2)' | '  Thinking (0s) (↑13 ↓0)'
+ok     p5-transcript-submit-multi filled snap: 0 of 41 rows differ, 0 set aside
+ok     p5-transcript-submit-multi second snap: 0 of 41 rows differ, 0 set aside
+ok     p5-transcript-submit-multi second.full snap: 0 of 78 rows differ, 1 set aside
+ok     p5-transcript-submit-multi submit-0.15 snap: 0 of 41 rows differ, 1 set aside
+         set aside (activity) row 36: '  Generating (1s) (↑13 ↓2)' | '• Generating (1s) (↑13 ↓2)'
+3 claims failed: p5-transcript-submit-multi submit frame1, p5-transcript-submit-multi submit frame2, p5-transcript-submit-multi submit card
+
+# the race: whether the turn's start reaches the shell before the preview's frame is built (T7: fx draws the activity row with the prompt, xfx once the turn starts).
+# first update after Enter, p5-transcript-submit-multi, six more captures from the same build:
+run 1: 228 bytes, the activity row in it: True
+run 2: 226 bytes, the activity row in it: True
+run 3: 226 bytes, the activity row in it: True
+run 4: 228 bytes, the activity row in it: True
+run 5: 226 bytes, the activity row in it: True
+run 6: 228 bytes, the activity row in it: True
+the first capture: 72 bytes, the activity row in it: False

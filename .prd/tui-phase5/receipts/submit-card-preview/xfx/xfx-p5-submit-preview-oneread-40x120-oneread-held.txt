@@ -25,7 +25,7 @@
 
   Filler line 30 of the first answer.
 
-  0s (↑4 ↓40)
+  1s (↑4 ↓40)
 
 ┃ oneread line 1
 ┃ oneread line 2
@@ -33,7 +33,7 @@
 ┃ oneread line 4
 ┃ oneread line 5
 
-  Generating (1s) (↑20 ↓1)
+• Generating (1s) (↑20 ↓1)
 
 ┃
 

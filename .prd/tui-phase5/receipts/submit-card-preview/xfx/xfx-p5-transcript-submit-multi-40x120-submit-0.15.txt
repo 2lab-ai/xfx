@@ -27,13 +27,13 @@
 
   Filler line 30 of the first answer.
 
-  0s (↑4 ↓40)
+  1s (↑4 ↓40)
 
 ┃ multi line one
 ┃ multi line two
 ┃ multi line three
 
-  Generating (1s) (↑13 ↓2)
+• Generating (1s) (↑13 ↓2)
 
 ┃
 

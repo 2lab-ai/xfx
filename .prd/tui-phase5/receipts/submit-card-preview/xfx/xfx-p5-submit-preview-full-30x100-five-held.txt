@@ -23,7 +23,7 @@
 ┃ five line four
 ┃ five line five
 
-  Generating (1s) (↑16 ↓1)
+• Generating (1s) (↑16 ↓1)
 
 ┃
 

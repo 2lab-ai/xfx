@@ -23,7 +23,7 @@
 
   Filler line 30 of the first answer.
 
-  0s (↑4 ↓40)
+  1s (↑4 ↓40)
 
 ┃ oneread line 1
 ┃ oneread line 2

@@ -26,7 +26,7 @@
 
   Five answer.
 
-  1s (↑16 ↓40)
+  2s (↑16 ↓40)
 
 * images: attached image: shot.png
 

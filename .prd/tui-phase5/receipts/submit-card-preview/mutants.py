@@ -33,6 +33,11 @@ TESTS = [
     "a_refused_or_torn_write_at_the_preview",
     "ctrl_o_read_with_the_enter",
     "an_answer_that_starts_with_the_preview",
+    "a_card_sent_after_a_resize_before_a_frame_lands",
+    "only_collect_facts_makes_a_reconciled",
+    "an_exit_after_the_cards_frame_was_refused",
+    "an_exit_before_the_band_painted",
+    "a_failed_write_and_a_shrink_before_the_retry",
 ]
 SHELL, LOOP, LAYOUT = "src/tui/shell.rs", "src/tui/event_loop.rs", "src/tui/layout.rs"
 MUTANTS = [
@@ -51,14 +56,19 @@ MUTANTS = [
     ("room: none is room", SHELL,
      "if room == 0 || rows.len() <= room {", "if rows.len() <= room {"),
     ("room: measured against a composer no frame showed", SHELL,
-     ".min(self.landed_bottom.unwrap_or(self.geometry.content_bottom));",
-     ".min(self.geometry.content_bottom);"),
+     "            .min(landed);", "            .min(self.geometry.content_bottom);"),
+    ("room: the band of the moment after a resize", SHELL,
+     "        let landed = self.landed_bottom?;",
+     "        let landed = self.landed_bottom.unwrap_or(self.geometry.content_bottom);"),
     ("must 1: a preview the band was solved without kept", SHELL,
      "        if geometry.preview == 0 {\n            self.preview = None;\n        }",
      "        let _ = geometry;"),
     ("the card's frame a tick after its preview's", LOOP,
-     "    if shell.take_preview_shown() {\n        commit_frame_led(shell, band, out, failures, now, Reconciled, &mut None)?;\n    }",
+     "    if shell.take_preview_shown() {\n        commit_frame_led(shell, band, out, failures, now, &reconciled, &mut None)?;\n    }",
      "    let _ = shell.take_preview_shown();"),
+    ("the token: the card's frame makes its own", LOOP,
+     "        commit_frame_led(shell, band, out, failures, now, &reconciled, &mut None)?;",
+     "        commit_frame_led(shell, band, out, failures, now, &Reconciled, &mut None)?;"),
     ("the barrier: a held card left under a question", LOOP,
      "    if taking_the_plane && shell.previewing() {\n        shell.give_up_preview();\n    }", ""),
     ("room: under a row that is not blank", SHELL,
@@ -80,7 +90,22 @@ MUTANTS = [
      "        if self.preview.take().is_some() || self.previewing() {\n            self.refit();",
      "        if self.preview.take().is_some() || self.previewing() {"),
     ("the exit: no frame for a held card", LOOP,
-     "(shell.paced_backlog() > 0 || shell.previewing())", "shell.paced_backlog() > 0"),
+     "(shell.paced_backlog() > 0 || shell.previewing() || owed)",
+     "(shell.paced_backlog() > 0 || owed)"),
+    ("the exit: no frame for a card still owed", LOOP,
+     "(shell.paced_backlog() > 0 || shell.previewing() || owed)",
+     "(shell.paced_backlog() > 0 || shell.previewing())"),
+    ("the exit: a frame before the band painted", LOOP,
+     "    let owed = band.painted_top().is_some() && shell.owes_document();",
+     "    let owed = shell.owes_document();"),
+    # Expected to survive: the room measured before the draft goes, where
+    # 4db02b1e moved it from. Both read the last landed band, and none since
+    # a resize is no preview at either.
+    ("EQUIVALENT room: measured before the draft goes", SHELL, [
+        ("        match self.work.submit(work) {",
+         "        let room = self.preview_room();\n        match self.work.submit(work) {"),
+        ("if let Some(room) = self.preview_room() {", "if let Some(room) = room {"),
+    ]),
     ("the exit: the held card not let go", SHELL,
      "        self.drop_preview();\n        self.finish_saves();", "        self.finish_saves();"),
     ("a resize: the preview kept", SHELL,
@@ -122,23 +147,36 @@ verdict, _ = tests()
 print("unmutated: %s" % verdict)
 if verdict != "passed":
     sys.exit(1)
-survived = 0
-for name, path, old, new in MUTANTS:
+survived = equivalent = 0
+for name, path, *edit in MUTANTS:
+    # One edit, or (for a mutant that moves a line) a list of them.
+    edits = edit[0] if len(edit) == 1 else [tuple(edit)]
     full = os.path.join(clone, path)
     text = open(full).read()
-    if text.count(old) != 1:
-        print("SKIPPED  %s: its text occurs %d times" % (name, text.count(old)))
+    missing = [old for old, _ in edits if text.count(old) != 1]
+    if missing:
+        print("SKIPPED  %s: %r occurs %d times" % (name, missing[0][:40], text.count(missing[0])))
         survived += 1
         continue
-    open(full, "w").write(text.replace(old, new))
+    for old, new in edits:
+        text = text.replace(old, new)
+    open(full, "w").write(text)
     try:
         verdict, failing = tests()
     finally:
         run("git", "-C", clone, "checkout", "-q", "--", path, check=True)
     killed = verdict in ("failed", "timed out", "did not build")
-    if not killed:
-        survived += 1
-    print("%-8s %s (%s): %s" % ("killed" if killed else "SURVIVED", name, path, verdict +
+    expected = name.startswith("EQUIVALENT ")
+    if expected:
+        # An equivalent must survive: a kill means it was not one.
+        equivalent += 1
+        mark = "KILLED!" if killed else "equal"
+        survived += int(killed)
+    else:
+        mark = "killed" if killed else "SURVIVED"
+        survived += int(not killed)
+    print("%-8s %s (%s): %s" % (mark, name, path, verdict +
           (" -- " + ", ".join(failing) if failing else "")))
-print("%d of %d mutants survived" % (survived, len(MUTANTS)))
+print("%d of %d mutants survived, %d of them expected equivalents (counted only if killed)" % (
+    survived, len(MUTANTS) - equivalent, equivalent))
 sys.exit(1 if survived else 0)
