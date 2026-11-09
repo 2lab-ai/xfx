@@ -34,3 +34,8 @@ exit 0
 check-no-secrets rc=0 36s
 check-no-stubs rc=0 8s
 check-xfx-identity rc=0 1s
+
+# on 8383a400 (the README correction, docs only), outside the lock
+check-no-secrets rc=0 47s
+check-no-stubs rc=0 12s
+check-xfx-identity rc=0 1s
