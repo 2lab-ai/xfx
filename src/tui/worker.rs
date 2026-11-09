@@ -103,8 +103,8 @@ use crate::output::{ShellSession, StatusSnapshot};
 use crate::permission::{LiveAuthority, LiveRules, PermissionSession};
 use crate::provider::catalog_clock::{CatalogClock, CatalogTime};
 use crate::provider::model::{
-    Applied, CatalogEntry, CatalogReader, CatalogRetry, CatalogState, Held, LoadClock, LoadView,
-    ModelOutcome, ModelRequest, ModelSelector, StartedLoad, FAILED_CATALOG_RETRY_WAIT,
+    Applied, CatalogEntry, CatalogReader, CatalogRetry, CatalogState, Held, LoadClock, LoadTrigger,
+    LoadView, ModelOutcome, ModelRequest, ModelSelector, StartedLoad, FAILED_CATALOG_RETRY_WAIT,
 };
 use crate::provider::setup::{setup_transaction, SetupProblem};
 use crate::provider::{Bundle, ProviderId};
@@ -4235,9 +4235,9 @@ async fn ask_catalog(state: &mut Runtime, events: &Sender<UiEvent>, ask: bridge:
     // decided against its answer rather than waited out behind it.
     state.selector.take_answered();
     let now = state.selector.now();
-    if let Some(trigger) = ask
-        .trigger
-        .filter(|trigger| state.selector.would_load(*trigger, now))
+    let held = Held::of(state.selector.catalog(), state.selector.refresh_retry());
+    if let Some(trigger) =
+        trigger_over(ask, held).filter(|trigger| state.selector.would_load(*trigger, now))
     {
         let told = telling(
             state.config.provider,
@@ -4251,6 +4251,19 @@ async fn ask_catalog(state: &mut Runtime, events: &Sender<UiEvent>, ask: bridge:
         return;
     }
     bridge::send_terminal(events, state.catalog_event()).await;
+}
+
+/// The trigger `ask` reads by over `held`: its own, or -- for an ask with
+/// none ([`bridge::CatalogAsk::TOLD`]) -- the first load while nothing has
+/// been read, the warmup the runtime owes whatever asks, as upstream's launch
+/// and provider switch start one (`startModelCacheWarmup`,
+/// `app_entry_runtime.zig:340`, `app_auth_runtime.zig:2015-2024@481104fd`);
+/// never a refresh. An ask put aside behind a provider switch is answered
+/// before the loop starts that load ([`apply_deferred`]), and is not to be
+/// told that the new provider has no rows.
+fn trigger_over(ask: bridge::CatalogAsk, held: Option<Held>) -> Option<LoadTrigger> {
+    ask.trigger
+        .or_else(|| (held == Some(Held::Nothing)).then_some(LoadTrigger::Activity))
 }
 
 /// What a piece of work does with [`TurnControl::Catalog`] while it holds
@@ -4399,10 +4412,9 @@ impl CatalogAsks {
         if seen.on_its_way() {
             return None;
         }
-        let due = ask.trigger.is_some_and(|trigger| {
-            Held::of(&seen.catalog, seen.refresh_retry)
-                .is_some_and(|held| seen.clock.due(held, trigger, now))
-        });
+        let held = Held::of(&seen.catalog, seen.refresh_retry);
+        let due = trigger_over(ask, held)
+            .is_some_and(|trigger| held.is_some_and(|held| seen.clock.due(held, trigger, now)));
         if due {
             let told = telling(*provider, events.clone(), seen.catalog.clone(), seen.clock);
             if let Some(mut load) = reader.begin(told) {
@@ -16670,6 +16682,52 @@ mod tests {
         assert_eq!(reads(), 1, "a failure was read with no trigger");
         ask_and_settle(&mut state, &events, bridge::CatalogAsk::ACTIVITY);
         assert_eq!(reads(), 2, "activity did not read a failure past its hold");
+    }
+
+    #[test]
+    fn an_ask_with_no_trigger_over_nothing_read_waits_for_the_first_load_not_for_no_rows() {
+        // `/settings` or a speed command put aside behind a provider switch is
+        // answered once the switch is over, before the loop starts the new
+        // provider's first load (`apply_deferred`, then `begin_catalog_read`):
+        // it starts that load -- upstream's warmup on a provider change
+        // (`startModelCacheWarmup`, `app_auth_runtime.zig:2015-2024
+        // @481104fd`) -- and is told its rows, not that there are none.
+        let machine = crate::provider::catalog_clock::FakeMachine::new();
+        let (_home, _workspace, mut state) = recording();
+        state.selector.set_clock_for_test(machine.clock());
+        let asked = Arc::new(AtomicUsize::new(0));
+        state.selector.set_fetcher_for_test(Box::new(InTurn {
+            answers: Mutex::new(vec![vec![published("anthropic/claude-opus-5")]].into()),
+            asked: Arc::clone(&asked),
+        }));
+        let (events, mut received) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(ask_catalog(&mut state, &events, bridge::CatalogAsk::TOLD));
+        assert!(state.selector.is_loading(), "no first load for the ask");
+        on_a_runtime(state.selector.settle_load());
+        assert_eq!(asked.load(Ordering::SeqCst), 1);
+        let said = told(&mut received);
+        assert!(
+            matches!(said.as_slice(), [UiEvent::CatalogLoaded { entries, .. }] if entries.len() == 1),
+            "{said:?}"
+        );
+        // Mid-work, the same: the first load, not a refresh.
+        let (_home, _workspace, mut state) = recording();
+        state.selector.set_clock_for_test(machine.clock());
+        state.selector.set_fetcher_for_test(Box::new(InTurn {
+            answers: Mutex::new(vec![vec![published("anthropic/claude-opus-5")]].into()),
+            asked: Arc::clone(&asked),
+        }));
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let asks = CatalogAsks::reading(&state, &events);
+        assert_eq!(
+            asks.asked_at(&control, bridge::CatalogAsk::TOLD, machine.clock().now()),
+            None,
+            "told as held over nothing read"
+        );
+        asks.finish(&mut state.selector);
+        on_a_runtime(state.selector.settle_load());
+        assert_eq!(asked.load(Ordering::SeqCst), 2);
     }
 
     /// `ask`, asked with nothing holding the runtime, and any read on its
