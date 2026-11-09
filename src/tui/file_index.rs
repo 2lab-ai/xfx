@@ -38,7 +38,7 @@
 //! or else the source's state, `input_completion_runtime.zig:838-842`). Once an
 //! index has landed, a refresh stays private until it is whole, and the
 //! previous one is searched meanwhile (`searchableGeneration`,
-//! `file_index.zig:643-650`) -- upstream's "keeps the completed result visible
+//! `file_index.zig:647-654@481104fd`) -- upstream's "keeps the completed result visible
 //! through rapid large-index refreshes" (`tests/e2e/tui-file-picker.test.ts:471`).
 //! A directory listing for a path the user typed (`@src/`, `@~/`, `@../`) is
 //! read on a worker thread too (`directory_completion_job.zig`), once per
@@ -1075,9 +1075,17 @@ impl Files {
     /// [`Self::refresh_index`]. xfx starts no index at launch, but a
     /// `/workspace` change before any `@` does ([`super::shell`]'s
     /// `adopt_workspace`).
+    ///
+    /// fx's `currentState` reads the loading generation's own state, so a
+    /// loader that has finished is `.ready` or `.failed` before the join
+    /// takes it (`file_index.zig:336-340@481104fd`). xfx's walk says so on
+    /// its channel, which [`Self::poll`] reads after the keys are routed; so
+    /// the decision first takes whatever the walk has said, as the poll
+    /// would ([`Self::take_walk`]), and a walk that has ended is not loading.
     pub(crate) fn refresh_index_for_list(&mut self) {
         if !self.episode_seen {
             self.episode_seen = true;
+            self.take_walk();
             if self.loading() {
                 return;
             }
@@ -1162,6 +1170,38 @@ impl Files {
     /// Adopts whatever a worker has finished, and says whether that changed
     /// what a lookup would answer.
     pub(crate) fn poll(&mut self) -> bool {
+        let mut changed = self.take_walk();
+        // The walk ended -- ready, failed or gone -- with a refresh asked for
+        // meanwhile: it starts now (`joinThreadIfDone`, `file_index.zig:
+        // 443-451@481104fd`). After a failed first index the list then says
+        // it is indexing, as fx's does once `startLoad` clears the failure
+        // (`:389`): a lookup reads the walk in flight before the failure.
+        if self.walk.is_none() && self.pending_refresh {
+            self.start_walk();
+            changed = true;
+        }
+        if let Some(listing) = &self.listing {
+            match listing.rx.try_recv() {
+                Ok(listed) => {
+                    self.listed = Some((listing.directory.clone(), listed));
+                    self.listing = None;
+                    changed = true;
+                }
+                Err(TryRecvError::Disconnected) => {
+                    self.listed = Some((listing.directory.clone(), Err(())));
+                    self.listing = None;
+                    changed = true;
+                }
+                Err(TryRecvError::Empty) => {}
+            }
+        }
+        changed
+    }
+
+    /// Takes in what the walk has said so far -- its published runs, and its
+    /// end, whole or failed -- and says whether that changed what a lookup
+    /// would answer.
+    fn take_walk(&mut self) -> bool {
         let mut changed = false;
         // Everything published so far, not one publication a turn: a reader
         // takes the whole prefix there is (`ready_count.load(.acquire)`,
@@ -1195,30 +1235,6 @@ impl Files {
                     changed = true;
                 }
                 Err(TryRecvError::Empty) => break,
-            }
-        }
-        // The walk ended -- ready, failed or gone -- with a refresh asked for
-        // meanwhile: it starts now (`joinThreadIfDone`, `file_index.zig:
-        // 443-451@481104fd`). After a failed first index the list then says
-        // it is indexing, as fx's does once `startLoad` clears the failure
-        // (`:389`): a lookup reads the walk in flight before the failure.
-        if self.walk.is_none() && self.pending_refresh {
-            self.start_walk();
-            changed = true;
-        }
-        if let Some(listing) = &self.listing {
-            match listing.rx.try_recv() {
-                Ok(listed) => {
-                    self.listed = Some((listing.directory.clone(), listed));
-                    self.listing = None;
-                    changed = true;
-                }
-                Err(TryRecvError::Disconnected) => {
-                    self.listed = Some((listing.directory.clone(), Err(())));
-                    self.listing = None;
-                    changed = true;
-                }
-                Err(TryRecvError::Empty) => {}
             }
         }
         changed

@@ -35951,6 +35951,9 @@ mod tests {
     fn a_change_before_any_walk_lists_the_first_walks_prefix_with_no_launch_walk() {
         // NOT fx's: the gap AT-LAUNCH-WALK (`docs/parity.md`), pinned so
         // that unit flips it, as this one flipped the keeps-the-rows case.
+        // The first assert is that unit's tripwire: it must drive the launch
+        // walk before the change -- and then expect `Files unavailable` --
+        // not only change the rows this expects.
         // fx walks at launch (`app_entry_runtime.zig:334@481104fd`;
         // `startFileIndex` -> `ensureScopeEpoch`, `app_workspace_runtime.zig:
         // 145-148`), so a change of the access before the first `@` finds a
@@ -35992,40 +35995,70 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_first_at_before_the_poll_that_takes_a_finished_walks_end_skips_its_refresh() {
-        // The one effect of the tick `docs/parity.md` names: fx's index is
-        // `.ready` or `.failed` once its loader has finished, before it is
-        // joined (`currentState`, `file_index.zig:333-341@481104fd`), so the
-        // session's first `@` typed then asks for its refresh
-        // (`input_completion_runtime.zig:857-861`); xfx learns of the walk's
-        // end at the poll, and until then counts it as running
-        // (`Files::loading`), so that `@` skips -- one walk fewer than fx,
-        // and only with nothing queued. Off screen: the poll runs before
-        // every frame (`settle_files`). Pinned as xfx's; a copy of fx's
-        // flips it. (Its first walk is the change's, as xfx starts none at
-        // launch: AT-LAUNCH-WALK.)
+    /// The session's first `@plan`, typed after the first walk -- the
+    /// change's -- has ended with `end` but before any poll has taken that
+    /// end: the list's first row then, its rows, and the walks the change
+    /// and the `@` made. The walk publishes `plan.md` before it ends.
+    ///
+    /// The first assert is AT-LAUNCH-WALK's tripwire: with a launch walk the
+    /// change's walk is not the first and the premise is gone. That unit
+    /// must drive the launch walk to its end before the change, not only
+    /// change what this expects.
+    fn first_at_before_the_poll(
+        end: super::super::file_index::Published,
+    ) -> (String, Vec<String>, usize) {
         let (_workspace, mut shell) = in_ws2(40, 120);
         let (_extra, path, access) = extra_with_plan(&shell);
-        let walks = shell.files_for_test().walks_for_test();
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            0,
+            "a walk at launch: this case's premise is gone"
+        );
         adopt(&mut shell, access);
         let walk = super::super::file_index::tests::driven(shell.files_for_test());
-        let plan = format!("{}/plan.md", path.display());
         walk.send(super::super::file_index::Published::More(
-            super::super::file_index::tests::candidates(&[&plan]),
+            super::super::file_index::tests::candidates(&[&format!("{}/plan.md", path.display())]),
         ))
         .expect("the walk");
-        walk.send(super::super::file_index::Published::Ready)
-            .expect("the walk");
+        walk.send(end).expect("the walk");
         shell.route_bytes(b"@plan");
-        shell.settle_band(Instant::now());
+        let row = listed_rows(&shell)[0].clone();
+        let rows = listed_paths(&shell);
+        (row, rows, shell.files_for_test().walks_for_test())
+    }
+
+    #[test]
+    fn a_first_at_after_a_walk_ended_whole_but_before_the_poll_refreshes() {
+        // fx's `currentState` reads the loading generation's own state, so a
+        // loader that has finished is `.ready` before the join takes it
+        // (`file_index.zig:336-340@481104fd`): the session's first `@` typed
+        // then is not loading and asks for its refresh
+        // (`input_completion_runtime.zig:857-864`), queued behind the
+        // unjoined loader (`refreshOwnedRoots`, `file_index.zig:494-497`) and
+        // started by the join (`:443-451`) -- two walks, and the finished
+        // generation's rows meanwhile (`searchableGeneration`, `:647-654`).
+        // xfx's decision takes the walk's end first (`Files::take_walk`).
+        let (_row, rows, walks) =
+            first_at_before_the_poll(super::super::file_index::Published::Ready);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert!(rows[0].ends_with("/plan.md"), "{rows:?}");
+        assert_eq!(walks, 2, "the first `@` skipped its refresh");
+    }
+
+    #[test]
+    fn a_first_at_after_a_walk_failed_but_before_the_poll_says_indexing() {
+        // The same with the walk failed (opus r2): fx's index is `.failed`
+        // before the join, so the first `@` asks for its refresh; the join
+        // then starts it and clears the failure (`startLoad`,
+        // `file_index.zig:389@481104fd`), and the list says `indexing
+        // files...` -- two walks. Skipping it, the list would say `Files
+        // unavailable` until Tab.
+        let (row, rows, walks) =
+            first_at_before_the_poll(super::super::file_index::Published::Failed);
         assert_eq!(
-            (
-                shell.files_for_test().walks_for_test() - walks,
-                listed_paths(&shell)
-            ),
-            (1, vec![plan]),
-            "the first `@` refreshed before the poll took the walk's end"
+            (row, rows, walks),
+            (status_row("indexing files..."), Vec::<String>::new(), 2),
+            "the first `@` after a failed walk skipped its refresh"
         );
     }
 
