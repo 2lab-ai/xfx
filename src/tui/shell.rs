@@ -22644,6 +22644,47 @@ mod tests {
     }
 
     #[test]
+    fn leaving_a_filled_draft_revokes_the_receipt_and_the_next_frame_earns_it_back() {
+        // Leaving a filled draft takes its rows off the panel, so the screen a
+        // readiness receipt was earned on is not the one the user now sees
+        // (`approval::answered` measures the shape: `Reshaped`, and
+        // `Shell::decide` calls `invalidate_approval`). An Enter before the
+        // next disclosed frame is refused and sends nothing; after it, Enter
+        // answers with the draft that choice carries.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tab cd");
+        delivered(&mut shell);
+        assert!(
+            shell.approval_ready(ApprovalId(1)),
+            "no receipt was earned with the filled draft on screen, so this case proves nothing"
+        );
+        shell.route_bytes(b"\x1b[B\x1b[A");
+        assert!(
+            !shell.approval_ready(ApprovalId(1)),
+            "leaving a filled draft kept a receipt about the screen that showed it"
+        );
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "an affirmative was taken before the screen without the draft was disclosed"
+        );
+        assert!(shell.asking(), "the refused Enter took the question down");
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("ab cd".to_string()),
+            }),
+            "the answer after the next frame did not carry its choice's draft"
+        );
+    }
+
+    #[test]
     fn the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest() {
         // `folded`'s own contract: `AltB` to `WordLeft`, Shift taken off Up
         // and Down, the approval's spellings to their keys, and every other

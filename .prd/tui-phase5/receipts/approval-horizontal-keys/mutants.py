@@ -53,10 +53,20 @@ MUTANTS = [
     ("M14 the full transcript reads the approval's spellings unfolded", S,
      "            if self.full.is_open() && self.view_full_transcript(&event) {",
      "            if self.full.is_open() && self.view_full_transcript(&spelled) {"),
+    # Round 2 (gpt6's MUST): the readiness revocation when a filled draft is left.
+    ("M15 a reshape does not revoke the readiness receipt", S,
+     "                // the next genuinely disclosed frame re-earns it.\n"
+     "                self.invalidate_approval();\n",
+     "                // the next genuinely disclosed frame re-earns it.\n"),
+    ("M16 leaving a draft (an arrow) is not a reshape", A,
+     "        Reply::Moved if shape(drafts, width) != before => Reply::Reshaped,",
+     "        Reply::Moved if shape(drafts, width) != before\n"
+     "            && !matches!(action, Action::Up | Action::Down) => Reply::Reshaped,"),
 ]
 TESTS = [
     ["cargo", "test", "--locked", "--lib", "--", "approval", "amendment", "alt_b", "alt_f", "the_fold",
      "the_full_transcript_holds", "horizontal", "draft_left", "up_and_down_move", "the_arrows_leave",
+     "leaving_a_filled_draft", "revokes",
      "question::", "input::tests"],
 ]
 env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(mut, "target"), TMPDIR=os.path.join(mut, "tmp"))
