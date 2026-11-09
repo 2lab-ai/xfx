@@ -14,3 +14,8 @@ TMPDIR 23 bytes: exit 0, 327s, Ran 97 tests in 326.903s OK
 TMPDIR 26 bytes: exit 0, 341s, Ran 97 tests in 338.714s OK 
 TMPDIR 52 bytes: exit 0, 373s, Ran 97 tests in 373.157s OK 
 TMPDIR 27 bytes, trailing slash: exit 0, 333s, Ran 97 tests in 332.726s OK 
+== d3804683 (round 4), once per TMPDIR (52 bytes is past test_capture.py's 50, so on /tmp, a link)
+TMPDIR 23 bytes: exit 0, 361s, Ran 99 tests in 360.501s OK 
+TMPDIR 26 bytes: exit 0, 381s, Ran 99 tests in 370.348s OK 
+TMPDIR 52 bytes: exit 0, 491s, Ran 99 tests in 489.803s OK 
+TMPDIR 27 bytes, trailing slash: exit 0, 391s, Ran 99 tests in 390.985s OK 

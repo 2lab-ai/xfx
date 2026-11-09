@@ -11,7 +11,8 @@ already there, and adds a gate that refuses it by shape.
 Every claim below names the file in this directory that backs it. Base:
 `ccced1f5`. Branch `fix/p5-local-paths`. Round 2 answered the review of
 `1fe6ea37` and the dispatcher's failed gate there (section 6); round 3 the
-review of `8e7c1c32` (section 7).
+review of `8e7c1c32` (section 7); round 4 the review of `21bb78b2` (section
+8).
 
 ## 1. The source: every file a run writes, rewritten before anyone reads it
 
@@ -65,10 +66,13 @@ How `roots.py` finds and writes a root (its docstring is the whole rule):
   is a root and nothing else. A `!` keeps a JSON body JSON. A literal so
   escaped is one column wider.
 - **What survives refuses the file.** A root, in any spelling, as given or
-  resolved, still in the file's bytes or visible text where it ends whole --
-  the rewrite's own rule, so a sibling whose name extends a root's is no
-  survivor -- or the run directory's own name (`fxcap.` and mktemp's tail)
-  anywhere: exit 3, the file named, the survivor by placeholder. A root a
+  resolved, still in the file's visible text where it ends whole -- the
+  rewrite's own rule, so a sibling whose name extends a root's is no
+  survivor, coloured mid-name or not -- or in its bytes where they run into a
+  control sequence's (an OSC payload no reader sees; a root whose head an
+  escape's own bytes took), or the run directory's own name (`fxcap.` and
+  mktemp's tail) anywhere: exit 3, the file named, the survivor by
+  placeholder. A root a
   binary cut short, or whose head scrolled off a frame, keeps the run name.
   That guard covers the run directory and what is under it; a fragment of a
   root above it (the harness's TMPDIR, the user's HOME) holds no run name,
@@ -77,22 +81,26 @@ How `roots.py` finds and writes a root (its docstring is the whole rule):
 **Identical on both sides.** One rule for fx's run and xfx's. In a sweep unit
 the two runs share one TMPDIR, so every root is as long on both sides and so
 is its placeholder. The two binaries' own TMPDIRs are the exception, `fxtmp`
-a byte shorter than `xfxtmp`, and are kept apart under `<scratch___>`, as raw.
-The ledger's `capture-tmpdir` reads `<scratch___>/fxtmp` (any placeholder
-ending `_>/`) as well as the old `fxcap.XXXXXX/fxtmp`; `run-directory` stays
-for captures taken before.
+a byte shorter than `xfxtmp`: no roots of their own, they stay as the run
+directory's placeholder and the binary's name, `<scratch___>/fxtmp`. The
+ledger's `capture-tmpdir` reads fx's name as xfx's right after the run
+directory only -- `<scratch___>/`, `<scratch:real___>/`, a zero-filled
+`<scratch>/`, or the old `fxcap.XXXXXX/` -- and nowhere else;
+`run-directory` stays for captures taken before.
 
 **Widths.** The rewrite comes after the binary laid out its frame and keeps
 it, column for column. The `roots:` line each run prints first gives each
-root's width on that run, the resolved form's too where it is another path.
+root's length on that run in bytes, the resolved form's too where it is
+another path; a placeholder is as wide as its root in columns, the same
+number for an ASCII root.
 
 The sweep writes its committed summaries through `scripts/fxcap/redact.py`,
 which keeps a path that continues a placeholder (`<scratch___>/home/...`,
 whatever its width: `roots.PLACEHOLDER`) and still redacts one after a `>`
 that is no placeholder.
 
-**Tests** (`scripts/fxcap/test_capture.py`; RED and GREEN in `harness.txt`
-and `red3-*.txt`):
+**Tests** (`scripts/fxcap/test_capture.py`; RED and GREEN in `harness.txt`,
+`red3-*.txt` and `red4-*.txt`):
 - `RootsRewrite`, on bytes: a root wrapped at every one of its bytes, its
   placeholder wrapped at that byte; the same root wrapped at two offsets
   reads different; broken behind a gutter of spaces and colours (s1's shape)
@@ -103,8 +111,11 @@ and `red3-*.txt`):
   literal placeholder, split by a colour, with `!`s, in JSON; a resolved
   root; a short root and one too narrow (exit 3); a non-ASCII root's
   columns; a sibling of HOME, TMPDIR and the scenario directory, neither
-  rewritten nor refused, and those roots themselves refused; the refusal of a
-  cut-short root, with no path printed; a file without a root, byte for byte.
+  rewritten nor refused, plain or styled mid-name by an SGR, a 256-colour SGR
+  or an nF escape (and roots.py itself exits 0 on it), and those roots
+  themselves refused; a root in an OSC 8 target, and one whose head an nF
+  escape took, still refused; the refusal of a cut-short root, with no path
+  printed; a file without a root, byte for byte.
 - `RunRoots`, end to end over a stub binary on tmux, every expectation at the
   root's own width: one item a row -- its working directory, resolved, HOME,
   TMPDIR, the harness's TMPDIR, the user's home, the scenario directory, a
@@ -114,20 +125,21 @@ and `red3-*.txt`):
   coloured root, a link, a title, a bell -- and a copy, a copied file, a
   report, requests to the fake gateway and the MCP server. Every file kind
   holds no root and no run name, at three TMPDIR lengths in one run; a TMPDIR
-  through a link and with a trailing slash; a sibling of the harness's TMPDIR;
+  through a link and with a trailing slash (the binary's HOME as given, as
+  wide as the run: no `//` widened it); a sibling of the harness's TMPDIR;
   fx and xfx in one TMPDIR, row for row; each side breaking a root at another
   column; a real root against a literal `<work>`.
 - The harness suite at four TMPDIRs: 23 bytes (the dispatcher's), 26, 52 (past
   test_capture.py's 50-byte limit, so on `/tmp`, a link) and 27 with a trailing
-  slash (`test-capture.txt`): 97 tests OK at each. Round 2's 89 and round 1's
-  78 are in the same file.
+  slash (`test-capture.txt`): 99 tests OK at each in round 4 (at `d3804683`),
+  97 in round 3. Round 2's 89 and round 1's 78 are in the same file.
 
 **In real captures** (`runs-scan.txt`, `runs_scan.py`: a whole root, the
 shapes, and what a broken root leaves -- `claude-<digits>`, a sweep job's
 `fxsw.` name, a run's `fxcap.` name). Of the baseline sweep's 677 capture
 files, 251 held some part of a run's paths; after round 1, 29 (round 1's own
-count saw only whole roots); after rounds 2 and 3, 0. Round 3's: 273 hold a
-placeholder where a path stood (an image badge's link reads
+count saw only whole roots); after rounds 2, 3 and 4, 0. Rounds 3 and 4: 273
+hold a placeholder where a path stood (an image badge's link reads
 `file://<work___>/...`), no run was refused, and each run's `roots:` line
 named `<bun:real>` too: Homebrew's `bun` is a link.
 
@@ -144,13 +156,14 @@ ran the same selection under the suite lock, `--jobs 4`, 40x120, fx v0.0.16
   `p5-panels-status-short`, `p5-mcp-empty`, `status-version-stats`.
 
 Before: `ccced1f5`'s harness from a clone, xfx built at `ccced1f5`. Round 1:
-`43024057`'s; round 2: `6cb5c4e7`'s; round 3: `f05f3bd7`'s, each from a clone,
-xfx built there.
+`43024057`'s; round 2: `6cb5c4e7`'s; round 3: `f05f3bd7`'s; round 4:
+`d3804683`'s (its ledger's narrower `capture-tmpdir`), each from a clone, xfx
+built there.
 
-**145 pairs before, 145 after round 3, 145 with the same verdict, 0
-changed**, and the same against round 1 and round 2 (`compare_verdicts.py`):
+**145 pairs before, 145 after round 4, 145 with the same verdict, 0
+changed**, and the same against rounds 1, 2 and 3 (`compare_verdicts.py`):
 normalized-identical 102, identical 4, approved-divergence-cascade 12,
-unresolved-defect 27 in all four, pass 106 / 145 in all four.
+unresolved-defect 27 in all five, pass 106 / 145 in all five.
 
 ## 3. What was there: scrubbed, and read again
 
@@ -184,6 +197,17 @@ it, and there `<tmp>` means only the harness root,
 `/private/tmp/claude-<uid>`: what follows it (`<tmp>/fsg`, `<tmp>/bin/...`) is
 the file's own. In a capture written by capture.sh since this unit, `<tmp___>`
 is capture.sh's whole `$TMPDIR` (in a sweep, the sweep's job directory).
+
+**Zero-filled placeholders from before this unit stay zero-filled.** 1307
+tracked captures already held a `<work>`, `<scratch>`, `<tmp>` or `<home>`
+(or a `:real` one) at `ccced1f5` -- w3's 14, w5's 56 and w9's 14 among them:
+capture.sh itself wrote `<scratch>` then in a `home` dump (with `<scenarios>`
+and `<bun>`), a clipboard file and a report (`sed "s#$run#<scratch>#g"`, its
+lines 942, 1096 and 1109 at `ccced1f5`), sweep.py and ci_sweep.py wrote
+`<tmp>` in their summaries, and units wrote others by hand. No column was kept there, and no
+round rewrites them: a scrub touches only a root it finds raw. Each reader
+takes the zero fill as a fill of none (`roots.PLACEHOLDER`, the check's
+placeholder homes, the ledger's `<scratch>/fxtmp`).
 
 **Read again** (`verify.py`, `verify.txt`): every pair round 3 rewrote, fx
 against xfx, at `ccced1f5` and now, by position, by `scripts/fxcap/cells.py`'s
@@ -240,21 +264,32 @@ and a Linux row.
   `--work-tree=.`, the root's own `.git`, index bits and missing files
   refused), a positive control runs first, and a hit prints the file, the line
   and the shape, never the text.
-- Its test: 10 cases, 23 plants -- every shape in every kind of file (a name
+- Its test: 10 cases, 25 plants -- every shape in every kind of file (a name
   git quotes, a file named `-`, a binary, a coloured path, an OSC 8 link, a
   redirect, an HTML tag, a bare home, a broken root, a mark in a request body,
-  a `.txt`, a report capture and mid-line, a home cut by its first match) and
-  every form that must pass (padded and short placeholder homes among them),
+  a `.txt`, a report capture and mid-line, a home cut by its first match, a
+  report renamed out of capture.sh's names with its line unmarked, an
+  authored file named into them with its line marked) and every form that
+  must pass (padded and short placeholder homes among them, and the renamed
+  report with its line marked, counted as marked),
   under `GIT_DIR`, `GIT_INDEX_FILE`, `GIT_WORK_TREE`, `GREP_OPTIONS` and a
   HOME whose config runs a program. Seventeen mutants of the check, each on a
   throwaway clone, each failed by it (`check-mutants.py`,
-  `check-mutants.txt`): round 3 adds no sentinel, a report is no capture, and
-  the placeholder-home strip at any width.
-- The harness's own mutants (`roots-mutants.py`, `roots-mutants.txt`): the
-  placeholder on the first span only, not as wide as its root, no short form,
-  survivors by substring, no trailing-slash strip, no `//`-collapsed
-  spelling, no nF escape, a backslash escape -- eight, each failed by
-  RootsRewrite or RunRoots.
+  `check-mutants.txt`): round 3 added two (no sentinel, a report is no
+  capture) and retargeted one (the placeholder-home strip, now at any width).
+  Round 4 runs each once more with the check's own positive control taken
+  out, so its line names the test's own cases and plants that fail it: all
+  17 still fail, most by `shapes` (the plants) or `passes` alone, and the
+  unmutated check passes either way.
+- The harness's own mutants (`roots-mutants.py`, `roots-mutants.txt`, each
+  line naming the assertion that failed it): the placeholder on the first
+  span only, not as wide as its root, no short form, survivors by substring,
+  no trailing-slash strip, no `//`-collapsed spelling, no nF escape, a
+  backslash escape (round 3's eight); round 4's survivors read every byte
+  (round 3's rule), read none, or read an OSC's only; and the ledger's
+  `capture-tmpdir` after any `_>/` (round 3's), after any placeholder, after
+  the short form too, or with no zero fill -- fifteen, each failed by
+  RootsRewrite, RunRoots or test_sweep.py's Normalize.
 
 **Counts** (`counts.txt`, by `counts.sh`, the round-2 shapes): files holding
 each shape at `ccced1f5` -- macOS home 6, Linux home 5, harness scratch root
@@ -276,7 +311,12 @@ those files were staged, and reads only tracked files: it now runs after
 Every step of CI's gate job, and the sweep workflow's `test-sweep.sh`, one at
 a time under the suite lock, at the receipt's commit (`gate.txt`: the commit,
 exit status, seconds and step of each; `gate.sh` is the script). Round 1's
-gate was at `6b507197`, round 2's at `7d855291`: 20 steps, 0 failed, each. The
+gate was at `6b507197`, round 2's at `7d855291`, round 3's at `00b8ed9e`: 20
+steps, 0 failed, each.
+
+**Every commit, scanned** (`commits.sh`, `commits.txt`): each commit of the
+branch checked out in a throwaway clone and scanned by its own check and by
+the head's, as a push publishes it. The
 capture harness's suite is the sweep workflow's, not the gate job's:
 `test-capture.txt`.
 
@@ -304,7 +344,9 @@ capture harness's suite is the sweep workflow's, not the gate job's:
 ## 7. Round 3: the review of `8e7c1c32`
 
 `red3.sh` shows each finding on round 2's own code (`red3-r2.txt`, from a
-clone at `8e7c1c32`) and the same on round 3's (`red3-r3.txt`):
+clone at `8e7c1c32`) and the same on round 3's (`red3-r3.txt`, from a clone
+at `21bb78b2`; both run again in round 4, when the trailing-slash line came
+to pin the guard's own line as well as the exit status):
 
 | finding | round 2 | round 3 |
 |---|---|---|
@@ -312,7 +354,7 @@ clone at `8e7c1c32`) and the same on round 3's (`red3-r3.txt`):
 | gpt6 MUST 2: a mark in a `/trace` report capture | passes | refused |
 | gpt6 MUST 3: a sibling of HOME | refused | left |
 | opus SHOULD 1: a home cut at its first match | passes | refused |
-| opus SHOULD 3: a TMPDIR through a link, with a trailing slash | exit 3 | exit 0 |
+| opus SHOULD 3: a TMPDIR through a link, with a trailing slash | exit 3, 2 `LOCAL-PATH GUARD` lines | exit 0, none |
 | gpt6 NTH: a literal placeholder in JSON | not JSON | valid |
 | opus NIT: an nF escape after a root | `<work>` read as `<scratch>/work` | rewritten whole |
 
@@ -333,6 +375,48 @@ clone at `8e7c1c32`) and the same on round 3's (`red3-r3.txt`):
   the doc), nF escapes, "within its row", the `roots:` line's `:real`
   widths, the percent-encoding claim narrowed to what `quote` produces.
 
+## 8. Round 4: the review of `21bb78b2`
+
+`red4.sh` shows each finding on round 3's own code (`red4-r3.txt`, from a
+clone at `21bb78b2`) and the same on round 4's (`red4-r4.txt`):
+
+| finding | round 3 | round 4 |
+|---|---|---|
+| gpt6 MUST 1 / opus SHOULD 1: a sibling of HOME, TMPDIR or the scenario directory, styled mid-name by an SGR, a 256-colour SGR or an nF escape (9) | refused, all 9 | left, all 9 |
+| the same: HOME in an OSC 8 target; its sibling there; HOME whose head an nF escape took | refused; left; refused | refused; left; refused |
+| gpt6 MUST 2 / opus SHOULD 2: `fxtmp` after `<work___>`, `<work:real__>`, `<tmp______>`, `<!scratch__>`, `a_>`, `<s__>`, `<S__>` (7) | normalized, all 7 | compared, all 7 |
+| the same: after `<scratch___>`, `<scratch:real___>`, `<scratch>`, `fxcap.XXXXXX` | normalized | normalized |
+| gpt6 SHOULD 1: a report renamed `trace-report.md`, unmarked; marked; an authored `fx-guide-40x120-notes.md`, marked | refused; passes; refused | the same, now pinned |
+| opus NIT: verify.py's width of an OSC 8 link | 32 (its payload counted) | 4 |
+
+- **MUST 1**: survivors read a root's bytes only where they overlap a
+  control sequence; the visible text judges the rest, by the rewrite's rule.
+  That is the reviewers' "OSC ranges only" and one case more: a root whose
+  head an escape's own bytes took (`ESC / h` is an nF escape), which round 3's
+  byte search refused and an OSC-only reading would pass (the mutant "bytes
+  in an OSC only" is failed by that test).
+- **MUST 2**: `(<scratch(?::real)?_*>/|fxcap\.XXXXXX/)fxtmp\b` -> `\1xfxtmp`.
+  The short form is not covered: the run directory, `$TMPDIR/fxcap.XXXXXX`,
+  is 13 columns or more and never narrower than `<scratch>`; resolved, it is
+  narrower than `<scratch:real>` only where TMPDIR resolves to `/`. Both
+  short forms are negatives.
+- **SHOULD 1 (gpt6)**: the name is reserved, in capture.sh and in the check's
+  header; the test pins both edges. A renamed report is authored text: its
+  marks excuse their lines and an unmarked shape is refused. An authored file
+  named like a capture is a capture: no mark excuses it.
+- **SHOULD 2 (gpt6), opus SHOULD 3**: the `roots:` line is bytes, a
+  placeholder columns (capture.sh, section 1); capture.sh's round-2 "a stored
+  row is shorter by it" and its TMPDIR paragraph's "one placeholder for both
+  would shorten xfx's rows" are gone; the check's lines 12-14, 46 and 51-54
+  name the width form and the reserved names; section 4's mutant count and
+  section 3's zero-filled placeholders.
+- **NITs (opus)**: the trailing-slash test's `assertNotIn("//", run)` could
+  not fail (its operand comes from `glob` and `join`); it now reads the
+  binary's HOME as given, as wide as the run, which the "no trailing-slash
+  strip" mutant fails (`roots-mutants.txt`). `red3.sh` pins the
+  `LOCAL-PATH GUARD` line. verify.py's ST is ESC and one backslash; verify.py
+  run again reads the same (`verify.txt` unchanged: 7748 of 7748 rows).
+
 ## Left as it is
 
 - capture.sh's own standard output still names the out directory and the
@@ -344,3 +428,10 @@ clone at `8e7c1c32`) and the same on round 3's (`red3-r3.txt`):
   ends in a whole root and a next row that opens with `/work` read as one
   root; both sides get the same rule, and the run's random suffix makes such
   a join unlikely.
+- PLAUSIBLE (opus, round 3): a placeholder a terminal wrapped between its `_`
+  and its `>` leaves `>/fxtmp` on the next row, which `capture-tmpdir` does
+  not read: such a pair shows the row as a difference, so the rule fails
+  toward comparing, never toward hiding one. A HOME-prefixed sibling in a
+  tracked file relies on the check's shapes, which miss a `\/`-escaped form.
+- A report renamed out of capture.sh's names is read as authored text (gpt6
+  round 3): the name is the convention, documented as reserved.

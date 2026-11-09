@@ -1,0 +1,28 @@
+# red4.sh on the worktree at db138d38 (round 4: the code of d3804683, verify.py of db138d38)
+1 home sibling, SGR mid-name:                left
+1 home sibling, 256-colour SGR mid-name:     left
+1 home sibling, nF mid-name:                 left
+1 tmp sibling, SGR mid-name:                 left
+1 tmp sibling, 256-colour SGR mid-name:      left
+1 tmp sibling, nF mid-name:                  left
+1 scenarios sibling, SGR mid-name:           left
+1 scenarios sibling, 256-colour SGR mid-name: left
+1 scenarios sibling, nF mid-name:            left
+1 HOME in an OSC 8 target:                   refused
+1 HOME's sibling in an OSC 8 target:         left
+1 HOME whose head an nF escape took:         refused
+2 <scratch______________>/fxtmp:             normalized
+2 <scratch:real_________>/fxtmp:             normalized
+2 <scratch>/fxtmp:                           normalized
+2 /t/fxcap.Lq26sv/fxtmp:                     normalized
+2 <work___>/fxtmp:                           compared
+2 <work:real__>/fxtmp:                       compared
+2 <tmp______>/fxtmp:                         compared
+2 <!scratch__>/fxtmp:                        compared
+2 a_>/fxtmp:                                 compared
+2 <s__>/fxtmp:                               compared
+2 <S__>/fxtmp:                               compared
+3 w3/trace-report.md:                        refused
+3 w3/trace-report-marked.md:                 passes
+3 docs/fx-guide-40x120-notes.md:             refused
+NIT verify.py, an OSC 8 link's width:        4 (the 4 of `link`)

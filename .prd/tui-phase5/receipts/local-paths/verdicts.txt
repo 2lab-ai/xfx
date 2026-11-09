@@ -1,11 +1,13 @@
-# Every snap pair, the base sweep against round 3's (verdicts.tsv); then rounds 1 and 2 against round 3's.
+# Every snap pair, the base sweep against round 4's (verdicts.tsv); then rounds 1, 2 and 3 against round 4's.
 pairs: before 145, after 145; same verdict 145, changed 0
 before: {'normalized-identical': 102, 'identical': 4, 'unresolved-defect': 27, 'approved-divergence-cascade': 12}
 after:  {'normalized-identical': 102, 'identical': 4, 'unresolved-defect': 27, 'approved-divergence-cascade': 12}
-round 1 -> round 3: pairs: before 145, after 145; same verdict 145, changed 0
-round 2 -> round 3: pairs: before 145, after 145; same verdict 145, changed 0
+round 1 -> round 4: pairs: before 145, after 145; same verdict 145, changed 0
+round 2 -> round 4: pairs: before 145, after 145; same verdict 145, changed 0
+round 3 -> round 4: pairs: before 145, after 145; same verdict 145, changed 0
 
 before: pass = 106 / 145 = 73.1%; unresolved 27, failed 0, timeout 0
 after:  pass = 106 / 145 = 73.1%; unresolved 27, failed 0, timeout 0
 after2: pass = 106 / 145 = 73.1%; unresolved 27, failed 0, timeout 0
 after3: pass = 106 / 145 = 73.1%; unresolved 27, failed 0, timeout 0
+after4: pass = 106 / 145 = 73.1%; unresolved 27, failed 0, timeout 0
