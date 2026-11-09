@@ -1,0 +1,20 @@
+# Round 2 mutants on a --no-local clone at fc0cb949 (mutants.py).
+# Run 1, all nine: the four Rust ones were built inside the 3 GiB watchdog, which killed the compile,
+# so their 'kills' were the build, not a test -- not counted:
+- llmux: no document is unavailable (src/provider/model.rs): killed by bounded: killed after 30.3s, peak rss 3128 MiB
+- llmux: too large is no answer (src/provider/model.rs): killed by bounded: killed after 19.3s, peak rss 3088 MiB
+- llmux: not UTF-8 is no answer (src/provider/model.rs): killed by bounded: killed after 19.8s, peak rss 3077 MiB
+- llmux: a body cut short is no document (src/provider/model.rs): killed by bounded: killed after 19.7s, peak rss 3088 MiB
+# Run 1's five fakegw kills, each by a named test (counted):
+- fakegw: no padding bound (scripts/fxcap/fakegw.ts): killed by test_modelspad_and_modelsstall_out_of_their_bounds_stop_it_before_it_listens
+- fakegw: no stall bound (scripts/fxcap/fakegw.ts): killed by test_modelspad_and_modelsstall_out_of_their_bounds_stop_it_before_it_listens
+- fakegw: a padding that is not a whole number (scripts/fxcap/fakegw.ts): killed by test_modelspad_and_modelsstall_out_of_their_bounds_stop_it_before_it_listens
+- fakegw: no start-up check of the catalog's size (scripts/fxcap/fakegw.ts): killed by test_a_catalog_longer_than_its_padding_is_refused_never_served_longer
+- fakegw: a catalog past its padding served as it is (scripts/fxcap/fakegw.ts): killed by test_a_catalog_longer_than_its_padding_is_refused_never_served_longer
+# Run 2, the four Rust ones, built first and outside the watchdog (mutants.py as committed), a kill only by a named test:
+- llmux: no document is unavailable (src/provider/model.rs): killed by a_llmux_catalog_past_1_mib_is_malformed_not_cut_to_fit, a_llmux_catalog_that_is_not_utf8_is_malformed
+- llmux: too large is no answer (src/provider/model.rs): killed by a_llmux_catalog_past_1_mib_is_malformed_not_cut_to_fit
+- llmux: not UTF-8 is no answer (src/provider/model.rs): killed by a_llmux_catalog_that_is_not_utf8_is_malformed
+- llmux: a body cut short is no document (src/provider/model.rs): killed by a_llmux_catalog_of_1_mib_is_read_and_one_cut_short_is_no_answer
+4 of 4 killed
+# Together: 9 of 9 killed by a named test.

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """CATALOG-BOUNDS round 2 mutants: the llmux mapping and fakegw's own
 bounds. Each is one edit on a throwaway `git clone --no-local` of the branch
-(never the worktree), its tests run under ../bounded.py (300 s, 3 GiB), the
-edit undone with `git checkout -- src scripts`. Killed = a test fails.
+(never the worktree), its tests run under ../bounded.py (300 s, 3 GiB) after
+the crate is built outside it, the edit undone with `git checkout -- src
+scripts`. Killed = a test named as failing.
 
-usage: python3 -I mutants.py <clone> <cargo target dir>
+usage: python3 -I mutants.py <clone> <cargo target dir> [<name substring>...]
 Paths are arguments, so none of this machine is written here; TMPDIR comes
 from the environment. Run it under the suite lock."""
 import os, subprocess, sys
@@ -49,25 +50,41 @@ def run(clone, target, cmd):
 def main():
     clone, target = sys.argv[1], sys.argv[2]
     killed = 0
-    for name, path, cmd, old, new in MUTANTS:
+    only = sys.argv[3:]
+    chosen = [m for m in MUTANTS if not only or any(o in m[0] for o in only)]
+    for name, path, cmd, old, new in chosen:
         file = os.path.join(clone, path)
         text = open(file).read()
         assert text.count(old) == 1, f"{name}: the edit's text is not in {path} once"
         open(file, "w").write(text.replace(old, new))
         try:
+            if cmd is RUST:
+                # Built first, outside the watchdog: compiling the crate
+                # takes more than its 3 GiB, and that is not the code under
+                # test (round 2's first run counted four builds as kills).
+                env = dict(os.environ, CARGO_TARGET_DIR=target)
+                build = subprocess.run(["cargo", "test", "--locked", "--lib", "--no-run"], cwd=clone, env=env,
+                                       capture_output=True, text=True)
+                if build.returncode != 0:
+                    print(f"- {name} ({path}): does not build -- not counted", flush=True)
+                    continue
             r = run(clone, target, cmd)
             out = r.stdout + r.stderr
             failed = [l.split()[1].split("::")[-1] for l in out.splitlines() if l.startswith("test ") and l.endswith("FAILED")]
             failed += [l.split()[1] for l in out.splitlines() if l.startswith(("FAIL: ", "ERROR: "))]
             if r.returncode == 0:
                 verdict = "SURVIVED"
+            elif not failed:
+                # A non-zero exit with no failing test named (the watchdog,
+                # a crash) says nothing about the edit.
+                verdict = "INCONCLUSIVE: " + out.strip().splitlines()[-1]
             else:
                 killed += 1
-                verdict = "killed by " + (", ".join(failed) or out.strip().splitlines()[-1])
+                verdict = "killed by " + ", ".join(failed)
         finally:
             subprocess.run(["git", "checkout", "--", "src", "scripts"], cwd=clone)
         print(f"- {name} ({path}): {verdict}", flush=True)
-    print(f"{killed} of {len(MUTANTS)} killed")
-    return 0 if killed == len(MUTANTS) else 1
+    print(f"{killed} of {len(chosen)} killed")
+    return 0 if killed == len(chosen) else 1
 
 sys.exit(main())
