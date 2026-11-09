@@ -1,0 +1,27 @@
+# Each merge's conflicted files, checked from both ends against its first parent (ours), second (theirs) and merge base.
+## merge 1, 13e7c9a0 (CATALOG-BOUNDS): docs/parity.md's /model row
+docs/parity.md '| `/model` |': base 19223, ours 20330, theirs 21885, merged 22992 chars; ours -> merged is theirs' edits: True; theirs -> merged is ours' edits: True (1 and 12 edits)
+# exit 0
+## merge 2, 33e476fa (MODEL-FUZZY): docs/parity.md's /model row
+docs/parity.md '| `/model` |': base 19223, ours 22992, theirs 21351, merged 25120 chars; ours -> merged is theirs' edits: True; theirs -> merged is ours' edits: True (13 and 11 edits)
+# exit 0
+## merge 3, 5a98001a (COMPACT-NOTICE-LATE): every file both sides changed
+src/tui/event_loop.rs: ours -> merged is theirs' hunks: True (1 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (7 hunks, 1 slid by blank lines)
+src/tui/worker.rs: ours -> merged is theirs' hunks: True (45 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (18 hunks, 0 slid by blank lines)
+src/tui/shell.rs: ours -> merged is theirs' hunks: True (10 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (46 hunks, 0 slid by blank lines)
+docs/parity.md: ours -> merged is theirs' hunks: True (1 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (6 hunks, 0 slid by blank lines)
+# exit 0
+## merge 4, 64873172 (AT-HEIGHT): every file both sides changed (the ledger is not ours + theirs: its nine blocks kept ours' numbers, numbers_only.py)
+src/tui/event_loop.rs: ours -> merged is theirs' hunks: True (6 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (7 hunks, 1 slid by blank lines)
+src/tui/shell.rs: ours -> merged is theirs' hunks: True (28 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (56 hunks, 0 slid by blank lines)
+docs/parity.md: ours -> merged is theirs' hunks: True (1 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (7 hunks, 0 slid by blank lines)
+scripts/fxcap/parity-ledger.toml: ours -> merged is theirs' hunks: False (5 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: False (23 hunks, 0 slid by blank lines)
+# exit 1 (the ledger's False expected: its nine blocks kept ours' numbers)
+## merge 4's ledger with every reference number masked: what differs from ours + theirs is numbers alone
+scripts/fxcap/parity-ledger.toml: ours -> merged is theirs' hunks: True (5 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (23 hunks, 0 slid by blank lines)
+# exit 0
+## every resolution redone by this folder's scripts in a clone (reproduce.sh)
+13e7c9a0 (e705a5dc): resolve exit 0; against the merge commit's tree: no difference
+33e476fa (8d9ab0a0): resolve exit 0; against the merge commit's tree: no difference
+5a98001a (96cc7849): resolve exit 0; against the merge commit's tree: no difference
+64873172 (af2b6137): resolve exit 0; against the merge commit's tree: no difference

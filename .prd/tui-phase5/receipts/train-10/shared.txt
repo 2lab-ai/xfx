@@ -1,0 +1,47 @@
+src/tui/worker.rs `async fn one_turn(`: changed by history-notice-stop; the head's is main, history-notice-stop's
+    main 11f09e8ad441 | history-notice-stop 11f09e8ad441 | compact-notice-late e99c5a1f5a6e | catalog-bounds e99c5a1f5a6e | model-fuzzy e99c5a1f5a6e | at-height e99c5a1f5a6e | head 11f09e8ad441
+src/interactive.rs `pub(crate) fn unsaid(`: changed by history-notice-stop; the head's is main, history-notice-stop's
+    main 6fa3bbc9ac52 | history-notice-stop 6fa3bbc9ac52 | compact-notice-late 6f73e3111825 | catalog-bounds 6f73e3111825 | model-fuzzy 6f73e3111825 | at-height 6f73e3111825 | head 6fa3bbc9ac52
+src/interactive.rs `pub(crate) fn said(`: the same on every side that holds it
+    main 640c6b58409d | history-notice-stop 640c6b58409d | compact-notice-late - | catalog-bounds - | model-fuzzy - | at-height - | head 640c6b58409d
+src/tui/shell.rs `UiEvent::Notice(notice) => self.announce(notice),`: the same on every side that holds it
+    main dea48984643e | history-notice-stop dea48984643e | compact-notice-late dea48984643e | catalog-bounds dea48984643e | model-fuzzy dea48984643e | at-height dea48984643e | head dea48984643e
+src/tui/shell.rs `fn announce(`: the same on every side that holds it
+    main 32cf66399114 | history-notice-stop 32cf66399114 | compact-notice-late 32cf66399114 | catalog-bounds 32cf66399114 | model-fuzzy 32cf66399114 | at-height 32cf66399114 | head 32cf66399114
+src/tui/shell.rs `fn mark(&mut self`: the same on every side that holds it
+    main 751e149b5ce8 | history-notice-stop 751e149b5ce8 | compact-notice-late 751e149b5ce8 | catalog-bounds 751e149b5ce8 | model-fuzzy 751e149b5ce8 | at-height 751e149b5ce8 | head 751e149b5ce8
+src/tui/shell.rs `fn abandon_answer(`: the same on every side that holds it
+    main 5af2c2d10f67 | history-notice-stop 5af2c2d10f67 | compact-notice-late 5af2c2d10f67 | catalog-bounds 5af2c2d10f67 | model-fuzzy 5af2c2d10f67 | at-height 5af2c2d10f67 | head 5af2c2d10f67
+src/tui/bridge.rs `pub(crate) async fn send_ui(`: the same on every side that holds it
+    main ee66142c17eb | history-notice-stop ee66142c17eb | compact-notice-late ee66142c17eb | catalog-bounds ee66142c17eb | model-fuzzy ee66142c17eb | at-height ee66142c17eb | head ee66142c17eb
+src/tui/worker.rs `fn abandon(&mut self`: changed by compact-notice-late; the head's is compact-notice-late's
+    main 3b00b332fd3a | history-notice-stop 3b00b332fd3a | compact-notice-late 105d6197025e | catalog-bounds 3b00b332fd3a | model-fuzzy 3b00b332fd3a | at-height 3b00b332fd3a | head 105d6197025e
+src/tui/worker.rs `async fn tell_dropped(`: the same on every side that holds it
+    main - | history-notice-stop - | compact-notice-late 3e3d8d3077de | catalog-bounds - | model-fuzzy - | at-height - | head 3e3d8d3077de
+src/tui/worker.rs `async fn reset_conversation(`: the same on every side that holds it
+    main - | history-notice-stop - | compact-notice-late 02516c875468 | catalog-bounds - | model-fuzzy - | at-height - | head 02516c875468
+src/tui/worker.rs `async fn drop_conversation(`: the same on every side that holds it
+    main a1759778e908 | history-notice-stop a1759778e908 | compact-notice-late a1759778e908 | catalog-bounds a1759778e908 | model-fuzzy a1759778e908 | at-height a1759778e908 | head a1759778e908
+src/tui/worker.rs `async fn run_compact(`: changed by compact-notice-late; the head's is compact-notice-late's
+    main f29fbc5aa5d2 | history-notice-stop f29fbc5aa5d2 | compact-notice-late e30c7c45cb0a | catalog-bounds f29fbc5aa5d2 | model-fuzzy f29fbc5aa5d2 | at-height f29fbc5aa5d2 | head e30c7c45cb0a
+src/tui/worker.rs `async fn turn_loop(`: changed by compact-notice-late; the head's is compact-notice-late's
+    main 711ef672f72f | history-notice-stop 711ef672f72f | compact-notice-late 879dc0e3d331 | catalog-bounds 711ef672f72f | model-fuzzy 711ef672f72f | at-height 711ef672f72f | head 879dc0e3d331
+src/tui/bridge.rs `pub(crate) async fn send_terminal(`: the same on every side that holds it
+    main bcaddf427164 | history-notice-stop bcaddf427164 | compact-notice-late bcaddf427164 | catalog-bounds bcaddf427164 | model-fuzzy bcaddf427164 | at-height bcaddf427164 | head bcaddf427164
+src/tui/bridge.rs `pub(crate) fn try_send_terminal(`: the same on every side that holds it
+    main - | history-notice-stop - | compact-notice-late b6c3bf8dd2f9 | catalog-bounds - | model-fuzzy - | at-height - | head b6c3bf8dd2f9
+src/tui/shell.rs `fn compaction_update(`: changed by compact-notice-late; the head's is compact-notice-late's
+    main d31744a811c3 | history-notice-stop d31744a811c3 | compact-notice-late 4864df13ebe0 | catalog-bounds d31744a811c3 | model-fuzzy d31744a811c3 | at-height d31744a811c3 | head 4864df13ebe0
+src/tui/shell.rs `pub(crate) fn settle_band(`: changed by compact-notice-late; the head's is compact-notice-late's (the same once reference numbers are masked: the re-point commit's)
+    main 54fbfb87b93b | history-notice-stop 54fbfb87b93b | compact-notice-late c3101bf44a79 | catalog-bounds 54fbfb87b93b | model-fuzzy 54fbfb87b93b | at-height 54fbfb87b93b | head a144aa74e68c
+src/tui/shell.rs `fn stop_compaction(`: the same on every side that holds it
+    main abbf7bd4bdb8 | history-notice-stop abbf7bd4bdb8 | compact-notice-late abbf7bd4bdb8 | catalog-bounds abbf7bd4bdb8 | model-fuzzy abbf7bd4bdb8 | at-height abbf7bd4bdb8 | head abbf7bd4bdb8
+src/tui/shell.rs `fn submit(&mut self)`: changed by compact-notice-late; the head's is compact-notice-late's
+    main f9fba2dabd68 | history-notice-stop f9fba2dabd68 | compact-notice-late 9505a91cac6e | catalog-bounds f9fba2dabd68 | model-fuzzy f9fba2dabd68 | at-height f9fba2dabd68 | head 9505a91cac6e
+src/tui/shell.rs `fn drained(&mut self`: the same on every side that holds it
+    main b4d43d0340d2 | history-notice-stop b4d43d0340d2 | compact-notice-late b4d43d0340d2 | catalog-bounds b4d43d0340d2 | model-fuzzy b4d43d0340d2 | at-height b4d43d0340d2 | head b4d43d0340d2
+src/tui/compaction.rs `pub(crate) fn answer(`: the same on every side that holds it
+    main - | history-notice-stop - | compact-notice-late e607470bdf1f | catalog-bounds - | model-fuzzy - | at-height - | head e607470bdf1f
+src/tui/compaction.rs `pub(crate) fn settle(`: the same on every side that holds it
+    main 37c8f7d53209 | history-notice-stop 37c8f7d53209 | compact-notice-late 37c8f7d53209 | catalog-bounds 37c8f7d53209 | model-fuzzy 37c8f7d53209 | at-height 37c8f7d53209 | head 37c8f7d53209
+# 23 functions; 15 the same on every side that holds them

@@ -1,0 +1,85 @@
+  self-test parity, a token a side added, dropped: MISSED
+  self-test ledger, an added entry (question-resume-replay) dropped: found
+  self-test ledger, a deleted entry (question-cap-four) back: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`/provider`') as the other side has it: found
+  self-test parity, a row a side changed ('`/credits`') as the other side has it: found
+  self-test parity, a row a side changed ('`ask_user_question`') as the other side has it: found
+  self-test parity, a row a side changed ('full-screen TUI') as the other side has it: found
+  self-test parity, a row a side changed ("a question's line breaks in a program st") as the other side has it: found
+  self-test parity, a row both sides changed ('`/model`') as ours has it: found
+  self-test parity, a row both sides changed ('`/model`') as theirs has it: found
+  self-test parity, a row both sides changed ('`/model`'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('`/model`'), a side's clause moved whole with its anchors: found
+  self-test parity, a row one side changed ('`/provider`'), two tokens swapped: found
+self-test 13e7c9a0: 13 of 14 found
+# exit 1
+  self-test parity, a token a side added, dropped: MISSED
+  self-test parity, a token a side deleted, back: MISSED
+  self-test ledger, an added entry (question-resume-replay) dropped: found
+  self-test ledger, a deleted entry (question-cap-four) back: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`/provider`') as the other side has it: found
+  self-test parity, a row a side changed ('`/credits`') as the other side has it: found
+  self-test parity, a row a side changed ('`ask_user_question`') as the other side has it: found
+  self-test parity, a row a side changed ('full-screen TUI') as the other side has it: found
+  self-test parity, a row a side changed ("a question's line breaks in a program st") as the other side has it: found
+  self-test parity, a row both sides changed ('`/model`') as ours has it: found
+  self-test parity, a row both sides changed ('`/model`') as theirs has it: found
+  self-test parity, a row both sides changed ('`/model`'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('`/model`'), a side's clause moved whole with its anchors: found
+  self-test parity, a row one side changed ('`/provider`'), two tokens swapped: found
+self-test 33e476fa: 13 of 15 found
+# exit 1
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (question-resume-replay) dropped: found
+  self-test ledger, a deleted entry (question-cap-four) back: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('`/provider`') as the other side has it: found
+  self-test parity, a row a side changed ('`/compact`') as the other side has it: found
+  self-test parity, a row a side changed ('`/credits`') as the other side has it: found
+  self-test parity, a row a side changed ('`ask_user_question`') as the other side has it: found
+  self-test parity, a row a side changed ('full-screen TUI') as the other side has it: found
+  self-test parity, a row a side changed ("a question's line breaks in a program st") as the other side has it: found
+  self-test parity, a row one side changed ('`/model`'), two tokens swapped: found
+self-test 5a98001a: 13 of 13 found
+# exit 0
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (question-resume-replay) dropped: found
+  self-test ledger, a deleted entry (question-cap-four) back: found
+  self-test ledger, a comment line dropped: found
+  self-test ledger, a numbers-only entry (answer-drawn-wider-named) with a word changed: found
+  self-test ledger, a numbers-only entry (answer-drawn-wider-named) with a reference dropped: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('`/provider`') as the other side has it: found
+  self-test parity, a row a side changed ('`/compact`') as the other side has it: found
+  self-test parity, a row a side changed ('`/credits`') as the other side has it: found
+  self-test parity, a row a side changed ('`ask_user_question`') as the other side has it: found
+  self-test parity, a row a side changed ('full-screen TUI') as the other side has it: found
+  self-test parity, a row a side changed ('`@` file picker') as the other side has it: found
+  self-test parity, a row a side changed ("a question's line breaks in a program st") as the other side has it: found
+  self-test parity, a row one side changed ('`/model`'), two tokens swapped: found
+self-test 64873172: 16 of 16 found
+# exit 0
+
+# token_control.py: the two token cases planted on the merged row itself
+merge 13e7c9a0: self_test's row '`/model`'; changed by both sides; its plant finds nothing to replace (the merged row is neither side text)
+  a token ours added ('(`:5616-5626`;') dropped from the merged row: found
+  a token theirs added ('(404,') dropped from the merged row: found
+  a token theirs deleted ('(`GatewayCatalog::fetch`);') put back in the merged row: found
+merge 33e476fa: self_test's row '`/model`'; changed by both sides; its plant finds nothing to replace (the merged row is neither side text)
+  a token ours added ('(404,') dropped from the merged row: found
+  a token ours deleted ('(`GatewayCatalog::fetch`);') put back in the merged row: found
+  a token theirs added ('(**fuzzy**:') dropped from the merged row: found
+  a token theirs deleted ('(id') put back in the merged row: found
+merge 5a98001a: self_test's row '`/model`'; changed by one side; its plant lands in the merged text
+  a token ours added ('(**fuzzy**:') dropped from the merged row: found
+  a token ours deleted ('(`GatewayCatalog::fetch`);') put back in the merged row: found
+merge 64873172: self_test's row '`/model`'; changed by one side; its plant lands in the merged text
+  a token ours added ('(**fuzzy**:') dropped from the merged row: found
+  a token ours deleted ('(`GatewayCatalog::fetch`);') put back in the merged row: found
+# 11 of 11 found
+# exit 0

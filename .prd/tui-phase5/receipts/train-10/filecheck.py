@@ -9,15 +9,23 @@ one place, so the blank line between them can be read as the end of one or the
 start of the other) matches its other end's block rotated by those blank lines
 alone, and is counted as slid.
 
-    python3 -I -B filecheck.py <repo> <base> <ours> <theirs> <merged|-> <path>...
+    python3 -I -B filecheck.py [--numbers-masked] <repo> <base> <ours> <theirs> <merged|-> <path>...
 
 `-` for merged reads the worktree's file (`git diff` against the worktree).
+`--numbers-masked` compares every line with each `:N` / `:N-M` masked: for a
+file whose conflict blocks differed only in reference numbers and were
+resolved as ours' (numbers_only.py), so that theirs' re-points are not in the
+merge -- the check then says whether that is all that differs.
 """
+import re
 import subprocess
 import sys
 
-repo, base, ours, theirs, merged = sys.argv[1:6]
-paths = sys.argv[6:]
+MASK = sys.argv[1] == "--numbers-masked"
+args = sys.argv[2:] if MASK else sys.argv[1:]
+repo, base, ours, theirs, merged = args[:5]
+paths = args[5:]
+NUMS = re.compile(r":\d+(?:-\d+)?")
 
 
 def bodies(a, b, path):
@@ -28,13 +36,17 @@ def bodies(a, b, path):
             cur = []
             out.append(cur)
         elif cur is not None and line[:1] in ("+", "-") and not line.startswith(("+++ ", "--- ")):
-            cur.append(line)
+            cur.append(NUMS.sub(":N", line) if MASK else line)
     return out
 
 
 def same(xs, ys):
     """(equal, slid): hunk lists equal, or equal once an insertion block is
     rotated by blank lines only."""
+    if MASK:
+        # Hunks that differ only in numbers vanish once masked: drop them.
+        xs = [x for x in xs if [l for l in x if l.startswith("-")] != [l[0].replace("+", "-") + l[1:] for l in x if l.startswith("+")]]
+        ys = [y for y in ys if [l for l in y if l.startswith("-")] != [l[0].replace("+", "-") + l[1:] for l in y if l.startswith("+")]]
     if xs == ys:
         return True, 0
     if len(xs) != len(ys):

@@ -1,0 +1,98 @@
+# head 64873172; sides: main 6bb9fd90, catalog-bounds e705a5dc, model-fuzzy 8d9ab0a0, compact-notice-late 96cc7849, at-height af2b6137
+docs/parity.md:241: :3550 (after src/tui/worker.rs)
+    main MOVED -> :3556 | catalog-bounds MOVED -> :3556 | model-fuzzy MOVED -> :3556 | at-height MOVED -> :3556
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:36: :1942-1948 (after src/tui/shell.rs)
+    main MOVED -> :1951-1957 | catalog-bounds MOVED -> :1951-1957 | model-fuzzy MOVED -> :1951-1957 | compact-notice-late MOVED -> :1951-1957
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:36: :1911 (after src/tui/shell.rs)
+    main MOVED -> :1920 | catalog-bounds MOVED -> :1920 | model-fuzzy MOVED -> :1920 | compact-notice-late MOVED -> :1920
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2170 (after src/tui/shell.rs)
+    main MOVED -> :2179 | catalog-bounds MOVED -> :2179 | model-fuzzy MOVED -> :2179 | compact-notice-late MOVED -> :2179
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2546 (after src/tui/shell.rs)
+    main MOVED -> :2555 | catalog-bounds MOVED -> :2555 | model-fuzzy MOVED -> :2555 | compact-notice-late MOVED -> :2555
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2571 (after src/tui/shell.rs)
+    main MOVED -> :2580 | catalog-bounds MOVED -> :2580 | model-fuzzy MOVED -> :2580 | compact-notice-late MOVED -> :2580
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2130 (after src/tui/shell.rs)
+    main MOVED -> :2139 | catalog-bounds MOVED -> :2139 | model-fuzzy MOVED -> :2139 | compact-notice-late MOVED -> :2139
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2188 (after src/tui/shell.rs)
+    main MOVED -> :2197 | catalog-bounds MOVED -> :2197 | model-fuzzy MOVED -> :2197 | compact-notice-late MOVED -> :2197
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2207 (after src/tui/shell.rs)
+    main MOVED -> :2216 | catalog-bounds MOVED -> :2216 | model-fuzzy MOVED -> :2216 | compact-notice-late MOVED -> :2216
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2263 (after src/tui/shell.rs)
+    main MOVED -> :2272 | catalog-bounds MOVED -> :2272 | model-fuzzy MOVED -> :2272 | compact-notice-late MOVED -> :2272
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2313 (after src/tui/shell.rs)
+    main MOVED -> :2322 | catalog-bounds MOVED -> :2322 | model-fuzzy MOVED -> :2322 | compact-notice-late MOVED -> :2322
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:207: :2208 (after src/tui/shell.rs)
+    main MOVED -> :2217 | catalog-bounds MOVED -> :2217 | model-fuzzy MOVED -> :2217 | compact-notice-late MOVED -> :2217
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:207: :2264 (after src/tui/shell.rs)
+    main MOVED -> :2273 | catalog-bounds MOVED -> :2273 | model-fuzzy MOVED -> :2273 | compact-notice-late MOVED -> :2273
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:208: :2314 (after src/tui/shell.rs)
+    main MOVED -> :2323 | catalog-bounds MOVED -> :2323 | model-fuzzy MOVED -> :2323 | compact-notice-late MOVED -> :2323
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:208: :2555 (after src/tui/shell.rs)
+    main MOVED -> :2564 | catalog-bounds MOVED -> :2564 | model-fuzzy MOVED -> :2564 | compact-notice-late MOVED -> :2564
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:276: :4013 (after src/tui/shell.rs)
+    main MOVED -> :4023 | catalog-bounds MOVED -> :4023 | model-fuzzy MOVED -> :4023 | compact-notice-late MOVED -> :4023
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:277: :4074 (after src/tui/shell.rs)
+    main MOVED -> :4084 | catalog-bounds MOVED -> :4084 | model-fuzzy MOVED -> :4084 | compact-notice-late MOVED -> :4084
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:33: :2858 (after src/tui/shell.rs)
+    main MOVED -> :2868 | catalog-bounds MOVED -> :2868 | model-fuzzy MOVED -> :2868 | compact-notice-late MOVED -> :2868
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1792-1810 (after src/tui/shell.rs)
+    main MOVED -> :1801-1819 | catalog-bounds MOVED -> :1801-1819 | model-fuzzy MOVED -> :1801-1819 | compact-notice-late MOVED -> :1801-1819
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :2777 (after src/tui/shell.rs)
+    main MOVED -> :2787 | catalog-bounds MOVED -> :2787 | model-fuzzy MOVED -> :2787 | compact-notice-late MOVED -> :2787
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:796: :7039 (after src/tui/shell.rs)
+    main MOVED -> :7122 | catalog-bounds MOVED -> :7122 | model-fuzzy MOVED -> :7122 | compact-notice-late MOVED -> :7122
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:851: :6004 (after src/tui/shell.rs)
+    main MOVED -> :6058 | catalog-bounds MOVED -> :6058 | model-fuzzy MOVED -> :6058 | compact-notice-late MOVED -> :6058
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:296: :1202-1266 (after src/tui/shell.rs)
+    main MOVED -> :1202-1275 | catalog-bounds MOVED -> :1202-1275 | model-fuzzy MOVED -> :1202-1275 | compact-notice-late MOVED -> :1202-1275
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:296: :1520-1533 (after src/tui/shell.rs)
+    main MOVED -> :1529-1542 | catalog-bounds MOVED -> :1529-1542 | model-fuzzy MOVED -> :1529-1542 | compact-notice-late MOVED -> :1529-1542
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:315: :374-375 (after src/tui/approval_screen.rs)
+    catalog-bounds MOVED -> :369-370 | model-fuzzy MOVED -> :369-370 | compact-notice-late MOVED -> :369-370 | at-height MOVED -> :369-370
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:316: :372 (after src/tui/approval_screen.rs)
+    catalog-bounds MOVED -> :367 | model-fuzzy MOVED -> :367 | compact-notice-late MOVED -> :367 | at-height MOVED -> :367
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:318: :376-386 (after src/tui/approval.rs)
+    catalog-bounds MOVED -> :369-379 | model-fuzzy MOVED -> :369-379 | compact-notice-late MOVED -> :369-379 | at-height MOVED -> :369-379
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:470: :1013-1112 (after src/tui/event_loop.rs)
+    main MOVED -> :1018-1117 | catalog-bounds MOVED -> :1046-1145 | model-fuzzy MOVED -> :1046-1145 | compact-notice-late MOVED -> :1046-1145 | at-height MOVED -> :1041-1140
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:470: :619-622 (after src/tui/event_loop.rs)
+    catalog-bounds MOVED -> :647-650 | model-fuzzy MOVED -> :647-650 | compact-notice-late MOVED -> :647-650 | at-height MOVED -> :647-650
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:485: :1048-1076 (after src/tui/event_loop.rs)
+    main MOVED -> :1053-1081 | catalog-bounds MOVED -> :1081-1109 | model-fuzzy MOVED -> :1081-1109 | compact-notice-late MOVED -> :1081-1109 | at-height MOVED -> :1076-1104
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:486: :1078-1108 (after src/tui/event_loop.rs)
+    main MOVED -> :1083-1113 | catalog-bounds MOVED -> :1111-1141 | model-fuzzy MOVED -> :1111-1141 | compact-notice-late MOVED -> :1111-1141 | at-height MOVED -> :1106-1136
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:486: :1090-1093 (after src/tui/event_loop.rs)
+    main MOVED -> :1095-1098 | catalog-bounds MOVED -> :1123-1126 | model-fuzzy MOVED -> :1123-1126 | compact-notice-late MOVED -> :1123-1126 | at-height MOVED -> :1118-1121
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:487: :1027-1045 (after src/tui/event_loop.rs)
+    main MOVED -> :1032-1050 | catalog-bounds MOVED -> :1060-1078 | model-fuzzy MOVED -> :1060-1078 | compact-notice-late MOVED -> :1060-1078 | at-height MOVED -> :1055-1073
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:488: :619 (after src/tui/event_loop.rs)
+    catalog-bounds MOVED -> :647 | model-fuzzy MOVED -> :647 | compact-notice-late MOVED -> :647 | at-height MOVED -> :647
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:494: :3239 (after src/tui/shell.rs)
+    main MOVED -> :3249 | catalog-bounds MOVED -> :3249 | model-fuzzy MOVED -> :3249 | compact-notice-late MOVED -> :3249
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:494: :3187 (after src/tui/shell.rs)
+    main MOVED -> :3197 | catalog-bounds MOVED -> :3197 | model-fuzzy MOVED -> :3197 | compact-notice-late MOVED -> :3197
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1246 (after src/tui/approval.rs)
+    catalog-bounds MOVED -> :1239 | model-fuzzy MOVED -> :1239 | compact-notice-late MOVED -> :1239 | at-height MOVED -> :1239
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1199-1218 (after src/tui/approval.rs)
+    catalog-bounds MOVED -> :1192-1211 | model-fuzzy MOVED -> :1192-1211 | compact-notice-late MOVED -> :1192-1211 | at-height MOVED -> :1192-1211
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1180-1196 (after src/tui/approval.rs)
+    catalog-bounds MOVED -> :1173-1189 | model-fuzzy MOVED -> :1173-1189 | compact-notice-late MOVED -> :1173-1189 | at-height MOVED -> :1173-1189
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5577 (after src/tui/shell.rs)
+    main MOVED -> :5631 | catalog-bounds MOVED -> :5631 | model-fuzzy MOVED -> :5631 | compact-notice-late MOVED -> :5631
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5590 (after src/tui/shell.rs)
+    main MOVED -> :5644 | catalog-bounds MOVED -> :5644 | model-fuzzy MOVED -> :5644 | compact-notice-late MOVED -> :5644
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5600 (after src/tui/shell.rs)
+    main MOVED -> :5654 | catalog-bounds MOVED -> :5654 | model-fuzzy MOVED -> :5654 | compact-notice-late MOVED -> :5654
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :1180-1218 (after src/tui/event_loop.rs)
+    main MOVED -> :1185-1223 | catalog-bounds MOVED -> :1213-1251 | model-fuzzy MOVED -> :1213-1251 | compact-notice-late MOVED -> :1213-1251 | at-height MOVED -> :1208-1246
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :755 (after src/tui/approval.rs)
+    catalog-bounds MOVED -> :748 | model-fuzzy MOVED -> :748 | compact-notice-late MOVED -> :748 | at-height MOVED -> :748
+scripts/fxcap/capfile.py:166: :14603-14605 (after src/tui/shell.rs)
+    main MOVED -> :14705-14707
+scripts/fxcap/parity-ledger.toml:874: :1658 (after src/tui/shell.rs)
+    main MOVED -> :1667 | catalog-bounds MOVED -> :1667 | model-fuzzy MOVED -> :1667 | compact-notice-late MOVED -> :1667
+src/tui/shell.rs:10534: :3524 (after src/tui/worker.rs)
+    main MOVED -> :3530 | catalog-bounds MOVED -> :3530 | model-fuzzy MOVED -> :3530 | at-height MOVED -> :3530
+src/tui/shell.rs:22672: :6004 (after src/tui/shell.rs)
+    main MOVED -> :6058 | catalog-bounds MOVED -> :6058 | model-fuzzy MOVED -> :6058 | compact-notice-late MOVED -> :6058
+# 73 bare continuations after a reference into a changed file; 48 moved or changed on some side that holds them

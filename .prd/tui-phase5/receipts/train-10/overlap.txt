@@ -1,0 +1,28 @@
+== merge 13e7c9a0: ours 6bb9fd90, theirs e705a5dc, base ccced1f5; files both changed: 1
+  docs/parity.md: ours 5 hunks, theirs 2 hunks; nearest: 0 unchanged base lines (ours 93-93, theirs 93-93)
+    touching: ours 93-93, theirs 93-93
+== merge 33e476fa: ours 13e7c9a0, theirs 8d9ab0a0, base ccced1f5; files both changed: 2
+  docs/parity.md: ours 6 hunks, theirs 1 hunks; nearest: 0 unchanged base lines (ours 93-93, theirs 93-93)
+    touching: ours 93-93, theirs 93-93
+  src/tui/shell.rs: ours 44 hunks, theirs 2 hunks; nearest: 6267 unchanged base lines (ours 37865-37868, theirs 31597-31597)
+== merge 5a98001a: ours 33e476fa, theirs 96cc7849, base 58c92ba2; files both changed: 4
+  docs/parity.md: ours 6 hunks, theirs 1 hunks; nearest: 5 unchanged base lines (ours 114-114, theirs 108-108)
+  src/tui/event_loop.rs: ours 7 hunks, theirs 1 hunks; nearest: 0 unchanged base lines (ours 15842-15841, theirs 15842-15841)
+    touching: ours 15842-15841, theirs 15842-15841
+  src/tui/shell.rs: ours 46 hunks, theirs 10 hunks; nearest: 102 unchanged base lines (ours 10368-10369, theirs 10472-10490)
+  src/tui/worker.rs: ours 18 hunks, theirs 45 hunks; nearest: 258 unchanged base lines (ours 17390-17389, theirs 17132-17131)
+== merge 64873172: ours 5a98001a, theirs af2b6137, base 712dd8d1; files both changed: 4
+  docs/parity.md: ours 7 hunks, theirs 1 hunks; nearest: 1 unchanged base lines (ours 237-237, theirs 239-239)
+  scripts/fxcap/parity-ledger.toml: ours 23 hunks, theirs 14 hunks; nearest: 0 unchanged base lines (ours 505-505, theirs 505-505)
+    touching: ours 505-505, theirs 505-505
+    touching: ours 551-551, theirs 551-551
+    touching: ours 786-786, theirs 786-786
+    touching: ours 797-797, theirs 797-797
+    touching: ours 809-809, theirs 809-809
+    touching: ours 820-820, theirs 820-820
+    touching: ours 831-831, theirs 831-831
+    touching: ours 899-899, theirs 899-899
+    touching: ours 969-969, theirs 969-969
+  src/tui/event_loop.rs: ours 7 hunks, theirs 6 hunks; nearest: 0 unchanged base lines (ours 15842-15841, theirs 15842-15841)
+    touching: ours 15842-15841, theirs 15842-15841
+  src/tui/shell.rs: ours 56 hunks, theirs 28 hunks; nearest: 687 unchanged base lines (ours 546-547, theirs 1235-1234)

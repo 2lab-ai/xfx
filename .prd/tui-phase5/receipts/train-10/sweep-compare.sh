@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Train 9: train 7's sweep-compare.sh, unchanged but for this line. The sweeps' files here, through redacted.py: each sweep's scoreboard (the
+# Train 10: train 7's sweep-compare.sh (train 9's), its families.py train 10's, and CATALOG-BOUNDS' compare at the verdict level (compare_catalog_bounds.py) after it. The sweeps' files here, through redacted.py: each sweep's scoreboard (the
 # head's; every reference sweep rescored with the head's ledger first,
 # `sweep.sh --rescore` on a copy), pair by pair against the head
 # (compare.py), the screens that moved (screen_moves.py), and pass per family
 # (families.py).
-# usage: sweep-compare.sh <head out> <name>=<reference out>...
+# usage: sweep-compare.sh <head out> <name>=<reference out>...   (run from the train's checkout: compare_catalog_bounds.py reads its git)
 set -u
 head=$1; shift
 here=$(cd "$(dirname "$0")" && pwd)
@@ -22,3 +22,5 @@ for ref in "$@"; do
   fam+=("$name=$out")
 done
 python3 -I -B "$here/families.py" "${fam[@]}" | rd "$here/families.txt"
+python3 -I -B "$here/compare_catalog_bounds.py" "$(cd "$here/../../../.." && pwd)" "$head" | rd "$here/compare-unit-catalog-bounds.txt"
+echo "compare-unit-catalog-bounds: exit ${PIPESTATUS[0]}"

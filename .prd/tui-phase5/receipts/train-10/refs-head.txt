@@ -1,0 +1,166 @@
+# head e28e1b15; sides: main 6bb9fd90, catalog-bounds e705a5dc, model-fuzzy 8d9ab0a0, compact-notice-late 96cc7849, at-height af2b6137
+docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:917]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:196]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+docs/parity.md:96	[scripts/fxcap/parity-ledger.toml:307]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+docs/parity.md:99	[scripts/fxcap/parity-ledger.toml:432]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+docs/parity.md:107	[scripts/fxcap/parity-ledger.toml:123]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+docs/parity.md:109	[scripts/fxcap/parity-ledger.toml:942]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+docs/parity.md:113	[scripts/fxcap/parity-ledger.toml:349]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+docs/parity.md:115	[scripts/fxcap/parity-ledger.toml:70, scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:236, scripts/fxcap/parity-ledger.toml:267, scripts/fxcap/parity-ledger.toml:280, scripts/fxcap/parity-ledger.toml:294, scripts/fxcap/parity-ledger.toml:321, scripts/fxcap/parity-ledger.toml:335, scripts/fxcap/parity-ledger.toml:418]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+docs/parity.md:118	[scripts/fxcap/parity-ledger.toml:61]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+docs/parity.md:120	[scripts/fxcap/parity-ledger.toml:182, scripts/fxcap/parity-ledger.toml:335]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+docs/parity.md:158	[scripts/fxcap/parity-ledger.toml:562, scripts/fxcap/parity-ledger.toml:573]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+docs/parity.md:160	[scripts/fxcap/parity-ledger.toml:805]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+docs/parity.md:162	[scripts/fxcap/parity-ledger.toml:655]
+    main* = row | catalog-bounds = row | model-fuzzy = row | compact-notice-late = row | at-height = row
+docs/parity.md:172	[scripts/fxcap/parity-ledger.toml:906]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+docs/parity.md:177	[scripts/fxcap/parity-ledger.toml:769]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+docs/parity.md:210	[scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:321]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+docs/parity.md:216	[scripts/fxcap/parity-ledger.toml:741]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+docs/parity.md:237	[scripts/fxcap/parity-ledger.toml:450, scripts/fxcap/parity-ledger.toml:505, scripts/fxcap/parity-ledger.toml:519, scripts/fxcap/parity-ledger.toml:533]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+docs/parity.md:238	[scripts/fxcap/parity-ledger.toml:139, scripts/fxcap/parity-ledger.toml:363, scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:387, scripts/fxcap/parity-ledger.toml:391, scripts/fxcap/parity-ledger.toml:405, scripts/fxcap/parity-ledger.toml:463, scripts/fxcap/parity-ledger.toml:491, scripts/fxcap/parity-ledger.toml:817]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+docs/parity.md:243	[scripts/fxcap/parity-ledger.toml:250]
+    main* = row | catalog-bounds* = row | model-fuzzy* = row | compact-notice-late* = row | at-height* = row
+scripts/check-xfx-identity.sh:5	[docs/parity.md:241]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+scripts/fxcap/capture.sh:325-327	[scripts/fxcap/parity-ledger.toml:85]
+    main -> 333-335 | catalog-bounds = | model-fuzzy -> 333-335 | compact-notice-late -> 335-337 | at-height -> 335-337
+scripts/fxcap/capture.sh:546	[scripts/fxcap/parity-ledger.toml:78]
+    main -> 554 | catalog-bounds = | model-fuzzy -> 554 | compact-notice-late -> 571 | at-height -> 571
+scripts/fxcap/capture.sh:987	[scripts/fxcap/parity-ledger.toml:147]
+    main -> 1001 | catalog-bounds = | model-fuzzy -> 1001 | compact-notice-late -> 1022 | at-height -> 1022
+scripts/fxcap/cells.py:12-14	[scripts/fxcap/parity-ledger.toml:53]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/agent/machine.rs:78-85	[docs/parity.md:237]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/config/schema.rs:545-550	[docs/parity.md:93]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/gateway/mod.rs:59	[scripts/fxcap/parity-ledger.toml:640, scripts/fxcap/parity-ledger.toml:650, docs/parity.md:237]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/gateway/mod.rs:994-995	[docs/parity.md:237]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/image.rs:101	[scripts/fxcap/parity-ledger.toml:769]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/markdown/theme.rs:49	[scripts/fxcap/parity-ledger.toml:250]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/markdown/theme.rs:69	[scripts/fxcap/parity-ledger.toml:250]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/mcp/runtime.rs:90	[scripts/fxcap/parity-ledger.toml:1153]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/mcp/transport.rs:1318-1320	[docs/parity.md:221]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/permission/authority.rs:38-41	[scripts/fxcap/parity-ledger.toml:895]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/permission/authority.rs:737	[scripts/fxcap/parity-ledger.toml:450]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/permission/authority.rs:1145-1149	[scripts/fxcap/parity-ledger.toml:895]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/permission/slash.rs:466	[scripts/fxcap/parity-ledger.toml:803]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/provider/mod.rs:116	[scripts/fxcap/parity-ledger.toml:791]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/proxy/server.rs:1583-1613	[docs/parity.md:114]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/session/store.rs:74	[docs/parity.md:48]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/session/store.rs:1000	[scripts/fxcap/parity-ledger.toml:699]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/sound.rs:37	[scripts/fxcap/parity-ledger.toml:940]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tools/mcp.rs:422-428	[scripts/fxcap/parity-ledger.toml:1106, docs/parity.md:176]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tools/mutate.rs:437-442	[scripts/fxcap/parity-ledger.toml:571, docs/parity.md:158]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tools/question.rs:60-76	[docs/parity.md:242]
+    main* = | catalog-bounds -> 63-79 | model-fuzzy -> 63-79 | compact-notice-late -> 63-79 | at-height -> 63-79
+src/tools/read.rs:1162	[scripts/fxcap/parity-ledger.toml:571, docs/parity.md:158]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tools/spec.rs:214	[scripts/fxcap/parity-ledger.toml:897]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tui/approval_view.rs:106	[scripts/fxcap/parity-ledger.toml:952]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tui/approval_view.rs:685	[scripts/fxcap/parity-ledger.toml:803, scripts/fxcap/parity-ledger.toml:826, scripts/fxcap/parity-ledger.toml:838, scripts/fxcap/parity-ledger.toml:849, scripts/fxcap/parity-ledger.toml:860, scripts/fxcap/parity-ledger.toml:883, scripts/fxcap/parity-ledger.toml:928]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tui/approval_view.rs:971-976	[scripts/fxcap/parity-ledger.toml:463]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tui/approval_view.rs:1224	[scripts/fxcap/parity-ledger.toml:1010]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tui/frame.rs:2757	[scripts/fxcap/parity-ledger.toml:533]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late -> 2765 | at-height -> 2765
+src/tui/full_transcript.rs:495	[scripts/fxcap/parity-ledger.toml:363]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tui/full_transcript.rs:3010	[scripts/fxcap/parity-ledger.toml:491, scripts/fxcap/parity-ledger.toml:1010]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late -> 3015 | at-height -> 3015
+src/tui/full_transcript.rs:3061	[scripts/fxcap/parity-ledger.toml:505, scripts/fxcap/parity-ledger.toml:519]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late -> 3066 | at-height -> 3066
+src/tui/gesture.rs:162-164	[scripts/fxcap/parity-ledger.toml:1140]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tui/gesture.rs:176-188	[scripts/fxcap/parity-ledger.toml:1128, scripts/fxcap/parity-ledger.toml:1140]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tui/grid.rs:1088	[scripts/fxcap/parity-ledger.toml:987]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late -> 1243 | at-height -> 1243
+src/tui/layout.rs:91	[scripts/fxcap/parity-ledger.toml:975, scripts/fxcap/parity-ledger.toml:1023]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tui/mcp_menu.rs:786-791	[scripts/fxcap/parity-ledger.toml:1152]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tui/mcp_menu.rs:1500	[scripts/fxcap/parity-ledger.toml:432]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tui/mod.rs:127-133	[scripts/fxcap/parity-ledger.toml:1115]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tui/retry.rs:369-381	[docs/parity.md:237]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tui/settings.rs:361	[scripts/fxcap/parity-ledger.toml:940]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tui/shell.rs:187	[scripts/fxcap/parity-ledger.toml:44, scripts/fxcap/parity-ledger.toml:45]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tui/shell.rs:1765	[scripts/fxcap/parity-ledger.toml:964]
+    main -> 1774 | catalog-bounds -> 1774 | model-fuzzy -> 1774 | compact-notice-late -> 1774 | at-height* =
+src/tui/shell.rs:4343	[scripts/fxcap/parity-ledger.toml:1075]
+    main -> 4353 | catalog-bounds -> 4353 | model-fuzzy -> 4353 | compact-notice-late -> 4353 | at-height* =
+src/tui/shell.rs:10277	[scripts/fxcap/parity-ledger.toml:872, scripts/fxcap/parity-ledger.toml:874]
+    main -> 10360 | catalog-bounds -> 10360 | model-fuzzy -> 10360 | compact-notice-late -> 10360 | at-height* =
+src/tui/shell.rs:13187	[scripts/fxcap/parity-ledger.toml:551]
+    main -> 13280 | catalog-bounds -> 13262 | model-fuzzy -> 13262 | compact-notice-late -> 13252 | at-height -> 13179
+src/tui/shell.rs:13498	[scripts/fxcap/parity-ledger.toml:505]
+    main -> 13591 | catalog-bounds -> 13573 | model-fuzzy -> 13573 | compact-notice-late -> 13563 | at-height -> 13490
+src/tui/shell.rs:16413	[scripts/fxcap/parity-ledger.toml:689, scripts/fxcap/parity-ledger.toml:998]
+    main -> 16527 | catalog-bounds -> 16509 | model-fuzzy -> 16509 | compact-notice-late -> 16490 | at-height -> 16414
+src/tui/shell.rs:39046	[scripts/fxcap/parity-ledger.toml:815, scripts/fxcap/parity-ledger.toml:826, scripts/fxcap/parity-ledger.toml:838, scripts/fxcap/parity-ledger.toml:849, scripts/fxcap/parity-ledger.toml:860, scripts/fxcap/parity-ledger.toml:928]
+    main -> 39376 | catalog-bounds -> 39477 | model-fuzzy -> 39472 | compact-notice-late -> 39458 | at-height -> 39171
+src/tui/toolgroup.rs:511-513	[scripts/fxcap/parity-ledger.toml:661]
+    main* = | catalog-bounds = | model-fuzzy = | compact-notice-late = | at-height =
+src/tui/toolgroup.rs:940	[scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:883]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late -> 958 | at-height -> 958
+src/tui/toolgroup.rs:1017	[scripts/fxcap/parity-ledger.toml:391]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late -> 1035 | at-height -> 1035
+src/tui/toolgroup.rs:1131	[scripts/fxcap/parity-ledger.toml:405]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late -> 1149 | at-height -> 1149
+src/tui/usage_menu.rs:790	[scripts/fxcap/parity-ledger.toml:349]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tui/wrap.rs:673-693	[scripts/fxcap/parity-ledger.toml:987]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+src/tui/wrap.rs:726	[scripts/fxcap/parity-ledger.toml:477]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+tests/e2e/file-tool-paths.test.ts:1170-1179	[docs/parity.md:218]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+tests/tla/session_manager/system-design.md:1536-1560	[docs/parity.md:92]
+    main* = | catalog-bounds* = | model-fuzzy* = | compact-notice-late* = | at-height* =
+# 82 references; 0 (side, reference) pairs MOVED; * = the side's own text cites it

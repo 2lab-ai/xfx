@@ -1,0 +1,43 @@
+unit a832f4d7: src/tui/input.rs:471-509 `feed`, 2080 bytes, sha256 6e1257dc37c124686d9cc75cd4c09a3d57d939c85ad5759234dba0981ca82be3; the early return found 1 time(s), before the paste's own branch and any decoding: True; the whole file sha256 7e49044b0405f69d5b41d66bbdd407269c69d285e3a92b580118d5c265eb21fe
+head e28e1b15: src/tui/input.rs:471-509 `feed`, 2080 bytes, sha256 6e1257dc37c124686d9cc75cd4c09a3d57d939c85ad5759234dba0981ca82be3; the early return found 1 time(s), before the paste's own branch and any decoding: True; the whole file sha256 7e49044b0405f69d5b41d66bbdd407269c69d285e3a92b580118d5c265eb21fe
+`feed` byte for byte the same: True; src/tui/input.rs byte for byte the same: True
+the function at the head:
+    pub(crate) fn feed(&mut self, byte: u8, now: Instant, out: &mut Vec<Input>) {
+        // Behind a paste's end marker, in the delivery that carried it: the
+        // byte is counted, and that is all. Not decoded, so not a key -- an
+        // Enter here is taken for the clipboard's, not the user's -- and not a marker
+        // either: a second end marker or a new paste's start is input behind
+        // this one's like any other (`paste_framing.zig:102-107,527-546`,
+        // `app_input_runtime.zig:9399-9418@481104fd`).
+        if let Some(behind) = self.behind.as_mut() {
+            *behind = behind.saturating_add(1);
+            return;
+        }
+        // First, and before any stage is consulted: inside a paste there is
+        // nothing to decode but the end marker.
+        if self.pasting {
+            self.pasted(byte, out);
+            return;
+        }
+        // A bare ESC that has gone quiet is the Escape key, whatever arrives
+        // next. The loop flushes every tick so this is normally settled
+        // already; it is here so that a caller which feeds a burst without
+        // flushing still cannot read one keystroke as part of another.
+        self.flush(now, out);
+        match self.stage {
+            Stage::Ground => self.ground(byte, now, out),
+            Stage::Esc { .. } => self.after_escape(byte, now, out),
+            Stage::Csi => self.in_csi(byte, now, out),
+            Stage::Ss3 if carriable(byte) => {
+                self.stage = Stage::Ground;
+                out.push(Input::Action(ss3(byte)));
+            }
+            // A byte no sequence can carry: the sequence is abandoned and the
+            // byte is decoded on its own. `in_csi` and `discarding` make the
+            // same check for themselves.
+            Stage::Ss3 => self.intruded(byte, now, out),
+            Stage::Osc { seen, esc } => self.in_osc(byte, now, seen, esc, out),
+            Stage::Discard { seen } => self.discarding(byte, now, seen, out),
+            Stage::Utf8(partial) => self.in_utf8(byte, now, partial, out),
+        }
+    }
