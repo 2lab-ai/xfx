@@ -237,10 +237,13 @@ and a Linux row.
   runs a program. Fifteen mutants of the check, each on a throwaway clone,
   each failed by it (`check-mutants.py`, `check-mutants.txt`).
 
-**Counts** (`counts.txt`, by `counts.sh`): files holding each shape at
-`ccced1f5` -- macOS home 4, Linux home 4, harness scratch root 156, macOS
-temporary root 4, any 164; the user name 0, the home path 0. The check on
-`ccced1f5`'s tree refuses 158 files (283 lines).
+**Counts** (`counts.txt`, by `counts.sh`, the round-2 shapes): files holding
+each shape at `ccced1f5` -- macOS home 6, Linux home 5, harness scratch root
+156, one broken after its `tmp/` 29, macOS temporary root 4, any 167; the user
+name 0, the home path 0. The check refuses 159 of them on `ccced1f5`'s tree
+(339 lines; round 1's check, by its shapes, 158 and 283). At `7ff36c75`, 16
+files hold a shape, every hit a marked line or a placeholder home, and the
+check refuses 0.
 
 ## 5. Gate
 

@@ -1,45 +1,54 @@
-# Files holding each shape, raw (before any exception), by git grep at each revision
-# (counts.sh in this directory; the user name and home path are built at run time).
+# Files holding each shape, raw (before any exception), by git grep at each revision,
+# with the shapes scripts/check-no-local-paths.sh matches in round 2 (counts.sh).
 == ccced1f5
-macOS home	4
-Linux home	4
+macOS home	6
+Linux home	5
 harness scratch root	156
+broken after tmp/	29
 macOS temporary root	4
-any shape	164
+any shape	167
 the user name	0
 the home path	0
-== 7abc5139
-macOS home	5
-Linux home	6
-harness scratch root	2
+== 7ff36c75
+macOS home	8
+Linux home	10
+harness scratch root	3
+broken after tmp/	0
 macOS temporary root	2
-any shape	10
+any shape	16
 the user name	0
 the home path	0
 
-# scripts/check-no-local-paths.sh (at 7abc5139) run on a clone at ccced1f5:
-158 files refused
+# scripts/check-no-local-paths.sh (at 7ff36c75) run on a clone at ccced1f5:
+159 files refused
   279 a harness scratch root (lines)
+  56 a harness scratch root, broken after its tmp/ (lines)
   4 a macOS per-user temporary root (lines)
 check-no-local-paths: 1 problem(s) found
-# and at 7abc5139:
-check-no-local-paths: ok (15546 tracked file(s) scanned; 7 marked fixture line(s), 63 placeholder line(s))
+# and at 7ff36c75:
+check-no-local-paths: ok (15563 tracked file(s) scanned; 8 marked fixture line(s), 77 placeholder line(s))
 
-# What the exceptions excuse at 7abc5139: the marked lines, then the files whose
-# only home directories are documented placeholders (lines per file).
-  marked: scripts/check-no-local-paths.sh:22
-  marked: scripts/check-no-local-paths.sh:23
+# What the exceptions excuse at 7ff36c75: the lines that end in a local-path-ok comment,
+# then the files whose home directories are all placeholders (lines per file).
+  marked: scripts/check-no-local-paths.sh:24
+  marked: scripts/check-no-local-paths.sh:25
+  marked: scripts/fxcap/test_capture.py:315
   marked: scripts/fxcap/test_sweep.py:469
   marked: scripts/fxcap/test_sweep.py:473
   marked: scripts/fxcap/test_sweep.py:474
   marked: scripts/fxcap/test_sweep.py:475
   marked: src/skills/catalog.rs:558
+  placeholder homes: .prd/tui-phase4/loop.md:1
+  placeholder homes: .prd/tui-phase5/receipts/local-paths/README.md:3
+  placeholder homes: .prd/tui-phase5/receipts/local-paths/harness.txt:1
   placeholder homes: .prd/tui-phase5/receipts/train-6/linux.sh:2
   placeholder homes: CONTRIBUTING.md:1
   placeholder homes: README.md:1
-  placeholder homes: scripts/check-no-local-paths.sh:8
-  placeholder homes: scripts/fxcap/test_sweep.py:4
-  placeholder homes: src/llmux/setup.rs:1
+  placeholder homes: scripts/check-no-local-paths.sh:11
+  placeholder homes: scripts/fxcap/test_sweep.py:6
+  placeholder homes: src/config.rs:1
+  placeholder homes: src/llmux/setup.rs:2
+  placeholder homes: src/mcp/transport.rs:2
   placeholder homes: src/permission/policy.rs:44
   placeholder homes: src/tui/hyperlink.rs:3
   placeholder homes: src/tui/image_paths.rs:2
