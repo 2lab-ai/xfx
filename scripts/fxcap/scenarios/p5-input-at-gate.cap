@@ -1,0 +1,24 @@
+# AT-HEIGHT round 2: keys in the same write as a new @ word, before any frame
+# shows its rows. fx spends them (`trusted`, file_completion_state.zig:175,
+# :218-240@481104fd): three Downs leave the bar on items/f-01.txt, a Down and
+# a Tab choose nothing. Each `type` line is one write (raw ESC bytes, as
+# p5-input-paste's), and the first `@` loads the index so the new word's rows
+# are there in that read.
+fx: env FX_AUTO_UPGRADE=0
+work p5-input-at-height-ws
+wait 4
+type @
+wait 1.5
+key C-u
+wait 0.4
+type @f-[B[B[B
+wait 1
+snap downs-in-the-read
+key Down Down Down
+wait 0.6
+snap downs-after
+key C-u
+wait 0.4
+type @f-[B	
+wait 1
+snap tab-in-the-read

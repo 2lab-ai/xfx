@@ -1,0 +1,24 @@
+# AT-HEIGHT (input cluster U1): the @ picker's height and scroll over thirty
+# names every ranking ties on (items/f-01.txt .. items/f-30.txt, one length,
+# so fx v0.0.16 and xfx both list them in byte order). a5fe00d7 (up to 10
+# rows while five transcript rows stay visible), 99e62b8e (scroll by the rows
+# the last frame painted). At 40 rows the list is 10 rows, at 18 it is 8, at
+# 16 and below 6 (filePickerReservedRows, picker_presentation.zig:661-666).
+fx: env FX_AUTO_UPGRADE=0
+work p5-input-at-height-ws
+wait 4
+type @f-
+wait 1.5
+snap at
+key Down Down Down Down Down Down Down Down Down Down Down Down
+wait 0.6
+snap down12
+key Up Up Up Up Up Up
+wait 0.6
+snap up6
+key Up Up Up
+wait 0.6
+snap up9
+key PPage
+wait 0.6
+snap pgup

@@ -1,0 +1,50 @@
+# round 2 RED: commit bbf7dd93 (the tests alone, on round 1's code)
+# cargo test --locked --lib -- tui::event_loop::tests::a_new_at_words_arrows tui::event_loop::tests::a_refused_frame_leaves_the_at tui::file_picker::tests::a_refresh_that_finds_the_mark tui::shell::tests::tab_and_enter_before
+running 4 tests
+test tui::file_picker::tests::a_refresh_that_finds_the_mark_on_the_first_row_keeps_the_window ... FAILED
+test tui::shell::tests::tab_and_enter_before_a_new_words_first_frame_choose_nothing_and_send_nothing ... FAILED
+test tui::event_loop::tests::a_new_at_words_arrows_wait_for_the_frame_that_shows_its_rows ... FAILED
+test tui::event_loop::tests::a_refused_frame_leaves_the_at_lists_arrows_waiting_for_one_that_lands ... FAILED
+
+failures:
+
+---- tui::file_picker::tests::a_refresh_that_finds_the_mark_on_the_first_row_keeps_the_window stdout ----
+
+thread 'tui::file_picker::tests::a_refresh_that_finds_the_mark_on_the_first_row_keeps_the_window' panicked at src/tui/file_picker.rs:1404:9:
+assertion `left == right` failed
+  left: (0, 0)
+ right: (0, 3)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::shell::tests::tab_and_enter_before_a_new_words_first_frame_choose_nothing_and_send_nothing stdout ----
+
+thread 'tui::shell::tests::tab_and_enter_before_a_new_words_first_frame_choose_nothing_and_send_nothing' panicked at src/tui/shell.rs:34599:9:
+assertion `left == right` failed: Tab chose a row no frame showed
+  left: "@src/deep/sched.rs "
+ right: "@s"
+
+---- tui::event_loop::tests::a_new_at_words_arrows_wait_for_the_frame_that_shows_its_rows stdout ----
+
+thread 'tui::event_loop::tests::a_new_at_words_arrows_wait_for_the_frame_that_shows_its_rows' panicked at src/tui/event_loop.rs:16000:9:
+assertion `left == right` failed: the Downs moved the bar
+  left: [("items/f-01.txt", false), ("items/f-02.txt", false), ("items/f-03.txt", false), ("items/f-04.txt", true), ("items/f-05.txt", false), ("items/f-06.txt", false), ("items/f-07.txt", false), ("items/f-08.txt", false), ("items/f-09.txt", false), ("items/f-10.txt", false)]
+ right: [("items/f-01.txt", true), ("items/f-02.txt", false), ("items/f-03.txt", false), ("items/f-04.txt", false), ("items/f-05.txt", false), ("items/f-06.txt", false), ("items/f-07.txt", false), ("items/f-08.txt", false), ("items/f-09.txt", false), ("items/f-10.txt", false)]
+
+---- tui::event_loop::tests::a_refused_frame_leaves_the_at_lists_arrows_waiting_for_one_that_lands stdout ----
+
+thread 'tui::event_loop::tests::a_refused_frame_leaves_the_at_lists_arrows_waiting_for_one_that_lands' panicked at src/tui/event_loop.rs:16019:9:
+assertion `left == right` failed: after a refused frame
+  left: [("items/f-01.txt", false), ("items/f-02.txt", false), ("items/f-03.txt", true), ("items/f-04.txt", false), ("items/f-05.txt", false), ("items/f-06.txt", false), ("items/f-07.txt", false), ("items/f-08.txt", false), ("items/f-09.txt", false), ("items/f-10.txt", false)]
+ right: [("items/f-01.txt", false), ("items/f-02.txt", true), ("items/f-03.txt", false), ("items/f-04.txt", false), ("items/f-05.txt", false), ("items/f-06.txt", false), ("items/f-07.txt", false), ("items/f-08.txt", false), ("items/f-09.txt", false), ("items/f-10.txt", false)]
+
+
+failures:
+    tui::event_loop::tests::a_new_at_words_arrows_wait_for_the_frame_that_shows_its_rows
+    tui::event_loop::tests::a_refused_frame_leaves_the_at_lists_arrows_waiting_for_one_that_lands
+    tui::file_picker::tests::a_refresh_that_finds_the_mark_on_the_first_row_keeps_the_window
+    tui::shell::tests::tab_and_enter_before_a_new_words_first_frame_choose_nothing_and_send_nothing
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 4546 filtered out; finished in 0.91s
+
+error: test failed, to rerun pass `--lib`
+# cargo test: exit 101

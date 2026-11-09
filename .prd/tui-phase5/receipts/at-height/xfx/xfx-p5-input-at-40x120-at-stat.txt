@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-3a76208 [debug] · Run /help for commands
+
+┃ @stat
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  spikes/s-01-trace.txt
+  spikes/s-02-trace.txt
+  spikes/s-03-trace.txt
+  spikes/s-04-trace.txt
+  spikes/s-05-trace.txt
+  spikes/s-06-trace.txt
+  spikes/s-07-trace.txt
+  spikes/noisy/clusters-a.toml
+  STATUS.md
+  stats.json
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

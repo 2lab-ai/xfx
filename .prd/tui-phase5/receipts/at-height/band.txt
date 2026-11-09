@@ -1,0 +1,159 @@
+# head: python3 -I band.py fx xfx 40x120 18x120 16x120
+ok   p5-input-at 40x120 at-st: composer_row fx=3 xfx=3
+ok   p5-input-at 40x120 at-st: list_rows fx=10 xfx=10
+ok   p5-input-at 40x120 at-st: bar fx=0 xfx=0
+ok   p5-input-at 40x120 at-st: hint fx='auto · model-a' xfx='auto · model-a'
+ok   p5-input-at 40x120 at-st-down12: composer_row fx=3 xfx=3
+ok   p5-input-at 40x120 at-st-down12: list_rows fx=10 xfx=10
+ok   p5-input-at 40x120 at-st-down12: bar fx=9 xfx=9
+ok   p5-input-at 40x120 at-st-down12: hint fx='auto · model-a' xfx='auto · model-a'
+ok   p5-input-at 40x120 at-st-up6: composer_row fx=3 xfx=3
+ok   p5-input-at 40x120 at-st-up6: list_rows fx=10 xfx=10
+ok   p5-input-at 40x120 at-st-up6: bar fx=3 xfx=3
+ok   p5-input-at 40x120 at-st-up6: hint fx='auto · model-a' xfx='auto · model-a'
+ok   fx 40x120 at-st: bar on rank 0, window from rank 0
+ok   fx 40x120 at-st-down12: bar on rank 12, window from rank 3
+ok   fx 40x120 at-st-up6: bar on rank 6, window from rank 3
+ok   fx 40x120: every rank holds one path across the three snaps 
+ok   xfx 40x120 at-st: bar on rank 0, window from rank 0
+ok   xfx 40x120 at-st-down12: bar on rank 12, window from rank 3
+ok   xfx 40x120 at-st-up6: bar on rank 6, window from rank 3
+ok   xfx 40x120: every rank holds one path across the three snaps 
+ok   p5-input-at 40x120 at-src: composer_row fx=3 xfx=3
+ok   p5-input-at 40x120 at-src: list_rows fx=10 xfx=10
+ok   p5-input-at 40x120 at-src: bar fx=0 xfx=0
+ok   p5-input-at 40x120 at-src: hint fx='auto · model-a' xfx='auto · model-a'
+ok   p5-input-at 18x120 at-st: composer_row fx=3 xfx=3
+ok   p5-input-at 18x120 at-st: list_rows fx=8 xfx=8
+ok   p5-input-at 18x120 at-st: bar fx=0 xfx=0
+ok   p5-input-at 18x120 at-st: hint fx='auto · model-a' xfx='auto · model-a'
+ok   p5-input-at 18x120 at-st-down12: composer_row fx=3 xfx=3
+ok   p5-input-at 18x120 at-st-down12: list_rows fx=8 xfx=8
+ok   p5-input-at 18x120 at-st-down12: bar fx=7 xfx=7
+ok   p5-input-at 18x120 at-st-down12: hint fx='auto · model-a' xfx='auto · model-a'
+ok   p5-input-at 18x120 at-st-up6: composer_row fx=3 xfx=3
+ok   p5-input-at 18x120 at-st-up6: list_rows fx=8 xfx=8
+ok   p5-input-at 18x120 at-st-up6: bar fx=1 xfx=1
+ok   p5-input-at 18x120 at-st-up6: hint fx='auto · model-a' xfx='auto · model-a'
+ok   fx 18x120 at-st: bar on rank 0, window from rank 0
+ok   fx 18x120 at-st-down12: bar on rank 12, window from rank 5
+ok   fx 18x120 at-st-up6: bar on rank 6, window from rank 5
+ok   fx 18x120: every rank holds one path across the three snaps 
+ok   xfx 18x120 at-st: bar on rank 0, window from rank 0
+ok   xfx 18x120 at-st-down12: bar on rank 12, window from rank 5
+ok   xfx 18x120 at-st-up6: bar on rank 6, window from rank 5
+ok   xfx 18x120: every rank holds one path across the three snaps 
+ok   p5-input-at 18x120 at-src: composer_row fx=3 xfx=3
+ok   p5-input-at 18x120 at-src: list_rows fx=8 xfx=8
+ok   p5-input-at 18x120 at-src: bar fx=0 xfx=0
+ok   p5-input-at 18x120 at-src: hint fx='auto · model-a' xfx='auto · model-a'
+ok   p5-input-at 16x120 at-st: composer_row fx=3 xfx=3
+ok   p5-input-at 16x120 at-st: list_rows fx=6 xfx=6
+ok   p5-input-at 16x120 at-st: bar fx=0 xfx=0
+ok   p5-input-at 16x120 at-st: hint fx='auto · model-a' xfx='auto · model-a'
+ok   p5-input-at 16x120 at-st-down12: composer_row fx=3 xfx=3
+ok   p5-input-at 16x120 at-st-down12: list_rows fx=6 xfx=6
+ok   p5-input-at 16x120 at-st-down12: bar fx=5 xfx=5
+ok   p5-input-at 16x120 at-st-down12: hint fx='auto · model-a' xfx='auto · model-a'
+ok   p5-input-at 16x120 at-st-up6: composer_row fx=3 xfx=3
+ok   p5-input-at 16x120 at-st-up6: list_rows fx=6 xfx=6
+ok   p5-input-at 16x120 at-st-up6: bar fx=0 xfx=0
+ok   p5-input-at 16x120 at-st-up6: hint fx='auto · model-a' xfx='auto · model-a'
+ok   fx 16x120 at-st: bar on rank 0, window from rank 0
+ok   fx 16x120 at-st-down12: bar on rank 12, window from rank 7
+ok   fx 16x120 at-st-up6: bar on rank 6, window from rank 6
+ok   fx 16x120: every rank holds one path across the three snaps 
+ok   xfx 16x120 at-st: bar on rank 0, window from rank 0
+ok   xfx 16x120 at-st-down12: bar on rank 12, window from rank 7
+ok   xfx 16x120 at-st-up6: bar on rank 6, window from rank 6
+ok   xfx 16x120: every rank holds one path across the three snaps 
+ok   p5-input-at 16x120 at-src: composer_row fx=3 xfx=3
+ok   p5-input-at 16x120 at-src: list_rows fx=6 xfx=6
+ok   p5-input-at 16x120 at-src: bar fx=0 xfx=0
+ok   p5-input-at 16x120 at-src: hint fx='auto · model-a' xfx='auto · model-a'
+ok   p5-input-at-resize 40x120 short: the band, 10 rows on fx and 10 on xfx, cell for cell
+ok   p5-input-at-resize 40x120 short-up1: the band, 10 rows on fx and 10 on xfx, cell for cell
+ok   p5-input-at-resize 40x120 short-up7: the band, 10 rows on fx and 10 on xfx, cell for cell
+ok   p5-input-at-resize 40x120 tall: the band, 14 rows on fx and 14 on xfx, cell for cell
+ok   p5-input-at-resize 40x120 tall-down1: the band, 14 rows on fx and 14 on xfx, cell for cell
+band: 77 checks, 0 failed
+
+# base: python3 -I band.py fx xfx-base 40x120 18x120 16x120
+ok   p5-input-at 40x120 at-st: composer_row fx=3 xfx=3
+FAIL p5-input-at 40x120 at-st: list_rows fx=10 xfx=6
+ok   p5-input-at 40x120 at-st: bar fx=0 xfx=0
+ok   p5-input-at 40x120 at-st: hint fx='auto · model-a' xfx='auto · model-a'
+ok   p5-input-at 40x120 at-st-down12: composer_row fx=3 xfx=3
+FAIL p5-input-at 40x120 at-st-down12: list_rows fx=10 xfx=6
+FAIL p5-input-at 40x120 at-st-down12: bar fx=9 xfx=5
+ok   p5-input-at 40x120 at-st-down12: hint fx='auto · model-a' xfx='auto · model-a'
+ok   p5-input-at 40x120 at-st-up6: composer_row fx=3 xfx=3
+FAIL p5-input-at 40x120 at-st-up6: list_rows fx=10 xfx=6
+FAIL p5-input-at 40x120 at-st-up6: bar fx=3 xfx=0
+ok   p5-input-at 40x120 at-st-up6: hint fx='auto · model-a' xfx='auto · model-a'
+ok   fx 40x120 at-st: bar on rank 0, window from rank 0
+ok   fx 40x120 at-st-down12: bar on rank 12, window from rank 3
+ok   fx 40x120 at-st-up6: bar on rank 6, window from rank 3
+ok   fx 40x120: every rank holds one path across the three snaps 
+ok   xfx 40x120 at-st: bar on rank 0, window from rank 0
+ok   xfx 40x120 at-st-down12: bar on rank 12, window from rank 7
+ok   xfx 40x120 at-st-up6: bar on rank 6, window from rank 6
+ok   xfx 40x120: every rank holds one path across the three snaps 
+ok   p5-input-at 40x120 at-src: composer_row fx=3 xfx=3
+FAIL p5-input-at 40x120 at-src: list_rows fx=10 xfx=6
+ok   p5-input-at 40x120 at-src: bar fx=0 xfx=0
+ok   p5-input-at 40x120 at-src: hint fx='auto · model-a' xfx='auto · model-a'
+ok   p5-input-at 18x120 at-st: composer_row fx=3 xfx=3
+FAIL p5-input-at 18x120 at-st: list_rows fx=8 xfx=6
+ok   p5-input-at 18x120 at-st: bar fx=0 xfx=0
+ok   p5-input-at 18x120 at-st: hint fx='auto · model-a' xfx='auto · model-a'
+ok   p5-input-at 18x120 at-st-down12: composer_row fx=3 xfx=3
+FAIL p5-input-at 18x120 at-st-down12: list_rows fx=8 xfx=6
+FAIL p5-input-at 18x120 at-st-down12: bar fx=7 xfx=5
+ok   p5-input-at 18x120 at-st-down12: hint fx='auto · model-a' xfx='auto · model-a'
+ok   p5-input-at 18x120 at-st-up6: composer_row fx=3 xfx=3
+FAIL p5-input-at 18x120 at-st-up6: list_rows fx=8 xfx=6
+FAIL p5-input-at 18x120 at-st-up6: bar fx=1 xfx=0
+ok   p5-input-at 18x120 at-st-up6: hint fx='auto · model-a' xfx='auto · model-a'
+ok   fx 18x120 at-st: bar on rank 0, window from rank 0
+ok   fx 18x120 at-st-down12: bar on rank 12, window from rank 5
+ok   fx 18x120 at-st-up6: bar on rank 6, window from rank 5
+ok   fx 18x120: every rank holds one path across the three snaps 
+ok   xfx 18x120 at-st: bar on rank 0, window from rank 0
+ok   xfx 18x120 at-st-down12: bar on rank 12, window from rank 7
+ok   xfx 18x120 at-st-up6: bar on rank 6, window from rank 6
+ok   xfx 18x120: every rank holds one path across the three snaps 
+ok   p5-input-at 18x120 at-src: composer_row fx=3 xfx=3
+FAIL p5-input-at 18x120 at-src: list_rows fx=8 xfx=6
+ok   p5-input-at 18x120 at-src: bar fx=0 xfx=0
+ok   p5-input-at 18x120 at-src: hint fx='auto · model-a' xfx='auto · model-a'
+ok   p5-input-at 16x120 at-st: composer_row fx=3 xfx=3
+ok   p5-input-at 16x120 at-st: list_rows fx=6 xfx=6
+ok   p5-input-at 16x120 at-st: bar fx=0 xfx=0
+ok   p5-input-at 16x120 at-st: hint fx='auto · model-a' xfx='auto · model-a'
+ok   p5-input-at 16x120 at-st-down12: composer_row fx=3 xfx=3
+ok   p5-input-at 16x120 at-st-down12: list_rows fx=6 xfx=6
+ok   p5-input-at 16x120 at-st-down12: bar fx=5 xfx=5
+ok   p5-input-at 16x120 at-st-down12: hint fx='auto · model-a' xfx='auto · model-a'
+ok   p5-input-at 16x120 at-st-up6: composer_row fx=3 xfx=3
+ok   p5-input-at 16x120 at-st-up6: list_rows fx=6 xfx=6
+ok   p5-input-at 16x120 at-st-up6: bar fx=0 xfx=0
+ok   p5-input-at 16x120 at-st-up6: hint fx='auto · model-a' xfx='auto · model-a'
+ok   fx 16x120 at-st: bar on rank 0, window from rank 0
+ok   fx 16x120 at-st-down12: bar on rank 12, window from rank 7
+ok   fx 16x120 at-st-up6: bar on rank 6, window from rank 6
+ok   fx 16x120: every rank holds one path across the three snaps 
+ok   xfx 16x120 at-st: bar on rank 0, window from rank 0
+ok   xfx 16x120 at-st-down12: bar on rank 12, window from rank 7
+ok   xfx 16x120 at-st-up6: bar on rank 6, window from rank 6
+ok   xfx 16x120: every rank holds one path across the three snaps 
+ok   p5-input-at 16x120 at-src: composer_row fx=3 xfx=3
+ok   p5-input-at 16x120 at-src: list_rows fx=6 xfx=6
+ok   p5-input-at 16x120 at-src: bar fx=0 xfx=0
+ok   p5-input-at 16x120 at-src: hint fx='auto · model-a' xfx='auto · model-a'
+ok   p5-input-at-resize 40x120 short: the band, 10 rows on fx and 10 on xfx, cell for cell
+FAIL p5-input-at-resize 40x120 short-up1: the band, 10 rows on fx and 10 on xfx, cell for cell
+ok   p5-input-at-resize 40x120 short-up7: the band, 10 rows on fx and 10 on xfx, cell for cell
+FAIL p5-input-at-resize 40x120 tall: the band, 14 rows on fx and 10 on xfx, cell for cell
+FAIL p5-input-at-resize 40x120 tall-down1: the band, 14 rows on fx and 10 on xfx, cell for cell
+band: 77 checks, 15 failed
