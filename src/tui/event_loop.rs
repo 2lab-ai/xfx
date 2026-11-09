@@ -589,16 +589,8 @@ struct Reconciled;
 /// the session had not taken back since the last wait would read whatever the
 /// line discipline assembled while the user's shell had it.
 ///
-/// **The readiness check that finds nothing is the end of a delivery**, and
-/// it is the only place that says so ([`Shell::end_delivery`]): upstream
-/// settles a paste exactly there, once a burst has drained the input
-/// (`event_loop.zig:44-72`, `:118`) -- on an idle turn too, whose first check
-/// finds nothing. Nowhere else: not after the 32nd read with input still
-/// waiting, which upstream carries into the next turn unsettled (`:109-112`);
-/// not on a signal or a read that was interrupted, whose delivery the next
-/// turn's check ends; and not at the end of input, which ends the session.
-/// So a check one past the last read is part of the burst: a burst that
-/// drained on its 32nd read is settled in the turn that read it.
+/// The terminal's side of [`burst`]: standard input's readiness check, with no
+/// wait, and its read.
 fn read_burst(
     shell: &mut Shell,
     stdin: &io::Stdin,
@@ -606,10 +598,46 @@ fn read_burst(
     launch: &Launch<'_>,
     _reconciled: Reconciled,
 ) -> io::Result<()> {
+    burst(
+        shell,
+        buffer,
+        // Standard input blocks, so "there was something a moment ago" is not
+        // a licence to read again.
+        || signals::wait_for_input(&[stdin.as_fd()], Some(Duration::ZERO), launch.held),
+        |buffer| rustix::io::read(stdin, buffer),
+    )
+}
+
+/// One turn's reads: at most [`READ_BURSTS`] of them, each checked for first.
+///
+/// **The readiness check that finds nothing is the end of a delivery**, and
+/// it is the only place that says so ([`Shell::end_delivery`]): upstream
+/// settles a paste exactly there, once a burst has drained the input
+/// (`event_loop.zig:94-119@481104fd`, the settle at `:118`) -- on an idle turn
+/// too, whose first check finds nothing. Nowhere else: not after the 32nd read
+/// with input still waiting, which upstream carries into the next turn
+/// unsettled (`:109-112`); not on a signal or a read that was interrupted,
+/// whose delivery the next turn's check ends; and not at the end of input,
+/// which ends the session. So a check one past the last read is part of the
+/// burst: a burst that drained on its 32nd read is settled in the turn that
+/// read it.
+///
+/// That is a boundary a terminal draws, not one a clipboard does: a terminal
+/// that writes one paste with a moment between two of its writes -- a paste
+/// longer than the pty's input queue arrives as the terminal refills it --
+/// ends the delivery at that moment, and what follows is read as keys, in fx
+/// v0.0.16 as here (`docs/parity.md`'s `full-screen TUI` row).
+///
+/// `ready` and `read` are the terminal's ([`read_burst`]); a case passes its
+/// own, so where a delivery ends is tested without a terminal's timing.
+fn burst(
+    shell: &mut Shell,
+    buffer: &mut [u8],
+    mut ready: impl FnMut() -> io::Result<bool>,
+    mut read: impl FnMut(&mut [u8]) -> rustix::io::Result<usize>,
+) -> io::Result<()> {
     for reads in 0..=READ_BURSTS {
-        // Standard input blocks, so "there was something a moment ago" is not a
-        // licence to read again.
-        match signals::wait_for_input(&[stdin.as_fd()], Some(Duration::ZERO), launch.held) {
+        match ready() {
             Ok(true) => {}
             Ok(false) => {
                 shell.end_delivery();
@@ -625,7 +653,7 @@ fn read_burst(
         if reads == READ_BURSTS {
             return Ok(());
         }
-        match rustix::io::read(stdin, &mut *buffer) {
+        match read(&mut *buffer) {
             // No writer left on the terminal. There is nothing more to read,
             // ever, and a session with no input is over.
             Ok(0) => {
@@ -12884,7 +12912,7 @@ mod tests {
     // (`transcript.rs:505-531` adopts only on `Landed::All`). So an append the
     // terminal refused must leave the retained row reading exactly what the
     // last accepted vector put there -- and the frame that would have followed
-    // it must not run at all (`event_loop.rs:972-975`). Nothing here caches a
+    // it must not run at all (`event_loop.rs:1000-1003`). Nothing here caches a
     // source anywhere: the freshness is read off the screen the accepted bytes
     // make.
     //
@@ -16155,6 +16183,128 @@ mod tests {
             "each: the long rows laid from their text before the stop; nothing held written \
              while held; then the held read written, the late text only with a finish, and \
              the long rows known by their text again"
+        );
+    }
+
+    /// A terminal holding `bytes` that stays readable until all of them are
+    /// read: [`burst`]'s `ready` is true while any is left, and a read takes
+    /// up to a buffer of them. [`Self::turn`] runs one turn and says how many
+    /// have been read in all.
+    struct Readable {
+        bytes: Vec<u8>,
+        at: std::cell::Cell<usize>,
+    }
+
+    impl Readable {
+        fn turn(&self, shell: &mut Shell) -> usize {
+            let mut buffer = [0u8; BURST_BYTES];
+            burst(
+                shell,
+                &mut buffer,
+                || Ok(self.at.get() < self.bytes.len()),
+                |buffer| {
+                    let at = self.at.get();
+                    let taken = buffer.len().min(self.bytes.len() - at);
+                    buffer[..taken].copy_from_slice(&self.bytes[at..at + taken]);
+                    self.at.set(at + taken);
+                    Ok(taken)
+                },
+            )
+            .expect("a turn's reads");
+            self.at.get()
+        }
+    }
+
+    /// The composer's row as plain text: the band's row that starts with
+    /// its marker once its colours are taken out, its padding cut.
+    fn composer(shell: &Shell) -> String {
+        shell
+            .band_rows()
+            .into_iter()
+            .map(|row| plain(&row))
+            .find(|row| row.starts_with(COMPOSER_MARKER))
+            .map(|row| row.trim_end().to_string())
+            .unwrap_or_default()
+    }
+
+    /// `row` without its `CSI … m` colour sequences.
+    fn plain(row: &str) -> String {
+        let mut out = String::new();
+        let mut chars = row.chars();
+        while let Some(c) = chars.next() {
+            if c == '\u{1b}' {
+                for c in chars.by_ref() {
+                    if c == 'm' {
+                        break;
+                    }
+                }
+                continue;
+            }
+            out.push(c);
+        }
+        out
+    }
+
+    #[test]
+    fn a_delivery_past_the_32nd_read_goes_on_into_the_next_turn_unsettled() {
+        // fx carries a burst still readable after its 32nd read into the next
+        // turn without settling it (`event_loop.zig:109-112@481104fd`), so
+        // input behind a paste's end marker more than 4 KiB down one delivery
+        // is still behind it. A pty cannot hold that much at once -- macOS's
+        // raw input queue takes 1 022 bytes (the receipt's `pty-queue.txt`)
+        // -- so this is the loop's own turn, fed by a terminal that stays
+        // readable until every byte is read.
+        let mut shell = shell();
+        shell.route_read(b"prior");
+        shell.end_delivery();
+        let mut bytes = b"\x1b[200~new\x1b[201~".to_vec();
+        bytes.extend(std::iter::repeat_n(b'x', READ_BURSTS * BURST_BYTES));
+        bytes.extend(b"\r");
+        let terminal = Readable {
+            bytes,
+            at: std::cell::Cell::new(0),
+        };
+
+        // The first turn stops at the cap with input still waiting, and the
+        // paste has not ended: its end is the delivery's, and the delivery
+        // goes on.
+        assert_eq!(terminal.turn(&mut shell), READ_BURSTS * BURST_BYTES);
+        assert_eq!(
+            composer(&shell),
+            format!("{COMPOSER_MARKER} prior"),
+            "the delivery was settled at the 32nd read"
+        );
+        assert!(shell._work.try_recv().is_err(), "a turn was started");
+
+        // The second reads the rest, the Enter among it, and finds nothing:
+        // the paste stands, the Enter behind its marker is counted, and the
+        // warning is said.
+        assert_eq!(terminal.turn(&mut shell), terminal.bytes.len());
+        assert_eq!(composer(&shell), format!("{COMPOSER_MARKER} priornew"));
+        assert!(
+            shell._work.try_recv().is_err(),
+            "the Enter more than 32 reads behind the end marker submitted the draft"
+        );
+        let said = shell
+            .take_pending()
+            .into_iter()
+            .flat_map(|append| append.rows)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            said.contains("Input that arrived right after the paste was ignored."),
+            "{said:?}"
+        );
+
+        // An Enter in a delivery of its own sends the draft.
+        shell.route_read(b"\r");
+        shell.end_delivery();
+        assert!(
+            matches!(
+                shell._work.try_recv(),
+                Ok(crate::tui::bridge::TurnWork::Submit(prompt)) if prompt == "priornew"
+            ),
+            "an Enter of its own did not send the draft"
         );
     }
 }

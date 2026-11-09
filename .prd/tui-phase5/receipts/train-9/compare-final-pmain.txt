@@ -1,0 +1,184 @@
+pairs: reference 239, train 590, shared 239; only the reference: 0
+reference: 239 pairs, pass 188; approved-divergence-cascade 8, identical 6, normalized-identical 182, unresolved-defect 43
+train: 239 pairs, pass 195; approved-divergence-cascade 8, identical 10, normalized-identical 185, unresolved-defect 36
+p5-effort-fork-fork-edge status-empty: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-input-paste paste-enter: 2 differing rows left, 0 new
+    left: fx '! input: Input that arrived right after the paste was ignored.' / xfx 'ut: Paste was not applied because extra input followed its end marker.'
+    left: fx '┃ priornew' / xfx '┃ prior'
+p5-input-paste paste-enter.full: 2 differing rows left, 0 new
+    left: fx '! input: Input that arrived right after the paste was ignored.' / xfx 'ut: Paste was not applied because extra input followed its end marker.'
+    left: fx '┃ priornew' / xfx '┃ prior'
+p5-input-question q6: 9 differing rows left, 0 new
+    left: fx '' / xfx '  <wall> (↑2 ↓80)'
+    left: fx '' / xfx 'auto · model-a'
+    left: fx '    1) Red' / xfx ''
+    left: fx '    2) Blue' / xfx '┃'
+    left: fx '    3) Other' / xfx ''
+    left: fx '  Q1 colour?' / xfx ''
+    left: fx 'nter answer    esc cancel                              Question 1 of 6' / xfx ''
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx ''
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx '  Six done.'
+p5-input-question q6-after: 4 differing rows left, 0 new
+    left: fx '' / xfx 'auto · model-a'
+    left: fx 'auto · model-a' / xfx '┃'
+    left: fx '┃' / xfx '  <wall> (↑2 ↓80)'
+    left: fx '▪ Cancelled' / xfx '  Six done.'
+p5-input-question q6-after.full: 4 differing rows left, 0 new
+    left: fx '' / xfx 'auto · model-a'
+    left: fx 'auto · model-a' / xfx '┃'
+    left: fx '┃' / xfx '  <wall> (↑2 ↓80)'
+    left: fx '▪ Cancelled' / xfx '  Six done.'
+p5-panels-keys approval-esc: 2 differing rows left, 2 new
+    left: fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-panels-keys btab: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-panels-keys ctrl-c: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-panels-keys end: 2 differing rows left, 2 new
+    left: fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-panels-keys open-before-approval: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-panels-keys paste: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-panels-keys tab-pgdn: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+paste-suffix paste-enter: 2 differing rows left, 0 new
+    left: fx '! input: Input that arrived right after the paste was ignored.' / xfx 'ut: Paste was not applied because extra input followed its end marker.'
+    left: fx '┃ priornew' / xfx '┃ prior'
+paste-suffix paste-enter.full: 2 differing rows left, 0 new
+    left: fx '! input: Input that arrived right after the paste was ignored.' / xfx 'ut: Paste was not applied because extra input followed its end marker.'
+    left: fx '┃ priornew' / xfx '┃ prior'
+verdicts moved: 11
+    p5-input-paste paste-enter: unresolved-defect -> normalized-identical
+    p5-input-paste paste-enter.full: unresolved-defect -> normalized-identical
+    p5-input-question q6: unresolved-defect -> normalized-identical
+    p5-input-question q6-after: unresolved-defect -> normalized-identical
+    p5-input-question q6-after.full: unresolved-defect -> normalized-identical
+    p5-transcript-submit filled: normalized-identical -> identical
+    p5-transcript-submit second: normalized-identical -> identical
+    p5-transcript-submit-multi filled: normalized-identical -> identical
+    p5-transcript-submit-multi second: normalized-identical -> identical
+    paste-suffix paste-enter: unresolved-defect -> normalized-identical
+    paste-suffix paste-enter.full: unresolved-defect -> normalized-identical
+fx screens not the same in the two sweeps: 32
+    approvals-big end
+    composer-wrap badge-111
+    composer-wrap badge-71
+    image-composer lookalike
+    image-composer lookalike-sent
+    image-composer oversized
+    image-composer recalled
+    image-composer recalled-sent
+    image-composer recovered
+    image-composer yanked
+    image-composer yanked-sent
+    image-inline pasted
+    image-inline pasted-missing
+    image-inline pasted-sent
+    image-inline typed
+    image-inline typed-sent
+    image-undo pasted
+    image-undo yank-undone
+    image-undo yanked
+    p5-effort-fork-fork-edge fork-of-empty
+    p5-effort-fork-fork-edge forked-first
+    p5-effort-fork-fork-edge forked-first.full
+    p5-effort-fork-fork-edge quit
+    p5-effort-fork-fork-edge resume
+    p5-effort-fork-fork-edge status-empty
+    p5-panels-keys approval-esc
+    p5-panels-keys btab
+    p5-panels-keys ctrl-c
+    p5-panels-keys end
+    p5-panels-keys open-before-approval
+    p5-panels-keys paste
+    p5-panels-keys tab-pgdn
+xfx screens not the same in the two sweeps: 61
+    approvals after-cc-cmd-ask
+    approvals cmd2-ask
+    approvals edit-amend-typed
+    approvals edit-ask
+    approvals edit-down1
+    approvals edit-down3-wrap
+    approvals edit-tab-amend
+    approvals write-ask
+    approvals-amend-limit asked
+    approvals-amend-limit refused
+    approvals-amend-limit refused-after-edit
+    approvals-amend-limit refused-again
+    approvals-big write-big
+    approvals-big write-big-walked
+    composer-wrap badge-111
+    composer-wrap badge-71
+    image-composer lookalike
+    image-composer lookalike-sent
+    image-composer oversized
+    image-composer recalled
+    image-composer recalled-sent
+    image-composer recovered
+    image-composer yanked
+    image-composer yanked-sent
+    image-inline pasted
+    image-inline pasted-missing
+    image-inline pasted-sent
+    image-inline typed
+    image-inline typed-sent
+    image-undo pasted
+    image-undo yank-undone
+    image-undo yanked
+    p5-effort-fork-fork-edge fork-of-empty
+    p5-effort-fork-fork-edge forked-first
+    p5-effort-fork-fork-edge forked-first.full
+    p5-effort-fork-fork-edge quit
+    p5-effort-fork-fork-edge resume
+    p5-effort-fork-fork-edge status-empty
+    p5-input-paste paste-enter
+    p5-input-paste paste-enter.full
+    p5-input-question q6
+    p5-input-question q6-after
+    p5-input-question q6-after.full
+    p5-panels-keys approval-arrives
+    p5-panels-keys approval-esc
+    p5-panels-keys btab
+    p5-panels-keys ctrl-c
+    p5-panels-keys end
+    p5-panels-keys open-before-approval
+    p5-panels-keys paste
+    p5-panels-keys tab-pgdn
+    p5-transcript-submit filled
+    p5-transcript-submit second
+    p5-transcript-submit submit-0.15
+    p5-transcript-submit tall.full
+    p5-transcript-submit-multi filled
+    p5-transcript-submit-multi second
+    p5-transcript-submit-multi second.full
+    p5-transcript-submit-multi submit-0.15
+    paste-suffix paste-enter
+    paste-suffix paste-enter.full
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 8

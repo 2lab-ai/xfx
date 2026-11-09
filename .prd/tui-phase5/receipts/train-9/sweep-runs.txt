@@ -1,0 +1,61 @@
+# Train 9's sweeps, as sweep.sh (and its copies) printed them; each inside one hold of the suite lock, FX the v0.0.16 binary, SHORT_TMP a short scratch directory.
+
+## sweep 1 (selection.txt): the head dfedcd1a and main ccced1f5, side by side; slots taken 23:16Z and 23:18Z (2026-11-08)
+# head: build in sw-head-clone at dfedcd1a, exit 0; xfx sha256 7b4e1ed5d972e4925e98d8d9fd93f26b632104dc4c6280ede58876fae2b83473
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 15.80
+# head: sweep exit 0, 1291 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 6.67
+[161/161] fx (inventory): ran (30s)
+pass = 231 / 322 = 71.7%; unresolved 90, failed 0, timeout 0
+wrote <out>/scoreboard.md
+wrapper exit 0
+
+# main: build in sw-main-clone at ccced1f5, exit 0; xfx sha256 05d1464444d9f559c61806926535137152c4b58163e05ae9fcb2478308c4e9ca
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 8.45
+# main: sweep exit 0, 1244 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 6.57
+[155/155] fx (inventory): ran (30s)
+pass = 212 / 305 = 69.5%; unresolved 92, failed 0, timeout 0
+wrote <out>/scoreboard.md
+wrapper exit 0
+
+## the paste sweep (selection-p.txt): the head 44c5d3e0 and main ccced1f5; slots taken 00:43Z and 00:34Z
+# phead: build in sw-head-clone at 44c5d3e0, exit 0; xfx sha256 1c77e9875708cdd94b9eee7ee9674e8a877cd41609be5ef32138fc35b8afaf75
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 6.56
+# phead: sweep exit 0, 834 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 8.95
+[87/87] fx (inventory): ran (30s)
+pass = 215 / 267 = 80.5%; unresolved 44, failed 0, timeout 0
+wrote <out>/scoreboard.md
+wrapper exit 0
+
+# pmain: build in sw-main-clone at ccced1f5, exit 0; xfx sha256 05d1464444d9f559c61806926535137152c4b58163e05ae9fcb2478308c4e9ca
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 19.63
+# pmain: sweep exit 0, 757 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 4.67
+[77/77] fx (inventory): ran (30s)
+pass = 188 / 239 = 78.7%; unresolved 43, failed 0, timeout 0
+wrote <out>/scoreboard.md
+wrapper exit 0
+
+## the final sweep (selection-final.txt) at ac0279c8, and main's sweep of selection-h.txt; slots taken about 01:52Z and 02:32Z
+# final: build in sw-head-clone at ac0279c8, exit 0; xfx sha256 f8ee3a538ebe4aa4e1fdfaa96cdc9e5a755b068bee8e5719d5bdad8dbca07847
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 3.30
+# final: sweep exit 0, 2622 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 16.16
+[249/249] fx (inventory): ran (31s)
+pass = 419 / 590 = 71.0%; unresolved 162, failed 0, timeout 0
+wrote <out>/scoreboard.md
+wrapper exit 0
+
+# hmain: build in sw-main-clone at ccced1f5, exit 0; xfx sha256 05d1464444d9f559c61806926535137152c4b58163e05ae9fcb2478308c4e9ca
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 16.14
+# hmain: sweep exit 0, 1037 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 10.75
+[73/73] fx (inventory): ran (42s)
+pass = 112 / 176 = 63.6%; unresolved 64, failed 0, timeout 0
+wrote <out>/scoreboard.md
+wrapper exit 0
+
+## every reference sweep rescored with the final head's ledger (sweep.sh --rescore on a copy; no capture taken)
+main: pass = 212 / 305 = 69.5%; unresolved 92, failed 0, timeout 0
+pmain: pass = 188 / 239 = 78.7%; unresolved 43, failed 0, timeout 0
+hmain: pass = 112 / 176 = 63.6%; unresolved 64, failed 0, timeout 0
+unit-stop-in-catalog-wait: pass = 62 / 73 = 84.9%; unresolved 11, failed 0, timeout 0
+unit-questions-20: pass = 51 / 76 = 67.1%; unresolved 25, failed 0, timeout 0
+unit-paste-after-end: pass = 200 / 253 = 79.1%; unresolved 45, failed 0, timeout 0
+unit-history-notice-stop: pass = 115 / 182 = 63.2%; unresolved 67, failed 0, timeout 0

@@ -1,0 +1,37 @@
+# U5 (9e0eab41): a paste whose end marker shares a read with more input, at
+# an approval. First with no draft open (fx's decision_prompt): a `1` and an
+# Enter behind an empty paste answer nothing. Then at the amendment: `keep`
+# typed, `new` pasted with an Enter behind it -- the paste is kept, the
+# Enter is not the answer (app_input_runtime.zig:9686-9716@481104fd). An Enter
+# of its own then answers with `keepnew`. Each product gets its own turns, as
+# approvals.cap: fx's `shell` is xfx's `terminal`.
+fx: env FX_AUTO_UPGRADE=0
+fx: gateway approvals-fx.json
+xfx: gateway approvals-xfx.json
+work approvals-ws
+fx: seed approvals-fx-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 4
+type edit the files
+key Enter
+wait 4
+snap asked
+type [200~[201~1
+wait 1.5
+snap choice-paste-enter
+key Tab
+wait 0.5
+type keep
+wait 0.5
+snap amend-keep
+type [200~new[201~
+wait 1.5
+snap amend-paste-enter
+key Enter
+wait 3
+snap answered
+key Escape
+wait 3
+snap end
+gwlog

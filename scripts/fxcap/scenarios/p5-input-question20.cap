@@ -1,0 +1,49 @@
+# Phase 5 input cluster, I11: ask_user_question at fx v0.0.16's cap, one batch
+# of 20 questions (28cf53b5 raises the cap from 4 to 20). The panel's counter
+# at one and two digits, Left at the first question, Tab past the last back
+# to the first, the batch answered by ordinal, the 20 resolutions it leaves,
+# and the same resolutions replayed by a resume.
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-input-question20-turns.json
+wait 4
+type ask twenty
+key Enter
+wait 3
+snap q20-panel
+key Left
+wait 0.4
+snap q20-left
+key Tab Tab Tab Tab Tab Tab Tab Tab Tab
+wait 0.4
+snap q20-tab10
+key Left
+wait 0.4
+snap q20-back9
+key Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab
+wait 0.4
+snap q20-tab20
+key Tab
+wait 0.4
+snap q20-wrap
+type 1
+wait 0.4
+snap q20-first
+type 2121212121212121212
+wait 3
+snap q20-answered
+snapfull q20-answered
+keep
+type /quit
+wait 0.5
+key Enter
+wait 2
+fx: relaunch --resume-last
+xfx: relaunch --resume last
+wait 5
+snap resumed
+snapfull resumed
+type /quit
+wait 0.5
+key Enter
+wait 2
+gwlog

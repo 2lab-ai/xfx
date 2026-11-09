@@ -1,0 +1,6 @@
+snaps whose screen differs only in clock-like or run-local text: 3; otherwise: 3
+  of them, snaps where fx's screen moved at the same rows as xfx's: 0 snaps
+  snaps where xfx's screen moved alone or at other rows than fx's: 3
+    xfx model-column-idle col-down rows [5, 6, 7, 8]: [('         openai/gpt-6-astra', '         unable to load models'), ('         anthropic/claude-opus-5', '')]
+    xfx model-column-idle col-idle rows [5, 6, 7, 8]: [('         openai/gpt-6-astra', '         unable to load models'), ('         anthropic/claude-opus-5', '')]
+    xfx model-column-idle col-typed rows [5, 6, 7, 8]: [('         openai/gpt-6-astra', '         unable to load models'), ('         anthropic/claude-opus-5', '')]

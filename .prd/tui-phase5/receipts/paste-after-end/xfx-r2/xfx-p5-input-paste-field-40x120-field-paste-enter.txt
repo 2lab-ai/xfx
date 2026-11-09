@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-fd67ed2 [debug] · Run /help for commands
+
+┃ ask me
+
+! input: Input that arrived right after the paste was ignored.
+
+! input: Input that arrived right after the paste was ignored.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  What should happen first?
+
+    1) Inspect repo state            Look around the workspace
+    2) Run tests
+    3) keepnew
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+type answer    ↑↓←→ cursor    shift+↑↓ options    tab questions    enter answer    esc cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

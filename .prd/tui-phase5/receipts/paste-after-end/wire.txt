@@ -1,0 +1,12 @@
+# Who sent what: the answer and the amendment the model was given, cut from the fake gateway's
+# request bodies (each capture's `<side>-<scenario>-40x120-bodies/`, not committed: they hold the
+# run's workspace path). One line per side, the text around `keep`.
+p5-input-paste-field fx        003-completion.json: \"answer\":\"keepnew\"
+p5-input-paste-field xfx-base  003-completion.json: \"answer\":\"keep\"
+p5-input-paste-field xfx-head  003-completion.json: \"answer\":\"keepnew\"
+p5-input-paste-amend fx        004-completion.json: "text":"keepnew"
+p5-input-paste-amend xfx-base  004-completion.json: "text":"keep"
+p5-input-paste-amend xfx-head  004-completion.json: "text":"keepnew"
+# round 2 (fd67ed2d)
+p5-input-paste-field xfx-r2    003-completion.json: \"answer\":\"keepnew\"
+p5-input-paste-amend xfx-r2    004-completion.json: "text":"keepnew"

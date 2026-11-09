@@ -1,0 +1,17 @@
+# After the gate (gates.txt, at 78b224cf). 30ba1e6e changes shell.rs's test module only, so the steps it can
+# affect ran again there, under the suite lock:
+head 30ba1e6e
+fmt exit=0 2s
+clippy exit=0 5s
+fi-clippy exit=0 6s
+test-lib exit=0 47s
+fi-test-lib exit=0 48s
+  test-lib: test result: ok. 4531 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 40.36s
+  fi-test-lib: test result: ok. 4554 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 39.32s
+
+# The receipt commit changes only this directory; the tracked-file checks ran again on it:
+(with the receipt staged: all three scan the index; 15532 tracked files against the gate's 15392 = this
+directory's 140)
+check-no-secrets: ok (15532 tracked file(s) scanned)
+check-xfx-identity: ok (15532 tracked file(s) scanned)
+check-no-stubs: ok

@@ -1,0 +1,12 @@
+[fakegw] listening 53158
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] request GET /coding-agent/v1/models at=752ms -> 200 at=754ms headers=authorization
+[fakegw] title /v4/ai/language-model model=openai/gpt-5.6-luna -> no text
+[fakegw] request POST /v4/ai/language-model at=4842ms -> 200 at=4858ms headers=authorization
+[fakegw] completion /v4/ai/language-model -> tool ask_user_question
+[fakegw] request POST /v4/ai/language-model at=4917ms -> 200 at=4917ms headers=authorization
+[fakegw] completion /v4/ai/language-model -> tool ask_user_question
+[fakegw] request POST /v4/ai/language-model at=11356ms -> 200 at=11357ms headers=authorization
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] request POST /v4/ai/language-model at=11392ms -> 200 at=11393ms headers=authorization
+[fakegw] stream closed by client: TypeError [ERR_INVALID_STATE]: Invalid state: Controller is already closed

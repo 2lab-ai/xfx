@@ -3359,13 +3359,13 @@ fn a_pasted_block_with_newlines_a_cancel_byte_and_an_escape_is_exactly_one_promp
 }
 
 #[test]
-fn a_paste_whose_end_marker_shares_a_read_with_enter_is_refused_and_submits_nothing() {
-    // fx c1db919's rule (`paste_framing.zig:93-108,160-167`,
-    // `input_paste_runtime.zig:179-193`): input that arrives behind a paste's
-    // end marker in the same delivery is the clipboard's, not the user's -- a
-    // copied `ESC[201~` followed by a newline would otherwise be a prompt
-    // nobody typed. The whole paste is refused, the bytes behind the marker are
-    // dropped without being read as keys, and fx says so under `input`
+fn a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing() {
+    // fx v0.0.16's rule (9e0eab41; `paste_framing.zig:58-68,102-107,159-165`,
+    // `input_paste_runtime.zig:168-198@481104fd`): input that arrives behind a
+    // paste's end marker in the same delivery is taken for the clipboard's,
+    // not the user's -- a copied `ESC[201~` followed by a newline in one
+    // delivery would otherwise be a prompt nobody typed. The paste is kept, the bytes behind the marker are
+    // dropped without being read as keys, and fx warns under `input`
     // (`fx-p5-input-paste-40x120-paste-enter`). One write, so one read.
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
         support::fake_gateway::content_only(&["MARKER-PRIOR"]),
@@ -3384,10 +3384,10 @@ fn a_paste_whose_end_marker_shares_a_read_with_enter_is_refused_and_submits_noth
         &session,
         (40, 120),
         &[
-            "\u{2717} input: Paste was not applied because extra input followed its end marker.",
-            "\u{2503} prior",
+            "! input: Input that arrived right after the paste was ignored.",
+            "\u{2503} priornew",
         ],
-        &["priornew"],
+        &["Paste was not applied"],
     );
     assert_eq!(
         gateway.request_count(),
@@ -3395,11 +3395,65 @@ fn a_paste_whose_end_marker_shares_a_read_with_enter_is_refused_and_submits_noth
         "the Enter behind the paste's end marker submitted the composer"
     );
 
-    // A key of its own is a key again: the composer is what it was, and the
-    // next Enter sends exactly that (`app_input_runtime.zig:9857-9859`).
+    // A key of its own is a key again: the composer holds the paste, and the
+    // next Enter sends exactly that (`app_input_runtime.zig:9420-9431`).
     session.type_bytes(b"\r");
     session.wait_for("MARKER-PRIOR");
-    assert_eq!(user_messages(&gateway.only_request().json()), ["prior"]);
+    assert_eq!(user_messages(&gateway.only_request().json()), ["priornew"]);
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn an_enter_one_read_behind_a_paste_s_end_marker_is_behind_it_too() {
+    // A read takes at most 128 bytes (`BURST_BYTES`), so one write of 129
+    // whose paste ends on its 128th byte is two reads: the end marker at the
+    // tail of the first, the Enter alone in the second. It is one delivery
+    // all the same -- upstream settles a paste only once a readiness check
+    // finds nothing more to read (`event_loop.zig:94-119@481104fd`) -- so the
+    // Enter is behind the marker, ignored, and nothing is sent. A loop that
+    // settled after every read would send the draft.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-TWO-READS"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"prior");
+    on_screen(&session, (40, 120), &["\u{2503} prior"], &[]);
+    let body = "w".repeat(128 - 12);
+    let mut bytes = b"\x1b[200~".to_vec();
+    bytes.extend(body.as_bytes());
+    bytes.extend(b"\x1b[201~\r");
+    assert_eq!(
+        bytes.len(),
+        129,
+        "the end marker does not end the first read"
+    );
+    session.type_bytes(&bytes);
+    on_screen(
+        &session,
+        (40, 120),
+        &["! input: Input that arrived right after the paste was ignored."],
+        &[],
+    );
+    assert_eq!(
+        gateway.request_count(),
+        0,
+        "the Enter one read behind the end marker submitted the composer"
+    );
+
+    session.type_bytes(b"\r");
+    session.wait_for("MARKER-TWO-READS");
+    assert_eq!(
+        user_messages(&gateway.only_request().json()),
+        [format!("prior{body}")]
+    );
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
@@ -4114,6 +4168,195 @@ fn the_request_after_a_cancelled_question_answers_it_aborted_as_upstreams_does()
         "{body:#}"
     );
     assert_eq!(prompt[4]["content"][0]["text"], "next", "{body:#}");
+}
+
+/// `count` questions of two described choices each, `Pick N?` with `Keep N`
+/// and `Change N`: the batch `p5-input-question20` asks.
+fn question_batch(count: usize) -> serde_json::Value {
+    serde_json::json!({ "questions": (1..=count).map(|index| serde_json::json!({
+        "question": format!("Pick {index}?"),
+        "options": [
+            { "label": format!("Keep {index}"), "description": "Leave it as it is." },
+            { "label": format!("Change {index}"), "description": "Apply the change." },
+        ],
+    })).collect::<Vec<_>>() })
+}
+
+/// The tool result a request carries for the call `id`.
+fn tool_output(body: &serde_json::Value, id: &str) -> serde_json::Value {
+    body["prompt"]
+        .as_array()
+        .expect("a prompt")
+        .iter()
+        .filter(|message| message["role"] == "tool")
+        .flat_map(|message| message["content"].as_array().cloned().unwrap_or_default())
+        .find(|part| part["toolCallId"] == id)
+        .map(|part| part["output"].clone())
+        .unwrap_or_else(|| panic!("no result for {id} in {body:#}"))
+}
+
+#[test]
+fn twenty_questions_are_one_panel_and_their_answers_reach_the_next_request_in_order() {
+    // fx v0.0.16 asks up to 20 questions in one call (28cf53b5;
+    // `max_questions = 20`, `question_answer.zig:9@481104fd`), and says so to
+    // the model: `"maxItems":20` and `Ask the user 1-20 multiple-choice
+    // questions` (`builtins/tools.zig:119-122`, `:607`;
+    // `fx-p5-input-question20-40x120-bodies/002-completion.json`). Its own e2e
+    // answers a batch of 20 by typing twenty ordinals in one write
+    // (`tui-decision-prompts.test.ts:2531-2590@481104fd`). Red before: the cap was 4,
+    // the batch was refused and no panel opened.
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call("q20", "ask_user_question", question_batch(20)),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-TWENTY"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    // Wide enough for the counter beside the keys (`input_presentation.zig:228-246`).
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"ask twenty\r");
+    on_screen(&session, (40, 120), &["Pick 1?", "Question 1 of 20"], &[]);
+    session.type_bytes(b"\t\t\t\t\t\t\t\t\t");
+    on_screen(&session, (40, 120), &["Pick 10?", "Question 10 of 20"], &[]);
+    // A narrow screen keeps the page, and the counter is back once the row
+    // has room for it again (fx's own e2e of the full batch,
+    // `tui-decision-prompts.test.ts:2574-2581@481104fd`). Read off what arrives after
+    // each resize: the cells are rebuilt at one size only.
+    let after = |text: &str, mark: usize| {
+        String::from_utf8_lossy(&text.as_bytes()[mark.min(text.len())..]).into_owned()
+    };
+    let mark = session.text().len();
+    resize(&pty, &session, 24, 48);
+    session.wait_until("page 10 kept at 48 columns", |text| {
+        let text = after(text, mark);
+        text.contains("Pick 10?") && text.contains("Change 10")
+    });
+    let mark = session.text().len();
+    resize(&pty, &session, 40, 120);
+    session.wait_until("the counter back at 120 columns", |text| {
+        after(text, mark).contains("Question 10 of 20")
+    });
+    // Past the last back to the first, and the batch answered from there: odd
+    // questions keep, even ones change.
+    session.type_bytes(b"\t\t\t\t\t\t\t\t\t\t\t");
+    on_screen(
+        &session,
+        (40, 120),
+        &["Pick 1?", "Question 1 of 20"],
+        &["Pick 10?"],
+    );
+    session.type_bytes(b"12121212121212121212");
+    session.wait_for("MARKER-TWENTY");
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 2, "one panel, one answer, one more request");
+    let first = requests[0].json();
+    let advertised = first["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .find(|tool| tool["name"] == "ask_user_question")
+        .cloned()
+        .expect("ask_user_question is advertised");
+    assert_eq!(
+        advertised["inputSchema"]["properties"]["questions"]["maxItems"],
+        serde_json::json!(20),
+        "{advertised:#}"
+    );
+    assert!(
+        advertised["description"]
+            .as_str()
+            .is_some_and(|text| text.starts_with("Ask the user 1-20 multiple-choice questions")),
+        "{advertised:#}"
+    );
+    let output = tool_output(&requests[1].json(), "q20");
+    let expected: Vec<serde_json::Value> = (1..=20)
+        .map(|index| {
+            serde_json::json!({
+                "question": format!("Pick {index}?"),
+                "answer": format!("{} {index}", if index % 2 == 1 { "Keep" } else { "Change" }),
+            })
+        })
+        .collect();
+    assert_eq!(output["type"], "text", "{output:#}");
+    let document: serde_json::Value =
+        serde_json::from_str(output["value"].as_str().expect("a text result")).unwrap();
+    assert_eq!(document, serde_json::Value::Array(expected));
+}
+
+#[test]
+fn six_questions_open_the_panel_and_twenty_one_or_none_are_refused_in_upstreams_words() {
+    // `p5-input-question`'s `q6`: six questions open fx v0.0.16's panel at
+    // `Question 1 of 6`, and Escape leaves `▪ Cancelled`
+    // (`fx-p5-input-question-40x120-q6`). Past the cap, and at none, the call
+    // is refused before any panel opens with
+    // `(ask_user_question: provide 1 to 20 questions)`
+    // (`ask_user_question.zig:19-22`, `:191`, `:261@481104fd`;
+    // `fx-p5-input-question21-40x120-bodies/003-completion.json`, `005-…`),
+    // and the turn goes on. Red before: six was past the cap of 4, and the
+    // words were `provide 1 to 4 questions`.
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call("q6", "ask_user_question", question_batch(6)),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(sse_body(&[
+            tool_call("q21", "ask_user_question", question_batch(21)),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-OVER"])),
+        Reply::Sse(sse_body(&[
+            tool_call("q0", "ask_user_question", question_batch(0)),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-NONE"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"ask six\r");
+    on_screen(&session, (40, 120), &["Pick 1?", "Question 1 of 6"], &[]);
+    session.type_bytes(&[0x1b]);
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{25aa} Cancelled"],
+        &["Question 1 of 6"],
+    );
+    session.type_bytes(b"ask too many\r");
+    session.wait_for("MARKER-OVER");
+    session.type_bytes(b"ask none\r");
+    session.wait_for("MARKER-NONE");
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // The six-question turn was stopped at its panel and asked for nothing
+    // more; each refusal is answered and its turn asks once more.
+    let requests = gateway.requests();
+    assert_eq!(
+        requests.len(),
+        5,
+        "6 (stopped), 21 + its answer, 0 + its answer"
+    );
+    for (index, id) in [(2, "q21"), (4, "q0")] {
+        let output = tool_output(&requests[index].json(), id);
+        assert_eq!(
+            output["value"], "(ask_user_question: provide 1 to 20 questions)",
+            "{output:#}"
+        );
+    }
 }
 
 #[test]
@@ -11288,7 +11531,7 @@ fn a_badge_numbered_like_words_in_its_prompt_is_sent_and_logged_under_a_fresh_nu
     let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
     session.wait_for(READY);
     // The words typed after the paste has landed: in the read that ended it
-    // they would be input behind its end marker, and refuse it.
+    // they would be input behind its end marker, and ignored.
     session.type_bytes(b"\x1b[200~shot.png\x1b[201~");
     on_screen(&session, (40, 120), &["\u{2503} [Image 1]"], &[]);
     session.type_bytes(b" duplicate [Image #1]\r");
@@ -14137,7 +14380,7 @@ fn open_the_fork_menu(session: &Session) {
 fn confirm_rule_change(session: &Session, form: &str, question: &str) {
     session.type_bytes(format!("\x1b[200~{form}\x1b[201~").as_bytes());
     // The paste is whole in the composer before Enter: a key that follows
-    // its end marker in the same read refuses it.
+    // its end marker in the same read is ignored, not pressed.
     on_screen(session, (40, 120), &[&form[form.len() - 8..]], &[]);
     session.type_bytes(b"\r");
     on_screen(session, (40, 120), &[question], &[]);
@@ -14199,7 +14442,7 @@ fn a_denied_call_made_again_in_a_fork(
     session.wait_for(READY);
     session.type_bytes(format!("\x1b[200~{remember}\x1b[201~").as_bytes());
     // The paste is whole in the composer before Enter: a key that follows
-    // its end marker in the same read refuses it.
+    // its end marker in the same read is ignored, not pressed.
     on_screen(
         &session,
         (40, 120),
@@ -14506,4 +14749,190 @@ fn a_fork_of_a_fork_keeps_the_deny_and_a_revoke_there_spends_its_own_generation(
             .starts_with("deny write_file c.txt preimage=absent after="),
         "{held:?}"
     );
+}
+
+#[test]
+fn a_stop_at_a_twenty_question_panel_is_one_cancelled_row_and_the_next_turn_carries_its_prompt() {
+    // Train 9, join check 2 (QUESTIONS-20 x STOP-IN-CATALOG-WAIT). A stop at
+    // a 20-question panel on its tenth page, by either key, ends the turn as
+    // fx's `cancelQuestionPrompt` does (`input_question_runtime.zig:59-83
+    // @481104fd`; `fx-question2-40x120-q2-esc`, and QUESTIONS-20's
+    // `fx-p5-input-question-40x120-q6-after` for six): one `▪ Cancelled` row,
+    // the panel gone, nothing more asked of the turn. The turn is kept, so
+    // the next one's request carries the stopped prompt, the call, `aborted
+    // by user` and `<turn_aborted>` (the one-question case:
+    // `the_request_after_a_cancelled_question_answers_it_aborted_as_upstreams_does`).
+    // The next turn reaching the Gateway at all is the other unit's half:
+    // STOP-IN-CATALOG-WAIT's turn machine now ends a turn stopped before it
+    // began unsent (`TurnMachine::run_journaled`), so a stop that outlived
+    // the turn it was typed at would end the next one there.
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    for (name, key) in [("Ctrl-C", &[0x03u8][..]), ("Escape", &[0x1b][..])] {
+        let gateway = FakeGateway::start(vec![
+            Reply::Sse(sse_body(&[
+                tool_call("q20", "ask_user_question", question_batch(20)),
+                finish("tool-calls"),
+            ])),
+            Reply::Sse(content_only(&["MARKER-NEXT"])),
+        ]);
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        pty.resize(40, 120);
+        let mut session =
+            Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+        session.wait_for(READY);
+        session.type_bytes(b"ask twenty\r");
+        on_screen(&session, (40, 120), &["Pick 1?", "Question 1 of 20"], &[]);
+        session.type_bytes(b"\t\t\t\t\t\t\t\t\t");
+        on_screen(&session, (40, 120), &["Pick 10?", "Question 10 of 20"], &[]);
+        session.type_bytes(key);
+        on_screen(
+            &session,
+            (40, 120),
+            &["\u{25aa} Cancelled"],
+            &["Question 10 of 20", "Pick 10?"],
+        );
+        let screen = Screen::painted(&session.text(), 40, 120).expect("a frame");
+        let cancelled: Vec<String> = (1..=40)
+            .map(|row| screen.row_text(row))
+            .filter(|row| row.contains("Cancelled"))
+            .collect();
+        assert_eq!(cancelled, ["\u{25aa} Cancelled"], "{name}");
+        session.type_bytes(b"next\r");
+        session.wait_for("MARKER-NEXT");
+        session.type_bytes(b"/quit\r");
+        assert_eq!(session.wait_exit().code(), Some(0), "{name}");
+
+        let requests = gateway.requests();
+        assert_eq!(requests.len(), 2, "{name}: the stopped turn, then the next");
+        let body = requests[1].json();
+        let prompt: Vec<serde_json::Value> = body["prompt"]
+            .as_array()
+            .expect("a prompt")
+            .iter()
+            .filter(|message| message["role"] != "system")
+            .cloned()
+            .collect();
+        let roles: Vec<&str> = prompt
+            .iter()
+            .map(|message| message["role"].as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(
+            roles,
+            ["user", "assistant", "tool", "user", "user"],
+            "{name}: {body:#}"
+        );
+        assert_eq!(
+            prompt[0]["content"][0]["text"], "ask twenty",
+            "{name}: {body:#}"
+        );
+        assert_eq!(
+            prompt[1]["content"][0]["type"], "tool-call",
+            "{name}: {body:#}"
+        );
+        assert_eq!(
+            prompt[1]["content"][0]["input"]["questions"]
+                .as_array()
+                .map(Vec::len),
+            Some(20),
+            "{name}: {body:#}"
+        );
+        assert_eq!(
+            tool_output(&body, "q20"),
+            serde_json::json!({ "type": "error-text", "value": "aborted by user" }),
+            "{name}: {body:#}"
+        );
+        assert!(
+            prompt[3]["content"][0]["text"]
+                .as_str()
+                .is_some_and(|text| text.starts_with("<turn_aborted>")),
+            "{name}: {body:#}"
+        );
+        assert_eq!(prompt[4]["content"][0]["text"], "next", "{name}: {body:#}");
+    }
+}
+
+#[test]
+fn a_paste_with_enter_behind_its_marker_on_page_ten_of_twenty_is_kept_and_answers_nothing() {
+    // Train 9, join check 5 (PASTE-AFTER-END x QUESTIONS-20). A batch of
+    // twenty questions (QUESTIONS-20's cap: `question_batch(20)`), Tab nine
+    // times to page 10, its freeform slot opened (`3`, after the two choices)
+    // and `keep` typed; then a paste of `new` with an Enter behind its end
+    // marker, in one `type_bytes` -- meant as one delivery. The helper does not
+    // fix that boundary: it writes the master until every byte is taken
+    // (`tests/support/pty.rs`), and these 16 bytes go in one write in
+    // practice. If they arrived as two deliveries the Enter would be the
+    // user's and answer question 10, and the screen checks below fail rather
+    // than pass. fx v0.0.16 keeps the paste in the
+    // field and drops what followed the marker (`paste_framing.zig:102-107
+    // @481104fd`; the question's freeform owner, `app_input_runtime.zig:
+    // 9718-9740`), then warns (`input_paste_runtime.zig:190-196`): the field
+    // reads `keepnew`, the warning is written, nothing is answered and the
+    // panel stays on question 10. An Enter of its own then takes `keepnew`
+    // for question 10 and moves on to 11, and the batch, answered, reaches
+    // the next request with it in its place.
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call("q20", "ask_user_question", question_batch(20)),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-TWENTY"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"ask twenty\r");
+    on_screen(&session, (40, 120), &["Pick 1?", "Question 1 of 20"], &[]);
+    session.type_bytes(b"\t\t\t\t\t\t\t\t\t");
+    on_screen(&session, (40, 120), &["Pick 10?", "Question 10 of 20"], &[]);
+    session.type_bytes(b"3");
+    session.type_bytes(b"keep");
+    on_screen(&session, (40, 120), &["3) keep"], &[]);
+    // One write of the master; one delivery as the app reads it (above).
+    session.type_bytes(b"\x1b[200~new\x1b[201~\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "! input: Input that arrived right after the paste was ignored.",
+            "3) keepnew",
+            "Pick 10?",
+            "Question 10 of 20",
+        ],
+        &["Pick 11?", "Paste was not applied"],
+    );
+    assert_eq!(
+        gateway.request_count(),
+        1,
+        "the Enter behind the paste's end marker answered the batch"
+    );
+
+    // An Enter of its own takes the field for question 10; the walk goes on to
+    // the next unanswered question, and nineteen ordinals answer the rest.
+    session.type_bytes(b"\r");
+    on_screen(&session, (40, 120), &["Pick 11?", "Question 11 of 20"], &[]);
+    session.type_bytes(b"1111111111111111111");
+    session.wait_for("MARKER-TWENTY");
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 2, "one panel, one answer, one more request");
+    let output = tool_output(&requests[1].json(), "q20");
+    assert_eq!(output["type"], "text", "{output:#}");
+    let document: serde_json::Value =
+        serde_json::from_str(output["value"].as_str().expect("a text result")).unwrap();
+    let expected: Vec<serde_json::Value> = (1..=20)
+        .map(|index| {
+            serde_json::json!({
+                "question": format!("Pick {index}?"),
+                "answer": if index == 10 { "keepnew".to_string() } else { format!("Keep {index}") },
+            })
+        })
+        .collect();
+    assert_eq!(document, serde_json::Value::Array(expected));
 }

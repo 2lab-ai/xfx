@@ -168,11 +168,6 @@ impl ApprovalScreen {
         self.drafts.take_notice()
     }
 
-    /// The panel's [`super::approval::Panel::refuse_paste`], on this plane.
-    pub(crate) fn refuse_paste(&mut self) -> bool {
-        self.drafts.refuse_paste()
-    }
-
     /// The amendment this answer carries, and the disposal of the other draft.
     ///
     /// The band panel's rule on this plane too

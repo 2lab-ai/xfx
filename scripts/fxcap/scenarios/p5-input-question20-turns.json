@@ -1,0 +1,278 @@
+[
+ {
+  "tool": {
+   "name": "ask_user_question",
+   "input": {
+    "questions": [
+     {
+      "question": "Pick 1?",
+      "options": [
+       {
+        "label": "Keep 1",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 1",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 2?",
+      "options": [
+       {
+        "label": "Keep 2",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 2",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 3?",
+      "options": [
+       {
+        "label": "Keep 3",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 3",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 4?",
+      "options": [
+       {
+        "label": "Keep 4",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 4",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 5?",
+      "options": [
+       {
+        "label": "Keep 5",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 5",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 6?",
+      "options": [
+       {
+        "label": "Keep 6",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 6",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 7?",
+      "options": [
+       {
+        "label": "Keep 7",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 7",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 8?",
+      "options": [
+       {
+        "label": "Keep 8",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 8",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 9?",
+      "options": [
+       {
+        "label": "Keep 9",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 9",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 10?",
+      "options": [
+       {
+        "label": "Keep 10",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 10",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 11?",
+      "options": [
+       {
+        "label": "Keep 11",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 11",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 12?",
+      "options": [
+       {
+        "label": "Keep 12",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 12",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 13?",
+      "options": [
+       {
+        "label": "Keep 13",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 13",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 14?",
+      "options": [
+       {
+        "label": "Keep 14",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 14",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 15?",
+      "options": [
+       {
+        "label": "Keep 15",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 15",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 16?",
+      "options": [
+       {
+        "label": "Keep 16",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 16",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 17?",
+      "options": [
+       {
+        "label": "Keep 17",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 17",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 18?",
+      "options": [
+       {
+        "label": "Keep 18",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 18",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 19?",
+      "options": [
+       {
+        "label": "Keep 19",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 19",
+        "description": "Apply the change."
+       }
+      ]
+     },
+     {
+      "question": "Pick 20?",
+      "options": [
+       {
+        "label": "Keep 20",
+        "description": "Leave it as it is."
+       },
+       {
+        "label": "Change 20",
+        "description": "Apply the change."
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "delayMs": 100,
+  "chunks": [
+   "Twenty ",
+   "done."
+  ]
+ }
+]

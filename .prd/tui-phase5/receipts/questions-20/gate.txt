@@ -1,0 +1,21 @@
+# gate at 803aaa5f, rustc 1.99.1 (58cf8f9c3 2026-10-13)
+1.   cargo fmt --check                                              exit 0     2s  
+2.   cargo clippy --locked --all-targets -- -D warnings             exit 0    10s  
+3.   cargo test --locked --all-targets --no-fail-fast               exit 0   113s  14 test binaries, 5452 passed, 0 failed
+4.   cargo clippy --locked --all-targets --features fault-injection exit 0    14s  
+5.   cargo test --locked --features fault-injection --test tui      exit 0    55s  1 test binaries, 197 passed, 0 failed
+6.   cargo test --locked --lib --features fault-injection           exit 0   120s  1 test binaries, 4557 passed, 0 failed
+7.   scripts/check-no-stubs.sh                                      exit 0    27s  
+8.   scripts/check-no-secrets.sh                                    exit 0    44s  
+9.   scripts/test-gate-env.sh                                       exit 0   251s  
+10.  scripts/check-xfx-identity.sh                                  exit 0     2s  
+11.  scripts/check-preview-contract.sh                              exit 0     2s  
+12.  scripts/test-preview-contract.sh                               exit 0    54s  
+13.  scripts/check-tui-preflight-cost.sh                            exit 0    91s  
+14.  scripts/check-usage-clock.sh                                   exit 0     0s  
+15.  cargo build --locked --release                                 exit 0    16s  
+16.  scripts/smoke.sh target/release/xfx                            exit 0     3s  
+17.  cargo build --release --features fault-injection (target/faulty) exit 0    28s  
+18.  scripts/smoke-tui.sh target/release/xfx --faulty ...           exit 0    65s  
+19.  scripts/fxcap/test-sweep.sh                                    exit 0    14s  
+20.  scripts/fxcap/test-capture.sh                                  exit 0   280s  

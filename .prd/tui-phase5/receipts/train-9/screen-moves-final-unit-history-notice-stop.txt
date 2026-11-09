@@ -1,0 +1,12 @@
+snaps whose screen differs only in clock-like or run-local text: 33; otherwise: 9
+  of them, snaps where fx's screen moved at the same rows as xfx's: 0 snaps
+  snaps where xfx's screen moved alone or at other rows than fx's: 9
+    fx interrupt-retry r0.15 rows [5]: [('0 · server_error: upstream exploded · retrying request in 1s', '• Thinking (0s)')]
+    xfx permissions-midturn second-asks rows [19]: [('ume-id 1794182882280-3653ef32118edbf2` of this saved session', 'ume-id 1794190710965-f4e3f2c4859a57bc` of this saved session')]
+    fx provider-carry quit rows [22]: [('Continue session with: fx --resume LFYuCDfP1a0f', 'Continue session with: fx --resume m32gIei718Nk')]
+    fx resume quit rows [17]: [('Continue session with: fx --resume zH8Dm5PR0Gp2', 'Continue session with: fx --resume BfETGHiimnwv')]
+    fx resume-launch quit rows [17]: [('Continue session with: fx --resume WngJpkeekjwv', 'Continue session with: fx --resume 9mqt9FvLOcP_')]
+    xfx resume-tools cmd-ask rows [26]: [('ume-id 1794182688356-1a90af428c0ea65d` of this saved session', 'ume-id 1794189517253-8a6743f33d27b4e5` of this saved session')]
+    xfx resume-tools edit-ask rows [28]: [('ume-id 1794182688356-1a90af428c0ea65d` of this saved session', 'ume-id 1794189517253-8a6743f33d27b4e5` of this saved session')]
+    xfx resume-tools exit-ask rows [30]: [('ume-id 1794182688356-1a90af428c0ea65d` of this saved session', 'ume-id 1794189517253-8a6743f33d27b4e5` of this saved session')]
+    xfx resume-tools write-ask rows [27]: [('ume-id 1794182688356-1a90af428c0ea65d` of this saved session', 'ume-id 1794189517253-8a6743f33d27b4e5` of this saved session')]

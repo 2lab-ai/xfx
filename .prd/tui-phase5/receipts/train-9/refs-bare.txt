@@ -1,0 +1,32 @@
+# head b1a3d484; sides: main ccced1f5, stop-in-catalog-wait 05a0a857, questions-20 3824f6ba, paste-after-end a832f4d7, history-notice-stop 62d96c98
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:315: :374-375 (after src/tui/approval_screen.rs)
+    main MOVED -> :369-370 | stop-in-catalog-wait MOVED -> :369-370 | questions-20 MOVED -> :369-370 | history-notice-stop MOVED -> :369-370
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:316: :372 (after src/tui/approval_screen.rs)
+    main MOVED -> :367 | stop-in-catalog-wait MOVED -> :367 | questions-20 MOVED -> :367 | history-notice-stop MOVED -> :367
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:318: :376-386 (after src/tui/approval.rs)
+    main MOVED -> :369-379 | stop-in-catalog-wait MOVED -> :369-379 | questions-20 MOVED -> :369-379 | history-notice-stop MOVED -> :369-379
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:470: :1013-1112 (after src/tui/event_loop.rs)
+    main MOVED -> :1041-1140 | stop-in-catalog-wait MOVED -> :1041-1140 | questions-20 MOVED -> :1041-1140 | history-notice-stop MOVED -> :1041-1140
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:470: :619-622 (after src/tui/event_loop.rs)
+    main MOVED -> :647-650 | stop-in-catalog-wait MOVED -> :647-650 | questions-20 MOVED -> :647-650 | history-notice-stop MOVED -> :647-650
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:485: :1048-1076 (after src/tui/event_loop.rs)
+    main MOVED -> :1076-1104 | stop-in-catalog-wait MOVED -> :1076-1104 | questions-20 MOVED -> :1076-1104 | history-notice-stop MOVED -> :1076-1104
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:486: :1078-1108 (after src/tui/event_loop.rs)
+    main MOVED -> :1106-1136 | stop-in-catalog-wait MOVED -> :1106-1136 | questions-20 MOVED -> :1106-1136 | history-notice-stop MOVED -> :1106-1136
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:486: :1090-1093 (after src/tui/event_loop.rs)
+    main MOVED -> :1118-1121 | stop-in-catalog-wait MOVED -> :1118-1121 | questions-20 MOVED -> :1118-1121 | history-notice-stop MOVED -> :1118-1121
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:487: :1027-1045 (after src/tui/event_loop.rs)
+    main MOVED -> :1055-1073 | stop-in-catalog-wait MOVED -> :1055-1073 | questions-20 MOVED -> :1055-1073 | history-notice-stop MOVED -> :1055-1073
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:488: :619 (after src/tui/event_loop.rs)
+    main MOVED -> :647 | stop-in-catalog-wait MOVED -> :647 | questions-20 MOVED -> :647 | history-notice-stop MOVED -> :647
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1246 (after src/tui/approval.rs)
+    main MOVED -> :1239 | stop-in-catalog-wait MOVED -> :1239 | questions-20 MOVED -> :1239 | history-notice-stop MOVED -> :1239
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1199-1218 (after src/tui/approval.rs)
+    main MOVED -> :1192-1211 | stop-in-catalog-wait MOVED -> :1192-1211 | questions-20 MOVED -> :1192-1211 | history-notice-stop MOVED -> :1192-1211
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1180-1196 (after src/tui/approval.rs)
+    main MOVED -> :1173-1189 | stop-in-catalog-wait MOVED -> :1173-1189 | questions-20 MOVED -> :1173-1189 | history-notice-stop MOVED -> :1173-1189
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :1180-1218 (after src/tui/event_loop.rs)
+    main MOVED -> :1208-1246 | stop-in-catalog-wait MOVED -> :1208-1246 | questions-20 MOVED -> :1208-1246 | history-notice-stop MOVED -> :1208-1246
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :755 (after src/tui/approval.rs)
+    main MOVED -> :748 | stop-in-catalog-wait MOVED -> :748 | questions-20 MOVED -> :748 | history-notice-stop MOVED -> :748
+# 70 bare continuations after a reference into a changed file; 15 moved or changed on some side that holds them

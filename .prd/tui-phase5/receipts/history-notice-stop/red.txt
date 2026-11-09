@@ -1,0 +1,22 @@
+# RED at 350e88b1 (the test-only commit on the base 05a0a857): cargo test --locked --lib -- tui::worker::tests::a_turn_stopped_before_its_request_leaves
+# run under timeout 300 with ulimit -v 8000000, TMPDIR a short scratch directory; the test's last 20 lines
+running 1 test
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+
+failures:
+
+---- tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn stdout ----
+
+thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (358719567) panicked at src/tui/worker.rs:18065:9:
+assertion `left == right` failed: each: both turns' ends, and how many times each turn said the history's notice
+  left: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 0]), (WindowRetry, false, [None, None], [1, 0]), (PromptImageFirstLoad, true, [Some("the turn was cancelled"), None], [0, 0]), (PromptImageFirstLoad, false, [None, None], [1, 0])]
+ right: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 1]), (WindowRetry, false, [None, None], [1, 0]), (PromptImageFirstLoad, true, [Some("the turn was cancelled"), None], [0, 1]), (PromptImageFirstLoad, false, [None, None], [1, 0])]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4538 filtered out; finished in 10.17s
+
+error: test failed, to rerun pass `--lib`

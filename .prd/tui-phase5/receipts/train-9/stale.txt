@@ -1,0 +1,29 @@
+docs/superpowers/plans/2026-08-24-provider-frame.md cites tests/tool_loop.rs:1266 for a fake-provider `Completion { .. }` literal (the plan of 2026-08-24)
+  at the head: ...gateway.rs:987,1297,1320,1345` take `Wire::VercelGateway`; `tests/tool_loop.rs:1266,1280` and `tests/permissions.rs:2524...
+  main tests/tool_loop.rs:1266: max_grep_file_bytes: 64,
+scripts/smoke-tui.sh cites input.rs:708 for `Action::Undo` (main's `input.rs:702`, re-pointed by line)
+  at the head: ...11192:    # history entry, so `C-_` (`Action::Undo`, `input.rs:708`) reverses the...
+  main src/tui/input.rs:702: /// that were read. **Nothing of the body is ever emitted**, which is the
+src/tui/event_loop.rs cites event_loop.rs:1000-1003 for the frame after a refused append not run (main's `:972-975`, re-pointed by line; train 8's stale.txt)
+  at the head: ...12915:    // it must not run at all (`event_loop.rs:1000-1003`). Nothing here caches a...
+  main src/tui/event_loop.rs:972: // **Except what the primary plane already owed, which is paid before the
+  main src/tui/event_loop.rs:973: // plane changes hands.** One tick takes a *batch* of events
+  main src/tui/event_loop.rs:974: // ([`take_ui_events`]) and composes one frame afterwards, so the row a tool
+  main src/tui/event_loop.rs:975: // call put in the document and the question that follows it are both
+src/tui/event_loop.rs cites frame.rs:1615-1628 for the escape `place()` writes once per document row (train 8's stale.txt)
+  at the head: ...12032:    /// escape `place()` (`frame.rs:1615-1628`) writes once per document row,...
+  main src/tui/frame.rs:1615: };
+  main src/tui/frame.rs:1616: if shown > 0 {
+  main src/tui/frame.rs:1617: for line in first.saturating_sub(vacated)..first {
+  main src/tui/frame.rs:1618: cup(&mut self.buffer, line, 1);
+  main src/tui/frame.rs:1619: self.buffer.extend_from_slice(ERASE_LINE.as_bytes());
+  main src/tui/frame.rs:1620: self.target.erase_row(line);
+  main src/tui/frame.rs:1621: }
+  main src/tui/frame.rs:1622: }
+  main src/tui/frame.rs:1623: for _ in 0..scroll - fresh {
+  main src/tui/frame.rs:1624: scroll_one(&mut self.buffer, geometry);
+  main src/tui/frame.rs:1625: self.target.scroll_up(1);
+  main src/tui/frame.rs:1626: }
+  main src/tui/frame.rs:1627: // A settled row is reused -- neither emitted nor re-placed onto
+  main src/tui/frame.rs:1628: // `target` -- only when every fact this frame carries about the
+4 references, each naming other code on main, or rewritten under before this train

@@ -1,0 +1,89 @@
+fx v0.0.16's rule for input behind a paste's end marker, read at the pin
+(`git -C fx-upstream show 481104fd:<path>`). Every line below was opened by
+this worker. `@c1db9191` marks the old tree; everything else is @481104fd.
+
+1. The decoder's "end marker seen in this delivery" state
+   - src/core/input/paste_framing.zig:53-56     BoundaryState = capturing | end_candidate
+   - src/core/input/paste_framing.zig:58-68     Settlement = none | finish{dropped_suffix_bytes};
+                                               the comment: "Bytes that followed its end marker in the
+                                               same epoch are never input ... so they are only counted."
+   - src/core/input/paste_framing.zig:140-156   the exact `ESC[201~` matched: the captured bytes cut back
+                                               to before the marker, boundary := end_candidate
+   - src/core/input/paste_framing.zig:299-312   advanceEndMatcher: byte by byte, `end_match_len` kept
+                                               between bytes (so between reads and deliveries)
+   - src/core/input/paste_framing.zig:159-165   settleDeliveryEpoch: inactive or capturing -> none;
+                                               end_candidate -> finish{dropped_suffix_bytes = unsafe_suffix_bytes}
+   - old: paste_framing.zig@c1db9191 had a third state `unsafe` and `Settlement.reject`
+     (diff of 9e0eab41 "Keep pastes when input arrives right after them", which removes both)
+
+2. Which bytes count as "after"
+   - src/core/input/paste_framing.zig:102-107   while end_candidate, EVERY byte is `unsafe_suffix_bytes +|= 1`
+                                               and returned: not captured, not matched, not decoded
+   - src/main.zig:3127-3139                     while a paste is active (end_candidate included,
+                                               `active()` = owner != none, paste_framing.zig:87-89) every
+                                               byte goes to the paste (`.paste => routeActivePasteTransportByte`),
+                                               never to the key decoder
+   - src/ui/event_loop.zig:94-119               the delivery epoch: up to 32 reads of 128 bytes while
+                                               pollInput(0) is readable (:94-107); settled only when the poll
+                                               finds nothing (:118); a burst still readable after 32 reads
+                                               commits a frame and goes on UNSETTLED (:109-112)
+   - src/ui/event_loop.zig:31-74                pump_ready_input: the same, settled at :69-72
+   => "after" = every byte from the one after the end marker's `~` until the terminal has nothing
+      more to read; one read or many. Not "the rest of one read()".
+
+3. The notice: level, glyph, text
+   - src/core/app/input_paste_runtime.zig:168-198  settlePasteDeliveryEpoch: finishPaste FIRST (:189), so
+                                                   the paste is applied (or refused for its own reason:
+                                                   overflow :210-235, unsupported bytes :250-266) and that
+                                                   reason's notice is written; THEN, if dropped_suffix_bytes > 0,
+                                                   writeDomainNotice{topic "input", tone .warning,
+                                                   body "Input that arrived right after the paste was ignored."}
+                                                   (:190-196)
+   - src/core/shared/types.zig:50-58               noticeGlyph: .warning => "!" (.error => "✗")
+   - src/core/app/input_limit_feedback.zig:5-43    the overflow's report writes its error notice when
+                                                   input_limit_rejection says so; beginPaste clears that
+                                                   (input_paste_runtime.zig:127), so a paste's first report
+                                                   always writes -> overflow + suffix = TWO notices, the
+                                                   limit's error then the warning
+   - old: input_paste_runtime.zig:179-193@c1db9191  .reject: reset, `✗ input: Paste was not applied because
+                                                   extra input followed its end marker.`
+
+4. The input surfaces
+   - src/core/input/paste_framing.zig:8-15        Owner = none | composer | decision_prompt |
+                                                  question_freeform | approval_amendment | auth_code
+   - src/core/app/input_paste_runtime.zig:105-115 beginPaste picks the owner: a question's freeform field,
+                                                  else a question (decision_prompt); an approval being
+                                                  amended, else an approval (decision_prompt); sign-in
+                                                  code entry; else the composer
+   - src/core/app/input_paste_runtime.zig:168-198 settlement is owner-agnostic: the warning is written for
+                                                  every owner, decision_prompt included
+   - src/core/app/input_paste_runtime.zig:237-359 finishPaste per owner: composer (:296-307), question
+                                                  freeform (:271-295), approval amendment (:308-334),
+                                                  decision_prompt dropped (:270), auth_code (:335-358)
+   - xfx has no sign-in code entry in the TUI, so its surfaces are the other four.
+
+5. fx's own cases (src/core/app/app_input_runtime.zig)
+   - :9399-9418  "rejects same-epoch paste suffix without submitting it": "keep" + `ESC[200~ESC[201~/version\r ESC[201~`
+                 -> composer "keep", 0 submitted, 1 notice; a later `\r` submits "keep"
+   - :9420-9431  "keeps a paste but not a same-epoch enter after it": "prior" + `ESC[200~new ESC[201~\r`
+                 -> "priornew", 0 submitted, 1 notice
+   - :9686-9741  "keeps a modal paste but never runs its same-epoch suffix": an approval with no draft
+                 `ESC[200~ESC[201~1\r` -> still asking, nothing answered, 1 notice; an amendment "keep"
+                 -> "keepnew", nothing answered, 1 notice; a question's freeform "keep" -> "keepnew",
+                 still asking, 1 notice
+   - paste_framing.zig:427-443  "composer overflow survives an ignored suffix": overflow and a suffix both kept
+   - paste_framing.zig:527-546  "a same-epoch suffix is counted and never captured": `\r` + a second
+                 `ESC[201~` behind the first -> dropped = 1 + 6, the buffer "safe"
+   - paste_framing.zig:502-511  "capturing remains active when a delivery epoch ends before the marker"
+
+6. Edge cases
+   - a second paste in the same delivery: its `ESC[200~` arrives while end_candidate, so it is counted
+     (paste_framing.zig:102-107) and never begins a paste (beginPaste is reached only from the key decoder,
+     app_input_runtime.zig:932-944, which an active paste bypasses, main.zig:3135-3138); its content and its
+     own end marker are counted too (the test at :527-546 counts a second end marker).
+   - an Escape sequence behind the end: the same, counted, not decoded; fx's e2e
+     tests/e2e/tui-composer-edit-contracts.test.ts in 9e0eab41 counts `ESC[` behind a paste as
+     "bytes=8" with ESCAPE_DRAFTpaste kept.
+   - the end marker split across reads or deliveries: advanceEndMatcher keeps its count
+     (paste_framing.zig:299-312) and settlement is `none` while capturing (:161-162, test :502-511),
+     so a split marker is the marker and the paste settles in the delivery that completes it.

@@ -1,0 +1,11 @@
+# lines holding #[test] under src and tests (git grep -c '#\[test\]'), and '    def test_' under scripts/fxcap, per commit
+ccced1f5 Merge pull request #86 from 2lab-ai/train/p5-1109a           rust  5374  fxcap 173
+b4211654 Merge STOP-IN-CATALOG-WAIT (fix/p5-stop-in-catalog-wait @ 05 rust  5375  fxcap 173
+b9658fe7 Merge QUESTIONS-20 (feat/p5-questions-20 @ 3824f6ba) into tr rust  5382  fxcap 173
+afe31cb2 test(tui): train 9 join check 2 -- stops around a 20-questio rust  5384  fxcap 173
+189b8b10 Merge PASTE-AFTER-END (feat/p5-paste-after-end @ a832f4d7) i rust  5388  fxcap 173
+b9409b36 test(tui): train 9 join check 5 -- a paste with Enter behind rust  5389  fxcap 173
+534d5a81 Merge HISTORY-NOTICE-STOP (fix/p5-history-notice-stop @ 62d9 rust  5394  fxcap 173
+a832f4d7 docs(receipt): PASTE-AFTER-END -- the round-2 sweep sentence rust  5364  fxcap 165
+62d96c98 docs(receipt): HISTORY-NOTICE-STOP round 2 -- the gate       rust  5366  fxcap 165
+ac0279c8 docs(receipt): P5 train 9 -- the merge checks at 9aa61e28 (t rust  5394  fxcap 173

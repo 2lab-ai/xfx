@@ -2,7 +2,7 @@
 //! it.
 //!
 //! `ask_user_question` is not an approval and mints no authority
-//! ([`crate::tools::question`]): what arrives is a batch of 1 to 4 questions,
+//! ([`crate::tools::question`]): what arrives is a batch of 1 to 20 questions,
 //! each with 2 to 6 labelled choices plus a synthetic freeform slot, and what
 //! goes back is one answer per question in **entry order** -- or nothing at all
 //! (`crate::tools::question::Reply`). So none of
@@ -469,7 +469,7 @@ impl QuestionPanel {
     /// questions in it.
     ///
     /// Total rather than indexed: the bounds are the tool's
-    /// (`crate::tools::question::parse` admits 1 to 4), and this type is
+    /// (`crate::tools::question::parse` admits 1 to 20), and this type is
     /// constructible from anywhere in the crate -- so an empty batch is a panel
     /// that presents no choices and is refused by the shell, rather than a
     /// panic on the UI thread.
@@ -717,15 +717,6 @@ impl QuestionPanel {
         }
         self.entry_mut().draft.clear();
         true
-    }
-
-    /// Drops a paste refused for the input behind its end marker
-    /// (`super::shell::Shell::paste_refused`): nothing of it reaches the
-    /// answer. Always the shell's sentence about that input, never a limit:
-    /// this panel's paste has no capture bound, and its budget refuses
-    /// silently at the insert ([`Self::insert`]).
-    pub(crate) fn refuse_paste(&mut self) {
-        self.paste = None;
     }
 
     /// The rows the document keeps once every question is answered: each
@@ -1779,6 +1770,137 @@ mod tests {
         assert_eq!(panel.draft(), Some("§"), "the draft survived the cycle");
     }
 
+    /// A batch of `count` questions, `Pick N?` with `Keep N` and `Change N`,
+    /// each choice described: `p5-input-question20`'s batch.
+    fn batch(count: usize) -> QuestionPanel {
+        QuestionPanel::new(QuestionRequest {
+            id: QuestionId(20),
+            entries: (1..=count)
+                .map(|index| QuestionEntry {
+                    question: format!("Pick {index}?"),
+                    options: vec![
+                        QuestionOption {
+                            label: format!("Keep {index}"),
+                            description: Some("Leave it as it is.".to_string()),
+                        },
+                        QuestionOption {
+                            label: format!("Change {index}"),
+                            description: Some("Apply the change.".to_string()),
+                        },
+                    ],
+                })
+                .collect(),
+        })
+    }
+
+    #[test]
+    fn a_batch_of_twenty_counts_in_two_digits_only_where_the_row_has_room() {
+        // `questionInteractionHint` (`input_presentation.zig:198-246@481104fd`):
+        // the keys, the widest variant that fits when they do not, and the
+        // counter right-aligned only where two cells of air are left. fx's
+        // screens (`fx-p5-input-question20-*-q20-panel`, `-q20-tab10`): at 120
+        // both counters show, at 72 the short keys leave room for
+        // `Question 1 of 20` and not for `Question 10 of 20`, and at 80 the
+        // full keys fit and no counter does.
+        let mut panel = batch(20);
+        let full = "1\u{2013}3 choose now    \u{2191}\u{2193} options    tab questions    \
+                    enter answer    esc cancel";
+        let short =
+            "\u{2191}\u{2193} options \u{b7} tab questions \u{b7} enter answer \u{b7} esc cancel";
+        let row =
+            |panel: &QuestionPanel, cols: u16| panel.hint_text(cols, false).trim_end().to_string();
+        assert_eq!(
+            row(&panel, 120),
+            format!(
+                "{full}{}Question 1 of 20",
+                " ".repeat(120 - full.chars().count() - 16)
+            )
+        );
+        assert_eq!(row(&panel, 80), full);
+        assert_eq!(row(&panel, 72), format!("{short}  Question 1 of 20"));
+        for _ in 0..9 {
+            panel.apply(Act::Tab, 120, 40);
+        }
+        assert!(panel.rows(120, 40).join("\n").contains("Pick 10?"));
+        assert_eq!(
+            row(&panel, 120),
+            format!(
+                "{full}{}Question 10 of 20",
+                " ".repeat(120 - full.chars().count() - 17)
+            )
+        );
+        assert_eq!(row(&panel, 72), short);
+    }
+
+    #[test]
+    fn a_batch_of_twenty_is_walked_by_tab_and_left_and_answered_in_entry_order() {
+        // `cycleQuestionPage` wraps past the last page, `retreatToPrevious`
+        // stops at the first, and a decision moves to the next unanswered page
+        // (`question_prompt.zig:609-615`, `:621-668`, `:670-676@481104fd`;
+        // `fx-p5-input-question20-40x120-q20-{left,back9,tab20,wrap,first}`).
+        let mut panel = batch(20);
+        let shown = |panel: &QuestionPanel| panel.hint_text(120, false);
+        assert!(matches!(panel.apply(Act::Left, 120, 40), Answered::Nothing));
+        assert!(shown(&panel).ends_with("Question 1 of 20"));
+        for _ in 0..19 {
+            panel.apply(Act::Tab, 120, 40);
+        }
+        assert!(shown(&panel).ends_with("Question 20 of 20"));
+        panel.apply(Act::Left, 120, 40);
+        assert!(shown(&panel).ends_with("Question 19 of 20"));
+        panel.apply(Act::Tab, 120, 40);
+        panel.apply(Act::Tab, 120, 40);
+        assert!(shown(&panel).ends_with("Question 1 of 20"), "Tab wraps");
+        // Answered from the tenth: ten to twenty, then one to nine.
+        for _ in 0..9 {
+            panel.apply(Act::Tab, 120, 40);
+        }
+        let mut last = Answered::Nothing;
+        for step in 0..20 {
+            last = panel.apply(Act::Text(if step % 2 == 0 { '1' } else { '2' }), 120, 40);
+            if step < 19 {
+                assert!(matches!(last, Answered::Redraw), "step {step}");
+            }
+        }
+        let Answered::Submitted(answers) = last else {
+            panic!("the twentieth decision submits the batch");
+        };
+        // Question 10 + k got step k's choice: Keep at an even step.
+        let expected: Vec<String> = (1..=20)
+            .map(|question: usize| {
+                let step = (question + 20 - 10) % 20;
+                format!(
+                    "{} {question}",
+                    if step.is_multiple_of(2) {
+                        "Keep"
+                    } else {
+                        "Change"
+                    }
+                )
+            })
+            .collect();
+        assert_eq!(answers, expected);
+    }
+
+    #[test]
+    fn twenty_answers_hang_under_their_numbers_at_one_and_two_digits() {
+        // `composeQuestionResolutions` (`question_ui.zig:418-519@481104fd`) as
+        // fx's e2e reads it: `  N) <question>` with the answer one row down
+        // under the question's first character, `  10) ` six cells wide
+        // (`tui-resume.test.ts:6176-6184@481104fd`;
+        // `fx-p5-input-question20-40x120-q20-answered.full`).
+        let panel = batch(20);
+        let answers: Vec<String> = (1..=20).map(|index| format!("Keep {index}")).collect();
+        let rows = texts(panel.answered_with(&answers, 120, "", ""));
+        assert_eq!(rows.len(), 40);
+        assert_eq!(rows[0], "  1) Pick 1?");
+        assert_eq!(rows[1], "     Keep 1");
+        assert_eq!(rows[18], "  10) Pick 10?");
+        assert_eq!(rows[19], "      Keep 10");
+        assert_eq!(rows[38], "  20) Pick 20?");
+        assert_eq!(rows[39], "      Keep 20");
+    }
+
     #[test]
     fn an_ordinal_for_a_choice_the_window_is_not_showing_is_refused() {
         let mut panel = six();
@@ -2105,7 +2227,7 @@ mod tests {
 
     #[test]
     fn a_batch_with_no_questions_presents_nothing_and_answers_nothing() {
-        // Not a shape the tool can produce (`parse` admits 1 to 4), and this
+        // Not a shape the tool can produce (`parse` admits 1 to 20), and this
         // type is constructible from anywhere in the crate -- so it is a refusal
         // rather than an index out of bounds on the thread holding the terminal.
         let mut panel = QuestionPanel::new(QuestionRequest {

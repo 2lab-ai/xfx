@@ -1,0 +1,55 @@
+pairs: reference 182, train 590, shared 182; only the reference: 0
+reference: 182 pairs, pass 115; identical 9, normalized-identical 106, unresolved-defect 67
+train: 182 pairs, pass 115; identical 9, normalized-identical 106, unresolved-defect 67
+interrupt-recovery full: 2 differing rows left, 2 new
+    left: fx '' / xfx '! network: provider: gateway · model: fake/model-a · 0ms'
+    left: fx '! network: provider: gateway · model: fake/model-a · 12ms' / xfx ''
+    NEW:  fx '' / xfx '! network: provider: gateway · model: fake/model-a · 30ms'
+    NEW:  fx '! network: provider: gateway · model: fake/model-a · 13ms' / xfx ''
+verdicts moved: 0
+fx screens not the same in the two sweeps: 16
+    interrupt mid2
+    interrupt-recovery full
+    interrupt-steer-retract steer-again
+    p5-lifecycle-relhome-resume r00-resume.full
+    permissions-midturn after-refusal
+    permissions-midturn first-done
+    provider-carry quit
+    resume quit
+    resume-launch quit
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+xfx screens not the same in the two sweeps: 26
+    interrupt-recovery full
+    interrupt-steer-retract steer-again
+    interrupt-steer-retract steer-up
+    interrupt2 draft
+    interrupt2 draft-cc
+    p5-lifecycle-relhome-resume r00-resume.full
+    p5-lifecycle-v1resume v01-resumed
+    p5-lifecycle-v1resume v01-resumed.full
+    p5-lifecycle-v1resume v02-continued
+    permissions-midturn second-asks
+    provider-carry quit
+    resume quit
+    resume-launch quit
+    resume-tools cmd-ask
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools edit-ask
+    resume-tools exit-ask
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    resume-tools resumed
+    resume-tools resumed.full
+    resume-tools write-ask
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 1

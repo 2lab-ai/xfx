@@ -1,0 +1,192 @@
+commit 534d5a818cccf2787b843d73a7d9890cf591e75c
+Merge: 44c5d3e0 62d96c98
+
+Merge HISTORY-NOTICE-STOP (fix/p5-history-notice-stop @ 62d96c98) into train 9
+
+A history notice is said once it is handed to the screen, not when it
+is found: Conversation::unsaid only finds the unsaid lines,
+Conversation::said records one shown; the TUI records a line once
+send_ui hands it on, the line shell once its stderr line is written.
+A turn stopped before its request leaves the notice to the next turn.
+
+Conflict: src/tui/worker.rs, the end of the tests module: train 9's
+join test (a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop
+and its helpers) and HISTORY-NOTICE-STOP's tests were both appended
+there, and git interleaved them in two hunks around lines they share.
+Both kept whole, the join test first: the file is the base plus each
+side's change (272/14 and 240/0 lines against 05a0a857, as each side
+has them).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+
+diff --git a/src/tui/worker.rs b/src/tui/worker.rs
+remerge CONFLICT (content): Merge conflict in src/tui/worker.rs
+index 37435a9e..80c020a8 100644
+--- a/src/tui/worker.rs
++++ b/src/tui/worker.rs
+@@ -17955,7 +17955,6 @@ mod tests {
+         );
+     }
+ 
+-<<<<<<< 44c5d3e0 (docs(receipt): P5 train 9 -- merge 3's scripts (re-points, invariant, paste join, paste sweep), the first gate and sweep's files)
+     /// A scripted provider whose requests are counted where the test can read
+     /// them after the runtime that owns it is gone.
+     struct RequestsCounted {
+@@ -18129,7 +18128,73 @@ mod tests {
+                 log
+             });
+             on_a_runtime(turn_loop(
+-=======
++                state,
++                &events,
++                &mut work_rx,
++                &mut changes,
++                control,
++                cancel,
++                &outstanding,
++            ));
++            let log = band.join().expect("the band");
++            opener.join().expect("the load's opener");
++            drop(control_tx);
++            let shown: Vec<usize> = log
++                .iter()
++                .filter_map(|(_, event)| match event {
++                    UiEvent::Question(request) => Some(request.entries.len()),
++                    _ => None,
++                })
++                .collect();
++            let ends: Vec<(Duration, Option<String>)> = log
++                .iter()
++                .filter_map(|(at, event)| match event {
++                    UiEvent::TurnEnded { failure } => Some((*at, failure.clone())),
++                    _ => None,
++                })
++                .collect();
++            let on_time = ends.first().is_some_and(|(at, _)| match stop {
++                // After the stop, and long before the load lands.
++                Some(_) => *at >= Duration::from_millis(300) && *at < Duration::from_millis(1_000),
++                None => *at >= Duration::from_millis(1_200),
++            });
++            got.push((
++                stop.is_some(),
++                shown,
++                ends.into_iter()
++                    .map(|(_, failure)| failure)
++                    .collect::<Vec<_>>(),
++                on_time,
++                asked.get(),
++                turns_logged(&sessions, &id),
++            ));
++        }
++        let kept = |end: &str| {
++            vec![
++                "asked first".to_string(),
++                "1 image(s)".to_string(),
++                end.to_string(),
++            ]
++        };
++        assert_eq!(
++            got,
++            [
++                (
++                    true,
++                    Vec::new(),
++                    vec![Some(bridge::TURN_CANCELLED.to_string())],
++                    true,
++                    0,
++                    kept("interrupted cancelled"),
++                ),
++                (false, vec![20], vec![None], true, 2, kept("final stop")),
++            ],
++            "each: whether stopped, the batches the band was shown (their sizes), the turn's \
++             end, whether it came when it should (with the stop: 300 ms to 1 s; without it: past \
++             1.2 s), the model's requests, what the log says of the turn"
++        );
++    }
++
+     // -----------------------------------------------------------------------
+     // HISTORY-NOTICE-STOP: a stopped turn leaves the history's notices unsaid
+     // -----------------------------------------------------------------------
+@@ -18311,73 +18376,10 @@ mod tests {
+         let outstanding = AtomicUsize::new(4);
+         let log = on_a_runtime(async {
+             let run = turn_loop(
+->>>>>>> 62d96c98 (docs(receipt): HISTORY-NOTICE-STOP round 2 -- the gate)
+                 state,
+                 &events,
+                 &mut work_rx,
+                 &mut changes,
+-<<<<<<< 44c5d3e0 (docs(receipt): P5 train 9 -- merge 3's scripts (re-points, invariant, paste join, paste sweep), the first gate and sweep's files)
+-                control,
+-                cancel,
+-                &outstanding,
+-            ));
+-            let log = band.join().expect("the band");
+-            opener.join().expect("the load's opener");
+-            drop(control_tx);
+-            let shown: Vec<usize> = log
+-                .iter()
+-                .filter_map(|(_, event)| match event {
+-                    UiEvent::Question(request) => Some(request.entries.len()),
+-                    _ => None,
+-                })
+-                .collect();
+-            let ends: Vec<(Duration, Option<String>)> = log
+-                .iter()
+-                .filter_map(|(at, event)| match event {
+-                    UiEvent::TurnEnded { failure } => Some((*at, failure.clone())),
+-                    _ => None,
+-                })
+-                .collect();
+-            let on_time = ends.first().is_some_and(|(at, _)| match stop {
+-                // After the stop, and long before the load lands.
+-                Some(_) => *at >= Duration::from_millis(300) && *at < Duration::from_millis(1_000),
+-                None => *at >= Duration::from_millis(1_200),
+-            });
+-            got.push((
+-                stop.is_some(),
+-                shown,
+-                ends.into_iter()
+-                    .map(|(_, failure)| failure)
+-                    .collect::<Vec<_>>(),
+-                on_time,
+-                asked.get(),
+-                turns_logged(&sessions, &id),
+-            ));
+-        }
+-        let kept = |end: &str| {
+-            vec![
+-                "asked first".to_string(),
+-                "1 image(s)".to_string(),
+-                end.to_string(),
+-            ]
+-        };
+-        assert_eq!(
+-            got,
+-            [
+-                (
+-                    true,
+-                    Vec::new(),
+-                    vec![Some(bridge::TURN_CANCELLED.to_string())],
+-                    true,
+-                    0,
+-                    kept("interrupted cancelled"),
+-                ),
+-                (false, vec![20], vec![None], true, 2, kept("final stop")),
+-            ],
+-            "each: whether stopped, the batches the band was shown (their sizes), the turn's \
+-             end, whether it came when it should (with the stop: 300 ms to 1 s; without it: past \
+-             1.2 s), the model's requests, what the log says of the turn"
+-=======
+                 ControlChannel::new(control_rx),
+                 Cancellation::new(CancelToken::new()),
+                 &outstanding,
+@@ -18434,7 +18436,6 @@ mod tests {
+             (said, resumed, fresh),
+             (vec![1, 0, 1, 0], 2, 1),
+             "how many times each turn said the history's notice, the resumes, the reset"
+->>>>>>> 62d96c98 (docs(receipt): HISTORY-NOTICE-STOP round 2 -- the gate)
+         );
+     }
+ }

@@ -1,0 +1,13 @@
+commit b42116548e43756944e771e6acc0b1a764d9db5b
+Merge: ccced1f5 05a0a857
+
+Merge STOP-IN-CATALOG-WAIT (fix/p5-stop-in-catalog-wait @ 05a0a857) into train 9
+
+A Ctrl-C in a turn's pre-request catalog wait ends the turn as fx does:
+the stop's end, the prompt and its images kept, never Ultra's or the
+image's refusal. A prompt with images reads the catalog at the turn's
+start (one_turn); the turn machine checks the stop before compaction
+(run_journaled).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+

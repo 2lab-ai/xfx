@@ -6224,8 +6224,8 @@ def scenario_6(run):
 
 
 def scenario_7(run):
-    """One paste is one prompt, whatever is inside it -- and a paste with input
-    behind its end marker in the same read is no prompt at all."""
+    """One paste is one prompt, whatever is inside it -- and input behind a
+    paste's end marker in the same read is no prompt at all."""
     marker = run.marker("paste")
     big = run.marker("bigpaste")
     suffix = run.marker("aftersuffix")
@@ -6301,29 +6301,30 @@ def scenario_7(run):
     run.require("Pasted text #1" not in sent, "the summary was not sent instead of the text")
 
     # -- a paste and an Enter behind its end marker, in one read -----------
-    # X1 (`bcda7a5d`; fx c1db919's paste framing, `paste_framing.zig:93-108,
-    # 160-167`, `input_paste_runtime.zig:179-193`): input that arrives behind
-    # a paste's end marker before the terminal goes quiet is the clipboard's,
-    # not the user's -- clipboard text carrying `ESC [201~` and a newline would
-    # otherwise submit the composer as if typed. The whole paste is refused,
-    # nothing behind it is read as a key, and fx says so once under `input`.
-    # A draft is typed first, so "nothing was sent" is not an empty composer
-    # that had nothing to send, and the draft is what a later Enter of its own
-    # sends: the refusal dropped the paste and kept the user's text.
+    # fx v0.0.16's paste framing (9e0eab41; `paste_framing.zig:58-68,102-107,
+    # 159-165`, `input_paste_runtime.zig:168-198@481104fd`): input that
+    # arrives behind a paste's end marker before the terminal goes quiet is
+    # taken for the clipboard's, not the user's -- clipboard text carrying
+    # `ESC [201~` and a newline, written in one go, would otherwise submit the
+    # composer as if typed (written with a pause between, it still can: see
+    # docs/parity.md's `full-screen TUI` row). The paste is
+    # kept, nothing behind it is read as a key, and fx warns once under
+    # `input`. A draft is typed first, so "nothing was sent" is not an empty
+    # composer that had nothing to send, and a later Enter of its own sends the
+    # draft with the paste in it.
     draft = "kept draft " + run.nonce
     trial.send(draft)
     trial.wait_until(
-        "the draft the refused paste lands on",
+        "the draft the paste lands on",
         lambda _t: composer_text(trial.peek()) == draft,
     )
     asked = fixture.request_count()
-    trial.send(b"\x1b[200~clipboard words\x1b[201~\r")
-    on_the_grid(trial, PASTE_REFUSED, "the refused paste's notice")
-    grid = trial.grid("paste-refused")
+    trial.send(b"\x1b[200~ clipboard words\x1b[201~\r")
+    on_the_grid(trial, PASTE_IGNORED, "the ignored input's notice")
+    grid = trial.grid("paste-suffix")
     run.require(
-        composer_text(grid) == draft,
-        "a refused paste was not applied, and the draft it fell on is as it was: %r"
-        % composer_text(grid),
+        composer_text(grid) == draft + " clipboard words",
+        "the paste was kept on the draft it fell on: %r" % composer_text(grid),
     )
     run.require(
         fixture.request_count() == asked,
@@ -6331,18 +6332,14 @@ def scenario_7(run):
         % (fixture.request_count(), asked),
     )
     run.require(
-        grid.find("clipboard words") is None,
-        "no part of the refused paste reached the screen",
-    )
-    run.require(
-        grid.text().count(PASTE_REFUSED) == 1, "the refusal is said once, in fx's words"
+        grid.text().count(PASTE_IGNORED) == 1, "the ignored input is said once, in fx's words"
     )
     trial.send(b"\x0d")
     trial.wait_for(suffix)
     run.require(
         fixture.request_count() == asked + 1
-        and user_messages(fixture.requests()[asked])[-1] == draft,
-        "an Enter of its own sent the draft the refusal kept, and only it: %r"
+        and user_messages(fixture.requests()[asked])[-1] == draft + " clipboard words",
+        "an Enter of its own sent the draft with the paste, and only it: %r"
         % (user_messages(fixture.requests()[-1])[-1:],),
     )
 
@@ -6351,10 +6348,11 @@ def scenario_7(run):
     fixture.stop()
 
 
-# What a refused paste leaves in the document (`src/tui/shell.rs`'s
-# `PASTE_SUFFIX` under `input`, as an error notice; `tests/tui.rs`'s X1 case
+# What input behind a paste's end marker leaves in the document
+# (`src/tui/shell.rs`'s `PASTE_SUFFIX` under `input`, as a warning notice;
+# `tests/tui.rs`'s `a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing`
 # reads the same row), spelled out as every needle here is.
-PASTE_REFUSED = "✗ input: Paste was not applied because extra input followed its end marker."
+PASTE_IGNORED = "! input: Input that arrived right after the paste was ignored."
 
 
 # ---------------------------------------------------------------------------
@@ -11191,7 +11189,7 @@ def scenario_26(run):
     # the real newlines it carried -- not the whole draft, so it would leave
     # the first two rows standing. The paste that grew this draft went in
     # through one `editor.insert()` call (`shell.rs:2597`), which is one
-    # history entry, so `C-_` (`Action::Undo`, `input.rs:702`) reverses the
+    # history entry, so `C-_` (`Action::Undo`, `input.rs:708`) reverses the
     # whole paste in the one step a shrink is supposed to be -- and is what a
     # person who pasted the wrong thing would actually reach for.
     trial.send(b"\x1f")  # C-_: undo the paste as the one edit it was

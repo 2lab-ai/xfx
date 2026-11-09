@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-1a76ea0 [debug] · Run /help for commands
+
+! input: Input that arrived right after the paste was ignored.
+
+┃ priornew
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

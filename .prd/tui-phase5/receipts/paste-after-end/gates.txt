@@ -1,0 +1,44 @@
+# Every CI step of .github/workflows/ci.yml, in its order, in the worktree, under the machine's suite lock
+# (one slot for the whole run), TMPDIR=<scratch>/p5-paste-after-end. 'fi-test-all' is
+# 'cargo test --locked --features fault-injection --no-fail-fast', which covers CI's two fault-injection
+# test lines (--test tui, --lib).
+head 78b224cf
+fmt exit=0 2s
+clippy exit=0 5s
+test exit=0 101s
+fi-clippy exit=0 6s
+fi-test-all exit=0 125s
+no-stubs exit=0 8s
+no-secrets exit=0 34s
+gate-env exit=0 175s
+identity exit=0 2s
+preview-contract exit=0 11s
+preview-mutants exit=0 118s
+preflight-cost exit=0 132s
+usage-clock exit=0 1s
+release-build exit=0 31s
+smoke exit=0 5s
+faulty-build exit=0 41s
+smoke-tui exit=0 87s
+
+## test results
+-- test
+  binaries: 14, passed 5447, failed 0, ignored 7
+-- fi-test-all
+  binaries: 15, passed 5485, failed 0, ignored 7
+-- smoke
+
+47 check(s), 0 failure(s)
+evidence: <tmp>/xfx-smoke
+-- smoke-tui
+  7-multiline-and-paste-framing         ok
+  21-paste-entities                     ok
+smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures
+-- no-stubs: check-no-stubs: ok
+-- no-secrets: check-no-secrets: ok (15392 tracked file(s) scanned)
+-- identity: check-xfx-identity: ok (15392 tracked file(s) scanned)
+-- gate-env: test-gate-env: ok (62 cases)
+-- preview-contract: check-preview-contract: ok (.github/workflows/preview.yml)
+-- preview-mutants: test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+-- preflight-cost: check-tui-preflight-cost: ok
+-- usage-clock: check-usage-clock: ok

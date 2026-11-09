@@ -1,0 +1,31 @@
+# round 2: gates.sh at ba11764f, TMPDIR=<scratch>/hns (a short root), one suite-lock slot
+# head ba11764f198ab9a68eb19636c328ed9792880a4c, tree: 0 tracked changes
+# slot taken 2026-11-09T00:19:06Z
+00 false rc=1 0s
+01 fmt rc=0 1s
+02 clippy rc=0 8s
+03 clippy-fault rc=0 7s
+04 test rc=0 116s
+05 test-fault-tui rc=0 23s
+06 test-fault-lib rc=0 69s
+07 check-no-stubs rc=0 13s
+08 check-no-secrets rc=0 47s
+09 test-check-no-secrets rc=0 107s
+10 test-gate-env rc=0 222s
+11 check-xfx-identity rc=0 2s
+12 check-preview-contract rc=0 3s
+13 test-preview-contract rc=0 114s
+14 check-tui-preflight-cost rc=0 82s
+15 check-usage-clock rc=0 114s
+16 fxcap-test-sweep rc=0 29s
+17 fxcap-test-capture rc=0 299s
+18 build-release rc=0 28s
+19 build-faulty rc=0 24s
+20 smoke rc=0 5s
+21 smoke-tui rc=0 78s
+# slot released 2026-11-09T00:42:17Z
+# tree after: 0 tracked changes
+exit=0
+# 04: 5452 passed, 0 failed over every target; 05: 195 passed; 0; 06: 4559 passed; 0
+# 16: test_sweep.py "Ran 70 tests" OK, then test_ci_sweep.py "Ran 27 tests" OK -- 97
+# 21: smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures

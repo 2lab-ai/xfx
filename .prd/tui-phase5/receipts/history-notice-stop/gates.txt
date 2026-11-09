@@ -1,0 +1,61 @@
+# gates.sh at f16a62ab, run 2 (the receipt's): TMPDIR=<scratch>/hns, one suite-lock slot
+# head f16a62ab2ba8acbeff7c492cfe9048f3fc520156, tree: 0 tracked changes
+# slot taken 2026-11-08T22:28:41Z
+00 false rc=1 0s
+01 fmt rc=0 2s
+02 clippy rc=0 0s
+03 clippy-fault rc=0 0s
+04 test rc=0 99s
+05 test-fault-tui rc=0 18s
+06 test-fault-lib rc=0 52s
+07 check-no-stubs rc=0 11s
+08 check-no-secrets rc=0 50s
+09 test-check-no-secrets rc=0 73s
+10 test-gate-env rc=0 219s
+11 check-xfx-identity rc=0 2s
+12 check-preview-contract rc=0 2s
+13 test-preview-contract rc=0 57s
+14 check-tui-preflight-cost rc=0 0s
+15 check-usage-clock rc=0 1s
+16 fxcap-test-sweep rc=0 15s
+17 fxcap-test-capture rc=0 298s
+18 build-release rc=0 0s
+19 build-faulty rc=0 0s
+20 smoke rc=0 2s
+21 smoke-tui rc=0 75s
+# slot released 2026-11-08T22:44:57Z
+# tree after: 0 tracked changes
+exit=0
+# 04: 5449 passed, 0 failed over every target; 05: 195 passed; 0; 06: 4556 passed; 0
+# 21: smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+# 16, from its log (added in round 2, opus): test_sweep.py "Ran 70 tests" OK, then test_ci_sweep.py "Ran 27 tests" OK -- 97
+
+# run 1, same commit, TMPDIR=<scratch>/history-notice-stop: step 16 failed on the path length alone
+# (5 of test_sweep.py's 70 tests: 'sweep: --tmp is too long for a tmux socket path under it', sweep.py:159-161); every other step rc=0
+# head f16a62ab2ba8acbeff7c492cfe9048f3fc520156, tree: 0 tracked changes
+# slot taken 2026-11-08T21:35:31Z
+00 false rc=1 0s
+01 fmt rc=0 1s
+02 clippy rc=0 6s
+03 clippy-fault rc=0 4s
+04 test rc=0 118s
+05 test-fault-tui rc=0 44s
+06 test-fault-lib rc=0 96s
+07 check-no-stubs rc=0 12s
+08 check-no-secrets rc=0 56s
+09 test-check-no-secrets rc=0 125s
+10 test-gate-env rc=0 258s
+11 check-xfx-identity rc=0 1s
+12 check-preview-contract rc=0 3s
+13 test-preview-contract rc=0 54s
+14 check-tui-preflight-cost rc=0 99s
+15 check-usage-clock rc=0 1s
+16 fxcap-test-sweep rc=1 4s
+17 fxcap-test-capture rc=0 279s
+18 build-release rc=0 18s
+19 build-faulty rc=0 41s
+20 smoke rc=0 2s
+21 smoke-tui rc=0 74s
+# slot released 2026-11-08T21:57:07Z
+# tree after: 0 tracked changes
+exit=0

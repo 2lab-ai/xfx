@@ -1,0 +1,27 @@
+pairs: reference 76, train 590, shared 76; only the reference: 0
+reference: 76 pairs, pass 51; identical 1, normalized-identical 50, unresolved-defect 25
+train: 76 pairs, pass 51; identical 1, normalized-identical 50, unresolved-defect 25
+verdicts moved: 0
+fx screens not the same in the two sweeps: 3
+    approvals-big end
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+xfx screens not the same in the two sweeps: 16
+    approvals after-cc-cmd-ask
+    approvals cmd2-ask
+    approvals edit-amend-typed
+    approvals edit-ask
+    approvals edit-down1
+    approvals edit-down3-wrap
+    approvals edit-tab-amend
+    approvals write-ask
+    approvals-amend-limit asked
+    approvals-amend-limit refused
+    approvals-amend-limit refused-after-edit
+    approvals-amend-limit refused-again
+    approvals-big write-big
+    approvals-big write-big-walked
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 0

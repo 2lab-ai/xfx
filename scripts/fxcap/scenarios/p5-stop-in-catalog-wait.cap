@@ -1,0 +1,28 @@
+# Phase 5 STOP-IN-CATALOG-WAIT: a turn in Ultra on openai/gpt-6-astra whose
+# catalog could not be read at launch (the fake gateway's catalog answers 503
+# for its first 3 s) waits, at its start, for the read its prompt started --
+# which takes 10 s to answer -- and Ctrl-C lands 0.7 s into that wait. fx
+# v0.0.16 ends the turn there, interrupted (`resolveForRequest`,
+# `model_cache_runtime.zig:855-865@481104fd`; `orchestrator.zig:5893-5919`):
+# the stop's one Cancelled line, idle, and no error -- not Ultra's refusal,
+# which is a request's (`:7657`). The prompt waits out the failure's 5 s
+# backoff, so it starts a read.
+xfx: env XFX_SOUND=off
+models models.json
+modelsdown 3000
+modelsdelay 10000
+seed p5-stop-ultra-seed.json
+nomodel
+wait 8
+snap before
+type say something
+key Enter
+wait 0.7
+key C-c
+wait 1
+snap stopped
+wire stopped
+until gone press ctrl+c again to exit
+wait 1
+snap settled
+gwlog

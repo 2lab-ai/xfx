@@ -1,0 +1,12 @@
+commit b9658fe7e57d0a1232a9cd7c9183e09fda3e606f
+Merge: b4211654 3824f6ba
+
+Merge QUESTIONS-20 (feat/p5-questions-20 @ 3824f6ba) into train 9
+
+ask_user_question takes 1 to 20 questions, as fx v0.0.16 (I11):
+MAX_QUESTIONS, the schema, the description, the refusal, the
+worst-case result bound 184 881. The ledger's question-cap-four is
+replaced by question-resume-replay.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+

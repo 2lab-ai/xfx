@@ -1,0 +1,31 @@
+# Train 9's sweep selection, one --only glob or name a line (sweep.py's
+# --only), each group with why (the README's Sweep).
+#
+# The brief's first group: the stop, catalog and model scenarios --
+# STOP-IN-CATALOG-WAIT's own selection (model-*, p5-lifecycle-osc-stopnext,
+# p5-input-model*, p5-stop-in-catalog-wait), widened to train 7's families
+# for the same paths (every p5-lifecycle-* -- STOP-NEXT-2's OSC 7501 and
+# lifecycle scenarios -- h1-models*, model*, p5-input-model*), the settings
+# screen's model rows, the cancel scenarios trains 6 to 8 swept for a stop's
+# end (interrupt*, compact-cancel, p5-transcript-cancel), and every scenario
+# whose name says stop.
+p5-lifecycle-*
+h1-models*
+model*
+p5-input-model*
+settings-model*
+interrupt*
+compact-cancel
+p5-transcript-cancel
+*stop*
+# The brief's second group: p5-input-question*, with QUESTIONS-20's own
+# selection (its sweep: --only '*question*' --only '*approval*').
+p5-input-question*
+*question*
+*approval*
+# The brief's third: STOP-IN-CATALOG-WAIT's scenario (in *stop* above too).
+p5-stop-in-catalog-wait
+# The scenarios of every ledger entry the merges touched: QUESTIONS-20's
+# question-cap-four (p5-input-question) and question-resume-replay
+# (p5-input-question20), both in the globs above. STOP-IN-CATALOG-WAIT
+# touched no ledger entry; no reference was re-pointed.

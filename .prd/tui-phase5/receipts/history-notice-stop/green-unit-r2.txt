@@ -1,0 +1,11 @@
+# GREEN at dec785aa (round 2's code head): cargo test --locked --lib -- <the RED> <the ledger test> <the screen test> <both line-shell tests> <STOP-IN-CATALOG-WAIT's two>; then the pty pin tests/tui.rs a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind
+test interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write ... ok
+test interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written ... ok
+test tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... ok
+test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... ok
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4536 filtered out; finished in 26.14s
+test a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 180 filtered out; finished in 1.67s

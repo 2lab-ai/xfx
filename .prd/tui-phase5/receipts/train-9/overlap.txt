@@ -1,0 +1,15 @@
+== merge b4211654: ours ccced1f5, theirs 05a0a857, base 9298583e; files both changed: 0
+== merge b9658fe7: ours b4211654, theirs 3824f6ba, base 712dd8d1; files both changed: 2
+  docs/parity.md: ours 1 hunks, theirs 2 hunks; nearest: 68 unchanged base lines (ours 93-93, theirs 162-162)
+  scripts/fxcap/parity-ledger.toml: ours 13 hunks, theirs 2 hunks; nearest: 119 unchanged base lines (ours 533-533, theirs 653-653)
+== merge 189b8b10: ours dfedcd1a, theirs a832f4d7, base 712dd8d1; files both changed: 4
+  docs/parity.md: ours 3 hunks, theirs 1 hunks; nearest: 4 unchanged base lines (ours 242-242, theirs 237-237)
+  src/tui/event_loop.rs: ours 2 hunks, theirs 5 hunks; nearest: 0 unchanged base lines (ours 15842-15841, theirs 15842-15841)
+    touching: ours 15842-15841, theirs 15842-15841
+  src/tui/question.rs: ours 4 hunks, theirs 1 hunks; nearest: 249 unchanged base lines (ours 472-472, theirs 722-730)
+  tests/tui.rs: ours 2 hunks, theirs 8 hunks; nearest: 307 unchanged base lines (ours 14510-14509, theirs 14202-14202)
+== merge 534d5a81: ours 44c5d3e0, theirs 62d96c98, base 05a0a857; files both changed: 3
+  docs/parity.md: ours 3 hunks, theirs 1 hunks; nearest: 66 unchanged base lines (ours 162-162, theirs 95-95)
+  src/tui/shell.rs: ours 43 hunks, theirs 1 hunks; nearest: 393 unchanged base lines (ours 22485-22488, theirs 22882-22881)
+  src/tui/worker.rs: ours 1 hunks, theirs 4 hunks; nearest: 0 unchanged base lines (ours 17943-17942, theirs 17943-17942)
+    touching: ours 17943-17942, theirs 17943-17942

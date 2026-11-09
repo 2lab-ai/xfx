@@ -317,7 +317,15 @@ fn the_advertisement_carries_one_closed_schema_per_tool_in_registry_order() {
     );
     let questions = &ask_user_question["inputSchema"]["properties"]["questions"];
     assert_eq!(questions["minItems"], json!(1), "{questions}");
-    assert_eq!(questions["maxItems"], json!(4), "{questions}");
+    // fx v0.0.16's cap (`max_questions = 20`, `question_answer.zig:9`;
+    // `builtins/tools.zig:607@481104fd`).
+    assert_eq!(questions["maxItems"], json!(20), "{questions}");
+    assert!(
+        ask_user_question["description"]
+            .as_str()
+            .is_some_and(|text| text.starts_with("Ask the user 1-20 multiple-choice questions")),
+        "{ask_user_question}"
+    );
     let question_item = &questions["items"];
     assert_eq!(
         question_item["required"],

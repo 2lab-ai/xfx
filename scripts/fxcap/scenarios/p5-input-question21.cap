@@ -1,0 +1,17 @@
+# Phase 5 input cluster, I11: one question past fx v0.0.16's cap, then none.
+# Both are refused before any panel opens, with
+# `(ask_user_question: provide 1 to 20 questions)` (28cf53b5), and each turn
+# goes on to its answer.
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-input-question21-turns.json
+wait 4
+type ask too many
+key Enter
+wait 3
+snap q21
+type ask none
+key Enter
+wait 3
+snap q0
+snapfull q0
+gwlog

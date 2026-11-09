@@ -1,8 +1,8 @@
-# X1: a paste whose end marker shares a read with Enter. One `type` carries
-# all of it, so it lands in one read: fx c1db919 refuses the paste and drops
-# the Enter (`paste_framing.zig:160-167`); v0.0.16 keeps the paste instead
-# (9e0eab41), which is Phase 5's. Copied from the Phase 5 research
-# (`p5-input-paste.cap`), the keystrokes byte for byte.
+# A paste whose end marker shares a read with Enter. One `type` carries all
+# of it, so it lands in one read: fx v0.0.16 keeps the paste, drops the Enter
+# and warns (9e0eab41; `input_paste_runtime.zig:168-198@481104fd`). Phase 4's
+# X1 scenario, from when xfx followed c1db919 and refused the paste; the
+# keystrokes are `p5-input-paste.cap`'s byte for byte.
 fx: env FX_AUTO_UPGRADE=0
 wait 4
 type prior

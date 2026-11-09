@@ -1,0 +1,29 @@
+pairs: reference 73, train 322, shared 73; only the reference: 0
+reference: 73 pairs, pass 62; normalized-identical 62, unresolved-defect 11
+train: 73 pairs, pass 65; normalized-identical 65, unresolved-defect 8
+model-column-idle col-down: 4 differing rows left, 0 new
+    left: fx '' / xfx '         anthropic/claude-opus-5'
+    left: fx '' / xfx '         fake/model-a'
+    left: fx '' / xfx '         xai/grok-4.7'
+    left: fx '         unable to load models' / xfx '         openai/gpt-6-astra'
+model-column-idle col-idle: 4 differing rows left, 0 new
+    left: fx '' / xfx '         anthropic/claude-opus-5'
+    left: fx '' / xfx '         fake/model-a'
+    left: fx '' / xfx '         xai/grok-4.7'
+    left: fx '         unable to load models' / xfx '         openai/gpt-6-astra'
+model-column-idle col-typed: 4 differing rows left, 0 new
+    left: fx '' / xfx '         anthropic/claude-opus-5'
+    left: fx '' / xfx '         fake/model-a'
+    left: fx '' / xfx '         xai/grok-4.7'
+    left: fx '         unable to load models' / xfx '         openai/gpt-6-astra'
+verdicts moved: 3
+    model-column-idle col-down: unresolved-defect -> normalized-identical
+    model-column-idle col-idle: unresolved-defect -> normalized-identical
+    model-column-idle col-typed: unresolved-defect -> normalized-identical
+fx screens not the same in the two sweeps: 0
+xfx screens not the same in the two sweeps: 3
+    model-column-idle col-down
+    model-column-idle col-idle
+    model-column-idle col-typed
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 0

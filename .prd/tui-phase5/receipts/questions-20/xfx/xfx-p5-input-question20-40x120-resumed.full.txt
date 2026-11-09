@@ -1,0 +1,62 @@
+x𝒇x v0.1.0-eef9fd5 [debug] · Run /help for commands
+
+┃ ask twenty
+
+  1) Pick 1?
+     Keep 1
+  2) Pick 2?
+     Change 2
+  3) Pick 3?
+     Keep 3
+  4) Pick 4?
+     Change 4
+  5) Pick 5?
+     Keep 5
+  6) Pick 6?
+     Change 6
+  7) Pick 7?
+     Keep 7
+  8) Pick 8?
+     Change 8
+  9) Pick 9?
+     Keep 9
+* session resumed: ask twenty
+
+┃ ask twenty
+
+  Twenty done.
+
+  5s (↑3 ↓80)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
