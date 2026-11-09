@@ -16168,4 +16168,40 @@ mod tests {
             "the end of input settled the paste"
         );
     }
+
+    #[test]
+    fn a_stream_that_fills_every_read_after_a_paste_is_still_said_at_the_read_cap() {
+        // opus on PASTE-GAP round 2: what the quarantine drops is said at a
+        // check that finds nothing, and a turn that reaches its 32-read cap
+        // with input still waiting makes none -- so a stream after a paste that
+        // never let a check find nothing was dropped with nothing said. The
+        // cap says what is owed, and settles and ends nothing.
+        let mut shell = shell();
+        shell.route_read(b"prior");
+        shell.end_delivery();
+        let paste = Readable {
+            bytes: b"\x1b[200~new\x1b[201~".to_vec(),
+            at: std::cell::Cell::new(0),
+        };
+        paste.turn(&mut shell);
+        assert_eq!(composer(&shell), format!("{COMPOSER_MARKER} priornew"));
+        let _ = shell.take_pending();
+        let stream = Readable {
+            bytes: vec![b'y'; READ_BURSTS * BURST_BYTES + 1],
+            at: std::cell::Cell::new(0),
+        };
+        assert_eq!(stream.turn(&mut shell), READ_BURSTS * BURST_BYTES);
+        let said = shell
+            .take_pending()
+            .into_iter()
+            .flat_map(|append| append.rows)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            said.contains("Input that arrived right after the paste was ignored."),
+            "the cap said nothing: {said:?}"
+        );
+        assert_eq!(composer(&shell), format!("{COMPOSER_MARKER} priornew"));
+        assert!(shell._work.try_recv().is_err(), "a turn was started");
+    }
 }

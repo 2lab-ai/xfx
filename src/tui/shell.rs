@@ -19011,6 +19011,115 @@ mod tests {
         );
     }
 
+    /// xfx's sentence for input still being dropped while a paste begun behind
+    /// the first one's end marker is open: what ends it is that paste's end,
+    /// not a pause. Spelled out, as [`still_ignored_after_the_paste`] is.
+    fn still_ignored_until_the_paste_ends() -> notice::Notice {
+        notice::Notice::warning(
+            "input",
+            "Input is still being ignored until the paste's end arrives.",
+        )
+    }
+
+    /// And while a marker is half read: what ends it is one more byte, then
+    /// a pause.
+    fn still_ignored_until_one_more_key() -> notice::Notice {
+        notice::Notice::warning(
+            "input",
+            "Input is still being ignored until one more key and a moment's pause.",
+        )
+    }
+
+    #[test]
+    fn the_repeat_while_a_dropped_paste_is_open_says_it_waits_for_the_paste_s_end() {
+        // Both engines on PASTE-GAP round 2: with a paste begun behind the
+        // first one's end marker still open, stopping the input releases
+        // nothing -- the paste's own end marker does -- so "until it stops for
+        // a moment" would be false. The repeat says what does end it, and
+        // stopping changes nothing.
+        let tick = super::super::event_loop::TICK;
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~\x1b[200~two ");
+        shell.end_delivery_at(t0);
+        let mut at = t0;
+        for _ in 0..150 {
+            at += tick;
+            shell.route_read(b"y");
+            shell.end_delivery_at(at);
+        }
+        for later in [1, 5, 10] {
+            shell.end_delivery_at(at + Duration::from_secs(later));
+        }
+        assert!(
+            shell.decoder.quarantined(),
+            "stopping released the open paste"
+        );
+        shell.route_read(b"z\r");
+        shell.end_delivery_at(at + Duration::from_secs(11));
+        assert_eq!(
+            shell.editor.text(),
+            "priornew",
+            "a byte inside it was typed"
+        );
+        assert!(shell.sent.try_recv().is_err(), "a byte inside it was sent");
+        // The warning at the settle; the repeat a second into the stream; and
+        // once more for the key typed after the pause, which it also dropped.
+        let mut said_so = said(ignored_behind_the_paste());
+        said_so.extend(said(still_ignored_until_the_paste_ends()));
+        said_so.extend(said(still_ignored_until_the_paste_ends()));
+        assert_eq!(shell.document(), said_so);
+    }
+
+    #[test]
+    fn the_repeat_while_a_marker_is_half_read_says_it_waits_for_one_more_key() {
+        // A marker half read holds the quarantine through any pause (`ESC [`
+        // is how a paste's start begins), so the repeat said in that state
+        // says what ends it: one more byte, then a pause. Once that byte has
+        // broken the marker the next repeat is the pause's sentence again.
+        let tick = super::super::event_loop::TICK;
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(t0);
+        let first = t0 + tick;
+        let mut at = t0;
+        loop {
+            at += tick;
+            let repeat_due =
+                at.saturating_duration_since(first) >= super::super::input::Decoder::PASTE_REPEAT;
+            shell.route_read(if repeat_due { b"\x1b[" } else { b"y" });
+            shell.end_delivery_at(at);
+            if repeat_due {
+                break;
+            }
+        }
+        for later in [1, 5] {
+            shell.end_delivery_at(at + Duration::from_secs(later));
+        }
+        assert!(
+            shell.decoder.quarantined(),
+            "a pause released a half-read marker"
+        );
+        shell.route_read(b"x");
+        let broke = at + Duration::from_secs(6);
+        shell.end_delivery_at(broke);
+        shell.end_delivery_at(broke + super::super::input::Decoder::PASTE_QUIET);
+        assert!(
+            !shell.decoder.quarantined(),
+            "the pause after the broken marker"
+        );
+        let mut said_so = said(ignored_behind_the_paste());
+        said_so.extend(said(still_ignored_until_one_more_key()));
+        said_so.extend(said(still_ignored_after_the_paste()));
+        assert_eq!(shell.document(), said_so);
+        assert_eq!(shell.editor.text(), "priornew");
+    }
+
     #[test]
     fn a_paste_past_the_budget_with_input_behind_it_says_the_limit_then_the_ignored_input() {
         // fx v0.0.16 finishes the paste first -- an overflowed capture is the

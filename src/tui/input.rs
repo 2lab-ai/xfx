@@ -3561,6 +3561,60 @@ mod tests {
     }
 
     #[test]
+    fn a_lone_escape_in_the_quarantine_is_dropped_once_the_input_is_quiet() {
+        // opus on PASTE-GAP round 2: a lone ESC is the first byte of a start
+        // marker, so it was held as one, and only a byte after it let the
+        // quarantine end -- an Escape pressed in the window held the input
+        // through any pause. Once the input has been quiet for `PASTE_QUIET`
+        // it was the Escape key, as the stage machine resolves a lone ESC
+        // after `ESC_TIMEOUT`: dropped, and the quiet ends the quarantine.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let (mut decoder, mut out) = settled_new(t0);
+        decoder.feed(0x1b, t0 + ms, &mut out);
+        deliver_at(&mut decoder, &mut out, t0 + ms * 2);
+        deliver_at(&mut decoder, &mut out, t0 + ms * 2 + Decoder::PASTE_QUIET);
+        assert!(!decoder.quarantined(), "a held Escape outlasted the quiet");
+        fed(
+            &mut decoder,
+            b"\r",
+            t0 + ms * 3 + Decoder::PASTE_QUIET,
+            &mut out,
+        );
+        assert_eq!(out, kept_new_then(&[Input::Action(Action::Submit)]));
+    }
+
+    #[test]
+    fn escape_pressed_and_pressed_again_in_the_quarantine_still_lets_the_quiet_end_it() {
+        // Each Escape breaks the one held before it and is held in its place,
+        // so pressing nothing but Escape never left the marker unread. A tick
+        // apart for 200 ms, then nothing: the quiet ends the quarantine, and
+        // none of them was a key.
+        let tick = super::super::event_loop::TICK;
+        let t0 = Instant::now();
+        let (mut decoder, mut out) = settled_new(t0);
+        let mut at = t0;
+        while at < t0 + Duration::from_millis(200) {
+            at += tick;
+            decoder.feed(0x1b, at, &mut out);
+            deliver_at(&mut decoder, &mut out, at);
+        }
+        deliver_at(&mut decoder, &mut out, at + tick);
+        deliver_at(&mut decoder, &mut out, at + tick + Decoder::PASTE_QUIET);
+        assert!(!decoder.quarantined(), "Escape alone held the input");
+        assert_eq!(out, kept_new(), "an Escape inside the quarantine was a key");
+        // And a half-read start marker still holds it through the same pause.
+        let (mut decoder, mut out) = settled_new(t0);
+        fed(&mut decoder, b"\x1b[", t0 + tick, &mut out);
+        deliver_at(&mut decoder, &mut out, t0 + tick * 2);
+        deliver_at(&mut decoder, &mut out, t0 + tick * 2 + Decoder::PASTE_QUIET);
+        assert!(
+            decoder.quarantined(),
+            "a half-read marker let the pause end it"
+        );
+    }
+
+    #[test]
     fn a_quarantine_ends_at_the_first_empty_check_at_or_past_the_quiet() {
         // An idle loop checks every `TICK`, so a quiet quarantine is checked
         // several times before `PASTE_QUIET` has passed. None of those checks
