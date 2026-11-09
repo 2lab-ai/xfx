@@ -14320,11 +14320,11 @@ impl CommandHandlers for Shell {
         // The effort and speed rows are the catalog's answer for the model in
         // force, which upstream's menu reads from a cache filled at launch
         // (`settingsCatalogSnapshot`'s `resolvedModelCapabilities`,
-        // `app_commands.zig:4031-4047`). This side reads the catalog when it
-        // is wanted, so the menu waits for it -- asking for no read of its
-        // own, as upstream's starts none ([`CatalogAsk::TOLD`]): the rows show
-        // their choices once it lands ([`UiEvent::CatalogLoaded`] re-solves
-        // the band).
+        // `app_commands.zig:3230-3246@481104fd`). This side reads the catalog
+        // when it is wanted, so the menu waits for it -- asking for no refresh
+        // and no retry, as upstream's starts none; only the first load nothing
+        // has made ([`CatalogAsk::TOLD`]): the rows show their choices once it
+        // lands ([`UiEvent::CatalogLoaded`] re-solves the band).
         self.want_catalog(CatalogAsk::TOLD);
         // [`Self::run_command`] re-solved the band before routing here, for a
         // band with no menu in it.
@@ -14921,8 +14921,9 @@ impl Shell {
 
     /// Asks the runtime for the catalog with `ask` when nothing has yet: on
     /// the inline column's behalf ([`CatalogAsk::AWAITED`]), or for
-    /// `/settings` and the speed commands, which wait for the answer without
-    /// starting a read ([`CatalogAsk::TOLD`]). A control message, as
+    /// `/settings` and the speed commands, which wait for the answer starting
+    /// no refresh and no retry -- only the first load nothing has made
+    /// ([`CatalogAsk::TOLD`]). A control message, as
     /// [`Self::open_models`]'s is, so the column says `loading models...`
     /// only until the read lands, a turn running or not. A catalog that could
     /// not be read is not asked again from an edit: the column says `unable
@@ -24457,7 +24458,8 @@ mod tests {
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/fast" {
                 // Decided against the model's catalog row, which this fixture
-                // has not read: waited for -- no read asked -- and answered
+                // has not read: waited for -- with no trigger of its own --
+                // and answered
                 // when it arrives.
                 assert!(
                     document.is_empty(),
@@ -48662,15 +48664,16 @@ mod tests {
     }
 
     #[test]
-    fn settings_and_the_speed_commands_wait_for_the_catalog_and_never_ask_for_a_read() {
+    fn settings_and_the_speed_commands_wait_for_the_catalog_and_never_ask_for_a_refresh() {
         // fx's `/settings`, `/fast` and `/ultrafast` read the capabilities its
         // model cache holds and start no load (`settingsCatalogSnapshot` ->
         // `resolvedModelCapabilities`, `app_commands.zig:3230-3246`;
         // `handleFast`'s `resolveForApp`, `session_commands.zig:827`;
         // `model_capabilities.zig:133-141`; `src/main.zig:2060-2066@481104fd`).
         // Here they wait for the runtime's answer when the band has none --
-        // the launch's read, or a provider switch's, is on its way -- and
-        // never ask with a trigger that starts one.
+        // the launch's read, or a provider switch's, is on its way -- with no
+        // trigger: no refresh and no retry, only the first load nothing has
+        // made (the runtime's half, `super::worker`'s `trigger_over`).
         let stale = catalog_now()
             .checked_sub(REFRESH_INTERVAL + Duration::from_secs(1))
             .expect("a clock older than five minutes");

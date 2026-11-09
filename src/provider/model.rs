@@ -1326,7 +1326,8 @@ pub enum LoadTrigger {
     /// (`startModelCacheWarmup`): a catalog in hand is read again only once
     /// it is [`REFRESH_INTERVAL`] old, or once a refresh of it failed in a
     /// way asking again could change. `/settings` and the speed commands are
-    /// none of these: they read what is held and start nothing.
+    /// none of these: they read what is held and start no refresh and no
+    /// retry -- only the first load nothing has made.
     Activity,
     /// `/model`'s menu opening (`revalidateModelCache`, `src/main.zig:
     /// 2011-2015`, from `openModelMenu`, `app_input_runtime.zig:1897-1902`):

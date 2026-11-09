@@ -101,7 +101,7 @@ use crate::interactive::{
 };
 use crate::output::{ShellSession, StatusSnapshot};
 use crate::permission::{LiveAuthority, LiveRules, PermissionSession};
-use crate::provider::catalog_clock::{CatalogClock, CatalogTime};
+use crate::provider::catalog_clock::CatalogTime;
 use crate::provider::model::{
     Applied, CatalogEntry, CatalogReader, CatalogRetry, CatalogState, Held, LoadClock, LoadTrigger,
     LoadView, ModelOutcome, ModelRequest, ModelSelector, StartedLoad, FAILED_CATALOG_RETRY_WAIT,
@@ -4254,13 +4254,15 @@ async fn ask_catalog(state: &mut Runtime, events: &Sender<UiEvent>, ask: bridge:
 }
 
 /// The trigger `ask` reads by over `held`: its own, or -- for an ask with
-/// none ([`bridge::CatalogAsk::TOLD`]) -- the first load while nothing has
-/// been read, the warmup the runtime owes whatever asks, as upstream's launch
-/// and provider switch start one (`startModelCacheWarmup`,
-/// `app_entry_runtime.zig:340`, `app_auth_runtime.zig:2015-2024@481104fd`);
-/// never a refresh. An ask put aside behind a provider switch is answered
-/// before the loop starts that load ([`apply_deferred`]), and is not to be
-/// told that the new provider has no rows.
+/// none ([`bridge::CatalogAsk::TOLD`]) -- a first load over `NotLoaded`
+/// ([`Held::Nothing`]), past any hold a failure left on it: the warmup the
+/// runtime owes whatever asks, as upstream's launch and provider switch start
+/// one (`startModelCacheWarmup`, `app_entry_runtime.zig:340`,
+/// `app_auth_runtime.zig:2015-2024@481104fd`). Never a refresh of rows, and
+/// never a retry of a failure the selector holds. An ask put aside behind a
+/// provider switch is answered before the loop starts that load
+/// ([`apply_deferred`]), and is not to be told that the new provider has no
+/// rows.
 fn trigger_over(ask: bridge::CatalogAsk, held: Option<Held>) -> Option<LoadTrigger> {
     ask.trigger
         .or_else(|| (held == Some(Held::Nothing)).then_some(LoadTrigger::Activity))
@@ -4384,11 +4386,14 @@ impl CatalogAsks {
     /// with none due, the catalog as it stands is what to tell now, when the
     /// band waits on an answer.
     fn asked(&self, control: &ControlChannel, ask: bridge::CatalogAsk) -> Option<UiEvent> {
-        let now = match self {
-            Self::Reading { reader, .. } => reader.now(),
-            Self::AfterWork => CatalogClock::system().now(),
-        };
-        self.asked_at(control, ask, now)
+        match self {
+            Self::Reading { reader, .. } => self.asked_at(control, ask, reader.now()),
+            // Put aside unread: nothing here is decided by the clock.
+            Self::AfterWork => {
+                control.defer_catalog(ask);
+                None
+            }
+        }
     }
 
     /// [`Self::asked`], at `now`.
@@ -6485,7 +6490,7 @@ mod tests {
 
     use std::collections::BTreeMap;
 
-    use crate::provider::catalog_clock::CatalogDue;
+    use crate::provider::catalog_clock::{CatalogClock, CatalogDue};
 
     use crate::config::{Environment, PermissionMode};
     use crate::gateway::protocol::{Completion, FinishReason, ToolCall, Usage};
@@ -16664,7 +16669,7 @@ mod tests {
         );
         // A failure past its hold: activity reads it again, as upstream's
         // `.failed` is read by any trigger past its backoff (`:621-622`);
-        // `/settings` and the speed commands still read nothing.
+        // `/settings` and the speed commands read nothing over it.
         let (_home, _workspace, mut state) = recording();
         state.selector.set_clock_for_test(machine.clock());
         let asked = Arc::new(AtomicUsize::new(0));

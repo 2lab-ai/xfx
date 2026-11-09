@@ -1027,7 +1027,8 @@ fn spelled_shown(shown: Shown) -> Shown {
 /// what it holds meanwhile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CatalogAsk {
-    /// `None`: no trigger, so no read starts for it ([`Self::TOLD`]).
+    /// `None`: none of upstream's triggers, so no refresh and no retry starts
+    /// for it -- only the first load nothing has made ([`Self::TOLD`]).
     pub(crate) trigger: Option<crate::provider::model::LoadTrigger>,
     /// The band waits on an answer: one is told even when no read starts.
     pub(crate) awaited: bool,
@@ -1062,13 +1063,15 @@ impl CatalogAsk {
         awaited: true,
     };
     /// `/settings`' rows, `/fast` or `/ultrafast` over nothing they can
-    /// decide by, waiting on the answer and **starting no read**: upstream's
-    /// read the capabilities its cache holds and load nothing
-    /// (`settingsCatalogSnapshot` -> `resolvedModelCapabilities`,
+    /// decide by, waiting on the answer and **starting no refresh and no
+    /// retry**: upstream's read the capabilities its cache holds and load
+    /// nothing (`settingsCatalogSnapshot` -> `resolvedModelCapabilities`,
     /// `app_commands.zig:3230-3246`, `src/main.zig:2060-2066@481104fd`;
     /// `handleFast`'s `resolveForApp`, `session_commands.zig:827`). The
-    /// answer they wait for is the read the runtime starts itself, at launch
-    /// and on a provider switch, as upstream's warmup is.
+    /// answer they wait for is the first load the runtime owes at launch and
+    /// on a provider switch, as upstream's warmup is -- which this ask may
+    /// start itself, over a selector nothing has read yet
+    /// (`super::worker`'s `trigger_over`).
     pub(crate) const TOLD: Self = Self {
         trigger: None,
         awaited: true,
