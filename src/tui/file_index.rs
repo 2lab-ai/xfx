@@ -965,6 +965,9 @@ pub(crate) struct Files {
     /// count the directory work a session asked for.
     #[cfg(test)]
     started: usize,
+    /// How many of them were walks.
+    #[cfg(test)]
+    walks: usize,
 }
 
 impl Files {
@@ -983,6 +986,8 @@ impl Files {
             listing: None,
             #[cfg(test)]
             started: 0,
+            #[cfg(test)]
+            walks: 0,
         }
     }
 
@@ -1031,6 +1036,7 @@ impl Files {
             #[cfg(test)]
             {
                 self.started += 1;
+                self.walks += 1;
             }
             self.walk = Some(Walk {
                 rx,
@@ -1098,6 +1104,12 @@ impl Files {
     #[cfg(test)]
     pub(crate) fn started_for_test(&self) -> usize {
         self.started
+    }
+
+    /// The walks this source has started.
+    #[cfg(test)]
+    pub(crate) fn walks_for_test(&self) -> usize {
+        self.walks
     }
 
     /// Whether a directory listing is in flight.
@@ -1742,8 +1754,12 @@ pub(crate) mod tests {
         // (`completeCancellable`, `checkCancellation`, `path_completion.zig:
         // 43-146@481104fd`): cooperative, so a listing of a large folder told
         // to stop part of the way through ends there rather than reading
-        // every entry. Told after the folder is open and 100 entries in, it
-        // asks once more and stops.
+        // every entry. Round 5 (gpt6 r4 SHOULD 1): it asks where fx's does
+        // (`:88-96`) -- before the folder is opened, then for each entry
+        // before the advance, after it, and before the entry's `stat` -- so
+        // a listing of n entries that is never told asks 1 + 3n + 1 times
+        // (the last before the advance that finds none), and one told at its
+        // k-th question stops there.
         let dir = tempfile::tempdir().expect("a folder");
         for n in 0..2000 {
             std::fs::write(dir.path().join(format!("f-{n:04}")), "").expect("a file");
@@ -1762,10 +1778,17 @@ pub(crate) mod tests {
         let mut asked = 0;
         let listed = list_directory_until(dir.path(), || {
             asked += 1;
-            asked > 101
+            false
+        });
+        assert_eq!(listed.map(|entries| entries.len()), Ok(2000));
+        assert_eq!(asked, 3 * 2000 + 2, "not fx's three questions an entry");
+        let mut asked = 0;
+        let listed = list_directory_until(dir.path(), || {
+            asked += 1;
+            asked == 302
         });
         assert_eq!(listed.map(|entries| entries.len()), Err(()));
-        assert_eq!(asked, 102, "the listing did not ask between entries");
+        assert_eq!(asked, 302, "the listing went on past its stop");
     }
 
     #[test]

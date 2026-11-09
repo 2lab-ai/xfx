@@ -34974,6 +34974,7 @@ mod tests {
         shell.route_bytes(&[0x0f]);
         assert!(shell.full.is_open(), "Ctrl-O opened no transcript");
         let base = shell.files_for_test().started_for_test();
+        let walks = shell.files_for_test().walks_for_test();
         shell.route_bytes(b"@src/");
         shell.settle_band(Instant::now());
         assert_eq!(
@@ -34990,15 +34991,106 @@ mod tests {
         shell.route_bytes(&[0x0f]);
         assert!(!shell.full.is_open());
         shell.settle_band(Instant::now());
+        // Round 5 (gpt6 r4 MUST): the folder's listing and no walk -- fx
+        // refreshes the index only for a query the index answers
+        // (`prepareFilePicker`, `input_completion_runtime.zig:854-866@481104fd`).
         assert_eq!(
             shell.files_for_test().started_for_test(),
-            base + 2,
-            "not the episode's walk and the folder's listing once it closed"
+            base + 1,
+            "not the folder's listing alone once it closed"
         );
+        assert_eq!(shell.files_for_test().walks_for_test(), walks);
         listed(&mut shell);
         assert_eq!(
             listed_paths(&shell),
             ["src", "src/deep", "src/lib.rs", "src/main.rs"]
+        );
+    }
+
+    #[test]
+    fn a_folder_query_opens_with_its_listing_and_no_walk() {
+        // Round 5 (gpt6 r4 MUST): fx's episode asks for an index refresh,
+        // and `prepareFilePicker` takes it -- and walks the workspace -- only
+        // `if (state.indexed)` (`input_completion_runtime.zig:854-866@
+        // 481104fd`), which a browsed path is not (`fileCompletionsDependOnIndex`
+        // is `queryMode(query) == .workspace_index`,
+        // `app_workspace_runtime.zig:82-84`). So `@src/` reads its folder and
+        // walks nothing. Pasted, so the episode's first query is the folder's:
+        // typed, a bare `@` opens it, indexed, and walks.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let walks = shell.files_for_test().walks_for_test();
+        let base = shell.files_for_test().started_for_test();
+        shell.route_bytes(b"\x1b[200~@src/\x1b[201~");
+        assert_eq!(shell.editor.text(), "@src/");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks,
+            "a folder query walked the workspace"
+        );
+        assert_eq!(shell.files_for_test().started_for_test(), base + 1);
+        listed(&mut shell);
+        assert_eq!(
+            listed_paths(&shell),
+            ["src", "src/deep", "src/lib.rs", "src/main.rs"]
+        );
+    }
+
+    #[test]
+    fn an_indexed_query_opens_with_one_walk_or_none_while_one_runs() {
+        // An indexed query's episode walks the workspace once
+        // (`refreshFileIndex`); while the first index is still loading, none
+        // is started beside it (`file_picker_episode_seen` with
+        // `isFileIndexLoading`, `input_completion_runtime.zig:857-861@481104fd`;
+        // in xfx no refresh starts a walk while one runs, `Files::refresh_index`).
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let walks = shell.files_for_test().walks_for_test();
+        shell.route_bytes(b"@sch");
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 1);
+        let (_workspace, mut loading) = in_ws2(40, 120);
+        let _walk = super::super::file_index::tests::driven(loading.files_for_test());
+        let walks = loading.files_for_test().walks_for_test();
+        loading.route_bytes(b"@sch");
+        loading.settle_band(Instant::now());
+        assert_eq!(
+            loading.files_for_test().walks_for_test(),
+            walks,
+            "a second walk started beside the loading one"
+        );
+    }
+
+    #[test]
+    fn a_folder_query_edited_into_an_indexed_one_asks_for_the_refresh() {
+        // fx's reconcile asks for the index refresh again when the query
+        // changes between an indexed and an explicit one (`refresh_requested
+        // = ... or self.indexed != indexed`, `file_completion_state.zig:164@
+        // 481104fd`); taken on an explicit query, the request walks nothing
+        // (`:855-856`). So `@sr` walks, `@src/` lists its folder, and `@src`
+        // -- indexed again, in the same episode -- walks again.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let walks = shell.files_for_test().walks_for_test();
+        shell.route_bytes(b"@sr");
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 1);
+        // The walk done, so a refresh would start another.
+        let deadline = Instant::now() + START_PATIENCE;
+        while shell.files_for_test().busy() {
+            assert!(Instant::now() < deadline, "the walk never finished");
+            std::thread::sleep(Duration::from_millis(2));
+            shell.settle_band(Instant::now());
+        }
+        shell.route_bytes(b"c/");
+        listed(&mut shell);
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "the folder query walked"
+        );
+        shell.route_bytes(&[0x7f]);
+        assert_eq!(shell.editor.text(), "@src");
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 2,
+            "an explicit query turned indexed did not refresh the index"
         );
     }
 
@@ -44498,6 +44590,7 @@ mod tests {
         let mut shell = skilled();
         shell.route_bytes(b"$");
         let base = shell.files_for_test().started_for_test();
+        let walks = shell.files_for_test().walks_for_test();
         shell.route_bytes(b"\x1b[200~dem @src/\x1b[201~");
         shell.settle_band(Instant::now());
         assert_eq!(shell.editor.text(), "$dem @src/");
@@ -44517,7 +44610,9 @@ mod tests {
         shell.settle_band(Instant::now());
         assert!(shell.skills_menu.is_none());
         assert!(shell.file_picker.is_some(), "Escape closed the list too");
-        assert_eq!(shell.files_for_test().started_for_test(), base + 2);
+        // Round 5: the folder's listing, and no walk for a folder query.
+        assert_eq!(shell.files_for_test().started_for_test(), base + 1);
+        assert_eq!(shell.files_for_test().walks_for_test(), walks);
     }
 
     fn a_dollar_word_becomes_a_token(mut shell: Skilled) {

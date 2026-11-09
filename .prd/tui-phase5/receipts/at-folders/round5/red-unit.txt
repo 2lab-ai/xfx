@@ -1,0 +1,36 @@
+# round 5 RED at <this commit> (the cases on round 4's code, a7658343's src plus a test-only walk counter in file_index.rs): cargo test --locked --lib -- --exact <the 6 cases>, TMPDIR=<scratch>
+# an_indexed_query_opens_with_one_walk_or_none_while_one_runs passes on round 4's code: it pins (one walk for an indexed episode; none beside a loading one).
+running 6 tests
+test tui::shell::tests::a_folder_query_opens_with_its_listing_and_no_walk ... FAILED
+test tui::shell::tests::an_at_word_typed_under_the_full_transcript_reads_nothing_until_it_closes ... FAILED
+test tui::shell::tests::an_at_word_under_a_shown_skills_menu_reads_nothing_until_it_goes ... FAILED
+test tui::shell::tests::a_folder_query_edited_into_an_indexed_one_asks_for_the_refresh ... FAILED
+test tui::shell::tests::an_indexed_query_opens_with_one_walk_or_none_while_one_runs ... ok
+test tui::file_index::tests::a_listing_stops_between_entries_once_told_to ... FAILED
+thread 'tui::shell::tests::a_folder_query_opens_with_its_listing_and_no_walk' (397011166) panicked at src/tui/shell.rs:35026:9:
+assertion `left == right` failed: a folder query walked the workspace
+  left: 1
+ right: 0
+thread 'tui::shell::tests::an_at_word_typed_under_the_full_transcript_reads_nothing_until_it_closes' (397011167) panicked at src/tui/shell.rs:34997:9:
+assertion `left == right` failed: not the folder's listing alone once it closed
+  left: 2
+ right: 1
+thread 'tui::shell::tests::an_at_word_under_a_shown_skills_menu_reads_nothing_until_it_goes' (397011168) panicked at src/tui/shell.rs:44614:9:
+assertion `left == right` failed
+  left: 2
+ right: 1
+thread 'tui::shell::tests::a_folder_query_edited_into_an_indexed_one_asks_for_the_refresh' (397011165) panicked at src/tui/shell.rs:35090:9:
+assertion `left == right` failed: an explicit query turned indexed did not refresh the index
+  left: 1
+ right: 2
+thread 'tui::file_index::tests::a_listing_stops_between_entries_once_told_to' (397011164) panicked at src/tui/file_index.rs:1784:9:
+assertion `left == right` failed: not fx's three questions an entry
+  left: 2001
+ right: 6002
+    tui::file_index::tests::a_listing_stops_between_entries_once_told_to
+    tui::shell::tests::a_folder_query_edited_into_an_indexed_one_asks_for_the_refresh
+    tui::shell::tests::a_folder_query_opens_with_its_listing_and_no_walk
+    tui::shell::tests::an_at_word_typed_under_the_full_transcript_reads_nothing_until_it_closes
+    tui::shell::tests::an_at_word_under_a_shown_skills_menu_reads_nothing_until_it_goes
+test result: FAILED. 1 passed; 5 failed; 0 ignored; 0 measured; 4583 filtered out; finished in 4.05s
+error: test failed, to rerun pass `--lib`
