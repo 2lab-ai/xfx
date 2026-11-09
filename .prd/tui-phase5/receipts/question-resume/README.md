@@ -20,15 +20,17 @@ snaps. The base is `origin/main` at `32afd307`.
 | `a5861b54` | the Ctrl-O cause's `rows = ["1-40"]`, so the sweep attributes the blank rows xfx's shorter screen leaves (`sweep.py` `attribute`) |
 | `1f4b3d03` | round 1's receipt |
 | `300b98fc` | round 2 RED: the object-only rejects (`[["Q","A"]]` and its mixes) at the decoder, the hydration and the shell; the `read, read, ask` and `ask, read` tests; `red-tests-r2.txt` |
-| `63e8bbeb` | **the code head**, round 2: `decode_answers` read by hand (objects only, the twenty-first refused unread, any repeated key refused); the parity row's Escape, sentinel and questioner sentences; the failed-call mapping said in the row and the hydration |
+| `63e8bbeb` | round 2's fix: `decode_answers` read by hand (objects only; a twenty-first refused after `IgnoredAny` scanned it, which round 3 fixed; a key given twice in an answer's own object refused, not inside a skipped value); the parity row's Escape, sentinel and questioner sentences; the failed-call mapping said in the row and the hydration. The captures and the sweep are this commit's |
 | `56994078` | round 2's receipt |
 | `37cdd637` | round 3 RED: a twenty-first element must be refused unread (fails: `Eof` where `Data` is wanted); the two looser documents pinned (pass); `red-tests-r3.txt` |
-| round 3's fix | the rejecting seed; the looseness said in `decode_answers`'s doc, the parity row and here; `docs/parity.md`'s full-screen TUI row's Escape sentence; the row's sentinel paths and `:15601-15605`; `input_question_runtime.zig:59-81` in `fx-src.txt`; `mutants.*` |
+| `9a2921ce` | round 3's fix, **the code head**: the rejecting seed; the looseness said in `decode_answers`'s doc, the parity row and here; `docs/parity.md`'s full-screen TUI row's Escape sentence; the row's sentinel paths and `:15601-15605`; `input_question_runtime.zig:59-81` in `fx-src.txt` |
+| `678a9552` | round 3's receipt: `mutants.*` (16 of 16 at `9a2921ce`) |
+| round 4 | words and one test: the 8 MiB tail unclosed, so every tail of `the_twenty_first_element_is_refused_at_its_first_byte_unread` fails with round 2's scan (`red-tests-r4.txt`); the seed's value type uninhabited; Zig 0.17 marked inferred; the Escape-at-draft qualification; this file's false lines; `mutants.*` rerun |
 
 `git diff 63e8bbeb HEAD -- src` is `src/tools/question.rs` alone: the
 decode of a document past twenty elements, comments and tests. No capture
 holds such a document, so `xfx/`, `green.txt` and the sweep stand at
-`63e8bbeb`; the gate runs on the round-3 head (the dispatcher's).
+`63e8bbeb`; the gate runs on the round-4 head (the dispatcher's).
 
 The captures in `xfx/` come from the binary built at `63e8bbeb` (row 1:
 `x𝒇x v0.1.0-63e8bbe [debug]`, sha256 `8b3ce14f0854…`); round 1's, from
@@ -130,7 +132,7 @@ XFX_BIN=<xfx>       TMPDIR=<short dir>  scripts/fxcap/capture.sh xfx <scenario> 
   `● Asked`. The two ordering tests pass there; they pin behaviour that was
   already right.
 
-## The change (`a623824c`, then `63e8bbeb`)
+## The change (`a623824c`, then `63e8bbeb` and `9a2921ce`)
 
 - `tools::question::decode_answers` is `decodeJson`, read by hand (round 2;
   round 1's derived struct also took serde's positional form, so
@@ -150,9 +152,13 @@ XFX_BIN=<xfx>       TMPDIR=<short dir>  scripts/fxcap/capture.sh xfx <scenario> 
     fx's parse refuses a key given twice in any object and an unpaired
     surrogate in any string (the same lines; `Scanner.zig:25-32`). These are
     Zig 0.16.0's std lines; the pin builds with 0.17.0
-    (`build.zig.zon:28@481104fd`), whose std is taken to be the same. So
+    (`build.zig.zon:28@481104fd`), whose std is inferred, not read, to be
+    the same: the release binary was not run on such a session, because no
+    fxcap step rewrites a saved session between a run and its resume and fx
+    checksums each line over the run's own path (`log.zig:30-34`). So
     `[{"question":"Q","answer":"A","x":{"k":1,"k":2}}]` and the same with
-    `"x":"\ud800"` are answered batches here and null in fx. Only a
+    `"x":"\ud800"` are answered batches here and, by those lines, null in
+    fx. Only a
     hand-forged log holds them, and the rows are drawn inert;
     `a_skipped_value_is_not_checked_as_upstreams_parse_checks_it` pins both;
   - anything after the array, and invalid JSON, are refused. Nothing goes
@@ -183,7 +189,9 @@ XFX_BIN=<xfx>       TMPDIR=<short dir>  scripts/fxcap/capture.sh xfx <scenario> 
 
 ## Bounds and safety (the tests in `tools/question.rs`, `tui/hydration.rs`, `tui/shell.rs`, `tui/worker.rs`)
 
-A saved session is file input. Each bound fx has is kept, and each has a test:
+A saved session is file input. Each bound fx has is kept but one -- a
+skipped value's own checks (above, "looser than fx in one place") -- and
+each has a test:
 
 - **Count 1 to 20, refused while parsing.** `a_saved_document_of_one_to_twenty_questions_decodes_and_no_other_count_does`
   checks 1, 4 and 20 (Some) and 21 and 0 (None); the visitor is the only
@@ -194,7 +202,8 @@ A saved session is file input. Each bound fx has is kept, and each has a test:
   covers 25 rejects: fx's five, the sentinels, a non-array, a non-object
   element (a string, a number, `[["Q","A"]]`, `[["Q","A","x"]]`, and an array
   beside an object either way), a missing, null or non-string field, `question` given
-  twice, an unread key given twice, a truncated array, and a lone surrogate.
+  twice, an unread key given twice, a truncated array, and a lone surrogate
+  in `question`.
   It also checks:
   - an unread key nested 100 000 deep is skipped without recursion (no
     stack to overflow), and decodes, as fx's `std.json` keeps it on the heap;
@@ -216,10 +225,15 @@ A saved session is file input. Each bound fx has is kept, and each has a test:
   reader already holds, as fx's is. It refuses a count past 20 at the
   twenty-first element's first byte, without reading its value; fx parses the
   whole array first (`question_answer.zig:47-59`).
-  `the_twenty_first_element_is_refused_at_its_first_byte_unread` feeds a
-  malformed, an unclosed 100 000-deep, an 8 MiB and a non-JSON twenty-first
-  and gets the count's error each time (`Category::Data`, `invalid length
-  21`), where scanning gives a parse error (`red-tests-r3.txt`).
+  `the_twenty_first_element_is_refused_at_its_first_byte_unread` feeds four
+  twenty-first values whose reading fails -- a truncated object, an unclosed
+  100 000-deep array, an 8 MiB string with no closing quote, a control byte
+  -- and gets the count's error for each (`Category::Data`, `invalid length
+  21`). With round 2's `IgnoredAny` back (mutant M16), each one is read and
+  gives its parse error instead: `Eof` at columns 975, 100 963 and 8 389 572,
+  and `Syntax` at 964 (`red-tests-r4.txt`). Round 3's version of the test
+  closed the 8 MiB string, which a scan reads whole without error, so that
+  input did not tell the two apart (`red-tests-r3.txt` shows the first).
 
 ## GREEN (`green.txt`)
 
@@ -340,7 +354,7 @@ figures (in `1f4b3d03`).
 | `fx/`, `red/`, `xfx/` | the captures: fx v0.0.16, xfx at the base, xfx at the round-2 code head `63e8bbeb` |
 | `compare.py` | the pair comparison: raw `cells.py`, then the ledger's normalizations |
 | `red.txt`, `green.txt` | `compare.py` over `fx/` against `red/` and against `xfx/` |
-| `red-tests.txt`, `red-tests-r2.txt`, `red-tests-r3.txt` | the RED tests at `3bd76ddb`, round 2's at `300b98fc`, round 3's at `37cdd637` |
+| `red-tests.txt`, `red-tests-r2.txt`, `red-tests-r3.txt`, `red-tests-r4.txt` | the RED tests at `3bd76ddb`, round 2's at `300b98fc`, round 3's at `37cdd637`, round 4's on a clone at `678a9552` with M16 |
 | `fx-src.txt` | every fx line cited, at `481104fd` (and `c1db9191` for the old bound) |
 | `probe/` | live Ctrl-O (`qr-ctrlo.cap`, not a committed scenario): fx and xfx at the code head, `compare.txt` |
 | `mutants.py`, `mutants.txt` | the mutants and their results |

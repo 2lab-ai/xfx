@@ -665,7 +665,7 @@
     80	            app.shell.render_requests.request(.modal);
     81	        }
 
-# Zig 0.16.0's standard library (its release tree, lib/std/json/), which fx's std.json calls are; the pin requires Zig 0.17.0:
+# Zig 0.16.0's standard library (its release tree, lib/std/json/). The pin requires Zig 0.17.0 (below), whose std was not available here: that it reads these lines the same is inferred, not read:
 
 == build.zig.zon:28@481104fd
     28	    .minimum_zig_version = "0.17.0",

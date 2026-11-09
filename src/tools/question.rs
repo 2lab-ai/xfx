@@ -357,9 +357,12 @@ pub struct SavedAnswer {
 /// Upstream's parse refuses a key given twice in *any* object at any depth,
 /// and an unpaired surrogate in *any* string (`Scanner.zig:25-32`), so
 /// `[{"question":"Q","answer":"A","x":{"k":1,"k":2}}]` and the same with
-/// `"x":"\ud800"` are null there and answered batches here. Those lines are
-/// Zig 0.16.0's std; the pin builds with 0.17.0 (`build.zig.zon:28@481104fd`),
-/// whose std is taken to be the same. Only a hand-forged log holds such a
+/// `"x":"\ud800"` are answered batches here and, by those lines, null there.
+/// Those lines are Zig 0.16.0's std; the pin builds with 0.17.0
+/// (`build.zig.zon:28@481104fd`), whose std is inferred, not read, to be the
+/// same -- the release binary was not run on such a session: no fxcap step
+/// rewrites a saved session between a run and its resume, and fx checksums
+/// each log line over the run's own path. Only a hand-forged log holds such a
 /// document, and its rows are drawn inert; matching upstream would mean a
 /// skipper of xfx's own.
 ///
@@ -403,11 +406,11 @@ impl<'de> serde::de::Visitor<'de> for BatchVisitor {
         let mut answers = Vec::new();
         loop {
             if answers.len() == MAX_QUESTIONS {
-                // Only whether there is a twenty-first is asked: the seed
-                // refuses it without reading a byte of its value
-                // ([`TwentyFirst`]), so the parse stops at its first byte.
+                // Only whether there is a twenty-first is asked: the parser
+                // peeks its first byte to tell, and the seed refuses it there
+                // ([`TwentyFirst`]), so its value is not read past that byte.
                 return match seq.next_element_seed(TwentyFirst)? {
-                    Some(()) => Err(serde::de::Error::invalid_length(MAX_QUESTIONS + 1, &self)),
+                    Some(never) => match never {},
                     None => Ok(Batch(answers)),
                 };
             }
@@ -424,12 +427,16 @@ impl<'de> serde::de::Visitor<'de> for BatchVisitor {
 
 /// What the array's visitor reads a twenty-first element with: a refusal
 /// that never calls the deserializer, so the element's value is not read.
+/// Its value type has no values, so a twenty-first can never be accepted.
 struct TwentyFirst;
 
-impl<'de> serde::de::DeserializeSeed<'de> for TwentyFirst {
-    type Value = ();
+/// No twenty-first element is ever read into anything.
+enum Never {}
 
-    fn deserialize<D: serde::Deserializer<'de>>(self, _: D) -> Result<(), D::Error> {
+impl<'de> serde::de::DeserializeSeed<'de> for TwentyFirst {
+    type Value = Never;
+
+    fn deserialize<D: serde::Deserializer<'de>>(self, _: D) -> Result<Never, D::Error> {
         Err(serde::de::Error::invalid_length(
             MAX_QUESTIONS + 1,
             &"an array of at most twenty answered questions",
@@ -959,32 +966,36 @@ mod tests {
     #[test]
     fn the_twenty_first_element_is_refused_at_its_first_byte_unread() {
         // The array's visitor asks only whether a twenty-first element is
-        // there and refuses it with the count, before its value is read:
-        // one that is malformed, unclosed or enormous gives the count's error,
-        // never the parse error reading it would give.
+        // there and refuses it with the count, before its value is read. Each
+        // tail below is a value whose reading fails -- a truncated object, an
+        // unclosed 100 000-deep array, an 8 MiB string with no closing quote,
+        // a control byte -- so a visitor that read it (round 2's
+        // `IgnoredAny`) gives that parse error instead of the count's, on
+        // every one. All four are checked before any assertion, so such a
+        // visitor's failure names each.
         let twenty = document(MAX_QUESTIONS);
         let open = &twenty[..twenty.len() - 1];
-        let huge = format!("\"{}\"", "x".repeat(8 << 20));
-        for tail in [
-            r#"{"question":"#.to_string(),
-            "[".repeat(100_000),
-            huge,
-            "\u{1}not json".to_string(),
-        ] {
-            let source = format!("{open},{tail}");
-            let refused = serde_json::from_str::<Batch>(&source)
-                .err()
-                .expect("twenty-one is refused");
-            assert_eq!(
-                refused.classify(),
-                serde_json::error::Category::Data,
-                "{refused}"
-            );
-            assert!(
-                refused.to_string().starts_with("invalid length 21"),
-                "{refused}"
-            );
-        }
+        let tails = [
+            ("truncated object", r#"{"question":"#.to_string()),
+            ("unclosed deep array", "[".repeat(100_000)),
+            (
+                "unclosed 8 MiB string",
+                format!("\"{}", "x".repeat(8 << 20)),
+            ),
+            ("control byte", "\u{1}not json".to_string()),
+        ];
+        let read: Vec<(&str, String)> = tails
+            .iter()
+            .filter_map(|(name, tail)| {
+                let refused = serde_json::from_str::<Batch>(&format!("{open},{tail}"))
+                    .err()
+                    .expect("twenty-one is refused");
+                let counted = refused.classify() == serde_json::error::Category::Data
+                    && refused.to_string().starts_with("invalid length 21");
+                (!counted).then(|| (*name, format!("{:?}: {refused}", refused.classify())))
+            })
+            .collect();
+        assert_eq!(read, Vec::<(&str, String)>::new(), "read before refused");
     }
 
     #[test]
@@ -993,7 +1004,8 @@ mod tests {
         // a key given twice in **any** object and an unpaired surrogate in
         // **any** string (`duplicate_field_behavior = .@"error"`,
         // `std/json/static.zig:20-26`, applied in `dynamic.zig:149-156`;
-        // `Scanner.zig:25-32`, Zig 0.16.0), so both of these are null there.
+        // `Scanner.zig:25-32`, Zig 0.16.0's std; the pin's 0.17.0 is inferred,
+        // not read, to be the same), so both of these are null there.
         // A key nobody reads is skipped here without either check
         // (`IgnoredAny`), so both decode. Only a hand-forged log holds them,
         // and the rows that show them are inert (`docs/parity.md`).
