@@ -31,8 +31,12 @@
 //!   The invariant is the **compiler's** to keep, not a comment's:
 //!   [`collect_facts`] is the only thing that makes a [`Reconciled`], reading
 //!   and painting are the only things that take one, and each takes it by
-//!   value. Deleting either reconcile does not produce a subtle repaint on a
-//!   cooked terminal; it fails the build.
+//!   value (a tick's frames borrow the one their tick took,
+//!   [`commit_frame_led`]). Deleting either reconcile does not produce a
+//!   subtle repaint on a cooked terminal; it fails the build. That nothing
+//!   else in this module makes one, the compiler cannot see -- a unit struct
+//!   is a value wherever it is in scope -- so a test does
+//!   (`only_collect_facts_makes_a_reconciled`).
 //! * **Read in a bounded burst.** At most [`READ_BURSTS`] reads of
 //!   [`BURST_BYTES`], so a terminal delivering input faster than the band can
 //!   be painted cannot starve the paint. Standard input is a *blocking*
@@ -858,20 +862,22 @@ fn commit_frame(
     now: Instant,
     reconciled: Reconciled,
 ) -> io::Result<()> {
-    commit_frame_led(shell, band, out, failures, now, reconciled, &mut None)
+    commit_frame_led(shell, band, out, failures, now, &reconciled, &mut None)
 }
 
 /// [`commit_frame`], with a program status report to ride the lead of the
 /// primary plane's update after the title the band owes ([`commit_tick`]).
 /// Taken out of `lead` by the update that carries it ([`commit_primary`]);
-/// left there by a tick that wrote no such update.
+/// left there by a tick that wrote no such update. It borrows the token its
+/// caller took: [`commit_tick`]'s two frames, the preview's and its card's,
+/// are written against one reconcile, with no wait between them.
 fn commit_frame_led(
     shell: &mut Shell,
     band: &mut Band,
     out: &mut impl Sink,
     failures: &mut FrameFailures,
     now: Instant,
-    _reconciled: Reconciled,
+    _reconciled: &Reconciled,
     lead: &mut Option<super::program_status::Report>,
 ) -> io::Result<()> {
     // The window title the session wants now, handed to the band before any
@@ -1192,13 +1198,15 @@ fn commit_tick(
             }
         }
     }
-    commit_frame_led(shell, band, out, failures, now, reconciled, &mut lead)?;
+    commit_frame_led(shell, band, out, failures, now, &reconciled, &mut lead)?;
     // The card a preview's frame just showed, in the frame after it and in
-    // this tick, as fx builds it the moment its preview's frame commits: no
-    // read and no resize between the two (`Shell::take_preview_shown`). The
+    // this tick, as fx builds its card's frame once its preview's frame has
+    // committed (`Shell::take_preview_shown`). Nothing is read and no resize
+    // is taken between the two: the loop reads and takes a resize only in
+    // `collect_facts` and `read_burst`, ahead of this commit (`run`). The
     // facts this tick reconciled are the ones the card is written against.
     if shell.take_preview_shown() {
-        commit_frame_led(shell, band, out, failures, now, Reconciled, &mut None)?;
+        commit_frame_led(shell, band, out, failures, now, &reconciled, &mut None)?;
     }
     if let Some(report) = lead {
         write_program_status(&report, out, failures, now)?;
