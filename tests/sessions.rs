@@ -3121,7 +3121,6 @@ fn a_legacy_record_with_blocks_and_no_wire_replays_on_the_messages_wire() {
     );
 
     let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
-    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
     assert_eq!(
         replay.messages[1].raw_blocks().expect("blocks replayed")[0]["signature"],
         "sig"
@@ -3147,7 +3146,6 @@ fn a_legacy_record_is_dropped_without_a_word_on_any_other_wire() {
     assert_eq!(replay.messages[1].text(), "answered");
     // And without a word, as fx drops a replay that does not match
     // (`projectProviderReplay`, `types.zig:1668-1682@481104fd`).
-    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
 }
 
 #[test]
@@ -3173,11 +3171,6 @@ fn responses_state_recorded_under_one_authority_is_never_sent_to_another() {
     ] {
         let replay = state.history_messages(active.clone(), &state.model);
         assert!(replay.messages[1].raw_blocks().is_none(), "for {active:?}");
-        assert!(
-            replay.notices.is_empty(),
-            "for {active:?}: {:?}",
-            replay.notices
-        );
     }
 }
 
@@ -3196,7 +3189,6 @@ fn a_wire_this_version_does_not_know_drops_rather_than_guessing() {
 
     let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
     assert!(replay.messages[1].raw_blocks().is_none());
-    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
 }
 
 #[test]
@@ -3218,7 +3210,6 @@ fn a_wire_less_responses_state_record_drops_rather_than_replaying_under_active()
         replay.messages[1].raw_blocks().is_none(),
         "wire-less responses_state must not replay under active CodexResponses"
     );
-    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
 }
 
 #[test]
@@ -3237,7 +3228,6 @@ fn codex_responses_wire_replays_state_verbatim_under_codex() {
     );
 
     let replay = state.history_messages(Wire::CodexResponses, &state.model);
-    assert_eq!(replay.notices.len(), 0, "same-authority replay: no notice");
     let blocks = replay.messages[1]
         .raw_blocks()
         .expect("Codex→Codex carries state");
@@ -3262,7 +3252,6 @@ fn grok_responses_wire_replays_state_verbatim_under_grok() {
     );
 
     let replay = state.history_messages(Wire::GrokResponses, &state.model);
-    assert_eq!(replay.notices.len(), 0, "same-authority replay: no notice");
     let blocks = replay.messages[1]
         .raw_blocks()
         .expect("Grok→Grok carries state");
@@ -3295,7 +3284,6 @@ fn a_dropped_state_is_not_deleted_from_the_log() {
     let replay = reread
         .state
         .history_messages(Wire::AnthropicMessages, &reread.state.model);
-    assert!(replay.notices.is_empty());
     assert_eq!(
         replay.messages[1].raw_blocks().expect("still on disk")[0]["signature"],
         "sig"
@@ -3392,7 +3380,6 @@ fn a_batch_that_died_after_the_first_of_three_results_replays_neither_the_group_
         "{:?}",
         replay.messages
     );
-    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
 
     // The record itself is intact: dropping shapes a request, never the log.
     let steps = &state.turns[0].steps;

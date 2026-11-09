@@ -424,34 +424,41 @@ async fn run_ask(
 
     // The session, before anything is asked of a model. A resume that names a
     // session that does not exist must fail before a token is spent.
-    let mut opened = match open_session(config, &request, mode) {
+    // Upstream's `ask` has no sentence for a session a prompt image's blob is
+    // gone from, nor for a request such an image fails: the error goes up and
+    // its name is printed, `fx: <Error>`, or with `--json` is the error
+    // (`askErrorNotice`, `cli_ask.zig:1189-1197@481104fd`; `:1306-1326`,
+    // `:1802-1823`; `tryWriteErrorMessage`, `app_entry_runtime.zig:563-567`).
+    let named = |error: &str| {
+        if request.json {
+            error.to_string()
+        } else {
+            format!("xfx: {error}")
+        }
+    };
+    let failure = match open_session(config, &request, mode) {
+        Ok(opened) => match opened.unsendable {
+            Some(error) => Err(named(error)),
+            None => Ok(opened),
+        },
+        Err(SessionError::Unreadable { .. }) => Err(named("InvalidSessionFormat")),
+        Err(err) => Err(err.to_string()),
+    };
+    let mut opened = match failure {
         Ok(opened) => opened,
-        Err(err) => {
+        Err(message) => {
             let mut sink: Box<dyn EventSink> = if request.json {
                 Box::new(JsonlSink::new(stdout).on_terminal(stdout_is_terminal))
             } else {
                 Box::new(TextSink::new(stdout, stderr))
             };
-            return quiet(fail_turn(sink.as_mut(), err.to_string()));
+            return quiet(fail_turn(sink.as_mut(), message));
         }
     };
 
-    // Report any notices about what the history could not send again -- an
-    // image whose saved copy could not be read back -- before the turn
-    // starts. Inert: a notice quotes what the log names (the tool that
-    // returned the image, the reason its copy failed), and the log is file
-    // input.
-    for notice in &opened.notices {
-        writeln!(
-            stderr,
-            "{}",
-            crate::output::safe_one_line(notice, MAX_NOTICE_BYTES)
-        )?;
-    }
-
-    // Now create the sink after notices are printed. On a terminal the
-    // answer arrives inert: the approval question is asked on the same one,
-    // after it, and must not find a state the model left there.
+    // On a terminal the answer arrives inert: the approval question is asked
+    // on the same one, after it, and must not find a state the model left
+    // there.
     let mut sink: Box<dyn EventSink + '_> = if request.json {
         Box::new(JsonlSink::new(stdout).on_terminal(stdout_is_terminal))
     } else {
@@ -615,11 +622,6 @@ async fn run_ask(
     ))
 }
 
-/// The most bytes of one history notice `ask` prints: a notice is a sentence
-/// around what the log names -- the tool that returned an image -- and a log
-/// can make that as long as a frame.
-const MAX_NOTICE_BYTES: usize = 1024;
-
 /// The model a resumed `ask` is sent in.
 ///
 /// **The session's**, as upstream's `ask --resume` goes on in the model the
@@ -663,7 +665,9 @@ fn resumed_model<'a>(config: &'a RuntimeConfig, state: &'a DurableState) -> &'a 
 struct OpenedSession {
     recorder: Option<SessionRecorder>,
     history: Vec<crate::gateway::protocol::Message>,
-    notices: Vec<String>,
+    /// Why the turn's request cannot be built, when a prompt image of the
+    /// history cannot go ([`crate::session::DurableState::unsendable`]).
+    unsendable: Option<&'static str>,
     restored_grants: Vec<Grant>,
     restored_model: Option<String>,
 }
@@ -681,7 +685,7 @@ fn open_session(
     let empty = OpenedSession {
         recorder: None,
         history: Vec::new(),
-        notices: Vec::new(),
+        unsendable: None,
         restored_grants: Vec::new(),
         restored_model: None,
     };
@@ -704,12 +708,13 @@ fn open_session(
             // The model the turn will be sent to.
             let model = resumed_model(config, state);
             let replay = state.history_messages(config.provider.wire(), model);
+            let unsendable = state.unsendable();
             let restored_grants = state.grants.clone();
             let restored_model = Some(model.to_string());
             Ok(OpenedSession {
                 recorder: Some(SessionRecorder::new(store, resumed.session)),
                 history: replay.messages,
-                notices: replay.notices,
+                unsendable,
                 restored_grants,
                 restored_model,
             })

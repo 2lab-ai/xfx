@@ -22973,20 +22973,15 @@ mod tests {
     }
 
     #[test]
-    fn a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation(
-    ) {
-        // HISTORY-NOTICE-STOP: the runtime records a history notice said once
-        // `send_ui` queues it (`worker::one_turn`) -- a queue, not a paint. That
-        // is sound because this screen paints every notice it takes, and the
-        // paths that drop one -- a reset (its drain, and `reset_session`'s
-        // clear) and a resume's or a fork's replay -- come with the runtime
-        // dropping the conversation that recorded it, ledger and all
-        // (`worker::tests::the_history_notice_ledger_goes_with_its_conversation`).
-        const CARRY: &str = "image #1 of this session could not be read back (its saved copy is \
-                             missing), so it was not sent again";
+    fn a_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation() {
+        // A notice a turn queued is a queue, not a paint: this screen paints
+        // every notice it takes, a stopped turn's too, and drops one only on
+        // the paths that drop its conversation -- a reset (its drain, and
+        // `reset_session`'s clear) and a resume's or a fork's replay.
+        const CARRY: &str = "a notice the turn queued before it heard the stop";
         let said = |rows: &[String]| {
             rows.iter()
-                .filter(|row| row.contains("not sent again"))
+                .filter(|row| row.contains("before it heard the stop"))
                 .count()
         };
         let carry = || UiEvent::Notice(notice::Notice::warning("session", CARRY));

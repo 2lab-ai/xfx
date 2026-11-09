@@ -2534,7 +2534,6 @@ async fn a_resumed_session_replays_the_same_order_with_no_orphan_calls() {
     // Plus the answering step, which arrived after that request was built.
     assert_eq!(replay.messages.len(), live.len() + 1);
     assert_eq!(replay.messages[live.len()].text(), "drafted");
-    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
 }
 
 #[tokio::test]
