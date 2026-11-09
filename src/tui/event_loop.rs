@@ -505,15 +505,20 @@ where
         }
     });
 
-    // And what the pacer still holds, for the exit whose drain carried nothing
-    // at all. Phase 1 never repaints a document row, so this is the last moment
-    // those bytes can reach the terminal.
-    // And a card the band is still previewing: the exit's own frame writes it
-    // (`Shell::flush_paced`), as nothing else would. And, once a band has
-    // painted, whatever the document still owes -- a card whose frame was
-    // refused in the tick that showed its preview, nothing previewing it any
-    // more -- for the same reason. (A session that leaves before its band
-    // painted owes its welcome and must paint nothing.)
+    // The exit's own frame, for the exit whose drain carried nothing at all.
+    // Phase 1 never repaints a document row, so this is the last moment any of
+    // it can reach the terminal. It writes what the pacer still holds, a card
+    // the band is still previewing (`Shell::flush_paced`), and -- once a band
+    // of this screen is on it -- whatever the document still owes: rows a
+    // refused frame left, rows owed while the other plane was up, a card whose
+    // preview the exit's own resize dropped (`resolve_resize_on_exit`). Nothing
+    // a stop or a reset threw away is owed (`Shell::abandon_answer`,
+    // `reset_session`), and text after a stop waits in `Shell::late`, not in
+    // the document. `painted_top` is `None` before the first band lands, and
+    // after a handoff or a wipe lands until the next band does
+    // (`Band::hand_off`, `Band::wipe`): a session that leaves then has no band
+    // of this screen to clear from, owes what is not under one -- its welcome,
+    // the next document -- and paints nothing.
     let owed = band.painted_top().is_some() && shell.owes_document();
     if painting && broken.is_none() && (shell.paced_backlog() > 0 || shell.previewing() || owed) {
         match reconcile(shell, band) {

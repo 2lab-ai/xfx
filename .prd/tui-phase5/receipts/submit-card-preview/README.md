@@ -123,8 +123,10 @@ one-row composer:
   that fails, then a shrink before the retry (round 3): the terminal can
   move preview rows into its history first.
 - The exit's frame writes a card that is still held (`flush_paced`,
-  `shut_down`), and, once a band has painted, a card still owed after its
-  frame was refused.
+  `shut_down`), and, once a band of the screen is on it, whatever the
+  document still owes: a card or answer rows a refused frame left, rows
+  owed behind the other plane, a card whose preview the exit's resize
+  dropped (round 4). Nothing a stop or a reset threw away is among them.
 - A card is written at once, as before, when it fits, and in each case
   under "Where xfx previews less than fx".
 
