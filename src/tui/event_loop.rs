@@ -9517,10 +9517,12 @@ mod tests {
                 // A borrow is a type behind a `:`, a `<` or an `->`, and a
                 // value anywhere else (`f(&Reconciled)`).
                 let behind = before.strip_suffix('&').map_or(before, str::trim_end);
+                // A `let`'s annotation is before its `=`; a closure's
+                // parameters are between its first two bars.
                 let declared = signature
                     || definition.is_some()
-                    || trimmed.starts_with("let ")
-                    || behind.contains('|');
+                    || (trimmed.starts_with("let ") && !line[..at].contains('='))
+                    || line[..at].matches('|').count() % 2 == 1;
                 let typed = (behind.ends_with(':') && declared)
                     || behind.ends_with('<')
                     || behind.ends_with("->")
@@ -9562,12 +9564,16 @@ mod tests {
                       let each = |token: Reconciled| token;\n\
                       Holder {\n    token: Reconciled,\n};\n\
                       commit(&Reconciled);\n\
-                      Ok(Reconciled)\n";
+                      Ok(Reconciled)\n\
+                      let held = Holder { token: Reconciled };\n\
+                      let made = items.map(|_| Holder { token: Reconciled });\n";
         let lines: Vec<usize> = reconciled_made(shapes).iter().map(|(n, _)| *n).collect();
-        // Lines 11 (the literal's field), 13 (the borrow) and 14 (`Ok`).
+        // Lines 11 (the literal's field), 13 (the borrow), 14 (`Ok`), and 15
+        // and 16 (a literal's field after a `let`'s `=` and in a closure's
+        // body).
         assert_eq!(
             lines,
-            [11, 13, 14],
+            [11, 13, 14, 15, 16],
             "the scan's shapes: {:#?}",
             reconciled_made(shapes)
         );
@@ -10600,6 +10606,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("the card's {word} out of order: {written:?}"))
                 + row.len();
         }
+        assert!(!shell.owes_document(), "the exit left the card owed");
     }
 
     #[test]
