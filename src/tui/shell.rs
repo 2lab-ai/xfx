@@ -13365,7 +13365,8 @@ impl Shell {
                 }
                 if let Some((card, links, runs)) = echoed {
                     // Measured against the band the last landed frame
-                    // painted, whatever the draft's going did to this one
+                    // painted, which the draft's going does not change; none
+                    // has landed since a resize, and there is no preview
                     // ([`Self::preview_room`]).
                     if let Some(room) = self.preview_room() {
                         self.preview_card(&card, &links, &runs, room);
@@ -13529,7 +13530,10 @@ impl Shell {
     /// already been given, with nothing of the document still owed: that is
     /// the row upstream's preview is measured from, and anything else -- a
     /// line that does not end blank, a fork's line that a card opens a blank
-    /// row under ([`Self::raw_gap`]) -- is written at once.
+    /// row under ([`Self::raw_gap`]) -- is written at once. And only once a
+    /// band frame of this screen's size has landed ([`Self::landed_bottom`]):
+    /// upstream measures from its last committed frame, which after a resize
+    /// is one of the old size.
     fn preview_room(&self) -> Option<usize> {
         // A handoff's departing document is nothing more to ask about: while
         // it is owed, the welcome the new document starts with is owed too
@@ -13541,10 +13545,13 @@ impl Shell {
         {
             return None;
         }
+        // No band frame of this size has landed since the screen changed
+        // size (`landed_bottom` is cleared there): nothing to measure from.
+        let landed = self.landed_bottom?;
         let (rows, cols) = (self.geometry.rows, self.geometry.cols);
         let document = u16::try_from(self.document_rows)
             .unwrap_or(u16::MAX)
-            .min(self.landed_bottom.unwrap_or(self.geometry.content_bottom));
+            .min(landed);
         let tail = rows
             .saturating_sub(UPSTREAM_FOOTER_ROWS)
             .saturating_sub(document)
@@ -17129,7 +17136,9 @@ mod tests {
         // open above it, a reset whose old document and new welcome are still
         // owed, and a screen whose running band leaves no row for a preview
         // (8 rows: a content bottom of 3, less the three the room keeps).
+        // (Each after a landed band, so the guard is what answers.)
         let mut grouped = shell(40, 120);
+        grouped.band_landed();
         grouped.apply(tool_start(
             "call-1",
             "read_file",
@@ -17148,10 +17157,12 @@ mod tests {
         assert_eq!(grouped.preview_room(), None, "under an open tool group");
 
         let mut reset = shell(40, 120);
+        reset.band_landed();
         reset.route_bytes(b"/clear\r");
         assert_eq!(reset.preview_room(), None, "after a reset still owed");
 
         let mut short = shell(8, 80);
+        short.band_landed();
         assert_eq!(short.preview_room(), Some(0), "an 8-row screen's room");
         short.route_bytes(b"\x1b[200~SHORT-ONE\nSHORT-TWO\nSHORT-THREE\x1b[201~");
         land_document(&mut short);
@@ -17202,8 +17213,18 @@ mod tests {
         // -- not its rows in the band, and not the hold on the document. Here
         // the slash menu takes the room, opened by a key read with the Enter.
         let paste = stale_paste();
+        let mut plain = shell(40, 120);
+        plain.document_rows = 2;
+        plain.band_landed();
+        plain.route_bytes(paste.as_bytes());
+        plain.route_bytes(b"\r");
+        assert!(
+            plain.previewing(),
+            "no preview without the menu, so this case proves nothing"
+        );
         let mut menu = shell(40, 120);
         menu.document_rows = 2;
+        menu.band_landed();
         menu.route_bytes(paste.as_bytes());
         menu.route_bytes(b"\r/");
         assert!(
@@ -17234,6 +17255,7 @@ mod tests {
         let paste = stale_paste();
         let mut steered = shell(40, 120);
         steered.document_rows = 2;
+        steered.band_landed();
         steered.route_bytes(paste.as_bytes());
         steered.route_bytes(b"\r");
         assert!(
@@ -17292,12 +17314,15 @@ mod tests {
             let mut shell = shell(40, 120);
             shell.geometry = crate::tui::layout::solve(40, 120, composer).expect("a band");
             shell.document_rows = document;
+            shell.band_landed();
             assert_eq!(shell.preview_room(), Some(room), "{what}");
         }
         // And none for a card that does not start under a blank row the
         // document already has: anything still owed, a line that does not end
         // blank, a fork's line a card opens a blank row under.
+        // (Each after a landed band, so the guard is what answers.)
         let mut owed = shell(40, 120);
+        owed.band_landed();
         owed.end_transcript_line();
         assert!(
             owed.transcript.owes() && owed.transcript.ends_blank(),
@@ -17305,6 +17330,7 @@ mod tests {
         );
         assert_eq!(owed.preview_room(), None, "a blank row still owed");
         let mut open = shell(40, 120);
+        open.band_landed();
         open.write_transcript_as("an open line", Role::Plain);
         assert_eq!(open.preview_room(), None, "an open line, still owed");
         while open
@@ -17319,6 +17345,7 @@ mod tests {
             "a line that does not end blank, written"
         );
         let mut forked = shell(40, 120);
+        forked.band_landed();
         forked.raw_gap = true;
         assert_eq!(forked.preview_room(), None, "under a fork's line");
     }
@@ -19345,6 +19372,8 @@ mod tests {
             "the composer was given the block rather than a summary of it"
         );
 
+        // The frame that shows the summary has landed.
+        shell.band_landed();
         shell.route_bytes(&[0x0d]);
         assert_eq!(
             shell.picks_up(),
@@ -20649,6 +20678,8 @@ mod tests {
             3,
             "the kill took a whole draft"
         );
+        // The frame that shows the three-line draft has landed.
+        shell.band_landed();
         shell.route_bytes(&[0x0d]);
         // The frame that clears the composer shows the three-line card's
         // newest row and the blank row under it at the band's top, as

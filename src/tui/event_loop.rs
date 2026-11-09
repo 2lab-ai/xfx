@@ -10128,6 +10128,8 @@ mod tests {
         // (`p5-submit-preview-*`, two carried rows in frame 1).
         let mut shell = shell_of(40, 120);
         shell.route_bytes(b"\x1b[200~HELD-ONE\nHELD-TWO\nHELD-THREE\x1b[201~");
+        // The frame that shows the draft has landed.
+        shell.band_landed();
         shell.route_bytes(b"\r");
         shell.start_turn();
         assert!(
