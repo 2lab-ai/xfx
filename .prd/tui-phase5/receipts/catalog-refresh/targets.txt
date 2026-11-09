@@ -1,0 +1,20 @@
+# Every build target xfx's workflows name, at 3d96f590: grep -n 'target:' .github/workflows/*.yml
+.github/workflows/ci.yml:76:            target: x86_64-unknown-linux-gnu
+.github/workflows/ci.yml:79:            target: aarch64-unknown-linux-gnu
+.github/workflows/ci.yml:81:            target: aarch64-apple-darwin
+.github/workflows/ci.yml:84:            target: x86_64-apple-darwin
+.github/workflows/ci.yml:87:            target: x86_64-apple-darwin
+.github/workflows/release.yml:36:            target: x86_64-unknown-linux-gnu
+.github/workflows/release.yml:38:            target: aarch64-unknown-linux-gnu
+.github/workflows/release.yml:40:            target: aarch64-apple-darwin
+.github/workflows/release.yml:42:            target: x86_64-apple-darwin
+.github/workflows/preview.yml:236:            target: aarch64-apple-darwin
+.github/workflows/preview.yml:239:            target: x86_64-apple-darwin
+.github/workflows/preview.yml:242:            target: aarch64-unknown-linux-gnu
+.github/workflows/preview.yml:245:            target: x86_64-unknown-linux-gnu
+
+# Cargo.toml target-specific sections
+67:[target.'cfg(unix)'.dependencies]
+92:[target.'cfg(unix)'.dev-dependencies]
+
+# so no non-unix target ships: the off-unix fallback in src/provider/catalog_clock.rs (system::boot, cfg(not(unix))) is built by no workflow

@@ -1,4 +1,4 @@
-# python3 -I compare.py <sweep-base>/pairs.json <sweep-head>/pairs.json (base e705a5dc, head 6ab25d2a)
+# python3 -I compare.py <sweep-base>/pairs.json <sweep-head>/pairs.json (base e705a5dc, head 3d96f590)
 pairs: base 92, head 92; passing: base 77, head 77
 moved: 0
 

@@ -1,26 +1,26 @@
-# Every place a catalog read can start, at 6ab25d2a, outside tests:
+# Every place a catalog read can start, at 3d96f590, outside tests:
 # git grep -n -E '\.begin_load\(|\.begin_load_on\(|reader\.begin\(|\.ensure_catalog\(\)|\.load_catalog\(\)' -- src, cut at each file's tests module
 src/interactive.rs:2151  [async fn apply_model]  selector.ensure_catalog().await;
 src/tui/worker.rs:2947  [async fn load_catalog]  self.selector.ensure_catalog().await;
 src/tui/worker.rs:4155  [fn begin_catalog_read]  state.selector.begin_load(told);
 src/tui/worker.rs:4248  [async fn ask_catalog]  state.selector.begin_load_on(trigger, now, told);
-src/tui/worker.rs:4420  [fn asked_at]  if let Some(mut load) = reader.begin(told) {
-src/tui/worker.rs:4531  [async fn await_catalog_for_window]  fresh = state.load_catalog() => fresh,
-src/tui/worker.rs:5171  [async fn change_model]  state.load_catalog(),
-src/tui/worker.rs:5796  [async fn image_refusal]  fresh = state.load_catalog() => fresh,
-src/tui/worker.rs:5870  [async fn refusal]  _ = selector.ensure_catalog() => if !told {
-src/tui/worker.rs:6078  [async fn one_turn]  fresh = state.load_catalog() => fresh,
+src/tui/worker.rs:4425  [fn asked_at]  if let Some(mut load) = reader.begin(told) {
+src/tui/worker.rs:4536  [async fn await_catalog_for_window]  fresh = state.load_catalog() => fresh,
+src/tui/worker.rs:5176  [async fn change_model]  state.load_catalog(),
+src/tui/worker.rs:5801  [async fn image_refusal]  fresh = state.load_catalog() => fresh,
+src/tui/worker.rs:5875  [async fn refusal]  _ = selector.ensure_catalog() => if !told {
+src/tui/worker.rs:6083  [async fn one_turn]  fresh = state.load_catalog() => fresh,
 
 # Cargo.toml: libc is a direct dependency on unix
 67:[target.'cfg(unix)'.dependencies]
 81:libc = "0.2"
 92:[target.'cfg(unix)'.dev-dependencies]
 
-# who calls them, src/tui/worker.rs outside its tests module (line < 6483)
+# who calls them, src/tui/worker.rs outside its tests module (line < 6488)
 src/tui/worker.rs:3321  [async fn turn_loop]  begin_catalog_read(&mut state, events);
 src/tui/worker.rs:3428  [async fn turn_loop]  ask_catalog(&mut state, events, ask).await;
-src/tui/worker.rs:5401  [async fn apply_deferred]  ask_catalog(state, events, ask).await;
-src/tui/worker.rs:4391  [fn asked]  self.asked_at(control, ask, now)
+src/tui/worker.rs:5406  [async fn apply_deferred]  ask_catalog(state, events, ask).await;
+src/tui/worker.rs:4390  [fn asked]  Self::Reading { reader, .. } => self.asked_at(control, ask, reader.now()),
 
 # the band's asks, src/tui/shell.rs outside its tests module
 src/tui/shell.rs:3977  [fn hydrate_as]  let _ = self.note_catalog_activity(self.catalog_clock.now());
@@ -30,13 +30,13 @@ src/tui/shell.rs:14328  [fn settings]  self.want_catalog(CatalogAsk::TOLD);
 src/tui/shell.rs:14812  [fn open_models_with]  .control(TurnControl::Catalog(CatalogAsk::REVALIDATE));
 src/tui/shell.rs:14834  [fn open_models_with]  self.work.control(TurnControl::Catalog(CatalogAsk::MENU));
 src/tui/shell.rs:14846  [fn open_models_with]  self.work.control(TurnControl::Catalog(CatalogAsk::MENU));
-src/tui/shell.rs:14910  [fn note_catalog_activity]  .control(TurnControl::Catalog(CatalogAsk::ACTIVITY));
-src/tui/shell.rs:14928  [fn want_catalog]  self.work.control(TurnControl::Catalog(ask));
-src/tui/shell.rs:14978  [pub(crate) fn settle_column]  let _ = self.note_catalog_activity(now);
-src/tui/shell.rs:15094  [fn speed_command]  self.want_catalog(CatalogAsk::TOLD);
+src/tui/shell.rs:14917  [fn note_catalog_activity]  .control(TurnControl::Catalog(CatalogAsk::ACTIVITY));
+src/tui/shell.rs:14936  [fn want_catalog]  self.work.control(TurnControl::Catalog(ask));
+src/tui/shell.rs:14986  [pub(crate) fn settle_column]  let _ = self.note_catalog_activity(now);
+src/tui/shell.rs:15102  [fn speed_command]  self.want_catalog(CatalogAsk::TOLD);
 src/tui/event_loop.rs: 1092:    shell.settle_column(catalog_now);
 
 # the menu's openers (each reaches open_models_with, whose asks are MENU / REVALIDATE above)
-src/tui/shell.rs:6178  [fn open_settings_models]  self.open_models_with("");   -- the settings Model row
-src/tui/shell.rs:7522  [fn model_catalog_shortcut]  self.open_models();   -- C-p
-src/tui/shell.rs:14688  [fn use_model]  self.open_models();   -- a bare /model
+src/tui/shell.rs:6178: self.open_models_with("");   [fn open_settings_models]
+src/tui/shell.rs:7522: self.open_models();   [fn model_catalog_shortcut]
+src/tui/shell.rs:14688: self.open_models();   [fn use_model]

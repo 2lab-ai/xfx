@@ -1,8 +1,8 @@
 ## Scoreboard (v0.0.16)
 
 - fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
-- xfx: `x𝒇x v0.1.0-6ab25d2 [debug] · Run /help for commands`, sha256 `ae1484f2235687b1fb910b137be8e26c82c6a9384b507955a268f78254a65e2d`
-- size 40x120, `--jobs 3`, 20 scenarios -- **PARTIAL**: `--only p5-input-model* model* h1-models* settings-model*`, wall 3m37s, load 13.4 at the start and 14.1 at the peak (1-minute average, sampled every 5 s)
+- xfx: `x𝒇x v0.1.0-3d96f59 [debug] · Run /help for commands`, sha256 `2dc558add614a2ceeb804ce01c1d9453eb5a0a506ae6ce3a1b91ecc4dc20b4ae`
+- size 40x120, `--jobs 3`, 20 scenarios -- **PARTIAL**: `--only p5-input-model* model* h1-models* settings-model*`, wall 3m42s, load 22.7 at the start and 35.0 at the peak (1-minute average, sampled every 5 s)
 - ledger sha256 `3821cfc8eec3c9d710d109d3b0e47b4cea1a5fd965ea2540c9f517b08a97c0e3`: 14 normalizations; 19 divergences approved for this pin
 
 fx's inventory (v0.0.16): 45 surfaces -- 38 commands, 7 key hints. Covered by a scenario: 45. **Uncovered: 0**.
