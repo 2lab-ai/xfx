@@ -13,7 +13,8 @@ Every claim below names the file in this directory that backs it. Base:
 `1fe6ea37` and the dispatcher's failed gate there (section 6); round 3 the
 review of `8e7c1c32` (section 7); round 4 the review of `21bb78b2` (section
 8); round 5 the review of `4c3f2e50` (section 9); round 6 the review of
-`e1d34372` (section 10).
+`e1d34372` (section 10); round 7 the review of `15e37f4a` (section 11);
+round 8 the review of `98af91ed` (section 12).
 
 ## 1. The source: every file a run writes, rewritten before anyone reads it
 
@@ -130,8 +131,10 @@ that is no placeholder.
   escape took, still refused, beside a styled sibling too; a root ending in
   a space, a tab or U+2502 at a row's or the text's end, a spaced root
   broken where its space ends or opens a row or behind a box-drawing gutter,
-  and a root with two spaces broken at either or both, refused, and each
-  inside a row written; a root with seven runs refused outright (exit 3); the
+  and a root with two spaces broken at either or both, refused (each spaced
+  root inside a row is written; a root ending in a gutter run is refused
+  there too, the conservative case of section 11); a root with seven runs
+  refused outright (exit 3); the
   refusal of a cut-short root, with no path printed; a file without a root,
   byte for byte.
 - `RunRoots`, end to end over a stub binary on tmux, every expectation at the
@@ -288,8 +291,9 @@ and a Linux row.
   capture: a file capture.sh names (`<bin>-<scenario>-<rows>x<cols>-...`, a
   `/trace` report's `.md` among them, wherever it is), one under a request
   body's directory, or one of a capture's kinds (`.txt`, `.ansi`, `.wire`,
-  `.json`, `.log`, ...). No directory. At this branch: 8 marked lines, 77 placeholder lines
-  (`counts.txt` lists the marked ones and the files of the rest).
+  `.json`, `.log`, ...). No directory. `gate.txt`'s check line gives the
+  marked and placeholder lines at the gate's commit (`counts.txt` lists the
+  marked ones at `7f2298f7`, and the files of the rest).
 - One `git grep` over the tree, one per file that holds a shape: no names on a
   command line, so no batching; about 2 s on this tree (check-no-secrets.sh:
   55 s). The guards are check-xfx-identity.sh's (every `GIT_*` dropped,
@@ -330,9 +334,10 @@ and a Linux row.
   with a word boundary again (round 4's) or no end at all; round 6's rewrite
   without its refusal; round 7's ledger with round 5's negative class,
   round 6's delimiter list, `/` or the row's end, or `/` or white space, and
-  capture.sh's `dir` without its refusal of the TMPDIR names -- 27 at round
-  7 (`roots-mutants.txt`), each failed by RootsRewrite, RunRoots, Refusals
-  or test_sweep.py's Normalize. Round
+  capture.sh's `dir` without its refusal of the TMPDIR names; round 8's
+  `dir` refusing lower case only -- 28 at round 8 (`roots-mutants.txt`),
+  each failed by RootsRewrite, RunRoots, Refusals or test_sweep.py's
+  Normalize. Round
   5's first fix widened the byte rule to the view's trimmed gutters; that
   mutant, run against the readings, survived over the tested cases (section
   9 says why it adds nothing), and the code is round 4's overlap again.
@@ -600,9 +605,11 @@ clone at `15e37f4a`) and the same on round 7's (`red7-r7.txt`, the code of
   with a listed character through, and every one of them is legal in a
   name; `/` is the one follower the tracked captures hold (w2's and w3's
   reports and images). Every other follower is compared: the rule fails
-  toward comparing. test_sweep.py's fourteen delimiter positives are now
-  negatives, beside every round 5 and 6 sibling and `fxtmp,backup/a`,
-  `fxtmp backup/a`, `fxtmp:x`, `fxtmp)`; the one positive is `fxtmp/`.
+  toward comparing. Thirteen of test_sweep.py's fourteen round-6 delimiter
+  positives are now negatives (the bare name before each of them); the
+  fourteenth, `/`, stays the one positive, `fxtmp/`. Beside them are every
+  round 5 and 6 sibling and `fxtmp,backup/a`, `fxtmp backup/a`, `fxtmp:x`,
+  `fxtmp)`.
   Why the ledger is not roots.py's EDGE: an over-wide rewrite in roots.py
   fails toward privacy (a sibling written as a placeholder), an over-wide
   normalization in the ledger toward false parity (a sibling read as the
@@ -633,6 +640,44 @@ clone at `15e37f4a`) and the same on round 7's (`red7-r7.txt`, the code of
   after it runs behind an explicit `if <check>; then git commit; fi`.
   `1d707ba4`'s commit message quotes the same fragment, the one already on
   main; a commit message is outside the check's scope (tracked files).
+
+## 12. Round 8: the review of `98af91ed`
+
+| finding | round 7 | round 8 |
+|---|---|---|
+| gpt6 MUST: `dir FXTMP`, `FxTmp`, `XFXTMP`, `Fxtmp-old`, `xFxTmP.bak` (5) | made, exit 0 (`FXTMP` names `$run/fxtmp` on this APFS volume) | refused, exit 2, before launch |
+| the same: `dir Notes`, `tmp`, `xfx`, `side` | run | run |
+| gpt6: `cache@claude-<n>/x`, an accented letter before `claude-<n>/` | refused, unsaid | refused, pinned as conservative and said |
+
+- **MUST (gpt6)**: capture.sh's `dir` refuses `[fF][xX][tT][mM][pP]*` and
+  `[xX][fF][xX][tT][mM][pP]*`. This volume is case-insensitive (`diskutil
+  info /`: APFS; a `mkdir fxtmp` answers to `FXTMP`), so `dir FXTMP` named
+  fx's own TMPDIR and its `from` was copied into it. Bracket classes, not
+  `nocasematch`: macOS's bash 3.2 parses them, and a run of capture.sh under
+  `/bin/bash` (3.2.57) with `dir FxTmp` exits 2 with the refusal. The test
+  (`Refusals.test_a_dir_never_takes_a_binarys_tmpdir_name`) adds the five
+  case spellings, and runs `Notes`, `tmp` and `xfx` beside `side`. RED and
+  GREEN under `/bin/bash` 3.2 in `red8-r7.txt` (98af91ed: the five run) and
+  `red8-r8.txt` (refused); the mutant that refuses lower case only fails at
+  `FXTMP` (`roots-mutants.txt`, 28 of 28). The harness suite, for a guard
+  change once, at TMPDIR 23 bytes: 102 tests OK (`test-capture.txt`).
+- **gpt6 (receipt)**: section 11 says thirteen of the fourteen round-6
+  positives became negatives, and `fxtmp/` stays the positive.
+- **gpt6 (the check's comment)**: the check's header calls its character
+  sets a heuristic: `@`, `=` and a letter past ASCII can be in a name, so
+  `cache@claude-<n>/x` and an accented letter before `claude-<n>/` match. It
+  fails toward refusal, and the test pins both (28 plants).
+- **SHOULD 1 (opus)**: the ledger cites capture.sh:367-373, :947, :954
+  (`TMPDIR=$run/fxtmp`, `TMPDIR=$run/xfxtmp`) and :1123 (`keep`).
+  `ledger-refs.py` prints the line each capture.sh citation names
+  (`ledger-refs.txt`). ledger.py's `_sources` checks only that a file has
+  that many lines, so a cite that drifts onto another line still passes:
+  that mechanization is REF-LINT's.
+- **SHOULD 2-3 (opus)**: section 4 cites `gate.txt` for the marked and
+  placeholder counts rather than a number that ages; section 1 says only
+  spaced roots are written inside a row, a gutter-ending one refused there.
+  runs-scan.txt's `afterN:` lines name runs-tail.sh, and commits.txt's last
+  lines names-scan.sh.
 
 ## Left as it is
 

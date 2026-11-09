@@ -49,3 +49,5 @@ TMPDIR 27 bytes, trailing slash: exit 0, 544s, Ran 102 tests in 543.481s OK
    run 5: exit 0, OK; setpgid lines 0
    and the whole suite once more:
    TMPDIR 26 bytes, again: exit 0, 374s, Ran 102 tests in 374.109s OK ; setpgid lines 0
+== a2d5a921 (round 8: a guard change; once, at one TMPDIR)
+TMPDIR 23 bytes: exit 0, 572s, Ran 102 tests in 571.478s OK 
