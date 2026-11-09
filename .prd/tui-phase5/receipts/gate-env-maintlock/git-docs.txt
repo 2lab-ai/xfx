@@ -1,0 +1,82 @@
+# git-docs.txt: the git 2.56.0 documentation this receipt cites, copied verbatim.
+# Sources: the Homebrew git 2.56.0 doc tree (<git-doc>) and its git-config(1) man page rendered with col -b.
+
+## git-config(1), rendered lines 2533-2550
+       gc.auto
+	   When there are approximately more than this many loose objects in the repository, git gc --auto will pack them. Some Porcelain commands use this command to perform a light-weight garbage
+	   collection from time to time. The default value is 6700.
+
+	   Setting this to 0 disables not only automatic packing based on the number of loose objects, but also any other heuristic git gc --auto will otherwise use to determine if there’s work to do,
+	   such as gc.autoPackLimit.
+
+       gc.autoPackLimit
+	   When there are more than this many packs that are not marked with *.keep file in the repository, git gc --auto consolidates them into one larger pack. The default value is 50. Setting this
+	   to 0 disables it. Setting gc.auto to 0 will also disable this.
+
+	   See the gc.bigPackThreshold configuration variable below. When in use, it’ll affect how the auto pack limit works.
+
+       gc.autoDetach
+	   Make git gc --auto return immediately and run in the background if the system supports it. Default is true. This config variable acts as a fallback in case maintenance.autoDetach is not
+	   set.
+
+       gc.bigPackThreshold
+
+## git-config(1), rendered lines 3339-3347
+       maintenance.auto
+	   This boolean config option controls whether some commands run git maintenance run --auto after doing their normal work. Defaults to true.
+
+       maintenance.autoDetach
+	   Many Git commands trigger automatic maintenance after they have written data into the repository. This boolean config option controls whether this automatic maintenance shall happen in the
+	   foreground or whether the maintenance process shall detach and continue to run in the background.
+
+	   If unset, the value of gc.autoDetach is used as a fallback. Defaults to true if both are unset, meaning that the maintenance process will detach.
+
+
+## git-config(1), rendered lines 3371-3373
+       maintenance.<task>.enabled
+	   This boolean config option controls whether the maintenance task with name <task> is run when no --task option is specified to git maintenance run. These config values are ignored if a
+	   --task option exists. By default, only maintenance.gc.enabled is true.
+
+## <git-doc>/githooks.adoc:561-567
+pre-auto-gc
+~~~~~~~~~~~
+
+This hook is invoked by `git gc --auto` (see linkgit:git-gc[1]). It
+takes no parameter, and exiting with non-zero status from this script
+causes the `git gc --auto` to abort.
+
+
+## <git-doc>/git-maintenance.adoc:240-245
+Users may find some cases where scheduled maintenance tasks do not run as
+frequently as intended. Each `git maintenance run` command takes a lock on
+the repository's object database, and this prevents other concurrent
+`git maintenance run` commands from running on the same repository. Without
+this safeguard, competing processes could leave the repository in an
+unpredictable state.
+
+## <git-doc>/RelNotes/2.29.0.adoc:83-85
+ * "git maintenance", a "git gc"'s big brother, has been introduced to
+   take care of more repository maintenance tasks, not limited to the
+   object database cleaning.
+
+## <git-doc>/RelNotes/2.54.0.adoc:58
+ * "git maintenance" starts using the "geometric" strategy by default.
+
+## <git-doc>/RelNotes/2.55.0.adoc:327-330
+ * "git maintenance" that goes background did not use the lockfile to
+   prevent multiple maintenance processes from running at the same
+   time, which has been corrected.
+   (merge 29364f1624 ps/maintenance-daemonize-lockfix later to maint).
+
+## <git-doc>/RelNotes/2.56.0.adoc:810-814
+ * Various tests in 't7900-maintenance.sh' have been updated to use a
+   throwaway repository, and auto-detaching of maintenance tasks is now
+   disabled for these tests to fix flaky races with concurrent background
+   maintenance jobs.
+   (merge 2775d8bcd1 ps/t7900-deflake-maintenance later to maint).
+
+## <git-doc>/RelNotes/2.51.0.adoc:182-185
+ * "git maintenance" lacked the care "git gc" had to avoid holding
+   onto the repository lock for too long during packing refs, which
+   has been remedied.
+   (merge 1b5074e614 ps/maintenance-ref-lock later to maint).

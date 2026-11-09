@@ -1,0 +1,13 @@
+# reflog-probe.sh, git 2.56.0, 2026-11-09T14:47:32Z
+error: cannot lock ref 'refs/heads/held': Unable to create '<tmp>/reflog-probe.lStMPG/none/.git/refs/heads/held.lock': File exists.
+
+Another git process seems to be running in this repository, or the lock file may be stale
+error: task 'reflog-expire' failed
+none                     starts=1 commit=2.335s lock@+0.3s=no  lock@+3.3s=no
+both                     starts=0 commit=0.012s lock@+0.3s=no  lock@+3.3s=no
+maintenance.auto=false   starts=0 commit=0.012s lock@+0.3s=no  lock@+3.3s=no
+error: cannot lock ref 'refs/heads/held': Unable to create '<tmp>/reflog-probe.lStMPG/gc.auto=0/.git/refs/heads/held.lock': File exists.
+
+Another git process seems to be running in this repository, or the lock file may be stale
+error: task 'reflog-expire' failed
+gc.auto=0                starts=1 commit=2.317s lock@+0.3s=no  lock@+3.3s=no

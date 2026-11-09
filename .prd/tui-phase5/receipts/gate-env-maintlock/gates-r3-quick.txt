@@ -1,0 +1,18 @@
+# gates-r3-quick.txt: the quick gates on the tree at d115fb39 (the round 2 receipt), 2026-11-09T18:41:52Z; tree clean before: no, only because this file was already open for its own output (git status --porcelain listed it alone)
+
+$ scripts/check-xfx-identity.sh
+check-xfx-identity: ok (17237 tracked file(s) scanned)
+exit=0
+
+$ scripts/check-no-secrets.sh
+check-no-secrets: ok (17237 tracked file(s) scanned)
+exit=0
+
+$ /bin/bash -n scripts/test-gate-env.sh   # GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+exit=0
+
+$ shellcheck -S warning scripts/test-gate-env.sh   # 0.11.0
+exit=0
+
+$ git diff 32afd307..HEAD | grep -E "^[+]" | grep -cE "<the local-path pattern of the unit brief>"
+0

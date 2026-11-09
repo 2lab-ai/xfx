@@ -1,0 +1,9 @@
+# flag-probe.sh, git 2.56.0, 2026-11-09T14:48:17Z
+gc-hook  none                     starts=1 hook-ran=yes (1 call(s)) new-non-object-files=[]
+gc-hook  both                     starts=0 hook-ran=no           new-non-object-files=[]
+gc-hook  maintenance.auto=false   starts=0 hook-ran=no           new-non-object-files=[]
+gc-hook  gc.auto=0                starts=1 hook-ran=no           new-non-object-files=[]
+graph    none                     starts=1 hook-ran=no           new-non-object-files=[./info/commit-graphs/commit-graph-chain ./info/commit-graphs/graph-1ecd7dc6bcb4d7d6883c460cbb3e947994b5bc94.graph ]
+graph    both                     starts=0 hook-ran=no           new-non-object-files=[]
+graph    maintenance.auto=false   starts=0 hook-ran=no           new-non-object-files=[]
+graph    gc.auto=0                starts=0 hook-ran=no           new-non-object-files=[]

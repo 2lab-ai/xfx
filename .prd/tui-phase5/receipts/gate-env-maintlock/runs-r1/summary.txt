@@ -1,0 +1,4 @@
+# batch.sh started 2026-11-09T14:59:54Z, git 2.56.0, bash 3.2.57(1)-release
+red-4cac717d head=4cac717d exit=1 seconds=204 load={ 24.49 17.52 16.28 }
+mutant-1-no-guard head=d98ada7e exit=1 seconds=327 load={ 13.71 20.06 18.53 }
+mutant-2-no-maintenance-auto head=d98ada7e exit=0 seconds=377 load={ 48.96 28.69 22.24 }

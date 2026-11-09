@@ -1,0 +1,5 @@
+# lock-probe.sh, git 2.56.0, 2026-11-09T14:33:59Z
+mode=plain runs=50 lock-seen=46
+mode=guarded runs=50 lock-seen=0
+mode=maint-only runs=50 lock-seen=0
+mode=gc-only runs=50 lock-seen=0

@@ -1,0 +1,13 @@
+diff --git a/scripts/test-gate-env.sh b/scripts/test-gate-env.sh
+index f73b1cca..c9fbda37 100755
+--- a/scripts/test-gate-env.sh
++++ b/scripts/test-gate-env.sh
+@@ -466,7 +466,7 @@ refuses decoy-setup-maintenance "$content_found" after_maintenance "$ilock/scrip
+ # still lets the commit start a run. So, timing aside: git's trace of the
+ # same setup names no `git maintenance run` and no `git gc --auto`.
+ (
+-	export GIT_TRACE="$work/decoy-setup.trace"
++	unset GIT_TRACE
+ 	new_decoy
+ ) </dev/null >"$work/decoy-setup.log" 2>&1
+ started="$(grep -E 'run_command: git (maintenance run|gc --auto)' "$work/decoy-setup.trace" || true)"
