@@ -33,7 +33,7 @@ for after, label in (("/b.md", "/"), (" x", "a space"), ("\tx", "a tab"), ('" x'
     say("1 <scratch>/fxtmp, then %s:" % label, "normalized" if same("a %s/fxtmp%s" % (run, after), "a %s/xfxtmp%s" % (run, after)) else "compared (RED)")
 
 # 2. A root under another, broken at its space: roots.py as capture.sh runs it.
-home = "/Us" + "ers/z"  # a stand-in HOME, assembled: this file is scanned
+home = "/Users/someone"  # the check's own placeholder home
 scen = home + "/My Docs/xfx/scripts/fxcap/scenarios"
 data = ("x %s/My \nDocs/xfx/scripts/fxcap/scenarios/a.json\n" % home).encode()
 path = os.path.join(work, "nested.txt")

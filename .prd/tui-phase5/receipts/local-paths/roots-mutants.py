@@ -1,4 +1,4 @@
-"""LOCAL-PATHS round 6: each mutant of scripts/fxcap/roots.py, capture.sh or
+"""LOCAL-PATHS round 7: each mutant of scripts/fxcap/roots.py, capture.sh or
 parity-ledger.toml, applied to a throwaway clone's copy (never a checkout
 anyone works in), must be failed by the tests that pin it. Each line names
 the tests that failed and the test file's line of the first failed
@@ -24,16 +24,21 @@ IN_CONTROL = """        in_control = any(
 """
 BROKEN = "        broken = any(_find(view, v, []) for v in _broken_at_gutters(needle))\n"
 JUDGE = "        if in_control or broken or _find(view, needle, []):"
-# capture-tmpdir as round 6 writes it: the run directory's placeholder, then
-# `fxtmp`, then one of the delimiters that end a directory's name in text.
+# capture-tmpdir as round 7 writes it: the run directory's placeholder, then
+# `fxtmp` with a directory under it, the one form the captures hold.
 PREFIX = "(<scratch(?::real)?_*>/|fxcap\\.XXXXXX/)"
+END = "(?=/)"
+# Round 6's: one of a list of delimiters after `fxtmp`.
 DELIMS = ["/", "\\s", '"', "'", "\\]", "}", ")", ",", ":", ";", "|", ">"]
-END = "(?=[" + "".join(DELIMS) + "]|$)"
-TRIPLE = "'" * 3
 
 
 def rule(prefix=PREFIX, end=END):
-    return "fx = " + TRIPLE + prefix + "fxtmp" + end + TRIPLE
+    return "fx = '" + prefix + "fxtmp" + end + "'"
+
+
+def rule6(end):
+    # A literal TOML string cannot hold the `'` round 6's list does.
+    return "fx = " + "'" * 3 + PREFIX + "fxtmp" + end + "'" * 3
 
 
 TMPDIR_RULE = rule()
@@ -70,15 +75,16 @@ M = [
     ("parity-ledger.toml", SWEEP, "any placeholder before fxtmp", TMPDIR_RULE, rule(prefix="(<!*[a-z:]+_*>/|fxcap\\.XXXXXX/)")),
     ("parity-ledger.toml", SWEEP, "the short form read too", TMPDIR_RULE, rule(prefix="(<(?:scratch(?::real)?_*|[sS]_+)>/|fxcap\\.XXXXXX/)")),
     ("parity-ledger.toml", SWEEP, "no zero-fill <scratch>", TMPDIR_RULE, rule(prefix="(<scratch(?::real)?_+>/|fxcap\\.XXXXXX/)")),
-    # rounds 5 and 6, item 1: the name itself, ended by a delimiter
+    # rounds 5 to 7, item 1: the name itself, with a directory under it
     ("parity-ledger.toml", SWEEP, "a word boundary again (round 4)", TMPDIR_RULE, rule(end="\\b")),
     ("parity-ledger.toml", SWEEP, "no end at all", TMPDIR_RULE, rule(end="")),
     ("parity-ledger.toml", SWEEP, "EDGE's complement again (round 5)", TMPDIR_RULE, rule(end="(?![A-Za-z0-9._~+-])")),
-] + [
-    ("parity-ledger.toml", SWEEP, "no %s after fxtmp" % d.replace("\\s", "white space").replace("\\", ""), TMPDIR_RULE,
-     rule(end="(?=[" + "".join(x for x in DELIMS if x != d) + "]|$)")) for d in DELIMS
-] + [
-    ("parity-ledger.toml", SWEEP, "no row's end after fxtmp", TMPDIR_RULE, rule(end="(?=[" + "".join(DELIMS) + "])")),
+    ("parity-ledger.toml", SWEEP, "a delimiter list again (round 6)", TMPDIR_RULE, rule6("(?=[" + "".join(DELIMS) + "]|$)")),
+    ("parity-ledger.toml", SWEEP, "`/` or the row's end", TMPDIR_RULE, rule(end="(?=/|$)")),
+    ("parity-ledger.toml", SWEEP, "`/` or white space", TMPDIR_RULE, rule(end="(?=[/\\s])")),
+    # round 7, item 3: no `dir` beside the binaries' TMPDIRs
+    ("capture.sh", ["test_capture.py", "Refusals.test_a_dir_never_takes_a_binarys_tmpdir_name"], "dir takes fxtmp names (round 6)",
+     "*/*|fxtmp*|xfxtmp*)", "*/*)"),
 ]
 env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
 env["PYTHONDONTWRITEBYTECODE"] = "1"
@@ -91,6 +97,14 @@ for name in ("roots.py", "capture.sh", "parity-ledger.toml"):
 def run(tests):
     return subprocess.run(["python3", "-I", os.path.join(FX, tests[0])] + tests[1:], capture_output=True, text=True,
                           env=env, cwd=clone, stdin=subprocess.DEVNULL, timeout=900)
+
+
+def first_subtest(stderr):
+    """The parameters of the first failing subTest, where there is one."""
+    for row in stderr.splitlines():
+        if row.startswith(("FAIL:", "ERROR:")) and ") (" in row:
+            return row.rsplit(") (", 1)[1].rstrip(")")[:60]
+    return ""
 
 
 def first_assertion(stderr, test_file):
@@ -113,7 +127,9 @@ for target, tests, label, old, new in M:
         f.write(orig[target].replace(old, new))
     r = run(tests)
     failed = sorted({line.split("(")[0].split(" ", 1)[1].strip() for line in r.stderr.splitlines() if line.startswith(("FAIL:", "ERROR:"))})
-    print("%-36s exit %d  first at %s  failed: %s" % (label, r.returncode, first_assertion(r.stderr, tests[0]), ", ".join(failed) or "none"))
+    sub = first_subtest(r.stderr)
+    print("%-36s exit %d  first at %s%s  failed: %s" % (label, r.returncode, first_assertion(r.stderr, tests[0]),
+                                                      " [%s]" % sub if sub else "", ", ".join(failed) or "none"))
     with open(path, "w") as f:
         f.write(orig[target])
 for tests in (CAPTURE, SWEEP):
