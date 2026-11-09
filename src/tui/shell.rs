@@ -553,14 +553,20 @@ const PASTE_SUFFIX: &str = "Input that arrived right after the paste was ignored
 const PASTE_STILL: &str = "Input is still being ignored until it stops for a moment.";
 
 /// [`PASTE_STILL`] while a paste begun behind the first one's end marker is
-/// being dropped: what ends it is that paste's end, and a pause does nothing
-/// until then ([`super::input::Hold::Paste`]).
-const PASTE_UNTIL_END: &str = "Input is still being ignored until the paste's end arrives.";
+/// being dropped: a pause does nothing until that paste's end arrives
+/// ([`super::input::Hold::Paste`]). Like [`PASTE_UNTIL_KEY`], it says only
+/// what must come before a pause can end anything, which is true however that
+/// state then ends; [`PASTE_STILL`] is said again if the quiet is what holds
+/// it next.
+const PASTE_UNTIL_END: &str =
+    "Input is still being ignored; a pause won't end it until the paste's end arrives.";
 
-/// And while a marker is read past its first byte: one more byte, then a
-/// pause ([`super::input::Hold::Marker`]).
+/// And while a marker is read past its first byte: a pause does nothing until
+/// the escape sequence is finished or broken, by however many keys that takes
+/// ([`super::input::Hold::Marker`]).
 const PASTE_UNTIL_KEY: &str =
-    "Input is still being ignored until one more key and a moment's pause.";
+    "Input is still being ignored; a pause won't end it until the escape \
+     sequence it began is finished or broken.";
 
 /// The hint row's refusal for a paste this session has no number left for.
 ///
@@ -19055,7 +19061,7 @@ mod tests {
     /// And while a marker is read past its first byte: a pause does nothing
     /// until the escape sequence it began is finished or broken -- by however
     /// many keys that takes.
-    fn still_ignored_until_one_more_key() -> notice::Notice {
+    fn still_ignored_until_the_sequence_ends() -> notice::Notice {
         notice::Notice::warning(
             "input",
             "Input is still being ignored; a pause won't end it until the escape sequence \
@@ -19071,7 +19077,7 @@ mod tests {
         // a moment" would be false. The repeat says what does end it, and
         // stopping changes nothing.
         let tick = super::super::event_loop::TICK;
-        let mut shell = shell(24, 80);
+        let mut shell = shell(24, 160);
         shell.route_bytes(b"prior");
         let _ = shell.document();
         let t0 = Instant::now();
@@ -19110,13 +19116,13 @@ mod tests {
     }
 
     #[test]
-    fn the_repeat_while_a_marker_is_half_read_says_it_waits_for_one_more_key() {
+    fn the_repeat_while_a_marker_is_half_read_says_a_pause_waits_for_the_sequence() {
         // A marker half read holds the quarantine through any pause (`ESC [`
         // is how a paste's start begins), so the repeat said in that state
-        // says what ends it: one more byte, then a pause. Once that byte has
-        // broken the marker the next repeat is the pause's sentence again.
+        // says what must come first: the sequence finished or broken. Once a
+        // byte has broken it, the next repeat is the pause's sentence again.
         let tick = super::super::event_loop::TICK;
-        let mut shell = shell(24, 80);
+        let mut shell = shell(24, 160);
         shell.route_bytes(b"prior");
         let _ = shell.document();
         let t0 = Instant::now();
@@ -19150,7 +19156,7 @@ mod tests {
             "the pause after the broken marker"
         );
         let mut said_so = said(ignored_behind_the_paste());
-        said_so.extend(said(still_ignored_until_one_more_key()));
+        said_so.extend(said(still_ignored_until_the_sequence_ends()));
         said_so.extend(said(still_ignored_after_the_paste()));
         assert_eq!(shell.document(), said_so);
         assert_eq!(shell.editor.text(), "priornew");
@@ -19166,7 +19172,7 @@ mod tests {
         // key that breaks the sequence and a pause end it.
         let tick = super::super::event_loop::TICK;
         let quiet = super::super::input::Decoder::PASTE_QUIET;
-        let mut shell = shell(24, 80);
+        let mut shell = shell(24, 160);
         shell.route_bytes(b"prior");
         let _ = shell.document();
         let t0 = Instant::now();
@@ -19196,7 +19202,7 @@ mod tests {
             "a pause released a continued marker"
         );
         let mut said_so = said(ignored_behind_the_paste());
-        said_so.extend(said(still_ignored_until_one_more_key()));
+        said_so.extend(said(still_ignored_until_the_sequence_ends()));
         assert_eq!(
             shell.document(),
             said_so,
@@ -19223,7 +19229,7 @@ mod tests {
         // sentence, once, however long the input then stays still.
         let tick = super::super::event_loop::TICK;
         let repeat = super::super::input::Decoder::PASTE_REPEAT;
-        let mut shell = shell(24, 80);
+        let mut shell = shell(24, 160);
         shell.route_bytes(b"prior");
         let _ = shell.document();
         let t0 = Instant::now();
@@ -19255,7 +19261,7 @@ mod tests {
         );
         let mut said_so = said(ignored_behind_the_paste());
         said_so.extend(said(still_ignored_after_the_paste()));
-        said_so.extend(said(still_ignored_until_one_more_key()));
+        said_so.extend(said(still_ignored_until_the_sequence_ends()));
         assert_eq!(shell.document(), said_so);
     }
 

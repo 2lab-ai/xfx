@@ -638,8 +638,8 @@ fn read_burst(
 /// stops is said once a second while it lasts (`PASTE_REPEAT`), never decoded
 /// on a timer -- at a check that finds nothing and at the read cap alike
 /// ([`Shell::still_at`]), so a stream that never pauses is said too. Two things
-/// the decoder waits on besides: a marker read past its first byte, which the
-/// next byte completes or breaks (a lone ESC is dropped by the quiet, as the
+/// the decoder waits on besides: a marker read past its first byte, until the
+/// sequence is finished or broken (a lone ESC is dropped by the quiet, as the
 /// Escape key it was); and a second paste -- begun inside
 /// the quarantine, where it is a paste, or behind the first one's end marker,
 /// where it is dropped -- which ends at its own end marker: one a terminal
