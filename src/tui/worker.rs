@@ -10070,6 +10070,19 @@ mod tests {
         (home, workspace, state)
     }
 
+    #[test]
+    fn the_shared_fixtures_runtime_reads_only_its_own_home() {
+        // A runtime reads its environment again when a switch reloads the
+        // profile (`select_provider`): the fixture every case here starts from
+        // must hold the test's own home, never the process's. Compared, never
+        // printed.
+        let (home, _workspace, state) = recording();
+        assert!(
+            state.env.home() == Some(home.path()),
+            "recording()'s runtime holds a home other than the test's own"
+        );
+    }
+
     /// The reading every catalog event's `due` reads as once [`undated`].
     static UNDATED: std::sync::LazyLock<CatalogDue> =
         std::sync::LazyLock::new(|| CatalogDue::at(catalog_now()));
