@@ -1,0 +1,77 @@
+  self-test ledger, an entry one side deleted and the other re-pointed (submit-multi-card-whole) back: found
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (preview-frame-before-the-turn-start) dropped: found
+  self-test ledger, a deleted entry (submit-multi-card-whole) back: found
+  self-test ledger, a comment line dropped: found
+  self-test ledger, a numbers-only entry (answer-drawn-wider-named) with a word changed: found
+  self-test ledger, a numbers-only entry (answer-drawn-wider-named) with a reference dropped: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('`/provider`') as the other side has it: found
+  self-test parity, a row a side changed ('`/compact`') as the other side has it: found
+  self-test parity, a row a side changed ('`/credits`') as the other side has it: found
+  self-test parity, a row a side changed ('`ask_user_question`') as the other side has it: found
+  self-test parity, a row a side changed ('`@` file picker') as the other side has it: found
+  self-test parity, a row a side changed ('terminal program status (OSC 7501)') as the other side has it: found
+  self-test parity, a row a side changed ("a question's line breaks in a program st") as the other side has it: found
+  self-test parity, a row both sides changed ('full-screen TUI') as ours has it: found
+  self-test parity, a row both sides changed ('full-screen TUI') as theirs has it: found
+  self-test parity, a row both sides changed ('full-screen TUI'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('full-screen TUI'), a side's clause moved whole with its anchors: found
+  self-test parity, a row one side changed ('`/model`'), two tokens swapped: found
+self-test 4a0b900b: 21 of 21 found
+# exit 0
+  self-test parity, a token a side added, dropped: MISSED
+  self-test parity, a token a side deleted, back: MISSED
+  self-test ledger, an added entry (preview-frame-before-the-turn-start) dropped: found
+  self-test ledger, a deleted entry (submit-multi-card-whole) back: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`/provider`') as the other side has it: found
+  self-test parity, a row a side changed ('`/compact`') as the other side has it: found
+  self-test parity, a row a side changed ('`ask_user_question`') as the other side has it: found
+  self-test parity, a row a side changed ('full-screen TUI') as the other side has it: found
+  self-test parity, a row a side changed ('`@` file picker') as the other side has it: found
+  self-test parity, a row a side changed ('terminal program status (OSC 7501)') as the other side has it: found
+  self-test parity, a row a side changed ("a question's line breaks in a program st") as the other side has it: found
+  self-test parity, a row both sides changed ('`/model`') as ours has it: found
+  self-test parity, a row both sides changed ('`/model`') as theirs has it: found
+  self-test parity, a row both sides changed ('`/model`'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('`/model`'), a side's clause moved whole with its anchors: found
+  self-test parity, a row one side changed ('`/provider`'), two tokens swapped: found
+self-test 0040fa59: 15 of 17 found
+# exit 1
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (preview-frame-before-the-turn-start) dropped: found
+  self-test ledger, a deleted entry (submit-multi-card-whole) back: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('`/provider`') as the other side has it: found
+  self-test parity, a row a side changed ('`/compact`') as the other side has it: found
+  self-test parity, a row a side changed ('`/credits`') as the other side has it: found
+  self-test parity, a row a side changed ('`ask_user_question`') as the other side has it: found
+  self-test parity, a row a side changed ('`@` file picker') as the other side has it: found
+  self-test parity, a row a side changed ('terminal program status (OSC 7501)') as the other side has it: found
+  self-test parity, a row a side changed ("a question's line breaks in a program st") as the other side has it: found
+  self-test parity, a row both sides changed ('full-screen TUI') as ours has it: found
+  self-test parity, a row both sides changed ('full-screen TUI') as theirs has it: found
+  self-test parity, a row both sides changed ('full-screen TUI'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('full-screen TUI'), a side's clause moved whole with its anchors: found
+  self-test parity, a row one side changed ('`/model`'), two tokens swapped: found
+self-test d2ed0274: 18 of 18 found
+# exit 0
+
+# token_control.py: the two token cases planted on the merged row itself
+merge 4a0b900b: self_test's row '`/model`'; changed by one side; its plant lands in the merged text
+  a token ours added ('(**fuzzy**:') dropped from the merged row: found
+  a token ours deleted ('(`GatewayCatalog::fetch`);') put back in the merged row: found
+merge 0040fa59: self_test's row '`/model`'; changed by both sides; its plant finds nothing to replace (the merged row is neither side text)
+  a token ours added ('(**fuzzy**:') dropped from the merged row: found
+  a token ours deleted ('(id') put back in the merged row: found
+  a token theirs added ('(`.clock') dropped from the merged row: found
+  a token theirs deleted ('(CATALOG-BOUNDS') put back in the merged row: found
+merge d2ed0274: self_test's row '`/model`'; changed by one side; its plant lands in the merged text
+  a token ours added ('(**fuzzy**:') dropped from the merged row: found
+  a token ours deleted ('(`GatewayCatalog::fetch`);') put back in the merged row: found
+# 8 of 8 found
+# exit 0

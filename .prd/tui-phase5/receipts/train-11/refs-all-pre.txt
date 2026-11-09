@@ -1,0 +1,54 @@
+# head d2ed0274; sides: main 32afd307, submit-card-preview 0c203cd3, catalog-refresh 3ffbe0c7, paste-gap 5cc2e42c
+docs/superpowers/plans/2026-08-24-provider-frame.md: src/llmux/setup.rs:355-380
+    submit-card-preview MOVED -> 357-382 | paste-gap MOVED -> 357-382
+docs/superpowers/plans/2026-08-24-provider-frame.md: tests/tool_loop.rs:1266
+    submit-card-preview MOVED -> 1274 | catalog-refresh MOVED -> 1274 | paste-gap MOVED -> 1274
+docs/superpowers/plans/2026-08-26-tui-phase2.md: src/tui/worker.rs:122-158
+    main MOVED -> 123-159 | submit-card-preview MOVED -> 123-159 | paste-gap MOVED -> 123-159
+docs/superpowers/plans/2026-08-26-tui-phase2.md: src/tui/worker.rs:608-640
+    main MOVED -> 609-641 | submit-card-preview MOVED -> 609-641 | paste-gap MOVED -> 609-641
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/approval.rs:552-585
+    submit-card-preview MOVED -> 545-578 | catalog-refresh MOVED -> 545-578
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:3108
+    main MOVED -> 3221 | submit-card-preview MOVED -> 3187 | catalog-refresh MOVED -> 3221 | paste-gap MOVED -> 3172
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:433
+    main MOVED -> 435 | submit-card-preview MOVED -> 435 | paste-gap MOVED -> 435
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/worker.rs:2376
+    main MOVED -> 2377 | submit-card-preview MOVED -> 2377 | paste-gap MOVED -> 2377
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/worker.rs:444-446
+    main MOVED -> 445-447 | submit-card-preview MOVED -> 445-447 | paste-gap MOVED -> 445-447
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/worker.rs:593
+    main MOVED -> 594 | submit-card-preview MOVED -> 594 | paste-gap MOVED -> 594
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:499-522
+    submit-card-preview MOVED -> 492-515 | catalog-refresh MOVED -> 492-515
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:782
+    submit-card-preview MOVED -> 775 | catalog-refresh MOVED -> 775
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/shell.rs:1593
+    main MOVED -> 1682 | submit-card-preview MOVED -> 1668 | catalog-refresh MOVED -> 1684 | paste-gap MOVED -> 1632
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/event_loop.rs:889-923
+    main MOVED -> 928-964 | submit-card-preview MOVED -> 945-979 | catalog-refresh MOVED -> 963-997 | paste-gap CHANGED
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/shell.rs:1117
+    main MOVED -> 1183 | submit-card-preview MOVED -> 1183 | catalog-refresh MOVED -> 1176 | paste-gap MOVED -> 1124
+scripts/fxcap/capfile.py: src/tui/shell.rs:14687-14712
+    main MOVED -> 15057-15082
+scripts/fxcap/parity-ledger.toml: src/provider/mod.rs:116
+    main MOVED -> 117 | submit-card-preview MOVED -> 117 | paste-gap MOVED -> 117
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:10277
+    main MOVED -> 10480
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:13498
+    main MOVED -> 13866
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:16413
+    main MOVED -> 16840
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:1765
+    main MOVED -> 1854
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:187
+    main MOVED -> 189 | submit-card-preview MOVED -> 189 | paste-gap MOVED -> 189
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:39046
+    main MOVED -> 40879
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:4343
+    main MOVED -> 4541
+tests/tui.rs: src/tui/shell.rs:2024
+    main MOVED -> 2113
+tests/tui.rs: src/tui/shell.rs:2713
+    main MOVED -> 2814
+# 191 references in 600 files; 26 moved or changed on some side that cites them

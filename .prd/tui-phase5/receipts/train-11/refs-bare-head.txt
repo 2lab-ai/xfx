@@ -1,0 +1,118 @@
+# head 820a8f15; sides: main 32afd307, submit-card-preview 0c203cd3, catalog-refresh 3ffbe0c7, paste-gap 5cc2e42c
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:36: :1942-1948 (after src/tui/shell.rs)
+    main MOVED -> :2031-2037 | submit-card-preview MOVED -> :2017-2023 | catalog-refresh MOVED -> :2033-2039 | paste-gap MOVED -> :1981-1987
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:36: :1911 (after src/tui/shell.rs)
+    main MOVED -> :2000 | submit-card-preview MOVED -> :1986 | catalog-refresh MOVED -> :2002 | paste-gap MOVED -> :1950
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :584 (after src/tui/shell.rs)
+    main MOVED -> :645 | submit-card-preview MOVED -> :645 | catalog-refresh MOVED -> :643 | paste-gap MOVED -> :586
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2170 (after src/tui/shell.rs)
+    main MOVED -> :2259 | submit-card-preview MOVED -> :2245 | catalog-refresh MOVED -> :2261 | paste-gap MOVED -> :2209
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2546 (after src/tui/shell.rs)
+    main MOVED -> :2644 | submit-card-preview MOVED -> :2624 | catalog-refresh MOVED -> :2643 | paste-gap MOVED -> :2593
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2571 (after src/tui/shell.rs)
+    main MOVED -> :2669 | submit-card-preview MOVED -> :2649 | catalog-refresh MOVED -> :2668 | paste-gap MOVED -> :2618
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2130 (after src/tui/shell.rs)
+    main MOVED -> :2219 | submit-card-preview MOVED -> :2205 | catalog-refresh MOVED -> :2221 | paste-gap MOVED -> :2169
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2188 (after src/tui/shell.rs)
+    main MOVED -> :2277 | submit-card-preview MOVED -> :2263 | catalog-refresh MOVED -> :2279 | paste-gap MOVED -> :2227
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2207 (after src/tui/shell.rs)
+    main MOVED -> :2296 | submit-card-preview MOVED -> :2282 | catalog-refresh MOVED -> :2298 | paste-gap MOVED -> :2246
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2263 (after src/tui/shell.rs)
+    main MOVED -> :2352 | submit-card-preview MOVED -> :2338 | catalog-refresh MOVED -> :2354 | paste-gap MOVED -> :2302
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2313 (after src/tui/shell.rs)
+    main MOVED -> :2408 | submit-card-preview MOVED -> :2388 | catalog-refresh MOVED -> :2410 | paste-gap MOVED -> :2352
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:207: :2208 (after src/tui/shell.rs)
+    main MOVED -> :2297 | submit-card-preview MOVED -> :2283 | catalog-refresh MOVED -> :2299 | paste-gap MOVED -> :2247
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:207: :2264 (after src/tui/shell.rs)
+    main MOVED -> :2353 | submit-card-preview MOVED -> :2339 | catalog-refresh MOVED -> :2355 | paste-gap MOVED -> :2303
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:208: :2314 (after src/tui/shell.rs)
+    main MOVED -> :2409 | submit-card-preview MOVED -> :2389 | catalog-refresh MOVED -> :2411 | paste-gap MOVED -> :2353
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:208: :2555 (after src/tui/shell.rs)
+    main MOVED -> :2653 | submit-card-preview MOVED -> :2633 | catalog-refresh MOVED -> :2652 | paste-gap MOVED -> :2602
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:276: :4013 (after src/tui/shell.rs)
+    main MOVED -> :4138 | submit-card-preview MOVED -> :4104 | catalog-refresh MOVED -> :4126 | paste-gap MOVED -> :4077
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:277: :4074 (after src/tui/shell.rs)
+    main MOVED -> :4199 | submit-card-preview MOVED -> :4165 | catalog-refresh MOVED -> :4187 | paste-gap MOVED -> :4150
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:33: :2858 (after src/tui/shell.rs)
+    main MOVED -> :2971 | submit-card-preview MOVED -> :2937 | catalog-refresh MOVED -> :2971 | paste-gap MOVED -> :2922
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:631: :2585 (after src/tui/worker.rs)
+    main MOVED -> :2586 | submit-card-preview MOVED -> :2586 | paste-gap MOVED -> :2586
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:631: :2820 (after src/tui/worker.rs)
+    main MOVED -> :2821 | submit-card-preview MOVED -> :2821 | paste-gap MOVED -> :2821
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :349-367 (after src/tui/bridge.rs)
+    main MOVED -> :351-369 | submit-card-preview MOVED -> :351-369 | paste-gap MOVED -> :351-369
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :544-549 (after src/tui/shell.rs)
+    main MOVED -> :558-610 | submit-card-preview MOVED -> :558-610 | catalog-refresh CHANGED | paste-gap MOVED -> :546-551
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :640-655 (after src/tui/shell.rs)
+    main MOVED -> :701-716 | submit-card-preview MOVED -> :701-716 | catalog-refresh MOVED -> :699-714 | paste-gap MOVED -> :642-657
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :790-795 (after src/tui/shell.rs)
+    main MOVED -> :851-856 | submit-card-preview MOVED -> :851-856 | catalog-refresh MOVED -> :849-854 | paste-gap MOVED -> :792-797
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1040-1060 (after src/tui/shell.rs)
+    main MOVED -> :1106-1126 | submit-card-preview MOVED -> :1106-1126 | catalog-refresh MOVED -> :1099-1119 | paste-gap MOVED -> :1047-1067
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1220 (after src/tui/shell.rs)
+    main MOVED -> :1286 | submit-card-preview MOVED -> :1286 | catalog-refresh MOVED -> :1279 | paste-gap MOVED -> :1227
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1792-1810 (after src/tui/shell.rs)
+    main MOVED -> :1881-1899 | submit-card-preview MOVED -> :1867-1885 | catalog-refresh MOVED -> :1883-1901 | paste-gap MOVED -> :1831-1849
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :2777 (after src/tui/shell.rs)
+    main MOVED -> :2890 | submit-card-preview MOVED -> :2856 | catalog-refresh MOVED -> :2890 | paste-gap MOVED -> :2829
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:796: :7039 (after src/tui/shell.rs)
+    main MOVED -> :7239 | submit-card-preview MOVED -> :7205 | catalog-refresh MOVED -> :7298 | paste-gap MOVED -> :7263
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:851: :6004 (after src/tui/shell.rs)
+    main MOVED -> :6204 | submit-card-preview MOVED -> :6141 | catalog-refresh MOVED -> :6234 | paste-gap MOVED -> :6199
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:895: :588-600 (after src/tui/worker.rs)
+    main MOVED -> :589-601 | submit-card-preview MOVED -> :589-601 | paste-gap MOVED -> :589-601
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:895: :1287-1304 (after src/tui/worker.rs)
+    main MOVED -> :1288-1305 | submit-card-preview MOVED -> :1288-1305 | paste-gap MOVED -> :1288-1305
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:296: :384-417 (after src/tui/bridge.rs)
+    main MOVED -> :386-419 | submit-card-preview MOVED -> :386-419 | paste-gap MOVED -> :386-419
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:296: :1202-1266 (after src/tui/shell.rs)
+    main MOVED -> :1268-1332 | submit-card-preview MOVED -> :1268-1341 | catalog-refresh MOVED -> :1261-1334 | paste-gap MOVED -> :1209-1273
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:296: :1520-1533 (after src/tui/shell.rs)
+    main MOVED -> :1609-1622 | submit-card-preview MOVED -> :1595-1608 | catalog-refresh MOVED -> :1611-1624 | paste-gap MOVED -> :1559-1572
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:315: :374-375 (after src/tui/approval_screen.rs)
+    main MOVED -> :453-454 | submit-card-preview MOVED -> :448-449 | catalog-refresh MOVED -> :448-449
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:316: :372 (after src/tui/approval_screen.rs)
+    main MOVED -> :451 | submit-card-preview MOVED -> :446 | catalog-refresh MOVED -> :446
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:318: :376-386 (after src/tui/approval.rs)
+    submit-card-preview MOVED -> :369-379 | catalog-refresh MOVED -> :369-379
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:337: :743-754 (after src/tui/shell.rs)
+    main MOVED -> :804-815 | submit-card-preview MOVED -> :804-815 | catalog-refresh MOVED -> :802-813 | paste-gap MOVED -> :745-756
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:337: :755 (after src/tui/shell.rs)
+    main MOVED -> :816 | submit-card-preview MOVED -> :816 | catalog-refresh MOVED -> :814 | paste-gap MOVED -> :757
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:470: :1013-1112 (after src/tui/event_loop.rs)
+    main MOVED -> :1054-1160 | submit-card-preview MOVED -> :1069-1168 | catalog-refresh MOVED -> :1094-1193 | paste-gap MOVED -> :1036-1142
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:470: :619-622 (after src/tui/event_loop.rs)
+    main MOVED -> :635-638 | submit-card-preview MOVED -> :611-614 | catalog-refresh MOVED -> :683-686 | paste-gap MOVED -> :635-638
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:485: :1048-1076 (after src/tui/event_loop.rs)
+    main MOVED -> :1096-1124 | submit-card-preview MOVED -> :1104-1132 | catalog-refresh MOVED -> :1129-1157 | paste-gap MOVED -> :1078-1106
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:486: :1078-1108 (after src/tui/event_loop.rs)
+    main MOVED -> :1126-1156 | submit-card-preview MOVED -> :1134-1164 | catalog-refresh MOVED -> :1159-1189 | paste-gap MOVED -> :1108-1138
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:486: :1090-1093 (after src/tui/event_loop.rs)
+    main MOVED -> :1138-1141 | submit-card-preview MOVED -> :1146-1149 | catalog-refresh MOVED -> :1171-1174 | paste-gap MOVED -> :1120-1123
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:487: :1027-1045 (after src/tui/event_loop.rs)
+    main MOVED -> :1068-1093 | submit-card-preview MOVED -> :1083-1101 | catalog-refresh MOVED -> :1108-1126 | paste-gap MOVED -> :1050-1068
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:488: :619 (after src/tui/event_loop.rs)
+    main MOVED -> :635 | submit-card-preview MOVED -> :611 | catalog-refresh MOVED -> :683 | paste-gap MOVED -> :635
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:494: :3239 (after src/tui/shell.rs)
+    main MOVED -> :3352 | submit-card-preview MOVED -> :3318 | catalog-refresh MOVED -> :3352 | paste-gap MOVED -> :3303
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:494: :3187 (after src/tui/shell.rs)
+    main MOVED -> :3300 | submit-card-preview MOVED -> :3266 | catalog-refresh MOVED -> :3300 | paste-gap MOVED -> :3251
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1246 (after src/tui/approval.rs)
+    submit-card-preview MOVED -> :1239 | catalog-refresh MOVED -> :1239
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1199-1218 (after src/tui/approval.rs)
+    submit-card-preview MOVED -> :1192-1211 | catalog-refresh MOVED -> :1192-1211
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1180-1196 (after src/tui/approval.rs)
+    submit-card-preview MOVED -> :1173-1189 | catalog-refresh MOVED -> :1173-1189
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:694: :4194 (after scripts/smoke-tui.sh)
+    main MOVED -> :4215 | submit-card-preview MOVED -> :4215 | catalog-refresh MOVED -> :4215
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5577 (after src/tui/shell.rs)
+    main MOVED -> :5777 | submit-card-preview MOVED -> :5714 | catalog-refresh MOVED -> :5807 | paste-gap MOVED -> :5772
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5590 (after src/tui/shell.rs)
+    main MOVED -> :5790 | submit-card-preview MOVED -> :5727 | catalog-refresh MOVED -> :5820 | paste-gap MOVED -> :5785
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5600 (after src/tui/shell.rs)
+    main MOVED -> :5800 | submit-card-preview MOVED -> :5737 | catalog-refresh MOVED -> :5830 | paste-gap MOVED -> :5795
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :1180-1218 (after src/tui/event_loop.rs)
+    main MOVED -> :1230-1268 | submit-card-preview MOVED -> :1238-1276 | catalog-refresh MOVED -> :1261-1308 | paste-gap MOVED -> :1212-1250
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :755 (after src/tui/approval.rs)
+    submit-card-preview MOVED -> :748 | catalog-refresh MOVED -> :748
+# 73 bare continuations after a reference into a changed file; 58 moved or changed on some side that holds them

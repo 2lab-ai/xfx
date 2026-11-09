@@ -1,0 +1,164 @@
+# head d2ed0274; sides: main 32afd307, submit-card-preview 0c203cd3, catalog-refresh 3ffbe0c7, paste-gap 5cc2e42c
+docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:918]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:196]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+docs/parity.md:96	[scripts/fxcap/parity-ledger.toml:307]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+docs/parity.md:99	[scripts/fxcap/parity-ledger.toml:432]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+docs/parity.md:107	[scripts/fxcap/parity-ledger.toml:123]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+docs/parity.md:109	[scripts/fxcap/parity-ledger.toml:943]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+docs/parity.md:113	[scripts/fxcap/parity-ledger.toml:349]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+docs/parity.md:115	[scripts/fxcap/parity-ledger.toml:70, scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:236, scripts/fxcap/parity-ledger.toml:267, scripts/fxcap/parity-ledger.toml:280, scripts/fxcap/parity-ledger.toml:294, scripts/fxcap/parity-ledger.toml:321, scripts/fxcap/parity-ledger.toml:335, scripts/fxcap/parity-ledger.toml:418]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+docs/parity.md:118	[scripts/fxcap/parity-ledger.toml:61]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+docs/parity.md:120	[scripts/fxcap/parity-ledger.toml:182, scripts/fxcap/parity-ledger.toml:335]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+docs/parity.md:158	[scripts/fxcap/parity-ledger.toml:563, scripts/fxcap/parity-ledger.toml:574]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+docs/parity.md:160	[scripts/fxcap/parity-ledger.toml:806]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+docs/parity.md:162	[scripts/fxcap/parity-ledger.toml:656]
+    main* = row | submit-card-preview = row | catalog-refresh = row | paste-gap = row
+docs/parity.md:172	[scripts/fxcap/parity-ledger.toml:907]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+docs/parity.md:177	[scripts/fxcap/parity-ledger.toml:770]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+docs/parity.md:210	[scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:321]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+docs/parity.md:216	[scripts/fxcap/parity-ledger.toml:742]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+docs/parity.md:237	[scripts/fxcap/parity-ledger.toml:450, scripts/fxcap/parity-ledger.toml:505, scripts/fxcap/parity-ledger.toml:519, scripts/fxcap/parity-ledger.toml:533]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+docs/parity.md:238	[scripts/fxcap/parity-ledger.toml:139, scripts/fxcap/parity-ledger.toml:363, scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:387, scripts/fxcap/parity-ledger.toml:391, scripts/fxcap/parity-ledger.toml:405, scripts/fxcap/parity-ledger.toml:463, scripts/fxcap/parity-ledger.toml:491, scripts/fxcap/parity-ledger.toml:818]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+docs/parity.md:243	[scripts/fxcap/parity-ledger.toml:250]
+    main* = row | submit-card-preview* = row | catalog-refresh* = row | paste-gap* = row
+scripts/check-xfx-identity.sh:5	[docs/parity.md:241]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+scripts/fxcap/capture.sh:325-327	[scripts/fxcap/parity-ledger.toml:85]
+    main* = | submit-card-preview -> 335-337 | catalog-refresh = | paste-gap -> 335-337
+scripts/fxcap/capture.sh:546	[scripts/fxcap/parity-ledger.toml:78]
+    main* = | submit-card-preview -> 571 | catalog-refresh = | paste-gap -> 571
+scripts/fxcap/capture.sh:987	[scripts/fxcap/parity-ledger.toml:147]
+    main* = | submit-card-preview -> 1022 | catalog-refresh = | paste-gap -> 1022
+scripts/fxcap/cells.py:12-14	[scripts/fxcap/parity-ledger.toml:53]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/agent/machine.rs:78-85	[docs/parity.md:237]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/config/schema.rs:545-550	[docs/parity.md:93]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/gateway/mod.rs:59	[scripts/fxcap/parity-ledger.toml:641, scripts/fxcap/parity-ledger.toml:651, docs/parity.md:237]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/gateway/mod.rs:994-995	[docs/parity.md:237]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/image.rs:101	[scripts/fxcap/parity-ledger.toml:770]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/markdown/theme.rs:49	[scripts/fxcap/parity-ledger.toml:250]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/markdown/theme.rs:69	[scripts/fxcap/parity-ledger.toml:250]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/mcp/runtime.rs:90	[scripts/fxcap/parity-ledger.toml:1154]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/mcp/transport.rs:1318-1320	[docs/parity.md:221]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/permission/authority.rs:38-41	[scripts/fxcap/parity-ledger.toml:896]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/permission/authority.rs:737	[scripts/fxcap/parity-ledger.toml:450]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/permission/authority.rs:1145-1149	[scripts/fxcap/parity-ledger.toml:896]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/permission/slash.rs:466	[scripts/fxcap/parity-ledger.toml:804]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/provider/mod.rs:116	[scripts/fxcap/parity-ledger.toml:792]
+    main* -> 117 MOVED | submit-card-preview* -> 117 MOVED | catalog-refresh* = | paste-gap* -> 117 MOVED
+src/proxy/server.rs:1583-1613	[docs/parity.md:114]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/session/store.rs:74	[docs/parity.md:48]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/session/store.rs:1000	[scripts/fxcap/parity-ledger.toml:700]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/sound.rs:37	[scripts/fxcap/parity-ledger.toml:941]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tools/mcp.rs:422-428	[scripts/fxcap/parity-ledger.toml:1107, docs/parity.md:176]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tools/mutate.rs:437-442	[scripts/fxcap/parity-ledger.toml:572, docs/parity.md:158]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tools/question.rs:60-76	[docs/parity.md:242]
+    main* = | submit-card-preview -> 63-79 | catalog-refresh -> 63-79 | paste-gap -> 63-79
+src/tools/read.rs:1162	[scripts/fxcap/parity-ledger.toml:572, docs/parity.md:158]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tools/spec.rs:214	[scripts/fxcap/parity-ledger.toml:898]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tui/approval_view.rs:106	[scripts/fxcap/parity-ledger.toml:953]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tui/approval_view.rs:685	[scripts/fxcap/parity-ledger.toml:804, scripts/fxcap/parity-ledger.toml:827, scripts/fxcap/parity-ledger.toml:839, scripts/fxcap/parity-ledger.toml:850, scripts/fxcap/parity-ledger.toml:861, scripts/fxcap/parity-ledger.toml:884, scripts/fxcap/parity-ledger.toml:929]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tui/approval_view.rs:971-976	[scripts/fxcap/parity-ledger.toml:463]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tui/approval_view.rs:1224	[scripts/fxcap/parity-ledger.toml:1011]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tui/frame.rs:2757	[scripts/fxcap/parity-ledger.toml:533]
+    main* = | submit-card-preview -> 2765 | catalog-refresh* = | paste-gap -> 2765
+src/tui/full_transcript.rs:495	[scripts/fxcap/parity-ledger.toml:363]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tui/full_transcript.rs:3010	[scripts/fxcap/parity-ledger.toml:491, scripts/fxcap/parity-ledger.toml:1011]
+    main* = | submit-card-preview -> 3015 | catalog-refresh* = | paste-gap -> 3015
+src/tui/full_transcript.rs:3061	[scripts/fxcap/parity-ledger.toml:505, scripts/fxcap/parity-ledger.toml:519]
+    main* = | submit-card-preview -> 3066 | catalog-refresh* = | paste-gap -> 3066
+src/tui/gesture.rs:162-164	[scripts/fxcap/parity-ledger.toml:1141]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tui/gesture.rs:176-188	[scripts/fxcap/parity-ledger.toml:1129, scripts/fxcap/parity-ledger.toml:1141]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tui/grid.rs:1088	[scripts/fxcap/parity-ledger.toml:988]
+    main* = | submit-card-preview -> 1243 | catalog-refresh* = | paste-gap -> 1243
+src/tui/layout.rs:98	[scripts/fxcap/parity-ledger.toml:976, scripts/fxcap/parity-ledger.toml:1024]
+    main -> 125 | submit-card-preview* = | catalog-refresh -> 125 | paste-gap -> 125
+src/tui/mcp_menu.rs:786-791	[scripts/fxcap/parity-ledger.toml:1153]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tui/mcp_menu.rs:1500	[scripts/fxcap/parity-ledger.toml:432]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tui/mod.rs:127-133	[scripts/fxcap/parity-ledger.toml:1116]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tui/retry.rs:369-381	[docs/parity.md:237]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tui/settings.rs:361	[scripts/fxcap/parity-ledger.toml:941]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tui/shell.rs:187	[scripts/fxcap/parity-ledger.toml:44, scripts/fxcap/parity-ledger.toml:45]
+    main* -> 189 MOVED | submit-card-preview* -> 189 MOVED | catalog-refresh* = | paste-gap* -> 189 MOVED
+src/tui/shell.rs:1765	[scripts/fxcap/parity-ledger.toml:965]
+    main* -> 1854 MOVED | submit-card-preview -> 1840 | catalog-refresh -> 1856 | paste-gap -> 1804
+src/tui/shell.rs:4343	[scripts/fxcap/parity-ledger.toml:1076]
+    main* -> 4541 MOVED | submit-card-preview -> 4434 | catalog-refresh -> 4529 | paste-gap -> 4492
+src/tui/shell.rs:10277	[scripts/fxcap/parity-ledger.toml:873, scripts/fxcap/parity-ledger.toml:875]
+    main* -> 10480 MOVED | submit-card-preview -> 10443 | catalog-refresh -> 10539 | paste-gap -> 10504
+src/tui/shell.rs:13498	[scripts/fxcap/parity-ledger.toml:505]
+    main* -> 13866 MOVED | submit-card-preview -> 13733 | catalog-refresh -> 13917 | paste-gap -> 13736
+src/tui/shell.rs:16413	[scripts/fxcap/parity-ledger.toml:690, scripts/fxcap/parity-ledger.toml:999]
+    main* -> 16840 MOVED | submit-card-preview -> 16696 | catalog-refresh -> 16886 | paste-gap -> 16814
+src/tui/shell.rs:39046	[scripts/fxcap/parity-ledger.toml:816, scripts/fxcap/parity-ledger.toml:827, scripts/fxcap/parity-ledger.toml:839, scripts/fxcap/parity-ledger.toml:850, scripts/fxcap/parity-ledger.toml:861, scripts/fxcap/parity-ledger.toml:929]
+    main* -> 40879 MOVED | submit-card-preview -> 40795 | catalog-refresh -> 41240 | paste-gap -> 40041
+src/tui/toolgroup.rs:511-513	[scripts/fxcap/parity-ledger.toml:662]
+    main* = | submit-card-preview = | catalog-refresh = | paste-gap =
+src/tui/toolgroup.rs:940	[scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:884]
+    main* = | submit-card-preview -> 958 | catalog-refresh* = | paste-gap -> 958
+src/tui/toolgroup.rs:1017	[scripts/fxcap/parity-ledger.toml:391]
+    main* = | submit-card-preview -> 1035 | catalog-refresh* = | paste-gap -> 1035
+src/tui/toolgroup.rs:1131	[scripts/fxcap/parity-ledger.toml:405]
+    main* = | submit-card-preview -> 1149 | catalog-refresh* = | paste-gap -> 1149
+src/tui/usage_menu.rs:790	[scripts/fxcap/parity-ledger.toml:349]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tui/wrap.rs:673-693	[scripts/fxcap/parity-ledger.toml:988]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+src/tui/wrap.rs:726	[scripts/fxcap/parity-ledger.toml:477]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+tests/e2e/file-tool-paths.test.ts:1170-1179	[docs/parity.md:218]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+tests/tla/session_manager/system-design.md:1536-1560	[docs/parity.md:92]
+    main* = | submit-card-preview* = | catalog-refresh* = | paste-gap* =
+# 81 references; 12 (side, reference) pairs MOVED; * = the side's own text cites it

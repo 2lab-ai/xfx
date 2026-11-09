@@ -1,0 +1,43 @@
+# Each merge tree's checks before its commit (check-merge.sh, train 10's, byte for byte), in the train's worktree with the merge staged; each exit from $? on the line after its command.
+## merge 1, 4a0b900b (SUBMIT-CARD-PREVIEW), staged
+cargo check --locked --all-targets: exit 0, 24 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 24.07s
+cargo check --locked --all-targets --features fault-injection: exit 0, 16 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.29s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 18 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.28s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 19 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.67s
+# 0 failed
+## merge 2, 0040fa59 (CATALOG-REFRESH): git's merge with the /model row resolved -- the first run, its four errors reproduced here at 0040fa59 with semantic.py's fixes taken out (semantic.py --reverse, in a clone; cargo check --locked --all-targets)
+src/tui/shell.rs: 1 replaced: 'due: CatalogDue::at(catalog_now() + REFRESH_INTERVAL),'
+src/tui/shell.rs: 1 replaced: 'retry,'
+src/tui/worker.rs: 1 replaced: 'outstanding: &outstanding,'
+src/tui/worker.rs: 1 replaced: 'outstanding: &outstanding,'
+reverse exit 0
+cargo check --all-targets exit 101
+error[E0308]: mismatched types
+     --> src/tui/shell.rs:50070:18
+error[E0308]: mismatched types
+     --> src/tui/shell.rs:50126:22
+error[E0063]: missing field `owed` in initializer of `worker::Queue<'_>`
+     --> src/tui/worker.rs:17429:29
+error[E0063]: missing field `owed` in initializer of `worker::Queue<'_>`
+     --> src/tui/worker.rs:17518:25
+error: could not compile `xfx` (lib test) due to 4 previous errors
+## merge 2, 0040fa59, staged with semantic.py's fixes: the second run
+cargo check --locked --all-targets: exit 0, 13 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.29s
+cargo check --locked --all-targets --features fault-injection: exit 0, 12 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.86s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 15 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.45s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 13 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.21s
+# 0 failed
+## merge 2: the three tests the fixes touch, on that tree (cargo test --locked --lib)
+test tui::shell::tests::a_catalog_read_that_fails_too_large_or_stalled_then_loads_ranks_in_three_tiers_and_keeps_its_mark_by_id ... ok
+test tui::worker::tests::a_switch_drops_the_old_providers_rows_read_and_backoff_and_keeps_the_clock ... ok
+test tui::worker::tests::a_told_ask_put_aside_behind_a_switch_starts_the_first_load_once_and_never_a_refresh ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4669 filtered out; finished in 0.09s
+## merge 3, d2ed0274 (PASTE-GAP), staged
+cargo check --locked --all-targets: exit 0, 24 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 23.97s
+cargo check --locked --all-targets --features fault-injection: exit 0, 19 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.56s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 19 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.75s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 20 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 19.68s
+# 0 failed
