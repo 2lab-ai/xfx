@@ -671,15 +671,6 @@ rows = ["5-14"]
 why = "fx v0.0.16 ranks `@st` and `@stat` with its placement score (55e13fad; `scoreBetter`, `file_index.zig:1884-1899@481104fd`), names that start with the query first (`start.sh`, `store.rs`, `STATUS.md`, ...); xfx still ranks with c1db919's eight facts (`score_order`, src/tui/file_index.rs) and lists `spikes/s-01-trace.txt` first. So the list's rows hold other paths. Its highlights are rebuilt from the placement that set the rank (`file_index.zig:1783-1829`), so `workspace-index`'s `@plan` on an added directory's long path bolds `p`, `l`, `a`, `n` where xfx bolds `p`, `la`, `n`: the same text, other attributes. Its shape is the same since AT-HEIGHT: ten rows, the rules and the hint row where fx has them, the bar on the same row, and each side's window the edge-scrolled one over its own ranking (.prd/tui-phase5/receipts/at-height/band.txt)."
 
 [[cause]]
-id = "at-folder-row"
-kind = "unit"
-owner = "I-U3 @ folders: Enter selects a folder, a listed folder is row 1 (input cluster I4), not yet a branch"
-scenarios = ["p5-input-at", "p5-input-at-dir", "filepicker"]
-snaps = ["at-src", "at-src-enter", "at-src-tab", "dir-enter", "at-dir", "at-dir-down", "at-dir-cj", "at-tab"]
-rows = ["3-16"]
-why = "fx v0.0.16 lists a folder query's folder as its first row and Enter on a folder row mentions it and closes the picker (7c8ef4a3; `path_completion.zig:82,135-145`, `input_completion_runtime.zig:993-1004@481104fd`): `@src/` shows `src/` first, Enter leaves `@src/`, Tab on it lists it again; `filepicker`'s `see @src/` lists `src/` above `src/deep/`, so its Down and C-j land one row higher and its Tab chooses `src/lib.rs`; `p5-input-at-dir`'s Enter on `src/store/` closes the picker at `@src/store/`. xfx lists the folder's entries alone, so Enter and Tab choose a file or open the folder. The list is ten rows on both since AT-HEIGHT (.prd/tui-phase5/receipts/at-height/)."
-
-[[cause]]
 id = "at-resize-band-at-the-bottom"
 kind = "defect"
 owner = "RESIZE-REPAINT"
