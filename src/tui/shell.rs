@@ -6163,7 +6163,7 @@ impl Shell {
             Action::PageDown => page,
             Action::Tab => {
                 match files.chosen().cloned() {
-                    Some(found) => self.complete_file(&found),
+                    Some(found) => self.complete_file(&found, file_picker::FolderAction::Open),
                     // Nothing to choose: a picker that could not read is
                     // asked to read again (`autocompleteFilePickerSelection`,
                     // `input_completion_runtime.zig:877-889`).
@@ -6187,7 +6187,7 @@ impl Shell {
             Action::Submit => {
                 return match files.enter() {
                     file_picker::Enter::Accept(found) => {
-                        self.complete_file(&found);
+                        self.complete_file(&found, file_picker::FolderAction::Select);
                         self.render.request(Reason::Modal);
                         true
                     }
@@ -6778,12 +6778,21 @@ impl Shell {
     /// One edit, so one undo takes it back. Refused whole -- by the prompt's
     /// budget or because the word runs into a pasted block -- it changes
     /// nothing, exactly as a keystroke the budget refuses does.
-    fn complete_file(&mut self, found: &super::file_index::Found) {
+    fn complete_file(
+        &mut self,
+        found: &super::file_index::Found,
+        action: file_picker::FolderAction,
+    ) {
         let Some(files) = self.file_picker.as_ref() else {
             return;
         };
-        let chosen =
-            file_picker::completion(self.editor.text(), files.query(), found, files.indexed());
+        let chosen = file_picker::completion(
+            self.editor.text(),
+            files.query(),
+            found,
+            files.indexed(),
+            action,
+        );
         let removed = chosen.range.end - chosen.range.start;
         if !paste::fits(
             self.editor.text().len().saturating_sub(removed),
@@ -8562,6 +8571,26 @@ impl Shell {
         if self.files.poll() {
             self.refresh_file_picker();
         }
+    }
+
+    /// Whether this turn's frame waits for the rows of a folder listing a
+    /// keystroke started (`holdFrameForFileListing`,
+    /// `input_completion_runtime.zig:817-835@481104fd`).
+    pub(crate) fn hold_frame_for_file_listing(&mut self, _now: Instant) -> bool {
+        false
+    }
+
+    /// Whether the loop checks back every millisecond rather than every tick
+    /// (`fileListingHoldPending`, `input_completion_runtime.zig:837-844
+    /// @481104fd`).
+    pub(crate) fn file_listing_hold_pending(&self, _now: Instant) -> bool {
+        false
+    }
+
+    /// The `@` list's source, for a case to drive a listing by hand.
+    #[cfg(test)]
+    pub(crate) fn files_for_test(&mut self) -> &mut Files {
+        &mut self.files
     }
 
     /// Offers one keystroke to the completion menu, and says whether it was
@@ -34425,17 +34454,22 @@ mod tests {
         shell.route_bytes(b"see @src/");
         listed(&mut shell);
         // `fx-composer-40x120-at-dir.txt`: the `@` is in column 7, so the rows
-        // are six columns in, and `src/` is browsed rather than searched.
+        // are six columns in, and `src/` is browsed rather than searched --
+        // under the folder's own row since fx v0.0.16 (7c8ef4a3; `filepicker`
+        // `at-dir`, `at-dir-down`, `at-dir-cj`, `at-tab` at 481104fd).
         assert_eq!(
-            listed_rows(&shell)[..3],
+            listed_rows(&shell)[..4],
             [
-                file_row(6, "src/deep/", true),
+                file_row(6, "src/", true),
+                file_row(6, "src/deep/", false),
                 file_row(6, "src/lib.rs", false),
                 file_row(6, "src/main.rs", false),
             ]
         );
         shell.route_bytes(b"\x1b[B");
-        assert_eq!(listed_rows(&shell)[1], file_row(6, "src/lib.rs", true));
+        assert_eq!(listed_rows(&shell)[1], file_row(6, "src/deep/", true));
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(listed_rows(&shell)[2], file_row(6, "src/lib.rs", true));
         // `fx-composer-40x120-at-tab.txt`: Tab puts the path in, with the space
         // after it, and the list closes because the caret has left the word.
         shell.route_bytes(b"\t");
@@ -34497,7 +34531,198 @@ mod tests {
         shell.route_bytes(b"\t");
         assert_eq!(shell.editor.text(), "@src/");
         listed(&mut shell);
-        assert_eq!(listed_rows(&shell)[0], file_row(2, "src/deep/", true));
+        // The folder it opened is the list's first row (`listedFolder`,
+        // `path_completion.zig:79-84`, `:124-128@481104fd`).
+        assert_eq!(
+            listed_rows(&shell)[..2],
+            [file_row(2, "src/", true), file_row(2, "src/deep/", false)]
+        );
+    }
+
+    #[test]
+    fn enter_on_a_folder_row_mentions_the_folder_and_closes_the_list() {
+        // fx v0.0.16 (7c8ef4a3): Enter selects a folder, its `/` and a space,
+        // and the caret past the space closes the list; nothing is sent
+        // (`submitFilePickerOnEnter` -> `.select`,
+        // `input_completion_runtime.zig:1042@481104fd`, `:993-1012`).
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"@src");
+        listed(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.editor.text(), "@src/ ");
+        assert!(shell.file_picker.is_none(), "the list stayed up");
+        assert!(shell.sent.try_recv().is_err(), "Enter sent the line");
+        // A listed folder's own row, as `p5-input-at`'s `at-src-enter`.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"@src/");
+        listed(&mut shell);
+        assert_eq!(listed_rows(&shell)[0], file_row(2, "src/", true));
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.editor.text(), "@src/ ");
+        assert!(shell.file_picker.is_none(), "the list stayed up");
+        // A folder inside, as `p5-input-at-dir`'s `dir-enter`: the space
+        // is the one the next word follows.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"@src/de");
+        listed(&mut shell);
+        shell.route_bytes(b"\r");
+        shell.route_bytes(b"x");
+        assert_eq!(shell.editor.text(), "@src/deep/ x");
+        assert!(shell.file_picker.is_none());
+        assert!(shell.sent.try_recv().is_err());
+    }
+
+    #[test]
+    fn tab_on_the_folders_own_row_lists_it_again() {
+        // `p5-input-at`'s `at-src-tab`: Tab opens the marked folder, and
+        // the marked folder is the one listed, so the list stays on it
+        // (`.open`, `input_completion_runtime.zig:957@481104fd`, `:1029`).
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@src/");
+        listed(&mut shell);
+        let before = listed_rows(&shell);
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "@src/");
+        listed(&mut shell);
+        assert_eq!(listed_rows(&shell), before);
+        assert_eq!(listed_rows(&shell)[0], file_row(2, "src/", true));
+    }
+
+    #[test]
+    fn a_folder_with_a_space_is_mentioned_inside_its_quotes() {
+        // fx's "filesystem file picker lists an opened folder first and
+        // Enter selects it" (`input_completion_runtime.zig:2200-2235
+        // @481104fd`).
+        let workspace = tempfile::tempdir().expect("a workspace");
+        std::fs::create_dir(workspace.path().join("space dir")).expect("a folder");
+        std::fs::write(workspace.path().join("space dir/item.txt"), "inside").expect("a file");
+        let mut shell = shell_in(24, 80, workspace.path());
+        shell.route_bytes(b"@./space");
+        listed(&mut shell);
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "@\"./space dir/");
+        listed(&mut shell);
+        assert_eq!(
+            listed_rows(&shell)[..2],
+            [
+                file_row(2, "./space dir/", true),
+                file_row(2, "./space dir/item.txt", false)
+            ]
+        );
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.editor.text(), "@\"./space dir/\" ");
+        assert!(shell.file_picker.is_none(), "the list stayed up");
+    }
+
+    #[test]
+    fn a_keystroke_that_lists_a_folder_holds_its_frame_until_the_rows_land() {
+        // fx's "filesystem file picker releases a held folder frame only with
+        // its rows" (`input_completion_runtime.zig:2237-2270@481104fd`), with
+        // the listing driven by the case and the clock given, so nothing
+        // waits on a thread: the frame waits while the listing is out, and
+        // goes the moment its rows are in.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let listing =
+            super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
+        shell.route_bytes(b"@src/");
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        assert!(
+            shell.hold_frame_for_file_listing(t0),
+            "the frame did not wait for the folder's rows"
+        );
+        assert!(shell.file_listing_hold_pending(at(7)));
+        assert!(shell.hold_frame_for_file_listing(at(7)));
+        listing
+            .send(Ok(vec![(
+                "main.rs".to_string(),
+                super::super::file_index::Kind::File,
+            )]))
+            .expect("the listing");
+        assert!(
+            !shell.hold_frame_for_file_listing(at(7)),
+            "the rows landed and the frame still waited"
+        );
+        assert!(!shell.file_listing_hold_pending(at(7)));
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .expect("the list")
+                .rows_for_test()
+                .iter()
+                .map(|found| (found.path.as_str(), found.kind))
+                .collect::<Vec<_>>(),
+            [
+                ("src", super::super::file_index::Kind::Directory),
+                ("src/main.rs", super::super::file_index::Kind::File)
+            ]
+        );
+    }
+
+    #[test]
+    fn after_a_slow_folder_the_frame_goes_at_once_until_a_fast_one() {
+        // fx's `FileListingWait` in the loop (`picker_state.zig:99-139`,
+        // `input_completion_runtime.zig:817-844@481104fd`; 6aa678d9): a
+        // listing that outlasts the 8 ms lets its frame go, the next one's
+        // frame goes at once but the loop still checks back every
+        // millisecond, and one that lands inside 8 ms turns the wait back on.
+        // A list that closes forgets the slow folder (`:824-826`).
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let none = || Ok(Vec::new());
+        // Slow.
+        let slow = super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
+        shell.route_bytes(b"@src/");
+        assert!(shell.hold_frame_for_file_listing(at(0)));
+        assert!(
+            !shell.hold_frame_for_file_listing(at(8)),
+            "the wait outlasted 8 ms"
+        );
+        slow.send(none()).expect("the listing");
+        assert!(!shell.hold_frame_for_file_listing(at(20)));
+        // Next, a new word in the same read: its frame goes at once, and it
+        // is still watched.
+        let next = super::super::file_index::tests::driven_listing(shell.files_for_test(), "docs");
+        shell.route_bytes(b"\x15@docs/");
+        assert!(
+            !shell.hold_frame_for_file_listing(at(30)),
+            "the frame waited after a slow folder"
+        );
+        assert!(
+            shell.file_listing_hold_pending(at(37)),
+            "the listing was not watched"
+        );
+        assert!(!shell.file_listing_hold_pending(at(38)));
+        next.send(none()).expect("the listing");
+        assert!(!shell.hold_frame_for_file_listing(at(31)));
+        // Fast, so the next folder's frame waits again.
+        let fast = super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
+        shell.route_bytes(b"\x15@src/");
+        assert!(
+            shell.hold_frame_for_file_listing(at(40)),
+            "a fast folder did not bring the wait back"
+        );
+        fast.send(none()).expect("the listing");
+        assert!(!shell.hold_frame_for_file_listing(at(41)));
+        // Slow again, and then the list closes: a list opened after it waits.
+        let slow = super::super::file_index::tests::driven_listing(shell.files_for_test(), "docs");
+        shell.route_bytes(b"\x15@docs/");
+        assert!(shell.hold_frame_for_file_listing(at(50)));
+        assert!(!shell.hold_frame_for_file_listing(at(60)));
+        slow.send(none()).expect("the listing");
+        assert!(!shell.hold_frame_for_file_listing(at(61)));
+        shell.route_bytes(&[0x15]);
+        assert!(!shell.hold_frame_for_file_listing(at(62)));
+        let after = super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
+        shell.route_bytes(b"@src/");
+        assert!(
+            shell.hold_frame_for_file_listing(at(70)),
+            "a closed list kept the slow folder"
+        );
+        after.send(none()).expect("the listing");
+        assert!(!shell.hold_frame_for_file_listing(at(71)));
     }
 
     #[test]

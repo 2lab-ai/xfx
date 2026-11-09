@@ -1549,8 +1549,12 @@ pub(crate) mod tests {
                 .collect()
         };
         // `fx-composer-40x120-at-dir.txt`: `@src/` lists the directory's own
-        // entries in byte order, the directory with its slash.
-        assert_eq!(browse("src/"), ["src/deep/", "src/lib.rs", "src/main.rs"]);
+        // entries in byte order, the directory with its slash -- under the
+        // folder itself since fx v0.0.16 (7c8ef4a3; `filepicker`'s `at-dir`).
+        assert_eq!(
+            browse("src/"),
+            ["src/", "src/deep/", "src/lib.rs", "src/main.rs"]
+        );
         assert_eq!(browse("src/li"), ["src/lib.rs"]);
         let found = rank_listing(&entries, &explicit("src/li").expect("a path"));
         assert_eq!(
@@ -1559,6 +1563,81 @@ pub(crate) mod tests {
             "the span is in the shown path, past the prefix"
         );
         assert!(list_directory(&dir.path().join("missing")).is_err());
+    }
+
+    /// The rows `query` makes of `entries`, a directory with its slash.
+    fn listed(entries: &[(String, Kind)], query: &str) -> Vec<(String, Kind)> {
+        rank_listing(entries, &explicit(query).expect("a path"))
+            .into_iter()
+            .map(|found| (found.path, found.kind))
+            .collect()
+    }
+
+    fn entries(names: &[&str]) -> Vec<(String, Kind)> {
+        names
+            .iter()
+            .map(|name| match name.strip_suffix('/') {
+                Some(name) => (name.to_string(), Kind::Directory),
+                None => ((*name).to_string(), Kind::File),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_listed_folder_is_its_own_first_row() {
+        // fx's "path completion lists a folder first so it can be selected"
+        // and "browses bare current and parent directories"
+        // (`path_completion.zig:401-434`, `:307-330@481104fd`; `listedFolder`,
+        // `:133-143`).
+        let dir = |path: &str| (path.to_string(), Kind::Directory);
+        let file = |path: &str| (path.to_string(), Kind::File);
+        let src = entries(&["main.zig"]);
+        assert_eq!(listed(&src, "src/"), [dir("src"), file("src/main.zig")]);
+        let found = rank_listing(&src, &explicit("src/").expect("a path"));
+        assert!(found[0].spans.is_empty(), "the folder row bolds nothing");
+        // A partial name lists the matching entries only.
+        assert_eq!(listed(&src, "src/ma"), [file("src/main.zig")]);
+        // `~`, `.` and `..` list themselves first too.
+        assert_eq!(
+            listed(&entries(&["notes.txt"]), "~"),
+            [dir("~"), file("~/notes.txt")]
+        );
+        assert_eq!(
+            listed(&entries(&["local.txt"]), "."),
+            [dir("."), file("./local.txt")]
+        );
+        assert_eq!(
+            listed(&entries(&["parent.txt", "workspace/"]), ".."),
+            [dir(".."), file("../parent.txt"), dir("../workspace")]
+        );
+        assert_eq!(
+            listed(&entries(&["empty/", "external.txt"]), "../outside/"),
+            [
+                dir("../outside"),
+                dir("../outside/empty"),
+                file("../outside/external.txt")
+            ]
+        );
+        // An empty folder is still a row to choose (7c8ef4a3's message).
+        assert_eq!(listed(&[], "src/"), [dir("src")]);
+        // The root, and a doubled separator, list no row for themselves.
+        assert_eq!(listed(&entries(&["etc/"]), "/"), [dir("/etc")]);
+        assert_eq!(listed(&entries(&["a.txt"]), "src//"), [file("src//a.txt")]);
+        // Nor does a folder that cannot be painted as it stands.
+        assert_eq!(
+            listed(&entries(&["a.txt"]), "bad\u{1b}dir/"),
+            Vec::<(String, Kind)>::new(),
+            "an entry under an unpaintable prefix is no row either"
+        );
+        assert_eq!(listed(&entries(&["a.txt"]), "bad\u{9b}dir/").len(), 0);
+        // The folder keeps its row when the entries fill the list: fx gives
+        // the entries what is left of `capacity` (`:81-84`).
+        let many: Vec<String> = (0..MOST_RESULTS + 5).map(|n| format!("f-{n:02}")).collect();
+        let many: Vec<&str> = many.iter().map(String::as_str).collect();
+        let rows = listed(&entries(&many), "big/");
+        assert_eq!(rows.len(), MOST_RESULTS);
+        assert_eq!(rows[0], dir("big"));
+        assert_eq!(rows[1], file("big/f-00"));
     }
 
     /// Polls `files` until `done` says so, for at most two seconds.
@@ -1604,6 +1683,24 @@ pub(crate) mod tests {
             rx,
             stop: Arc::new(AtomicBool::new(false)),
             published: Vec::new(),
+        });
+        tx
+    }
+
+    /// A listing of the directory a browsed `parent` names (`tree` for
+    /// `@tree/`) that this test drives by hand: it is in flight until the
+    /// test sends its entries on the returned sender, so a lookup of that
+    /// directory says `Loading` for as long as the test likes.
+    pub(crate) fn driven_listing(
+        files: &mut Files,
+        parent: &str,
+    ) -> mpsc::Sender<Result<Vec<(String, Kind)>, ()>> {
+        let directory = resolve(&files.root, files.home.as_deref(), parent).expect("a directory");
+        let (tx, rx) = mpsc::channel();
+        files.listing = Some(Listing {
+            directory,
+            rx,
+            stop: Arc::new(AtomicBool::new(false)),
         });
         tx
     }

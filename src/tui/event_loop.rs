@@ -255,7 +255,7 @@ fn session(
     loop {
         match signals::wait_for_input(
             &[stdin.as_fd(), launch.wakeup.read_fd()],
-            Some(TICK),
+            Some(wait_timeout(shell, Instant::now())),
             launch.held,
         ) {
             Ok(_) => {}
@@ -294,7 +294,7 @@ fn session(
         // was spent on the read, so this reconcile is not optional -- it is the
         // only way to have one.
         let reconciled = collect_facts(shell, band, launch, Instant::now())?;
-        commit_counted(
+        commit_or_hold(
             shell,
             band,
             &mut RawTty::stdout(),
@@ -316,6 +316,27 @@ fn session(
             return Ok(shell.exit_code());
         }
     }
+}
+
+/// How long a turn's wait may last: the [`TICK`], or one millisecond while a
+/// folder listing is in its first tick (`nativeLoopPollTimeoutMs`,
+/// `main.zig:191-207`, `:1140@481104fd`).
+fn wait_timeout(_shell: &Shell, _now: Instant) -> Duration {
+    TICK
+}
+
+/// The turn's writes ([`commit_counted`]), unless its frame waits for the
+/// rows of a folder listing a keystroke started (`loopCommitFrame`,
+/// `main.zig:3007@481104fd`).
+fn commit_or_hold(
+    shell: &mut Shell,
+    band: &mut Band,
+    out: &mut impl Sink,
+    failures: &mut FrameFailures,
+    now: Instant,
+    reconciled: Reconciled,
+) -> io::Result<()> {
+    commit_counted(shell, band, out, failures, now, reconciled)
 }
 
 /// Hands the band the window title the session starts with, before the
@@ -16118,6 +16139,92 @@ mod tests {
                 "after {key:?} spent mid-resize, the Down was spent too"
             );
         }
+    }
+
+    #[test]
+    fn the_frame_of_a_keystroke_that_lists_a_folder_waits_for_its_rows() {
+        // fx's loop commits no frame while `holdFrameForFileListing` says so
+        // (`loopCommitFrame`, `main.zig:3007@481104fd`), and waits a
+        // millisecond rather than a tick while the listing is in its first
+        // tick (`nativeLoopPollTimeoutMs`, `main.zig:191-207`, `:1140`;
+        // `fileListingHoldPending`, `input_completion_runtime.zig:841-844`).
+        // So the `indexing files...` a listing shows before its rows never
+        // reaches the screen (09d2e934). The listing is driven by the case.
+        let mut fixture = shell_of(40, 120);
+        let listing =
+            super::super::file_index::tests::driven_listing(fixture.shell.files_for_test(), "tree");
+        let mut band = Band::new();
+        let mut out = screen();
+        let mut failures = FrameFailures::default();
+        fixture.shell.route_bytes(b"@tree/");
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        commit_or_hold(
+            &mut fixture.shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            t0,
+            Reconciled,
+        )
+        .expect("a turn");
+        assert!(
+            out.written.is_empty(),
+            "a frame went out before the folder's rows: {:?}",
+            String::from_utf8_lossy(&out.written)
+        );
+        assert_eq!(
+            wait_timeout(&fixture.shell, at(1)),
+            Duration::from_millis(1),
+            "the loop waits a tick for rows it is holding a frame for"
+        );
+        listing
+            .send(Ok(vec![(
+                "leaf.txt".to_string(),
+                super::super::file_index::Kind::File,
+            )]))
+            .expect("the listing");
+        commit_or_hold(
+            &mut fixture.shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            at(2),
+            Reconciled,
+        )
+        .expect("a turn");
+        let painted = String::from_utf8_lossy(&out.written);
+        assert!(painted.contains("tree/leaf.txt"), "{painted:?}");
+        assert!(!painted.contains("indexing files"), "{painted:?}");
+        assert_eq!(wait_timeout(&fixture.shell, at(2)), TICK);
+    }
+
+    #[test]
+    fn a_key_the_list_hands_on_mid_resize_asks_for_the_frame_too() {
+        // A key outside the list's arm -- an unbound C-g, a Redo with nothing
+        // to redo -- pressed while a resize is pending, on a resize that comes
+        // back the same size. fx's resize signal asks for a frame of its own
+        // (`observeResizeSignal`, `render_request.zig:196-200@481104fd`), and
+        // that frame's commit trusts the list again (`app_render_runtime.zig:
+        // 1022-1023`), so its next Down moves the bar. xfx's signal asks for
+        // none, so the key that distrusts the list asks for it. Each key on
+        // a list of its own, so each is measured alone.
+        let spent: Vec<&[u8]> = [b"\x07".as_slice(), b"\x1b[122;10u".as_slice()]
+            .into_iter()
+            .filter(|key| {
+                let mut list = AtList::open(40, 120);
+                list.shell.render.mark_resize(Instant::now());
+                list.shell.route_bytes(key);
+                assert!(list.shell.render.force_resize());
+                adopt_resize(&mut list.shell, &mut list.band, || (40, 120));
+                list.tick();
+                list.keys(DOWN) != at_window(1, 10, 2)
+            })
+            .collect();
+        assert!(
+            spent.is_empty(),
+            "after these keys were handed on mid-resize, the Down was spent: {spent:?}"
+        );
     }
 
     #[test]
