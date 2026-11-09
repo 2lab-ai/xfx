@@ -10,7 +10,10 @@ The dispatcher's round-4 decision on the round-3 reviews: stop patching the
 text scanner, and replace it with what clippy resolves itself. Every figure
 below is from a file in this folder.
 
-- **Round-3 head:** `a327dd8a` (code `b039c001`).
+- **Round-3 head:** `a327dd8a` (code `b039c001`). **Round-4 code:**
+  `686f2e5b` (part 1), `354c512d` (the build script's two starts),
+  `9e14a458` (part 2), `dcb9c12a` (part 3), `b0d36ba4` (the self-test's
+  name fixture); the receipt commits follow them.
 - **Toolchain:** rustc 1.99.1 (58cf8f9c3 2026-10-13), clippy 0.1.99,
   aarch64-apple-darwin (`force-warn-probe/probe.txt`, first line).
 
@@ -83,7 +86,9 @@ refused unless it is one of:
    span of the invocation, which must be exactly the literal form --
    `env_exception!(var_os("NAME"))`, a name matching `[A-Z][A-Z0-9_]*`, or the
    list form -- so a raw string, an escape or a `$name` from a wrapping macro
-   is refused. Each name must be in `ALLOWED_NAMES` (25, each with its reason;
+   is refused. Each name must be in `ALLOWED_NAMES` (25 at part 1; 28 after part 2
+   adds `HOME`, `RUST_BACKTRACE` and `RUST_TEST_THREADS` for the copy; each
+   with its reason;
    one that nothing reads is refused too), and each invocation's file and
    names an entry of `EXCEPTIONS`, compared both ways: an invocation added
    fails, and one that goes missing fails.
@@ -154,11 +159,106 @@ and, around them: `src/env_exception.rs` (new), `src/lib.rs` (the module,
 
 ### RED: the reviewers' bypasses, refused
 
-<!-- filled from self-test.txt -->
+`self-test.txt` (`check-env-reads.py --self-test`, at `b0d36ba4`): a crate
+that compiles `src/env_exception.rs` itself (`#[path]`), under xfx's own
+`clippy.toml`, with one test file per fixture; the same classification
+then runs on clippy's report. 24 fixtures, 0 not as expected; each line
+says why it was refused, never a value.
+
+Each bypass the reviews found in the text scanner, written as the reviews
+wrote it, with an `env:` allow over it where it had one -- each refused as
+`std::env::var_os outside env_exception! and process_env!` (clippy reports
+it; the allow lifts nothing under `--force-warn`):
+
+- `multi_line_reason` (a reason over two lines);
+- `let_cut_at_a_brace` (a `let` whose unit ends at `}` and goes on in a
+  chain);
+- `quote_char_unit` (`'"'` before the read);
+- `renamed_import` (`pub(crate) use std::env::var_os as v` in a module) and
+  `braced_import` (`use std::env::{self as e, var_os as v}`, both readers);
+- `closure_rebinding` (the read inside a closure over its argument);
+- `shadowed_constant` (an inner `const NAME` shadowing the allowed one);
+- `alias_through_alias` (`use std::env as e; use e::var_os as v`);
+- `path_reference` (`let read = std::env::var_os; read("HOME")`: reported
+  on the `let`);
+- `libc_system_as_run` (`use libc::system as run`, a start under an `env:`
+  allow: `libc::system outside ...`);
+- `every_reader`: all six readers under one allow, six refusals.
+
+The lifts that never name the lint -- `crate_level_allow_all`
+(`#![allow(clippy::all)]` and `#![allow(warnings)]`), `group_allow`
+(`clippy::style`), `expect`, `cfg_attr_allow` -- and
+`a_start_under_an_env_allow` (`Command::status`): each refused the same
+way. The macro's own edges: `unlisted_name` (`GIT_CONFIG_GLOBAL`: not an
+allowed name), `home_outside_the_copy` (`HOME` read anywhere but
+`isolated.rs`: unlisted), `unlisted_invocation`, `raw_string_name`
+(`r"PATH"`: not the literal form), `a_constant_into_the_macro` (does not
+compile: "no rules expected `NAME`"), `a_macro_of_the_same_name` (a local
+`macro_rules! env_exception` taking an expression: refused by its
+definition site), `a_wrapping_macro` (a `$name:tt` passed through: not the
+literal form). `accepted` (a listed literal) is accepted.
+
+The inherited marker is part 2's RED, below.
+
+### Mutants
+
+`mutants.txt` (`mutants-r4.py`, on a `--no-local` clone at `dcb9c12a`; no
+value printed, every run searched for the sentinel's seven values,
+`xfx-sentinel-git-token` among them): **32 entries, 32 killed, 0 runs with
+a sentinel value in their output.**
+
+- Rounds 1-3's 14 unit mutants at round 4's text (the guard, the refusal,
+  each reader routed around `process_env!`, child isolation, the carry, the
+  MCP fallback, the overlay, the homeless global config, both proxy
+  rules): each killed by a failing case.
+- The start check: round 2's bare `Command` in a test module, and
+  `probe-bare`, the SIGCHLD probe back on a bare `Command::new` -- killed
+  now that `process.rs`'s tests are read.
+- The forced check (`envcheck`): an allow over a plain read, a crate-level
+  `allow(clippy::all, warnings)`, `expect` with `cfg_attr(allow)`, a
+  listed invocation reading `HOME` instead, an invocation the list does
+  not hold, a listed one gone, an allow over a `Command::status` outside
+  `process::spawn`, one read more in `build.rs`, and a `tests/*.rs` with
+  no `mod support;` -- each refused, by name.
+- `macro-takes-expr` (`var_os`'s arm taking `$name:expr`): the self-test
+  fails -- `a_constant_into_the_macro` compiles.
+- Part 2: the copy trusting its marker, taking a non-empty `HOME`, a
+  `HOME` the marker does not name, a name it was not given, no constructor
+  at all, and the copy handed the whole environment: each fails
+  `tests/isolation.rs`. The last runs no case at all -- the copy refuses
+  itself, which is the refusal working, and is counted killed because the
+  suite does not pass.
+
+The self-test's `unlisted_name` fixture read `HOME` until `b0d36ba4`:
+part 2 allowed `HOME` for the copy, so at `dcb9c12a` that fixture was
+refused only as unlisted and the self-test failed its own expectation.
+`b0d36ba4` names `GIT_CONFIG_GLOBAL` there and adds
+`home_outside_the_copy`; nothing else changed between the two.
 
 ### Release
 
-<!-- filled from release-compare.txt -->
+`release-compare.txt`: main (`32afd307`) and `dcb9c12a`, built back to
+back on the clone with `XFX_BUILD_REVISION=000000000000`, the same
+toolchain. 11,668,096 bytes each, the same section table; 591 bytes
+differ -- 414 in the code signature's page hashes, 16 in `LC_UUID`, and 161
+in `__DATA_CONST,__const`, every one a panic `Location` whose line number
+moved (`gateway/mod.rs`, `interactive.rs`, `mcp/runtime.rs`,
+`mcp/transport.rs`, `tui/shell.rs`, `tui/theme.rs` -12, `tui/worker.rs`);
+0 not explained that way. **`__text` is identical**: the macro, the
+conversion of the nine reads a default build makes, and the hand-written
+`match ()` wrappers it replaced change no instruction. The release build
+compared is the default one; `fault-injection` (`tui/fault.rs`'s read) is
+not a shipped build and was not compared. `b0d36ba4` changes only the
+script.
+
+### The gate
+
+`gates.txt` (`../gates.sh` under the suite lock, on the clone at
+`b0d36ba4`): fmt, clippy, clippy with `fault-injection`, the whole test
+suite twice (default: lib 4640 passed, and every integration suite; with
+`fault-injection`: lib 4663, tui 200), identity, stubs, secrets,
+`check-env-reads.py` (36 invocations in 23 files, OK) and its self-test
+(24 fixtures, 0 not as expected): every step exit 0.
 
 ## Part 2: every integration test binary runs in a clean copy of itself
 
@@ -213,6 +313,46 @@ reason, and the ignored case it was asked for, which leaves a mark in its
 working directory (that `HOME`), leaves none. A control, started as a
 developer starts it, makes its copy and the case leaves its mark: so "no
 mark" means "no case ran".
+
+**RED: the inherited marker** (`red-marker.txt`, `red-marker.py`). The
+permissions binary, started with `XFX_TEST_ISOLATED_COPY` already set and a
+sentinel `HOME` holding a hook and a token-carrying `insteadOf`, asked for
+`auto_does_not_run_git_in_a_directory_whose_configuration_defines_a_hook`;
+`process_env!`'s build arms count their reads (names only):
+
+- at `a327dd8a`, with round 3's marker `1` and with a well-formed one: the
+  case ran in that process -- 2 reads of `HOME` by
+  `permission::authority::minimal_environment`, under the sentinel home --
+  and failed, decided by the sentinel's git configuration;
+- at `dcb9c12a`: no case ran and no read was made. Marker `1` is refused
+  as "not a name the copy's parent made", the well-formed one because
+  "HOME is not empty". Exit 101 both times; no sentinel value in any
+  output.
+
+**GREEN under the sentinel environment, at `dcb9c12a`.**
+
+- `green-lib.txt`: the lib suite, 4640 passed, 0 failed, 7 ignored; no
+  sentinel value in the output.
+- `integration-green.txt`: all 13 integration suites -- the 12 of round 3
+  and `isolation` -- 0 failed: cli 82, gateway 93, interactive 79,
+  isolation 1 (and its ignored marking case), ledger_compat 5, llmux 103,
+  mcp 5, parity 26, permissions 159 (none of them wrapped any more),
+  session_compat 9, sessions 65, tool_loop 109, tui 186.
+
+**The enumeration, once more** (`integration-reads.txt`,
+`integration-reads.py`: round 3's, now recording `env_exception!`'s arms
+too, and whether the marker was set when the read was made). 17,251 reads:
+15,352 by the `xfx` binary the suites start, 1,815 in the clean copies,
+and 84 in the processes the developer started -- **0 of them through
+`process_env!`**. The 84 are `tests/support/isolated.rs`'s own, before
+`main` (thread `?`, the constructor): per binary, the marker, `PATH`,
+`TMPDIR` twice (its own and `clear_env`'s), `RUST_BACKTRACE` and
+`RUST_TEST_THREADS` -- six; `isolation` twice, for its control. As in
+round 3, the instrumented run shows one interactive and eight tui
+failures that the uninstrumented runs do not (`integration-green.txt`);
+round 3 saw the same at both of its revisions. The instrumented build is
+the only difference between the two runs; which of its writes the nine
+cases trip on was not looked into.
 
 ## Part 3: the rest
 
