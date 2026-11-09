@@ -550,23 +550,27 @@ const PASTE_SUFFIX: &str = "Input that arrived right after the paste was ignored
 /// second while it lasts ([`super::input::Decoder::PASTE_REPEAT`]), the same
 /// way and on the same plane as [`PASTE_SUFFIX`]. xfx's own words, and how to
 /// get out: fx has no quarantine, so it has nothing to say here.
-const PASTE_STILL: &str = "Input is still being ignored until it stops for a moment.";
+///
+/// **Two rows of the narrowest screen, whole.** The review plane gives a
+/// status two rows (`super::approval_screen`'s `STATUS_ROWS`), and a session
+/// exists down to `super::layout::MIN_COLS` = 20 columns, two of them its
+/// indent: so each of the three sentences wraps into two rows of at most 18
+/// columns, and a cut sentence -- which says something else -- never appears
+/// (`every_quarantine_sentence_is_whole_on_the_review_plane_at_the_narrowest_screen`).
+/// They are short for that, and each is true in every state that says it.
+const PASTE_STILL: &str = "Keys ignored until input stops.";
 
 /// [`PASTE_STILL`] while a paste begun behind the first one's end marker is
-/// being dropped: a pause does nothing until that paste's end arrives
-/// ([`super::input::Hold::Paste`]). Like [`PASTE_UNTIL_KEY`], it says only
-/// what must come before a pause can end anything, which is true however that
-/// state then ends; [`PASTE_STILL`] is said again if the quiet is what holds
-/// it next.
-const PASTE_UNTIL_END: &str =
-    "Input is still being ignored; a pause won't end it until the paste's end arrives.";
+/// being dropped ([`super::input::Hold::Paste`]). It names the cause -- that
+/// paste is still open -- and no release point: its end marker alone ends
+/// nothing (the quiet holds the quarantine next, and [`PASTE_STILL`] is said
+/// then), so "until the paste ends" would be false.
+const PASTE_UNTIL_END: &str = "Paste still open; keys are ignored.";
 
-/// And while a marker is read past its first byte: a pause does nothing until
-/// the escape sequence is finished or broken, by however many keys that takes
-/// ([`super::input::Hold::Marker`]).
-const PASTE_UNTIL_KEY: &str =
-    "Input is still being ignored; a pause won't end it until the escape \
-     sequence it began is finished or broken.";
+/// And while a marker is read past its first byte
+/// ([`super::input::Hold::Marker`]): the cause again -- an escape sequence is
+/// still open, however many keys continue it -- and no release point.
+const PASTE_UNTIL_KEY: &str = "Key sequence open; keys are ignored.";
 
 /// The hint row's refusal for a paste this session has no number left for.
 ///
@@ -18940,10 +18944,7 @@ mod tests {
     /// quarantine after the warning has been said, spelled out here rather
     /// than read from the code under test. fx has none: it has no quarantine.
     fn still_ignored_after_the_paste() -> notice::Notice {
-        notice::Notice::warning(
-            "input",
-            "Input is still being ignored until it stops for a moment.",
-        )
+        notice::Notice::warning("input", "Keys ignored until input stops.")
     }
 
     #[test]
@@ -19048,25 +19049,16 @@ mod tests {
     }
 
     /// xfx's sentence for input still being dropped while a paste begun behind
-    /// the first one's end marker is open: a pause does nothing until that
-    /// paste's end arrives. Spelled out, as [`still_ignored_after_the_paste`]
-    /// is.
+    /// the first one's end marker is open: its cause, and no release point.
+    /// Spelled out, as [`still_ignored_after_the_paste`] is.
     fn still_ignored_until_the_paste_ends() -> notice::Notice {
-        notice::Notice::warning(
-            "input",
-            "Input is still being ignored; a pause won't end it until the paste's end arrives.",
-        )
+        notice::Notice::warning("input", "Paste still open; keys are ignored.")
     }
 
-    /// And while a marker is read past its first byte: a pause does nothing
-    /// until the escape sequence it began is finished or broken -- by however
-    /// many keys that takes.
+    /// And while a marker is read past its first byte: the open sequence, true
+    /// however many keys continue it.
     fn still_ignored_until_the_sequence_ends() -> notice::Notice {
-        notice::Notice::warning(
-            "input",
-            "Input is still being ignored; a pause won't end it until the escape sequence \
-             it began is finished or broken.",
-        )
+        notice::Notice::warning("input", "Key sequence open; keys are ignored.")
     }
 
     #[test]

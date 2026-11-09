@@ -140,13 +140,13 @@
 //! again**. Input inside it is dropped whoever typed it, fast legitimate input
 //! included, and the paste's warning says so; input that keeps arriving is
 //! said again once a second ([`Decoder::PASTE_REPEAT`]) in xfx's own words,
-//! which say what will end it -- the input stopping for a moment -- or, while
-//! a paste behind the end marker is open or a marker is read past its first
-//! byte, what must come before a pause can end anything: that paste's end, or
-//! the sequence finished or broken ([`Hold`]). A change in what holds it is
-//! said too, even with nothing dropped. At a check that finds nothing and at a
-//! turn's read cap alike ([`Decoder::still`]). Nothing is ever decoded on a
-//! timer (`docs/parity.md`, the `full-screen TUI` row).
+//! which say what holds it ([`Hold`]): the input until it stops, or, while a
+//! paste behind the end marker is open or a marker is read past its first
+//! byte, that open paste or sequence -- its cause, and no release point. Once
+//! a repeat has named a hold, a change in what holds it is said too, even
+//! with nothing dropped; at a check that finds nothing and at a turn's read
+//! cap alike ([`Decoder::still`]). Nothing is ever decoded on a timer
+//! (`docs/parity.md`, the `full-screen TUI` row).
 //!
 //! **A paste is still a paste.** The one sequence the quarantine reads is a
 //! paste's start marker, matched exactly (`ESC [ 200 ~`): it begins a paste
@@ -476,9 +476,11 @@ pub(crate) enum Delivery {
     ///
     /// `again` is `None` the first time, which is the paste's own warning,
     /// owed once and only if [`Delivery::Pasted`] said nothing. It is the
-    /// [`Hold`] when input has kept arriving for [`Decoder::PASTE_REPEAT`]
-    /// since the last time it was said, which xfx says in its own words --
-    /// words that say what will end it, which is the hold's.
+    /// [`Hold`] when it is said again [`Decoder::PASTE_REPEAT`] or more after
+    /// the last time, which xfx says in its own words, the hold's: because
+    /// input kept arriving, or -- with `dropped` 0 -- because what holds the
+    /// quarantine has changed since a repeat named it, by bytes held as a
+    /// marker and not yet counted.
     Ignored { dropped: usize, again: Option<Hold> },
 }
 
@@ -646,8 +648,8 @@ impl Decoder {
     /// holds it then. A repeat is owed for dropped input, and also when what
     /// holds the quarantine has changed since the last repeat said otherwise
     /// -- bytes held as a marker are not counted until it breaks, so `ESC [`
-    /// alone after "until it stops for a moment" changes the hold with
-    /// nothing dropped, and the sentence on the screen would be false.
+    /// alone after the quiet's sentence ("until input stops") changes the hold
+    /// with nothing dropped, and the sentence on the screen would be false.
     fn owed_warning(&mut self, now: Instant) -> Delivery {
         let hold = self.hold();
         let Some(quarantine) = self.quarantine.as_mut() else {
