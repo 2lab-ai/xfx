@@ -1,0 +1,40 @@
+  2026-11-09 18:10:45.197 UTC · Notice
+* session resumed: ask one
+
+  2026-11-09 18:10:33.645 UTC · Prompt
+┃ ask one
+
+  2026-11-09 18:10:36.855 UTC · Response
+  One done.
+
+  2026-11-09 18:10:36.855 UTC · Usage
+  3s (↑2 ↓80)
+
+  2026-11-09 18:10:39.737 UTC · Prompt
+┃ ask none
+
+  2026-11-09 18:10:40.498 UTC · Response
+  None asked.
+
+  2026-11-09 18:10:40.498 UTC · Usage
+  0s (↑2 ↓80)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a

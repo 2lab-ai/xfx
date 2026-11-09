@@ -100,3 +100,12 @@ DIFF p5-question-resume-40x120-resumed.full.ansi: 39 row(s) differ after normali
     row 32: xfx '  <wall> (↑2 ↓80)'
     row 33: fx  '  One done.'
     row 33: xfx ''
+DIFF p5-question-resume-ctrlo-40x120-resumed-ctrlo.ansi: 19 row(s) differ after normalizing
+    row 7: fx  '  1) Solo 1?'
+    row 7: xfx '  XXXXXXXXXXXXXXXXXXXXXXX UTC · Response'
+    row 8: fx  '     Change 1'
+    row 8: xfx '  One done.'
+    row 9: fx  '│  questions: [{"question":"Solo 1?","options":[{"label":"Keep 1","description":"Leave it as it is."},{"label":"Change'
+    row 9: xfx ''
+    row 10: fx  '│  1","description":"Apply the change."}]}]'
+    row 10: xfx '  XXXXXXXXXXXXXXXXXXXXXXX UTC · Usage'

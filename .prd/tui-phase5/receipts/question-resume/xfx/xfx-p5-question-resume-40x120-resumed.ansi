@@ -1,0 +1,40 @@
+
+[38;5;245m  3s (↑2 ↓80)[39m
+
+[38;5;255m┃[39m [1mask too many[0m
+
+[38;5;250m●[39m Asked
+
+  Too many.
+
+[38;5;245m  0s (↑3 ↓80)[39m
+
+[38;5;255m┃[39m [1mask none[0m
+
+[38;5;250m●[39m Asked
+
+  None asked.
+
+[38;5;245m  0s (↑2 ↓80)[39m
+
+[38;5;255m┃[39m [1mask mixed[0m
+
+[38;5;255m●[39m [38;5;245m1 tool call · 1 read · 1 failed[39m
+[38;5;245m└ Failed gone.txt[39m
+
+[38;5;250m●[39m Asked
+
+[38;5;255m●[39m [38;5;245m1 tool call · 1 read · 1 failed[39m
+[38;5;245m└ Failed lost.txt[39m
+
+  Mixed done.
+
+[38;5;245m  0s (↑3 ↓80)[39m
+
+[38;5;255m┃[39m [1mask stop[0m
+
+[38;5;252m▪[39m [38;5;255mCancelled[39m · What can xfx do differently?
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m

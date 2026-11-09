@@ -1,0 +1,641 @@
+# fx v0.0.16 (vercel-labs/fx@481104fd) source lines this receipt cites, read with
+# git show 481104fd:<path> | sed -n <start>,<end>p
+
+== src/core/agent/question_answer.zig:7-9@481104fd
+     7	/// Most questions one `ask_user_question` call may ask. The tool schema, the
+     8	/// argument parser, and saved-result decoding all share this bound.
+     9	pub const max_questions: u32 = 20;
+
+== src/core/agent/question_answer.zig:41-74@481104fd
+    41	/// Decodes a successful question result. Returned strings borrow from `output`
+    42	/// or allocations in `arena`; both must outlive the returned answers.
+    43	pub fn decodeJson(
+    44	    arena: Allocator,
+    45	    output: []const u8,
+    46	) Allocator.Error!?[]const types.QuestionAnswer {
+    47	    const root = std.json.parseFromSliceLeaky(
+    48	        std.json.Value,
+    49	        arena,
+    50	        output,
+    51	        .{},
+    52	    ) catch |err| switch (err) {
+    53	        error.OutOfMemory => return error.OutOfMemory,
+    54	        else => return null,
+    55	    };
+    56	
+    57	    if (root != .array) return null;
+    58	    const items = root.array.items;
+    59	    if (items.len < 1 or items.len > max_questions) return null;
+    60	
+    61	    const answers = try arena.alloc(types.QuestionAnswer, items.len);
+    62	    for (items, 0..) |item, index| {
+    63	        if (item != .object) return null;
+    64	        const question = item.object.get("question") orelse return null;
+    65	        const answer = item.object.get("answer") orelse return null;
+    66	        if (question != .string or answer != .string) return null;
+    67	        answers[index] = .{
+    68	            .question = question.string,
+    69	            .answer = answer.string,
+    70	        };
+    71	    }
+    72	
+    73	    return answers;
+    74	}
+
+== src/core/agent/question_answer.zig:101-141@481104fd
+   101	test "question answer decoding rejects non-result payloads" {
+   102	    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+   103	    defer arena_state.deinit();
+   104	    const arena = arena_state.allocator();
+   105	
+   106	    try std.testing.expect((try decodeJson(arena, "(user cancelled the question)")) == null);
+   107	    try std.testing.expect((try decodeJson(arena, "[]")) == null);
+   108	    try std.testing.expect((try decodeJson(arena, "[{\"question\":\"Q\"}]")) == null);
+   109	    try std.testing.expect((try decodeJson(arena, "[{\"question\":\"Q\",\"answer\":1}]")) == null);
+   110	    try std.testing.expect((try decodeJson(arena, "[{\"question\":\"Q\",\"answer\":\"A\"}] trailing")) == null);
+   111	}
+   112	
+   113	test "question answers round-trip a full batch and reject one more" {
+   114	    const alloc = std.testing.allocator;
+   115	    const count = max_questions + 1;
+   116	    var question_bufs: [count][24]u8 = undefined;
+   117	    var answer_bufs: [count][24]u8 = undefined;
+   118	    var entries: [count]types.QuestionBatchEntry = undefined;
+   119	    var answers: [count][]const u8 = undefined;
+   120	    for (&entries, &answers, &question_bufs, &answer_bufs, 0..) |*entry, *answer, *question_buf, *answer_buf, index| {
+   121	        entry.* = .{ .question = try std.mem.print(question_buf, "Question {d}?", .{index + 1}), .options = &.{} };
+   122	        answer.* = try std.mem.print(answer_buf, "Answer {d}", .{index + 1});
+   123	    }
+   124	
+   125	    var arena_state = std.heap.ArenaAllocator.init(alloc);
+   126	    defer arena_state.deinit();
+   127	    const arena = arena_state.allocator();
+   128	
+   129	    const full = try encodeJson(alloc, entries[0..max_questions], answers[0..max_questions]);
+   130	    defer alloc.free(full);
+   131	    const decoded = (try decodeJson(arena, full)).?;
+   132	    try std.testing.expectEqual(@as(usize, max_questions), decoded.len);
+   133	    for (decoded, entries[0..max_questions], answers[0..max_questions]) |pair, entry, answer| {
+   134	        try std.testing.expectEqualStrings(entry.question, pair.question);
+   135	        try std.testing.expectEqualStrings(answer, pair.answer);
+   136	    }
+   137	
+   138	    const oversized = try encodeJson(alloc, &entries, &answers);
+   139	    defer alloc.free(oversized);
+   140	    try std.testing.expect((try decodeJson(arena, oversized)) == null);
+   141	}
+
+== src/core/app/app_session_runtime.zig:4116-4134@481104fd
+  4116	                if (step.assistant) |assistant| {
+  4117	                    if (assistant.len > 0) try writeAssistantHistoryMarkdownToSink(app, sink, assistant);
+  4118	                }
+  4119	
+  4120	                for (step.tool_calls) |call| {
+  4121	                    if (findPersistedToolResult(step.tool_results, call.id)) |result| {
+  4122	                        try writeCompletedToolResult(app, sink, call, result, labels);
+  4123	                        try writePermissionFeedback(sink, result.permission_feedback);
+  4124	                    } else {
+  4125	                        try writeUnreportedToolStatus(app, sink, call);
+  4126	                    }
+  4127	                }
+  4128	
+  4129	                for (step.tool_results) |result| {
+  4130	                    if (!hasPersistedToolCall(step.tool_calls, result.tool_call_id)) {
+  4131	                        try writeUnpairedToolResult(app, sink, result);
+  4132	                        try writePermissionFeedback(sink, result.permission_feedback);
+  4133	                    }
+  4134	                }
+
+== src/core/app/app_session_runtime.zig:4196-4211@481104fd
+  4196	        fn writeCompletedToolResult(
+  4197	            app: *App,
+  4198	            sink: anytype,
+  4199	            call: types.ToolCall,
+  4200	            result: types.PersistedToolResult,
+  4201	            labels: *HistoricalSessionLabels,
+  4202	        ) !void {
+  4203	            try labels.saved_output_sources.record(
+  4204	                app.alloc,
+  4205	                app.toolAdvertisementSet().registry,
+  4206	                labels.workspace_root,
+  4207	                call,
+  4208	                result,
+  4209	            );
+  4210	            if (try writeAnsweredQuestionResult(app, sink, call, result)) return;
+  4211	            if (try writeCommittedFilePresentation(app, sink, call, result)) return;
+
+== src/core/app/app_session_runtime.zig:4273-4295@481104fd
+  4273	            else if (try tooling_presentation.subagentStatusLine(action_arena.allocator(), call, result.output)) |line|
+  4274	                line
+  4275	            else if (result.status == .success) success: {
+  4276	                var skill_name_buffer: [skill_contract.max_name_bytes]u8 = undefined;
+  4277	                const registry = app.toolAdvertisementSet().registry;
+  4278	                const display_target = target: {
+  4279	                    const spec = registry.lookup(call.name) orelse break :target null;
+  4280	                    if (spec.prepare_skill_call_fn == null) break :target null;
+  4281	                    const args = tool_args.parseToolArgsObject(action_arena.allocator(), call.arguments_json) catch |err| switch (err) {
+  4282	                        error.OutOfMemory => return error.OutOfMemory,
+  4283	                        else => break :target null,
+  4284	                    };
+  4285	                    const presentation = tool_dispatch.presentationForArgs(spec.*, args);
+  4286	                    if (presentation.label_arg_kind != .name or
+  4287	                        tool_dispatch.presentationLabelValue(presentation, args) != null) break :target null;
+  4288	                    break :target skill_invocation.displayNameFromOutput(result.preview orelse result.output, &skill_name_buffer);
+  4289	                };
+  4290	                break :success try app.describeToolActionCompletedWithAdvertised(
+  4291	                    action_arena.allocator(),
+  4292	                    call,
+  4293	                    display_target orelse action_target,
+  4294	                    &.{},
+  4295	                );
+
+== src/core/app/app_session_runtime.zig:4316-4335@481104fd
+  4316	            const outcome: types.ToolOutcomeKind = if (context_deferred)
+  4317	                .deferred
+  4318	            else if (deferred or permission_denial_reason != null)
+  4319	                .denied
+  4320	            else if (outcome_decision) |decision|
+  4321	                decision.outcome
+  4322	            else if (result.status == .success)
+  4323	                .completed
+  4324	            else
+  4325	                .failed;
+  4326	            // tty runs are not captured commands but still own a live session
+  4327	            // with a launch command worth recording for later session rows.
+  4328	            if (outcome == .completed and (is_command or std.mem.eql(u8, call.name, "shell"))) {
+  4329	                try recordHistoricalSessionLabel(app, labels, call, result);
+  4330	            }
+  4331	            const entry_id = try writeCompletedToolStatus(
+  4332	                sink,
+  4333	                outcome,
+  4334	                action,
+  4335	            );
+
+== src/core/app/app_session_runtime.zig:4589-4609@481104fd
+  4589	        fn writeAnsweredQuestionResult(
+  4590	            app: *App,
+  4591	            sink: anytype,
+  4592	            call: types.ToolCall,
+  4593	            result: types.PersistedToolResult,
+  4594	        ) !bool {
+  4595	            if (result.status != .success or
+  4596	                !std.mem.eql(u8, result.tool_name, "ask_user_question") or
+  4597	                !@hasDecl(App, "writeHistoricalQuestionResolution")) return false;
+  4598	
+  4599	            var answer_arena = std.heap.ArenaAllocator.init(app.alloc);
+  4600	            defer mem_utils.deinit_arena(answer_arena);
+  4601	            const answers = (try question_answer.decodeJson(
+  4602	                answer_arena.allocator(),
+  4603	                result.output,
+  4604	            )) orelse return false;
+  4605	
+  4606	            const entry_id = try sink.appendQuestionResolution(answers);
+  4607	            try sink.attachHistoricalToolDetail(entry_id, call, result);
+  4608	            return true;
+  4609	        }
+
+== src/core/app/app_session_runtime.zig:7956-8035@481104fd
+  7956	test "execution replay projects answered questions as a semantic card and retains detail" {
+  7957	    const alloc = std.testing.allocator;
+  7958	    var app = try TestApp.init(alloc, "/workspace");
+  7959	    defer app.deinit();
+  7960	
+  7961	    var calls = [_]types.ToolCall{.{
+  7962	        .id = "call_question",
+  7963	        .name = "ask_user_question",
+  7964	        .arguments_json = "{\"questions\":[]}",
+  7965	    }};
+  7966	    var results = [_]types.PersistedToolResult{.{
+  7967	        .tool_call_id = @constCast("call_question"),
+  7968	        .tool_name = @constCast("ask_user_question"),
+  7969	        .status = .success,
+  7970	        .output = @constCast("[{\"question\":\"Which verification depth should I use?\",\"answer\":\"Thorough\"}]"),
+  7971	        .output_bytes = 82,
+  7972	        .stored_output_bytes = 82,
+  7973	    }};
+  7974	    var steps = [_]types.ToolExecutionStep{.{
+  7975	        .tool_calls = calls[0..],
+  7976	        .tool_results = results[0..],
+  7977	    }};
+  7978	
+  7979	    try Runtime(TestApp).writeExecutionHistory(&app, .{ .tool_steps = steps[0..] });
+  7980	
+  7981	    try std.testing.expectEqual(@as(usize, 0), app.completed_tool_statuses.items.len);
+  7982	    try std.testing.expectEqual(@as(usize, 1), app.historical_question_entry_ids.items.len);
+  7983	    try std.testing.expectEqual(@as(usize, 1), app.historical_question_answer_count);
+  7984	    try std.testing.expectEqual(@as(usize, 1), app.historical_tool_detail_entry_ids.items.len);
+  7985	    try std.testing.expectEqual(
+  7986	        app.historical_question_entry_ids.items[0],
+  7987	        app.historical_tool_detail_entry_ids.items[0],
+  7988	    );
+  7989	}
+  7990	
+  7991	test "execution replay keeps invalid question results on the generic path" {
+  7992	    const alloc = std.testing.allocator;
+  7993	    var app = try TestApp.init(alloc, "/workspace");
+  7994	    defer app.deinit();
+  7995	
+  7996	    var calls = [_]types.ToolCall{
+  7997	        .{ .id = "cancelled", .name = "ask_user_question", .arguments_json = "{\"questions\":[]}" },
+  7998	        .{ .id = "malformed", .name = "ask_user_question", .arguments_json = "{\"questions\":[]}" },
+  7999	        .{ .id = "failed", .name = "ask_user_question", .arguments_json = "{\"questions\":[]}" },
+  8000	    };
+  8001	    var results = [_]types.PersistedToolResult{
+  8002	        .{
+  8003	            .tool_call_id = @constCast("cancelled"),
+  8004	            .tool_name = @constCast("ask_user_question"),
+  8005	            .status = .success,
+  8006	            .output = @constCast("(user cancelled the question)"),
+  8007	            .output_bytes = 29,
+  8008	            .stored_output_bytes = 29,
+  8009	        },
+  8010	        .{
+  8011	            .tool_call_id = @constCast("malformed"),
+  8012	            .tool_name = @constCast("ask_user_question"),
+  8013	            .status = .success,
+  8014	            .output = @constCast("[{\"question\":\"Q\"}]"),
+  8015	            .output_bytes = 18,
+  8016	            .stored_output_bytes = 18,
+  8017	        },
+  8018	        .{
+  8019	            .tool_call_id = @constCast("failed"),
+  8020	            .tool_name = @constCast("ask_user_question"),
+  8021	            .status = .failure,
+  8022	            .output = @constCast("[{\"question\":\"Q\",\"answer\":\"A\"}]"),
+  8023	            .output_bytes = 31,
+  8024	            .stored_output_bytes = 31,
+  8025	        },
+  8026	    };
+  8027	    var steps = [_]types.ToolExecutionStep{.{
+  8028	        .tool_calls = calls[0..],
+  8029	        .tool_results = results[0..],
+  8030	    }};
+  8031	
+  8032	    try Runtime(TestApp).writeExecutionHistory(&app, .{ .tool_steps = steps[0..] });
+  8033	
+  8034	    try std.testing.expectEqual(@as(usize, 0), app.historical_question_entry_ids.items.len);
+  8035	    try std.testing.expectEqual(@as(usize, 3), app.completed_tool_statuses.items.len);
+
+== src/main.zig:2335-2357@481104fd
+  2335	    pub fn writeHistoricalQuestionResolution(
+  2336	        self: *App,
+  2337	        answers: []const types.QuestionAnswer,
+  2338	    ) !u32 {
+  2339	        const text = try question_ui.composeResolvedQuestionAnswers(
+  2340	            self.alloc,
+  2341	            answers,
+  2342	            self.shell.layout.cols,
+  2343	        );
+  2344	        defer self.alloc.free(text);
+  2345	        return self.appendReplaceableTranscriptLine(text);
+  2346	    }
+  2347	
+  2348	    pub fn prepareHistoricalQuestionResolution(
+  2349	        self: *App,
+  2350	        answers: []const types.QuestionAnswer,
+  2351	    ) ![]u8 {
+  2352	        return question_ui.composeResolvedQuestionAnswers(
+  2353	            self.alloc,
+  2354	            answers,
+  2355	            self.shell.layout.cols,
+  2356	        );
+  2357	    }
+
+== src/ui/footer/question_ui.zig:444-519@481104fd
+   444	/// Terminal block rendered after a completed question batch resolves.
+   445	/// The answer pairs are borrowed and must outlive this call.
+   446	pub fn composeResolvedQuestionAnswers(
+   447	    alloc: Allocator,
+   448	    answers: []const types.QuestionAnswer,
+   449	    cols: u16,
+   450	) ![]u8 {
+   451	    var out: std.Io.Writer.Allocating = .init(alloc);
+   452	    defer out.deinit();
+   453	
+   454	    for (answers, 0..) |answer, index| {
+   455	        try writeQuestionAnswerResolution(&out.writer, answer.question, answer.answer, index + 1, cols);
+   456	    }
+   457	
+   458	    return out.toOwnedSlice();
+   459	}
+   460	
+   461	fn writeQuestionAnswerResolution(
+   462	    writer: *std.Io.Writer,
+   463	    question: []const u8,
+   464	    answer: []const u8,
+   465	    number: usize,
+   466	    cols: u16,
+   467	) !void {
+   468	    // The question is numbered by its position in the batch; the muted
+   469	    // answer hangs beneath, aligned under the question text. Pure
+   470	    // typography, so the block never reads as a tool group.
+   471	    var prefix_buf: [16]u8 = undefined;
+   472	    const question_prefix = std.mem.print(&prefix_buf, "  {d}) ", .{number}) catch "  ";
+   473	    var indent_buf: [16]u8 = undefined;
+   474	    const indent = blk: {
+   475	        const width = @min(display_width.visibleWidth(question_prefix), indent_buf.len);
+   476	        @memset(indent_buf[0..width], ' ');
+   477	        break :blk indent_buf[0..width];
+   478	    };
+   479	    try writeResolutionField(writer, question_prefix, indent, question, cols, null);
+   480	    try writeResolutionField(writer, indent, indent, answer, cols, ui_render.statusline_style);
+   481	}
+   482	
+   483	// Wraps like the main transcript: soft wrap at word boundaries inside each
+   484	// hard line, with continuation rows hanging under the field's first text
+   485	// column. Long fields never trail off with an ellipsis.
+   486	fn writeResolutionField(
+   487	    writer: *std.Io.Writer,
+   488	    first_prefix: []const u8,
+   489	    continuation_prefix: []const u8,
+   490	    text: []const u8,
+   491	    cols: u16,
+   492	    style: ?[]const u8,
+   493	) !void {
+   494	    var start: usize = 0;
+   495	    var first = true;
+   496	    while (first or start < text.len) {
+   497	        const prefix = if (first) first_prefix else continuation_prefix;
+   498	        const budget = @as(usize, cols) -| display_width.visibleWidth(prefix);
+   499	        const line = nextWrappedTextLine(text, start, budget);
+   500	
+   501	        if (style) |row_style| try writer.writeAll(row_style);
+   502	        try writer.writeAll(prefix);
+   503	        try writer.writeAll(text[start..line.content_end]);
+   504	        if (style != null) try writer.writeAll(ui_render.reset_style);
+   505	        try writer.writeByte('\n');
+   506	
+   507	        if (text.len == 0) break;
+   508	        first = false;
+   509	        start = line.next_start;
+   510	    }
+   511	}
+   512	
+   513	fn writeCancelledResolution(writer: *std.Io.Writer) !void {
+   514	    try writer.writeAll(ui_render.red_style);
+   515	    try writer.writeAll("▪");
+   516	    try writer.writeAll(ui_render.reset_style);
+   517	    try writer.writeAll(" Cancelled");
+   518	    try writer.writeByte('\n');
+   519	}
+
+== src/builtins/tools.zig:612-617@481104fd
+   612	    .executor_kind = .ask_user_question,
+   613	    .activity_kind = .ask,
+   614	    .requires_approval = false,
+   615	    .action_label = "Asking",
+   616	    .completed_action_label = "Asked",
+   617	    .label_arg_kind = .none,
+
+== src/ui/transcript/runtime.zig:613-671@481104fd
+   613	fn lifecycleMarker(kind: types.ToolOutcomeKind) LifecycleMarker {
+   614	    return switch (kind) {
+   615	        .completed => .{ .style = ui_render.system_notice_text_style, .glyph = "●" },
+   616	        .failed => .{ .style = ui_render.red_style, .glyph = "●" },
+   617	        .denied => .{ .style = ui_render.red_style, .glyph = "⊘" },
+   618	        .cancelled => .{ .style = ui_render.warning_style, .glyph = "▪" },
+   619	        .deferred => .{ .style = ui_render.warning_style, .glyph = "↻" },
+   620	    };
+   621	}
+   622	
+   623	fn leadingSgrPrefixEnd(text: []const u8) usize {
+   624	    var index: usize = 0;
+   625	    while (index + 2 <= text.len and text[index] == 0x1b and text[index + 1] == '[') {
+   626	        var end = index + 2;
+   627	        while (end < text.len and (text[end] < 0x40 or text[end] > 0x7e)) : (end += 1) {}
+   628	        if (end == text.len or text[end] != 'm') break;
+   629	        index = end + 1;
+   630	    }
+   631	    return index;
+   632	}
+   633	
+   634	fn lifecycleTerminalLine(
+   635	    alloc: Allocator,
+   636	    kind: types.ToolOutcomeKind,
+   637	    summary: []const u8,
+   638	) ![]u8 {
+   639	    const marker = lifecycleMarker(kind);
+   640	    const prefix_end = leadingSgrPrefixEnd(summary);
+   641	    const has_marker = std.mem.startsWith(u8, summary[prefix_end..], "●");
+   642	    const cancelled = kind == .cancelled;
+   643	    const text_style = if (cancelled) ui_render.hint_style else "";
+   644	    const text_reset = if (cancelled) ui_render.reset_style else "";
+   645	    const follow_up = if (cancelled) " · What can fx do differently?" else "";
+   646	    const normalized = if (has_marker)
+   647	        try alloc.print(
+   648	            "{s}{s}{s}{s}{s}{s}{s}{s}",
+   649	            .{
+   650	                marker.style,
+   651	                marker.glyph,
+   652	                ui_render.reset_style,
+   653	                summary[0..prefix_end],
+   654	                text_style,
+   655	                summary[prefix_end + "●".len ..],
+   656	                text_reset,
+   657	                follow_up,
+   658	            },
+   659	        )
+   660	    else
+   661	        try alloc.print(
+   662	            "{s}{s}{s} {s}{s}{s}{s}",
+   663	            .{
+   664	                marker.style,
+   665	                marker.glyph,
+   666	                ui_render.reset_style,
+   667	                text_style,
+   668	                summary,
+   669	                text_reset,
+   670	                follow_up,
+   671	            },
+
+== src/core/shared/theme.zig:85-85@481104fd
+    85	    .system_notice_text_style = "\x1b[38;5;250m",
+
+== src/core/shared/theme.zig:128-128@481104fd
+   128	    .system_notice_text_style = "\x1b[38;5;241m",
+
+== src/ui/transcript/tool_group_projection.zig:235-244@481104fd
+   235	fn statusNamesAsk(entry: TranscriptEntry, detail: ?*const ToolDetailRecord) bool {
+   236	    if (detail) |record| {
+   237	        return record.activity_kind == .ask or
+   238	            std.mem.eql(u8, record.tool_name, "ask_user_question");
+   239	    }
+   240	    return switch (entry) {
+   241	        .raw_bytes => |raw| rawStatusNamesAskTool(raw.bytes),
+   242	        else => false,
+   243	    };
+   244	}
+
+== src/ui/transcript/tool_group_projection.zig:1355-1377@481104fd
+  1355	        const detail = detailForEntry(details, &detail_indices, entry_id, stats);
+  1356	        if (statusNamesAsk(entries[index], detail)) {
+  1357	            index += 1;
+  1358	            continue;
+  1359	        }
+  1360	
+  1361	        const first_index = index;
+  1362	        var status_indices: std.ArrayList(usize) = .empty;
+  1363	        defer status_indices.deinit(alloc);
+  1364	        var summary: Summary = .{};
+  1365	
+  1366	        while (index < entries.len) : (index += 1) {
+  1367	            try build_checkpoint.tick(checkpoint);
+  1368	            if (!transcript_blocks.isEntryVisibleInCompactPresentation(entries[index])) continue;
+  1369	            if (presentation_group_indices[index] != null) break;
+  1370	            if (toolStatusEntryId(entries[index])) |group_entry_id| {
+  1371	                const group_detail = detailForEntry(details, &detail_indices, group_entry_id, stats);
+  1372	                if (statusNamesAsk(entries[index], group_detail)) break;
+  1373	                observeTool(&summary, group_detail);
+  1374	                try status_indices.append(alloc, index);
+  1375	                projection.entry_actions.items[index] = .hide;
+  1376	                continue;
+  1377	            }
+
+== src/tools/agent/ask_user_question.zig:15-22@481104fd
+    15	pub const cancel_sentinel = "(user cancelled the question)";
+    16	pub const not_available_sentinel = "(ask_user_question is only available in the interactive shell; ask the user freeform instead)";
+    17	
+    18	const invalid_args_sentinel = "(ask_user_question: invalid arguments; provide {questions})";
+    19	const question_count_sentinel = std.fmt.comptimePrint(
+    20	    "(ask_user_question: provide 1 to {d} questions)",
+    21	    .{question_answer.max_questions},
+    22	);
+
+== src/tools/agent/ask_user_question.zig:99-134@481104fd
+    99	pub fn call(ctx: tool_dispatch.DispatchContext, erased: tool_dispatch.ToolInput) tool_dispatch.DispatchError!tool_dispatch.ToolResult {
+   100	    const request = ctx.ask_question_batch orelse {
+   101	        return .{ .success = try ctx.allocator.dupe(u8, not_available_sentinel) };
+   102	    };
+   103	    const input = erased.as(Input);
+   104	    const output = executeWithRequester(ctx.allocator, input.args_json, .{
+   105	        .observer = ctx.observer,
+   106	        .call_id = ctx.tool_call_id,
+   107	        .ctx = ctx.ask_question_ctx,
+   108	        .response_alloc = ctx.allocator,
+   109	        .request = request,
+   110	    }) catch |err| switch (err) {
+   111	        error.OutOfMemory => return error.OutOfMemory,
+   112	        else => return .{ .failure = try ctx.allocator.print("ask_user_question failed: {s}", .{@errorName(err)}) },
+   113	    };
+   114	    return .{ .success = output };
+   115	}
+   116	
+   117	pub fn executeWithRequester(result_alloc: Allocator, args_json: []const u8, requester: Requester) ![]u8 {
+   118	    var parse_arena_state = std.heap.ArenaAllocator.init(result_alloc);
+   119	    defer parse_arena_state.deinit();
+   120	    const parse_arena = parse_arena_state.allocator();
+   121	
+   122	    const entries = parseQuestionBatch(parse_arena, args_json) catch |err| return invalidArgsBody(result_alloc, err);
+   123	    const wait = if (requester.observer) |observer| observer.beginWait(.{ .kind = .question, .call_id = requester.call_id, .questions = entries }) else null;
+   124	    const answers_opt = requester.request(requester.ctx, requester.response_alloc, entries) catch |err| {
+   125	        if (wait) |value| value.end(.failed, &.{}, @errorName(err));
+   126	        return err;
+   127	    };
+   128	    if (wait) |value| value.end(if (answers_opt == null) .cancelled else .accepted, answers_opt orelse &.{}, null);
+   129	    if (answers_opt) |answers| {
+   130	        defer freeAnswers(requester.response_alloc, answers);
+   131	        return question_answer.encodeJson(result_alloc, entries, answers);
+   132	    }
+   133	    return result_alloc.dupe(u8, cancel_sentinel);
+   134	}
+
+== src/core/session_manager/log.zig:26-34@481104fd
+    26	const crc_field = ",\"crc\":\"";
+    27	/// `,"crc":"` plus 8 hex digits plus `"}` plus the newline.
+    28	const crc_suffix_len = crc_field.len + 8 + "\"}\n".len;
+    29	
+    30	/// CRC32C (Castagnoli, reflected, polynomial 0x82F63B78), the same values
+    31	/// as `std.hash.crc.Crc32Iscsi`, computed eight bytes per step with eight
+    32	/// tables instead of one byte per step ("slicing by 8"). Every line of a
+    33	/// resume and every page read is checked, so this is on the hot path.
+    34	pub fn crc32c(bytes: []const u8) u32 {
+
+== src/core/session_manager/log.zig:116-127@481104fd
+   116	/// Checks the frame of any line, newline included: size, the checksum field
+   117	/// and the checksum. Returns the payload, the bytes before `,"crc":"`.
+   118	pub fn checkFrame(line: []const u8) error{BadLine}![]const u8 {
+   119	    if (line.len < crc_suffix_len or line.len > max_line_bytes) return error.BadLine;
+   120	    const payload_len = line.len - crc_suffix_len;
+   121	    const suffix = line[payload_len..];
+   122	    if (!std.mem.startsWith(u8, suffix, crc_field)) return error.BadLine;
+   123	    if (!std.mem.eql(u8, suffix[crc_field.len + 8 ..], "\"}\n")) return error.BadLine;
+   124	    const stored = parseHex32(suffix[crc_field.len..][0..8]) orelse return error.BadLine;
+   125	    if (crc32c(line[0..payload_len]) != stored) return error.BadLine;
+   126	    return line[0..payload_len];
+   127	}
+
+== tests/e2e/tui-resume.test.ts:6174-6185@481104fd
+  6174	    // Each answer hangs under its numbered question, aligned with the
+  6175	    // question text even once the number has two digits.
+  6176	    const expectEveryAnswer = (scrollback: string) => {
+  6177	      const lines = scrollback.split("\n").map((line) => line.trimEnd());
+  6178	      for (let index = 0; index < batchSize; index += 1) {
+  6179	        const prefix = `  ${index + 1}) `;
+  6180	        const row = lines.indexOf(`${prefix}${question(index)}`);
+  6181	        expect(row).toBeGreaterThanOrEqual(0);
+  6182	        expect(lines[row + 1]).toBe(`${" ".repeat(prefix.length)}${answer(index)}`);
+  6183	      }
+  6184	      expect(scrollback).not.toContain("● Asked");
+  6185	    };
+
+== src/core/agent/question_answer.zig:10-33@c1db9191 (the old pin: the same document)
+    10	/// Encodes ordered question entries and answers as an owned JSON result.
+    11	/// The caller owns the returned slice and must free it with `alloc`.
+    12	pub fn encodeJson(
+    13	    alloc: Allocator,
+    14	    entries: []const types.QuestionBatchEntry,
+    15	    answers: []const []const u8,
+    16	) EncodeError![]u8 {
+    17	    if (entries.len != answers.len) return error.AnswerCountMismatch;
+    18	
+    19	    var out: std.Io.Writer.Allocating = .init(alloc);
+    20	    defer out.deinit();
+    21	
+    22	    try out.writer.writeAll("[");
+    23	    for (entries, 0..) |entry, index| {
+    24	        if (index > 0) try out.writer.writeAll(",");
+    25	        try out.writer.writeAll("{\"question\":");
+    26	        try std.json.Stringify.value(entry.question, .{}, &out.writer);
+    27	        try out.writer.writeAll(",\"answer\":");
+    28	        try std.json.Stringify.value(answers[index], .{}, &out.writer);
+    29	        try out.writer.writeAll("}");
+    30	    }
+    31	    try out.writer.writeAll("]");
+    32	
+    33	    return out.toOwnedSlice();
+
+== src/core/agent/question_answer.zig:35-68@c1db9191 (the old decode, bound 4)
+    35	
+    36	/// Decodes a successful question result. Returned strings borrow from `output`
+    37	/// or allocations in `arena`; both must outlive the returned answers.
+    38	pub fn decodeJson(
+    39	    arena: Allocator,
+    40	    output: []const u8,
+    41	) Allocator.Error!?[]const types.QuestionAnswer {
+    42	    const root = std.json.parseFromSliceLeaky(
+    43	        std.json.Value,
+    44	        arena,
+    45	        output,
+    46	        .{},
+    47	    ) catch |err| switch (err) {
+    48	        error.OutOfMemory => return error.OutOfMemory,
+    49	        else => return null,
+    50	    };
+    51	
+    52	    if (root != .array) return null;
+    53	    const items = root.array.items;
+    54	    if (items.len < 1 or items.len > 4) return null;
+    55	
+    56	    const answers = try arena.alloc(types.QuestionAnswer, items.len);
+    57	    for (items, 0..) |item, index| {
+    58	        if (item != .object) return null;
+    59	        const question = item.object.get("question") orelse return null;
+    60	        const answer = item.object.get("answer") orelse return null;
+    61	        if (question != .string or answer != .string) return null;
+    62	        answers[index] = .{
+    63	            .question = question.string,
+    64	            .answer = answer.string,
+    65	        };
+    66	    }
+    67	
+    68	    return answers;

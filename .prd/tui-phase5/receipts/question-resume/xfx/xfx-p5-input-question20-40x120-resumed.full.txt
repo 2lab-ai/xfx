@@ -1,0 +1,74 @@
+x𝒇x v0.1.0-a623824 [debug] · Run /help for commands
+
+┃ ask twenty
+
+  1) Pick 1?
+     Keep 1
+  2) Pick 2?
+     Change 2
+  3) Pick 3?
+     Keep 3
+  4) Pick 4?
+     Change 4
+  5) Pick 5?
+     Keep 5
+  6) Pick 6?
+     Change 6
+  7) Pick 7?
+     Keep 7
+  8) Pick 8?
+     Change 8
+  9) Pick 9?
+     Keep 9
+* session resumed: ask twenty
+
+┃ ask twenty
+
+  1) Pick 1?
+     Keep 1
+  2) Pick 2?
+     Change 2
+  3) Pick 3?
+     Keep 3
+  4) Pick 4?
+     Change 4
+  5) Pick 5?
+     Keep 5
+  6) Pick 6?
+     Change 6
+  7) Pick 7?
+     Keep 7
+  8) Pick 8?
+     Change 8
+  9) Pick 9?
+     Keep 9
+  10) Pick 10?
+      Change 10
+  11) Pick 11?
+      Keep 11
+  12) Pick 12?
+      Change 12
+  13) Pick 13?
+      Keep 13
+  14) Pick 14?
+      Change 14
+  15) Pick 15?
+      Keep 15
+  16) Pick 16?
+      Change 16
+  17) Pick 17?
+      Keep 17
+  18) Pick 18?
+      Change 18
+  19) Pick 19?
+      Keep 19
+  20) Pick 20?
+      Change 20
+
+  Twenty done.
+
+  5s (↑3 ↓80)
+
+┃
+
+auto · model-a

@@ -1,0 +1,88 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-a623824 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mask one[0m
+
+  1) Solo 1?
+[38;5;245m     Change 1[39m
+
+  One done.
+
+[38;5;245m  3s (↑2 ↓80)[39m
+
+[38;5;255m┃[39m [1mask four[0m
+
+  1) Four 1?
+[38;5;245m     Keep 1[39m
+  2) Four 2?
+[38;5;245m     Change 2[39m
+  3) Four 3?
+[38;5;245m     Keep 3[39m
+  4) Four 4?
+[38;5;245m     Change 4[39m
+
+  Four done.
+
+[38;5;245m  3s (↑2 ↓80)[39m
+[38;5;250m* session resumed: ask one[39m
+
+[38;5;255m┃[39m [1mask one[0m
+
+  1) Solo 1?
+[38;5;245m     Change 1[39m
+
+  One done.
+
+[38;5;245m  3s (↑2 ↓80)[39m
+
+[38;5;255m┃[39m [1mask four[0m
+
+  1) Four 1?
+[38;5;245m     Keep 1[39m
+  2) Four 2?
+[38;5;245m     Change 2[39m
+  3) Four 3?
+[38;5;245m     Keep 3[39m
+  4) Four 4?
+[38;5;245m     Change 4[39m
+
+  Four done.
+
+[38;5;245m  3s (↑2 ↓80)[39m
+
+[38;5;255m┃[39m [1mask too many[0m
+
+[38;5;250m●[39m Asked
+
+  Too many.
+
+[38;5;245m  0s (↑3 ↓80)[39m
+
+[38;5;255m┃[39m [1mask none[0m
+
+[38;5;250m●[39m Asked
+
+  None asked.
+
+[38;5;245m  0s (↑2 ↓80)[39m
+
+[38;5;255m┃[39m [1mask mixed[0m
+
+[38;5;255m●[39m [38;5;245m1 tool call · 1 read · 1 failed[39m
+[38;5;245m└ Failed gone.txt[39m
+
+[38;5;250m●[39m Asked
+
+[38;5;255m●[39m [38;5;245m1 tool call · 1 read · 1 failed[39m
+[38;5;245m└ Failed lost.txt[39m
+
+  Mixed done.
+
+[38;5;245m  0s (↑3 ↓80)[39m
+
+[38;5;255m┃[39m [1mask stop[0m
+
+[38;5;252m▪[39m [38;5;255mCancelled[39m · What can xfx do differently?
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m

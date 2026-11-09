@@ -1,0 +1,47 @@
+# GREEN: fx v0.0.16 (fx/) against xfx at the code head a623824c (xfx/), compare.py: raw cells.py, then the ledger's normalizations
+SAME raw p5-input-question20-14x72-q20-answered.ansi
+SAME raw p5-input-question20-14x72-q20-answered.full.ansi
+SAME raw p5-input-question20-14x72-q20-back9.ansi
+SAME raw p5-input-question20-14x72-q20-first.ansi
+SAME raw p5-input-question20-14x72-q20-left.ansi
+SAME raw p5-input-question20-14x72-q20-panel.ansi
+SAME raw p5-input-question20-14x72-q20-tab10.ansi
+SAME raw p5-input-question20-14x72-q20-tab20.ansi
+SAME raw p5-input-question20-14x72-q20-wrap.ansi
+SAME raw p5-input-question20-14x72-resumed.ansi
+SAME raw p5-input-question20-14x72-resumed.full.ansi
+SAME normalized p5-input-question20-24x80-q20-answered.ansi: 1 raw row(s) differ, equal after turn-wall-time
+SAME normalized p5-input-question20-24x80-q20-answered.full.ansi: 1 raw row(s) differ, equal after turn-wall-time
+SAME raw p5-input-question20-24x80-q20-back9.ansi
+SAME raw p5-input-question20-24x80-q20-first.ansi
+SAME raw p5-input-question20-24x80-q20-left.ansi
+SAME raw p5-input-question20-24x80-q20-panel.ansi
+SAME raw p5-input-question20-24x80-q20-tab10.ansi
+SAME raw p5-input-question20-24x80-q20-tab20.ansi
+SAME raw p5-input-question20-24x80-q20-wrap.ansi
+SAME raw p5-input-question20-24x80-resumed.ansi
+SAME raw p5-input-question20-24x80-resumed.full.ansi
+SAME raw p5-input-question20-40x120-q20-answered.ansi
+SAME raw p5-input-question20-40x120-q20-answered.full.ansi
+SAME raw p5-input-question20-40x120-q20-back9.ansi
+SAME raw p5-input-question20-40x120-q20-first.ansi
+SAME raw p5-input-question20-40x120-q20-left.ansi
+SAME raw p5-input-question20-40x120-q20-panel.ansi
+SAME raw p5-input-question20-40x120-q20-tab10.ansi
+SAME raw p5-input-question20-40x120-q20-tab20.ansi
+SAME raw p5-input-question20-40x120-q20-wrap.ansi
+SAME raw p5-input-question20-40x120-resumed.ansi
+SAME raw p5-input-question20-40x120-resumed.full.ansi
+SAME raw p5-question-resume-40x120-live.ansi
+SAME raw p5-question-resume-40x120-live.full.ansi
+SAME normalized p5-question-resume-40x120-resumed.ansi: 1 raw row(s) differ, equal after product-name
+SAME normalized p5-question-resume-40x120-resumed.full.ansi: 1 raw row(s) differ, equal after product-name
+DIFF p5-question-resume-ctrlo-40x120-resumed-ctrlo.ansi: 18 row(s) differ after normalizing
+    row 9: fx  '│  questions: [{"question":"Solo 1?","options":[{"label":"Keep 1","description":"Leave it as it is."},{"label":"Change'
+    row 9: xfx ''
+    row 10: fx  '│  1","description":"Apply the change."}]}]'
+    row 10: xfx '  XXXXXXXXXXXXXXXXXXXXXXX UTC · Response'
+    row 11: fx  '│  [{"question":"Solo 1?","answer":"Change 1"}]'
+    row 11: xfx '  One done.'
+    row 13: fx  '  XXXXXXXXXXXXXXXXXXXXXXX UTC · Response'
+    row 13: xfx '  XXXXXXXXXXXXXXXXXXXXXXX UTC · Usage'

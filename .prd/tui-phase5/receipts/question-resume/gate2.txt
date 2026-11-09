@@ -1,0 +1,20 @@
+# CI's remaining quick steps and sweep.yml's harness tests at a5861b54 (the final ledger), one suite-lock slot, TMPDIR short
+# step rc wall, then each step's last line
+stubs rc=0 10s
+gate-env rc=0 217s
+preview-contract rc=0 4s
+preview-contract-mutants rc=0 65s
+preflight-cost rc=0 119s
+usage-clock rc=0 15s
+fxcap-test-sweep rc=0 32s
+fxcap-test-capture rc=0 347s
+done
+
+stubs: check-no-stubs: ok
+gate-env: test-gate-env: ok (62 cases)
+preview-contract: check-preview-contract: ok (.github/workflows/preview.yml)
+preview-contract-mutants: test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+preflight-cost: check-tui-preflight-cost: ok
+usage-clock: check-usage-clock: ok
+fxcap-test-sweep: OK
+fxcap-test-capture: OK

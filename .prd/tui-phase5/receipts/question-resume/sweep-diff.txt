@@ -1,0 +1,128 @@
+# Every pair's verdict at the base binary (32afd307) and the head binary (a623824c), the sweeps rescored with this branch's final ledger
+# --only '*question*' --only '*resume*', 40x120, 22 scenarios, 125 pairs
+  interrupt-next-question next: base normalized-identical, head normalized-identical
+  interrupt-question end.full: base normalized-identical, head normalized-identical
+  interrupt-question q: base normalized-identical, head normalized-identical
+  interrupt-question q-cc: base normalized-identical, head normalized-identical
+  p5-input-question q2-cancelled: base normalized-identical, head normalized-identical
+  p5-input-question q2-down: base normalized-identical, head normalized-identical
+  p5-input-question q2-panel: base normalized-identical, head normalized-identical
+  p5-input-question q6: base normalized-identical, head normalized-identical
+  p5-input-question q6-after: base normalized-identical, head normalized-identical
+  p5-input-question q6-after.full: base normalized-identical, head normalized-identical
+~ p5-input-question20 q20-answered: base normalized-identical, head identical
+  p5-input-question20 q20-answered.full: base normalized-identical, head normalized-identical
+  p5-input-question20 q20-back9: base normalized-identical, head normalized-identical
+  p5-input-question20 q20-first: base normalized-identical, head normalized-identical
+  p5-input-question20 q20-left: base normalized-identical, head normalized-identical
+  p5-input-question20 q20-panel: base normalized-identical, head normalized-identical
+  p5-input-question20 q20-tab10: base normalized-identical, head normalized-identical
+  p5-input-question20 q20-tab20: base normalized-identical, head normalized-identical
+  p5-input-question20 q20-wrap: base normalized-identical, head normalized-identical
++ p5-input-question20 resumed: base unresolved-defect, head identical
++ p5-input-question20 resumed.full: base unresolved-defect, head normalized-identical
+  p5-input-question21 q0: base normalized-identical, head normalized-identical
+  p5-input-question21 q0.full: base normalized-identical, head normalized-identical
+  p5-input-question21 q21: base normalized-identical, head normalized-identical
+  p5-lifecycle-relhome-resume r00-resume.full: base unresolved-defect, head unresolved-defect (causes launch-refusal-row)
+  p5-lifecycle-v1resume v00-picker: base normalized-identical, head normalized-identical
+  p5-lifecycle-v1resume v00b-picker-all: base unresolved-defect, head unresolved-defect (4 rows no cause names)
+  p5-lifecycle-v1resume v01-resumed: base unresolved-defect, head unresolved-defect (41 rows no cause names)
+  p5-lifecycle-v1resume v01-resumed.full: base unresolved-defect, head unresolved-defect (42 rows no cause names)
+  p5-lifecycle-v1resume v02-continued: base unresolved-defect, head unresolved-defect (41 rows no cause names)
+  p5-question-resume live: base identical, head identical
+  p5-question-resume live.full: base normalized-identical, head normalized-identical
++ p5-question-resume resumed: base unresolved-defect, head normalized-identical
++ p5-question-resume resumed.full: base unresolved-defect, head normalized-identical
+  p5-question-resume-ctrlo resumed-ctrlo: base unresolved-defect, head unresolved-defect (causes question-resume-ctrlo-detail)
+  p5-transcript-question answered: base normalized-identical, head normalized-identical
+  p5-transcript-question asked: base unresolved-defect, head unresolved-defect (6 rows no cause names)
+  p5-transcript-question full-120: base unresolved-defect, head unresolved-defect (causes session-record,transcript-page-offset)
+  p5-transcript-question full-60: base unresolved-defect, head unresolved-defect (causes session-record,transcript-page-offset)
+  p5-transcript-question narrow: base unresolved-defect, head unresolved-defect (27 rows no cause names)
+  provider-resume resumed: base unresolved-defect, head unresolved-defect (2 rows no cause names)
+  provider-resume start: base normalized-identical, head normalized-identical
+  provider-resume switched: base unresolved-defect, head unresolved-defect (6 rows no cause names)
+  provider-resume turn1: base normalized-identical, head normalized-identical
+  provider-resume turn2: base unresolved-defect, head unresolved-defect (6 rows no cause names)
+  provider-resume turn3: base unresolved-defect, head unresolved-defect (2 rows no cause names)
+  provider-resume-missing refused: base unresolved-defect, head unresolved-defect (10 rows no cause names)
+  provider-resume-missing resumed: base unresolved-defect, head unresolved-defect (5 rows no cause names)
+  provider-resume-missing turn2: base unresolved-defect, head unresolved-defect (6 rows no cause names)
+  question answered: base normalized-identical, head normalized-identical
+  question answered.full: base normalized-identical, head normalized-identical
+  question q1: base normalized-identical, head normalized-identical
+  question q1-back: base normalized-identical, head normalized-identical
+  question q1-down: base normalized-identical, head normalized-identical
+  question q1-down3: base normalized-identical, head normalized-identical
+  question q1-down4: base normalized-identical, head normalized-identical
+  question q1-tab: base normalized-identical, head normalized-identical
+  question q2: base normalized-identical, head normalized-identical
+  question-field answered: base normalized-identical, head normalized-identical
+  question-field edited: base normalized-identical, head normalized-identical
+  question-field end.full: base normalized-identical, head normalized-identical
+  question-field open: base normalized-identical, head normalized-identical
+  question-field pasted: base normalized-identical, head normalized-identical
+  question-field q: base normalized-identical, head normalized-identical
+  question-field q2: base normalized-identical, head normalized-identical
+  question-field q2-cc: base normalized-identical, head normalized-identical
+  question-field shift-down: base normalized-identical, head normalized-identical
+  question-field shift-up: base normalized-identical, head normalized-identical
+  question-other answered: base normalized-identical, head normalized-identical
+  question-other end.full: base normalized-identical, head normalized-identical
+  question-other q: base normalized-identical, head normalized-identical
+  question-other q-other: base normalized-identical, head normalized-identical
+  question-other q-typed: base normalized-identical, head normalized-identical
+  question-other q2: base normalized-identical, head normalized-identical
+  question-other q2-esc: base normalized-identical, head normalized-identical
+  resume continued: base identical, head identical
+  resume esc: base normalized-identical, head normalized-identical
+  resume list-after-resume: base identical, head identical
+  resume list3: base normalized-identical, head normalized-identical
+  resume list3-down: base normalized-identical, head normalized-identical
+  resume list3-down2: base normalized-identical, head normalized-identical
+  resume list3-down3-clamp: base normalized-identical, head normalized-identical
+  resume list3-up: base normalized-identical, head normalized-identical
+  resume query-beta: base normalized-identical, head normalized-identical
+  resume quit: base normalized-identical, head normalized-identical
+  resume resumed: base identical, head identical
+  resume resumed.full: base identical, head identical
+  resume tab-all: base normalized-identical, head normalized-identical
+  resume-empty empty: base normalized-identical, head normalized-identical
+  resume-empty empty-enter: base normalized-identical, head normalized-identical
+  resume-empty empty-query: base normalized-identical, head normalized-identical
+  resume-empty while-streaming: base normalized-identical, head normalized-identical
+  resume-launch continued: base identical, head identical
+  resume-launch quit: base normalized-identical, head normalized-identical
+  resume-launch resumed: base identical, head identical
+  resume-launch resumed.full: base normalized-identical, head normalized-identical
+  resume-paging down14: base unresolved-defect, head unresolved-defect (causes session-age)
+  resume-paging down15: base unresolved-defect, head unresolved-defect (causes session-age)
+  resume-paging down16-loaded: base unresolved-defect, head unresolved-defect (causes session-age)
+  resume-paging down17: base unresolved-defect, head unresolved-defect (causes session-age)
+  resume-paging page1: base unresolved-defect, head unresolved-defect (causes session-age)
+  resume-paging query-ve: base normalized-identical, head normalized-identical
+  resume-paging query-ve-down3: base normalized-identical, head normalized-identical
+  resume-paging tab-all: base unresolved-defect, head unresolved-defect (causes session-age)
+  resume-tools again-stopped: base normalized-identical, head normalized-identical
+  resume-tools cmd-ask: base unresolved-defect, head unresolved-defect (causes grant-scope-push,approval-grant-scope)
+  resume-tools ctrl-o: base unresolved-defect, head unresolved-defect (causes full-transcript-shift,tool-schema)
+  resume-tools ctrl-o-up1: base unresolved-defect, head unresolved-defect (causes full-transcript-shift,tool-schema)
+  resume-tools ctrl-o-up2: base normalized-identical, head normalized-identical
+  resume-tools edit-ask: base unresolved-defect, head unresolved-defect (causes approval-grant-scope)
+  resume-tools end: base normalized-identical, head normalized-identical
+  resume-tools exit-ask: base unresolved-defect, head unresolved-defect (causes tool-schema,approval-grant-scope)
+  resume-tools live-ctrl-o: base unresolved-defect, head unresolved-defect (causes full-transcript-shift,tool-schema)
+  resume-tools live-ctrl-o-up1: base unresolved-defect, head unresolved-defect (causes full-transcript-shift,tool-schema)
+  resume-tools live-ctrl-o-up2: base unresolved-defect, head unresolved-defect (causes full-transcript-shift)
+  resume-tools live-ctrl-o-up3: base unresolved-defect, head unresolved-defect (causes session-record,full-transcript-shift)
+  resume-tools live.full: base normalized-identical, head normalized-identical
+  resume-tools long-later: base unresolved-defect, head unresolved-defect (causes grant-scope-push)
+  resume-tools picker: base normalized-identical, head normalized-identical
+  resume-tools resumed: base normalized-identical, head normalized-identical
+  resume-tools resumed.full: base normalized-identical, head normalized-identical
+  resume-tools write-ask: base unresolved-defect, head unresolved-defect (causes approval-grant-scope)
+  resume-wire resumed: base identical, head identical
+  resume-wire resumed.full: base identical, head identical
+  undo-resume resumed-undo: base identical, head identical
+# pass: base 87/125, head 91/125; to a passing verdict 4, from one 0
