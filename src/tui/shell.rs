@@ -35942,6 +35942,30 @@ mod tests {
     }
 
     #[test]
+    fn a_path_list_in_the_interim_lists_its_folder() {
+        // A path list is not the index's: its source is the app's own epoch
+        // (`source = .{ .scope_epoch = fileScopeEpoch(app), ... }`,
+        // `input_completion_runtime.zig:867@481104fd`), so the epoch check
+        // never fails it, and `@src/` lists its folder while an indexed
+        // list says `Files unavailable`.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, _path, access) = extra_with_plan(&shell);
+        shell.route_bytes(b"@plan");
+        walked(&mut shell);
+        adopt(&mut shell, access);
+        let _walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.settle_band(Instant::now());
+        assert_eq!(listed_rows(&shell)[0], status_row(FILES_UNAVAILABLE));
+        shell.clear_composer();
+        shell.route_bytes(b"\x1b[200~@src/\x1b[201~");
+        listed(&mut shell);
+        assert_eq!(
+            listed_paths(&shell),
+            ["src", "src/deep", "src/lib.rs", "src/main.rs"]
+        );
+    }
+
+    #[test]
     fn escape_in_the_interim_closes_the_list_and_keeps_the_word() {
         // Escape dismisses the file picker whatever its status
         // (`dismissVisibleInlinePicker`, `app_input_runtime.zig:2724-2729@
