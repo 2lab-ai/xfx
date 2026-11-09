@@ -30892,8 +30892,8 @@ mod tests {
         });
         assert_eq!(column(&shell)[0], "         unable to load models");
         // An edit does not ask again; the frame that draws the column does,
-        // once the failed read is a second old
-        // (`the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_a_second_has_passed`).
+        // once the failure's hold is over
+        // (`the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_its_hold_is_over`).
         shell.route_bytes(b"y");
         assert!(shell.sent.try_recv().is_err(), "the edit retried");
     }

@@ -127,7 +127,7 @@ src/tui/event_loop.rs:1046 [U] // can hold a band again -- which is also the onl
 src/tui/event_loop.rs:1089 [I] // ([`Shell::settle_column`]); a tick that owes no frame asks nothing.
 src/tui/event_loop.rs:2036 [U] // tick that had nothing to repaint would otherwise hold them forever.
 
-## source comments (in the test modules), the unit's seven files: 112 lines
+## source comments (in the test modules), the unit's seven files: 113 lines
 src/provider/model.rs:3008 [Q4] // failure's backoff, or at a reading earlier than the failed read's
 src/provider/model.rs:3066 [D] // `failureBackoffMs`'s own values (`model_cache_runtime.zig:1531-1535
 src/provider/model.rs:3079 [S] // A first load, at once; a failure, past its backoff only.
@@ -192,6 +192,7 @@ src/tui/shell.rs:28635 [U] // so the live group to hold the replay to is the one
 src/tui/shell.rs:29917 [U] // and while it runs a prompt typed straight after asks nothing
 src/tui/shell.rs:30145 [U] // A session that has asked nothing yet asks the runtime: **the one
 src/tui/shell.rs:30717 [S] // The prompt was activity past the failure's hold: it asked, without
+src/tui/shell.rs:30895 [P] // once the failure's hold is over
 src/tui/shell.rs:30907 [P] // the failure's backoff is over (`beginLoad`,
 src/tui/shell.rs:30910 [I] // a tick that owes no frame draws nothing and asks nothing.
 src/tui/shell.rs:30919 [S] // A frame inside the hold: asks nothing.
@@ -387,7 +388,7 @@ src/tui/worker.rs:18039-18052 [W] A Ctrl-C quoting the first of two prompts, 300
 src/tui/shell.rs:17210-17213 [W] the session's first load, a reload, and every screen of the menu leave it waiting, and its command never runs.
 src/tui/shell.rs:24540-24542 [W] A bare `/skills` is upstream's menu (`cap/fx-skills-40x120-menu`), in the band once the refresh it asked for lands, writing nothing -- here over no skills at all.
 src/tui/shell.rs:30703-30709 [W] Upstream starts the load on a thread of its own at once (`ensureModelCache` from `openModelBrowseCatalog`, `app_input_runtime.zig:2346-2349`) and the open menu takes the rows when it lands (`pollLoadTransition`, `model_cache_runtime.zig:549
-src/tui/shell.rs:30894-30896 [S] the frame that draws the column does, once the failed read is a second old (`the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_a_second_has_passed`).
+src/tui/shell.rs:30894-30896 [P] the frame that draws the column does, once the failure's hold is over (`the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_its_hold_is_over`).
 src/tui/shell.rs:30904-30910 [P] Upstream's column lists its models through `ensureModelCache` in every frame that draws it (`footerContext`, `app_render_runtime.zig:559-568@481104fd`), which loads again once the failure's backoff is over (`beginLoad`, `model_cache_runtime
 src/tui/shell.rs:30974-30976 [W] no `queue full` on the hint row, `loading models...` in the column, and the catalog asked for once there is room.
 src/tui/shell.rs:31851-31857 [Q4] upstream's cache starts no load inside a failure's backoff (for a reading not earlier than the failed read's start), and `/model` then opens the menu over the failure it holds -- the retryable sentence at once, never `Loading models…`, and 
@@ -427,7 +428,7 @@ src/tui/event_loop.rs:14361-14373 [W] Upstream queues such a prompt at once (`in
 [W] ...a literal id, never fuzzy-resolved, and an effort the catalog lists for it or `auto`/`default`;...
 [W] .../llmux src/config/schema.rs:545-550`, and its catalog publishes no speed), so no llmux row offers one, the speed column never opens there, and nothing is sent....
 
-## .prd/tui-phase5/receipts/catalog-refresh/README.md: 26 lines, each read: a record of a round, fx's rule, or the security notes, already qualified (Q3) where they promise
+## .prd/tui-phase5/receipts/catalog-refresh/README.md: 29 lines, each read: a record of a round, fx's rule, or the security notes, already qualified (Q3) where they promise
 README.md:13 | `9ffb6310` | RED: a resume or fork asks nothing; `/settings` and the speed commands ask with activity's trigger; an earlier reading is held back (`red-triggers.txt`) |
 README.md:39 `beginLoad` loads `.idle`/`.failed` on any trigger past the backoff, `.ready`
 README.md:50 submitted prompts -- does not hold, and xfx's column ask is fx's.
@@ -452,5 +453,8 @@ README.md:442 | 1 | `LoadTrigger::Activity`'s "read again only once ..." names a
 README.md:444 | 2 | the search widened to the closed-list words, each sentence decided; round 4's item 1 now says what round 4 searched | this one | `hold-sentences.txt` (round 5's section), `sentences.py` |
 README.md:445 | 3 | the RED cells name the run's commit and the one that recorded it; `hold-sentences.txt` regenerated after this README's last edit; the 372 recorded; GREEN and the gate at `bd67c79e`, and what `sr
 README.md:451 cache, a first load, a backoff or a hold -- each decided (`hold-sentences.txt`,
-README.md:454 before (13 in round 4, 7 in round 3), 7 that say a read comes once a hold is
+README.md:454 before (13 in round 4, 7 in round 3), 8 that say a read comes once a hold is
 README.md:455 over or `retry_at` has come (the hold being `CatalogDue`'s, which carries the
+README.md:494 failed read is a second old; it now says once the failure's hold is over and
+README.md:497 it is now among the sentences that say a read comes once a hold is over --
+README.md:499 section of `hold-sentences.txt` lists the rewritten line, 113 lines in the

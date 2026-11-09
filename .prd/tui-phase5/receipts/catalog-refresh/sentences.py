@@ -140,6 +140,7 @@ NAMED = {
  "// failure just now holds the next read off for its backoff, and a": "S",
  "// sleep past it ends the hold.": "S",
  "// MODELS-REASK: a prompt past a failed catalog's hold asks the": "P",
+ "src/tui/shell.rs|// once the failure's hold is over": "P",
 }
 FILES = ["src/provider/catalog_clock.rs", "src/provider/model.rs", "src/tui/bridge.rs",
          "src/tui/worker.rs", "src/tui/shell.rs", "src/tui/event_loop.rs", "src/interactive.rs"]
@@ -259,7 +260,7 @@ DECIDED = {
  "past it at once when asking again could change the failure (`retry_due`)": "Q4",
  "Asked again, at once and past any hold": "S",
  "which loads again once the failure's backoff is o": "P",
- "the frame that draws the column does, once the failed read is a second old": "S",
+ "the frame that draws the column does, once the failure's hold is over": "P",
  "upstream's cache starts no load inside a failure's backoff (for a reading not earlier": "Q4",
  "activity owes them the next read once they are the refresh interval old, counted from then": "S",
  "a submitted prompt is activity, which reads a failed catalog again once its backoff is over": "P",

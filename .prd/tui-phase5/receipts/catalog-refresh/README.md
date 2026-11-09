@@ -451,11 +451,11 @@ the catalog, a refresh, a retry, a read again, due, a trigger, the model
 cache, a first load, a backoff or a hold -- each decided (`hold-sentences.txt`,
 round 5's section): 176 sentences, 93 outside tests, 66 in the
 test modules and 17 in the row: 13 qualified in this round, 20 qualified
-before (13 in round 4, 7 in round 3), 7 that say a read comes once a hold is
+before (13 in round 4, 7 in round 3), 8 that say a read comes once a hold is
 over or `retry_at` has come (the hold being `CatalogDue`'s, which carries the
 rule), 8 the due rule itself or a pointer to it, 7 the ask with no trigger
 (no refresh, no retry, whatever the clock reads), 6 the line-mode
-`ensure_catalog` or `/model <query>`, 10 a test's own readings, 1 the
+`ensure_catalog` or `/model <query>`, 9 a test's own readings, 1 the
 earlier-reading case itself, 3 quotes of fx, and 101 no rule of when the
 catalog is read. The four words alone, with no word for the
 catalog's reads in the sentence, are on 1551 comment lines of these files,
@@ -485,3 +485,16 @@ unit wrote holds a local path, as the per-commit grep says.
 all and +305 -98 in code (`size.txt`); since the swept binary, code +7 -1,
 all `#[cfg(test)]` (`src-since-sweep.txt`); round 4's GREEN, mutants and
 gate stand, at `bd67c79e`.
+
+## Round 6
+
+Round 5 (`72455634`): opus APPROVE, one SHOULD. A test comment in the band
+(`shell.rs:30894-30896`, older than this unit, `794a47af`) cited a test by a
+name no longer in `src/` and said the column's frame asks again once the
+failed read is a second old; it now says once the failure's hold is over and
+cites `the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_its_hold_is_over`.
+Round 5's list had tagged it a test's own readings; it states the rule, so
+it is now among the sentences that say a read comes once a hold is over --
+round 5's tally above is corrected (8 and 9; still 176), and round 4's
+section of `hold-sentences.txt` lists the rewritten line, 113 lines in the
+test modules. Comment lines only (`git diff 72455634..HEAD -- src`).
