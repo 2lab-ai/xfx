@@ -150,15 +150,22 @@
 //! paste made soon after the first is kept and its newlines are content. Its
 //! bytes are a paste's -- inside it only the end marker is read, so another
 //! start marker is content, not a frame within a frame -- and its end marker
-//! settles it and starts a quarantine of its own. The quarantine cannot end
-//! while a start marker is half read, or the rest of it would be typed and the
-//! paste after it read as keys; the next byte either completes the marker or
-//! breaks it. A paste with no end marker holds the input as content until
-//! one comes, as an unterminated paste does in fx (`paste_framing.zig:502-511
-//! @481104fd`) and at the base: a terminal writes one after every paste, and
-//! that closes whatever a clipboard opened. Behind an end marker, in the
-//! delivery that carried it, a start marker is still counted (fx's rule,
-//! below); only the quarantine after the settle reads one.
+//! settles it and starts a quarantine of its own. A paste with no end marker
+//! holds the input as content until one comes, as an unterminated paste does
+//! in fx (`paste_framing.zig:502-511@481104fd`) and at the base: a terminal
+//! writes one after every paste, and that closes whatever a clipboard opened.
+//!
+//! **Behind an end marker the markers are followed too.** There, in the
+//! delivery that carried the marker, a second paste's start marker is counted
+//! like every byte -- fx's rule, below -- and the paste it begins is dropped,
+//! as fx drops it; but it is dropped **to its own end marker**, past the
+//! settle and through the quarantine, and no quiet ends the quarantine while
+//! it is open, so a gap inside the second paste does not make its rest keys
+//! (fx reads that rest as keys). Nor does any quiet end it while a marker is
+//! half read, or the rest of the marker would be typed and the paste after it
+//! read as keys: a byte that may begin one -- an Escape pressed in the window,
+//! say -- holds it until the next byte, which completes the marker or breaks
+//! it and is then dropped with it.
 //!
 //! So the marker does not end the paste by itself. Once it has matched, every
 //! further byte is counted and **nothing else is done with it** -- not decoded,
@@ -466,9 +473,6 @@ struct Quarantine {
     /// The readiness check that found nothing with no byte read since it, if
     /// there has been one: where the quiet began.
     quiet_since: Option<Instant>,
-    /// How many bytes of [`PASTE_START`] have matched so far. Held, like
-    /// [`Decoder`]'s `matched`: counted as dropped only once the marker breaks.
-    start: usize,
 }
 
 /// The byte-at-a-time terminal input decoder.
@@ -498,6 +502,14 @@ pub(crate) struct Decoder {
     /// marker ended it: owed at the next check ([`Self::end_delivery`]), so
     /// input that was dropped is always said.
     owed: usize,
+    /// Behind an end marker and in the quarantine after it, where every byte
+    /// is dropped, the paste markers are still followed ([`Self::follow`]):
+    /// whether a paste's start marker has been seen there and its own end
+    /// marker not yet -- a paste being dropped, which no quiet can end --
+    /// and how many bytes of the marker looked for have matched. Inside such a
+    /// paste only its end marker is looked for, as [`Self::pasted`] looks.
+    dropping_paste: bool,
+    following: usize,
 }
 
 // Task 9's editor is the first caller of these.
@@ -540,6 +552,8 @@ impl Decoder {
             behind: None,
             quarantine: None,
             owed: 0,
+            dropping_paste: false,
+            following: 0,
         }
     }
 
@@ -567,7 +581,8 @@ impl Decoder {
     /// every turn that finds nothing, an idle one too, and that is what ends a
     /// quarantine: two such checks [`Self::PASTE_QUIET`] apart with no byte
     /// fed between them mean the queue was empty all that while, however long
-    /// the loop took between them -- and no start marker half read.
+    /// the loop took between them -- and nothing half read: no paste being
+    /// dropped to its end marker, no marker part-matched ([`Self::follow`]).
     pub(crate) fn end_delivery(&mut self, now: Instant) -> Delivery {
         // What a quarantine dropped before a paste's start marker ended it,
         // said here with the paste that followed or on its own.
@@ -578,7 +593,6 @@ impl Decoder {
                 unsaid: 0,
                 said_at: (dropped > 0).then_some(now),
                 quiet_since: Some(now),
-                start: 0,
             });
             return Delivery::Pasted { dropped };
         }
@@ -588,14 +602,13 @@ impl Decoder {
                 again: false,
             };
         }
+        // Nothing half read: no paste being dropped, no marker part-matched.
+        let whole = !self.dropping_paste && self.following == 0;
         let Some(quarantine) = self.quarantine.as_mut() else {
             return Delivery::Quiet;
         };
         match quarantine.quiet_since {
-            Some(since)
-                if quarantine.start == 0
-                    && now.saturating_duration_since(since) >= Self::PASTE_QUIET =>
-            {
+            Some(since) if whole && now.saturating_duration_since(since) >= Self::PASTE_QUIET => {
                 self.quarantine = None;
                 return Delivery::Quiet;
             }
@@ -629,36 +642,48 @@ impl Decoder {
         // 527-546`, `app_input_runtime.zig:9399-9418@481104fd`).
         if let Some(behind) = self.behind.as_mut() {
             *behind = behind.saturating_add(1);
+            // Counted, and followed: a second paste begun here is being
+            // dropped until its own end marker, whenever that comes.
+            self.follow(byte);
             return;
         }
         // And after the paste is settled, until the input has gone quiet: the
         // same, and the byte means the quiet has not begun -- except a paste's
         // start marker, which begins a paste.
-        if let Some(quarantine) = self.quarantine.as_mut() {
+        if self.quarantine.is_some() {
+            let held = self.following;
+            let dropping = self.dropping_paste;
+            let began = self.follow(byte);
+            let Some(quarantine) = self.quarantine.as_mut() else {
+                return;
+            };
             quarantine.quiet_since = None;
-            if byte == PASTE_START[quarantine.start] {
-                quarantine.start += 1;
-                if quarantine.start == PASTE_START.len() {
-                    // What it dropped and has not said yet is owed. The stage
-                    // is `Ground` here, as it is wherever a paste is settled.
-                    if quarantine.said_at.is_none() {
-                        self.owed = quarantine.unsaid;
-                    }
-                    self.quarantine = None;
-                    self.pasting = true;
-                    self.matched = 0;
-                    out.push(Input::Action(Action::PasteStart));
-                }
+            if dropping {
+                // A paste being dropped: all of it is dropped input.
+                quarantine.unsaid = quarantine.unsaid.saturating_add(1);
                 return;
             }
-            // The marker broke, so what was held was input after all, and is
-            // dropped with this byte -- which may begin a marker of its own.
-            quarantine.unsaid = quarantine.unsaid.saturating_add(quarantine.start);
-            if byte == PASTE_START[0] {
-                quarantine.start = 1;
-            } else {
-                quarantine.start = 0;
-                quarantine.unsaid = quarantine.unsaid.saturating_add(1);
+            if began {
+                // A paste's start marker: a paste begins, as the stage
+                // machine begins one ([`Self::in_csi`]). What the quarantine
+                // dropped and has not said yet is owed. The stage is `Ground`
+                // here, as it is wherever a paste is settled.
+                if quarantine.said_at.is_none() {
+                    self.owed = quarantine.unsaid;
+                }
+                self.quarantine = None;
+                self.dropping_paste = false;
+                self.pasting = true;
+                self.matched = 0;
+                out.push(Input::Action(Action::PasteStart));
+                return;
+            }
+            // Bytes that may be a start marker are held, as `pasted` holds an
+            // end marker's; once it breaks they were input, and are dropped
+            // with this byte -- unless this byte begins a marker of its own.
+            if self.following != held + 1 {
+                let dropped = held + 1 - self.following;
+                quarantine.unsaid = quarantine.unsaid.saturating_add(dropped);
             }
             return;
         }
@@ -705,6 +730,32 @@ impl Decoder {
                 out.push(Input::Action(Action::Escape));
             }
         }
+    }
+
+    /// Follows the paste markers through a byte that is dropped: behind an
+    /// end marker, or in the quarantine after it. Outside a paste the marker
+    /// looked for is a start marker, and inside one only its end marker, the
+    /// grammar [`Self::pasted`] reads; so a start marker inside a paste is
+    /// content rather than a frame within a frame, and the end marker a
+    /// terminal writes after every paste closes whatever a clipboard opened.
+    /// True when `byte` completed a start marker.
+    fn follow(&mut self, byte: u8) -> bool {
+        let marker = if self.dropping_paste {
+            PASTE_END
+        } else {
+            PASTE_START
+        };
+        if byte != marker[self.following] {
+            self.following = usize::from(byte == marker[0]);
+            return false;
+        }
+        self.following += 1;
+        if self.following < marker.len() {
+            return false;
+        }
+        self.following = 0;
+        self.dropping_paste = !self.dropping_paste;
+        self.dropping_paste
     }
 
     /// One byte between the paste markers.
@@ -3555,7 +3606,10 @@ mod tests {
         );
 
         // And the machine is at ground again once the paste's quarantine is
-        // over: the same arrow, after the input has been quiet, is the arrow.
+        // over. `ESC [` is also how a paste's start marker begins, so it holds
+        // the quarantine (round 2): no quiet ends it while a marker is half
+        // read. The next byte breaks it, and is dropped with it; once the
+        // input has been quiet after that, the same arrow is the arrow.
         let mut decoder = Decoder::new();
         let now = Instant::now();
         let mut out = Vec::new();
@@ -3572,6 +3626,16 @@ mod tests {
             "the half sequence behind the marker was read"
         );
         assert_eq!(quiet(&mut decoder, &mut out), Delivery::Quiet);
+        assert!(
+            decoder.quarantined(),
+            "a half-read marker let the quiet end it"
+        );
+        decoder.feed(b'x', now, &mut out);
+        let then = Instant::now() + Decoder::PASTE_QUIET;
+        deliver_at(&mut decoder, &mut out, then);
+        deliver_at(&mut decoder, &mut out, then + Decoder::PASTE_QUIET);
+        assert!(!decoder.quarantined(), "the quiet after the broken marker");
+        assert_eq!(out, kept_new(), "the byte that broke the marker was read");
         out.clear();
         for byte in b"\x1b[A" {
             decoder.feed(*byte, now, &mut out);
