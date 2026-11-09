@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train 7's gates_txt.py (train 8's), unchanged but for this line. Writes gates.txt from a gates.sh run: a header, gates.sh's own lines, then
+"""Train 7's gates_txt.py (trains 8's and 9's), unchanged but for this line. Writes gates.txt from a gates.sh run: a header, gates.sh's own lines, then
 each step's log -- its last lines, or for a test suite every `test result`
 line and every failure -- and the reruns named after it, all through
 redacted.py (no local path left).

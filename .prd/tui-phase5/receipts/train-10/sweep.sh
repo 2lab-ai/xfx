@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Train 9's sweep (train 7's sweep.sh, unchanged but for this line): one binary per tree, each built in its own clone, each
+# Train 10's sweep (train 9's sweep.sh, unchanged but for this line; selection.txt is train 10's): one binary per tree, each built in its own clone, each
 # swept with its own tree's harness, scenarios and ledger, under the selection.
 # usage: FX=<fx v0.0.16> SHORT_TMP=<a short scratch dir> \
 #        suite-lock.sh sweep.sh <name> <tree-whose-harness-runs> <clone-to-build> <out>

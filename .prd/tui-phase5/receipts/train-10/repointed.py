@@ -1,32 +1,30 @@
 #!/usr/bin/env python3
-"""Train 9's `path:line` numbers, each checked against its code: those the
-re-point commits moved (merge 3, PASTE-AFTER-END, moved the code under them,
-and merge 4 one of them again; repoint.py). Each row: the code the reference was written about, in the
-frame of the side whose text cites it (main ccced1f5: every unit left these
-references as main has them), against the code at the number the head
-holds. Train 8's repointed.py with this train's rows.
+"""Train 10's re-points, each checked against its code at the head, and the
+re-point commits checked for numbers only.
 
-    python3 -I -B repointed.py <repo> <head>
+    python3 -I -B repointed.py <repo> <head> <re-point-commit>...
 
-Train 6's check: the text of `was` .. `was + n - 1` in the frame equals the
-text of `now` .. at the head, and so do `ctx` lines on either side.
+For every reference in repoint.py's PLAN: the frame is the side that wrote
+the citing line (repoint.py's `derive`, `git blame` at the code head); `was`
+is the number the frame's text holds, `now` the number the head's citing
+line holds **as read from the head's text** (the number at the token's place
+among the line's numbers), not from the plan. Train 6's
+check: the cited file's lines `was` .. `was + n - 1` in the frame, and two
+either side, equal the head's `now` .. and two either side. Then, for each
+commit given, every line it changed is the same once every `:N` / `:N-M` is
+masked (numbers only), and it changed as many lines as it added.
 """
-
+import os
+import re
 import subprocess
 import sys
 
-ROWS = [
-    # who cites it, path, was, frame, now, n, ctx, same (None: equal lines)
-    # -- moved by merge 3 (PASTE-AFTER-END: the paste refusal deleted above them, its tests added) --
-    ("ledger (shell.rs: `send`)", "src/tui/shell.rs", 13112, "ccced1f5", 13094, 1, 2, None),
-    ("ledger (shell.rs: `full_transcript::shown_event`)", "src/tui/shell.rs", 13423, "ccced1f5", 13405, 1, 2, None),
-    ("ledger (shell.rs: `resize`)", "src/tui/shell.rs", 16321, "ccced1f5", 16303, 1, 2, None),
-    ("ledger, six entries (shell.rs: `tools: {} advertised`; re-pointed again for merge 4)", "src/tui/shell.rs", 38615, "ccced1f5", 38716, 1, 2, None),
-    ("capfile.py comment (shell.rs: `warning_shown`)", "src/tui/shell.rs", 14603, "ccced1f5", 14585, 26, 2, None),
-    ("capfile.py comment, its bare continuation (shell.rs: `warning_shown`'s owner check; opus, review of a1a85ed6)", "src/tui/shell.rs", 14621, "ccced1f5", 14603, 3, 2, None),
-    ("smoke-tui.sh comment (input.rs; names other code on main already, stale.txt)", "src/tui/input.rs", 702, "ccced1f5", 708, 1, 2, None),
-    ("event_loop.rs comment (event_loop.rs; train 8's stale.txt)", "src/tui/event_loop.rs", 972, "ccced1f5", 1000, 4, 2, None),
-]
+here = os.path.dirname(os.path.abspath(__file__))
+src = open(os.path.join(here, "repoint.py"), encoding="utf-8").read()
+assert src.endswith("\n\nmain()\n")
+rp = {"__name__": "repoint", "__file__": os.path.join(here, "repoint.py")}
+exec(compile(src[: -len("main()\n")], "repoint.py", "exec"), rp)
+NUMS = re.compile(r":\d+(?:-\d+)?")
 
 
 def show(repo, commit, path):
@@ -35,22 +33,40 @@ def show(repo, commit, path):
 
 
 def main():
-    repo, head = sys.argv[1], sys.argv[2]
-    ok = 0
-    for who, path, was, frame, now, n, ctx, same in ROWS:
-        at = head
-        a, b = show(repo, frame, path), show(repo, at, path)
-        if same is None:
-            hit = a[was - 1 - ctx:was - 1 + n + ctx] == b[now - 1 - ctx:now - 1 + n + ctx]
-        else:
-            hit = same in a[was - 1] and same in b[now - 1]
+    repo, head, commits = sys.argv[1], sys.argv[2], sys.argv[3:]
+    ok = total = 0
+    ctx = 2
+    for citing, at, token, new, cited, side, frame, blame, holders in rp["derive"](repo):
+        total += 1
+        line = show(repo, head, citing)[at - 1]
+        before = show(repo, rp["CODE_HEAD"], citing)[at - 1]
+        prefix = token[: re.search(r":\d+(?:-\d+)?$", token).start()]
+        # The token's place among the line's numbers at the code head, read at
+        # the same place in the head's line (a numbers-only edit keeps them).
+        start = rp["token_re"](token).search(before).start() + len(prefix)
+        place = [x.start() for x in NUMS.finditer(before)].index(start)
+        m = list(re.finditer(r":(\d+)(?:-(\d+))?", line))[place] if NUMS.sub(":N", line) == NUMS.sub(":N", before) else None
+        was = re.search(r":(\d+)(?:-(\d+))?$", token)
+        w0 = int(was.group(1)); n = (int(was.group(2)) - w0 + 1) if was.group(2) else 1
+        now = int(m.group(1)) if m else None
+        a, b = show(repo, frame, cited), show(repo, head, cited)
+        hit = now is not None and a[w0 - 1 - ctx:w0 - 1 + n + ctx] == b[now - 1 - ctx:now - 1 + n + ctx]
         ok += hit
-        span = lambda x: f"{x}" + (f"-{x + n - 1}" if n > 1 else "")
-        how = f"+-{ctx} lines" if same is None else f"both hold {same!r}"
-        print(f"{'SAME' if hit else 'DIFFERENT'}  {path}:{span(was)}@{frame} -> :{span(now)}@{at[:8]} "
-              f"({how})  [{who}]\n    first: {b[now - 1].strip()[:110]}")
-    print(f"# {ok} of {len(ROWS)} the same code")
-    sys.exit(0 if ok == len(ROWS) else 1)
+        span = lambda x: f"{x}" + (f"-{x + n - 1}" if n > 1 else "")  # noqa: E731
+        print(f"{'SAME' if hit else 'DIFFERENT'}  {citing}:{at} {prefix or '(bare)'}: {cited}:{span(w0)}@{side} "
+              f"-> :{span(now) if now else '?'}@{head[:8]} (+-{ctx} lines)\n    first: {b[now - 1].strip()[:110] if now else ''}")
+    print(f"# {ok} of {total} the same code")
+    bad = 0
+    for c in commits:
+        diff = subprocess.run(["git", "-C", repo, "show", "--format=", "-U0", c], check=True,
+                              capture_output=True, text=True).stdout.split("\n")
+        minus = [l[1:] for l in diff if l.startswith("-") and not l.startswith("---")]
+        plus = [l[1:] for l in diff if l.startswith("+") and not l.startswith("+++")]
+        same = len(minus) == len(plus) and all(NUMS.sub(":N", x) == NUMS.sub(":N", y) for x, y in zip(minus, plus))
+        bad += not same
+        print(f"# {c[:8]}: {len(minus)} lines out, {len(plus)} in; "
+              f"{'each the same once its numbers are masked' if same else 'NOT numbers only'}")
+    sys.exit(0 if ok == total and not bad else 1)
 
 
 main()
