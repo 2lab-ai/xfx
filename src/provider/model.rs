@@ -928,6 +928,8 @@ pub fn gateway_models_url(endpoint: &Endpoint) -> String {
 pub struct GatewayCatalog {
     url: String,
     credential: crate::config::Credential,
+    /// [`GATEWAY_CATALOG_TIMEOUT`]; shorter only in a test.
+    timeout: Duration,
 }
 
 impl GatewayCatalog {
@@ -935,7 +937,16 @@ impl GatewayCatalog {
         Self {
             url: gateway_models_url(endpoint),
             credential,
+            timeout: GATEWAY_CATALOG_TIMEOUT,
         }
+    }
+
+    /// The same catalog with a shorter deadline, so a test of a stalled one
+    /// does not wait 30 s.
+    #[cfg(test)]
+    fn with_timeout_for_test(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
     }
 }
 
@@ -957,7 +968,7 @@ impl ModelCatalog for GatewayCatalog {
         let client = crate::gateway::bearer_rules(
             reqwest::Client::builder()
                 .connect_timeout(GATEWAY_CATALOG_CONNECT_TIMEOUT)
-                .timeout(GATEWAY_CATALOG_TIMEOUT)
+                .timeout(self.timeout)
                 .user_agent(USER_AGENT),
             &self.url,
         )
@@ -3505,6 +3516,279 @@ mod tests {
         );
         assert_eq!(catalog.fetch().await.expect("an empty catalog"), Vec::new());
         server.join().expect("the server");
+    }
+
+    // --- CATALOG-BOUNDS: fx v0.0.16's deadline and size cap on the catalog --
+    //
+    // `gateway_json_fetch_timeout_ms = 30_000` over the whole request, and
+    // `max_gateway_json_bytes = 16 * 1024 * 1024`, past which the read fails
+    // rather than being cut (`src/gateway/client.zig:486-509,597-632
+    // @481104fd`); a timeout is a transport failure fx asks again about, a
+    // body too large a malformed one it does not (`catalogRequestFailure`,
+    // `src/builtins/gateway.zig:2510-2557@481104fd`).
+
+    const MIB: usize = 1024 * 1024;
+
+    /// The Gateway catalog these cases are asked for.
+    const ONE_MODEL: &str = r#"{"data":[{"id":"acme/one","type":"language"}]}"#;
+
+    /// `doc` padded with spaces to `bytes`, before it or after it: JSON
+    /// either way. Before, a body cut short of its end is no document; after,
+    /// its first bytes are one.
+    fn padded(doc: &str, bytes: usize, before: bool) -> String {
+        let pad = " ".repeat(bytes - doc.len());
+        if before {
+            pad + doc
+        } else {
+            format!("{doc}{pad}")
+        }
+    }
+
+    /// `body` as a `200` that declares its length.
+    fn sized(body: &str) -> String {
+        format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    /// `body` as a `200` sent in 64 KiB chunks, its length declared nowhere.
+    fn chunked(body: &str) -> String {
+        let mut answer =
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n"
+                .to_string();
+        for piece in body.as_bytes().chunks(64 * 1024) {
+            answer.push_str(&format!("{:x}\r\n", piece.len()));
+            answer.push_str(std::str::from_utf8(piece).expect("ascii"));
+            answer.push_str("\r\n");
+        }
+        answer.push_str("0\r\n\r\n");
+        answer
+    }
+
+    /// The Gateway catalog of the fake at `origin`, asked with a fake key and
+    /// a deadline of `timeout`.
+    fn ask_gateway(origin: &str, timeout: Duration) -> Result<Vec<CatalogEntry>, CatalogError> {
+        let endpoint = Endpoint::resolve(Some(&format!("{origin}/v3/ai/language-model")))
+            .expect("a loopback endpoint");
+        on_a_runtime_of_its_own(
+            GatewayCatalog::new(&endpoint, credential_for_test("fake-key-not-real"))
+                .with_timeout_for_test(timeout)
+                .fetch(),
+        )
+    }
+
+    /// `read` run to its end on a runtime that is then dropped, and the
+    /// connection task with it: a fake left writing to a socket nobody reads
+    /// sees the hang-up, rather than waiting on a task no one will poll again.
+    fn on_a_runtime_of_its_own<T>(read: impl std::future::Future<Output = T>) -> T {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a runtime")
+            .block_on(read)
+    }
+
+    /// One loopback exchange: `sent` once the request is read, then a space
+    /// every 50 ms `drip` times, then the connection held open for `hold` at
+    /// most -- less once the client hangs up -- and closed. It ends by itself
+    /// within `drip * 50 ms + hold` of the request, whatever the client does,
+    /// and within 10 s if no client comes.
+    fn slow_exchange(
+        sent: Vec<u8>,
+        drip: usize,
+        hold: Duration,
+    ) -> (String, std::thread::JoinHandle<()>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+        listener.set_nonblocking(true).expect("a polled listener");
+        let origin = format!(
+            "http://127.0.0.1:{}",
+            listener.local_addr().expect("an address").port()
+        );
+        let server = std::thread::spawn(move || {
+            let until = Instant::now() + Duration::from_secs(10);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(_) if Instant::now() < until => {
+                        std::thread::sleep(Duration::from_millis(5))
+                    }
+                    Err(_) => return,
+                }
+            };
+            let _ = stream.set_nonblocking(false);
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+            crate::test_net::read_request(&mut stream);
+            if stream.write_all(&sent).is_err() {
+                return;
+            }
+            for _ in 0..drip {
+                std::thread::sleep(Duration::from_millis(50));
+                if stream.write_all(b" ").is_err() {
+                    return;
+                }
+            }
+            if !hold.is_zero() {
+                let _ = stream.set_read_timeout(Some(hold));
+                // Returns at the client's hang-up, or once `hold` is over.
+                let _ = stream.read(&mut [0u8; 1]);
+            }
+        });
+        (origin, server)
+    }
+
+    #[test]
+    fn a_gateway_catalog_up_to_16_mib_loads() {
+        // Past the old 1 MiB cap, and exactly at fx's, declared and not. The
+        // padding is before the document, so a body cut to fit reads as none.
+        for (what, answer) in [
+            ("2 MiB, declared", sized(&padded(ONE_MODEL, 2 * MIB, true))),
+            (
+                "16 MiB, declared",
+                sized(&padded(ONE_MODEL, 16 * MIB, true)),
+            ),
+            (
+                "16 MiB, chunked",
+                chunked(&padded(ONE_MODEL, 16 * MIB, true)),
+            ),
+        ] {
+            let gateway = crate::test_net::Listener::answering(answer);
+            let answer = ask_gateway(&gateway.origin(), GATEWAY_CATALOG_TIMEOUT);
+            gateway.finish();
+            match answer {
+                Ok(entries) => assert_eq!(ids(&entries), ["acme/one"], "{what}"),
+                Err(err) => panic!("{what}: expected the catalog, got {err:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_gateway_catalog_one_byte_past_16_mib_fails_and_is_not_cut_to_fit() {
+        // The padding is after the document, so the first 16 MiB -- or 1 --
+        // of it would read as a catalog. fx's `GatewayJsonResponseTooLarge`
+        // is a malformed answer, which asking again would only repeat.
+        for (what, answer) in [
+            ("declared", sized(&padded(ONE_MODEL, 16 * MIB + 1, false))),
+            ("chunked", chunked(&padded(ONE_MODEL, 16 * MIB + 1, false))),
+        ] {
+            let gateway = crate::test_net::Listener::answering(answer);
+            let answer = ask_gateway(&gateway.origin(), GATEWAY_CATALOG_TIMEOUT);
+            gateway.finish();
+            match answer {
+                Err(CatalogError::Gateway {
+                    detail,
+                    retry: None,
+                }) => assert_eq!(detail, "the answer is larger than 16 MiB", "{what}"),
+                other => panic!("{what}: expected a refusal, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_gateway_catalog_past_its_deadline_is_a_failure_asked_again_about() {
+        // The deadline is the whole request's: no answer at all, a head and
+        // half a body, and a body that keeps coming a byte at a time, which
+        // no idle timeout would ever end. Each is fx's `error.Timeout`, which
+        // its menu says it retries.
+        // A head that promises far more than any of these sends.
+        let half = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 10000\r\nconnection: close\r\n\r\n{}",
+            &ONE_MODEL[..20]
+        )
+        .into_bytes();
+        for (what, sent, drip) in [
+            ("no answer", Vec::new(), 0),
+            ("half a body", half.clone(), 0),
+            ("a byte at a time", half, 60),
+        ] {
+            let (origin, server) = slow_exchange(sent, drip, Duration::from_secs(3));
+            let asked = Instant::now();
+            let answer = ask_gateway(&origin, Duration::from_millis(300));
+            let took = asked.elapsed();
+            server.join().expect("the server");
+            match answer {
+                Err(CatalogError::Gateway {
+                    retry: Some(CatalogRetry::Unreachable),
+                    ..
+                }) => {}
+                other => panic!("{what}: expected a timeout asked again about, got {other:?}"),
+            }
+            assert!(
+                took < Duration::from_secs(2),
+                "{what}: the deadline, not the server, ended it ({took:?})"
+            );
+        }
+    }
+
+    #[test]
+    fn a_gateway_catalog_cut_short_or_not_text_is_no_catalog() {
+        // A body that stops before its declared end is that failure, not the
+        // bytes before it -- here a whole document, so a reader that kept
+        // them would take it. fx's read fails there (`ReadFailed`, which is
+        // not among the failures it asks again about).
+        let cut = sized(&format!("{ONE_MODEL}{}", " ".repeat(100)));
+        let cut = cut[..cut.len() - 100].as_bytes().to_vec();
+        let (origin, server) = slow_exchange(cut, 0, Duration::ZERO);
+        let answer = ask_gateway(&origin, GATEWAY_CATALOG_TIMEOUT);
+        server.join().expect("the server");
+        assert!(
+            matches!(answer, Err(CatalogError::Gateway { retry: None, .. })),
+            "a body cut short: {answer:?}"
+        );
+
+        // Not UTF-8: no JSON document, as fx's parser reads one.
+        let mut body = br#"{"data":[{"id":"acme/one","type":"language","description":""#.to_vec();
+        body.extend_from_slice(b"\xff\"}]}");
+        let mut sent = format!(
+            "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        sent.extend_from_slice(&body);
+        let (origin, server) = slow_exchange(sent, 0, Duration::ZERO);
+        let answer = ask_gateway(&origin, GATEWAY_CATALOG_TIMEOUT);
+        server.join().expect("the server");
+        match answer {
+            Err(CatalogError::Gateway {
+                detail,
+                retry: None,
+            }) => assert_eq!(detail, "the answer is not a model catalog"),
+            other => panic!("a body that is not UTF-8: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_llmux_catalog_past_1_mib_or_cut_short_is_no_catalog() {
+        // The daemon's own bounds stay (1 MiB, 3 s to connect, 5 s in all);
+        // reaching one is a failure, as it is for the Gateway's, and not the
+        // bytes before it. Padded after, so a reader that cut to fit would
+        // take it.
+        const LLMUX: &str = r#"{"models":[{"id":"fake/model-a","name":"fake/model-a"}]}"#;
+        let daemon = crate::test_net::Listener::answering(sized(&padded(LLMUX, MIB, false)));
+        let at_cap = on_a_runtime_of_its_own(fetch_catalog(&format!("{}/models", daemon.origin())));
+        daemon.finish();
+        assert_eq!(ids(&at_cap.expect("1 MiB is read")), ["fake/model-a"]);
+
+        let daemon = crate::test_net::Listener::answering(sized(&padded(LLMUX, MIB + 1, false)));
+        let past = on_a_runtime_of_its_own(fetch_catalog(&format!("{}/models", daemon.origin())));
+        daemon.finish();
+        match past {
+            Err(CatalogError::Unavailable { detail }) => {
+                assert_eq!(detail, "the answer is larger than 1 MiB")
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+
+        let cut = sized(&format!("{LLMUX}{}", " ".repeat(100)));
+        let cut = cut[..cut.len() - 100].as_bytes().to_vec();
+        let (origin, server) = slow_exchange(cut, 0, Duration::ZERO);
+        let answer = on_a_runtime_of_its_own(fetch_catalog(&format!("{origin}/models")));
+        server.join().expect("the server");
+        assert!(
+            matches!(answer, Err(CatalogError::Unavailable { .. })),
+            "a body cut short: {answer:?}"
+        );
     }
 
     fn credential_for_test(secret: &str) -> crate::config::Credential {

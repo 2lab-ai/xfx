@@ -1,0 +1,47 @@
+
+running 5 tests
+test provider::model::tests::a_gateway_catalog_cut_short_or_not_text_is_no_catalog ... FAILED
+test provider::model::tests::a_gateway_catalog_one_byte_past_16_mib_fails_and_is_not_cut_to_fit ... FAILED
+test provider::model::tests::a_gateway_catalog_past_its_deadline_is_a_failure_asked_again_about ... FAILED
+test provider::model::tests::a_gateway_catalog_up_to_16_mib_loads ... FAILED
+test provider::model::tests::a_llmux_catalog_past_1_mib_or_cut_short_is_no_catalog ... FAILED
+
+failures:
+
+---- provider::model::tests::a_gateway_catalog_cut_short_or_not_text_is_no_catalog stdout ----
+
+thread 'provider::model::tests::a_gateway_catalog_cut_short_or_not_text_is_no_catalog' (372636569) panicked at src/provider/model.rs:3729:9:
+a body cut short: Ok([CatalogEntry { id: "acme/one", aliases: [], name: None, efforts: [], max_context: None, facts: ModelFacts { owned_by: None, released: 0, tool_use: false, image_input: false, max_output: None, fast: false, ultrafast: false } }])
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- provider::model::tests::a_gateway_catalog_one_byte_past_16_mib_fails_and_is_not_cut_to_fit stdout ----
+
+thread 'provider::model::tests::a_gateway_catalog_one_byte_past_16_mib_fails_and_is_not_cut_to_fit' (372636580) panicked at src/provider/model.rs:3677:26:
+declared: expected a refusal, got Ok([CatalogEntry { id: "acme/one", aliases: [], name: None, efforts: [], max_context: None, facts: ModelFacts { owned_by: None, released: 0, tool_use: false, image_input: false, max_output: None, fast: false, ultrafast: false } }])
+
+---- provider::model::tests::a_gateway_catalog_past_its_deadline_is_a_failure_asked_again_about stdout ----
+
+thread 'provider::model::tests::a_gateway_catalog_past_its_deadline_is_a_failure_asked_again_about' (372636611) panicked at src/provider/model.rs:3709:26:
+half a body: expected a timeout asked again about, got Err(Gateway { detail: "the answer is not a model catalog", retry: None })
+
+---- provider::model::tests::a_gateway_catalog_up_to_16_mib_loads stdout ----
+
+thread 'provider::model::tests::a_gateway_catalog_up_to_16_mib_loads' (372636959) panicked at src/provider/model.rs:3655:29:
+2 MiB, declared: expected the catalog, got Gateway { detail: "the answer is not a model catalog", retry: None }
+
+---- provider::model::tests::a_llmux_catalog_past_1_mib_or_cut_short_is_no_catalog stdout ----
+
+thread 'provider::model::tests::a_llmux_catalog_past_1_mib_or_cut_short_is_no_catalog' (372636975) panicked at src/provider/model.rs:3774:22:
+expected a refusal, got Ok([CatalogEntry { id: "fake/model-a", aliases: [], name: Some("fake/model-a"), efforts: [], max_context: None, facts: ModelFacts { owned_by: None, released: 0, tool_use: false, image_input: false, max_output: None, fast: false, ultrafast: false } }])
+
+
+failures:
+    provider::model::tests::a_gateway_catalog_cut_short_or_not_text_is_no_catalog
+    provider::model::tests::a_gateway_catalog_one_byte_past_16_mib_fails_and_is_not_cut_to_fit
+    provider::model::tests::a_gateway_catalog_past_its_deadline_is_a_failure_asked_again_about
+    provider::model::tests::a_gateway_catalog_up_to_16_mib_loads
+    provider::model::tests::a_llmux_catalog_past_1_mib_or_cut_short_is_no_catalog
+
+test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 4550 filtered out; finished in 0.76s
+
+bounded: exit 101 after 1.8s, peak rss 97 MiB
