@@ -187,25 +187,31 @@ rests on the tests and the table.
 - The selector a provider switch builds (round 2), at `bcc278d0`
   (`red-switch.txt`): `left: CatalogTime(923554.366891291s)`,
   `right: CatalogTime(3600s)` -- the system clock, not the injected one.
-- GREEN at `3d96f590` (code at `b2731faa`): every RED test above, the
-  clock's, the counts', round 2's, and the band's idle-tick test, 20 passing
-  (`green.txt`).
+- The shared fixture's environment (round 3), at `d67326e9`
+  (`red-fixture.txt`): `recording()'s runtime holds a home other than the
+  test's own` -- the homes compared, neither printed.
+- GREEN at `70fbfa1d` (code at `b2731faa`; comments since, `d2497396`):
+  every RED test above, the clock's, the counts', rounds 2's and 3's, and
+  the band's idle-tick test, 22 passing (`green.txt`).
 
 ## Mutants (`mutants.py`, `mutants.txt`)
 
 On a `git clone --no-local` of the branch in the scratch directory, each under
 `bounded.py` (300 s, 3 GiB), the edit undone after. Since round 2 the script
 counts four verdicts apart -- killed by an assertion, does not build, timed
-out, survived -- and keeps each kill's failing tests with their panic's
+out, survived -- (round 3: a fifth, failed without a panic) and keeps each kill's failing tests with their panic's
 place and first message line.
 
-At `ac3814fe`: **20 mutants -- 20 killed by an assertion, 0 do not build, 0
-timed out, 0 survived** (`mutants.txt`). Round 1's sixteen, with the two
-whose anchors moved rewritten (the awake clock now `Some(..)`; `/settings`'
-comment), and four of round 2's: a failed reading as the clock's latest
-instead of its origin, a switch's selector on the system clock, and the
-system clock in place of the injected one at the menu over a failure and at
-the column's frame (item 5). The "Instant restored" mutant swaps both arms of
+At `70fbfa1d` (code as at the head): **23 mutants -- 23 killed by an
+assertion, 0 do not build, 0 timed out, 0 failed without a panic, 0
+survived** (`mutants.txt`). Round 1's sixteen, with the two whose anchors
+moved rewritten (the awake clock now `Some(..)`; `/settings`' comment); four
+of round 2's: a failed reading as the clock's latest instead of its origin,
+a switch's selector on the system clock, and the system clock in place of
+the injected one at the menu over a failure and at the column's frame; and
+three of round 3's: a switch keeping the old provider's catalog state and
+read, a switch letting the old read run on, and the shared fixture back on
+the process's environment. The "Instant restored" mutant swaps both arms of
 `CatalogClock::now` and is killed through the fake arm (§ The clock). Round
 1's first run, at `7fa5d9c2`, left one alive -- "the runtime reads for an ask
 with no trigger" (`mutants-r1.txt`): the count test read the fetch counter
@@ -216,8 +222,9 @@ before the read's thread had reached it; `fccaf848` settles each ask first.
 `--only p5-input-model* model* h1-models* settings-model*`, 20 scenarios, 92
 pairs, base `e705a5dc` (banner `v0.1.0-e705a5d`) against `3d96f590`
 (`v0.1.0-3d96f59`, round 2's code), fx's sha checked before and after each
-run: 77 / 92 both, **0 pairs moved**. After `3d96f590` only a test changes
-under `src/` (`ac3814fe`, in `worker.rs`'s tests module). The 15 that fail in
+run: 77 / 92 both, **0 pairs moved**. After `3d96f590` the code outside
+tests changes by +0 -0 -- comments, and tests (`src-since-sweep.txt`) -- so
+the swept binary's behaviour is the head's. The 15 that fail in
 both are the same pairs: `sound-max` (6), the C7 help line (1), activity
 tokens (1), and fuzzy search (`model-anchor/alt-enter`, `p5-input-model`
 `q-*`, `inline-gpt6`: MODEL-FUZZY, a unit in flight).
@@ -232,16 +239,18 @@ check that nothing moved.
 
 ## Gate (`gates.sh`, `gate.txt`)
 
-Round 2's, at `38ba66a7`, under the suite lock: **20 steps, 0 failed** --
-fmt, both clippys, `cargo test` (15 binaries, 5487 passed, 0 failed, 7
-ignored) and `--features fault-injection` (5524 passed, 0 failed, 7
+Round 3's, at `3a0bcdb1`, under the suite lock: **20 steps, 0 failed** --
+fmt, both clippys, `cargo test` (15 binaries, 5489 passed, 0 failed, 7
+ignored) and `--features fault-injection` (5526 passed, 0 failed, 7
 ignored), six `check-*` scripts and three `test-*` ones, both fxcap
 self-tests, both release builds, smoke, and smoke-tui (37 scenarios and the
-oracle, 1168 checks, 0 failures). "tree clean: no" is this README, edited
-while the gate waited for its slot and ran; nothing under `src/` changed
-after `ac3814fe`, and the commits after the gate's head are this folder's.
-Round 1's gate (`b57fa272`, 20 of 20, 5482 and 5519 passed) is replaced by
-this one.
+oracle, 1168 checks, 0 failures). The two more tests than round 2's are
+round 3's: the fixture's home and the switch's dropped state. "tree clean:
+no" is this README and `mutants.txt`, edited while the gate waited for its
+slot and ran; `src/` last changed at `d2497396` (comments), before the
+gate's head, and the commits after the gate's head are this folder's. Round 2's gate (`38ba66a7`, 20 of
+20, 5487 and 5524 passed) and round 1's (`b57fa272`, 5482 and 5519) are
+replaced by this one.
 
 ## Security
 
@@ -308,9 +317,49 @@ read that home and the provider changed. The first version's runs counted as
 evidence for nothing here: `green.txt` and `mutants.txt` are from
 `ac3814fe` on.
 
-**Round 2's figures:** GREEN 20 of 20 at `ac3814fe` (`green.txt`); mutants
-20 of 20 killed by an assertion at `ac3814fe` (`mutants.txt`); sweep 77 / 92
-on base and head, 0 pairs moved, the head binary `v0.1.0-3d96f59`
-(`sweep-head.md`, `sweep-compare.txt`); gate 20 of 20 at `38ba66a7`
-(`gate.txt`); source outside tests, base to head, in `size.txt`.
+**Round 2's figures** were GREEN 20 of 20 and mutants 20 of 20 at
+`ac3814fe`, the sweep at `3d96f590` (77 / 92, 0 moved), and the gate 20 of
+20 at `38ba66a7` (5487 and 5524 passed). The files now hold round 3's
+(§ Round 3), except the sweep, which still stands (§ Sweep).
+
+## Round 3
+
+Round 2 (`9a49c58e`) had two confirming reviews: gpt6 APPROVE-WITH-FIXES
+with one MUST, opus APPROVE-WITH-FIXES with none. Both confirmed items 1-9.
+
+| # | item | commit | evidence here |
+|---|---|---|---|
+| 1 | the parity row's bold "**After a failure, nothing reads it ... whatever asks**" qualified, for readings that succeed and do not go back past the last read's start; the same promise in four source comments (`LoadClock::not_before`, `would_load`, `activity_due`, `CatalogKnown::Unread`) | `d2497396` | a grep of the unit's files for "never inside", "whatever asks" and the like, test comments about good readings left as they are |
+| 2 | "Two differences remain" -> three, the failed reading's cost first | `d2497396` | `docs/parity.md` `/model` |
+| 3 | GREEN cites the commit `green.txt` was taken at | this one | § RED -> GREEN |
+| 4 | `recording()` over a temporary environment | RED `d67326e9`, fix `44d7f84c` | `red-fixture.txt`; `green.txt`; `mutants.txt` ("the shared fixture's runtime reads the process's environment") |
+| 5 | a switch drops the old provider's rows, its read on the way and a failure's hold, refuses that read's late answer, and keeps the clock | `f3e73339`, `26375df5` | `green.txt` (`a_switch_drops_the_old_providers_rows_read_and_backoff_and_keeps_the_clock`); `mutants.txt` |
+| 6 | the decision below | this one | -- |
+| 7 | `mutants.py` labels a nonzero run with no panic apart ("failed without a panic"); parity names the band-thread failed reading | `70fbfa1d`, `d2497396` | `mutants.py`; `docs/parity.md` |
+
+**Item 4 found the defect it was asked about**, so it has a RED: the shared
+fixture's runtime held the process's environment. The fixture now names an
+environment over its own home, so every test built on it reloads only that
+home. The crate-wide guard (`Runtime::new` under `cfg(test)`) is the queued
+TEST-ENV-ISOLATION unit, not this one. **Item 5 passed first time**: `renew`
+already rebuilt the whole selector. Two mutants show the test fails when it
+does not -- `renew` keeping the old catalog state and read, and `renew`
+letting the old read run on (its gate still open after the switch).
+
+**Decision (the dispatcher's, 2026-11-09, round 2 opus SHOULD 4):** the
+alternating-failure pin shows xfx's read count -- seven, three more for four
+failed readings -- with fx's named as a difference (`last_attempt_ms = now`,
+`model_cache_runtime.zig:636@481104fd`, so a failed ask reading costs fx two
+reads and xfx one), rather than copying fx's count as clock-gpt6.md asked.
+xfx's makes fewer requests under a failed clock reading, the safer side for
+an S unit; the difference is unreachable with a working clock, and it is
+named in `docs/parity.md`.
+
+**Round 3's figures:** GREEN 22 of 22 at `70fbfa1d` (`green.txt`); the
+fixture RED at `d67326e9` (`red-fixture.txt`); mutants 23 of 23 killed at
+`70fbfa1d` (`mutants.txt`); the gate 20 of 20 at `3a0bcdb1` (5489 and 5526
+passed, smoke-tui 1168 checks, `gate.txt`); the sweep still at `3d96f590`
+(77 / 92 both, 0 moved; code outside tests since, +0 -0,
+`src-since-sweep.txt`); the size against `e705a5dc`, +515 -135 in all and
++299 -98 in code outside tests (`size.txt`).
 
