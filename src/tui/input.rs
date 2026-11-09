@@ -3455,6 +3455,31 @@ mod tests {
     }
 
     #[test]
+    fn a_start_marker_inside_a_paste_being_dropped_is_its_content_and_one_end_closes_it() {
+        // A clipboard holding `x ESC[201~ y ESC[200~ a ESC[200~ b`, wrapped by
+        // its terminal: two start markers behind the first end marker and one
+        // end marker, the terminal's. Inside the paste being dropped only its
+        // end marker is looked for, so the second start marker is content and
+        // that one end marker closes it; a frame within a frame would leave
+        // one open, and the input held, on clipboard content alone.
+        let t0 = Instant::now();
+        let quiet = Decoder::PASTE_QUIET;
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        fed(
+            &mut decoder,
+            b"\x1b[200~new\x1b[201~y\x1b[200~a\x1b[200~b\x1b[201~",
+            t0,
+            &mut out,
+        );
+        deliver_at(&mut decoder, &mut out, t0);
+        deliver_at(&mut decoder, &mut out, t0 + quiet);
+        assert!(!decoder.quarantined(), "the input was held by content");
+        fed(&mut decoder, b"\r", t0 + quiet * 2, &mut out);
+        assert_eq!(out, kept_new_then(&[Input::Action(Action::Submit)]));
+    }
+
+    #[test]
     fn an_unterminated_paste_begun_behind_the_first_s_end_marker_never_becomes_keys() {
         let t0 = Instant::now();
         let mut decoder = Decoder::new();
