@@ -18887,6 +18887,87 @@ mod tests {
         assert_eq!(shell.document(), said(ignored_behind_the_paste()));
     }
 
+    /// xfx's own sentence for input that keeps arriving inside a paste's
+    /// quarantine after the warning has been said, spelled out here rather
+    /// than read from the code under test. fx has none: it has no quarantine.
+    fn still_ignored_after_the_paste() -> notice::Notice {
+        notice::Notice::warning(
+            "input",
+            "Input after the paste is still being ignored until it stops for a moment.",
+        )
+    }
+
+    #[test]
+    fn a_second_paste_inside_the_quarantine_with_a_gap_in_its_middle_is_kept_and_sends_nothing() {
+        // opus on PASTE-GAP round 1: a second paste whose start marker lands
+        // within `PASTE_QUIET` of the first paste had the marker dropped, so a
+        // gap of that much inside the second paste ended the quarantine and
+        // the rest of the paste was read as keys: its newline sent the
+        // composer, and `/version` with it. The second paste is a paste.
+        let quiet = super::super::input::Decoder::PASTE_QUIET;
+        let ms = Duration::from_millis(1);
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(t0);
+        shell.route_read(b"\x1b[200~two ");
+        for at in [t0 + ms, t0 + ms + quiet, t0 + ms + quiet * 2] {
+            shell.end_delivery_at(at);
+        }
+        shell.route_read(b"lines\r/version\r\x1b[201~");
+        shell.end_delivery_at(t0 + quiet * 3);
+        shell.end_delivery_at(t0 + quiet * 4);
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the rest of the second paste sent a prompt"
+        );
+        assert_eq!(
+            shell.editor.text(),
+            "priornewtwo lines\n/version\n",
+            "the second paste was not kept as a paste"
+        );
+        assert_eq!(shell.document(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn input_that_keeps_arriving_inside_the_quarantine_is_said_again_once_a_second() {
+        // gpt6 on PASTE-GAP round 1: the warning was said once, so a stream
+        // that kept the quarantine on went on being dropped with nothing on
+        // the screen to say so. Each second that more of it arrives, xfx says
+        // it again, and how to get out of it: stop the input. Nothing is
+        // decoded on a timer -- the quarantine ends only when the input stops.
+        let tick = super::super::event_loop::TICK;
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(t0);
+        // A byte a turn for 1.2 s: the first warning at the first turn, the
+        // second sentence a second after it, and no third.
+        let mut at = t0;
+        for _ in 0..150 {
+            at += tick;
+            shell.route_read(b"y");
+            shell.end_delivery_at(at);
+        }
+        // Then the input stops: no more is said, and a key is a key again.
+        shell.end_delivery_at(at + tick);
+        shell.end_delivery_at(at + tick + super::super::input::Decoder::PASTE_QUIET);
+        let mut both = said(ignored_behind_the_paste());
+        both.extend(said(still_ignored_after_the_paste()));
+        assert_eq!(shell.document(), both);
+        assert_eq!(shell.editor.text(), "priornew", "a dropped byte was typed");
+        shell.route_bytes(b"z");
+        assert_eq!(
+            shell.editor.text(),
+            "priornewz",
+            "the quarantine did not end"
+        );
+    }
+
     #[test]
     fn a_paste_past_the_budget_with_input_behind_it_says_the_limit_then_the_ignored_input() {
         // fx v0.0.16 finishes the paste first -- an overflowed capture is the

@@ -3112,6 +3112,154 @@ mod tests {
         assert_eq!(out, kept_new());
     }
 
+    /// Feeds `bytes`, in order, at `at`.
+    fn fed(decoder: &mut Decoder, bytes: &[u8], at: Instant, out: &mut Vec<Input>) {
+        for byte in bytes {
+            decoder.feed(*byte, at, out);
+        }
+    }
+
+    /// The first paste of every quarantine case: `new`, settled at `t0` with
+    /// nothing behind it, and its quarantine begun.
+    fn settled_new(t0: Instant) -> (Decoder, Vec<Input>) {
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        fed(&mut decoder, b"\x1b[200~new\x1b[201~", t0, &mut out);
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0),
+            Delivery::Pasted { dropped: 0 }
+        );
+        (decoder, out)
+    }
+
+    /// `kept_new`, then `rest`.
+    fn kept_new_then(rest: &[Input]) -> Vec<Input> {
+        let mut kept = kept_new();
+        kept.extend_from_slice(rest);
+        kept
+    }
+
+    /// `PasteByte` for each of `bytes`.
+    fn paste_bytes(bytes: &[u8]) -> Vec<Input> {
+        bytes.iter().map(|byte| Input::PasteByte(*byte)).collect()
+    }
+
+    /// Whether any of `out` is a key: a character, an action other than a
+    /// paste's frame, or anything that is not a paste's content.
+    fn any_key(out: &[Input]) -> bool {
+        out.iter().any(|event| {
+            !matches!(
+                event,
+                Input::PasteByte(_) | Input::Action(Action::PasteStart | Action::PasteEnd)
+            )
+        })
+    }
+
+    #[test]
+    fn a_second_paste_inside_the_quarantine_is_a_paste_across_a_gap_in_its_middle() {
+        // opus on PASTE-GAP round 1: a second paste whose start marker lands
+        // inside the first one's quarantine had that marker dropped with
+        // everything else, so a gap of `PASTE_QUIET` inside the second paste
+        // ended the quarantine and the rest of it reached the decoder
+        // unframed, its newlines submitting. A start marker there is what fx
+        // and the base decode it as after any gap: a paste begins, its bytes
+        // are content, and only its own end marker ends it.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let quiet = Decoder::PASTE_QUIET;
+        let (mut decoder, mut out) = settled_new(t0);
+        fed(&mut decoder, b"\x1b[200~ab", t0 + ms, &mut out);
+        for at in [t0 + ms * 2, t0 + ms * 2 + quiet, t0 + ms * 2 + quiet * 2] {
+            deliver_at(&mut decoder, &mut out, at);
+        }
+        fed(&mut decoder, b"c\rd\x1b[201~", t0 + quiet * 3, &mut out);
+        deliver_at(&mut decoder, &mut out, t0 + quiet * 3 + ms);
+        assert!(
+            !any_key(&out),
+            "the rest of the second paste was keys: {out:?}"
+        );
+        let mut second = vec![Input::Action(Action::PasteStart)];
+        second.extend(paste_bytes(b"abc\rd"));
+        second.push(Input::Action(Action::PasteEnd));
+        assert_eq!(out, kept_new_then(&second));
+    }
+
+    #[test]
+    fn an_unterminated_paste_begun_inside_the_quarantine_never_becomes_keys() {
+        // A start marker with no end marker after it, however long the input
+        // is quiet: every byte is its content, as an unterminated paste's is in
+        // fx (`paste_framing.zig:502-511@481104fd`) and at the base, never a
+        // key.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let (mut decoder, mut out) = settled_new(t0);
+        fed(&mut decoder, b"\x1b[200~ab", t0 + ms, &mut out);
+        for at in [
+            t0 + ms * 2,
+            t0 + ms * 2 + Decoder::PASTE_QUIET,
+            t0 + Duration::from_secs(1),
+            t0 + Duration::from_secs(10),
+        ] {
+            deliver_at(&mut decoder, &mut out, at);
+        }
+        fed(&mut decoder, b"x\r", t0 + Duration::from_secs(10), &mut out);
+        deliver_at(&mut decoder, &mut out, t0 + Duration::from_secs(11));
+        assert!(!any_key(&out), "the input after a quiet was keys: {out:?}");
+        let mut open = vec![Input::Action(Action::PasteStart)];
+        open.extend(paste_bytes(b"abx\r"));
+        assert_eq!(out, kept_new_then(&open));
+        assert!(decoder.pasting(), "the unterminated paste was closed");
+    }
+
+    #[test]
+    fn a_start_marker_split_across_the_quiet_holds_the_quarantine() {
+        // `ESC [ 2 0` inside the quarantine, then a quiet of `PASTE_QUIET` or
+        // more, then `0 ~` and a paste's content: the quarantine must not end
+        // with a start marker half read, or `0` and `~` would be typed and the
+        // content after them read as keys.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let quiet = Decoder::PASTE_QUIET;
+        let (mut decoder, mut out) = settled_new(t0);
+        fed(&mut decoder, b"\x1b[20", t0 + ms, &mut out);
+        for at in [t0 + ms * 2, t0 + ms * 2 + quiet, t0 + ms * 2 + quiet * 3] {
+            deliver_at(&mut decoder, &mut out, at);
+        }
+        fed(&mut decoder, b"0~ab\r\x1b[201~", t0 + quiet * 4, &mut out);
+        deliver_at(&mut decoder, &mut out, t0 + quiet * 4 + ms);
+        assert!(
+            !any_key(&out),
+            "the split start marker let keys through: {out:?}"
+        );
+        let mut second = vec![Input::Action(Action::PasteStart)];
+        second.extend(paste_bytes(b"ab\r"));
+        second.push(Input::Action(Action::PasteEnd));
+        assert_eq!(out, kept_new_then(&second));
+    }
+
+    #[test]
+    fn a_start_marker_inside_a_paste_begun_in_the_quarantine_is_its_content() {
+        // Inside a paste only its end marker is read (`pasted`), so a second
+        // start marker there is content, not a frame within a frame: the
+        // terminal's own end marker closes whatever a clipboard opened, and
+        // nothing a clipboard holds can leave a frame open behind it.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let quiet = Decoder::PASTE_QUIET;
+        let (mut decoder, mut out) = settled_new(t0);
+        fed(&mut decoder, b"\x1b[200~a\x1b[200~b", t0 + ms, &mut out);
+        for at in [t0 + ms * 2, t0 + ms * 2 + quiet, t0 + ms * 2 + quiet * 2] {
+            deliver_at(&mut decoder, &mut out, at);
+        }
+        fed(&mut decoder, b"\x1b[201~", t0 + quiet * 3, &mut out);
+        deliver_at(&mut decoder, &mut out, t0 + quiet * 3 + ms);
+        let mut second = vec![Input::Action(Action::PasteStart)];
+        second.extend(paste_bytes(b"a\x1b[200~b"));
+        second.push(Input::Action(Action::PasteEnd));
+        assert_eq!(out, kept_new_then(&second));
+        assert!(!decoder.pasting(), "the end marker did not close the paste");
+    }
+
     #[test]
     fn an_escape_sequence_behind_the_end_marker_is_counted_and_never_decoded() {
         // Not an arrow key, not a second marker, not a new paste: every byte
