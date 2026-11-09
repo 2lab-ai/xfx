@@ -1410,7 +1410,9 @@ pub(crate) struct LoadClock {
     pub(crate) began: Option<CatalogTime>,
     /// Failed reads in a row; a success clears it (`:943`, `:949`).
     pub(crate) streak: u32,
-    /// After a failure, no read starts before this, whatever asks (`:951`).
+    /// After a failure, no read starts before this, whatever asks (`:951`)
+    /// -- for readings that do not go back past [`Self::began`]: one earlier
+    /// than that is due whatever held the read back ([`CatalogDue`]).
     pub(crate) not_before: Option<CatalogTime>,
 }
 
@@ -1427,7 +1429,9 @@ impl LoadClock {
     }
 
     /// When [`Self::due`] next starts a read for [`LoadTrigger::Activity`]
-    /// over `held`: not before the hold a failure put on the next read ends,
+    /// over `held` -- besides any reading earlier than the last read's start,
+    /// which is due at once ([`CatalogDue::since`]): not before the hold a
+    /// failure put on the next read ends,
     /// and over rows not before they are the refresh interval old, counted
     /// from the last read's start -- unless a refresh of them failed in a way
     /// asking again could change (`beginLoad`, `model_cache_runtime.zig:
@@ -2030,7 +2034,8 @@ impl ModelSelector {
     /// Whether `trigger` would start a read at `now`, as upstream's
     /// `beginLoad` decides one (`model_cache_runtime.zig:609-625@481104fd`,
     /// [`LoadClock::due`]): never beside a read on its way or one whose answer
-    /// is not taken yet (`:621`); never inside a failure's backoff; a first
+    /// is not taken yet (`:621`); never inside a failure's backoff, for a
+    /// reading not earlier than the last read's start ([`CatalogDue`]); a first
     /// load or a retry of a failure past it; and over rows, the menu five
     /// seconds after the last read began, anything once they are five
     /// minutes old or once a refresh of them failed in a way asking again

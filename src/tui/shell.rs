@@ -2385,9 +2385,10 @@ enum CatalogKnown {
     Loaded,
     /// The runtime could not read it, whether asking again could help, and
     /// when the hold the failure put on the next read ends: a `/model` before
-    /// then opens the menu over the failure and asks nothing, as upstream's
-    /// model cache starts no load inside a failure's backoff
-    /// (`crate::provider::model::failure_backoff`).
+    /// then -- by a reading not earlier than the failed read's start, which
+    /// is due whatever held the read back ([`CatalogDue`]) -- opens the menu
+    /// over the failure and asks nothing, as upstream's model cache starts no
+    /// load inside a failure's backoff (`crate::provider::model::failure_backoff`).
     Unread(Option<CatalogRetry>, CatalogDue),
 }
 
