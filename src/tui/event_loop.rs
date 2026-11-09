@@ -9070,7 +9070,14 @@ mod tests {
     /// tmux-resize-probe.txt`): a shorter screen drops the rows under the
     /// cursor first, then moves rows off the top into the history; a taller
     /// one brings rows back from the history to the top; a narrower one cuts
-    /// rows, and none of xfx's rows is a wrapped one for it to reflow.
+    /// rows, and none of xfx's rows is a wrapped one for it to reflow. (The
+    /// probe measured a shorter screen and a taller one, not a narrower one:
+    /// cutting is this model's choice, and every row it cuts is short.)
+    ///
+    /// Bytes are parsed as one stream across reads, as a terminal's parser
+    /// does: a character or an escape sequence a torn write left unfinished
+    /// waits for the next bytes, which finish it or -- an `ESC` where a
+    /// sequence's next byte should be -- abort it ([`Self::catch_up`]).
     struct Terminal {
         rows: usize,
         cols: usize,
@@ -9080,6 +9087,9 @@ mod tests {
         col: usize,
         saved: Option<(Vec<Vec<char>>, usize, usize)>,
         fed: usize,
+        /// Read but not yet parsed: the start of a character or of an escape
+        /// sequence whose end has not been written.
+        pending: Vec<u8>,
     }
 
     impl Terminal {
@@ -9093,24 +9103,45 @@ mod tests {
                 col: 0,
                 saved: None,
                 fed: 0,
+                pending: Vec::new(),
             }
         }
 
-        /// Everything `written` holds past what this terminal has read.
+        /// Everything `written` holds past what this terminal has read, after
+        /// what it read before and has not parsed yet. A character torn
+        /// before its last byte waits; one the next bytes do not finish is
+        /// a replacement character, as a terminal shows it.
         fn catch_up(&mut self, written: &[u8]) {
-            let new = written[self.fed..].to_vec();
+            self.pending.extend_from_slice(&written[self.fed..]);
             self.fed = written.len();
-            self.feed(&String::from_utf8_lossy(&new));
+            let whole = self.pending.len() - unfinished_character(&self.pending);
+            let text = String::from_utf8_lossy(&self.pending[..whole]).into_owned();
+            let parsed = self.feed(&text);
+            // What `feed` left is an unfinished sequence at the text's end:
+            // the bytes it came from, character for character, unless one
+            // of them was not UTF-8.
+            assert!(
+                !text[parsed..].contains('\u{fffd}'),
+                "an unfinished sequence holds a byte that is not UTF-8: {:?}",
+                &text[parsed..]
+            );
+            let left = text.len() - parsed;
+            self.pending.drain(..whole - left);
         }
 
-        fn feed(&mut self, text: &str) {
-            let chars: Vec<char> = text.chars().collect();
+        /// Parses `text`, and returns how many of its bytes: all of them, or
+        /// those before an escape sequence that has not ended yet.
+        fn feed(&mut self, text: &str) -> usize {
+            let chars: Vec<(usize, char)> = text.char_indices().collect();
             let mut at = 0;
             while at < chars.len() {
-                let c = chars[at];
+                let c = chars[at].1;
                 at += 1;
                 match c {
-                    '\u{1b}' => at = self.escape(&chars, at),
+                    '\u{1b}' => match self.escape(&chars, at) {
+                        Some(next) => at = next,
+                        None => return chars[at - 1].0,
+                    },
                     '\n' => self.linefeed(),
                     '\r' => self.col = 0,
                     '\u{8}' => self.col = self.col.saturating_sub(1),
@@ -9118,36 +9149,47 @@ mod tests {
                     c => self.put(c),
                 }
             }
+            text.len()
         }
 
-        fn escape(&mut self, chars: &[char], at: usize) -> usize {
-            match chars.get(at) {
+        /// The sequence an `ESC` at `at - 1` opens: where parsing goes on,
+        /// or `None` when the text ends before the sequence does. A CSI's
+        /// parameters and intermediates run to its final byte; anything else
+        /// where one should be -- the next update's `ESC` -- aborts it, and
+        /// parsing goes on at that byte. An OSC runs to its BEL or ST, and an
+        /// `ESC` that is not the ST's aborts it the same way.
+        fn escape(&mut self, chars: &[(usize, char)], at: usize) -> Option<usize> {
+            match chars.get(at).map(|&(_, c)| c) {
                 Some('[') => {
                     let mut end = at + 1;
-                    while end < chars.len() && !('\u{40}'..='\u{7e}').contains(&chars[end]) {
+                    while end < chars.len() && ('\u{20}'..='\u{3f}').contains(&chars[end].1) {
                         end += 1;
                     }
-                    let params: String = chars[at + 1..end.min(chars.len())].iter().collect();
-                    if let Some(&last) = chars.get(end) {
-                        self.csi(&params, last);
+                    let last = chars.get(end)?.1;
+                    if !('\u{40}'..='\u{7e}').contains(&last) {
+                        return Some(end);
                     }
-                    end + 1
+                    let params: String = chars[at + 1..end].iter().map(|&(_, c)| c).collect();
+                    self.csi(&params, last);
+                    Some(end + 1)
                 }
                 Some(']') => {
                     let mut end = at + 1;
-                    while end < chars.len() {
-                        if chars[end] == '\u{7}' {
-                            return end + 1;
+                    loop {
+                        match chars.get(end)?.1 {
+                            '\u{7}' => return Some(end + 1),
+                            '\u{1b}' => {
+                                return match chars.get(end + 1)?.1 {
+                                    '\\' => Some(end + 2),
+                                    _ => Some(end),
+                                };
+                            }
+                            _ => end += 1,
                         }
-                        if chars[end] == '\u{1b}' && chars.get(end + 1) == Some(&'\\') {
-                            return end + 2;
-                        }
-                        end += 1;
                     }
-                    end
                 }
-                Some(_) => at + 1,
-                None => at,
+                Some(_) => Some(at + 1),
+                None => None,
             }
         }
 
@@ -9272,6 +9314,48 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_test_terminal_parses_one_stream_across_reads() {
+        // A character and a CSI torn across two reads are read whole; a CSI
+        // the next update's `ESC` cuts short is aborted, and that update is
+        // read from its `ESC`.
+        let mut terminal = Terminal::new(4, 20);
+        let mut written = "\u{2503} A\u{1b}[2".as_bytes().to_vec();
+        written.truncate(1);
+        terminal.catch_up(&written);
+        written = "\u{2503} A\u{1b}[2".as_bytes().to_vec();
+        terminal.catch_up(&written);
+        written.extend_from_slice(b";1HB\x1b[3");
+        terminal.catch_up(&written);
+        written.extend_from_slice(b"\x1b[3;1HC");
+        terminal.catch_up(&written);
+        assert_eq!(
+            terminal.everything(),
+            ["\u{2503} A", "B", "C", ""],
+            "the reads were not parsed as one stream"
+        );
+        assert!(terminal.pending.is_empty(), "bytes left unparsed");
+    }
+
+    /// How many bytes at the end of `bytes` start a UTF-8 character they do
+    /// not finish.
+    fn unfinished_character(bytes: &[u8]) -> usize {
+        for back in 1..=bytes.len().min(3) {
+            let byte = bytes[bytes.len() - back];
+            if byte & 0xc0 == 0x80 {
+                continue;
+            }
+            let length = match byte {
+                0xf0.. => 4,
+                0xe0.. => 3,
+                0xc0.. => 2,
+                _ => 1,
+            };
+            return if length > back { back } else { 0 };
+        }
+        0
+    }
+
     /// Asserts that `words` stand once each, in order, on rows of their own
     /// behind the card's rail, in the history and on the screen together,
     /// and on no other row.
@@ -9375,6 +9459,13 @@ mod tests {
         // shorter, and narrower. The card is on the terminal once, every row
         // in order, and nothing of the preview is left beside it, in the
         // history or on the screen.
+        //
+        // These frames are `commit_frame`'s, one each, never the session's
+        // tick, which writes the card's frame right after the preview's
+        // ([`commit_tick`]): this is the window a write that fails leaves
+        // open, for a one-row preview the band's repaint covers. A tall one
+        // is `a_failed_write_and_a_shrink_before_the_retry_leave_only_what_
+        // the_shrink_took`.
         for (rows, cols, what) in [(24, 120, "shorter"), (40, 100, "narrower")] {
             let words: Vec<String> = ["RESIZE-ONE", "RESIZE-TWO", "RESIZE-THREE"]
                 .map(String::from)
@@ -9544,6 +9635,8 @@ mod tests {
         Refuse,
         /// Takes this many bytes, then fails: the update lands torn.
         Tear(usize),
+        /// Takes half the update, then fails.
+        Half,
     }
 
     /// A terminal that does what `script` says to its writes, one update
@@ -9553,6 +9646,8 @@ mod tests {
         update: usize,
         torn: bool,
         written: Vec<u8>,
+        /// What each write took, the script's steps and the writes after.
+        took: Vec<usize>,
     }
 
     impl RawWrite for Scripted {
@@ -9565,12 +9660,21 @@ mod tests {
             match step {
                 Step::Take => {
                     self.written.extend_from_slice(bytes);
+                    self.took.push(bytes.len());
                     Ok(bytes.len())
                 }
-                Step::Refuse => Err(io::Error::new(io::ErrorKind::BrokenPipe, "not now")),
-                Step::Tear(taken) => {
+                Step::Refuse => {
+                    self.took.push(0);
+                    Err(io::Error::new(io::ErrorKind::BrokenPipe, "not now"))
+                }
+                Step::Tear(_) | Step::Half => {
+                    let taken = match step {
+                        Step::Tear(taken) => taken,
+                        _ => bytes.len() / 2,
+                    };
                     let taken = taken.min(bytes.len().saturating_sub(1)).max(1);
                     self.written.extend_from_slice(&bytes[..taken]);
+                    self.took.push(taken);
                     self.torn = true;
                     Ok(taken)
                 }
@@ -9587,12 +9691,22 @@ mod tests {
     #[test]
     fn a_refused_or_torn_write_at_the_preview_or_the_card_still_leaves_the_card_once() {
         // The tick's two updates -- the preview's frame and the card's -- each
-        // refused, and the preview's torn: whatever the terminal took, the
-        // ticks after it put the card there once, in order, with nothing of
-        // the preview beside it.
+        // refused or torn: whatever the terminal took, the ticks after it put
+        // the card there once, in order, with nothing of the preview beside
+        // it. (With no resize between: that is
+        // `a_failed_write_and_a_shrink_before_the_retry_leave_only_what_the_
+        // shrink_took`.)
         for (script, what) in [
             (vec![Step::Refuse], "the preview's frame refused"),
             (vec![Step::Take, Step::Refuse], "the card's frame refused"),
+            (
+                vec![Step::Take, Step::Tear(4)],
+                "the card's frame torn before its rows",
+            ),
+            (
+                vec![Step::Take, Step::Half],
+                "the card's frame torn in its rows",
+            ),
             (vec![Step::Tear(40)], "the preview's frame torn"),
         ] {
             let words: Vec<String> = ["RETRY-ONE", "RETRY-TWO", "RETRY-THREE"]
@@ -9604,14 +9718,18 @@ mod tests {
                 update: 0,
                 torn: false,
                 written: out.written,
+                took: Vec::new(),
             };
             shell.route_bytes(b"\r");
             assert!(
                 shell.previewing(),
                 "{what}: no preview, so this case proves nothing"
             );
-            for _ in 0..4 {
-                let _ = commit_counted(
+            let steps = out.script.clone();
+            let (sent, shown) = (out.written.len(), terminal.everything());
+            let mut ended = false;
+            for tick in 0..4 {
+                let committed = commit_counted(
                     &mut shell,
                     &mut band,
                     &mut out,
@@ -9620,11 +9738,204 @@ mod tests {
                     Reconciled,
                 );
                 terminal.catch_up(&out.written);
+                if tick > 0 {
+                    assert!(committed.is_ok(), "{what}: tick {tick}: {committed:?}");
+                    continue;
+                }
+                // A document update torn inside its rows ends the session,
+                // as any does (`commit_primary`;
+                // `an_update_torn_inside_its_rows_ends_the_session_and_closes_
+                // the_update`): no tick comes after it to write the card.
+                if matches!(steps[..], [Step::Take, Step::Half]) {
+                    assert!(committed.is_err(), "{what}: the session went on");
+                    ended = true;
+                    break;
+                }
+                assert!(committed.is_ok(), "{what}: the tick: {committed:?}");
+                // Which write each step met, from what the first tick left.
+                // (The composer draws the draft behind the same rail as the
+                // card, so the screen before the tick shows all three rows.)
+                let screen = terminal.everything();
+                let shows =
+                    |word: &str| screen.iter().any(|row| *row == format!("\u{2503} {word}"));
+                let up = shows("RETRY-THREE") && !shows("RETRY-ONE");
+                match steps[..] {
+                    [Step::Refuse] => assert!(
+                        out.took == [0] && out.written.len() == sent && screen == shown,
+                        "{what}: the terminal took something of the preview ({:?}): {screen:#?}",
+                        out.took
+                    ),
+                    [Step::Take, Step::Refuse] => assert!(
+                        out.took.len() == 2 && out.took[0] > 0 && out.took[1] == 0 && up,
+                        "{what}: not the preview's frame taken and the card's refused, its \
+                         preview up ({:?}): {screen:#?}",
+                        out.took
+                    ),
+                    // Nothing of the update but its opener: it is closed and
+                    // offered again whole by the next tick, its preview up
+                    // until then.
+                    [Step::Take, Step::Tear(taken)] => assert!(
+                        out.took.len() >= 2 && out.took[0] > 0 && out.took[1] == taken && up,
+                        "{what}: not the preview's frame taken and the card's torn, its preview \
+                         up ({:?}): {screen:#?}",
+                        out.took
+                    ),
+                    // The tick's recovery repaints the torn frame
+                    // (`failed_band`), and that is all: the card waits for the
+                    // next tick, its preview up until then.
+                    [Step::Tear(taken)] => assert!(
+                        out.took.first() == Some(&taken) && up,
+                        "{what}: not the preview's frame torn and its preview up after the \
+                         tick's recovery ({:?}): {screen:#?}",
+                        out.took
+                    ),
+                    _ => unreachable!("{what}: a script this test does not read"),
+                }
+            }
+            if ended {
+                continue;
             }
             card_once(&terminal, &words, what);
             assert!(
                 !shell.previewing() && !shell.owes_document(),
                 "{what}: the card is still owed"
+            );
+        }
+    }
+
+    #[test]
+    fn a_failed_write_and_a_shrink_before_the_retry_leave_only_what_the_shrink_took() {
+        // The window the tick's card frame cannot close: the preview's rows
+        // are on the screen and the card is not, because the card's frame
+        // was refused or torn, or the preview's own frame was torn, and the
+        // screen shrinks before the retry. tmux moves rows off the top into
+        // its history before xfx can know ([`Terminal::resize`]). fx has the
+        // same window, between its preview's frame and its card's
+        // (`noteCommittedFrame`, `src/core/app/input_submit_runtime.zig:
+        // 289-307@481104fd`): what its terminal took is not its to take back.
+        //
+        // What is true: the retry writes the card once, whole and in order,
+        // and the only other rows of it on the terminal are the shrink's:
+        // those it moved into the history, and those of the preview it kept
+        // on the screen above the band xfx paints after it. None is a row xfx
+        // wrote after the shrink.
+        //
+        // (A card's frame torn inside its rows ends the session, as any
+        // document update torn there does, so no retry comes after it for a
+        // shrink to come before: `a_refused_or_torn_write_at_the_preview_or_
+        // the_card_still_leaves_the_card_once`.)
+        for (script, what) in [
+            (vec![Step::Take, Step::Refuse], "the card's frame refused"),
+            (
+                vec![Step::Take, Step::Tear(4)],
+                "the card's frame torn before its rows",
+            ),
+            (vec![Step::Half], "the preview's frame torn"),
+        ] {
+            let words: Vec<String> = (1..=60).map(|n| format!("TALL-RETRY-ROW-{n:02}")).collect();
+            let expected: Vec<String> = words
+                .iter()
+                .map(|word| format!("\u{2503} {word}"))
+                .collect();
+            let carries = |row: &String| words.iter().any(|word| row.contains(word.as_str()));
+            let mut shell = shell_of(40, 120);
+            shell.with_document_rows(2);
+            let mut band = Band::new();
+            let mut failures = FrameFailures::default();
+            let mut out = Scripted {
+                script: Vec::new(),
+                update: 0,
+                torn: false,
+                written: Vec::new(),
+                took: Vec::new(),
+            };
+            let mut terminal = Terminal::new(40, 120);
+            let mut tick = |shell: &mut Fixture, band: &mut Band, out: &mut Scripted| {
+                commit_counted(shell, band, out, &mut failures, Instant::now(), Reconciled)
+                    .expect("a tick, its failed write recovered");
+                terminal.catch_up(&out.written);
+            };
+            tick(&mut shell, &mut band, &mut out);
+            shell.route_bytes(format!("\x1b[200~{}\x1b[201~", words.join("\n")).as_bytes());
+            tick(&mut shell, &mut band, &mut out);
+            out.script = script;
+            out.update = 0;
+            shell.route_bytes(b"\r");
+            assert!(
+                shell.previewing(),
+                "{what}: no preview, so this case proves nothing"
+            );
+            tick(&mut shell, &mut band, &mut out);
+            // Every step met in this tick (a tear's recovery writes after it).
+            assert!(
+                out.took.len() >= out.script.len(),
+                "{what}: the tick's writes {:?}",
+                out.took
+            );
+            drop(tick);
+            let before = terminal.history.len();
+            terminal.resize(24, 120);
+            let took: Vec<String> = terminal.history[before..]
+                .iter()
+                .map(|row| row.trim_end().to_string())
+                .filter(|row| carries(row))
+                .collect();
+            let kept: Vec<String> = terminal.everything()[terminal.history.len()..]
+                .iter()
+                .filter(|row| carries(row))
+                .cloned()
+                .collect();
+            adopt_resize(&mut shell, &mut band, || (24, 120));
+            for _ in 0..4 {
+                commit_counted(
+                    &mut shell,
+                    &mut band,
+                    &mut out,
+                    &mut failures,
+                    Instant::now(),
+                    Reconciled,
+                )
+                .expect("a tick after the shrink");
+                terminal.catch_up(&out.written);
+            }
+            let rows = terminal.everything();
+            let start = rows
+                .iter()
+                .rposition(|row| *row == expected[0])
+                .unwrap_or_else(|| panic!("{what}: no card: {rows:#?}"));
+            let found = rows[start..]
+                .iter()
+                .zip(&expected)
+                .take_while(|(row, expected)| row == expected)
+                .count();
+            // The band's repaint after a shorter screen covers the
+            // document's last row, as it covers any document's.
+            assert!(
+                found + 1 >= expected.len(),
+                "{what}: the card from its first row: {rows:#?}"
+            );
+            assert!(
+                !rows[start + found..].iter().any(carries),
+                "{what}: rows of the card after it: {rows:#?}"
+            );
+            let besides: Vec<String> = rows[..start]
+                .iter()
+                .filter(|row| carries(row))
+                .cloned()
+                .collect();
+            // The shrink's own rows first, in the order it took them; then
+            // the preview's rows it kept on the screen above the band xfx
+            // paints after it, which to xfx are the document's (a resize
+            // leaves the document's rows unknown, `Shell::resize`) and go up
+            // with it as the card is written. The band paints over the rest
+            // of what it kept. No other row: none that xfx wrote after the
+            // shrink.
+            assert!(
+                besides.len() >= took.len()
+                    && besides[..took.len()] == took[..]
+                    && kept.starts_with(&besides[took.len()..]),
+                "{what}: rows of the card besides it {besides:#?}, against those the shrink \
+                 took {took:#?} and kept {kept:#?}"
             );
         }
     }
