@@ -1439,7 +1439,7 @@ impl LoadClock {
     /// asking again could change (`retry_due`, `:615-616`); a first load, and
     /// a failure, at once past the hold (`:622`); `otherwise` when nothing
     /// holds a read back. **A reading earlier than the last read's start is
-    /// due whatever held it back** (`:610-611`, `:617`; [`CatalogDue`]).
+    /// due whatever held it back** (`:611-612`, `:617`; [`CatalogDue`]).
     fn next(&self, held: Held, wait: Duration, otherwise: CatalogTime) -> CatalogDue {
         let aged = match held {
             // Before any read (a catalog handed in whole) every age is due.
@@ -3046,7 +3046,7 @@ mod tests {
     #[test]
     fn a_reading_earlier_than_the_last_reads_start_is_due_whatever_held_it_back() {
         // fx: "A clock that moved backwards makes every elapsed check due"
-        // (`beginLoad`, `model_cache_runtime.zig:610-611@481104fd`), and its
+        // (`beginLoad`, `model_cache_runtime.zig:611-612@481104fd`), and its
         // backoff is over (`backoff_over`, `:617`): "callers treat a reading
         // earlier than a stored one as due" (`clockMs`,
         // `src/core/gateway/model_catalog.zig:72-75`).
