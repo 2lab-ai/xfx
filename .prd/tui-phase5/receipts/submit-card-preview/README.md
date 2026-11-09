@@ -26,10 +26,15 @@ tags: [xfx, tui, phase5, fx-0.0.16, transcript, submit]
     `1577d48e` (MUST 2 and SHOULD (d)), `d37abb11` (MUST 2's other cases),
     `9f94af7e` (SHOULD (b)), `943d3f79`/`d82556e5` (SHOULD (e)),
     `4db02b1e` (the mutants' equivalent);
+  - round 3: `af19bcf1` (the failed-write window, the per-step checks, the
+    test terminal), `2eb01a15`/`4aa962ef` (no preview before a landed
+    frame), `5ada0b12`/`077c3b63` (the token), `7e02e097`/`0921c058` (the
+    exit's owed frame), `4c9fe627` (docs), `dba00dfb` (references),
+    `3d09af8f` (the exit guard's lib test, the scanner);
   - the rest are this receipt's own commits (no source).
-- **Build.** Every `xfx/` capture is from a binary built at `4db02b1e`, the
-  last commit that touches source. Row 1 of each `.full` snap says
-  `v0.1.0-4db02b1`. Every `red/` capture is from a binary built at
+- **Build.** Every `xfx/` capture is from a binary built at `3d09af8f`, the
+  last commit that touches `src/`. Row 1 of each `.full` snap says
+  `v0.1.0-3d09af8`. Every `red/` capture is from a binary built at
   `58c92ba2` (`v0.1.0-58c92ba`). `fx/` is fx v0.0.16, sha256 `8e6cda2e…`,
   run with `FX_AUTO_UPGRADE=0`.
 
@@ -126,7 +131,7 @@ one-row composer:
 ## The claims (`check.py`)
 
 `python3 -I -B check.py <repo> . <side> [red]` reads `fx/`, `red/` (the
-base's build) and `xfx/` (`4db02b1e`'s). `frames.py` replays the screens.
+base's build) and `xfx/` (`3d09af8f`'s). `frames.py` replays the screens.
 
 - **frame1 / frame2.** The screen after the first and the second frame
   after Enter, fx's against xfx's, cell by cell. Three kinds of row are set
@@ -151,10 +156,12 @@ Results:
 - **GREEN** (`green.txt`, the head against fx and against the base): all
   134 claims hold: frame1, frame2, card and later for 18 pairs, 53 snaps,
   and 9 whole histories. In every pair the frame after the card's is the
-  base's frame after its card, byte for byte (`its bytes: the base's`, 18
-  of 18). In `d82556e5`'s capture three of the 18 differed only in the
-  activity row: the head's card frame had taken the activity update the
-  base painted in its second frame, and the frame after it was the base's.
+  base's frame after its card on the screen, and its bytes are the base's
+  in 15 of 18 (`its bytes: the base's`). The other three differ only in the
+  activity row: the head's card frame took the activity update the base
+  painted in its second frame, and the frame after it is the base's. Each
+  capture lands this differently: 15 of 18 at `d82556e5` and here, and 18 of
+  18 at `4db02b1e`.
   `4db02b1e` changes nothing the activity row reads, so the likely cause is
   when the turn started against the tick; it was not traced further. The
   card's own frame differs from the base's in its bytes: it writes over the
@@ -163,12 +170,14 @@ Results:
 
 ## Mutants (`mutants.py`, `mutants.txt`)
 
-Round 3, at `4db02b1e`: all 22 one-line mutants are killed. Each ran on a
-`git clone --no-local` throwaway, never on the worktree, with a 600 s limit,
-against the unit's 16 tests (`TESTS` in `mutants.py`). Among them are the
-new mutants for MUST 1, the same-tick card frame, the plane barrier, the
-landed-frame room and the three room guards that stay.
+Round 4, at `3d09af8f`: 26 of 26 one-line mutants are killed, and the one
+expected equivalent survives, as it must. Each ran on a `git clone
+--no-local` throwaway, never on the worktree, with a 600 s limit, against
+21 test filters (`TESTS` in `mutants.py`), which run 22 tests. The new ones
+are the fallback, the token, the exit's owed frame and its painted-band
+guard.
 
+- Round 3, at `4db02b1e`: 22 of 22 killed (16 filters, 17 tests).
 - Round 2b, at `d82556e5`, 23 mutants: one survived, the room measured after
   the draft went (`round2/mutants-at-d82556e5.txt`). `4db02b1e` deleted the
   equivalent it showed (see round 2 below).
@@ -186,16 +195,12 @@ landed-frame room and the three room guards that stay.
 
 `p5-transcript-*` and `p5-submit-preview-*` (29 scenarios, 129 snap pairs)
 were swept against fx v0.0.16. One sweep used the base build, one the head
-build (`4db02b1e`, sha256 `7cbd362d…`). The comparison is
+build (`3d09af8f`, sha256 `d2c264db…`). The comparison is
 `sweep-compare.txt` (`cmp_sweeps.py`).
 
 - Both sweeps pass 73 of 129; none failed, none timed out.
-- 122 pairs have the same verdict on both builds, and none dropped.
-- Seven pairs moved inside the pass class, between identical and
-  normalized-identical: six toward identical on the head, one away. Each
-  differs from fx only in a turn's wall clock (`0s` against `1s`) or the
-  activity row's pulse glyph (`•` against a blank), both of which the
-  ledger normalizes. Such pairs moved both ways in earlier sweeps too.
+- 129 pairs have the same verdict on both builds, and none dropped.
+- No pair moved, inside the pass class or out of it.
 - The 53 unresolved pairs are the same on both builds, under the causes they
   had before (`sweep-base.md`, `sweep-head.md`).
 - The frames this unit changes are not snaps: no sweep pair holds the frame
@@ -208,16 +213,17 @@ build (`4db02b1e`, sha256 `7cbd362d…`). The comparison is
 one at a time, in one suite-lock slot: fmt, both clippy runs, the full
 `cargo test`, both fault-injection runs, every `check-*`/`test-*` script,
 the release build, `smoke.sh`, the faulty build and `smoke-tui.sh`. It ran
-on `7e4f6d47`, which adds the head's captures. The two commits after it
+on `b0c8d70e`, which adds round 3's captures. The two commits after it
 are docs only. The first adds `gates.txt`, `mutants.txt`, the sweeps and
 this README; the three tracked-file scanners then ran on it, outside the
 lock, and the second adds their lines to the end of `gates.txt`. Step 00
 is `false` and reads `rc=1`.
 
-All 21 steps read `rc=0`. Step 04 ran 5462 tests, step 06 ran 4569 and
-step 05 ran 195, with 0 failed in each. Earlier runs: `be6fd7f9` (round 1, all
-`rc=0`); `93c11c9f` failed step 04 with two older shell tests that read the
-document right after Enter, which `4139bd68` fixed.
+All 21 steps read `rc=0`. Step 04 ran 5468 tests, step 06 ran 4575 and
+step 05 ran 195, with 0 failed in each. Earlier runs: `7e4f6d47` (round 2)
+and `be6fd7f9` (round 1), all `rc=0`; `93c11c9f` failed step 04 with two
+older shell tests that read the document right after Enter, which
+`4139bd68` fixed.
 
 ## Ledger, docs, references
 
@@ -334,7 +340,9 @@ Every claim below rests on a file in `round2/` or on a test named in it.
   does not change. Before one lands (at start, or after a resize) the room
   falls back to the band of the moment, and no frame has shown the
   composer either measurement would read. `send` now measures the room
-  where it echoes the card, and the mutant is deleted.
+  where it echoes the card, and the mutant is deleted. Round 3 deleted
+  that fallback (`4aa962ef`), so the two now read the same band in every
+  state, and the mutant is back as an expected equivalent.
 
 ## Round 3 (opus: APPROVE; gpt6: APPROVE-WITH-FIXES)
 
@@ -409,6 +417,23 @@ Every claim below rests on a file in `round3/` or on a test named in it.
   (`the_test_terminal_parses_one_stream_across_reads`).
 - `round3/repoint.txt`: 12 references round 3's source moved, re-pointed
   in `dba00dfb`, each one's cited text the same.
+- **A race, found by the captures** (`round3/race.txt`). The first capture
+  of `p5-transcript-submit-multi` from `3d09af8f`'s build failed frame1,
+  frame2 and card: the document sat one row lower than fx's.
+  - In that run the turn's start reached the shell a tick after the
+    preview's frame was built. So that frame's band had no activity row,
+    and the document did not scroll as fx's does. fx draws the activity row
+    with the prompt; xfx draws it once the turn starts (T7).
+  - An instrumented build of the same commit logged what `preview_room`
+    read at that Enter: a band frame landed (`landed_bottom` 35) and 35
+    document rows, so a room of 1, as fx's. The fallback deletion did not
+    cause it.
+  - Six more captures from the same build all had the activity row in that
+    frame, and the receipt holds the first of them.
+  - Round 3 changed neither when the activity row appears nor when the
+    preview's frame is built, so the race is older than round 3 [not
+    traced further]; the earlier captures all won it. Closing it is T7's:
+    the activity row drawn with the prompt.
 
 ## Local paths in the captures
 
@@ -431,7 +456,8 @@ it.
     (`round2/rewrite.txt`, 143 links) and after `4db02b1e`'s
     (`round2/rewrite-at-4db02b1e.txt`, 57 links in 47 files). None was
     left either time, and `check.py`'s 134 claims printed the same before
-    and after each.
+    and after each. Round 3 ran it once more, after `3d09af8f`'s captures
+    (`round3/rewrite.txt`, 57 links in 47 files), with the same result.
   - So is `cells.py`'s output over every image pair, and over the two block
     pairs whose captures held a link, snaps and frames alike.
   - The rewritten wires, replayed, give the rewritten screens: 45 of 45
