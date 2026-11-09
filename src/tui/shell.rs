@@ -44415,6 +44415,41 @@ mod tests {
             .expect("a root")
     }
 
+    #[test]
+    fn an_at_word_under_a_shown_skills_menu_reads_nothing_until_it_goes() {
+        // Round 4: fx's list is not eligible while a catalog menu owns the
+        // surface, and the skills menu does while it is shown
+        // (`catalogMenuOwnsSurface`, `input_completion_runtime.zig:754-768@
+        // 481104fd`: `app.skills.menuVisible()`). A `$` typed and then
+        // `dem @src/` pasted keeps the mention menu on its `$` word -- the
+        // paste is not a typed space (`dismissMentionSkillsMenuForSpace`) --
+        // and opens the `@` list under it: nothing is read for that list
+        // until the menu goes.
+        let mut shell = skilled();
+        shell.route_bytes(b"$");
+        let base = shell.files_for_test().started_for_test();
+        shell.route_bytes(b"\x1b[200~dem @src/\x1b[201~");
+        shell.settle_band(Instant::now());
+        assert_eq!(shell.editor.text(), "$dem @src/");
+        assert!(
+            shell.skills_menu.as_ref().is_some_and(SkillsMenu::visible),
+            "no skills menu shown, so this proves nothing"
+        );
+        assert!(shell.file_picker.is_some(), "no list for the query");
+        assert_eq!(
+            shell.files_for_test().started_for_test(),
+            base,
+            "a walk or a listing started under the skills menu"
+        );
+        // Escape closes the menu; the list is the composer's again, and its
+        // episode and its folder are read once.
+        shell.route_bytes(b"\x1b");
+        shell.settle_band(Instant::now());
+        assert!(shell.skills_menu.is_none());
+        assert!(shell.file_picker.is_some(), "Escape closed the list too");
+        assert_eq!(shell.files_for_test().started_for_test(), base + 2);
+    }
+
     fn a_dollar_word_becomes_a_token(mut shell: Skilled) {
         shell.route_bytes(b"$");
         let band = skills_band(&shell);

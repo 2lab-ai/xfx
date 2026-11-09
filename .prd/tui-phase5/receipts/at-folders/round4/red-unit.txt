@@ -31,3 +31,11 @@ assertion `left == right` failed: a stopped listing read the folder
     tui::shell::tests::tab_under_the_full_transcript_asks_for_no_read
 test result: FAILED. 4 passed; 4 failed; 0 ignored; 0 measured; 4577 filtered out; finished in 0.14s
 error: test failed, to rerun pass `--lib`
+
+# and the skills-menu case (the one more ineligible state that can hold the @ list: a pasted 'dem @src/' after a typed $ keeps the mention menu shown and opens the list), on the same code, at <the next commit>: cargo test --locked --lib -- --exact tui::shell::tests::an_at_word_under_a_shown_skills_menu_reads_nothing_until_it_goes
+test tui::shell::tests::an_at_word_under_a_shown_skills_menu_reads_nothing_until_it_goes ... FAILED
+thread 'tui::shell::tests::an_at_word_under_a_shown_skills_menu_reads_nothing_until_it_goes' (390607201) panicked at src/tui/shell.rs:44439:9:
+assertion `left == right` failed: a walk or a listing started under the skills menu
+  left: 2
+ right: 0
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4585 filtered out; finished in 0.01s
