@@ -1,0 +1,69 @@
+# the gate's test counts, from its step logs
+## 15-fxcap-test-sweep
+Ran 70 tests in 6.966s
+OK
+Ran 27 tests in 11.405s
+OK
+## 16-fxcap-test-capture
+Ran 81 tests in 411.028s
+OK
+## 04-test
+     Running unittests src/lib.rs
+test result: ok. 4720 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 60.45s
+     Running unittests src/main.rs
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/cli.rs (target/debug/deps/cli-d768a55c797aca95)
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+     Running tests/gateway.rs (target/debug/deps/gateway-f56ff7e9e94d6c3b)
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+     Running tests/interactive.rs (target/debug/deps/interactive-f70d73351542cf43)
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.25s
+     Running tests/ledger_compat.rs (target/debug/deps/ledger_compat-289fdfb8a5e98c98)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.73s
+     Running tests/llmux.rs (target/debug/deps/llmux-949d55ae05f0352d)
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.18s
+     Running tests/mcp.rs (target/debug/deps/mcp-a1a1760fc13d208a)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.06s
+     Running tests/parity.rs (target/debug/deps/parity-980418d577d0d951)
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.71s
+     Running tests/permissions.rs (target/debug/deps/permissions-fa2e5e817ceaaeb5)
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.56s
+     Running tests/session_compat.rs (target/debug/deps/session_compat-1c169b8ef7fa34c2)
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.95s
+     Running tests/sessions.rs (target/debug/deps/sessions-6075dbd4fddb1d5f)
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.98s
+     Running tests/tool_loop.rs (target/debug/deps/tool_loop-89543537cd6c9667)
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+     Running tests/tui.rs (target/debug/deps/tui-9905dcb580b5dadb)
+test result: ok. 188 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.41s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+## 05-test-fault
+     Running unittests src/lib.rs
+test result: ok. 4743 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 57.52s
+     Running unittests src/main.rs
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/cli.rs (target/debug/deps/cli-c8776cdc37409dc4)
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.49s
+     Running tests/gateway.rs (target/debug/deps/gateway-113fb18146d5bb4b)
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+     Running tests/interactive.rs (target/debug/deps/interactive-abc2ab33f33ffb53)
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.75s
+     Running tests/ledger_compat.rs (target/debug/deps/ledger_compat-a59f94bb8e9396b4)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.77s
+     Running tests/llmux.rs (target/debug/deps/llmux-3c2b7ee374645874)
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.10s
+     Running tests/mcp.rs (target/debug/deps/mcp-3dd978f178c8277f)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.10s
+     Running tests/parity.rs (target/debug/deps/parity-75b2710f07c3e2b7)
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.11s
+     Running tests/permissions.rs (target/debug/deps/permissions-dbbd7f7d2d644ecc)
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.54s
+     Running tests/session_compat.rs (target/debug/deps/session_compat-46650a364a6b96d7)
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.97s
+     Running tests/sessions.rs (target/debug/deps/sessions-36faea77e11e45b0)
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.08s
+     Running tests/tool_loop.rs (target/debug/deps/tool_loop-e0fc31fab60f24d2)
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+     Running tests/tui.rs (target/debug/deps/tui-a9816d5a9344a131)
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.99s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
